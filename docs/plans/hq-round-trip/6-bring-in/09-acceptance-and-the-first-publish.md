@@ -98,8 +98,8 @@ changes a byte Nova emits or what an App Test journey replays, so nothing here m
     reports it.** Nine are. Every other place the emitter writes something a source would spell another
     way is decided in section 11.4: read exactly, refused, or declared by a register entry
     (section 10).
-16. **`FIRST_PUBLISH_CHANGES` holds 35 entries**, each with its predicate over the reading, the
-    stored-source paths it allows and whether it touches workers. Thirty-one sentences say them
+16. **`FIRST_PUBLISH_CHANGES` holds 41 entries**, each with its predicate over the reading, the
+    stored-source paths it allows and whether it touches workers. Thirty-seven sentences say them
     (section 11).
 17. **Per candidate change the decision is one of three**: read the original's behavior exactly, refuse,
     or declare. Section 11.4 gives the decision for every candidate the research, the manifest,
@@ -1881,7 +1881,7 @@ export type FirstPublishSentenceId =
 export function firstPublishSentenceId(id: FirstPublishChangeId): FirstPublishSentenceId;
 /** What a baseline keeps of a list (12.3). */
 export interface StoredFirstPublish {
-	/** The ids that applied under the chosen declaration, less the two Web Apps ids. */
+	/** The stable ids and the recorded platform-specific changes under any declaration. */
 	readonly ids: readonly FirstPublishChangeId[];
 	/** CommCare HQ's Web App setting as the reading held it (`HqAppSource.cloudcareEnabled`). */
 	readonly webAppsOnInHq: boolean;
@@ -1890,9 +1890,13 @@ export interface StoredFirstPublish {
 	readonly of: "first-publish" | "next-publish";
 }
 export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish>;
-/** The list as it stands for an app that now declares `runsOnlyOn` (12.3). */
+export interface FirstPublishApp {
+	readonly appSettings: Pick<AppSettings, "runsOnlyOn" | "showIncompleteForms">;
+	readonly connectType: BlueprintDoc["connectType"];
+}
+/** The list for the app's current declaration, incomplete-forms setting and Connect use (12.3). */
 export function firstPublishViewFromStored(
-	stored: StoredFirstPublish, runsOnlyOn: Platform | undefined,
+	stored: StoredFirstPublish, app: FirstPublishApp,
 ): FirstPublishView;
 
 // lib/deployment/reading/firstPublishChanges.ts
@@ -2012,7 +2016,7 @@ holds it to the slots part 11's `hqMediaReferencesOf` reads.
 
 ### 11.2 Every entry
 
-Thirty-nine entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
+Forty-one entries, in registry order. In the `applies` column `f` is the `FirstPublishFacts` the
 predicate is given: `f.source` is CommCare HQ's source, `f.doc` the document under the choice,
 `f.facts` the reader's `ReadFacts`, `f.generated` the generated difference, `f.media` the path
 assignment, `f.mediaLeftOut` and `f.choice` as typed above. The first column is the entry's place in
@@ -2020,7 +2024,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 
 | # | Id | `applies` | `paths` | Workers |
 |---|---|---|---|---|
-| 1 | `forms-and-settings-rewritten` | always | `/_attachments/*`; `/modules/*/forms/*/case_references_data/load`; `/modules/*/case_details/short/filter`; `/modules/*/case_details/*/columns/*/field` (a calculated column's expression, which Nova prints in its own spelling: the stored-app comparison reports a column's `field` here only where the column is calculated on both sides, and any other at `/modules/*/case_details/*/columns/*/held`, which no entry names); `/created_from_template`; `/media_form_errors` (CommCare HQ's media upload saves the app with the flag its media listing sets, `hqmedia/tasks.py::process_bulk_upload_zip`; only HQ's media page reads it); `/profile/properties` (Nova writes the two settings it owns on every publish, `targetOverlay.ts::projectApplicationForTarget`, so a stored profile holding no properties, as every app HQ's pages made and no settings page saved holds, gains `cc-show-saved` and `cc-show-incomplete` at the value the reading read their absence as, which HQ's build also writes for an absent key, `models/applications.py::Application.create_profile`, both `no`; the lane's second whole run showed it on every such base); `/modules/*/case_details/*/columns/*/<key>` for `calc_xpath`, `hasNodeset`, `hasAutocomplete`, `isTab`, `nodeset`, `relevant` and `graph_configuration` (every column is written as HQ's Case List page saves one, `details/bootstrap5/column.js::serialize`: keys `models/case_list.py::DetailColumn` does not declare and nothing HQ builds reads, and `graph_configuration` null, which HQ reads only on a `graph` column; a column HQ's models made holds none of the keys and the schema's empty graph, so the claim log, which records nothing at a default, holds no pointer the inert allowance could cover); and, in the lane, every pointer the base's claim log holds under an entry whose standing is `inert` (13.2) | no |
+| 1 | `forms-and-settings-rewritten` | always | `/_attachments/*`; `/modules/*/forms/*/case_references_data/load`; `/modules/*/case_details/short/filter`; `/modules/*/case_details/*/columns/*/field` (a calculated column's expression, which Nova prints in its own spelling: the stored-app comparison reports a column's `field` here only where the column is calculated on both sides, and any other at `/modules/*/case_details/*/columns/*/held`, which no entry names); `/created_from_template`; `/media_form_errors` (CommCare HQ's media upload saves the app with the flag its media listing sets, `hqmedia/tasks.py::process_bulk_upload_zip`; only HQ's media page reads it); `/profile/properties` (Nova writes the two settings it owns on every publish, `targetOverlay.ts::projectApplicationForTarget`, so a stored profile holding no properties, as every app HQ's pages made and no settings page saved holds, gains `cc-show-saved` and `cc-show-incomplete` at the value the reading read their absence as, which HQ's build also writes for an absent key, `models/applications.py::Application.create_profile`, both `no`. The change to Web Apps' home tile from the newly stored value has its own worker-facing entry, `incomplete-forms-tile-hidden`); `/modules/*/case_details/*/columns/*/<key>` for `calc_xpath`, `hasNodeset`, `hasAutocomplete`, `isTab`, `nodeset`, `relevant` and `graph_configuration` (every column is written as HQ's Case List page saves one, `details/bootstrap5/column.js::serialize`: keys `models/case_list.py::DetailColumn` does not declare and nothing HQ builds reads, and `graph_configuration` null, which HQ reads only on a `graph` column; a column HQ's models made holds none of the keys and the schema's empty graph, so the claim log, which records nothing at a default, holds no pointer the inert allowance could cover); and, in the lane, every pointer the base's claim log holds under an entry whose standing is `inert` (13.2) | no |
 | 2 | `hidden-values-added` | `f.generated.added`, `.renamed` or `.dropped` is not empty | `/_attachments/*` | no |
 | 3 | `case-names-checked` | `f.generated.added` holds a `trimmed` node | `/_attachments/*`; `/modules/*/forms/*/actions` | yes |
 | 4 | `validation-counts-moved` | `f.generated.added` holds a `constraint-count` node | `/_attachments/*` | yes |
@@ -2045,6 +2049,7 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 23 | `location-list-setting-reset` | `f.source.raw.location_fixture_restore` is `both_fixtures` or `only_flat_fixture` | `/location_fixture_restore` | no |
 | 24 | `web-apps-turned-off` | `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is `android` | `/cloudcare_enabled` | yes |
 | 25 | `web-apps-turned-on` | not `f.source.cloudcareEnabled` and `f.choice.runsOnlyOn` is not `android` | `/cloudcare_enabled` | yes |
+| 25b | `incomplete-forms-tile-hidden` | Web Apps was on in HQ with `cc-show-incomplete` absent, the app still runs in Web Apps and Show incomplete forms is off | `/profile/properties/cc-show-incomplete` | yes |
 | 26 | `date-and-time-questions-split` | `f.choice.split` | `/_attachments/*`; `/modules/*/forms/*/actions` | yes |
 | 27 | `blank-translations-filled` | some `f.facts.forms[i].blankTranslations` is above zero (part 06, sections 12.2 and 17.3) | `/_attachments/*` | yes |
 | 28 | `media-paths-joined` | `f.media.collapsed` is not empty | `/multimedia_map/*`; `MEDIA_REFERENCE_PATHS` | no |
@@ -2057,8 +2062,8 @@ the order and nothing cites it: every sentence names an entry by its id.
 | 34 | `text-spaces-dropped` | the same | `/modules/*/name`; `/modules/*/forms/*/name`; `/name`; `/translations/*/*`; `/modules/*/case_list/label`; `/modules/*/case_list_form/label`; `/modules/*/case_details/*/columns/*/header`; `/modules/*/case_details/*/columns/*/enum/*/value`; `/modules/*/search_config/title_label`; `/modules/*/search_config/description`; `/modules/*/search_config/properties/*/label`; `/modules/*/search_config/properties/*/hint`; `/modules/*/search_config/properties/*/required/text`; `/modules/*/search_config/properties/*/validations/*/text` | yes |
 | 35 | `form-text-characters-written-as-outputs` | `f.facts.sameStateRewrites` holds a record whose `register` is the id | `/_attachments/*` | no |
 | 36 | `hidden-value-defaults-dropped` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the form stage, so also in `FIRST_PUBLISH_READING_RECORDS`) | `/_attachments/*`; `/modules/*/forms/*/case_references_data/load` | no |
-| 37 | `sort-by-entry-with-a-blank-name-dropped` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by `caseList/order.ts::readSortElements` for a short detail's `invisible` column whose sort element has display text under a header blank in every language, which CommCare HQ's build writes as a no-break space Android's Sort by lists), and the app runs on Android (`FIRST_PUBLISH_ANDROID_ONLY`; Web Apps lists no Sort by entry for such a column) | `/modules/*/case_details/short/sort_elements/*/display` | yes |
-| 38 | `form-titles-written` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the assembly, `reader/assemble.ts::recordTitleRewrites`, for a form whose `<h:title>` Core reads as other text than `formWireName`), and the app runs on Android (`FIRST_PUBLISH_ANDROID_ONLY`) | `/_attachments/*` | yes |
+| 37 | `sort-by-entry-with-a-blank-name-dropped` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by `caseList/order.ts::readSortElements` for a short detail's `invisible` column whose sort element has display text under a header blank in every language, which CommCare HQ's build writes as a no-break space Android's Sort by lists), and the app runs on Android (`FIRST_PUBLISH_PLATFORM`; Web Apps lists no Sort by entry for such a column) | `/modules/*/case_details/short/sort_elements/*/display` | yes |
+| 38 | `form-titles-written` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the assembly, `reader/assemble.ts::recordTitleRewrites`, for a form whose `<h:title>` Core reads as other text than `formWireName`), and the app runs on Android (`FIRST_PUBLISH_PLATFORM`) | `/_attachments/*` | yes |
 | 39 | `unread-fixture-declarations-dropped` | `f.facts.sameStateRewrites` holds a record whose `register` is the id (recorded by the expression stage's claim of the form's declarations, `reader/provisional.ts::claimDeclarations`, once for a form that declares a fixture no expression reads other than a lookup table and `user-groups`: Core loads it when the form opens and stops the form where the project space does not serve it, which no export says, and Nova writes no declaration nothing reads) | `/_attachments/*` | yes |
 
 `web-apps-turned-off` and `web-apps-turned-on` have `scope: "declaration"`. Every other entry has
@@ -2454,8 +2459,8 @@ readers and the rule below are this part's.
 **What is kept** is a `StoredFirstPublish` (section 11.1). Its `of` says which kind of list it is.
 A list of kind `next-publish` is part 15's: the ids of its `publishChanges` and the Web App setting
 the source it read holds (its section 4.4). A list of kind `first-publish` holds the ids of the
-chosen declaration's list whose entry's `scope` is `reading`, in registry order, and
-`webAppsOnInHq`, the Web App setting CommCare HQ held at the reading. The two `declaration` ids are
+chosen declaration's stable changes and all platform-specific changes the reading recorded, in registry order, and
+`webAppsOnInHq`, the Web App setting CommCare HQ held at the reading. The two Web App on/off ids are
 not kept. A person can change where the app runs in the builder between the birth and the first
 publish, and a stored
 `web-apps-turned-off` would then tell them Web Apps is turned off for an app that now runs in it.
@@ -2471,7 +2476,7 @@ the ids that remain.
   declaration's `AcceptedDeclaration.firstPublish` from the create's own acceptance: the entry of
   `AcceptedReading.declarations` whose `(runsOnlyOn, splitDatetime)` the person chose (part 12
   passes it, its section 6.2). It passes `set` with
-  `{ ids: <its ids less the two declaration ids>, webAppsOnInHq: source.cloudcareEnabled, of:
+  `{ ids: <its stable ids and the reading's platform-specific changes>, webAppsOnInHq: source.cloudcareEnabled, of:
   "first-publish" }`. `service.ts::appBaselineFor`'s `create`, `push` and `unread` arms pass `set`
   with null. Part 01's `recordRefreshedAppBaseline` passes `keep`, unless part 15 hands it a list.
 - **The one writer's two arms.** Every baseline goes through `store.ts::writeAppBaseline`, an upsert
@@ -2515,11 +2520,11 @@ the ids that remain.
   export function firstPublishOf(
   	deployment: DeploymentWithResources,
   	state: { readonly remoteAppId: string; readonly stored: StoredFirstPublish } | undefined,
-  	runsOnlyOn: Platform | undefined,
+      app: FirstPublishApp,
   ): FirstPublishView | null;
   ```
 
-  It answers `firstPublishViewFromStored(state.stored, runsOnlyOn)` where `state` is defined and
+  It answers `firstPublishViewFromStored(state.stored, app)` where `state` is defined and
   `activeRemoteApp(deployment)` is a mapping whose remote id is `state.remoteAppId`, whatever its
   ownership, and whose `remoteMissingAt` is null, and null otherwise, so an ended deployment shows
   none, and a deployment has no entry in the map from a push, which clears the column, until part
@@ -2531,7 +2536,7 @@ the ids that remain.
   `readDeploymentsAction` calls `readFirstPublishStates(scope)` once beside its one read of the
   document, and it, `refreshDeploymentAction`, `withdrawDeploymentConfirmationAction` and part 10's
   `stopPublishingAction` (its section 8.3) each call
-  `firstPublishOf` with their entry of that map and `doc.appSettings.runsOnlyOn`. So does the
+  `firstPublishOf` with their entry of that map and the current app. So does the
   publish route, as `first_publish` beside `kept`, and a view built after a write landed (a
   publish, Check status, a refresh of the kept values) reads it through
   `service.ts::landedFirstPublish`, which answers `unread` for a fault as `landedDeploymentKept`
@@ -2544,18 +2549,18 @@ the ids that remain.
   draws the value before the person confirms a publish, and `check_project_space_compatibility`
   calls `readFirstPublishStates(scope)` and the same function (part 13, sections 11.2 and 14.7).
 
-`firstPublishViewFromStored(stored, runsOnlyOn)` answers the stored ids, with `web-apps-turned-off`
+`firstPublishViewFromStored(stored, app)` answers the stored ids, with `web-apps-turned-off`
 where `stored.webAppsOnInHq` and `runsOnlyOn` is `android`, and `web-apps-turned-on` where
 `stored.webAppsOnInHq` is false and `runsOnlyOn` is not `android`, all in registry order,
 `touchesWorkers` from `FIRST_PUBLISH_TOUCHES_WORKERS` over the result, and `of` copied from the
 stored value. A `next-publish` view holds neither Web App line unless the stored setting differs
 from the declaration, by the same two predicates. `firstPublishChanges.test.ts`
 holds it to the register: for every choice of every retained reading, the choice's own list equals
-`firstPublishViewFromStored` of what the birth would store for it, under that choice's `runsOnlyOn`.
+`firstPublishViewFromStored` of what the birth would store for it, under the app settings for that choice.
 
-Where the app runs is the one edit that changes this list. Every other edit made in Nova between
-the birth and the first publish changes what that publish sends and leaves the list as it is: the
-list is what bringing the app in changes, and the person's own edits are theirs. The publish
+Where the app runs determines which platform-specific changes to show. Turning on Show incomplete
+forms removes the tile warning because this app will still show the tile. Turning off Connect removes
+the capture warning because an update then omits the HQ setting. Other edits leave the list as it is. The publish
 surface's lead says so. The publish still asks before it changes the Web App setting CommCare HQ
 holds, as it does today (`lib/deployment/webApps.ts::webAppsChange`); the line says what will be
 asked, and the question is where it is agreed.
@@ -2617,7 +2622,7 @@ one comparison, which part 14 writes (its section 9.3):
   `forms-and-settings-rewritten`'s: Nova does not write back what no runtime reads. The judge matches
   it with no row (part 14, 9.3).
 
-With `source` an observed check, every one of the thirty-five ids is one some check can show.
+With `source` an observed check, every registered id is one some check can show.
 
 ### 13.3 What the judge then holds
 
@@ -2937,11 +2942,12 @@ register is their home.
 | `link-held-case-guards-added` | A form that opens another form with a case it carries will open it only when that case is on the device. Nova adds that check to each such link. |
 | `registration-label-fixed` | A Register button that had no text of its own in CommCare HQ, in every language or in just one, now always reads “Create a new Case” there. Before, CommCare HQ filled in the words each time it made a build, so they could differ between builds. You can change the text in Nova. |
 | `date-and-time-saved-as-hq-stores-it` | A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place. |
-| `connect-app-captures-location` | Every form of this CommCare Connect app will record where it was filled in. Nova turns on Auto Capture Location for the app in CommCare HQ. |
+| `connect-app-captures-location` | Nova turns on Auto Capture Location for this CommCare Connect app in CommCare HQ. On Android, each submitted form includes the worker's location when the app has location permission and the device gets a GPS fix. |
 | `translation-overrides-folded` | A wording set in CommCare HQ's app translations for one of the app's texts, such as a menu's name, a case list column's header or a Search field's label, becomes that text in Nova. Workers read the same words. |
 | `location-list-setting-reset` | This app's own setting for the location list goes back to the project space's default. The app reads places the same way. |
 | `web-apps-turned-off` | Web Apps is turned off for this app in CommCare HQ, because the app is set to run on Android only. |
 | `web-apps-turned-on` | Web Apps is turned on for this app in CommCare HQ, because the app is set to run in Web Apps. |
+| `incomplete-forms-tile-hidden` | With incomplete forms turned off, this app will stop showing the Incomplete Forms tile on the Web Apps home screen. Workers will still see the tile if another app shows it. To keep it for this app, open Saved and incomplete forms in App settings and turn on Show incomplete forms before publishing. |
 | `date-and-time-questions-split` | Each date and time question becomes a date question and a time question, so the app runs in Web Apps. A case still gets one date and time from the two. |
 | `blank-translations-filled` | A text left blank in one language is written in the app's first language for that language, as CommCare HQ's form builder does when a form is saved there. |
 | `media-paths-joined` | Where CommCare HQ holds one picture, sound or video under several names, the app now uses one of them. Workers see and hear the same files. |
@@ -3075,8 +3081,8 @@ implementer could reach for, and why it is not built.
    CommCare HQ's source, the document, the reader's facts, the generated nodes Nova plans for the
    document under the choice, the media path assignment and the declaration choice. Not done: a
    predicate over the source alone. Evidence: whether Nova adds a trimmed sibling, lifts a count or
-   changes the Web App setting is not a fact of the source alone; three entries depend on what the
-   person chooses.
+   changes the Web App setting is not a fact of the source alone; the applicable changes depend on the
+   declaration and settings the person chooses.
 6. **Check 4 takes no type class from the reader.** It reads each bind from the XML through a
    module that imports no reader module (section 6.1). Not done: a list of bind types in the
    reader's facts for check 4 to compare, because a type class the reader reported would agree

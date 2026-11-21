@@ -1326,8 +1326,9 @@ stores `m_id` (`hqmedia/views.py::ProcessLogoFileUploadView.process_upload` stor
 writes the key `true` for a Connect app (`applicationShell`), so clause 1 fails there: on a Connect app
 it is held and derived, and where HQ held `false` the first publish changes it (the register's
 `connect-app-captures-location`; part 09, section 11.2). On any other app the key is never sent and is
-kept; the `.ccz` mirrors HQ's build through `addMetaBlock`. Web Apps submits `meta/location` empty
-either way. Lifecycle: alive.
+kept. A project-space archive mirrors the observed HQ setting through `addMetaBlock`, including
+after someone turns off Connect in Nova. Android writes a location when it has permission and a GPS
+fix. With capture enabled, Web Apps submits an empty `meta/location`. Lifecycle: alive.
 
 **`mobile_ucr_restore_version`.** Readers, all of them: `suite_xml/features/mobile_ucr.py` (report
 menus), `helpers/validators.py` (a search field whose choices come from a mobile report),
@@ -1570,8 +1571,10 @@ export interface TargetFacts {
 	readonly secureSubmissions: boolean;
 	/** Where HQ's build sends a phone for the custom base URL: the host to show and the origin, or null. */
 	readonly customBaseUrl: HeldBaseUrl | null;
-	/** Location captured with every form, on an app Nova does not set it on. */
+	/** The last observed application-level location capture setting in HQ. */
 	readonly autoGpsCapture: boolean;
+	/** Whether Nova owned the setting in this observation, for the kept list and its digest. */
+	readonly novaOwnsAutoGpsCapture: boolean;
 	readonly androidLogos: readonly AndroidLogoSlot[];
 	readonly practiceWorker: boolean;
 	readonly persistentMenu: boolean;
@@ -1655,9 +1658,9 @@ baseline.ownership.autoGpsCapture, adopted })`. A `create` baseline describes a 
 never a project space a `.ccz`, Preview or a card reads facts for: its mapping carries no pushed revision
 (`store.ts::recordCreatedRemoteApp`), and `readReachedDeploymentTargets` never lists a mapping to the
 empty shell, whatever the record displays. The fill that follows writes a `push` baseline, which is
-what gives the first facts. For `push`, `cutover` and `read` (the origin part 10 gives an app brought
-in, `10-identity-and-the-ledger.md`, section 6.3) `targetFactsFromSource` reads, from the source as
-an object:
+what gives the first facts. A verified source with origin `push`, `cutover`, `read` (an app brought
+in under part 10, section 6.3), or `unread` after an extra acknowledged save supplies the following
+values to `targetFactsFromSource`:
 
 | Field | Read from | Rule |
 |---|---|---|
@@ -1668,7 +1671,8 @@ an object:
 | `uiTextNotCarried` | the same walk | each language holding a non-empty text under a key that is no locale record of its own name, or a `target` text a locale line cannot carry |
 | `secureSubmissions` | `secure_submissions` | `=== true` |
 | `customBaseUrl` | `custom_base_url` | `hqUrlBase(value)` reads the value as `urllib.parse.urlsplit` does (an `http` or `https` scheme and a netloc `urlsplit` accepts, else `null`); the fact is `{ host, origin }`: `host` the netloc after its last `@`, never the user information, and `origin` the WHATWG origin of `https://<host>` where the base is `https` with no user information, else `null`. It is shown and compared, never written into a file |
-| `autoGpsCapture` | `auto_gps_capture` | `=== true`, and `false` where `novaOwnsAutoGpsCapture` is true (Nova's own value on a Connect app is no kept fact) |
+| `autoGpsCapture` | `auto_gps_capture` | `=== true`, under either ownership. The project-space archive follows this observation. |
+| `novaOwnsAutoGpsCapture` | the supplied baseline ownership | Controls whether capture appears in the kept list and its digest. |
 | `credentialLevel` | `profile.features.credentials` | `hqProfileValueText(value)` |
 | `androidLogos` | `logo_refs` | each of `home`, `login`, `demo` whose `hq_logo_android_<slot>` entry holds a string `path` |
 | `practiceWorker` | `practice_mobile_worker_id` | a non-empty string |
@@ -1704,7 +1708,7 @@ host to show, and a `.ccz` is refused for it unless its `origin` is exactly the 
 `keptListFor` returns, in `KEPT_AT_HQ`'s order, the `label` of each labelled `setting` row for which:
 a seeded setting's `profileProperties` value is present and differs from Nova's seed;
 `cc-log-entity-detail-enabled` is present; `uiTextKeys` is non-empty; `androidLogos` is non-empty;
-`mobileReportVersion` is not `"2.0"`; `autoGpsCapture`, `persistentMenu`, `secureSubmissions` or
+`mobileReportVersion` is not `"2.0"`; `autoGpsCapture` is true and `novaOwnsAutoGpsCapture` false; `persistentMenu`, `secureSubmissions` or
 `practiceWorker` is true; `breadcrumbs` is false; `customBaseUrl` is not `null`; `credentialLevel` is
 not `null`; `languageNames` is not `null` (on an app Nova brought in every language's name is
 CommCare HQ's, where a first publish elsewhere writes Nova's label, 7.2). The CommCare version row
@@ -1741,8 +1745,9 @@ A row that does not verify answers `null`, which gives `null` here and `unread` 
 
 It reads in two steps, so a builder page load does not unzip an app's source each time. First it selects
 `deployment_id`, `origin`, `source_digest`, `ownership` and `observed_at`, with no bytes, and with
-the row the live app mapping's ownership (`adopted` or not); `unread`, `create` or no row answers
-`null`. A module-level map of at most 64 entries, keyed by `deployment_id`, `source_digest`, the
+the row the live app mapping's ownership (`adopted` or not). A missing row, a shell, or an unread
+row without verified source answers `null`. An unread row with source verified at the import's
+acknowledgment supplies kept settings only (part 10). A module-level map of at most 64 entries, keyed by `deployment_id`, `source_digest`, the
 row's ownership of `auto_gps_capture` and `adopted` (everything the projection reads but the date,
 which each read applies from the row's `observed_at`, since a refresh rewrites the date over
 unchanged bytes), then answers a source it has projected before; only a miss selects `source_gzip`.
@@ -2313,7 +2318,7 @@ go on playing the settings as of the page load until someone reloaded.
   values as they are for `null`: the write that answered poked the stream's lane, which brings the
   answer.
 
-With no facts (no reached project space, several, or an unread baseline) Preview plays what a new
+With no facts (no reached project space, several, or a baseline without verified source) Preview plays what a new
 project space would give: an exact filter and, on Android, no mark, which are Nova's own values `no`.
 
 ### 6.5 The Publishing card: the list, its date, and the refresh
@@ -2323,7 +2328,7 @@ return for each record) gains
 `readonly kept: DeploymentKept | null`, `DeploymentKept` being `{ readonly labels: readonly
 KeptLabelId[]; readonly valuesDigest: string; readonly observedAt: string }` (9.4 says what the digest
 is for), filled from `readTargetFacts` for each reached deployment and `null` elsewhere (no baseline,
-an unread one, a shell). One function fills it, `service.ts::deploymentKept`, which every surface that
+an unread one without verified source, a shell). One function fills it, `service.ts::deploymentKept`, which every surface that
 answers with a record calls: the actions, `app/api/commcare/upload/route.ts` (the publish response's
 `kept`, which `components/builder/publishOutcome.ts` parses, absent reading `null`, so the landed card
 and the section's upserted record carry it), and MCP's `describeDeployment`, which takes it as its third
@@ -3852,7 +3857,7 @@ export function keptRefreshSentence(
 `service.ts` holds a type-level check that `KeptRefreshOutcome["kind"]` is exactly `KeptRefreshKind`.
 `DeploymentKept` (6.5) carries `valuesDigest` beside its labels and date:
 `lib/deployment/targetFacts.ts::deploymentKeptOf(facts)` takes it as the canonical JSON digest of the
-facts with `observedAt` left out, so a sign-in that now lasts an hour where it lasted a day, a second
+kept values with the date left out and capture counted only where the project space owns it. A sign-in that now lasts an hour where it lasted a day, a second
 screen reworded or a base URL moved reads as a change under the labels it was already listed by. The
 Publishing card compares the list it drew with the refreshed one, and MCP the list of the facts it read
 before the refresh with the one after, both through `keptChanged`; MCP's projection does not carry the
@@ -4002,7 +4007,7 @@ be holds `{app}`.
 | `lib/commcare/surface/__tests__/keptAtHq.test.ts` | pure, over the real manifest | the binding, both ways: every TARGET-OWNED entry has a `KEPT_AT_HQ` row and every row names a TARGET-OWNED entry; every `setting` row with a `label` is reached by `keptListFor` for some planted `TargetFacts`; every cell that names an advisory names an id `exportAdvisories` can return; every `mirrors` cell's `by` and every `reads` cell's `by` names an exported symbol; a planted TARGET-OWNED entry with no row fails. The base rule: every row names a base of part 14's 6.2, and part 14's `lib/commcare/surface/__tests__/entryCoverage.test.ts` (its section 7.5, rule 2) holds each `base` to a base whose `claimed` holds the entry |
 | `lib/commcare/__tests__/targetFacts.test.ts` | pure, over the retained read `proof/hq-reads/case-list-inline/app-source.json` and edits of it. The file is an HTTP envelope (`status`, `headers`, `body`), so the test takes `body` and normalizes it with `normalizeHqAppSource`, as a stored baseline is | `targetFactsFromSource`, each row of 6.1's table: a setting at another choice, the numeric `10`, a boolean `true` and `false`; a runtime UI text key, a `target` key no runtime reads (in `uiText`, not in `uiTextKeys`) and a generated key in `translations`; each logo slot; `auto_gps_capture` under each ownership; a custom base URL with a path, with no scheme, with credentials (a host and no origin, the user information nowhere in the facts), an upper-case host and an explicit `:443` (the same origin as the server's), plain `http` (no origin), and with no netloc; ` modules.m0`, `\tforms.m0f0`, `x=y\nmodules.m0`, `a#b` and a text holding `\r` left out with `uiTextNotCarried` naming the language, `home.start` kept; a setting and a credential level holding a control character left out with `profileNotCarried` true; a held language name holding `\r` left out; a credential level; `languageNames` null and `seeds` `"nova"` with `adopted` false, and a held language name and `seeds` `"target"` with it true; a source that is no object gives `null`. `isRuntimeUiStringKey`: a key the surface holds with a reader, a key under a `.*` item, a key of HQ's catalog no runtime reads, an unknown key |
 | `lib/deployment/__tests__/targetFacts.test.ts` | pure | `targetFactsFromBaseline`: `create` gives `null`; `push`, `cutover` and `read` give the source's facts with the baseline's `observedAt`, its ownership of `auto_gps_capture` and the mapping's `adopted`. `keptListFor` over planted facts: each label id under its predicate, none for facts at every default |
-| `lib/deployment/__tests__/targetFacts.postgres.test.ts` | real Postgres | `readTargetFacts` answers a viewer and refuses a non-member; returns `null` for no row, an `unread` row and a row whose digest does not verify; a second read of an unchanged row selects no `source_gzip` (the query log shows one statement); a rewritten baseline is read afresh |
+| `lib/deployment/__tests__/targetFacts.postgres.test.ts` | real Postgres | `readTargetFacts` answers a viewer and refuses a non-member; returns `null` for no row, an `unread` row without verified source and a row whose digest does not verify; a second read of an unchanged row selects no `source_gzip` (the query log shows one statement); a rewritten baseline is read afresh |
 | `lib/deployment/__tests__/refreshKeptValues.postgres.test.ts` | real Postgres, HQ answered by the controlled client the publish tests use | `refreshed` rewrites source, digest and `observed_at` (the instant taken before the request) and keeps origin, a `cutover` one included, ownership and a stored discard, and notifies the deployment lane; `changed-in-hq` (a form edited in the answer) writes nothing; a recorded file whose id moved answers `changed-in-hq` with no file read, and a path with no record does not; `no-baseline` for no live mapping, for an `unread` and a `create` baseline and for a baseline of another remote app; `app-gone`; `unreadable` for a linked app's answer and for a malformed one; `key-not-accepted` for a 401; `no-permission` for a 403; `browser-only` for a page meant for a person; `unavailable` for a 500 and a timeout; each writes nothing. `superseded`: a publish's baseline written between the refresh's comparison and its write is kept, and the answer carries the deployment as that publish left it, and so is another refresh's that read something else. A refresh whose answer arrives after a publish's read-back, having been asked before it, does not replace it, and answers `refreshed` where that read-back is its own read. Two refreshes whose later-asked one lands first both answer `refreshed`, over an unchanged project space and over a kept setting turned on, and the later read's date stands. The three raised `DeploymentError`s (no key, a key that cannot reach the project space, a key on another server) write nothing. A viewer is refused |
 | `lib/commcare/__tests__/keptProfile.test.ts` | pure | `targetProfileProperties` with no facts equals `appProfileProperties`; with facts, each seeded key takes the target's value and keeps its `force`; the two owned settings never move; the log setting appears only when held; the first fifteen of `KEPT_PROFILE_PROPERTY_KEYS` equal `SEEDED_PROFILE_PROPERTIES`' keys in order; with `seeds: "target"` a seeded key the facts hold no value for is left out |
 | `lib/commcare/__tests__/runtimeTarget.test.ts` (extended) | pure | `PostURL` on the secure receiver; on every server, all three URLs on that server's own origin whatever custom base URL the facts hold (`https://example.org/hq/`, one with credentials, `http://x`, another server's); `cc_user_domain` unmoved; the function's facts parameter holds `secureSubmissions` alone |
