@@ -1284,11 +1284,13 @@ read or an extra save gives an `unread` drift baseline and a warning
 that the publish landed. An extra save with a verified source at the acknowledged
 version retains that source for the target's kept settings. After the media upload
 settles, the publish records the id CommCare HQ reported for each path
-(`store.ts::recordDeploymentMediaFiles`, against the baseline this publish
-wrote, so a later publish's is left alone), else the id preflight found by
+(`store.ts::recordDeploymentMediaFiles`, while both its source digest and the
+active mapping's token for this publish still match), else the id preflight found by
 content, else what the record held: an upload that failed, timed out or
 reported errors earns no entry, and an app that publishes no file records
-none. The second read, where Project data went, also compares the file ids at
+none. When a later publish already holds the app mapping by the time this
+import records its response, the older publish skips its media upload and
+reports that to the caller. The second read, where Project data went, also compares the file ids at
 the published paths (`hqMedia.ts::mediaMovedBetween`) and settles each one that
 moved by its content, since Nova's own earlier upload may still be mapping its
 file: a file that is not this app's stops at `upload` as a moved form does.
@@ -1970,7 +1972,9 @@ bring-in refuses it, taking nothing, where it is not what the review holds
 (`HqChangesDiscardMismatchError`). Every deployment the MCP tools project
 carries `nova_revision` beside `pushed_revision`
 (`store.ts::readDeploymentNovaRevisions`): the revision CommCare HQ's copy was
-last known to match, which a bring-in of changes moves and no push makes.
+last known to match. A bring-in of changes updates it. A `push` baseline
+supplies it only when it equals the live app mapping's `pushed_revision`.
+An old writer could have left the previous value in a backfilled baseline.
 A tool whose write has landed (an upload, a check, a kept refresh, a stop, a
 withdrawn confirmation, whose setup artifact is read there too) reads it and
 the resource names through `lib/mcp/tools/landedReads.ts`, which

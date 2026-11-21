@@ -47,6 +47,11 @@ name: Upstream pins
 # every name, type and size it does not declare, and the adopt report only
 # where every line is one of adopt's own sentences.
 #
+# Scheduled and manual runs use the triggering commit of main as their executable
+# source. The candidate is one child of that commit, and each job applies only
+# the verified proof/pins.json whose upstream commit SHAs changed. A manual
+# dispatch on another ref stops before any checkout or branch update.
+#
 # The workflow never merges. The jobs that run upstream code (the surface
 # extraction, the retained trees, the prewarm, the readers' lane) hold only a
 # read token; the jobs that write run none, and commit only files the
@@ -76,11 +81,15 @@ jobs:
     outputs:
       action: ${{ steps.plan.outputs.action }}
       commit: ${{ steps.plan.outputs.commit }}
-      base: ${{ steps.plan.outputs.base }}
     steps:
+      - name: Require main for a weekly pin update
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::Choose main when running Upstream pins. It updates the weekly pin branch from the main commit that started the run."
+          exit 1
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -95,7 +104,6 @@ jobs:
           result="$(node proof/upstream/pins.mjs plan)"
           echo "$result"
           echo "action=$(echo "$result" | jq -r .action)" >> "$GITHUB_OUTPUT"
-          echo "base=$(echo "$result" | jq -r '.base // empty')" >> "$GITHUB_OUTPUT"
           echo "commit=$(echo "$result" | jq -r '.commit // empty')" >> "$GITHUB_OUTPUT"
 
   image:
@@ -111,7 +119,8 @@ jobs:
       issues: write
     uses: ./.github/workflows/proof-image.yml
     with:
-      ref: ${{ needs.plan.outputs.commit }}
+      ref: ${{ github.sha }}
+      pin-candidate: ${{ needs.plan.outputs.commit }}
 
   surface:
     name: Regenerate the surface at the new pins
@@ -123,7 +132,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.plan.outputs.commit }}
+          ref: ${{ github.sha }}
+      - name: Apply the planned pins
+        env:
+          PIN_COMMIT: ${{ needs.plan.outputs.commit }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -152,7 +165,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.plan.outputs.commit }}
+          ref: ${{ github.sha }}
+      - name: Apply the planned pins
+        env:
+          PIN_COMMIT: ${{ needs.plan.outputs.commit }}
+        run: node proof/upstream/pins.mjs apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -259,7 +276,8 @@ jobs:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
-      ref: ${{ needs.plan.outputs.commit }}
+      ref: ${{ github.sha }}
+      pin-candidate: ${{ needs.plan.outputs.commit }}
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
       surface: upstream-surface
       retained: ${{ needs.retained.result == 'success' && 'upstream-retained' || '' }}
@@ -280,7 +298,8 @@ jobs:
       contents: read
     uses: ./.github/workflows/proof-lane.yml
     with:
-      ref: ${{ needs.plan.outputs.commit }}
+      ref: ${{ github.sha }}
+      pin-candidate: ${{ needs.plan.outputs.commit }}
       image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
       surface: upstream-surface
       retained: ${{ needs.retained.result == 'success' && 'upstream-retained' || '' }}
@@ -305,13 +324,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.plan.outputs.base }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.plan.outputs.commit }}
+          ref: ${{ github.sha }}
           path: pin-candidate
-          fetch-depth: 2
+      - name: Apply the planned pins
+        working-directory: pin-candidate
+        env:
+          PIN_COMMIT: ${{ needs.plan.outputs.commit }}
+        run: node "$GITHUB_WORKSPACE/proof/upstream/pins.mjs" apply "$PIN_COMMIT"
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc

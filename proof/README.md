@@ -6546,14 +6546,18 @@ stored app, answers or reading changed).
 ### The weekly pin pull request
 
 Upstream changes reach Nova as one pull request a week, alongside the weekly
-dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
+dependency upgrades. The schedule runs `upstream-pins.yml` on main. A manual
+run also takes main and reports an error if another ref is selected.
 
 1. **Plan** (`node proof/upstream/pins.mjs plan`) reads each upstream's
    default-branch head. When none differs from the pins, or the open pin pull
    request already carries exactly these heads, it does nothing. Otherwise it
    commits the new pins to the branch `upstream/pins`, one commit on top of
-   main, replacing last week's. The plan records both commits. Every job that
-   builds or runs the candidate uses that exact candidate commit.
+   the main commit that triggered the workflow, replacing last week's. Every
+   job builds and runs code from that main commit. It checks that the pin
+   commit has that sole parent and changes only the upstream commit SHAs in
+   `proof/pins.json`, then applies that file. Image tags and build labels name
+   the exact candidate commit.
 2. **Image**: `proof-image.yml` builds the image at those pins.
 3. **Surface**: the surface is extracted in the new image.
    **Retained**: beside it, the corpus is emitted with its native products

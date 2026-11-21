@@ -1,5 +1,5 @@
-// The weekly pin pull request (proof/README.md, "Changing a pin"), in two
-// stages the workflow (.github/workflows/upstream-pins.yml) runs around the
+// The weekly pin pull request (proof/README.md, "Changing a pin"). Its
+// workflow (.github/workflows/upstream-pins.yml) runs these stages around the
 // image build, the surface extraction and the retained trees made again:
 //
 //   node proof/upstream/pins.mjs plan
@@ -7,7 +7,11 @@
 //     proof/pins.json, or the open pin pull request already carries exactly
 //     these heads, it does nothing. Otherwise it commits the new pins to the
 //     branch upstream/pins, one commit on top of main (replacing last week's),
-//     and pushes it, so the image builds from that branch.
+//     and pushes it, so the image can build from the planned pins.
+//
+//   node proof/upstream/pins.mjs apply COMMIT
+//     From the triggering main checkout, validate the candidate's single
+//     parent, file and upstream identities, then apply just its pin data.
 //
 //   node proof/upstream/pins.mjs report --image-result <result> [--digest <d>]
 //       --surface-result <result> [--surface <file>]
@@ -157,7 +161,7 @@ export async function plan(cwd) {
 			reason: `the open pin pull request already carries these heads`,
 		};
 	}
-	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "origin/main");
+	await git(cwd, "checkout", "--quiet", "-B", BRANCH, "HEAD");
 	await writeFile(join(cwd, PINS), formatted(candidate));
 	await git(cwd, "add", PINS);
 	await git(cwd, "commit", "--quiet", "-m", TITLE);
@@ -168,6 +172,94 @@ export async function plan(cwd) {
 		base: (await git(cwd, "rev-parse", "HEAD^")).trim(),
 		pins: candidate,
 	};
+}
+
+/**
+ * Put the exact pin commit's data into a checkout of the trusted workflow SHA.
+ * Only a regular proof/pins.json whose upstream commits changed is restored.
+ * The soft reset then gives the build and the report the candidate's identity
+ * without checking out a candidate executable, recipe or Git configuration.
+ */
+async function applyPins(cwd, candidate) {
+	if (!/^[0-9a-f]{40}$/.test(candidate ?? "")) {
+		throw new Error("The pin plan must name one full commit SHA.");
+	}
+	const base = (await git(cwd, "rev-parse", "HEAD")).trim();
+	await git(
+		cwd,
+		"fetch",
+		"--quiet",
+		"--no-tags",
+		"--depth=2",
+		"origin",
+		candidate,
+	);
+	const parent = (
+		await git(cwd, "show", "-s", "--format=%P", candidate)
+	).trim();
+	if (parent !== base) {
+		throw new Error(
+			"The pin commit must have the workflow checkout as its only parent.",
+		);
+	}
+	const changed = await git(
+		cwd,
+		"diff",
+		"--no-renames",
+		"--name-status",
+		base,
+		candidate,
+		"--",
+	);
+	const entry = await git(cwd, "ls-tree", candidate, "--", PINS);
+	if (changed !== `M\t${PINS}\n` || !entry.startsWith("100644 blob ")) {
+		throw new Error(
+			`The pin commit must change only the regular file ${PINS}.`,
+		);
+	}
+	const previous = JSON.parse(await git(cwd, "show", `${base}:${PINS}`));
+	const candidatePins = `${candidate}:${PINS}`;
+	// Every changed value is a full SHA. The plan writes canonically formatted
+	// JSON, so its length is already known before reading the candidate blob.
+	const size = Number(await git(cwd, "cat-file", "-s", candidatePins));
+	if (size !== Buffer.byteLength(formatted(previous))) {
+		throw new Error("The pin commit may change upstream commit SHAs only.");
+	}
+	const text = await git(cwd, "show", candidatePins);
+	const next = JSON.parse(text);
+	const expected = {};
+	for (const [name, pin] of Object.entries(previous)) {
+		const commit = next[name]?.commit;
+		if (typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) {
+			throw new Error(
+				`The pin commit must retain a full upstream SHA for ${name}.`,
+			);
+		}
+		expected[name] = { ...pin, commit };
+	}
+	if (text !== formatted(expected)) {
+		throw new Error("The pin commit may change upstream commit SHAs only.");
+	}
+	if (
+		(await git(cwd, "status", "--porcelain", "--untracked-files=no")).trim()
+	) {
+		throw new Error(
+			"The pin data needs a clean checkout of the workflow commit.",
+		);
+	}
+	await git(cwd, "switch", "--quiet", "--detach", base);
+	await git(
+		cwd,
+		"restore",
+		"--source",
+		candidate,
+		"--staged",
+		"--worktree",
+		"--",
+		PINS,
+	);
+	await git(cwd, "reset", "--soft", candidate);
+	return { commit: candidate, base };
 }
 
 /** Every entry, by the surface keys it names. */
@@ -565,13 +657,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	const done =
 		stage === "plan"
 			? plan(cwd)
-			: stage === "report"
-				? report(cwd, parseOptions(rest))
-				: Promise.reject(
-						new Error(
-							`Unknown stage ${JSON.stringify(stage)}: run "plan" or "report".`,
-						),
-					);
+			: stage === "apply" && rest.length === 1
+				? applyPins(cwd, rest[0])
+				: stage === "report"
+					? report(cwd, parseOptions(rest))
+					: Promise.reject(
+							new Error(
+								`Unknown stage ${JSON.stringify(stage)}: run "plan", "apply COMMIT" or "report".`,
+							),
+						);
 	done.then(
 		(result) => console.log(JSON.stringify(result)),
 		(error) => {

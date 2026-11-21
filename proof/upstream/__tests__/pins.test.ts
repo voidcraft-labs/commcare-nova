@@ -336,6 +336,76 @@ describe("the plan stage", () => {
 	});
 });
 
+describe("using the candidate's pin data in a trusted checkout", () => {
+	it("applies only the pin data and gives downstream builds the candidate identity", async () => {
+		const { checkout, origin, hq } = await lane();
+		await hq.advance();
+		const { base, commit, pins } = await stage(checkout, "plan");
+		await git(checkout, "checkout", "--quiet", "main");
+		expect(await stage(checkout, "apply", commit)).toEqual({ base, commit });
+		expect(await git(checkout, "rev-parse", "HEAD")).toBe(commit);
+		expect(await git(checkout, "rev-parse", "main")).toBe(base);
+		expect(await git(checkout, "status", "--porcelain")).toBe("");
+		expect(
+			JSON.parse(await readFile(join(checkout, "proof/pins.json"), "utf8")),
+		).toEqual(pins);
+		expect(await branchCommit(origin)).toEqual({
+			onMain: true,
+			files: ["proof/pins.json"],
+		});
+	});
+
+	it("refuses a different base, another file, and changed upstream configuration before changing the checkout", async () => {
+		const { checkout, origin, hq } = await lane();
+		await hq.advance();
+		const planned = await stage(checkout, "plan");
+		await git(checkout, "checkout", "--quiet", "main");
+		const changedPins = { "proof/pins.json": tabbed(planned.pins) };
+		const cases = [
+			[
+				await commit(
+					origin,
+					"different-base",
+					{ "notes.txt": "A later commit." },
+					planned.commit,
+				),
+				"only parent",
+			],
+			[
+				await commit(
+					origin,
+					"another-file",
+					{ ...changedPins, "notes.txt": "Release notes." },
+					planned.base,
+				),
+				"only the regular file",
+			],
+			[
+				await commit(
+					origin,
+					"different-config",
+					{
+						"proof/pins.json": tabbed({
+							...planned.pins,
+							"commcare-hq": {
+								...planned.pins["commcare-hq"],
+								defaultBranch: "stable",
+							},
+						}),
+					},
+					planned.base,
+				),
+				"upstream commit SHAs only",
+			],
+		];
+		for (const [candidate, reason] of cases) {
+			await expect(stage(checkout, "apply", candidate)).rejects.toThrow(reason);
+			expect(await git(checkout, "rev-parse", "HEAD")).toBe(planned.base);
+			expect(await git(checkout, "status", "--porcelain")).toBe("");
+		}
+	});
+});
+
 describe("the report stage", () => {
 	it("keeps the pins alone when the surface came from the previous image", async () => {
 		const { checkout, origin, hq } = await lane();
@@ -794,20 +864,52 @@ describe("the workflow", () => {
 		expect(workflow.jobs.retained.permissions).toEqual({ contents: "read" });
 		expect(workflow.jobs.report.if).toContain("always()");
 		const planned = `\${{ needs.plan.outputs.commit }}`;
+		const source = `\${{ github.sha }}`;
+		const apply = 'node proof/upstream/pins.mjs apply "$PIN_COMMIT"';
+		expect(workflow.jobs.plan.steps[0].if).toContain(
+			"github.ref != 'refs/heads/main'",
+		);
+		expect(workflow.jobs.plan.steps[0].run).toContain("exit 1");
+		expect(workflow.jobs.plan.steps[1].with.ref).toBe(source);
 		for (const job of [
 			workflow.jobs.image,
 			workflow.jobs.prewarm,
 			workflow.jobs.readers,
 		]) {
-			expect(job.with.ref).toBe(planned);
+			expect(job.with.ref).toBe(source);
+			expect(job.with["pin-candidate"]).toBe(planned);
+		}
+		const lane = parse(
+			await readFile(
+				join(WORKTREE, ".github/workflows/proof-lane.yml"),
+				"utf8",
+			),
+		);
+		for (const job of [
+			image.jobs.build,
+			image.jobs.publish,
+			lane.jobs.emit,
+			lane.jobs.shard,
+			lane.jobs.gate,
+			lane.jobs["android-runtime"],
+		]) {
+			expect(job.steps[0].with.ref).toBe(`\${{ inputs.ref || github.sha }}`);
+			expect(job.steps[1].env.PIN_COMMIT).toBe(`\${{ inputs.pin-candidate }}`);
+			expect(job.steps[1].run).toBe(apply);
 		}
 		for (const job of [workflow.jobs.surface, workflow.jobs.retained]) {
 			expect(job.needs).toContain("plan");
-			expect(job.steps[0].with.ref).toBe(planned);
+			expect(job.steps[0].with.ref).toBe(source);
+			expect(job.steps[1].env.PIN_COMMIT).toBe(planned);
+			expect(job.steps[1].run).toBe(apply);
 		}
 		const { steps } = workflow.jobs.report;
-		expect(steps[0].with.ref).toBe(`\${{ needs.plan.outputs.base }}`);
-		expect(steps[1].with.ref).toBe(planned);
+		expect(steps[0].with.ref).toBe(source);
+		expect(steps[1].with.ref).toBe(source);
+		expect(steps[2].env.PIN_COMMIT).toBe(planned);
+		expect(steps[2].run).toContain(
+			'node "$GITHUB_WORKSPACE/proof/upstream/pins.mjs" apply "$PIN_COMMIT"',
+		);
 		expect(steps[1].with.path).toBe(steps.at(-1)["working-directory"]);
 		expect(steps.at(-1).run).toContain(
 			'node "$GITHUB_WORKSPACE/proof/upstream/pins.mjs" report',
