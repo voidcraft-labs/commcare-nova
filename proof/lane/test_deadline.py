@@ -66,7 +66,16 @@ def test_work_deadline_seals_passed_and_unfinished_groups_before_teardown(tmp_pa
     assert_snapshot()
 
 
-@pytest.mark.parametrize("stamp", ["0", "1.5", str(int(time.time()) + 7 * 3600)])
+@pytest.mark.parametrize("stamp", ["0", "1.5"])
 def test_hosted_server_refuses_invalid_deadline(stamp):
     with pytest.raises(SystemExit):
         serve.parse_arguments(["--out", "/out", "--deadline-at", stamp])
+
+
+def test_hosted_server_refuses_a_deadline_past_six_hours(monkeypatch):
+    now = 1_800_000_000
+    monkeypatch.setattr(time, "time", lambda: now)
+    limit = now + 6 * 3600
+    assert serve.parse_arguments(["--out", "/out", "--deadline-at", str(limit)]).deadline_at == limit
+    with pytest.raises(SystemExit):
+        serve.parse_arguments(["--out", "/out", "--deadline-at", str(limit + 1)])
