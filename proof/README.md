@@ -750,6 +750,16 @@ empty label in the worker's language and the displayed replacement in its first 
 edits uses the source read after the person's saves. An unresolved slot or unavailable source leaves the native
 text difference visible.
 
+When a person chooses to split a date-and-time question, the installed form must link the reviewed question
+to the two new inputs through its hidden join. Android compares the original widget with the date and time
+widgets and checks every following screen. Web Apps compares the fields the worker saw and their answers
+on desktop, small screens and in App Preview. Formplayer follows the index change through later questions,
+repeats, answers and resends, and checks the joined instant in the submission HQ received. A change to a
+neighboring question, an unexpected answer or a different joined time remains visible. An added hidden
+validation node in a Formplayer instance must belong to the reviewed question and carry the count or
+protected message its installed validation produces. When that hidden carrier shifts a trigger's form
+index by one, the lane verifies that Web Apps still submits the same trigger with the answer `OK` at its new index.
+
 A row says what a change may change; a place says where. A place is a JSON
 Pointer over one tree of the app by position
 (`lib/deployment/reading/firstPublishPlaces.ts`): `/app/<key>`,
