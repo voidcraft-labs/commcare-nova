@@ -730,5 +730,123 @@
 				"value": "Rehema Musa"
 			}
 		]
+	},
+	{
+		"id": "validation-messages-composed:before",
+		"entry": "questions/validation-message-text",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/where_you_able_to_access_the_meter",
+					"value": "1"
+				},
+				{
+					"path": "/data/is_the_meter_in_good_condition",
+					"value": "3"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/current_meter_reading",
+					"value": "119"
+				},
+				{
+					"path": "/data/current_meter_reading",
+					"value": "120"
+				}
+			],
+			"expressions": [
+				"jr:itext('current_meter_reading-constraintMsg;__nova_mode') = 'plain'"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/0/constraintText",
+				"value": "The reading must be >= the previous meter reading of 120 liters."
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "false"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "validation-messages-composed:after",
+		"entry": "questions/validation-message-text",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "wash-client-rehema",
+					"case_id_new_referall_0": "new-referall"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/where_you_able_to_access_the_meter",
+					"value": "1"
+				},
+				{
+					"path": "/data/is_the_meter_in_good_condition",
+					"value": "3"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/current_meter_reading",
+					"value": "119"
+				},
+				{
+					"path": "/data/current_meter_reading",
+					"value": "120"
+				}
+			],
+			"expressions": [
+				"jr:itext('current_meter_reading-constraintMsg;__nova_mode') = 'plain'"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/0/constraintText",
+				"value": "The reading must be >= the previous meter reading of 120 liters."
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			}
+		],
+		"exports": ["B", "local"]
 	}
 ]
