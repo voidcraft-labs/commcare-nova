@@ -1188,7 +1188,10 @@ def _archive_forms(path) -> dict:
         }
 
 
-def served_equivalence(document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False, menus=None):
+def served_equivalence(
+    document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False, menus=None,
+    catalog_advisory=None, local_files=None,
+):
     """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
 
     Where A is served (``proof.observe.served``): every request HQ's own
@@ -1264,9 +1267,10 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
                 declared_versions(observed.a.build.files or {}),
                 {(xmlns or {}).get(namespace, namespace): v for namespace, v in local_declared.items()},
             )
-        found += served.formplayer_differences(
+        trace_local = blobs.get_json(local["formplayer"]["trace"])
+        local_rows = served.formplayer_differences(
             trace_a,
-            blobs.get_json(local["formplayer"]["trace"]),
+            trace_local,
             check=CHECK,
             document=document,
             artifact=f"{FORMPLAYER}@local.ccz",
@@ -1278,6 +1282,21 @@ def served_equivalence(document, records, name, observed, sessions, *, has_local
             if local_ccz is not None
             else None,
         )
+        if catalog_advisory is not None:
+            from proof.checks import formplayer_catalog
+
+            local_rows = formplayer_catalog.unstated(
+                local_rows,
+                advisory=catalog_advisory,
+                source=observed.a.doc,
+                target=observed.b.doc if observed.b else None,
+                hq_files=observed.a.build.files,
+                local_files=local_files,
+                baseline=trace_a,
+                local=trace_local,
+                release_differs=a.get("releaseDiffers"),
+            )
+        found += local_rows
         if opportunity is not None:
             # Formplayer, both local phones (as installed and with the lane's worker and receiver input)
             # and the tablet are each compared with the same reader on HQ's release.
@@ -1430,13 +1449,16 @@ def document_behavior(document, records, *, native_sites=None):
         local_ccz = document.local_ccz_for(name)
         local_files = None if local_ccz is None else _archive_files(local_ccz)
         picker_names = {}
+        catalog_advisory = None
         if (
             local_files is not None
             and observed.a is not None
             and document.kind != "control"
             and document.authored is not None
         ):
-            labels = (document.document.get("wire") or {}).get("advisedPickerLabels")
+            wire = document.document.get("wire") or {}
+            catalog_advisory = wire.get("catalogFallbackAdvisory")
+            labels = wire.get("advisedPickerLabels")
             picker_names = advised_picker_names(observed.a.doc, observed.a.build.files, local_files, labels)
         core = behavioral_equivalence(
             document.id,
@@ -1476,6 +1498,8 @@ def document_behavior(document, records, *, native_sites=None):
             local_ccz=local_ccz,
             menus=menus,
             always_b=document.authored is not None,
+            catalog_advisory=catalog_advisory,
+            local_files=local_files,
         )
         native = verified_caption_renames(document, name, records, local_files, served)
         if _served_a(records, name) is not None and (

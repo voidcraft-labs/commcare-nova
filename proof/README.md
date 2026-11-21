@@ -3623,7 +3623,13 @@ What the served observation holds:
   (`proof/formplayer/observe.py::with_android_locale_fallbacks`). Core's
   localizer requires that default, and Android supplies some keys, such as
   `home.sync`, that Formplayer lacks. Other runtime strings come from
-  Formplayer on both walks, including its caption for adding a repeat.
+  Formplayer unless the archive supplies them. HQ can fill a key from its catalog
+  because another language, even an inactive one, names it. A target-local CCZ
+  can instead use Android's built-in wording. The download reports
+  `kept_ui_text_falls_back`. For the repeat prompt and file-clear label that
+  Formplayer publishes, proof 3 checks this advisory, HQ's selected catalog at
+  the actual build version, each archive's language files and the locale of
+  each observed form response (`checks/formplayer_catalog.py`).
   On an adopted app the CCZ download can also say that a language name
   differs. The device comparison checks each wire code against HQ's built
   name and Nova's picker label before accepting that difference. It applies

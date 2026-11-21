@@ -20,9 +20,10 @@ registers its own after them (``FormplayerConfigEngine.initEnvironment``),
 and they lack keys Android's name (``home.sync``). When an app language
 defines a key absent from its default file, Core requires the
 default locale to provide it. For that key Formplayer receives the fallback a
-device supplies (``with_android_locale_fallbacks``). All other texts retain
-Formplayer's own runtime defaults on both HQ and local walks; installing Android's
-whole catalog on only one changes even the label for adding a repeat.
+device supplies (``with_android_locale_fallbacks``). Formplayer reads other keys
+from the installed archive or its own runtime defaults. HQ can fill the repeat
+prompt from a stored key's catalog entry, while the local archive leaves the
+device's wording in place (``checks/formplayer_catalog.py``).
 
 What a side's record holds (``walked``):
 
