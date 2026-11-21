@@ -21,6 +21,7 @@ from proof.checks import (
     connect_places,
     formplayer_menus,
     formplayer_places,
+    formplayer_trim_helpers,
     served_datetimes,
     xform_parts,
 )
@@ -134,10 +135,32 @@ def sites(records, name, differences, observed, local_files, *, document=None):
             pictures, reviewed_app(), missing, (get_json(old_core), get_json(old_fp)),
             (get_json(new_core), get_json(new_fp)), web=web,
         )))
+    for side in ("local.ccz", "B"):
+        selected = [
+            d for d in differences if d.artifact == f"formplayer@{side}" and formplayer_trim_helpers.candidate(d)
+        ]
+        if not selected or not document:
+            continue
+        declared = dict(document.first_publish_places).get("case-names-checked") or ()
+        readers = []
+        for which in ("A", side):
+            state, files, _ = by_side[which]
+            ref = (state.get("formplayer") or {}).get("trace")
+            if ref:
+                readers.append(
+                    formplayer_trim_helpers.side(
+                        get_json(ref), files or {}, namespaces(which),
+                        (state.get("releaseDiffers") or {}).get("differing") or (), reviewed_app(), before=which == "A",
+                    )
+                )
+        if len(readers) == 2:
+            results.append(changes.Sites(served=formplayer_trim_helpers.sites(selected, declared, readers)))
     for reader, release_key, local_key, payload in READERS:
         for side in ("local.ccz", "B"):
             selected = [
-                d for d in differences if d.artifact == f"{reader}@{side}" and not broken_menu_images.candidate(d)
+                d for d in differences
+                if d.artifact == f"{reader}@{side}"
+                and not broken_menu_images.candidate(d) and not formplayer_trim_helpers.candidate(d)
             ]
             sorts = [d for d in selected if blank_sort.candidate(d)]
             if sorts:
@@ -291,6 +314,7 @@ def needs_classification(difference):
         or blank_sort.candidate(difference)
         or broken_menu_images.candidate(difference)
         or android_titles.candidate(difference)
+        or formplayer_trim_helpers.candidate(difference)
         or served_datetimes.candidate(difference)
         or (difference.artifact.startswith("connect@") and connect_places.candidate(difference))
     )
@@ -357,6 +381,8 @@ def classify(document, records, name, differences, places):
             difference = replace(difference, path=difference.path + ":written-title")
         elif owner and difference.artifact.startswith("connect@") and connect_places.candidate(difference):
             difference = replace(difference, path=difference.path + ":captured")
+        elif owner and formplayer_trim_helpers.candidate(difference):
+            difference = replace(difference, path=difference.path + formplayer_trim_helpers.SUFFIX)
         elif owner and served_datetimes.candidate(difference) and (
             (difference.path == served_datetimes.CASES and owner[0] == "form" and owner[2:3] == ("case",))
             or served_datetimes.submission(owner, writes_at)
