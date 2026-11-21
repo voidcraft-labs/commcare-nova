@@ -1463,6 +1463,25 @@ class Predicates(unittest.TestCase):
         self.assertEqual(mixed, lower)
         self.assertIn("PROMPT_NEW_REPEAT", [screen["event"] for screen in other])
 
+    def root_menu_except_image(self, archive, menu_id, expected_image):
+        """Check the named root item's image, then return the entire menu with only that image omitted."""
+        answer = self.reader.request("nav", archive=str(archive), paths=[[]])
+        self.assertEqual(answer["install"], "Installed", archive.name)
+        path = answer["navs"]["path:"]
+        self.assertNotIn("raised", path)
+        self.assertTrue(path["steps"], path)
+        step = path["steps"][-1]
+        self.assertEqual(step["screen"], "MenuActivity", step)
+        menu = step["menu"]
+        self.assertIsNone(menu["id"], menu)
+        self.assertTrue(menu["items"], menu)
+        owners = [item for item in menu["items"] if item["id"] == menu_id]
+        self.assertEqual(len(owners), 1, menu)
+        owner = owners[0]
+        self.assertEqual(owner["kind"], "menu")
+        self.assertEqual(owner.pop("image"), expected_image)
+        return menu
+
     def test_a_menu_icon_no_media_resource_installs_draws_as_none(self):
         """The spelling rule ``menu-image-without-media``. Contract: a menu that names an icon at a path no media
         resource of the archive installs (the reference CommCare HQ's build writes for an icon whose file was never
@@ -1486,16 +1505,9 @@ class Predicates(unittest.TestCase):
                 [("modules.m0=Household surveys\n", f"modules.m0=Household surveys\nmodules.m0.icon={icon}\n")],
             )
 
-        def first_menu(archive):
-            menus = [step["menu"] for step in self.steps(self.walked(archive), "MenuActivity") if step.get("menu")]
-            self.assertTrue(menus and menus[0]["items"], f"{archive.name} shows no menu")
-            return menus[0]
-
-        plain, iconed = first_menu(SURVEY), first_menu(named)
-        self.assertEqual([item["image"] for item in plain["items"]], [None])
-        self.assertEqual([item["image"] for item in iconed["items"]], [{"uri": icon, "held": False}])
         self.assertEqual(
-            [{**item, "image": None} for item in iconed["items"]], [{**item, "image": None} for item in plain["items"]]
+            self.root_menu_except_image(SURVEY, "m0", None),
+            self.root_menu_except_image(named, "m0", {"uri": icon, "held": False}),
         )
 
     def test_a_picture_two_paths_name_draws_alike(self):
@@ -1530,16 +1542,9 @@ class Predicates(unittest.TestCase):
         with zipfile.ZipFile(named) as held:
             self.assertEqual(held.read(entry), held.read(first[len("jr://file/") :]))
 
-        def first_menu(archive):
-            menus = [step["menu"] for step in self.steps(self.walked(archive), "MenuActivity") if step.get("menu")]
-            self.assertTrue(menus and menus[0]["items"], f"{archive.name} shows no menu")
-            return menus[0]
-
-        one, two = first_menu(MEDIA_ONLY), first_menu(named)
-        self.assertEqual([item["image"] for item in one["items"]], [{"uri": first, "held": True}])
-        self.assertEqual([item["image"] for item in two["items"]], [{"uri": second, "held": True}])
         self.assertEqual(
-            [{**item, "image": None} for item in two["items"]], [{**item, "image": None} for item in one["items"]]
+            self.root_menu_except_image(MEDIA_ONLY, "m0", {"uri": first, "held": True}),
+            self.root_menu_except_image(named, "m0", {"uri": second, "held": True}),
         )
 
     def test_a_device_reads_an_archive_alike_under_either_app_id(self):

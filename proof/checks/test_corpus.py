@@ -107,7 +107,8 @@ ASSUMED_SOURCE_FIELDS = frozenset(
 
 @pytest.fixture
 def copied(tmp_path):
-    source = cases.load_corpus().emitted[0]
+    # These layout controls change both phases of a first publish, its republish, and its maximum configuration.
+    source = cases.load_corpus().document("arithmetic")
     shutil.copytree(source.root, tmp_path / source.id)
     (tmp_path / "index.json").write_text(json.dumps({"seed": 1, "sample": 0, "documents": [{"id": source.id}]}))
     return tmp_path, source.id
