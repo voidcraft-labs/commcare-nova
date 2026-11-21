@@ -40,8 +40,8 @@ the same runs on every reader:
   derived; the walk is then derived again with each run's places
   (``Walk.places``), and a run that reached a form with one keeps them as
   its script's last choice, with the table's places the worker dragged
-  toward to give each (``{"places": {<question index>: [<latitude>,
-  <longitude>]}, "toward": {<question index>: [<the table's place>, ...]}}``),
+  toward to give each (``{"places": {<bound question and repeat instances>: [<latitude>,
+  <longitude>]}, "toward": {<bound question and repeat instances>: [<the table's place>, ...]}}``),
   so every state's walk gives the client's own places and every replay of
   it makes the same drags. A drag aimed at the place a drag gave would not
   do: Leaflet rounds the map's pixel origin (``Map.js::_getNewPixelOrigin``),
@@ -60,6 +60,7 @@ Standard library only: the Android reader's own checks read it outside the image
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple
 
@@ -71,8 +72,7 @@ PROMPTS = "prompts"
 CLEARED = "cleared"
 TYPED = "typed"
 # A script's last choice where its run reached a form with a location question: the place the client's map gave
-# each one, by the question's index, and beside them (``TOWARD``) the answer table's places the worker dragged the
-# map toward to give it, in order.
+# each one, by its binding and repeat instances. TOWARD holds the places the worker dragged its map toward.
 PLACES = "places"
 TOWARD = "toward"
 # Where a run's places are a window's own, the window (``"small"``, a phone's): the run that window replays in place
@@ -82,8 +82,7 @@ WINDOW = "window"
 
 class Places(NamedTuple):
     """The place the client's map gave each location question of each run, by the run (``run_key``) and the
-    question's index: on a desktop, and on a phone where a phone's differ; and the answer table's places the
-    worker dragged its map toward to give it (the same in every window)."""
+    question's binding and repeat instances. Desktop and phone can differ. Both drag toward the same places."""
 
     desktop: Mapping[str, Mapping[str, Any]]
     small: Mapping[str, Mapping[str, Any]]
@@ -123,14 +122,28 @@ def cases_opened(case_ids: Sequence[str]) -> list[str]:
 
 def run_key(script: Sequence[Mapping[str, Any]]) -> str:
     """A run named by what it chose up to its form, but the places it gave there: the key its places are kept by."""
-    import json
-
     return json.dumps(navigation(script), sort_keys=True)
 
 
 def navigation(script: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """A script's choices a worker makes on the app's screens: all of them but the places it gave at its form."""
     return [choice for choice in script if PLACES not in choice]
+
+
+def location_key(question: Mapping[str, Any], positions: dict[str, str] | None = None) -> str:
+    """The question the map belongs to across builds. Formplayer's PromptToJson gives the full
+    binding. Core's FormIndex writes each repeat occurrence after '_' in its comma-separated
+    levels. The other numbers are positions of controls that can move between A and B. A single
+    run must give each independently driven map its own binding and repeat occurrences."""
+    binding = question.get("binding")
+    if not isinstance(binding, str) or not binding:
+        raise ValueError(f"Formplayer gave the location question {question.get('ix')!r} no binding.")
+    ix = str(question["ix"])
+    instances = [int(level.split("_", 1)[1]) for level in ix.split(",") if "_" in level]
+    key = json.dumps([binding, *instances], ensure_ascii=False, separators=(",", ":"))
+    if positions is not None and positions.setdefault(key, ix) != ix:
+        raise ValueError(f"Two location controls in this run share binding and repeat instances {key}.")
+    return key
 
 
 def places_of(script: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
@@ -140,7 +153,7 @@ def places_of(script: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
 
 def places_choice(places: Mapping[str, Any], toward: Mapping[str, Sequence[str]], window: str | None = None) -> dict:
     """The script's last choice for a run that gives ``places``, dragged ``toward`` the table's, in ``window``."""
-    choice: dict[str, Any] = {PLACES: dict(places), TOWARD: {ix: list(values) for ix, values in toward.items()}}
+    choice: dict[str, Any] = {PLACES: dict(places), TOWARD: {key: list(values) for key, values in toward.items()}}
     if window is not None:
         choice[WINDOW] = window
     return choice

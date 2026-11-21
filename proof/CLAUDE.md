@@ -177,8 +177,12 @@ harness keeps, each with its reason.
   the answers the client's own reconciliation sends, chooses an option as the
   client binds it (by its label), and gives a location the place the
   client's map gave, each window's own (`derived_places`), which every
-  replay gives again by the same drags. It sends a desktop's window width,
-  so where a phone's or App Preview's search differs from it and the client
+  replay gives again by the same drags. A map's place and drag targets follow
+  Formplayer's full field binding and Core's nested repeat occurrence numbers
+  across builds. Each state sends its own current question index, including
+  when an earlier date-and-time question becomes two controls. The walk sends
+  a desktop's window width, so where a phone's or App Preview's search differs
+  from it and the client
   sent its own window's width, the run is walked again with that width and
   the search is held to that walk (`walked_in_window`); a difference between
   the two is the harness's to find, never a check to loosen. The client

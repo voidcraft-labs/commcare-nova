@@ -814,27 +814,31 @@ def observe(served, driver) -> dict[str, Any]:
     return shown(served, driver, walk)
 
 
-def location_questions(run: Mapping[str, Any]) -> dict[str, list]:
-    """The index of each location question a run's form answered, with the places the walk gave it, in order: the
-    table's places a worker drags the question's map toward."""
+def location_questions(run: Mapping[str, Any]) -> dict[str, tuple[str, list]]:
+    """By the ix the browser answers on this build: the bound question and the places the worker
+    dragged its map toward. A replay on another build uses the binding, not this run's ix."""
     form = _form_step(run)
     if form is None:
         return {}
     navigations = _navigations(run)
     opened = navigations[-1].get("response") if navigations else None
-    found: dict[str, list] = {}
+    found: dict[str, tuple[str, list]] = {}
+    positions: dict[str, str] = {}
     for position, attempt in enumerate(form["answers"]):
         if attempt.get("media") or attempt.get(REPEAT) or attempt.get("value") is None:
             continue
-        if _question(opened, form["answers"], position).get("datatype") == "geo":
-            found.setdefault(str(attempt["ix"]), []).append(attempt["value"])
+        question = _question(opened, form["answers"], position)
+        if question.get("datatype") == "geo":
+            ix = str(attempt["ix"])
+            key = walks.location_key(question, positions)
+            found.setdefault(ix, (key, []))[1].append(attempt["value"])
     return found
 
 
 def places_given(served, driver, walk: Mapping[str, Any]) -> walks.Places:
     """The place the client's map gives each location question of each run of ``walk`` that answers one, by the
-    run's choices (``proof.observe.walks.run_key``) and the question's index, on a desktop and on a phone: each
-    such run replayed whole in each window, as ``shown`` replays it, and the last answer the client sent
+    run's choices (``proof.observe.walks.run_key``) and the question's binding and repeat instances. Each run is
+    replayed whole on a desktop and a phone, as ``shown`` replays it, and the last answer the client sent
     Formplayer for the question read from the request it sent (``entries.js::GeoPointEntry.updateCenter``: the
     map's centre each time it moves). A phone's are kept only where they are not a desktop's."""
     from proof.webapps.session import SMALL_SCREEN
@@ -846,7 +850,7 @@ def places_given(served, driver, walk: Mapping[str, Any]) -> walks.Places:
         asked = location_questions(each)
         if not asked:
             continue
-        toward[walks.run_key(each["script"])] = asked
+        toward[walks.run_key(each["script"])] = dict(asked.values())
         for window, viewport in ((None, None), (SMALL, SMALL_SCREEN)):
             language = language_at_start(each)
             made, _ = replay(served.doc["name"], [each], session.home, small=window == SMALL, worker_language=language)
@@ -861,8 +865,10 @@ def places_given(served, driver, walk: Mapping[str, Any]) -> walks.Places:
             for exchange in run.answered("answer"):
                 sent = exchange.request_json() or {}
                 # A map cleared sends no place.
-                if str(sent.get("ix")) in asked and sent.get("answer") is not None:
-                    given[str(sent["ix"])] = sent.get("answer")
+                question = asked.get(str(sent.get("ix")))
+                if question is not None and sent.get("answer") is not None:
+                    key, _ = question
+                    given[key] = sent["answer"]
             if given:
                 found[window][walks.run_key(each["script"])] = given
     desktop = found[None]
@@ -954,7 +960,8 @@ def worker_home(session, run, screen) -> bool:
         raise AssertionError(f"No worker home for the release with Web Apps {enabled!r}: {navigation.path!r}")
     page = html.fromstring(navigation.response, parser=html.HTMLParser(encoding="utf-8"))
     [initial_apps] = page.xpath(
-        '//*[contains(concat(" ", normalize-space(@class), " "), " initial-page-data ")]/*[@data-name="apps"]/@data-value'
+        '//*[contains(concat(" ", normalize-space(@class), " "), " initial-page-data ")]'
+        '/*[@data-name="apps"]/@data-value'
     )
     listed = [app["_id"] for app in json.loads(initial_apps) if app["copy_of"] == release.app_id]
     name = release.doc["name"]
