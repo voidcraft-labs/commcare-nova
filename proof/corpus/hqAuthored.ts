@@ -429,10 +429,11 @@ function declarationNotOffered(
  * from, as the birth records it: an asset no path of which can be held takes
  * its content-hash path, and names none here.
  *
- * `media.json` holds every file HQ maps; the reading holds only those the
- * app's source references in a slot Nova reads, so a file nothing references
- * and one only a setting kept in CommCare HQ names (the Android logos) are no
- * asset of the document, and `media-reads.json` holds no read of them.
+ * `media.json` holds every file HQ maps. The reading adopts files used in
+ * slots Nova keeps. It also checks availability for files referenced only
+ * by unshown form text. Their responses appear in `media-reads.json` and
+ * their bytes stay in HQ. Unused mappings and the Android logos kept in HQ
+ * have no read at all.
  */
 function baseMedia(
 	app: RetainedHqApp,
