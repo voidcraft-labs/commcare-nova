@@ -281,8 +281,12 @@ writes. Source-managed rows at their own origin are always read-only.
    Advance for the intended result, retry only a known unapplied request at its unchanged precondition, and
    return to review on any other outcome. A rejected/missing permission or pending earlier write cannot
    advance the ledger. Compare the full definition, ordered rows and assignment/index evidence before app
-   upload. The manual installer resumes from its own target-scoped receipt and follows the same ownership
-   checks. HQ’s `api/tests/lookup_table_resources.py` exercises keyed table/row create and update, row
+   upload. A downloaded installer signs in to Nova and submits operations to the same Project service as
+   direct publish. Its receipt identifies the operation to resume. Before each HQ write the service checks
+   current Project and target authority under the shared table fence and consults its durable journal.
+   If another publisher completed that operation, use its verified result. If the table changed hands or
+   the service cannot establish authority, stop before writing. The package contains no transferable write
+   grant. HQ’s `api/tests/lookup_table_resources.py` exercises keyed table/row create and update, row
    field hydration and missing rows. Add native checks for persistent sort changes, same-ID schema update,
    exact-ID deletion and shared-table drift through these real methods.
 
@@ -594,7 +598,10 @@ circumstances and language ordering have no inventory slug.
    source-table write after a concurrent hand-back. Publish the same JSON-managed table twice, then append,
    change, reorder and remove rows and change its schema. Assert preserved row IDs, exact order, retained
    unrelated table, and no writes on unchanged retry. Interrupt each verb, introduce a target edit or a
-   same-tag replacement between reads, and prove the affected request stops or resumes exactly once. Test
+   same-tag replacement between reads, and prove the affected request stops or resumes exactly once. Interrupt
+   a manual installation after an acknowledged row, resume by direct publish, then retry the downloaded
+   package. Verify a single journal, stable row IDs and zero duplicate writes. After hand-back, retry the
+   old package and observe zero HQ writes. Test
    a separate-table migration with a second live app still reading the original. Test two worker fixtures
    with disjoint assignments, duplicate-looking source rows assigned to different workers, and an incremental
    restore that omits the unchanged table with and without the correct base, through

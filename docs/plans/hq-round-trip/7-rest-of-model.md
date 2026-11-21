@@ -152,15 +152,26 @@ blocks the migration. Keep the immutable app log and existing fold baseline as h
 Extend `usablePair` and `loadReferenceDocument` to use this saved reference only for a matching deployment,
 digest, original revision and fold. Resume server-only folding and compose rename, actor and editor-before-move
 state from the subsequent rows. Apply head-only fields and identity disambiguation at the current head.
-A later incompatible fold advances a verified saved reference the same way. Superseding the baseline, ending
-the deployment or deleting the mapping invalidates the reference in the same transaction. No grant or lookup
-crosses its app, Project and deployment identity.
+A later incompatible fold advances a verified saved reference the same way. Two ordinary reads also matter.
+Refreshing target-kept settings and recording an HQ save that reads as the same app can each change the
+baseline’s source digest while keeping its pre-fold published revision. In the transaction that records
+either read, compare the previous baseline and reference to the pair that the read verified. Rebind the
+reference to the resulting digest and any refreshed target identities, media or pending-publish facts.
+Keep the published document, revision and intervening edits. Honor the existing observed-time and deployment
+fences, including an idempotent repeat. A stale refresh cannot move the reference to its own digest or old
+identities. A new published revision with a usable fold supersedes the reference. Ending the deployment or
+replacing its mapping retires it in the same transaction. Scope every read and write to its app, Project
+and deployment.
 
 Exercise a real Postgres app published to two targets at different revisions, with a Nova edit, chained rename
 and independent HQ edit across the fold. Compare the conflict, actor attribution, current identity and publish
 effects on both sides of the conversion, including an unpublished first/next-publish list and the first
-publish after conversion. Verify exact counts for usable, already unavailable and migrated pairs before and
-after; stale or mismatched checkpoint identity must refuse. Group 8’s Connect conversion uses this procedure.
+publish after conversion. On one target refresh a kept setting, and on the other record an HQ save that
+changes an identity but reads as the same app. Follow both with a real HQ edit while a Nova edit is still
+unpublished. Each review must use its own refreshed facts and still report the intervening edit. Deliver a
+stale refresh after the newer read and prove that neither stored pair moves. Count usable, already unavailable
+and migrated pairs before and after conversion. A mismatched reference must refuse. Group 8’s Connect
+conversion uses this procedure.
 
 ## What proves completion
 

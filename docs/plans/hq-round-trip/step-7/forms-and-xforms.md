@@ -218,12 +218,30 @@ content under that key rejects. Check postconditions with independent row/histor
 Seed property A, enter and preload A, then another submission saves B. An unchanged A omits the leaf and keeps B.
 An edited C emits a write to the originally reached authorized id. Relink the child from P1 to P2 between entry
 and submit; the scoped action still addresses P1, never P2. If P1 leaves authorized scope the whole submitted
-write fails. Ordinary missing-index reads yield blank. A legacy save *through* an absent parent index sends no
-ancestor write while the own-case write succeeds (`submissionEnvelope.postgres.test.ts`, household without a
-parent). A false block condition produces no target validation. A present case block with a blank id has a
-device submission error. A supplied or substituted id from a different Project cannot be read, minted as an
-authorized target, or written. Exercise each branch concurrently, including retries after a committed response
-is lost. No newly written case row changes an earlier read of the entry snapshot.
+write fails. A missing index gives a blank read; whether a *write* is omitted depends on the actual block
+produced. The current Nova SQL test `submissionEnvelope.postgres.test.ts` (household without a parent) proves
+only its legacy Preview result: it skips that ancestor write and commits the own-case change. It does not
+observe a worker submission. HQ `XForm._add_case_updates` appends an ancestor case block under each named
+path. `XFormCaseBlock.make_parent_case_block` binds its `@case_id` to the index chain and supplies no
+whole-block target-exists relevance. An irrelevant containing group omits the block. A relevant case element
+with an absent or empty id must fail Core `CaseXmlParser.parse` or `BulkProcessingCaseXmlParser` mandatory-id
+validation even when its update leaf is irrelevant.
+
+Use an actual HQ-built basic and advanced form, its Vellum-saved version, and Nova's corresponding local
+archive with matching source placement. Start with an existing owned case whose parent link is absent and an
+own-case sibling write. Inspect Android's and Formplayer's actual serialized submissions, separately for a
+relevant ancestor block, a false whole-block/ancestor guard, a missing source answer, and a valid link.
+Record whether the case node exists and its exact id before running each native processor, and independently
+send that XML to HQ and read receipt, property and case history. A worker that serializes the case with an
+empty id fails submission in Preview and leaves every SQL write uncommitted. A worker that genuinely omits
+the block keeps the own write with no ancestor effect. Implement the evidenced result through the normal
+Preview path per declared worker. Keep the legacy SQL test as evidence for its low-level input with no emitted
+ancestor effect, add a separate blank-id rejection, and bind the end-to-end Submit to the actual generated
+program. Existing successful receipts and case rows retain their original effects on replay. Where a worker
+would fail on already-saved data, show the missing relationship at submit and allow explicitly guarding the
+whole transaction in an HQ-editable placement or selecting a case with the link. Never silently add a guard
+to a held/issued form. A supplied id from another Project can neither authorize a target nor write a row.
+Exercise every branch with an intervening submission or relink and a retry after a committed response is lost.
 
 Keep preloads at their actual stage. Add ordered, typed form opening assignments with a field UUID destination,
 selection/worker source and named relation/property path, and attachment to its owning basic/advanced load.
@@ -266,8 +284,10 @@ An argument cannot read a datum before it exists.
 Seven of group 7's entries are in `questions.json` and do not appear in the original outline. Read an
 operation's block, its place in the submission and the repeat instance generating it as one effect group. X3
 below adds authored positions and multiple effects sharing a block. F4 owns the meaning of that group. Evaluate
-expressions against the existing pre-effect, tenant-bound snapshot, correlate repeated creates by operation UUID
-and row, and keep a single atomic, idempotent `applySubmission`. Extend `caseOperationOrder.ts`,
+form expressions, index targets and edited-only comparisons against F3's immutable authorized *entry* view and
+submitted answers. Correlate repeated creates by operation UUID and row. Recheck scope, worker access, current
+target/type and the ordered effects' postconditions under the SQL transaction lock, and keep a single atomic,
+idempotent `applySubmission`. Extend `caseOperationOrder.ts`,
 `caseRetype.ts`, validator `caseOperations.ts`, `submissionEnvelope.ts` and the operation-order reader. Resolve
 addresses from the committed document in scope, even if the client sends an expected type. A rejected effect
 rolls back the entire receipt and every write. The preview can show the worker which form and case change
@@ -316,7 +336,7 @@ addresses for descendants; present the existing publication-impact review before
 for existing documents gives the identical XML addresses/order.
 
 Classify submitted data names at two different boundaries. Retain the HQ build refusal
-`questions/question-id-conflicts-with-built-own-case` when HQ `XForm.case_node` finds an own-namespace root
+`questions/a-root-question-case-in-a-form-where-hq-writes-the-primary-case` when HQ `XForm.case_node` finds an own-namespace root
 child named `case` and `_create_casexml` must add the form's nonempty basic case block. Removing that case
 action avoids the build error. Runtime submission still has its own checks. In the generated primary *instance*
 walk each reachable submitted descendant, including group/repeat wrappers, hidden nodes with custom
@@ -379,9 +399,10 @@ is ignored on Web Apps. In a form where its referenced callout requires Android,
 Android-only despite that auxiliary feature's ignored Web Apps cell. Derive template/custom privilege and
 separate creation-only gates from emit/publish requirements. No arbitrary head XML. Keep the print callout,
 unmapped referenced head and dangling callout rows at their existing standings. In Android-mode browser Preview,
-show the target app and evaluated extras to the current worker and offer two local actions: return values for
-the declared response fields or cancel. Commit returned answers through the normal form event and relevance
-pipeline; cancel leaves them alone. No package launch, server request to an action URI, or fabricated successful
+show the target app, invoking input and evaluated extras to the worker. The local return dialog can supply an
+optional primary string for the invoking input and any subset of the named results, independently representing
+omitted and present-empty values. Offer it even when the mapping is empty. Apply the return through normal
+answer, validation and relevance processing. Cancellation leaves prior answers alone. No package launch, server request to an action URI, or fabricated successful
 response occurs. On Android itself the device dispatches the intent. The response contract has two parts. Android
 `IntentWidget.loadCurrentAnswerToIntent` sends the invoking widget's nonblank current answer as
 `odk_intent_data` on relaunch. In a noncancelled valid generic response, `IntentCallout.processOdkResponse`
@@ -391,8 +412,10 @@ Then process only present named keys from the result bundle if one exists, other
 An absent named key leaves its destinations alone; present null is an empty input to their individual casts.
 A returned primary empty string is present even if its typed value becomes blank. Keep presence distinct from
 the return flag: a bundle-only mapped update with absent primary can write a destination while the generic
-handler reports unsuccessful. Direct named extras processed without a bundle report success. Quick advance
-uses the returned flag. A cancelled, missing-handler or invalid-intent result does not run the generic writes.
+handler reports unsuccessful. Direct named extras processed without a bundle report success. Keep the raw return flag in the low-level Android control. The quick-advance
+intent appearance is REFUSED under `questions/odkx-intent-appearance-quick`: Vellum retains an unknown attribute
+that HQ's editors cannot produce. Exercise its native return-flag branch only in that independent refusal
+control. A cancelled, missing-handler or invalid-intent result does not run the generic writes.
 Contextualize each mapped reference at the invoking row. Apply the normal typed answer conversion to scalars.
 For a binary destination Android copies the file/content URI into the form and stores its filename; blank,
 missing or unreadable input clears that destination. Preview uses an explicitly chosen local capture for this
@@ -406,8 +429,11 @@ selected by returned parcel shape, not by an arbitrary label or intent action na
 Use a controlled Android activity with two invoking inputs and two repeat rows, nonblank prior primary and
 named destinations, one key mapped to two different destination types, a named binary result, and success,
 cancellation and an unavailable handler. Assert sent previous answer and extras, the invoked answer on return,
-kept/cleared/cast answers, copied file bytes and unchanged sibling row, quick advance, re-invocation and
-incomplete-form resume. Mirror these outcomes in browser Preview with local result entry or cancel.
+kept/cleared/cast answers, copied file bytes and unchanged sibling row, re-invocation and incomplete-form
+resume. Mirror admissible outcomes in browser Preview with local result entry or cancel. Add a required
+primary-only Android callout with no named mappings. Return its primary value, submit successfully, reinvoke,
+and return a result without a primary. The cleared required input must now block submission. Verify that
+cancelling instead keeps the prior value on Android and Preview.
 
 Add localized first/subsequent add captions to the repeat; required/hint to supported label/acknowledge
 configurations; validation plus its localized message to geopoint, image/audio/video/signature/file, face
