@@ -8,24 +8,26 @@ CONNECT = "http://commcareconnect.com/data/v1/learn"
 DOCUMENT = "targeted-validated-barcode-secret"
 
 
-def source(original, skip_unchanged, *, confirmation=False, calculated=False):
+def source(original, skip_unchanged, *, confirmation=False, calculated=False, bounded=False):
     root = etree.fromstring(original.encode() if isinstance(original, str) else original)
-    model, = root.xpath("//*[local-name()='model']")
-    instance, = model.xpath("./*[local-name()='instance' and not(@id)]")
+    (model,) = root.xpath("//*[local-name()='model']")
+    (instance,) = model.xpath("./*[local-name()='instance' and not(@id)]")
     data = instance[0]
     for child in list(data):
         data.remove(child)
     for child in list(model):
         if child is not instance:
             model.remove(child)
-    body, = root.xpath("//*[local-name()='body']")
+    (body,) = root.xpath("//*[local-name()='body']")
     for child in list(body):
         body.remove(child)
 
     ns = etree.QName(data).namespace
     rows = etree.SubElement(data, f"{{{ns}}}rows", {f"{{{JR}}}template": ""})
     etree.SubElement(rows, f"{{{ns}}}recipient")
-    wrapper = etree.SubElement(rows, f"{{{ns}}}visit", {"{http://commcarehq.org/xforms/vellum}role": "ConnectDeliverUnit"})
+    wrapper = etree.SubElement(
+        rows, f"{{{ns}}}visit", {"{http://commcarehq.org/xforms/vellum}role": "ConnectDeliverUnit"}
+    )
     unit = etree.SubElement(wrapper, f"{{{CONNECT}}}deliver", id="visit", nsmap={None: CONNECT})
     for name in ("name", "entity_id", "entity_name", "work_area_id"):
         leaf = etree.SubElement(unit, f"{{{CONNECT}}}{name}")
@@ -33,10 +35,17 @@ def source(original, skip_unchanged, *, confirmation=False, calculated=False):
             leaf.text = "Visit"
     path = "/data/rows[true()]/visit/deliver/entity_id" if calculated else "/data/rows[true()]/recipient"
     unique = f"string-length(join('|', {path})) = string-length(join('|', distinct-values({path})))"
-    etree.SubElement(model, f"{{{XFORMS}}}bind", nodeset="/data/rows/recipient",
-                     type="string", required="true()", constraint=unique)
-    etree.SubElement(model, f"{{{XFORMS}}}bind", nodeset="/data/rows/visit/deliver/entity_id",
-                     calculate="substr(../../../recipient, 0, 1)" if calculated else "../../../recipient")
+    if bounded:
+        unique = rf"({unique}) and regex(., '\A(?s:.{{0,255}})\z')"
+    etree.SubElement(
+        model, f"{{{XFORMS}}}bind", nodeset="/data/rows/recipient", type="string", required="true()", constraint=unique
+    )
+    etree.SubElement(
+        model,
+        f"{{{XFORMS}}}bind",
+        nodeset="/data/rows/visit/deliver/entity_id",
+        calculate="substr(../../../recipient, 0, 1)" if calculated else "../../../recipient",
+    )
     itext = etree.SubElement(model, f"{{{XFORMS}}}itext")
     language = etree.SubElement(itext, f"{{{XFORMS}}}translation", lang="en", default="")
     for key, value in [("rows", "Visit"), ("recipient", "Recipient ID")]:
