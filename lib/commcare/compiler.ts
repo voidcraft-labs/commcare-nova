@@ -451,6 +451,7 @@ export function compileCczParts(
 		"app.display.name": appName,
 		"cchq.case": "Case",
 	};
+	const submitLabels = new Map<string, Readonly<Record<string, string>>>();
 	const appStringUnits: Record<string, WireStringSource> = {
 		"homescreen.title": makeTranslationUnitId("app", "name"),
 		"app.display.name": makeTranslationUnitId("app", "name"),
@@ -868,10 +869,10 @@ export function compileCczParts(
 				formUuid,
 				"name",
 			);
-			// HQ's build writes every form's submit label, "Submit" where none
-			// is set, which Nova never sets. Nova's own system copy, so every
-			// language takes it verbatim.
-			appStrings[formSubmitLabelLocaleId(mIdx, fIdx)] = FORM_SUBMIT_LABEL;
+			const submitId = formSubmitLabelLocaleId(mIdx, fIdx);
+			appStrings[submitId] = FORM_SUBMIT_LABEL;
+			if (hqForm.submit_label !== undefined)
+				submitLabels.set(submitId, hqForm.submit_label);
 
 			// Build-time injection. The emitter produces a clean XForm (no case
 			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
@@ -1435,6 +1436,17 @@ export function compileCczParts(
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
 		for (const [localeId, source] of Object.entries(appStrings)) {
+			const labels = submitLabels.get(localeId);
+			if (labels !== undefined) {
+				const value =
+					dir === "default"
+						? (localization.languages
+								.map((code) => labels[code] ?? FORM_SUBMIT_LABEL)
+								.find((text) => text !== "") ?? "")
+						: (labels[language] ?? FORM_SUBMIT_LABEL);
+				if (value !== "" || dir === "default") table.set(localeId, value);
+				continue;
+			}
 			const unitSource = appStringUnits[localeId];
 			table.set(
 				localeId,

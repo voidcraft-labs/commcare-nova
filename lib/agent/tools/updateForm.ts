@@ -55,6 +55,13 @@ export const updateFormInputSchema = formAddressSchema
 			.min(1)
 			.optional()
 			.describe("New form name. Leave it out to keep the current name."),
+		submitLabel: z
+			.string()
+			.nullable()
+			.optional()
+			.describe(
+				"Wording of the submit button in Web Apps. Null restores the platform wording for the source language.",
+			),
 		purpose: z
 			.string()
 			.nullable()
@@ -150,6 +157,7 @@ export const updateFormTool = {
 			formUuid: rawFormUuid,
 			name,
 			purpose,
+			submitLabel,
 			recordName,
 			open_condition,
 			close_condition,
@@ -182,6 +190,8 @@ export const updateFormTool = {
 			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
 			if (purpose !== undefined) patch.purpose = purpose;
+			if (submitLabel !== undefined)
+				patch.submitLabel = submitLabel === null ? {} : { text: submitLabel };
 			if (plain_text !== undefined)
 				patch.plainText = plain_text === true ? true : null;
 			// Each condition arrives parsed in its own form slot; the checker

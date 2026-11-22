@@ -645,6 +645,7 @@ export function updateFormMutations(
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
+		submitLabel: NonNullable<Form["submitLabel"]>;
 		plainText: true | null;
 	}>,
 ): Mutation[] {
@@ -669,6 +670,8 @@ export function updateFormMutations(
 	if (patch.purpose !== undefined) {
 		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
+	if (patch.submitLabel !== undefined)
+		reducerPatch.submitLabel = patch.submitLabel;
 	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;
 	if (Object.keys(reducerPatch).length > 0) {
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });

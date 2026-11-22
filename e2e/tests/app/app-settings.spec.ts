@@ -76,6 +76,34 @@ function savedWith(page: Page, appId: string, parts: readonly string[]) {
 }
 
 /** Open the starter form, whose canvas holds the insertion gaps. */
+test("a form keeps its own submit button wording after a reload", {
+	tag: "@seed:open",
+}, async ({ scenario, page }) => {
+	const { openAppId } = seedFor(scenario, "open");
+	await openBuilder(page, `/build/${openAppId}`);
+	await openStarterForm(page);
+	await page
+		.getByRole("button", { name: "Form settings", exact: true })
+		.click();
+	const label = page.getByRole("textbox", {
+		name: "Submit button in Web Apps",
+	});
+	const saved = page.waitForResponse(
+		(response) =>
+			response.request().method() === "POST" &&
+			response.request().postData()?.includes("Send referral") === true &&
+			response.ok(),
+	);
+	await label.fill("Send referral");
+	await label.press("Enter");
+	await saved;
+	await reloadBuilder(page);
+	await page
+		.getByRole("button", { name: "Form settings", exact: true })
+		.click();
+	await expect(label).toHaveValue("Send referral");
+});
+
 async function openStarterForm(page: Page) {
 	await page
 		.getByRole("list", { name: "Survey forms" })

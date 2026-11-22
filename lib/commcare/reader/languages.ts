@@ -555,6 +555,13 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 						if (registration !== undefined) registration.label = text(value);
 					}
 				: undefined;
+		case "form-submit-label":
+			return owner.kind === "form"
+				? (draft, value) => {
+						const form = draft.forms[owner.formUuid];
+						if (form !== undefined) form.submitLabel = { text: text(value) };
+					}
+				: undefined;
 		case "form-name":
 			return owner.kind === "form"
 				? (draft, value) => {

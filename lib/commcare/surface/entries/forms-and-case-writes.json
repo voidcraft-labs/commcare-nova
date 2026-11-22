@@ -1990,10 +1990,8 @@
 			"schema:ShadowForm.submit_label"
 		],
 		"valueClass": "non-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.submitLabel` (editor: Bulk App Translations edits the existing string)",
-		"subject": "form-settings",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form owns its Web Apps submit wording. The stored wording keeps sparse language keys. A blank language inherits the built default. Android draws its own finish action.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2008,7 +2006,8 @@
 			"cell": "`submit_label{lang}`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/submit-notification-label",

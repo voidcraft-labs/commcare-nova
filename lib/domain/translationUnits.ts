@@ -45,6 +45,7 @@ export const translationUnitRoles = [
 	"app-name",
 	"module-name",
 	"form-name",
+	"form-submit-label",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"field-label",
@@ -611,6 +612,18 @@ export function collectTranslationUnits(
 					context: { moduleName: module.name, formName: form.name },
 				}),
 			);
+			if (form.submitLabel !== undefined)
+				out.push(
+					unit({
+						id: makeTranslationUnitId("form", formUuid, "submit-label"),
+						valueKind: "text",
+						role: "form-submit-label",
+						source: form.submitLabel.text ?? "Submit",
+						owner: { kind: "form", moduleUuid, formUuid },
+						breadcrumb: [...moduleBreadcrumb, form.name, "Submit button"],
+						context: { moduleName: module.name, formName: form.name },
+					}),
+				);
 			// The Register action's label on Results, when authored; the
 			// wire falls back to the form-name unit when it is not. The
 			// module owns it, beside the form its slot names.
@@ -1146,7 +1159,11 @@ function storedTranslation(
 	}
 	const explicit = localization.translations[language]?.[unitValue.id];
 	if (explicit === undefined) {
-		return { effective: unitValue.source, status: "missing" };
+		return {
+			effective:
+				unitValue.role === "form-submit-label" ? "Submit" : unitValue.source,
+			status: "missing",
+		};
 	}
 	const current =
 		translationSourceFingerprintsEqual(

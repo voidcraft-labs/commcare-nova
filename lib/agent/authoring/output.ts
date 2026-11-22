@@ -506,6 +506,9 @@ const readProjectors: {
 						),
 					),
 				),
+				...(form.submitLabel !== undefined && {
+					submitLabel: form.submitLabel.text ?? null,
+				}),
 				...(openCondition !== undefined && {
 					openCondition: formCondition(
 						form.uuid,

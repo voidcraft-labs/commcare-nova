@@ -585,6 +585,7 @@ export type HqFormLink<XPath = string> =
 
 /** The keys a basic and an advanced form share (HQ's `FormBase` and its mixins). */
 interface HqFormBase<XPath, LinkXPath> {
+	submit_label?: LocalizedString;
 	session_endpoint_id?: string;
 	respect_relevancy?: boolean;
 	unique_id: string;

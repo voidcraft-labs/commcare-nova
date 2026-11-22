@@ -225,7 +225,7 @@ const FORM = defineClaims("structure.form", {
 	...perClass(
 		"submitLabelOther",
 		FORM_CLASSES,
-		account,
+		take,
 		`${F}/submit-label-non-default`,
 		"submit_label",
 	),
@@ -841,11 +841,11 @@ function readMenuKeys(
 	}
 }
 
-/** Whether every language's submit label is HQ's own (`FormBase.get_submit_label`) or blank. */
+/** Whether every language's submit label is HQ's fixed default (`FormBase.get_submit_label`). An explicit empty label is observable. */
 function submitLabelIsDefault(value: unknown): boolean {
 	return (
 		isJsonObject(value) &&
-		Object.values(value).every((text) => text === "Submit" || text === "")
+		Object.values(value).every((text) => text === "Submit")
 	);
 }
 
@@ -886,12 +886,43 @@ function readFormKeys(
 			? claim("showCountTrue")
 			: claim("showCountFalse"),
 	);
-	json.account(
-		"submit_label",
-		submitLabelIsDefault(json.peek("submit_label"))
-			? claim("submitLabelDefault")
-			: claim("submitLabelOther"),
-	);
+	const configured = json.peek("submit_label");
+	if (submitLabelIsDefault(configured)) {
+		json.account("submit_label", claim("submitLabelDefault"));
+	} else if (isJsonObject(configured)) {
+		const languages = applicationReading(ctx)?.languages;
+		if (
+			languages?.source !== undefined &&
+			Object.entries(configured).every(
+				([code, value]) =>
+					languages.tagOf.has(code) && typeof value === "string",
+			)
+		) {
+			read(
+				json.take(
+					"submit_label",
+					claim<"take">("submitLabelOther"),
+					(raw) => raw,
+				),
+			);
+			const label = configured[languages.source];
+			ctx.writeDraft(() => {
+				draft.form.submitLabel =
+					typeof label === "string" ? { text: label } : {};
+			});
+			const targets = new Map<LanguageTag, LocalizedValue>();
+			for (const [code, value] of Object.entries(configured)) {
+				const tag = languages.tagOf.get(code);
+				if (tag && code !== languages.source && typeof value === "string")
+					targets.set(tag, value);
+			}
+			ctx.translations.set(
+				makeTranslationUnitId("form", draft.uuid, "submit-label"),
+				"text",
+				targets,
+			);
+		}
+	}
 	const releaseNotes = json.peek("is_release_notes_form") === true;
 	json.account(
 		"is_release_notes_form",

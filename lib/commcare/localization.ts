@@ -14,6 +14,7 @@ import {
 	filledProse,
 	type LanguageTag,
 	localizeTranslationUnit,
+	makeTranslationUnitId,
 	type ProseTemplate,
 	printProseTemplate,
 	snapshotTranslationUnits,
@@ -37,6 +38,9 @@ export interface CommCareLocalization {
 	text(wireCode: string, unitId: TranslationUnitId): string;
 	/** A prose unit in one language. */
 	prose(wireCode: string, unitId: TranslationUnitId): ProseTemplate;
+	/** Only configured languages. A missing submit label has the worker's
+	 * own fixed default, independently of the app's source language. */
+	formSubmitLabels(uuid: import("@/lib/domain").Uuid): WireLanguageMap;
 	textMap(unitId: TranslationUnitId): WireLanguageMap;
 	/** `textMap` over a source that may join several units with one space. */
 	textMapFor(source: WireStringSource): WireLanguageMap;
@@ -139,6 +143,21 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 		wireTextFor,
 		text,
 		prose,
+		formSubmitLabels(uuid) {
+			const label = doc.forms[uuid]?.submitLabel;
+			if (label === undefined) return {};
+			const unitId = makeTranslationUnitId("form", uuid, "submit-label");
+			return Object.fromEntries(
+				plan.languages.flatMap((code) => {
+					const tag = tagFor(code);
+					const explicit =
+						tag === effective.sourceLanguage
+							? label.text
+							: effective.translations[tag]?.[unitId]?.value;
+					return typeof explicit === "string" ? [[code, explicit]] : [];
+				}),
+			);
+		},
 		textMap(unitId) {
 			return Object.fromEntries(
 				plan.languages.map((wireCode) => [wireCode, text(wireCode, unitId)]),

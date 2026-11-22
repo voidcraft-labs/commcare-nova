@@ -458,6 +458,8 @@ export function* expandDocSteps(
 						postFormWorkflowFallback,
 						hqFormLinks,
 					);
+			if (form.submitLabel !== undefined)
+				formShellObj.submit_label = localization.formSubmitLabels(formUuid);
 			// Whether the form's entry asks for a case first: a basic form's
 			// `requires`, and for an advanced form whether its plan holds a
 			// load that is not the worker's (`AdvancedForm.requires`).

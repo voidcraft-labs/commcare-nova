@@ -28871,7 +28871,6 @@
 		"id": "hq-plain/submit-label",
 		"base": "hq-plain",
 		"entry": "forms-and-case-writes/submit-label-non-default",
-		"standing": "not-yet",
 		"place": {
 			"kind": "form",
 			"menu": 0,
@@ -28885,7 +28884,14 @@
 			"value": {
 				"en": "Send visit"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 1] }],
+				"pointer": "/submitLabel/text",
+				"value": "Send visit"
+			}
+		]
 	},
 	{
 		"id": "hq-plain/submit-notification-label",

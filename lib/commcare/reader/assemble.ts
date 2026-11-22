@@ -1124,12 +1124,21 @@ function withTranslations(
 				if (language === source) continue;
 				const targets = translations[language];
 				if (targets === undefined) continue;
-				const entry = translationEntryFor(
-					current.valueKind,
-					current.source,
-					value,
-					source,
-				);
+				const entry =
+					current.role === "form-submit-label"
+						? {
+								value,
+								sourceFingerprint: current.sourceFingerprint,
+								origin: "human" as const,
+								review: "reviewed" as const,
+								translatedFrom: source,
+							}
+						: translationEntryFor(
+								current.valueKind,
+								current.source,
+								value,
+								source,
+							);
 				if (entry === undefined) delete targets[unit];
 				else targets[unit] = entry;
 			}

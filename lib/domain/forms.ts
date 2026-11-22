@@ -793,6 +793,10 @@ export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
 export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
+	/** The finish button on Web Apps. An absent source uses the platform's
+	 * default; an explicitly empty source is a button with no text. Other
+	 * languages use the form's submit-label translation unit. */
+	submitLabel: z.strictObject({ text: z.string().optional() }).optional(),
 	entryPoint: formEntryPointSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),

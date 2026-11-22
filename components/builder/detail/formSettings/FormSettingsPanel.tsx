@@ -13,6 +13,7 @@ import { FormEntrySection } from "./FormEntrySection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
 import { OwnCaseSection } from "./OwnCaseSection";
 import { RecordNameSection } from "./RecordNameSection";
+import { SubmitButtonSection } from "./SubmitButtonSection";
 import type { FormSettingsSectionProps } from "./types";
 
 /** Shell prop shape: the standard section props plus a dismiss callback
@@ -65,6 +66,7 @@ export function FormSettingsPanel({
 				<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<SubmitButtonSection formUuid={formUuid} />
 				{!noMatches && (
 					<EntryPointSettingsShortcut
 						target={{ kind: "form", moduleUuid, formUuid }}

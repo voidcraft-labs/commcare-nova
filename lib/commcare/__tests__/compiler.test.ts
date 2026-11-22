@@ -12,7 +12,11 @@ import {
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	makeTranslationUnitId,
+} from "@/lib/domain";
 import {
 	and,
 	eq,
@@ -20,6 +24,7 @@ import {
 	matchNone,
 	sessionUser,
 } from "@/lib/domain/expression";
+import { inSpanish } from "../reader/menus/__tests__/menuReading";
 import {
 	compilerNavigationFixture,
 	temporalSearchFixture,
@@ -506,6 +511,30 @@ describe("the texts HQ's build writes for a list and a form", () => {
 	const textLocale = (block: ReturnType<typeof readXmlEvidence>) =>
 		onlyXml(xmlChildren(onlyXml(xmlChildren(block, "text")), "locale"))
 			.attributes.id;
+
+	it("writes configured form buttons, omits a blank locale key, and builds its fallback", () => {
+		const doc = temporalSearchFixture("legacy");
+		const menu = doc.moduleOrder[0];
+		const formUuid = menu && doc.formOrder[menu]?.[0];
+		const form = formUuid && doc.forms[formUuid];
+		if (!form || !formUuid)
+			throw new Error("Expected a form in the first menu");
+		const localized = inSpanish(
+			{
+				...doc,
+				forms: {
+					...doc.forms,
+					[formUuid]: { ...form, submitLabel: { text: "Send visit" } },
+				},
+			},
+			new Map([[makeTranslationUnitId("form", formUuid, "submit-label"), ""]]),
+		);
+		const { zip } = exported(localized);
+		const key = "forms.m0f0.submit_label";
+		expect(appStrings(zip, "en").get(key)).toBe("Send visit");
+		expect(appStrings(zip, "es").has(key)).toBe(false);
+		expect(appStrings(zip, "default").get(key)).toBe("Send visit");
+	});
 
 	it("gives every short detail its select text, and every language the text and each form's submit label", () => {
 		const doc = temporalSearchFixture("legacy");

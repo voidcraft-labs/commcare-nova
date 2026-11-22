@@ -43,6 +43,7 @@ import {
 } from "@/lib/doc/hooks/useEntity";
 import { useEffectivePostSubmit } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
+import { useFormSubmitWording } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import {
@@ -780,6 +781,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		"name",
 	);
 	const localizedFormName = useLocalizedText(formNameUnitId);
+	const submitLabel = useFormSubmitWording(formUuid, language.language);
 	const formNameEditor = useTranslationUnitEditor(formNameUnitId);
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
@@ -3740,12 +3742,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 												aria-hidden="true"
 											/>
 										)}
-										{runtimeMessage(
-											language.language,
-											submitStatus.kind === "running"
-												? "submitting"
-												: platformRules.submitLabel,
-										)}
+										{submitStatus.kind === "running"
+											? runtimeMessage(language.language, "submitting")
+											: platformRules.submitLabel === "submit" &&
+													form.submitLabel !== undefined
+												? (submitLabel ?? "Submit")
+												: runtimeMessage(
+														language.language,
+														platformRules.submitLabel,
+													)}
 									</button>
 								) : (
 									<button

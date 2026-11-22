@@ -39,6 +39,7 @@ export * from "./fieldDisplay";
 export * from "./fieldForm";
 export * from "./fields";
 export * from "./formLinkTargets";
+export * from "./formSubmitLabel";
 export * from "./forms";
 export * from "./hashtagSegments";
 export * from "./idSlug";
