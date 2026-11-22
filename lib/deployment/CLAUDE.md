@@ -1654,6 +1654,23 @@ hold ends. A bring-in, and a publish before it reads the save counter, poll
 each open media job of the HQ app by its id and settle one HQ reports done
 (`remoteWrites.ts::settleFinishedMediaJobs`).
 
+**A take and a publish share the same target facts.** A publish captures the
+claim and its review generation before contacting HQ, the source it compares,
+the menu and form bindings it compiles, and the recorded IDs of files it will
+send. The final app and media admissions recheck those facts under the
+deployment lock. A semantic take advances the review generation, including a
+changed next-publish setting on an otherwise identical app. A take that adopts
+document changes also records the revision those changes require. An independent
+Nova edit can still follow a compilation. Another project space has its own
+admissions and review generation.
+
+An open import holds a conflicting take until HQ positively acknowledges the
+working-app save that accepted it. A review of that save or a later save can
+land while Nova awaits the import's read-back. An open media job keeps a
+conflicting take waiting until it settles. A review that changes none of these
+facts can complete while an import is open. An expired or returning publisher
+cannot certify an earlier review or send its remaining files over a later one.
+
 **What a write made is recorded on its admission.** Every record of a write
 Nova let out (`recordCreatedRemoteApp`, `recordOrphanedRemoteApp`,
 `recordPushedResources`, `markResourceBaselinesUnread`,
@@ -2390,7 +2407,9 @@ that the move merely succeeded.
 `entryPointManifest.ts` compiles the exact prepared upload snapshot and records
 its entry-point UUID, destination UUIDs, external ID, required selections and
 suite navigation signature. `content_generation` is invalidated before the
-first remote dependency/app write. Completion binds a manifest only to the
+first remote dependency/app write, in the transaction admitting it. An
+attempt that received no write admission leaves existing evidence intact at
+both start and completion. Completion binds a manifest only to the
 same generation and active remote app. Each admission records the deployment's
 current generation when HQ first reports it finished. When all of an earlier
 attempt's writes settled before the current generation, a delayed completion

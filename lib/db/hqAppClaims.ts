@@ -617,6 +617,7 @@ export async function endDeploymentInTransaction(
 /** One write to record in `hq_remote_writes`, as its admission inserts it. */
 export interface RemoteWriteAdmission {
 	readonly claimGeneration?: string;
+	readonly reviewGeneration?: string | null;
 	readonly identityDigest?: string;
 	readonly deploymentId: string;
 	readonly server: string;
@@ -643,8 +644,22 @@ export interface RemoteWriteAdmission {
 export async function admitRemoteWritesInTransaction(
 	tx: Transaction<AppDatabase>,
 	writes: readonly RemoteWriteAdmission[],
+	firstContentGeneration?: string,
 ): Promise<readonly string[]> {
-	if (writes.length === 0) return [];
+	const first = writes[0];
+	if (!first) return [];
+	if (firstContentGeneration !== undefined) {
+		if (!writes.every((write) => write.deploymentId === first.deploymentId))
+			throw new Error("A publish admits content for one deployment.");
+		await tx
+			.updateTable("app_deployments")
+			.set({
+				content_generation: firstContentGeneration,
+				entry_point_manifest: null,
+			})
+			.where("id", "=", first.deploymentId)
+			.executeTakeFirstOrThrow();
+	}
 	const rows = await tx
 		.insertInto("hq_remote_writes")
 		.values(
@@ -652,6 +667,7 @@ export async function admitRemoteWritesInTransaction(
 				deployment_id: write.deploymentId,
 				claim_generation: write.claimGeneration ?? null,
 				identity_digest: write.identityDigest ?? null,
+				review_generation: write.reviewGeneration ?? null,
 				server: write.server,
 				domain: write.domain,
 				app_id: write.appId,

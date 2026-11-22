@@ -687,6 +687,13 @@ export interface AppDeploymentsTable {
  * space, kept precisely so the author can be told it is still there.
  */
 export interface AppDeploymentResourcesTable {
+	/** Changes when a take adopts different target facts on this claim. */
+	review_generation: ColumnType<string | null, never, string | null>;
+	reviewed_nova_revision: ColumnType<
+		string | number | null,
+		never,
+		number | null
+	>;
 	/** Last save a person took on this continuous HQ claim, until a confirmed newer publish. */
 	reviewed_remote_revision: ColumnType<
 		string | number | null,
@@ -863,6 +870,12 @@ export interface HqRemoteWritesTable {
 	/** The continuous mapping claim under which this app import was admitted. */
 	claim_generation: ColumnType<string | null, string | null | undefined, never>;
 	identity_digest: ColumnType<string | null, string | null | undefined, never>;
+	review_generation: ColumnType<
+		string | null,
+		string | null | undefined,
+		never
+	>;
+	accepted_remote_revision: ColumnType<string | number | null, never, number>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
 	server: string;

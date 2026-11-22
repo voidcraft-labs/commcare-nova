@@ -41,6 +41,7 @@ import {
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { ownRecordValue } from "@/lib/domain/records";
 import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import { lockLookupTablesForPublishInTransaction } from "@/lib/lookup/managed";
@@ -447,6 +448,7 @@ function toDeploymentResource(
 		pushedRevision: numberOrNull(row.pushed_revision),
 		pushedAt: isoOrNull(row.pushed_at),
 		pushToken: row.push_token,
+		...(row.review_generation && { reviewGeneration: row.review_generation }),
 		remoteRevision: numberOrNull(row.remote_revision),
 		remoteObservedAt: isoOrNull(row.remote_observed_at),
 		supersededAt: isoOrNull(row.superseded_at),
@@ -948,12 +950,12 @@ export async function readTargetIdentityRows(
  * did not resolve over what the deployment holds now: another write moved it
  * between the read that resolved and this one. Nothing was written.
  */
-export class TargetIdentityWriteInFlightError extends Error {
+export class HqReviewWriteInFlightError extends Error {
 	constructor() {
 		super(
 			"A publish to this project space is still finishing. You can bring these changes in when it finishes.",
 		);
-		this.name = "TargetIdentityWriteInFlightError";
+		this.name = "HqReviewWriteInFlightError";
 	}
 }
 
@@ -994,7 +996,7 @@ export async function writeTargetIdentityInTransaction(
 			.where("write_kind", "in", ["import", "media"])
 			.where(openRemoteWrite)
 			.executeTakeFirst();
-		if (sending) throw new TargetIdentityWriteInFlightError();
+		if (sending) throw new HqReviewWriteInFlightError();
 		// A link checked against the previous addressing of a form is no longer evidence.
 		await tx
 			.updateTable("app_deployments")
@@ -2221,7 +2223,7 @@ export interface RecordRemoteAppInput
 /** An admission belongs to one uninterrupted claim of a particular HQ app.
  * Other imports on that claim are ordered by HQ's own save counter. The
  * mapping's id represents the initial claim without updating existing rows. */
-async function stillHoldsImportedApp(
+async function admittedAppState(
 	tx: Transaction<AppDatabase>,
 	deployment: Pick<Selectable<AppDeploymentsTable>, "id" | "app_id" | "server">,
 	remoteAppId: string,
@@ -2231,24 +2233,25 @@ async function stillHoldsImportedApp(
 				remote_id: string;
 				released_at: Date | null;
 				claim_generation: string | null;
+				review_generation: string | null;
 		  }
 		| undefined,
 	admitted: AdmittedRecord | undefined,
-): Promise<boolean> {
+): Promise<"current" | "review-changed" | "claim-changed"> {
 	const ids = admitted?.writeIds ?? [];
 	if (ids.length === 0) {
 		// A direct record has no prior admission to identify a later claim.
-		return (
-			!mapping ||
+		return !mapping ||
 			(mapping.released_at === null && mapping.claim_generation === null)
-		);
+			? "current"
+			: "claim-changed";
 	}
 	if (
 		!mapping ||
 		mapping.released_at !== null ||
 		mapping.remote_id !== remoteAppId
 	)
-		return false;
+		return "claim-changed";
 	const writes = await tx
 		.selectFrom("hq_remote_writes")
 		.select([
@@ -2256,6 +2259,7 @@ async function stillHoldsImportedApp(
 			"resource_id",
 			"claim_generation",
 			"identity_digest",
+			"review_generation",
 		])
 		.where("id", "in", ids)
 		.where("deployment_id", "=", deployment.id)
@@ -2266,15 +2270,20 @@ async function stillHoldsImportedApp(
 		server: deployment.server,
 	});
 	const digest = canonicalJsonDigest(identity);
-	return (
+	const held =
 		writes.filter((write) => write.write_kind === "import").length === 1 &&
 		writes.every(
 			(write) =>
 				write.identity_digest === digest &&
 				write.resource_id === remoteAppId &&
 				write.claim_generation === (mapping.claim_generation ?? mapping.id),
-		)
-	);
+		);
+	if (!held) return "claim-changed";
+	return writes.every(
+		(write) => write.review_generation === mapping.review_generation,
+	)
+		? "current"
+		: "review-changed";
 }
 
 /**
@@ -2330,6 +2339,7 @@ export async function recordRemoteResource(
 					"reviewed_remote_revision",
 					"released_at",
 					"claim_generation",
+					"review_generation",
 				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", input.kind)
@@ -2339,10 +2349,17 @@ export async function recordRemoteResource(
 			// A second publish on this same claim may already have recorded.
 			// Its HQ counter below orders the two. A release and reclaim retires
 			// the admission even if the remote id, source and counter all match.
-			if (
-				!(await stillHoldsImportedApp(tx, row, input.remoteId, live, admitted))
-			)
+			const authority = await admittedAppState(
+				tx,
+				row,
+				input.remoteId,
+				live,
+				admitted,
+			);
+			if (authority === "claim-changed")
 				return { ...(await answer(null)), obsoleteClaim: true };
+			if (authority === "review-changed")
+				return { ...(await answer(null)), retainedTake: true };
 			const recorded =
 				live === undefined ? null : numberOrNull(live.pushed_remote_revision);
 			if (
@@ -2609,6 +2626,13 @@ export async function admitAppWrite(
 		readonly remoteAppId: string;
 		readonly observedPushToken: string;
 		readonly compiledIdentity: TargetIdentity;
+		readonly firstContentGeneration?: string;
+		readonly comparedReview?: string | null;
+		readonly comparedSource?: string | null;
+		readonly comparedFiles?: {
+			readonly files: HqMediaRecord | null;
+			readonly paths: readonly string[];
+		};
 	} & (
 			| { readonly writeKind: "import"; readonly compiledAtSeq: number }
 			| { readonly writeKind: "media"; readonly compiledAtSeq?: number }
@@ -2634,6 +2658,8 @@ export async function admitAppWrite(
 			.select([
 				"id",
 				"claim_generation",
+				"review_generation",
+				"reviewed_nova_revision",
 				"remote_id",
 				"released_at",
 				"push_token",
@@ -2646,7 +2672,11 @@ export async function admitAppWrite(
 			live === undefined ||
 			live.remote_id !== input.remoteAppId ||
 			live.released_at !== null ||
-			live.push_token !== input.observedPushToken
+			live.push_token !== input.observedPushToken ||
+			live.review_generation !== (input.comparedReview ?? null) ||
+			(input.writeKind === "import" &&
+				live.reviewed_nova_revision !== null &&
+				Number(live.reviewed_nova_revision) > input.compiledAtSeq)
 		) {
 			return { kind: "mapping-moved" };
 		}
@@ -2656,28 +2686,61 @@ export async function admitAppWrite(
 				input.compiledAtSeq
 		)
 			return { kind: "fold-moved" };
+		if (
+			input.comparedSource !== undefined ||
+			input.comparedFiles?.paths.length
+		) {
+			const baseline = await tx
+				.selectFrom("app_deployment_baselines")
+				.select(["source_digest", "media_files"])
+				.where("deployment_id", "=", row.id)
+				.where("remote_app_id", "=", input.remoteAppId)
+				.executeTakeFirst();
+			if (
+				input.comparedSource !== undefined &&
+				(baseline?.source_digest ?? null) !== input.comparedSource
+			)
+				return { kind: "mapping-moved" };
+			const compared = input.comparedFiles;
+			if (compared?.paths.length) {
+				const current = storedMediaFiles(row.id, baseline?.media_files ?? null);
+				if (
+					compared.paths.some(
+						(path) =>
+							ownRecordValue(compared.files ?? undefined, path) !==
+							ownRecordValue(current ?? undefined, path),
+					)
+				)
+					return { kind: "mapping-moved" };
+			}
+		}
 		const identity = await readTargetIdentityRows(tx, row.id, {
 			appId: scope.appId,
 			server: target.server,
 		});
 		if (!sameTargetIdentity(input.compiledIdentity, identity))
 			return { kind: "mapping-moved" };
-		const [writeId] = await admitRemoteWritesInTransaction(tx, [
-			{
-				deploymentId: row.id,
-				server: target.server,
-				domain: target.domain,
-				appId: scope.appId,
-				projectId: scope.projectId,
-				actorUserId: scope.actorUserId,
-				resourceKind: "app",
-				claimGeneration: live.claim_generation ?? live.id,
-				identityDigest: canonicalJsonDigest(identity),
-				resourceId: input.remoteAppId,
-				writeKind: input.writeKind,
-				holdSeconds: REMOTE_WRITE_HOLD_SECONDS[input.writeKind],
-			},
-		]);
+		const [writeId] = await admitRemoteWritesInTransaction(
+			tx,
+			[
+				{
+					deploymentId: row.id,
+					server: target.server,
+					domain: target.domain,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					actorUserId: scope.actorUserId,
+					resourceKind: "app",
+					claimGeneration: live.claim_generation ?? live.id,
+					identityDigest: canonicalJsonDigest(identity),
+					reviewGeneration: live.review_generation,
+					resourceId: input.remoteAppId,
+					writeKind: input.writeKind,
+					holdSeconds: REMOTE_WRITE_HOLD_SECONDS[input.writeKind],
+				},
+			],
+			input.firstContentGeneration,
+		);
 		if (writeId === undefined) {
 			throw new Error("An admitted write to CommCare HQ returned no id.");
 		}
@@ -2695,27 +2758,31 @@ export async function admitAppWrite(
 export async function admitAppCreate(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	fence: DeploymentFence,
+	fence: DeploymentFence & { readonly firstContentGeneration?: string },
 ): Promise<string> {
 	return withDeploymentRow(
 		scope,
 		target,
 		{ ensure: false, expectedEndings: fence.expectedEndings },
 		async (tx, row) => {
-			const [writeId] = await admitRemoteWritesInTransaction(tx, [
-				{
-					deploymentId: row.id,
-					server: target.server,
-					domain: target.domain,
-					appId: scope.appId,
-					projectId: scope.projectId,
-					actorUserId: scope.actorUserId,
-					resourceKind: "app",
-					resourceId: null,
-					writeKind: "create",
-					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.create,
-				},
-			]);
+			const [writeId] = await admitRemoteWritesInTransaction(
+				tx,
+				[
+					{
+						deploymentId: row.id,
+						server: target.server,
+						domain: target.domain,
+						appId: scope.appId,
+						projectId: scope.projectId,
+						actorUserId: scope.actorUserId,
+						resourceKind: "app",
+						resourceId: null,
+						writeKind: "create",
+						holdSeconds: REMOTE_WRITE_HOLD_SECONDS.create,
+					},
+				],
+				fence.firstContentGeneration,
+			);
 			if (writeId === undefined) {
 				throw new Error("An admitted create on CommCare HQ returned no id.");
 			}
@@ -2745,7 +2812,10 @@ export type WorkbookAdmission =
 export async function admitWorkbookWrite(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: DeploymentFence & { readonly tableIds: readonly string[] },
+	input: DeploymentFence & {
+		readonly firstContentGeneration?: string;
+		readonly tableIds: readonly string[];
+	},
 ): Promise<WorkbookAdmission> {
 	return withDeploymentRow(
 		scope,
@@ -2782,6 +2852,7 @@ export async function admitWorkbookWrite(
 					writeKind: "workbook" as const,
 					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.workbook,
 				})),
+				input.firstContentGeneration,
 			);
 			return { kind: "admitted", writeIds };
 		},
@@ -2798,7 +2869,10 @@ export async function admitWorkbookWrite(
 export async function admitPlacesWrite(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: DeploymentFence & { readonly locationUuids: readonly string[] },
+	input: DeploymentFence & {
+		readonly firstContentGeneration?: string;
+		readonly locationUuids: readonly string[];
+	},
 ): Promise<readonly string[]> {
 	return withDeploymentRow(
 		scope,
@@ -2819,6 +2893,7 @@ export async function admitPlacesWrite(
 					writeKind: "places" as const,
 					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.places,
 				})),
+				input.firstContentGeneration,
 			),
 	);
 }
@@ -2828,6 +2903,30 @@ export type RemoteWriteSettlement =
 	| { readonly kind: "settled"; readonly resourceId?: string }
 	| { readonly kind: "unanswered"; readonly resourceId?: string }
 	| { readonly kind: "media-job"; readonly jobId: string };
+
+/** The HQ working-app save that definitively accepted this admission. The
+ * hold remains open until the publisher stores its read-back. Old writers
+ * and responses without a counter leave it unknown. */
+export async function recordImportAcknowledgement(
+	writeId: string,
+	remoteAppId: string,
+	version: number,
+): Promise<void> {
+	const db = await getAppDb();
+	await db
+		.updateTable("hq_remote_writes")
+		.set({
+			accepted_remote_revision: version,
+			settled_generation: sql<
+				string | null
+			>`(SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id)`,
+		})
+		.where("id", "=", writeId)
+		.where("write_kind", "=", "import")
+		.where("resource_id", "=", remoteAppId)
+		.where("accepted_remote_revision", "is", null)
+		.execute();
+}
 
 /**
  * Say how a write ended, once its process knows: `settled` where CommCare HQ
@@ -2868,9 +2967,9 @@ async function settleRemoteWritesIn(
 						// is ordered after it, including after transfer to a new claim.
 						settled_generation: sql<
 							string | null
-						>`CASE WHEN settled_at IS NULL THEN (
+						>`CASE WHEN settled_at IS NULL THEN COALESCE(settled_generation, (
 						SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id
-					) ELSE settled_generation END`,
+					)) ELSE settled_generation END`,
 					}
 				: {
 						held_until: sql<Date>`greatest(opened_at, now() + make_interval(secs => ${holdSeconds}))`,
@@ -3195,6 +3294,20 @@ export async function recordRefreshedAppBaseline(
 					}
 				}
 			}
+			const nextList =
+				input.nextPublish === undefined || storedList?.of === "first-publish"
+					? storedList
+					: hqChangesFirstPublishList(storedList, input.nextPublish);
+			const changed =
+				stored.source_digest !== input.read.sourceDigest ||
+				(media !== undefined &&
+					hqMediaRecordMoves(currentMedia, media.files)) ||
+				!deepEqual(storedList, nextList) ||
+				(input.targetIdentity !== undefined &&
+					!sameTargetIdentity(
+						input.targetIdentity.read,
+						input.targetIdentity.next,
+					));
 			await writeAppBaseline(
 				tx,
 				row.id,
@@ -3223,10 +3336,7 @@ export async function recordRefreshedAppBaseline(
 							? { kind: "keep" }
 							: {
 									kind: "set",
-									list: hqChangesFirstPublishList(
-										storedList,
-										input.nextPublish,
-									),
+									list: nextList,
 								},
 				},
 				{
@@ -3245,6 +3355,7 @@ export async function recordRefreshedAppBaseline(
 					row.id,
 					input.remoteAppId,
 					input.reviewedVersion,
+					changed,
 				);
 			await notifyAppDeployments(tx, scope.appId);
 			return {
@@ -3320,6 +3431,7 @@ export async function recordDeploymentMediaFiles(
 					"r.remote_id",
 					"r.released_at",
 					"r.claim_generation",
+					"r.review_generation",
 				])
 				.where("b.deployment_id", "=", row.id)
 				.where("b.remote_app_id", "=", input.remoteAppId)
@@ -3338,13 +3450,13 @@ export async function recordDeploymentMediaFiles(
 				return "superseded";
 			if (
 				input.admitted?.writeIds.length &&
-				!(await stillHoldsImportedApp(
+				(await admittedAppState(
 					tx,
 					row,
 					input.remoteAppId,
 					baseline,
 					input.admitted,
-				))
+				)) !== "current"
 			)
 				return "superseded";
 			const current = storedMediaFiles(row.id, baseline.media_files);
@@ -3591,10 +3703,38 @@ async function markReviewedSave(
 	deploymentId: string,
 	remoteAppId: string,
 	version: number,
+	changed: boolean,
+	reviewedNovaRevision?: number,
 ) {
+	if (changed) {
+		// An HTTP request can still be about to send even though its admission
+		// is already durable. Only HQ's positive acknowledgement orders an
+		// outstanding import before this review. A media job has no such save.
+		const pending = await tx
+			.selectFrom("hq_remote_writes")
+			.select("id")
+			.where("deployment_id", "=", deploymentId)
+			.where("resource_id", "=", remoteAppId)
+			.where("write_kind", "in", ["import", "media"])
+			.where(openRemoteWrite)
+			.where((eb) =>
+				eb.or([
+					eb("accepted_remote_revision", "is", null),
+					eb("accepted_remote_revision", ">", version),
+				]),
+			)
+			.executeTakeFirst();
+		if (pending) throw new HqReviewWriteInFlightError();
+	}
 	await tx
 		.updateTable("app_deployment_resources")
-		.set({ reviewed_remote_revision: version })
+		.set({
+			reviewed_remote_revision: version,
+			...(changed && { review_generation: crypto.randomUUID() }),
+			...(reviewedNovaRevision !== undefined && {
+				reviewed_nova_revision: reviewedNovaRevision,
+			}),
+		})
 		.where("deployment_id", "=", deploymentId)
 		.where("kind", "=", "app")
 		.where("remote_id", "=", remoteAppId)
@@ -3721,6 +3861,8 @@ async function recordHqChangesInTransaction(
 		deploymentId,
 		input.remoteAppId,
 		input.reviewedVersion,
+		true,
+		novaRevision,
 	);
 
 	// 3. Where CommCare HQ keeps the app's menus, forms, keyed creates and files.
@@ -5352,7 +5494,11 @@ export async function finishDeploymentContentWrite(
 			writeKinds: ["create", "import", "media", "workbook", "places"],
 		},
 		async (tx, row) => {
-			if (row.endings !== fence.expectedEndings) return false;
+			if (
+				row.endings !== fence.expectedEndings ||
+				admitted?.writeIds.length === 0
+			)
+				return false;
 			if (row.content_generation !== generation) {
 				const ids = admitted?.writeIds ?? [];
 				const currentGeneration = row.content_generation;
@@ -5384,7 +5530,13 @@ export async function finishDeploymentContentWrite(
 			}
 			const active = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["id", "remote_id", "released_at", "claim_generation"])
+				.select([
+					"id",
+					"remote_id",
+					"released_at",
+					"claim_generation",
+					"review_generation",
+				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("superseded_at", "is", null)
@@ -5392,13 +5544,13 @@ export async function finishDeploymentContentWrite(
 			const accepted =
 				manifest !== null &&
 				active?.remote_id === manifest.remoteAppId &&
-				(await stillHoldsImportedApp(
+				(await admittedAppState(
 					tx,
 					row,
 					manifest.remoteAppId,
 					active,
 					admitted,
-				));
+				)) === "current";
 			await tx
 				.updateTable("app_deployments")
 				.set({

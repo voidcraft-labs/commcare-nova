@@ -1454,6 +1454,11 @@ export async function runDeploymentPreflight(
 	} | null = null;
 	if (input.inPlaceUpdate !== null) {
 		const appId = input.inPlaceUpdate.remoteId;
+		/* A baseline of another HQ app than the one mapped now says nothing
+		 * about this one, so it reads as no baseline at all. */
+		const stored = await readAppBaseline(input.access, target);
+		appBaseline = stored?.remoteAppId === appId ? stored : null;
+
 		/* The save counter just before the source, so the import's
 		 * acknowledgement says whether a save fell between this read and the
 		 * import. A media job of an earlier publish that HQ has finished is
@@ -1563,11 +1568,6 @@ export async function runDeploymentPreflight(
 			normalized: normalized.normalized,
 			saveCounter,
 		};
-
-		/* A baseline of another HQ app than the one mapped now says nothing
-		 * about this one, so it reads as no baseline at all. */
-		const stored = await readAppBaseline(input.access, target);
-		appBaseline = stored?.remoteAppId === appId ? stored : null;
 
 		/* The file at each path this publish sends, against the one Nova
 		 * recorded there, by id; a path the id alone cannot vouch for is

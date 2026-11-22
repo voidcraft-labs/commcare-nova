@@ -91,12 +91,12 @@ import {
 	type DeploymentTargetKey,
 	HqChangesBaselineMovedError,
 	type HqChangesTaken,
+	HqReviewWriteInFlightError,
 	readDeployment,
 	readFirstPublishStates,
 	readMemberNames,
 	recordHqChangesTaken,
 	recordRefreshedAppBaseline,
-	TargetIdentityWriteInFlightError,
 	withDeploymentReadSnapshot,
 } from "../store";
 import { exportIdentityOf } from "../targetIdentity";
@@ -312,7 +312,7 @@ async function bringInInRoom(
 			),
 		);
 	} catch (error) {
-		if (error instanceof TargetIdentityWriteInFlightError)
+		if (error instanceof HqReviewWriteInFlightError)
 			return answered({ kind: "refused", message: error.message });
 		if (error instanceof DeploymentEndedError)
 			return answered({

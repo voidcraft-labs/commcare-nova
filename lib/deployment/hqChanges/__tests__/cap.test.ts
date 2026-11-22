@@ -99,6 +99,7 @@ vi.mock("../../store", () => ({
 	recordHqChangesTaken: vi.fn(async () => {}),
 	recordRefreshedAppBaseline: vi.fn(),
 	HqChangesBaselineMovedError: class extends Error {},
+	HqReviewWriteInFlightError: class extends Error {},
 }));
 vi.mock("../../resources", () => ({
 	activeRemoteApp: vi.fn(),

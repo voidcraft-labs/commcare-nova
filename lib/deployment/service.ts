@@ -165,7 +165,6 @@ import {
 	admitPlacesWrite,
 	admitWorkbookWrite,
 	applyDeploymentObservation,
-	beginDeploymentContentWrite,
 	type DeploymentFence,
 	type DeploymentReadSnapshot,
 	type DeploymentScope,
@@ -188,6 +187,7 @@ import {
 	readTargetIdentity,
 	recordCreatedRemoteApp,
 	recordDeploymentMediaFiles,
+	recordImportAcknowledgement,
 	recordOrphanedRemoteApp,
 	recordPushedResources,
 	recordRefreshedAppBaseline,
@@ -796,7 +796,6 @@ export async function publishAppToHq(
 	let moved = 0;
 	const placements = (): PublishPlacements => ({ recorded, moved });
 	let phase: DrivenDeploymentPhase = "preflight";
-	let sent = false;
 	/* Every write this publish let out to CommCare HQ, by its admission: the
 	 * records of what they made rest on these, not on the app staying live or
 	 * its publisher keeping edit (`store.ts::withRecordRow`). */
@@ -1123,11 +1122,8 @@ export async function publishAppToHq(
 		 * carrier. */
 		const bulkAssets = bulkUploadAssets(prepared.doc, prepared.assets);
 		const published = publishedMediaFiles(bulkAssets);
-		const contentGeneration = await beginDeploymentContentWrite(
-			input.scope,
-			target,
-			fence,
-		);
+		// This generation becomes durable only if a write is admitted.
+		const contentGeneration = crypto.randomUUID();
 		let entryPointManifest: PublishedEntryPointManifest | null = null;
 		try {
 			input.onUploadStarted?.();
@@ -1235,6 +1231,7 @@ export async function publishAppToHq(
 			/* HQ's save counter just before the read the import is built over:
 			 * a single increment proves the import replaced that read. */
 			let counterBeforeRead: number;
+			let comparedSource: string | null | undefined;
 			if (targetApp === null) {
 				const shellBody = hqImportApplication({
 					prepared,
@@ -1248,9 +1245,11 @@ export async function publishAppToHq(
 				});
 				/* The create crosses no claim, but its record keeps a Project
 				 * move waiting while it may still land. */
-				const createWrite = await admitAppCreate(input.scope, target, fence);
+				const createWrite = await admitAppCreate(input.scope, target, {
+					...fence,
+					firstContentGeneration: contentGeneration,
+				});
 				letOut.push(createWrite);
-				sent = true;
 				const created = await importApp(
 					creds,
 					domain,
@@ -1403,6 +1402,7 @@ export async function publishAppToHq(
 				appId = created.appId;
 				importMapping = activeRemoteApp(deployment);
 				source = read.source;
+				comparedSource = createBaseline.write.sourceDigest;
 				heldRead = createBaseline.normalized;
 				heldOwnership = shellBody.ownership;
 				shell = true;
@@ -1412,6 +1412,12 @@ export async function publishAppToHq(
 				importMapping = inPlaceUpdate;
 				source = targetApp.source;
 				counterBeforeRead = targetApp.saveCounter;
+				comparedSource =
+					appBaseline === null
+						? null
+						: appBaseline.origin === "unread"
+							? undefined
+							: appBaseline.sourceDigest;
 				heldRead = targetApp.normalized;
 				heldOwnership =
 					appBaseline === null || appBaseline.origin === "unread"
@@ -1434,7 +1440,6 @@ export async function publishAppToHq(
 			// resumable without re-importing anything.
 			const resourceWarnings: string[] = [];
 			if (lookupPush !== null) {
-				sent = true;
 				const pushed = await pushLookupTables(
 					input.scope,
 					target,
@@ -1444,6 +1449,7 @@ export async function publishAppToHq(
 					createdApp,
 					confirmedChanges,
 					fence,
+					contentGeneration,
 					letOut,
 				);
 				if (pushed.readBackFailed) {
@@ -1465,7 +1471,6 @@ export async function publishAppToHq(
 			 * that a partial publish always stops at the same rung and a retry
 			 * always resumes at the same one. */
 			if (locationPush !== null) {
-				sent = true;
 				const pushed = await pushLocations(
 					input.scope,
 					target,
@@ -1475,6 +1480,7 @@ export async function publishAppToHq(
 					createdApp,
 					confirmedChanges,
 					fence,
+					contentGeneration,
 					letOut,
 				);
 				if (
@@ -1680,11 +1686,20 @@ export async function publishAppToHq(
 			 * immediately before it goes: an ending since stops the publish
 			 * here, and no other Nova app is granted the HQ app until the import
 			 * has settled. */
+			const comparedFiles = {
+				files: appBaseline?.mediaFiles ?? null,
+				paths: published.map((file) => file.wirePath),
+			};
 			const importAdmission = await admitAppWrite(input.scope, target, {
+				firstContentGeneration:
+					letOut.length === 0 ? contentGeneration : undefined,
 				compiledIdentity: targetIdentity,
 				...fence,
 				remoteAppId: appId,
 				observedPushToken: importMapping.pushToken,
+				comparedReview: importMapping.reviewGeneration ?? null,
+				comparedSource,
+				comparedFiles,
 				writeKind: "import",
 				compiledAtSeq: seq,
 			});
@@ -1693,7 +1708,6 @@ export async function publishAppToHq(
 			}
 			const importWrite = importAdmission.writeId;
 			letOut.push(importWrite);
-			sent = true;
 			const result = await importApp(
 				creds,
 				domain,
@@ -1725,6 +1739,23 @@ export async function publishAppToHq(
 					details: [],
 				});
 			}
+
+			// A review can now order the import against the save it read, even
+			// if the publisher is still waiting for the verification read below.
+			if (result.version !== null && result.appId === appId)
+				await recordImportAcknowledgement(
+					importWrite,
+					result.appId,
+					result.version,
+				).catch((error: unknown) => {
+					// Its open hold still fences a conflicting review. Continue to
+					// record the import that HQ accepted, including its read-back.
+					log.error(
+						"[deployment] could not order the import before an HQ review",
+						error,
+						{ appId: input.scope.appId },
+					);
+				});
 
 			// ── Read it back: the next publish compares with this ───────────
 			// Before the media upload, which moves nothing the comparison reads.
@@ -1893,6 +1924,11 @@ export async function publishAppToHq(
 					...fence,
 					remoteAppId: result.appId,
 					observedPushToken: imported.pushToken,
+					comparedReview: importMapping.reviewGeneration ?? null,
+					comparedSource:
+						imported.laterObservation?.digest ??
+						pushBaseline.write.sourceDigest,
+					comparedFiles,
 					writeKind: "media",
 				}).catch((error: unknown) => {
 					if (error instanceof DeploymentEndedError)
@@ -2069,7 +2105,7 @@ export async function publishAppToHq(
 		if (!(error instanceof DeploymentEndedError)) throw error;
 		return publishingStoppedOutcome(input, target, {
 			phase,
-			sent,
+			sent: letOut.length > 0,
 			doc,
 			...checked,
 			placements: placements(),
@@ -2563,6 +2599,7 @@ async function pushLookupTables(
 	createdApp: boolean,
 	confirmed: readonly DeploymentRemoteChange[],
 	fence: DeploymentFence,
+	contentGeneration: string,
 	letOut: string[],
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
@@ -2593,6 +2630,7 @@ async function pushLookupTables(
 	 * person chose to leave there, so nothing is sent; otherwise a hand-back
 	 * of any table the workbook carries waits until the upload has settled. */
 	const admission = await admitWorkbookWrite(scope, target, {
+		firstContentGeneration: letOut.length === 0 ? contentGeneration : undefined,
 		...fence,
 		tableIds: plan.pushes.map((push) => push.tableId),
 	});
@@ -2950,6 +2988,7 @@ async function pushLocations(
 	createdApp: boolean,
 	confirmed: readonly DeploymentRemoteChange[],
 	fence: DeploymentFence,
+	contentGeneration: string,
 	letOut: string[],
 ): Promise<{
 	readonly failure: DeploymentFailure | null;
@@ -3113,6 +3152,8 @@ async function pushLocations(
 		let batchWrites: readonly string[];
 		try {
 			batchWrites = await admitPlacesWrite(scope, target, {
+				firstContentGeneration:
+					letOut.length === 0 ? contentGeneration : undefined,
 				...fence,
 				locationUuids: batch.map((push) => push.locationUuid),
 			});

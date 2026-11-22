@@ -115,6 +115,14 @@ transition retires the completed or pending entry-point manifest and observation
 rows remain untouched during schema installation. An old admission with no
 recorded claim cannot certify an import or its manifest on the new writer.
 The cutover drains live old writers, and restores code and database together.
+The mapping's `review_generation` identifies the target facts the last
+semantic take accepted. App and media admissions save that generation;
+an unchanged review retains it. A take of app content also records its
+`reviewed_nova_revision`. The claim trigger resets both when a claim changes.
+An import's `accepted_remote_revision` is written when HQ returns the
+working-app save that accepted it. Its hold continues through read-back and
+recording. During the hold, an earlier or unordered review cannot accept a
+conflicting change. Legacy rows start with no such acknowledgement.
 `app_deployment_resources.remote_missing_at` is the "CommCare HQ reports this
 app gone" fact, outside the push-token trigger's column list, so writing it
 rotates no push token.

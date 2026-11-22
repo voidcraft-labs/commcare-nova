@@ -3123,6 +3123,127 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 	);
 
 	it.each([
+		["before admission", "content"],
+		["before admission", "pending setting"],
+		["after admission", "content"],
+		["after admission", "pending setting"],
+		["before admission", "unchanged"],
+		["after admission", "unchanged"],
+	] as const)(
+		"orders the HQ take %s for %s",
+		async (order, change) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const actor = scope(appId);
+			const base = emission(doc, 2).source;
+			expect(
+				(await publishOver(appId, base, true, base, 2)).outcome.landed,
+			).toBe(true);
+			const next =
+				change === "content" ? clinic({ appName: "Name chosen in HQ" }) : doc;
+			const saved =
+				change === "pending setting"
+					? withLocationList(emission(next, 4), "both_fixtures")
+					: emission(next, change === "unchanged" ? 3 : 4);
+			const review = await withHttpPeer(async (peer) => {
+				serveEmission(peer, saved, 1, change !== "unchanged");
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			});
+			if (change === "unchanged")
+				expect(review).toMatchObject({
+					kind: "nothing",
+					readingId: null,
+					reviewDigest: null,
+				});
+			const take = () =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, saved, 1, change !== "unchanged");
+					if (change === "unchanged") {
+						const same = await reviewHqChanges(actor, KEY_TARGET, {
+							onEvent: () => {},
+						});
+						expect(same).toMatchObject({
+							kind: "nothing",
+							readingId: null,
+							reviewDigest: null,
+						});
+						return same;
+					}
+					if (
+						(review.kind !== "changes" && review.kind !== "nothing") ||
+						!review.readingId ||
+						!review.reviewDigest
+					)
+						throw new Error("Expected a review of the editor’s save.");
+					const approval = {
+						readingId: review.readingId,
+						reviewDigest: review.reviewDigest,
+						tableChoices: {},
+					};
+					return bringInHqChanges(actor, KEY_TARGET, approval, {
+						onEvent: () => {},
+					});
+				});
+			const admit = deploymentStore.admitAppWrite;
+			let taken: Awaited<ReturnType<typeof take>> | undefined;
+			const hook = vi
+				.spyOn(deploymentStore, "admitAppWrite")
+				.mockImplementationOnce(async (...args) => {
+					if (order === "before admission") {
+						taken = await take();
+						return admit(...args);
+					}
+					const held = await admit(...args);
+					expect(held.kind).toBe("admitted");
+					taken = await take();
+					return held;
+				});
+			try {
+				const stale = order === "before admission" && change !== "unchanged";
+				const result = await publishOver(appId, base, !stale, base, 3);
+				expect(taken?.kind).toBe(
+					change === "unchanged"
+						? "nothing"
+						: order === "after admission"
+							? "refused"
+							: change === "content"
+								? "brought-in"
+								: "recorded",
+				);
+				expect(
+					result.requests.filter(
+						(request) => request === `POST ${IMPORT_PATH}`,
+					),
+				).toHaveLength(stale ? 0 : 1);
+				expect(result.imported).toHaveLength(stale ? 0 : 1);
+				expect(result.outcome.landed).toBe(!stale);
+				expect(await headDocOf(appId)).toMatchObject({
+					appName: stale ? next.appName : doc.appName,
+				});
+				if (stale) {
+					if (change === "pending setting")
+						expect((await baselineOfApp()).first_publish_changes).toMatchObject(
+							{ ids: ["location-list-setting-reset"] },
+						);
+					const fresh = await publishOver(
+						appId,
+						saved.source,
+						true,
+						emission(next, 5).source,
+						4,
+					);
+					expect(fresh.outcome.refusal).toBeNull();
+					expect(fresh.imported).toHaveLength(1);
+					expect(fresh.imported[0]).toMatchObject({ name: next.appName });
+				}
+			} finally {
+				hook.mockRestore();
+			}
+		},
+		30_000,
+	);
+
+	it.each([
 		"newer take",
 		"same app with a pending setting",
 		"same save",

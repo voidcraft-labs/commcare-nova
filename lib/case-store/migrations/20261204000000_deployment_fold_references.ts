@@ -45,15 +45,15 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	// The row id identifies a mapping's first claim. Only giving up or
 	// reclaiming that HQ app starts another claim. A same-claim publish
 	// continues to rotate its own push token independently.
-	await sql`ALTER TABLE public.app_deployment_resources ADD COLUMN IF NOT EXISTS claim_generation uuid, ADD COLUMN IF NOT EXISTS reviewed_remote_revision bigint;
-		ALTER TABLE public.hq_remote_writes ADD COLUMN IF NOT EXISTS claim_generation uuid, ADD COLUMN IF NOT EXISTS identity_digest text, ADD COLUMN IF NOT EXISTS settled_generation uuid;
+	await sql`ALTER TABLE public.app_deployment_resources ADD COLUMN IF NOT EXISTS claim_generation uuid, ADD COLUMN IF NOT EXISTS reviewed_remote_revision bigint, ADD COLUMN IF NOT EXISTS review_generation uuid, ADD COLUMN IF NOT EXISTS reviewed_nova_revision bigint;
+		ALTER TABLE public.hq_remote_writes ADD COLUMN IF NOT EXISTS claim_generation uuid, ADD COLUMN IF NOT EXISTS identity_digest text, ADD COLUMN IF NOT EXISTS settled_generation uuid, ADD COLUMN IF NOT EXISTS review_generation uuid, ADD COLUMN IF NOT EXISTS accepted_remote_revision bigint;
 		CREATE OR REPLACE FUNCTION public.rotate_deployment_push_token() RETURNS trigger
 		LANGUAGE plpgsql SET search_path = pg_catalog AS $rotate$
 		BEGIN
 			NEW.push_token := uuidv7();
 			IF TG_NARGS = 1 AND TG_ARGV[0] = 'claim' THEN
 				NEW.claim_generation := NEW.push_token;
-				NEW.reviewed_remote_revision := NULL; NEW.pushed_remote_revision := NULL;
+				NEW.review_generation := NULL; NEW.reviewed_nova_revision := NULL; NEW.reviewed_remote_revision := NULL; NEW.pushed_remote_revision := NULL;
 				UPDATE public.app_deployments SET content_generation = uuidv7(),
 					entry_point_manifest = NULL, entry_point_observation = NULL WHERE id = NEW.deployment_id;
 			END IF;

@@ -4,7 +4,10 @@ import AdmZip from "adm-zip";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
-import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import {
+	readHttpRequestBody,
+	withHttpPeer,
+} from "@/__tests__/helpers/httpPeer";
 import { applicationAnswer } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -18,6 +21,8 @@ import {
 	birthAdoptedApp,
 } from "@/lib/deployment/__tests__/adoptedBirth";
 import { publishedEntryPoints } from "@/lib/deployment/entryPointManifest";
+import { publishAppToHq } from "@/lib/deployment/service";
+import * as deploymentStore from "@/lib/deployment/store";
 import {
 	admitAppWrite,
 	beginDeploymentContentWrite,
@@ -31,6 +36,9 @@ import {
 } from "@/lib/deployment/store";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
+import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
+import { CORPUS_COMMCARE_VERSION } from "@/proof/corpus/configurations";
+import { TargetPeer } from "@/proof/corpus/targetPeer";
 import { loadAppBlueprint } from "../loadApp";
 import { registerGetEntryPointLink } from "../tools/getEntryPointLink";
 import { withMcpClient } from "./client";
@@ -129,19 +137,39 @@ function released(
 	suite: string,
 	options: {
 		profile?: string;
+		workingVersion?: number;
 		suiteStatus?: number;
 	} = {},
 ) {
 	available(peer);
-	reply(peer, PATH.versions, VERSIONS);
+	const versions =
+		options.workingVersion === undefined
+			? VERSIONS
+			: {
+					currentVersion: options.workingVersion,
+					latestBuild: options.workingVersion,
+					latestReleasedBuild: options.workingVersion,
+				};
+	reply(peer, PATH.versions, versions);
 	reply(
 		peer,
 		PATH.builds,
-		applicationAnswer("working-app", [
-			{ id: "newer-unreleased", version: 5, is_released: false },
-			{ id: "released-build", version: 3, is_released: true },
-			{ id: "older-released", version: 2, is_released: true },
-		]).body,
+		applicationAnswer(
+			"working-app",
+			options.workingVersion === undefined
+				? [
+						{ id: "newer-unreleased", version: 5, is_released: false },
+						{ id: "released-build", version: 3, is_released: true },
+						{ id: "older-released", version: 2, is_released: true },
+					]
+				: [
+						{
+							id: "released-build",
+							version: options.workingVersion,
+							is_released: true,
+						},
+					],
+		).body,
 	);
 	reply(peer, PATH.profile, options.profile ?? PROFILE);
 	reply(peer, PATH.suite, suite, options.suiteStatus ?? 200);
@@ -211,7 +239,11 @@ async function seed(publish = true) {
 		})
 		.execute();
 	const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
-	if (!publish) return { suite: "", generation: "" };
+	const app = expandDoc(loaded.doc, { runtimeTarget: RUNTIME });
+	const suite = new AdmZip(
+		compileCcz(app, doc.appName, loaded.doc, { runtimeTarget: RUNTIME }),
+	).readAsText("suite.xml");
+	if (!publish) return { suite, generation: "" };
 	const exported = await prepareExportBoundary({
 		mode: "hq-upload",
 		access: loaded.access,
@@ -220,7 +252,6 @@ async function seed(publish = true) {
 		attachmentTarget: null,
 	});
 	if (!exported.ok) throw new Error(JSON.stringify(exported.violations));
-	const app = expandDoc(loaded.doc, { runtimeTarget: RUNTIME });
 	const entries = publishedEntryPoints(
 		exported.prepared,
 		app,
@@ -237,9 +268,6 @@ async function seed(publish = true) {
 			argumentId: "selected_cases",
 		},
 	]);
-	const suite = new AdmZip(
-		compileCcz(app, doc.appName, loaded.doc, { runtimeTarget: RUNTIME }),
-	).readAsText("suite.xml");
 	await foldDeploymentAttempt(
 		SCOPE,
 		TARGET,
@@ -335,6 +363,127 @@ it("returns the working-app URL only after exact released resources match and th
 	});
 	expect(vi.mocked(decrypt).mock.calls).toEqual([["ciphertext"]]);
 });
+
+it("keeps a member’s released link when an overlapping publisher sent nothing", async () => {
+	const { suite } = await seed(false);
+	const model = new TargetPeer({
+		credentials: {
+			server: TARGET.server,
+			username: "account@dimagi.com",
+			apiKey: "fixture-key",
+		},
+		domain: TARGET.domain,
+		flags: new Set(["SESSION_ENDPOINTS", "CASE_SEARCH_ADVANCED"]),
+		commcareVersion: CORPUS_COMMCARE_VERSION,
+		appId: RUNTIME.appId,
+		caseSearchEnabled: true,
+		cloudcareGranted: true,
+	});
+	const publish = async () => {
+		const loaded = await loadAppBlueprint(APP, ACTOR, "edit");
+		return publishAppToHq({
+			requireHqImport: null,
+			scope: SCOPE,
+			...TARGET,
+			doc: loaded.doc,
+			compiledAtSeq: loaded.app.mutation_seq,
+			appName: loaded.app.app_name,
+			confirm: PLAN_FEATURE_IDS.map((subject) => ({
+				kind: "plan-feature",
+				subject,
+			})),
+			reloadHead: async () => {
+				const fresh = await loadAppBlueprint(APP, ACTOR, "edit");
+				return { doc: fresh.doc, seq: fresh.app.mutation_seq };
+			},
+		});
+	};
+	const verify = () =>
+		withHttpPeer(async (peer) => {
+			const version = model.saveCounter();
+			if (version === null) throw new Error("Expected a working app on HQ");
+			released(peer, suite, { workingVersion: version });
+			reply(peer, PATH.versions, {
+				currentVersion: version,
+				latestBuild: version,
+				latestReleasedBuild: version,
+			});
+			return asUser(
+				async (client) => JSON.parse(resultText(await call(client))).url,
+			);
+		});
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: () => true, method: () => true })
+			.reply(async (opts) => {
+				const headers = new Headers(opts.headers as Record<string, string>);
+				expect(headers.get("authorization")).toBe(
+					"ApiKey account@dimagi.com:fixture-key",
+				);
+				const request = {
+					method: opts.method,
+					path: opts.path,
+					contentType: headers.get("content-type") ?? undefined,
+					body: await readHttpRequestBody(opts),
+				};
+				model.requests.push(request);
+				const answer = await model.answer(request);
+				return {
+					statusCode: answer.status,
+					data: answer.body,
+					responseOptions: { headers: { "content-type": answer.contentType } },
+				};
+			})
+			.persist();
+		const prime = await publish();
+		expect(prime.refusal).toBeNull();
+		const posts = () =>
+			model.requests.filter((r) => r.method === "POST").length;
+		const afterPrime = posts();
+		const original = deploymentStore.admitAppWrite;
+		let winner: Awaited<ReturnType<typeof readEntryPointEvidence>> | undefined;
+		const hook = vi
+			.spyOn(deploymentStore, "admitAppWrite")
+			.mockImplementationOnce(async (...args) => {
+				expect(posts()).toBe(afterPrime);
+				// The first publisher has reached its send boundary but holds no
+				// admission. The predecessor's released link is still available.
+				expect(await verify()).toContain("/working-app/visit/");
+				const newer = await publish();
+				expect(newer.refusal).toBeNull();
+				expect(await verify()).toContain("/working-app/visit/");
+				winner = await readEntryPointEvidence(SCOPE, TARGET);
+				expect(winner.manifest?.generation).toBe(
+					winner.observation?.generation,
+				);
+				return original(...args);
+			});
+		try {
+			const older = await publish();
+			expect(older.landed).toBe(false);
+			expect(posts()).toBe(afterPrime + 1);
+			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(winner);
+			expect(await verify()).toContain("/working-app/visit/");
+			if (!winner?.generation)
+				throw new Error("Missing the winner’s generation");
+			const checked = await readEntryPointEvidence(SCOPE, TARGET);
+			expect(
+				await finishDeploymentContentWrite(
+					SCOPE,
+					TARGET,
+					winner.generation,
+					null,
+					{ expectedEndings: 0 },
+					{ writeIds: [], settle: [] },
+				),
+			).toBe(false);
+			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(checked);
+		} finally {
+			hook.mockRestore();
+		}
+	});
+}, 30_000);
 
 it("keeps the released link observed after a settled publisher's claim was retired", async () => {
 	const { suite } = await seed();

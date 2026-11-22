@@ -659,6 +659,8 @@ export interface DeploymentResource {
 	readonly pushedAt: string | null;
 	/** Unique identity of this accepted mapping write and its continuous HQ claim. */
 	readonly pushToken: string;
+	/** The last change a person took from this HQ app. Absent before its first changed review. */
+	readonly reviewGeneration?: string;
 	/** CommCare HQ's own version number, as of the last observation. */
 	readonly remoteRevision: number | null;
 	readonly remoteObservedAt: string | null;
