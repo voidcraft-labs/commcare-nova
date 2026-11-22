@@ -356,20 +356,27 @@ describe("changes, and changes in Nova that would be removed", () => {
 		expect(publishOverDiscard(running, "app-1")).toBeNull();
 	});
 
-	it("puts the renamed properties' line in place of Use CommCare HQ's version where a case property was renamed in Nova, and refuses the press", () => {
-		const renames = [{ caseType: "patient", from: "age", to: "years" }];
-		const state = answered({ ...s2, renamedInNova: renames });
-		expect(panelView(state, PUBLISH).body).toMatchObject({
-			choices: { bringIn: null, renamed: renamedInNovaLine(renames) },
-		});
-		expect(
-			reduceHqChangesPanel(state, {
-				type: "bring-in-pressed",
-				discard: true,
-				at: AT,
-			}),
-		).toBe(state);
-	});
+	it.each([true, false])(
+		"explains the saved-data hold and refuses the take with a Nova change list present: %s",
+		(removes) => {
+			const renames = [{ caseType: "patient", from: "age", to: "years" }];
+			const state = answered({
+				...s2,
+				novaChanges: removes ? s2.novaChanges : [],
+				renamedInNova: renames,
+			});
+			expect(panelView(state, PUBLISH).body).toMatchObject({
+				choices: { bringIn: null, renamed: renamedInNovaLine(renames) },
+			});
+			expect(
+				reduceHqChangesPanel(state, {
+					type: "bring-in-pressed",
+					discard: removes,
+					at: AT,
+				}),
+			).toBe(state);
+		},
+	);
 
 	it("copies every line of both lists, shown or not, under their two headings", () => {
 		const long = changes({

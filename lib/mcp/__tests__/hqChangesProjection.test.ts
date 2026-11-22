@@ -35,6 +35,7 @@ import {
 import {
 	HQ_CHANGE_HELD,
 	HQ_CHANGES_UNAVAILABLE,
+	renameNamesReused,
 } from "@/lib/publish/hqChangesKinds";
 import { ACCOUNT_CHECK_AGAIN_LINE } from "@/lib/publish/hqFindingCopy";
 import {
@@ -228,6 +229,7 @@ describe("a review of changes made in CommCare HQ", () => {
 								from: rename.from,
 								to: rename.to,
 							})),
+							renameNamesReused(review.renamedInNova),
 						),
 			);
 			rest.renamed_in_nova.push(...served.renamed_in_nova);
@@ -436,6 +438,27 @@ describe("a review of changes made in CommCare HQ", () => {
 		expect(served.nova_changes).toEqual([]);
 		expect(served.made_by_line).toBeNull();
 		expect(served.publish_changes_lead).toBeNull();
+	});
+
+	it("keeps the reused-name recovery on every rename page even when the conflicting move is on another page", () => {
+		const renames = Array.from({ length: 340 }, (_, index) => ({
+			caseType: "patient_referral_followup",
+			from: `household_referral_progress_before_the_followup_${index}`,
+			to: `household_referral_progress_after_the_followup_${index}`,
+		}));
+		renames.push({ ...renames[0], from: "later" });
+		const review = changes({ renamedInNova: renames });
+		const first = describeHqChangesReview(review, HEAD, FIRST_PAGE);
+		if (first.kind !== "changes")
+			throw new Error("Expected a review of HQ changes.");
+		expect(first.next_page).not.toBeNull();
+		expect(first.renamed_in_nova.some((move) => move.from === "later")).toBe(
+			false,
+		);
+		expect(first.renamed_in_nova_line).toContain(
+			"reversing the listed changes could move the wrong case values",
+		);
+		expect(followPages(review).pages).toBeGreaterThan(1);
 	});
 
 	it("names each case property renamed in Nova and the sentence that holds the bring-in back", () => {

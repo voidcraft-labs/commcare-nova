@@ -38,7 +38,7 @@ export type ReferenceDocument =
 			 * the property CommCare HQ's app means by it.
 			 */
 			readonly identityDoc: BlueprintDoc;
-			/** The net of the `renameCaseProperties` commands people made after the reference. */
+			/** Every rename that holds a take from the published revision. */
 			readonly renamesSince: readonly CasePropertyRename[];
 			/** The members who changed the app after the reference, by user id. */
 			readonly actors: readonly string[];
@@ -103,6 +103,22 @@ export const storedReferenceSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("app-moved") }),
 ]);
 
+/** The released review may have retained a retired move or missed a newer
+ * occupant of a reused name. Preserve the evidence it displayed and also hold
+ * every live move of saved data, once per exact case type and source/destination. */
+export function publishedTakeRenames(reference: {
+	readonly renamesSince: readonly CasePropertyRename[];
+	readonly activeRenames: readonly CasePropertyRename[];
+}): readonly CasePropertyRename[] {
+	if (reference.renamesSince === reference.activeRenames)
+		return reference.activeRenames;
+	const holds = new Map<string, CasePropertyRename>();
+	for (const list of [reference.renamesSince, reference.activeRenames])
+		for (const move of list)
+			holds.set(JSON.stringify([move.caseType, move.from, move.to]), move);
+	return [...holds.values()];
+}
+
 export function projectDeploymentReference(
 	folded: FoldedDeploymentReference,
 	head: BlueprintDoc,
@@ -113,7 +129,7 @@ export function projectDeploymentReference(
 		kind: "ok",
 		doc,
 		identityDoc: withoutSecondOfASlug(doc, folded.doc),
-		renamesSince: folded.renamesSince,
+		renamesSince: publishedTakeRenames(folded),
 		actors: folded.actors,
 	};
 }

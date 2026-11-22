@@ -1125,7 +1125,10 @@ head and the still-live property moves that another edit can continue.
 For the release before certificates, its review could continue displaying a
 retired property. Its admitted editor rows, its own reducer and the same
 effective-storage test its commit kernel used establish which moves survive.
-A fold with no intervening rows retains the displayed review. A subsequent
+A fold with no intervening rows retains that release’s displayed facts. A
+published take also checks all surviving moves at this boundary, including a
+new occupant’s move the old release treated as a round trip. The review and
+the apply request use this same list of case types and name pairs. A subsequent
 edit follows only surviving moves, including after repeated folds.
 
 **Nova holds nothing unpublished exactly where what it would publish reads
@@ -1144,7 +1147,11 @@ to the reference, the review lists by place every change in Nova that taking
 them removes (`lib/doc/documentChanges.ts`), and the person chooses one side
 whole: use CommCare HQ's version, publish over it, or stop publishing there. A
 case property renamed in Nova since the reference holds the first choice back
-until it is renamed back, since that rename moved saved case data.
+until it is renamed back, since that rename moved saved case data. When a
+source or destination name occurs in several moves, the review names them
+all and asks the person to check the current properties and saved values.
+Every page of the MCP review uses that same recovery, even if the second
+move appears on another page.
 
 **Two requests, and nothing stored between them**, as bringing an app in is.
 `review.ts::reviewHqChanges` (`POST /api/commcare/changes/review`) authorizes

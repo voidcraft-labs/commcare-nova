@@ -19,6 +19,7 @@ import {
 	projectDeploymentReference,
 	readDeploymentReferenceEvidence,
 } from "@/lib/deployment/hqChanges/reference";
+import { publishedTakeRenames } from "@/lib/deployment/hqChanges/referenceFold";
 import {
 	readFoldOperatorBaseline,
 	readTargetIdentityRows,
@@ -279,7 +280,7 @@ async function visitDeploymentReferences(
 			(projected.kind !== "ok" ||
 				old.projectId !== projectId ||
 				canonicalJsonDigest(projected.renamesSince) !==
-					canonicalJsonDigest(old.renamesSince) ||
+					canonicalJsonDigest(publishedTakeRenames(old)) ||
 				canonicalJsonDigest(projected.actors) !==
 					canonicalJsonDigest(old.actors) ||
 				canonicalJsonDigest(

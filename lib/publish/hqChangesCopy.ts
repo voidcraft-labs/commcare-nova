@@ -22,6 +22,7 @@ import type {
 	HqChangesStage,
 	HqChangesUnavailable,
 } from "./hqChangesKinds";
+import { renameNamesReused } from "./hqChangesKinds";
 import { namesInWords } from "./planFeatures";
 
 const COUNT_FORMAT = new Intl.NumberFormat("en-US");
@@ -133,10 +134,17 @@ export const CHECK_AGAIN_ACTION = "Check again";
  */
 export function renamedInNovaLine(
 	renames: readonly CasePropertyRename[],
+	reused = renameNamesReused(renames),
 ): string {
+	if (reused) {
+		const listed = renames
+			.map((move) => `“${move.from}” to “${move.to}” on “${move.caseType}”`)
+			.join(", ");
+		return `Nova’s published comparison records ${listed}. A name was reused, so reversing the listed changes could move the wrong case values. You can check your case properties and saved values in Nova before deciding which app to keep.`;
+	}
 	if (renames.length === 1) {
 		const [rename] = renames;
-		return `Since then, the case property “${rename.from}” of the case type “${rename.caseType}” was renamed to “${rename.to}” in Nova, which moved saved case data to the new name. To use CommCare HQ's version, you can rename it back in Nova, so the data moves back with it, and then check again.`;
+		return `Since then, the case property “${rename.from}” of the case type “${rename.caseType}” was renamed to “${rename.to}” in Nova. If “${rename.to}” still names the same property, you can rename it back in Nova and check again. Its saved values move with it.`;
 	}
 	const types = new Set(renames.map((rename) => rename.caseType));
 	const oneType = types.size === 1;
@@ -145,8 +153,8 @@ export function renamedInNovaLine(
 			`“${rename.from}” to “${rename.to}”${oneType ? "" : ` on “${rename.caseType}”`}`,
 	);
 	const listed = `${pairs.slice(0, -1).join(", ")}, and ${pairs[pairs.length - 1]}`;
-	const whose = oneType ? ` of the case type “${renames[0].caseType}”` : "";
-	return `Since then, these case properties${whose} were renamed in Nova: ${listed}, which moved saved case data to the new names. To use CommCare HQ's version, you can rename them back in Nova, so the data moves back with them, and then check again.`;
+	const where = oneType ? ` on the case type “${renames[0].caseType}”` : "";
+	return `Since then, Nova recorded ${listed}${where}. If these names still identify the same case properties, you can rename them back in Nova and check again. Their saved values move with them.`;
 }
 
 // ── The case data lines ──────────────────────────────────────────────

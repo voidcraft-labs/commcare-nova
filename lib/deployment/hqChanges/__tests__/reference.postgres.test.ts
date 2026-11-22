@@ -22,7 +22,9 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import type { Kysely } from "kysely";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { retainedBodyJson } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { writeHqRoundTripHorizon } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
@@ -62,19 +64,29 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CasePlacement, Form, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { renamedInNovaLine } from "@/lib/publish/hqChangesCopy";
 import {
 	scanDeploymentFold,
 	writeDeploymentAwareFold,
 } from "@/scripts/lib/deploymentFold";
-import { sameRepresentationFold } from "@/scripts/lib/deploymentFoldArtifacts";
+import {
+	type DeploymentFoldMigration,
+	sameRepresentationFold,
+} from "@/scripts/lib/deploymentFoldArtifacts";
 import {
 	appMappingToken,
 	birthAdoptedApp,
 	OWNERSHIP,
 } from "../../__tests__/adoptedBirth";
 import { certifyFold } from "../../__tests__/certifiedFold";
+import { normalizeHqAppSource } from "../../hqSourceBaseline";
 import { placementMoveOffer } from "../../placementMoves";
 import { recordPublishPlacements } from "../../placements";
+import {
+	FIXTURE_REMOTE_APP_ID,
+	seedFixtureConnection,
+} from "../../reading/__tests__/adoptionFixture";
+import { servedHqApp, serveHqApp } from "../../reading/__tests__/servedHqApp";
 import { readBackDifferences } from "../../reading/readBack";
 import {
 	admitAppWrite,
@@ -92,9 +104,15 @@ import {
 } from "../../store";
 import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import type { AppBaseline } from "../../types";
+import { bringInHqChanges } from "../bringIn";
 import { planFromDocuments } from "../plan";
 import { loadReferenceDocument, usablePair } from "../reference";
+import { reviewHqChanges } from "../review";
 import { withReleasedFoldReader } from "./releasedFoldReader";
+
+vi.mock("@/lib/commcare/encryption", () => ({
+	decrypt: async () => "fixture-key",
+}));
 
 const h = setupAppStateTestDb("hq_changes_reference_", {
 	authSchema: "migrated",
@@ -485,15 +503,17 @@ const rename = (...renames: ReturnType<typeof move>[]): Mutation => ({
 	kind: "renameCaseProperties",
 	renames,
 });
-const remove = (property: string): Mutation => ({
+const remove = (property: string, caseType = "patient"): Mutation => ({
 	kind: "removeCaseProperty",
-	caseType: "patient",
+	caseType,
 	property,
 });
 
 async function publishedRenameCase(
 	writer: boolean,
 	saved: Record<string, string>,
+	throughHq = false,
+	extraTypes: NonNullable<BlueprintDoc["caseTypes"]> = [],
 ) {
 	const target = { server: "india" as const, domain: "clinic" };
 	await h.seedProjectMember(OWNER, PROJECT, "owner");
@@ -517,6 +537,7 @@ async function publishedRenameCase(
 					data_type: "text",
 				})),
 			},
+			...extraTypes,
 		],
 		modules: [
 			{
@@ -554,7 +575,20 @@ async function publishedRenameCase(
 		role: "owner",
 	};
 	const revision = await writeHqRoundTripHorizon(h.db(), appId, "Published");
-	const remoteId = crypto.randomUUID().replaceAll("-", "");
+	const remoteId = throughHq
+		? FIXTURE_REMOTE_APP_ID
+		: crypto.randomUUID().replaceAll("-", "");
+	const deployed = { ...source, appId };
+	let baseline: object = expandDoc(deployed);
+	if (throughHq) {
+		const normalized = normalizeHqAppSource(
+			retainedBodyJson(servedHqApp(deployed, 1).source),
+		);
+		if ("malformed" in normalized)
+			throw new Error("Expected the published app read.");
+		baseline = JSON.parse(normalized.text);
+		await seedFixtureConnection(OWNER);
+	}
 	const when = new Date().toISOString();
 	await foldDeploymentAttempt(
 		scope,
@@ -575,7 +609,7 @@ async function publishedRenameCase(
 		baseline: {
 			origin: "push",
 			remoteAppId: remoteId,
-			...storedRead(expandDoc(source), when),
+			...storedRead(baseline, when),
 			ownership: OWNERSHIP,
 			novaRevision: revision,
 			discard: null,
@@ -600,7 +634,7 @@ async function publishedRenameCase(
 			properties: saved,
 		},
 	});
-	return { appId, revision, scope, target, caseId, db, store };
+	return { appId, revision, scope, target, caseId, db, store, deployed };
 }
 async function reviewRenameCase({
 	appId,
@@ -630,6 +664,58 @@ async function reviewRenameCase({
 			renamesSince: ref.renamesSince,
 		}),
 	};
+}
+
+/** Exercise the review and apply entries with the same HQ edit and real
+ * published reference. A refused request leaves the immutable binding and
+ * head intact. A true round trip can take the remote name in one commit. */
+async function takeRenameCase(
+	published: Awaited<ReturnType<typeof publishedRenameCase>>,
+	expected: ReturnType<typeof move>[],
+) {
+	const { scope, target, deployed, appId } = published;
+	const peerApp = servedHqApp({ ...deployed, appName: "Renamed in HQ" }, 2);
+	const before = await head(appId);
+	const binding = await readAppBaseline(scope, target);
+	await withHttpPeer(async (peer) => {
+		serveHqApp(peer, peerApp, 2);
+		const listed = await reviewHqChanges(scope, target, { onEvent: () => {} });
+		if (listed.kind !== "changes")
+			throw new Error(
+				`Expected a published review; got ${JSON.stringify(listed)}`,
+			);
+		expect(listed.renamedInNova).toEqual(expected);
+		const outcome = await bringInHqChanges(
+			scope,
+			target,
+			{
+				readingId: listed.readingId,
+				reviewDigest: listed.reviewDigest,
+				discardNovaChanges: listed.novaChanges.length > 0,
+				tableChoices: {},
+			},
+			{ onEvent: () => {} },
+		);
+		if (expected.length) {
+			expect(outcome).toMatchObject({
+				kind: "refused",
+				message: renamedInNovaLine(expected),
+			});
+			expect(await head(appId)).toEqual(before);
+			expect(await readAppBaseline(scope, target)).toEqual(binding);
+		} else {
+			expect(outcome).toMatchObject({
+				kind: "brought-in",
+				seq: before.seq + 1,
+			});
+			expect((await head(appId)).doc.appName).toBe("Renamed in HQ");
+			expect(await readAppBaseline(scope, target)).toMatchObject({
+				origin: "changes",
+				novaRevision: before.seq + 1,
+			});
+		}
+	});
+	await endDeployment(scope, target, FIXTURE_REMOTE_APP_ID);
 }
 
 interface RenameJourney {
@@ -736,6 +822,139 @@ it.each<RenameJourney>([
 	30000,
 );
 
+async function mixedReleasedHolds(migration: DeploymentFoldMigration) {
+	const household = (from: string, to: string) => ({
+		caseType: "household",
+		from,
+		to,
+	});
+	const published = await publishedRenameCase(
+		false,
+		{ c: "Independent C" },
+		true,
+		[
+			{
+				name: "household",
+				properties: ["a", "ghost"].map((name) => ({
+					name,
+					label: proseText(name),
+					data_type: "text",
+				})),
+			},
+		],
+	);
+	const { appId, db, store } = published;
+	async function change(mutations: Mutation[]) {
+		await applyBlueprintChangeProposal({
+			appId,
+			userId: OWNER,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			kind: "autosave",
+			guard: { mutations },
+		});
+	}
+	async function insertResponse(caseType: string, value: string) {
+		const now = await head(appId);
+		await store.applySchemaChange({
+			appId,
+			caseType,
+			caseTypeSchemas: buildCaseTypeMap(now.doc),
+			syncedSeq: now.seq,
+		});
+		const id = crypto.randomUUID();
+		await store.insert({
+			appId,
+			row: {
+				case_id: id,
+				case_name: caseType,
+				case_type: caseType,
+				modified_on: new Date(),
+				properties: { b: value },
+			},
+		});
+		return id;
+	}
+	await change([
+		rename(move("a", "b"), household("a", "b"), household("ghost", "gone")),
+	]);
+	await change([
+		remove("b"),
+		remove("b", "household"),
+		remove("gone", "household"),
+	]);
+	await change(
+		["patient", "household"].map((caseType) => ({
+			kind: "addCaseProperty",
+			caseType,
+			after: null,
+			property: {
+				name: "b",
+				label: proseText("Later answer"),
+				data_type: "text",
+			},
+		})),
+	);
+	const patientCase = await insertResponse("patient", "Later patient answer");
+	const householdCase = await insertResponse(
+		"household",
+		"Later household answer",
+	);
+	await change([rename(move("b", "a"), household("b", "z"))]);
+	await change([{ kind: "setAppName", name: "Edited in Nova" }]);
+	const displayed = [household("a", "z"), household("ghost", "gone")];
+	const active = [move("b", "a"), household("b", "z")];
+	const all = [...displayed, ...active];
+	for (const cutover of [
+		"hq-round-trip-expressions",
+		"hq-round-trip-case-writes",
+	] as const) {
+		await certifyFold(
+			h.db(),
+			appId,
+			cutover,
+			cutover === "hq-round-trip-expressions"
+				? migration
+				: sameRepresentationFold,
+		);
+		const held = await h
+			.db()
+			.selectFrom("app_deployment_fold_references")
+			.select("state")
+			.where("app_id", "=", appId)
+			.orderBy("fold_seq", "desc")
+			.executeTakeFirstOrThrow();
+		expect(held.state).toMatchObject({
+			kind: "ok",
+			renamesSince: displayed,
+			activeRenames: active,
+		});
+		const { plan } = await reviewRenameCase(published);
+		expect(plan).toMatchObject({
+			kind: "changes",
+			appliedTo: "published",
+			batch: [],
+			renamedInNova: all,
+		});
+	}
+	await takeRenameCase(published, all);
+	for (const [id, expected] of [
+		[patientCase, { a: "Later patient answer" }],
+		[householdCase, { z: "Later household answer" }],
+	] as const) {
+		expect(
+			(
+				await db
+					.selectFrom("cases")
+					.select("properties")
+					.where("app_id", "=", appId)
+					.where("case_id", "=", id)
+					.executeTakeFirstOrThrow()
+			).properties,
+		).toEqual(expected);
+	}
+}
+
 it("carries live saved values across the released decoder even when its displayed rename survives a removal", async () => {
 	await withReleasedFoldReader(async (migration) => {
 		const outward = [move("a", "b"), move("c", "d")],
@@ -743,11 +962,12 @@ it("carries live saved values across the released decoder even when its displaye
 		// The release cuts straddle the removal and reuse of b. A writer in
 		// the control keeps that very same storage slot alive at both cuts.
 		for (const writer of [false, true])
-			for (const cut of [1, 2, 3]) {
+			for (const cut of [1, 2, 3, 4, 5]) {
 				const before: Record<string, string> = writer
 					? { a: "Original A", c: "Independent C" }
 					: { c: "Independent C" };
-				const published = await publishedRenameCase(writer, before);
+				const throughHq = cut >= 4;
+				const published = await publishedRenameCase(writer, before, throughHq);
 				const { appId, revision, store, db, caseId } = published;
 				const nextCase = crypto.randomUUID();
 				const mutations: Mutation[] = [
@@ -766,7 +986,7 @@ it("carries live saved values across the released decoder even when its displaye
 					rename(...back),
 					{ kind: "setAppName", name: "Edited in Nova" },
 				];
-				for (const [index, command] of mutations.entries()) {
+				for (let index = 0; index <= mutations.length; index++) {
 					if (index === cut) {
 						// The selected source release kept both a→b and c→d on its review,
 						// even after the empty b was retired. The operator preserves that
@@ -790,15 +1010,26 @@ it("carries live saved values across the released decoder even when its displaye
 								.where("app_id", "=", appId)
 								.orderBy("fold_seq", "desc")
 								.executeTakeFirstOrThrow();
+							const displayed = cut < 4 ? outward : [];
+							const active =
+								cut < 4
+									? writer || cut === 1
+										? outward
+										: [move("c", "d")]
+									: writer
+										? []
+										: [move("b", "a")];
 							expect(state.state).toMatchObject({
 								kind: "ok",
-								renamesSince: outward,
-								activeRenames: writer || cut === 1 ? outward : [move("c", "d")],
+								renamesSince: displayed,
+								activeRenames: active,
 							});
 							const { ref } = await reviewRenameCase(published);
-							expect(ref.renamesSince).toEqual(outward);
+							expect(ref.renamesSince).toEqual(cut < 4 ? outward : active);
 						}
 					}
+					const command = mutations[index];
+					if (!command) break;
 					await applyBlueprintChangeProposal({
 						appId,
 						userId: index % 2 ? OWNER : COLLEAGUE,
@@ -844,6 +1075,11 @@ it("carries live saved values across the released decoder even when its displaye
 				if (plan.kind !== "changes") throw new Error("Expected a review.");
 				if (writer) expect(plan.batch.length).toBeGreaterThan(0);
 				else expect(plan.batch).toEqual([]);
+				expect(
+					(await readAppBaseline(published.scope, published.target))
+						?.novaRevision,
+				).toBe(revision);
+				if (throughHq) await takeRenameCase(published, moves);
 				for (const [id, saved] of [
 					[caseId, before],
 					[nextCase, { a: "Later B" }],
@@ -859,11 +1095,8 @@ it("carries live saved values across the released decoder even when its displaye
 						).properties,
 					).toEqual(saved);
 				}
-				expect(
-					(await readAppBaseline(published.scope, published.target))
-						?.novaRevision,
-				).toEqual(revision);
 			}
+		await mixedReleasedHolds(migration);
 	});
 }, 240_000);
 

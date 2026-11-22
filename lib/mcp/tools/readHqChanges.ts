@@ -57,6 +57,7 @@ import {
 	renamedInNovaLine,
 	sincePhrase,
 } from "@/lib/publish/hqChangesCopy";
+import { renameNamesReused } from "@/lib/publish/hqChangesKinds";
 import { cutFindingName } from "@/lib/publish/hqFindings";
 import {
 	BringInToolError,
@@ -509,7 +510,10 @@ function changePieces(
 }
 
 /** The sentence over some renames, in the copy the panel shows; null over none. */
-function renamesLine(renames: readonly RenameProjection[]): string | null {
+function renamesLine(
+	renames: readonly RenameProjection[],
+	reused: boolean,
+): string | null {
 	return renames.length === 0
 		? null
 		: renamedInNovaLine(
@@ -518,6 +522,7 @@ function renamesLine(renames: readonly RenameProjection[]): string | null {
 					from: rename.from,
 					to: rename.to,
 				})),
+				reused,
 			);
 }
 
@@ -546,6 +551,7 @@ function changesPage(
 	pieces: readonly ChangePiece[],
 	from: number,
 	digest: string,
+	reused: boolean,
 	measureShell: (page: ChangesPage) => number,
 ): ChangesPage {
 	const hq: string[] = [];
@@ -556,7 +562,7 @@ function changesPage(
 	let cutLine: CutLine | null = null;
 	/* The JSON of the sentence over some renames, where `null` is four characters. */
 	const lineChars = (over: readonly RenameProjection[]) =>
-		JSON.stringify(renamesLine(over)).length;
+		JSON.stringify(renamesLine(over, reused)).length;
 	/* Each piece as the page holds it: a rename, a table and a name fitted to a piece. */
 	const fitted = (piece: ChangePiece): ChangePiece => {
 		switch (piece.kind) {
@@ -636,7 +642,7 @@ function changesPage(
 		hq_changes: hq,
 		nova_changes: nova,
 		renamed_in_nova: renames,
-		renamed_in_nova_line: renamesLine(renames),
+		renamed_in_nova_line: renamesLine(renames, reused),
 		tables,
 		made_by: names,
 		next_page: end < pieces.length ? `${end}:${digest}` : null,
@@ -726,6 +732,7 @@ export function describeHqChangesReview(
 					),
 					options.page.from,
 					review.reviewDigest,
+					renameNamesReused(review.renamedInNova),
 					(page) =>
 						JSON.stringify(
 							wrap({ ...shell, ...page } as HqChangesReviewProjection),

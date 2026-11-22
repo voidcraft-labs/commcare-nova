@@ -430,7 +430,7 @@ export function reduceHqChangesPanel(
 			 * changes only where nothing would be. */
 			const removes = review.novaChanges.length > 0;
 			if (event.discard !== removes) return state;
-			if (removes && review.renamedInNova.length > 0) return state;
+			if (review.renamedInNova.length > 0) return state;
 			if (unansweredTables(review, state.tableChoices)) {
 				return {
 					...state,
@@ -831,7 +831,7 @@ function listsView(
 ): ListsView {
 	const removes = review.novaChanges.length > 0;
 	const renamed =
-		removes && review.renamedInNova.length > 0
+		review.renamedInNova.length > 0
 			? renamedInNovaLine(review.renamedInNova)
 			: null;
 	return {
