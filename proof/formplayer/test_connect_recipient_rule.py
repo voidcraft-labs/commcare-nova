@@ -52,8 +52,9 @@ def test_each_worker_edit_keeps_the_final_delivery_ids_distinct(
 
 
 @pytest.mark.parametrize("skip_unchanged", [False, True], ids=["full", "skip-unchanged"])
-def test_a_final_edit_cannot_submit_two_equal_calculated_recipient_ids(
-    hq, core_runner, formplayer_runner, formplayer_documents, skip_unchanged
+@pytest.mark.parametrize("final_value, submitted_id", [("Final", "F"), ("Second", "S")], ids=["colliding", "distinct"])
+def test_calculated_recipient_constraints_can_read_the_preceding_answers_at_final_submission(
+    hq, core_runner, formplayer_runner, formplayer_documents, skip_unchanged, final_value, submitted_id
 ):
     with apps.published(formplayer_documents[DOCUMENT], core_runner) as published:
         change = apps.form_written(
@@ -75,13 +76,12 @@ def test_a_final_edit_cannot_submit_two_equal_calculated_recipient_ids(
                 fields.append(index)
                 tree = entered["tree"]
             before = len(served.hq.submissions)
-            duplicate = web.submit(session, dict(zip(fields, ("First", "Final"), strict=True)))
-            assert duplicate["status"] == "validation-error", duplicate
-            assert len(served.hq.submissions) == before
-            success = web.submit(session, dict(zip(fields, ("First", "Second"), strict=True)))
-            assert success["status"] == "success", success
+            result = web.submit(session, dict(zip(fields, ("First", final_value), strict=True)))
+            assert result["status"] == "success", result
+            assert len(served.hq.submissions) == before + 1
             instance = etree.fromstring(served.hq.submissions[-1].instance)
-            assert instance.xpath("//*[local-name()='entity_id']/text()") == ["F", "S"]
+            assert instance.xpath("//*[local-name()='recipient']/text()") == ["First", final_value]
+            assert instance.xpath("//*[local-name()='entity_id']/text()") == ["F", submitted_id]
 
 
 @pytest.mark.parametrize("skip_unchanged", [False, True], ids=["full", "skip-unchanged"])
