@@ -190,13 +190,17 @@ def served_download(app, document, label, *, change=None, edit=False) -> Downloa
 
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer.client import HqRequest
+    from proof.observe.casedata import document_case_database
 
     path = DOWNLOAD_PATH.format(domain=app.unit.domain)
     query = {"app_id": app.app_id, "latest": DOWNLOAD_LATEST}
     with app.unit.fork():
         if change is not None:
             change()
-        with formplayer_hq.serve(app.unit, document, app.app_id, label=f"connect-{label}", edit=edit) as served:
+        with formplayer_hq.serve(
+            app.unit, document, app.app_id, label=f"connect-{label}",
+            database=document_case_database(document, edit=edit), platforms=document.platforms(edit=edit),
+        ) as served:
             views = formplayer_hq.HqViews(app.unit, served.username)
             views.begin(f"connect-download-{label}".encode(), None)
             answer = views(HqRequest("GET", path, urlencode(query), (), b""))
