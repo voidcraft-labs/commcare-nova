@@ -228,7 +228,13 @@ def test_address_search_selects_clears_and_submits_the_returned_city(
             {"geocoderFixture": {"query": "Visit Road", "feature": ADDRESS}},
             *steps.open_app("Visit display"), *steps.choose("Visits"), *steps.choose("Survey"),
             *search,
-            {"eval": """() => document.querySelector('#webforms .mapboxgl-ctrl-geocoder--button').click()"""},
+            {"eval": """() => {
+                const geocoder = document.querySelector('#webforms .mapboxgl-ctrl-geocoder');
+                geocoder.dispatchEvent(new MouseEvent("mouseenter"));
+                const clear = geocoder.querySelector(".mapboxgl-ctrl-geocoder--button");
+                if (!clear.getClientRects().length) throw Error("The selected address has no visible clear button");
+                clear.click();
+            }"""},
             {"until": "webapps/question-value", "arg": {"ix": "14", "value": ""}},
             steps.SETTLE, *search, *steps.submit_and_land(),
         ])
