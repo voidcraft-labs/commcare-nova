@@ -1,4 +1,6 @@
 """Formplayer selects a visit from an active HQ endpoint, claims it and submits its update."""
+from contextlib import nullcontext
+
 import pytest
 from lxml import etree
 
@@ -49,12 +51,14 @@ def _worker_search_app(endpoint_id):
     return app
 
 
-@pytest.mark.parametrize(("route", "menu", "expected"), [
-    ("ordinary", "1", {"linked", "other"}),
-    ("inline", "2", {"linked"}),
-])
+@pytest.mark.parametrize(("provider", "route", "menu", "expected"), [
+    ("elasticsearch", "ordinary", "1", {"linked", "other"}),
+    ("projectdb", "ordinary", "1", {"linked", "other"}),
+    ("elasticsearch", "inline", "2", {"linked"}),
+    ("projectdb", "inline", "2", set()),
+], ids=["es-ordinary", "sql-ordinary", "es-inline", "sql-inline"])
 def test_worker_chooses_and_claims_a_directory_visit_through_both_entries(
-    route, menu, expected, hq, formplayer_runner, evidence,
+    provider, route, menu, expected, hq, formplayer_runner, evidence,
 ):
     from hashlib import sha256
 
@@ -67,10 +71,9 @@ def test_worker_chooses_and_claims_a_directory_visit_through_both_entries(
     from proof.hq.operations import publish
     from proof.observe import casedata
 
-    settings = Configuration(
-        domain="visit-directory", flags={"CASE_SEARCH_ENDPOINTS", "SYNC_SEARCH_CASE_CLAIM"},
-        privileges={"CLOUDCARE"}, case_search_enabled=True, sync_cases_on_form_entry=True,
-    )
+    from proof.hq.database import fresh_database
+    from proof.hq.project_search_database import visit_database
+
     stamp = "2025-12-01T08:00:00.000Z"
 
     def case(key, kind, owner, parent=None):
@@ -82,65 +85,93 @@ def test_worker_chooses_and_claims_a_directory_visit_through_both_entries(
         case("clinic-a", "clinic", casedata.USER_ID), case("clinic-b", "clinic", casedata.USER_ID),
         case("linked", "visit", "other-worker", "clinic-a"), case("other", "visit", "other-worker", "clinic-b"),
     ))
-    with open_unit(settings, root_key=settings.digest(), strict=False) as unit:
-        with unit.operation("build visit directory", sha256(b"visit directory").digest()):
-            visit = CaseType.objects.create(domain=unit.domain, name="visit")
-            CaseProperty.objects.create(case_type=visit, name="district", data_type=CaseProperty.DataType.PLAIN)
-            endpoint = CaseSearchEndpoint.objects.create(domain=unit.domain, name="Visits",
-                                                         target_type=CaseSearchEndpoint.TargetType.ELASTICSEARCH)
-            endpoint.current_version = CaseSearchEndpointVersion.objects.create(
-                endpoint=endpoint, version_number=1, case_type="visit", action=CaseSearchEndpointVersion.Action.CREATE,
-                parameters=[{"name": "region", "type": "text"}],
-                query={"type": "all", "children": [{"type": "component", "field": "district", "operator": "equals",
-                                                    "inputs": {"value": {"type": "parameter", "value": "region"}}}]},
-            )
-            endpoint.save(update_fields=["current_version"])
-            app_id, _ = publish(unit, [nova_shaped_upload(_worker_search_app(endpoint.pk), "Worker visits")])
-        with serve(unit, None, app_id, runner=formplayer_runner, database=rows) as served:
-            with served.run(route):
-                start = len(served.hq.claims)
-                sent = len(served.hq.submissions)
-                search = len(served.hq.searches)
-                web = apps.web(formplayer_runner, served)
-                response = web.navigate([menu])
-                if route == "inline":
-                    assert {item["id"] for item in response.get("entities", [])} == {"clinic-a", "clinic-b"}, response
-                    response = web.navigate([*response["selections"], "clinic-a"])
-                assert screen_kind(response) == "entities", response
-                assert {item["id"] for item in response["entities"]} == expected, response
-                assert any(req.values("region") == ("north",) and req.values("x_commcare_endpoint_id") == (str(endpoint.pk),)
-                           for req in served.hq.searches[search:]), served.hq.searches[search:]
-                selections = [*response["selections"], "linked"]
-                form = web.navigate(selections)
-                def observation(screen):
-                    return {
-                        "kind": screen_kind(screen), "selections": screen.get("selections"),
-                        "entities": [item["id"] for item in screen.get("entities", [])],
-                        "commands": screen.get("commands"), "notifications": screen.get("notifications"),
-                        "searches": [s.params for s in served.hq.searches[search:]],
-                        "claims": [s.params for s in served.hq.claims[start:]],
-                        "answers": [(r.url_name, r.status) for r in served.hq.exchanges],
-                    }
+    sql_rows = [("linked", "other-worker", "north", "clinic-a"), ("other", "other-worker", "north", "clinic-b")]
+    domain = visit_database(sql_rows) if provider == "projectdb" else nullcontext("visit-directory")
+    with domain as space, (fresh_database() if provider == "projectdb" else nullcontext()):
+        settings = Configuration(
+            domain=space, flags={"CASE_SEARCH_ENDPOINTS", "SYNC_SEARCH_CASE_CLAIM"}, privileges={"CLOUDCARE"},
+            case_search_enabled=True, sync_cases_on_form_entry=True,
+        )
+        with open_unit(settings, root_key=settings.digest(), strict=False) as unit:
+            with unit.operation("build visit directory", sha256(b"visit directory").digest()):
+                if provider == "projectdb":
+                    endpoint = CaseSearchEndpoint.objects.create(domain=unit.domain, name="Visits",
+                                                                target_type=CaseSearchEndpoint.TargetType.PROJECT_DB)
+                    endpoint.current_version = CaseSearchEndpointVersion.objects.create(
+                        endpoint=endpoint, version_number=1, case_type="visit", action=CaseSearchEndpointVersion.Action.CREATE,
+                        dangerous_sql=(
+                            "SELECT case_id, case_id AS case_name, parent_id AS index, "
+                            "COALESCE(:_xpath_query, '') AS parent_filter, "
+                            "COALESCE(:commcare_blacklisted_owner_ids, '') AS excluded_owner "
+                            "FROM visit WHERE case_name = :region ORDER BY case_id"
+                        ),
+                    )
+                else:
+                    visit = CaseType.objects.create(domain=unit.domain, name="visit")
+                    CaseProperty.objects.create(case_type=visit, name="district", data_type=CaseProperty.DataType.PLAIN)
+                    endpoint = CaseSearchEndpoint.objects.create(domain=unit.domain, name="Visits",
+                                                                 target_type=CaseSearchEndpoint.TargetType.ELASTICSEARCH)
+                    endpoint.current_version = CaseSearchEndpointVersion.objects.create(
+                        endpoint=endpoint, version_number=1, case_type="visit", action=CaseSearchEndpointVersion.Action.CREATE,
+                        parameters=[{"name": "region", "type": "text"}],
+                        query={"type": "all", "children": [{"type": "component", "field": "district", "operator": "equals",
+                                                            "inputs": {"value": {"type": "parameter", "value": "region"}}}]},
+                    )
+                endpoint.save(update_fields=["current_version"])
+                app_id, _ = publish(unit, [nova_shaped_upload(_worker_search_app(endpoint.pk), "Worker visits")])
+            with serve(unit, None, app_id, runner=formplayer_runner, database=rows) as served:
+                with served.run(route):
+                    start = len(served.hq.claims)
+                    sent = len(served.hq.submissions)
+                    search = len(served.hq.searches)
+                    web = apps.web(formplayer_runner, served)
+                    response = web.navigate([menu])
+                    if route == "inline":
+                        assert {item["id"] for item in response.get("entities", [])} == {"clinic-a", "clinic-b"}, response
+                        response = web.navigate([*response["selections"], "clinic-a"])
+                    assert screen_kind(response) == "entities", response
+                    assert {item["id"] for item in response["entities"]} == expected, response
+                    assert any(req.values("region") == ("north",) and req.values("x_commcare_endpoint_id") == (str(endpoint.pk),)
+                               for req in served.hq.searches[search:]), served.hq.searches[search:]
+                    if not expected:
+                        # ProjectDB emits index as a flat text child. The parent
+                        # datum requires a nested relationship in the returned fixture.
+                        assert not served.hq.failures(), served.hq.failures()
+                        assert not served.hq.claims[start:] and not served.hq.submissions[sent:]
+                        evidence("parent-excludes-flat-index", {"requests": [r.params for r in served.hq.searches[search:]],
+                                                                "visible": [], "claims": []})
+                        return
+                    selections = [*response["selections"], "linked"]
+                    form = web.navigate(selections)
+                    def observation(screen):
+                        return {
+                            "kind": screen_kind(screen), "selections": screen.get("selections"),
+                            "entities": [item["id"] for item in screen.get("entities", [])],
+                            "commands": screen.get("commands"), "notifications": screen.get("notifications"),
+                            "searches": [s.params for s in served.hq.searches[search:]],
+                            "claims": [s.params for s in served.hq.claims[start:]],
+                            "answers": [(r.url_name, r.status) for r in served.hq.exchanges],
+                        }
 
-                after_choice = observation(form)
-                evidence("after-choice", after_choice)
-                # The ordinary remote request rewinds to the form's case
-                # selection after the worker claims the case.
-                if route == "ordinary" and screen_kind(form) == "entities":
-                    assert "linked" in after_choice["entities"], after_choice
-                    form = web.navigate([*form["selections"], "linked"])
-                # A menu with one available form may still ask which form to open.
-                if screen_kind(form) == "commands":
-                    assert len(form["commands"]) == 1, form
-                    form = web.navigate([*form["selections"], "0"])
-                assert screen_kind(form) == "form", (after_choice, observation(form))
-                assert [claim.values("case_id") for claim in served.hq.claims[start:] if "linked" in claim.values("case_id")]
-                assert not served.hq.failures(), served.hq.failures()
-                [rename] = [node for node in questions(form["tree"]) if node.get("datatype") == "str"]
-                submitted = web.submit(form["session_id"], {rename["ix"]: "Visited"})
-                instances = [etree.fromstring(sub.instance) for sub in served.hq.submissions[sent:] if sub.instance]
-                updates = [(block.get("case_id"), block.xpath("string(./*[local-name()='update']/*[local-name()='case_name'])"))
-                           for instance in instances for block in instance.xpath("//*[local-name()='case'][@case_id]")]
-                assert ("linked", "Visited") in updates, (submitted, updates)
-                evidence(route, {"selected": sorted(expected), "claim": [claim.params for claim in served.hq.claims[start:]],
-                                 "updates": updates})
+                    after_choice = observation(form)
+                    evidence("after-choice", after_choice)
+                    # The ordinary remote request rewinds to the form's case
+                    # selection after the worker claims the case.
+                    if route == "ordinary" and screen_kind(form) == "entities":
+                        assert "linked" in after_choice["entities"], after_choice
+                        form = web.navigate([*form["selections"], "linked"])
+                    # A menu with one available form may still ask which form to open.
+                    if screen_kind(form) == "commands":
+                        assert len(form["commands"]) == 1, form
+                        form = web.navigate([*form["selections"], "0"])
+                    assert screen_kind(form) == "form", (after_choice, observation(form))
+                    assert [claim.values("case_id") for claim in served.hq.claims[start:] if "linked" in claim.values("case_id")]
+                    assert not served.hq.failures(), served.hq.failures()
+                    [rename] = [node for node in questions(form["tree"]) if node.get("datatype") == "str"]
+                    submitted = web.submit(form["session_id"], {rename["ix"]: "Visited"})
+                    instances = [etree.fromstring(sub.instance) for sub in served.hq.submissions[sent:] if sub.instance]
+                    updates = [(block.get("case_id"), block.xpath("string(./*[local-name()='update']/*[local-name()='case_name'])"))
+                               for instance in instances for block in instance.xpath("//*[local-name()='case'][@case_id]")]
+                    assert ("linked", "Visited") in updates, (submitted, updates)
+                    evidence(route, {"selected": sorted(expected), "claim": [claim.params for claim in served.hq.claims[start:]],
+                                     "updates": updates})
