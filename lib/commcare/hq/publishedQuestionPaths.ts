@@ -31,7 +31,7 @@ export function publishedQuestionPaths(
 		for (const form of menu.forms) {
 			const uuid = form.xmlns === null ? undefined : forms.get(form.xmlns);
 			if (uuid === undefined || form.attachment === null) continue;
-			const tree = parseXml(form.attachment).doc;
+			const tree = parseXml(form.attachment);
 			const scope = namespaceScopes(tree);
 			const child = (parent: Element | undefined, ns: string, local: string) =>
 				parent?.children

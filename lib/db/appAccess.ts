@@ -100,7 +100,7 @@ export interface AuthorizedAppSnapshot extends AppAccess {
 	 * this says a recording wrote, as the commit kernel does.
 	 */
 	readonly recordedHolds: readonly PlacementHold[];
-	readonly publishedQuestions?: readonly Uuid[];
+	readonly publishedQuestions?: Uuid[];
 }
 
 /** Throws unless `userId` holds `required` on `projectId`. */

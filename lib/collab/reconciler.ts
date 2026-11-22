@@ -588,7 +588,8 @@ export function createReconciler(
 		for (const listener of revisionListeners) listener();
 	}
 	let confirmedDoc = normalizeConfirmed(init.baseDoc);
-	const setPublishedQuestions = (publishedQuestions: readonly Uuid[] = []) => {
+	const setPublishedQuestions = (questions: readonly Uuid[] = []) => {
+		const publishedQuestions = [...questions];
 		confirmedDoc = { ...confirmedDoc, publishedQuestions };
 		docStore.setState({ publishedQuestions });
 	};

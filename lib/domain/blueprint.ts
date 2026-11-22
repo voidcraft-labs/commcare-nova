@@ -751,7 +751,7 @@ export type BlueprintDoc = PersistableDoc & {
 	fieldParent: Record<Uuid, Uuid>;
 	/** Which existing questions a saved HQ copy already contains. Supplied
 	 * by the authorized deployment snapshot and excluded from persistence. */
-	publishedQuestions?: readonly Uuid[];
+	publishedQuestions?: Uuid[];
 	/**
 	 * The reference + declarations index (`lib/domain/referenceIndex.ts`)
 	 * — derived state, never persisted. Seeded by every apply entry
