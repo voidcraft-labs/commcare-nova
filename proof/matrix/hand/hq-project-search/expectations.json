@@ -16,15 +16,23 @@
 			"answers": [
 				{
 					"path": "/data/area",
-					"value": "east"
+					"value": "south"
+				},
+				{
+					"path": "/data/note",
+					"value": "Visit complete"
 				}
 			],
-			"expressions": ["/data/area"]
+			"expressions": ["/data/area", "/data/note"]
 		},
 		"expect": [
 			{
 				"pointer": "/values/0/value",
-				"value": "east"
+				"value": "south"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Visit complete"
 			}
 		]
 	}
