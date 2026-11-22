@@ -753,6 +753,7 @@ export async function advanceAppTest(
 		);
 		if (
 			missing.length &&
+			!state.awaitingAndroidApps &&
 			state.screen.kind === "device-home" &&
 			action.kind === "continue"
 		) {
