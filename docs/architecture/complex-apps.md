@@ -2532,6 +2532,13 @@ forms preserves it. The fifteen other settings keep the project space's
 values. A newly created target receives Nova's defaults for missing
 settings. A target Nova brought in keeps them absent on both an HQ update
 and an archive built for that target.
+Required Android apps have one generated package name in every language.
+A destination's UI translation replaces the name only for its own language.
+The default archive locale merges each language's generated and translated
+names in reverse build order, as HQ's app strings writer does. Android
+Preview reads destination text as Core reads the resulting locale record,
+including its escaped number signs and line breaks.
+
 In `translations`, of the keys HQ generates Nova writes only
 `app.display.name` and `homescreen.title`, each only in a language whose
 localized app name differs from `appName`, and it writes every current

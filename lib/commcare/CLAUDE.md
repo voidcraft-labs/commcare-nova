@@ -2426,6 +2426,13 @@ empty) and never written over a value the target holds, because Nova does not
 yet hold them as settings an author sets, and writing over a person's choice
 in HQ would undo it at every publish; the local `.ccz` writes the same
 seventeen the project space then holds (`keptProfile.ts::targetProfileProperties`).
+Required Android apps have one generated package name in every language.
+A destination's UI translation replaces the name only for its own language.
+The default archive locale merges each language's generated and translated
+names in reverse build order, as HQ's app strings writer does. Android
+Preview reads destination text as Core reads the resulting locale record,
+including its escaped number signs and line breaks.
+
 In `translations`, of the keys HQ generates Nova writes only
 `app.display.name` and `homescreen.title`, each only in a language whose
 localized app name differs from `appName`, and it writes every current

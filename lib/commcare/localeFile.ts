@@ -303,6 +303,15 @@ export function readLocaleLineAsCore(line: string): LocaleRecord | undefined {
 	};
 }
 
+/** The text Core loads under a key after HQ writes its value into a locale file. */
+export function readLocaleValueAsCore(
+	key: string,
+	raw: string,
+): string | undefined {
+	const first = hqLocaleFileValue(raw).split("\r", 1)[0];
+	return readLocaleLineAsCore(`${key}=${first}`)?.value;
+}
+
 /**
  * A locale file as CommCare Core reads it
  * (`LocalizationUtils.parseLocaleInput`): each line read by

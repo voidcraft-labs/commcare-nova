@@ -253,6 +253,7 @@ export function hqCatalogMayHold(key: string, code: string): boolean {
 export function defaultAppStringsHeldText(
 	uiText: Readonly<Record<string, Readonly<Record<string, string>>>>,
 	languages: readonly string[],
+	generated?: (language: string, key: string) => string | undefined,
 ): Readonly<Record<string, string>> {
 	const tables = languages.map(
 		(code) => [code, Object.hasOwn(uiText, code) ? uiText[code] : {}] as const,
@@ -275,6 +276,15 @@ export function defaultAppStringsHeldText(
 			if (hqCatalogMayHold(key, code)) {
 				blank = false;
 				break;
+			}
+			const built = generated?.(code, key);
+			if (built !== undefined) {
+				const read = defaultTableText(built);
+				if (read !== "") {
+					text = read;
+					break;
+				}
+				blank = true;
 			}
 		}
 		if (text !== undefined) held.push([key, text]);

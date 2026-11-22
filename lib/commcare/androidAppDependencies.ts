@@ -5,6 +5,8 @@ import {
 	type RequiredAndroidApp,
 } from "@/lib/domain/requiredAndroidApps";
 
+import { readLocaleValueAsCore } from "./localeFile";
+
 /** The identifiers HQ stores in its profile and Android asks its package manager about. */
 const PACKAGE_IDS: Record<RequiredAndroidApp, string> = {
 	"commcare-reminders": "org.commcare.dalvik.reminders",
@@ -61,7 +63,9 @@ export function targetAndroidAppLabels(
 	const entries = Object.entries(text).flatMap(([language, strings]) => {
 		const names = REQUIRED_ANDROID_APPS.flatMap((app) => {
 			const key = `android.package.name.${PACKAGE_IDS[app]}`;
-			return Object.hasOwn(strings, key) ? [[app, strings[key]] as const] : [];
+			if (!Object.hasOwn(strings, key)) return [];
+			const shown = readLocaleValueAsCore(key, strings[key]);
+			return shown === undefined ? [] : [[app, shown] as const];
 		});
 		return names.length ? [[language, Object.fromEntries(names)] as const] : [];
 	});

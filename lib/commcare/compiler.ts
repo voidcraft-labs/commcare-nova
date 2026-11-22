@@ -1435,7 +1435,17 @@ export function compileCczParts(
 	const defaultHeldText =
 		facts === null
 			? {}
-			: defaultAppStringsHeldText(facts.uiText, localization.languages);
+			: defaultAppStringsHeldText(
+					facts.uiText,
+					localization.languages,
+					(language, key) => {
+						if (!Object.hasOwn(appStrings, key)) return undefined;
+						const unit = ownEntry(appStringUnits, key);
+						return unit === undefined
+							? appStrings[key]
+							: localization.wireTextFor(language, unit);
+					},
+				);
 	const tables: Record<string, ReadonlyMap<string, string>> = {};
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
