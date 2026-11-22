@@ -1,3 +1,4 @@
+import { readPreviewDeploymentRecordsIn } from "./previewRecords";
 import "server-only";
 
 import { createHash } from "node:crypto";
@@ -690,62 +691,9 @@ export async function readDeploymentPreviewRecords(
 		"state" | "resumePhase" | "server" | "domain"
 	>[]
 > {
-	return readingIn(from, "view", (snapshot) => previewRecordsIn(snapshot));
-}
-
-async function previewRecordsIn(
-	snapshot: DeploymentReadSnapshot,
-): Promise<
-	readonly Pick<
-		DeploymentRecord,
-		"state" | "resumePhase" | "server" | "domain"
-	>[]
-> {
-	const { scope } = snapshot;
-	/* A deployment whose live app mapping is released still displays as
-	 * uploaded, but no publish goes there until a settle takes the HQ app
-	 * back, so Preview does not name its project space. */
-	const rows = await snapshot.db
-		.selectFrom("app_deployments as d")
-		.select(["d.state", "d.resume_phase", "d.server", "d.domain"])
-		.where("d.app_id", "=", scope.appId)
-		.where("d.project_id", "=", scope.projectId)
-		.where(({ not, exists, selectFrom }) =>
-			not(
-				exists(
-					selectFrom("app_deployment_resources as r")
-						.select(sql<number>`1`.as("one"))
-						.whereRef("r.deployment_id", "=", "d.id")
-						.where("r.kind", "=", "app")
-						.where("r.superseded_at", "is", null)
-						.where("r.released_at", "is not", null),
-				),
-			),
-		)
-		.execute();
-	return rows.map((row) => {
-		const state = deploymentStateSchema.safeParse(row.state);
-		const resumePhase =
-			row.resume_phase === null
-				? null
-				: deploymentPhaseSchema.safeParse(row.resume_phase);
-		if (!state.success || (resumePhase !== null && !resumePhase.success)) {
-			throw new Error(
-				`A deployment of app ${scope.appId} is stored in a state Nova does not know.`,
-			);
-		}
-		if (!isDeploymentServer(row.server)) {
-			throw new Error(
-				`A deployment of app ${scope.appId} names CommCare server "${row.server}", which Nova does not know.`,
-			);
-		}
-		return {
-			state: state.data,
-			resumePhase: resumePhase === null ? null : resumePhase.data,
-			server: row.server,
-			domain: row.domain,
-		};
-	});
+	return readingIn(from, "view", (snapshot) =>
+		readPreviewDeploymentRecordsIn(snapshot.db, snapshot.scope),
+	);
 }
 
 /** One deployment by target with its ledger, from one authorized snapshot, or `null` when the

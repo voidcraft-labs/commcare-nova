@@ -2548,3 +2548,23 @@ Every live source read for bring-in, passive refresh or publishing must include 
 The MCP tools page HQ birth and change reviews against 80,000 characters of the complete serialized SDK result, including the outer write response around a fresh reading. Size the opaque continuation and every escaped piece before adding it. Move a large case catalog, a lookup choice with many column consequences, or a contributor list onto those same pages. Preserve their complete identities and offer the review digest only when every decision-bearing item has been returned. An oversized upload refusal sends the user to this review before it offers any discard receipt.
 
 A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.
+
+### Project space settings for a record search in Preview
+
+A project space's calendar, maximum server results, fuzzy properties and literal
+text ignored by its record search belong to the project space. The app API and
+a source digest cannot report those facts. A Project member with edit access
+can record each fact independently in Preview. The settings apply to every app
+in that Project that has reached that server and domain. Bringing in another app
+or another HQ edit leaves them in place. A local profile is a separate choice
+for an app with no reached destination. Its initial settings are UTC, exact
+matching and 500 results. A viewer can choose a destination and run the app.
+
+`previewSearchSettings.ts` reads the app's reached targets and Project-qualified
+settings on the calling transaction. `previewRecords.ts` also supplies the
+existing deployment resolution, including the exclusion for a released live app
+mapping. A claimed destination outside this app contributes no facts. The
+browser and shared tools reauthorize writes and compare the selected profile's
+revision. Tool retries reauthorize before returning the durable receipt. The
+deployment stream sends the catalog to authorized tabs when a profile changes.
+A Project move, changed target or new revision changes the search observation.

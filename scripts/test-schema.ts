@@ -146,7 +146,26 @@ interface SchemaTest {
 	readonly prompt: string;
 }
 
+import {
+	getPreviewSearchSettingsTool,
+	setPreviewSearchSettingsTool,
+} from "../lib/agent/tools/previewSearchSettings";
+
 const SCHEMA_TESTS: readonly SchemaTest[] = [
+	{
+		name: "getPreviewSearchSettings",
+		description: getPreviewSearchSettingsTool.description,
+		schema: getPreviewSearchSettingsTool.inputSchema,
+		prompt:
+			"Use getPreviewSearchSettings to read this app's available Preview destinations.",
+	},
+	{
+		name: "setPreviewSearchSettings",
+		description: setPreviewSearchSettingsTool.description,
+		schema: setPreviewSearchSettingsTool.inputSchema,
+		prompt:
+			"Use setPreviewSearchSettings to record the confirmed UTC timezone and exact matching with 500 results for the local profile at revision 0.",
+	},
 	{
 		name: "evaluateForm",
 		description: evaluateFormTool.description,

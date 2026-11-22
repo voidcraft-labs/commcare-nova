@@ -1,6 +1,8 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
+import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
+import { previewSearchCatalogIn } from "./previewSearchSettings";
 import {
 	previewProjectSpace,
 	resolvePreviewDeploymentTarget,
@@ -54,30 +56,38 @@ export async function previewProjectSpaceFor(
  */
 export async function readPreviewDeploymentAnswer(
 	scope: DeploymentScope,
-): Promise<PreviewDeploymentAnswer> {
+	includeSearchCatalog = false,
+): Promise<PreviewDeploymentAnswer & { searchCatalog?: PreviewSearchCatalog }> {
 	/* The records and the facts of one moment, for a caller allowed to see
 	 * them then; the facts' bytes are read in the snapshot and projected once
 	 * it has given its connection back. */
-	const { projectSpace, target, held } = await withDeploymentReadSnapshot(
-		scope,
-		"view",
-		async (snapshot) => {
+	const { projectSpace, target, held, search } =
+		await withDeploymentReadSnapshot(scope, "view", async (snapshot) => {
 			const deployments = await readDeploymentPreviewRecords(snapshot);
 			const target = resolvePreviewFactsTarget(deployments);
 			return {
+				search: includeSearchCatalog
+					? {
+							searchCatalog: await previewSearchCatalogIn(
+								snapshot.db,
+								scope,
+								deployments,
+							),
+						}
+					: {},
 				projectSpace: previewProjectSpace(
 					resolvePreviewDeploymentTarget(deployments),
 				),
 				target,
 				held: target === null ? null : await holdTargetFacts(snapshot, target),
 			};
-		},
-	);
+		});
 	if (target === null || held === null)
-		return { projectSpace, targetFacts: null };
+		return { projectSpace, targetFacts: null, ...search };
 	const facts = targetFactsOf(held);
 	return {
 		projectSpace,
+		...search,
 		targetFacts:
 			facts === null
 				? null

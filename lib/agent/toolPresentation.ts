@@ -117,6 +117,14 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Checked answers and proposed record values. No records were submitted; navigation and additional record operations were not checked.",
 	),
 	getForm: read("Inspecting a form", "Inspected a form"),
+	getPreviewSearchSettings: read(
+		"Reading Preview search settings",
+		"Read Preview search settings",
+	),
+	setPreviewSearchSettings: change(
+		"Recording Preview search settings",
+		"Recorded Preview search settings",
+	),
 	startAppTest: {
 		kind: "activity",
 		doing: "Starting a test journey",
