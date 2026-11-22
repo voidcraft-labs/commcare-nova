@@ -42,6 +42,15 @@ import static org.junit.Assert.*;
 public class CaseListOrderRuntimeTest {
     private static final Map<String, String> SORT_TYPES = Map.of("text", "string", "integer", "int", "decimal", "double");
 
+    /** The values in the PostgreSQL worker-order control come from legitimate text on existing cases.
+     * HQ emits round(distance(property, here())) and supplies the missing-property sentinel separately. */
+    @Test public void existingLocationTextUsesJavaNumbersAndKeepsNonfiniteDistance() {
+        assertEquals(0.0, org.javarosa.xpath.expr.XPathDistanceFunc.distance("0x0.0p0 0x0p0 10F 5D", "0 0"), 0.0);
+        assertEquals(111195.0, Math.floor(org.javarosa.xpath.expr.XPathDistanceFunc.distance("0 1e0", "0 0") + 0.5), 0.0);
+        assertEquals(222390.0, Math.floor(org.javarosa.xpath.expr.XPathDistanceFunc.distance("0 0x1p1D", "0 0") + 0.5), 0.0);
+        assertTrue(org.javarosa.xpath.expr.XPathDistanceFunc.distance("NaN 0", "0 0").isNaN());
+    }
+
     private static final class Parser extends SuiteParser {
         Parser(InputStream input) throws IOException { super(input, null, "nova-case-list-order", null, true, true, false); }
     }
