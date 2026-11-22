@@ -100,10 +100,11 @@ def test_worker_chooses_and_claims_a_directory_visit_through_both_entries(
                     endpoint.current_version = CaseSearchEndpointVersion.objects.create(
                         endpoint=endpoint, version_number=1, case_type="visit", action=CaseSearchEndpointVersion.Action.CREATE,
                         dangerous_sql=(
-                            "SELECT case_id, case_id AS case_name, parent_id AS index, "
-                            "COALESCE(:_xpath_query, '') AS parent_filter, "
-                            "COALESCE(:commcare_blacklisted_owner_ids, '') AS excluded_owner "
-                            "FROM visit WHERE case_name = :region ORDER BY case_id"
+                            "SELECT case_id, case_id AS case_name, parent_id AS index "
+                            "FROM visit WHERE case_name = :region "
+                            "AND (:_xpath_query IS NULL OR parent_id IS NOT NULL) "
+                            "AND (:commcare_blacklisted_owner_ids IS NULL OR owner_id <> :commcare_blacklisted_owner_ids) "
+                            "ORDER BY case_id"
                         ),
                     )
                 else:
