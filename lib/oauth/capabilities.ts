@@ -104,6 +104,19 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 		icon: tablerCloudDownload,
 		matches: (s) => s.has("nova.hq.import"),
 	},
+	{
+		key: "nova.preview.search.read",
+		label:
+			"See where your apps are published and the Preview search settings your team recorded for each destination",
+		icon: tablerEye,
+		matches: (s) => s.has("nova.preview.search.read"),
+	},
+	{
+		key: "nova.preview.search.write",
+		label: "Change the Preview search settings shared by apps in your Projects",
+		icon: tablerPencil,
+		matches: (s) => s.has("nova.preview.search.write"),
+	},
 	/* The Projects rows name the member-email exposure and the
 	 * grant-access-to-others power explicitly — these are the two facts a
 	 * user weighing this consent actually needs, and the catch-all
@@ -143,6 +156,8 @@ const KNOWN_CAPABILITY_SCOPES: ReadonlySet<string> = new Set([
 	"nova.hq.read",
 	"nova.hq.write",
 	"nova.hq.import",
+	"nova.preview.search.read",
+	"nova.preview.search.write",
 	"nova.projects.read",
 	"nova.projects.write",
 ]);

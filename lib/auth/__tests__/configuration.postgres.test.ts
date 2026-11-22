@@ -333,7 +333,7 @@ async function authorize(
 	return new URL(location, origin);
 }
 
-it("sends a request for the import scope to consent when the person's approval lacks it, whatever else it holds", async () => {
+it("sends new HQ import and Preview search scopes to consent when the standing grant lacks them", async () => {
 	const auth = createAuth(database.pool);
 	const client = await auth.api.registerOAuthClient({
 		body: {
@@ -366,7 +366,7 @@ it("sends a request for the import scope to consent when the person's approval l
 			updatedAt: now,
 		},
 	});
-	/* The person approved every scope but the import scope. */
+	/* The person approved the full original set before import and Preview search had their own scopes. */
 	await context.adapter.create({
 		model: "oauthConsent",
 		data: {
@@ -393,6 +393,18 @@ it("sends a request for the import scope to consent when the person's approval l
 	expect(widened.searchParams.get("scope")?.split(" ")).toContain(
 		"nova.hq.import",
 	);
+
+	for (const scope of [
+		"nova.preview.search.read",
+		"nova.preview.search.write",
+	]) {
+		const expanded = await authorize(auth, client.client_id, [
+			...PRE_IMPORT_SCOPES,
+			scope,
+		]);
+		expect(expanded.pathname).toBe("/consent");
+		expect(expanded.searchParams.get("scope")?.split(" ")).toContain(scope);
+	}
 
 	for (const table of ["auth_oauth_access_token", "auth_oauth_refresh_token"])
 		expect((await database.pool.query(`SELECT * FROM ${table}`)).rows).toEqual(

@@ -306,3 +306,31 @@ def test_project_space_search_limit_and_literal_matchers(hq, increased, limit):
         assert includes(query["query"], case_property_query("badge_code", "AB", fuzzy=True))
         exact = _built_search(state, [("patient_number", "A.B")]).raw_query
         assert includes(exact["query"], case_property_query("patient_number", "A.B", fuzzy=False))
+
+
+def test_literal_removal_preserves_all_requested_types_in_configuration_order(hq):
+    from corehq.apps.case_search.models import CaseSearchConfig
+    from corehq.apps.case_search.utils import CaseSearchQueryBuilder, _get_helper
+    from corehq.apps.es.case_search import case_property_query
+
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        config = CaseSearchConfig.objects.get(domain=state.domain)
+        config.fuzzy_properties.create(domain=state.domain, case_type="doctor", properties=["badge"])
+        for kind, text in [("patient", "ab"), ("doctor", "bc"), ("patient", "c")]:
+            config.ignore_patterns.create(domain=state.domain, case_type=kind, case_property="badge", regex=text)
+
+        def query(types, value):
+            post = [*(("case_type", name) for name in types), ("badge", value)]
+            request = operations.search_request_config(state, "search-app", post)
+            helper = _get_helper(None, state.domain, request.case_types, None)
+            builder = CaseSearchQueryBuilder(helper, request.case_types)
+            assert request.case_types == types
+            criterion, = request.criteria
+            assert criterion.key == "badge"
+            return builder._get_query(criterion)
+
+        # These two results together distinguish A/B/A from both possible
+        # per-type bucket orders. In the single-type control B is untouched.
+        for value in ("abc", "bc"):
+            assert query(["patient", "doctor"], value) == case_property_query("badge", "", fuzzy=True)
+        assert query(["patient"], "bc") == case_property_query("badge", "b", fuzzy=False)

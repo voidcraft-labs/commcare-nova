@@ -1,6 +1,10 @@
 import { sql } from "kysely";
+import { Client } from "pg";
 import { beforeEach, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { waitForBlockedLocks } from "@/lib/db/__tests__/heldAppRow";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	localSearchDefaults,
@@ -12,9 +16,12 @@ import {
 	recoverPreviewSearchSettings,
 	setPreviewSearchSettings,
 } from "../previewSearchSettings";
+import { endDeployment } from "../store";
+import { birthAdoptedApp } from "./adoptedBirth";
 
 const h = setupAppStateTestDb("preview_search_settings_", {
 	authSchema: "migrated",
+	poolMax: 4,
 });
 const eu = { kind: "destination", server: "eu", domain: "clinic" } as const;
 const india = { ...eu, server: "india" } as const;
@@ -25,7 +32,7 @@ const foreign = { appId: "other-app", projectId: "project-b" };
 const confirmed = {
 	maximum: 1500 as const,
 	timeZone: "Asia/Kolkata",
-	propertyMatchers: [],
+	propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
 };
 async function deploy(scope: typeof app, server: string, domain = "clinic") {
 	await sql`INSERT INTO app_deployments (app_id,project_id,server,domain,state,created_by)
@@ -158,3 +165,92 @@ it("returns the same committed tool receipt after a later edit and reauthorizes 
 	await h.seedProjectMember("author", app.projectId, "viewer");
 	await expect(recoverPreviewSearchSettings(tool)).rejects.toThrow();
 });
+
+it.each(["save-first", "stop-first"] as const)(
+	"serializes the first browser settings insert and a deployment ending, %s",
+	async (order) => {
+		const projectId = app.projectId;
+		await h.seedProjectMember("publisher", projectId, "admin");
+		const first = await birthAdoptedApp(h, {
+			appId: testUuid("settings-source"),
+			projectId,
+			actorUserId: "publisher",
+			target: eu,
+			remoteAppId: "d".repeat(32),
+		});
+		const sibling = await birthAdoptedApp(h, {
+			appId: testUuid("settings-sibling"),
+			projectId,
+			actorUserId: "publisher",
+			target: eu,
+			remoteAppId: "e".repeat(32),
+		});
+		const readPeer = async () =>
+			resolvePreviewSearchFacts(
+				await readAuthorizedPreviewSearchCatalog(
+					sibling.scope.appId,
+					projectId,
+					"viewer",
+				),
+				eu,
+			);
+		const stop = () => endDeployment(first.scope, eu, "d".repeat(32));
+		const save = () =>
+			setPreviewSearchSettings(first.scope, "author", eu, "0", confirmed);
+		let pending: Promise<PromiseSettledResult<void>[]> | undefined;
+		let joined: PromiseSettledResult<void>[] | undefined;
+		const outcomes: string[] = [];
+		const operations = {
+			save: async () => {
+				outcomes.push((await save()).kind);
+			},
+			stop: async () => {
+				await stop();
+				outcomes.push("ended");
+			},
+		};
+		const firstOp = order === "save-first" ? operations.save : operations.stop;
+		const secondOp = order === "save-first" ? operations.stop : operations.save;
+		const observer = new Client({ connectionString: h.uri() });
+		await observer.connect();
+		try {
+			await whileBlocked(
+				h,
+				(pg) =>
+					pg.query(
+						order === "save-first"
+							? "LOCK TABLE preview_search_settings IN SHARE MODE"
+							: "LOCK TABLE app_deployments IN SHARE MODE",
+					),
+				firstOp,
+				async () => {
+					pending = Promise.allSettled([secondOp()]);
+					// The second operation cannot commit in the interval between
+					// eligibility and the first operation's blocked database write.
+					await waitForBlockedLocks(observer, 2);
+					expect(await readPeer()).toMatchObject(unconfirmedSearchValues);
+				},
+			);
+		} finally {
+			joined = await pending;
+			await observer.end();
+		}
+		if (joined?.[0]?.status === "rejected") throw joined[0].reason;
+		expect(outcomes.sort()).toEqual([
+			"ended",
+			order === "save-first" ? "saved" : "target-unavailable",
+		]);
+		expect(await readPeer()).toMatchObject(
+			order === "save-first" ? confirmed : unconfirmedSearchValues,
+		);
+		expect(
+			(
+				await readAuthorizedPreviewSearchCatalog(
+					first.scope.appId,
+					projectId,
+					"viewer",
+				)
+			).profiles.map((p) => p.target),
+		).toEqual([local]);
+	},
+);

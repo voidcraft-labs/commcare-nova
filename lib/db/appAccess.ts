@@ -129,7 +129,8 @@ export async function resolveAppAccess(
  * Resolve an app's current Project, role, edit capability, and mutation cursor
  * on the caller's transaction.
  *
- * Lock order is deliberate: `apps FOR SHARE` first, then the shared
+ * Lock order is deliberate: the app row first (FOR SHARE, or FOR UPDATE when
+ * the caller must serialize a deployment eligibility check), then the shared
  * Project-membership advisory gate inside `projectRoleForInTransaction`, then
  * the exact membership row `FOR SHARE`. A Project move or blueprint commit
  * takes the conflicting app-row lock, while Better Auth membership DML takes
@@ -141,13 +142,16 @@ export async function resolveAppScopeInTransaction(
 	appId: string,
 	userId: string,
 	required: AppCapability = "view",
+	appRowLock: "share" | "update" = "share",
 ): Promise<TransactionalAppScope> {
-	const app = await tx
+	const query = tx
 		.selectFrom("apps")
 		.select(["project_id", "mutation_seq", "deleted_at", "status"])
-		.where("id", "=", appId)
-		.forShare()
-		.executeTakeFirst();
+		.where("id", "=", appId);
+	const app = await (appRowLock === "update"
+		? query.forUpdate()
+		: query.forShare()
+	).executeTakeFirst();
 	if (!app || app.deleted_at !== null) {
 		throw new AppAccessError("not_found");
 	}

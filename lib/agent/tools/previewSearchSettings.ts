@@ -57,7 +57,7 @@ function saved(revision: string) {
 
 export const setPreviewSearchSettingsTool = {
 	description:
-		"Record a project space's search settings for Preview after a person confirms them. Read getPreviewSearchSettings for the destination and its revision. Keep unconfirmed facts null. An empty propertyMatchers list explicitly confirms exact matching with no ignored text. Use the literal text to ignore in the order supplied. Record the team's settings only, never infer them from an app or its data. Saving affects Preview for this Project and destination.",
+		"Record a project space's search settings for Preview after a person confirms them. Read getPreviewSearchSettings for the destination and its revision. Keep unconfirmed facts null. Empty fuzzyProperties and ignoredText lists explicitly confirm exact matching with no ignored text. For each ignoredText entry give its exact literal, property and record type, in the overall order the team confirmed. Record the team's settings only, never infer them from an app or its data. Saving affects Preview for this Project and destination.",
 	inputSchema: saveSchema,
 	async recover(ctx: ToolInvocationContext) {
 		const who = scope(ctx);

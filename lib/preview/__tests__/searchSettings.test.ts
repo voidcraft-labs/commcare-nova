@@ -54,7 +54,7 @@ describe("facts a worker's search may use", () => {
 					values: {
 						maximum: 500,
 						timeZone: "Europe/Paris",
-						propertyMatchers: [],
+						propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
 					},
 				},
 				{
@@ -63,7 +63,7 @@ describe("facts a worker's search may use", () => {
 					values: {
 						maximum: 1500,
 						timeZone: "Asia/Kolkata",
-						propertyMatchers: [],
+						propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
 					},
 				},
 			],
@@ -72,7 +72,7 @@ describe("facts a worker's search may use", () => {
 			projectSpace: "clinic",
 			maximum: null,
 			timeZone: null,
-			propertyMatchers: [],
+			propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
 		});
 		const selected = resolvePreviewSearchFacts(catalog, india);
 		expect(selected).toMatchObject({
@@ -100,49 +100,116 @@ describe("facts a worker's search may use", () => {
 			unconfirmedSearchValues,
 		);
 	});
-	it("isolates destination disagreements to the request property and types they affect", () => {
-		const rule = {
-			caseType: "person",
-			property: "name",
-			fuzzy: true,
-			ignoreLiterals: [],
-		};
-		const facts = resolvePreviewSearchFacts({
+	it("compares effective native matching on only the requested types and property", () => {
+		const address = { caseType: "patient", property: "badge" };
+		const rule = { ...address, fuzzy: false };
+		const withRules = (
+			matchers: PreviewSearchCatalog["profiles"][number]["values"]["propertyMatchers"],
+		) => ({
 			projectId: "A",
 			profiles: [
+				{ target: europe, revision: "1", values: localSearchDefaults },
 				{
-					target: europe,
-					revision: "1",
-					values: { ...localSearchDefaults, propertyMatchers: [rule] },
+					target: india,
+					revision: "3",
+					values: { ...localSearchDefaults, propertyMatchers: matchers },
 				},
-				{ target: india, revision: "3", values: localSearchDefaults },
 			],
 		});
-		expect(previewSearchPropertyMatchers(facts, ["person"], "name")).toBeNull();
-		expect(previewSearchPropertyMatchers(facts, ["clinic"], "name")).toEqual(
-			[],
+		const exact = { fuzzy: false, ignoreLiterals: [] };
+		const noop = resolvePreviewSearchFacts(
+			withRules({ fuzzyProperties: [rule], ignoredText: [] }),
+		);
+		expect(previewSearchPropertyMatchers(noop, ["patient"], "badge")).toEqual(
+			exact,
+		);
+		const different = resolvePreviewSearchFacts(
+			withRules({
+				fuzzyProperties: [{ ...rule, fuzzy: true }],
+				ignoredText: [],
+			}),
 		);
 		expect(
-			previewSearchPropertyMatchers(facts, ["person"], "registration"),
-		).toEqual([]);
+			previewSearchPropertyMatchers(different, ["patient"], "badge"),
+		).toBeNull();
+		expect(
+			previewSearchPropertyMatchers(different, ["clinic"], "badge"),
+		).toEqual(exact);
+		expect(
+			previewSearchPropertyMatchers(different, ["patient"], "name"),
+		).toEqual(exact);
+		expect(
+			previewSearchPropertyMatchers(
+				resolvePreviewSearchFacts(withRules(null)),
+				["patient"],
+				"badge",
+			),
+		).toBeNull();
 	});
-	it("distinguishes exact matching from unobserved rules and rejects competing rules, fixed offsets and unknown zones", () => {
-		const row = {
-			caseType: "patient",
-			property: "external_id",
-			fuzzy: false,
-			ignoreLiterals: [".", "["],
+	it("preserves interleaved ignored text across types and compares its order across destinations", () => {
+		const a = { caseType: "patient", property: "badge" };
+		const b = { caseType: "doctor", property: "badge" };
+		const ignoredText = [
+			{ ...a, literal: "ab" },
+			{ ...b, literal: "bc" },
+			{ ...a, literal: "c" },
+		];
+		const config = { fuzzyProperties: [{ ...b, fuzzy: true }], ignoredText };
+		const apply = (args: string[], value: string) =>
+			args.reduce((text, literal) => text.replaceAll(literal, ""), value);
+		const fact = (second: typeof config) =>
+			resolvePreviewSearchFacts({
+				projectId: "A",
+				profiles: [
+					{
+						target: europe,
+						revision: "1",
+						values: { ...localSearchDefaults, propertyMatchers: config },
+					},
+					{
+						target: india,
+						revision: "2",
+						values: { ...localSearchDefaults, propertyMatchers: second },
+					},
+				],
+			});
+		const combined = previewSearchPropertyMatchers(
+			fact(config),
+			["doctor", "patient"],
+			"badge",
+		);
+		expect(combined).toEqual({
+			fuzzy: true,
+			ignoreLiterals: ["ab", "bc", "c"],
+		});
+		if (!combined) throw new Error("Expected the confirmed matcher.");
+		expect(
+			["abc", "bc"].map((v) => apply([...combined.ignoreLiterals], v)),
+		).toEqual(["", ""]);
+		const reordered = {
+			...config,
+			ignoredText: [ignoredText[0], ignoredText[2], ignoredText[1]],
 		};
 		expect(
-			previewSearchValuesSchema.parse({
-				...localSearchDefaults,
-				propertyMatchers: [row],
-			}).propertyMatchers,
-		).toEqual([row]);
+			previewSearchPropertyMatchers(
+				fact(reordered),
+				["patient", "doctor"],
+				"badge",
+			),
+		).toBeNull();
+		expect(
+			previewSearchPropertyMatchers(fact(reordered), ["patient"], "badge"),
+		).toEqual({ fuzzy: false, ignoreLiterals: ["ab", "c"] });
+	});
+	it("rejects conflicting fuzzy settings, fixed offsets and unknown zones", () => {
+		const row = { caseType: "patient", property: "external_id", fuzzy: true };
 		expect(
 			previewSearchValuesSchema.safeParse({
 				...localSearchDefaults,
-				propertyMatchers: [row, row],
+				propertyMatchers: {
+					fuzzyProperties: [row, { ...row, fuzzy: false }],
+					ignoredText: [],
+				},
 			}).success,
 		).toBe(false);
 		for (const zone of ["+08:00", "Unobserved/City"])

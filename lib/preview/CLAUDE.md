@@ -2592,3 +2592,11 @@ Preview can use a fact that agrees across the destinations. The revision include
 the Nova Project, qualified destination selection and contributing revisions. A
 worker read resolves the facts inside its authorized database snapshot. A
 changed revision invalidates the result a worker completed under the old one.
+
+
+A search's fuzzy properties and ordered ignored text are separate. Each ignored
+literal names a record type and property and retains its position among all
+rules for a property. On the requested types, Preview compares whether any type
+uses fuzzy matching plus the actual sequence of applicable literals. Differences
+in how the team spelled exact matching, including an explicit exact rule, do
+not hold an otherwise decidable search.
