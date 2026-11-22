@@ -269,6 +269,14 @@ function shortDetail(suite: XmlEvidence, moduleIndex: number): XmlEvidence {
 	return detail;
 }
 
+it("exports a menu without a case list without adding sort elements", () => {
+	const doc = buildDoc({ appName: "Intake", modules: [{ name: "Surveys", forms: [{ name: "Intake", type: "survey", fields: [] }] }] });
+	const menu = doc.modules[doc.moduleOrder[0]];
+	expect(menu.caseListConfig).toBeUndefined();
+	expect(moduleCaseListOrderPlan(menu, doc, true).introductionOrders).toEqual([]);
+	expect(expandDoc(doc).modules[0].case_details.short.sort_elements).toEqual([]);
+});
+
 describe("the order plan's two emitters", () => {
 	const doc = parityDoc();
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);

@@ -61,6 +61,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
+	EMPTY_CASE_LIST_ORDER_PLAN,
 	caseListOrderPlan,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
@@ -1197,7 +1198,7 @@ export function projectCaseListForHq(
 	// positional sort element indexes the short one.
 	const plan =
 		caseListConfig === undefined
-			? { fields: [], carriers: [], authored: [], calculations: [] }
+			? EMPTY_CASE_LIST_ORDER_PLAN
 			: caseListOrderPlan(
 					caseListConfig,
 					caseProperties,

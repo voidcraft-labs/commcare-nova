@@ -18,6 +18,7 @@ import {
 	type CaseListOrderPlan,
 	type CaseType,
 	type Column,
+	EMPTY_CASE_LIST_ORDER_PLAN,
 	caseListOrderPlan,
 	casePropertyShowsOptionLabels,
 	columnPropertyCaseType,
@@ -340,7 +341,7 @@ export function moduleCaseListOrderPlan(
 ): CaseListOrderPlan {
 	const config = mod.caseListConfig;
 	if (config === undefined)
-		return { fields: [], carriers: [], authored: [], calculations: [] };
+		return EMPTY_CASE_LIST_ORDER_PLAN;
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];

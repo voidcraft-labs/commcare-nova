@@ -276,6 +276,15 @@ export interface CaseListOrderPlan {
 	}[];
 }
 
+/** A menu without a case list contributes no worker choices or sort elements. */
+export const EMPTY_CASE_LIST_ORDER_PLAN: CaseListOrderPlan = {
+	fields: [],
+	carriers: [],
+	authored: [],
+	introductionOrders: [],
+	calculations: [],
+};
+
 export interface CaseListOrderOptions {
 	/** Whether the export carries a media manifest; read only through
 	 *  `imageMapShowsImages`. */

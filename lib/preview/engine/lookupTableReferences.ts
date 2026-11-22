@@ -31,7 +31,7 @@ export function caseOperationProgramLookupTableIds(
 
 /**
  * Every lookup table the config's SQL-bound slots reference: the
- * always-on filter, calculated columns, and advanced search-input
+ * always-on filter, calculated columns and sort rules, and advanced search-input
  * predicates all compose into `store.query`'s predicate/projection,
  * so any `table-lookup` inside them needs the compiler's definitions
  * snapshot. Extra expressions (the excluded-owner value) join the
@@ -55,6 +55,8 @@ export function collectConfigLookupTableIds(
 				walkExpressionNodes(column.expression, collect);
 			}
 		}
+		for (const rule of caseListConfig.calculatedSorts ?? [])
+			walkExpressionNodes(rule.expression, collect);
 		for (const input of caseListConfig.searchInputs) {
 			if (input.kind === "advanced") {
 				walkExpressionNodes(input.predicate, collect);
