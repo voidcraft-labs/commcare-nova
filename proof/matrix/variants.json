@@ -29315,6 +29315,158 @@
 		}
 	},
 	{
+		"id": "hq-question-display/fix-grid-columns",
+		"base": "hq-question-display",
+		"entry": "questions/select1-quick-compact-n",
+		"change": {
+			"op": "named",
+			"name": "display_fix_grid_columns"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["auto_weather"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "grid",
+					"columns": 2,
+					"advanceOnChoice": true
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/remove-date-row",
+		"base": "hq-question-display",
+		"entry": "questions/date-ethiopian",
+		"change": {
+			"op": "named",
+			"name": "display_remove_date_row"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["follow_up"]
+				],
+				"pointer": "/calendar",
+				"value": "ethiopian"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["follow_up"]
+				],
+				"pointer": "/itemsPerRow",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/restore-dropdown",
+		"base": "hq-question-display",
+		"entry": "questions/select1-minimal",
+		"change": {
+			"op": "named",
+			"name": "display_restore_dropdown"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["place"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "dropdown"
+				}
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["place"]
+				],
+				"pointer": "/hintPlacement",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/restore-signature",
+		"base": "hq-question-display",
+		"entry": "questions/signature-image-signature",
+		"change": {
+			"op": "named",
+			"name": "display_restore_signature"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["web_agreement"]
+				],
+				"pointer": "/kind",
+				"value": "signature"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["web_agreement"]
+				],
+				"pointer": "/itemsPerRow",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/search-android-only",
+		"base": "hq-question-display",
+		"entry": "questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
+		"change": {
+			"op": "named",
+			"name": "display_search_android_only"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["ranked_route"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "search",
+					"matchWords": "android-fuzzy"
+				}
+			}
+		]
+	},
+	{
 		"id": "hq-questions/acknowledge-label",
 		"base": "hq-questions",
 		"entry": "questions/acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",

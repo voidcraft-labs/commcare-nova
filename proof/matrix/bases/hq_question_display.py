@@ -285,6 +285,17 @@ def palette_source(name):
                 hint="Visit information",
                 appearance=style,
             )
+    # An upload with only its channel witnesses the single-token sender class.
+    # The first form's camera and address senders witness composition instead.
+    _question(form, "attachment", "Travel photo", tag="upload", bind_type="binary",
+              mediatype="image/*", appearance="broadcast-travel")
+    for qid, label, appearance in [
+        ("zero_row", "Zero divisor", "0-per-row"),
+        ("last_column", "Last one-column width", "24-per-row"),
+        ("no_columns", "First zero-column width", "25-per-row"),
+        ("enormous_row", "Large row count", "90071992547409931234567890123456789-per-row"),
+    ]:
+        _question(form, qid, label, bind_type="xsd:string", appearance=appearance)
     return etree.tostring(
         _with_vellum_prefix(form), encoding="utf-8", xml_declaration=True
     ).decode("utf-8")

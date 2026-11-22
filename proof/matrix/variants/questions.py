@@ -3244,3 +3244,38 @@ def case_choices(authoring, app_id):
             1,
         ),
     )
+
+
+def display_remove_date_row(authoring, app_id):
+    """Removing a date's row width restores Android's Ethiopian calendar."""
+    _change(authoring, app_id, "remove-date-row",
+            ('ref="/data/follow_up" appearance="ethiopian 2-per-row"',
+             'ref="/data/follow_up" appearance="ethiopian"', 1))
+
+
+def display_restore_dropdown(authoring, app_id):
+    """The bare dropdown also selects Android's spinner."""
+    _change(authoring, app_id, "restore-dropdown",
+            ('ref="/data/place" appearance="minimal hint-as-placeholder"',
+             'ref="/data/place" appearance="minimal"', 1))
+
+
+def display_restore_signature(authoring, app_id):
+    """The sole signature appearance restores signing on Android and Vellum's signature mug."""
+    _change(authoring, app_id, "restore-signature",
+            ('ref="/data/web_agreement" appearance="signature 2-per-row"',
+             'ref="/data/web_agreement" appearance="signature"', 1))
+
+
+def display_fix_grid_columns(authoring, app_id):
+    """A final column count restores the fixed grid without changing quick selection."""
+    _change(authoring, app_id, "fix-grid-columns",
+            ('ref="/data/auto_weather" appearance="compact-2 quick"',
+             'ref="/data/auto_weather" appearance="quick compact-2"', 1))
+
+
+def display_search_android_only(authoring, app_id):
+    """Changing the word order changes the matching rule on Web Apps only."""
+    _change(authoring, app_id, "search-android-only",
+            ('ref="/data/ranked_route" appearance="combobox fuzzy"',
+             'ref="/data/ranked_route" appearance="fuzzy combobox"', 1))
