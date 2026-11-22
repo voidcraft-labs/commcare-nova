@@ -134,6 +134,7 @@ final class Screens {
         Forms.views = request.optBoolean("views");
         Forms.typeRefused = request.optBoolean("typeRefused");
         Forms.keys = request.optBoolean("keys");
+        Forms.controls = request.optBoolean("controls");
         JSONObject walks = new JSONObject();
         JSONArray commands = request.optJSONArray("commands");
         if (commands != null) {

@@ -5,7 +5,10 @@ import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
-import { useQuestionChannels } from "@/lib/doc/hooks/useQuestionChannels";
+import {
+	canSetQuestionDisplay,
+	useQuestionChannels,
+} from "@/lib/doc/hooks/useQuestionChannels";
 import {
 	type Field,
 	type FieldDisplaySetting,
@@ -14,6 +17,7 @@ import {
 } from "@/lib/domain";
 
 import type { CommitOutcome } from "@/lib/domain/kinds";
+import { webShowsHintInEntry } from "@/lib/domain/questionDisplay";
 import { useSelectedFormUuid } from "@/lib/routing/hooks";
 import { LayoutSelect } from "./ChoiceLayoutEditor";
 
@@ -187,9 +191,15 @@ export function QuestionDisplayEditor({
 	}
 	const resetKey = JSON.stringify(value);
 	const options = Object.fromEntries(
-		Object.entries(fieldDisplayOptionsFor(field.kind, setting)).map(
-			([key, row]) => [key, row.label],
-		),
+		Object.entries(fieldDisplayOptionsFor(field.kind, setting))
+			.filter(
+				([key]) =>
+					(setting.key !== "hintPlacement" ||
+						(key === "placeholder") === webShowsHintInEntry(field)) &&
+					(setting.input !== "enum" ||
+						canSetQuestionDisplay(field, setting.key, key)),
+			)
+			.map(([key, row]) => [key, row.label]),
 	);
 	return (
 		<div data-field-id={keyName} className="space-y-2">
@@ -223,6 +233,12 @@ export function QuestionDisplayEditor({
 					value={value}
 					change={change}
 				/>
+			)}
+			{field.kind === "secret" && setting.key === "addressLookup" && (
+				<p className="text-xs text-nova-text-muted">
+					Web Apps shows the address as the worker searches. Android masks the
+					answer.
+				</p>
 			)}
 			<RejectionInline message={rejection} />
 		</div>

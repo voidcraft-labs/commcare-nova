@@ -57,3 +57,67 @@ export function choiceLayoutForPlatform(
 		return undefined;
 	return layout;
 }
+
+/** The kind has the slot structurally. A sender and its receiver still
+ * depend on which entry the selected platform actually constructs. */
+export function canOfferDisplaySetting(
+	field: Field,
+	key: string,
+	hasRepeat: boolean,
+): boolean {
+	if (
+		Object.hasOwn(field, key) ||
+		!fieldDisplaySettingsFor(field.kind).some((setting) => setting.key === key)
+	)
+		return true;
+	if (key === "receiveFrom") {
+		if ("addressLookup" in field && field.addressLookup) return false;
+		if (field.kind !== "single_select") return true;
+		const active = choiceLayoutForPlatform(field, "web-apps");
+		return !active || active.kind === "search";
+	}
+	if (key === "sendTopics") {
+		if (
+			field.kind === "text" ||
+			field.kind === "secret" ||
+			field.kind === "barcode"
+		)
+			return field.addressLookup === true;
+		return field.kind !== "image" || !field.webSignature;
+	}
+	if (
+		field.kind === "group" &&
+		field.fieldList &&
+		["compact", "collapse", "border", "itemsPerRow", "repeatsPerRow"].includes(
+			key,
+		)
+	)
+		return false;
+	if (key === "repeatsPerRow") return hasRepeat;
+	if (field.kind === "signature") return false;
+	if (
+		field.kind === "label" &&
+		!field.banner &&
+		["hintPlacement", "itemsPerRow", "textAlignment"].includes(key)
+	)
+		return false;
+	if (key === "webSignature" && field.kind === "image")
+		return hasOtherDisplay(field, "webSignature");
+	return true;
+}
+
+/** Web Apps hides the hint's usual line on every entry using this setting.
+ * Only the entry templates with a placeholder can then show its words. */
+export function webShowsHintInEntry(field: Field): boolean {
+	if (field.kind === "single_select" || field.kind === "multi_select") {
+		const active = choiceLayoutForPlatform(field, "web-apps")?.kind;
+		return active === "dropdown" || active === "search";
+	}
+	if (field.kind === "secret") return usesNumberKeypad(field, "web-apps");
+	return (
+		field.kind === "int" ||
+		field.kind === "decimal" ||
+		((field.kind === "text" || field.kind === "barcode") &&
+			!field.addressLookup)
+	);
+}

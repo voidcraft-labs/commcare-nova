@@ -12,6 +12,7 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { canSetQuestionDisplay } from "@/lib/doc/hooks/useQuestionChannels";
 import {
 	CHOICE_LAYOUT_LABELS,
 	type ChoiceLayout,
@@ -121,15 +122,65 @@ export function ChoiceLayoutEditor({
 	const [rejection, setRejection] = useState<string | null>(null);
 	const single = field.kind === "single_select";
 	const layout = field.choiceLayout;
-	const options: Record<string, string> = { ordinary: "Ordinary choices" };
+	const layouts = new Map<
+		string,
+		{ name: string; value: ChoiceLayout | null }
+	>();
+	function add(key: string, name: string, value: ChoiceLayout | null) {
+		if (canSetQuestionDisplay(field, "choiceLayout", value))
+			layouts.set(key, { name, value });
+	}
+	add("ordinary", "Ordinary choices", null);
 	for (const [kind, name] of Object.entries(CHOICE_LAYOUT_LABELS)) {
 		if (kind === "platforms") continue;
-		if (!single && !multiChoiceLayoutSchema.safeParse({ kind }).success)
-			continue;
-		options[kind] = name;
+		const candidate = (
+			single ? singleChoiceLayoutSchema : multiChoiceLayoutSchema
+		).safeParse({ kind });
+		if (candidate.success) add(kind, name, candidate.data);
 	}
-	if (layout?.kind === "platforms")
-		options.platforms = `Web Apps: ${layout.web.kind}. Android: ${layout.android.kind}.`;
+	const nativeName = (kind: string) =>
+		kind === "ordinary"
+			? "Ordinary choices"
+			: CHOICE_LAYOUT_LABELS[kind as keyof typeof CHOICE_LAYOUT_LABELS];
+	for (const web of [
+		"ordinary",
+		"dropdown",
+		"buttons",
+		"search",
+		"headings",
+		"row-without-label",
+	] as const)
+		for (const android of ["ordinary", "grid", "search"] as const) {
+			const key = `platforms-${web}-${android}`;
+			const candidate = (
+				single ? singleChoiceLayoutSchema : multiChoiceLayoutSchema
+			).safeParse({
+				kind: "platforms",
+				web: { kind: web },
+				android: { kind: android },
+			});
+			if (candidate.success)
+				add(
+					key,
+					`${nativeName(web)} in Web Apps, ${nativeName(android).toLowerCase()} on Android`,
+					candidate.data,
+				);
+		}
+	const active =
+		layout?.kind === "platforms"
+			? `platforms-${layout.web.kind}-${layout.android.kind}`
+			: (layout?.kind ?? "ordinary");
+	if (layout && !layouts.has(active))
+		layouts.set(active, {
+			name:
+				layout.kind === "platforms"
+					? `${nativeName(layout.web.kind)} in Web Apps, ${nativeName(layout.android.kind).toLowerCase()} on Android`
+					: CHOICE_LAYOUT_LABELS[layout.kind],
+			value: layout,
+		});
+	const options = Object.fromEntries(
+		[...layouts].map(([key, option]) => [key, option.name]),
+	);
 	function commit(next: ChoiceLayout | null) {
 		const result =
 			field.kind === "single_select"
@@ -143,16 +194,12 @@ export function ChoiceLayoutEditor({
 		<div className="space-y-3" data-field-id="choiceLayout">
 			<LayoutSelect
 				label={label}
-				value={layout?.kind ?? "ordinary"}
+				value={active}
 				options={options}
-				onChange={(kind) =>
-					kind !== "platforms" &&
-					commit(
-						kind === "ordinary"
-							? null
-							: singleChoiceLayoutSchema.parse({ kind }),
-					)
-				}
+				onChange={(key) => {
+					const selected = layouts.get(key);
+					if (selected) commit(selected.value);
+				}}
 			/>
 			{layout?.kind === "grid" && (
 				<>
@@ -186,7 +233,17 @@ export function ChoiceLayoutEditor({
 			{layout?.kind === "search" && (
 				<LayoutSelect
 					label="Search matches"
-					options={matchLabels}
+					options={Object.fromEntries(
+						Object.entries(matchLabels).filter(([mode]) =>
+							canSetQuestionDisplay(
+								field,
+								"choiceLayout",
+								mode === "standard"
+									? { kind: "search" }
+									: { kind: "search", matchWords: mode },
+							),
+						),
+					)}
 					value={layout.matchWords ?? "standard"}
 					onChange={(mode) =>
 						commit(

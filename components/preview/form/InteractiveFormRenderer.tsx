@@ -667,9 +667,8 @@ const InteractiveField = memo(function InteractiveField({
 		);
 	}
 
-	const banner =
-		platform === "android" && "banner" in field ? field.banner : undefined;
-	if (banner === "hidden" && field.kind === "label") return null;
+	if (platform === "android" && field.kind === "label" && field.banner)
+		return null;
 
 	return (
 		<div
@@ -679,22 +678,7 @@ const InteractiveField = memo(function InteractiveField({
 			data-instance-path={path}
 			tabIndex={showInvalid ? -1 : undefined}
 		>
-			{banner && banner !== "hidden" && "label" in field && field.label && (
-				<div
-					data-question-banner={banner}
-					className={`mb-2 rounded px-3 py-2 text-sm font-semibold ${banner === "good" ? "bg-nova-mint/15 text-nova-mint" : banner === "caution" ? "bg-nova-amber/15 text-nova-amber" : "bg-nova-rose/15 text-nova-rose"}`}
-				>
-					<LabelContent
-						className="text-current"
-						label={field.label}
-						resolvedLabel={state.resolvedLabel}
-						isEditMode={false}
-						rendering={rules.labelMarkdown}
-						plainLabel={labelShowsAsTyped(textForm, field)}
-					/>
-				</div>
-			)}
-			{!(banner && field.kind === "label") && content}
+			{content}
 		</div>
 	);
 });

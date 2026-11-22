@@ -74,6 +74,95 @@ const outside = (reason: string): PlatformCell => ({
 export const PLATFORM_CELLS: Readonly<
 	Record<`${string}@${Platform}`, PlatformCell>
 > = {
+	// A visit on each worker exercises the settings that change an entry or its saved answer.
+	"questions/select1-compact-compact-n@web-apps": browser(
+		"visit-display-web-apps",
+	),
+	"questions/select1-quick@web-apps": stated("choice-advance"),
+	"questions/select1-quick-compact-n@web-apps": browser(
+		"visit-display-web-apps",
+	),
+	"questions/select1-combobox-multiword@web-apps": browser(
+		"visit-display-web-apps",
+	),
+	"questions/select1-combobox-fuzzy@web-apps": browser(
+		"visit-display-web-apps",
+	),
+	"questions/select1-list@web-apps": stated("choice-row"),
+	"questions/select1-button-select@android": browser("visit-display-android"),
+	"questions/select1-receive-topic-field@android": stated("question-receiver"),
+	"questions/select-compact-compact-n@web-apps": stated("choice-grid"),
+	"questions/select-list@web-apps": stated("choice-row"),
+	"questions/secret-numeric@web-apps": browser("visit-display-web-apps"),
+	"questions/text-secret-numbers@web-apps": stated("android-keypad"),
+	"questions/short@android": browser("visit-display-android"),
+	"questions/medium@android": stated("medium-input"),
+	"questions/text-address@android": stated("address-lookup"),
+	"questions/secret-address@android": browser("visit-display-android"),
+	"questions/broadcast-topic-an-address-entry-under-the-gates-above-and@android":
+		stated("question-sender"),
+	"questions/text-receive-topic-field@android": stated("question-receiver"),
+	"questions/secret-receive-topic-field@android": stated("question-receiver"),
+	"questions/barcode-numeric-address-or-receive-topic-field@web-apps": stated(
+		"barcode-text-options",
+	),
+	"questions/barcode-numeric-address-or-receive-topic-field@android": stated(
+		"barcode-text-options",
+	),
+	"questions/hint-as-placeholder-on-text-other-than-a-secret-without-numeric@android":
+		browser("visit-display-android"),
+	"questions/hint-as-placeholder-on-any-other-entry@web-apps": browser(
+		"visit-display-web-apps",
+	),
+	"questions/hint-as-placeholder-on-any-other-entry@android": browser(
+		"visit-display-android",
+	),
+	"questions/barcode-quick@web-apps": stated("auto-scan"),
+	"questions/date-nepali@web-apps": stated("android-calendar"),
+	"questions/date-gregorian-gregorian-cancel@web-apps":
+		stated("android-calendar"),
+	"questions/time-12-hour@android": stated("twelve-hour-clock"),
+	"questions/geopoint-maps@web-apps": stated("android-map"),
+	"questions/barcode-editable@web-apps": stated("edit-scan"),
+	"questions/image-acquire@web-apps": browser("visit-display-web-apps"),
+	"questions/image-overlay-small@web-apps": stated("photo-overlay"),
+	"questions/audio-legacy@web-apps": stated("classic-recorder"),
+	"questions/audio-acquire-or-upload@web-apps": stated("record-or-choose"),
+	"questions/audio-long@web-apps": browser("visit-display-web-apps"),
+	"questions/video-acquire@web-apps": browser("visit-display-web-apps"),
+	"questions/trigger-selectable@web-apps": stated("select-label-text"),
+	"questions/floating-good-floating-caution-floating-bad@web-apps": browser(
+		"visit-display-web-apps",
+	),
+	"questions/a-label-whose-appearance-string-starts-with-floating-other-than@web-apps":
+		browser("visit-display-web-apps"),
+	"questions/a-label-whose-appearance-string-starts-with-floating-other-than@android":
+		browser("visit-display-android"),
+	"questions/group-compact@web-apps": stated("compact-group"),
+	"questions/group-group-collapse@android": browser("visit-display-android"),
+	"questions/group-collapse-open@android": stated("collapse-group"),
+	"questions/group-group-border@android": stated("group-border"),
+	"questions/n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one@android":
+		stated("questions-across"),
+	"questions/n-per-row-repeat-group-with-a-repeat-as-a-direct-child-n-one-or@android":
+		stated("repeats-across"),
+	"questions/any-other-per-row-token-the-first-token-web-apps-per-row-pattern@android":
+		statedInDocs,
+	"questions/text-align-center-text-align-right@android":
+		stated("question-alignment"),
+	"questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2@web-apps":
+		browser("visit-display-web-apps"),
+	"questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2@android":
+		browser("visit-display-android"),
+	"questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that@web-apps":
+		statedInDocs,
+	"questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that@android":
+		statedInDocs,
+	"questions/a-single-string-no-row-names-that-holds-values-android-matches@web-apps":
+		statedInDocs,
+	"questions/a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of@web-apps":
+		statedInDocs,
+
 	// ── Refused, structural ────────────────────────────────────────────
 	"questions/date-and-time-xsd-datetime@web-apps":
 		structural("datetime-question"),

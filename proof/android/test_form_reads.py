@@ -388,3 +388,81 @@ def test_android_question_display_preserves_widgets_and_answers(android_document
     root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
     for path, value in {"arrival":"2023-09-12","follow_up":"2023-09-12","place":"upper","plain_place":"north"}.items():
         assert _child(root, path).text == value, instance
+
+
+def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answers(android_documents, hq):
+    menu = "m1-f0"
+    with _served(android_documents["hq-question-display"]) as (served, archive):
+        answer, sent = _app(
+            served, archive, "visit-options", commands=[menu], controls=True, keys=True,
+            questions={
+                "/data/house_number": ["a007"], "/data/travel_stage": ["2"],
+                "/data/packed_items": ["1 3"], "/data/private_postcode": ["B2"],
+                "/data/zone_code": ["44"],
+                "/data/door_photo": ["camera"], "/data/sign_photo": ["camera"],
+                "/data/access_video": ["camera"], "/data/quick_scan": ["scan:TRIP-007"],
+            },
+        )
+    (form,) = _forms(answer["walks"][menu])
+    questions = {
+        q["reference"]: q for screen in form["screens"] for q in screen.get("questions", [])
+    }
+
+    def question(path):
+        return questions[f"/data/{path}[1]"]
+
+    by_widget = {
+        "GridWidget": ("visit_rating", "display_season"),
+        "GridMultiWidget": ("packed_items",),
+        "LabelWidget": ("stop_headings", "supply_headings"),
+        "SelectOneAutoAdvanceWidget": ("arrival_status",),
+        "SelectOneWidget": ("travel_stage", "display_place", "received_district"),
+        "ListWidget": ("travel_mode", "road_surface"),
+        "ListMultiWidget": ("comfort_items", "health_items"),
+        "SpinnerWidget": ("door_colour",),
+        "SpinnerMultiWidget": ("supplies",),
+        "ComboboxWidget": ("district", "market", "route_name"),
+        "GregorianDateWidget": ("planned_date",),
+        "DateWidget": ("arrival_date",),
+        "GeoPointWidget": ("map_point",),
+        "BarcodeWidget": ("parcel_number", "quick_scan"),
+        "AudioWidget": ("earlier_recording",),
+        "CommCareAudioWidget": ("interview", "spoken_note"),
+        "VideoWidget": ("access_video",),
+        "ImageWidget": ("door_photo", "sign_photo", "attachment"),
+        "StringNumberWidget": ("house_suffix", "house_number"),
+        "StringWidget": ("private_location", "private_postcode", "zone_code", "followup_location"),
+        "TriggerWidget": ("mobile_note", "copyable_note"),
+    }
+    for widget, paths in by_widget.items():
+        for path in paths:
+            assert question(path)["widget"] == widget, (path, question(path))
+    (scan,) = [entry for entry in _entries(form,"/data/quick_scan[1]") if "openedOnArrival" in entry]
+    assert scan["openedOnArrival"] and scan["cancelledWithoutAnswer"] and scan["advanced"], scan
+    assert question("visit_rating")["control"]["columns"] == 2
+    assert question("private_location")["control"]["masked"] is True
+    assert question("private_postcode")["control"]["masked"] is True
+    assert question("house_number")["control"]["masked"] is False
+    assert question("copyable_note")["control"]["canCopy"] is True
+    assert question("mobile_note")["control"]["visible"] is False
+    assert question("zone_code")["control"]["imeAction"] == 6  # EditorInfo.IME_ACTION_DONE
+    for path, offered in {
+        "door_photo": False, "sign_photo": True, "attachment": True,
+        "access_video": False, "interview": False, "spoken_note": True,
+    }.items():
+        assert question(path)["control"]["canChooseFile"] is offered, (path, question(path))
+    for path, camera in {"door_photo": "android.media.action.IMAGE_CAPTURE",
+                         "sign_photo": "org.commcare.activities.camera.CameraOverlayActivity",
+                         "access_video": "android.media.action.VIDEO_CAPTURE"}.items():
+        entries = _entries(form, f"/data/{path}[1]")
+        assert any(entry.get("camera") == camera and entry.get("taken") is True for entry in entries), (path, entries)
+    for path in ("interview", "spoken_note", "attachment"):
+        recorded = _entries(form, f"/data/{path}[1]")
+        assert any(entry.get("taken") is True for entry in recorded), (path, recorded)
+    assert any(entry.get("offeredSaveAfterStop") is True for entry in _entries(form, "/data/interview[1]"))
+    assert form["saved"]["finishing"] is True, form
+    (instance,) = sent
+    root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+    for path, value in {"travel_stage": "upper", "packed_items": "north south", "private_postcode": "B2",
+                        "zone_code": "44", "house_number": "007", "quick_scan": "TRIP-007"}.items():
+        assert _child(root, path).text == value, (path, instance)

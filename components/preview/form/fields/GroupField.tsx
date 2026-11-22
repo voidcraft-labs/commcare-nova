@@ -18,7 +18,10 @@ import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
 
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -76,8 +79,10 @@ export function GroupField({
 	const state = useEngineStateAt(field.uuid, path);
 	const textForm = useFieldTextForm(field.uuid);
 	const [toggled, setToggled] = useState(false);
-	const collapsed =
-		!!field.collapse && toggled !== (field.collapse === "closed");
+	const platform = usePreviewPlatform();
+	const collapse = platform === "web-apps" ? field.collapse : undefined;
+	const border = platform === "web-apps" && field.border;
+	const collapsed = !!collapse && toggled !== (collapse === "closed");
 	const headerId = useId();
 	const contentId = useId();
 	const toggleActionId = useId();
@@ -99,12 +104,12 @@ export function GroupField({
 				}}
 			>
 				<div
-					className={`${field.border ? "border border-pv-input-border" : ""} bg-pv-surface ${field.label || field.collapse ? "px-3 py-2" : ""} ${
+					className={`${border ? "border border-pv-input-border" : ""} bg-pv-surface ${field.label || collapse ? "px-3 py-2" : ""} ${
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
 					<div className={CONTAINER_HEADER_STYLES.row}>
-						{field.collapse && (
+						{collapse && (
 							<button
 								type="button"
 								onClick={() => setToggled((value) => !value)}
@@ -162,14 +167,20 @@ export function GroupField({
 			{/* ── Rails + children ─────────────────────────────────────── */}
 			{!collapsed && (
 				<>
-					<div id={contentId} className="relative">
+					<div
+						id={contentId}
+						className="relative"
+						data-compact-entries={
+							platform === "android" && field.compact ? "" : undefined
+						}
+					>
 						{/* Nesting rail: absolute L/R borders spanning from just
 						 *  below the header to just above the close cap. Positioned
 						 *  via inline style so it tracks the depth-padded column
 						 *  exactly; the header's `border border-b-0` and the close
 						 *  cap's `border border-t-0` seal the top and bottom edges. */}
 						<div
-							className={`absolute top-0 bottom-0 pointer-events-none ${field.border ? "border-l border-r border-pv-input-border" : ""}`}
+							className={`absolute top-0 bottom-0 pointer-events-none ${border ? "border-l border-r border-pv-input-border" : ""}`}
 							style={{
 								left: depthPadding(depth),
 								right: depthPadding(depth),
@@ -199,7 +210,7 @@ export function GroupField({
 					>
 						<div
 							className={
-								field.border
+								border
 									? "h-2 rounded-b-lg border border-t-0 border-pv-input-border bg-pv-surface/40"
 									: undefined
 							}
