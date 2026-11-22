@@ -500,6 +500,11 @@ export function useFormPaging({
 		if (next === undefined && queue.length === 0) return;
 		const entryKey = controller.entryKey;
 		const version = ++navigationVersionRef.current;
+		if (
+			!(await controller.leaveScreenAsync(current.path)) ||
+			!ownsNavigation(entryKey, version)
+		)
+			return;
 		if (!(await pagePasses(current, entryKey, version))) return;
 		if (queue.length > 0) {
 			if (ownsNavigation(entryKey, version))
@@ -524,8 +529,13 @@ export function useFormPaging({
 		if (previous === undefined) return;
 		const entryKey = controller.entryKey;
 		const version = ++navigationVersionRef.current;
+		if (
+			!(await controller.leaveScreenAsync(current.path)) ||
+			!ownsNavigation(entryKey, version)
+		)
+			return;
 		await turnTo(previous, entryKey, version);
-	}, [controller, current, pages, index, turnTo]);
+	}, [controller, current, pages, index, turnTo, ownsNavigation]);
 
 	const goTo = useCallback(
 		async (id: string) => {
@@ -534,6 +544,11 @@ export function useFormPaging({
 			if (target === undefined) return;
 			const entryKey = controller.entryKey;
 			const version = ++navigationVersionRef.current;
+			if (
+				!(await controller.leaveScreenAsync(current.path)) ||
+				!ownsNavigation(entryKey, version)
+			)
+				return;
 			for (const page of pagesToValidate(
 				pages,
 				identityOf(current),
@@ -544,7 +559,15 @@ export function useFormPaging({
 			}
 			await turnTo(target, entryKey, version);
 		},
-		[controller, current, identityOf, pages, pagePasses, turnTo],
+		[
+			controller,
+			current,
+			identityOf,
+			pages,
+			pagePasses,
+			turnTo,
+			ownsNavigation,
+		],
 	);
 
 	const openPrompt =

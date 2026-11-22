@@ -3168,7 +3168,10 @@ export class EngineController {
 					/* A submit's whole-form validation runs the platform's
 					 * request pass first (Formplayer rebuilds the session before
 					 * it validates a submission). */
-					if (within === undefined) engine.prepareSubmit();
+					if (within === undefined) {
+						engine.saveScreenDates();
+						engine.prepareSubmit();
+					}
 					return complete(
 						sectionUuid !== undefined
 							? engine.validateSection(sectionUuid)
@@ -3193,7 +3196,10 @@ export class EngineController {
 					generation,
 					signal,
 				);
-				if (within === undefined) await engine.prepareSubmitAsync(evaluate);
+				if (within === undefined) {
+					await engine.saveScreenDatesAsync(evaluate);
+					await engine.prepareSubmitAsync(evaluate);
+				}
 				const valid =
 					sectionUuid !== undefined
 						? await engine.validateSectionAsync(sectionUuid, evaluate)
@@ -3304,7 +3310,19 @@ export class EngineController {
 	/** Enter one screen of the platform's page model, as App Tests' page
 	 *  turns do: a section's screen initializes its rows, and a group's or a
 	 *  question's screen of a form without sections initializes nothing. */
-	async enterScreenAsync(path: string): Promise<boolean> {
+	enterScreenAsync(path: string): Promise<boolean> {
+		return this.changeScreen(path, "enter");
+	}
+
+	/** The worker is leaving this displayed screen via Next, Back or a jump. */
+	leaveScreenAsync(path: string): Promise<boolean> {
+		return this.changeScreen(path, "leave");
+	}
+
+	private async changeScreen(
+		path: string,
+		action: "enter" | "leave",
+	): Promise<boolean> {
 		if (this.rebuilding) return false;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
@@ -3320,9 +3338,16 @@ export class EngineController {
 			!onScreens()
 		)
 			return false;
+		if (
+			action === "leave" &&
+			(engine.currentScreenPath() !== path ||
+				engine.pendingScreenDays().length === 0)
+		)
+			return true;
 		if (this.xpathRuntime === undefined)
 			return this.contain("repeat-change", formUuid, false, () => {
-				engine.enterScreen(path);
+				if (action === "enter") engine.enterScreen(path);
+				else engine.saveScreenDates();
 				this.syncAllPathsSelectively();
 				return true;
 			});
@@ -3331,10 +3356,16 @@ export class EngineController {
 			formUuid,
 			async (revision, generation, signal) => {
 				if (!onScreens()) return false;
-				await engine.enterScreenAsync(
-					path,
-					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				const evaluate = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
 				);
+				if (action === "enter") await engine.enterScreenAsync(path, evaluate);
+				else if (engine.currentScreenPath() === path)
+					await engine.saveScreenDatesAsync(evaluate);
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return false;
 				this.syncAllPathsSelectively();

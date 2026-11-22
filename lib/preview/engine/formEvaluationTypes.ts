@@ -69,6 +69,9 @@ export interface FormEvaluationContext {
 	/** Internal app-test continuation. Ordinary form checks omit both. */
 	entry?: FormEvaluationEntry;
 	captureEntry?: boolean;
+	/** A worker pressed Submit in this retained entry. Looking at its form
+	 * keeps an untouched date widget separate from the stored answer. */
+	submitting?: boolean;
 	identity: ResolvedPreviewIdentity;
 	/** The device the check or journey session runs on: its platform's
 	 *  screens, recalculation, day numbers and session values. */

@@ -92,6 +92,11 @@ import {
 } from "../displayMessages";
 import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
+import {
+	androidCalendarCanBeEmpty,
+	isoOfCalendarDay,
+	localToday,
+} from "../workerCalendar";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -705,6 +710,7 @@ export class FormEngine {
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
 	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
+	private datePathTemplates: string[] = [];
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
@@ -1026,6 +1032,7 @@ export class FormEngine {
 			),
 		);
 		this.store.setState(state, true);
+		this.drawAndroidDates(this.activeScreenPath);
 	}
 
 	/** Local required/type errors have no validation DAG node. Constraint
@@ -1129,6 +1136,7 @@ export class FormEngine {
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 		await this.settleLiveRepeatsAsync(evaluateAsync, beforeInsertion);
+		this.drawAndroidDates(this.activeScreenPath);
 	}
 
 	async touchAsync(
@@ -1257,10 +1265,26 @@ export class FormEngine {
 		const current = this.store.getState()[path];
 		if (
 			current &&
-			(current.value !== value || (current.keypadRefused === true) !== !stores)
+			(current.value !== value ||
+				(current.keypadRefused === true) !== !stores ||
+				(current.androidPickerDay !== undefined &&
+					current.androidPickerDay !== value))
 		) {
+			const cleared =
+				value === "" && this.device.platform === "android"
+					? this.findField(path)
+					: undefined;
 			updates[path] = withKeypadRefused(
-				{ ...current, value, edited: true },
+				{
+					...current,
+					value,
+					edited: true,
+					...(cleared?.kind === "date" && {
+						androidPickerDay: androidCalendarCanBeEmpty(cleared.calendar)
+							? ""
+							: isoOfCalendarDay(localToday()),
+					}),
+				},
 				!stores,
 			);
 		}
@@ -1299,7 +1323,10 @@ export class FormEngine {
 		}
 		if (!stores) return false;
 		this.settleLiveRepeats();
-		if (!this.asyncRuntime) this.reenterActiveScreen();
+		if (!this.asyncRuntime) {
+			this.reenterActiveScreen();
+			this.drawAndroidDates(this.activeScreenPath);
+		}
 		return true;
 	}
 
@@ -2262,6 +2289,80 @@ export class FormEngine {
 		return { screens, prompts };
 	}
 
+	/** A native date control is constructed with an answer, or with the
+	 * device's current civil day. Only when the worker leaves does Android
+	 * ask the widget for that day. A fresh control after a return or a
+	 * relevance change is constructed again from the instance. */
+	private drawAndroidDates(screenPath: string | undefined): void {
+		if (this.device.platform !== "android") return;
+		this.fieldPathsByUuid();
+		if (this.datePathTemplates.length === 0) return;
+		const onScreen =
+			screenPath === undefined ? undefined : screenIncludes(screenPath);
+		const visible = this.effectivelyVisiblePaths();
+		const states = this.store.getState();
+		const updates: EngineStoreState = {};
+		let today: string | undefined;
+		for (const template of this.datePathTemplates) {
+			for (const path of this.materializePaths(template)) {
+				const state = states[path];
+				if (!state) continue;
+				if (onScreen?.(path) && visible.has(path) && !state.value) {
+					if (state.androidPickerDay === undefined) {
+						today ??= isoOfCalendarDay(localToday());
+						updates[path] = { ...state, androidPickerDay: today };
+					}
+				} else if (state.androidPickerDay !== undefined) {
+					const { androidPickerDay: _shown, ...answer } = state;
+					updates[path] = answer;
+				}
+			}
+		}
+		if (Object.keys(updates).length > 0) this.store.setState(updates);
+	}
+
+	/** Day suggestions are owned by the live screen. Materializing the
+	 * blueprint's date paths excludes removed fields and removed repeat rows. */
+	pendingScreenDays(): { path: string; day: string }[] {
+		if (this.device.platform !== "android" || !this.activeScreenPath) return [];
+		this.fieldPathsByUuid();
+		this.drawAndroidDates(this.activeScreenPath);
+		const onScreen = screenIncludes(this.activeScreenPath);
+		return this.datePathTemplates.flatMap((template) =>
+			this.materializePaths(template).flatMap((path) => {
+				const state = this.store.getState()[path];
+				return onScreen(path) && state?.androidPickerDay && !state.value
+					? [{ path, day: state.androidPickerDay }]
+					: [];
+			}),
+		);
+	}
+
+	/** Save the displayed answers from this actual visit through the same
+	 * value/cascade boundary as an explicit worker edit. Validation of a
+	 * different screen is only an inspection and never calls this. */
+	saveScreenDates(): string[] {
+		const saved: string[] = [];
+		for (const { path, day } of this.pendingScreenDays()) {
+			if (
+				this.getState(path).androidPickerDay === day &&
+				this.setValue(path, day)
+			)
+				saved.push(path);
+		}
+		return saved;
+	}
+
+	async saveScreenDatesAsync(
+		evaluate: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const paths = this.saveScreenDates();
+		if (paths.length) {
+			await this.settleValueChangesAsync(paths, evaluate);
+			await this.reenterActiveScreenAsync(evaluate);
+		}
+	}
+
 	/** The screen the entry is on, by path. */
 	currentScreenPath(): string | undefined {
 		return this.activeScreenPath;
@@ -2289,6 +2390,7 @@ export class FormEngine {
 		if (path === "/data") {
 			this.enterAllSections();
 			this.activeScreenPath = path;
+			this.drawAndroidDates(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2297,6 +2399,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
+		this.drawAndroidDates(path);
 	}
 
 	async enterScreenAsync(
@@ -2306,6 +2409,7 @@ export class FormEngine {
 		if (path === "/data") {
 			await this.enterAllSectionsAsync(evaluateAsync);
 			this.activeScreenPath = path;
+			this.drawAndroidDates(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2314,6 +2418,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
+		this.drawAndroidDates(path);
 	}
 
 	private sectionAtScreenPath(path: string): Uuid | undefined {
@@ -5486,6 +5591,7 @@ export class FormEngine {
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
 		else this.activeScreenPath = resolved.path;
+		this.drawAndroidDates(resolved?.path);
 	}
 
 	async enterSectionAsync(
@@ -5510,6 +5616,7 @@ export class FormEngine {
 		else if (resolved.uuid !== sectionUuid)
 			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
 		else this.activeScreenPath = resolved.path;
+		this.drawAndroidDates(resolved?.path);
 	}
 
 	/** Nova context recovery re-evaluates untouched defaults with retained row
@@ -5989,10 +6096,12 @@ export class FormEngine {
 	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
 		if (this.fieldPathsCacheTree !== this.tree) {
 			const paths = new Map<Uuid, string>();
+			this.datePathTemplates = [];
 			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
+					if (node.field.kind === "date") this.datePathTemplates.push(nodePath);
 					if (node.children) walk(node.children, nodePath);
 				}
 			};

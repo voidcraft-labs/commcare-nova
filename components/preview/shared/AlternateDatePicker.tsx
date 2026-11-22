@@ -29,6 +29,7 @@ export function AlternateDatePicker({
 	labelledBy,
 	invalid,
 	showClearButton,
+	canClearInCalendar,
 }: {
 	calendar: WorkerCalendar;
 	value: string;
@@ -37,6 +38,7 @@ export function AlternateDatePicker({
 	labelledBy?: string;
 	invalid?: boolean;
 	showClearButton?: boolean;
+	canClearInCalendar: boolean;
 }) {
 	const { language } = useBuilderLanguage();
 	const locale = runtimeDateLocale(language);
@@ -69,7 +71,9 @@ export function AlternateDatePicker({
 					aria-labelledby={labelledBy}
 					aria-invalid={invalid || undefined}
 					onBlur={onBlur}
-					render={<Button type="button" variant="field" className="w-full" />}
+					render={
+						<Button type="button" variant="field" className="min-w-0 flex-1" />
+					}
 				>
 					{label ?? (value || runtimeMessage(language, "pickDate"))}
 				</PopoverTrigger>
@@ -128,7 +132,7 @@ export function AlternateDatePicker({
 						</>
 					)}
 					<div className="mt-2 flex justify-end gap-2">
-						{value && !showClearButton && (
+						{value && canClearInCalendar && (
 							<Button type="button" variant="ghost" onClick={() => choose("")}>
 								{runtimeMessage(language, "clear")}
 							</Button>

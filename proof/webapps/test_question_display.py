@@ -291,7 +291,7 @@ def test_web_calendar_leaves_untouched_days_empty_and_submits_a_cleared_day(
             submitted = [ElementTree.fromstring(item.instance) for item in release.hq.submissions]
     assert not run.page_errors, run.page_errors
     assert len(submitted) == 1, submitted
-    inputs = ("scheduled", "rescheduled", "untouched_ethiopian", "untouched_nepali",
+    inputs = ("scheduled", "rescheduled", "untouched_ordinary", "untouched_ethiopian", "untouched_nepali",
               "untouched_gregorian", "untouched_gregorian_with_clear")
     fields = {}
     for name in inputs:

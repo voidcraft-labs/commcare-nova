@@ -1,6 +1,15 @@
+import type { DateField } from "@/lib/domain";
 import { NEPALI_FIRST_YEAR, NEPALI_MONTH_LENGTHS } from "./nepaliMonthLengths";
 
 export type WorkerCalendar = "ethiopian" | "nepali" | "gregorian";
+/** The Gregorian editor can empty all three date parts. Its clear-button
+ * variant also empties them in one action. The other Android pickers always
+ * have a day (DateWidget and AbstractUniversalDateWidget.getAnswer). */
+export function androidCalendarCanBeEmpty(
+	calendar: DateField["calendar"],
+): boolean {
+	return calendar === "gregorian" || calendar === "gregorian-with-clear";
+}
 export interface CalendarDay {
 	year: number;
 	month: number;
@@ -128,7 +137,7 @@ export function isoOfCalendarDay(day: number): string {
 }
 export function calendarDayOfIso(iso: string): number | undefined {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return undefined;
-	const day = Date.parse(iso + "T00:00:00Z") / DAY_MS;
+	const day = Date.parse(`${iso}T00:00:00Z`) / DAY_MS;
 	return Number.isFinite(day) && isoOfCalendarDay(day) === iso
 		? day
 		: undefined;

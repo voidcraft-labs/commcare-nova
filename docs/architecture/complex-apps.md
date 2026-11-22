@@ -2056,6 +2056,11 @@ other settings. The mutation and export gates check the combination against
 the writer and both workers. For example, West African phone numbers can
 keep their leading zero in a text answer, and a civil date picked with the
 Ethiopian calendar saves as the same ISO date as an ordinary date question.
+An unanswered Android date widget shows the device's local civil day. The
+instance takes that day when the worker leaves the displayed screen or
+submits it. Gregorian with a clear button can send an empty answer. A new
+visit constructs its picker from the stored answer again. Web Apps sends a
+date only after the worker chooses one.
 
 CommCare's form editor determines the question type from the complete
 appearance of a control. Web Apps matches individual words and sometimes

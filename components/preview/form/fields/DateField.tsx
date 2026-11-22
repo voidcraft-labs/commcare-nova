@@ -17,6 +17,7 @@ import {
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { androidCalendarCanBeEmpty } from "@/lib/preview/workerCalendar";
 import { usePreviewPlatform } from "@/lib/session/hooks";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { ValidationError } from "./ValidationError";
@@ -120,6 +121,7 @@ export function DateField({
 
 	if (field.kind === "date") {
 		const calendar = field.calendar;
+		const displayed = stored || state.androidPickerDay || "";
 		const usesCalendar =
 			calendar === "ethiopian"
 				? platform === "web-apps" || !hasOtherDisplay(field, "calendar")
@@ -132,7 +134,10 @@ export function DateField({
 							calendar === "gregorian-with-clear" ? "gregorian" : calendar
 						}
 						showClearButton={calendar === "gregorian-with-clear"}
-						value={stored}
+						canClearInCalendar={
+							platform === "web-apps" || androidCalendarCanBeEmpty(calendar)
+						}
+						value={displayed}
 						onChange={onChange}
 						onBlur={onBlur}
 						invalid={!!showError}
@@ -145,8 +150,10 @@ export function DateField({
 		return (
 			<div>
 				<WorkerDatePicker
-					value={stored}
+					clearable={platform === "web-apps"}
+					value={displayed}
 					onValueChange={(next) => {
+						if (!next && platform === "android") return;
 						onChange(next);
 						onBlur();
 					}}

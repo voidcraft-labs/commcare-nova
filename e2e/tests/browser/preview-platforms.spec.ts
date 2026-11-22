@@ -366,17 +366,26 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			name: "Clear",
 			exact: true,
 		});
+		const dayPicker = calendar.getByRole("button", {
+			name: /^Question \d+\. Change day$/,
+		});
+		await expect(clearDay).toBeEnabled();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await clearDay.click();
 		await expect(clearDay).toBeDisabled();
-		await calendar
-			.getByRole("button", { name: /^Question \d+\. Change day$/ })
-			.click();
+		await expect(dayPicker).toHaveText("Pick a date");
+		await dayPicker.press("Enter");
 		await page
 			.getByRole("button", { pressed: false })
 			.filter({ hasText: /^1$/ })
 			.click();
 		await expect(clearDay).toBeEnabled();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.changeDay))
+			.toMatch(/^\d{4}-\d{2}-01$/);
 		await clearDay.click();
 		await expect(clearDay).toBeDisabled();
+		await expect.poll(() => answer(page, PLATFORM_IDS.changeDay)).toBe("");
 		await expect(question("signature_photo").locator("canvas")).toHaveCount(0);
 		await expect(page.locator('[data-question-banner="good"]')).toHaveText(
 			"Ready; Check",
@@ -386,6 +395,16 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(
 			page.getByRole("button", { name: /Expand.*Visit details/i }),
 		).toHaveCount(0);
+		expect(await answer(page, PLATFORM_IDS.returnDay)).toBe("");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(page.getByText("Review this visit")).toBeVisible();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.returnDay))
+			.toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		await page.getByRole("button", { name: "Back", exact: true }).click();
+		await expect(clearDay).toBeEnabled();
+		expect(await answer(page, PLATFORM_IDS.changeDay)).toBe("");
 	},
 	async "location-map-web-apps"(page) {
 		await openScenario(page, "location-map-web-apps");

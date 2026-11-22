@@ -40,6 +40,7 @@ export function questionCalendar() {
 							),
 							...(
 								[
+									"ordinary",
 									"ethiopian",
 									"nepali",
 									"gregorian",
@@ -52,7 +53,7 @@ export function questionCalendar() {
 									id: path,
 									uuid: uuid(path),
 									label: proseText(`Suggested ${calendar} date`),
-									calendar,
+									...(calendar !== "ordinary" && { calendar }),
 								});
 							}),
 							f({

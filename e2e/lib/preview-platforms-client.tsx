@@ -121,6 +121,7 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					{
 						kind: "date",
 						id: "change_day",
+						uuid: IDS.changeDay,
 						label: "Change day",
 						calendar: "gregorian-with-clear",
 					},
@@ -135,6 +136,7 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					{
 						kind: "date",
 						id: "return_day",
+						uuid: IDS.returnDay,
 						label: "Return day",
 						calendar: "nepali",
 					},
@@ -206,6 +208,14 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 						],
 					},
 				]),
+				{
+					kind: "section",
+					id: "review",
+					label: "Review",
+					children: [
+						{ kind: "label", id: "review_visit", label: "Review this visit" },
+					],
+				},
 			];
 		}
 		case "questions":

@@ -61,7 +61,7 @@ export async function submitAppTest(
 			answers: [],
 			searchAnswers: screen.searchAnswers,
 		},
-		formContext,
+		{ ...formContext, submitting: true },
 	);
 	if (!evaluated.valid || !evaluated.submission)
 		return {

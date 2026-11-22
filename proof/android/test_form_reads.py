@@ -503,7 +503,7 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
 
 
 def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq, android_walk_evidence):
-    untouched = ("untouched_ethiopian", "untouched_nepali", "untouched_gregorian", "untouched_gregorian_with_clear")
+    untouched = ("untouched_ordinary", "untouched_ethiopian", "untouched_nepali", "untouched_gregorian", "untouched_gregorian_with_clear")
     with _served(android_documents["targeted-question-calendar"]) as (served, archive):
         answer, sent = _app(
             served, archive, "clear-calendar", commands=[FORM], controls=True,
