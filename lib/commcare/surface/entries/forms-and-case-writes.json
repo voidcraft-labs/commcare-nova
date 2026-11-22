@@ -5263,17 +5263,18 @@
 			"schema:AdvancedOpenCaseAction.case_tag"
 		],
 		"valueClass": "tag-with-a-hyphen",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a tag outside Nova's tag grammar (`placements.ts::advancedTagSchema`); the tag is the submission path `case_<tag>` and the session value `case_id_<tag>`, so no rename keeps it",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the operation's held advanced tag preserves each hyphen in the case block, session datum and references to that action.",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`case_tag`",
+			"markers": []
 		},
 		"gates": []
 	},

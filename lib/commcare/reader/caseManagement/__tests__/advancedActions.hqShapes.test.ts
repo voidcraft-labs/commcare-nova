@@ -6,8 +6,7 @@
  * once, at its place, or reads as the same state; `judgeLoads` tells a tag Nova would not derive on a load that changes no
  * case from a chain that differs. The plausible failures: Nova re-tagging a
  * load, which renames a session value HQ's forms read; a hyphenated tag (HQ's
- * page writes one for every hyphenated case type) read as unrecognized
- * instead of its entry; an index name Nova cannot spell held; a saved-if-
+ * page derives one from a hyphenated case type) losing its original spelling; an index name Nova cannot spell held; a saved-if-
  * changed write read as saved every time in a project space that applies it.
  */
 import { produce } from "immer";
@@ -138,33 +137,55 @@ const kid: CaseOperation = {
 };
 
 describe("an advanced form's tags", () => {
-	it("refuses a tag holding a hyphen under its entry, and reads the same tag spelled with an underscore", async () => {
-		const { doc } = memberFollowup();
-		const hyphen = await readCases(doc, {
+	it.each(["load_follow-up0", "load_follow_up0"])(
+		"keeps the submitted tag %s on the selected record",
+		async (tag) => {
+			const { doc } = memberFollowup();
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const loads = actionsOf(app).load_update_cases;
+					(loads[loads.length - 1] as Record<string, unknown>).case_tag = tag;
+				},
+			});
+			expect(actionFindings(reading)).toEqual([]);
+			const own = reading.forms
+				.filter((form) => form.docType === "AdvancedForm")
+				.flatMap((form) => form.form.caseOperations ?? [])
+				.find((operation) => operation.action === "own");
+			expect(own?.placement).toEqual({ kind: "advanced", tag });
+		},
+	);
+
+	it("keeps a hyphenated opened record tag when another case links to it", async () => {
+		const { doc } = registration([kid]);
+		const tag = "open-household_0";
+		const reading = await readCases(doc, {
 			edit: (app) => {
-				const loads = actionsOf(app).load_update_cases;
-				(loads[loads.length - 1] as Record<string, unknown>).case_tag =
-					"load_follow-up0";
+				const [own, child] = actionsOf(app).open_cases;
+				if (!own || !child) throw new Error("The form opens two records.");
+				own.case_tag = tag;
+				const [link] = child.case_indices as { tag: string }[];
+				if (!link) throw new Error("The child needs its household link.");
+				link.tag = tag;
 			},
 		});
-		expect(findingCodes(hyphen)).toContain(`${F}/case-tag-holding-a-hyphen`);
-		const underscore = await readCases(doc, {
-			edit: (app) => {
-				const loads = actionsOf(app).load_update_cases;
-				(loads[loads.length - 1] as Record<string, unknown>).case_tag =
-					"load_follow_up0";
-			},
-		});
-		expect(
-			findingCodes(underscore).filter((code) => code.startsWith(F)),
-		).toEqual([]);
-		const own = underscore.forms
-			.filter((form) => form.docType === "AdvancedForm")
-			.flatMap((form) => form.form.caseOperations ?? [])
-			.find((operation) => operation.action === "own");
-		expect(own?.placement).toEqual({
-			kind: "advanced",
-			tag: "load_follow_up0",
+		expect(actionFindings(reading)).toEqual([]);
+		const operations = reading.forms.flatMap(
+			(form) => form.form.caseOperations ?? [],
+		);
+		const own = operations.find(
+			(op) =>
+				op.action === "own" &&
+				op.placement?.kind === "advanced" &&
+				op.placement.tag === tag,
+		);
+		expect(own).toBeDefined();
+		const child = operations.find(
+			(op) => op.action === "create" && op.caseType === "member",
+		);
+		expect(child?.links?.[0]?.target).toEqual({
+			kind: "op",
+			opUuid: own?.uuid,
 		});
 	});
 

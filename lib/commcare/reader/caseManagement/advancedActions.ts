@@ -182,7 +182,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/case-tag-of-a-non-auto-select-action-failing-actions-js`,
 		"schema:LoadUpdateAction.case_tag",
 	),
-	tagHyphen: refuse(
+	tagHyphen: take(
 		`${F}/case-tag-holding-a-hyphen`,
 		"schema:LoadUpdateAction.case_tag",
 	),
@@ -410,7 +410,7 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/case-tag-of-a-non-auto-select-action-failing-actions-js`,
 		"schema:AdvancedOpenCaseAction.case_tag",
 	),
-	openTagHyphen: refuse(
+	openTagHyphen: take(
 		`${F}/case-tag-holding-a-hyphen`,
 		"schema:AdvancedOpenCaseAction.case_tag",
 	),
@@ -663,7 +663,6 @@ function tagFinding(tag: unknown, open: boolean): Claim<"refuse"> | undefined {
 	if (tag.includes("/")) return open ? C.openTagSlash : C.tagSlash;
 	if (!HQ_CASE_TAG_PATTERN.test(tag))
 		return open ? C.openTagFailsPage : C.tagFailsPage;
-	if (tag.includes("-")) return open ? C.openTagHyphen : C.tagHyphen;
 	return undefined;
 }
 
@@ -1309,7 +1308,15 @@ export function readAdvancedActions(
 			r.ok = false;
 			return;
 		}
-		consume(L.take("case_tag", ADVANCED_CLAIMS.tag, (value) => value));
+		consume(
+			L.take(
+				"case_tag",
+				typeof tag === "string" && tag.includes("-")
+					? ADVANCED_CLAIMS.tagHyphen
+					: ADVANCED_CLAIMS.tag,
+				(value) => value,
+			),
+		);
 		const caseType = load.case_type;
 		consume(L.take("case_type", ADVANCED_CLAIMS.caseType, (value) => value));
 		const detailsId =
@@ -1669,7 +1676,11 @@ export function readAdvancedActions(
 		consume(
 			O.take(
 				"case_tag",
-				own ? ADVANCED_CLAIMS.openOwn : ADVANCED_CLAIMS.openTag,
+				typeof tag === "string" && tag.includes("-")
+					? ADVANCED_CLAIMS.openTagHyphen
+					: own
+						? ADVANCED_CLAIMS.openOwn
+						: ADVANCED_CLAIMS.openTag,
 				(value) => value,
 			),
 		);
@@ -2226,7 +2237,13 @@ function readAutoSelectLoad(
 	// A close that never runs is read as no close, claimed as another selection's is.
 	consume(L.take("close_condition", C.otherClose, (value) => value));
 	consume(L.take("auto_select", C.usercase, (value) => value));
-	consume(L.take("case_tag", C.tag, (value) => value));
+	consume(
+		L.take(
+			"case_tag",
+			tag.includes("-") ? C.tagHyphen : C.tag,
+			(value) => value,
+		),
+	);
 	consume(L.take("case_type", C.caseType, (value) => value));
 	const uuid = mint(r, tag, "update", ordinal(tag, "update"));
 	if (uuid !== undefined)

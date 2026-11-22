@@ -3531,19 +3531,18 @@
 		"id": "hq-advanced/tag-with-a-hyphen",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/case-tag-holding-a-hyphen",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/case_tag",
 			"value": "load-member1"
-		}
+		},
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [1, 0] }],
+				"pointer": "/caseOperations/0/placement",
+				"value": { "kind": "advanced", "tag": "load-member1" }
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/tag-with-a-slash",
