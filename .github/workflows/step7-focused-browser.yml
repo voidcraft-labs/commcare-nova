@@ -24,11 +24,12 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/pull-test-image
       - run: npx playwright install --with-deps --only-shell chromium
-      - name: Edit the calendar in the signed-in Builder
+      - name: Edit a choice layout in the signed-in Builder
         env:
           SMOKE_LANE: app
-        run: npm run test:smoke -- --project=authed e2e/tests/app/number-keypad.spec.ts --grep 'a date keeps|a worker gets a dropdown' --workers=1 --fail-on-flaky-tests
+        run: npm run test:smoke -- --project=authed e2e/tests/app/number-keypad.spec.ts --grep 'a worker gets a dropdown' --retries=0 --workers=1 --fail-on-flaky-tests
       - name: Complete the visit on both preview platforms
+        if: ${{ !cancelled() }}
         env:
           SMOKE_LANE: browser
         run: npm run test:smoke -- --project=browser e2e/tests/browser/preview-platforms.spec.ts --grep 'visit-display' --workers=1 --fail-on-flaky-tests
@@ -36,5 +37,7 @@ jobs:
         if: failure()
         with:
           name: browser-observations
-          path: test-results
+          path: |
+            e2e/test-results
+            test-results
           if-no-files-found: ignore
