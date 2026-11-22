@@ -371,7 +371,7 @@ class Scenario:
             ],
         }
 
-    def state(self):
+    def state(self, *, observe_areas=False):
         """Every row the receiver reads or writes for the opportunity, by the names the app and HQ gave them."""
         from commcare_connect.opportunity.models import (
             Assessment,
@@ -465,7 +465,7 @@ class Scenario:
                 {"slug": t.task_type.slug, "status": t.status, "xform": t.xform_id}
                 for t in AssignedTask.objects.filter(opportunity_access=access).order_by("task_type__slug", "pk")
             ],
-            **(self.area_state(access) if self.spec.get("observeAreas") else {}),
+            **(self.area_state(access) if observe_areas or self.spec.get("observeAreas") else {}),
             "queued": queued_tasks(),
         }
 
@@ -670,7 +670,7 @@ class Served:
         and the rows Connect holds after them."""
         tasks = self.run_queued()
         exchanges, self.exchanges, self.raised = self.exchanges, [], []
-        state = self.scenario.state()
+        state = self.scenario.state(observe_areas=step.get("observeAreas", False))
         if state is not None:
             state.pop("queued", None)
         return {"exchanges": exchanges, "tasks": tasks, "state": state}
