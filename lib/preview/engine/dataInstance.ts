@@ -34,10 +34,13 @@ export function answerXPathValue(
 	if (raw === "") return "";
 	switch (type) {
 		case "int":
+		case "long":
 		case "decimal": {
 			const numeric = Number(raw);
 			return Number.isNaN(numeric) ? raw : numeric;
 		}
+		case "boolean":
+			return raw === "1";
 		case "date":
 			return XPathDate.parse(raw) ?? raw;
 		case "datetime":
@@ -63,11 +66,12 @@ export function formAnswerXPathValue(
 /** A hidden calculation's runtime value, kept beside its answer text: Core
  * holds a calculate's number, boolean or Date as that type
  * (`Recalculate.wrapData`), never as the text Nova submits. */
-export type CalculatedScalar = number | boolean | XPathDate;
+export type CalculatedScalar = string | number | boolean | XPathDate;
 
 /** A `CalculatedScalar` as a checkpoint holds it: structured clone keeps no
  * class, so a Date travels as its two parts. */
 export type CalculatedScalarSnapshot =
+	| string
 	| number
 	| boolean
 	| {
@@ -577,7 +581,7 @@ export type FieldBindTypeOf = (
 
 /** A field's bind with no case write to read: its kind's. */
 function kindBindType(field: Field): ReturnType<typeof fieldBindType> {
-	return fieldKindBindType(field.kind);
+	return fieldBindType(field, [], []);
 }
 
 function xpathTemplateFromFields(

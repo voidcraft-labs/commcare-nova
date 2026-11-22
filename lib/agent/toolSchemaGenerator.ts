@@ -83,6 +83,7 @@ import {
 	TEXT_KEYPADS,
 	uuidSchema,
 } from "@/lib/domain";
+import { HIDDEN_ANSWER_TYPES } from "@/lib/domain/fields/hidden";
 import { caseWriteViaInputSchema } from "./tools/case-operations/shared";
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
@@ -129,6 +130,8 @@ const FIELD_DOCS = {
 		"true shows the label exactly as typed, so *, #, numbered lines and links stay as written instead of formatting. Labels are formatted as Markdown by default; false or null returns the label to Markdown. A help text takes plain_help the same way; a hint and a validation message have no such setting.",
 	plain_help:
 		"true shows the help text exactly as typed on Android. Web Apps formats every help text either way. false or null returns it to Markdown.",
+	answerType:
+		"Hidden questions only. Choose the type of answer an assignment holds. Omit to infer it, or use null to return to automatic.",
 	keypad:
 		'Text questions only. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
 	repeat_mode:
@@ -204,6 +207,13 @@ const plainLabelField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_label);
 const plainHelpField = () =>
 	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_help);
+const hiddenAnswerTypeField = () =>
+	z
+		.enum(HIDDEN_ANSWER_TYPES)
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.answerType);
+
 const keypadField = () =>
 	z.enum(TEXT_KEYPADS).nullable().optional().describe(FIELD_DOCS.keypad);
 /**
@@ -414,6 +424,7 @@ const ADD_GATED_KEYS = [
 	"default_value",
 	"optionsSource",
 	"keypad",
+	"answerType",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -467,6 +478,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			label: labelField(),
 			plain_label: plainLabelField(),
 			keypad: keypadField(),
+			answerType: hiddenAnswerTypeField(),
 			hint: hintField(),
 			help: helpField(),
 			plain_help: plainHelpField(),
@@ -580,6 +592,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			label: labelField(),
 			plain_label: plainLabelField(),
 			keypad: keypadField(),
+			answerType: hiddenAnswerTypeField(),
 			hint: hintField(),
 			help: helpField(),
 			plain_help: plainHelpField(),

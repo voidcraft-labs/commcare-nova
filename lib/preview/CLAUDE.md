@@ -176,7 +176,7 @@ Hidden calculations retain their evaluated numeric and boolean types in the live
 instance, entry checkpoints, and worker updates. UI/submission values remain text;
 counts reading those nodes use Core's typed conversion without replaying calculations.
 A calculated number is held as `Recalculate.wrapData` holds it
-(`engine/calculatedNumber.ts::heldCalculatedNumber`): its `(int)` under a
+(`engine/answerCast.ts::setvalueText`): its `(int)` under a
 whole-number bind, else its long where it is within a billionth of one, else
 the double, and its text is that holding's (`3e9` is `3000000000`, `1e-10` is
 `0`, `2e-9` is `2.0E-9`), never XPath's string of the double, so a Hidden Value

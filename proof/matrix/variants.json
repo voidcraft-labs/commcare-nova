@@ -30589,19 +30589,23 @@
 		"id": "hq-questions/hidden-int-type",
 		"base": "hq-questions",
 		"entry": "questions/hidden-value-bound-a-type-nova-would-not-write",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "double_age"
-		},
 		"change": {
 			"op": "named",
 			"name": "hidden_int_type"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["double_age"]
+				],
+				"pointer": "/answerType",
+				"value": "int"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-value-xmlns",

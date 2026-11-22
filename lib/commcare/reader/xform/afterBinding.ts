@@ -4,8 +4,7 @@
  * count that reads the rows it creates; a model-iteration repeat held
  * to where Nova's own rule runs model iteration; a pair of load-time
  * values whose order a save in HQ's form builder changes, where one reads the
- * node the other sets; and a Hidden Value whose bind type is one Nova
- * would not write for it; and a protected validation message's composed
+ * node the other sets; and the spellings of hidden answer types; and a protected validation message's composed
  * expression and its text's own forms; and a Connect slot that holds the default the
  * emitter writes for an unset one, read as unset. Each is compared with the production rule
  * over the document as the expression stage bound it. A check whose inputs a
@@ -16,15 +15,13 @@
  */
 
 import { type Element, isTag } from "domhandler";
-import {
-	type BlueprintDoc,
-	type Field,
-	fieldCaseWriteViews,
-	type ProseAtomPart,
-	type ProseTemplate,
-	type Uuid,
+import type {
+	BlueprintDoc,
+	Field,
+	ProseAtomPart,
+	ProseTemplate,
+	Uuid,
 } from "@/lib/domain";
-import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	type LookupTypeIndex,
 	slotContext,
@@ -57,7 +54,6 @@ import { formNodeProjection } from "../../xpath/formNodeProjection";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
-import { claimRegistry } from "../claims";
 import type { DraftForm, ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
 import { sameJson } from "../jsonCursor";
@@ -207,17 +203,6 @@ function fieldsOf(form: ReadXForm): DraftField[] {
 	};
 	walk(null);
 	return order;
-}
-
-/** A Hidden Value's bind type as a class: text (absent or `xsd:string`), or date and time. */
-function bindTypeClass(
-	type: string | undefined,
-): "text" | "datetime" | undefined {
-	if (type === undefined) return "text";
-	const local = type.startsWith("xsd:") ? type.slice(4) : type;
-	if (local === "string") return "text";
-	if (local === "dateTime") return "datetime";
-	return undefined;
 }
 
 /** Whether the expression stage held what a bind's attribute registered. */
@@ -370,89 +355,6 @@ function settleBothSources(ctx: ReadContext, form: DraftForm): void {
 				sites.type.key,
 				field.place,
 			);
-	}
-}
-
-/** `caseStageEntryIds` as last derived, with the registry's size then: names
- *  are only ever added to the registry, so an unchanged size is an unchanged
- *  registry. */
-let caseStageEntries:
-	| { readonly size: number; readonly entries: ReadonlySet<string> }
-	| undefined;
-
-/** The entries the case management stage raises a finding under. */
-function caseStageEntryIds(): ReadonlySet<string> {
-	const registry = claimRegistry();
-	if (caseStageEntries?.size === registry.size) return caseStageEntries.entries;
-	const entries = new Set<string>();
-	for (const [name, claim] of registry)
-		if (
-			name.startsWith("caseManagement.") &&
-			(claim.use === "refuse" || claim.use === "account")
-		)
-			entries.add(claim.entry);
-	caseStageEntries = { size: registry.size, entries };
-	return entries;
-}
-
-/**
- * Whether a case write of the form was itself a finding, so the document may lack a write the
- * source makes: a finding the case management stage raised at the form or at one of its
- * questions, or any finding at a node of the form's case region (a Save to Case block, its
- * rows and their values).
- */
-function caseWritesUnread(
-	ctx: ReadContext,
-	formPlace: DraftField["place"],
-	xform: ReadXForm,
-): boolean {
-	if (formPlace.kind !== "form") return false;
-	const entries = caseStageEntryIds();
-	return ctx.accounting.findings().some((finding) => {
-		const place = finding.place;
-		if (place.kind !== "form" && place.kind !== "question") return false;
-		if (place.menu !== formPlace.menu || place.form !== formPlace.form)
-			return false;
-		if (entries.has(finding.code)) return true;
-		if (place.kind !== "question") return false;
-		const node = xform.nodes.get(place.path);
-		return node !== undefined && xform.roles.get(node)?.kind === "case-region";
-	});
-}
-
-/** The Hidden Value bind type check of one form: skipped for a Hidden Value whose
- *  calculate the expression stage did not hold, and for every one of a form a case write of
- *  which was itself a finding, since the inputs of either are not known. */
-function checkHiddenTypes(
-	ctx: ReadContext,
-	doc: BlueprintDoc,
-	formPlace: DraftField["place"],
-	xform: ReadXForm,
-): void {
-	const caseTypes = effectiveCaseTypes(doc);
-	const unread = caseWritesUnread(ctx, formPlace, xform);
-	for (const field of fieldsOf(xform)) {
-		if (field.standIn || field.kind !== "hidden" || field.uuid === undefined)
-			continue;
-		const stored = doc.fields[field.uuid] as Field | undefined;
-		if (stored === undefined || stored.kind !== "hidden") continue;
-		const bind = xform.binds.get(field.node);
-		const source = bindTypeClass(bind?.type);
-		if (source === undefined) continue;
-		if (unread) continue;
-		if (
-			bind !== undefined &&
-			bind.logic.calculate !== undefined &&
-			!held(ctx, bind.element, "calculate")
-		)
-			continue;
-		const nova =
-			fieldBindType(stored, caseTypes, fieldCaseWriteViews(doc, field.uuid)) ===
-			"xsd:dateTime"
-				? "datetime"
-				: "text";
-		if (nova !== source)
-			ctx.accounting.finding(X.refusedKind.hiddenOtherType, field.place);
 	}
 }
 
@@ -1216,6 +1118,45 @@ export function connectDefaultsUnset(doc: BlueprintDoc): BlueprintDoc {
 	});
 }
 
+/** A hidden answer's spelling can name the same answer class as the emitted
+ * type. An unknown type and an absent type both hold UncastData. Record only
+ * a source with an actual attribute whose next spelling changes. */
+function recordHiddenAnswerSpellings(
+	ctx: ReadContext,
+	form: DraftForm,
+	xform: ReadXForm,
+	doc: BlueprintDoc,
+): void {
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	for (const field of fieldsOf(xform)) {
+		if (field.kind !== "hidden" || field.standIn || field.uuid === undefined)
+			continue;
+		const spelling = xform.binds.get(field.node)?.type;
+		if (spelling === undefined) continue;
+		const stored = doc.fields[field.uuid];
+		if (
+			stored?.kind !== "hidden" ||
+			stored.answerType === undefined ||
+			fieldBindType(stored, [], []) === spelling
+		)
+			continue;
+		const steps = [
+			"_attachments",
+			`${readId ?? form.xmlns}.xml`,
+			xform.parsed.dataRoot.name,
+			...field.node.path,
+			":bind",
+			"@type",
+		];
+		ctx.facts.sameStateRewrites.push({
+			entry: X.hiddenTypedAnswer.entry,
+			path: `/${steps.map(pointerToken).join("/")}`,
+			register: "hidden-answer-types-respelled",
+		});
+	}
+}
+
 /** Stage 10: the checks of each form that need the bound document. */
 export function finishForms(ctx: ReadContext): void {
 	if (ctx.doc !== undefined) ctx.doc = connectDefaultsUnset(ctx.doc);
@@ -1227,13 +1168,13 @@ export function finishForms(ctx: ReadContext): void {
 			const doc = ctx.doc;
 			if (doc === undefined || xform === null) continue;
 			if (doc.forms[form.uuid] === undefined) continue;
+			recordHiddenAnswerSpellings(ctx, form, xform, doc);
 			settleChoices(ctx, doc, xform, types);
 			for (const message of formText(xform)?.protectedMessages ?? [])
 				settleProtectedMessage(ctx, doc, xform, message);
 			checkCountFeedback(ctx, doc, form.uuid, xform);
 			checkModelIterations(ctx, doc, form.uuid, xform);
 			checkLoadOrder(ctx, doc, form.uuid, form.place, xform);
-			checkHiddenTypes(ctx, doc, form.place, xform);
 			checkDatetimeSiblings(ctx, doc, xform, types);
 		}
 }

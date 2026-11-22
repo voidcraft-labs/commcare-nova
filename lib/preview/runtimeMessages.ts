@@ -167,6 +167,15 @@ const english = {
 	answerTypeTime: "a time",
 	answerTypeDatetime: "a date and time",
 	answerTypeInt: "a whole number",
+	answerTypeLong:
+		"a whole number from −9,223,372,036,854,775,808 to 9,223,372,036,854,775,807",
+	answerTypeBoolean: "a yes or no answer",
+	refusalDateAsBoolean:
+		"The calculation for “{question}” gives a date. You can compare the date with another value to get a yes or no answer, or choose a date answer type.",
+	refusalEmptyCalculatedChoice:
+		"The calculation for “{question}” gives a list with an empty choice. You can change the calculation to start with the first choice.",
+	refusalBooleanStartingAnswer:
+		"“{question}” holds a yes or no answer. CommCare can set that answer through a calculation. You can move the starting value to Calculation or choose another answer type.",
 	answerTypeDecimal: "a number",
 	answerTypeGeopoint: "a location",
 	answerTypeChoiceList: "a list of choices without an empty selection",
@@ -499,6 +508,15 @@ const spanish: Record<RuntimeMessage, string> = {
 	answerTypeTime: "una hora",
 	answerTypeDatetime: "una fecha y hora",
 	answerTypeInt: "un número entero",
+	answerTypeLong:
+		"un número entero entre −9 223 372 036 854 775 808 y 9 223 372 036 854 775 807",
+	answerTypeBoolean: "una respuesta de sí o no",
+	refusalDateAsBoolean:
+		"El cálculo de «{question}» da una fecha. Puede comparar la fecha con otro valor para obtener una respuesta de sí o no, o elegir un tipo de respuesta de fecha.",
+	refusalEmptyCalculatedChoice:
+		"El cálculo de «{question}» da una lista con una opción vacía. Puede modificar el cálculo para que empiece con la primera opción.",
+	refusalBooleanStartingAnswer:
+		"«{question}» contiene una respuesta de sí o no. CommCare puede establecer esa respuesta mediante un cálculo. Puede pasar el valor inicial a Cálculo o elegir otro tipo de respuesta.",
 	answerTypeDecimal: "un número",
 	answerTypeGeopoint: "una ubicación",
 	answerTypeChoiceList: "una lista de opciones sin una selección vacía",
@@ -690,6 +708,8 @@ const ANSWER_TYPE_PHRASE: Readonly<Record<RefusingAnswerType, RuntimeMessage>> =
 		time: "answerTypeTime",
 		datetime: "answerTypeDatetime",
 		int: "answerTypeInt",
+		long: "answerTypeLong",
+		boolean: "answerTypeBoolean",
 		decimal: "answerTypeDecimal",
 		geopoint: "answerTypeGeopoint",
 		"choice-list": "answerTypeChoiceList",
@@ -722,6 +742,20 @@ export function refusalCopy(
 		question: names.question ?? details.path,
 		repeat: names.repeat ?? runtimeMessage(language, "entry"),
 	};
+	if (details.answerType === "boolean") {
+		return {
+			...(details.cause === "repeat-insert"
+				? {}
+				: {
+						title: runtimeMessage(
+							language,
+							"refusalStartingValueTitle",
+							values,
+						),
+					}),
+			body: runtimeMessage(language, "refusalBooleanStartingAnswer", values),
+		};
+	}
 	switch (details.cause) {
 		case "preload":
 			return {
@@ -790,6 +824,16 @@ export function dataRefusalCopy(
 	const body = (key: RuntimeMessage, values: Record<string, string> = {}) =>
 		runtimeMessage(language, key, { subject: lead, ...values });
 	switch (subject.kind) {
+		case "hidden-calculation":
+			return {
+				title,
+				body: body(
+					subject.problem === "date-as-boolean"
+						? "refusalDateAsBoolean"
+						: "refusalEmptyCalculatedChoice",
+					{ question: subject.question },
+				),
+			};
 		case "places":
 			return {
 				title,

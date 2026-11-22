@@ -1962,6 +1962,30 @@ test("creating a case property focuses its name and Cancel returns to the choose
 	await expect(chooser).toBeFocused();
 });
 
+test("a hidden answer can keep a chosen type and return to automatic", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=preload`);
+	await page
+		.getByRole("button", { name: "Select scratch", exact: true })
+		.click();
+	const saved = page.getByLabel("Saved field");
+	const pick = page.getByRole("combobox", { name: "Answer type", exact: true });
+	await expect(pick).toHaveText("Automatic");
+	await pick.click();
+	await page
+		.getByRole("option", { name: "Large whole number", exact: true })
+		.click();
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).answerType)
+		.toBe("long");
+	await pick.click();
+	await page.getByRole("option", { name: "Automatic", exact: true }).click();
+	await expect(saved).not.toContainText('"answerType"');
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(pick).toHaveText("Large whole number");
+});
+
 test("the inspector says what a case-bound field does when a one-case form opens", async ({
 	page,
 }) => {

@@ -68,6 +68,7 @@ import type {
 	FieldEditorSchema,
 	FormExpressionKeys,
 } from "@/lib/domain/kinds";
+import { HiddenAnswerTypeEditor } from "./fields/HiddenAnswerTypeEditor";
 import { requiredEntry } from "./requiredEntry";
 
 function EditorLoading() {
@@ -579,6 +580,11 @@ const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	logic: [
 		{ key: "default_value", component: XPathEditor, label: "Starting value" },
 		{ key: "calculate", component: HiddenValueEditor, label: "Calculation" },
+		{
+			key: "answerType",
+			component: HiddenAnswerTypeEditor,
+			label: "Answer type",
+		},
 		xpathEntry<HiddenField, "relevant">("relevant", "Show when"),
 	],
 	ui: [],

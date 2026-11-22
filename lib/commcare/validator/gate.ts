@@ -411,6 +411,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// builder drops its itext on save and HQ's next build refuses the form,
 	// and an option with no `<label>` is one CommCare refuses to parse.
 	SELECT_OPTION_LABEL_EMPTY: "soundness",
+	HIDDEN_ANSWER_CALCULATION: "soundness",
+	HIDDEN_BOOLEAN_STARTING_ANSWER: "soundness",
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
 	INVALID_FIELD_ID: "soundness",

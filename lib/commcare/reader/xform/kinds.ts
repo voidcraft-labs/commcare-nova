@@ -387,7 +387,13 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 		undefined,
 	),
 	...hiddenRows(typed(DATETIME), X.hiddenDatetimeType),
-	refuseRow(X.refusedKind.hiddenOtherType, (facts) => facts.control === "none"),
+	...hiddenRows(
+		(facts) =>
+			facts.bindType !== undefined &&
+			facts.bindType !== STRING &&
+			facts.bindType !== DATETIME,
+		X.hiddenTypedAnswer,
+	),
 ];
 
 /** The first row that matches; undefined for the one shape the table leaves unclaimed, an upload

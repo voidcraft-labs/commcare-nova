@@ -793,7 +793,7 @@ describe("translations, read whole", () => {
 		expect(outcome.defects).toEqual([]);
 	});
 
-	it("compares a Hidden Value's bind type beside another finding of its form", async () => {
+	it("keeps other findings beside an admitted hidden answer type", async () => {
 		const outcome = await readApp(
 			xformSource({
 				data: "<x/><x/><h/>",
@@ -805,12 +805,12 @@ describe("translations, read whole", () => {
 		if (outcome.kind !== "account") return;
 		const codesOf = outcome.findings.map((finding) => finding.code);
 		expect(codesOf).toContain(Q("two-sibling-data-nodes-with-one-name"));
-		expect(codesOf).toContain(
+		expect(codesOf).not.toContain(
 			Q("hidden-value-bound-a-type-nova-would-not-write"),
 		);
 	});
 
-	it("refuses a Hidden Value typed as a date and time that writes no date-and-time property", async () => {
+	it("keeps an explicit date and time on a hidden answer that saves nowhere", async () => {
 		const outcome = await readApp(
 			xformSource({
 				data: "<h/>",
@@ -818,10 +818,13 @@ describe("translations, read whole", () => {
 			}),
 			["en"],
 		);
-		expect(outcome.kind).toBe("account");
-		if (outcome.kind !== "account") return;
-		expect(outcome.findings.map((finding) => finding.code)).toEqual([
-			Q("hidden-value-bound-a-type-nova-would-not-write"),
-		]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") throw new Error("Expected a readable form");
+		expect(
+			Object.values(outcome.draft.doc.fields).find((field) => field.id === "h"),
+		).toMatchObject({
+			kind: "hidden",
+			answerType: "datetime",
+		});
 	});
 });

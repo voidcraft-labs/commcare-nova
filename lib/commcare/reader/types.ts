@@ -359,6 +359,7 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"text-spaces-dropped",
 	"media-maps-respelled",
 	"form-text-characters-written-as-outputs",
+	"hidden-answer-types-respelled",
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
 	"unread-fixture-declarations-dropped",

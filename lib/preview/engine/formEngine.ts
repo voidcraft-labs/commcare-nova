@@ -76,7 +76,6 @@ import type {
 	FieldExpressionSlotRef,
 	ProseSlotRef,
 } from "@/lib/domain/expression/types";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
 import {
 	effectiveQueryRepeatPlacement,
 	type QueryRepeatPlacement,
@@ -123,7 +122,6 @@ import {
 	type SetvalueRefusalDetails,
 	setvalueText,
 } from "./answerCast";
-import { heldCalculatedNumber } from "./calculatedNumber";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
@@ -1752,85 +1750,57 @@ export class FormEngine {
 		) {
 			return numericAnswerText(value);
 		}
-		// Core holds a calculated number by `Recalculate.wrapData`: its
-		// `(int)` under a whole-number bind, else its long where it is within a
-		// billionth of one, else the double, and submits that holding's text,
-		// so `3e9` is `3000000000` and not XPath's `3.0E9`.
-		if (
-			field.kind === "hidden" &&
-			typeof value === "number" &&
-			!Number.isNaN(value)
-		) {
-			return heldCalculatedNumber(value, this.bindsWholeNumber(field)).text;
+		const type = this.answerTypeOf(field);
+		if (isXPathDate(value) && type === "datetime") {
+			return instantDatetimeValue(value.instant(), this.castZone);
 		}
-		// Core wraps a calculated Date using the destination bind
-		// (`Recalculate.wrapData`): a datetime bind holds `DateTimeData` of the
-		// instant, written as its canonical text in this realm's zone. XPath's
-		// generic string(Date) deliberately discards its clock instead.
-		if (
-			isXPathDate(value) &&
-			fieldValueType(
-				field,
-				this.caseWriteDoc.caseTypes ?? [],
-				this.fieldWrites(field),
-			) === "datetime"
-		) {
-			return instantDatetimeValue(
-				value.instant(),
-				Intl.DateTimeFormat().resolvedOptions().timeZone,
-			);
+		if (field.kind !== "hidden") return xpathToString(result);
+		if (type === "boolean" && isXPathDate(value)) {
+			throw new PreviewDataRefusal({
+				kind: "hidden-calculation",
+				question: field.id,
+				problem: "date-as-boolean",
+			});
 		}
-		return xpathToString(result);
+		const text = setvalueText(value, type) ?? "";
+		if (type === "choice-list" && typeof value === "string" && value !== "") {
+			const cast = castAnswerText(type, text, this.castZone);
+			if (cast.ok) return cast.text;
+			throw new PreviewDataRefusal({
+				kind: "hidden-calculation",
+				question: field.id,
+				problem: "empty-choice",
+			});
+		}
+		return text;
 	}
 
-	/** Whether a field binds as a whole number, under which Core holds a
-	 *  calculated number as its `(int)`. */
-	private bindsWholeNumber(field: Field): boolean {
-		return (
-			fieldValueType(
-				field,
-				this.caseWriteDoc.caseTypes ?? [],
-				this.fieldWrites(field),
-			) === "int"
-		);
-	}
-
-	/** The runtime value a hidden calculation's node holds beside its text, as
-	 * `Recalculate.wrapData` wraps it: a number as `heldCalculatedNumber`
-	 * holds it, a boolean as itself, a Date
-	 * into a datetime bind as its instant (`DateTimeData`), a Date into a time
-	 * bind as text, and a Date into any other bind as its local date
-	 * (`DateData` rounds). */
+	/** XPath reads the class actually held by Core's Recalculate.wrapData:
+	 * a string result stays a string even in an integer node. Ready actions
+	 * cast to their destination after wrapping, whereas a calculation stores
+	 * the wrapped answer directly. */
 	private calculatedScalar(
 		field: Field,
 		result: XPathValue,
-	): number | boolean | XPathDate | undefined {
-		if (field.kind !== "hidden") return undefined;
-		if (typeof result === "boolean") return result;
-		if (typeof result === "number") {
-			return Number.isNaN(result)
-				? undefined
-				: heldCalculatedNumber(result, this.bindsWholeNumber(field)).value;
-		}
-		if (!isXPathDate(result)) return undefined;
-		const valueType = fieldValueType(
-			field,
-			this.caseWriteDoc.caseTypes ?? [],
-			this.fieldWrites(field),
-		);
-		if (valueType === "datetime") return result;
-		if (valueType === "time") return undefined;
-		// `DateData` rounds its Date when read, and a day `roundDate` refuses
-		// leaves it null, which Core's read then dereferences.
-		const rounded = result.rounded();
+		text: string,
+	): string | number | boolean | XPathDate | undefined {
+		if (field.kind !== "hidden" || text === "") return undefined;
+		const value = unpackXPathRuntimeValue(result);
+		const type = this.answerTypeOf(field);
+		if (type === "boolean") return text === "1";
+		if (typeof value === "boolean") return value;
+		if (typeof value === "number") return Number(text);
+		if (typeof value === "string") return text;
+		if (type === "datetime") return value;
+		if (type === "choice" || type === "choice-list" || type === "time")
+			return text;
+		const rounded = value.rounded();
 		if (rounded === null)
-			throw new CoreUnroundableDateError(`the date ${result.toISOString()}`);
+			throw new CoreUnroundableDateError(`the date ${value.toISOString()}`);
 		return rounded;
 	}
 
-	/** Store the result once. Hidden calculations have no numeric question bind;
-	 * Core keeps their number, boolean or Date runtime type for later node
-	 * references. */
+	/** Store the submitted text alongside the scalar class a later formula reads. */
 	private storeCalculatedValue(
 		field: Field,
 		path: string,
@@ -1840,7 +1810,7 @@ export class FormEngine {
 			typeof result === "number" && Number.isNaN(result)
 				? ""
 				: this.computedFieldValue(field, result);
-		this.instance.set(path, value, this.calculatedScalar(field, result));
+		this.instance.set(path, value, this.calculatedScalar(field, result, value));
 		return value;
 	}
 

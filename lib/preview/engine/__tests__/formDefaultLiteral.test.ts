@@ -182,3 +182,112 @@ describe("literal form defaults", () => {
 		},
 	);
 });
+
+it("uses the chosen hidden answer type at each opening assignment", async () => {
+	const form = testUuid("hidden-answer-types-form");
+	const held = [
+		"whole",
+		"large",
+		"fraction",
+		"yes",
+		"letters",
+		"start",
+	] as const;
+	const fields = [
+		{ id: "whole", answerType: "int", calculate: "2.75" },
+		{ id: "large", answerType: "long", calculate: "3000000000.75" },
+		{ id: "fraction", answerType: "decimal", calculate: "2.75" },
+		{ id: "yes", answerType: "boolean", calculate: "'false'" },
+		{ id: "letters", answerType: "int", calculate: "'0003'" },
+		{ id: "start", answerType: "int", default_value: "'0003'" },
+	].map((one) => f({ ...one, kind: "hidden", uuid: testUuid(one.id) }));
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						uuid: form,
+						name: "Visit",
+						type: "survey",
+						fields: [...fields, f({ id: "note", kind: "text", label: "Note" })],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedPreviewDoc(doc);
+	const store = createBlueprintDocStore();
+	store.getState().load(doc);
+	const ctrl = new EngineController();
+	try {
+		ctrl.setDocStore(store);
+		await ctrl.activateFormAsync(form);
+		expect(
+			held.map((name) => ctrl.store.getState()[testUuid(name)]?.value),
+		).toEqual(["2", "3000000000", "2.75", "1", "0003", "3"]);
+	} finally {
+		ctrl.dispose();
+		await ctrl.awaitSettled();
+	}
+});
+
+it.each([false, true])(
+	"explains a calculated list of choices that starts empty (worker=%s)",
+	async (worker) => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "choices",
+									label: "Choices",
+									default_value: "' one two'",
+								}),
+								f({
+									kind: "hidden",
+									id: "chosen",
+									answerType: "multi_select",
+									calculate: "#form/choices",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedPreviewDoc(doc);
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		const ctrl = new EngineController(
+			worker
+				? new XPathRuntime({
+						workerFactory: createInProcessXPathWorkerFactory(),
+					})
+				: undefined,
+		);
+		try {
+			ctrl.setDocStore(store);
+			await ctrl.activateFormAsync(FORM);
+			expect(ctrl.entryStore.getState().refusal).toMatchObject({
+				kind: "data",
+				reason: {
+					kind: "hidden-calculation",
+					question: "chosen",
+					problem: "empty-choice",
+				},
+			});
+			expect(ctrl.entryStore.getState().fault).toBeUndefined();
+		} finally {
+			ctrl.dispose();
+			await ctrl.awaitSettled();
+		}
+	},
+);

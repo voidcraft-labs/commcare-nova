@@ -72,6 +72,7 @@ import {
 } from "./documents/formsInMenuAbovePrefixes";
 import { gpsQuestion } from "./documents/gpsQuestion";
 import { heldPlacement } from "./documents/heldPlacement";
+import { hiddenAnswerTypes } from "./documents/hiddenAnswerTypes";
 import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
 import { hiddenFromMenu } from "./documents/hiddenFromMenu";
 import {
@@ -235,6 +236,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	platformDeclaration,
 	syncOnFormEntryWebApps,
 	previewAndroidRenders,
+	hiddenAnswerTypes,
 	sessionContextReads,
 	caseListSearchTextDocument,
 	migrationSearchWorkflow,

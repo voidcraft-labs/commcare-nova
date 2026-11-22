@@ -2575,3 +2575,5 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+A control-less leaf holds its answer type by the class Core reads (`XFormParser.typeMappings`, `AnswerDataFactory.templateByDataType`). The reader keeps that type explicitly. An alias is written in the spelling of the same class, and an unrecognized type becomes an untyped node. The review records each changed bind type on its own node.

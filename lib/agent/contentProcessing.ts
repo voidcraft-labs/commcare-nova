@@ -363,6 +363,7 @@ export function flatFieldToField(
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.plain_help === true && { plainHelp: true }),
 		...(q.keypad != null && { keypad: q.keypad }),
+		...(q.answerType != null && { answerType: q.answerType }),
 		...(q.required !== undefined &&
 			q.required !== null && { required: q.required }),
 		...(q.relevant !== undefined &&

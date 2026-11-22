@@ -1791,6 +1791,17 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/_attachments/*"],
 	},
 	/**
+	"hidden-answer-types-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("hidden-answer-types-respelled"),
+		at: {
+			kinds: ["form-node"],
+			places: (facts) => recordedPlaces(facts, "hidden-answer-types-respelled"),
+		},
+		paths: ["/_attachments/*"],
+	},
+	/**
 	 * A case list's `invisible` column whose sort element has display text, under
 	 * a header blank in every language: CommCare HQ's build gives the column a
 	 * header (`detail_screen.py::Invisible.header`) whose app string it writes as

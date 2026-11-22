@@ -1780,6 +1780,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
+	HIDDEN_ANSWER_CALCULATION: (e) => e.message,
+	HIDDEN_BOOLEAN_STARTING_ANSWER: (e) =>
+		`CommCare sets the yes or no answer in ${q(fieldName(e))} through Calculation. You can move its starting value there or choose another answer type.`,
 	REQUIRED_ON_HIDDEN: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required, no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>

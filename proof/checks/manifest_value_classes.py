@@ -6174,6 +6174,21 @@ def _count_placement_row_id(form, element, path, bind, defaults):
     )
 
 
+def explicit_hidden_answer_type(use, manifest):
+    """A nonstandard explicit type on a bound, control-less value in the primary instance.
+    Core strips the namespace from its local name. The existing datetime/text classes have
+    their own witnesses. A bind on a case action or data with children is not a hidden answer."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or use.at.attribute != "type":
+        return False
+    path = form.paths.get(node)
+    return bool(path and not len(node) and not form.question_controls(path)
+                and not any(parent.tag == f"{{{CASE}}}case" for parent in node.iterancestors())
+                and (bind.get("type") or "").split(":", 1)[-1] not in ("", "string", "dateTime"))
+
+
 def hidden_value_default_read(use, manifest):
     """``questions/hidden-value-with-both-calculate-and-a-default-by-any-expression``: a Hidden Value (a data node no
     body control names, ``mug:DataBindOnly``) whose bind calculates it and whose default a model setvalue sets,
@@ -9656,6 +9671,7 @@ VALUE_CLASSES = {
     "questions/question-id-failing-the-grammar-or-meta-in-any-case": invalid_question_id,
     "questions/two-sibling-data-nodes-with-one-name": sibling_with_one_name,
     "questions/hidden-value-with-children": hidden_value_with_children,
+    "questions/hidden-value-bound-a-type-nova-would-not-write": explicit_hidden_answer_type,
     "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": hidden_value_default_read,
     "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": question_with_children,
     "questions/default-data-value-datavalue-instance-text": default_data_value,

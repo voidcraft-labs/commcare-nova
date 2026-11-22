@@ -620,6 +620,11 @@ export const X = {
 		Q("binary-bind-type-on-an-upload"),
 		"xform:model/bind@type",
 	),
+	hiddenTypedAnswer: one(
+		"take",
+		Q("hidden-value-bound-a-type-nova-would-not-write"),
+		"xform:model/bind@type",
+	),
 	hiddenDatetimeType: one(
 		"take",
 		Q("hidden-value-bound-xsd-datetime"),
@@ -696,11 +701,6 @@ export const X = {
 			"refuse",
 			Q("upload-with-any-other-mediatype-or-none"),
 			"jr-control:upload",
-		),
-		hiddenOtherType: one(
-			"refuse",
-			Q("hidden-value-bound-a-type-nova-would-not-write"),
-			"xform:model/bind@type",
 		),
 	},
 	imageMaxDimension: one(

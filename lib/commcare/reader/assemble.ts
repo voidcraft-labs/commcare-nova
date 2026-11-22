@@ -32,6 +32,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { formWireName } from "@/lib/domain/formWireName";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
@@ -51,6 +53,7 @@ import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { syntheticModuleUuid } from "../emissionPlan";
 import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
+import { fieldBindType, hiddenAnswerTypeOf } from "../xform/bindType";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
 import {
@@ -261,6 +264,29 @@ function flagPrintsNothing(
 }
 
 export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
+	{
+		id: "hidden-answer-bind-type",
+		kind: "one-wire",
+		apply: (doc) => {
+			const automatic = Object.values(doc.fields).filter(
+				(field) => field.kind === "hidden" && field.answerType === undefined,
+			);
+			if (automatic.length === 0) return doc;
+			const types = effectiveCaseTypes(doc);
+			return withCandidate(doc, (draft) => {
+				for (const field of automatic) {
+					const bind = fieldBindType(
+						field,
+						types,
+						fieldCaseWriteViews(doc, field.uuid),
+					);
+					const held = draft.fields[field.uuid];
+					if (held?.kind === "hidden")
+						held.answerType = hiddenAnswerTypeOf(bind ?? undefined);
+				}
+			});
+		},
+	},
 	{
 		/** A root of `fieldList` groups with no condition and no worker-added repeat, and a root of
 		 *  sections, print one source; the reader returns sections. */

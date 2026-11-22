@@ -265,8 +265,39 @@ const CASES: readonly RowCase[] = [
 		}),
 	},
 	{
-		entry: Q("hidden-value-bound-a-type-nova-would-not-write"),
+		entry: Q(
+			"hidden-value-data-node-bind-no-control-with-calculate-or-default",
+		),
+		facts: facts({ control: "none", bindType: "int", hasDefault: true }),
+	},
+	{
+		entry: Q("hidden-value-with-neither"),
 		facts: facts({ control: "none", bindType: "int" }),
+	},
+	{
+		entry: Q("hidden-value-with-both-calculate-and-a-default-no-runtime-reads"),
+		facts: facts({
+			control: "none",
+			bindType: "int",
+			hasCalculate: true,
+			hasDefault: true,
+		}),
+	},
+	{
+		entry: Q(
+			"hidden-value-with-both-calculate-and-a-default-by-any-expression",
+		),
+		facts: facts({
+			control: "none",
+			bindType: "int",
+			hasCalculate: true,
+			hasDefault: true,
+			inRepeat: true,
+		}),
+	},
+	{
+		entry: Q("hidden-value-with-neither"),
+		facts: facts({ control: "none", bindType: "unknown" }),
 	},
 ];
 

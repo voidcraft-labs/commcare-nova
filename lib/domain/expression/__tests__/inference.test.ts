@@ -927,3 +927,27 @@ describe("the clock-keeping date", () => {
 		);
 	});
 });
+
+it("keeps a 64-bit starting answer numeric in a formula and stores its submitted digits in a case", () => {
+	const built = doc({
+		register: [
+			f({
+				uuid: uuid("large"),
+				kind: "hidden",
+				id: "large",
+				answerType: "long",
+				default_value: "'9223372036854775807'",
+				caseWrite: { caseType: "patient", property: "large" },
+			}),
+		],
+	});
+	const inferred = inferExpressionTypes(built);
+	expect(inferred.hiddenTypes.get(uuid("large"))).toBe("decimal");
+	expect(inferred.hiddenHeld.get(uuid("large"))).toBe("number");
+	expect(
+		inferred.caseTypes
+			.find((type) => type.name === "patient")
+			?.properties.find((property) => property.name === "large")?.data_type,
+	).toBe("text");
+	expect(hiddenWriterVerdicts(built)).toEqual([]);
+});

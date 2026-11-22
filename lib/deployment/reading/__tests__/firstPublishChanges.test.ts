@@ -2974,6 +2974,46 @@ const PAIRS: Readonly<Record<CurrentFirstPublishChangeId, Pair>> = {
 		labelledDoc("Weight\u00a0(kg)"),
 		{ xml: withLiteralOutputsAsText },
 	),
+	"hidden-answer-types-respelled": editedPair(
+		() =>
+			buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind: "hidden",
+										id: "age",
+										answerType: "int",
+										calculate: "1",
+									}),
+									f({ kind: "text", id: "note" }),
+								],
+							},
+						],
+					},
+				],
+			}),
+		{
+			xml: (xml) => {
+				const root = parseXml(xml);
+				const bind = findOne(
+					(element) =>
+						element.name === "bind" && element.attribs.nodeset === "/data/age",
+					root.children.filter(isTag),
+					true,
+				);
+				if (bind === null) throw new Error("Missing age bind");
+				bind.attribs.type = "xsd:integer";
+				return serializeXml(root);
+			},
+		},
+	),
+
 	// A label beside a column shown nowhere whose header is blank in every language, which
 	// CommCare HQ's build lists in Android's Sort by as an entry that shows blank.
 	"sort-by-entry-with-a-blank-name-dropped": editedPair(
@@ -3028,6 +3068,12 @@ const READER_RECORDED: readonly CurrentFirstPublishChangeId[] =
 				"unused-media-entries-removed",
 			].includes(id),
 	);
+
+it("places a hidden type rewrite on that question’s type attribute alone", async () => {
+	const id = "hidden-answer-types-respelled";
+	const [change] = firstPublishChangePlaces(await PAIRS[id].on(), [id]);
+	expect(change?.places).toEqual(["/form/0.0/xform/data/age/:bind/@type"]);
+});
 
 describe("each entry", () => {
 	for (const id of CURRENT_FIRST_PUBLISH_CHANGE_IDS)

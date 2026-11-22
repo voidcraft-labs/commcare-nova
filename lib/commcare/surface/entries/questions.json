@@ -1328,13 +1328,12 @@
 		"id": "questions/hidden-value-bound-a-type-nova-would-not-write",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a Hidden Value whose bind type is one Nova would not write for it: any type but `xsd:string` and `xsd:dateTime`; `xsd:dateTime` where it neither writes a date-and-time case property nor is calculated by the clock-keeping date; or text where it does",
+		"item": "a Hidden Value with an explicit answer type, including a type different from the automatic type Nova would choose",
 		"surfaceKeys": ["xform:model/bind@type"],
 		"valueClass": "hidden-value-other-bind-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Hidden Value's own bind type, which decides what Core stores for its value (`Recalculate.java::wrapData`)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a hidden value’s answer type determines the data class used by opening assignments and calculations. Core treats an unrecognized name as text without conversion.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1346,7 +1345,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the type as written on the bind of a data node no control draws",
+			"cell": "an explicit answer type on a data node no control draws, in the standard spelling of its Core answer class",
 			"markers": []
 		},
 		"gates": []

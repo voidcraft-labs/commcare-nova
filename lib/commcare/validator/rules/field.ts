@@ -31,6 +31,7 @@ import {
 	snapshotTranslationUnits,
 } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
+import { inferStructuralTemporalType } from "@/lib/domain/expression/temporalType";
 import {
 	type QueryRepeatNeed,
 	queryRepeatPlacementNeeds,
@@ -155,6 +156,76 @@ function selectOptionValueInvalid(
 		);
 	});
 	return errors;
+}
+
+/** Core's BooleanData.cast rejects every nonblank ready or insert assignment.
+ * A literal and a constant condition decide that outcome without worker data. */
+function hiddenAnswerAssignments(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind !== "hidden") return [];
+	const at = {
+		moduleUuid: ctx.moduleUuid,
+		moduleName: ctx.moduleName,
+		formUuid: ctx.formUuid,
+		formName: ctx.formName,
+		fieldUuid: field.uuid,
+		fieldId: field.id,
+	};
+	const calculation = field.calculate;
+	if (calculation !== undefined) {
+		if (
+			field.answerType === "boolean" &&
+			["date", "datetime"].includes(
+				inferStructuralTemporalType(calculation) ?? "",
+			)
+		) {
+			return [
+				validationError(
+					"HIDDEN_ANSWER_CALCULATION",
+					"field",
+					`The calculation for “${field.id}” returns a date. You can compare the date to get a yes or no answer, or choose a date answer type.`,
+					at,
+				),
+			];
+		}
+		if (
+			field.answerType === "multi_select" &&
+			calculation.kind === "term" &&
+			calculation.term.kind === "literal" &&
+			typeof calculation.term.value === "string" &&
+			/^ +[^ ]/.test(calculation.term.value)
+		) {
+			return [
+				validationError(
+					"HIDDEN_ANSWER_CALCULATION",
+					"field",
+					`The calculation for “${field.id}” starts with an empty choice. You can start the list with its first choice.`,
+					at,
+				),
+			];
+		}
+	}
+	if (field.answerType !== "boolean") return [];
+	const seed = field.default_value;
+	if (seed === undefined) return [];
+	const nonblank =
+		seed.kind === "match-all" ||
+		seed.kind === "match-none" ||
+		(seed.kind === "term" &&
+			seed.term.kind === "literal" &&
+			seed.term.value !== null &&
+			seed.term.value !== "");
+	if (!nonblank) return [];
+	return [
+		validationError(
+			"HIDDEN_BOOLEAN_STARTING_ANSWER",
+			"field",
+			`The starting answer for “${field.id}” cannot open or add its repeat row. CommCare sets a yes or no hidden answer through Calculation. You can move the starting value there or choose another answer type.`,
+			at,
+		),
+	];
 }
 
 /**
@@ -572,6 +643,7 @@ const FIELD_RULES = [
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,
 	selectOptionLabelEmpty,
+	hiddenAnswerAssignments,
 	requiredOnHidden,
 	calculateOnVisibleInput,
 	invalidFieldId,

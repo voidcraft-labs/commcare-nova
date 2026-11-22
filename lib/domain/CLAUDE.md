@@ -593,3 +593,5 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+A hidden value’s optional `answerType` keeps the kind of answer its opening assignments cast to. An absent type uses the ordinary inferred type, including the date and time of a clock-keeping calculation. Reading an app holds its existing type explicitly, so a change to its calculation keeps its answer class.

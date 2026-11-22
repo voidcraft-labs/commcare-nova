@@ -25,6 +25,7 @@ import {
 import { NO_ENTRIES } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { type SourceTable, tableOf } from "../../sourceKeys";
+import { hiddenAnswerTypeOf } from "../../xform/bindType";
 import {
 	elementNamespace,
 	isElement,
@@ -560,6 +561,8 @@ export function joinForm(input: JoinInput): JoinedForm {
 			stood,
 			row.slots ?? NO_ENTRIES,
 		);
+		if (row.kind === "hidden")
+			field.field.answerType = hiddenAnswerTypeOf(bind?.type);
 		if (bothSources)
 			field.bothSources = {
 				typeDeferred: bind?.type !== undefined && typeClaim === sites.type,

@@ -254,6 +254,13 @@ def kinds_source(name):
     _question(xform, "clip", "Video of the field", tag="upload", bind_type="binary", mediatype="video/*")
     _question(xform, "document", "Land document", tag="upload", bind_type="binary", mediatype="application/*,text/*")
     xform.new_question("double_age", None, None, calculate="/data/age * 2")
+    # The advanced bind attributes on a no-control value survive Vellum's
+    # editor. Core's "integer" is the same data class as "int".
+    count_path = xform.get_data_ref("opening_count")
+    parent, name = _node(xform, count_path)
+    etree.SubElement(parent, name)
+    xform._model.append(etree.Element(_x(xform, "bind"), {"nodeset": count_path, "type": "xsd:integer", "calculate": "1"}))
+
     xform.new_group("details", "Details")
     _group_body(xform, "details").set("appearance", "field-list")
     xform.new_question("nickname", "Nickname", "string", group="details")

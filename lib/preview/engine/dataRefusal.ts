@@ -38,7 +38,14 @@ const LOCATIONS_INSTANCE_ID = "locations";
 const SESSION_INSTANCE_ID = "commcaresession";
 const SEARCH_INPUT_INSTANCE_PREFIX = "search-input:";
 
+type HiddenCalculationRefusal = {
+	readonly kind: "hidden-calculation";
+	readonly question: string;
+	readonly problem: "date-as-boolean" | "empty-choice";
+};
+
 export type PreviewDataRefusalReason =
+	| HiddenCalculationRefusal
 	/** A value read below an instance that holds nothing, named by its id. */
 	| { readonly kind: "empty-instance"; readonly instanceId: string }
 	/** A case owner moved to the worker's place at a level, for a worker
@@ -83,13 +90,15 @@ export class PreviewDataRefusal extends Error {
 		stage: PreviewDataRefusalStage = "form",
 	) {
 		super(
-			reason.kind === "empty-instance"
-				? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
-				: reason.kind === "owner-without-place"
-					? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
-					: reason.kind === "unoffered-starting-choice"
-						? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
-						: "CommCare refuses this choice list: its table has no rows.",
+			reason.kind === "hidden-calculation"
+				? `CommCare cannot hold the calculated answer for “${reason.question}” (${reason.problem}).`
+				: reason.kind === "empty-instance"
+					? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
+					: reason.kind === "owner-without-place"
+						? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
+						: reason.kind === "unoffered-starting-choice"
+							? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
+							: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -150,6 +159,7 @@ export function workerFailureError(failure: XPathRuntimeFailure): Error {
 
 /** What a refusal is about, named from the document and the lookup data. */
 export type PreviewDataRefusalSubject =
+	| HiddenCalculationRefusal
 	| { readonly kind: "places" }
 	| { readonly kind: "owner-place" }
 	| { readonly kind: "table"; readonly tableName: string }
@@ -182,6 +192,7 @@ export function previewDataRefusalSubject(
 	reason: PreviewDataRefusalReason,
 	lookupData: PreviewLookupData | null | undefined,
 ): PreviewDataRefusalSubject {
+	if (reason.kind === "hidden-calculation") return reason;
 	if (reason.kind === "empty-choice-table") {
 		return {
 			kind: "choices",

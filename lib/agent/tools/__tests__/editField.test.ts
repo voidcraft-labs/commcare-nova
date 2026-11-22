@@ -1025,6 +1025,25 @@ describe("editField: field_list and plain_label", () => {
 	});
 });
 
+it("sets and clears the answer type through the shared hidden question editor and read", async () => {
+	const h = makeAuthoringHarness({}, makeHouseholdDoc());
+	const address = visitAddress(VISIT_HIDDEN);
+	expect(
+		await h.call("editField", {
+			...address,
+			updates: { kind: "hidden", answerType: "int" },
+		}),
+	).toMatchObject({ ok: true });
+	const read = await h.call("getField", address);
+	expect(read).toMatchObject({ field: { answerType: "int" } });
+	expect(
+		await h.call("editField", {
+			...address,
+			updates: { kind: "hidden", answerType: null },
+		}),
+	).toMatchObject({ ok: true });
+	expect(h.currentDoc().fields[VISIT_HIDDEN]).not.toHaveProperty("answerType");
+});
 describe("editField: a number keypad and a help text shown as typed", () => {
 	it("sets and clears keypad and plain_help, and a read sent back keeps both", async () => {
 		const h = makeAuthoringHarness({}, makeHouseholdDoc());
@@ -1129,4 +1148,35 @@ describe("editField: a choice shown as typed survives a read and edit", () => {
 			expect.not.objectContaining({ plainLabel: true }),
 		]);
 	});
+});
+
+it("locates a hidden assignment that a worker cannot use and accepts the repaired calculation", async () => {
+	const h = makeAuthoringHarness({}, makeHouseholdDoc());
+	const address = visitAddress(VISIT_HIDDEN);
+	for (const updates of [
+		{
+			kind: "hidden",
+			answerType: "boolean",
+			default_value: "'yes'",
+			calculate: null,
+		},
+		{ kind: "hidden", answerType: "boolean", calculate: "today()" },
+		{ kind: "hidden", answerType: "multi_select", calculate: "' blue green'" },
+	]) {
+		const result = await h.call("editField", { ...address, updates });
+		expect(result).not.toMatchObject({ ok: true });
+		expect(h.currentDoc().fields[VISIT_HIDDEN]).not.toHaveProperty(
+			"answerType",
+		);
+	}
+	expect(
+		await h.call("editField", {
+			...address,
+			updates: {
+				kind: "hidden",
+				answerType: "boolean",
+				calculate: "today() = today()",
+			},
+		}),
+	).toMatchObject({ ok: true });
 });

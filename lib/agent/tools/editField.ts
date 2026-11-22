@@ -234,6 +234,7 @@ function editPatchToFieldPatch(
 		patch.plainHelp = updates.plain_help === true ? true : null;
 	// The keypad is stored under its own name; null returns the full keyboard.
 	if (updates.keypad !== undefined) patch.keypad = updates.keypad;
+	if (updates.answerType !== undefined) patch.answerType = updates.answerType;
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).

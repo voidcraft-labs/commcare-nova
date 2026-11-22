@@ -3,7 +3,8 @@
 // A hidden question carries a starting answer on first open (on insert
 // inside a repeat) and a calculation that runs as its dependencies change
 // and when the form resumes. Each slot is optional. A later starting
-// answer may read this one before its calculation has run.
+// answer may read this one before its calculation has run. The optional
+// answerType says how starting answers and calculated values are held.
 //
 // Extends `structuralFieldBase` (uuid + id), NOT `fieldBaseSchema` —
 // hidden fields have no `label` (nothing to display) and no `hint`.
@@ -23,8 +24,45 @@ import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { formLogicSchema, structuralFieldBase } from "./base";
 
+/** The kind of answer held by a hidden value at an assignment. */
+export const HIDDEN_ANSWER_TYPES = [
+	"text",
+	"untyped",
+	"int",
+	"long",
+	"decimal",
+	"date",
+	"time",
+	"datetime",
+	"boolean",
+	"single_select",
+	"multi_select",
+	"geopoint",
+	"barcode",
+	"file",
+] as const;
+export type HiddenAnswerType = (typeof HIDDEN_ANSWER_TYPES)[number];
+
+export const HIDDEN_ANSWER_TYPE_LABELS = {
+	text: "Text",
+	untyped: "Keep as entered",
+	int: "Whole number",
+	long: "Large whole number",
+	decimal: "Decimal number",
+	date: "Date",
+	time: "Time",
+	datetime: "Date and time",
+	boolean: "Yes or no",
+	single_select: "One choice",
+	multi_select: "Several choices",
+	geopoint: "Coordinates",
+	barcode: "Barcode",
+	file: "File reference",
+} as const satisfies Record<HiddenAnswerType, string>;
+
 export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
+	answerType: z.enum(HIDDEN_ANSWER_TYPES).optional(),
 	calculate: formLogicSchema.optional(),
 	default_value: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
