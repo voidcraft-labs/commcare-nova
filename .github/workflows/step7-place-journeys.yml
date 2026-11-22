@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 84809c3b1f9ba64f6996c8ea6aa6ea5951368ec4
+          ref: 2663fd9aa20bc9221f354fa0c3ac1211598ab62d
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
