@@ -37,9 +37,13 @@ function useOrganizationClock(): number {
 	const [tick, setTick] = useState(0);
 	useEffect(() => {
 		if (collab === null) return;
-		return collab.subscribeAppOrganization(() => {
-			setTick((previous) => previous + 1);
-		});
+		const invalidate = () => setTick((previous) => previous + 1);
+		const stopPlaces = collab.subscribeAppOrganization(invalidate);
+		const stopGroups = collab.subscribeLookupManifest(invalidate);
+		return () => {
+			stopPlaces();
+			stopGroups();
+		};
 	}, [collab]);
 	return tick;
 }

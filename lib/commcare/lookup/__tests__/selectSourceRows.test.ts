@@ -285,12 +285,14 @@ describe("lookupSelectSourceRowFindings — absent from snapshot", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("yields no findings when the table has no rows entry in the snapshot", () => {
+	it("holds a source when its worker rows are unavailable", () => {
 		const errors = lookupSelectSourceRowFindings(
 			carrierDoc(),
 			snapshot(table(), [], OTHER_TABLE), // rows keyed under a different id
 		);
-		expect(errors).toEqual([]);
+		expect(errors.map((error) => error.code)).toEqual([
+			"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+		]);
 	});
 
 	it("yields no findings when the referenced value column is absent from the table", () => {

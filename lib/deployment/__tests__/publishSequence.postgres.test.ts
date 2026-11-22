@@ -15,6 +15,7 @@
  * 500 is a bare status.
  */
 
+import {servePlaceInventory} from "./placeInventoryPeer";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
@@ -69,7 +70,7 @@ import {
 } from "@/lib/domain";
 import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
-import { createLocation } from "@/lib/organization/service";
+import { createLocation, updateLocation } from "@/lib/organization/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { adoptedAppBaselineWrite } from "../adoption";
@@ -428,21 +429,11 @@ function tableRows(peer: MockAgent) {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: withNorth ? [remotePlace] : [],
-	});
+	servePlaceInventory(peer, "clinic", withNorth ? [remotePlace] : [], remoteLevels);
 }
 /** The inventory read after the last batch, which reads the pushed place back. */
 function placesReadBack(peer: MockAgent) {
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: [remotePlace],
-	});
+	inventory(peer, true);
 }
 
 function emptyTables(peer: MockAgent) {
@@ -455,11 +446,7 @@ function tablesAfterPush(peer: MockAgent) {
 	});
 }
 function emptyInventory(peer: MockAgent) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, { meta: { next: null }, objects: [] });
+	inventory(peer, false);
 }
 function workbookTaken(peer: MockAgent) {
 	request(peer, WORKBOOK, "POST").reply(200, { code: 200, message: "Done" });
@@ -660,13 +647,16 @@ describe("a first publish", () => {
 				`GET ${TABLES}`,
 				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 				`POST ${WORKBOOK}`,
 				`GET ${TABLES}`,
 				`GET ${ROWS}`,
 				`PATCH ${PLACE_PUSH}`,
+				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`GET ${SOURCE}`,
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
@@ -987,6 +977,13 @@ describe("a stop at a table or place push", () => {
 				accepted(peer, 200);
 				serve(peer, SOURCE, "source-live");
 				expect((await publish(doc)).landed).toBe(true);
+				if (places) {
+					// Identical places are never patched. Make this a real
+					// authored edit before exercising HQ's write refusal.
+					const location = await h.db().selectFrom("app_locations").select("id").where("app_id", "=", APP)
+						.where("site_code","=","north").executeTakeFirstOrThrow();
+					await updateLocation(SCOPE, location.id, {name:"North region"});
+				}
 				preflight(peer, true);
 				serve(peer, SOURCE, "source-live");
 				stop(peer);

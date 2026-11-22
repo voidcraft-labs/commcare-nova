@@ -31,7 +31,6 @@ import type { ManagedTableOutcome } from "@/lib/deployment/managedData";
 import {
 	letHqManageLookupTableAction,
 	manageLookupTableInNovaAction,
-	refreshManagedLookupTableAction,
 } from "@/lib/deployment/managedDataActions";
 import type { LookupTableSnapshot } from "@/lib/lookup/types";
 import {
@@ -53,6 +52,8 @@ import { KEPT_REFRESH_BUTTON_PENDING, keptDateText } from "../keptListModel";
 import { LetHqManageDialog, ManageInNovaDialog } from "./ManagedTableDialogs";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import { managedTableBannerModel } from "./projectDataModel";
+import { SourceAccessDialog } from "./SourceAccessDialog";
+import { SourceInventoryDialog } from "./SourceInventoryDialog";
 import { useManagedLookupTableView, useManifestEntry } from "./useProjectData";
 
 const TRANSPORT_FAILURE =
@@ -69,7 +70,9 @@ export function ManagedTableBanner({
 	const view = useManagedLookupTableView(table);
 	const canEdit = useProjectCanEdit();
 	const canDelete = useCanDelete();
-	const [dialog, setDialog] = useState<"manage" | "hand-back" | null>(null);
+	const [dialog, setDialog] = useState<
+		"manage" | "hand-back" | "source" | "access" | null
+	>(null);
 	const [refreshing, setRefreshing] = useState(false);
 	const [outcome, setOutcome] = useState<{
 		readonly tone: "status" | "alert";
@@ -105,9 +108,12 @@ export function ManagedTableBanner({
 		setRefreshing(true);
 		setOutcome(null);
 		try {
-			await settle(
-				await refreshManagedLookupTableAction(table.projectId, table.id),
+			const response = await fetch(
+				`/api/projects/${encodeURIComponent(table.projectId)}/lookup/tables/${encodeURIComponent(table.id)}/refresh`,
+				{ method: "POST", headers: { "x-nova-source-refresh": "1" } },
 			);
+			if (!response.ok) throw new Error("Source refresh unavailable");
+			await settle(await response.json());
 		} catch {
 			setOutcome({ tone: "alert", lines: [TRANSPORT_FAILURE] });
 		} finally {
@@ -128,11 +134,12 @@ export function ManagedTableBanner({
 				projectId: string,
 				tableId: string,
 				reviewDigest: string,
+        workbook?:FormData,
 			) => Promise<ManagedTableOutcome>,
 			reviewDigest: string,
 		) =>
-		async (): Promise<string | null> => {
-			const answer = await run(table.projectId, table.id, reviewDigest);
+		async (workbook?:FormData): Promise<string | null> => {
+			const answer = await run(table.projectId, table.id, reviewDigest,...(workbook?[workbook]:[]));
 			if (!answer.ok) {
 				if (answer.reason === "review-moved") await view.reload();
 				return answer.message;
@@ -191,6 +198,24 @@ export function ManagedTableBanner({
 							/>
 						)}
 						{refreshing ? KEPT_REFRESH_BUTTON_PENDING : REFRESH_FROM_HQ}
+					</Button>
+				)}
+				{canEdit && loaded && model.refresh === "offered" && (
+					<Button
+						type="button"
+						variant="outline"
+						onClick={() => setDialog("access")}
+					>
+						Check source access
+					</Button>
+				)}
+				{canEdit && loaded && model.refresh === "offered" && (
+					<Button
+						type="button"
+						variant="outline"
+						onClick={() => setDialog("source")}
+					>
+						View source inventory
 					</Button>
 				)}
 				{loaded !== null && (
@@ -311,8 +336,24 @@ export function ManagedTableBanner({
 					))}
 				</div>
 			)}
+			{canEdit &&
+				model.kind === "managed-in-hq" &&
+				model.refresh === "offered" &&
+				dialog === "access" &&
+				loaded && (
+					<SourceAccessDialog table={table} onClose={() => setDialog(null)} />
+				)}
+			{canEdit && model.kind === "managed-in-hq" && dialog === "source" && (
+				<SourceInventoryDialog
+					key={table.projectId + table.id + table.tableRevision}
+					table={table}
+					refreshing={refreshing}
+					onClose={() => setDialog(null)}
+				/>
+			)}
 			{loaded !== null && dialog === "manage" && (
 				<ManageInNovaDialog
+          needsWorkbook={hq.source?.distribution==="assigned"}
 					open
 					tableName={table.name}
 					domain={hq.domain}

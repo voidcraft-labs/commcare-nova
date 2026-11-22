@@ -8228,6 +8228,46 @@ def model_iteration_reading_blank_answer(use, manifest):
     return None if None in verdicts else False
 
 
+def _itemset_read(use):
+    """The actual form or Search itemset slot, parsed as a row-relative XPath by the proof parser."""
+    from proof.checks.xpath_tree import tree
+
+    if isinstance(use.at, JsonAt):
+        item = use.at.nearest("Itemset")
+        if item is None or use.at.key not in ("label", "value", "sort"):
+            return None
+        value = item.get(use.at.key)
+    elif isinstance(use.at, XmlAt):
+        element = use.at.element
+        parent = element.getparent()
+        if parent is None or _local(parent) != "itemset" or _local(element) not in ("label", "value", "sort"):
+            return None
+        value = element.get("ref")
+    else:
+        return None
+    return tree(value) if isinstance(value, str) else None
+
+
+def form_itemset_ref_uneditable(use, manifest):
+    from proof.rules import _xpath
+
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    read = _itemset_read(use)
+    if read is None:
+        return None
+    if read[:2] == ("call", "jr:itext"):
+        return False
+    if read[:3] != ("path", None, None):
+        return True
+    steps = [step for step in read[3] if step[1] != "self"]
+    if len(steps) != 1 or steps[0][1] not in ("child", "attribute"):
+        return True
+    # A literal opening bracket interrupts Vellum's predicate stripping.
+    return any(tok.kind == "STR" and "[" in tok.text for tok in _xpath.tokens(element.get("ref")))
+
+
 def itemset_label_itext(use, manifest):
     """``questions/itemset-label-jr-itext-field``: an itemset label whose ``ref`` calls ``jr:itext``, which Vellum's
     lookup table widget does not find among a table's fields (``itemset.js::validateRefWidget``). Read from Core's
@@ -9686,6 +9726,7 @@ VALUE_CLASSES = {
     "questions/validation-message-without-a-validation-condition": message_without_condition,
     "questions/literal-jr-constraintmsg-text-no-itext": literal_validation_message,
     "questions/bind-readonly": authored_readonly,
+    "questions/lookup-choice-reference-the-form-editor-cannot-keep": form_itemset_ref_uneditable,
     "questions/itemset-label-jr-itext-field": itemset_label_itext,
     "questions/markdown-form-differing-from-the-default-text": markdown_differing,
     "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": markdown_in_some_languages,

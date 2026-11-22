@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // Live-Postgres contract coverage for the single lookup persistence boundary.
 // `setupAppStateTestDb` clones the production-migrated template into a fresh
 // per-test database and points `getAppDb()` at it, so the service's real
@@ -19,6 +20,8 @@ import {
 	LOOKUP_MAX_TABLE_BYTES,
 } from "../constants";
 import { LookupError } from "../errors";
+import type { LookupValueEditRequest } from "../largeValues/input";
+import { applyLookupValueEditInTransaction } from "../largeValues/service";
 import { parseLookupRevision } from "../schema";
 import {
 	addLookupColumn,
@@ -28,6 +31,8 @@ import {
 	getLookupDefinitions,
 	getLookupManifest,
 	getLookupTable,
+	getLookupTableRowsPage,
+	getLookupTableWindow,
 	moveLookupColumn,
 	moveLookupRow,
 	readLookupDefinitionsInTransaction,
@@ -44,6 +49,7 @@ import type {
 	LookupScope,
 	LookupTableSnapshot,
 } from "../types";
+import { authorizeLookupWriteInTransaction } from "../writerTransaction";
 
 const h = setupAppStateTestDb("lookup_service_");
 
@@ -649,7 +655,7 @@ describe("lookup persistence service", () => {
 			.executeTakeFirstOrThrow();
 		expect(snapshot.rows[0].valueBytes).toBe(raw.value_bytes);
 		expect(snapshot.dataBytes).toBe(raw.value_bytes);
-		const beforeShrink = snapshot.dataBytes;
+		const beforeShrink = raw.value_bytes;
 
 		const shrunk = await updateLookupRow(OWNER_A, {
 			tableId: table.id,
@@ -670,7 +676,249 @@ describe("lookup persistence service", () => {
 		});
 	});
 
-	it("enforces the locked column, row, and table caps without spending a revision on rejection", async () => {
+	it("searches, readdresses and removes a staged value while retaining untouched row data", async () => {
+		const table = await createLookupTable(OWNER_A, {
+			name: "Locations",
+			tag: "locations_roster",
+			columns: [
+				{ wireName: "label", label: "Label", dataType: "text", repeated: true },
+			],
+		});
+		const columnId = table.columns[0].id;
+		const { rowId, tableRevision } = await createLookupRow(OWNER_A, {
+			tableId: table.id,
+			expectedTableRevision: table.tableRevision,
+			toIndex: 0,
+			values: {},
+			content: {
+				occurrences: {
+					[columnId]: [
+						{ text: "first", properties: {} },
+						{ text: "", properties: {} },
+					],
+				},
+			},
+		});
+		const text = `${"X".repeat(32765)}ABCDEF${"😀".repeat(8500)}`;
+		const bytes = Buffer.from(text);
+		const operationId = "decb1db4-c519-4eb2-9068-8f0fe62fa54d";
+		const run = (request: LookupValueEditRequest) =>
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) =>
+					applyLookupValueEditInTransaction(
+						tx,
+						await authorizeLookupWriteInTransaction(tx, OWNER_A, "edit"),
+						request,
+						"project-editor",
+					),
+				);
+		const digest = (body: Buffer | string) =>
+			createHash("sha256").update(body).digest("hex");
+		await run({
+			kind: "begin",
+			operationId,
+			tableId: table.id,
+			rowId,
+			slot: { kind: "occurrence", columnId, index: 1 },
+			expectedTableRevision: tableRevision,
+			baseDigest: digest(""),
+			startByte: 0,
+			endByte: 0,
+			replacementDigest: digest(bytes),
+			replacementBytes: bytes.length,
+		});
+		for (let offset = 0; offset < bytes.length; offset += 32768)
+			await run({
+				kind: "append",
+				operationId,
+				tableId: table.id,
+				offset,
+				base64: bytes.subarray(offset, offset + 32768).toString("base64"),
+			});
+		await run({ kind: "finish", operationId, tableId: table.id });
+		const saved = await getLookupTableWindow(OWNER_A, table.id, {
+			query: "abcde",
+		});
+		expect(saved.rows).toMatchObject([{ id: rowId, fragmented: true }]);
+		const moved = await updateLookupRow(OWNER_A, {
+			tableId: table.id,
+			rowId,
+			expectedTableRevision: saved.tableRevision,
+			changes: [
+				{
+					kind: "insert",
+					columnId,
+					index: 0,
+					value: { text: "new", properties: {} },
+				},
+			],
+		});
+		const chunks: Extract<
+			import("../types").LookupRowPart,
+			{ kind: "occurrence" }
+		>[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = await getLookupTableRowsPage(OWNER_A, {
+				tableId: table.id,
+				rowId,
+				cursor,
+			});
+			for (const part of page.rows[0].parts ?? [])
+				if (part.kind === "occurrence" && part.index === 2) chunks.push(part);
+			cursor = page.nextCursor;
+		} while (cursor);
+		expect(chunks.map((part) => part.text).join("")).toEqual(text);
+		let offset = 0;
+		for (const part of chunks) {
+			expect(part).toMatchObject({
+				byteOffset: offset,
+				totalBytes: bytes.length,
+				valueDigest: digest(bytes),
+			});
+			offset += Buffer.byteLength(part.text);
+		}
+		await updateLookupRow(OWNER_A, {
+			tableId: table.id,
+			rowId,
+			expectedTableRevision: moved.tableRevision,
+			changes: [{ kind: "remove", columnId, index: 2 }],
+		});
+		const edited = await getLookupTable(OWNER_A, table.id);
+		expect(
+			edited.rows[0].occurrences?.[columnId]?.map((value) => value.text),
+		).toEqual(["new", "first"]);
+		expect(edited.dataBytes).toBe(edited.rows[0].valueBytes);
+		expect(
+			(await getLookupTableWindow(OWNER_A, table.id, { query: "abcde" }))
+				.matchingRowCount,
+		).toBe(0);
+	});
+	it("patches one occurrence under a replayable operation and pages a long value without loading its siblings", async () => {
+		const table = await createLookupTable(OWNER_A, {
+			name: "Plants",
+			tag: "plants",
+			attributes: [{ wireName: "code", label: "Code" }],
+			columns: [
+				{
+					wireName: "label",
+					label: "Label",
+					dataType: "text",
+					repeated: true,
+					properties: [{ wireName: "lang", label: "Language" }],
+				},
+			],
+		});
+		const column = table.columns[0],
+			member = table.attributes?.[0],
+			prop = column.properties?.[0];
+		if (!prop || !member)
+			throw new Error("The row and value details were not stored.");
+		const text = "😀\n".repeat(9000);
+		const created = await createLookupRow(OWNER_A, {
+			tableId: table.id,
+			expectedTableRevision: table.tableRevision,
+			toIndex: 0,
+			values: {},
+			content: {
+				attributes: { [member.id]: "AB 007" },
+				occurrences: {
+					[column.id]: [
+						{ text, properties: { [prop.id]: "long" } },
+						{ text, properties: { [prop.id]: "duplicate" } },
+					],
+				},
+			},
+		});
+		const request = {
+			tableId: table.id,
+			rowId: created.rowId,
+			expectedTableRevision: created.tableRevision,
+			operationId: "decb1db4-c519-4eb2-9068-8f0fe62fa54f",
+			changes: [
+				{
+					kind: "property" as const,
+					columnId: column.id,
+					index: 1,
+					propertyId: prop.id,
+					text: "changed",
+				},
+			],
+		};
+		const written = await updateLookupRow(OWNER_A, request);
+		expect(await updateLookupRow(OWNER_A, request)).toEqual(written);
+		await expect(
+			updateLookupRow(OWNER_A, {
+				...request,
+				changes: [{ ...request.changes[0], text: "different" }],
+			}),
+		).rejects.toMatchObject({ code: "invalid_input" });
+		const window = await getLookupTableWindow(OWNER_A, table.id, {
+			query: "changed",
+		});
+		expect(window.rows).toHaveLength(1);
+		expect(window.rows[0]).toMatchObject({
+			id: created.rowId,
+			fragmented: true,
+			values: {},
+			sourceIndex: 0,
+		});
+		let cursor: string | undefined;
+		const parts: import("../types").LookupRowPart[] = [];
+		do {
+			const page = await getLookupTableRowsPage(OWNER_A, {
+				tableId: table.id,
+				rowId: created.rowId,
+				cursor,
+			});
+			expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(70000);
+			parts.push(...(page.rows[0].parts ?? []));
+			cursor = page.nextCursor;
+		} while (cursor);
+		expect(
+			parts
+				.flatMap((part) =>
+					part.kind === "occurrence" && part.index === 1 ? [part.text] : [],
+				)
+				.join(""),
+		).toBe(text);
+		expect(parts.filter((part) => part.kind === "property")).toMatchObject([
+			{
+				kind: "property",
+				columnId: column.id,
+				index: 0,
+				propertyId: prop.id,
+				text: "long",
+				offset: 0,
+				byteOffset: 0,
+				totalBytes: 4,
+				valueDigest: createHash("sha256").update("long").digest("hex"),
+			},
+			{
+				kind: "property",
+				columnId: column.id,
+				index: 1,
+				propertyId: prop.id,
+				text: "changed",
+				offset: 0,
+			},
+		]);
+		await expect(
+			updateLookupRow(OWNER_A, {
+				...request,
+				expectedTableRevision: written.tableRevision,
+				operationId: undefined,
+				changes: [{ kind: "remove", columnId: column.id, index: 3 }],
+			}),
+		).rejects.toMatchObject({ code: "invalid_input" });
+		expect((await getLookupTableWindow(OWNER_A, table.id)).tableRevision).toBe(
+			written.tableRevision,
+		);
+	});
+
+	it("applies small edits beyond inline row, column and byte thresholds under the Project budget", async () => {
 		const table = await createTable();
 		const columnId = table.columns[0].id;
 		const rows = Array.from({ length: LOOKUP_MAX_ROWS - 1 }, () =>
@@ -703,18 +951,18 @@ describe("lookup persistence service", () => {
 		).toMatchObject({ reason: { code: "conflict" } });
 		const rowCapSnapshot = await getLookupTable(OWNER_A, table.id);
 		expect(rowCapSnapshot.rowCount).toBe(LOOKUP_MAX_ROWS);
-		await expectLookupError(
-			createLookupRow(OWNER_A, {
-				tableId: table.id,
-				expectedTableRevision: rowCapSnapshot.tableRevision,
-				toIndex: LOOKUP_MAX_ROWS,
-				values: rowValues([[columnId, "one too many"]]),
-			}),
-			"row_limit",
-		);
-		expect((await getLookupManifest(OWNER_A)).projectRevision).toBe(
-			rowCapSnapshot.projectRevision,
-		);
+		const added = await createLookupRow(OWNER_A, {
+			tableId: table.id,
+			expectedTableRevision: rowCapSnapshot.tableRevision,
+			toIndex: LOOKUP_MAX_ROWS,
+			values: rowValues([[columnId, "additional row"]]),
+		});
+		const window = await getLookupTableWindow(OWNER_A, table.id, {
+			rowId: added.rowId,
+		});
+		expect(window.rowCount).toBe(LOOKUP_MAX_ROWS + 1);
+		expect(window.rows[0].sourceIndex).toBe(LOOKUP_MAX_ROWS);
+		expect(window.rows).toHaveLength(1);
 		const columnCapTable = await createTable(OWNER_A, {
 			name: "Column boundary",
 			tag: "column_boundary",
@@ -724,22 +972,16 @@ describe("lookup persistence service", () => {
 				dataType: "text" as const,
 			})),
 		});
-		await expectLookupError(
-			addLookupColumn(OWNER_A, {
-				tableId: columnCapTable.id,
-				expectedTableRevision: columnCapTable.tableRevision,
-				column: {
-					wireName: "one_too_many",
-					label: "One too many",
-					dataType: "text",
-				},
-			}),
-			"invalid_input",
-		);
-		expect((await getLookupManifest(OWNER_A)).projectRevision).toBe(
-			columnCapTable.projectRevision,
-		);
-
+		await addLookupColumn(OWNER_A, {
+			tableId: columnCapTable.id,
+			expectedTableRevision: columnCapTable.tableRevision,
+			column: { wireName: "more", label: "One more", dataType: "text" },
+		});
+		expect(
+			(await getLookupManifest(OWNER_A)).tables.find(
+				(t) => t.id === columnCapTable.id,
+			)?.columnCount,
+		).toBe(LOOKUP_MAX_COLUMNS + 1);
 		const storageTable = await createTable(OWNER_A, {
 			name: "Storage boundary",
 			tag: "storage_boundary",
@@ -792,24 +1034,27 @@ describe("lookup persistence service", () => {
 		const fullSnapshot = await getLookupTable(OWNER_A, storageTable.id);
 		expect(fullSnapshot.dataBytes).toBe(measuredRowBytes * fittingRowCount);
 		expect(fullSnapshot.dataBytes).toBeLessThanOrEqual(LOOKUP_MAX_TABLE_BYTES);
-		await expectLookupError(
-			createLookupRow(OWNER_A, {
-				tableId: storageTable.id,
-				expectedTableRevision: fullSnapshot.tableRevision,
-				toIndex: fittingRowCount,
-				values: rowValues([[storageColumnId, maxCell]]),
-			}),
-			"storage_limit",
-		);
-		expect((await getLookupManifest(OWNER_A)).projectRevision).toBe(
-			fullSnapshot.projectRevision,
-		);
+		const above = await createLookupRow(OWNER_A, {
+			tableId: storageTable.id,
+			expectedTableRevision: fullSnapshot.tableRevision,
+			toIndex: fittingRowCount,
+			values: rowValues([[storageColumnId, maxCell]]),
+		});
+		const beforeShrink = await getLookupTableWindow(OWNER_A, storageTable.id);
+		if (beforeShrink.dataBytes === null) throw new Error("The public table's byte count is unavailable.");
+		expect(beforeShrink.dataBytes).toBeGreaterThan(LOOKUP_MAX_TABLE_BYTES);
+		expect(beforeShrink.rows[0].fragmented).toBe(true);
 		const shrunk = await updateLookupRow(OWNER_A, {
 			tableId: storageTable.id,
 			rowId: fullSnapshot.rows[0].id,
-			expectedTableRevision: fullSnapshot.tableRevision,
-			values: rowValues([[storageColumnId, ""]]),
+			expectedTableRevision: above.tableRevision,
+			changes: [
+				{ kind: "cell", columnId: storageColumnId, value: maxCell.slice(1) },
+			],
 		});
+		expect(
+			(await getLookupTableWindow(OWNER_A, storageTable.id)).dataBytes,
+		).toBe(beforeShrink.dataBytes - 1);
 		await expect(
 			createLookupRow(OWNER_A, {
 				tableId: storageTable.id,

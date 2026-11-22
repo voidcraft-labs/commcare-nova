@@ -1,4 +1,5 @@
 import type { ExpressionOfKind } from "@/lib/domain/expression";
+import { editorLookupReads } from "../lookupTablePresentation";
 // Shared valid-by-construction comparison seeds. This module has no React
 // component imports, so structural cards can seed a friendly first condition
 // without creating a component-registry cycle.
@@ -61,7 +62,7 @@ export function comparisonDefault<K extends ComparisonKind>(
 		right: Parameters<typeof eq>[1],
 	) => ComparisonArm<K>;
 	if (tableRowInScope(ctx)) {
-		const column = ctx.tableScope?.columns.find((candidate) =>
+		const column = editorLookupReads(ctx.tableScope).find((candidate) =>
 			ORDERED_KINDS.has(kind)
 				? isOrdered({ data_type: candidate.dataType })
 				: true,

@@ -27,6 +27,7 @@ import {
 	sent,
 	serveRows,
 	serveTableList,
+	serveTransferEvidence,
 } from "@/lib/deployment/__tests__/managedFixtures";
 import { NO_MANAGED_PLACES } from "@/lib/deployment/managedData";
 import { LOOKUP_DISCARD_NOTE } from "@/lib/deployment/remoteChanges";
@@ -71,7 +72,7 @@ const EDITOR_LOOKUP: LookupScope = {
 };
 
 const facilities: ServedTable = {
-	id: "hq-facilities",
+	id: "a".repeat(32),
 	tag: "facilities",
 	fields: ["code", "name"],
 	rows: [
@@ -288,9 +289,12 @@ it("lets only an admin hand a table to Nova, and previews the hand-back once Nov
 	await asUser(ADMIN, async (client) => {
 		const preview = await answer(client, "set_lookup_table_management", args);
 		expect(
-			await answer(client, "set_lookup_table_management", {
-				...args,
-				review_digest: preview.review_digest,
+			await withHttpPeer(async (peer) => {
+				serveTransferEvidence(peer, DOMAIN, facilities);
+				return answer(client, "set_lookup_table_management", {
+					...args,
+					review_digest: preview.review_digest,
+				});
 			}),
 		).toEqual({
 			project_id: PROJECT,
@@ -356,9 +360,12 @@ it("changes nothing over a preview another app's reading has moved, and answers 
 		expect(await managedBy(copy)).toBe("commcare-hq");
 		/* The answer's own digest is the one the change is then made under. */
 		expect(
-			await answer(client, "set_lookup_table_management", {
-				...args,
-				review_digest: moved.review_digest,
+			await withHttpPeer(async (peer) => {
+				serveTransferEvidence(peer, DOMAIN, facilities);
+				return answer(client, "set_lookup_table_management", {
+					...args,
+					review_digest: moved.review_digest,
+				});
 			}),
 		).toMatchObject({ ok: true, managed_by: "nova" });
 	});

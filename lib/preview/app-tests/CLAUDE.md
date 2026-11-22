@@ -10,8 +10,7 @@ External reads finish before the test transaction opens. Admission then locks
 the source app and rechecks real-actor membership and the exact app revision.
 `lib/db/appTests.ts` serializes actions, fences expected steps and runtime
 versions, and commits state, observations and idempotency receipts together.
-Only the creating actor can continue a test; current app members can read its
-observations. Simulated worker identity never grants Project authority.
+Only the creating actor can continue a test. Current app members can read a journey over shared data. A private journey binds each observed worker to its creator, Project, source and the rows or worker groups that identity received. Start receipts, continuation receipts and observation windows check current authority and all captured worker footprints again. A successful identity change adds its own scoped snapshot to the journey. The shared SQL namespace contains only global rows. Case lists, operations, Search and form choices receive the active worker’s projection. Simulated worker identity never grants Project authority.
 
 A journey may retain one to four worker sessions in the same isolated namespace.
 `startAppTest.sessions` supplies unique bounded test-local IDs and optional saved

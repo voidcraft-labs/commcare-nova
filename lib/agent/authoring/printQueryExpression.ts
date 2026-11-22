@@ -14,6 +14,7 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { caseReferenceText } from "@/lib/domain/hashtagSegments";
+import type { LookupRead } from "@/lib/domain/lookupRead";
 import type { Uuid } from "@/lib/domain/uuid";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
 
@@ -26,6 +27,7 @@ export interface QueryPrintContext {
 		field: Uuid,
 		options: readonly Uuid[],
 	): readonly string[] | undefined;
+	memberName?(table: string, column: string | undefined, id: string): string;
 	name(
 		kind: "table" | "column" | "operation" | "location" | "level" | "module",
 		id: string,
@@ -91,6 +93,27 @@ export function queryPrinter(context: QueryPrintContext) {
 		id: string,
 		owner?: string,
 	) => quote(context.name(kind, id, owner));
+	function selector(table: string, read: LookupRead): string {
+		const member = (column: string | undefined, id: string) =>
+			quote(context.memberName?.(table, column, id) ?? id);
+		if (typeof read === "string") return identity("column", read, table);
+		if ("attributeId" in read)
+			return call("row-detail", member(undefined, read.attributeId));
+		let base = identity("column", read.columnId, table);
+		if(read.positionBeforeFilter && read.occurrence !== undefined) base=call("value-at",base,String(read.occurrence));
+		if (read.where)
+			base = call(
+				"value-with",
+				base,
+				member(read.columnId, read.where.propertyId),
+				quote(read.where.equals),
+			);
+		if (!read.positionBeforeFilter && read.occurrence !== undefined)
+			base = call("value-at", base, String(read.occurrence));
+		if (read.propertyId)
+			base = call("value-detail", base, member(read.columnId, read.propertyId));
+		return base;
+	}
 	function term(value: Term): string {
 		const reference = context.reference(value);
 		if (reference !== undefined) return reference;
@@ -136,7 +159,7 @@ export function queryPrinter(context: QueryPrintContext) {
 				return call(
 					"table-column",
 					identity("table", value.tableId),
-					identity("column", value.columnId, value.tableId),
+					selector(value.tableId, value.columnId),
 				);
 			case "fixed-location":
 				return call("location", identity("location", value.locationUuid));
@@ -176,7 +199,7 @@ export function queryPrinter(context: QueryPrintContext) {
 				return call(
 					"lookup",
 					identity("table", value.tableId),
-					identity("column", value.resultColumnId, value.tableId),
+					selector(value.tableId, value.resultColumnId),
 					queryPrinter(context.forTable(value.tableId)).predicate(value.where),
 				);
 			case "date-add":

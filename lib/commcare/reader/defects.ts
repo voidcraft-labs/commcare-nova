@@ -102,7 +102,6 @@ const PARSE_ISSUE_CODES = Object.keys({
 	variable: true,
 	"instance-unknown": true,
 	"instance-argument": true,
-	"groups-held": true,
 	"form-root": true,
 	"unknown-field": true,
 	"ambiguous-field": true,

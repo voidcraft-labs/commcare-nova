@@ -894,6 +894,9 @@ async function assertMoveLookupClosureEmpty(
 			"This app uses lookup tables and cannot move Projects yet. Remove those references or keep the app in its current Project.",
 		);
 	}
+ const assignments=await sql`SELECT 1 FROM worker_group_members WHERE app_id=${appId} UNION ALL SELECT 1 FROM lookup_row_assignments WHERE app_id=${appId} LIMIT 1`.execute(tx);
+ if(assignments.rows.length)throw new BlueprintCommitRejectedError("Workers or places in this app have Project data assignments. You can remove those memberships and row assignments before moving the app.");
+
 }
 
 /**

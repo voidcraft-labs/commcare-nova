@@ -28,6 +28,7 @@ import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
 import type { SelectOptionsSource } from "@/lib/domain/fields/selectOptionsSource";
 import { CASE_LOADING_FORM_TYPES, operationCaseType } from "@/lib/domain/forms";
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { afterEmptySearchRegistrationFormOf } from "@/lib/domain/menuForms";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -1700,7 +1701,7 @@ export function lookupTypes(env: ExpressionReadEnv): LookupTypeIndex {
 		types = new Map(
 			[...env.lookup.values()].map((table) => [
 				table.id,
-				new Map(table.columns.map((column) => [column.id, column.dataType])),
+				lookupReadTypes(table),
 			]),
 		);
 		typeIndexes.set(env.lookup, types);

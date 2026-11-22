@@ -18,11 +18,11 @@ import {
 } from "@/lib/publish/managedData";
 import {
 	fixedLocationOwnerIssue,
-	ownerVerdictRows,
 	reverseHopDestinationLevelUuids,
-	reverseLocationOwnerIssue,
-	reverseLocationOwnerRefusal,
+	reverseVerdictMessage,
+	
 } from "./ownerTargetVerdicts";
+import { storedOwnerPaths,storedReverseOwnerVerdict } from "./storedOwnerVerdict";
 import { locationValueCatalogIssue } from "./valueCatalog";
 import { advanceOrganizationRevision } from "./writerTransaction";
 
@@ -534,39 +534,12 @@ export async function assertReverseHopTargetsUnambiguous(
 		args.candidateDoc,
 	);
 	if (destinationLevelUuids.length === 0) return;
-	const rows = await tx
-		.selectFrom("app_locations")
-		.selectAll()
-		.where("app_id", "=", args.appId)
-		.execute();
-	const verdictRows = ownerVerdictRows(rows);
-	const managingDomain = managingDomainReader(tx, args.appId);
-
-	for (const destinationLevelUuid of destinationLevelUuids) {
-		const issue = reverseLocationOwnerIssue(
-			args.candidateDoc,
-			verdictRows,
-			destinationLevelUuid,
-		);
-		if (issue === undefined) continue;
-		const domain = await managingDomain();
-		throw new BlueprintCommitRejectedError(
-			domain === null
-				? issue
-				: (reverseLocationOwnerRefusal(
-						args.candidateDoc,
-						verdictRows,
-						destinationLevelUuid,
-						{
-							domain,
-							goneIds: new Set(
-								rows
-									.filter((row) => row.hq_gone_at !== null)
-									.map((row) => row.id),
-							),
-						},
-					) ?? issue),
-		);
+	const managingDomain = managingDomainReader(tx,args.appId);
+	for (const level of destinationLevelUuids) {
+		const result=await storedReverseOwnerVerdict(tx,args.appId,args.candidateDoc,level);
+		if (!result) continue;
+		const domain=await managingDomain();
+		throw new BlueprintCommitRejectedError(reverseVerdictMessage(result.verdict,domain ? {domain,goneIds:result.gone} : undefined));
 	}
 }
 
@@ -585,13 +558,7 @@ export async function assertLocationOwnerTargetsValid(
 ): Promise<void> {
 	const targets = fixedOwnerTargets(args.candidateDoc);
 	if (targets.length === 0) return;
-	const rows = await tx
-		.selectFrom("app_locations")
-		.selectAll()
-		.where("app_id", "=", args.appId)
-		.forKeyShare()
-		.execute();
-	const verdictRows = ownerVerdictRows(rows);
+	const verdictRows=await storedOwnerPaths(tx,args.appId,args.candidateDoc,targets);
 	for (const targetId of targets) {
 		const issue = fixedLocationOwnerIssue(
 			args.candidateDoc,

@@ -1,3 +1,4 @@
+import {mediaUploadStream} from "./hq/uploadStream";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -1057,27 +1058,20 @@ export async function uploadAppMediaBundle(
 	creds: CommCareCredentials,
 	domain: string,
 	appId: string,
-	zipBytes: Buffer,
+	zipBytes: Buffer | AsyncIterable<Uint8Array>,
 	options: {
 		/**
 		 * Called once with the job id HQ named, the moment it accepted the
 		 * ZIP and before any status read: whatever the reads answer after it,
 		 * the job may run, and the caller holds the id it is polled by.
 		 */
-		readonly onAccepted?: (processingId: string) => void;
+		readonly onAccepted?: (processingId: string) => void | Promise<void>;
 	} = {},
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
 	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
-	const formData = new FormData();
-	formData.append("waf_padding", WAF_PADDING);
-	formData.append(
-		"bulk_upload_file",
-		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
-		"multimedia.zip",
-	);
 	const controller = new AbortController();
 	const timer = setTimeout(
 		() => controller.abort(),
@@ -1087,7 +1081,7 @@ export async function uploadAppMediaBundle(
 	try {
 		const response = await sendHq(creds, `${base}/`, {
 			method: "POST",
-			body: formData,
+			...mediaUploadStream(Buffer.isBuffer(zipBytes) ? (async function*(){yield zipBytes;})() : zipBytes,controller.signal),
 			signal: controller.signal,
 		});
 		if (!response.ok)
@@ -1108,6 +1102,7 @@ export async function uploadAppMediaBundle(
 		return { success: false, status: 503 };
 	} finally {
 		clearTimeout(timer);
+		controller.abort();
 	}
 	if (!isHqObject(started)) return { success: false, status: 502 };
 	if (started.success === false) return { success: false, status: 422 };
@@ -1117,7 +1112,7 @@ export async function uploadAppMediaBundle(
 		!/^[\w-]+$/.test(started.processing_id)
 	)
 		return { success: false, status: 502 };
-	options.onAccepted?.(started.processing_id);
+	await options.onAccepted?.(started.processing_id);
 	return pollMediaBundleStatus(
 		creds,
 		domain,
@@ -1236,6 +1231,14 @@ async function pollMediaBundleStatus(
 					unmatchedFiles.push({ path: file.path, reason: file.reason });
 				}
 				if (status.complete) {
+					if(status.skipped_files!==undefined){
+						if(!Array.isArray(status.skipped_files))return {success:false,status:502};
+						for(const skipped of status.skipped_files){
+							if(!isHqObject(skipped)||typeof skipped.path!=="string"||!skipped.path)
+								return {success:false,status:502};
+							unmatchedFiles.push({path:skipped.path,reason:"CommCare HQ skipped this file."});
+						}
+					}
 					const matchedFiles = matchedMediaFiles(status.matched_files);
 					if (matchedFiles === null)
 						log.warn("[commcare] media bundle report names no matched ids", {

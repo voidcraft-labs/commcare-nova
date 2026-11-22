@@ -44,6 +44,7 @@ export const NOVA_API_KEY_SCOPES = [
 	"nova.hq.import",
 	"nova.projects.read",
 	"nova.projects.write",
+	"nova.projects.data.export",
 ] as const;
 
 export type NovaApiKeyScope = (typeof NOVA_API_KEY_SCOPES)[number];
@@ -84,6 +85,7 @@ export const NOVA_MCP_SCOPE_LABELS: Record<NovaApiKeyScope, string> = {
 	"nova.hq.import": "HQ Import",
 	"nova.projects.read": "Projects Read",
 	"nova.projects.write": "Projects Write",
+	"nova.projects.data.export": "Download private Project data",
 };
 
 /**

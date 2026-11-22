@@ -1,3 +1,10 @@
+import {
+	bytesMember,
+	streamZip,
+	textMember,
+	type StreamMember,
+} from "../streamZip";
+import { mediaMember, mediaMembers } from "./streamMedia";
 // lib/commcare/multimedia/hqJsonExportArchive.ts
 //
 // Assembles the HQ import file: always a ZIP. CommCare HQ has no single
@@ -233,6 +240,10 @@ export function hqImportFileGuide(input: {
 	readonly doc: BlueprintDoc;
 	readonly assets: AssetManifest;
 	readonly lookupWorkbook: LookupWorkbook | undefined;
+	readonly extraWorkbooks?: readonly {
+		path: string;
+		tables: readonly { tableId: string; tag: string }[];
+	}[];
 	/** The workbooks of the tables CommCare HQ manages, one per project space that manages some. */
 	readonly managedLookupWorkbooks: readonly HqImportFileManagedWorkbook[];
 	/** The tables those workbooks carry, in the definitions' order. */
@@ -246,6 +257,22 @@ export function hqImportFileGuide(input: {
 	return manualImportGuide({
 		appFileName: appFileName(input.appName),
 		lookupTags: input.lookupWorkbook?.tables.map((table) => table.tag) ?? [],
+		additionalLookupFiles: input.extraWorkbooks?.map((file) => ({
+			path: file.path,
+			tags: file.tables.map((table) => table.tag),
+		})),
+		needsDataBinding: input.lookupNaming?.tables.some(
+			(table) =>
+				!input.lookupWorkbook?.tables.some(
+					(sent) => sent.tableId === table.tableId,
+				) &&
+				!input.managedLookupWorkbooks.some((group) =>
+					group.workbook.tables.some((sent) => sent.tableId === table.tableId),
+				) &&
+				!input.extraWorkbooks?.some((file) =>
+					file.tables.some((t) => t.tableId === table.tableId),
+				),
+		),
 		/* The guide is made on the server for whoever opens the ZIP, so it has
 		 * no reader's locale: the day is the UTC day, spelled as every drift
 		 * sentence's default spells one. */
@@ -309,6 +336,37 @@ export function hqImportFileGuide(input: {
  * `buildMediaBulkUploadZip` throws. The workbooks arrive already built, from
  * the same validated lookup generation the export boundary measured.
  */
+export function streamHqJsonExportArchive(
+	appName: string,
+	doc: BlueprintDoc,
+	hqJson: HqApplication,
+	assets: AssetManifest,
+	lookupWorkbook: LookupWorkbook | undefined,
+	managedLookupWorkbooks: readonly HqImportFileManagedWorkbook[],
+	readme: string,
+	additional: readonly StreamMember[] = [],
+) {
+	const members: StreamMember[] = [
+		textMember(appFileName(appName) + ".json", JSON.stringify(hqJson, null, 2)),
+	];
+	const bulk = bulkUploadAssets(doc, assets);
+	if (bulk.size > 0)
+		members.push({
+			path: MANUAL_IMPORT_MEDIA_ZIP,
+			open: () => streamZip(mediaMembers(bulk)),
+		});
+	const logo = doc.logo === undefined ? undefined : assets.get(doc.logo);
+	if (logo) members.push(mediaMember(logo, "logo" + logo.extension));
+	if (lookupWorkbook)
+		members.push(
+			bytesMember(MANUAL_IMPORT_LOOKUP_WORKBOOK, lookupWorkbook.bytes),
+		);
+	for (const item of managedWorkbookMembers(managedLookupWorkbooks))
+		members.push(bytesMember(item.fileName, item.bytes));
+	members.push(...additional, textMember("README.txt", readme));
+	return streamZip(members);
+}
+
 export function buildHqJsonExportArchive(
 	appName: string,
 	doc: BlueprintDoc,

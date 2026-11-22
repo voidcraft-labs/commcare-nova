@@ -642,6 +642,12 @@ What to do next depends on where it stopped, and Nova says which:
   CommCare HQ, then choose **Check status**; there is no need to publish
   again.
 
+### When a publish asks for place IDs
+
+CommCare HQ imports external IDs through its organization workbook. If a place needs its ID set on a destination, **Download place ID workbook** prepares a private file for that project space. Open **Organization** in the named space and import each workbook in the download. Check the affected places, confirm the import, then publish again. Nova reads the saved IDs there before it sends the app. A different destination has its own place IDs and its own file.
+
+If a workbook would change another value in that space, the publish names the place and field. Set the exact ID on that place in CommCare HQ, then publish again. When the ID and destination data already match, Nova carries on immediately.
+
 ## Updates to review
 
 When Nova changes how it stores, checks or writes apps, where they run, or where

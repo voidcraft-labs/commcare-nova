@@ -1,6 +1,6 @@
 /**
  * SA tool: `updateApp` — set the app's display name and its app settings:
- * whether workers see their saved forms and their incomplete forms, and
+ * whether groups automatically own new cases, whether workers see their saved forms and their incomplete forms, and
  * whether it runs only in Web Apps or only on Android (`runs_only_on`).
  *
  * A change that adds a platform is checked before it stages, content first
@@ -59,6 +59,7 @@ export const updateAppInputSchema = z
 			.describe(
 				"App display name (the title users see on devices). Leave it out to keep the current name.",
 			),
+		case_sharing:z.boolean().optional().describe("Automatically give a new case to the worker’s one case-sharing group where its form uses the default owner."),
 		show_saved_forms: z
 			.boolean()
 			.optional()
@@ -94,6 +95,7 @@ function changedSettings(
 	current: AppSettings,
 ): AppSettingsPatch {
 	const settings: AppSettingsPatch = {};
+	if(input.case_sharing!==undefined && input.case_sharing!==(current.caseSharing??false)) settings.caseSharing=input.case_sharing;
 	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms
@@ -158,7 +160,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
+		"Set the app's display name, whether groups automatically own new cases, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(

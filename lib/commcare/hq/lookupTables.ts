@@ -1,3 +1,4 @@
+import { multipartFileStream } from "./uploadStream";
 import { recordFromEntries } from "@/lib/domain/records";
 import { withHqRequestDeadline } from "./deadline";
 import "server-only";
@@ -51,7 +52,6 @@ import {
 	logAndReturnError,
 	readAnswerJson,
 	sendHq,
-	WAF_PADDING,
 	writeMayHaveLanded,
 } from "./http";
 import {
@@ -83,6 +83,9 @@ export interface HqLookupTable {
  * properties (`LookupTableItemResource.dehydrate_fields`).
  */
 export interface HqFixtureRow {
+	/** Present only when verified by the selected row’s detail. */
+	readonly sortKey?: number;
+	readonly itemAttributes?: Readonly<Record<string, string>>;
 	readonly id: string;
 	readonly fields: Readonly<
 		Record<
@@ -128,7 +131,7 @@ function stringList(value: unknown): readonly string[] | null {
  * since reading any of them as a plain table would let a publish push over
  * what HQ holds and a bring-in read a table as simpler than it is.
  */
-function toHqLookupTable(raw: unknown): HqLookupTable | null {
+export function toHqLookupTable(raw: unknown): HqLookupTable | null {
 	if (
 		!isHqObject(raw) ||
 		typeof raw.id !== "string" ||
@@ -227,7 +230,7 @@ const MAX_FIXTURE_ROW_PAGES = 1_000;
 /** How many tables' rows a publish reads from CommCare HQ at once. */
 export const LOOKUP_ROWS_READ_CONCURRENCY = 4;
 
-function toFixtureRowFields(
+export function toFixtureRowFields(
 	raw: Record<string, unknown>,
 ): HqFixtureRow["fields"] | null {
 	const fields: [string, HqFixtureRow["fields"][string]][] = [];
@@ -270,7 +273,7 @@ export interface HqLookupRows {
 }
 
 /** One row of one table, or null where it is not a row of that table as `FixtureResource` serves it. */
-function toHqFixtureRow(raw: unknown, tag: string): HqFixtureRow | null {
+export function toHqFixtureRow(raw: unknown, tag: string): HqFixtureRow | null {
 	if (
 		!isHqObject(raw) ||
 		typeof raw.id !== "string" ||
@@ -461,7 +464,7 @@ export const FIXTURE_UPLOAD_UPGRADE_REQUIRED_STATUS = 426;
 export async function uploadLookupTableWorkbook(
 	creds: CommCareCredentials,
 	domain: string,
-	workbook: Uint8Array,
+	workbook: Uint8Array | AsyncIterable<Uint8Array>,
 	options: { readonly replace: boolean },
 ): Promise<FixtureUploadResult | FixtureUploadRefusal> {
 	if (!isValidDomainSlug(domain))
@@ -472,20 +475,6 @@ export async function uploadLookupTableWorkbook(
 			upgradeRequired: false,
 		};
 
-	const form = new FormData();
-	/* First, so the workbook's own bytes start past the WAF's body
-	 * inspection window. An `.xlsx` is a ZIP of XML parts, which is the
-	 * same shape that already tripped the rule on the media bundle. */
-	form.append("waf_padding", WAF_PADDING);
-	form.append(
-		"file-to-upload",
-		new Blob([new Uint8Array(workbook)], {
-			type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		}),
-		"lookup-tables.xlsx",
-	);
-	form.append("replace", options.replace ? "true" : "false");
-
 	return withHqRequestDeadline(async (signal) => {
 		let res: HqAnswer;
 		try {
@@ -494,7 +483,15 @@ export async function uploadLookupTableWorkbook(
 				`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`,
 				{
 					method: "POST",
-					body: form,
+					...multipartFileStream(
+						workbook instanceof Uint8Array
+							? (async function* () {
+									yield workbook;
+								})()
+							: workbook,
+						signal,
+						options.replace ? "replace" : "append",
+					),
 					signal,
 				},
 			);

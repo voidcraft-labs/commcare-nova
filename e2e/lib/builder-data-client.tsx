@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CaseDataManager } from "@/components/builder/CaseDataManager";
+import { SourceInventoryDialog } from "@/components/builder/project-data/SourceInventoryDialog";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { evaluateCommit } from "@/lib/commcare/validator/gate";
@@ -8,6 +9,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { blueprintDocSchema } from "@/lib/domain";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import {
@@ -88,23 +90,54 @@ function Surface() {
 		</main>
 	);
 }
+function SourceInventory() {
+	const [open, setOpen] = useState(true);
+	const date = "2026-10-05T00:00:00.000Z";
+	return open ? (
+		<SourceInventoryDialog
+			table={{
+				id: lookupTableIdSchema.parse("01890f45-0000-7000-8000-000000000001"),
+				projectId: "native-project",
+				name: "Clinic names",
+				columns: [],
+				hq: {
+					server: "india",
+					domain: "network",
+					managedBy: "commcare-hq",
+					remoteId: "clinic-names",
+					broughtInAt: date,
+					refreshedAt: date,
+					takenOverAt: null,
+					takenOverBy: null,
+					goneColumnIds: [],
+				},
+			}}
+			refreshing={false}
+			onClose={() => setOpen(false)}
+		/>
+	) : null;
+}
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing component root");
 createRoot(root).render(
-	<BuilderSessionProvider
-		init={{
-			appId,
-			projectId: "native-project",
-			role: canEdit ? "editor" : "viewer",
-			canEdit,
-		}}
-	>
-		<BlueprintDocProvider
-			appId={appId}
-			initialDoc={persisted}
-			canEdit={canEdit}
+	scenario === "source-inventory" ? (
+		<SourceInventory />
+	) : (
+		<BuilderSessionProvider
+			init={{
+				appId,
+				projectId: "native-project",
+				role: canEdit ? "editor" : "viewer",
+				canEdit,
+			}}
 		>
-			<Surface />
-		</BlueprintDocProvider>
-	</BuilderSessionProvider>,
+			<BlueprintDocProvider
+				appId={appId}
+				initialDoc={persisted}
+				canEdit={canEdit}
+			>
+				<Surface />
+			</BlueprintDocProvider>
+		</BuilderSessionProvider>
+	),
 );

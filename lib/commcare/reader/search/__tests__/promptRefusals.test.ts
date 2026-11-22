@@ -297,19 +297,19 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a field whose choice labels read an attribute",
+		title: "a field whose choice label is not a row selector",
 		edit: (body) => {
 			const prompt = first(body);
 			prompt.input_ = "select1";
 			prompt.itemset = itemset(
 				"item-list:t",
 				"instance('item-list:t')/t_list/t",
-				"@name",
+				"name + @name",
 			);
 		},
 		findings: [
 			[
-				`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
+				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 				"search",
 				"case_name",
 			],

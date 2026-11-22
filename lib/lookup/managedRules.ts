@@ -20,7 +20,9 @@ import {
 	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
 import { formatLookupBytes, formatLookupBytesOverCap } from "./format";
+import type { NamedLookupRowContent } from "./rowContent";
 import { utf8ByteLength } from "./schema";
+import { lookupSourceFactsSchema } from "./source";
 import type { LookupHqOrigin, LookupManifestHqOrigin } from "./types";
 
 /** What Postgres measured of a table's candidate rows. */
@@ -31,6 +33,21 @@ export interface LookupRowsMeasure {
 
 /** CommCare HQ's columns and rows of one table, as a copy takes them. */
 export interface ManagedLookupContent {
+	readonly attributes?: readonly string[];
+	readonly fieldDetails?: Readonly<
+		Record<
+			string,
+			{
+				readonly repeated: boolean;
+				readonly properties: readonly string[];
+				readonly index: "off" | "indexed" | "unobserved";
+			}
+		>
+	>;
+	readonly rowDetails?: readonly (NamedLookupRowContent & {
+		readonly remoteId: string;
+		readonly sortKey?: number;
+	})[];
 	/** CommCare HQ's field names in its order; each passes `lookupWireNameSchema`. */
 	readonly fields: readonly string[];
 	/** Rows in CommCare HQ's order: field name to the cell's string. */
@@ -39,6 +56,7 @@ export interface ManagedLookupContent {
 
 /** What lib/lookup reads of the stored state. */
 export const managedCanonicalSchema = z.looseObject({
+	source: lookupSourceFactsSchema.optional(),
 	digest: z.string().regex(/^[0-9a-f]{64}$/),
 	fields: z.array(z.looseObject({ name: z.string() })),
 });
@@ -109,11 +127,10 @@ export function managedLookupCapRefusal(
 /**
  * A column's label for a field of CommCare HQ's: the name's first 120
  * characters. The wire name carries the whole name; a label longer than 120
- * would fail `lookup_columns`' label check. A field name is ASCII, so a
- * character is a code unit.
+ * would fail `lookup_columns`' label check. Labels follow the database character count, including supplementary Unicode characters.
  */
 export function columnLabelFor(name: string): string {
-	return name.slice(0, LOOKUP_MAX_COLUMN_LABEL_LENGTH);
+	return Array.from(name).slice(0, LOOKUP_MAX_COLUMN_LABEL_LENGTH).join("");
 }
 
 /** The origin columns of a stored table, as every reader selects them. */
@@ -152,7 +169,9 @@ export function lookupManifestHqOriginOf(
 	) {
 		partOfAnOrigin();
 	}
+	const { source } = managedCanonicalSchema.parse(table.hq_canonical);
 	return {
+		...(source === undefined ? {} : { source }),
 		server: table.hq_server,
 		domain: table.hq_domain,
 		remoteId: table.hq_remote_id,

@@ -185,9 +185,9 @@ import {
 	SEARCH_STANDING_SEED,
 } from "./searchStandingSeed";
 import { buildSessionStorageState } from "./session";
-
 import { SMOKE_TEXT } from "./smokeText";
 import { buildSortByBlueprint, SORT_BY_SEED, sortByRoute } from "./sortBySeed";
+import { seedSourceInventory } from "./sourceInventorySeed";
 
 /** One context per seed process, one actor/Project universe per scenario. */
 /** One form taking part in Connect Learn, in an app that runs on Android
@@ -879,6 +879,13 @@ export async function createSmokeBuilders(
 		return { openAppId };
 	}
 	const builders = {
+		"source-inventory": async () => ({
+			sourceInventory: await seedSourceInventory(
+				seedProjectId,
+				SEED.userId,
+				token,
+			),
+		}),
 		auth: async () => {
 			return {};
 		},

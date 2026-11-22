@@ -31,7 +31,12 @@ import type {
 import { xmlTextIssue } from "@/lib/commcare/xmlText";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type {
+	LookupColumnId,
+	LookupMemberId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import {
 	LOOKUP_MAX_COLUMNS,
@@ -50,10 +55,12 @@ import {
 	type ManagedLookupContent,
 } from "@/lib/lookup/managedRules";
 import { lookupTagSchema, lookupWireNameSchema } from "@/lib/lookup/schema";
+import { requiresLookupProjection } from "@/lib/lookup/source";
 import type {
 	LookupColumn,
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
+	LookupMember,
 	LookupReferencingAppSummary,
 	LookupRevision,
 	LookupRowId,
@@ -64,12 +71,15 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
-import { unsupportedLookupContent } from "../../lookupResourcePlan";
 import type { SiblingLookupMapping } from "../../store";
 import type { CanonicalLookupTable } from "../../types";
 import { manifestFinding } from "./findings";
 import type { ReaderProjectDataReads, ReadingProjectData } from "./index";
-import { broughtInLookupColumnId, broughtInLookupTableId } from "./lookupIds";
+import {
+	broughtInLookupColumnId,
+	broughtInLookupMemberId,
+	broughtInLookupTableId,
+} from "./lookupIds";
 import {
 	LOOKUP_TABLE_CHOICES,
 	type LookupChoiceOffer,
@@ -170,38 +180,105 @@ function hqCell(row: HqFixtureRow, field: string): string | null {
 	return value.length === 1 && only !== undefined ? only.value : null;
 }
 
-/** Whether some row holds a field with other than one value, which Nova's
- *  table model cannot hold. */
-function holdsOtherThanOneValue(rows: readonly HqFixtureRow[]): boolean {
-	return rows.some((row) =>
-		Object.values(row.fields).some(
-			(value) => typeof value !== "string" && value.length !== 1,
-		),
+/** Keep absent fields, zero occurrences, one empty occurrence and repeated values
+ * distinct. HQ's scalar list omits singleton properties, so the selected detail
+ * owns those cells. The table API supplies no index observations. */
+export function lookupFieldShapeObserver(table: HqLookupTable) {
+	let count = 0;
+	const presence = new Map(
+		table.fields.map((field) => [field, 0] as [string, number]),
 	);
+	const repeated = new Set<string>();
+	return {
+		observe(row: HqFixtureRow) {
+			count++;
+			for (const [field, value] of Object.entries(row.fields)) {
+				const seen = presence.get(field);
+				if (seen === undefined) continue;
+				presence.set(field, seen + 1);
+				if (
+					typeof value !== "string" &&
+					(value.length !== 1 ||
+						value.some((item) => Object.keys(item.properties).length))
+				)
+					repeated.add(field);
+			}
+		},
+		finish() {
+			return recordFromEntries(
+				table.fields.map((field) => {
+					const properties = ownRecordValue(table.fieldProperties, field) ?? [];
+					return [
+						field,
+						{
+							properties,
+							repeated:
+								!!properties.length ||
+								repeated.has(field) ||
+								(presence.get(field) ?? 0) < count,
+							index: "unobserved" as const,
+						},
+					] as const;
+				}),
+			);
+		},
+	};
 }
 
-/**
- * CommCare HQ's columns and rows as a copy takes them: the definition's fields
- * in its order, and each row's one value of each field it holds. A cell of a
- * field the definition does not name is not read, since no device receives
- * it; a field holding several values is left out of its row (a table holding
- * one is a finding and is never written).
- */
+export function lookupSourceFieldDetails(
+	table: HqLookupTable,
+	rows: readonly HqFixtureRow[],
+) {
+	const observer = lookupFieldShapeObserver(table);
+	for (const row of rows) observer.observe(row);
+	return observer.finish();
+}
+
 export function managedLookupContentOf(
 	table: HqLookupTable,
 	rows: readonly HqFixtureRow[],
 ): ManagedLookupContent {
+	const fieldDetails = lookupSourceFieldDetails(table, rows);
 	return {
 		fields: table.fields,
+		attributes: table.itemAttributes,
+		fieldDetails,
 		rows: rows.map((row) =>
 			recordFromEntries(
 				table.fields.flatMap((field) => {
-					if (!Object.hasOwn(row.fields, field)) return [];
-					const value = hqCell(row, field);
-					return value === null ? [] : [[field, value]];
+					if (fieldDetails[field].repeated) return [];
+					const text = hqCell(row, field);
+					return text === null ? [] : [[field, text] as const];
 				}),
 			),
 		),
+		rowDetails: rows.map((row) => ({
+			remoteId: row.id,
+			...(row.sortKey === undefined ? {} : { sortKey: row.sortKey }),
+			attributes: recordFromEntries(
+				table.itemAttributes.flatMap((name) => {
+					const value = ownRecordValue(row.itemAttributes, name);
+					return value === undefined ? [] : [[name, value] as const];
+				}),
+			),
+			occurrences: recordFromEntries(
+				table.fields.flatMap((field) => {
+					const value = ownRecordValue(row.fields, field);
+					if (!fieldDetails[field].repeated || value === undefined) return [];
+					return [
+						[
+							field,
+							typeof value === "string"
+								? [{ text: value, properties: {} }]
+								: value.map((item) => ({
+										text: item.value,
+										properties: item.properties,
+									})),
+						] as const,
+					];
+				}),
+			),
+		})),
 	};
 }
 
@@ -211,12 +288,6 @@ export function managedLookupContentOf(
 
 const CAPS_ENTRY =
 	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
-const FIELD_PROPERTIES_ENTRY =
-	"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name";
-const ROW_ATTRIBUTES_ENTRY =
-	"expressions-and-data/item-attributes-and-per-row-attribute-values";
-const NOT_GLOBAL_ENTRY =
-	"expressions-and-data/is-global-false-row-owners-user-group-location";
 const TAG_TYPES_ENTRY = "expressions-and-data/tag-types";
 const RESERVED_WORD_ENTRY =
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb";
@@ -313,38 +384,20 @@ export function lookupTableFindings(
 	const place: HqPlace = { kind: "lookup-table", tag };
 	const findings: Finding[] = [];
 
-	const holds = unsupportedLookupContent(table);
-	if (holds.includes("field-properties")) {
-		findings.push(
-			manifestFinding(
-				FIELD_PROPERTIES_ENTRY,
-				place,
-				`${tag}: field properties`,
-			),
-		);
-	}
-	if (read.kind === "read" && holdsOtherThanOneValue(read.rows)) {
-		findings.push(
-			manifestFinding(
-				FIELD_PROPERTIES_ENTRY,
-				place,
-				`${tag}: a field with more than one value`,
-			),
-		);
-	}
-	if (holds.includes("row-attributes")) {
-		findings.push(
-			manifestFinding(ROW_ATTRIBUTES_ENTRY, place, `${tag}: row attributes`),
-		);
-	}
-	if (holds.includes("not-global")) {
-		findings.push(
-			manifestFinding(
-				NOT_GLOBAL_ENTRY,
-				place,
-				`${tag}: rows limited to certain users`,
-			),
-		);
+	if (read.kind === "read") {
+		for (const row of read.rows) {
+			const missing = table.itemAttributes.find(
+				(name) => ownRecordValue(row.itemAttributes, name) === undefined,
+			);
+			if (missing !== undefined) {
+				findings.push(
+					circumstanceFinding("unrecognized", place, {
+						name: `${tag} (the missing row attribute ${missing})`,
+					}),
+				);
+				break;
+			}
+		}
 	}
 
 	if (read.kind === "over-row-limit") {
@@ -363,7 +416,10 @@ export function lookupTableFindings(
 				`${tag}: more data than Nova reads for one table`,
 			),
 		);
-	} else if (read.kind === "read") {
+	} else if (
+		read.kind === "read" &&
+		read.canonical.source?.inventory !== "unavailable"
+	) {
 		const phrases = lookupCapExcess(
 			managedLookupContentOf(table, read.rows),
 			measured ?? { dataBytes: 0, largestRowBytes: 0 },
@@ -460,8 +516,23 @@ export interface LookupTableBinding {
 	readonly tableId: LookupTableId;
 	/** Field name to the column that holds it. */
 	readonly columns: Readonly<Record<string, LookupColumnId>>;
+	readonly memberIds?: {
+		readonly attributes: Readonly<Record<string, LookupMemberId>>;
+		readonly properties: Readonly<
+			Record<string, Readonly<Record<string, LookupMemberId>>>
+		>;
+	};
 }
 
+/** Qualified names exist only in the source-reading comparison and review.
+ * Each component comes from its owned binding and never needs XPath parsing. */
+export function lookupBindingNames(binding: LookupTableBinding): Map<string,string> {
+	const names = new Map<string,string>(Object.entries(binding.columns));
+	for (const [name,id] of Object.entries(binding.memberIds?.attributes ?? {})) names.set(`@${name}`,id);
+	for(const [column, members] of Object.entries(binding.memberIds?.properties ?? {}))
+		for(const [name,id] of Object.entries(members)) names.set(`${column}/@${name}`,id);
+	return names;
+}
 /**
  * The catalog the reader binds against: one entry per binding, and nothing
  * else. `definitions` holds, for each binding's table, a column per field in
@@ -476,6 +547,7 @@ export function readerLookupCatalog(
 		readonly name: string;
 		/** CommCare HQ's field names in its order. */
 		readonly fields: readonly string[];
+		readonly repeatedFields?: ReadonlySet<string>;
 		/** The Project table the tag is bound to as it stands (`same-equal`, or the answer
 		 *  `use-project`); absent for any other binding. */
 		readonly asItStands?: LookupTableDefinition;
@@ -483,7 +555,7 @@ export function readerLookupCatalog(
 ): ReaderLookupCatalog {
 	const byTag = new Map<string, LookupTableBinding>();
 	const definitions = new Map<LookupTableId, IndexedLookupDefinition>();
-	for (const { binding, name, fields, asItStands } of bound) {
+	for (const { binding, name, fields, repeatedFields, asItStands } of bound) {
 		if (byTag.has(binding.tag)) {
 			/* These name a table by its id, never its tag or a field's name: the message
 			 * reaches the route's failed line and Sentry (layer 7's small
@@ -503,19 +575,21 @@ export function readerLookupCatalog(
 				id: binding.tableId,
 				name: asItStands.name,
 				tag: asItStands.tag,
-				columns: asItStands.columns.map((column) => ({
-					id: column.id,
-					wireName: column.wireName,
-					label: column.label,
-					dataType: column.dataType,
-				})),
+				columns: asItStands.columns,
+				...(asItStands.attributes?.length
+					? { attributes: asItStands.attributes }
+					: {}),
 			});
 			continue;
 		}
+		const attributes = Object.entries(binding.memberIds?.attributes ?? {}).map(
+			([wireName, id]) => ({ id, wireName, label: columnLabelFor(wireName) }),
+		);
 		definitions.set(binding.tableId, {
 			id: binding.tableId,
 			name,
 			tag: binding.tag,
+			...(attributes.length ? { attributes } : {}),
 			columns: fields.map((field, index) => {
 				if (!Object.hasOwn(binding.columns, field)) {
 					throw new Error(
@@ -523,6 +597,17 @@ export function readerLookupCatalog(
 					);
 				}
 				return {
+					...(repeatedFields?.has(field) && { repeated: true as const }),
+					...(binding.memberIds?.properties[field] !== undefined && {
+						repeated: true as const,
+						properties: Object.entries(binding.memberIds.properties[field]).map(
+							([wireName, id]) => ({
+								id,
+								wireName,
+								label: columnLabelFor(wireName),
+							}),
+						),
+					}),
 					id: binding.columns[field],
 					wireName: field,
 					label: columnLabelFor(field),
@@ -537,6 +622,17 @@ export function readerLookupCatalog(
 			if (binding === undefined) return undefined;
 			return {
 				tableId: binding.tableId,
+				attribute(name) {
+					return definitions
+						.get(binding.tableId)
+						?.attributes?.find((member) => member.wireName === name)?.id;
+				},
+				property(columnId, name) {
+					return definitions
+						.get(binding.tableId)
+						?.columns.find((column) => column.id === columnId)
+						?.properties?.find((member) => member.wireName === name)?.id;
+				},
 				column(fieldName) {
 					return Object.hasOwn(binding.columns, fieldName)
 						? binding.columns[fieldName]
@@ -565,7 +661,7 @@ export type LookupTableStanding =
 	| {
 			readonly kind: "choice";
 			readonly table: LookupTableDefinition;
-			/** Empty exactly when the two are equal. */
+			/** Observed differences. A source-evidence refusal can leave the rows unknown. */
 			readonly differs: readonly ("columns" | "rows")[];
 			/** Who manages the Project's table today. */
 			readonly managed:
@@ -580,17 +676,26 @@ function projectCellText(column: LookupColumn, row: LookupFixtureRow): string {
 	return lookupFixtureCellText(column.dataType, row.values[column.id]);
 }
 
-/** The same field names in the same order as the columns' wire names, every column text. */
+/** An existing table can only stand in for a source when every row detail
+ * and field property has the same owning scope. REST does not report indexes. */
+function memberNames(members: readonly LookupMember[] | undefined) {
+	return members?.map(member => member.wireName) ?? [];
+}
+export function needsWorkerRows(table: LookupTableDefinition): boolean {
+	return table.workerAccess === "assigned" || requiresLookupProjection(table.hq);
+}
 function columnsEqual(
 	read: Extract<HqLookupTableRead, { kind: "read" }>,
 	table: LookupTableDefinition,
 ): boolean {
 	return (
+		canonicalJsonText(memberNames(table.attributes)) === canonicalJsonText(read.table.itemAttributes) &&
 		table.columns.length === read.table.fields.length &&
 		table.columns.every(
 			(column, index) =>
 				column.wireName === read.table.fields[index] &&
-				column.dataType === "text",
+				column.dataType === "text" &&
+				canonicalJsonText(memberNames(column.properties)) === canonicalJsonText(ownRecordValue(read.table.fieldProperties,column.wireName) ?? []),
 		)
 	);
 }
@@ -606,6 +711,31 @@ function rowsEqual(
 	rows: readonly LookupFixtureRow[],
 ): boolean {
 	if (rows.length !== read.rows.length) return false;
+	// The administrative API may flatten a singleton. Compare ordered values
+	// with their metadata only where HQ declared details, or either side has
+	// a real repeated list. The old scalar missing/empty equivalence stays
+	// available for ordinary native fields.
+	const rich = !!table.attributes?.length || read.table.itemAttributes.length > 0 ||
+		table.columns.some(c => c.repeated || c.properties?.length) ||
+		Object.values(read.table.fieldProperties).some(props => props.length) ||
+		read.rows.some(row => Object.values(row.fields).some(list => Array.isArray(list) && (list.length !== 1 || Object.keys(list[0].properties).length)));
+	if (rich) {
+		if (!columnsEqual(read,table)) return false;
+		const source = boundSourceFixture(read.table,read.rows,asItStandsBinding(table.tag,table));
+		return source.rows.every((row,index) => {
+			const project = rows[index];
+			if (canonicalJsonText(row.attributes ?? {}) !== canonicalJsonText(project.attributes ?? {})) return false;
+			return table.columns.every(col => {
+				const field = (record: LookupFixtureRow) => {
+					const occurrences = record.occurrences?.[col.id];
+					if (occurrences !== undefined) return occurrences;
+					if (!Object.hasOwn(record.values,col.id)) return undefined;
+					return [{text:projectCellText(col,record), properties:{}}];
+				};
+				return canonicalJsonText(field(row) ?? null) === canonicalJsonText(field(project) ?? null);
+			});
+		});
+	}
 	const byWireName = new Map(
 		table.columns.map((column) => [column.wireName, column]),
 	);
@@ -718,6 +848,7 @@ export function sameManagedColumnCapFinding(
 	standing: LookupTableStanding,
 	keptColumnIds: readonly string[],
 ): Finding | null {
+	if (read.canonical.source?.inventory === "unavailable") return null;
 	if (standing.kind !== "same-managed") return null;
 	const columns = columnsAfterHqFills(read, standing.table, keptColumnIds);
 	if (columns <= LOOKUP_MAX_COLUMNS) return null;
@@ -740,7 +871,7 @@ export function lookupTableStanding(input: {
 	/** The Project's table of that tag with its rows, or null. One snapshot read. */
 	readonly existing: {
 		readonly table: LookupTableDefinition;
-		readonly rows: readonly LookupFixtureRow[];
+		readonly rows: readonly LookupFixtureRow[] | undefined;
 	} | null;
 	readonly apps: readonly LookupReferencingAppSummary[];
 	/**
@@ -765,21 +896,28 @@ export function lookupTableStanding(input: {
 		hq !== undefined &&
 		hq.managedBy === "commcare-hq" &&
 		hq.server === origin.server &&
-		hq.domain === origin.domain
+		hq.domain === origin.domain &&
+		hq.remoteId === read.table.id
 	) {
 		return { kind: "same-managed", table };
 	}
 	const managedElsewhere =
 		hq !== undefined && hq.managedBy === "commcare-hq" ? hq : null;
+	const restricted =
+		read.canonical.source?.inventory === "unavailable" || !read.table.isGlobal;
+	const privateProject = needsWorkerRows(table);
+	if (rows === undefined && !privateProject)
+		throw new Error(`The Project's lookup table ${table.id} was read without its rows.`);
 	const sameColumns = columnsEqual(read, table);
-	const sameRows = rowsEqual(read, table, rows);
+	const comparable = !restricted && !privateProject && rows !== undefined;
+	const sameRows = comparable && rowsEqual(read, table, rows);
 	const accounted = input.siblings.some(
 		(sibling) =>
 			sibling.tableId === table.id &&
 			sibling.pushedIdentity === read.table.tag &&
 			sibling.remoteId === read.table.id,
 	);
-	const passesRules = passesProjectSpaceRules(table, rows);
+	const passesRules = comparable && passesProjectSpaceRules(table, rows);
 	if (
 		managedElsewhere === null &&
 		sameColumns &&
@@ -792,8 +930,9 @@ export function lookupTableStanding(input: {
 
 	const fields = new Set(read.table.fields);
 	const columnsHeld = columnsAfterHqFills(read, table, input.keptColumnIds);
-	const useCommCareHq: LookupChoiceOffer =
-		managedElsewhere !== null
+	const useCommCareHq: LookupChoiceOffer = restricted || privateProject
+		? { offered: false, why: "needs-source-evidence", name: null }
+		: managedElsewhere !== null
 			? {
 					offered: false,
 					why: "managed-elsewhere",
@@ -821,24 +960,28 @@ export function lookupTableStanding(input: {
 						};
 
 	const wireNames = new Set(table.columns.map((column) => column.wireName));
+	for(const attr of table.attributes ?? []) wireNames.add(`@${attr.wireName}`);
+	for(const column of table.columns) for(const detail of column.properties ?? []) wireNames.add(`${column.wireName}/@${detail.wireName}`);
 	const reads = new Set(input.appReads);
 	const missing = [
 		...read.table.fields.filter((field) => reads.has(field)),
 		...input.appReads.filter((field) => !fields.has(field)),
 	].find((field) => !wireNames.has(field));
 	const useProject: LookupChoiceOffer =
-		missing !== undefined
-			? { offered: false, why: "app-reads-a-missing-column", name: missing }
-			: !passesRules || holdsUnrepresentableCell(table, rows)
-				? { offered: false, why: "fails-a-project-space-rule", name: null }
-				: { offered: true, goneColumns: [], retypedColumns: [] };
+		restricted || privateProject
+			? { offered: false, why: "needs-source-evidence", name: null }
+			: missing !== undefined
+				? { offered: false, why: "app-reads-a-missing-column", name: missing }
+				: !passesRules || rows === undefined || holdsUnrepresentableCell(table, rows)
+					? { offered: false, why: "fails-a-project-space-rule", name: null }
+					: { offered: true, goneColumns: [], retypedColumns: [] };
 
 	return {
 		kind: "choice",
 		table,
 		differs: [
 			...(sameColumns ? [] : (["columns"] as const)),
-			...(sameRows ? [] : (["rows"] as const)),
+			...(comparable && !sameRows ? (["rows"] as const) : []),
 		],
 		managed:
 			managedElsewhere !== null
@@ -847,6 +990,173 @@ export function lookupTableStanding(input: {
 		apps: input.apps,
 		options: { "use-commcare-hq": useCommCareHq, "use-project": useProject },
 	};
+}
+
+/** Project-shaped projection used by the reader, review and Postgres byte
+ * accounting. Identity is supplied by the same binding that birth writes. */
+export function boundSourceFixture(
+	table: HqLookupTable,
+	rows: readonly HqFixtureRow[],
+	binding: LookupTableBinding,
+): {
+	columns: LookupColumn[];
+	attributes: LookupMember[];
+	rows: LookupFixtureRow[];
+} {
+	const content = managedLookupContentOf(table, rows);
+	const members = (
+		names: readonly string[],
+		ids?: Readonly<Record<string, LookupMemberId>>,
+	) =>
+		names.map((wireName) => {
+			const id = ownRecordValue(ids, wireName);
+			if (id === undefined)
+				throw new Error(
+					"A source member has no identity in the selected table binding.",
+				);
+			return { id, wireName, label: columnLabelFor(wireName) };
+		});
+	const columns = table.fields.map((wireName) => {
+		const shape = ownRecordValue(content.fieldDetails, wireName);
+		const properties = members(
+			shape?.properties ?? [],
+			ownRecordValue(binding.memberIds?.properties, wireName),
+		);
+		return {
+			id: binding.columns[wireName],
+			wireName,
+			label: columnLabelFor(wireName),
+			dataType: "text" as const,
+			index: "unobserved" as const,
+			...(shape?.repeated ? { repeated: true as const } : {}),
+			...(properties.length ? { properties } : {}),
+		};
+	});
+	const attributes = members(
+		table.itemAttributes,
+		binding.memberIds?.attributes,
+	);
+	return {
+		columns,
+		attributes,
+		rows: content.rows.map((row, index) => {
+			const details = content.rowDetails?.[index];
+			const values = recordFromEntries(
+				Object.entries(row).map(([field, value]) => [
+					binding.columns[field],
+					value,
+				]),
+			);
+			const attrs = recordFromEntries(
+				attributes.flatMap((member) => {
+					const value = ownRecordValue(details?.attributes, member.wireName);
+					return value === undefined ? [] : [[member.id, value] as const];
+				}),
+			);
+			const occurrences = recordFromEntries(
+				columns.flatMap((column) => {
+					const list = ownRecordValue(details?.occurrences, column.wireName);
+					if (list === undefined) return [];
+					return [
+						[
+							column.id,
+							list.map((item) => ({
+								text: item.text,
+								properties: recordFromEntries(
+									(column.properties ?? []).flatMap((property) => {
+										const value = ownRecordValue(
+											item.properties,
+											property.wireName,
+										);
+										return value === undefined
+											? []
+											: [[property.id, value] as const];
+									}),
+								),
+							})),
+						] as const,
+					];
+				}),
+			);
+			return {
+				id: rows[index].id as LookupRowId,
+				values,
+				...(attributes.length ? { attributes: attrs } : {}),
+				...(Object.keys(occurrences).length ? { occurrences } : {}),
+			};
+		}),
+	};
+}
+
+/** Where a new table's glossary lives before the reading writes it. */
+export function provisionalLookupBinding(
+	table: HqLookupTable,
+	ids: { readonly appId: string; readonly readingId: string },
+): LookupTableBinding {
+	const { tag } = table;
+	return withSourceMembers(
+		{
+			tag,
+			tableId: broughtInLookupTableId(ids.appId, ids.readingId, tag),
+			columns: recordFromEntries(
+				table.fields.map((field) => [
+					field,
+					broughtInLookupColumnId(ids.appId, ids.readingId, tag, field),
+				]),
+			),
+		},
+		table,
+	);
+}
+
+/** New members bind to a stable namespace of the table or column that owns
+ * them. An existing Project member always keeps its identity. */
+function withSourceMembers(
+	binding: LookupTableBinding,
+	read: HqLookupTable,
+	existing?: LookupTableDefinition,
+): LookupTableBinding {
+	if (
+		!read.itemAttributes.length &&
+		!Object.values(read.fieldProperties).some((properties) => properties.length)
+	)
+		return binding;
+	const attributes = recordFromEntries(
+		read.itemAttributes.map(
+			(name) =>
+				[
+					name,
+					existing?.attributes?.find((member) => member.wireName === name)
+						?.id ?? broughtInLookupMemberId(binding.tableId, name),
+				] as const,
+		),
+	);
+	const properties = recordFromEntries(
+		read.fields.flatMap((field) => {
+			const names = ownRecordValue(read.fieldProperties, field) ?? [];
+			if (!names.length) return [];
+			const columnId = binding.columns[field];
+			const members = existing?.columns.find(
+				(column) => column.id === columnId,
+			)?.properties;
+			return [
+				[
+					field,
+					recordFromEntries(
+						names.map(
+							(name) =>
+								[
+									name,
+									members?.find((member) => member.wireName === name)?.id ??
+										broughtInLookupMemberId(columnId, name),
+								] as const,
+						),
+					),
+				] as const,
+			];
+		}),
+	);
+	return { ...binding, memberIds: { attributes, properties } };
 }
 
 /** The Project table's columns by wire name, with derived ids for the fields it lacks. */
@@ -858,30 +1168,38 @@ function projectTableBinding(
 	const byWireName = new Map(
 		table.columns.map((column) => [column.wireName, column.id]),
 	);
-	return {
-		tag: read.table.tag,
-		tableId: table.id,
-		columns: recordFromEntries(
-			read.table.fields.map((field) => [
-				field,
-				byWireName.get(field) ??
-					broughtInLookupColumnId(
-						ids.appId,
-						ids.readingId,
-						read.table.tag,
-						field,
-					),
-			]),
-		),
-	};
+	return withSourceMembers(
+		{
+			tag: read.table.tag,
+			tableId: table.id,
+			columns: recordFromEntries(
+				read.table.fields.map((field) => [
+					field,
+					byWireName.get(field) ??
+						broughtInLookupColumnId(
+							ids.appId,
+							ids.readingId,
+							read.table.tag,
+							field,
+						),
+				]),
+			),
+		},
+		read.table,
+		table,
+	);
 }
 
-/** The Project table as it is: every column, by its wire name. */
+/** Every existing member stays bound to the same Project identity. */
 function asItStandsBinding(
 	tag: string,
 	table: LookupTableDefinition,
 ): LookupTableBinding {
+	const attributes = recordFromEntries((table.attributes ?? []).map(member => [member.wireName,member.id]));
+	const properties = recordFromEntries(table.columns.flatMap(column => column.properties?.length ?
+		[[column.wireName,recordFromEntries(column.properties.map(member => [member.wireName,member.id]))] as const] : []));
 	return {
+		...(Object.keys(attributes).length || Object.keys(properties).length ? {memberIds:{ attributes, properties }} : {}),
 		tag,
 		tableId: table.id,
 		columns: recordFromEntries(
@@ -917,18 +1235,8 @@ export function resolveLookupBindings(
 				`A lookup table was bound with no standing (read ${index + 1} of ${reads.length}).`,
 			);
 		}
-		if (standing.kind === "new") {
-			return {
-				tag,
-				tableId: broughtInLookupTableId(ids.appId, ids.readingId, tag),
-				columns: recordFromEntries(
-					read.table.fields.map((field) => [
-						field,
-						broughtInLookupColumnId(ids.appId, ids.readingId, tag, field),
-					]),
-				),
-			};
-		}
+		if (standing.kind === "new")
+			return provisionalLookupBinding(read.table, ids);
 		if (standing.kind === "same-equal") {
 			return asItStandsBinding(tag, standing.table);
 		}
@@ -1045,13 +1353,15 @@ export function readingLookupSnapshot(
 		const { read, standing, binding } = gathered;
 		if (boundAsItStands(standing, gathered.choice)) {
 			const rows = data.gathered.project.rowsByTable[standing.table.id];
-			if (rows === undefined) {
+			const scoped = needsWorkerRows(standing.table);
+			if (rows === undefined && !scoped) {
 				throw new Error(
 					`The reading holds no rows of the Project's lookup table ${standing.table.id}.`,
 				);
 			}
 			definitions.push(standing.table);
-			rowsByTable.set(standing.table.id, rows);
+			if (rows !== undefined && !scoped)
+				rowsByTable.set(standing.table.id, rows);
 			continue;
 		}
 		const definition = data.lookups.definitions.get(binding.tableId);
@@ -1060,35 +1370,40 @@ export function readingLookupSnapshot(
 				`The reader's catalog holds no definition of the lookup table ${binding.tableId}.`,
 			);
 		}
+		const facts = read.canonical.source;
+		const restricted =
+			facts?.inventory === "unavailable" || !read.table.isGlobal;
+		const source = boundSourceFixture(
+			read.table,
+			restricted ? [] : read.rows,
+			binding,
+		);
 		definitions.push({
 			id: definition.id,
 			name: definition.name,
 			tag: definition.tag,
 			definitionRevision: (gathered.projectTable?.definitionRevision ??
 				"0") as LookupRevision,
-			columns: definition.columns.map((column) => ({
-				id: column.id,
-				wireName: column.wireName,
-				label: column.label,
-				dataType: "text" as const,
-			})),
+			columns: source.columns,
+			...(restricted
+				? {
+						hq: {
+							server: data.gathered.origin.server,
+							domain: data.gathered.origin.domain,
+							remoteId: read.table.id,
+							managedBy: "commcare-hq" as const,
+							source: facts,
+							broughtInAt: data.gathered.tablesReadAt.toISOString(),
+							refreshedAt: data.gathered.tablesReadAt.toISOString(),
+							takenOverAt: null,
+							takenOverBy: null,
+							goneColumnIds: [],
+						},
+					}
+				: {}),
+			...(source.attributes.length ? { attributes: source.attributes } : {}),
 		});
-		rowsByTable.set(
-			binding.tableId,
-			read.rows.map((row) => ({
-				id: row.id as LookupRowId,
-				values: recordFromEntries(
-					read.table.fields.flatMap((field) => {
-						if (!Object.hasOwn(row.fields, field)) return [];
-						const cell = hqCell(row, field);
-						if (cell === null || !Object.hasOwn(binding.columns, field)) {
-							return [];
-						}
-						return [[binding.columns[field], cell]];
-					}),
-				),
-			})),
-		);
+		if (!restricted) rowsByTable.set(binding.tableId, source.rows);
 	}
 	return {
 		projectId: data.gathered.project.projectId,
@@ -1109,7 +1424,11 @@ export function lookupFixtureBudgetFinding(
 ): Finding | null {
 	const excess = lookupFixtureBudgetExcess(
 		buildLookupFixtures(
-			lookupWireNaming(snapshot.definitions),
+			lookupWireNaming(
+				snapshot.definitions.filter(
+					(table) => !needsWorkerRows(table),
+				),
+			),
 			snapshot.rowsByTable,
 		),
 	);

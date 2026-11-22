@@ -14,6 +14,7 @@
  * privilege, below the floor or with each logo shape is the proof lane's.
  */
 
+import {servePlaceInventory} from "./placeInventoryPeer";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { produce } from "immer";
@@ -480,22 +481,12 @@ async function seedPlace() {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: withNorth ? [remotePlace] : [],
-	});
+	servePlaceInventory(peer, "clinic", withNorth ? [remotePlace] : [], remoteLevels);
 }
 /** The place batch taken, and the inventory read that reads it back. */
 function placeTaken(peer: MockAgent) {
 	request(peer, PLACE_PUSH, "PATCH").reply(202, JSON.stringify(["hq-north"]));
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: [remotePlace],
-	});
+	inventory(peer, true);
 }
 
 /** A first publish of the lookup document, landed. */
@@ -644,6 +635,7 @@ describe("the version floor", () => {
 				`GET ${TABLES}`,
 				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 			]);
@@ -697,7 +689,7 @@ describe("the version floor", () => {
 			workbookTaken(peer);
 			tablesWithOurs(peer);
 			tableRows(peer);
-			placeTaken(peer);
+			inventory(peer, true);
 			serve(peer, "source-live", edited);
 			accepted(peer, 200, bodies);
 			serve(peer, "source-live");
@@ -1383,6 +1375,15 @@ describe("links between cases of the same type", () => {
 
 // ── C5. The flat location list ──────────────────────────────────────────
 
+function serveConfiguredLevels(peer: MockAgent, doc: BlueprintDoc) {
+	const levels = Object.values(doc.organizationLevels ?? {});
+	servePlaceInventory(peer,"clinic",[],levels.map((level,index)=>({
+		id:index+1, code:level.code, name:level.name, shares_cases:level.caseFlow.ownsCases, administrative:true,
+		view_descendants:"descendantCases" in level.caseFlow && level.caseFlow.descendantCases.kind !== "none",
+		parent:level.parentLevelUuid ? HOST+"/a/clinic/api/location_type/v1/"+(levels.findIndex(parent=>parent.uuid===level.parentLevelUuid)+1)+"/" : null,
+	})));
+}
+
 describe("the flat location list", () => {
 	it("is asked for an app whose form sets an owner from a place, and lands once confirmed", async () => {
 		const doc = await seed(locationOwnerFixture("direct"));
@@ -1400,6 +1401,7 @@ describe("the flat location list", () => {
 				whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 			});
 			expect(allRequests(peer)).toEqual([]);
+			serveConfiguredLevels(peer,doc);
 			await firstPublishConfirming(
 				peer,
 				doc,
@@ -1420,6 +1422,7 @@ describe("the flat location list", () => {
 			expect(needed.map((need) => need.kind)).not.toContain(
 				"flat-location-fixture",
 			);
+			serveConfiguredLevels(peer,doc);
 			await firstPublishConfirming(
 				peer,
 				doc,

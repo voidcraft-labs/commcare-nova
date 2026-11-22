@@ -137,9 +137,12 @@ export interface LaneReadInput {
 	/** Required for `identity: "mint"`: HQ's own project data answers, and its files. */
 	readonly projectData?: {
 		readonly lookupTables: RetainedHqAnswer;
+		readonly lookupDefinitions?: Readonly<Record<string,RetainedHqAnswer>>;
+		readonly fixtureDetails?: Readonly<Record<string,RetainedHqAnswer>>;
 		readonly fixtureRows: Readonly<Record<string, RetainedHqAnswer>>;
 		readonly locationTypes?: RetainedHqAnswer;
-		readonly locations?: RetainedHqAnswer;
+		readonly locationsV1?: RetainedHqAnswer;
+	readonly locations?: RetainedHqAnswer;
 		/** One a mapped path: HQ's answer to the file's read, and its bytes where HQ gave them. */
 		readonly media: readonly {
 			readonly path: string;

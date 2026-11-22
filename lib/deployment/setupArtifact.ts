@@ -208,6 +208,7 @@ function levelCaseFlowSteps(
 ): string[] {
 	const steps: string[] = [];
 	const flow = level.caseFlow;
+	if (level.tracksStock !== undefined) steps.push(level.tracksStock ? "Tick “Tracks Stock” for this level." : "Leave “Tracks Stock” unticked for this level.");
 	steps.push(
 		flow.ownsCases ? "Tick “Owns Cases”." : "Leave “Owns Cases” unticked.",
 	);

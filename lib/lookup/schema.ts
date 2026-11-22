@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
@@ -173,30 +174,34 @@ export const lookupOrderKeySchema = z
 	.string()
 	.regex(ORDER_KEY_PATTERN, "Expected a canonical base-62 order key.");
 
-export const lookupCellInputSchema = z.union([
-	z.string().superRefine((value, ctx) => {
-		if (value.includes("\0")) {
-			ctx.addIssue({
-				code: "custom",
-				message: "Cell text may not contain NUL.",
-			});
-		}
-		if (hasUnpairedUtf16Surrogate(value)) {
-			ctx.addIssue({
-				code: "custom",
-				message: "Cell text contains an unpaired UTF-16 surrogate.",
-			});
-		}
-		if (utf8ByteLength(value) > LOOKUP_MAX_CELL_BYTES) {
-			ctx.addIssue({
-				code: "custom",
-				message: `Cell text must be at most ${LOOKUP_MAX_CELL_BYTES} UTF-8 bytes.`,
-			});
-		}
-	}),
-	z.number(),
-]);
+export const lookupTextSchema = z.string().superRefine((value, ctx) => {
+	if (value.includes("\0")) {
+		ctx.addIssue({
+			code: "custom",
+			message: "Cell text may not contain NUL.",
+		});
+	}
+	if (hasUnpairedUtf16Surrogate(value)) {
+		ctx.addIssue({
+			code: "custom",
+			message: "Cell text contains an unpaired UTF-16 surrogate.",
+		});
+	}
+	if (utf8ByteLength(value) > LOOKUP_MAX_CELL_BYTES) {
+		ctx.addIssue({
+			code: "custom",
+			message: `Cell text must be at most ${LOOKUP_MAX_CELL_BYTES} UTF-8 bytes.`,
+		});
+	}
+});
 
+export const lookupCellInputSchema = z.union([lookupTextSchema, z.number()]);
+
+/** The aggregate may grow through several individually bounded edits. */
+export const storedLookupRowValuesSchema = z.record(
+	lookupColumnIdSchema,
+	z.union([z.string(), z.number()]),
+);
 export const lookupRowValuesSchema = z
 	.record(lookupColumnIdSchema, lookupCellInputSchema)
 	.superRefine((values, ctx) => {
@@ -210,22 +215,70 @@ export const lookupRowValuesSchema = z
 	})
 	.overwrite((values) => values satisfies LookupRowValues);
 
-export const lookupColumnDraftSchema = z.strictObject({
-	wireName: lookupWireNameSchema,
+export const lookupMemberDraftSchema = z.strictObject({
+	wireName: lookupWireNameSchema.refine(
+		(name) => name !== "xmlns",
+		"This detail needs a different export name. The XML namespace uses xmlns.",
+	),
 	label: lookupColumnLabelSchema,
-	dataType: lookupDataTypeSchema,
 });
+export const lookupMemberSchema = lookupMemberDraftSchema.extend({
+	id: lookupMemberIdSchema,
+});
+export const lookupOccurrenceSchema = z.strictObject({
+	text: lookupTextSchema,
+	properties: z.record(lookupMemberIdSchema, lookupTextSchema),
+});
+export const lookupRowContentSchema = z.strictObject({
+	attributes: z.record(lookupMemberIdSchema, lookupTextSchema).optional(),
+	occurrences: z
+		.record(lookupColumnIdSchema, z.array(lookupOccurrenceSchema))
+		.optional(),
+});
+const memberList = z
+	.array(lookupMemberDraftSchema)
+	.max(LOOKUP_MAX_COLUMNS)
+	.refine(
+		(members) =>
+			new Set(members.map((member) => member.wireName)).size === members.length,
+		"Each detail needs its own export name.",
+	);
+
+export const lookupColumnDraftSchema = z
+	.strictObject({
+		wireName: lookupWireNameSchema,
+		label: lookupColumnLabelSchema,
+		dataType: lookupDataTypeSchema,
+		repeated: z.literal(true).optional(),
+		properties: memberList.optional(),
+		indexed: z.boolean().optional(),
+	})
+	.superRefine((column, ctx) => {
+		if (column.repeated && column.dataType !== "text")
+			ctx.addIssue({
+				code: "custom",
+				message: "Repeated values need a text column.",
+			});
+		if (column.properties?.length && !column.repeated)
+			ctx.addIssue({
+				code: "custom",
+				message: "A column with value details needs repeated values.",
+			});
+	});
 
 export const createLookupTableInputSchema = z
 	.strictObject({
 		name: lookupTableNameSchema,
 		tag: lookupTagSchema,
-		columns: z
-			.array(lookupColumnDraftSchema)
-			.min(1, "A lookup table needs at least one column.")
-			.max(LOOKUP_MAX_COLUMNS),
+		attributes: memberList.optional(),
+		columns: z.array(lookupColumnDraftSchema).max(LOOKUP_MAX_COLUMNS),
 	})
 	.superRefine((input, ctx) => {
+		if (!input.columns.length && !input.attributes?.length)
+			ctx.addIssue({
+				code: "custom",
+				message: "A table needs at least one column or row detail.",
+			});
 		const seen = new Set<string>();
 		for (let index = 0; index < input.columns.length; index++) {
 			const wireName = input.columns[index].wireName;
@@ -259,7 +312,13 @@ export const updateLookupTableTagInputSchema = z.strictObject({
 	tag: lookupTagSchema,
 });
 
+export const lookupReaderReviewSchema = z.strictObject({
+	projectRevision: lookupRevisionSchema,
+	readerAppIds: z.array(z.string().min(1)),
+});
+
 export const addLookupColumnInputSchema = z.strictObject({
+	reviewed: lookupReaderReviewSchema.optional(),
 	...expectedTableRevisionShape,
 	column: lookupColumnDraftSchema,
 });
@@ -283,7 +342,7 @@ export const lookupColumnIndexSchema = z
 	.number()
 	.int()
 	.nonnegative()
-	.max(LOOKUP_MAX_COLUMNS - 1);
+	.max(2147483646);
 
 export const moveLookupColumnInputSchema = z.strictObject({
 	...columnMutationShape,
@@ -294,29 +353,78 @@ export const lookupCreateRowIndexSchema = z
 	.number()
 	.int()
 	.nonnegative()
-	.max(LOOKUP_MAX_ROWS);
+	.max(2147483647);
 
 export const lookupExistingRowIndexSchema = z
 	.number()
 	.int()
 	.nonnegative()
-	.max(LOOKUP_MAX_ROWS - 1);
+	.max(2147483646);
 
 export const createLookupRowInputSchema = z.strictObject({
+	operationId: z.uuid().optional(),
 	...expectedTableRevisionShape,
 	toIndex: lookupCreateRowIndexSchema,
 	values: lookupRowValuesSchema,
+	content: lookupRowContentSchema.optional(),
 });
 
 const rowMutationShape = {
+	operationId: z.uuid().optional(),
 	...expectedTableRevisionShape,
 	rowId: lookupRowIdSchema,
 };
 
-export const updateLookupRowInputSchema = z.strictObject({
-	...rowMutationShape,
-	values: lookupRowValuesSchema,
-});
+const occurrenceAt = {
+	columnId: lookupColumnIdSchema,
+	index: z.number().int().nonnegative().max(2147483646),
+};
+export const lookupRowPatchSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("cell"),
+		columnId: lookupColumnIdSchema,
+		value: lookupCellInputSchema.nullable(),
+	}),
+	z.strictObject({
+		kind: z.literal("attribute"),
+		attributeId: lookupMemberIdSchema,
+		text: lookupTextSchema,
+	}),
+	z.strictObject({
+		kind: z.literal("occurrence"),
+		...occurrenceAt,
+		text: lookupTextSchema,
+	}),
+	z.strictObject({
+		kind: z.literal("property"),
+		...occurrenceAt,
+		propertyId: lookupMemberIdSchema,
+		text: lookupTextSchema.nullable(),
+	}),
+	z.strictObject({
+		kind: z.literal("insert"),
+		...occurrenceAt,
+		value: lookupOccurrenceSchema,
+	}),
+	z.strictObject({ kind: z.literal("remove"), ...occurrenceAt }),
+	z.strictObject({
+		kind: z.literal("list"),
+		columnId: lookupColumnIdSchema,
+		present: z.boolean(),
+	}),
+]);
+export const lookupRowChangesSchema = z
+	.array(lookupRowPatchSchema)
+	.min(1)
+	.max(LOOKUP_MAX_COLUMNS);
+export const updateLookupRowInputSchema = z.union([
+	z.strictObject({
+		...rowMutationShape,
+		values: lookupRowValuesSchema,
+		content: lookupRowContentSchema.optional(),
+	}),
+	z.strictObject({ ...rowMutationShape, changes: lookupRowChangesSchema }),
+]);
 
 export const deleteLookupRowInputSchema = z.strictObject(rowMutationShape);
 
@@ -341,6 +449,7 @@ export const lookupResourceReferenceQuerySchema = z.strictObject({
 });
 
 export const replaceLookupRowsInputSchema = z.strictObject({
+	operationId: z.uuid().optional(),
 	...expectedTableRevisionShape,
 	rows: z.array(lookupRowValuesSchema).max(LOOKUP_MAX_ROWS),
 });

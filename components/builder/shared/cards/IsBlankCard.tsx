@@ -5,8 +5,8 @@
 // dialect.
 
 "use client";
-import type { ExpressionOfKind } from "@/lib/domain/expression";
 
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	absenceSubjectConstraint,
 	type Expression,
@@ -20,6 +20,7 @@ import {
 	type PredicateEditContext,
 	tableRowInScope,
 } from "../editorSchemas";
+import { editorLookupReads } from "../lookupTablePresentation";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
@@ -28,7 +29,7 @@ export function isBlankDefault(
 	ctx: PredicateEditContext,
 ): ExpressionOfKind<"is-blank"> {
 	if (tableRowInScope(ctx)) {
-		const column = ctx.tableScope?.columns[0];
+		const column = editorLookupReads(ctx.tableScope)[0];
 		if (ctx.tableScope === undefined || column === undefined) {
 			throw new Error(
 				"A table-row blank condition requires one active-table column.",

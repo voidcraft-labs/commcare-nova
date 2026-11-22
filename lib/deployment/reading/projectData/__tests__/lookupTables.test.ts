@@ -23,6 +23,7 @@ import {
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
@@ -391,27 +392,24 @@ describe("lookupTableFindings", () => {
 		).toEqual([]);
 	});
 
-	it("reports every finding of a table with field properties, several values, row attributes and owners", () => {
+	it("keeps verified rich fields and row details", () => {
+		const rows = richRows.map((row, index) => ({
+			...row,
+			sortKey: index,
+			itemAttributes: { zone: index === 0 ? "upland" : "coastal" },
+		}));
 		expect(
-			names(lookupTableFindings(readOf(richTable, richRows), NO_MEASURE)),
-		).toEqual([
-			[
-				"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
-				"rich: field properties",
-			],
-			[
-				"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
-				"rich: a field with more than one value",
-			],
-			[
-				"expressions-and-data/item-attributes-and-per-row-attribute-values",
-				"rich: row attributes",
-			],
-			[
-				"expressions-and-data/is-global-false-row-owners-user-group-location",
-				"rich: rows limited to certain users",
-			],
-		]);
+			lookupTableFindings(
+				readOf({ ...richTable, isGlobal: true }, rows),
+				NO_MEASURE,
+			),
+		).toEqual([]);
+		expect(
+			lookupTableFindings(
+				readOf({ ...richTable, isGlobal: true }, richRows),
+				NO_MEASURE,
+			),
+		).toHaveLength(1);
 	});
 
 	const CAPS =
@@ -692,6 +690,32 @@ describe("lookupTableStanding", () => {
 				name: "other-space",
 			});
 		}
+	});
+
+	it("compares ordered field occurrences and their details, and keeps Project member identities in either binding", () => {
+		const existing=equalPlain();
+		const [code,name]=existing.table.columns;
+		const lang={id:lookupMemberIdSchema.parse(uuidV7()),wireName:"lang",label:"Language"};
+		const district={id:lookupMemberIdSchema.parse(uuidV7()),wireName:"district",label:"District"};
+		const table={...existing.table, attributes:[district], columns:[code, {...name,repeated:true as const,properties:[lang]}]};
+		const hq=plain({table:{itemAttributes:["district"],fieldProperties:{name:["lang"]}},rows:plainRows.map((row,i)=>({
+			...row,itemAttributes:{district:`zone-${i}`},fields:{code:row.fields.code,name:[
+				{value:"One",properties:{lang:"en"}},{value:"Une",properties:{lang:"fr"}}
+			]} }))});
+		const rows=existing.rows.map((row,i)=>({...row,values:{[code.id]:row.values[code.id]},attributes:{[district.id]:`zone-${i}`},occurrences:{[name.id]:[
+			{text:"One",properties:{[lang.id]:"en"}},{text:"Une",properties:{[lang.id]:"fr"}}
+		]}}));
+		for (const siblings of [[],[sibling(table,hq.table.id)]]) {
+			const standing=standingOf(hq,{table,rows},{siblings});
+			expect(standing.kind).toBe(siblings.length ? "same-equal" : "choice");
+			const [bound]=resolveLookupBindings([hq],{plain:standing},{plain:"use-project"},IDS);
+			expect(bound.memberIds).toEqual({attributes:{district:district.id},properties:{name:{lang:lang.id}}});
+		}
+		const reversed=rows.map(row=>({...row,occurrences:{[name.id]:[...row.occurrences[name.id]].reverse()}}));
+		const reassigned=rows.map(row=>({...row,attributes:{[district.id]:"changed"}}));
+		const relabeled=rows.map(row=>({...row,occurrences:{[name.id]:row.occurrences[name.id].map(it=>({...it,properties:{[lang.id]:"changed"}}))}}));
+		for(const different of [reversed,reassigned,relabeled])
+			expect(choiceOf(standingOf(hq,{table,rows:different},{siblings:[sibling(table,hq.table.id)]})).differs).toEqual(["rows"]);
 	});
 
 	it("reads a missing cell as equal to an empty one", () => {
@@ -1266,11 +1290,14 @@ describe("readingLookupSnapshot", () => {
 						id: binding.columns.code,
 						wireName: "code",
 						label: "code",
+						index: "unobserved",
 						dataType: "text",
 					},
 					{
 						id: binding.columns.name,
 						wireName: "name",
+						index: "unobserved",
+						repeated: true,
 						label: "name",
 						dataType: "text",
 					},
@@ -1280,9 +1307,11 @@ describe("readingLookupSnapshot", () => {
 		expect(snapshot.rowsByTable.get(binding.tableId)).toEqual([
 			{
 				id: plainRows[0].id,
+				occurrences: {
+					[binding.columns.name]: [{ text: "Clinic", properties: {} }],
+				},
 				values: {
 					[binding.columns.code]: "001",
-					[binding.columns.name]: "Clinic",
 				},
 			},
 			{ id: plainRows[1].id, values: { [binding.columns.code]: "002" } },
@@ -1682,7 +1711,18 @@ describe("projectDataReview", () => {
 			definitionRevision: "3",
 			rowsRevision: "4",
 		});
-		expect(answer.tables[1].hqDigest).toBe(plain().canonical.digest);
+		const replacement = plain({
+			rows: plainRows.map((row, index) => ({
+				...row,
+				id: `replacement-${index}`,
+			})),
+		});
+		const replaced = review(
+			gather([replacement], { tables: [existing] }),
+			readsOf({ plain: ["code", "name"] }),
+			EMPTY_DOC,
+		);
+		expect(replaced.tables[0].hqDigest).not.toBe(answer.tables[1].hqDigest);
 		for (const table of answer.tables) {
 			expect(
 				reviewTableSchema.parse(JSON.parse(JSON.stringify(table))),

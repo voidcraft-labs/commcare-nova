@@ -1,3 +1,5 @@
+import { lookupChoiceBaseFindings } from "@/lib/commcare/lookup/selectSourceRows";
+
 // lib/preview/engine/lookupEvaluation.ts
 //
 // Lookup-backed choices over one loaded fixture snapshot. A choice list
@@ -14,15 +16,18 @@
 // stored-empty cell both read as empty text (`lookupFixtureCellText`, the
 // wire emits every defined column, an empty element for both).
 
-import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import {
+	lookupReadText,
+	type ResolvedLookupRead,
+	resolveLookupRead,
+} from "@/lib/commcare/lookup/read";
 import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
-	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
 	Uuid,
@@ -33,8 +38,8 @@ import {
 	mapExpressionAst,
 } from "@/lib/domain/expression/mapAst";
 import type { Expression } from "@/lib/domain/expression/types";
+import type { LookupRead } from "@/lib/domain/lookupRead";
 import type {
-	LookupColumn,
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
@@ -98,10 +103,10 @@ function requireTable(
 
 function requireColumn(
 	table: LookupTableDefinition,
-	columnId: LookupColumnId,
+	columnId: LookupRead,
 	where: string,
-): LookupColumn {
-	const column = table.columns.find((c) => c.id === columnId);
+): ResolvedLookupRead {
+	const column = resolveLookupRead(table, columnId);
 	if (column !== undefined) return column;
 	throw new Error(
 		typeCheckerBypassMessage({
@@ -127,7 +132,7 @@ function requireColumn(
 
 interface LookupIdentityCollector {
 	covered: boolean;
-	check: (tableId: LookupTableId, columnId?: LookupColumnId) => void;
+	check: (tableId: LookupTableId, columnId?: LookupRead) => void;
 }
 
 function identityCollector(
@@ -137,14 +142,11 @@ function identityCollector(
 		covered: true,
 		check: (tableId, columnId) => {
 			const table = data?.tablesById.get(tableId);
-			if (table === undefined) {
+			if (table === undefined || !data?.rowsByTable.has(tableId)) {
 				collector.covered = false;
 				return;
 			}
-			if (
-				columnId !== undefined &&
-				!table.columns.some((column) => column.id === columnId)
-			) {
+			if (columnId !== undefined && !resolveLookupRead(table, columnId)) {
 				collector.covered = false;
 			}
 		},
@@ -220,7 +222,7 @@ export function formLogicLookupsCovered(
 export function lookupOptionsSourceCovered(
 	source: LookupOptionsSource,
 	data: PreviewLookupData | undefined,
-	sortColumnId?: LookupColumnId,
+	sortColumnId?: LookupRead,
 ): boolean {
 	const collector = identityCollector(data);
 	collector.check(source.tableId, source.valueColumnId);
@@ -249,11 +251,15 @@ export function lookupOptionsSourceCovered(
  * (`ItemsetBinding.sortChoices` compares Java strings with a stable sort),
  * never a locale's collation.
  */
+const choiceBaseBySnapshot = new WeakMap<
+	PreviewLookupData,
+	Map<string, string | null>
+>();
 export function lookupChoicesFromNodeset(
 	source: LookupOptionsSource,
 	data: PreviewLookupData,
 	nodeset: XPathRuntimeValue,
-	sortColumnId?: LookupColumnId,
+	sortColumnId?: LookupRead,
 ): readonly LookupChoice[] {
 	if (!isXPathNodeSet(nodeset))
 		throw new Error(
@@ -287,6 +293,31 @@ export function lookupChoicesFromNodeset(
 		sortColumnId === undefined
 			? undefined
 			: requireColumn(table, sortColumnId, "lookupChoicesFromNodeset");
+	const key = JSON.stringify([
+		source.tableId,
+		source.valueColumnId,
+		source.labelColumnId,
+		sortColumnId,
+	]);
+	let checks = choiceBaseBySnapshot.get(data);
+	if (!checks) {
+		checks = new Map();
+		choiceBaseBySnapshot.set(data, checks);
+	}
+	if (!checks.has(key)) {
+		const [issue] = lookupChoiceBaseFindings({
+			source: { ...source, sortColumnId },
+			location: { scope: "app" },
+			owner: "This choice list",
+			table,
+			rows,
+			valueColumn,
+			labelColumn,
+		});
+		checks.set(key, issue?.message ?? null);
+	}
+	const issue = checks.get(key);
+	if (issue) throw new Error(issue);
 	const choices: {
 		readonly choice: LookupChoice;
 		readonly sortText: string;
@@ -300,21 +331,16 @@ export function lookupChoicesFromNodeset(
 		choices.push({
 			choice: {
 				key: row.id as string,
-				value: lookupFixtureCellText(
-					valueColumn.dataType,
-					row.values[valueColumn.id],
-				),
-				label: lookupFixtureCellText(
-					labelColumn.dataType,
-					row.values[labelColumn.id],
-				),
+				value: lookupReadText(row, source.valueColumnId, valueColumn),
+				label: lookupReadText(row, source.labelColumnId, labelColumn),
 			},
 			sortText:
 				sortColumn === undefined
 					? ""
-					: lookupFixtureCellText(
-							sortColumn.dataType,
-							row.values[sortColumn.id],
+					: lookupReadText(
+							row,
+							sortColumnId ?? source.labelColumnId,
+							sortColumn,
 						),
 		});
 	}

@@ -35,6 +35,7 @@
 // location framework) — is an HQ console authorization axis with no wire
 // representation at all. Nothing here models it.
 
+import { XML_NCNAME_PATTERN } from "./xmlName";
 import { z } from "zod";
 import { CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH } from "./customDataFieldLimits";
 import { recordFromEntries } from "./records";
@@ -59,7 +60,7 @@ const nonemptyUniqueUuidArraySchema = z
  * be a legal XML name part: a leading digit would produce the attribute
  * `2_id`, which no XPath can address.
  */
-export const LEVEL_CODE_PATTERN = /^[a-zA-Z_][-a-zA-Z0-9_]*$/;
+export const LEVEL_CODE_PATTERN = XML_NCNAME_PATTERN;
 
 /** `LocationType.code` is a `SlugField`, whose default `max_length` is 50. */
 export const LEVEL_CODE_MAX_LENGTH = 50;
@@ -140,13 +141,9 @@ export type DescendantCaseScope = z.infer<typeof descendantCaseScopeSchema>;
  *     rung itself owns nothing, and everything they receive comes through
  *     `descendantCases`.
  *
- * HQ's `administrative` column is deliberately absent. It reads like the
- * inverse of "owns cases" and is not one: `LocationType.save` runs
- * `if not self.commtrack_enabled: self.administrative = True`, so on
- * every non-CommTrack domain — which is every domain Nova targets — it is
- * forced true regardless of what anyone authored. `has_user` (singular,
- * `default=False`) is dead; `has_users` (plural, `default=True`) is the
- * live one and is what `workers` compiles to.
+ * HQ derives administrative status from the project's stock tracking. It is
+ * represented independently by tracksStock. The dead has_user column and
+ * the active has_users setting differ; workers compiles to the latter.
  */
 export const levelCaseFlowSchema = z.discriminatedUnion("workers", [
 	z.strictObject({
@@ -279,8 +276,12 @@ export type LevelAddressBook = z.infer<typeof levelAddressBookSchema>;
  */
 export const organizationLevelSchema = z.strictObject({
 	uuid: uuidSchema,
-	code: z.string().min(1).max(LEVEL_CODE_MAX_LENGTH).regex(LEVEL_CODE_PATTERN),
-	name: z.string().min(1).max(LEVEL_NAME_MAX_LENGTH),
+	// HQ can derive the empty code from a punctuation-only name. Its flat
+	// fixture then emits type="" and the legal ancestry attribute "_id".
+	code: z.string().refine(value => LEVEL_CODE_PATTERN.test(value + "_id") && Array.from(value).length <= LEVEL_CODE_MAX_LENGTH),
+	name: z.string().refine(value => Array.from(value).length <= LEVEL_NAME_MAX_LENGTH),
+	/** A level brought in from a project space exposes whether it tracks stock. */
+	tracksStock: z.boolean().optional(),
 	description: z.string().optional(),
 	/** The level directly above. Absent means this is a root level. */
 	parentLevelUuid: uuidSchema.optional(),

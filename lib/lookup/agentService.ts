@@ -1,7 +1,12 @@
 import "server-only";
 
 import type { Transaction } from "kysely";
+import {
+	lockProjectDataGrant,
+	type ProjectDataGrant,
+} from "@/lib/auth/dataGrant";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
 import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
 import { assertAuthoringSessionAuthorityInTransaction } from "@/lib/db/authoringSessions";
 import {
@@ -11,13 +16,30 @@ import {
 } from "@/lib/db/commitGuard";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
+import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { exactRunHolderMatches } from "@/lib/db/runHolderWrites";
 import { runLeaseState } from "@/lib/db/runLiveness";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { applyLookupAuthoringBatchInTransaction } from "./authoringBatch";
+import {
+	applyLookupAuthoringBatchInTransaction,
+	lookupBatchNeedsDelete,
+} from "./authoringBatch";
+import {readRowAssignments,searchAssignmentDirectory} from "./rowAssignments";
+import type {AssignmentDirectoryQuery} from "./assignmentVocabulary";
+import type {LookupRowId} from "@/lib/domain/lookupIds";
 import { LookupError } from "./errors";
+import type {
+	LookupValueEditRequest,
+	LookupValueReadRequest,
+} from "./largeValues/input";
+import {
+	applyLookupValueEditInTransaction,
+	readLookupValueInTransaction,
+} from "./largeValues/service";
+import { maxLookupRevision, parseLookupRevision } from "./schema";
 import {
 	readAllLookupDefinitionsInTransaction,
 	readLookupTableRowsPageInTransaction,
@@ -30,7 +52,11 @@ import type {
 	LookupRowsPage,
 	LookupRowsPageInput,
 } from "./types";
-import { authorizeLookupWriteInTransaction } from "./writerTransaction";
+import {
+	authorizeLookupWriteInTransaction,
+	lookupReceiptCapability,
+	requireLookupCapability,
+} from "./writerTransaction";
 
 interface DatabaseErrorShape {
 	code?: unknown;
@@ -62,7 +88,10 @@ function translateExpectedDatabaseError(error: unknown): never {
 			{ cause: error },
 		);
 	}
-	if (sqlError.code === "23514" && constraint.includes("lookup_rows")) {
+	if (
+		(sqlError.code === "23514" && constraint.includes("lookup_rows")) ||
+		(sqlError.code === "P0001" && constraint === "lookup_storage_capacity")
+	) {
 		throw new LookupError(
 			"storage_limit",
 			"A lookup row or table exceeds its storage limit.",
@@ -72,7 +101,7 @@ function translateExpectedDatabaseError(error: unknown): never {
 	throw error;
 }
 
-async function authorizeAgentScopeInTransaction(
+export async function authorizeAgentScopeInTransaction(
 	tx: Transaction<AppDatabase>,
 	scope: LookupAgentWriteScope,
 	capability: AppCapability,
@@ -197,21 +226,6 @@ async function applyAuthorized(
 					? `session:${scope.designSessionId}`
 					: `app:${scope.appId}`;
 		const inputDigest = canonicalJsonDigest(input);
-		const prior = await tx
-			.selectFrom("lookup_authoring_receipts")
-			.select(["input_digest", "receipt"])
-			.where("project_id", "=", authorized.projectId)
-			.where("target_key", "=", targetKey)
-			.where("request_id", "=", scope.requestId)
-			.executeTakeFirst();
-		if (prior) {
-			if (prior.input_digest !== inputDigest)
-				throw new LookupError(
-					"invalid_input",
-					"This request already completed with different input.",
-				);
-			return prior.receipt;
-		}
 		/* The role was read just above on this transaction, under the app row;
 		 * the lookup authority reads the same locked member row. */
 		const authority = await authorizeLookupWriteInTransaction(
@@ -219,6 +233,29 @@ async function applyAuthorized(
 			{ projectId: authorized.projectId, actorId: scope.actorId },
 			"edit",
 		);
+		const prior = await tx
+			.selectFrom("lookup_authoring_receipts")
+			.select(["input_digest", "receipt", "actor_id", "required_capability"])
+			.where("project_id", "=", authorized.projectId)
+			.where("target_key", "=", targetKey)
+			.where("request_id", "=", scope.requestId)
+			.executeTakeFirst();
+		if (prior) {
+			if (prior.actor_id !== scope.actorId)
+				throw new LookupError("not_found", "Lookup resource was not found.");
+			requireLookupCapability(
+				tx,
+				authority,
+				prior.required_capability ??
+					(lookupBatchNeedsDelete(input) ? "delete" : "edit"),
+			);
+			if (prior.input_digest !== inputDigest)
+				throw new LookupError(
+					"invalid_input",
+					"This request already completed with different input.",
+				);
+			return prior.receipt;
+		}
 		const receipt = await applyLookupAuthoringBatchInTransaction(
 			tx,
 			authority,
@@ -231,6 +268,7 @@ async function applyAuthorized(
 				target_key: targetKey,
 				request_id: scope.requestId,
 				input_digest: inputDigest,
+				required_capability: lookupReceiptCapability(authority),
 				receipt: JSON.stringify(receipt),
 				actor_id: scope.actorId,
 				run_id: scope.runId,
@@ -256,6 +294,66 @@ export async function readAuthorizedLookupCatalog(
 	);
 }
 
+/** Advisory reader inventory for an explicit review. The writer rechecks the complete set under lock. */
+export function readAuthorizedTableReaders(
+	scope: LookupAgentWriteScope,
+	tableId: LookupTableId,
+	page: { offset: number; digest?: string },
+) {
+	return withAppTx(
+		async (tx) => {
+			const { projectId } = await authorizeAgentScopeInTransaction(
+				tx,
+				scope,
+				"view",
+			);
+			const table = await tx
+				.selectFrom("lookup_tables")
+				.select(["definition_revision", "rows_revision"])
+				.where("project_id", "=", projectId)
+				.where("id", "=", tableId)
+				.executeTakeFirst();
+			if (!table) throw new LookupError("not_found", "Lookup table not found.");
+			const state = await tx
+				.selectFrom("lookup_project_state")
+				.select("revision")
+				.where("project_id", "=", projectId)
+				.executeTakeFirst();
+			const apps = await readLookupReferencingApps(tx, { projectId, tableId });
+			const projectRevision = parseLookupRevision(state?.revision ?? "0");
+			const tableRevision = maxLookupRevision(
+				parseLookupRevision(table.definition_revision),
+				parseLookupRevision(table.rows_revision),
+			);
+			const digest = canonicalJsonDigest({
+				projectId,
+				tableId,
+				apps,
+				projectRevision,
+				tableRevision,
+			});
+			if ((page.offset && page.digest !== digest) || page.offset > apps.length)
+				throw new LookupError(
+					"conflict",
+					"The list of apps using this table changed. You can read it again from the beginning.",
+				);
+			const readers = apps
+				.slice(page.offset, page.offset + 25)
+				.map((app) => ({ ...app, appName: app.appName.slice(0, 256) }));
+			const end = page.offset + readers.length;
+			return {
+				tableId,
+				projectRevision,
+				tableRevision,
+				readers,
+				complete: end === apps.length,
+				...(end < apps.length && { nextReaderPage: { offset: end, digest } }),
+			};
+		},
+		{ isolationLevel: "repeatable read" },
+	);
+}
+
 export async function readAuthorizedLookupRowsPage(
 	scope: LookupAgentWriteScope,
 	input: LookupRowsPageInput,
@@ -271,11 +369,70 @@ export async function readAuthorizedLookupRowsPage(
 				tx,
 				authorized.projectId,
 				input,
-				{ resultEnvelope: (page) => ({ kind: "read", data: page }) },
+				{
+					resultEnvelope: (page) => ({ kind: "read", data: page }),
+				},
 			);
 		},
 		{ isolationLevel: "repeatable read" },
 	);
+}
+
+export async function readAuthorizedLookupValue(
+	scope: LookupAgentWriteScope,
+	input: LookupValueReadRequest,
+	grant?: ProjectDataGrant,
+) {
+	return withAppTx(async (tx) => {
+		const auth = await authorizeAgentScopeInTransaction(tx, scope, "view");
+		if (grant)
+			await lockProjectDataGrant(
+				tx,
+				scope.actorId,
+				grant,
+				NOVA_MCP_FLOOR_SCOPES,
+			);
+		return readLookupValueInTransaction(
+			tx,
+			{ ...auth, actorId: scope.actorId },
+			input,
+		);
+	});
+}
+
+export async function editAuthorizedLookupValue(
+	scope: LookupAgentWriteScope,
+	input: LookupValueEditRequest,
+	grant?: ProjectDataGrant,
+) {
+	return withAppTx(async (tx) => {
+		const auth = await authorizeAgentScopeInTransaction(tx, scope, "edit");
+		const authority = await authorizeLookupWriteInTransaction(
+			tx,
+			{ ...auth, actorId: scope.actorId },
+			"edit",
+		);
+		if (!grant && !scope.chatRunHolder)
+			throw new LookupError(
+				"not_found",
+				"This edit needs a current connection. You can reconnect and reopen the row.",
+			);
+		const grantKey = grant
+			? await lockProjectDataGrant(
+					tx,
+					scope.actorId,
+					grant,
+					NOVA_MCP_FLOOR_SCOPES,
+				)
+			: ["chat", scope.chatRunHolder?.runId, scope.chatRunHolder?.nonce];
+		const binding = canonicalJsonDigest([
+			scope.projectId,
+			scope.actorId,
+			scope.ordinaryAuthoring ?? scope.designSessionId ?? scope.appId,
+			grantKey,
+		]);
+		return applyLookupValueEditInTransaction(tx, authority, input, binding);
+	});
 }
 
 export async function applyAuthorizedLookupAuthoringBatch(
@@ -287,4 +444,13 @@ export async function applyAuthorizedLookupAuthoringBatch(
 	} catch (error) {
 		translateExpectedDatabaseError(error);
 	}
+}
+
+
+export function readAuthorizedRowAssignments(scope:LookupAgentWriteScope,tableId:LookupTableId,rowId:LookupRowId,search:AssignmentDirectoryQuery,grant?:ProjectDataGrant){
+	return withAppTx(async tx=>{
+		await authorizeAgentScopeInTransaction(tx,scope,"edit");
+		if(grant)await lockProjectDataGrant(tx,scope.actorId,grant,NOVA_MCP_FLOOR_SCOPES);
+		return {selected:await readRowAssignments(tx,scope.projectId,tableId,rowId),...await searchAssignmentDirectory(tx,scope.projectId,search)};
+	},{isolationLevel:"repeatable read"});
 }

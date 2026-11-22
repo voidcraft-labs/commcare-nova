@@ -1,6 +1,7 @@
 import { slotContext } from "@/lib/domain/expression/context";
 import { formFieldPath } from "@/lib/domain/expression/formStructure";
 import type { FormPrintContext } from "@/lib/domain/expression/print";
+import { lookupReadType, lookupReadTypes } from "@/lib/domain/lookupRead";
 import {
 	locationPropertiesOf,
 	organizationLevelsOf,
@@ -11,9 +12,12 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { lookupReadSteps } from "../lookup/read";
 import { itextIdFor } from "../xform/itextIds";
 import { formNodeProjection } from "./formNodeProjection";
 import type { FormParseScope } from "./formParseScope";
+import { w } from "./wire/builders";
+import { serializeWire } from "./wire/serialize";
 
 export function formScopeContext(scope: FormParseScope) {
 	return slotContext(
@@ -22,12 +26,7 @@ export function formScopeContext(scope: FormParseScope) {
 		scope.lookup === "unavailable"
 			? new Map()
 			: new Map(
-					[...scope.lookup].map(([id, table]) => [
-						id,
-						new Map(
-							table.columns.map((column) => [column.id, column.dataType]),
-						),
-					]),
+					[...scope.lookup].map(([id, table]) => [id, lookupReadTypes(table)]),
 				),
 		{ form: scope.form },
 	);
@@ -92,6 +91,36 @@ export function formPrintContext(
 				? undefined
 				: scope.lookup.get(table)?.columns.find((value) => value.id === column)
 						?.wireName,
+		tableReadPath: (id, read) => {
+			const table =
+				scope.lookup === "unavailable" ? undefined : scope.lookup.get(id);
+			if (!table || !lookupReadType(lookupReadTypes(table), read))
+				return undefined;
+			const requiredName = (name: string | undefined) => {
+				if (!name)
+					throw new Error(
+						"The lookup detail is missing from the checked table.",
+					);
+				return name;
+			};
+			const steps = lookupReadSteps(
+				{
+					wireNameFor: (column) =>
+						requiredName(
+							table.columns.find((item) => item.id === column)?.wireName,
+						),
+					memberNameFor: (column, id) =>
+						requiredName(
+							(column === undefined
+								? table.attributes
+								: table.columns.find((item) => item.id === column)?.properties
+							)?.find((member) => member.id === id)?.wireName,
+						),
+				},
+				read,
+			);
+			return serializeWire(w.context(steps), { target: "suite" }).text;
+		},
 		lookupInstancePrefix:
 			context.profile.scope === "session" ? "item-list:" : "",
 		locationLevelCode: (level) => organizationLevelsOf(scope.doc)[level]?.code,

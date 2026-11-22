@@ -42,6 +42,7 @@ import type {
 } from "@/lib/lookup/types";
 import { appsThatReadIt, COLUMN_GONE_IN_HQ } from "@/lib/publish/managedData";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
+import { EditLookupDetailsDialog } from "./EditLookupDetailsDialog";
 import { LookupOrderingSection } from "./LookupOrderingSection";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import {
@@ -82,6 +83,7 @@ export function ColumnInspectorBody({
 					(candidate) => candidate.wireName === column.wireName,
 				)?.apps
 			: undefined;
+	const [editingDetails, setEditingDetails] = useState(false);
 	const labelId = useId();
 	const wireNameId = useId();
 	const typeId = useId();
@@ -349,6 +351,20 @@ export function ColumnInspectorBody({
 				</p>
 			</div>
 
+			{canEdit && (
+				<Button variant="outline" onClick={() => setEditingDetails(true)}>
+					Edit value settings
+				</Button>
+			)}
+			{canEdit && editingDetails && (
+				<EditLookupDetailsDialog
+					canChangeShape={canDelete}
+					table={table}
+					column={column}
+					onClose={() => setEditingDetails(false)}
+					onSaved={workspace.reload}
+				/>
+			)}
 			<LookupOrderingSection
 				kind="column"
 				itemId={column.id}

@@ -118,6 +118,7 @@ export interface PublishedMediaFile {
 	readonly assetId: IconRef;
 	/** The SHA-256 of the file's bytes, as `media_assets.content_hash` holds it. */
 	readonly contentHash: string;
+	readonly sizeBytes?: number;
 	readonly kind: AssetKind;
 }
 
@@ -133,6 +134,7 @@ export function publishedMediaFiles(
 		wirePath: asset.wirePath,
 		assetId: asset.assetId,
 		contentHash: asset.contentHash,
+		...(asset.byteSource && { sizeBytes: asset.byteSource.size }),
 		kind: asset.kind,
 	}));
 }

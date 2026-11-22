@@ -92,6 +92,7 @@ interface ProjectIndexCatalog {
 }
 
 interface AppsProjectCatalog {
+	readonly worker_assignments_installed: boolean;
 	readonly current_user: string;
 	readonly apps_column: ProjectColumnCatalog;
 	readonly app_changes_from_column: ProjectColumnCatalog;
@@ -294,6 +295,7 @@ const EXPECTED_PROJECT_KEY_CONSTRAINTS: readonly ProjectConstraintCatalog[] = [
 function expectedConstraints(
 	casesSchema: string,
 	includeAuthProjectForeignKeys: boolean,
+	workerAssignmentsInstalled: boolean,
 ): readonly ProjectConstraintCatalog[] {
 	const constraints: ProjectConstraintCatalog[] = [
 		constraint({
@@ -396,6 +398,30 @@ function expectedConstraints(
 				"FOREIGN KEY (project_id, app_id) REFERENCES apps(project_id, id) ON UPDATE RESTRICT ON DELETE CASCADE",
 		}),
 	];
+	// The app migration ledger, rather than the observed FKs, determines the
+	// exact catalog. A missing, altered or extra constraint still fails closed.
+	if (workerAssignmentsInstalled)
+		for (const relation of ["worker_group_members", "lookup_row_assignments"]) {
+			constraints.push(
+				constraint({
+					name: relation + "_project_id_app_id_fkey",
+					constraint_type: "f",
+					local_schema: "public",
+					local_relation: relation,
+					local_columns: ["project_id", "app_id"],
+					referenced_schema: "public",
+					referenced_relation: "apps",
+					referenced_columns: ["project_id", "id"],
+					update_action: "a",
+					delete_action: "c",
+					deferrable: false,
+					initially_deferred: false,
+					validated: true,
+					definition:
+						"FOREIGN KEY (project_id, app_id) REFERENCES apps(project_id, id) ON DELETE CASCADE",
+				}),
+			);
+		}
 	if (includeAuthProjectForeignKeys) {
 		constraints.push(
 			constraint({
@@ -981,6 +1007,16 @@ async function readProjectIndexes(
 async function captureAppsProjectCatalog(
 	db: Kysely<unknown>,
 ): Promise<AppsProjectCatalog> {
+	const ledger = await sql<{
+		present: boolean;
+	}>`SELECT to_regclass('public.kysely_migration') IS NOT NULL AS present`.execute(
+		db,
+	);
+	const assignmentVersion = ledger.rows[0]?.present
+		? await sql`SELECT 1 FROM public.kysely_migration WHERE name='20261207000000_worker_assignments'`.execute(
+				db,
+			)
+		: null;
 	const appsColumn = await readProjectColumn(db, "apps", "project_id");
 	const appChangesFromColumn = await readProjectColumn(
 		db,
@@ -1132,6 +1168,7 @@ async function captureAppsProjectCatalog(
 			};
 	return {
 		current_user: currentUser,
+		worker_assignments_installed: Boolean(assignmentVersion?.rows.length),
 		apps_column: appsColumn,
 		app_changes_from_column: appChangesFromColumn,
 		app_changes_to_column: appChangesToColumn,
@@ -1217,7 +1254,11 @@ function isExactState(
 		) &&
 		exactJson(
 			catalog.constraints,
-			expectedConstraints(casesSchema, includeAuthProjectForeignKeys),
+			expectedConstraints(
+				casesSchema,
+				includeAuthProjectForeignKeys,
+				catalog.worker_assignments_installed,
+			),
 		) &&
 		exactJson(
 			catalog.apps_indexes,

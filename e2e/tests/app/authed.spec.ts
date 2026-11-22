@@ -5538,6 +5538,185 @@ test.describe("authenticated builder", () => {
 	 * makes the state model the right unit for Vitest; it does not make the
 	 * composition around it verify itself.
 	 */
+	test("edit ordered lookup values and their individual details", {
+		tag: "@seed:workspace",
+	}, async ({ scenario, page }) => {
+		const seed = seedFor(scenario, "workspace");
+		await openBuilder(page, seed.caseWorkspace.routes.projectData);
+		await page.getByRole("button", { name: "New data table" }).click();
+		const dialog = page.getByRole("dialog");
+		await dialog.getByLabel("Table name").fill("Clinic names");
+		await dialog.getByLabel("Name people see").fill("Names");
+		await dialog.getByLabel("Allow several values per row").check();
+		await dialog.getByRole("button", { name: "Add value detail" }).click();
+		await dialog.getByLabel("Name for value detail 1").fill("Language");
+		await dialog.getByRole("button", { name: "Add row detail" }).click();
+		await dialog.getByLabel("Name for row detail 1").fill("District");
+		await dialog.getByRole("button", { name: "Create table" }).click();
+		await expect(
+			page.getByRole("heading", { name: "Clinic names", level: 1 }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Add row", exact: true }).click();
+		await page.getByLabel("District", { exact: true }).fill("007");
+		await page.getByRole("button", { name: "Add value", exact: true }).click();
+		await page.getByLabel("Names, value 1", { exact: true }).fill(" Hill ");
+		await page.getByLabel("Language", { exact: true }).fill("en");
+		await page.getByRole("button", { name: "Add value", exact: true }).click();
+		const second = page.getByRole("group", { name: "Value 2", exact: true });
+		await second.getByLabel("Names, value 2", { exact: true }).fill(" Hill ");
+		await second.getByLabel("Language", { exact: true }).fill("fr");
+		await second.getByRole("button", { name: "Move value 2 up" }).click();
+		await page.getByRole("button", { name: "Save row", exact: true }).click();
+		await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+		await reloadBuilder(page);
+		await page
+			.getByRole("button", { name: /^Open row / })
+			.first()
+			.click();
+		await expect(page.getByLabel("District", { exact: true })).toHaveValue(
+			"007",
+		);
+		await expect(
+			page
+				.getByRole("group", { name: "Value 1", exact: true })
+				.getByLabel("Language"),
+		).toHaveValue("fr");
+		await expect(
+			page.getByLabel("Names, value 1", { exact: true }),
+		).toHaveValue(" Hill ");
+		await expect(
+			page
+				.getByRole("group", { name: "Value 2", exact: true })
+				.getByLabel("Language"),
+		).toHaveValue("en");
+		await expect(
+			page.getByRole("button", { name: "Add rows from a file" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Replace rows from CSV" }),
+		).toHaveCount(0);
+		await page.getByRole("button", { name: "Add rows from a file" }).click();
+		const extra = Array.from({ length: 30 }, (_, n) => ({
+			cells: [],
+			content: {
+				attributes: [{ name: "district", text: `District ${n + 1}` }],
+				occurrences: [
+					{
+						name: "names",
+						values: [
+							{
+								text: "Clinic",
+								properties: [
+									{ name: "language", text: n === 29 ? "Last dialect" : "en" },
+								],
+							},
+						],
+					},
+				],
+			},
+		}));
+		const addFile = page.getByRole("dialog", { name: "Add rows from a file" });
+		await addFile.getByLabel("Rows file").setInputFiles({
+			name: "directory.json",
+			mimeType: "application/json",
+			buffer: Buffer.from(JSON.stringify(extra)),
+		});
+		await addFile
+			.getByRole("button", { name: "Add rows", exact: true })
+			.click();
+		await expect(addFile).toHaveCount(0);
+		await expect(
+			page.getByText("Rows 1–25 of 31", { exact: true }),
+		).toBeVisible();
+		await page
+			.getByRole("navigation", { name: "Rows, by page" })
+			.getByRole("button", { name: "Next" })
+			.click();
+		await expect(
+			page.getByText("Rows 26–31 of 31", { exact: true }),
+		).toBeVisible();
+		const search = page.getByRole("searchbox", { name: "Find a row" });
+		await search.fill("Last dialect");
+		await expect(
+			page.getByText("1 row matching", { exact: true }),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: /^Open row at position 31$/ })
+			.click();
+		await expect(
+			page.getByText("Position 31 of 31", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByLabel("District", { exact: true })).toHaveValue(
+			"District 30",
+		);
+	});
+
+	test("import long text and change one Unicode span without changing the rest of the row", {
+		tag: "@seed:workspace",
+	}, async ({ scenario, page }) => {
+		const seed = seedFor(scenario, "workspace");
+		await openBuilder(page, seed.caseWorkspace.routes.projectData);
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupTableName}`),
+			})
+			.click();
+		await page
+			.getByRole("button", { name: "Open row chc", exact: true })
+			.click();
+		await page
+			.getByRole("button", { name: "Edit a single value or import text" })
+			.click();
+		await page
+			.getByRole("button", { name: "Open text editor" })
+			.first()
+			.click();
+		const contents = `A🌱${"z".repeat(8192)}preserved section${"n".repeat(70000)}`;
+		await page.getByLabel("Or use a UTF-8 text file").setInputFiles({
+			name: "referral.txt",
+			mimeType: "text/plain",
+			buffer: Buffer.from(contents, "utf8"),
+		});
+		await page.getByRole("button", { name: "Save replacement" }).click();
+		await expect(
+			page.getByText("Open this row to read its values in parts."),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: "Open text editor" })
+			.first()
+			.click();
+		const current = page.getByLabel("Text in this part");
+		await expect(current).toHaveValue(/^A🌱z/);
+		const firstPart = await current.inputValue();
+		await current.fill(firstPart.replace("🌱", "🐝🐝"));
+		await page.getByRole("button", { name: "Save replacement" }).click();
+		await expect(current).toHaveCount(0);
+		await reloadBuilder(page);
+		await page
+			.getByRole("button", { name: "Open row at position 1", exact: true })
+			.click();
+		await page
+			.getByRole("button", { name: "Open text editor" })
+			.first()
+			.click();
+		await expect(current).toHaveValue(/^A🐝🐝z/);
+		await page.getByRole("button", { name: "Next part", exact: true }).click();
+		await expect(current).toHaveValue(/preserved section/);
+		await page
+			.getByRole("button", { name: "Back to row", exact: true })
+			.click();
+		await page.getByRole("combobox", { name: "Column or row detail" }).click();
+		await page
+			.getByRole("option", {
+				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+				exact: true,
+			})
+			.click();
+		await expect(
+			page.getByText("Community health centre", { exact: true }),
+		).toBeVisible();
+	});
+
 	test("a select can be pointed at a shared data table's column", {
 		tag: "@seed:workspace",
 	}, async ({ scenario, page, browser, baseURL }) => {
@@ -5581,7 +5760,7 @@ test.describe("authenticated builder", () => {
 			}),
 		).toBeVisible();
 		await expect(
-			page.getByText("This table has its columns but no rows yet.", {
+			page.getByText("This table has no rows yet.", {
 				exact: false,
 			}),
 		).toBeVisible();
@@ -5857,6 +6036,9 @@ test.describe("authenticated builder", () => {
 			}),
 		).toBeVisible();
 		await findRow.fill("");
+		await expect(
+			page.getByRole("status").filter({ hasText: /row(?:s)? matching/ }),
+		).toHaveCount(0);
 
 		// A rapid repeated gesture creates exactly one row, and the returned row
 		// is selected/revealed immediately instead of being stranded off-page.

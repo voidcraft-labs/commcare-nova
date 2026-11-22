@@ -79,7 +79,8 @@ function check(
 		},
 		{
 			device: webAppsDevice(),
-			appId: undefined,
+			projectId:"test-project",
+ appId: undefined,
 			identity,
 			cases: { rows: [], indices: [] },
 			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },

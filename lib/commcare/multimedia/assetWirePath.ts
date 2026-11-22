@@ -82,6 +82,7 @@ export interface ResolvedMediaAsset {
 	readonly extension: string;
 	/** Validated bytes, present only when the consumer will bundle the file. */
 	readonly bytes?: Buffer;
+	readonly byteSource?: {size:number;open:()=>AsyncIterable<Uint8Array>};
 }
 
 /**

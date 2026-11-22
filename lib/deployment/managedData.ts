@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Transaction } from "kysely";
 import { z } from "zod";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareCredentials } from "@/lib/commcare/client";
 import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
@@ -10,20 +11,31 @@ import {
 	type HqFailure,
 	type HqFailureKind,
 } from "@/lib/commcare/hq/failure";
-import { type HqLocation, listHqLocations } from "@/lib/commcare/hq/locations";
+import { readPlaceState } from "@/lib/organization/pages";
+import { readHqPlaceInventory } from "@/lib/commcare/hq/locationInventory";
+import type { HqLocation } from "@/lib/commcare/hq/locations";
+import { readVerifiedGlobalLookupRows } from "@/lib/commcare/hq/lookupCoverage";
+import {
+	type LookupWorkerProjection,
+	readLookupWorkerRestore,
+} from "@/lib/commcare/hq/lookupRestore";
+import {
+	readSelectedHqLookupRows,
+	verifyHqLookupDefinition,
+} from "@/lib/commcare/hq/lookupSource";
 import {
 	type HqFixtureRow,
 	type HqLookupTable,
 	LOOKUP_ROWS_READ_CONCURRENCY,
 	listHqLookupTables,
-	readHqLookupTableRows,
-	rowsHoldOtherThanOneValue,
 } from "@/lib/commcare/hq/lookupTables";
+import { findHqMobileWorkers } from "@/lib/commcare/hq/workers";
 import { COMMCARE_SERVERS, isCommCareServer } from "@/lib/commcare/servers";
 import { xmlTextIssue } from "@/lib/commcare/xmlText";
 import { loadAppInTransaction } from "@/lib/db/apps";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
+import { projectRoleFor } from "@/lib/db/projectMembership";
 import { getCommCareSettings, getHqCredentials } from "@/lib/db/settings";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
@@ -45,6 +57,10 @@ import {
 import { LOOKUP_MAX_COLUMNS, LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { LookupError } from "@/lib/lookup/errors";
 import {
+	type InventoryAccess,
+	lockInventoryScope,
+} from "@/lib/lookup/generations/scope";
+import {
 	LookupReviewMovedError,
 	type ManagedRefreshReceipt,
 	type ManagedTableReview,
@@ -60,10 +76,10 @@ import {
 } from "@/lib/lookup/managedRules";
 import { lookupWireNameSchema } from "@/lib/lookup/schema";
 import { getLookupDefinitions, getLookupManifest } from "@/lib/lookup/service";
+import { lookupSourceFactsSchema } from "@/lib/lookup/source";
 import type {
 	LookupHqOrigin,
 	LookupReferencingAppSummary,
-	LookupRowValues,
 	LookupScope,
 	LookupTableDefinition,
 	LookupTableManifestEntry,
@@ -71,6 +87,8 @@ import type {
 import {
 	authorizeLookupWriteInTransaction,
 	LookupAuthorityError,
+	lockLookupProjectState,
+	lockLookupTableForUpdate,
 } from "@/lib/lookup/writerTransaction";
 import { OrganizationError } from "@/lib/organization/errors";
 import {
@@ -78,8 +96,6 @@ import {
 	type ManagedPlacesRefresh,
 	refreshManagedPlacesInTransaction,
 } from "@/lib/organization/managed";
-import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
-import { readOrganization } from "@/lib/organization/service";
 import type { OrganizationScope } from "@/lib/organization/types";
 import {
 	CONNECT_TO_REFRESH_PLACES,
@@ -94,7 +110,6 @@ import {
 	MANAGEMENT_REVIEW_MOVED,
 	managedColumnGoneItem,
 	managedPlaceNotHoldable,
-	managedPlacesOverLimit,
 	managedTableGone,
 	managedTableGoneItem,
 	managedTableManyValuesItem,
@@ -109,15 +124,22 @@ import {
 	REFRESH_NEEDS_EDITOR,
 	TABLE_TAKEN_OVER_MEANWHILE,
 } from "@/lib/publish/managedData";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { deploymentNotFound } from "./errors";
 import { canonicalLookupTable } from "./hqResourceBaseline";
 import {
 	describeUnsupportedLookupContent,
 	type UnsupportedLookupContent,
-	unsupportedLookupContent,
 } from "./lookupResourcePlan";
-import { managedLookupContentOf } from "./reading/projectData/lookupTables";
+import { refreshSourceInventory } from "./managedInventory";
+import { transferAssignedSource } from "./assignedSourceTransfer";
+import { transferManagedGeneration } from "./managedTransfer";
+import {
+	boundSourceFixture,
+	managedLookupContentOf,
+	provisionalLookupBinding,
+} from "./reading/projectData/lookupTables";
 import { planManagedPlaces } from "./reading/projectData/places";
 import type { DeploymentScope, DeploymentTargetKey } from "./store";
 import type { CanonicalLookupTable, ResourceBaseline } from "./types";
@@ -170,6 +192,8 @@ interface ReadColumn {
 
 /** A managed table as Nova stores it: its columns and what its origin columns hold. */
 interface StoredManagedTable {
+	readonly sourceInventory: boolean;
+	readonly projectId: string;
 	readonly id: LookupTableId;
 	readonly name: string;
 	readonly tag: string;
@@ -244,15 +268,11 @@ async function managedTableChanges(
 	if (table.fields.length === 0 && changes.length === 0) {
 		changes.push({ kind: "no-columns" });
 	}
-	const holds = unsupportedLookupContent(table);
-	if (holds.length > 0) changes.push({ kind: "unsupported", holds });
 	if (read.kind === "past-limit") {
 		changes.push({ kind: "over-cap", phrase: read.phrase });
 		return changes;
 	}
 	const { rows } = read;
-	const manyValues = rowsHoldOtherThanOneValue(rows);
-	if (manyValues) changes.push({ kind: "more-than-one-value" });
 
 	const badNames = table.fields.filter(
 		(field) => !lookupWireNameSchema.safeParse(field).success,
@@ -270,10 +290,22 @@ async function managedTableChanges(
 	/* The caps are judged only over content a copy could hold: a row with a
 	 * field of several values, a name the grammar refuses or a character no
 	 * stored row can carry is already a stop. */
-	if (!manyValues && badNames.length === 0 && unrepresentable === undefined) {
+	if (badNames.length === 0 && unrepresentable === undefined) {
 		const content = managedLookupContentOf(table, rows);
+		const projected = boundSourceFixture(
+			table,
+			rows,
+			provisionalLookupBinding(table, {
+				appId: stored.id,
+				readingId: stored.id,
+			}),
+		).rows;
 		const measured = await measureLookupRows(
-			rowsAsStored(stored, content.fields, content.rows),
+			projected.map((row) => row.values),
+			projected.map(({ attributes, occurrences }) => ({
+				attributes,
+				occurrences,
+			})),
 		);
 		const keptGone = stored.columns.filter(
 			(column) => column.kept && !fields.has(column.wireName),
@@ -293,39 +325,6 @@ async function managedTableChanges(
 		changes.push({ kind: "unrepresentable-text", column: unrepresentable });
 	}
 	return changes;
-}
-
-/**
- * The content's rows keyed by column id, as the copy would store them, for
- * Postgres to measure: a field the table has a column for under that
- * column's id, and a new one under a fixed id of the same length.
- */
-function rowsAsStored(
-	stored: StoredManagedTable,
-	fields: readonly string[],
-	rows: readonly Readonly<Record<string, string>>[],
-): LookupRowValues[] {
-	const idOf = new Map<string, string>(
-		stored.columns.map((column) => [column.wireName, column.id]),
-	);
-	fields.forEach((field, index) => {
-		if (!idOf.has(field)) {
-			idOf.set(
-				field,
-				`00000000-0000-7000-8000-${index.toString().padStart(12, "0")}`,
-			);
-		}
-	});
-	return rows.map((row) => {
-		const values: Record<string, string> = {};
-		for (const field of fields) {
-			if (!Object.hasOwn(row, field)) continue;
-			const id = idOf.get(field);
-			if (id === undefined) throw new Error(`No column id for ${field}.`);
-			values[id] = row[field];
-		}
-		return values as LookupRowValues;
-	});
 }
 
 /** One item of `hq_managed_data_changed` per change, in the item sentences of `lib/publish/managedData.ts`. */
@@ -440,6 +439,11 @@ async function readStoredManagedTables(
 		const canonical = managedCanonicalSchema.parse(table.hq_canonical);
 		return {
 			id: lookupTableIdSchema.parse(table.id),
+			sourceInventory:
+				canonical.source?.inventory === "unavailable" ||
+				canonical.source?.distribution === "assigned" ||
+				canonical.source?.storage === "generation",
+			projectId,
 			name: table.name,
 			tag: table.tag,
 			server: table.hq_server,
@@ -498,16 +502,61 @@ async function readTable(
 	creds: CommCareCredentials,
 	domain: string,
 	list: readonly HqLookupTable[],
-	tag: string,
+	stored: Pick<StoredManagedTable, "id" | "projectId" | "tag" | "remoteId">,
 ): Promise<TableRead> {
-	const table = list.find((candidate) => candidate.tag === tag);
-	if (table === undefined) return { kind: "gone" };
+	const peers = list.filter((candidate) => candidate.tag === stored.tag);
+	const [table] = peers;
+	if (peers.length !== 1 || table === undefined || table.id !== stored.remoteId)
+		return { kind: "gone" };
 	/* A table past Nova's caps is over a cap whatever its rows hold, so the
 	 * read stops after the first page that says so. */
-	const rows = await readHqLookupTableRows(creds, domain, table, {
+	let rows = await readSelectedHqLookupRows(creds, domain, table, {
 		maxRows: LOOKUP_MAX_ROWS,
 		maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 	});
+	// A zero-occurrence field fails inside HQ's own filtered list serializer.
+	// Auth refusals, temp network failures and malformed answers grant no fallback.
+	if (
+		"success" in rows &&
+		rows.status === 500 &&
+		!rows.edgeRefusal &&
+		rows.cause === undefined &&
+		table.isGlobal
+	) {
+		const db = await getAppDb();
+		const candidates = await db
+			.selectFrom("lookup_rows")
+			.select("hq_row_id")
+			.innerJoin("lookup_tables", (join) =>
+				join
+					.onRef("lookup_tables.id", "=", "lookup_rows.table_id")
+					.onRef("lookup_tables.project_id", "=", "lookup_rows.project_id"),
+			)
+			.where("lookup_rows.project_id", "=", stored.projectId)
+			.where("lookup_rows.table_id", "=", stored.id)
+			.where("lookup_tables.hq_remote_id", "=", table.id)
+			.where("lookup_tables.hq_domain", "=", domain)
+			.where("lookup_tables.hq_server", "=", creds.server)
+			.limit(LOOKUP_MAX_ROWS + 1)
+			.execute();
+		if (
+			candidates.length <= LOOKUP_MAX_ROWS &&
+			candidates.every((row) => row.hq_row_id !== null)
+		) {
+			rows = await readVerifiedGlobalLookupRows(creds, domain, table, {
+				binding: canonicalJsonDigest([
+					stored.projectId,
+					stored.id,
+					creds.username,
+				]),
+				candidates: candidates.flatMap((row) =>
+					row.hq_row_id === null ? [] : [row.hq_row_id],
+				),
+				maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+			});
+		}
+	}
+
 	if ("success" in rows) {
 		return {
 			kind: "failed",
@@ -725,7 +774,7 @@ export async function reReadManagedTablesForPublish(input: {
 		const reads = await mapWithConcurrency(
 			here,
 			LOOKUP_ROWS_READ_CONCURRENCY,
-			(stored) => readTable(creds, target.domain, list, stored.tag),
+			(stored) => readTable(creds, target.domain, list, stored),
 		);
 		for (const [index, stored] of here.entries()) {
 			const read = reads[index];
@@ -773,7 +822,7 @@ export async function reReadManagedTablesForPublish(input: {
 		const reads = await mapWithConcurrency(
 			group,
 			LOOKUP_ROWS_READ_CONCURRENCY,
-			(stored) => readTable(credentials.creds, origin.domain, list, stored.tag),
+			(stored) => readTable(credentials.creds, origin.domain, list, stored),
 		);
 		for (const [index, stored] of group.entries()) {
 			const read = reads[index];
@@ -793,9 +842,8 @@ export async function reReadManagedTablesForPublish(input: {
 
 	const refreshed: { tag: string; receipt: ManagedRefreshReceipt }[] = [];
 	for (const { stored, table, rows } of pending) {
-		const canonical = canonicalLookupTable(table, rows);
-		if (canonical.digest === stored.digest && table.id === stored.remoteId)
-			continue;
+		/* The copy compares source identities too. Replacing a row with the same
+		 * values still changes its provenance. */
 		try {
 			const receipt = await refreshTable(
 				scope,
@@ -807,7 +855,7 @@ export async function reReadManagedTablesForPublish(input: {
 			);
 			/* A newer refresh landed while this publish read CommCare HQ: the
 			 * copy holds that read, and this one changed nothing. */
-			if (receipt.changed !== "superseded") {
+			if (receipt.changed !== "superseded" && receipt.changed !== "nothing") {
 				refreshed.push({ tag: stored.tag, receipt });
 			}
 		} catch (error) {
@@ -916,6 +964,7 @@ export async function readLookupTableOrigins(
 /** `CanonicalLookupTable`, as `hqResourceBaseline.ts::canonicalLookupTable` writes it. */
 const DIGEST = z.string().regex(/^[0-9a-f]{64}$/);
 const canonicalLookupTableSchema = z.object({
+	source: lookupSourceFactsSchema.optional(),
 	remoteId: z.string().min(1),
 	tag: z.string(),
 	isGlobal: z.boolean(),
@@ -923,7 +972,7 @@ const canonicalLookupTableSchema = z.object({
 		z.object({ name: z.string(), properties: z.array(z.string()) }),
 	),
 	itemAttributes: z.array(z.string()),
-	rowCount: z.number().int().nonnegative(),
+	rowCount: z.number().int().nonnegative().nullable(),
 	rowsDigest: DIGEST,
 	definitionDigest: DIGEST,
 	digest: DIGEST,
@@ -1045,12 +1094,7 @@ async function readForCopy(
 	if ("success" in list) {
 		return failed(classifyHqFailure(list, "lookup-tables"));
 	}
-	const read = await readTable(
-		credentials.creds,
-		stored.domain,
-		list,
-		stored.tag,
-	);
+	const read = await readTable(credentials.creds, stored.domain, list, stored);
 	if (read.kind === "failed") return failed(read.failure);
 	const [change] = await managedTableChanges(stored, read, []);
 	if (change !== undefined) return changeRefusal(stored, change);
@@ -1115,6 +1159,104 @@ async function storedManagedTable(
 	return stored ?? null;
 }
 
+/** A single projection a Project editor explicitly chose to inspect. Project,
+ * table, remote origin and the caller's existing key are resolved server-side.
+ * A new full restore is fetched on each use and no unrelated restore data is returned. */
+export async function inspectManagedLookupWorker(
+	access: InventoryAccess,
+	workerName: string,
+): Promise<
+	| { ok: true; tableName: string; worker: LookupWorkerProjection }
+	| { ok: false; message: string }
+> {
+	const unavailable = {
+		ok: false as const,
+		message:
+			"Nova couldn't verify the current data for this worker. You can check the worker's account and your connection to the table's project space, then refresh.",
+	};
+	const { scope, tableId } = access;
+	const initial = await withAppTx((tx) => lockInventoryScope(tx, access));
+	const standing = await readManagedTableReview(scope.projectId, tableId);
+	const origin = standing?.definition.hq;
+	if (
+		!standing ||
+		!origin ||
+		origin.managedBy !== "commcare-hq" ||
+		!roleAllowsApp(scope.role, "edit")
+	)
+		return unavailable;
+	const grant = await originCredentials(scope.actorId, origin);
+	if (!grant.ok) return unavailable;
+	const listed = await listHqLookupTables(grant.creds, origin.domain);
+	if ("success" in listed) return unavailable;
+	const peers = listed.filter((table) => table.tag === standing.definition.tag);
+	const [table] = peers;
+	if (peers.length !== 1 || !table || table.id !== origin.remoteId)
+		return unavailable;
+	const localPart = workerName.trim().toLowerCase();
+	if (localPart && !/^[\w.+-]{1,128}$/.test(localPart)) return unavailable;
+	let worker: { username: string; userId?: string } = {
+		username: grant.creds.username,
+	};
+	if (localPart) {
+		const username = localPart + "@" + origin.domain + ".commcarehq.org";
+		const result = await findHqMobileWorkers(grant.creds, origin.domain, [
+			username,
+		]);
+		if (
+			"success" in result ||
+			result.length !== 1 ||
+			result[0].username !== username
+		)
+			return unavailable;
+		worker = result[0];
+	}
+	const observation = await readLookupWorkerRestore(
+		grant.creds,
+		origin.domain,
+		table,
+		worker,
+		{
+			binding: canonicalJsonDigest([
+				scope.projectId,
+				tableId,
+				scope.actorId,
+				standing.reviewDigest,
+			]),
+		},
+	);
+	if (
+		"success" in observation ||
+		observation.read !== "full" ||
+		(localPart !== "" && observation.principal !== "commcare")
+	)
+		return unavailable;
+	if (await verifyHqLookupDefinition(grant.creds, origin.domain, table))
+		return unavailable;
+	const [current, role, reconnected] = await Promise.all([
+		readManagedTableReview(scope.projectId, tableId),
+		projectRoleFor(scope.actorId, scope.projectId),
+		originCredentials(scope.actorId, origin),
+	]);
+	if (
+		!current ||
+		current.reviewDigest !== standing.reviewDigest ||
+		!role ||
+		!roleAllowsApp(role, "edit") ||
+		!reconnected.ok ||
+		reconnected.creds.username !== grant.creds.username ||
+		reconnected.creds.apiKey !== grant.creds.apiKey
+	)
+		return unavailable;
+	const final = await withAppTx((tx) => lockInventoryScope(tx, access));
+	if (
+		final.scopeDigest !== initial.scopeDigest ||
+		final.revision !== initial.revision
+	)
+		return unavailable;
+	return { ok: true, tableName: standing.definition.name, worker: observation };
+}
+
 /** The outcome of a write that landed: the receipt and the table's manifest entry now. */
 async function landed(
 	scope: LookupScope,
@@ -1135,6 +1277,7 @@ async function landed(
 export async function refreshManagedLookupTable(
 	scope: LookupScope,
 	tableId: LookupTableId,
+	grant?: ProjectDataGrant,
 ): Promise<ManagedTableOutcome> {
 	const stored = await storedManagedTable(scope, tableId);
 	if (stored === null) return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
@@ -1145,9 +1288,24 @@ export async function refreshManagedLookupTable(
 		return refusedTable("state-changed", TABLE_TAKEN_OVER_MEANWHILE);
 	}
 	const at = new Date();
-	const read = await readForCopy(scope, stored);
-	if (!read.ok) return read;
 	try {
+		const stream = async () => {
+			if (!grant)
+				return refusedTable(
+					"not-permitted",
+					"This refresh needs your current sign-in. You can reconnect and try again.",
+				);
+			const result = await refreshSourceInventory(
+				{ scope, tableId, grant },
+				stored,
+			);
+			if (!result.ok) return refusedTable(result.reason, result.message);
+			return landed(scope, stored.id, result.receipt);
+		};
+		if (stored.sourceInventory) return await stream();
+		const read = await readForCopy(scope, stored);
+		if (!read.ok)
+			return read.reason === "over-cap" && grant ? await stream() : read;
 		const receipt = await refreshTable(
 			scope,
 			stored,
@@ -1194,6 +1352,9 @@ function refusedWrite(error: unknown, conflictMessage: string): Refused | null {
 			return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
 		case "storage_limit":
 			return refusedTable("over-cap", error.message);
+		case "managed_in_hq":
+		case "referenced":
+		case "accepted_design":
 		case "invalid_input":
 			return refusedTable("unsupported", error.message);
 		default:
@@ -1229,7 +1390,8 @@ async function reviewStanding(
 /**
  * Hand a table CommCare HQ manages to Nova: from now on it is edited in
  * Nova and each publish to its project space replaces CommCare HQ's table
- * with Nova's. Reads nothing of CommCare HQ. Needs the Project's `delete`,
+ * with Nova's. A fresh global fixture and ordered inventory establish the
+ * source data and index flags. Needs the Project's `delete`,
  * read again on the write's transaction. Acts only where `reviewDigest` is
  * the table's review as it stands, and holds the write to that review under
  * the table's lock (`takeOverManagedLookupTableInTransaction`). A table Nova
@@ -1239,21 +1401,141 @@ export async function manageLookupTableInNova(
 	scope: LookupScope,
 	tableId: LookupTableId,
 	reviewDigest: string,
+	dataGrant?: ProjectDataGrant,
+ renewedWorkbook?:Buffer,
 ): Promise<ManagedTableOutcome> {
 	const standing = await reviewStanding(scope, tableId, reviewDigest);
 	if (!standing.ok) return standing;
 	const { review } = standing;
 	if (review.managedBy === "nova") return landed(scope, review.tableId, null);
+	const stored = await storedManagedTable(scope, tableId);
+	if (!stored) return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
+	if(review.definition.hq?.source?.distribution==="assigned"){
+   if(!dataGrant||!renewedWorkbook)return refusedTable("unsupported","You can download just this table from its project space and attach that new workbook to confirm its worker assignments.");
+   if(review.definition.hq.source.inventory!=="complete")return refusedTable("unsupported","You can refresh the source inventory before transferring this table.");
+   try{await transferAssignedSource({scope,tableId,grant:dataGrant},review,renewedWorkbook);}
+   catch(error){const refused=refusedWrite(error,TABLE_TAKEN_OVER_MEANWHILE);if(refused)return refused;throw error;}
+   return landed(scope,review.tableId,null);
+ }
+ if (review.definition.hq?.source?.storage === "generation") {
+		if (!dataGrant)
+			return refusedTable(
+				"not-permitted",
+				"This transfer needs your current sign-in. You can reconnect and try again.",
+			);
+		if (review.definition.hq.source.distribution !== "global")
+			return refusedTable(
+				"unsupported",
+				"Nova needs the table’s current worker access settings before it can take over this source.",
+			);
+		try {
+			await transferManagedGeneration(
+				{ scope, tableId, grant: dataGrant },
+				review,
+			);
+		} catch (error) {
+			const refusal = refusedWrite(error, TABLE_TAKEN_OVER_MEANWHILE);
+			if (refusal) return refusal;
+			throw error;
+		}
+		return landed(scope, tableId, null);
+	}
+	const access = dataGrant ? { scope, tableId, grant: dataGrant } : undefined;
+	const initial = access
+		? await withAppTx((tx) => lockInventoryScope(tx, access, "transfer"))
+		: undefined;
+	const source = await readForCopy(scope, stored);
+	if (!source.ok) return source;
+	const cannotTransfer = () =>
+		refusedTable(
+			"unsupported",
+			"Nova needs the complete table and current index and worker access settings to manage it. You can keep using the table in its project space.",
+		);
+	if (!source.table.isGlobal) return cannotTransfer();
+	const grant = await originCredentials(scope.actorId, stored);
+	if (!grant.ok) return refusedTable("not-connected", CONNECT_TO_REFRESH_TABLE);
+	const verified = await readVerifiedGlobalLookupRows(
+		grant.creds,
+		stored.domain,
+		source.table,
+		{
+			binding: canonicalJsonDigest([
+				scope.projectId,
+				scope.actorId,
+				tableId,
+				reviewDigest,
+			]),
+			candidates: source.rows.map((row) => row.id),
+			maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+		},
+	);
+	if ("success" in verified) return cannotTransfer();
+	const fresh = canonicalLookupTable(source.table, verified.rows);
+	if (fresh.digest !== stored.digest)
+		return refusedTable(
+			"review-moved",
+			"The source table changed since this copy was reviewed. You can refresh it and review the changes.",
+		);
+	const renewed = await originCredentials(scope.actorId, stored);
+	if (
+		!renewed.ok ||
+		renewed.creds.username !== grant.creds.username ||
+		renewed.creds.apiKey !== grant.creds.apiKey
+	)
+		return refusedTable("not-connected", CONNECT_TO_REFRESH_TABLE);
 	try {
-		await withAppTx(async (tx) =>
-			takeOverManagedLookupTableInTransaction(
+		await withAppTx(async (tx) => {
+			if (
+				access &&
+				initial &&
+				(await lockInventoryScope(tx, access, "transfer")).scopeDigest !==
+					initial.scopeDigest
+			)
+				throw new LookupReviewMovedError();
+			const authority = await authorizeLookupWriteInTransaction(
 				tx,
-				await authorizeLookupWriteInTransaction(tx, scope, "delete"),
+				scope,
+				"delete",
+			);
+			await lockLookupProjectState(tx, authority);
+			await lockLookupTableForUpdate(
+				tx,
+				authority,
+				review.tableId,
+				null,
+				"hq-management",
+			);
+			const retained = await tx
+				.selectFrom("lookup_rows")
+				.select(["hq_row_id", "hq_sort_key"])
+				.where("project_id", "=", scope.projectId)
+				.where("table_id", "=", review.tableId)
+				.orderBy("order_key")
+				.orderBy("id")
+				.limit(verified.rows.length + 1)
+				.execute();
+			if (
+				retained.length !== verified.rows.length ||
+				retained.some(
+					(row, i) =>
+						row.hq_row_id !== verified.rows[i].id ||
+						(row.hq_sort_key !== null &&
+							row.hq_sort_key !== verified.rows[i].sortKey),
+				)
+			)
+				throw new LookupError(
+					"managed_in_hq",
+					"The source row identities have changed. You can refresh the table in Project data before reviewing it again.",
+				);
+			return takeOverManagedLookupTableInTransaction(
+				tx,
+				authority,
 				review.tableId,
 				review,
 				new Date(),
-			),
-		);
+				{ sourceDigest: fresh.digest, indexedFields: verified.indexedFields },
+			);
+		});
 	} catch (error) {
 		/* Removed since it was read: the page answers as for any table that
 		 * is not there. A member removed or demoted, or a review that moved,
@@ -1431,7 +1713,7 @@ export const NO_MANAGED_PLACES =
  */
 export async function refreshManagedPlacesFromRead(
 	scope: OrganizationScope,
-	origin: { readonly domain: string },
+	origin: { readonly server:string; readonly domain: string },
 	hqPlaces: readonly HqLocation[],
 	at: Date,
 ): Promise<ManagedPlacesOutcome> {
@@ -1442,6 +1724,8 @@ export async function refreshManagedPlacesFromRead(
 				return placesRefused("not-found", NO_MANAGED_PLACES);
 			}
 			const doc = hydratePersistedBlueprint(app.blueprint);
+			if (hqPlaces.some(place => place.observation === undefined)) return placesRefused("cannot-read",
+				"Nova needs both place inventories from the source project space to refresh its copy. Check your connection to that space, then try again.");
 			const plan: ManagedPlacePlan = planManagedPlaces({
 				hqPlaces,
 				levels: orderedOrganizationLevels(doc),
@@ -1450,12 +1734,7 @@ export async function refreshManagedPlacesFromRead(
 			});
 			const [finding] = plan.findings;
 			if (finding !== undefined) {
-				return finding.code === "places-over-nova-limit"
-					? placesRefused(
-							"over-limit",
-							managedPlacesOverLimit(origin.domain, hqPlaces.length),
-						)
-					: placesRefused(
+				return placesRefused(
 							"not-holdable",
 							managedPlaceNotHoldable(
 								finding.detail.name ?? origin.domain,
@@ -1465,7 +1744,7 @@ export async function refreshManagedPlacesFromRead(
 			}
 			const refresh = await refreshManagedPlacesInTransaction(tx, scope, {
 				plan,
-				at,
+				at, origin,
 			});
 			return { ok: true, refresh, refreshedAt: at.toISOString() } as const;
 		});
@@ -1503,8 +1782,7 @@ function placesRefused(
 export async function refreshManagedPlaces(
 	scope: OrganizationScope,
 ): Promise<ManagedPlacesOutcome> {
-	const snapshot = await readOrganization(scope);
-	const hq = snapshot.hq;
+	const {hq} = await readPlaceState(scope);
 	if (hq === undefined) return placesRefused("not-found", NO_MANAGED_PLACES);
 	if (!roleAllowsApp(scope.role, "edit")) {
 		return placesRefused("not-permitted", REFRESH_NEEDS_EDITOR);
@@ -1516,24 +1794,12 @@ export async function refreshManagedPlaces(
 			: placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain));
 	}
 	const at = new Date();
-	const places = await listHqLocations(credentials.creds, hq.domain, {
-		stopPast: MAX_LOCATIONS_PER_APP,
-	});
-	if ("kind" in places) {
-		return placesRefused(
-			"over-limit",
-			managedPlacesOverLimit(
-				hq.domain,
-				places.by === "rows" ? places.totalCount : null,
-			),
-		);
-	}
-	if ("success" in places) {
-		return isAccountRefusal(classifyHqFailure(places, "locations"))
-			? placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain))
-			: placesRefused("unavailable", HQ_UNAVAILABLE);
-	}
-	return refreshManagedPlacesFromRead(scope, hq, places, at);
+	const inventory = await readHqPlaceInventory(credentials.creds, hq.domain);
+	if (inventory.kind === "inconsistent") return placesRefused("not-holdable", "The place lists in CommCare HQ disagree. You can check the levels and parents there, then refresh again.");
+	if (inventory.kind === "failed") return isAccountRefusal(classifyHqFailure(inventory.error, inventory.request))
+		? placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain))
+		: placesRefused("unavailable", HQ_UNAVAILABLE);
+	return refreshManagedPlacesFromRead(scope, hq, inventory.places, at);
 }
 
 /** What the Organization banner shows of places that came from CommCare HQ. `view`. */
@@ -1543,8 +1809,7 @@ export async function readManagedPlacesView(scope: OrganizationScope): Promise<{
 	/** Whether the viewer has a CommCare HQ connection on that server. */
 	readonly connected: boolean;
 } | null> {
-	const snapshot = await readOrganization(scope);
-	const hq = snapshot.hq;
+	const {hq} = await readPlaceState(scope);
 	if (hq === undefined) return null;
 	const server = serverOf(hq.server);
 	return {

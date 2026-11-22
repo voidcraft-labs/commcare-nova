@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { conditionSchema } from "./expression/types";
-import { lookupColumnIdSchema, lookupTableIdSchema } from "./lookupIds";
+import {lookupReadSchema} from "./lookupRead";
+import { lookupTableIdSchema } from "./lookupIds";
 
 /**
  * A select whose choices come from one Project lookup table.
@@ -13,8 +14,8 @@ import { lookupColumnIdSchema, lookupTableIdSchema } from "./lookupIds";
 export const lookupOptionsSourceSchema = z.strictObject({
 	kind: z.literal("lookup"),
 	tableId: lookupTableIdSchema,
-	valueColumnId: lookupColumnIdSchema,
-	labelColumnId: lookupColumnIdSchema,
+	valueColumnId: lookupReadSchema,
+	labelColumnId: lookupReadSchema,
 	filter: conditionSchema.optional(),
 });
 

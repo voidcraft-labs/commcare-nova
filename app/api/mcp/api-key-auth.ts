@@ -310,6 +310,7 @@ export async function handleApiKeyMcp(
 		userId,
 		scopes,
 		authKind: "api-key",
+		grant: { kind: "api-key", keyId: verifiedKey.id },
 	};
 	return dispatchMcpTools(req, ctx);
 }

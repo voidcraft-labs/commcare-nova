@@ -322,6 +322,7 @@ export function describeLookupChange(
 
 export function describePlaceChange(part: PlaceChangePart): string {
 	switch (part.kind) {
+		case "external-id": return "Its ID in another system changed.";
 		case "name":
 			return "Its name changed.";
 		case "site-code":

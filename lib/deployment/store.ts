@@ -2591,14 +2591,20 @@ export async function admitWorkbookWrite(
 export async function admitPlacesWrite(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	input: DeploymentFence & { readonly locationUuids: readonly string[] },
+	input: DeploymentFence & { readonly locationUuids: readonly string[]; readonly organizationRevision?:string },
 ): Promise<readonly string[]> {
 	return withDeploymentRow(
 		scope,
 		target,
 		{ ensure: false, expectedEndings: input.expectedEndings },
-		async (tx, row) =>
-			admitRemoteWritesInTransaction(
+		async (tx, row) => {
+            if (input.organizationRevision !== undefined) {
+                const state=await tx.selectFrom("app_organization_state").select("revision")
+                    .where("app_id","=",scope.appId).forShare().executeTakeFirst();
+                if (String(state?.revision ?? 0) !== input.organizationRevision)
+                    throw new DeploymentError("stale","The organization changed while these places were being published. Publish again to continue with the current places.");
+            }
+            return admitRemoteWritesInTransaction(
 				tx,
 				input.locationUuids.map((locationUuid) => ({
 					deploymentId: row.id,
@@ -2612,7 +2618,8 @@ export async function admitPlacesWrite(
 					writeKind: "places" as const,
 					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.places,
 				})),
-			),
+			);
+		},
 	);
 }
 
@@ -2921,15 +2928,15 @@ export async function recordDeploymentMediaFiles(
 		readonly files: HqMediaRecord;
 		readonly admitted?: AdmittedRecord;
 	},
-): Promise<void> {
-	await withRecordRow(
+): Promise<boolean> {
+	return withRecordRow(
 		scope,
 		target,
 		{ admitted: input.admitted, writeKinds: ["import", "media"] },
-		async (tx, row) => {
+		async (tx, row, access) => {
 			const { pushToken } = input;
-			if (row.endings !== input.expectedEndings || pushToken === null) return;
-			await tx
+			if (row.endings !== input.expectedEndings || pushToken === null) return false;
+			const applied=await tx
 				.updateTable("app_deployment_baselines")
 				.set({ media_files: JSON.stringify(input.files) })
 				.where("deployment_id", "=", row.id)
@@ -2951,7 +2958,8 @@ export async function recordDeploymentMediaFiles(
 						? eb("source_digest", "is", null)
 						: eb("source_digest", "=", input.sourceDigest),
 				)
-				.execute();
+				.executeTakeFirst();
+			return access.edit && Number(applied.numUpdatedRows)===1;
 		},
 	);
 }
@@ -4183,6 +4191,8 @@ export type ResourcePushOutcome =
 			 */
 			readonly status: "complete";
 			readonly kinds: readonly DeploymentResourceKind[];
+			/** Earlier complete workbooks from this same publish, verified by their exact live mapping. */
+			readonly previousLookups?:readonly {novaResourceId:string;remoteId:string}[];
 			readonly pushedAt: string;
 	  }
 	| {
@@ -4276,13 +4286,15 @@ export async function recordPushedResources(
 					)
 					.execute();
 			};
+			const retained=outcome.previousLookups??[];
+			if(retained.length){
+				const earlier=await tx.selectFrom("app_deployment_resources").select(["nova_resource_id","remote_id"]).where("deployment_id","=",row.id)
+					.where("kind","=","lookup-table").where("superseded_at","is",null).where("nova_resource_id","in",retained.map(r=>r.novaResourceId)).forShare().execute();
+				const current=new Map(earlier.map(r=>[r.nova_resource_id,r.remote_id]));
+				if(retained.some(r=>current.get(r.novaResourceId)!==r.remoteId))throw new Error("A table from an earlier workbook changed during this publish.");
+			}
 			for (const kind of outcome.kinds) {
-				await supersede(
-					kind,
-					inputs
-						.filter((input) => input.kind === kind)
-						.map((input) => input.novaResourceId),
-				);
+				await supersede(kind,[...inputs.filter(input=>input.kind===kind).map(input=>input.novaResourceId),...(kind==="lookup-table"?retained.map(r=>r.novaResourceId):[])]);
 			}
 			const record = toDeploymentRecord(row);
 			const progress = applyAttemptOutcome(record, "resources", {

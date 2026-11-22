@@ -32,6 +32,7 @@ import {
 export type ManualImportStepKind =
 	| "lookup-tables"
 	| "managed-lookup-tables"
+	| "bind-project-data"
 	| "import-app"
 	| "commcare-version"
 	| "media"
@@ -49,6 +50,7 @@ export type ManualImportStepKind =
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"lookup-tables",
 	"managed-lookup-tables",
+	"bind-project-data",
 	"import-app",
 	"commcare-version",
 	"media",
@@ -86,6 +88,10 @@ export interface ManualImportGuideInput {
 	readonly appFileName: string;
 	/** The tag of each lookup table the workbook carries; empty for none. */
 	readonly lookupTags: readonly string[];
+	readonly additionalLookupFiles?: readonly {
+		path: string;
+		tags: readonly string[];
+	}[];
 	/**
 	 * The file's workbooks of the lookup tables CommCare HQ manages, one per
 	 * project space that manages some, in the order the archive holds them:
@@ -93,6 +99,7 @@ export interface ManualImportGuideInput {
 	 * Nova's copy was last refreshed. Empty for none.
 	 */
 	readonly managedLookupFiles: readonly ManagedLookupGuideFile[];
+	readonly needsDataBinding?: boolean;
 	readonly hasMedia: boolean;
 	/** The floor as text, "2.57". The caller formats it; the guide imports no constant. */
 	readonly versionFloor: string;
@@ -150,15 +157,21 @@ export const MANUAL_IMPORT_MEDIA_ZIP = "multimedia.zip";
  * existing tables" box that makes CommCare HQ's copy match Nova's. It comes
  * first, so the app finds its data the moment CommCare HQ builds it.
  */
-function lookupTablesStep(tags: readonly string[]): ManualImportStep {
+function lookupTablesStep(
+	tags: readonly string[],
+	fileName = MANUAL_IMPORT_LOOKUP_WORKBOOK,
+): ManualImportStep {
 	return {
 		kind: "lookup-tables",
-		title: "Upload the lookup tables",
+		title:
+			fileName === MANUAL_IMPORT_LOOKUP_WORKBOOK
+				? "Upload the lookup tables"
+				: `Upload ${fileName}`,
 		lines: [
 			"Open the Lookup Tables page in CommCare HQ:",
 			"  https://www.commcarehq.org/a/<your-project>/fixtures/",
 			"",
-			`Upload "${MANUAL_IMPORT_LOOKUP_WORKBOOK}" there, tick "Replace existing`,
+			`Upload "${fileName}" there, tick "Replace existing`,
 			"tables\", and click Upload Tables. Replacing makes CommCare's copy of",
 			"each table in the file match this export exactly. Tables the file",
 			"doesn't mention are left alone.",
@@ -442,10 +455,24 @@ export function manualImportGuide(
 		...(input.lookupTags.length > 0
 			? [lookupTablesStep(input.lookupTags)]
 			: []),
+		...(input.additionalLookupFiles ?? []).map((file) =>
+			lookupTablesStep(file.tags, file.path),
+		),
 		...managedLookupTablesSteps(
 			input.managedLookupFiles,
 			input.lookupTags.length > 0,
 		),
+		...(input.needsDataBinding
+			? [
+					{
+						kind: "bind-project-data" as const,
+						title: "Connect your project space’s data",
+						lines: [
+							"This app uses data supplied by its project space. In Project data, check the destination’s tables and worker assignments before installing the app. Each worker receives their own rows when they sync.",
+						],
+					},
+				]
+			: []),
 		importAppStep(input.appFileName),
 		commCareVersionStep(input.versionFloor),
 		...(input.hasMedia ? [mediaStep()] : []),

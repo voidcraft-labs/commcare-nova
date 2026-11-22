@@ -12,6 +12,8 @@
  * `remoteChanges.ts`.
  */
 
+import {rowsDigest} from "@/lib/commcare/lookup/rowsDigest";
+export {streamingLookupRowsDigest} from "@/lib/commcare/lookup/rowsDigest";
 import type { HqLocation } from "@/lib/commcare/hq/locations";
 import type {
 	HqFixtureRow,
@@ -35,7 +37,7 @@ export type PlaceChangePart = {
 		| "level"
 		| "parent"
 		| "coordinates"
-		| "information";
+		| "information" | "external-id";
 };
 
 /**
@@ -63,74 +65,20 @@ export function lookupDefinitionDigest(table: HqLookupTable): string {
 	return canonicalJsonDigest(definitionOf(table));
 }
 
-/**
- * The digest of a table whose rows passed what Nova reads: its definition
- * and what the read stopped at, the total its first page named or the byte
- * bound. No push of Nova's holds such a table, so it is always a change, and
- * a discard of it names the table as the refusal showed it.
- */
-export function lookupPastLimitDigest(
-	table: HqLookupTable,
-	past: { readonly by: "rows" | "bytes"; readonly totalCount: number | null },
-): string {
-	return canonicalJsonDigest({
-		definition: definitionOf(table),
-		pastLimit: past.by,
-		totalCount: past.totalCount,
-	});
-}
-
-/**
- * One row as the digest spells it: its field names sorted, each with its
- * value, or, for a multi-valued field, its ordered values each with its
- * properties as sorted pairs. The row's id
- * is left out: HQ keeps a row's id only while it keeps the table and the
- * row's content (`fixtures/upload/run_upload.py::Mutation.process`), so an
- * id says nothing about what the row holds.
- */
-function spelledRow(row: HqFixtureRow): unknown {
-	return Object.keys(row.fields)
-		.sort()
-		.map((name) => {
-			const value = row.fields[name];
-			if (typeof value === "string") return [name, value];
-			/* A field that holds one value is spelled as that value whichever
-			 * of HQ's two row shapes served it; only a multi-valued field
-			 * carries its values' properties. */
-			const [only] = value;
-			if (value.length === 1 && only !== undefined) return [name, only.value];
-			return [
-				name,
-				value.map((item) => [
-					item.value,
-					Object.keys(item.properties)
-						.sort()
-						.map((property) => [property, item.properties[property]]),
-				]),
-			];
-		});
-}
-
-function rowsDigest(rows: readonly HqFixtureRow[]): string {
-	return canonicalJsonDigest(rows.map(spelledRow));
-}
-
 /** A table's canonical value, from its definition and every one of its rows in HQ's order. */
 export function canonicalLookupTable(
 	table: HqLookupTable,
-	rows: readonly HqFixtureRow[],
+	rows: readonly HqFixtureRow[] | null,
 ): CanonicalLookupTable {
-	const definition = definitionOf(table);
-	const content = {
-		...definition,
-		rowCount: rows.length,
-		rowsDigest: rowsDigest(rows),
-		definitionDigest: canonicalJsonDigest(definition),
-	};
+	return canonicalLookupObservation(table,rows?.length ?? null,rows===null ? canonicalJsonDigest({inventory:"unavailable"}) : rowsDigest(rows));
+}
+
+export function canonicalLookupObservation(table:HqLookupTable,rowCount:number|null,rowsDigest:string):CanonicalLookupTable {
+	const definition=definitionOf(table);
+	const content={...definition,rowCount,rowsDigest,definitionDigest:canonicalJsonDigest(definition)};
 	return {
-		remoteId: table.id,
-		...content,
-		digest: canonicalJsonDigest(content),
+		remoteId:table.id,source:{inventory:rowCount===null ? "unavailable" : "complete",distribution:table.isGlobal ? "global":"assigned",indexEvidence:"unobserved"},
+		...content,digest:canonicalJsonDigest(content),
 	};
 }
 
@@ -183,11 +131,17 @@ function ownedDataOf(
 	place: HqLocation,
 	ownedKeys: readonly string[],
 ): Readonly<Record<string, unknown>> {
-	const owned: Record<string, unknown> = {};
+	const owned = Object.create(null) as Record<string,unknown>;
 	for (const key of ownedKeys) {
 		if (Object.hasOwn(place.values, key)) owned[key] = place.values[key];
 	}
 	return owned;
+}
+
+/** The paired API baseline encodes keys and raw JSON as text because native project
+ * metadata can hold strings outside the Postgres jsonb character repertoire. */
+export function baselinePlaceKeys(baseline: CanonicalPlace): readonly string[] {
+	return baseline.observed ? JSON.parse(baseline.observed.keys) as string[] : baseline.ownedKeys;
 }
 
 /**
@@ -201,15 +155,22 @@ export function canonicalPlace(
 	ownedKeys: readonly string[],
 ): CanonicalPlace {
 	const keys = [...new Set(ownedKeys)].sort();
+	const obs=place.observation;
 	const content = {
+		...(obs && { observed: {
+			nameIsNull: obs.nameIsNull,
+			externalId: obs.externalId,
+			keys: JSON.stringify(keys),
+			wire: JSON.stringify(keys.filter(key => Object.hasOwn(obs.wire, key)).map(key => [key, obs.wire[key]])),
+		} }),
 		name: place.name,
 		siteCode: place.siteCode,
 		locationTypeCode: place.locationTypeCode,
 		parentRemoteId: place.parentLocationId,
 		latitude: place.latitude,
 		longitude: place.longitude,
-		ownedData: ownedDataOf(place, keys),
-		ownedKeys: keys,
+		ownedData: obs ? {} : ownedDataOf(place, keys),
+		ownedKeys: obs ? [] : keys,
 	};
 	return {
 		remoteId: place.locationId,
@@ -228,9 +189,10 @@ export function placeChange(
 	current: HqLocation | null,
 ): readonly PlaceChangePart[] {
 	if (current === null) return [{ kind: "missing" }];
-	const now = canonicalPlace(current, baseline.ownedKeys);
+	const now = canonicalPlace(current, baselinePlaceKeys(baseline));
 	const parts: PlaceChangePart[] = [];
-	if (now.name !== baseline.name) parts.push({ kind: "name" });
+	if (baseline.observed && baseline.observed.externalId !== now.observed?.externalId) parts.push({kind:"external-id"});
+	if (now.name !== baseline.name || (baseline.observed && baseline.observed.nameIsNull !== now.observed?.nameIsNull)) parts.push({ kind: "name" });
 	if (now.siteCode !== baseline.siteCode) parts.push({ kind: "site-code" });
 	if (now.locationTypeCode !== baseline.locationTypeCode) {
 		parts.push({ kind: "level" });
@@ -245,8 +207,8 @@ export function placeChange(
 		parts.push({ kind: "coordinates" });
 	}
 	if (
-		canonicalJsonDigest(now.ownedData) !==
-		canonicalJsonDigest(baseline.ownedData)
+		canonicalJsonDigest(baseline.observed ? now.observed?.wire : ownedDataOf(current, baseline.ownedKeys)) !==
+		canonicalJsonDigest(baseline.observed?.wire ?? baseline.ownedData)
 	) {
 		parts.push({ kind: "information" });
 	}

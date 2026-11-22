@@ -549,10 +549,9 @@
 			"xform:model/instance@src"
 		],
 		"valueClass": "user-groups-fixture",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed reference to the case-sharing groups fixture. The class takes the instance whose source is `jr://fixture/user-groups`, its declaration and every read of it; the lookup, location and other instance rows hold the rest of these keys",
-		"subject": "case-sharing",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: typed reference to the case-sharing groups fixture. The class takes the instance whose source is `jr://fixture/user-groups`, its declaration and every read of it; the lookup, location and other instance rows hold the rest of these keys",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

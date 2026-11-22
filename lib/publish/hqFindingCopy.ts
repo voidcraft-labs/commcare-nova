@@ -868,20 +868,25 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "This uses {name}. Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work.",
 		next: "You can change one of these in CommCare HQ so one platform runs everything, then check again.",
 	},
-	"places-over-nova-limit": {
-		title: "This project space has more places than Nova takes",
-		body: "{app} reads places, and {space} has {name}. Nova holds up to 10,000 for an app.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+	"place-hierarchy-inconsistent": {
+		title: "The place lists disagree",
+		body: "Nova checked twice. A place, parent or level in {space} still disagrees with the rest of the organization.",
+		next: "You can check the affected places and levels in CommCare HQ, then try again.",
 	},
-	"place-not-holdable": {
-		title: "A place or level is one Nova can't hold yet",
-		body: "{name} in {space} has a code, a name or a value Nova can't hold yet.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+	"place-field-unusable": {
+		title: "Some place information needs a change",
+		body: "{name} in {space} contains a name or value that the app cannot carry.",
+		next: "You can change that field in CommCare HQ, then check again.",
+	},
+	"place-value-order-unknown": {
+		title: "A place field's worker text is unclear",
+		body: "CommCare HQ sends {name} in {space} with its entries sorted. A worker sees them in their original order.",
+		next: "You can store the intended worker text in that field in CommCare HQ, then check again.",
 	},
 	"owner-rule-needs-one-place": {
-		title: "An owner rule needs exactly one place",
-		body: "{app} gives a case to the place at the level {name} below its current owner. In {space} that isn't exactly one place everywhere, and Nova holds the rule only where it is.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+		title: "A case owner rule needs one destination",
+		body: "Nova checked the rule against the places in {space}. {name}",
+		next: "You can choose a specific owner in the form or change the places in CommCare HQ, then check again.",
 	},
 	unrecognized: {
 		title: "Nova met something it doesn't know",

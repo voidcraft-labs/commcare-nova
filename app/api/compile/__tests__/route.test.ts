@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 /** Native Request -> stored canonical document -> export gate -> real artifacts.
  * Only authentication, authoritative database reads and object storage are
  * controlled. Python's zipfile independently reads the bytes both routes emit;
@@ -53,7 +54,7 @@ import {
 	MANUAL_IMPORT_GUIDE_HEADER,
 	renderManualImportGuide,
 } from "@/lib/publish/manualImportGuide";
-import { downloadAssetBytes } from "@/lib/storage/media";
+import { streamAsset } from "@/lib/storage/media";
 import { POST as jsonPost } from "../json/route";
 import { POST as cczPost } from "../route";
 
@@ -64,7 +65,15 @@ vi.mock("@/lib/db/appAccess", async (original) => ({
 }));
 vi.mock("@/lib/db/mediaAssets", () => ({ loadAssetsByIds: vi.fn() }));
 vi.mock("@/lib/lookup/service", () => ({ getLookupFixtureData: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	streamAsset: vi.fn(),
+	getStoredObjectMetadata: async () => ({
+		size: PNG.length,
+		generation: "7",
+		contentType: "image/png",
+		checksum: "test",
+	}),
+}));
 vi.mock("@/lib/deployment/downloadTarget", async (original) => ({
 	...(await original<typeof import("@/lib/deployment/downloadTarget")>()),
 	resolveDownloadTarget: vi.fn(),
@@ -326,7 +335,7 @@ beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue({ user: { id: "u1" } } as never);
 	vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 	vi.mocked(getLookupFixtureData).mockResolvedValue(snapshot());
-	vi.mocked(downloadAssetBytes).mockResolvedValue(PNG);
+	vi.mocked(streamAsset).mockImplementation(() => Readable.from([PNG]));
 	answers(cczFor(ACME));
 	loads(fixture());
 });
@@ -349,6 +358,7 @@ for (const [mode, post, verb] of [
 			expect(getLookupFixtureData).toHaveBeenCalledWith(
 				{ projectId: "project-1", actorId: "u1", role: "viewer" },
 				[],
+				"export",
 			);
 			if (mode === "json") {
 				expect(response.headers.get("x-compiled-at-seq")).toBe("99");
@@ -455,7 +465,7 @@ for (const [mode, post, verb] of [
 							),
 						],
 					});
-					expect(downloadAssetBytes).not.toHaveBeenCalled();
+					expect(streamAsset).not.toHaveBeenCalled();
 				}
 			},
 		);
@@ -479,7 +489,7 @@ for (const [mode, post, verb] of [
 			});
 			expect(response.status).toBe(422);
 			expect(loadAssetsByIds).toHaveBeenCalledWith([IMAGE], "project-1");
-			expect(downloadAssetBytes).not.toHaveBeenCalled();
+			expect(streamAsset).not.toHaveBeenCalled();
 		});
 		it("keeps an operational lookup failure out of document findings", async () => {
 			vi.mocked(getLookupFixtureData).mockRejectedValueOnce(
@@ -490,7 +500,7 @@ for (const [mode, post, verb] of [
 			expect(response.status).toBe(500);
 			expect(body.error).not.toContain("private");
 			expect(body.error).not.toContain("isn't ready");
-			expect(downloadAssetBytes).not.toHaveBeenCalled();
+			expect(streamAsset).not.toHaveBeenCalled();
 		});
 		it("emits unchecked destination compatibility beside valid bytes", async () => {
 			loads(fixture({ search: true }));
@@ -567,10 +577,7 @@ it("bundles the referenced ready image with JSON and a matching XForm reference"
 	expect([...images.keys()]).toEqual([`commcare/${HASH}.png`]);
 	expect(member(images, `commcare/${HASH}.png`)).toEqual(PNG);
 	expect(member(entries, "README.txt").toString()).toContain("multimedia.zip");
-	expect(downloadAssetBytes).toHaveBeenCalledWith(
-		ROW.gcsObjectKey,
-		expect.any(Number),
-	);
+	expect(streamAsset).toHaveBeenCalledWith(ROW.gcsObjectKey,"7");
 });
 
 it("ships a readable workbook generated from the same lookup rows as the app reference", async () => {
@@ -593,7 +600,11 @@ it("ships a readable workbook generated from the same lookup rows as the app ref
 	expect(xml).toContain("north");
 	expect(member(entries, "README.txt").toString()).toContain("districts");
 	expect(getLookupFixtureData).toHaveBeenCalledTimes(1);
-	expect(getLookupFixtureData).toHaveBeenCalledWith(expect.anything(), [TABLE]);
+	expect(getLookupFixtureData).toHaveBeenCalledWith(
+		expect.anything(),
+		[TABLE],
+		"export",
+	);
 });
 
 const SEVERAL: readonly ReachedDeploymentTarget[] = [

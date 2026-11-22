@@ -577,12 +577,15 @@ export const VALIDITY_CLASS_BY_CODE = {
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
+	LOOKUP_WORKER_SOURCE_UNAVAILABLE: "environment",
 	LOOKUP_CELL_TEXT_UNREPRESENTABLE: "environment",
 	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: "environment",
+	LOOKUP_QUESTION_READ_UNEDITABLE: "soundness",
+	LOOKUP_SELECT_SOURCE_AMBIGUOUS: "environment",
 	LOOKUP_SELECT_SOURCE_EMPTY: "environment",
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: "environment",
 	LOOKUP_HQ_PUSH_TOO_LARGE: "environment",

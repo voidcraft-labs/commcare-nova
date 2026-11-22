@@ -16,10 +16,8 @@ import type {
 	CommCareApiError,
 	CommCareCredentials,
 } from "@/lib/commcare/hq/http";
-import {
-	listHqLookupTables,
-	readHqLookupTableRows,
-} from "@/lib/commcare/hq/lookupTables";
+import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
+import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import type { AppDatabase } from "@/lib/db/pg";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
@@ -88,10 +86,8 @@ function failsEveryTime(error: CommCareApiError): boolean {
  * that table. The rows the request keeps are bounded together too: each table
  * is read at most as far as what remains of
  * `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`, and a table that passes what remains,
- * where that is less than one table's bound, is the request reading more
- * lookup data than Nova brings in, which answers a failure of cause
- * `too-large` for `lookup-rows` (`failure.ts` words it
- * `lookup-data-too-large`).
+ * including a table after the total inline budget is spent, retains its
+ * confirmed source definition for a later independent paged refresh.
  *
  * A row read that fails with an answered status of 500 or more, or with no
  * answer, is sent once more. `readHqJson` already sends a read no answer began
@@ -126,6 +122,18 @@ export async function readHqLookupTablesForReading(input: {
 	const list = await listHqLookupTables(creds, domain, { cancel });
 	if ("success" in list) return { ...list, request: "lookup-tables" };
 	const candidates = new Set(candidateLookupTags(input.sourceText, list));
+	const distinct = new Set<string>();
+	for (const table of list) {
+		if (!candidates.has(table.tag)) continue;
+		if (distinct.has(table.tag))
+			return {
+				success: false,
+				status: 503,
+				cause: "moved",
+				request: "lookup-tables",
+			};
+		distinct.add(table.tag);
+	}
 	const tables: HqLookupTableRead[] = [];
 	/* What remains of the request's bound on the rows it keeps. */
 	let remaining = HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES;
@@ -134,7 +142,7 @@ export async function readHqLookupTablesForReading(input: {
 		candidates.delete(table.tag);
 		const bound = Math.min(HQ_LOOKUP_TABLE_ROWS_MAX_BYTES, remaining);
 		const readRows = () =>
-			readHqLookupTableRows(creds, domain, table, {
+			readSelectedHqLookupRows(creds, domain, table, {
 				cancel,
 				maxRows: LOOKUP_MAX_ROWS,
 				maxBytes: bound,
@@ -165,13 +173,6 @@ export async function readHqLookupTablesForReading(input: {
 				});
 				continue;
 			}
-			if (bound < HQ_LOOKUP_TABLE_ROWS_MAX_BYTES)
-				return {
-					success: false,
-					status: 502,
-					cause: "too-large",
-					request: "lookup-rows",
-				};
 			tables.push({ kind: "over-byte-limit", table });
 			continue;
 		}
@@ -301,6 +302,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 		tx,
 		scope.projectId,
 		tableIds,
+		"project-editor",
 	);
 	const siblings = await readSiblingLookupMappings(
 		{
@@ -329,6 +331,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 		readonly reviewed: ManagedTableReviewed;
 		readonly content: ManagedLookupContent;
 		readonly origin: ManagedOriginWrite;
+		readonly newMemberIds?: BroughtInTableWrite["binding"]["memberIds"];
 		readonly newColumnIds: BroughtInTableWrite["binding"]["columns"];
 	}[] = [];
 	for (const table of write.tables) {
@@ -446,6 +449,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 			},
 			content,
 			origin: managedOrigin,
+			newMemberIds: table.binding.memberIds,
 			newColumnIds: recordFromEntries(
 				Object.entries(table.binding.columns).filter(
 					([field]) => !wireNames.has(field),
@@ -471,6 +475,7 @@ export async function writeBroughtInLookupTablesInTransaction(
 			content: refresh.content,
 			origin: refresh.origin,
 			at: write.readAt,
+			newMemberIds: refresh.newMemberIds,
 			newColumnIds: refresh.newColumnIds,
 			/* The app's columns bind the ids the reading gave them, so the
 			 * bring-in writes what the reading read, or refuses where a newer

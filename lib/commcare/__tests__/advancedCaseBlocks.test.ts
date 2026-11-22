@@ -448,3 +448,16 @@ describe("addAdvancedCaseBlocks", () => {
 		).toThrow(/two open actions at the row of the repeat \/data\/kids/);
 	});
 });
+
+it("keeps explicit and extension-only owners outside the group default",()=>{
+ const explicit=open("visit",{case_properties:{owner_id:update("/data/name")}});
+ const extension=open("record",{case_indices:[index("parent","extension")]});
+ const actions={doc_type:"AdvancedFormActions" as const,load_update_cases:[load("parent")],open_cases:[explicit,extension]};
+ const output=addAdvancedCaseBlocks(source(),{actions},{caseSharing:true});
+ expect(output).not.toContain("jr://fixture/user-groups");
+ const root=readXmlEvidence(output),model=find(find(root,"head"),"model");
+ const primary=model.children.find(child=>child.name==="instance"&&!child.attributes.id);
+ if(!primary?.children[0])throw new Error("Missing primary instance");
+ for(const tag of ["visit","record"])expect(at(primary.children[0],"case_"+tag,"case","create","owner_id").text).toBe("-");
+ expect(model.children.filter(n=>n.name==="bind"&&n.attributes.nodeset?.endsWith("/update/owner_id")).map(n=>n.attributes.calculate)).toEqual(["/data/name"]);
+});

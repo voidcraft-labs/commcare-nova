@@ -15,6 +15,7 @@ import {
 	HQ_MEDIA_IN_FLIGHT_MAX_BYTES,
 	HQ_MEDIA_READ_CONCURRENCY,
 	type HqMediaFileRead,
+	readHqMediaDigest,
 	readHqMediaFile,
 } from "@/lib/commcare/hq/media";
 import { giveBackHeld } from "@/lib/commcare/hq/memoryMeter";
@@ -58,6 +59,7 @@ interface FileRequest {
 	readonly mediaType: HqMediaType;
 	/** The largest limit among the kinds of the paths that name it. */
 	readonly maxBytes: number;
+	readonly streamSize?: number;
 }
 
 /**
@@ -97,6 +99,7 @@ export async function settleHqMedia(
 			multimediaId: path.hq.multimediaId,
 			mediaType: held?.mediaType ?? path.hq.mediaType,
 			maxBytes: Math.max(held?.maxBytes ?? 0, cap),
+			streamSize: Math.max(held?.streamSize ?? 0, path.sizeBytes ?? 0),
 		});
 	}
 
@@ -112,6 +115,27 @@ export async function settleHqMedia(
 	let thrown: { readonly error: unknown } | null = null;
 
 	const ask = async (request: FileRequest): Promise<void> => {
+		if (
+			request.streamSize !== undefined &&
+			request.streamSize > request.maxBytes
+		) {
+			const result = await readHqMediaDigest(
+				creds,
+				request.mediaType,
+				request.multimediaId,
+				request.streamSize,
+				signal,
+			);
+			if ("success" in result) {
+				failure ??= result;
+				stop.abort();
+				return;
+			}
+			verdicts.set(request.multimediaId, result);
+			if (options.retain && result.kind === "missing")
+				reads.set(request.multimediaId, { kind: "missing" });
+			return;
+		}
 		const read: HqMediaFileRead = await readHqMediaFile(
 			creds,
 			request.mediaType,

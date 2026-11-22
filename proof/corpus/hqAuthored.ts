@@ -114,6 +114,7 @@ export interface RetainedHqApp {
 	/** Where the base holds each: the rows, location and media answers. */
 	readonly fixtureRows?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly locationTypes?: RetainedHqAnswer;
+	readonly locationsV1?: RetainedHqAnswer;
 	readonly locations?: RetainedHqAnswer;
 	/**
 	 * `media-reads.json`: each read the reading made of a mapped file, where it
@@ -261,6 +262,7 @@ export function loadRetainedHqApp(
 	}
 	const locationTypes = optionalAnswer(directory, "location-types.json");
 	const locations = optionalAnswer(directory, "locations.json");
+	const locationsV1 = optionalAnswer(directory, "locations-v1.json");
 	const mediaReads = optionalJson(directory, "media-reads.json") as
 		| RetainedHqApp["mediaReads"]
 		| undefined;
@@ -281,6 +283,7 @@ export function loadRetainedHqApp(
 		...(Object.keys(fixtureRows).length > 0 && { fixtureRows }),
 		...(locationTypes !== undefined && { locationTypes }),
 		...(locations !== undefined && { locations }),
+		...(locationsV1 !== undefined && { locationsV1 }),
 		...(mediaReads !== undefined && { mediaReads }),
 		expected: readJson(directory, "expected.json") as RetainedHqApp["expected"],
 	};
@@ -327,6 +330,7 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 				locationTypes: app.locationTypes,
 			}),
 			...(app.locations !== undefined && { locations: app.locations }),
+			...(app.locationsV1 !== undefined && { locationsV1: app.locationsV1 }),
 			media: (app.mediaReads ?? []).map((read) => {
 				const file = files.get(read.path);
 				return {

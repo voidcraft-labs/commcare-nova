@@ -44,6 +44,7 @@ export type PreviewDataRefusalReason =
 	/** A case owner moved to the worker's place at a level, for a worker
 	 * assigned nowhere: Core refuses the owner's read when the form opens
 	 * (`lib/commcare/xpath/wire/tree.ts::WirePath.refusesEmpty`). */
+	| { readonly kind: "group-count" }
 	| { readonly kind: "owner-without-place" }
 	/** A choice list whose table has no rows. `fieldUuid` is the form's
 	 * question, where the refusal came from one. */
@@ -85,11 +86,13 @@ export class PreviewDataRefusal extends Error {
 		super(
 			reason.kind === "empty-instance"
 				? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
-				: reason.kind === "owner-without-place"
-					? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
-					: reason.kind === "unoffered-starting-choice"
-						? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
-						: "CommCare refuses this choice list: its table has no rows.",
+				: reason.kind === "group-count"
+					? "This form needs exactly one case-sharing group for this worker."
+					: reason.kind === "owner-without-place"
+						? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
+						: reason.kind === "unoffered-starting-choice"
+							? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
+							: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -151,6 +154,7 @@ export function workerFailureError(failure: XPathRuntimeFailure): Error {
 /** What a refusal is about, named from the document and the lookup data. */
 export type PreviewDataRefusalSubject =
 	| { readonly kind: "places" }
+	| { readonly kind: "group-count" }
 	| { readonly kind: "owner-place" }
 	| { readonly kind: "table"; readonly tableName: string }
 	| {
@@ -191,6 +195,7 @@ export function previewDataRefusalSubject(
 				: { fieldUuid: reason.fieldUuid }),
 		};
 	}
+	if (reason.kind === "group-count") return { kind: "group-count" };
 	if (reason.kind === "owner-without-place") return { kind: "owner-place" };
 	if (reason.kind === "unoffered-starting-choice")
 		return { kind: "starting-choice", input: reason.input };

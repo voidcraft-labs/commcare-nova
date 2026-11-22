@@ -142,3 +142,46 @@ carrying the findings' lines, and it runs in Preview until an edit clears the
 finding. An app that does not declare Android has no `.ccz` at all:
 `chooseDownloadTarget` refuses it with `not-declared-for-android` before any
 project space.
+
+
+## Private files and large exports
+
+The HTTP compile routes and MCP `compile_app` use the same streaming archive and
+`lib/export/artifacts` gateway. Ordinary files up to 1 MiB may travel inline.
+Larger files and named private assignment files have an immutable SHA-256
+manifest with one-hour retention. The gateway reserves Project storage before
+each create-only object write, records its generation and returns only
+authenticated ranges. Preparation can resume an interrupted write from the
+same actor, grant, input revisions and deployed revision. Browser downloads
+support a single HTTP byte range. MCP resources carry bounded 192 KiB chunks.
+A role change, expired session or key, changed app or Project data, target
+mapping or protected destination witness ends access to the old file. Credentials
+and signed object URLs never travel in a manifest. The reclaim operation
+deletes the specific stored generation before returning its physical charge.
+
+Worker assignment exports need an editor, the selected HQ destination and
+verified principals there. A bearer also needs `nova.projects.data.export`.
+Generic import files omit worker rows and explain the destination setup.
+Media streams from ready assets scoped to the Project. Its stored length and
+SHA-256 must match before delivery. Native ZIPs and their multipart upload
+stream one member at a time. Complete local global tables exceeding the inline
+workspace are walked in stable order under their pinned app and Project
+revisions. Streaming XLSX files pack only whole tables within HQ’s physical
+row limit and retain each table’s data and header sheets together.
+
+
+A device install with private fixtures requires the current deployment’s app
+and table mappings. The destination must return the expected ID, tag,
+distribution, fields, occurrence properties and row attributes. A managed
+table may supply its ID at its own origin. The install references the native
+fixture, and each worker receives authorized rows from HQ’s own restore.
+The gateway repeats this check on each range. API-key authority changes rotate
+a durable epoch, including removal and restoration of the same scope.
+
+The direct workbook read-back compares the complete intended definition and
+ordered row digest before the app's content is sent. Both the small workbook
+and streamed workbook derive that digest from the same occurrence and
+attribute projection. An ambiguous or incomplete read retains a recovery
+point for the destination.
+
+The streaming archive writer uses the exact reviewed yazl version. Its postinstall correction keeps the ZIP64 central-directory offset independent of a small member’s data-descriptor width. The Android installer’s Java stream reader chooses that width from the member’s actual compressed and uncompressed lengths. Normal installation, production image assembly and the Linux proof dependency volume each apply the same exact-input correction. Archive tests retain sequential and directory reads beyond the 4 GiB offset.

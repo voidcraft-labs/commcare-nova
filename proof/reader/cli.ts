@@ -209,7 +209,12 @@ function heldOf(
 	);
 	return holds.map(({ key, pointer }) => {
 		const uuid = uuidOfKey.get(key);
-		const entity = uuid === undefined ? undefined : entityOf(reading.doc, uuid);
+		const entity =
+			key === JSON.stringify(["app"])
+				? reading.doc
+				: uuid === undefined
+					? undefined
+					: entityOf(reading.doc, uuid);
 		return {
 			key,
 			pointer,

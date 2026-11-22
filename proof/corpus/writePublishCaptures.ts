@@ -96,15 +96,18 @@ import {
 } from "@/lib/domain/lookupIds";
 import { MEDIA_KINDS, mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import { validateLookupRowValues } from "@/lib/lookup/coercion";
-import { LOOKUP_MAX_COLUMNS, LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
+import { checkedRowContent } from "@/lib/lookup/rowContent";
 import {
 	lookupColumnLabelSchema,
 	lookupDataTypeSchema,
+	lookupMemberSchema,
 	lookupRevisionSchema,
+	lookupRowContentSchema,
 	lookupTableNameSchema,
 	lookupTagSchema,
 	lookupWireNameSchema,
 } from "@/lib/lookup/schema";
+import { lookupSourceFactsSchema } from "@/lib/lookup/source";
 import type {
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
@@ -163,10 +166,14 @@ const lookupColumnSchema = z.strictObject({
 	wireName: lookupWireNameSchema,
 	label: lookupColumnLabelSchema,
 	dataType: lookupDataTypeSchema,
+	repeated: z.literal(true).optional(),
+	properties: z.array(lookupMemberSchema).optional(),
+	index: z.enum(["indexed", "unobserved"]).optional(),
 });
 
 /** Where a stored table came from in CommCare HQ (`lib/lookup/types.ts::LookupHqOrigin`). */
 const lookupHqOriginSchema = z.strictObject({
+	source: lookupSourceFactsSchema.optional(),
 	server: z.string().min(1),
 	domain: z.string().min(1),
 	remoteId: z.string().min(1),
@@ -189,7 +196,8 @@ const lookupDefinitionSchema = z.strictObject({
 	definitionRevision: lookupRevisionSchema,
 	rowsRevision: lookupRevisionSchema.optional(),
 	tableRevision: lookupRevisionSchema.optional(),
-	columns: z.array(lookupColumnSchema).max(LOOKUP_MAX_COLUMNS),
+	columns: z.array(lookupColumnSchema),
+	attributes: z.array(lookupMemberSchema).optional(),
 	hq: lookupHqOriginSchema.optional(),
 });
 
@@ -200,9 +208,12 @@ const lookupSnapshotSchema = z.strictObject({
 	definitions: z.array(lookupDefinitionSchema),
 	rowsByTable: z.record(
 		lookupTableIdSchema,
-		z
-			.array(z.strictObject({ id: lookupRowIdSchema, values: z.unknown() }))
-			.max(LOOKUP_MAX_ROWS),
+		z.array(
+			lookupRowContentSchema.extend({
+				id: lookupRowIdSchema,
+				values: z.unknown(),
+			}),
+		),
 	),
 });
 
@@ -248,10 +259,20 @@ function lookupSnapshotProblem(
 		if (row !== undefined) {
 			return `the table ${definition.tag} has the row ${row} twice`;
 		}
-		for (const { id, values } of rows) {
+		for (const { id, values, ...content } of rows) {
 			const checked = validateLookupRowValues(definition.columns, values);
 			if (!checked.success) {
 				return `in the table ${definition.tag}, row ${id}: ${sentences(checked.issues.map((issue) => issue.message))}`;
+			}
+			try {
+				checkedRowContent(
+					definition.columns,
+					definition.attributes ?? [],
+					checked.values,
+					content,
+				);
+			} catch (error) {
+				return `in the table ${definition.tag}, row ${id}: ${error instanceof Error ? error.message : String(error)}`;
 			}
 			if (!isDeepStrictEqual(checked.values, values)) {
 				return `in the table ${definition.tag}, row ${id} holds cells Nova's store keeps as ${JSON.stringify(checked.values)}`;
@@ -297,7 +318,7 @@ function readLookup(
 				definition.id,
 				(parsed.data.rowsByTable[definition.id] ?? []).map(
 					(row): LookupFixtureRow => ({
-						id: row.id,
+						...row,
 						values: row.values as LookupRowValues,
 					}),
 				),

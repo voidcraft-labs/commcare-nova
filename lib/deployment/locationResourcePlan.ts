@@ -23,6 +23,11 @@
  * as permission.
  */
 
+import type { HqLocation } from "@/lib/commcare/hq/locations";
+import {
+	observablePlaceMetadata,
+	writableSiteCode,
+} from "@/lib/commcare/hq/placeTransfer";
 import type { BlueprintDoc, OrganizationCollections } from "@/lib/domain";
 import {
 	orderedLocationProperties,
@@ -42,6 +47,10 @@ export interface RemoteLevel {
 
 /** One place the target already holds. Archived ones are not in here. */
 export interface RemotePlace {
+	readonly observation?: HqLocation["observation"];
+	readonly locationTypeCode?: string;
+	readonly latitude?: string | null;
+	readonly longitude?: string | null;
 	readonly locationId: string;
 	readonly name: string;
 	readonly siteCode: string;
@@ -52,6 +61,8 @@ export interface RemotePlace {
 
 /** One of Nova's live places, as the push would present it. */
 export interface PlannedPlace {
+	readonly source?: StoredLocation["source"];
+	readonly externalId?: string | null;
 	readonly locationUuid: string;
 	/** Create-once in Nova, and domain-unique on CommCare HQ. */
 	readonly siteCode: string;
@@ -88,6 +99,16 @@ export interface PlannedPlace {
  * these four, which it can.
  */
 export type PlacePushProblem =
+	| {
+			readonly kind:
+				| "site-code-mismatch"
+				| "site-code-taken"
+				| "external-id-spelling"
+				| "metadata-order";
+			readonly locationUuid: string;
+			readonly siteCode: string;
+			readonly name: string;
+	  }
 	| {
 			/** The level this place stands at does not exist on the target. */
 			readonly kind: "level-missing";
@@ -156,6 +177,14 @@ export interface PlaceConflict {
 
 /** One place's place in the push. */
 export interface PlannedPlacePush {
+	readonly source?: StoredLocation["source"];
+	readonly externalId?: string | null;
+	readonly current?: RemotePlace;
+	readonly rawData?: Readonly<Record<string, string>>;
+	/** Metadata deliberately left intact until the native ID workbook lands. */
+	readonly stagedWire?: Readonly<Record<string, string>>;
+	readonly desiredWire: Readonly<Record<string, string>>;
+
 	readonly locationUuid: string;
 	/** Resolved to a remote id at push time, from the batch above this one. */
 	readonly parentLocationUuid: string | null;
@@ -257,20 +286,89 @@ export function planLocationResourcePush(
 	const remoteById = new Map(
 		input.hqPlaces.map((place) => [place.locationId, place] as const),
 	);
+	const byNormalizedCode = new Map(
+		input.hqPlaces.map((place) => [place.siteCode.toLowerCase(), place]),
+	);
 	const mappingByLocationUuid = new Map(
 		input.mappings
 			.filter((resource) => resource.kind === "location")
 			.map((resource) => [resource.novaResourceId, resource] as const),
 	);
 
-	const problems = unpushablePlaces(
-		input.places,
-		placeByUuid,
-		levelByCode,
-		remoteBySiteCode,
-		remoteById,
-		mappingByLocationUuid,
-	);
+	const problems = [
+		...unpushablePlaces(
+			input.places,
+			placeByUuid,
+			levelByCode,
+			remoteBySiteCode,
+			remoteById,
+			mappingByLocationUuid,
+		),
+	];
+	const desiredCodes = new Set<string>();
+	for (const place of input.places) {
+		const mapping = mappingByLocationUuid.get(place.locationUuid);
+		const mapped = mapping && remoteById.get(mapping.remoteId);
+		const occupied = byNormalizedCode.get(place.siteCode.toLowerCase());
+		const remote = mapped || remoteBySiteCode.get(place.siteCode);
+		const issue = (
+			kind:
+				| "site-code-mismatch"
+				| "site-code-taken"
+				| "external-id-spelling"
+				| "metadata-order",
+		) =>
+			problems.push({
+				kind,
+				locationUuid: place.locationUuid,
+				name: place.name,
+				siteCode: place.siteCode,
+			});
+		if (
+			(occupied && occupied.locationId !== remote?.locationId) ||
+			desiredCodes.has(place.siteCode.toLowerCase())
+		)
+			issue("site-code-taken");
+		desiredCodes.add(place.siteCode.toLowerCase());
+		if (
+			!writableSiteCode(place.siteCode) &&
+			(!remote ||
+				remote.siteCode !== place.siteCode ||
+				remote.name !== place.name ||
+				(remote.observation?.nameIsNull ?? false) !==
+					(place.source?.nameIsNull ?? false))
+		)
+			issue("site-code-mismatch");
+		if (
+			place.externalId != null &&
+			place.externalId.trim() !== place.externalId &&
+			place.externalId !== remote?.observation?.externalId
+		)
+			issue("external-id-spelling");
+		if (
+			place.source &&
+			Object.keys(place.source.wire).some(
+				(key) =>
+					!Object.hasOwn(place.source?.worker ?? {}, key) &&
+					place.source?.wire[key] !== remote?.observation?.wire[key],
+			)
+		)
+			issue("metadata-order");
+		const preview = plannedPush(
+			place,
+			remote ?? null,
+			mapping?.ownership ?? "nova-created",
+			input,
+		);
+		if (
+			preview.rawData &&
+			remote?.observation &&
+			Object.keys(remote.observation.wire).some(
+				(key) => !Object.hasOwn(remote.observation?.worker ?? {}, key),
+			)
+		)
+			issue("metadata-order");
+	}
 	if (problems.length > 0) return { ok: false, reason: "unpushable", problems };
 
 	const adopting = new Set(input.adoptLocationUuids);
@@ -279,24 +377,9 @@ export function planLocationResourcePush(
 
 	for (const place of input.places) {
 		const mapping = mappingByLocationUuid.get(place.locationUuid);
-		const remote = remoteBySiteCode.get(place.siteCode);
-
-		/* Nova already owns a place under this exact code, and the place on
-		 * the target IS the one it owns. Gone from CommCare HQ counts too:
-		 * the push is the same act, it creates what is missing, and the
-		 * claim is the one already recorded.
-		 *
-		 * The id comparison is not belt-and-braces. A place Nova pushed can
-		 * be deleted on CommCare HQ and a DIFFERENT one made under the same
-		 * code, and the ledger cannot tell those apart by name, which is
-		 * the whole reason this planner exists. A mapping whose remote id
-		 * no longer matches therefore falls through to the same explicit
-		 * decision a stranger's place gets. */
-		if (
-			mapping !== undefined &&
-			mapping.pushedIdentity === place.siteCode &&
-			(remote === undefined || remote.locationId === mapping.remoteId)
-		) {
+		const mapped = mapping && remoteById.get(mapping.remoteId);
+		const remote = mapped || remoteBySiteCode.get(place.siteCode);
+		if (mapping && (mapped || remote === undefined)) {
 			pushes.push(plannedPush(place, remote ?? null, mapping.ownership, input));
 			continue;
 		}
@@ -337,7 +420,25 @@ function plannedPush(
 	ownership: DeploymentResourceOwnership,
 	input: PlanLocationResourcePushInput,
 ): PlannedPlacePush {
+	const modeled = input.appModelsPlaceInformation ? place.values : {};
+	const raw = observablePlaceMetadata(modeled, place.source?.wire);
+	const writesData =
+		input.appModelsPlaceInformation || Object.keys(raw).length > 0;
+	const currentWire = remote?.observation?.wire;
+	const owned = [
+		...new Set([...Object.keys(modeled), ...Object.keys(raw)]),
+	].sort();
+	const targetDataChanges = owned.some(
+		(key) => currentWire?.[key] !== raw[key],
+	);
+	const combined = { ...currentWire, ...raw };
+	for (const key of owned) if (!Object.hasOwn(raw, key)) delete combined[key];
 	return {
+		...(place.source && { source: place.source }),
+		...(place.externalId !== undefined && { externalId: place.externalId }),
+		...(remote && { current: remote }),
+		desiredWire: raw,
+		...(writesData && targetDataChanges && { rawData: combined }),
 		locationUuid: place.locationUuid,
 		parentLocationUuid: place.parentLocationUuid,
 		remoteId: remote?.locationId ?? null,
@@ -350,9 +451,7 @@ function plannedPush(
 		locationData: input.appModelsPlaceInformation
 			? { ...(remote?.values ?? {}), ...place.values }
 			: null,
-		ownedKeys: input.appModelsPlaceInformation
-			? Object.keys(place.values).sort()
-			: [],
+		ownedKeys: owned,
 	};
 }
 
@@ -544,6 +643,8 @@ export function plannedPlacesFor(
 		 * the target does not have, which is exactly what it would be. */
 		const level = ownRecordValue(levels, location.levelUuid);
 		live.push({
+			...(location.source && { source: location.source }),
+			externalId: location.externalId,
 			locationUuid: location.id,
 			siteCode: location.siteCode,
 			name: location.name,
@@ -661,13 +762,18 @@ export function ambiguousReverseHopsOnTarget(
 			byOwner.set(cursor.locationId, siblings);
 		}
 
-		for (const [ownerId, destinations] of byOwner) {
-			if (destinations.length < 2) continue;
+		for (const owner of hqPlaces) {
+			if (owner.locationTypeCode !== hop.sourceCode) continue;
+			const destinations = byOwner.get(owner.locationId) ?? [];
+			if (destinations.length === 1) continue;
 			found.push({
 				destinationCode: hop.destinationCode,
 				sourceCode: hop.sourceCode,
-				ownerName: byId.get(ownerId)?.name ?? ownerId,
-				destinationNames: destinations.map((place) => place.name).sort(),
+				ownerName: owner.name,
+				destinationNames: destinations
+					.slice(0, 2)
+					.map((place) => place.name)
+					.sort(),
 			});
 		}
 	}
@@ -735,4 +841,29 @@ export function authoredReverseHops(doc: BlueprintDoc): readonly {
 		});
 	}
 	return [...pairs.values()];
+}
+
+/** The tree workers will receive after the planned parent-first writes,
+ * including destination-owned places outside Nova’s resources. */
+export function projectedTargetTree(
+	current: readonly RemoteTreePlace[],
+	batches: readonly (readonly PlannedPlacePush[])[],
+): RemoteTreePlace[] {
+	const tree = new Map(current.map((place) => [place.locationId, place]));
+	const ids = new Map<string, string>();
+	for (const batch of batches)
+		for (const push of batch) {
+			const id = push.remoteId ?? `new:${push.locationUuid}`;
+			ids.set(push.locationUuid, id);
+			tree.set(id, {
+				locationId: id,
+				name: push.name,
+				locationTypeCode: push.levelCode,
+				parentLocationId:
+					push.parentLocationUuid === null
+						? null
+						: (ids.get(push.parentLocationUuid) ?? null),
+			});
+		}
+	return [...tree.values()];
 }

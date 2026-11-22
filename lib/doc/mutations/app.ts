@@ -67,6 +67,8 @@ export function applyAppMutation(
 		case "setAppSettings":
 			// Each named key replaces its value; a key the patch leaves out
 			// keeps the document's.
+			if(mut.settings.caseSharing===null)delete draft.appSettings.caseSharing;
+			else if(mut.settings.caseSharing!==undefined)draft.appSettings.caseSharing=mut.settings.caseSharing;
 			if (mut.settings.showSavedForms !== undefined) {
 				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
 			}

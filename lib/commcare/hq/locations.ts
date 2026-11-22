@@ -58,10 +58,33 @@ import {
 } from "./http";
 import { parseHqJsonText } from "./jsonText";
 import {
+	exactLocationJson,
+	observedLocationMetadata,
+	parseLocationJson,
+} from "./locationMetadata";
+import { giveBackHeld } from "./memoryMeter";
+import {
+	HQ_LIST_MOVED,
 	type HqPastLimit,
 	isHqObject,
 	readHqCollection,
 } from "./readCollection";
+import { readHqJson } from "./readJson";
+
+/** The reader's memory lease holds the accepted page bytes through adoption.
+ * An abandoned observation returns its charges before restarting the inventories. */
+const inventoryCharges = new WeakMap<object, number>();
+export function releaseLocationInventory(items: readonly unknown[]) {
+	const bytes = inventoryCharges.get(items);
+	if (bytes !== undefined) {
+		inventoryCharges.delete(items);
+		giveBackHeld("text", bytes);
+	}
+}
+function retainInventory<T>(items: T[], bytes: number): T[] {
+	inventoryCharges.set(items, bytes);
+	return items;
+}
 
 /** One level, as CommCare HQ reports it. Nova reads these, never writes. */
 export interface HqLocationType {
@@ -79,6 +102,13 @@ export interface HqLocationType {
 
 /** One place already on the project space. */
 export interface HqLocation {
+	/** Present only after v1 and v2 agreed on one source place. */
+	readonly observation?: {
+		readonly externalId: string | null;
+		readonly nameIsNull: boolean;
+		readonly wire: Readonly<Record<string, string>>;
+		readonly worker: Readonly<Record<string, string>>;
+	};
 	/** CommCare HQ's `location_id` — the durable key the ledger stores. */
 	readonly locationId: string;
 	readonly name: string;
@@ -121,13 +151,13 @@ export interface HqLocation {
 export interface HqLocationPush {
 	/** Present to update that place; absent to create one. */
 	readonly locationId?: string;
-	readonly name: string;
-	readonly siteCode: string;
-	readonly locationTypeCode: string;
+	readonly name?: string | null;
+	readonly siteCode?: string;
+	readonly locationTypeCode?: string;
 	readonly parentLocationId?: string;
 	/** Exact decimal strings. A coordinate is never a float on this wire. */
-	readonly latitude?: string;
-	readonly longitude?: string;
+	readonly latitude?: string | null;
+	readonly longitude?: string | null;
 	readonly locationData?: Readonly<Record<string, unknown>>;
 }
 
@@ -222,60 +252,67 @@ export async function listHqLocationTypes(
 	 * bound is no answer, never a short list. */
 	if ("kind" in list)
 		return { success: false, status: 502, cause: "too-large" };
-	const raw = list.rows;
+	let kept = false;
+	try {
+		const raw = list.rows;
 
-	/* The level above is declared as `parent = fields.ForeignKey('self',
-	 * 'parent_type')`, so it serializes under the key `parent` and as a
-	 * resource URI ending in the parent's primary key — never as a code.
-	 * Every level is in this same answer, so the URI resolves locally
-	 * rather than costing a request per level. */
-	const codeById = new Map<string, string>();
-	const codes = new Set<string>();
-	const levels: Record<string, unknown>[] = [];
-	for (const value of raw) {
-		if (
-			!isHqObject(value) ||
-			(typeof value.id !== "number" && typeof value.id !== "string") ||
-			!/^\d+$/.test(String(value.id)) ||
-			typeof value.code !== "string" ||
-			value.code.trim() === "" ||
-			typeof value.name !== "string" ||
-			typeof value.administrative !== "boolean" ||
-			typeof value.shares_cases !== "boolean" ||
-			typeof value.view_descendants !== "boolean" ||
-			codeById.has(String(value.id)) ||
-			codes.has(value.code)
-		)
-			return malformedInventory("level");
-		codeById.set(String(value.id), value.code);
-		codes.add(value.code);
-		levels.push(value);
-	}
-	const types: HqLocationType[] = [];
-	for (const level of levels) {
-		const parentCode = parentLevelCode(level.parent, codeById, creds, domain);
-		if (parentCode === undefined) return malformedInventory("level parent");
-		types.push({
-			id: String(level.id),
-			name: level.name as string,
-			code: level.code as string,
-			parentCode,
-			administrative: level.administrative === true,
-			sharesCases: level.shares_cases === true,
-			viewDescendants: level.view_descendants === true,
-		});
-	}
-	const parents = new Map(types.map((level) => [level.code, level.parentCode]));
-	for (const level of types) {
-		const visited = new Set<string>();
-		let code: string | null = level.code;
-		while (code !== null) {
-			if (visited.has(code)) return malformedInventory("level cycle");
-			visited.add(code);
-			code = parents.get(code) ?? null;
+		/* The level above is declared as `parent = fields.ForeignKey('self',
+		 * 'parent_type')`, so it serializes under the key `parent` and as a
+		 * resource URI ending in the parent's primary key — never as a code.
+		 * Every level is in this same answer, so the URI resolves locally
+		 * rather than costing a request per level. */
+		const codeById = new Map<string, string>();
+		const codes = new Set<string>();
+		const levels: Record<string, unknown>[] = [];
+		for (const value of raw) {
+			if (
+				!isHqObject(value) ||
+				(typeof value.id !== "number" && typeof value.id !== "string") ||
+				!/^\d+$/.test(String(value.id)) ||
+				typeof value.code !== "string" ||
+				typeof value.name !== "string" ||
+				typeof value.administrative !== "boolean" ||
+				typeof value.shares_cases !== "boolean" ||
+				typeof value.view_descendants !== "boolean" ||
+				codeById.has(String(value.id)) ||
+				codes.has(value.code)
+			)
+				return malformedInventory("level");
+			codeById.set(String(value.id), value.code);
+			codes.add(value.code);
+			levels.push(value);
 		}
+		const types: HqLocationType[] = [];
+		for (const level of levels) {
+			const parentCode = parentLevelCode(level.parent, codeById, creds, domain);
+			if (parentCode === undefined) return HQ_LIST_MOVED;
+			types.push({
+				id: String(level.id),
+				name: level.name as string,
+				code: level.code as string,
+				parentCode,
+				administrative: level.administrative === true,
+				sharesCases: level.shares_cases === true,
+				viewDescendants: level.view_descendants === true,
+			});
+		}
+		const parents = new Map(
+			types.map((level) => [level.code, level.parentCode]),
+		);
+		for (const level of types) {
+			const visited = new Set<string>();
+			let code: string | null = level.code;
+			while (code !== null) {
+				if (visited.has(code)) return HQ_LIST_MOVED;
+				visited.add(code);
+				code = parents.get(code) ?? null;
+			}
+		}
+		kept = true;
+		return retainInventory(types, list.bytes);
+	} finally {
+		if (!kept) giveBackHeld("text", list.bytes);
 	}
-	return types;
 }
 
 function malformedInventory(part: string): CommCareApiError {
@@ -359,6 +396,8 @@ export async function listHqLocations(
 	const { cancel, stopPast } = options;
 	const list = await readHqCollection(creds, {
 		label: "location list",
+		parse: parseLocationJson,
+		digestRow: exactLocationJson,
 		firstUrl: `${baseUrl(creds)}/a/${domain}/api/location/v2/?limit=${PLACE_PAGE_SIZE}`,
 		maxPages: MAX_PLACE_PAGES,
 		maxRows: stopPast ?? HQ_LOCATION_INVENTORY_MAX_ROWS,
@@ -372,47 +411,209 @@ export async function listHqLocations(
 		return stopPast === undefined
 			? { success: false, status: 502, cause: "too-large" }
 			: list;
-	const raw = list.rows;
+	let kept = false;
+	try {
+		const raw = list.rows;
 
-	const places: HqLocation[] = [];
-	const ids = new Set<string>();
-	const codes = new Set<string>();
-	for (const place of raw) {
-		if (
-			!isHqObject(place) ||
-			typeof place.location_id !== "string" ||
-			place.location_id.trim() === "" ||
-			typeof place.site_code !== "string" ||
-			place.site_code.trim() === "" ||
-			typeof place.name !== "string" ||
-			typeof place.location_type_code !== "string" ||
-			place.location_type_code.trim() === "" ||
-			(place.parent_location_id !== null &&
-				typeof place.parent_location_id !== "string") ||
-			(place.latitude !== null && typeof place.latitude !== "string") ||
-			(place.longitude !== null && typeof place.longitude !== "string") ||
-			!isHqObject(place.location_data) ||
-			ids.has(place.location_id) ||
-			codes.has(place.site_code)
-		)
-			return malformedInventory("place");
-		ids.add(place.location_id);
-		codes.add(place.site_code);
-		places.push({
-			locationId: place.location_id,
-			name: place.name,
-			siteCode: place.site_code,
-			locationTypeCode: place.location_type_code,
-			parentLocationId:
-				place.parent_location_id === "" ? null : place.parent_location_id,
-			latitude: place.latitude,
-			longitude: place.longitude,
-			// HQ validates modeled fields, then replaces the entire metadata
-			// object. Foreign JSON values must survive that replacement too.
-			values: place.location_data,
-		});
+		const places: HqLocation[] = [];
+		const ids = new Set<string>();
+		const codes = new Set<string>();
+		for (const place of raw) {
+			if (
+				!isHqObject(place) ||
+				typeof place.location_id !== "string" ||
+				place.location_id.trim() === "" ||
+				typeof place.site_code !== "string" ||
+				(place.name !== null && typeof place.name !== "string") ||
+				typeof place.location_type_code !== "string" ||
+				(place.parent_location_id !== null &&
+					typeof place.parent_location_id !== "string") ||
+				(place.latitude !== null && typeof place.latitude !== "string") ||
+				(place.longitude !== null && typeof place.longitude !== "string") ||
+				!isHqObject(place.location_data) ||
+				ids.has(place.location_id) ||
+				codes.has(place.site_code)
+			)
+				return malformedInventory("place");
+			ids.add(place.location_id);
+			codes.add(place.site_code);
+			const projected: HqLocation = {
+				locationId: place.location_id,
+				name: place.name ?? "",
+				siteCode: place.site_code,
+				locationTypeCode: place.location_type_code,
+				parentLocationId:
+					place.parent_location_id === "" ? null : place.parent_location_id,
+				latitude: place.latitude,
+				longitude: place.longitude,
+				// HQ validates modeled fields, then replaces the entire metadata
+				// object. Foreign JSON values must survive that replacement too.
+				values: place.location_data,
+			};
+			v2Source.set(projected, {
+				domain: place.domain,
+				modified: place.last_modified,
+				name: place.name,
+			});
+			places.push(projected);
+		}
+		kept = true;
+		return retainInventory(places, list.bytes);
+	} finally {
+		if (!kept) giveBackHeld("text", list.bytes);
 	}
-	return places;
+}
+
+const v2Source = new WeakMap<
+	HqLocation,
+	{ domain: unknown; modified: unknown; name: unknown }
+>();
+
+function parentLocationKey(
+	value: unknown,
+	creds: CommCareCredentials,
+	domain: string,
+): string | null | undefined {
+	if (value === null) return null;
+	if (typeof value !== "string" || !value) return undefined;
+	try {
+		const url = new URL(value, baseUrl(creds));
+		if (
+			url.origin !== new URL(baseUrl(creds)).origin ||
+			url.username ||
+			url.password ||
+			url.hash ||
+			url.search
+		)
+			return undefined;
+		for (const prefix of [
+			`/a/${domain}/api/location/v1/`,
+			`/a/${domain}/api/v0.5/location/`,
+		]) {
+			if (!url.pathname.startsWith(prefix)) continue;
+			const suffix = url.pathname.slice(prefix.length).replace(/\/$/, "");
+			if (suffix && !suffix.includes("/")) return decodeURIComponent(suffix);
+		}
+	} catch {}
+	return undefined;
+}
+
+/** A stable join on durable place ID. The v1 parent and type URIs are
+ * compared locally within this server and project space; no response URL
+ * is followed. An unread or absent field never becomes an empty value. */
+export async function listHqLocationObservations(
+	creds: CommCareCredentials,
+	domain: string,
+	levels: readonly HqLocationType[],
+	cancel?: AbortSignal,
+): Promise<readonly HqLocation[] | CommCareApiError> {
+	const places = await listHqLocations(creds, domain, { cancel });
+	if ("success" in places) return places;
+	let joinedSuccessfully = false;
+	let joinedBytes = 0;
+	try {
+		const list = await readHqCollection(creds, {
+			label: "place external IDs",
+			firstUrl: `${baseUrl(creds)}/a/${domain}/api/location/v1/?limit=1000`,
+			maxPages: Math.ceil(HQ_LOCATION_INVENTORY_MAX_ROWS / 1000) + 1,
+			maxRows: HQ_LOCATION_INVENTORY_MAX_ROWS,
+			maxBytes: HQ_LOCATION_LIST_MAX_BYTES,
+			parse: parseLocationJson,
+			digestRow: exactLocationJson,
+			row: (value) =>
+				isHqObject(value) && typeof value.location_id === "string"
+					? value
+					: null,
+			identity: (row) => String(row.location_id),
+			cancel,
+		});
+		if ("success" in list) return list;
+		if ("kind" in list)
+			return { success: false, status: 502, cause: "too-large" };
+		joinedBytes = list.bytes;
+		if (places.length !== list.rows.length) return HQ_LIST_MOVED;
+		const details = new Map(list.rows.map((row) => [row.location_id, row]));
+		const codes = new Map(levels.map((level) => [level.id, level.code]));
+		const joined: HqLocation[] = [];
+		for (const place of places) {
+			const v1 = details.get(place.locationId);
+			const v2 = v2Source.get(place);
+			if (!v1 || !v2) return HQ_LIST_MOVED;
+			if (
+				v2.domain !== domain ||
+				v1.domain !== domain ||
+				typeof v2.modified !== "string" ||
+				!v2.modified ||
+				typeof v1.last_modified !== "string" ||
+				!v1.last_modified ||
+				(v1.external_id !== null && typeof v1.external_id !== "string") ||
+				!isHqObject(v1.location_data)
+			)
+				return malformedInventory("external ID observation");
+			if (
+				v1.last_modified !== v2.modified ||
+				v1.name !== v2.name ||
+				v1.site_code !== place.siteCode ||
+				v1.latitude !== place.latitude ||
+				v1.longitude !== place.longitude ||
+				parentLocationKey(v1.parent, creds, domain) !==
+					place.parentLocationId ||
+				parentLevelCode(v1.location_type, codes, creds, domain) !==
+					place.locationTypeCode ||
+				exactLocationJson(v1.location_data) !== exactLocationJson(place.values)
+			)
+				return HQ_LIST_MOVED;
+			joined.push({
+				...place,
+				observation: {
+					externalId: v1.external_id,
+					nameIsNull: v2.name === null,
+					...observedLocationMetadata(place.values),
+				},
+			});
+		}
+		joinedSuccessfully = true;
+		const firstBytes = inventoryCharges.get(places) ?? 0;
+		inventoryCharges.delete(places);
+		return retainInventory(joined, firstBytes + list.bytes);
+	} finally {
+		if (!joinedSuccessfully) {
+			releaseLocationInventory(places);
+			giveBackHeld("text", joinedBytes);
+		}
+	}
+}
+
+export async function readHqPlaceExternalId(
+	creds: CommCareCredentials,
+	domain: string,
+	id: string,
+	cancel?: AbortSignal,
+): Promise<{ externalId: string | null; siteCode: string } | CommCareApiError> {
+	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
+	if (!id || [".", ".."].includes(id))
+		return malformedInventory("place detail id");
+	const result = await readHqJson(
+		creds,
+		`${baseUrl(creds)}/a/${domain}/api/location/v1/${encodeURIComponent(id)}/`,
+		"place external ID",
+		{ cancel, maxBytes: HQ_LOCATION_LIST_MAX_BYTES },
+	);
+	if ("success" in result) return result;
+	try {
+		const row = result.data;
+		if (
+			!isHqObject(row) ||
+			row.domain !== domain ||
+			row.location_id !== id ||
+			typeof row.site_code !== "string" ||
+			(row.external_id !== null && typeof row.external_id !== "string")
+		)
+			return malformedInventory("place external ID");
+		return { externalId: row.external_id, siteCode: row.site_code };
+	} finally {
+		giveBackHeld("text", result.bytes);
+	}
 }
 
 /**

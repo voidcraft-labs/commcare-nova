@@ -1,3 +1,4 @@
+import type { LookupReadNames } from "../lookup/readPath";
 /**
  * What the reader of CommCare HQ's apps takes and gives: its input, the
  * draft a clean reading gives, the account a reading with a finding gives, and
@@ -136,7 +137,7 @@ export interface ReaderLookupCatalog {
 	/** What `FormParseScope.lookup` and the checker read. */
 	readonly definitions: LookupDefinitionIndex;
 }
-export interface ReaderLookupTable {
+export interface ReaderLookupTable extends LookupReadNames {
 	readonly tableId: LookupTableId;
 	/** A column by the field name HQ holds. */
 	column(fieldName: string): LookupColumnId | undefined;

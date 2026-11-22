@@ -24,6 +24,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
+import { Input } from "@/components/shadcn/input";
 import { Spinner } from "@/components/shadcn/spinner";
 import { LOOKUP_DISCARD_NOTE } from "@/lib/deployment/remoteChanges";
 import type { LookupReferencingAppSummary } from "@/lib/lookup/types";
@@ -41,7 +42,7 @@ import {
 } from "@/lib/publish/managedData";
 
 /** Resolves `null` once the change landed, or the sentence of the refusal that stopped it. */
-type Confirm = () => Promise<string | null>;
+type Confirm = (file?: FormData) => Promise<string | null>;
 
 const TRANSPORT_FAILURE =
 	"Nova couldn't reach this data table. Check your connection and try again.";
@@ -53,6 +54,7 @@ function ManagedTableConfirmation({
 	confirmLabel,
 	cancelLabel,
 	destructive,
+	needsWorkbook = false,
 	onCancel,
 	onConfirm,
 }: {
@@ -62,9 +64,11 @@ function ManagedTableConfirmation({
 	confirmLabel: string;
 	cancelLabel: string;
 	destructive: boolean;
+	needsWorkbook?: boolean;
 	onCancel: () => void;
 	onConfirm: Confirm;
 }) {
+	const [workbook, setWorkbook] = useState<File | null>(null);
 	const [working, setWorking] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [first, ...rest] = paragraphs;
@@ -81,6 +85,24 @@ function ManagedTableConfirmation({
 					<AlertDialogDescription>{first}</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogBody className="space-y-3">
+					{needsWorkbook && (
+						<div className="space-y-1">
+							<label htmlFor="management-source-workbook">
+								Current assignment workbook
+							</label>
+							<Input
+								type="file"
+								id="management-source-workbook"
+								accept=".xlsx"
+								disabled={working}
+								onChange={(e) => setWorkbook(e.target.files?.[0] ?? null)}
+							/>
+							<p>
+								You can download just this table from its project space now.
+								Nova checks who receives its rows before moving it.
+							</p>
+						</div>
+					)}
 					{rest.map((paragraph) => (
 						<p
 							key={paragraph}
@@ -104,7 +126,7 @@ function ManagedTableConfirmation({
 					</AlertDialogCancel>
 					<AlertDialogAction
 						variant={destructive ? "destructive" : "default"}
-						disabled={working}
+						disabled={working || (needsWorkbook && !workbook)}
 						onClick={async (event) => {
 							/* A refusal keeps the dialog open so its sentence lands beside
 							 * the action; a change that landed closes it from the caller. */
@@ -112,7 +134,9 @@ function ManagedTableConfirmation({
 							setWorking(true);
 							setRefusal(null);
 							try {
-								setRefusal(await onConfirm());
+								const file = workbook ? new FormData() : undefined;
+								if (workbook) file?.set("workbook", workbook);
+								setRefusal(file ? await onConfirm(file) : await onConfirm());
 							} catch {
 								setRefusal(TRANSPORT_FAILURE);
 							} finally {
@@ -132,6 +156,7 @@ function ManagedTableConfirmation({
 /** Manage in Nova: from now on the table is changed in Nova, and each publish replaces CommCare HQ's. */
 export function ManageInNovaDialog({
 	open,
+	needsWorkbook,
 	tableName,
 	domain,
 	apps,
@@ -139,6 +164,7 @@ export function ManageInNovaDialog({
 	onConfirm,
 }: {
 	open: boolean;
+	needsWorkbook?: boolean;
 	tableName: string;
 	domain: string;
 	apps: readonly LookupReferencingAppSummary[];
@@ -149,6 +175,7 @@ export function ManageInNovaDialog({
 	return (
 		<ManagedTableConfirmation
 			open={open}
+			needsWorkbook={needsWorkbook}
 			title={manageInNovaTitle(tableName)}
 			paragraphs={[
 				...manageInNovaBody(domain),

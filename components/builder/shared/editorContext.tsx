@@ -443,7 +443,11 @@ export function WithLookupTableScope({
 		() => ({
 			...outer,
 			caseDataScope: "table-row",
-			tableScope: { tableId: table.id, columns: table.columns },
+			tableScope: {
+				tableId: table.id,
+				columns: table.columns,
+				attributes: table.attributes,
+			},
 		}),
 		[outer, table],
 	);

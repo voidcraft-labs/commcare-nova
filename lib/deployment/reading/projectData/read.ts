@@ -11,12 +11,7 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { classifyHqFailure, type HqFailure } from "@/lib/commcare/hq/failure";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
-import {
-	type HqLocation,
-	type HqLocationType,
-	listHqLocations,
-	listHqLocationTypes,
-} from "@/lib/commcare/hq/locations";
+import { readHqPlaceInventory } from "@/lib/commcare/hq/locationInventory";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { getAppDb } from "@/lib/db/pg";
 import { projectRoleFor } from "@/lib/db/projectMembership";
@@ -33,10 +28,10 @@ import type {
 	LookupFixtureRow,
 	LookupReferencingAppSummary,
 	LookupRevision,
+	LookupRowContent,
 	LookupRowValues,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
-import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import {
 	readSiblingLookupMappings,
 	type SiblingLookupMapping,
@@ -80,6 +75,7 @@ export interface ReadingProjectSide {
 	/** What Postgres measures of candidate rows. */
 	readonly measureRows: (
 		rows: readonly LookupRowValues[],
+		contents?: readonly LookupRowContent[],
 	) => Promise<LookupRowsMeasure>;
 }
 
@@ -118,7 +114,7 @@ export function postgresProjectSide(input: {
 	};
 	return {
 		async tables(tags) {
-			await viewerRole();
+			const role = await viewerRole();
 			const wanted = new Set(tags);
 			const db = await getAppDb();
 			return db
@@ -138,6 +134,7 @@ export function postgresProjectSide(input: {
 						tx,
 						projectId,
 						tableIds,
+						roleAllowsApp(role, "edit") ? "project-editor" : "device",
 					);
 					return {
 						projectId,
@@ -192,82 +189,16 @@ type PlacesAnswer =
 	| { readonly kind: "read"; readonly places: ReadingPlacesRead }
 	| { readonly kind: "failed"; readonly failure: HqFailure };
 
-/** CommCare HQ's levels, then its places, stopping once past Nova's limit. */
-async function readPlacesOnce(
-	creds: CommCareCredentials,
-	domain: string,
-	cancel: AbortSignal | undefined,
-): Promise<PlacesAnswer> {
-	const levels = await listHqLocationTypes(creds, domain, { cancel });
-	if ("success" in levels) {
-		return {
-			kind: "failed",
-			failure: classifyHqFailure(levels, "location-types"),
-		};
-	}
-	const places = await listHqLocations(creds, domain, {
-		cancel,
-		stopPast: MAX_LOCATIONS_PER_APP,
-	});
-	if ("success" in places) {
-		return { kind: "failed", failure: classifyHqFailure(places, "locations") };
-	}
-	if ("kind" in places) {
-		return {
-			kind: "read",
-			places: {
-				hqLevels: levels,
-				hqPlaces: [],
-				placesPastLimit: {
-					totalCount: places.by === "rows" ? places.totalCount : null,
-				},
-			},
-		};
-	}
-	return {
-		kind: "read",
-		places: { hqLevels: levels, hqPlaces: places, placesPastLimit: null },
-	};
-}
-
-/** Whether every place stands at a level the level list holds. */
-function placesAgreeWithLevels(
-	levels: readonly HqLocationType[],
-	places: readonly HqLocation[],
-): boolean {
-	const codes = new Set(levels.map((level) => level.code));
-	return places.every((place) => codes.has(place.locationTypeCode));
-}
-
-/**
- * The levels and places. Where a place names a level the level list lacks,
- * the two reads straddled a change in CommCare HQ, and both are read once
- * more; a second pair that disagrees too is CommCare HQ not answering one
- * state.
- */
 async function readPlaces(
 	creds: CommCareCredentials,
 	domain: string,
-	cancel: AbortSignal | undefined,
+	cancel?: AbortSignal,
 ): Promise<PlacesAnswer> {
-	const first = await readPlacesOnce(creds, domain, cancel);
-	if (
-		first.kind === "failed" ||
-		placesAgreeWithLevels(first.places.hqLevels, first.places.hqPlaces)
-	) {
-		return first;
-	}
-	const second = await readPlacesOnce(creds, domain, cancel);
-	if (
-		second.kind === "failed" ||
-		placesAgreeWithLevels(second.places.hqLevels, second.places.hqPlaces)
-	) {
-		return second;
-	}
-	return {
-		kind: "failed",
-		failure: { kind: "hq-unavailable", request: "locations", status: 200 },
-	};
+	const read = await readHqPlaceInventory(creds, domain, cancel);
+	if (read.kind === "failed") return { kind: "failed", failure: classifyHqFailure(read.error, read.request) };
+	return { kind: "read", places: read.kind === "inconsistent"
+		? { hqLevels: [], hqPlaces: [], inconsistent: true }
+		: { hqLevels: read.levels, hqPlaces: read.places } };
 }
 
 /**
@@ -343,7 +274,15 @@ export async function readReadingProjectData(input: {
 		const rows = rowsToMeasure(read, ids);
 		measured.set(
 			read.table.tag,
-			rows === null ? null : await project.measureRows(rows),
+			rows === null
+				? null
+				: await project.measureRows(
+						rows.map((row) => row.values),
+						rows.map(({ attributes, occurrences }) => ({
+							attributes,
+							occurrences,
+						})),
+					),
 		);
 	}
 

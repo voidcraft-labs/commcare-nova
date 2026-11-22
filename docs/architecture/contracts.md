@@ -828,6 +828,11 @@ not masquerade as a child of that tree.
 - **Project data** is a URL-owned workspace for Project-shared lookup tables. It
   is reachable from expanded and collapsed desktop navigation and the mobile path
   menu, and it always states that changes affect every referencing app.
+  A search covers the complete table. Row pages, retained drafts and conflict
+  decisions bind stable IDs to the table revision. Large rows open by individual
+  values. Text file uploads and partial replacements verify the original
+  UTF-8 bytes and revision before committing. A connected editor can inspect
+  protected source inventory. Worker preview uses the worker’s own projection.
 - **App setup** is a URL-owned workspace with Users and personas, Organization,
   Languages, Automations, and Publishing sections.
 - Configuration workspaces own breadcrumbs, deep links, route recovery, viewer

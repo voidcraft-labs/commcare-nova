@@ -1,3 +1,4 @@
+import { lookupReadSteps } from "@/lib/commcare/lookup/read";
 // lib/commcare/suite/case-search/searchPrompts.ts
 //
 // Per-input `<prompt>` elements inside `<remote-request>`'s `<query>`
@@ -593,11 +594,11 @@ function buildItemset(
 			instanceScope: "suite",
 			...withRewrites(emission.rewrites("search_input_options")),
 		}),
-		label: w.context([w.step(table.wireNameFor(options.labelColumnId))]),
-		value: w.context([w.step(table.wireNameFor(options.valueColumnId))]),
-		sort: w.context([
-			w.step(table.wireNameFor(searchInputLookupSortColumnId(options))),
-		]),
+		label: w.context(lookupReadSteps(table, options.labelColumnId)),
+		value: w.context(lookupReadSteps(table, options.valueColumnId)),
+		sort: w.context(
+			lookupReadSteps(table, searchInputLookupSortColumnId(options)),
+		),
 	};
 }
 

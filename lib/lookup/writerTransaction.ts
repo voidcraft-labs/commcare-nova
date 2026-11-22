@@ -48,6 +48,16 @@ const authorityTransactions = new WeakMap<
 	Transaction<AppDatabase>
 >();
 
+const destructiveAuthorities = new WeakSet<LookupWriteAuthority>();
+
+/** Receipts retain the strongest capability the successful write used,
+ * including authority discovered from the previous definition under lock. */
+export function lookupReceiptCapability(
+	authority: LookupWriteAuthority,
+): "edit" | "delete" {
+	return destructiveAuthorities.has(authority) ? "delete" : "edit";
+}
+
 /**
  * A write refused because the member's standing, read in the write's own
  * transaction, does not allow it: no longer a member of the Project
@@ -110,6 +120,7 @@ export async function authorizeLookupWriteInTransaction(
 		role,
 	} as LookupWriteAuthority;
 	authorityTransactions.set(authority, tx);
+	if (capability === "delete") destructiveAuthorities.add(authority);
 	return authority;
 }
 
@@ -131,6 +142,7 @@ export function requireLookupCapability(
 	if (!roleAllowsApp(authority.role, capability)) {
 		throw new LookupAuthorityError("below-capability", capability);
 	}
+	if (capability === "delete") destructiveAuthorities.add(authority);
 	return authority;
 }
 

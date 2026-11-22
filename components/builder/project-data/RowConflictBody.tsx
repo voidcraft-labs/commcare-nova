@@ -21,6 +21,7 @@ import type {
 	ProjectDataWorkspace,
 } from "./ProjectDataWorkspaceProvider";
 import { cellText, type RowDraft, rowDraftToValues } from "./projectDataModel";
+import { RichRowFields } from "./RichRowFields";
 import { RowValueField } from "./RowValueField";
 
 export function RowConflictBody({
@@ -39,8 +40,11 @@ export function RowConflictBody({
 	);
 	const [working, setWorking] = useState(false);
 	const [failure, setFailure] = useState<string | null>(null);
+	const large = conflict.large;
 	const gone = conflict.verdict.kind === "gone";
 	const deleting = conflict.attempted === "delete";
+	const needsAcknowledgement =
+		conflict.removed.length > 0 || conflict.rich?.removed === true;
 	const resolutionColumns = conflict.resolution?.columns ?? [];
 
 	const reason = conflict.tableUnavailable
@@ -87,7 +91,7 @@ export function RowConflictBody({
 			);
 			return;
 		}
-		if (conflict.removed.length > 0 && !removedAcknowledged) {
+		if (needsAcknowledgement && !removedAcknowledged) {
 			setFailure(
 				"Acknowledge the removed column values before saving the remaining values.",
 			);
@@ -133,7 +137,22 @@ export function RowConflictBody({
 				</div>
 			</div>
 
-			{conflict.tableUnavailable ? (
+			{large ? (
+				<section>
+					<h3>{large.title}</h3>
+					<p>This row is unavailable. You can copy your pending edit here.</p>
+					<p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+						{large.kind === "slice"
+							? (large.file?.name ?? large.text)
+							: (large.cell?.text ??
+								("text" in large.change
+									? large.change.text
+									: large.change.kind === "insert"
+										? large.change.value.text
+										: large.title))}
+					</p>
+				</section>
+			) : conflict.tableUnavailable ? (
 				<DraftValues
 					columns={conflict.displayColumns}
 					draft={conflict.editableDraft}
@@ -162,42 +181,96 @@ export function RowConflictBody({
 						keep this row or save it as a new one.
 					</p>
 					<div className="space-y-3">
-						{resolutionColumns.map((column) => (
-							<div key={column.id} className="space-y-1">
-								<RowValueField
-									column={column}
-									value={conflict.editableDraft[column.id]}
-									invalid={errors.get(column.id)}
-									disabled={working}
-									onChange={(next) => {
-										setFailure(null);
-										workspace.updateRowConflictDraft(conflict, column.id, next);
-									}}
-								/>
-								{conflict.current !== undefined && (
-									<p className="text-[12px] text-nova-text-muted">
-										Already saved:{" "}
-										<VisibleValue
-											text={cellText(conflict.current, column)}
-											compact
-										/>
-									</p>
-								)}
-							</div>
-						))}
+						{resolutionColumns
+							.filter((column) => !column.repeated)
+							.map((column) => (
+								<div key={column.id} className="space-y-1">
+									<RowValueField
+										column={column}
+										value={conflict.editableDraft[column.id]}
+										invalid={errors.get(column.id)}
+										disabled={working}
+										onChange={(next) => {
+											setFailure(null);
+											workspace.updateRowConflictDraft(
+												conflict,
+												column.id,
+												next,
+											);
+										}}
+									/>
+									{conflict.current !== undefined && (
+										<p className="text-[12px] text-nova-text-muted">
+											Already saved:{" "}
+											<VisibleValue
+												text={cellText(conflict.current, column)}
+												compact
+											/>
+										</p>
+									)}
+								</div>
+							))}
 					</div>
 				</div>
 			)}
 
-			{!deleting && conflict.removed.length > 0 && (
+			{conflict.rich && (
+				<>
+					{(conflict.tableUnavailable || conflict.rich.removed || deleting) && (
+						<div className="space-y-2">
+							<p className="text-sm font-medium">Your original row details</p>
+							<RichRowFields
+								columns={conflict.rich.originalColumns}
+								attributes={conflict.rich.originalAttributes ?? []}
+								content={conflict.rich.original}
+							/>
+						</div>
+					)}
+					{conflict.resolution &&
+					(conflict.resolution.attributes?.length ||
+						resolutionColumns.some((column) => column.repeated)) ? (
+						<div className="space-y-2">
+							{conflict.rich.current && (
+								<details>
+									<summary>Saved row details</summary>
+									<RichRowFields
+										columns={resolutionColumns}
+										attributes={conflict.resolution.attributes ?? []}
+										content={conflict.rich.current}
+									/>
+								</details>
+							)}
+							{!deleting && (
+								<RichRowFields
+									columns={resolutionColumns}
+									attributes={conflict.resolution.attributes ?? []}
+									content={conflict.rich.draft}
+									onChange={
+										canEdit && !working
+											? (draft) => {
+													if (conflict.rich)
+														workspace.setRowConflict({
+															...conflict,
+															rich: { ...conflict.rich, draft },
+														});
+												}
+											: undefined
+									}
+								/>
+							)}
+						</div>
+					) : null}
+				</>
+			)}
+			{!deleting && needsAcknowledgement && (
 				<div className="space-y-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] p-3">
 					<div>
 						<p className="text-[13px] font-medium text-nova-text">
-							Values from removed columns
+							Values outside the current table
 						</p>
 						<p className="mt-1 text-[12px] leading-snug text-nova-text-secondary">
-							These columns no longer exist, so Nova cannot put their values
-							into this table. Copy anything you need before continuing.
+							These columns or details no longer exist, so Nova cannot put their
+							values into this table. Copy anything you need before continuing.
 						</p>
 					</div>
 					<dl className="space-y-2">
@@ -223,12 +296,18 @@ export function RowConflictBody({
 								disabled={working}
 								onCheckedChange={setRemovedAcknowledged}
 							/>
-							I copied what I need; save without these removed columns
+							I copied what I need from the removed columns and details
 						</label>
 					)}
 				</div>
 			)}
 
+			{conflict.resolution?.fragmented && (
+				<p className="text-sm">
+					The saved row now opens in parts. You can keep your draft as a
+					separate row or use the saved row and edit an individual value.
+				</p>
+			)}
 			{failure !== null && (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">
 					{failure}
@@ -255,40 +334,49 @@ export function RowConflictBody({
 						Delete it anyway
 					</Button>
 				)}
-				{canEdit && !deleting && !gone && !conflict.tableUnavailable && (
-					<Button
-						type="button"
-						variant="default"
-						className=""
-						disabled={
-							working || (conflict.removed.length > 0 && !removedAcknowledged)
-						}
-						onClick={() =>
-							saveReconciled((values) =>
-								workspace.overwriteConflictRow(conflict, values),
-							)
-						}
-					>
-						Keep my reconciled row
-					</Button>
-				)}
-				{canEdit && !deleting && gone && !conflict.tableUnavailable && (
-					<Button
-						type="button"
-						variant="default"
-						className=""
-						disabled={
-							working || (conflict.removed.length > 0 && !removedAcknowledged)
-						}
-						onClick={() =>
-							saveReconciled((values) =>
-								workspace.saveConflictAsNewRow(conflict, values),
-							)
-						}
-					>
-						Save as a new row
-					</Button>
-				)}
+				{!large &&
+					canEdit &&
+					!deleting &&
+					!gone &&
+					!conflict.resolution?.fragmented &&
+					!conflict.tableUnavailable && (
+						<Button
+							type="button"
+							variant="default"
+							className=""
+							disabled={
+								working || (needsAcknowledgement && !removedAcknowledged)
+							}
+							onClick={() =>
+								saveReconciled((values) =>
+									workspace.overwriteConflictRow(conflict, values),
+								)
+							}
+						>
+							Keep my reconciled row
+						</Button>
+					)}
+				{!large &&
+					canEdit &&
+					!deleting &&
+					(gone || conflict.resolution?.fragmented) &&
+					!conflict.tableUnavailable && (
+						<Button
+							type="button"
+							variant="default"
+							className=""
+							disabled={
+								working || (needsAcknowledgement && !removedAcknowledged)
+							}
+							onClick={() =>
+								saveReconciled((values) =>
+									workspace.saveConflictAsNewRow(conflict, values),
+								)
+							}
+						>
+							Save as a new row
+						</Button>
+					)}
 				<Button
 					type="button"
 					variant="ghost"

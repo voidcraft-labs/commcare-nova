@@ -548,7 +548,7 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"expressions-and-data/item-list-tag-read-in-any-other-expression",
 		"instance-scheme:item-list",
 	),
-	"groups-jr-fixture-user-groups": refuse(
+	"groups-jr-fixture-user-groups": take(
 		"expressions-and-data/groups-jr-fixture-user-groups",
 		"instance-scheme:groups",
 	),
@@ -2261,8 +2261,6 @@ export function parseIssueEntry(
 							.entry,
 					)
 				: answer("slot-default");
-		case "groups-held":
-			return answer(C["groups-jr-fixture-user-groups"].entry);
 		case "search-results-remote":
 			// A form opened after a search that is not inline finds no results;
 			// any other slot that reads them is a setting Nova's record rule

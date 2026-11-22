@@ -2965,7 +2965,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Settings and profile, `case_sharing`)",
+		"content": "HELD (Settings and profile, `case_sharing`)",
 		"contentEntries": ["application-and-settings/39-hq-case-sharing"],
 		"platforms": "n/a",
 		"preflight": {

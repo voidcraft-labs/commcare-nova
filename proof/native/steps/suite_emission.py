@@ -228,6 +228,9 @@ def localizations(family):
                 for lang in app.langs if family == "localization" else []:
                     (exports / f"{source.stem}.hq.{lang}.strings.txt").write_text(known_app_strings(app, lang))
                 records.append({"scenario": source.stem, "languages": list(app.langs), "sourceSha256": sha256(raw)})
+        if family == "worker":
+            from proof.native.steps.worker_groups import restored_audiences
+            restored_audiences(exports)
         return records
 
     return run

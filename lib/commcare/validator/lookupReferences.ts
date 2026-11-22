@@ -196,6 +196,25 @@ export function validateLookupReferences(
 			);
 			continue;
 		}
+		if (occurrence.memberId !== undefined) {
+			const members =
+				occurrence.columnId === undefined
+					? table.attributes
+					: table.columns.find((column) => column.id === occurrence.columnId)
+							?.properties;
+			if (!members?.some((member) => member.id === occurrence.memberId)) {
+				errors.push(
+					validationError(
+						"LOOKUP_COLUMN_NOT_AVAILABLE",
+						occurrence.location.scope,
+						"This lookup detail is no longer available in its table. Choose a current detail or change the source.",
+						occurrenceLocation(occurrence),
+						{ ...occurrenceDetails(occurrence), memberId: occurrence.memberId },
+					),
+				);
+				continue;
+			}
+		}
 		if (occurrence.columnId === undefined) continue;
 
 		const column = table.columns.find(

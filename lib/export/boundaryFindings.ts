@@ -38,6 +38,16 @@ import {
 } from "@/lib/commcare/validator/errors";
 import type { BlueprintDoc } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import {
+	type LookupWorkbookOwners,
+	lookupWorkbookShape,
+	observeLookupWorkbookRow,
+} from "@/lib/commcare/lookup/workbookRows";
+import {
+	alternativeLookupCarrier,
+	describeLookupCarrierAlternative,
+} from "@/lib/commcare/lookup/carrier";
+import { requiresLookupProjection } from "@/lib/lookup/source";
 import type {
 	LookupFixtureDataSnapshot,
 	LookupTableDefinition,
@@ -52,6 +62,11 @@ export interface ExportCarrierFindingsInput {
 	readonly mode: ExportMode;
 	/** One generation of the tables the document reads: definitions and rows. */
 	readonly fixtureData: LookupFixtureDataSnapshot;
+	readonly restoreTableIds?: ReadonlySet<LookupTableId>;
+	readonly assignments?: ReadonlyMap<
+		LookupTableId,
+		ReadonlyMap<string, LookupWorkbookOwners>
+	>;
 	/**
 	 * The project space a direct upload writes to: its server and domain. A
 	 * table CommCare HQ manages there is left out of the workbook, so Nova
@@ -152,12 +167,53 @@ export function exportCarrierFindings(
 		fixtureData.definitions.length === 0
 			? undefined
 			: lookupWireNaming(fixtureData.definitions);
-	const leftOut = fixtureData.definitions.filter((definition) =>
+	const referenced = fixtureData.definitions.filter((table) => {
+		if (mode === "ccz" && input.restoreTableIds?.has(table.id)) return false;
+		const assigned =
+			table.workerAccess === "assigned" ||
+			table.hq?.source?.distribution === "assigned";
+		return !(
+			mode === "hq-json" &&
+			(assigned || requiresLookupProjection(table.hq)) &&
+			!input.assignments?.has(table.id)
+		);
+	});
+	const unavailable = referenced.filter(
+		(table) =>
+			(requiresLookupProjection(table.hq) ||
+				(table.workerAccess === "assigned" &&
+					!input.assignments?.has(table.id))) &&
+			!(
+				mode === "hq-upload" &&
+				leftOutOfMainWorkbook(table, mode, input.lookupTarget)
+			),
+	);
+	if (unavailable.length)
+		return {
+			naming,
+			lookupWire: undefined,
+			lookupWorkbook: undefined,
+			managedLookupTables: [],
+			managedLookupWorkbooks: [],
+			rowFindings: unavailable.map((table) =>
+				validationError(
+					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+					"app",
+					`“${table.name}” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.`,
+					{},
+					{ tableId: table.id, tableName: table.name },
+				),
+			),
+			selectionFindings: [],
+		};
+	const leftOut = referenced.filter((definition) =>
 		leftOutOfMainWorkbook(definition, mode, input.lookupTarget),
 	);
 	const leftOutIds = new Set(leftOut.map((definition) => definition.id));
-	const mainDefinitions = fixtureData.definitions.filter(
-		(definition) => !leftOutIds.has(definition.id),
+	const mainDefinitions = referenced.filter(
+		(definition) =>
+			!leftOutIds.has(definition.id) &&
+			!fixtureData.streamedTables?.has(definition.id),
 	);
 	/* Each HQ workbook's tables, judged and built over its own: the main one,
 	 * and for `hq-json` one of the tables each project space manages. A table
@@ -173,10 +229,9 @@ export function exportCarrierFindings(
 							? undefined
 							: lookupWireNaming(definitions),
 				);
-	const sentDefinitions =
-		mode === "hq-json" ? fixtureData.definitions : mainDefinitions;
+	const sentDefinitions = mode === "hq-json" ? referenced : mainDefinitions;
 	const textFindings = [
-		...lookupXmlTextFindings(fixtureData),
+		...lookupXmlTextFindings(narrowSnapshot(fixtureData, referenced)),
 		...(mode === "ccz"
 			? []
 			: lookupHqCellTextFindings(narrowSnapshot(fixtureData, sentDefinitions))),
@@ -186,12 +241,62 @@ export function exportCarrierFindings(
 			? undefined
 			: {
 					naming,
-					fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
+					fixtures: buildLookupFixtures(
+						lookupWireNaming(referenced),
+						new Map([
+							...fixtureData.rowsByTable,
+							...[...(fixtureData.streamedTables?.keys() ?? [])].map(
+								(id) => [id, []] as const,
+							),
+						]),
+					),
 				};
+	// Small workbooks use exactly the same representation check as a paged
+	// workbook. A direct renderer must never throw or silently simplify a row.
+	const alternatives: ValidationError[] = [];
+	const alternativeKinds = new Map<string, string>();
+	for (const group of workbookTables) {
+		if (!group) continue;
+		for (const table of group.tables) {
+			const shape = lookupWorkbookShape(table);
+			for (const row of fixtureData.rowsByTable.get(table.tableId) ?? [])
+				observeLookupWorkbookRow(
+					shape,
+					table,
+					row,
+					input.assignments?.get(table.tableId)?.get(row.id),
+				);
+			if (!shape.issue) continue;
+			const definition = fixtureData.definitions.find(
+				(t) => t.id === table.tableId,
+			);
+			if (!definition)
+				throw new Error("The planned workbook lost its table definition.");
+			const carrier = alternativeLookupCarrier(definition, shape.issue);
+			alternativeKinds.set(table.tableId, carrier.kind);
+			if (
+				table.tag.toLowerCase() === TYPES_SHEET ||
+				textFindings.some((f) => f.details?.tableId === table.tableId)
+			)
+				continue;
+			alternatives.push(
+				validationError(
+					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+					"app",
+					describeLookupCarrierAlternative(definition.name, carrier),
+					{},
+					{ tableId: table.tableId, delivery: carrier.kind },
+				),
+			);
+		}
+	}
 	const [lookupWorkbook, ...managedWorkbooks] = workbookTables.map((tables) =>
-		tables === undefined || hasUnpushableTag(tables) || textFindings.length > 0
+		tables === undefined ||
+		alternatives.length > 0 ||
+		hasUnpushableTag(tables) ||
+		textFindings.length > 0
 			? undefined
-			: buildLookupWorkbook(tables, fixtureData.rowsByTable),
+			: buildLookupWorkbook(tables, fixtureData.rowsByTable, input.assignments),
 	);
 	const managedLookupWorkbooks = managedOrigins.flatMap((group, index) => {
 		const workbook = managedWorkbooks[index];
@@ -200,8 +305,12 @@ export function exportCarrierFindings(
 			: [{ server: group.server, domain: group.domain, workbook }];
 	});
 	const rowFindings = [
+		...alternatives,
 		...lookupExportFindings(doc, {
-			fixtureData,
+			fixtureData: narrowSnapshot(
+				fixtureData,
+				referenced.filter((t) => !fixtureData.streamedTables?.has(t.id)),
+			),
 			textFindings,
 			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
 			hqNamings: workbookTables.filter((tables) => tables !== undefined),
@@ -210,7 +319,13 @@ export function exportCarrierFindings(
 			),
 		}),
 		...organizationExportFindings(doc, mode),
-	];
+	].map((finding) => {
+		const kind =
+			finding.details?.tableId && alternativeKinds.get(finding.details.tableId);
+		return kind
+			? { ...finding, details: { ...finding.details, delivery: kind } }
+			: finding;
+	});
 	let selectionFindings: readonly ValidationError[] | undefined;
 	return {
 		naming,
@@ -465,9 +580,30 @@ function lookupExportFindings(
 	doc: BlueprintDoc,
 	lookupRows: LookupRowVerdictInput,
 ): ValidationError[] {
+	// Administrator-assignment workbooks carry every intended row. Their union
+	// cannot attest a worker's choices, including duplicates visible only to
+	// disjoint principals. Source/reference-only paths carry no private rows.
+	const snapshot = lookupRows.fixtureData;
+	const privateIds = new Set(
+		snapshot.definitions
+			.filter(
+				(t) =>
+					t.workerAccess === "assigned" ||
+					t.hq?.source?.distribution === "assigned",
+			)
+			.map((t) => t.id),
+	);
+	const workerSnapshot = privateIds.size
+		? {
+				...snapshot,
+				rowsByTable: new Map(
+					[...snapshot.rowsByTable].filter(([id]) => !privateIds.has(id)),
+				),
+			}
+		: snapshot;
 	return [
 		...lookupRows.textFindings,
-		...lookupSelectSourceRowFindings(doc, lookupRows.fixtureData),
+		...lookupSelectSourceRowFindings(doc, workerSnapshot),
 		...(lookupRows.fixtures === undefined
 			? []
 			: lookupFixtureBudgetFindings(lookupRows.fixtures)),

@@ -99,6 +99,34 @@ def make_tables(authoring, tables):
                 )
 
 
+def changes_lookup_data(change):
+    """The variant edits a real HQ table as well as its app. Read both again in its fork."""
+    change.changes_lookup_data = True
+    return change
+
+
+def qualify_districts(authoring):
+    """Two ordered names per district, with a language property and a stable row code."""
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow
+
+    domain = authoring.state.domain
+    with authoring.step("variant:district-values", b"row_code/name/lang"):
+        table = LookupTable.objects.get(domain=domain, tag="districts")
+        table.item_attributes = ["row_code"]
+        for field in table.fields:
+            if field.name == "name":
+                field.properties = ["lang"]
+        table.save()
+        for row in LookupTableRow.objects.filter(domain=domain, table=table):
+            label = row.fields["name"][0].value
+            row.item_attributes = {"row_code": row.fields["id"][0].value}
+            row.fields["name"] = [
+                Field(value=label, properties={"lang": "en"}),
+                Field(value="Lieu " + label, properties={"lang": "fr"}),
+            ]
+            row.save()
+
+
 def declare_instance(xform, instance_id, src):
     """The secondary instance ``instance_id`` from ``src`` declared in the form's model after its data instance,
     after every instance declared before it, as HQ's form builder writes one."""

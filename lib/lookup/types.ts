@@ -1,13 +1,17 @@
 import type { OrdinaryAuthoringAuthority } from "@/lib/db/authoringAuthority";
 import type {
 	LookupColumnId,
+	LookupMemberId,
 	LookupRowId,
 	LookupTableId,
 } from "@/lib/domain/lookupIds";
 import type { LOOKUP_DATA_TYPES } from "./constants";
+import type { NamedLookupRowContent } from "./rowContent";
+import type { LookupSourceFacts } from "./source";
 
 export type {
 	LookupColumnId,
+	LookupMemberId,
 	LookupRowId,
 	LookupTableId,
 } from "@/lib/domain/lookupIds";
@@ -59,7 +63,31 @@ export type LookupAgentWriteScope = {
 	  }
 );
 
+/** A row attribute or a property of a repeated column. Its ID is local to the
+ * Project table. Names and ordering can change without retargeting readers. */
+export interface LookupMember {
+	id: LookupMemberId;
+	wireName: string;
+	label: string;
+}
+
+export interface LookupOccurrence {
+	text: string;
+	properties: Partial<Record<LookupMemberId, string>>;
+}
+
+/** Field absence, an explicit empty list, and one empty value stay distinct. */
+export interface LookupRowContent {
+	attributes?: Partial<Record<LookupMemberId, string>>;
+	occurrences?: Partial<Record<LookupColumnId, LookupOccurrence[]>>;
+}
+
 export interface LookupColumn {
+	/** Absence is one scalar per row. A repeated column always stores text. */
+	repeated?: true;
+	properties?: readonly LookupMember[];
+	/** Absence is an authored nonindexed field. A source can omit index facts. */
+	index?: "indexed" | "unobserved";
 	id: LookupColumnId;
 	wireName: string;
 	label: string;
@@ -72,7 +100,9 @@ export interface StoredLookupColumn extends LookupColumn {
 	orderKey: string;
 }
 
-export interface LookupRow {
+export interface LookupRow extends LookupRowContent {
+	sourceIndex?: number;
+	fragmented?: true;
 	id: LookupRowId;
 	values: LookupRowValues;
 	/** Exact Postgres `octet_length(values::text)`, not a JS estimate. */
@@ -101,6 +131,7 @@ export interface LookupTableRevisions {
  * nothing, so the day is read from the table, never from the manifest.
  */
 export interface LookupManifestHqOrigin {
+	readonly source?: LookupSourceFacts;
 	/** One of CommCare HQ's servers, by the name the deployment ledger uses. */
 	readonly server: string;
 	readonly domain: string;
@@ -122,12 +153,13 @@ export interface LookupHqOrigin extends LookupManifestHqOrigin {
 }
 
 export interface LookupTableManifestEntry extends LookupTableRevisions {
+	workerAccess?: "assigned";
 	id: LookupTableId;
 	name: string;
 	tag: string;
 	columnCount: number;
-	rowCount: number;
-	dataBytes: number;
+	rowCount: number | null;
+	dataBytes: number | null;
 	/** Present exactly when the table came from CommCare HQ. */
 	hq?: LookupManifestHqOrigin;
 }
@@ -139,6 +171,14 @@ export interface LookupManifest {
 }
 
 export interface LookupTableSnapshot extends LookupTableRevisions {
+	workerAccess?: "assigned";
+	rowOffset?: number;
+	rowsUnavailable?: true;
+	missingRowId?: LookupRowId;
+	matchingRowCount?: number;
+	nextRowCursor?: string;
+	previousRowCursor?: string;
+	attributes?: readonly LookupMember[];
 	projectId: string;
 	projectRevision: LookupRevision;
 	id: LookupTableId;
@@ -147,8 +187,8 @@ export interface LookupTableSnapshot extends LookupTableRevisions {
 	columns: LookupColumn[];
 	columnCount: number;
 	rows: LookupRow[];
-	rowCount: number;
-	dataBytes: number;
+	rowCount: number | null;
+	dataBytes: number | null;
 	createdBy: string;
 	updatedBy: string;
 	createdAt: string;
@@ -159,6 +199,8 @@ export interface LookupTableSnapshot extends LookupTableRevisions {
 
 /** Rows-free table definition used by validation and compilation contexts. */
 export interface LookupTableDefinition {
+	workerAccess?: "assigned";
+	attributes?: readonly LookupMember[];
 	id: LookupTableId;
 	name: string;
 	tag: string;
@@ -183,7 +225,7 @@ export interface LookupDefinitionsSnapshot {
 }
 
 /** One emission-ready row: stable identity plus the stored UUID-keyed cells. */
-export interface LookupFixtureRow {
+export interface LookupFixtureRow extends LookupRowContent {
 	id: LookupRowId;
 	values: LookupRowValues;
 }
@@ -194,6 +236,8 @@ export interface LookupFixtureRow {
  * requested id is absent from both axes.
  */
 export interface LookupFixtureDataSnapshot extends LookupDefinitionsSnapshot {
+	/** Complete global tables prepared by the paged archive reader, outside an inline snapshot. */
+	streamedTables?: ReadonlyMap<LookupTableId,{rowCount:number}>;
 	rowsByTable: ReadonlyMap<LookupTableId, readonly LookupFixtureRow[]>;
 }
 
@@ -203,13 +247,21 @@ export interface LookupStorageMeasurement {
 	dataBytes: number;
 }
 
+export type LookupMemberDraft = Pick<LookupMember, "label" | "wireName">;
+
+export type LookupMemberEdit = LookupMemberDraft & { id?: LookupMemberId };
+
 export interface LookupColumnDraft {
+	repeated?: true;
+	properties?: LookupMemberDraft[];
+	indexed?: boolean;
 	wireName: string;
 	label: string;
 	dataType: LookupDataType;
 }
 
 export interface CreateLookupTableInput {
+	attributes?: LookupMemberDraft[];
 	name: string;
 	tag: string;
 	columns: LookupColumnDraft[];
@@ -238,11 +290,13 @@ export interface LookupAuthoringColumnDraft extends LookupColumnDraft {
 }
 
 export interface LookupAuthoringRowDraft {
+	content?: NamedLookupRowContent;
 	key: LookupAuthoringKey;
 	cells: LookupAuthoringCell[];
 }
 
 export interface LookupAuthoringCreateTable {
+	attributes?: LookupMemberDraft[];
 	key: LookupAuthoringKey;
 	name: string;
 	tag: string;
@@ -261,6 +315,9 @@ export type LookupAuthoringColumnOperation =
 	| {
 			kind: "update";
 			columnId: LookupColumnId;
+			repeated?: boolean;
+			properties?: LookupMemberEdit[];
+			indexed?: boolean;
 			label?: string;
 			wireName?: string;
 	  }
@@ -281,17 +338,26 @@ export type LookupAuthoringColumnOperation =
 			dataType: LookupDataType;
 	  };
 
+export type LookupRowPatch = import("zod").infer<
+	typeof import("./schema").lookupRowPatchSchema
+>;
+
 export type LookupAuthoringRowOperation =
+	| {kind:"assign";rowId:LookupRowId;assignments:import("./assignmentVocabulary").RowAssignee[]}
+	| { kind: "patch"; rowId: LookupRowId; changes: LookupRowPatch[] }
 	| {
 			kind: "add";
+			assignments?:import("./assignmentVocabulary").RowAssignee[];
 			key: LookupAuthoringKey;
 			cells: LookupAuthoringCell[];
+			content?: NamedLookupRowContent;
 			afterRowId?: LookupRowId | null;
 			afterRowKey?: LookupAuthoringKey;
 	  }
 	| {
 			kind: "update";
 			rowId: LookupRowId;
+			content?: NamedLookupRowContent;
 			cells: LookupAuthoringCell[];
 	  }
 	| {
@@ -303,7 +369,15 @@ export type LookupAuthoringRowOperation =
 	  }
 	| { kind: "remove"; rowId: LookupRowId };
 
+export interface LookupReaderReview {
+	projectRevision: LookupRevision;
+	readerAppIds: readonly string[];
+}
+
 export interface LookupAuthoringExistingTable {
+	workerAccess?:"all"|"assigned";
+	reviewed?: LookupReaderReview;
+	attributes?: LookupMemberEdit[];
 	tableId: LookupTableId;
 	expectedTableRevision: LookupRevision;
 	name?: string;
@@ -316,6 +390,7 @@ export interface LookupAuthoringExistingTable {
 }
 
 export interface LookupAuthoringBatchInput {
+	operationId?: string;
 	createTables?: LookupAuthoringCreateTable[];
 	updateTables?: LookupAuthoringExistingTable[];
 }
@@ -343,28 +418,57 @@ export interface LookupAuthoringBatchReceipt {
 }
 
 export interface LookupRowsPageInput {
+	rowId?: LookupRowId;
+	attributeIds?: LookupMemberId[];
 	tableId: LookupTableId;
 	query?: string;
 	columnIds?: LookupColumnId[];
 	cursor?: string;
 }
 
+export type LookupRowPart =
+	| { kind: "number"; columnId: LookupColumnId; value: number }
+	| { kind: "occurrences"; columnId: LookupColumnId; count: number }
+	| ({
+			offset: number;
+			byteOffset: number;
+			totalBytes: number;
+			valueDigest: string;
+			text: string;
+	  } & (
+			| { kind: "cell"; columnId: LookupColumnId }
+			| { kind: "attribute"; attributeId: LookupMemberId }
+			| { kind: "occurrence"; columnId: LookupColumnId; index: number }
+			| {
+					kind: "property";
+					columnId: LookupColumnId;
+					index: number;
+					propertyId: LookupMemberId;
+			  }
+	  ));
+
 export interface LookupRowsPage {
-	table: LookupTableManifestEntry & { columns: readonly LookupColumn[] };
+	table: LookupTableManifestEntry & {
+		definitionInCatalog?: true;
+		columns: readonly LookupColumn[];
+		attributes?: readonly LookupMember[];
+	};
 	/** Exact model-facing row projection shared by the SA/MCP tool and the
 	 * reviewed-design inspector. The page byte budget measures this shape. */
-	rows: readonly {
+	rows: readonly (LookupRowContent & {
+		parts?: LookupRowPart[];
 		id: LookupRowId;
 		cells: readonly {
 			columnId: LookupColumnId;
 			value: LookupCellValue;
 		}[];
-	}[];
+	})[];
 	nextCursor?: string;
 	complete: boolean;
 }
 
 export interface LookupExpectedTableRevisionInput {
+	operationId?: string;
 	tableId: LookupTableId;
 	expectedTableRevision: LookupRevision;
 }
@@ -380,6 +484,7 @@ export interface UpdateLookupTableTagInput
 }
 
 export interface AddLookupColumnInput extends LookupExpectedTableRevisionInput {
+	reviewed?: LookupReaderReview;
 	column: LookupColumnDraft;
 }
 
@@ -403,6 +508,7 @@ export interface MoveLookupColumnInput extends LookupColumnMutationInput {
 }
 
 export interface CreateLookupRowInput extends LookupExpectedTableRevisionInput {
+	content?: LookupRowContent;
 	toIndex: number;
 	values: LookupRowValues;
 }
@@ -412,9 +518,11 @@ export interface LookupRowMutationInput
 	rowId: LookupRowId;
 }
 
-export interface UpdateLookupRowInput extends LookupRowMutationInput {
-	values: LookupRowValues;
-}
+export type UpdateLookupRowInput = LookupRowMutationInput &
+	(
+		| { values: LookupRowValues; content?: LookupRowContent }
+		| { changes: LookupRowPatch[] }
+	);
 
 export type DeleteLookupRowInput = LookupRowMutationInput;
 

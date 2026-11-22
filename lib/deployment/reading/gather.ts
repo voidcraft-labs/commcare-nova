@@ -569,7 +569,11 @@ export function readerLookupContext(
 			tag: definition.tag,
 			definitionRevision: (table.projectTable?.definitionRevision ??
 				"0") as LookupTableDefinition["definitionRevision"],
+			...(definition.attributes?.length
+				? { attributes: definition.attributes }
+				: {}),
 			columns: definition.columns.map((column) => ({
+				...column,
 				id: column.id,
 				wireName: column.wireName,
 				label: column.label,

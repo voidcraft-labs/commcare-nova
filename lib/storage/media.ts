@@ -282,8 +282,9 @@ export async function probeCaptureStorageAuthority(): Promise<void> {
  * and no default event-based hold. A bucket retention policy is an operator
  * protection, so its presence fails closed instead of silently removing it.
  *
- * Two prefixes need one:
+ * Temporary object prefixes have independent retention windows:
  *
+ *  - `private-exports/` — private download parts become eligible after one day.
  *  - `pending/` — abandoned browser upload attempts, described below.
  *  - `captures-staged/` — a worker's form attachment whose form was never
  *    submitted. This is the retention backstop: rows carry an `expires_at`
@@ -619,8 +620,13 @@ export async function copyAssetObjectIfAbsent(args: {
  * `Response.body = Readable.toWeb(stream)`. Converting both ways
  * needlessly doubles the buffer copy.
  */
-export function streamAsset(gcsObjectKey: string): Readable {
-	return getBucket().file(gcsObjectKey).createReadStream();
+export function streamAsset(
+	gcsObjectKey: string,
+	generation?: string,
+): Readable {
+	return getBucket()
+		.file(gcsObjectKey, generation === undefined ? undefined : { generation })
+		.createReadStream();
 }
 
 /**
@@ -800,5 +806,98 @@ export async function readTextObject(
 		// throw — the caller maps null to a clean not-found, a stray throw to a 500.
 		if ((err as { code?: number } | null)?.code === 404) return null;
 		throw err;
+	}
+}
+
+/** A fixed-size part of a retained private export. The service keeps the object
+ * name and immutable GCS generation in Postgres. No storage URL leaves Nova. */
+export async function storeExportPart(
+	key: string,
+	bytes: Buffer,
+	digest: string,
+): Promise<string> {
+	const file = getBucket().file(key);
+	let alreadyStored = false;
+	try {
+		await file.save(bytes, {
+			resumable: false,
+			timeout: 30_000,
+			validation: "crc32c",
+			preconditionOpts: { ifGenerationMatch: 0 },
+			metadata: {
+				contentType: "application/octet-stream",
+				cacheControl: "private, no-store",
+				metadata: { novaDigest: digest },
+			},
+		});
+	} catch (error) {
+		if (Number((error as { code?: unknown })?.code) !== 412) throw error;
+		alreadyStored = true;
+	}
+	const [meta] = await file.getMetadata();
+	if (
+		!meta.generation ||
+		Number(meta.size) !== bytes.length ||
+		meta.metadata?.novaDigest !== digest
+	)
+		throw new Error("Stored export part differs from its reserved bytes.");
+	const generation = String(meta.generation);
+	if (
+		alreadyStored &&
+		!(await fetchExportPart(key, generation, bytes.length)).equals(bytes)
+	)
+		throw new Error(
+			"The previous upload stored different bytes for this export part.",
+		);
+	return generation;
+}
+
+export async function fetchExportPart(
+	key: string,
+	generation: string,
+	expectedBytes: number,
+): Promise<Buffer> {
+	if (
+		!Number.isSafeInteger(expectedBytes) ||
+		expectedBytes < 1 ||
+		expectedBytes > 1024 * 1024
+	)
+		throw new Error("Invalid export part size.");
+	const stream = getBucket()
+		.file(key, { generation })
+		.createReadStream({ decompress: false });
+	const output = Buffer.allocUnsafe(expectedBytes);
+	let offset = 0;
+	try {
+		for await (const piece of stream) {
+			if (
+				!(piece instanceof Uint8Array) ||
+				piece.length > output.length - offset
+			)
+				throw new Error("Stored export part exceeds its reserved bytes.");
+			output.set(piece, offset);
+			offset += piece.length;
+		}
+		if (offset !== output.length)
+			throw new Error("Stored export part is incomplete.");
+		return output;
+	} finally {
+		stream.destroy();
+	}
+}
+
+/** Recovery may refund a reservation only on an authoritative 404. Incomplete
+ * metadata is an error even if the abandoned upload never returned its generation. */
+export async function exportPartGeneration(
+	key: string,
+): Promise<string | null> {
+	try {
+		const [metadata] = await getBucket().file(key).getMetadata();
+		if (!metadata.generation)
+			throw new Error("The export object has no deletion generation.");
+		return String(metadata.generation);
+	} catch (error) {
+		if (Number((error as { code?: unknown })?.code) === 404) return null;
+		throw error;
 	}
 }

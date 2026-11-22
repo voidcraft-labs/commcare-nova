@@ -39,6 +39,7 @@ import {
 	locationsXPathInstance,
 	lookupXPathInstances,
 	searchInputXPathInstance,
+	workerGroupsXPathInstance,
 } from "./xpathInstances";
 
 const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
@@ -295,6 +296,8 @@ function runtimeRejectionApplies(
 				materializableCaseTypes(environment.doc),
 			),
 		);
+		const groups = environment.caseDatabase?.workerGroups;
+		if (groups) instances.set("groups", workerGroupsXPathInstance(groups));
 		const locations = environment.caseDatabase?.locations;
 		if (locations !== undefined)
 			instances.set(

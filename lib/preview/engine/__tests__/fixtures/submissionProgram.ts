@@ -289,8 +289,9 @@ export function ordinaryAuthorityDoc(): {
 export function ordinaryAuthorityMutation(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
+ workerGroups?:readonly import("@/lib/domain/workerGroups").WorkerGroupRow[],
 ): Extract<SubmissionMutation, { kind: "registration" }> {
-	const engine = engineFor(doc, formUuid);
+	const engine = engineFor(doc, formUuid, undefined,workerGroups);
 	engine.setValue("/data/patient_name", "Ada");
 	engine.setValue("/data/age", "37");
 	engine.setValue("/data/visit_name", "First visit");
@@ -309,6 +310,7 @@ export function engineFor(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
+ workerGroups?:readonly import("@/lib/domain/workerGroups").WorkerGroupRow[],
 ): FormEngine {
 	assertAdmittedPreviewDoc(doc, lookupContext);
 	const input: FormEngineInput = {
@@ -319,7 +321,7 @@ export function engineFor(
 		fieldOrder: doc.fieldOrder,
 		caseTypes: doc.caseTypes ?? [],
 	};
-	return new FormEngine(input, "patient", undefined, null);
+	return new FormEngine(input, "patient", undefined, null,undefined,workerGroups?{rows:[],indices:[],workerGroups}:undefined);
 }
 
 /** The same accepted document is exercised by Postgres and native Core. */

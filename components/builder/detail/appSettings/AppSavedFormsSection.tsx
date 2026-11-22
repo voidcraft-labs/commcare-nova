@@ -32,6 +32,7 @@ export function AppSavedFormsSection() {
 				Saved and incomplete forms
 			</span>
 			<div className="space-y-1.5">
+				<SettingRow label="Share new cases with a group" description="Forms that choose an owner automatically give the case to the worker’s case-sharing group or place." checked={settings.caseSharing??false} onChange={next=>setAppSettings({caseSharing:next})}/>
 				<SettingRow
 					label="Show saved forms"
 					description="Workers can look back at forms they have sent."

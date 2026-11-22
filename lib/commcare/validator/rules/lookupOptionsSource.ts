@@ -7,6 +7,7 @@ import {
 } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import type { Term } from "@/lib/domain/expression/types";
+import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { type ValidationError, validationError } from "../errors";
 import {
@@ -26,11 +27,14 @@ export function validateLookupOptionsSources(
 		const field = doc.fields[uuid];
 		if (
 			(field?.kind !== "single_select" && field?.kind !== "multi_select") ||
-			field.optionsSource.kind !== "lookup" ||
-			field.optionsSource.filter === undefined
+			field.optionsSource.kind !== "lookup"
 		)
 			continue;
 		const source = field.optionsSource;
+		for (const slot of ["valueColumnId","labelColumnId"] as const) {
+			const issue=questionChoiceReadIssue(source[slot]);
+			if (issue) errors.push(validationError("LOOKUP_QUESTION_READ_UNEDITABLE","field",issue,{moduleUuid,formUuid,fieldUuid:uuid,fieldId:field.id,field:`optionsSource.${slot}`}));
+		}
 		const filter = source.filter;
 		if (filter === undefined) continue;
 		const ctx = slotContext(

@@ -57,6 +57,7 @@ import {
 	USERCASE_MISSING_ASSERT_TEST,
 	USERCASE_MISSING_LOCALE_ID,
 } from "./usercaseWire";
+import { GROUP_OWNER_ASSERTION } from "./workerGroupsWire";
 import { w } from "./xpath/wire/builders";
 import {
 	caseDbInstance,
@@ -1077,6 +1078,7 @@ export function deriveFormLinkStack(
  */
 export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formXmlns: string;
+	readonly groupAssertion?: "basic" | "advanced";
 	readonly formIndex: number;
 	readonly postSubmit: PostSubmitDestination;
 	/**
@@ -1178,6 +1180,7 @@ export function deriveEntryDefinition(
 		})),
 	];
 	const entryAssertions = [
+		...(args.groupAssertion === "basic" ? [GROUP_OWNER_ASSERTION] : []),
 		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID)
 			? [
 					{
@@ -1189,6 +1192,7 @@ export function deriveEntryDefinition(
 		...datums.flatMap((datum) =>
 			datum.assertion === undefined ? [] : [datum.assertion],
 		),
+		...(args.groupAssertion === "advanced" ? [GROUP_OWNER_ASSERTION] : []),
 	];
 	const assertions = entryAssertions.length > 0 ? entryAssertions : undefined;
 	const instances = entryInstances(

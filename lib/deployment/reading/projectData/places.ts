@@ -8,18 +8,19 @@
  * through `placeStore.ts`.
  */
 
+import { observedLocationMetadata } from "@/lib/commcare/hq/locationMetadata";
 import type { HqLocation } from "@/lib/commcare/hq/locations";
+import { xmlTextIssue } from "@/lib/commcare/xmlText";
 import {
 	type BlueprintDoc,
 	type LocationProperty,
 	levelMayNestUnder,
-	locationValueTextSchema,
 	type OrganizationLevel,
 	organizationLevelsOf,
 	type Uuid,
 } from "@/lib/domain";
 import { walkExpression } from "@/lib/domain/expression/walk";
-import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { recordFromEntries } from "@/lib/domain/records";
 import {
 	type ExpressionCarrierRef,
 	expressionSlotValues,
@@ -32,13 +33,11 @@ import {
 	type OwnerVerdictLocationRow,
 	ownerVerdictRows,
 	reverseHopDestinationLevelUuids,
-	reverseLocationOwnerIssue,
+	reverseLocationOwnerVerdict,
 } from "@/lib/organization/ownerTargetVerdicts";
 import {
 	coordinateSchema,
 	LOCATION_NAME_MAX_LENGTH,
-	MAX_LOCATIONS_PER_APP,
-	siteCodeSchema,
 } from "@/lib/organization/schema";
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -128,24 +127,6 @@ export function sourceMayReadPlaces(sourceText: string): boolean {
 
 // ── The plan of the copy ─────────────────────────────────────────────────
 
-/** `"12,400 places"`, or `"more place information than Nova reads"` where the list passed its byte bound. */
-function placesOverLimitName(totalCount: number | null): string {
-	return totalCount === null
-		? "more place information than Nova reads"
-		: `${totalCount.toLocaleString("en-US")} places`;
-}
-
-/**
- * The circumstance of a project space with more places than an app holds,
- * named by CommCare HQ's total, or, where the list passed
- * `bounds.ts::HQ_LOCATION_LIST_MAX_BYTES`, by that.
- */
-export function placesOverNovaLimitFinding(totalCount: number | null): Finding {
-	return circumstanceFinding("places-over-nova-limit", ORGANIZATION, {
-		name: placesOverLimitName(totalCount),
-	});
-}
-
 /** Code unit order: the same answer on every machine, unlike a locale's. */
 function compareText(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
@@ -156,7 +137,7 @@ function compareText(left: string, right: string): number {
 function placesDigest(places: readonly ManagedPlaceWrite[]): string {
 	return canonicalJsonDigest(
 		[...places].sort((left, right) =>
-			compareText(left.siteCode, right.siteCode),
+			compareText(left.hqLocationId, right.hqLocationId),
 		),
 	);
 }
@@ -208,16 +189,6 @@ export function planManagedPlaces(input: {
 	readonly mode: "birth" | "refresh";
 }): ManagedPlacePlan {
 	const { hqPlaces, levels, properties, mode } = input;
-	if (hqPlaces.length > MAX_LOCATIONS_PER_APP) {
-		return {
-			places: [],
-			digest: placesDigest([]),
-			leftOut: NO_ENTRIES,
-			leftOutHqLocationIds: [],
-			findings: [placesOverNovaLimitFinding(hqPlaces.length)],
-		};
-	}
-
 	const levelByCode = new Map(levels.map((level) => [level.code, level]));
 	const levelRecord: Record<string, OrganizationLevel> = recordFromEntries(
 		levels.map((level) => [level.uuid, level]),
@@ -235,19 +206,32 @@ export function planManagedPlaces(input: {
 	}
 	const siteCodeHolders = new Map<string, number>();
 	for (const place of hqPlaces) {
-		const key = place.siteCode.toLowerCase();
+		const key = place.siteCode;
 		siteCodeHolders.set(key, (siteCodeHolders.get(key) ?? 0) + 1);
 	}
 
 	const places: ManagedPlaceWrite[] = [];
 	const leftOut = recordFromEntries<number>([]);
 	const leftOutHqLocationIds: string[] = [];
-	const findingNames: string[] = [];
+	const findings: Finding[] = [];
 	const found = new Set<string>();
-	const notHoldable = (name: string) => {
-		if (found.has(name)) return;
-		found.add(name);
-		findingNames.push(name);
+	const notHoldable = (
+		name: string,
+		code:
+			| "place-field-unusable"
+			| "place-value-order-unknown" = "place-field-unusable",
+	) => {
+		const key = JSON.stringify([code, name]);
+		if (found.has(key)) return;
+		found.add(key);
+		findings.push(circumstanceFinding(code, ORGANIZATION, { name }));
+	};
+	const inconsistent = () => {
+		if (!found.has("hierarchy"))
+			findings.push(
+				circumstanceFinding("place-hierarchy-inconsistent", ORGANIZATION, {}),
+			);
+		found.add("hierarchy");
 	};
 
 	/** The place as a write, or undefined where one of its own fields is one
@@ -258,19 +242,20 @@ export function planManagedPlaces(input: {
 		parentSiteCode: string | null,
 	): ManagedPlaceWrite | undefined => {
 		let holdable = true;
-		if (
-			!siteCodeSchema.safeParse(place.siteCode).success ||
-			place.siteCode !== place.siteCode.toLowerCase() ||
-			(siteCodeHolders.get(place.siteCode.toLowerCase()) ?? 0) > 1
-		)
+		if ((siteCodeHolders.get(place.siteCode) ?? 0) > 1) {
+			inconsistent();
+			return undefined;
+		}
+		if (Array.from(place.name).length > LOCATION_NAME_MAX_LENGTH)
 			holdable = false;
-		if (place.name.length > LOCATION_NAME_MAX_LENGTH) holdable = false;
 		const latitude = heldCoordinate(place.latitude);
 		const longitude = heldCoordinate(place.longitude);
 		if (latitude === false || longitude === false) holdable = false;
 		if (!holdable) notHoldable(place.name);
 
 		const values = recordFromEntries<string>([]);
+		const observation =
+			place.observation ?? observedLocationMetadata(place.values);
 		for (const property of properties) {
 			if (
 				property.levelUuids !== undefined &&
@@ -278,21 +263,38 @@ export function planManagedPlaces(input: {
 			)
 				continue;
 			if (!Object.hasOwn(place.values, property.slug)) continue;
-			const raw = place.values[property.slug];
-			if (
-				typeof raw !== "string" ||
-				!locationValueTextSchema.safeParse(raw).success
-			) {
-				notHoldable(`${place.name}: ${property.slug}`);
+			const workerText = observation.worker[property.slug];
+			if (workerText === undefined) {
+				notHoldable(
+					`${place.name || place.siteCode}: ${property.slug}`,
+					"place-value-order-unknown",
+				);
 				holdable = false;
 				continue;
 			}
-			values[property.uuid] = raw;
+			if (xmlTextIssue(workerText) !== undefined) {
+				notHoldable(`${place.name || place.siteCode}: ${property.slug}`);
+				holdable = false;
+				continue;
+			}
+			values[property.uuid] = workerText;
 		}
 		if (!holdable || latitude === false || longitude === false)
 			return undefined;
 		return {
 			hqLocationId: place.locationId,
+			...(place.observation
+				? {
+						externalId: place.observation.externalId,
+						source: {
+							wire: observation.wire,
+							worker: observation.worker,
+							nameIsNull: place.observation.nameIsNull,
+							latitudeText: place.latitude,
+							longitudeText: place.longitude,
+						},
+					}
+				: {}),
 			siteCode: place.siteCode,
 			name: place.name,
 			levelUuid: level.uuid,
@@ -357,7 +359,7 @@ export function planManagedPlaces(input: {
 		const listedParent =
 			place.parentLocationId !== null && byId.has(place.parentLocationId);
 		if (place.parentLocationId !== null && !listedParent) {
-			notHoldable(place.name);
+			inconsistent();
 			placed = false;
 		} else if (placed) {
 			const fits =
@@ -387,16 +389,14 @@ export function planManagedPlaces(input: {
 	// A place no walk from the top reached stands in a chain of parents that
 	// runs in a circle.
 	for (const place of hqPlaces)
-		if (!visited.has(place.locationId)) notHoldable(place.name);
+		if (!visited.has(place.locationId)) inconsistent();
 
 	return {
 		places,
 		digest: placesDigest(places),
 		leftOut,
 		leftOutHqLocationIds,
-		findings: findingNames.map((name) =>
-			circumstanceFinding("place-not-holdable", ORGANIZATION, { name }),
-		),
+		findings,
 	};
 }
 
@@ -430,10 +430,18 @@ export function managedPlacesOwnerFindings(
 	);
 	const findings: Finding[] = [];
 	for (const levelUuid of destinations) {
-		if (reverseLocationOwnerIssue(doc, rows, levelUuid) === undefined) continue;
+		const verdict = reverseLocationOwnerVerdict(doc, rows, levelUuid);
+		if (!verdict) continue;
+		const level = organizationLevelsOf(doc)[levelUuid]?.name ?? levelUuid;
+		const name =
+			verdict.kind === "ambiguous"
+				? `Both ${verdict.first.name} and ${verdict.second.name} match ${level} under ${verdict.source.name}.`
+				: verdict.kind === "none-below"
+					? `No ${level} matches under ${verdict.source.name}.`
+					: `The worker cannot reach one owner at ${level}.`;
 		findings.push(
 			circumstanceFinding("owner-rule-needs-one-place", ORGANIZATION, {
-				name: organizationLevelsOf(doc)[levelUuid]?.name ?? levelUuid,
+				name,
 			}),
 		);
 	}

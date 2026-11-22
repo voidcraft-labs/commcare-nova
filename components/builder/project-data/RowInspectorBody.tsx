@@ -14,6 +14,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import type { LookupColumnId } from "@/lib/domain/lookupIds";
@@ -28,7 +29,14 @@ import {
 	rowDraftToValues,
 	rowValuesToDraft,
 } from "./projectDataModel";
+import { RichRowFields } from "./RichRowFields";
+import {RowAssignments} from "./RowAssignments";
 import { RowValueField } from "./RowValueField";
+import { contentOf } from "./richRowModel";
+
+const LargeRowInspector = dynamic(() =>
+	import("./LargeRowInspector").then((module) => module.LargeRowInspector),
+);
 
 export function RowInspectorBody({
 	row,
@@ -45,6 +53,7 @@ export function RowInspectorBody({
 	 *  the viewer's role: a table CommCare HQ manages. */
 	readOnlyNotice?: string;
 }) {
+	const [openParts, setOpenParts] = useState(false);
 	const columns = table.columns;
 	const stored = useMemo(
 		() => rowValuesToDraft(row.values, columns),
@@ -61,11 +70,13 @@ export function RowInspectorBody({
 			tableName: table.name,
 			rowId: row.id,
 			draft: stored,
+			content: contentOf(row),
 			baseline: incomingBaseline,
 		}),
-		[table.projectId, table.id, table.name, row.id, stored, incomingBaseline],
+		[table.projectId, table.id, table.name, row, stored, incomingBaseline],
 	);
-	const edit = workspace.rowEditFor(row.id) ?? freshEdit;
+	const session = workspace.rowEditFor(row.id);
+	const edit = session ?? freshEdit;
 	const dirty = workspace.rowEditFor(row.id) !== undefined;
 	const [errors, setErrors] = useState<ReadonlyMap<LookupColumnId, string>>(
 		new Map(),
@@ -102,6 +113,7 @@ export function RowInspectorBody({
 				row.id,
 				parsed.values,
 				edit.baseline,
+				edit.content,
 			);
 			if (outcome.kind === "saved") {
 				setStatus("Saved.");
@@ -124,6 +136,101 @@ export function RowInspectorBody({
 		}
 	};
 
+	const deleteControls =
+		canEdit &&
+		(confirmingDelete ? (
+			<div
+				ref={panelRef}
+				tabIndex={-1}
+				className="space-y-2 rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 outline-none"
+			>
+				<p className="text-[13px] font-medium text-nova-text">
+					Delete this row?
+				</p>
+				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+					Every app in this Project that offers this table's values stops
+					offering this one.
+				</p>
+				<div className="flex flex-wrap gap-2">
+					<Button
+						type="button"
+						variant="ghost"
+						className=""
+						disabled={deleting}
+						onClick={() => setConfirmingDelete(false)}
+					>
+						Cancel
+					</Button>
+					<Button
+						type="button"
+						variant="destructive"
+						className=""
+						disabled={deleting}
+						onClick={async () => {
+							if (deleting) return;
+							setDeleting(true);
+							setConfirmingDelete(false);
+							try {
+								const outcome = await workspace.deleteRow(
+									row.id,
+									edit.baseline,
+								);
+								if (outcome.kind === "failed") {
+									setFailure(outcome.failure.message);
+								} else if (outcome.kind === "conflict") {
+									workspace.setRowConflict(outcome.conflict);
+								}
+							} catch {
+								setFailure(
+									"Nova could not reach this data table. Check your connection and try again.",
+								);
+							} finally {
+								setDeleting(false);
+							}
+						}}
+					>
+						{deleting ? "Deleting" : "Delete row"}
+					</Button>
+				</div>
+			</div>
+		) : (
+			<div className="space-y-1">
+				<Button
+					ref={triggerRef}
+					type="button"
+					variant="ghost"
+					disabled={saving || deleting || dirty}
+					onClick={() => setConfirmingDelete(true)}
+				>
+					<Icon icon={tablerTrash} width="16" height="16" aria-hidden="true" />
+					{deleting ? "Deleting" : "Delete row"}
+				</Button>
+				{dirty && (
+					<p className="text-[12px] leading-snug text-nova-text-muted">
+						Save or discard your row changes before deleting it.
+					</p>
+				)}
+			</div>
+		));
+	if (session?.large || (!dirty && (openParts || row.fragmented)))
+		return (
+			<>
+				{!row.fragmented && !dirty && (
+					<Button variant="ghost" onClick={() => setOpenParts(false)}>
+						Back to whole row
+					</Button>
+				)}
+				<LargeRowInspector
+					table={table}
+					row={row}
+					workspace={workspace}
+					canEdit={canEdit && !deleting && !confirmingDelete}
+				/>
+				{failure && <p role="alert">{failure}</p>}
+				<RowAssignments table={table} row={row} workspace={workspace} canEdit={canEdit && !dirty}/>
+			{deleteControls}
+			</>
+		);
 	return (
 		<div className="space-y-4">
 			{!canEdit && (
@@ -139,39 +246,56 @@ export function RowInspectorBody({
 			)}
 			{canEdit ? (
 				<div className="space-y-3">
-					{edit.baseline.columns.map((column) => (
-						<RowValueField
-							key={column.id}
-							column={column}
-							value={edit.draft[column.id]}
-							invalid={errors.get(column.id)}
-							onChange={(next) => update(column.id, next)}
-						/>
-					))}
+					{edit.baseline.columns
+						.filter((column) => !column.repeated)
+						.map((column) => (
+							<RowValueField
+								key={column.id}
+								column={column}
+								value={edit.draft[column.id]}
+								invalid={errors.get(column.id)}
+								onChange={(next) => update(column.id, next)}
+							/>
+						))}
 				</div>
 			) : (
 				<dl className="space-y-3">
-					{(dirty ? edit.baseline.columns : columns).map((column) => {
-						const value = dirty
-							? edit.draft[column.id]?.text
-							: cellText(row.values, column);
-						return (
-							<div key={column.id} className="min-w-0">
-								<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
-									{column.label}
-								</dt>
-								<dd className="mt-1 select-text text-[13px] text-nova-text-secondary whitespace-pre-wrap [overflow-wrap:anywhere]">
-									{value === undefined
-										? "No value"
-										: value === ""
-											? "Empty text"
-											: value}
-								</dd>
-							</div>
-						);
-					})}
+					{(dirty ? edit.baseline.columns : columns)
+						.filter((column) => !column.repeated)
+						.map((column) => {
+							const value = dirty
+								? edit.draft[column.id]?.text
+								: cellText(row.values, column);
+							return (
+								<div key={column.id} className="min-w-0">
+									<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
+										{column.label}
+									</dt>
+									<dd className="mt-1 select-text text-[13px] text-nova-text-secondary whitespace-pre-wrap [overflow-wrap:anywhere]">
+										{value === undefined
+											? "No value"
+											: value === ""
+												? "Empty text"
+												: value}
+									</dd>
+								</div>
+							);
+						})}
 				</dl>
 			)}
+			<RichRowFields
+				columns={edit.baseline.columns}
+				attributes={edit.baseline.attributes ?? []}
+				content={edit.content ?? contentOf(row)}
+				onChange={
+					canEdit && !saving && !deleting
+						? (content) => {
+								setStatus(null);
+								workspace.retainRowEdit({ ...edit, content });
+							}
+						: undefined
+				}
+			/>
 			{!canEdit && dirty && (
 				<Button
 					type="button"
@@ -188,6 +312,15 @@ export function RowInspectorBody({
 				</Button>
 			)}
 
+			{canEdit && !dirty && (
+				<Button
+					type="button"
+					variant="outline"
+					onClick={() => setOpenParts(true)}
+				>
+					Edit a single value or import text
+				</Button>
+			)}
 			<LookupOrderingSection
 				kind="row"
 				itemId={row.id}
@@ -246,86 +379,8 @@ export function RowInspectorBody({
 				</div>
 			)}
 
-			{canEdit &&
-				(confirmingDelete ? (
-					<div
-						ref={panelRef}
-						tabIndex={-1}
-						className="space-y-2 rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 outline-none"
-					>
-						<p className="text-[13px] font-medium text-nova-text">
-							Delete this row?
-						</p>
-						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							Every app in this Project that offers this table's values stops
-							offering this one.
-						</p>
-						<div className="flex flex-wrap gap-2">
-							<Button
-								type="button"
-								variant="ghost"
-								className=""
-								disabled={deleting}
-								onClick={() => setConfirmingDelete(false)}
-							>
-								Cancel
-							</Button>
-							<Button
-								type="button"
-								variant="destructive"
-								className=""
-								disabled={deleting}
-								onClick={async () => {
-									if (deleting) return;
-									setDeleting(true);
-									setConfirmingDelete(false);
-									try {
-										const outcome = await workspace.deleteRow(
-											row.id,
-											edit.baseline,
-										);
-										if (outcome.kind === "failed") {
-											setFailure(outcome.failure.message);
-										} else if (outcome.kind === "conflict") {
-											workspace.setRowConflict(outcome.conflict);
-										}
-									} catch {
-										setFailure(
-											"Nova could not reach this data table. Check your connection and try again.",
-										);
-									} finally {
-										setDeleting(false);
-									}
-								}}
-							>
-								{deleting ? "Deleting" : "Delete row"}
-							</Button>
-						</div>
-					</div>
-				) : (
-					<div className="space-y-1">
-						<Button
-							ref={triggerRef}
-							type="button"
-							variant="ghost"
-							disabled={saving || deleting || dirty}
-							onClick={() => setConfirmingDelete(true)}
-						>
-							<Icon
-								icon={tablerTrash}
-								width="16"
-								height="16"
-								aria-hidden="true"
-							/>
-							{deleting ? "Deleting" : "Delete row"}
-						</Button>
-						{dirty && (
-							<p className="text-[12px] leading-snug text-nova-text-muted">
-								Save or discard your row changes before deleting it.
-							</p>
-						)}
-					</div>
-				))}
+			<RowAssignments table={table} row={row} workspace={workspace} canEdit={canEdit && !dirty}/>
+			{deleteControls}
 		</div>
 	);
 }

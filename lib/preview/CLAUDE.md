@@ -740,11 +740,10 @@ and close conditions as `ownCase`). A child's relationship is its committed
 create's link; the client never asserts `child` versus `extension`, and the
 envelope persists the same `parent` index relationship the XForm emits. That same authorized boundary retains the `LookupScope`, projects the
 canonical production lookup occurrences onto the built program's operation
-UUIDs, and loads one rows-free definition snapshot only when those operations
+UUIDs, and loads the selected worker’s typed row projection only when those operations
 actually carry lookup references. The resulting `lookupTableSchemas` map is
 part of the immutable program handed to `applySubmission`, so a schema-heal
-retry reuses the exact same compiler context; lookup rows themselves stay
-current inside the submission transaction. A committed operation-bearing form
+retry reuses the same worker data and types for the submission. A committed operation-bearing form
 with missing answer bags rejects wholesale rather than applying part of its
 effects. A survey with a program executes it, and the envelope's
 typed `SubmissionRejectedError` surfaces as the
@@ -2583,3 +2582,9 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+## Worker groups and shared new cases
+
+A worker sees their own cases and the eligible case owners from their restore. Group rows retain location groups and classic case-sharing groups, including their distinct metadata. Row assignment and case ownership use different location rules. A form using the automatic group owner admits exactly one group before entry and checks it again before any database write. The server derives the owner from current scoped state, compares the group with the entry and locks membership and place revisions through submission. An explicit owner and an unowned operation preserve their authored meaning.
+
+App Tests bind group fixtures and lookup rows to each authorized Preview identity. A test-only place assignment may replace the journey's local place groups. The classic groups keep their verified membership.

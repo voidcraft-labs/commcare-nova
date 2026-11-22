@@ -54,11 +54,13 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { matchModeRunsOnDevice } from "../../csql/matchModes";
 import { type RewriteControl, rewriteWithheld } from "../../emissionRewrites";
 import type { LookupWireNaming } from "../../lookup/naming";
+import { lookupReadSteps } from "../../lookup/read";
 import {
 	ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS,
 	CASE_LIST_SEARCH_TEXT_DATA_NAME,
 } from "../../sessionContext";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
+import { GROUPS_INSTANCE, workerGroupFieldSteps } from "../../workerGroupsWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
 import {
@@ -432,12 +434,13 @@ function rowLeafSteps(input: Term, ctx: Context): readonly WireStep[] {
 				throw new Error(
 					"A projected table column needs the Project lookup naming catalog.",
 				);
-			return [
-				w.step(
-					lookup.naming.tableFor(input.tableId).wireNameFor(input.columnId),
-				),
-			];
+			return lookupReadSteps(
+				lookup.naming.tableFor(input.tableId),
+				input.columnId,
+			);
 		}
+		case "worker-group-field":
+			return workerGroupFieldSteps(input.field);
 		case "location-field":
 			return locationSteps(input, ctx);
 		default:
@@ -519,6 +522,8 @@ function term(input: Term, ctx: Context): WireExpr {
 				);
 			return w.str(level.code);
 		}
+		case "worker-group-field":
+			return w.context(workerGroupFieldSteps(input.field));
 		case "location-field":
 			return w.context(locationSteps(input, ctx));
 		case "prop": {
@@ -688,11 +693,9 @@ function term(input: Term, ctx: Context): WireExpr {
 				throw new Error(
 					`Lookup column reads table '${input.tableId}' inside the row scope of '${row.tableId}'.`,
 				);
-			return w.context([
-				w.step(
-					lookup.naming.tableFor(input.tableId).wireNameFor(input.columnId),
-				),
-			]);
+			return w.context(
+				lookupReadSteps(lookup.naming.tableFor(input.tableId), input.columnId),
+			);
 		}
 	}
 }
@@ -1053,6 +1056,16 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				],
 			);
 		}
+		case "worker-groups": {
+			const child = queryContext(expr, ctx);
+			return w.instance(GROUPS_INSTANCE, [
+				w.step("groups"),
+				w.step(
+					"group",
+					expr.where.map((x) => emitExpression(x, child)),
+				),
+			]);
+		}
 		case "locations": {
 			const child = queryContext(expr, ctx);
 			return w.instance(locationsInstance(), [
@@ -1270,7 +1283,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				[
 					w.step(table.listElementName),
 					w.step(table.rowElementName, [...filters, w.num(1)]),
-					w.step(table.wireNameFor(expr.resultColumnId)),
+					...lookupReadSteps(table, expr.resultColumnId),
 				],
 			);
 		}

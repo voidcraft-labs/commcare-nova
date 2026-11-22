@@ -118,6 +118,7 @@ import {
 	isCardValue,
 } from "../expressionEditorSchemas";
 import { planPreservedExpressionReplacement } from "../expressionReplacement";
+import { editorLookupReads } from "../lookupTablePresentation";
 import type { EditorPath } from "../path";
 import {
 	expressionFocusDescription,
@@ -582,7 +583,7 @@ function termSeedForSlot(
 	}
 
 	if (presentation === "subject") {
-		const tableColumnDecl = ctx.tableScope?.columns.find(
+		const tableColumnDecl = editorLookupReads(ctx.tableScope).find(
 			(candidate) =>
 				constraint.accepts === "any" ||
 				acceptsType(constraint, candidate.dataType),
@@ -636,7 +637,7 @@ function expressionSeedContextAdmission(
 	if (
 		kind === "table-lookup" &&
 		!(ctx.lookupTables ?? []).some((table) =>
-			table.columns.some(
+			editorLookupReads(table).some(
 				(column) =>
 					constraint.accepts === "any" ||
 					acceptsType(constraint, column.dataType),

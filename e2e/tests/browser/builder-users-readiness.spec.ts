@@ -15,7 +15,7 @@ const catalogResponse = {
 		definitions: [],
 	},
 };
-async function mount(page: Page) {
+async function mount(page: Page, paged = false) {
 	const boundary = resolve("e2e/lib/builder-users-readiness-boundary.ts");
 	const peer = await componentPeer(
 		"e2e/lib/builder-users-readiness-client.tsx",
@@ -32,6 +32,12 @@ async function mount(page: Page) {
 				success: true,
 				data: {
 					revision: "0",
+					...(paged && {
+						paged: {
+							total: 10004,
+							occupied: { [testUuid("users-clinic-level")]: { kept: false } },
+						},
+					}),
 					locations: ["north", "south", "west"].map((name, index) => ({
 						id: testUuid(`users-place-${name}`),
 						levelUuid: testUuid("users-clinic-level"),
@@ -331,5 +337,98 @@ test("Users authoring leaves viewer disclosures readable while the catalog loads
 		} finally {
 			await close(page, peer);
 		}
+	}
+});
+
+test("a persona can find a clinic beyond the initial organization page and keep the selected assignment", async ({
+	page,
+}) => {
+	const peer = await mount(page, true);
+	const levelUuid = testUuid("users-clinic-level");
+	const targetId = testUuid("users-far-clinic");
+	const clinic = {
+		id: targetId,
+		levelUuid,
+		parentId: testUuid("users-river"),
+		siteCode: "river_clinic",
+		name: "Clinic",
+		latitude: null,
+		longitude: null,
+		values: {},
+		externalId: null,
+		archivedAt: null,
+		orderKey: "a0",
+		path: [
+			{
+				id: testUuid("users-river"),
+				name: "River district",
+				siteCode: "river",
+				levelUuid,
+				parentId: null,
+				archivedAt: null,
+			},
+		],
+		hasChildren: false,
+		hasNextSibling: false,
+		previousId: null,
+		gone: false,
+	};
+	await page.route("**/native/users/catalog", (route) =>
+		route.fulfill({ json: catalogResponse }),
+	);
+	await page.route("**/native/users/place-page", async (route) => {
+		const [appId, input] = route.request().postDataJSON();
+		expect(appId).toBe("native-users");
+		expect(input).toMatchObject({
+			revision: "0",
+			activeOnly: true,
+			levelIds: [levelUuid],
+		});
+		const matches = input.query === "river" ? [clinic] : [];
+		await route.fulfill({
+			json: {
+				success: true,
+				data: {
+					revision: "0",
+					total: 10004,
+					matching: matches.length,
+					locations: matches,
+					nextCursor: null,
+				},
+			},
+		});
+	});
+	await page.route("**/native/users/place-rules", async (route) => {
+		const [appId, input] = route.request().postDataJSON();
+		expect(appId).toBe("native-users");
+		expect(input.personas[0].locations.additionalUuids).toContain(targetId);
+		await route.fulfill({
+			json: { success: true, data: { fixed: {}, reverse: {} } },
+		});
+	});
+	try {
+		await page.goto(peer.origin);
+		await page.getByRole("button", { name: "Asha Nurse", exact: true }).click();
+		await page.getByLabel("Search add a place", { exact: true }).fill("river");
+		await page
+			.getByRole("combobox", { name: "Add a place", exact: true })
+			.click();
+		await page
+			.getByRole("option", { name: /Clinic.*river_clinic.*River district/ })
+			.click();
+		await expect
+			.poll(() =>
+				page.evaluate(
+					() =>
+						Object.values(window.usersReadiness?.snapshot().personas ?? {})[0]
+							?.locations?.additionalUuids,
+				),
+			)
+			.toContain(targetId);
+		await expect(
+			page.getByText("Clinic · river_clinic", { exact: true }),
+		).toBeVisible();
+	} finally {
+		await close(page, peer);
 	}
 });

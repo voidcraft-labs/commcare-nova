@@ -782,9 +782,13 @@ export const X = {
 		selectValue: "xform:select/itemset/value",
 		selectValueRef: "xform:select/itemset/value@ref",
 	}),
+	richLookupRefs: under("take", Q("itemset-refs-to-attr-or-property-qualified-fields"), {
+		select1LabelRef:"xform:select1/itemset/label@ref", select1ValueRef:"xform:select1/itemset/value@ref",
+		selectLabelRef:"xform:select/itemset/label@ref", selectValueRef:"xform:select/itemset/value@ref",
+	}),
 	itemsetRefShape: one(
 		"refuse",
-		Q("itemset-refs-to-attr-or-property-qualified-fields"),
+		Q("lookup-choice-reference-the-form-editor-cannot-keep"),
 		"xform:select1/itemset/value@ref",
 	),
 	/** A label or value ref naming a column the told table lacks: a read of what is not there,

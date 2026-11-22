@@ -33,6 +33,8 @@ export const NAMED_IDENTITY_FAMILIES = {
 	automation: "Automation name",
 	"lookup-table": "Data table name",
 	"lookup-column": "Data column name",
+	"lookup-attribute": "Row detail name",
+	"lookup-value-property": "Value detail name",
 } satisfies Partial<Record<AuthorableIdentityFamily, string>>;
 export type NamedIdentityFamily = keyof typeof NAMED_IDENTITY_FAMILIES;
 

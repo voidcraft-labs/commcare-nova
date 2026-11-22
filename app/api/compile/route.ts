@@ -1,4 +1,5 @@
-import { type NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { compileDownloadResponse } from "@/lib/export/artifacts/response";
 import { handleApiError } from "@/lib/apiError";
 import {
 	encodeProjectSpaceCompatibilityReport,
@@ -6,7 +7,7 @@ import {
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
 import { downloadKeptAdvisoryFacts } from "@/lib/deployment/downloadTarget";
-import { compileLocalArchive } from "@/lib/export/localArchive";
+import { streamLocalArchive } from "@/lib/export/localArchive";
 import {
 	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
@@ -25,7 +26,7 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
  *
  * Shares the auth + parse + boundary-gate + manifest preamble with the JSON twin
  * via `prepareCompileRequest`, then builds the archive with
- * `compileLocalArchive` (the one `.ccz` assembly) and returns its bytes
+ * `streamLocalArchive` (the one `.ccz` assembly) and returns its bytes
  * directly as the response body. Returning the bytes inline (rather than persisting them and handing back
  * a download URL) means there is no server-side artifact to store, secure, or
  * reap, and nothing that can go missing when a follow-up download request lands
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
 		// the one project space the request named: its addresses, its HQ app
 		// id and its recorded ids, and what it keeps of the values Nova leaves
 		// to CommCare HQ.
-		const buffer = compileLocalArchive(
+		const archive = streamLocalArchive(
 			prepared,
 			download.runtimeTarget,
 			download.identity,
@@ -77,11 +78,17 @@ export async function POST(req: NextRequest) {
 			attachmentTargetState,
 			downloadKeptAdvisoryFacts(download, doc),
 		);
-		return new NextResponse(new Uint8Array(buffer), {
+		return await compileDownloadResponse({
+			source: archive,
+			filename: `${appName}.ccz`,
+			prepared,
+			download,
+			appId: prepared.appId,
+			actor: prepared.exportActor,
+			signal: req.signal,
 			headers: {
 				"Content-Type": "application/octet-stream",
 				"Content-Disposition": `attachment; filename="${appName}.ccz"`,
-				"Content-Length": buffer.length.toString(),
 				[PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER]:
 					encodeProjectSpaceCompatibilityReport(projectSpaceCompatibility),
 				[EXPORT_ADVISORY_HEADER]: encodeExportAdvisories(advisories),

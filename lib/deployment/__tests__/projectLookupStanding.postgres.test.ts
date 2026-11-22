@@ -8,6 +8,7 @@
  */
 
 import { sql } from "kysely";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -92,8 +93,8 @@ async function appReading(
 	projectId: string,
 	owner: string,
 	table: Awaited<ReturnType<typeof projectTable>>,
+	additional?: Awaited<ReturnType<typeof projectTable>>,
 ): Promise<BlueprintDoc> {
-	const [code, name] = table.columns;
 	const doc = buildDoc({
 		appName: `Visits ${appId}`,
 		modules: [
@@ -103,18 +104,18 @@ async function appReading(
 					{
 						name: "Visit",
 						type: "survey",
-						fields: [
-							{
-								id: "facility",
+						fields: (additional ? [table, additional] : [table]).map(
+							(source, i) => ({
+								id: i === 0 ? "facility" : "area",
 								kind: "single_select",
 								optionsSource: {
 									kind: "lookup",
-									tableId: table.id,
-									valueColumnId: code.id,
-									labelColumnId: name.id,
+									tableId: source.id,
+									valueColumnId: source.columns[0].id,
+									labelColumnId: source.columns[1].id,
 								},
-							},
-						],
+							}),
+						),
 					},
 				],
 			},
@@ -130,9 +131,11 @@ function publish(
 	actorUserId: string,
 	doc: BlueprintDoc,
 	adoptResourceIds: readonly string[] = [],
+	dataGrant?: ProjectDataGrant,
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
 		requireHqImport: null,
+		dataGrant,
 		scope: { appId, projectId, actorUserId, role: "editor" },
 		...TARGET,
 		doc,
@@ -330,5 +333,75 @@ it("refuses an app of another Project whose table shares the tag", async () => {
 				],
 			},
 		);
+	});
+});
+
+it("resumes a mixed workbook publish from the first unverified file after the target and earlier bytes are checked", async () => {
+	await h.seedProjectMember(FIRST, PROJECT, "editor");
+	await connect(h, FIRST, "india", [DOMAIN]);
+	const grant = { kind: "session", sessionId: "workbook-session" } as const;
+	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt") VALUES(${grant.sessionId},'workbook-test',${FIRST},now()+interval '1 hour',now(),now())`.execute(
+		h.db(),
+	);
+	const small = await projectTable(PROJECT, FIRST);
+	const scope = { actorId: FIRST, projectId: PROJECT, role: "editor" };
+	const large = await createLookupTable(scope, {
+		name: "Areas",
+		tag: "areas",
+		columns: [
+			{ wireName: "code", label: "Code", dataType: "text" },
+			{ wireName: "name", label: "Name", dataType: "text" },
+		],
+	});
+	const fields = Array.from({ length: 1001 }, (_, i) => ({
+		code: "r" + i,
+		name: "Area " + i,
+	}));
+	await replaceLookupRows(scope, {
+		tableId: large.id,
+		expectedTableRevision: large.tableRevision,
+		rows: fields.map((row) => ({
+			[large.columns[0].id]: row.code,
+			[large.columns[1].id]: row.name,
+		})),
+	});
+	const doc = await appReading("mixed-books", PROJECT, FIRST, small, large);
+	const target = "hq-mixed";
+	const run = () => publish("mixed-books", PROJECT, FIRST, doc, [], grant);
+	await withManagedPeer(async (peer) => {
+		serveTableList(peer, DOMAIN, []);
+		acceptImport(peer, DOMAIN, 201, { appId: target });
+		serveSource(peer, DOMAIN, "source-shell", target);
+		takeWorkbook(peer, DOMAIN);
+		serveTableList(peer, DOMAIN, [landed]);
+		serveRows(peer, DOMAIN, landed);
+		const refuse = () =>
+			peer
+				.get("https://india.commcarehq.org")
+				.intercept({ method: "POST", path: "/a/clinic/fixtures/fixapi/" })
+				.reply(403, "Denied");
+		refuse();
+		const first = await run();
+		expect(first.landed, JSON.stringify(first)).toBe(false);
+		const uploads = () =>
+			publishRequests(peer).filter(
+				(r) => r === "POST /a/clinic/fixtures/fixapi/",
+			).length;
+		expect(uploads()).toBe(2);
+		serveTableList(peer, DOMAIN, [landed]);
+		serveRows(peer, DOMAIN, landed);
+		serveSource(peer, DOMAIN, "source-shell", target);
+		refuse();
+		const retry = await run();
+		expect(retry.landed, JSON.stringify(retry)).toBe(false);
+		expect(uploads()).toBe(3);
+		const maps = await h
+			.db()
+			.selectFrom("app_deployment_resources")
+			.select("remote_id")
+			.where("kind", "=", "lookup-table")
+			.where("superseded_at", "is", null)
+			.execute();
+		expect(maps).toEqual([{ remote_id: landed.id }]);
 	});
 });

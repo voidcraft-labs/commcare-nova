@@ -66,6 +66,7 @@ import {
 	type ShownRefreshedView,
 } from "@/components/builder/keptListModel";
 import { StopPublishingDialog } from "@/components/builder/StopPublishingDialog";
+import {PlaceWorkbookButton} from "./PlaceWorkbookButton";
 import { Button } from "@/components/shadcn/button";
 import type {
 	DeploymentProgressState,
@@ -498,6 +499,7 @@ export function DeploymentStatus({
 						/>
 						<span>{failure.failure.message}</span>
 					</p>
+					{canRefresh && failure.failure.code === "hq_place_ids_need_setup" && <PlaceWorkbookButton appId={appId} server={record.server} domain={record.domain}/>}
 					{failure.failure.details.length > 0 ? (
 						<ul className="mt-2 flex list-disc flex-col gap-1 pl-9 text-nova-text-secondary">
 							{failure.failure.details.map((detail) => (

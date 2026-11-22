@@ -9,6 +9,13 @@ import { log } from "@/lib/logger";
 import type { OrganizationErrorCode } from "./errors";
 import { OrganizationError } from "./errors";
 import {
+	placePageRequest,
+	readPlaceOverview,
+	readPlacePage,
+	readPlaceRuleIssues,
+	ruleReadRequest,
+} from "./pages";
+import {
 	archiveImpactSchema,
 	createLocationInputSchema,
 	organizationRevisionSchema,
@@ -18,7 +25,6 @@ import {
 	createLocation,
 	describeArchiveImpact,
 	moveLocation,
-	readOrganization,
 	setLocationArchived,
 	updateLocation,
 } from "./service";
@@ -162,10 +168,28 @@ function parsed<T>(schema: ZodType<T>, value: unknown): T {
 	return result.data;
 }
 
+export async function readPlaceRuleIssuesAction(appId: string, input: unknown) {
+	return withScope(appId, (scope) =>
+		readPlaceRuleIssues(scope, parsed(ruleReadRequest, input)),
+	);
+}
+
+export async function readPlacePageAction(appId: string, input: unknown) {
+	return withScope(appId, (scope) =>
+		readPlacePage(scope, parsed(placePageRequest, input)),
+	);
+}
+
 export async function readOrganizationAction(
 	appId: string,
-): Promise<OrganizationResult<OrganizationSnapshot>> {
-	return withScope(appId, (scope) => readOrganization(scope));
+): Promise<
+	OrganizationResult<
+		OrganizationSnapshot & {
+			paged?: { total: number; occupied: Record<string, { kept: boolean }> };
+		}
+	>
+> {
+	return withScope(appId, (scope) => readPlaceOverview(scope));
 }
 
 export async function createLocationAction(

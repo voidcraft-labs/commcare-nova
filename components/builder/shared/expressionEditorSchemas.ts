@@ -1,3 +1,4 @@
+import { editorLookupReads } from "./lookupTablePresentation";
 // components/builder/shared/expressionEditorSchemas.ts
 //
 // Declarative registry mapping every Expression kind to its
@@ -446,7 +447,9 @@ export function isAuthorableExpressionKind(
 	if (kind === "table-lookup") {
 		return (
 			ctx?.tableScope === undefined &&
-			(ctx?.lookupTables ?? []).some((table) => table.columns.length > 0)
+			(ctx?.lookupTables ?? []).some(
+				(table) => editorLookupReads(table).length > 0,
+			)
 		);
 	}
 	return true;

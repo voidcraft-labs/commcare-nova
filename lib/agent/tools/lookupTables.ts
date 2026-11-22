@@ -1,19 +1,33 @@
+import {assignmentDirectorySchema,rowAssigneesSchema} from "@/lib/lookup/assignmentVocabulary";
 import { z } from "zod";
 import {
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
 	applyAuthorizedLookupAuthoringBatch,
+	editAuthorizedLookupValue,
 	readAuthorizedLookupRowsPage,
+	readAuthorizedRowAssignments,
+	readAuthorizedLookupValue,
+	readAuthorizedTableReaders,
 } from "@/lib/lookup/agentService";
 import { LookupError } from "@/lib/lookup/errors";
+import {
+	lookupValueEditRequestSchema,
+	lookupValueReadRequestSchema,
+} from "@/lib/lookup/largeValues/input";
+import { contentInput, rowContentSchema } from "@/lib/lookup/namedRowInput";
 import {
 	lookupColumnDraftSchema,
 	lookupColumnLabelSchema,
 	lookupDataTypeSchema,
+	lookupMemberDraftSchema,
+	lookupReaderReviewSchema,
 	lookupRevisionSchema,
+	lookupRowPatchSchema,
 	lookupTableNameSchema,
 	lookupTagSchema,
 	lookupWireNameSchema,
@@ -39,11 +53,18 @@ const existingCellSchema = z.strictObject({
 	columnId: lookupColumnIdSchema,
 	value: cellValueSchema,
 });
+const memberEditSchema = lookupMemberDraftSchema.extend({
+	id: lookupMemberIdSchema
+		.optional()
+		.describe("Keep this ID when editing an existing detail."),
+});
 const createRowSchema = z.strictObject({
 	cells: z.array(createCellSchema).max(250),
+	content: rowContentSchema.optional(),
 });
 const existingRowSchema = z.strictObject({
 	cells: z.array(existingCellSchema).max(250),
+	content: rowContentSchema.optional(),
 });
 
 /** Keeps every success receipt safely below the shared MCP/model result
@@ -145,22 +166,71 @@ function requireCreatedId<T>(
 		`Lookup authoring omitted the created ${kind} receipt at input index ${index}.`,
 	);
 }
-export const getLookupTableRowsInputSchema = z.strictObject({
-	tableId: lookupTableIdSchema,
-	query: z.string().trim().max(200).optional(),
-	columnIds: z.array(lookupColumnIdSchema).max(250).optional(),
-	cursor: z.string().min(1).max(4096).optional(),
-});
+export const getLookupTableRowsInputSchema = z
+	.strictObject({
+		valueSlice: lookupValueReadRequestSchema.omit({ tableId: true }).optional(),
+		readerPage: z
+			.strictObject({
+				offset: z.number().int().nonnegative(),
+				digest: z.string().optional(),
+			})
+			.optional()
+			.describe(
+				"For a schema change, read the apps using this table. Start at offset 0 and continue with nextReaderPage until complete.",
+			),
+		tableId: lookupTableIdSchema,
+		assignments:z.strictObject({rowId:lookupRowIdSchema,search:assignmentDirectorySchema}).optional(),
+		rowId: lookupRowIdSchema
+			.optional()
+			.describe("Open one row by stable ID, including its later pages."),
+		query: z.string().trim().max(200).optional(),
+		columnIds: z.array(lookupColumnIdSchema).max(250).optional(),
+		attributeIds: z.array(lookupMemberIdSchema).max(250).optional(),
+		cursor: z.string().min(1).max(4096).optional(),
+	})
+	.superRefine((input, context) => {
+		if (
+			(input.readerPage || input.valueSlice || input.assignments) &&
+			Object.keys(input).filter(
+				(key) =>
+					key !== "tableId" && input[key as keyof typeof input] !== undefined,
+			).length !== 1
+		)
+			context.addIssue({
+				code: "custom",
+				message:
+					"Use readerPage or valueSlice by itself with the table ID. Row searches and their cursors belong to a separate read.",
+			});
+	});
 
 export const getLookupTableRowsTool = {
 	description:
-		"Read or search an ordered page of data-table rows. Continue with the same query and returned cursor; a changed table requires a fresh read.",
+		"Read an ordered page of rows or the apps using a table. An editor can inspect a row’s assignments and search available workers, groups or places by name using assignments; continue with nextOffset. Continue with the same query and cursor. Assemble large values from parts by row, slot and text offset. When definitionInCatalog is true, getLookupTables supplies the definition. Read an individual text slice by its row, slot, expected table revision and UTF-8 byte offset with valueSlice. The digest and nextByteOffset belong to the complete value.",
 	inputSchema: getLookupTableRowsInputSchema,
 	async execute(
 		input: z.infer<typeof getLookupTableRowsInputSchema>,
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
+			if(input.assignments)return {kind:"read",data:await readAuthorizedRowAssignments(lookupAgentScope(ctx),input.tableId,input.assignments.rowId,input.assignments.search,ctx.dataGrant)};
+			if (input.valueSlice)
+				return {
+					kind: "read",
+					data: await readAuthorizedLookupValue(
+						lookupAgentScope(ctx),
+						{ ...input.valueSlice, tableId: input.tableId },
+						ctx.dataGrant,
+					),
+				};
+			if (input.readerPage)
+				return {
+					kind: "read",
+					data: await readAuthorizedTableReaders(
+						lookupAgentScope(ctx),
+						input.tableId,
+						input.readerPage,
+					),
+				};
 			const page = await readAuthorizedLookupRowsPage(
 				lookupAgentScope(ctx),
 				input,
@@ -188,16 +258,16 @@ export const getLookupTableRowsTool = {
 export const createLookupTableToolInputSchema = z.strictObject({
 	name: lookupTableNameSchema,
 	tag: lookupTagSchema,
+	attributes: z.array(lookupMemberDraftSchema).max(250).optional(),
 	columns: z
 		.array(lookupColumnDraftSchema.safeExtend({ key: authoringKeySchema }))
-		.min(1)
 		.max(250),
 	rows: z.array(createRowSchema).max(5000).optional(),
 });
 
 export const createLookupTableTool = {
 	description:
-		"Create a Project data table with columns and optional rows. Row cells use the column keys supplied in this call; the result returns all created IDs.",
+		"Create a Project data table with columns, row details, or both. Scalar cells use request-local column keys. A repeated text column holds an ordered list with optional details on each value. Look up detail IDs in the catalog after creating them.",
 	inputSchema: createLookupTableToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLookupTableToolInputSchema>,
@@ -226,9 +296,11 @@ export const createLookupTableTool = {
 					name: input.name,
 					tag: input.tag,
 					columns: input.columns,
+					attributes: input.attributes,
 					rows: (input.rows ?? []).map((row, index) => ({
 						key: `row-${index}`,
 						cells: row.cells,
+						...contentInput(row.content),
 					})),
 				},
 			],
@@ -262,19 +334,25 @@ export const updateLookupTableToolInputSchema = z
 		expectedTableRevision: lookupRevisionSchema,
 		name: lookupTableNameSchema.optional(),
 		tag: lookupTagSchema.optional(),
+		attributes: z.array(memberEditSchema).max(250).optional(),
+		reviewed: lookupReaderReviewSchema.optional(),
 	})
 	.superRefine((value, ctx) => {
-		if (value.name === undefined && value.tag === undefined) {
+		if (
+			value.name === undefined &&
+			value.tag === undefined &&
+			value.attributes === undefined
+		) {
 			ctx.addIssue({
 				code: "custom",
-				message: "Provide name or tag to update.",
+				message: "Provide a name, export tag or ordered row details to update.",
 			});
 		}
 	});
 
 export const updateLookupTableTool = {
 	description:
-		"Update a Project data table's display name or export tag. A tag change requires delete capability because HQ treats a new tag as a different remote table.",
+		"Update a Project data table's display name, export tag or complete ordered row details. Preserve existing IDs for each retained detail. A tag change requires delete capability because HQ treats a new tag as a different remote table.",
 	inputSchema: updateLookupTableToolInputSchema,
 	async execute(
 		input: z.infer<typeof updateLookupTableToolInputSchema>,
@@ -308,12 +386,23 @@ const columnOperationSchema = z.discriminatedUnion("kind", [
 			columnId: lookupColumnIdSchema,
 			label: lookupColumnLabelSchema.optional(),
 			wireName: lookupWireNameSchema.optional(),
+			repeated: z.boolean().optional(),
+			properties: z.array(memberEditSchema).max(250).optional(),
+			indexed: z.boolean().optional(),
 		})
 		.superRefine((value, ctx) => {
-			if (value.label === undefined && value.wireName === undefined) {
+			if (
+				[
+					value.label,
+					value.wireName,
+					value.repeated,
+					value.properties,
+					value.indexed,
+				].every((field) => field === undefined)
+			) {
 				ctx.addIssue({
 					code: "custom",
-					message: "Provide label or wireName to update.",
+					message: "Choose at least one column setting to update.",
 				});
 			}
 		}),
@@ -334,11 +423,12 @@ export const editLookupColumnsToolInputSchema = z.strictObject({
 	tableId: lookupTableIdSchema,
 	expectedTableRevision: lookupRevisionSchema,
 	operations: z.array(columnOperationSchema).min(1).max(250),
+	reviewed: lookupReaderReviewSchema.optional(),
 });
 
 export const editLookupColumnsTool = {
 	description:
-		"Add, edit, move or remove columns in a Project data table. References and saved values are checked before changes commit.",
+		"Add, edit, move or remove columns. A repeated text column can have ordered value details. When editing those details supply the whole list with existing IDs for retained entries. Indexing helps workers find data in the column.",
 	inputSchema: editLookupColumnsToolInputSchema,
 	async execute(
 		input: z.infer<typeof editLookupColumnsToolInputSchema>,
@@ -364,6 +454,7 @@ export const editLookupColumnsTool = {
 					tableId: input.tableId,
 					expectedTableRevision: input.expectedTableRevision,
 					columnOperations: input.operations,
+					reviewed: input.reviewed,
 				},
 			],
 		});
@@ -385,16 +476,57 @@ export const editLookupColumnsTool = {
 	},
 };
 
+// The tool receives fixed property names; the store receives an identity-keyed
+// value detail map. All other addressed changes share the service schema.
+const insertedValueSchema = z
+	.strictObject({
+		kind: z.literal("insert"),
+		columnId: lookupColumnIdSchema,
+		index: z.number().int().nonnegative(),
+		text: z.string(),
+		properties: z
+			.array(
+				z.strictObject({ propertyId: lookupMemberIdSchema, text: z.string() }),
+			)
+			.max(250),
+	})
+	.refine(
+		(value) =>
+			new Set(value.properties.map((item) => item.propertyId)).size ===
+			value.properties.length,
+		"Each value detail needs its own ID.",
+	);
+const toolPatchSchema = z.union([
+	...lookupRowPatchSchema.options.filter(
+		(
+			schema,
+		): schema is Exclude<
+			(typeof lookupRowPatchSchema.options)[number],
+			{ shape: { kind: z.ZodLiteral<"insert"> } }
+		> => schema.shape.kind.value !== "insert",
+	),
+	insertedValueSchema,
+]);
+
 const rowOperationSchema = z.discriminatedUnion("kind", [
+	z.strictObject({kind:z.literal("assign"),rowId:lookupRowIdSchema,assignments:rowAssigneesSchema}),
+	z.strictObject({
+		kind: z.literal("patch"),
+		rowId: lookupRowIdSchema,
+		changes: z.array(toolPatchSchema).min(1).max(250),
+	}),
 	z.strictObject({
 		kind: z.literal("add"),
+		assignments:rowAssigneesSchema.optional(),
 		cells: z.array(existingCellSchema).max(250),
+		content: rowContentSchema.optional(),
 		afterRowId: lookupRowIdSchema.nullable().optional(),
 	}),
 	z.strictObject({
 		kind: z.literal("update"),
 		rowId: lookupRowIdSchema,
 		cells: z.array(existingCellSchema).max(250),
+		content: rowContentSchema.optional(),
 	}),
 	z.strictObject({
 		kind: z.literal("move"),
@@ -404,21 +536,59 @@ const rowOperationSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("remove"), rowId: lookupRowIdSchema }),
 ]);
 
-export const editLookupRowsToolInputSchema = z.strictObject({
-	tableId: lookupTableIdSchema,
-	expectedTableRevision: lookupRevisionSchema,
-	operations: z.array(rowOperationSchema).min(1).max(5000),
-});
+export const editLookupRowsToolInputSchema = z
+	.strictObject({
+		tableId: lookupTableIdSchema,
+		expectedTableRevision: lookupRevisionSchema,
+		workerAccess:z.enum(["all","assigned"]).optional(),
+		reviewed:lookupReaderReviewSchema.optional(),
+		operations: z.array(rowOperationSchema).max(5000).optional(),
+		valueEdit: lookupValueEditRequestSchema.optional(),
+	})
+	.refine(
+		(input) => Boolean(input.operations) !== Boolean(input.valueEdit),
+		"Choose row operations or one staged value edit.",
+	);
 
 export const editLookupRowsTool = {
 	description:
-		"Add, replace, move or remove data-table rows. An omitted cell is missing; an empty string is a value.",
+		"Add, edit, move or remove rows. Set workerAccess to assigned to send only rows a worker receives by direct assignment, any group, or their primary place or its ancestors. Review the apps using the table before changing workerAccess. Use assign with the complete desired set of worker, group or place identities. An empty set grants nobody the row. Give scalar cells by column ID. Rich content uses exact text and export names. Preserve repeated values in order. An empty list contains zero values and a list containing empty text contains one. An omitted content object on a row update keeps its rich values. Patch one or more addressed cells, details or zero-based list positions at the read revision to preserve every other value, including unread parts of large rows. To replace a UTF-8 byte span, send valueEdit alone. Begin with a stable operationId, exact base digest, byte bounds and replacement size/digest. Append ordered base64 chunks of up to 32 KiB at the acknowledged offset, then finish or cancel. Retry the same request after an interruption.",
 	inputSchema: editLookupRowsToolInputSchema,
 	async execute(
 		input: z.infer<typeof editLookupRowsToolInputSchema>,
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
-		const addedCount = input.operations.filter(
+		if (input.valueEdit) {
+			const command = input.valueEdit;
+			if (
+				command.tableId !== input.tableId ||
+				(command.kind === "begin" &&
+					command.expectedTableRevision !== input.expectedTableRevision)
+			)
+				return {
+					kind: "read",
+					data: {
+						code: "invalid_input",
+						error: "This edit needs the same table and revision you opened.",
+					},
+				};
+			try {
+				return {
+					kind: "read",
+					data: await editAuthorizedLookupValue(
+						lookupAgentScope(ctx),
+						command,
+						ctx.dataGrant,
+					),
+				};
+			} catch (error) {
+				if (error instanceof LookupError)
+					return { kind: "read", data: lookupFailure(error) };
+				throw error;
+			}
+		}
+		const operations = input.operations ?? [];
+		const addedCount = operations.filter(
 			(operation) => operation.kind === "add",
 		).length;
 		const overflow = receiptWouldOverflow(addedCount, {
@@ -432,16 +602,43 @@ export const editLookupRowsTool = {
 			revisions: RECEIPT_REVISIONS,
 		});
 		if (overflow !== null) return { kind: "read", data: overflow };
-		const rowOperations = input.operations.map((operation, operationIndex) =>
-			operation.kind === "add"
-				? { ...operation, key: `operation-${operationIndex}` }
-				: operation,
-		);
+		const rowOperations = operations.map((operation, operationIndex) => {
+			if (operation.kind === "move" || operation.kind === "remove" || operation.kind==="assign")
+				return operation;
+			if (operation.kind === "patch")
+				return {
+					...operation,
+					changes: operation.changes.map((change) =>
+						change.kind === "insert"
+							? {
+									kind: change.kind,
+									columnId: change.columnId,
+									index: change.index,
+									value: {
+										text: change.text,
+										properties: Object.fromEntries(
+											change.properties.map((p) => [p.propertyId, p.text]),
+										),
+									},
+								}
+							: change,
+					),
+				};
+			const { content, ...rest } = operation;
+			return rest.kind === "add"
+				? {
+						...rest,
+						...contentInput(content),
+						key: `operation-${operationIndex}`,
+					}
+				: { ...rest, ...contentInput(content) };
+		});
 		const result = await author(ctx, {
 			updateTables: [
 				{
 					tableId: input.tableId,
 					expectedTableRevision: input.expectedTableRevision,
+					workerAccess:input.workerAccess,reviewed:input.reviewed,
 					rowOperations,
 				},
 			],
@@ -497,6 +694,7 @@ export const replaceLookupRowsTool = {
 					replaceRows: input.rows.map((row, index) => ({
 						key: `row-${index}`,
 						cells: row.cells,
+						...contentInput(row.content),
 					})),
 				},
 			],

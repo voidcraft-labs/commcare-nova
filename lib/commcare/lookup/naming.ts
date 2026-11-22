@@ -1,3 +1,4 @@
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 /**
  * Identity-to-wire-name resolution for lookup carriers.
  *
@@ -15,7 +16,11 @@
  */
 
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type {
+	LookupColumnId,
+	LookupMemberId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import type { LookupColumn, LookupTableDefinition } from "@/lib/lookup/types";
 
 /** CCHQ's fixture-id scheme prefix for lookup tables. */
@@ -49,8 +54,14 @@ export interface LookupTableWireNaming {
 	readonly rowElementName: string;
 	/** Columns in authored `(order_key, column UUID)` order. */
 	readonly columns: readonly LookupColumn[];
+	readonly attributes?: LookupTableDefinition["attributes"];
+	readonly distribution?: "global" | "assigned";
 	/** Resolve a column id to its current wire name; unknown ids throw. */
 	readonly wireNameFor: (columnId: LookupColumnId) => string;
+	readonly memberNameFor: (
+		columnId: LookupColumnId | undefined,
+		memberId: LookupMemberId,
+	) => string;
 }
 
 /** Immutable tableId → wire vocabulary resolver for one emission run. */
@@ -79,12 +90,30 @@ function tableNaming(
 	);
 	return {
 		tableId: definition.id,
+		distribution:
+			definition.workerAccess ??
+			definition.hq?.source?.distribution ??
+			"global",
 		tag: definition.tag,
 		xformInstanceId: definition.tag,
 		fixtureId: lookupFixtureId(definition.tag),
 		listElementName: `${definition.tag}_list`,
 		rowElementName: definition.tag,
 		columns: definition.columns,
+		...(definition.attributes && { attributes: definition.attributes }),
+		memberNameFor: (columnId, memberId) => {
+			const members =
+				columnId === undefined
+					? definition.attributes
+					: definition.columns.find((column) => column.id === columnId)
+							?.properties;
+			const member = members?.find((item) => item.id === memberId);
+			if (!member)
+				throw new Error(
+					`Lookup detail ${memberId} is unavailable in table ${definition.tag}.`,
+				);
+			return member.wireName;
+		},
 		wireNameFor: (columnId) => {
 			const wireName = byColumnId.get(columnId);
 			if (wireName === undefined) {
@@ -114,6 +143,7 @@ export function inertLookupWireNaming(): LookupWireNaming {
 		rowElementName: "nova_lookup",
 		columns: [],
 		wireNameFor: () => "nova_lookup_column",
+		memberNameFor: () => "nova_lookup_detail",
 	});
 	return {
 		tables: [],
@@ -144,6 +174,7 @@ export function identityLookupWireNaming(): LookupWireNaming {
 			rowElementName: tag,
 			columns: [],
 			wireNameFor: (columnId) => `c_${columnId.replaceAll("-", "_")}`,
+			memberNameFor: (_, id) => `d_${id.replaceAll("-", "_")}`,
 		};
 	};
 	return {
@@ -182,16 +213,10 @@ export function lookupWireNaming(
 export function lookupTypeIndexFromNaming(
 	naming: LookupWireNaming | undefined,
 ):
-	| ReadonlyMap<
-			LookupTableId,
-			ReadonlyMap<LookupColumnId, CasePropertyDataType>
-	  >
+	| ReadonlyMap<LookupTableId, ReadonlyMap<string, CasePropertyDataType>>
 	| undefined {
 	if (naming === undefined) return undefined;
 	return new Map(
-		naming.tables.map((table) => [
-			table.tableId,
-			new Map(table.columns.map((column) => [column.id, column.dataType])),
-		]),
+		naming.tables.map((table) => [table.tableId, lookupReadTypes(table)]),
 	);
 }

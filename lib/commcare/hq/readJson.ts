@@ -20,6 +20,7 @@ import { giveBackHeld } from "./memoryMeter";
 import { HQ_READ_SENDS, readRetryWaitMs } from "./throttle";
 
 export type ReadHqJsonOptions = {
+	readonly parse?: (text: string) => unknown;
 	/**
 	 * The most bytes of body Nova reads, a constant of `bounds.ts`. Required: no
 	 * read of CommCare HQ is without one. A longer body is refused whole and
@@ -229,7 +230,7 @@ async function readAnswer(
 	try {
 		/* What was parsed stays charged to the request's lease, as the data
 		 * its caller keeps. */
-		return { data: parseHqJsonText(text), bytes: body.bytes.byteLength };
+		return { data: (options.parse ?? parseHqJsonText)(text), bytes: body.bytes.byteLength };
 	} catch {
 		/* HQ answers its sign-in page, its plan page and an inactive project
 		 * space's page as HTML where JSON was asked. Nothing of it is kept. */

@@ -14,12 +14,9 @@ import {
 	personasOf,
 	type UserCollections,
 } from "@/lib/domain";
-import {
-	type LocationFixtureRow,
-	locationFixtureRows,
-	personaFootprint,
-} from "@/lib/organization/footprint";
-import { readOrganizationPlaces } from "@/lib/organization/service";
+import { withAppTx } from "@/lib/db/pg";
+import type { LocationFixtureRow } from "@/lib/organization/footprint";
+import { readWorkerFixtureRows, workerFootprintIds } from "@/lib/organization/workerFootprint";
 
 /** The persona whose device holds places: `undefined` for yourself, a
  * persona assigned nowhere, or an app with no organization, each a worker HQ
@@ -52,7 +49,7 @@ export async function workerLocationFixture(
 ): Promise<readonly LocationFixtureRow[]> {
 	const persona = placedPersona(doc, personaUuid);
 	if (doc === undefined || persona === undefined) return [];
-	return locationFixtureRows(doc, persona, await readOrganizationPlaces(appId));
+	return withAppTx(tx => readWorkerFixtureRows(tx, appId, doc, persona), { isolationLevel: "repeatable read" });
 }
 
 /** The ids of the places {@link workerLocationFixture} holds, for a
@@ -64,9 +61,8 @@ export async function workerPlaceIds(
 ): Promise<readonly string[]> {
 	const persona = placedPersona(doc, personaUuid);
 	if (doc === undefined || persona === undefined) return [];
-	return personaFootprint(
-		doc,
-		persona,
-		await readOrganizationPlaces(appId),
-	).map((place) => place.id);
+	return withAppTx(async tx => {
+		const result = await workerFootprintIds(appId, doc, persona).execute(tx);
+		return result.rows.map(row => row.id);
+	}, { isolationLevel: "repeatable read" });
 }

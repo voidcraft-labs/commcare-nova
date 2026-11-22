@@ -94,6 +94,7 @@ import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
+import { qualifiedLookupValues } from "./documents/qualifiedLookupValues";
 import { lookupNames } from "./documents/lookupNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
@@ -269,6 +270,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	caseTypeNames,
 	choiceValues,
 	lookupNames,
+	qualifiedLookupValues,
 	searchFieldNames,
 	caseWriteNames,
 	connectDeliverHyphenIds,

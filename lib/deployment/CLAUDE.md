@@ -377,6 +377,10 @@ detected: the adoption and discard confirmations carry `LOOKUP_DISCARD_NOTE`,
 and a push of an unchanged definition that the re-list shows under a new id
 lands with the made-again warning.
 
+The place inventory pairs authenticated v2 rows with v1 rows from the same server and domain by durable location ID. It verifies their modification, coordinates, parent and level, display name, site code and JSON metadata and retries the complete read once across an observed simultaneous change. The v1 external ID, nullable source name, exact decimal coordinates and original numeric lexemes remain distinct. The worker receives HQ's string projection for modeled information. Unknown dictionary insertion order blocks a formula that would read that value. The ordinary place inventory and the protected place workbook each charge their reads and delivery budgets.
+
+An active mapping follows the destination's own ID after a source recode. The target receives parent-first batches with per-row results, read-back and resource mappings. An identical retry omits the v2 write. Each actual batch is guarded by the expected organization revision. Existing destination-only information survives. A destination external ID requires HQ's native organization workbook, as v2 omits that field. A publish validates the workbook shape before sending any batch, stages the place with its destination metadata intact, and records the observed ID and requested ID against the newly read destination mapping. An editor with the live export grant can then prepare the destination-bound private file. The next publish verifies the saved v1 ID by durable target ID and applies the remaining metadata before sending app content. The origin is only refreshed.
+
 `organization` reads the target's levels and places and plans the push
 (`locationResourcePlan.ts`). It carries the same ownership refusal keyed on site
 code, and a SECOND refusal that is peculiar to places: CommCare HQ will not hold
@@ -2315,3 +2319,23 @@ emitter defaults to the worker's username. HQ requires the USERCASE privilege,
 which the person confirms, and a restored record, which Nova cannot verify.
 Read-only forms can silently get blank values; writers have a native entry
 assertion. Record-scope session expressions are not worker-record reads.
+
+### Selected lookup source observations
+
+An editor may inspect an assigned table's source separately from a worker's fixture. The Project, table, remote table identity, server, domain, current membership and original credential grant are resolved on the server. A role change, consent revocation or key replacement invalidates the observation. `managedLookupObservation.ts` stores an editor's checked selected-workbook receipt in `lookup_tables.hq_source_observation`. It contains the observation time, exact source and content digests, row identities and resolved principals. Its authorized history has no authority to distribute rows.
+
+Global transfer obtains a full authenticated restore and independent details for every candidate. It compares cardinality, ordered device projection, complete canonical content and the locally reviewed ordered row identities, then stamps the observed index flags while holding the transfer lock. An assigned or incomplete table remains managed at its source. The server retains a verified reference when an inline read exceeds its capacity. An unreadable inventory has no count and its historical rows never enter a device projection.
+
+Promoting a verified generation reconciles the current HQ field, row-attribute and value-property definitions through the same identity and reference governance as inline refresh. An admin transferring a complete global generation rechecks its exact active generation, original source grant, ordered administrative digest and two complete native fixture observations. Transfer binds index flags from those fixtures, materializes stable editable rows and lexical value slots under the table lock, and rechecks the grant before changing custody. The previous generation retires in the same transaction.
+
+
+### Lookup workbooks, media receipts and device downloads
+
+A direct workbook publish compares the actual target definition and ordered
+row content with its admitted Project snapshot. Paged tables have the same
+canonical row spelling as the ordinary workbook. The verified parts of a
+multi-workbook publish remain in the destination ledger through a retry.
+For media batches, the status job and the authenticated target file digest
+establish completion separately for each mapped path. A named device archive
+may reference an assigned table only at its verified installation target.
+The device reads its private rows when the worker authenticates to HQ.
