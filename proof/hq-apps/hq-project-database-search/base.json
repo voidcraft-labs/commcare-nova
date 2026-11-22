@@ -12,7 +12,7 @@
 		],
 		"commcareVersion": "2.57.0",
 		"commtrack": false,
-		"syncCasesOnFormEntry": true,
+		"syncCasesOnFormEntry": false,
 		"caseSearchEnabled": true
 	},
 	"declaration": {

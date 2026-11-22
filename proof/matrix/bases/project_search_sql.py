@@ -53,7 +53,7 @@ BASE = Base(
     id="hq-project-database-search",
     build=build,
     configuration=Configuration(flags={"PROJECT_DB", "CASE_SEARCH_ENDPOINTS", "SYNC_SEARCH_CASE_CLAIM", "CASE_SEARCH_ADVANCED"},
-                                privileges={"CLOUDCARE"}, case_search_enabled=True, sync_cases_on_form_entry=True),
+                                privileges={"CLOUDCARE"}, case_search_enabled=True),
     exhibits=("case-search/case-search-endpoint-id", "questions/text-input-xsd-string"),
     declaration=Declaration(runs_only_on=None),
     cases=(("visit", (("district", "north"),)),),
