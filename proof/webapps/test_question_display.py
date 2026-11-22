@@ -1,5 +1,8 @@
 """Worker controls in the Vellum-saved app and after Nova republishes over that app."""
 
+import base64
+import json
+from contextlib import contextmanager
 from xml.etree import ElementTree
 
 import pytest
@@ -7,6 +10,21 @@ import pytest
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
 from proof.webapps.session import Session
+
+
+@contextmanager
+def _released(document, publication, runner):
+    # HQ's Web Apps page supplies its Mapbox credential. The pinned SDK
+    # instantiates its widget only after parsing the public token payload.
+    # This synthetic unsigned configuration is confined to this witness;
+    # the browser driver fences all external requests.
+    from django.test import override_settings
+
+    payload = base64.urlsafe_b64encode(json.dumps({"u": "proof-worker"}).encode()).decode().rstrip("=")
+    with (override_settings(MAPBOX_ACCESS_TOKEN=f"pk.{payload}.synthetic"),
+          webapps_hq.authored_project(document, publication) as project,
+          project.released(runner) as release):
+        yield release
 
 
 def _ethiopian(ix):
@@ -49,22 +67,21 @@ def test_paired_ethiopian_dates_send_the_same_civil_day(
         half:!!q.closest(".col-md-6"),
     }))"""
     }
-    with webapps_hq.authored_project(webapps_documents["hq-question-display"], publication) as project:
-        with project.released(formplayer_runner) as release:
-            run = Session(release, editor_driver).run(
-                [
-                    *steps.open_app("Visit display"),
-                    *steps.choose("Visits"),
-                    *steps.choose("Survey"),
-                    *_ethiopian("1"),
-                    *_ethiopian("2"),
-                    read,
-                    *steps.submit_and_land(),
-                ]
-            )
-            submitted = [
-                ElementTree.fromstring(one.instance) for one in release.hq.submissions
+    with _released(webapps_documents["hq-question-display"], publication, formplayer_runner) as release:
+        run = Session(release, editor_driver).run(
+            [
+                *steps.open_app("Visit display"),
+                *steps.choose("Visits"),
+                *steps.choose("Survey"),
+                *_ethiopian("1"),
+                *_ethiopian("2"),
+                read,
+                *steps.submit_and_land(),
             ]
+        )
+        submitted = [
+            ElementTree.fromstring(one.instance) for one in release.hq.submissions
+        ]
     assert not run.page_errors, run.page_errors
     assert len(submitted) == 1, submitted
     dates = [submitted[0].findtext(f"{{*}}{name}") for name in ("arrival", "follow_up")]
@@ -95,39 +112,38 @@ def test_upload_notifies_and_clears_the_filename_in_the_same_form(
     filename = "proof-image.jpg"
     field = """ix => [...document.querySelectorAll('#webforms .q')].find(q =>
         q.querySelector(':scope > .ix')?.textContent.trim().split(' :: ').pop() === ix)"""
-    with webapps_hq.authored_project(webapps_documents["hq-question-display"], publication) as project:
-        with project.released(formplayer_runner) as release:
-            run = Session(release, editor_driver).run(
-                [
-                    *steps.open_app("Visit display"),
-                    *steps.choose("Visits"),
-                    *steps.choose("Survey"),
-                    *steps.answer_media(
-                        "15",
-                        "image",
-                        filename,
-                        (CAPTURES_DIR / filename).read_bytes(),
-                        "image/jpeg",
-                    ),
-                    {
-                        "until": "webapps/question-value",
-                        "arg": {"ix": "16", "value": filename},
-                    },
-                    {
-                        "eval": f"() => ({{filename: ({field})('16').querySelector('textarea').value, "
-                        + f"signatures: ['11','12'].map(ix=>!!({field})(ix).querySelector('canvas'))}})"
-                    },
-                    {"mark": True},
-                    {
-                        "eval": f"() => ({field})('15').querySelector('button[data-bind*=onClear]').click()"
-                    },
-                    {
-                        "until": "webapps/question-value",
-                        "arg": {"ix": "16", "value": ""},
-                    },
-                    steps.SETTLE,
-                ]
-            )
+    with _released(webapps_documents["hq-question-display"], publication, formplayer_runner) as release:
+        run = Session(release, editor_driver).run(
+            [
+                *steps.open_app("Visit display"),
+                *steps.choose("Visits"),
+                *steps.choose("Survey"),
+                *steps.answer_media(
+                    "15",
+                    "image",
+                    filename,
+                    (CAPTURES_DIR / filename).read_bytes(),
+                    "image/jpeg",
+                ),
+                {
+                    "until": "webapps/question-value",
+                    "arg": {"ix": "16", "value": filename},
+                },
+                {
+                    "eval": f"() => ({{filename: ({field})('16').querySelector('textarea').value, "
+                    + f"signatures: ['11','12'].map(ix=>!!({field})(ix).querySelector('canvas'))}})"
+                },
+                {"mark": True},
+                {
+                    "eval": f"() => ({field})('15').querySelector('button[data-bind*=onClear]').click()"
+                },
+                {
+                    "until": "webapps/question-value",
+                    "arg": {"ix": "16", "value": ""},
+                },
+                steps.SETTLE,
+            ]
+        )
     assert not run.page_errors, run.page_errors
     assert run.value(-5) == {"filename": filename, "signatures": [True, True]}, (
         run.outcomes
@@ -159,16 +175,15 @@ def test_row_width_zero_and_rounding_have_separate_browser_outcomes(
         return [{name, css:tile.className, fraction:tile.getBoundingClientRect().width/row.getBoundingClientRect().width}];
     })"""
     }
-    with webapps_hq.authored_project(webapps_documents["hq-question-display"], publication) as project:
-        with project.released(formplayer_runner) as release:
-            run = Session(release, editor_driver).run(
-                [
-                    *steps.open_app("Visit display"),
-                    *steps.choose("Visit options"),
-                    *steps.choose("Survey"),
-                    read,
-                ]
-            )
+    with _released(webapps_documents["hq-question-display"], publication, formplayer_runner) as release:
+        run = Session(release, editor_driver).run(
+            [
+                *steps.open_app("Visit display"),
+                *steps.choose("Visit options"),
+                *steps.choose("Survey"),
+                read,
+            ]
+        )
     assert not run.page_errors, run.page_errors
     tiles = run.value(-1)
     evidence("question-display-grid", tiles)
