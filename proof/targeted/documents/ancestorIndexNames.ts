@@ -459,14 +459,18 @@ function selectedMember(advanced: boolean, name: "Cleo" | "Dara"): Expectation {
 			},
 			caseList: { searchText: name },
 		},
-		expect: present
-			? [
-					{
+		expect: [
+			{
+				pointer: "/caseList/datum",
+				value: advanced ? "case_id_load_member1" : "case_id",
+			},
+			present
+				? {
 						pointer: "/caseList/rows/0/caseId",
 						value: `targeted-${name.toLowerCase()}`,
-					},
-				]
-			: [{ pointer: "/caseList/rows", value: [] }],
+					}
+				: { pointer: "/caseList/rows", value: [] },
+		],
 	};
 }
 
