@@ -42,7 +42,7 @@
 				},
 				{
 					"name": "current_reading",
-					"data_type": "text",
+					"data_type": "int",
 					"options": []
 				},
 				{

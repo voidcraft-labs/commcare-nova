@@ -541,6 +541,30 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/submission/data/nova_constraint_*[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_constraint_*[*]:reviewed-count",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_constraint_*[*]:reviewed-count",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/nova_constraint_*[*]:reviewed-count",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submissions/*/instance/data/nova_constraint_*[*]:reviewed-count",
+				"kind": "added"
 			}
 		]
 	},
@@ -557,6 +581,54 @@
 				"check": "proof1",
 				"artifact": "form:*",
 				"path": "/questions/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/*:reviewed-message",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/response/instanceXml/output/data/*:reviewed-message",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/tree/*/ix:reviewed-message-index",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submitted/answers/*:reviewed-message-index",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/steps/*/submitted/answers/*:reviewed-message-index",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/tree/*/ix:reviewed-message-index",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submitted/answers/*:reviewed-message-index",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/steps/*/submitted/answers/*:reviewed-message-index",
 				"kind": "added"
 			}
 		]
@@ -1514,6 +1586,48 @@
 				"artifact": "trace@local.ccz",
 				"path": "/runs/*/trace/*/events/*",
 				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@B",
+				"path": "/runs/*/reviewedDateTime/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@local.ccz",
+				"path": "/runs/*/reviewedDateTime/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "webapps@B",
+				"path": "/runs/*/reviewedDateTime/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@B",
+				"path": "/walks/*/steps/*/form/dateTimeSplit",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android@local.ccz",
+				"path": "/walks/*/steps/*/form/dateTimeSplit",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android-tablet@B",
+				"path": "/walks/*/steps/*/form/dateTimeSplit",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "android-tablet@local.ccz",
+				"path": "/walks/*/steps/*/form/dateTimeSplit",
+				"kind": "changed"
 			}
 		]
 	},

@@ -724,7 +724,10 @@ harness keeps, each with its reason.
   every state is served to the other readers and to Connect (`BRINGS`), and
   it models the client's placeholder for a question it draws no widget for
   (`walk.py::UNSUPPORTED`) only where the app declares Web Apps; elsewhere
-  it answers the date and time question the client cannot. A document's
+  it answers the date and time question the client cannot. After a reviewed split, the two installed
+  forms must prove which controls replaced that question. Each reader compares the actual inputs,
+  widget order and neighboring answers, including Formplayer's received instance. A different
+  validation helper, unexpected user value or omitted sibling stays a difference. A document's
   declaration is read from its `document.json` and a control's from its
   `derived.json` (`Document.platforms`), never derived again from what the
   app holds, and a control retained before step 4 reads as both, as it was

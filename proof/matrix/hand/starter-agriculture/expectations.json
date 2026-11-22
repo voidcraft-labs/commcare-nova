@@ -1406,5 +1406,187 @@
 			}
 		],
 		"exports": ["local"]
+	},
+	{
+		"id": "validation-messages-composed:before",
+		"entry": "questions/validation-message-text",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/supervision/arable_hectares_overwrite",
+					"value": "3"
+				},
+				{
+					"path": "/data/supervision/crops",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/rice",
+					"value": "4"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/rice",
+					"value": "3"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/corn",
+					"value": "4"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/corn",
+					"value": "3"
+				}
+			],
+			"expressions": [
+				"jr:itext('supervision/crops_per_arable_hectares/rice-constraintMsg;__nova_mode') = 'plain'",
+				"jr:itext('supervision/crops_per_arable_hectares/corn-constraintMsg;__nova_mode') = 'plain'"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/label",
+				"value": "How many hectares will be used for **rice**?"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/0/constraintText",
+				"value": "Must be <= Juma Ali's total arable land."
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/constraints/2/label",
+				"value": "How many hectares will be used for **corn**?"
+			},
+			{
+				"pointer": "/constraints/2/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/2/constraintText",
+				"value": "Must be <= Juma Ali's total arable land."
+			},
+			{
+				"pointer": "/constraints/3/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "false"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "false"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "validation-messages-composed:after",
+		"entry": "questions/validation-message-text",
+		"form": {
+			"menu": 2,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "agri-farmer-juma"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/supervision/arable_hectares_overwrite",
+					"value": "3"
+				},
+				{
+					"path": "/data/supervision/crops",
+					"value": "1 2"
+				}
+			],
+			"constraintChecks": [
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/rice",
+					"value": "4"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/rice",
+					"value": "3"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/corn",
+					"value": "4"
+				},
+				{
+					"path": "/data/supervision/crops_per_arable_hectares/corn",
+					"value": "3"
+				}
+			],
+			"expressions": [
+				"jr:itext('supervision-crops_per_arable_hectares-rice-constraintMsg;__nova_mode') = 'plain'",
+				"jr:itext('supervision-crops_per_arable_hectares-corn-constraintMsg;__nova_mode') = 'plain'"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/label",
+				"value": "How many hectares will be used for **rice**?"
+			},
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/0/constraintText",
+				"value": "Must be <= Juma Ali's total arable land."
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/constraints/2/label",
+				"value": "How many hectares will be used for **corn**?"
+			},
+			{
+				"pointer": "/constraints/2/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/2/constraintText",
+				"value": "Must be <= Juma Ali's total arable land."
+			},
+			{
+				"pointer": "/constraints/3/result",
+				"value": "ok"
+			},
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "true"
+			}
+		],
+		"exports": ["B", "local"]
 	}
 ]

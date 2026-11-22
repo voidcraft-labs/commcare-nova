@@ -51,8 +51,8 @@ def _form(xml):
     return namespace, text.strip(" \t\r\n") if text is not None else None
 
 
-def installed(files, differing):
-    """Each unambiguous command's installed primary-instance namespace and XForm title."""
+def installed_resources(files, differing):
+    """A command’s uniquely installed local XForm resource and its primary instance and title."""
     if not files or not files.get("suite.xml") or "suite.xml" in differing:
         return {}
     try:
@@ -69,7 +69,7 @@ def installed(files, differing):
         if form is None or path in differing:
             return {}
         namespace = form[0]
-        resources[namespace] = form if namespace not in resources else None
+        resources[namespace] = (path, form) if namespace not in resources else None
     found = {}
     for entry in suite.findall("entry"):
         commands = entry.findall("command")
@@ -80,6 +80,11 @@ def installed(files, differing):
             if place[:1] == ("form",):
                 found[place[1]] = form if place[1] not in found else None
     return found
+
+
+def installed(files, differing):
+    """Each unambiguous command's installed primary-instance namespace and XForm title."""
+    return {pos: resource[1] if resource else None for pos, resource in installed_resources(files, differing).items()}
 
 
 def expected(app, position, installed, *, before):

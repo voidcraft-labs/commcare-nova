@@ -19,6 +19,7 @@ live authoring tests build planted apps with HQ's own models.
 
 from __future__ import annotations
 
+import base64
 import json
 
 import pytest
@@ -133,6 +134,92 @@ def test_only_the_untyped_hidden_today_calculation_supplies_a_date():
         written({**question, "calculate": "string(today())"}, source.replace("today ( )", "string(today())")) == "text"
     )
     assert written({**question, "tag": "input", "type": "Text"}, source) == "text"
+
+
+def test_the_wash_meter_accepts_an_equal_seeded_reading_and_refuses_a_decrease(hq, core_runner, tmp_path):
+    from dataclasses import replace
+
+    from proof.hq import operations
+    from proof.hq.check import hq_check
+    from proof.hq.seams import build_seams
+    from proof.observe import casedata
+    from proof.observe.build import arrange
+    from proof.observe.sessions import admitted
+
+    base = next(base for base in BASES if base.id == "starter-wash")
+    directory = HQ_APPS / base.id
+    source = json.loads((directory / "app.json").read_bytes())
+    database = casedata.seeded_case_database(json.loads((directory / "seed.json").read_bytes()))
+    # A first reading can also open with no previous property.
+    case = next(case for case in database.cases if case.case_id == "client-1")
+    first = replace(
+        case,
+        case_id="first-reading",
+        properties=tuple((k, v) for k, v in case.properties if k != "current_reading"),
+    )
+    database = replace(database, cases=(*database.cases, first))
+    with hq_check(base.configuration) as (unit, _):
+        with unit.operation("seed:meter", b"meter"), build_seams():
+            app_id = operations.save_authored_app(unit, source, [])
+            app = operations.held_app(unit, app_id)
+            meter = app.get_module(1).get_form(0).xmlns
+            archive = arrange(app.create_all_files(), tmp_path)
+        restore = casedata.restore(database, unit.domain)
+    with admitted(core_runner, archive) as report:
+        assert report["admitted"], report
+        for case_id in ("client-1", "client-4", "first-reading"):
+            result = core_runner.evaluate(
+                restoreBase64=base64.b64encode(restore).decode(),
+                app=report["app"],
+                xmlns=meter,
+                session={"data": {"case_id": case_id, "case_id_new_referall_0": "new-referral"}},
+                answers=[
+                    {"path": "/data/where_you_able_to_access_the_meter", "value": "1"},
+                    {"path": "/data/is_the_meter_in_good_condition", "value": "1"},
+                ],
+                constraintChecks=[
+                    {"path": "/data/current_meter_reading", "value": value} for value in ("6", "7", "")
+                ],
+                expressions=["/data/last_reading"],
+            )
+            previous = result["values"][0]["value"]
+            assert previous == ("" if case_id == "first-reading" else "7")
+            low, equal, blank = [check["result"] for check in result["constraints"]]
+            assert low == ("constraint" if previous else "ok")
+            assert (equal, blank) == ("ok", "required")
+
+
+def test_a_hidden_integer_copy_needs_one_typed_source_and_no_other_writer():
+    from lxml import etree
+
+    base = HQ_APPS / "starter-wash"
+    active = json.loads((base / "application.json").read_bytes())["body"]
+    active = json.loads(active) if isinstance(active, str) else active
+    source = json.loads((base / "app.json").read_bytes())
+    path = "/data/current_reading"
+    for menu in (0, 1):
+        form = source["modules"][menu]["forms"][0]
+        assert form["actions"]["update_case"]["update"]["current_reading"]["question_path"] == path
+        questions = active["modules"][menu]["forms"][0]["questions"]
+        xml = source["_attachments"][form["unique_id"] + ".xml"]
+        assert seed.question_writers(questions, xml)[path] == ("int", [])
+
+    # The second writer copies the entered reading. A missing integer bind, another bind on the
+    # same input, or a setvalue writing the hidden result can invalidate that evidence.
+    model = etree.fromstring(xml.encode()).find(f".//{{{seed.XFORMS}}}model")
+    source_bind = model.find(f"{{{seed.XFORMS}}}bind[@nodeset='/data/current_meter_reading']")
+    source_bind.set("type", "xsd:string")
+    changed = etree.tostring(model.getroottree(), encoding="unicode")
+    assert seed.question_writers(questions, changed)[path] == ("text", [])
+    source_bind.set("type", "xsd:int")
+    source_bind.set("calculate", "'unknown'")
+    calculated = seed.question_writers(questions, etree.tostring(model.getroottree(), encoding="unicode"))
+    assert calculated["/data/current_meter_reading"] == calculated[path] == ("text", [])
+    for extra in (
+        '<bind nodeset="current_meter_reading" type="xsd:string"/>',
+        '<other:setvalue xmlns:other="urn:other" event="xforms-ready" ref="data/current_reading">n/a</other:setvalue>',
+    ):
+        assert seed.question_writers(questions, xml.replace("</model>", extra + "</model>"))[path] == ("text", [])
 
 
 def test_agriculture_seeds_the_decimals_or_blanks_its_forms_share():
@@ -371,6 +458,22 @@ def test_a_compared_literal_of_a_planted_app_seeds_its_property(hq, core_runner)
     assert by_name["status"]["data_type"] == "single_select"
     assert sorted(by_name["status"]["options"]) == ["closed", "open"]
     assert by_name["visits"]["data_type"] == "int"
+
+
+def test_an_unidentified_second_case_writer_keeps_a_property_untyped(hq):
+    from corehq.apps.app_manager.models import ConditionalCaseUpdate, FormActionCondition, UpdateCaseAction
+
+    from proof.hq.check import hq_check
+    from proof.hq.configuration import Configuration
+
+    with hq_check(Configuration()) as (state, _):
+        app = _planted(state)
+        other = app.new_form(0, "Other", "en", attachment=_source([("label", "string", None)]))
+        other.actions.update_case = UpdateCaseAction(
+            update={"visits": ConditionalCaseUpdate(question_path="/data/unidentified")},
+            condition=FormActionCondition(type="always"),
+        )
+        assert seed._property_writers(app)["household", "visits"] == ("text", [])
 
 
 def test_a_child_is_indexed_as_its_form_names_it_and_holds_no_parent_or_name_property(hq, core_runner):

@@ -3,10 +3,10 @@
 These plans carry out the HQ round-trip research
 ([`docs/research/2026-09-26-hq-round-trip/`](../../research/2026-09-26-hq-round-trip/README.md)):
 The goal is to bring in any app CommCare HQ's editors can build, hold it as
-a typed Nova document, edit it and publish it back. The research is the design. Its "Order of work"
-gives seven steps, each with one cutover. These plans follow that order with
-at most one cutover a step: step 6 has none, for the reason "Rules every plan
-follows" gives. Where a plan cites a defect, a section or a contract row, it
+a typed Nova document, edit it and publish it back. The research gives seven steps. Steps 1–6 shipped.
+Step 6 used additive migrations while the previous revision served. In the final step each feature group
+is a unit for the cutover rule. Groups that change a stored shape incompatibly use one direct maintenance
+cutover for that shape. Where a plan cites a defect, a section or a contract row, it
 means the research's "Defects in Nova today", its section of that name, or its
 "Contracts this work changes" table.
 
@@ -18,7 +18,7 @@ means the research's "Defects in Nova today", its section of that name, or its
 | 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
 | 5 | Case writes, forms and navigation | done: ["Step 5 is done"](#step-5-is-done) |
 | 6 | Bringing an app in from CommCare HQ | done: ["Step 6 is done"](#step-6-is-done) |
-| 7 | [The rest of the model](7-rest-of-model.md) | outline: the model Nova does not hold yet, in eight groups with a default order |
+| 7 | [The rest of the model](7-rest-of-model.md) | implementation plan for all eight remaining groups, with shared dependencies, proof and cutover |
 
 ## Step 1 is done
 
@@ -508,8 +508,8 @@ for each finding. A later change in HQ can come back into the same Nova app.
 - [Gates](../../research/2026-09-26-hq-round-trip/inventory/gates.md)
   records which HQ features depend on a plan privilege or project-space setting.
 
-[Step 7](7-rest-of-model.md) owns the eight groups of features that the reader
-reports as “Nova can't hold this yet.”
+[Step 7](7-rest-of-model.md) is the final step. Its four design chapters cover the eight groups of
+features that the reader reports as “Nova can't hold this yet.”
 
 ## Why each later step is planned when the one before it exits
 
@@ -528,9 +528,10 @@ before it exits, against the code as it then stands.
   from CommCare HQ" and its verb is "bring in", never "import", which already names the files Nova
   sends to CommCare HQ and a CSV that replaces a table's rows. In code the reader produces a reading, with findings
   in an account or choices in a review. Adoption creates the app.
-- At most one cutover per step. A step that changes the stored shape of Nova documents
-  migrates all of that step's changes in one direct maintenance cutover
-  (`docs/architecture/contracts.md`), with its production scan first, and
+- A unit with incompatible persisted changes uses one direct maintenance cutover. Each of steps 1–6 is
+  one unit. The research makes each feature group in step 7 its own unit for this rule. Groups with a
+  shared incompatible representation land it together in one window. The cutover starts with the
+  production scan (see `docs/architecture/contracts.md`) and
   leaves every document valid. One-off data migrations ship as a read-only scan
   script plus a separate migrate script in `scripts/`, which are removed after
   they run. Step 6 uses four ledgered migrations that apply while the previous

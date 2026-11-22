@@ -33,8 +33,10 @@ from it). It is written as ``proof/hq-apps/<base>/seed.json``:
   ``decimal``, ``Select`` ``single_select`` and ``MSelect`` ``multi_select``
   with the summary's option values, ``Geopoint`` ``geopoint``. A hidden, untyped
   bind whose entire calculation is ``today()`` and which has no setvalue writes
-  a date (Core's ``XPathTodayFunc``). A hidden bind choosing between two decimal inputs, using the second
-  when the first is empty, writes a decimal or an empty value. Other unknown or conflicting writers are ``text``.
+  a date (Core's ``XPathTodayFunc``). A hidden bind that initializes a reading to zero or copies an
+  integer input writes an integer when it has a value. A hidden bind choosing between two decimal inputs,
+  using the second when the first is empty, writes a decimal or an empty value. Other unknown or
+  conflicting writers are ``text``.
 - ``values``: every string literal A's expressions compare with a case
   property, by ``<type>/<property>``: a literal beside ``=``, ``!=``,
   ``<``, ``<=``, ``>`` or ``>=``, or the second argument of ``selected(...)``,
@@ -99,6 +101,9 @@ VELLUM_DATA_TYPES = {
     "MSelect": "multi_select",
     "Geopoint": "geopoint",
 }
+
+# Names Core's XFormParser.getDataType recognizes after removing the namespace prefix.
+NUMERIC_BIND_TYPES = {"int": {"int", "integer", "long"}, "decimal": {"double", "decimal", "float"}}
 
 
 class SeedRefused(ValueError):
@@ -421,48 +426,63 @@ def question_writers(questions, source):
     """The types a form's questions write, including hidden calculations whose result type A establishes."""
     from lxml import etree
 
+    from proof.checks.formplayer_case_names import bindings_at, setvalue_targets
+
     writers = {}
     hidden = {}
+    numeric_questions = {}
     for question in questions:
         path, kind = question["value"], question.get("type")
-        writers[path] = (VELLUM_DATA_TYPES.get(kind, "text"), [o["value"] for o in question.get("options") or []])
+        data_type = VELLUM_DATA_TYPES.get(kind, "text")
+        writers[path] = (data_type, [o["value"] for o in question.get("options") or []])
+        if data_type in NUMERIC_BIND_TYPES:
+            # Recalculate.wrapData keeps a calculated string, even on a numeric bind. Certify an
+            # entered number only after checking the original input's bind below.
+            writers[path] = ("text", [])
+            numeric_questions[path] = data_type
         if kind == "DataBindOnly" and question.get("tag") == "hidden" and not question.get("setvalue"):
             calculate = question.get("calculate")
             if calculate:
                 hidden[path] = calculate
-    if not hidden:
+    if not hidden and not numeric_questions:
         return writers
 
     form = etree.fromstring(source.encode("utf-8"))
-    ns = {"xf": XFORMS}
-    # HQ summarizes only a direct model setvalue's @value. Core also runs literal-text actions, actions on
-    # controls, and actions targeting bind ids. Infer only where every action has a known question path as its ref.
-    for action in form.xpath("//xf:setvalue", namespaces=ns):
-        target = action.get("ref")
-        if action.get("bind") is not None or target not in writers:
-            return writers
+    models = form.findall(f".//{{{XFORMS}}}model")
+    if len(models) != 1:
+        return writers
+    model = models[0]
+    targets = setvalue_targets(form, model)
+    if targets is None:
+        return writers
+    # Bind ids and relative paths can refer to the same target. Infer only from its unique native bind.
+    for target in targets:
         hidden.pop(target, None)
-    binds = {}
-    for bind in form.xpath("//xf:model/xf:bind[@nodeset]", namespaces=ns):
-        binds.setdefault(bind.get("nodeset"), []).append(bind)
-    decimals = set()
-    for path, (data_type, _) in writers.items():
-        if data_type != "decimal" or len(binds.get(path, [])) != 1 or not _xpath.plain_path(path):
+    numeric_inputs = {"int": set(), "decimal": set()}
+    for path, data_type in numeric_questions.items():
+        if not _xpath.plain_path(path):
             continue
-        bind = binds[path][0]
-        prefix, sep, name = (bind.get("type") or "").partition(":")
-        if sep and name == "double" and bind.nsmap.get(prefix) == "http://www.w3.org/2001/XMLSchema":
-            decimals.add(path)
+        binds = bindings_at(model, path)
+        if len(binds) != 1:
+            continue
+        bind = binds[0]
+        name = (bind.get("type") or "").split(":", 1)[-1]
+        if name in NUMERIC_BIND_TYPES[data_type] and bind.get("calculate") is None:
+            writers[path] = (data_type, [])
+            numeric_inputs[data_type].add(path)
     for path, calculate in hidden.items():
-        if len(binds.get(path, [])) != 1:
+        binds = bindings_at(model, path)
+        if len(binds) != 1:
             continue
-        bind = binds[path][0]
+        bind = binds[0]
         if bind.get("type") is not None or bind.get("calculate") != calculate:
             continue
         tokens = _xpath.tokens(calculate)
         if tokens == _xpath.tokens("today()"):
             writers[path] = ("date", [])
-        elif tokens and _decimal_alternative(tokens, decimals):
+        elif tokens == _xpath.tokens("0") or calculate.strip() in numeric_inputs["int"]:
+            writers[path] = ("int", [])
+        elif tokens and _decimal_alternative(tokens, numeric_inputs["decimal"]):
             writers[path] = ("decimal", [])
     return writers
 
@@ -477,10 +497,7 @@ def _property_writers(app):
                 questions[form.unique_id] = question_writers(form.get_questions(app.langs, include_groups=True), source)
     typed = {}
     for case_type, prop, path, form in _writes(app):
-        writer = questions.get(form.unique_id, {}).get(path)
-        if writer is None:
-            continue
-        data_type, options = writer
+        data_type, options = questions.get(form.unique_id, {}).get(path, ("text", []))
         key = (case_type, prop)
         if key not in typed:
             typed[key] = (data_type, options)

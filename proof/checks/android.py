@@ -61,7 +61,10 @@ whole walk its value; the screen a walk stopped at is named with the alert it ho
 ``FormEntryActivity!Error Saving your Form``), and its steps are compared one against another only as far as
 both showed the same screens, the screen they part after among them (a search the server refused, say, shows
 there what the worker read on it). A form
-that takes another path of screens is that (``/form/path``); a list whose rows are another kind of view is
+that takes another path of screens is that (``/form/path``). A reviewed split whose exact widgets, answers and
+bindings the installed form and device both witness is recorded with its original and paired screens
+(``/form/dateTimeSplit``). Every shared sibling screen compares by its concrete reference, including if some
+other question moved, when the ordinary path difference also remains. A list whose rows are another kind of view is
 that (``/list/rowClass``); an archive Android does not install is that (``/install``) and nothing of its app
 is compared. What a reader keys by a name is compared by that name and never by position: a menu's items by
 their ids, a Sort choice's order by the choice, a search's matches by its term, the cases a device holds by
@@ -85,7 +88,7 @@ import json
 import math
 from dataclasses import replace
 
-from proof.checks import changes, hq_own_reports
+from proof.checks import changes, hq_own_reports, native_question_android
 from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.spelling import normalized
 from proof.checks.differences import ANDROID, ANDROID_TABLET, Difference, pointer_token
@@ -112,6 +115,8 @@ DATA_MAPS = frozenset(
         "/walks/*/steps/*/query/typed/RemoteQuerySessionManager.getErrors",
         "/walks/*/steps/*/post/params",
         "/walks/*/steps/*/form/saved/cases",
+        "/walks/*/steps/*/form/screens",
+        native_question_android.PLACE_PATH,
     }
 )
 # What names an install, never what a worker reads of it.
@@ -388,15 +393,19 @@ def _drawn_alone(before: dict, after: dict) -> tuple[dict, dict]:
     return {**before, "list": a}, {**after, "list": b}
 
 
-def _one_step(before: dict, after: dict) -> tuple[dict, dict]:
+def _one_step(before: dict, after: dict, splits=None) -> tuple[dict, dict]:
     """Two steps of one screen with what would report one symptom many times reduced to that symptom: a form
     that takes another path of screens is that path (``/form/path``), a list whose rows are another kind of
     view (a tile, a plain row) is that (``/list/rowClass``), and of two lists that show their cases in another
     order (``/list/order``) each row is compared with the other list's row of the same case."""
     a, b = _form_path(before.get("form")), _form_path(after.get("form"))
     if a is not None and b is not None and a != b:
-        before = {**before, "form": {**{k: v for k, v in before["form"].items() if k != "screens"}, "path": a}}
-        after = {**after, "form": {**{k: v for k, v in after["form"].items() if k != "screens"}, "path": b}}
+        aligned = native_question_android.align(before, after, splits, (a, b)) if splits else None
+        if aligned:
+            before, after = aligned
+        else:
+            before = {**before, "form": {**{k: v for k, v in before["form"].items() if k != "screens"}, "path": a}}
+            after = {**after, "form": {**{k: v for k, v in after["form"].items() if k != "screens"}, "path": b}}
     before, after = _rows_by_case(before, after)
     before, after = _drawn_alone(before, after)
     a, b = _row_classes(before.get("list")), _row_classes(after.get("list"))
@@ -473,7 +482,7 @@ def _without_unlisted_cases(walks: dict, others: dict) -> dict:
     return kept
 
 
-def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
+def one_symptom(before: dict, after: dict, splits=None) -> tuple[dict, dict]:
     """The two comparable answers with each walk whose screens differ reduced to its screens, as one value, and
     the steps both took before they part; each step reduced as ``_one_step`` reduces it; and without the walks
     of a case the other device's list does not show (``_without_unlisted_cases``)."""
@@ -500,11 +509,11 @@ def one_symptom(before: dict, after: dict) -> tuple[dict, dict]:
         a, b = _screens(walk_a), _screens(walk_b)
         if a != b:
             parted = _parted(a.split(SEPARATOR), b.split(SEPARATOR))
-            steps = [_one_step(x, y) for x, y in _shared_steps(walk_a, walk_b)]
+            steps = [_one_step(x, y, splits) for x, y in _shared_steps(walk_a, walk_b)]
             before["walks"][name] = {"screens": {parted: a}, "steps": [x for x, _ in steps]}
             after["walks"][name] = {"screens": {parted: b}, "steps": [y for _, y in steps]}
         elif "steps" in walk_a and "steps" in walk_b:
-            steps = [_one_step(x, y) for x, y in zip(walk_a["steps"], walk_b["steps"], strict=True)]
+            steps = [_one_step(x, y, splits) for x, y in zip(walk_a["steps"], walk_b["steps"], strict=True)]
             before["walks"][name] = {**walk_a, "steps": [x for x, _ in steps]}
             after["walks"][name] = {**walk_b, "steps": [y for _, y in steps]}
     return before, after
@@ -553,7 +562,7 @@ def location_permission_class(difference, observed):
     return replace(difference, path=difference.path + ":location") if saved_device_fix(form) else difference
 
 
-def app_differences(before, after, *, check, document, artifact, rules=(), media=(None, None)) -> list:
+def app_differences(before, after, *, check, document, artifact, rules=(), media=(None, None), splits=None) -> list:
     """Every difference between what a device shows of two archives: ``before`` the baseline's ``app`` answer,
     ``after`` the other's, each address of a request the device sends HQ read by the spelling rules given
     (``_addressed``)."""
@@ -564,9 +573,12 @@ def app_differences(before, after, *, check, document, artifact, rules=(), media
     if a.get("install") != INSTALLED or b.get("install") != INSTALLED:
         a, b = {"install": a.get("install")}, {"install": b.get("install")}
     else:
-        a, b = one_symptom(a, b)
+        a, b = one_symptom(a, b, splits)
     found = compare_json(a, b, check=check, document=document, artifact=artifact, data_maps=DATA_MAPS)
-    return [location_permission_class(difference, b) for difference in found]
+    return [
+        replace(d, path=native_question_android.PLACE_PATH) if splits and d.path == native_question_android.PLACE_PATH + "/*"
+        else location_permission_class(d, b) for d in found
+    ]
 
 
 # Proof 3 ------------------------------------------------------------------------------------------------------
@@ -716,7 +728,7 @@ def behavior(document: str, record: dict, *, device: str = ANDROID, rules=(), me
     return found
 
 
-def configuration_behavior(document, held, *, device=ANDROID, rules=(), menus, picker_names=None):
+def configuration_behavior(document, held, *, device=ANDROID, rules=(), menus, picker_names=None, splits=None):
     """Compare a phone or tablet on this configuration's native A, B and local archives."""
     local_artifact, a_artifact, republish = (f"{device}@local.ccz", f"{device}@A", f"{device}@B")
     found = []
@@ -746,7 +758,7 @@ def configuration_behavior(document, held, *, device=ANDROID, rules=(), menus, p
     if local is not None:
         compared = app_differences(
             a, local, check="proof3", document=document, artifact=local_artifact, rules=rules,
-            media=(menus.get("A"), menus.get("local")),
+            media=(menus.get("A"), menus.get("local")), splits=(splits or {}).get("local"),
         )
         if picker_names:
             before = _advised_picker_rows(a, picker_names, 0)
@@ -767,7 +779,7 @@ def configuration_behavior(document, held, *, device=ANDROID, rules=(), menus, p
         found += _applied("proof3", document, republish, b)
         found += app_differences(
             a, b, check="proof3", document=document, artifact=republish, rules=rules,
-            media=(menus.get("A"), menus.get("B")),
+            media=(menus.get("A"), menus.get("B")), splits=(splits or {}).get("B"),
         )
     return found
 
