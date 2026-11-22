@@ -1043,8 +1043,9 @@ saved case rows). Nothing is ever rebuilt from CommCare HQ's app.
 It is offered only over a usable pair (`hqChanges/reference.ts::usablePair`):
 a baseline that holds a source that verifies (origin `push`, `read` or
 `changes`) and names a `nova_revision`, a `push` baseline's revision equal to
-the live mapping's `pushed_revision`, at or after the app's greatest fold
-baseline. The `target-app` edge sets that answer as the app change's
+the live mapping's `pushed_revision`. A revision before the app’s current fold
+requires the certificate for that same app, deployment, mapping, published
+revision and fold, bound to the current verified source digest. The `target-app` edge sets that answer as the app change's
 `canBringIn`; a table's and a place's change carry false. Changes in Nova
 are measured against the reference document
 (`reference.ts::loadReferenceDocument`): the document at that revision, with
@@ -1053,6 +1054,24 @@ what a server wrote after it (a publish's holds, a deploy's
 preceded) and with what a publish never sends taken from the head (the kinds
 no reading holds, the worker setup under the slugs the published document
 gave it, where the app runs, the logo).
+
+An incompatible app fold retains each target’s comparison independently.
+`scripts/lib/deploymentFold.ts` scans the current source, target identities,
+pending-publish facts, mapping and prior reference. The writer repeats the
+scan under the app and deployment locks. It converts the server-folded
+published document, ordered actors and net property renames to the new
+representation, then checks the head projection and slug resolution against
+their converted results. A prior move or migration refusal keeps its reason.
+Only the migration writer inserts the certificate. The operator verifies the
+new fold and reads the bound certificate back before committing.
+
+The current binding lives on the deployment’s own baseline. Refreshing kept
+settings or recording an equivalent HQ save verifies the observed revision,
+source digest, fold and time before writing a new digest and any reviewed
+identity, media or next-publish changes together. A new publish, an ended
+deployment or a replacement HQ app retires the binding. A later fold advances
+from the saved published document and the server writes since its fold.
+An editor turn stays unpublished throughout either operation.
 
 **Nova holds nothing unpublished exactly where what it would publish reads
 the same as what it published**, `documentDifferences(canonK(reference),

@@ -31,8 +31,10 @@ import {
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { writeHqRoundTripHorizon } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
 import { getSession } from "@/lib/auth-utils";
 import { decrypt } from "@/lib/commcare/encryption";
+import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { log } from "@/lib/logger";
 import { refreshKeptValuesAction } from "../actions";
@@ -47,12 +49,14 @@ import {
 	type DeploymentScope,
 	foldDeploymentAttempt,
 	holdTargetFacts,
+	readAppBaseline,
 	readDeployment,
 	readTargetFacts,
 	recordCreatedRemoteApp,
 	recordRemoteResource,
 } from "../store";
 import type { AppBaselineWrite, AppOwnership } from "../types";
+import { certifyFold } from "./certifiedFold";
 import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -250,6 +254,38 @@ async function baselineRow() {
 }
 
 describe("refreshKeptValues", () => {
+	it("refreshes a kept setting across a fold while an editor’s later change stays unpublished", async () => {
+		await seedApp();
+		const publishedSeq = await writeHqRoundTripHorizon(
+			h.db(),
+			APP,
+			"Published survey",
+		);
+		await published({
+			...baselineOf(liveSource()),
+			novaRevision: publishedSeq,
+		});
+		await commitGuardedBatchProposal({
+			appId: APP,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: [{ kind: "setAppName", name: "My unpublished survey" }],
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+		expect(await certifyFold(h.db(), APP)).toMatchObject({ usable: 1 });
+		await withHttpPeer(async (peer) => {
+			serveSource(peer, fuzzyOnSource());
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+		});
+		expect(await readAppBaseline(SCOPE, TARGET)).toMatchObject({
+			novaRevision: publishedSeq,
+			foldBinding: {
+				novaRevision: publishedSeq,
+				sourceDigest: baselineOf(fuzzyOnSource()).sourceDigest,
+			},
+		});
+	});
 	it.each(["push", "cutover"] as const)(
 		"rewrites a %s baseline's source, digest and date from the read, and keeps its origin, ownership and discard",
 		async (origin) => {

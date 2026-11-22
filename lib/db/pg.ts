@@ -906,6 +906,16 @@ export interface AppDeploymentConfirmationsTable {
  * Upserted only, serialized by the deployment row's lock.
  */
 export interface AppDeploymentBaselinesTable {
+	reference_fold_seq: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	reference_source_digest: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	deployment_id: string;
 	remote_app_id: string;
 	/** 'create' | 'push' | 'cutover' | 'read' | 'changes' | 'unread'. */
@@ -1903,6 +1913,15 @@ export interface AppDatabase {
 	hq_remote_writes: HqRemoteWritesTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;
+	app_deployment_fold_references: {
+		deployment_id: string;
+		fold_seq: ColumnType<string | number, number, never>;
+		app_id: string;
+		mapping_id: string;
+		published_revision: ColumnType<string | number, number, never>;
+		original_source_digest: string;
+		state: JSONColumnType<Record<string, unknown>, string, never>;
+	};
 	project_space_resource_baselines: ProjectSpaceResourceBaselinesTable;
 	app_migration_notices: AppMigrationNoticesTable;
 	app_migration_notice_key_readers: AppMigrationNoticeKeyReadersTable;

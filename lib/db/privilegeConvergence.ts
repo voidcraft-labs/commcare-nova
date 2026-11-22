@@ -280,6 +280,7 @@ const RUNTIME_INSERT_DELETE_TABLES = [
  * and the migration notices with their key-reader rows, so serving code
  * cannot forge one. */
 const RUNTIME_READ_ONLY_TABLES = [
+	"app_deployment_fold_references",
 	"conversation_source_cutover",
 	"app_change_fold_baselines",
 	"app_migration_notices",

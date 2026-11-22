@@ -13,15 +13,22 @@ import {
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { designSessionLeaseState, runLeaseState } from "@/lib/db/runLiveness";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { nextPersistedSequence } from "@/lib/utils/persistedSequence";
+import {
+	type DeploymentFoldInventory,
+	scanDeploymentFold,
+	writeDeploymentAwareFold,
+} from "./deploymentFold";
 
 const BATCH = "fold-baseline:unified-authoring";
 export interface AuthoringBaselineFinding {
 	appId: string;
 	status: "current" | "ready" | "busy" | "repaired";
 	reason?: string;
+	deploymentComparisons?: DeploymentFoldInventory;
 }
 
 /** Operator source read: old semantics may need the following migration before
@@ -118,7 +125,14 @@ export async function inspectAuthoringBaseline(
 		throw new Error(
 			`App ${appId} no longer folds after its authoring repair: ${reason}`,
 		);
-	return { appId, status: "ready", reason };
+	const deploymentComparisons = await scanDeploymentFold(tx, {
+		appId,
+		projectId: app.project_id,
+		headSeq: app.mutation_seq,
+		oldHead: hydratePersistedBlueprint(canonical),
+		convert: (doc) => doc,
+	});
+	return { appId, status: "ready", reason, deploymentComparisons };
 }
 
 export async function scanAuthoringBaselines(
@@ -141,13 +155,17 @@ export async function scanAuthoringBaselines(
 
 export async function repairAuthoringBaseline(
 	appId: string,
+	expected?: DeploymentFoldInventory,
 ): Promise<AuthoringBaselineFinding | null> {
-	return withAppTx((tx) => repairAuthoringBaselineInTransaction(tx, appId));
+	return withAppTx((tx) =>
+		repairAuthoringBaselineInTransaction(tx, appId, expected),
+	);
 }
 
 export async function repairAuthoringBaselineInTransaction(
 	tx: Transaction<AppDatabase>,
 	appId: string,
+	expected?: DeploymentFoldInventory,
 ): Promise<AuthoringBaselineFinding | null> {
 	await lockActorGenerationGateForAppHolder(tx, appId);
 	const locked = await tx
@@ -178,38 +196,52 @@ export async function repairAuthoringBaselineInTransaction(
 		throw new Error(
 			"Install the complete snapshot projection before repairing authoring.",
 		);
+	const input = {
+		appId,
+		projectId: app.project_id,
+		headSeq: app.mutation_seq,
+		oldHead: hydratePersistedBlueprint(snapshot),
+		convert: (doc: typeof snapshot) => doc,
+	};
+	const inventory = expected ?? finding.deploymentComparisons;
+	if (!inventory)
+		throw new Error(
+			"The authoring repair has no scanned deployment comparisons.",
+		);
+	await writeDeploymentAwareFold(tx, input, inventory, async (_, seq) => {
+		// The admission trigger proves root and entity freshness in this transaction.
+		// Values are unchanged; touching the rows gives the new baseline one generation.
+		await sql`UPDATE blueprint_entities SET data = data WHERE app_id = ${appId}`.execute(
+			tx,
+		);
+		await tx
+			.updateTable("apps")
+			.set({ mutation_seq: seq })
+			.where("id", "=", appId)
+			.execute();
+		await tx
+			.insertInto("app_changes")
+			.values({
+				app_id: appId,
+				seq,
+				batch_id: BATCH,
+				actor_id: "system:unified-authoring",
+				kind: "fold-baseline",
+				mutations: "[]",
+				run_id: null,
+				from_project_id: null,
+				to_project_id: null,
+			})
+			.execute();
+		await sql`INSERT INTO app_change_fold_baselines (app_id, seq, project_id, snapshot, snapshot_digest)
+   VALUES (${appId}, ${seq}, ${app.project_id}, ${JSON.stringify(snapshot)}::jsonb,
+    nova_app_change_fold_snapshot_digest(${JSON.stringify(snapshot)}::jsonb))`.execute(
+			tx,
+		);
+	});
 	const seq = nextPersistedSequence(
 		app.mutation_seq,
 		"authoring baseline repair",
-	);
-	// The admission trigger proves root and entity freshness in this transaction.
-	// Values are unchanged; touching the rows gives the new baseline one generation.
-	await sql`UPDATE blueprint_entities SET data = data WHERE app_id = ${appId}`.execute(
-		tx,
-	);
-	await tx
-		.updateTable("apps")
-		.set({ mutation_seq: seq })
-		.where("id", "=", appId)
-		.execute();
-	await tx
-		.insertInto("app_changes")
-		.values({
-			app_id: appId,
-			seq,
-			batch_id: BATCH,
-			actor_id: "system:unified-authoring",
-			kind: "fold-baseline",
-			mutations: "[]",
-			run_id: null,
-			from_project_id: null,
-			to_project_id: null,
-		})
-		.execute();
-	await sql`INSERT INTO app_change_fold_baselines (app_id, seq, project_id, snapshot, snapshot_digest)
-   VALUES (${appId}, ${seq}, ${app.project_id}, ${JSON.stringify(snapshot)}::jsonb,
-    nova_app_change_fold_snapshot_digest(${JSON.stringify(snapshot)}::jsonb))`.execute(
-		tx,
 	);
 	// An old private base cannot cross the new horizon. Keep its history, and let
 	// recovery start from the unchanged canonical app and retained Markdown plan.

@@ -806,6 +806,17 @@ export interface PreviewDeploymentAnswer {
 	readonly targetFacts: PreviewTargetFacts | null;
 }
 
+/** The exact accessible baseline and published revision a certified comparison describes. */
+export interface DeploymentFoldBinding {
+	readonly deploymentId: string;
+	readonly appId: string;
+	readonly projectId: string;
+	readonly remoteAppId: string;
+	readonly sourceDigest: string;
+	readonly novaRevision: number;
+	readonly foldSeq: number;
+}
+
 /** The app as CommCare HQ returned it when Nova last read it, or the fact that Nova could not read it. */
 export type AppBaseline =
 	| {
@@ -823,6 +834,7 @@ export type AppBaseline =
 			readonly mediaFiles: HqMediaRecord | null;
 			/** The row's `source_bytes`. */
 			readonly sourceBytes: number;
+			readonly foldBinding?: DeploymentFoldBinding;
 	  }
 	| {
 			readonly origin: "unread";

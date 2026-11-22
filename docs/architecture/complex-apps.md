@@ -565,6 +565,13 @@ stored Project, strictly replays every later mutation-bearing row, applies
 each Project move only when its source matches the rolling Project, and must
 finish at the current state and `apps.project_id`.
 
+A schema conversion also preserves the comparison for each live HQ deployment.
+Its published revision, the server changes that apply there, the people who
+edited since publication and the case-property renames are captured under the
+same locks as the new fold. A later review starts at that target’s certified
+comparison and folds forward to the current head. The deployment’s published
+revision advances when a publish or a bring-in records what actually landed.
+
 The browser frame is deliberately narrower: reconciliation accepts only
 `autosave | mcp | chat` (`lib/collab/mutationFrame.ts`), and a post-cursor
 suffix containing a server-only kind emits zero mutation frames — the client

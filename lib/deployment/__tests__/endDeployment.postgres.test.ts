@@ -819,7 +819,10 @@ describe("stopPublishingAction", () => {
 		const birth = await born();
 		const faulting: KyselyPlugin = {
 			transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
-				if (JSON.stringify(args.node).includes('"app_deployment_baselines"')) {
+				if (
+					args.node.kind === "SelectQueryNode" &&
+					JSON.stringify(args.node).includes('"app_deployment_baselines"')
+				) {
 					throw Object.assign(new Error("terminating connection"), {
 						code: "57P01",
 					});

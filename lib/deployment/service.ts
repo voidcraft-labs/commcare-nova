@@ -3799,6 +3799,8 @@ export async function refreshKeptValues(
 		expectedEndings: existing.deployment.endings,
 		remoteAppId: remote.remoteId,
 		comparedDigest: baseline.sourceDigest,
+		comparedRevision: baseline.novaRevision,
+		comparedFold: baseline.foldBinding?.foldSeq,
 		read: {
 			sourceGzip: gzipSync(Buffer.from(normalized.text, "utf8")),
 			sourceBytes: normalized.bytes,

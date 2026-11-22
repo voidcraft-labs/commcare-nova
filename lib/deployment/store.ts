@@ -39,6 +39,7 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import { lockLookupTablesForPublishInTransaction } from "@/lib/lookup/managed";
@@ -849,7 +850,7 @@ export async function readTargetIdentity(
 }
 
 /** The record's rows of one deployment, through `db` or a caller's transaction. */
-async function readTargetIdentityRows(
+export async function readTargetIdentityRows(
 	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
 	deploymentId: string,
 	context: { readonly appId: string; readonly server: string },
@@ -2737,6 +2738,10 @@ export async function recordRefreshedAppBaseline(
 		readonly remoteAppId: string;
 		/** The `sourceDigest` of the baseline the read was compared with. */
 		readonly comparedDigest: string;
+		/** Revision and certified fold the verified read used. Older callers with
+		 * neither can refresh only an ordinary, uncertified baseline. */
+		readonly comparedRevision?: number | null;
+		readonly comparedFold?: number;
 		/** The fresh read: gzip, bytes, digest and `observedAt`. */
 		readonly read: Pick<
 			AppBaselineWrite,
@@ -2778,8 +2783,10 @@ export async function recordRefreshedAppBaseline(
 					"source_digest",
 					"ownership",
 					"nova_revision",
+					"reference_fold_seq",
 					"observed_at",
 					"first_publish_changes",
+					"media_files",
 				])
 				.where("deployment_id", "=", row.id)
 				.executeTakeFirst();
@@ -2817,9 +2824,62 @@ export async function recordRefreshedAppBaseline(
 				row.id,
 				stored.first_publish_changes,
 			);
-			/* Where CommCare HQ keeps things is no part of the source's digest
-			 * (a form's id normalizes out), so the record goes where the fences
-			 * pass, whether or not the source does. */
+			/* Check the read date, its revision and its fold before changing any
+			 * side record. A repeated observation succeeds only when its requested
+			 * target identities already stand. */
+			if (
+				(input.comparedRevision !== undefined &&
+					input.comparedRevision !== numberOrNull(stored.nova_revision)) ||
+				(input.comparedFold ?? null) !==
+					numberOrNull(stored.reference_fold_seq) ||
+				(stored.reference_fold_seq !== null &&
+					input.comparedRevision === undefined)
+			)
+				return superseded();
+			if (
+				stored.observed_at.getTime() >= readAt ||
+				stored.source_digest !== input.comparedDigest
+			) {
+				if (stored.source_digest !== input.read.sourceDigest)
+					return superseded();
+				if (
+					input.mediaFiles !== undefined &&
+					!deepEqual(stored.media_files, input.mediaFiles)
+				)
+					return superseded();
+				if (
+					input.nextPublish !== undefined &&
+					storedList?.of !== "first-publish" &&
+					!deepEqual(
+						storedList,
+						hqChangesFirstPublishList(storedList, input.nextPublish),
+					)
+				)
+					return superseded();
+				if (input.targetIdentity !== undefined) {
+					const current = await readTargetIdentityRows(tx, row.id, {
+						appId: scope.appId,
+						server: target.server,
+					});
+					if (!sameTargetIdentity(current, input.targetIdentity.next))
+						return superseded();
+				}
+				if (readAt > stored.observed_at.getTime()) {
+					await tx
+						.updateTable("app_deployment_baselines")
+						.set({
+							observed_at: input.read.observedAt,
+							observed_by: scope.actorUserId,
+						})
+						.where("deployment_id", "=", row.id)
+						.execute();
+					await notifyAppDeployments(tx, scope.appId);
+				}
+				return {
+					outcome: "current",
+					deployment: await loadWithinTransaction(tx, row.id),
+				};
+			}
 			if (input.targetIdentity !== undefined) {
 				try {
 					await writeTargetIdentityInTransaction(
@@ -2833,56 +2893,41 @@ export async function recordRefreshedAppBaseline(
 					throw error;
 				}
 			}
-			/* The stored baseline already holds what this read saw: another
-			 * refresh that read the same landed first, or a publish whose
-			 * read-back is byte for byte this read. The row is current either
-			 * way, and only a later date moves it. */
-			if (stored.source_digest === input.read.sourceDigest) {
-				if (stored.observed_at.getTime() >= readAt) {
-					if (
-						input.targetIdentity !== undefined &&
-						!sameTargetIdentity(
-							input.targetIdentity.read,
-							input.targetIdentity.next,
-						)
-					)
-						await notifyAppDeployments(tx, scope.appId);
-					return {
-						outcome: "current",
-						deployment: await loadWithinTransaction(tx, row.id),
-					};
-				}
-			} else if (
-				stored.source_digest !== input.comparedDigest ||
-				stored.observed_at.getTime() > readAt
-			) {
-				return superseded();
-			}
-			await writeAppBaseline(tx, row.id, scope.actorUserId, {
-				origin,
-				remoteAppId: input.remoteAppId,
-				sourceGzip: input.read.sourceGzip,
-				sourceBytes: input.read.sourceBytes,
-				sourceDigest: input.read.sourceDigest,
-				ownership,
-				observedAt: input.read.observedAt,
-				discard: null,
-				novaRevision: numberOrNull(stored.nova_revision),
-				mediaFiles:
-					input.mediaFiles === undefined
-						? { kind: "keep" }
-						: { kind: "set", files: input.mediaFiles },
-				/* An app brought in and not yet published keeps its own list: the
-				 * first publish still makes every change of it, and a read that
-				 * compared equal reads the same app it was given for. */
-				firstPublish:
-					input.nextPublish === undefined || storedList?.of === "first-publish"
-						? { kind: "keep" }
-						: {
-								kind: "set",
-								list: hqChangesFirstPublishList(storedList, input.nextPublish),
-							},
-			});
+			await writeAppBaseline(
+				tx,
+				row.id,
+				scope.actorUserId,
+				{
+					origin,
+					remoteAppId: input.remoteAppId,
+					sourceGzip: input.read.sourceGzip,
+					sourceBytes: input.read.sourceBytes,
+					sourceDigest: input.read.sourceDigest,
+					ownership,
+					observedAt: input.read.observedAt,
+					discard: null,
+					novaRevision: numberOrNull(stored.nova_revision),
+					mediaFiles:
+						input.mediaFiles === undefined
+							? { kind: "keep" }
+							: { kind: "set", files: input.mediaFiles },
+					/* An app brought in and not yet published keeps its own list: the
+					 * first publish still makes every change of it, and a read that
+					 * compared equal reads the same app it was given for. */
+					firstPublish:
+						input.nextPublish === undefined ||
+						storedList?.of === "first-publish"
+							? { kind: "keep" }
+							: {
+									kind: "set",
+									list: hqChangesFirstPublishList(
+										storedList,
+										input.nextPublish,
+									),
+								},
+				},
+				input.comparedFold !== undefined,
+			);
 			await notifyAppDeployments(tx, scope.appId);
 			return {
 				outcome: "current",
@@ -3292,6 +3337,7 @@ async function writeAppBaseline(
 	deploymentId: string,
 	observedBy: string,
 	baseline: AppBaselineWrite,
+	rebindFold = false,
 ): Promise<void> {
 	const discarded = baseline.discard !== null;
 	const keepMediaFiles = baseline.mediaFiles.kind === "keep";
@@ -3342,6 +3388,8 @@ async function writeAppBaseline(
 				THEN COALESCE(EXCLUDED.discarded_at, existing.discarded_at)
 				ELSE EXCLUDED.discarded_at END,
 			nova_revision = EXCLUDED.nova_revision,
+			reference_fold_seq = CASE WHEN ${rebindFold} THEN existing.reference_fold_seq END,
+			reference_source_digest = CASE WHEN ${rebindFold} THEN EXCLUDED.source_digest END,
 			media_files = CASE
 				WHEN ${keepMediaFiles}::boolean AND EXCLUDED.remote_app_id = existing.remote_app_id
 					THEN existing.media_files
@@ -3489,12 +3537,47 @@ export async function readAppBaseline(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 ): Promise<AppBaseline | null> {
-	if (!roleAllowsApp(scope.role, "edit")) throw deploymentNotFound();
-	const db = await getAppDb();
-	const row = await db
+	const row = await withDeploymentReadSnapshot(scope, "edit", ({ db }) =>
+		appBaselineRow(db, scope, target),
+	);
+	return verifiedAppBaseline(scope, row);
+}
+
+/** The same verified source read in the operator’s app-locked transaction. */
+export async function readAppBaselineIn(
+	db: Kysely<AppDatabase>,
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	target: DeploymentTargetKey,
+): Promise<AppBaseline | null> {
+	return verifiedAppBaseline(scope, await appBaselineRow(db, scope, target));
+}
+
+function appBaselineRow(
+	db: Kysely<AppDatabase>,
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	target: DeploymentTargetKey,
+) {
+	return db
 		.selectFrom("app_deployment_baselines as b")
 		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
+		.leftJoin("app_deployment_fold_references as f", (join) =>
+			join
+				.onRef("f.deployment_id", "=", "b.deployment_id")
+				.onRef("f.app_id", "=", "d.app_id")
+				.onRef("f.fold_seq", "=", "b.reference_fold_seq")
+				.onRef("f.published_revision", "=", "b.nova_revision"),
+		)
+		.leftJoin("app_deployment_resources as r", (join) =>
+			join
+				.onRef("r.id", "=", "f.mapping_id")
+				.onRef("r.deployment_id", "=", "d.id")
+				.onRef("r.remote_id", "=", "b.remote_app_id")
+				.onRef("r.nova_resource_id", "=", "d.app_id")
+				.on("r.kind", "=", "app")
+				.on("r.superseded_at", "is", null),
+		)
 		.select([
+			"r.id as certified_mapping",
 			"b.deployment_id",
 			"b.remote_app_id",
 			"b.origin",
@@ -3505,6 +3588,8 @@ export async function readAppBaseline(
 			"b.observed_at",
 			"b.observed_by",
 			"b.nova_revision",
+			"b.reference_fold_seq",
+			"b.reference_source_digest",
 			"b.media_files",
 		])
 		.where("d.app_id", "=", scope.appId)
@@ -3512,6 +3597,11 @@ export async function readAppBaseline(
 		.where("d.server", "=", target.server)
 		.where("d.domain", "=", target.domain)
 		.executeTakeFirst();
+}
+function verifiedAppBaseline(
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	row: Awaited<ReturnType<typeof appBaselineRow>>,
+): AppBaseline | null {
 	if (row === undefined) return null;
 	const observed = {
 		remoteAppId: row.remote_app_id,
@@ -3544,6 +3634,20 @@ export async function readAppBaseline(
 		sourceDigest: row.source_digest,
 		ownership: verified.ownership,
 		sourceBytes: row.source_bytes,
+		...(row.certified_mapping !== null &&
+			row.reference_fold_seq !== null &&
+			row.reference_source_digest !== null &&
+			observed.novaRevision !== null && {
+				foldBinding: {
+					deploymentId: row.deployment_id,
+					appId: scope.appId,
+					projectId: scope.projectId,
+					remoteAppId: row.remote_app_id,
+					sourceDigest: row.reference_source_digest,
+					novaRevision: observed.novaRevision,
+					foldSeq: safePersistedSequence(row.reference_fold_seq),
+				},
+			}),
 	};
 }
 
@@ -4099,6 +4203,15 @@ async function writeResourceMapping(
 		pushed_identity: input.pushedIdentity ?? null,
 	} as const;
 
+	if (input.kind === "app") {
+		await tx
+			.updateTable("app_deployment_baselines")
+			.set({ reference_fold_seq: null, reference_source_digest: null })
+			.where("deployment_id", "=", deploymentId)
+			.where("remote_app_id", "!=", input.remoteId)
+			.where("reference_fold_seq", "is not", null)
+			.execute();
+	}
 	await tx
 		.updateTable("app_deployment_resources")
 		.set({ superseded_at: now })

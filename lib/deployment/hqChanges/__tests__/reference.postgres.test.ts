@@ -19,6 +19,8 @@
  * slug renamed in Nova bound to the property CommCare HQ's app does not mean.
  */
 
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -30,6 +32,7 @@ import {
 	own,
 	placementFixture,
 } from "@/lib/commcare/__tests__/placementFixture";
+import { expandDoc } from "@/lib/commcare/expander";
 import { placementCandidates } from "@/lib/commcare/placement";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
 import { canonDocument } from "@/lib/commcare/reader/canon";
@@ -46,10 +49,24 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CasePlacement, Form, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { OWNERSHIP } from "../../__tests__/adoptedBirth";
+import { certifyFold } from "../../__tests__/certifiedFold";
 import { placementMoveOffer } from "../../placementMoves";
 import { recordPublishPlacements } from "../../placements";
 import { readBackDifferences } from "../../reading/readBack";
+import {
+	type DeploymentTargetKey,
+	endDeployment,
+	foldDeploymentAttempt,
+	readAppBaseline,
+	readFirstPublishStates,
+	readTargetIdentity,
+	recordRefreshedAppBaseline,
+	recordRemoteResource,
+} from "../../store";
+import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import type { AppBaseline } from "../../types";
+import { planFromDocuments } from "../plan";
 import { loadReferenceDocument, usablePair } from "../reference";
 
 const h = setupAppStateTestDb("hq_changes_reference_", {
@@ -426,6 +443,288 @@ describe("loadReferenceDocument", () => {
 	});
 });
 
+function storedRead(source: object, observedAt: string) {
+	const text = JSON.stringify(source);
+	return {
+		sourceGzip: gzipSync(text),
+		sourceDigest: createHash("sha256").update(text).digest("hex"),
+		sourceBytes: Buffer.byteLength(text),
+		observedAt,
+	};
+}
+
+describe("published comparisons at a new fold", () => {
+	it("keeps two targets’ original revisions, composes the next edits and rebinds only the fresh reads", async () => {
+		const { appId, revision } = await published();
+		const scope = {
+			appId,
+			projectId: PROJECT,
+			actorUserId: OWNER,
+			role: "owner",
+		};
+		const north = { server: "india", domain: "north" } as const;
+		const south = { server: "india", domain: "south" } as const;
+		const shell = { server: "india", domain: "setup" } as const;
+		const original = "2026-11-21T00:00:00Z";
+		const refreshTime = "2026-11-21T00:01:00Z";
+
+		async function publish(
+			target: DeploymentTargetKey,
+			remoteId: string,
+			doc: BlueprintDoc,
+			seq: number,
+			options?: {
+				list?: "first-publish" | "next-publish";
+				unread?: boolean;
+				at?: string;
+			},
+		) {
+			const at = options?.at ?? original;
+			await foldDeploymentAttempt(
+				scope,
+				target,
+				"preflight",
+				{ status: "succeeded", at },
+				{ ensure: true, expectedEndings: 0 },
+			);
+			await recordRemoteResource(scope, target, {
+				expectedEndings: 0,
+				kind: "app",
+				novaResourceId: appId,
+				remoteId,
+				ownership: "nova-created",
+				pushedRevision: seq,
+				remoteRevision: options?.at ? 2 : 1,
+				uploadedAt: at,
+				baseline: {
+					origin: options?.unread ? "unread" : "push",
+					remoteAppId: remoteId,
+					...storedRead(expandDoc(doc), at),
+					...(options?.unread && {
+						sourceGzip: null,
+						sourceBytes: null,
+						sourceDigest: null,
+					}),
+					ownership: options?.unread ? null : OWNERSHIP,
+					discard: null,
+					novaRevision: options?.unread ? null : seq,
+					mediaFiles: { kind: "set", files: {} },
+					firstPublish: {
+						kind: "set",
+						list: options?.list
+							? {
+									ids: ["forms-and-settings-rewritten"],
+									webAppsOnInHq: false,
+									of: options.list,
+								}
+							: null,
+					},
+				},
+			});
+		}
+		async function baseline(target: DeploymentTargetKey) {
+			const row = await readAppBaseline(scope, target);
+			if (!row || row.origin === "unread" || row.novaRevision === null)
+				throw new Error("Expected a published revision.");
+			return { ...row, novaRevision: row.novaRevision };
+		}
+		async function referenceOn(target: DeploymentTargetKey) {
+			const row = await baseline(target);
+			return okOf(
+				await loadReferenceDocument({
+					appId,
+					novaRevision: row.novaRevision,
+					head: await head(appId),
+					binding: row.foldBinding,
+				}),
+			);
+		}
+		async function fold(
+			cutover: "hq-round-trip-expressions" | "hq-round-trip-case-writes",
+		) {
+			const written = await certifyFold(h.db(), appId, cutover);
+			expect(written).toMatchObject({ usable: 2, unavailable: 1 });
+		}
+		const northId = "a".repeat(32),
+			southId = "b".repeat(32);
+		const rename = (from: string, to: string) => ({
+			kind: "renameCaseProperties" as const,
+			renames: [{ caseType: "patient", from, to }],
+		});
+		await publish(north, northId, await headDoc(appId), revision, {
+			list: "first-publish",
+		});
+		await edit(appId, [rename("note", "remark")]);
+		await edit(appId, [{ kind: "setAppName", name: "South clinic" }]);
+		const southHead = await head(appId);
+		await publish(south, southId, southHead.doc, southHead.seq, {
+			list: "next-publish",
+		});
+		await publish(shell, "c".repeat(32), southHead.doc, southHead.seq, {
+			unread: true,
+		});
+		await edit(
+			appId,
+			[
+				{ kind: "setAppName", name: "My unpublished name" },
+				{ kind: "updatePersona", uuid: PERSONA, patch: { name: "My worker" } },
+			],
+			COLLEAGUE,
+		);
+		const before = [await referenceOn(north), await referenceOn(south)];
+		const beforeLists = await readFirstPublishStates(scope);
+		await fold("hq-round-trip-expressions");
+		const after = [await referenceOn(north), await referenceOn(south)];
+		expect(after.map((ref) => toPersistableDoc(ref.doc))).toEqual(
+			before.map((ref) => toPersistableDoc(ref.doc)),
+		);
+		expect(after.map((ref) => toPersistableDoc(ref.identityDoc))).toEqual(
+			before.map((ref) => toPersistableDoc(ref.identityDoc)),
+		);
+		expect(after.map((ref) => ref.doc.appName)).toEqual([
+			"Clinic",
+			"South clinic",
+		]);
+		expect(after.map((ref) => ref.actors)).toEqual([
+			[OWNER, COLLEAGUE],
+			[COLLEAGUE],
+		]);
+		expect(await readFirstPublishStates(scope)).toEqual(beforeLists);
+		expect(await readAppBaseline(scope, shell)).toMatchObject({
+			origin: "unread",
+			novaRevision: null,
+		});
+		const previousNorth = await baseline(north),
+			previousSouth = await baseline(south);
+		await expect(
+			readAppBaseline({ ...scope, actorUserId: "former-member" }, north),
+		).rejects.toThrow();
+		if (!previousNorth.foldBinding)
+			throw new Error(
+				"Expected the northern deployment’s certified comparison.",
+			);
+		await expect(
+			loadReferenceDocument({
+				appId,
+				novaRevision: revision,
+				head: await head(appId),
+				binding: { ...previousNorth.foldBinding, projectId: OTHER_PROJECT },
+			}),
+		).rejects.toThrow("comparison changed");
+		await expect(
+			loadReferenceDocument({
+				appId,
+				novaRevision: revision,
+				head: await head(appId),
+				binding: { ...previousNorth.foldBinding, sourceDigest: "0".repeat(64) },
+			}),
+		).rejects.toThrow("comparison changed");
+		const identity = {
+			...EMPTY_TARGET_IDENTITY,
+			entities: [
+				{
+					entityKind: "form" as const,
+					novaEntityUuid: FORM,
+					uniqueId: "f".repeat(32),
+					xmlns: null,
+				},
+			],
+		};
+		const northRead = {
+			expectedEndings: 0,
+			remoteAppId: northId,
+			comparedDigest: previousNorth.sourceDigest,
+			comparedRevision: previousNorth.novaRevision,
+			comparedFold: previousNorth.foldBinding?.foldSeq,
+			read: storedRead(
+				{ ...(previousNorth.source as object), fuzzy_search: true },
+				refreshTime,
+			),
+		};
+		const southRead = {
+			expectedEndings: 0,
+			remoteAppId: southId,
+			comparedDigest: previousSouth.sourceDigest,
+			comparedRevision: previousSouth.novaRevision,
+			comparedFold: previousSouth.foldBinding?.foldSeq,
+			read: storedRead(
+				{ ...(previousSouth.source as object), modified_on: refreshTime },
+				refreshTime,
+			),
+			targetIdentity: { read: EMPTY_TARGET_IDENTITY, next: identity },
+			mediaFiles: { "commcare/image/visit.png": "learned" },
+		};
+		expect(
+			(await recordRefreshedAppBaseline(scope, north, northRead)).outcome,
+		).toBe("current");
+		expect(
+			(await recordRefreshedAppBaseline(scope, south, southRead)).outcome,
+		).toBe("current");
+		expect(
+			(await recordRefreshedAppBaseline(scope, south, southRead)).outcome,
+		).toBe("current");
+		for (const [target, read] of [
+			[north, northRead],
+			[south, southRead],
+		] as const) {
+			expect(
+				(
+					await recordRefreshedAppBaseline(scope, target, {
+						...read,
+						read: storedRead({ changed: "earlier" }, "2026-11-21T00:00:30Z"),
+						targetIdentity: {
+							read: await readTargetIdentity(scope, target),
+							next: EMPTY_TARGET_IDENTITY,
+						},
+					})
+				).outcome,
+			).toBe("superseded");
+			expect((await baseline(target)).foldBinding?.sourceDigest).toBe(
+				read.read.sourceDigest,
+			);
+		}
+		expect(await readTargetIdentity(scope, south)).toEqual(identity);
+		expect((await baseline(south)).mediaFiles).toEqual(southRead.mediaFiles);
+		expect(await readFirstPublishStates(scope)).toEqual(beforeLists);
+		await edit(appId, [rename("remark", "summary")]);
+		for (const [target, expected] of [
+			[north, "note"],
+			[south, "remark"],
+		] as const) {
+			const ref = await referenceOn(target);
+			expect(ref.renamesSince).toEqual([
+				{ caseType: "patient", from: expected, to: "summary" },
+			]);
+			const plan = planFromDocuments({
+				ref: ref.doc,
+				now: await headDoc(appId),
+				base: ref.doc,
+				theirs: { ...ref.doc, appName: "HQ editor renamed this" },
+				renamesSince: ref.renamesSince,
+			});
+			expect(plan).toMatchObject({
+				kind: "changes",
+				appliedTo: "published",
+				target: { appName: "HQ editor renamed this" },
+			});
+		}
+		await fold("hq-round-trip-case-writes");
+		expect((await referenceOn(north)).renamesSince).toEqual([
+			{ caseType: "patient", from: "note", to: "summary" },
+		]);
+		expect((await baseline(north)).novaRevision).toBe(revision);
+		expect((await baseline(south)).novaRevision).toBe(southHead.seq);
+		const now = await head(appId);
+		await publish(north, northId, now.doc, now.seq, {
+			at: "2026-11-21T00:10:00Z",
+		});
+		expect((await baseline(north)).foldBinding).toBeUndefined();
+		expect((await referenceOn(north)).doc.appName).toBe("My unpublished name");
+		await endDeployment(scope, south, southId);
+		expect((await baseline(south)).foldBinding).toBeUndefined();
+	});
+});
+
 describe("usablePair", () => {
 	const source = (
 		origin: "create" | "push" | "cutover" | "read" | "changes",
@@ -442,7 +741,11 @@ describe("usablePair", () => {
 		mediaFiles: null,
 		sourceBytes: 10,
 	});
-	const mapping = (pushedRevision: number | null) => ({ pushedRevision });
+	const mapping = (pushedRevision: number | null) => ({
+		pushedRevision,
+		remoteId: "hq-app",
+		deploymentId: "deployment",
+	});
 
 	it("holds for a push at the mapping's revision, a read and a bring-in of changes", () => {
 		expect(usablePair(source("push", 4), mapping(4), 1)).toBe(true);

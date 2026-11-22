@@ -136,6 +136,7 @@ import {
 	SOURCE,
 	seedAsset,
 } from "./adoptedBirth";
+import { certifyFold } from "./certifiedFold";
 import { reloadHeadFor } from "./publishFixtures";
 import { stopHere } from "./stopHere";
 
@@ -1082,8 +1083,12 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 	/* A save that moves nothing but a form's id normalizes to the same source
 	 * (the baseline keys forms by position), so only CommCare HQ's application
 	 * resource tells it from no save. */
-	it("names a form whose id moved in CommCare HQ and nothing else, records it, and finds nothing the next time", async () => {
+	it("records a new form id after a fold and reviews the next HQ edit against the original published revision", async () => {
 		const scope = await broughtIn();
+		await editName(scope.appId, OTHER, "My unpublished survey");
+		const beforeConflict = changesOf(await review(scope, renamed()));
+		expect(beforeConflict.novaChanges).toEqual(["The app's name"]);
+		expect(await certifyFold(h.db(), scope.appId)).toMatchObject({ usable: 1 });
 		const before = await readTargetIdentity(scope, KEY_TARGET);
 		const NEW_FORM_ID = "f".repeat(32);
 		const reidentified = changedAnswer(fixtureSource(), (body) => {
@@ -1130,6 +1135,14 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			kind: "nothing",
 			reason: "unchanged",
 		});
+		const edited = changedAnswer(reidentified, (body) => ({
+			...body,
+			name: RENAMED,
+		}));
+		const afterConflict = changesOf(await review(scope, edited));
+		expect(afterConflict.novaChanges).toEqual(beforeConflict.novaChanges);
+		expect(afterConflict.hqChanges).toEqual(beforeConflict.hqChanges);
+		expect(afterConflict.madeBy).toEqual(beforeConflict.madeBy);
 	});
 
 	const ICON = "menuicon";

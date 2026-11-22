@@ -571,6 +571,13 @@ export async function endDeploymentInTransaction(
 		.execute();
 	if (superseded.length === 0) return { ended: false };
 	await tx
+		.updateTable("app_deployment_baselines")
+		.set({ reference_fold_seq: null, reference_source_digest: null })
+		.where("deployment_id", "=", input.deploymentId)
+		.where("remote_app_id", "=", input.remoteAppId)
+		.where("reference_fold_seq", "is not", null)
+		.execute();
+	await tx
 		.deleteFrom("app_deployment_identities")
 		.where("deployment_id", "=", input.deploymentId)
 		.execute();

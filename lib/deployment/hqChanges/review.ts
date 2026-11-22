@@ -161,6 +161,7 @@ import {
 	planChangeReadingMedia,
 } from "./readings";
 import {
+	DeploymentFoldBindingChangedError,
 	loadReferenceDocument,
 	type ReferenceDocument,
 	usablePair,
@@ -901,11 +902,23 @@ async function computeWith(
 	const languageNames = live.ownership === "adopted" ? "target" : "nova";
 
 	/* 5. The reference document, whose files the publish sends. */
-	const reference = await loadReferenceDocument({
+	const referenceInput = {
 		appId: scope.appId,
 		novaRevision: baseline.novaRevision,
+		binding: baseline.foldBinding,
 		head,
+	};
+	const reference = await (baseline.foldBinding
+		? withDeploymentReadSnapshot(scope, "edit", ({ db }) =>
+				loadReferenceDocument({ ...referenceInput, db }),
+			)
+		: loadReferenceDocument(referenceInput)
+	).catch((error: unknown) => {
+		if (error instanceof DeploymentFoldBindingChangedError) return null;
+		throw error;
 	});
+	if (reference === null)
+		return answer({ kind: "stop", finding: atApp("changed-while-reading") });
 	const targetIdentity = await readTargetIdentity(scope, target);
 	if (reference.kind !== "ok") {
 		/* With no reference there are no files to settle: only a recorded id

@@ -48,6 +48,14 @@ This is accepted downtime, not a staged rollout: there are no dual readers,
 dual writes, temporary schemas, aliases, feature flags, version gates, or
 traffic-split controllers.
 
+At an incompatible app fold, each live HQ target keeps the comparison for the
+revision it received. In the conversion transaction Nova checks its original
+revision, bound baseline digest, mapping and pending changes under lock. The
+conversion verifies the resulting conflict, renamed case properties and
+identity projection against that target’s original comparison, including the
+reason one was already unavailable. An editor’s intervening change stays
+unpublished. Recoverable apps in the trash take the same conversion.
+
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
 MCP API. Private agent work may be incomplete; only valid checkpoints become saved
