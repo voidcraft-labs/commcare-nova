@@ -539,6 +539,10 @@ final class Forms {
                 }
             }
         }
+        if (widget instanceof org.commcare.views.widgets.AbstractUniversalDateWidget) {
+            IAnswerData day = widget.getAnswer();
+            shown.put("civilDay", day == null ? JSONObject.NULL : day.uncast().getString());
+        }
         if (widget instanceof org.commcare.views.widgets.GregorianDateWidget) {
             shown.put("canClearDay", widget.findViewById(R.id.clear_all).getVisibility() == View.VISIBLE);
         }

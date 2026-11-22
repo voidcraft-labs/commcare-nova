@@ -275,3 +275,31 @@ def test_address_question_is_unavailable_when_one_hq_gate_is_missing(
         ])
     assert not run.page_errors, run.page_errors
     assert run.value(-1) == {"unsupported": True, "search": False}, run.outcomes
+
+
+
+def test_web_calendar_leaves_untouched_days_empty_and_submits_a_cleared_day(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    with webapps_hq.project(webapps_documents["targeted-question-calendar"]) as project:
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Visit calendar"), *steps.choose("Visits"), *steps.choose("Visit"),
+                *steps.answer("1", "2024-02-29"), *steps.answer("1", None),
+                *steps.submit_and_land(),
+            ])
+            submitted = [ElementTree.fromstring(item.instance) for item in release.hq.submissions]
+    assert not run.page_errors, run.page_errors
+    assert len(submitted) == 1, submitted
+    inputs = ("scheduled", "rescheduled", "untouched_ethiopian", "untouched_nepali",
+              "untouched_gregorian", "untouched_gregorian_with_clear")
+    fields = {}
+    for name in inputs:
+        node = submitted[0].find(f"{{*}}{name}")
+        assert node is not None, (name, ElementTree.tostring(submitted[0]))
+        fields[name] = node.text
+    answers = [(e.request_json()["ix"], e.request_json().get("answer"), e.json().get("status"))
+               for e in run.answered("answer")]
+    evidence("untouched-calendar-days", {"fields": fields, "answers": answers})
+    assert fields == {name: "2023-09-12" if name == "scheduled" else None for name in inputs}, fields
+    assert answers == [("1", "2024-02-29", "accepted"), ("1", None, "accepted")], answers

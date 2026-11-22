@@ -38,6 +38,23 @@ export function questionCalendar() {
 									});
 								},
 							),
+							...(
+								[
+									"ethiopian",
+									"nepali",
+									"gregorian",
+									"gregorian-with-clear",
+								] as const
+							).map((calendar) => {
+								const path = `untouched_${calendar.replaceAll("-", "_")}`;
+								return f({
+									kind: "date",
+									id: path,
+									uuid: uuid(path),
+									label: proseText(`Suggested ${calendar} date`),
+									calendar,
+								});
+							}),
 							f({
 								kind: "group",
 								uuid: uuid("review"),
@@ -77,6 +94,7 @@ export function questionCalendar() {
 		id,
 		rows: [
 			"a worker can erase the alternate Gregorian calendar's answer using its own clear button",
+			"a worker leaves each alternate date untouched, with its platform deciding the submitted day",
 			"an Android screen groups short banner labels after formatting them",
 		],
 		doc,

@@ -503,10 +503,12 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
 
 
 def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq, android_walk_evidence):
+    untouched = ("untouched_ethiopian", "untouched_nepali", "untouched_gregorian", "untouched_gregorian_with_clear")
     with _served(android_documents["targeted-question-calendar"]) as (served, archive):
         answer, sent = _app(
             served, archive, "clear-calendar", commands=[FORM], controls=True,
-            questions={"/data/scheduled": [], "/data/rescheduled": ["clear-calendar"]},
+            questions={"/data/scheduled": [], "/data/rescheduled": ["clear-calendar"],
+                       **{f"/data/{name}": [] for name in untouched}},
         )
     android_walk_evidence(answer["walks"][FORM])
     form = _completed_walk(answer, FORM)
@@ -525,3 +527,11 @@ def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq,
     root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
     assert _child(root, "scheduled").text == "2023-09-12", instance
     assert _child(root, "rescheduled").text is None, instance
+    days = {}
+    for path in untouched:
+        question = questions[f"/data/{path}[1]"]
+        assert question["answer"] is None, question
+        day = question["control"]["civilDay"]
+        assert day and _child(root, path).text == day, (path, question, instance)
+        days[path] = day
+    assert len(set(days.values())) == 1, days
