@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	ENDPOINT_FORM,
+	ENDPOINT_MODULE,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
@@ -46,6 +51,50 @@ function fixture() {
 }
 
 describe("shared entry-point authoring tools", () => {
+	it("exposes a case creation by operation identity and retains it after removing the ordinary form link", async () => {
+		const doc = endpointWireFixture("registration");
+		const form = doc.forms[ENDPOINT_FORM];
+		const own = form.caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		if (!own || !form.entryPoint)
+			throw new Error("Missing fixture case creation or entry point");
+		const initial = form.entryPoint.uuid;
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
+		const before = await h.runTool(getEntryPointsTool, {});
+		expect(before.data).toMatchObject({
+			caseCreations: expect.arrayContaining([
+				expect.objectContaining({
+					target: {
+						kind: "form",
+						moduleUuid: ENDPOINT_MODULE,
+						formUuid: ENDPOINT_FORM,
+					},
+					choices: [
+						{ operationUuid: own.uuid, caseType: "patient", name: own.id },
+					],
+				}),
+			]),
+		});
+		const set = await h.runTool(updateEntryPointTool, {
+			entryPointUuid: initial,
+			patch: { caseCreationUuids: [own.uuid] },
+		});
+		expect(set.result).toHaveProperty("entryPointUuid", initial);
+		expect(h.currentDoc().forms[ENDPOINT_FORM].entryCaseCreations).toEqual([
+			own.uuid,
+		]);
+		const bad = await h.runTool(updateEntryPointTool, {
+			entryPointUuid: initial,
+			patch: { caseCreationUuids: [testUuid("missing")] },
+		});
+		expect(bad.result).toHaveProperty("error");
+		await h.runTool(removeEntryPointTool, { entryPointUuid: initial });
+		expect(h.currentDoc().forms[ENDPOINT_FORM].entryPoint).toBeUndefined();
+		expect(h.currentDoc().forms[ENDPOINT_FORM].entryCaseCreations).toEqual([
+			own.uuid,
+		]);
+	});
 	it("creates, reads, edits, clears, and removes one UUID-owned point through the workspace", async () => {
 		const h = makeToolWorkspaceHarness(expectAdmittedDoc(fixture()));
 		const added = await h.runTool(addEntryPointTool, {

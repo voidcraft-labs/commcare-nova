@@ -321,6 +321,10 @@ describe("after submit with forms in the menu above", () => {
 		expect(postSubmitNotOfferedReason(doc, PARENT_FORM, "previous")).toBe(
 			"previous-carries-other-case-type",
 		);
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
+		expect(
+			postSubmitNotOfferedReason(doc, PARENT_FORM, "previous"),
+		).toBeUndefined();
 	});
 	it("keeps the case on Android Home for each matching command and replays Web Apps Home without it", () => {
 		const doc = nested();

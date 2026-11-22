@@ -412,7 +412,7 @@ function describeSubmissionRejection(
 				? "Nothing was saved: a case automation tried to connect a case to itself."
 				: "Nothing was saved: this form's case automations disagree about a case's type partway through the submission. Review the automations' order and types.";
 		case "new-case":
-			return "This form's new case is already saved. You can open it from the case list.";
+			return "A case already uses this ID. You can start another form or reopen the deep link with a different new case ID.";
 		case "retype-not-portable": {
 			const lines = rejection.failures.map((f) => {
 				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
@@ -1022,6 +1022,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/* The running session the entry starts from: its bound cases and the
 	 * menu's choices. The controller builds the entry's session map, which
 	 * the form reads as `session/data` and its links read after submit. */
+	const entrySupplies =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.entrySupplies
+			: undefined;
 	const entrySession = useMemo(
 		() =>
 			appId === undefined || mode !== "preview"
@@ -1030,6 +1034,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 						appId,
 						boundCases: effectiveCases ?? [],
 						menuSelections: menuCaseSelections,
+						...(entrySupplies && { entrySupplies }),
 						...(searchResultsSnapshot === undefined
 							? {}
 							: { searchResults: searchResultsSnapshot }),
@@ -1042,6 +1047,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			menuCaseSelections,
 			searchResultsSnapshot,
 			caseListSearchText,
+			entrySupplies,
 		],
 	);
 	const controller = useFormEngine(
@@ -2790,7 +2796,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * dropping it here would quietly give a persona's work to the
 				 * signed-in member while every read still looked persona-scoped. */
 				return await submitFormAction(
-					mutation,
+					entrySupplies ? { ...mutation, entrySupplies } : mutation,
 					submittedAppId,
 					finalBlueprintDigest,
 					viewerTimeZone(),

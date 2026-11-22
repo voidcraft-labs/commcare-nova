@@ -264,6 +264,7 @@ export function classifyIdentity(
 	}
 	if (
 		property === "operationUuid" ||
+		property === "caseCreationUuids" ||
 		property === "afterOperationUuid" ||
 		property === "opUuid"
 	) {

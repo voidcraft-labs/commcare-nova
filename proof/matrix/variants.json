@@ -27474,8 +27474,8 @@
 	{
 		"id": "hq-plain/computed-endpoint-argument",
 		"base": "hq-plain",
-		"entry": "forms-and-case-writes/function-datum-endpoints",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier",
+		"standing": "never",
 		"place": {
 			"kind": "form",
 			"menu": 0,
@@ -28177,6 +28177,53 @@
 			"op": "named",
 			"name": "preload_in_a_multi_select_menu"
 		}
+	},
+	{
+		"id": "hq-plain/registration-case-id-from-a-link",
+		"base": "hq-plain",
+		"entry": "forms-and-case-writes/function-datum-endpoints",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/function_datum_endpoints",
+			"value": ["case_id_new_household_0"]
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/entryCaseCreations",
+				"value": ["0f16f349-efe7-51b1-aa62-a921f4820b82"]
+			}
+		]
+	},
+	{
+		"id": "hq-plain/registration-case-id-repeated-on-source",
+		"base": "hq-plain",
+		"entry": "forms-and-case-writes/function-datum-endpoints",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/function_datum_endpoints",
+			"value": ["case_id_new_household_0", "case_id_new_household_0"]
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/entryCaseCreations",
+				"value": [
+					"0f16f349-efe7-51b1-aa62-a921f4820b82",
+					"0f16f349-efe7-51b1-aa62-a921f4820b82"
+				]
+			}
+		]
 	},
 	{
 		"id": "hq-plain/registration-on-a-list-beside-a-registration",

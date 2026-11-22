@@ -43,3 +43,29 @@ it("needs no arguments for an entry point without selections and refuses unsolic
 		entryPointArguments(noSelections, [{ moduleUuid: MODULE, caseIds: ["a"] }]),
 	).toThrow("without extra or repeated selections");
 });
+
+it("binds a supplied new ID by creation identity in the released frame's argument order", () => {
+	const operationUuid = testUuid("new-household");
+	const released = {
+		...entry,
+		requiredCreations: [
+			{ operationUuid, caseType: "household", argumentId: "new_household" },
+		],
+		argumentOrder: ["new_household", "case_id"],
+	};
+	const selection = [{ moduleUuid: MODULE, caseIds: ["patient-10"] }];
+	expect([
+		...entryPointArguments(released, selection, [
+			{ operationUuid, caseId: "Community +/東" },
+		]),
+	]).toEqual([
+		["new_household", "Community +/東"],
+		["case_id", "patient-10"],
+	]);
+	expect(() => entryPointArguments(released, selection)).toThrow();
+	expect(() =>
+		entryPointArguments(released, selection, [
+			{ operationUuid: testUuid("missing-creation"), caseId: "extra" },
+		]),
+	).toThrow();
+});

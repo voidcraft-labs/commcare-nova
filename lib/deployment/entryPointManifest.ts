@@ -51,13 +51,19 @@ export function publishedEntryPoints(
 		});
 		if (!signature)
 			throw new Error("The compiled suite omitted a published entry point.");
+		const projection = projectEntryPoint(loweredDoc, target, ctx);
 		return {
 			target,
 			uuid: entryPoint.uuid,
 			id: entryPoint.id,
 			signature,
-			requiredSelections: projectEntryPoint(loweredDoc, target, ctx)
-				.requiredSelections,
+			requiredSelections: projection.requiredSelections,
+			...(projection.requiredCreations.length > 0 && {
+				requiredCreations: projection.requiredCreations,
+				argumentOrder: projection.orderedArguments.map(
+					(argument) => argument.argumentId,
+				),
+			}),
 		};
 	});
 }

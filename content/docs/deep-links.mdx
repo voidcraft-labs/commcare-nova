@@ -91,3 +91,12 @@ checked, and a later release can change its behavior.
 
 If you change or remove an entry point, publish and release the updated app
 before expecting the change on CommCare HQ.
+
+
+## Supply IDs for new cases
+
+A form can accept a new case ID from its link. In **Deep links**, choose the form and use **IDs for new cases** to choose the case creations the link can name. You can leave a creation unchecked to let the form generate its ID.
+
+When trying the link in Preview, enter a fresh ID for each chosen creation. The form sees that ID as soon as it opens. Submitting creates the case with that ID. An ID already used in the app or supplied twice needs a replacement before the form can open. If another submission takes the ID while the form is open, Nova keeps the existing case and asks for a new ID.
+
+Generating an HQ link uses the case IDs in the destination project space. Adding or removing a supplied ID changes what callers must provide. Publish and release that choice before sharing a replacement link.

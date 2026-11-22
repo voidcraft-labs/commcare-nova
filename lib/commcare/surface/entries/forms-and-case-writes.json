@@ -2397,10 +2397,9 @@
 			"schema:ShadowForm.function_datum_endpoints"
 		],
 		"valueClass": "computed-endpoint-argument",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `entryPoint.computedDatumArguments`. The class takes a non-empty list, on any form a shadow form included; the empty list is HQ's default, which the shadow own fields row holds on a shadow form",
-		"subject": "deep-links",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the source form holds exposed case operations in stored order, and each actual frame supplies its own argument order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2416,6 +2415,36 @@
 			"markers": []
 		},
 		"gates": ["toggle/SESSION_ENDPOINTS"]
+	},
+	{
+		"id": "forms-and-case-writes/function-datum-endpoints-with-an-unavailable-supplier",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "`function_datum_endpoints[]` names no case creation on the frame",
+		"surfaceKeys": [
+			"schema:Form.function_datum_endpoints",
+			"schema:AdvancedForm.function_datum_endpoints",
+			"schema:ShadowForm.function_datum_endpoints"
+		],
+		"valueClass": "computed-endpoint-argument-without-one-creation",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: no distinct case creation supplies this ID on the navigation frame",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "deep-links",
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "an argument names no distinct case creation available on this form's frame"
+			}
+		]
 	},
 	{
 		"id": "forms-and-case-writes/put-in-root-on-a-form-dynamic-key",

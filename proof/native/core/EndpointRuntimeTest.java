@@ -32,9 +32,9 @@ public class EndpointRuntimeTest {
   public boolean contains(String key){return values.containsKey(key);}
  }
  @Test public void argumentsBuildNativeSelectionsAndNavigationFrames()throws Exception{
-  for(boolean hq:new boolean[]{false,true})for(String scenario:new String[]{"single","multiple","inline","registration","child","module","case-list"}){
+  for(boolean hq:new boolean[]{false,true})for(String scenario:new String[]{"single","multiple","inline","registration","registration-supplied","child","module","case-list"}){
    Suite suite=suite(scenario,hq);Endpoint endpoint=suite.getEndpoint("visit");assertNotNull(endpoint);
-   assertEquals(!scenario.equals("registration"),endpoint.isRespectRelevancy());
+   assertEquals(!scenario.startsWith("registration"),endpoint.isRespectRelevancy());
    CommCarePlatform platform=new CommCarePlatform(2,53,0);platform.registerSuite(suite);CommCareSession session=new CommCareSession(platform);
    HashMap<String,String> args=new HashMap<>();Hashtable<String,DataInstance> instances=new Hashtable<>();Storage storage=new Storage();
    for(EndpointArgument arg:endpoint.getArguments()){
@@ -53,6 +53,10 @@ public class EndpointRuntimeTest {
    for(StackOperation operation:endpoint.getStackOperations()){
     session.executeStackOperations(new Vector<>(List.of(operation)),context);
     if(++index<endpoint.getStackOperations().size())assertTrue(session.getCommand().startsWith("claim_command.visit."));
+   }
+   if(scenario.equals("registration-supplied")){
+    assertEquals("a supplied creation is never claimed",1,endpoint.getStackOperations().size());
+    assertEquals("case-one",session.getData().get("case_id_new_patient_0"));
    }
    String command=scenario.equals("child")?"m1-f0":scenario.equals("module")||scenario.equals("case-list")?"m0":"m0-f0";
    assertEquals(scenario+" hq="+hq,command,session.getCommand());

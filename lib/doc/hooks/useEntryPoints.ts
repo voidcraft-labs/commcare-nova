@@ -23,6 +23,7 @@ import {
 	planEntryPointAdd,
 	planEntryPointRemove,
 	planEntryPointUpdate,
+	planFormEntryCaseCreations,
 } from "../entryPointMutations";
 import {
 	entryPointDestination,
@@ -89,6 +90,26 @@ export function useEntryPointActions() {
 			: { ok: false, messages: [plan.reason.message] };
 	return {
 		writeAdmission,
+		setCaseCreations(
+			target: EntryPointTarget,
+			operations: readonly Uuid[],
+			base: readonly Uuid[],
+		) {
+			const current = api.getState();
+			if (
+				target.kind !== "form" ||
+				JSON.stringify(
+					current.forms[target.formUuid]?.entryCaseCreations ?? [],
+				) !== JSON.stringify(base)
+			)
+				return {
+					ok: false,
+					messages: [
+						"These case IDs changed in another editor. Review the shared choices and try again.",
+					],
+				};
+			return commit(planFormEntryCaseCreations(current, target, operations));
+		},
 		add(target: EntryPointTarget): CommitOutcome & { uuid?: Uuid } {
 			const current = api.getState();
 			const destination = entryPointDestination(current, target);

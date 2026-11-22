@@ -3232,15 +3232,7 @@ Preview replays the collection over the suite's datums
 (`lib/preview/engine/caseListEntryListing.ts::caseListEntryStillNeedsDatum`), and
 `proof/native/core/MenuScreensRuntimeTest.java` holds Preview's listing to Core's.
 
-**No chosen case ahead of a command.** Core keeps what a frame collected (`syncState`), and an
-entry's next question is its first datum whose id the session lacks (`getFirstMissingDatum`).
-A frame that held a chosen case and no command would leave that case on the first menu, where
-the next form that asks under the same datum id would take it without asking. Formplayer
-rebuilds its session from empty (`MenuSessionFactory.rebuildSessionFromFrame`), so Web Apps
-keeps nothing there. Nova writes no such frame: the previous screen is not offered to a form
-listed on the first menu, a submenu whose screen would open with the first menu's shared case
-is not offered as its forms' own module after submit, and a link, an entry point or a Register
-return that would open with that case is refused at its source.
+**A chosen case on the first menu.** Core retains a commandless Previous frame’s selected datum. Choosing a form or another menu whose command requests that datum reuses the case. Formplayer rebuilds the first menu with a fresh case choice. Nova offers Previous for forms listed on the first menu and describes the difference alongside the destination. An Android command that would load another record type under the same datum needs a fresh first-menu choice. The gate places that finding on the form. Links, menu endpoints and Register actions whose frames would put the first menu’s shared case before their first command retain their own eligibility checks.
 
 ### Multi-select case workflows
 
@@ -3524,3 +3516,7 @@ The pinned evidence and retained regression are recorded in
 ## Forms listed in another menu
 
 One form may appear under several menus. A route refers to the source menu and forms by UUID. Both menus open the same form identity, namespace, edits and case writes. A route can exclude source forms and own separate deep links, case details and search. Child routes follow the source hierarchy while retaining their own settings. HQ `models/modules.py::ShadowModule`, `views/utils.py::handle_shadow_child_modules`, `suite_xml/sections/entries.py::get_datum_meta_module` and `suite_xml/post_process/endpoints.py` define the wire behavior. The reader binds stored exclusions and endpoint references to real source IDs from the application API and keeps those deployment identities through subsequent reads.
+
+### Case creation IDs supplied by deep links
+
+A source form can choose case creations whose IDs an external link supplies. Each choice names a case operation UUID. HQ stores these choices even when the source form has no deep link of its own. `entryPointProjection.ts` resolves the UUID on the actual ordered frame after parent alignment. The writers put the resulting argument ID in HQ's form and the suite. A computed ID replaces its own value on the navigation frame. Only eligible selection arguments create claim frames. The deployment manifest retains this argument order with the verified suite signature. Preview validates the operations and checks ID availability in the app and Project before installing selections or writing claims. The case transaction allocates a supplied ID only for the creation the committed form exposes, refuses an occupied ID, and replays the receipt for the same submission.

@@ -1,4 +1,4 @@
-/** HQ EndpointsHelper projection. Computed datums remain runtime-owned. */
+/** HQ EndpointsHelper projection, shared by build, Preview, link creation and read-back. */
 import {
 	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
@@ -9,6 +9,7 @@ import {
 import { emissionPlan } from "./emissionPlan";
 import {
 	commonPrefixById,
+	entryDatumIds,
 	entryFrameDatums,
 	type FormLinkProjectionContext,
 	type FrameChild,
@@ -24,9 +25,84 @@ export interface EntryPointRequiredSelection {
 	readonly maximum: number;
 	readonly argumentId: string;
 }
+export interface EntryPointCaseCreationArgument {
+	readonly operationUuid: Uuid;
+	readonly caseType: string;
+	readonly argumentId: string;
+	readonly cardinality: "one";
+}
+
+/** Case creations can be exposed through this route only if the navigation frame carries
+ * their actual computed datum. The XForm may use a root-aligned placeholder for the ID. */
+export function availableEntryCaseCreations(
+	doc: BlueprintDoc,
+	target: Extract<EntryPointTarget, { kind: "form" }>,
+	ctx: FormLinkProjectionContext,
+	frame = formFrameChildren(doc, ctx, target.moduleUuid, target.formUuid),
+): readonly EntryPointCaseCreationArgument[] {
+	const identities = new Map(
+		entryDatumIds(doc, ctx, target.moduleUuid, target.formUuid).map((row) => [
+			row.id,
+			row.caseCreationOperationUuid,
+		]),
+	);
+	const cases = new Map(
+		ctx
+			.newCaseDatums(target.formUuid)
+			.map((row) => [row.operationUuid, row.caseType]),
+	);
+	return frame.flatMap((child) => {
+		if (
+			child.type !== "datum" ||
+			child.datum.requiresSelection ||
+			!child.datum.function ||
+			child.datum.query
+		)
+			return [];
+		const operationUuid = identities.get(child.datum.id);
+		if (operationUuid === undefined) return [];
+		const caseType = cases.get(operationUuid);
+		return caseType === undefined
+			? []
+			: [
+					{
+						operationUuid,
+						caseType,
+						argumentId: child.datum.id,
+						cardinality: "one" as const,
+					},
+				];
+	});
+}
+
+export function exposedEntryCaseCreations(
+	doc: BlueprintDoc,
+	target: Extract<EntryPointTarget, { kind: "form" }>,
+	ctx: FormLinkProjectionContext,
+	frame?: FrameChild[],
+): readonly EntryPointCaseCreationArgument[] {
+	const chosen = doc.forms[target.formUuid]?.entryCaseCreations ?? [];
+	if (chosen.length === 0) return [];
+	const available = availableEntryCaseCreations(doc, target, ctx, frame);
+	const exposed = available.filter((item) =>
+		chosen.includes(item.operationUuid),
+	);
+	if (exposed.length !== new Set(chosen).size)
+		throw new Error(
+			"A case ID supplied by this deep link no longer has a case creation on the form’s route. Remove that argument or choose an available case creation.",
+		);
+	return exposed;
+}
+
 export interface EntryPointProjection {
 	readonly target: EntryPointTarget;
 	readonly requiredSelections: readonly EntryPointRequiredSelection[];
+	readonly availableCreations: readonly EntryPointCaseCreationArgument[];
+	readonly requiredCreations: readonly EntryPointCaseCreationArgument[];
+	readonly orderedArguments: readonly (
+		| EntryPointRequiredSelection
+		| EntryPointCaseCreationArgument
+	)[];
 	readonly frame: readonly FrameChild[];
 }
 /** One synchronous projection batch shares lowering and cached form actions.
@@ -148,7 +224,37 @@ export function projectEntryPoint(
 		throw new Error(
 			"This entry point requires conflicting selections from the same module.",
 		);
-	return { target, requiredSelections, frame };
+	const requiredCreations =
+		target.kind === "form"
+			? exposedEntryCaseCreations(doc, target, ctx, frame)
+			: [];
+	const byId = new Map(
+		[...requiredSelections, ...requiredCreations].map((arg) => [
+			arg.argumentId,
+			arg,
+		]),
+	);
+	const orderedArguments = frame.flatMap((child) => {
+		if (child.type !== "datum") return [];
+		const argument = byId.get(child.datum.id);
+		return argument === undefined ? [] : [argument];
+	});
+	if (orderedArguments.length !== byId.size)
+		throw new Error(
+			"Two values on this deep link need the same argument ID. Choose a different case creation.",
+		);
+	const availableCreations =
+		target.kind === "form"
+			? availableEntryCaseCreations(doc, target, ctx, frame)
+			: [];
+	return {
+		target,
+		requiredSelections,
+		requiredCreations,
+		availableCreations,
+		orderedArguments,
+		frame,
+	};
 }
 export function entryPointProjectionIssue(
 	doc: BlueprintDoc,

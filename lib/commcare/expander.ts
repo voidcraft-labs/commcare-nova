@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import { exposedEntryCaseCreations } from "./entryPointProjection";
 import type { HqApplicationTree } from "./hqJson/xpath";
 /**
  * BlueprintDoc → HqApplication expansion.
@@ -470,6 +471,28 @@ export function* expandDocSteps(
 					: caseWire.kind === "advanced" &&
 						caseWire.loads.some((load) => !load.worker);
 			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
+			if (form.entryCaseCreations !== undefined) {
+				const exposed = exposedEntryCaseCreations(
+					doc,
+					{ kind: "form", moduleUuid, formUuid },
+					linkContext,
+				);
+				const argumentsByOperation = new Map(
+					exposed.map((row) => [row.operationUuid, row.argumentId]),
+				);
+				// HQ saves list order and repeats. Its endpoint generator tests membership as it
+				// walks the physical frame, so a repeated source value contributes one argument.
+				formShellObj.function_datum_endpoints = form.entryCaseCreations.map(
+					(uuid) => {
+						const id = argumentsByOperation.get(uuid);
+						if (!id)
+							throw new Error(
+								"A deep link case creation has no argument on its form.",
+							);
+						return id;
+					},
+				);
+			}
 			formShellObj.respect_relevancy =
 				form.entryPoint?.ignoreDisplayConditions !== true;
 			const formFilter = emitFormDisplayConditionForHq(

@@ -5,6 +5,51 @@ import { listedMenuIsEmpty, menuFormUuidsOf } from "./listedForms";
 import { ownRecordValue } from "./records";
 import { uuidSchema } from "./uuid";
 
+export const suppliedCaseCreationSchema = z.strictObject({
+	operationUuid: uuidSchema,
+	caseId: z.string().min(1).max(255),
+});
+export type SuppliedCaseCreation = z.infer<typeof suppliedCaseCreationSchema>;
+export const creationLaunchSchema = z.strictObject({
+	entryPointUuid: uuidSchema,
+	creations: z.array(suppliedCaseCreationSchema).min(1),
+});
+export type CaseCreationLaunch = {
+	readonly entryPointUuid: EntryPoint["uuid"];
+	readonly creations: readonly SuppliedCaseCreation[];
+};
+/** A caller supplies one new ID for each exposed creation. A case ID is
+ * opaque. Control characters and commas cannot survive both launch readers. */
+export function suppliedCreationIssue(
+	required: readonly { readonly operationUuid: string }[],
+	supplied: readonly {
+		readonly operationUuid: string;
+		readonly caseId: string;
+	}[],
+): string | undefined {
+	if (
+		supplied.length !== required.length ||
+		new Set(supplied.map((row) => row.operationUuid)).size !==
+			supplied.length ||
+		supplied.some(
+			(row) =>
+				!required.some((item) => item.operationUuid === row.operationUuid),
+		)
+	)
+		return "Provide one new case ID for each case this link creates.";
+	if (
+		new Set(supplied.map((row) => row.caseId)).size !== supplied.length ||
+		supplied.some(
+			({ caseId }) =>
+				caseId.trim().length === 0 ||
+				caseId.length > 255 ||
+				[...caseId].some(
+					(c) => c === "," || c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127,
+				),
+		)
+	)
+		return "Each new case needs a different ID of up to 255 characters, without commas or control characters.";
+}
 export const entryPointIdSchema = z
 	.string()
 	.regex(

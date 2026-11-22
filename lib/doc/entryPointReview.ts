@@ -89,6 +89,8 @@ function destinationFromRequirements(
 		entryPoint: entryPointAt(doc, target),
 		issue,
 		requiredSelections,
+		requiredCreations: projected.available ? projected.requiredCreations : [],
+		availableCreations: projected.available ? projected.availableCreations : [],
 	};
 }
 export function entryPointDestinations(doc: BlueprintDoc) {

@@ -50,6 +50,7 @@ export function useEntryPointLaunch() {
 			entryPointUuid: string,
 			selections: readonly EntryPointSelection[],
 			personaUuid?: string,
+			creations?: readonly import("@/lib/domain").SuppliedCaseCreation[],
 		): Promise<EntryPointLaunchResult> => {
 			const request = ++generation.current;
 			const before = session.getState();
@@ -70,6 +71,7 @@ export function useEntryPointLaunch() {
 				appId: before.appId,
 				entryPointUuid,
 				selections,
+				creations,
 				personaUuid,
 				expectedSeq,
 				device: withNavigationWidth(device),
@@ -171,6 +173,7 @@ export function useEntryPointPreviewSetup(uuid: Uuid) {
 			: undefined;
 		return {
 			item,
+			creations: projection?.available ? projection.requiredCreations : [],
 			personas: Object.values(doc.personas ?? {}),
 			requirements: projection?.available
 				? projection.requiredSelections.map((requirement) => {

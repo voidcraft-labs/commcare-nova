@@ -343,3 +343,5 @@ An architect that consumes its durable request allowance pauses through the same
 message continuation contract as an ordinary pause. Completed tool effects remain
 acknowledged, reconnect spends no new request, and a new user turn may continue.
 A final accepted response may complete at the exact allowance.
+
+The deep-link inventory includes the case creation operations a form can expose and which are supplied. Adding or updating a form link can choose these operation UUIDs in the same gated batch. The source form keeps its choices when its ordinary deep link is removed.

@@ -9,6 +9,10 @@ import {
 } from "@/lib/agent/__tests__/fixtures";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import {
+	ENDPOINT_FORM,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
+import {
 	ROUTE,
 	twoMenus,
 } from "@/lib/commcare/__tests__/menuFormRoutesFixture";
@@ -37,6 +41,22 @@ function authoring(
 	}
 	return { ...harness, call };
 }
+
+it("chooses a supplied creation by the operation name on the deep link's form", async () => {
+	const doc = endpointWireFixture("registration");
+	const operation = doc.forms[ENDPOINT_FORM].caseOperations?.find(
+		(row) => row.action === "own",
+	);
+	if (!operation) throw new Error("Missing registration operation");
+	const h = authoring({}, doc);
+	await h.call("updateEntryPoint", {
+		entryPointUuid: "visit",
+		patch: { caseCreationUuids: [operation.id] },
+	});
+	expect(h.currentDoc().forms[ENDPOINT_FORM].entryCaseCreations).toEqual([
+		operation.uuid,
+	]);
+});
 
 it("uses scoped short names for nested questions, wording, conditions, edits and insertion anchors", async () => {
 	const h = authoring(

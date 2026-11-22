@@ -1,6 +1,6 @@
 """HQ's session endpoints and the claim requests they reach equal Nova's.
 
-Contract: for each of the seven endpoint scenarios, the ``<endpoint>``
+Contract: for each of the eight endpoint scenarios, the ``<endpoint>``
 elements HQ's endpoint contributor builds (``SESSION_ENDPOINTS`` on) equal
 Nova's, compared whole (every attribute, leaf text and child, in order), with
 known XPath carriers compared as HQ's parser's complete expression trees, and
@@ -45,7 +45,7 @@ def test_hq_endpoints_and_reached_claims_equal_novas(native):
             scenario,
             "reachable remote-request",
         )
-    assert len(records) == 7, len(records)
+    assert len(records) == 8, len(records)
     write_evidence(
         native.family("endpoint"),
         "endpoint-emission",

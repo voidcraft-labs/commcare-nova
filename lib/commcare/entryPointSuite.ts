@@ -20,7 +20,7 @@ import { InstanceSink, selectedCasesInstance } from "./xpath/wire/instances";
 import { caseById } from "./xpath/wire/rowScope";
 
 function argumentDatum(
-	s: EntryPointRequiredSelection,
+	s: Pick<EntryPointRequiredSelection, "argumentId" | "cardinality">,
 	context: WireElementContext,
 ): Element {
 	return xel(
@@ -121,8 +121,8 @@ export function buildEntryPointSuite(
 			mode: { target: "suite" },
 			instances,
 		};
-		const selections = new Map(
-			p.requiredSelections.map((s) => [s.argumentId, s]),
+		const argumentsById = new Map(
+			p.orderedArguments.map((s) => [s.argumentId, s]),
 		);
 		const pushes: Element[] = [];
 		if (!moduleUsesInlineSearch(doc.modules[target.moduleUuid]))
@@ -190,7 +190,7 @@ export function buildEntryPointSuite(
 					]),
 				];
 			}
-			const selected = selections.get(d.id);
+			const selected = argumentsById.get(d.id);
 			return selected ? [argumentDatum(selected, context)] : [];
 		});
 		pushes.push(el("push", {}, navigation));
@@ -221,7 +221,7 @@ export function buildEntryPointSuite(
 						: {}),
 				},
 				[
-					...p.requiredSelections.map((s) =>
+					...p.orderedArguments.map((s) =>
 						el("argument", {
 							id: s.argumentId,
 							...(s.cardinality === "multiple"

@@ -189,6 +189,8 @@ export interface CaseOperationProgram {
 	 * Server-derived from the committed entry's datums.
 	 */
 	readonly entryCaseKeys?: ReadonlyMap<Uuid, string>;
+	/** IDs supplied for exposed creations by this form’s authorized deep-link launch. */
+	readonly suppliedCaseIds?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */

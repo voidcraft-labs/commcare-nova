@@ -11,6 +11,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { routeContainsForm } from "@/lib/domain/listedForms";
+import { entryPointRequirements } from "./entryPointProjection";
 import type { Mutation } from "./types";
 export type EntryPointCommitPlan =
 	| { ok: true; mutations: readonly Mutation[] }
@@ -19,6 +20,59 @@ const refuse = (kind: string, message: string): EntryPointCommitPlan => ({
 	ok: false,
 	reason: { kind, message },
 });
+/** Creation IDs belong to the source form and can be chosen before its own or a second menu's deep link exists. */
+export function planFormEntryCaseCreations(
+	doc: BlueprintDoc,
+	target: EntryPointTarget,
+	operationUuids: readonly Uuid[] | null,
+	plan: EntryPointCommitPlan = { ok: true, mutations: [] },
+): EntryPointCommitPlan {
+	if (!plan.ok) return plan;
+	if (target.kind !== "form" || !doc.forms[target.formUuid])
+		return refuse(
+			"form-required",
+			"Only a form can supply the IDs of cases it creates.",
+		);
+	const requested = operationUuids ?? [];
+	if (new Set(requested).size !== requested.length)
+		return refuse("duplicate-creation", "Choose each case creation once.");
+	const form = doc.forms[target.formUuid];
+	const availableDoc =
+		form.entryCaseCreations === undefined
+			? doc
+			: {
+					...doc,
+					forms: {
+						...doc.forms,
+						[form.uuid]: { ...form, entryCaseCreations: undefined },
+					},
+				};
+	const required = entryPointRequirements(availableDoc, target);
+	if (!required.available)
+		return refuse("unavailable-creation", required.message);
+	const operations = required.availableCreations
+		.filter((creation) => requested.includes(creation.operationUuid))
+		.map((creation) => creation.operationUuid);
+	if (operations.length !== requested.length)
+		return refuse(
+			"unavailable-creation",
+			"Choose a case creation available to this form’s deep link.",
+		);
+	return {
+		ok: true,
+		mutations: [
+			...plan.mutations,
+			{
+				kind: "updateForm",
+				uuid: target.formUuid,
+				patch: {
+					entryCaseCreations: operations.length > 0 ? operations : null,
+				},
+			},
+		],
+	};
+}
+
 export function planEntryPointAdd(
 	doc: BlueprintDoc,
 	target: EntryPointTarget,

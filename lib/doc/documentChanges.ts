@@ -184,6 +184,7 @@ export const CASE_LIST_KEY_PARTS = {
  */
 export const FORM_KEY_PARTS = {
 	entryPoint: "settings",
+	entryCaseCreations: "settings",
 	uuid: null,
 	id: "settings",
 	name: "name",

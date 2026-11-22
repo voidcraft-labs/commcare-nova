@@ -450,7 +450,9 @@ function allocateCreateIdentities(
 		const entryCaseKey = program.entryCaseKeys?.get(operation.uuid);
 		if (entryCaseKey !== undefined) {
 			allocations.set(index, {
-				caseId: entryDatumCaseId(appId, entryKey, entryCaseKey),
+				caseId:
+					program.suppliedCaseIds?.get(operation.uuid) ??
+					entryDatumCaseId(appId, entryKey, entryCaseKey),
 				authored: false,
 				entryNamed: true,
 			});

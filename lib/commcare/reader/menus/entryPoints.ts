@@ -13,7 +13,10 @@ import {
 } from "@/lib/domain";
 import { recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { availableEntryCaseCreations } from "../../entryPointProjection";
+import { formLinkProjectionContext } from "../../formLinkProjection";
 import { validEntryPoints } from "../../validator/rules/app";
+import { withCandidate } from "../candidate";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
@@ -153,8 +156,14 @@ const ENTRY_POINTS = {
 	),
 	functionDatums: byClass(
 		FORMS,
-		refuse,
+		take,
 		`${F}/function-datum-endpoints`,
+		"function_datum_endpoints",
+	),
+	unavailableFunctionDatums: byClass(
+		FORMS,
+		refuse,
+		`${F}/function-datum-endpoints-with-an-unavailable-supplier`,
 		"function_datum_endpoints",
 	),
 	sharedFirstMenuCase: byClass(
@@ -395,12 +404,6 @@ export function readEntryPoints(
 		for (const form of module.forms) {
 			const { json } = form;
 			const cls = form.docType;
-			const datums = json.peek("function_datum_endpoints");
-			if (Array.isArray(datums) && datums.length > 0)
-				json.refuse(
-					"function_datum_endpoints",
-					ENTRY_POINTS.functionDatums[cls],
-				);
 			const formId = textOf(json.peek("session_endpoint_id"));
 			if (formId === "") {
 				if (json.used("session_endpoint_id"))
@@ -496,6 +499,60 @@ export function readEntryPoints(
  * list's, is that row's finding; any other
  * refusal is a deep link Nova cannot build for a reason no row names.
  */
+export function settleEntryCaseCreations(
+	ctx: ReadContext,
+	app: DraftApp,
+): void {
+	const forms = app.modules
+		.flatMap((module) => module.forms.map((form) => ({ module, form })))
+		.filter(({ form }) => {
+			const value = form.json.peek("function_datum_endpoints");
+			return Array.isArray(value) && value.length > 0;
+		});
+	if (forms.length === 0 || ctx.doc === undefined) return;
+	const doc = ctx.doc as BlueprintDoc;
+	const projection = formLinkProjectionContext(doc, {
+		entryMetadataOnly: true,
+	});
+	const held = new Map<Uuid, Uuid[]>();
+	for (const { module, form } of forms) {
+		if (!doc.forms[form.uuid]) continue;
+		const field = "function_datum_endpoints";
+		const ids = form.json.peek(field);
+		if (!Array.isArray(ids)) continue;
+		const available = availableEntryCaseCreations(
+			doc,
+			{ kind: "form", moduleUuid: module.uuid, formUuid: form.uuid },
+			projection,
+		);
+		const byArgument = new Map(
+			available.map((row) => [row.argumentId, row.operationUuid]),
+		);
+		const operations = ids.flatMap((id) => {
+			const operation = typeof id === "string" ? byArgument.get(id) : undefined;
+			return operation === undefined ? [] : [operation];
+		});
+		if (operations.length !== ids.length) {
+			form.json.refuse(
+				field,
+				ENTRY_POINTS.unavailableFunctionDatums[form.docType],
+			);
+			continue;
+		}
+		const supplied = form.json.take(
+			field,
+			ENTRY_POINTS.functionDatums[form.docType],
+			() => operations,
+		).value;
+		held.set(form.uuid, supplied);
+	}
+	if (held.size > 0)
+		ctx.doc = withCandidate(doc, (draft) => {
+			for (const [uuid, operations] of held)
+				draft.forms[uuid].entryCaseCreations = operations;
+		});
+}
+
 export function settleEntryPoints(ctx: ReadContext): void {
 	const doc = ctx.doc;
 	const read = READ.get(ctx);

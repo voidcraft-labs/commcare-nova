@@ -4,6 +4,8 @@ import {
 	conditionModulesOf,
 	moduleFormsReadSearch,
 	moduleHasOwnScreen,
+	type SuppliedCaseCreation,
+	suppliedCreationIssue,
 	type Uuid,
 } from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
@@ -80,6 +82,7 @@ export function prepareEntryPointLaunch(args: {
 	readonly expectedSeq: number;
 	readonly personaUuid?: string;
 	readonly selections: readonly EntryPointSelection[];
+	readonly creations?: readonly SuppliedCaseCreation[];
 	readonly database: CaseDatabaseSnapshot;
 	/** The chosen cases this worker's device does not hold, read from the
 	 *  Project past the worker's restore (`onlyOutsideRestore`). */
@@ -105,6 +108,12 @@ export function prepareEntryPointLaunch(args: {
 	const projection = entryPointRequirements(args.doc, item.target);
 	if (!projection.available) return refuse(projection.message);
 	const required = projection.requiredSelections;
+	const creations = args.creations ?? [];
+	const creationIssue = suppliedCreationIssue(
+		projection.requiredCreations,
+		creations,
+	);
+	if (creationIssue) return refuse(creationIssue);
 	if (
 		args.selections.length !== required.length ||
 		new Set(args.selections.map((x) => x.moduleUuid)).size !==
@@ -112,6 +121,14 @@ export function prepareEntryPointLaunch(args: {
 	)
 		return refuse("Choose cases for each required selection and try again.");
 	const rows = new Map(args.database.rows.map((row) => [row.case_id, row]));
+	const unavailableIds = new Set([
+		...rows.keys(),
+		...args.notHeld.rows.map((row) => row.case_id),
+	]);
+	if (creations.some((row) => unavailableIds.has(row.caseId)))
+		return refuse(
+			"A new case ID is already in use. Choose a different ID before opening the link.",
+		);
 	const outsideRows = new Map(
 		args.notHeld.rows
 			.filter((row) => !rows.has(row.case_id))
@@ -349,6 +366,12 @@ export function prepareEntryPointLaunch(args: {
 				? {
 						formTarget: {
 							formUuid: target.formUuid,
+							...(creations.length > 0 && {
+								entrySupplies: {
+									entryPointUuid: args.entryPointUuid,
+									creations,
+								},
+							}),
 							cases:
 								previewMenuCaseContext(
 									{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },

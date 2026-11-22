@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
+import {
+	ENDPOINT_FORM,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
 import { eq, literal, prop, sessionContext } from "@/lib/domain/expression";
 import {
 	ANDROID_RULES,
@@ -79,6 +83,45 @@ function args(doc = fixture()) {
 		rules: WEB_APPS_RULES,
 	};
 }
+it("installs a supplied registration ID only after validating every argument and a fresh ID in this app", () => {
+	const doc = endpointWireFixture("registration-supplied");
+	const form = doc.forms[ENDPOINT_FORM];
+	const operationUuid = form.entryCaseCreations?.[0];
+	if (!form.entryPoint || !operationUuid)
+		throw new Error("Missing registration supplier");
+	const base = {
+		...args(),
+		doc,
+		entryPointUuid: form.entryPoint.uuid,
+		selections: [],
+	};
+	const input = { operationUuid, caseId: "new-household" };
+	const ok = launch({ ...base, creations: [input] });
+	expect(ok).toMatchObject({
+		kind: "ready",
+		claimCaseIds: [],
+		launch: {
+			formTarget: {
+				entrySupplies: {
+					entryPointUuid: form.entryPoint.uuid,
+					creations: [input],
+				},
+			},
+		},
+	});
+	expect(launch(base).kind).toBe("refused");
+	expect(launch({ ...base, creations: [{ ...input, caseId: "a" }] }).kind).toBe(
+		"refused",
+	);
+	expect(
+		launch({
+			...base,
+			creations: [input],
+			notHeld: { rows: [row("new-household")], indices: [] },
+		}).kind,
+	).toBe("refused");
+	expect(launch({ ...base, creations: [input, input] }).kind).toBe("refused");
+});
 describe("entry point Preview admission", () => {
 	it("binds the exact selected case without a first-case fallback or search launch", () => {
 		const result = launch(args());

@@ -288,6 +288,56 @@ describe("entry points", () => {
 		).readAsText("suite.xml");
 		expect(endpointSuiteSignature(suite, "visit")).toBeDefined();
 	});
+	it("writes a registration's supplied operation ID on the source form and the native endpoint without a claim", () => {
+		const doc = endpointWireFixture("registration-supplied");
+		const own = doc.forms[F].caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		const target = { kind: "form" as const, moduleUuid: M, formUuid: F };
+		const projection = projectEntryPoint(doc, target);
+		expect(projection.requiredSelections).toEqual([]);
+		expect(projection.requiredCreations).toEqual([
+			{
+				caseType: "patient",
+				operationUuid: own?.uuid,
+				argumentId: "case_id_new_patient_0",
+				cardinality: "one",
+			},
+		]);
+		const wire = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
+		expect(wire.remoteRequests).toHaveLength(0);
+		expect(serializeXml(wire.endpoints[0])).toContain(
+			'value="$case_id_new_patient_0"',
+		);
+		expect(expandDoc(doc).modules[0].forms[0].function_datum_endpoints).toEqual(
+			["case_id_new_patient_0"],
+		);
+		if (!own) throw new Error("The fixture needs an own-case operation.");
+		doc.forms[F].entryCaseCreations = [own.uuid, own.uuid];
+		admitted(doc);
+		const repeatedWire = buildEntryPointSuite(
+			doc,
+			formLinkProjectionContext(doc),
+		);
+		expect(serializeXml(repeatedWire.endpoints[0])).toEqual(
+			serializeXml(wire.endpoints[0]),
+		);
+		expect(expandDoc(doc).modules[0].forms[0].function_datum_endpoints).toEqual(
+			["case_id_new_patient_0", "case_id_new_patient_0"],
+		);
+		doc.forms[F].entryCaseCreations = [own.uuid];
+		delete doc.forms[F].entryPoint;
+		admitted(doc);
+		expect(expandDoc(doc).modules[0].forms[0].function_datum_endpoints).toEqual(
+			["case_id_new_patient_0"],
+		);
+		doc.forms[F].entryCaseCreations = [testUuid("absent-creation")];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ code: "ENTRY_POINT_INVALID" }),
+			]),
+		);
+	});
 	it("keeps registration computed datums runtime owned and form bypass explicit", () => {
 		const doc = endpointWireFixture("registration");
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));

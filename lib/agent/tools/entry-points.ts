@@ -4,8 +4,10 @@ import {
 	planEntryPointAdd,
 	planEntryPointRemove,
 	planEntryPointUpdate,
+	planFormEntryCaseCreations,
 } from "@/lib/doc/entryPointMutations";
 import { createEntryPointRequirements } from "@/lib/doc/entryPointProjection";
+import { entryPointDestinations } from "@/lib/doc/entryPointReview";
 import {
 	asUuid,
 	type EntryPointTarget,
@@ -51,7 +53,15 @@ const entryPointIdInputSchema = entryPointIdSchema.superRefine((id, ctx) => {
 });
 
 export const getEntryPointsInputSchema = z.strictObject({});
+const creationIds = z
+	.array(uuidSchema)
+	.nullable()
+	.optional()
+	.describe(
+		"Form routes only. Case creation operation UUIDs whose new record IDs the caller provides. Omit to keep the current choices or send an empty list to use generated IDs.",
+	);
 export const addEntryPointInputSchema = z.strictObject({
+	caseCreationUuids: creationIds,
 	target: entryPointTargetSchema.describe(
 		"The module, case list, or form destination, addressed by its owning UUIDs.",
 	),
@@ -77,6 +87,7 @@ export const updateEntryPointInputSchema = z.strictObject({
 	entryPointUuid: uuidSchema,
 	patch: z
 		.strictObject({
+			caseCreationUuids: creationIds,
 			id: entryPointIdInputSchema
 				.optional()
 				.describe(
@@ -149,6 +160,19 @@ export const getEntryPointsTool = {
 		return {
 			kind: "read" as const,
 			data: {
+				caseCreations: entryPointDestinations(ctx.snapshot.doc).flatMap(
+					(destination) =>
+						destination.availableCreations.length > 0
+							? [
+									{
+										target: destination.target,
+										name: destination.label,
+										choices: destination.availableCreations,
+										supplied: destination.requiredCreations,
+									},
+								]
+							: [],
+				),
 				entryPoints: entryPointInventory(ctx.snapshot.doc).map(
 					({ target, entryPoint }) => ({
 						...entryPoint,
@@ -181,7 +205,14 @@ export const addEntryPointTool = {
 			};
 			return await commitEntryPoint(
 				ctx,
-				planEntryPointAdd(ctx.snapshot.doc, input.target, entryPoint),
+				input.caseCreationUuids === undefined
+					? planEntryPointAdd(ctx.snapshot.doc, input.target, entryPoint)
+					: planFormEntryCaseCreations(
+							ctx.snapshot.doc,
+							input.target,
+							input.caseCreationUuids,
+							planEntryPointAdd(ctx.snapshot.doc, input.target, entryPoint),
+						),
 				input.target,
 				uuid,
 			);
@@ -207,13 +238,25 @@ export const updateEntryPointTool = {
 					mutations: [],
 					result: { error: "This deep link is no longer available." },
 				};
+			const { caseCreationUuids, ...entryPatch } = input.patch;
+			const plan =
+				Object.keys(entryPatch).length > 0
+					? planEntryPointUpdate(
+							ctx.snapshot.doc,
+							input.entryPointUuid,
+							entryPatch,
+						)
+					: { ok: true as const, mutations: [] };
 			return await commitEntryPoint(
 				ctx,
-				planEntryPointUpdate(
-					ctx.snapshot.doc,
-					input.entryPointUuid,
-					input.patch,
-				),
+				caseCreationUuids === undefined
+					? plan
+					: planFormEntryCaseCreations(
+							ctx.snapshot.doc,
+							item.target,
+							caseCreationUuids,
+							plan,
+						),
 				item.target,
 				input.entryPointUuid,
 			);

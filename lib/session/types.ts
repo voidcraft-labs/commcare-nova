@@ -108,6 +108,7 @@ export interface PreviewCaseChoice {
 }
 
 export interface PreviewCaseTarget {
+	entrySupplies?: import("@/lib/domain").CaseCreationLaunch;
 	formUuid: Uuid;
 	cases?: readonly PreviewCaseChoice[];
 	/** The Register action that opened a case list registration form: the

@@ -794,6 +794,9 @@ export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
 	entryPoint: formEntryPointSchema.optional(),
+	/** Case creations whose IDs a caller supplies when opening this form through a deep link.
+	 * The source form owns these choices even when only a second menu offers the link. */
+	entryCaseCreations: z.array(uuidSchema).min(1).optional(),
 	uuid: uuidSchema,
 	id: z.string(),
 	name: z.string(),

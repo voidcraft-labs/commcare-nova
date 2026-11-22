@@ -481,7 +481,29 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 	const inventory = entryPointInventory(doc);
 	const ids = new Set<string>();
-	return inventory.flatMap(({ target, entryPoint }) => {
+	// The source form owns its supplies independently of an ordinary endpoint.
+	const standalone: ValidationError[] = [];
+	for (const moduleUuid of doc.moduleOrder)
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (!form?.entryCaseCreations || form.entryPoint) continue;
+			const issue = entryPointProjectionIssue(doc, {
+				kind: "form",
+				moduleUuid,
+				formUuid,
+			});
+			if (issue)
+				standalone.push(
+					validationError(
+						"ENTRY_POINT_INVALID",
+						"form",
+						issue,
+						{ moduleUuid, formUuid },
+						{ reason: "case-creation" },
+					),
+				);
+		}
+	const configured = inventory.flatMap(({ target, entryPoint }) => {
 		const idProblem = entryPointIdProblem(entryPoint.id);
 		const refusal =
 			idProblem === undefined
@@ -537,7 +559,10 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 						"ENTRY_POINT_INVALID",
 						"app",
 						issue,
-						{ moduleUuid: target.moduleUuid },
+						{
+							moduleUuid: target.moduleUuid,
+							...(target.kind === "form" && { formUuid: target.formUuid }),
+						},
 						{
 							entryPointUuid: entryPoint.uuid,
 							reason,
@@ -552,6 +577,7 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 				]
 			: [];
 	});
+	return [...standalone, ...configured];
 }
 
 /** The entry point's sentence where its frame opens through the first menu

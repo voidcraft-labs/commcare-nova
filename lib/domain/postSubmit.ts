@@ -32,7 +32,8 @@ import type { Uuid } from "./uuid";
 type PostSubmitDoc = Pick<
 	BlueprintDoc,
 	"forms" | "modules" | "formOrder" | "moduleOrder"
->;
+> &
+	Partial<Pick<BlueprintDoc, "appSettings">>;
 
 /** The module that owns `formUuid`, or `undefined` for an unknown form. */
 export function moduleUuidOfForm(
@@ -144,7 +145,10 @@ export function postSubmitModuleFacts(
 		// a parent that is above too.
 		formsOnFirstMenu,
 		sharedCaseCanChangeType:
-			formsOnFirstMenu && firstMenuCase() && firstMenuCase.opensAnotherType(),
+			formsOnFirstMenu &&
+			doc.appSettings?.runsOnlyOn !== "web-apps" &&
+			firstMenuCase() &&
+			firstMenuCase.opensAnotherType(),
 		parentFormsInMenuAbove: parent?.formsInMenuAbove === true,
 		// HQ builds the frame to the screen of a menu that keeps it under a
 		// top-level menu above as the root lists' common prefix then the

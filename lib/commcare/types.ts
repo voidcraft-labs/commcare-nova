@@ -587,6 +587,7 @@ export type HqFormLink<XPath = string> =
 interface HqFormBase<XPath, LinkXPath> {
 	session_endpoint_id?: string;
 	respect_relevancy?: boolean;
+	function_datum_endpoints?: string[];
 	unique_id: string;
 	name: LocalizedString;
 	xmlns: string;

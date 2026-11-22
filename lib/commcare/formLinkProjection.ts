@@ -1044,6 +1044,7 @@ function advancedEntrySessionDatums(
 /** A physical session datum and the domain identities it supplies. */
 export interface EntryDatumId {
 	readonly id: string;
+	readonly caseCreationOperationUuid?: Uuid;
 	readonly chainId?: string;
 	readonly refs: readonly DatumRef[];
 	readonly scalar: boolean;
@@ -1088,10 +1089,11 @@ export function entryDatumIds(
 			? []
 			: ctx
 					.newCaseDatums(formUuid)
-					.map((created) => [created.id, created.ref] as const),
+					.map((created) => [created.id, created] as const),
 	);
 	const rows = datums.map((datum): EntryDatumId => {
 		const refs: DatumRef[] = [];
+		let caseCreationOperationUuid: Uuid | undefined;
 		const source = ctx.selectionSourceModules.get(datum);
 		const aligned = ctx.alignedSelectionSources.get(datum);
 		const grouping = ctx.tileGroupingSources.get(datum);
@@ -1112,7 +1114,10 @@ export function entryDatumIds(
 			refs.push({ kind: "tile-group-parents", module: grouping });
 		} else {
 			const created = newCaseRefs.get(datum.id);
-			if (created !== undefined) refs.push(created);
+			if (created !== undefined) {
+				refs.push(created.ref);
+				caseCreationOperationUuid = created.operationUuid;
+			}
 		}
 		const queryNext = ctx.queryNextDatums.get(datum);
 		const queryModule =
@@ -1122,6 +1127,9 @@ export function entryDatumIds(
 		const chainId = ctx.chainDatumIds.get(datum);
 		return {
 			id: datum.id,
+			...(caseCreationOperationUuid !== undefined && {
+				caseCreationOperationUuid,
+			}),
 			...(chainId === undefined ? {} : { chainId }),
 			refs,
 			// A multi-select datum's value names a stored instance, and the

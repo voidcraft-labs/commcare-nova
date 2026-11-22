@@ -24,7 +24,7 @@ import {
 } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/expression/context";
 import { readOrganization } from "@/lib/organization/service";
-import { bindToolAddress } from "./addresses";
+import { bindToolAddress, formOfAuthoredEntryPoint } from "./addresses";
 import {
 	type AuthoringScopeOptions,
 	authoringValueScope,
@@ -170,6 +170,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 	const fieldUuid = optionalId(input.fieldUuid);
 	const formUuid =
 		optionalId(input.formUuid) ??
+		formOfAuthoredEntryPoint(toolName, input, doc) ??
 		(fieldUuid ? findContainingForm(doc, fieldUuid) : undefined);
 	const moduleUuid =
 		optionalId(input.moduleUuid) ??

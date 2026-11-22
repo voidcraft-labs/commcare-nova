@@ -31,7 +31,11 @@ import {
 	settleAfterSubmit,
 	storedReturns,
 } from "./afterSubmit";
-import { readEntryPoints, settleEntryPoints } from "./entryPoints";
+import {
+	readEntryPoints,
+	settleEntryCaseCreations,
+	settleEntryPoints,
+} from "./entryPoints";
 import {
 	appLanguageCodes,
 	caseListLabelAsBuilt,
@@ -234,6 +238,7 @@ export function* settleMenusSteps(
 ): Generator<void, void, void> {
 	if (ctx.doc === undefined) return;
 	settleModules(ctx, storedReturns(ctx));
+	settleEntryCaseCreations(ctx, app);
 	for (const module of app.modules)
 		for (const form of module.forms) settleAfterSubmit(ctx, form);
 	yield;

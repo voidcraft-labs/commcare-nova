@@ -2,7 +2,12 @@ import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
-import { type BlueprintDoc, moduleUuidOfForm, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	entryPointInventory,
+	moduleUuidOfForm,
+	type Uuid,
+} from "@/lib/domain";
 import { AuthoringInputError } from "./errors";
 import { fieldNameCandidates } from "./fieldNames";
 
@@ -51,6 +56,51 @@ function resolveField(
 /** Bind existing structural targets against this invocation's document. Stable
  * addresses remain valid after renames; names are conveniences within a scope.
  * Supplying a parent is a constraint, never permission to select a different one. */
+export function formOfAuthoredEntryPoint(
+	tool: string,
+	input: Input,
+	doc: BlueprintDoc,
+): Uuid | undefined {
+	if (tool === "updateEntryPoint" && typeof input.entryPointUuid === "string") {
+		const entries = entryPointInventory(doc);
+		const point = resolve(
+			input.entryPointUuid,
+			entries.map((entry) => entry.entryPoint),
+			(entry) => [entry.id],
+			"Deep link",
+		);
+		input.entryPointUuid = point.uuid;
+		const target = entries.find(
+			(entry) => entry.entryPoint.uuid === point.uuid,
+		)?.target;
+		return target?.kind === "form" ? target.formUuid : undefined;
+	}
+	if (
+		tool !== "addEntryPoint" ||
+		typeof input.target !== "object" ||
+		input.target === null ||
+		Array.isArray(input.target)
+	)
+		return;
+	const target = input.target as Input;
+	if (target.kind !== "form") return;
+	const menu = resolve(
+		target.moduleUuid,
+		Object.values(doc.modules),
+		(module) => [module.name],
+		"Menu",
+	);
+	const form = resolve(
+		target.formUuid,
+		(doc.formOrder[menu.uuid] ?? []).map((uuid) => doc.forms[uuid]),
+		(item) => [item.name],
+		"Form",
+	);
+	target.moduleUuid = menu.uuid;
+	target.formUuid = form.uuid;
+	return form.uuid;
+}
+
 export function bindToolAddress(
 	toolName: string,
 	input: Input,
