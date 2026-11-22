@@ -296,7 +296,7 @@ export async function writeDeploymentAwareFold(
 			.where("source_digest", "=", record.sourceDigest)
 			.where("nova_revision", "=", record.revision)
 			.executeTakeFirst();
-		if (updated.numUpdatedRows !== 1n)
+		if (updated.numUpdatedRows !== BigInt(1))
 			throw new Error(
 				"A deployment baseline moved before its comparison was bound.",
 			);
