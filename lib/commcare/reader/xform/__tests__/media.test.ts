@@ -139,6 +139,41 @@ describe("media on a text", () => {
 		expect(unclaimedMedia(reading)).toEqual([]);
 	});
 
+	it("keeps fallback recipients with the default file and leaves explicit siblings with their own files", async () => {
+		const path = (name: string) => `jr://file/commcare/${name}.png`;
+		const reading = await readForm(
+			source({
+				en: texts({
+					label: path("q"),
+					choice: path("missing"),
+					hint: path("hint"),
+				}),
+				fr: texts({ label: path("q_fr"), hint: path("hint_fr") }),
+			}),
+			{ langs: ["en", "fr", "es"], media: oneFile },
+		);
+		expect(codes(reading)).toEqual([]);
+		const uses = [
+			...reading.ctx.facts.mediaReferences,
+			...reading.ctx.facts.pendingMedia,
+			...reading.ctx.facts.unheldMedia,
+		];
+		const recipient = (name: string) => {
+			const use = uses.find((entry) => entry.path === path(name));
+			if (!use) throw new Error(`The reading lost ${name}.`);
+			return [
+				use.itextRecipients?.map((who) => who.language),
+				use.inheritedItextRecipients?.map((who) => who.language) ?? [],
+			];
+		};
+		expect(recipient("q")).toEqual([["eng"], ["spa"]]);
+		expect(recipient("q_fr")).toEqual([["fra"], []]);
+		expect(recipient("hint")).toEqual([["eng"], ["spa"]]);
+		expect(recipient("hint_fr")).toEqual([["fra"], []]);
+		expect(recipient("missing")).toEqual([["eng"], ["fra", "spa"]]);
+		expect(field(reading, "q").label_media).toEqual({ image: "asset-q.png" });
+	});
+
 	// Core reads a media value's content whole, an `<output>` in it making the path, while the
 	// path is read from its text; and the value Nova writes holds `form` alone. A value holding
 	// more is no media Nova holds.

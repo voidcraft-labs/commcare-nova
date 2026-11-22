@@ -442,7 +442,10 @@ export interface ItextRecipient {
 
 /** Who receives a native file at one path in a form or localized app slot. */
 export interface MediaRecipients {
+	/** Stored itext values at this path. Each also serves its own language. */
 	readonly itextRecipients?: readonly ItextRecipient[];
+	/** Other app languages that use one of those values from the default translation. */
+	readonly inheritedItextRecipients?: readonly ItextRecipient[];
 	/** For a JSON-backed localized slot, the HQ languages which show this path. */
 	readonly shownLanguages?: readonly string[];
 }

@@ -72,6 +72,7 @@ import type {
 } from "@/lib/publish/hqChangesKinds";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { assertNever } from "@/lib/utils/assertNever";
+import type { AdoptedMediaFile } from "../adoption";
 import type {
 	AcceptanceCheck,
 	AcceptedDeclaration,
@@ -1315,6 +1316,7 @@ function formsOf(draft: ReadDraft): readonly { readonly uuid: Uuid }[] {
 }
 
 interface PlanInput {
+	readonly baseMediaFiles: readonly AdoptedMediaFile[];
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The app at the head. */
 	readonly now: BlueprintDoc;
@@ -1394,7 +1396,7 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 			facts: baseDraft.facts,
 			forms: formsOf(baseDraft),
 			attachmentTarget: readings.inputs.base.target,
-			mediaFiles: [],
+			mediaFiles: input.baseMediaFiles,
 			mediaClaims: readings.baseMediaClaims,
 			choice: {
 				runsOnlyOn: baseChoice.runsOnlyOn ?? null,

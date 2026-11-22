@@ -20,6 +20,18 @@ import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { type AdoptedMediaFile, assignMediaPaths } from "../adoption";
+import { reviewMediaId } from "./mediaIds";
+
+/** Two native file ids can carry the same bytes. Review the wire paths
+ * the Project's content deduplication will keep when it creates the app. */
+export function readingMediaPaths(files: readonly AdoptedMediaFile[]) {
+	return assignMediaPaths(
+		files.map((file) => ({
+			...file,
+			assetId: reviewMediaId(file.contentHash),
+		})),
+	);
+}
 
 /** What `expandDoc` reads of an asset is its path, so a file's type is not told apart. */
 const UNREAD_MIME_TYPE = "application/octet-stream";
@@ -45,7 +57,10 @@ export function adoptionExportBoundary(
 	"doc" | "assets" | "attachmentTarget" | "lookupNaming"
 > {
 	const kept = new Map(
-		assignMediaPaths(mediaFiles).rows.map((row) => [row.assetId, row.wirePath]),
+		readingMediaPaths(mediaFiles).rows.map((row) => [
+			row.assetId,
+			row.wirePath,
+		]),
 	);
 	const files = new Map(mediaFiles.map((file) => [file.assetId, file]));
 	const assets = new Map<string, ResolvedMediaAsset>();
@@ -55,7 +70,8 @@ export function adoptionExportBoundary(
 		assets.set(file.assetId, {
 			assetId: file.assetId,
 			wirePath:
-				kept.get(file.assetId) ?? wirePathFor(file.contentHash, file.extension),
+				kept.get(reviewMediaId(file.contentHash)) ??
+				wirePathFor(file.contentHash, file.extension),
 			kind: ref.slotKind,
 			mimeType: UNREAD_MIME_TYPE,
 			contentHash: file.contentHash,

@@ -743,6 +743,12 @@ describe("createFromReview", () => {
 			servePng(peer, "menuicon", 2);
 			servePng(peer, "formicon", 2);
 			const review = await read();
+			const decision = review.review.runsOn.find(
+				(choice) => choice.preselected,
+			);
+			expect(decision?.removesFiles).toEqual([
+				"Publishing removes the unused reference “jr://file/commcare/image/menuicon.png” to HQ file “menuicon”.",
+			]);
 			return create(createInputFor(KEY, review));
 		});
 		const receipt = receiptOf(answer);

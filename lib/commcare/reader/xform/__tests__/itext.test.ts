@@ -221,6 +221,13 @@ describe("pragma keys", () => {
 	});
 });
 
+const blankFrenchLabel = {
+	blankTranslations: 1,
+	blankTranslationSlots: [
+		{ fieldPath: ["q"], slot: "label", language: "fra", choiceValue: null },
+	],
+};
+
 describe("blank values", () => {
 	it("reads a blank second language beside first-language text as no translation, and counts it", async () => {
 		const reading = await readForm(
@@ -231,7 +238,9 @@ describe("blank values", () => {
 			{ langs: ["en", "fr"] },
 		);
 		expect(codes(reading)).toEqual([]);
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(1);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual(
+			blankFrenchLabel,
+		);
 		expect(unclaimedText(reading)).toEqual([]);
 	});
 
@@ -248,7 +257,9 @@ describe("blank values", () => {
 				"an-explicitly-blank-value-in-the-first-language-where-another-holds-text",
 			),
 		]);
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 
 	it("reads a text blank in every language as a blank text, with no flag", async () => {
@@ -262,7 +273,9 @@ describe("blank values", () => {
 		expect(codes(reading)).toEqual([]);
 		expect(field(reading, "q").label).toEqual({ parts: [] });
 		expect(field(reading, "q").plainLabel).toBeUndefined();
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 
 	it("reads a language with no translation as untranslated", async () => {
@@ -272,7 +285,9 @@ describe("blank values", () => {
 		);
 		expect(codes(reading)).toEqual([]);
 		expect(field(reading, "q").label).toEqual(proseText("Hello"));
-		expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(0);
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 0,
+		});
 	});
 });
 
@@ -341,8 +356,8 @@ describe("more forms of a text", () => {
 			expect(field(reading, "q").label).toEqual(proseText("**A**"));
 			// Markdown on: the text shows its copy in every language.
 			expect(field(reading, "q").plainLabel).toBeUndefined();
-			expect(formBlankTranslations(reading.xform ?? ({} as never))).toBe(
-				blanks,
+			expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual(
+				blanks ? blankFrenchLabel : { blankTranslations: 0 },
 			);
 		});
 

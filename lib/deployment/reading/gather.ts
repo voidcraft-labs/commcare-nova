@@ -35,7 +35,6 @@ import {
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
-import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	type ReadDraft,
 	type ReaderInput,
@@ -112,10 +111,10 @@ import {
 	type AdoptedMediaFile,
 	adoptedBaselineOwnershipSteps,
 	adoptedSourceTree,
+	adoptionFileRemovals,
 	adoptionPlanFeatureConfirmations,
 } from "../adoption";
-import { publishedMediaFiles } from "../hqMedia";
-import { removedHqFileLine, removedHqFiles } from "../hqSourceBaseline";
+import { removedHqFileLine } from "../hqSourceBaseline";
 import { readHqAppClaims } from "../store";
 import { keptListFor } from "../targetFacts";
 import {
@@ -2015,23 +2014,18 @@ function* reviewOf(input: {
 	for (const declaration of accepted.declarations) {
 		yield;
 		const removesFiles = source.multimediaMap?.length
-			? removedHqFiles(source.raw, {
-					published: publishedMediaFiles(
-						bulkUploadAssets(
-							declaration.doc,
-							adoptionExportBoundary(
-								declaration.doc,
-								input.lookup.definitions,
-								input.mediaFiles,
-								{
-									origin: COMMCARE_SERVERS[key.server].baseUrl,
-									domain: key.domain,
-								},
-							).assets,
-						),
+			? adoptionFileRemovals(
+					source,
+					adoptionExportBoundary(
+						declaration.doc,
+						input.lookup.definitions,
+						input.mediaFiles,
+						{
+							origin: COMMCARE_SERVERS[key.server].baseUrl,
+							domain: key.domain,
+						},
 					),
-					recorded: null,
-				}).map(removedHqFileLine)
+				).map(removedHqFileLine)
 			: [];
 		runsOn.push({
 			...(removesFiles.length > 0 && { removesFiles }),

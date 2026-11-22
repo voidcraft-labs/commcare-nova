@@ -1102,7 +1102,13 @@ describe("where each change stands", () => {
 		expect(await read("replacement", 2)).not.toEqual(before);
 	});
 
-	it.each(["choice", "language", "message", "shared text"] as const)(
+	it.each([
+		"choice",
+		"language",
+		"message",
+		"shared text",
+		"inherited language",
+	] as const)(
 		"keeps a missing Web Apps picture with its physical itext recipient (%s)",
 		async (scenario) => {
 			const inspect = async (
@@ -1110,6 +1116,7 @@ describe("where each change stands", () => {
 				languages: string[],
 				shared: string | null,
 				reversed = false,
+				appLanguages = ["en", "es"],
 			) => {
 				const choices = reversed
 					? ["Third", "Second", "First"]
@@ -1158,6 +1165,7 @@ describe("where each change stands", () => {
 					new Map(),
 				);
 				const reading = await readAs(doc, {
+					root: { langs: appLanguages },
 					xml: (xml) => {
 						const parsed = parseXml(xml);
 						const translations = findAll(
@@ -1228,7 +1236,22 @@ describe("where each change stands", () => {
 				expect(signed).toBeDefined();
 				return signed;
 			};
-			if (scenario === "message") {
+			if (scenario === "inherited language") {
+				// Exactly the same English XML value. French has no translation
+				// in this form and receives the default value in a French app.
+				for (const text of ["First", "Note hint"]) {
+					const earlier = await inspect(text, ["en"], null);
+					const expanded = await inspect(text, ["en"], null, false, [
+						"en",
+						"es",
+						"fr",
+					]);
+					expect(expanded).not.toEqual(earlier);
+					expect(
+						await inspect(text, ["en"], null, false, ["en", "fr", "es"]),
+					).toEqual(expanded);
+				}
+			} else if (scenario === "message") {
 				expect(await inspect("Note hint", ["en"], null)).not.toEqual(
 					await inspect("Note warning", ["en"], null),
 				);

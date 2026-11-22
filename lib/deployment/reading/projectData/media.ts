@@ -123,6 +123,9 @@ export function hqMediaReferencesOf(
 		return {
 			path: read.path,
 			...(read.itextRecipients && { itextRecipients: read.itextRecipients }),
+			...(read.inheritedItextRecipients && {
+				inheritedItextRecipients: read.inheritedItextRecipients,
+			}),
 			...(read.shownLanguages && { shownLanguages: read.shownLanguages }),
 			kind: read.mediaKind,
 			slot,

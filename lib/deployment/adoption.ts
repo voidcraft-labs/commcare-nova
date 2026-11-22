@@ -39,6 +39,7 @@ import {
 import {
 	normalizedHqAppSource,
 	normalizeHqAppSource,
+	removedHqFiles,
 } from "./hqSourceBaseline";
 import { hqImportApplicationSteps } from "./importApplication";
 import type { DeploymentTargetKey } from "./store";
@@ -431,6 +432,20 @@ interface AdoptedBaselineOwnershipInput {
 	readonly identity: WireIdentity;
 }
 
+/** The concrete native references lost by the chosen first import. Used
+ * for the prospective declaration and for recording its accepted birth. */
+export function adoptionFileRemovals(
+	source: HqAppSource,
+	prepared: Pick<PreparedExportBoundary, "doc" | "assets">,
+) {
+	return removedHqFiles(source.raw, {
+		published: publishedMediaFiles(
+			bulkUploadAssets(prepared.doc, prepared.assets),
+		),
+		recorded: null,
+	});
+}
+
 /** `adoptedBaselineOwnership` a part at a time, its import's emission
  *  stopping between its parts (`importApplication.ts::hqImportApplicationSteps`). */
 export function* adoptedBaselineOwnershipSteps(
@@ -487,7 +502,9 @@ export function adoptedAppBaselineWrite(input: {
 	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);
 	const ownership = adoptedBaselineOwnership(input);
 	const ids = input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id));
+	const removed = adoptionFileRemovals(input.source, input.prepared);
 	const list: StoredFirstPublish = {
+		...(removed.length && { removedFiles: removed.map((file) => file.digest) }),
 		...(hasRegisteredPublishInputs(ids) && { reviewedInputs: 1 as const }),
 		reviewed: 1,
 		ids,

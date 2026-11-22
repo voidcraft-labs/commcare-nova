@@ -60,11 +60,8 @@ import {
 	type FirstPublishView,
 } from "@/lib/publish/firstPublishChangeIds";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import {
-	type AdoptedMediaFile,
-	assignMediaPaths,
-	type MediaPathAssignment,
-} from "../adoption";
+import type { AdoptedMediaFile, MediaPathAssignment } from "../adoption";
+import { readingMediaPaths } from "./adoptionBoundary";
 import {
 	FIRST_PUBLISH_PLACE_KINDS,
 	type FirstPublishPlaceKind,
@@ -85,7 +82,6 @@ import {
 	placesOfSlot,
 	sortedPlaces,
 } from "./firstPublishPlaces";
-import { reviewMediaId } from "./mediaIds";
 import type { HqMediaClaim } from "./projectData/media";
 
 // ── The generated difference ────────────────────────────────────────────
@@ -1961,12 +1957,7 @@ export function firstPublishFactsOf(input: {
 		// Keyed by content: a reading names each of HQ's media documents by a
 		// provisional id and a create by its published one, so two documents of
 		// one content are one asset only under an id their bytes give.
-		media: assignMediaPaths(
-			input.mediaFiles.map((file) => ({
-				...file,
-				assetId: reviewMediaId(file.contentHash),
-			})),
-		),
+		media: readingMediaPaths(input.mediaFiles),
 		mediaClaims: input.mediaClaims,
 		choice: input.choice,
 	};
@@ -2451,8 +2442,18 @@ function mediaSubjects(
 			storedSlot ?? null,
 		]);
 		if (ref.itextRecipients?.length) {
-			for (const recipient of ref.itextRecipients)
-				subjects.set(canonicalJsonDigest([base, recipient]), place);
+			for (const recipient of ref.itextRecipients) {
+				subjects.set(canonicalJsonDigest([base, "stored", recipient]), place);
+				subjects.set(
+					canonicalJsonDigest([base, "effective", recipient]),
+					place,
+				);
+			}
+			for (const recipient of ref.inheritedItextRecipients ?? [])
+				subjects.set(
+					canonicalJsonDigest([base, "effective", recipient]),
+					place,
+				);
 		} else subjects.set(base, place);
 	};
 	for (const ref of facts.facts.unheldMedia)

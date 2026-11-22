@@ -770,22 +770,31 @@ export function withJudged(
 	return { files: plan.files, verdicts, kept, published };
 }
 
-/** Nova's own files at the paths the reading now names them by, as acceptance's emission takes them. */
-function ownMediaFiles(fetched: HqChangesBasis): readonly AdoptedMediaFile[] {
-	const own = ownPathsNow(fetched.published);
-	return fetched.published.flatMap((path) => {
-		if (!own.has(`${JR_FILE}${path.wirePath}`)) return [];
+/** File assignments for this reading. An HQ file is identified by the native
+ * type and id in its own source. Each owned path resolves to the immutable
+ * reference asset only while it is owned by this reading and used by a slot. */
+function filesOfReading(
+	fetched: HqChangesBasis,
+	plan: ReadingMediaPlan,
+	own: ReadonlySet<string>,
+	draft: ReadDraft,
+): readonly AdoptedMediaFile[] {
+	const used = new Set(draft.facts.mediaReferences.map((ref) => ref.path));
+	const held = fetched.published.flatMap((path) => {
+		const hqPath = `${JR_FILE}${path.wirePath}`;
+		if (!own.has(hqPath) || !used.has(hqPath)) return [];
 		const row = fetched.ownRows.get(path.assetId);
 		if (row === undefined) return [];
 		return [
 			{
-				hqPath: `${JR_FILE}${path.wirePath}`,
+				hqPath,
 				assetId: path.assetId as MediaAssetId,
 				contentHash: path.contentHash,
 				extension: row.extension,
 			},
 		];
 	});
+	return [...adoptedMediaFiles(plan), ...held];
 }
 
 /** The rows of every asset the reference publishes, built-in icons included. */
@@ -1667,7 +1676,12 @@ export async function checkHqChanges(
 			lookup: readingLookupSnapshot(data, readsNow),
 			mediaClaims: judgedPlan.claims,
 			media: {
-				files: [...adoptedMediaFiles(media.now), ...ownMediaFiles(fetched)],
+				files: filesOfReading(
+					fetched,
+					media.now,
+					ownPathsNow(fetched.published),
+					draft,
+				),
 				rows,
 			},
 			heldExpansions: pieces.expansions,
@@ -1682,6 +1696,12 @@ export async function checkHqChanges(
 		plan = await pieces.at("the plan").steps(
 			planHqChangesSteps({
 				reference,
+				baseMediaFiles: filesOfReading(
+					fetched,
+					media.base,
+					ownPathsBase(fetched.published),
+					readings.base.draft,
+				),
 				now: fetched.head.doc,
 				readings,
 				accepted,

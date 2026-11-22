@@ -1263,7 +1263,10 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 	);
 
 	/** The fixture app, its menu showing `ICON`, brought in as a person does. */
-	async function broughtInWithIcon() {
+	async function broughtInWithIcon(
+		source = withIcons(fixtureSource(), [ICON]),
+		imageIds = [ICON],
+	) {
 		await h.seedProjectMember(MEMBER, E2E_PROJECT, "owner");
 		await seedFixtureConnection(MEMBER);
 		const actor = await authorizeBringIn(MEMBER, E2E_PROJECT);
@@ -1271,10 +1274,10 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		const key = fixtureKey(E2E_PROJECT);
 		const answer = await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer, {
-				source: withIcons(fixtureSource(), [ICON]),
+				source,
 				times: 2,
 			});
-			serveImage(peer, ICON, 2);
+			for (const id of imageIds) serveImage(peer, id, 2);
 			const read = reviewOf(
 				await readHqAppForReview(actor, key, { onEvent: () => {} }),
 			);
@@ -1300,6 +1303,114 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			.reply(200, bytes, { headers: { "content-type": "image/png" } })
 			.times(times);
 	}
+
+	it.each(["renamed", "joined", "joined single native"] as const)(
+		"keeps the earlier %s file with its reviewed recipient across another HQ save",
+		async (assignment) => {
+			const other = "siblingpicture";
+			const original = changedAnswer(
+				withIcons(fixtureSource(), [ICON, other]),
+				(body) => {
+					if (assignment === "renamed") {
+						const [menu] = body.modules as { media_image: { en: string } }[];
+						const path = `jr://file/commcare/${"b".repeat(64)}.png`;
+						const map = body.multimedia_map as Record<string, unknown>;
+						map[path] = map[ICON_PATH];
+						delete map[ICON_PATH];
+						menu.media_image = { en: path };
+					} else if (assignment === "joined single native") {
+						const map = body.multimedia_map as Record<
+							string,
+							{ multimedia_id: string }
+						>;
+						map[`jr://file/commcare/image/${other}.png`].multimedia_id = ICON;
+					}
+					return body;
+				},
+			);
+			const scope = await broughtInWithIcon(
+				original,
+				assignment === "joined single native" ? [ICON] : [ICON, other],
+			);
+			const earlier = await h
+				.db()
+				.selectFrom("app_deployment_baselines")
+				.select("first_publish_changes")
+				.executeTakeFirstOrThrow();
+			const id =
+				assignment === "renamed" ? "media-files-renamed" : "media-paths-joined";
+			expect(earlier.first_publish_changes).toMatchObject({
+				ids: expect.arrayContaining([id]),
+			});
+			const warning =
+				assignment === "renamed" ? /get new names/ : /under several names/;
+			const outside = assignment === "joined" ? other : ICON;
+			const read = <T>(source: RetainedHqAnswer, action: () => Promise<T>) =>
+				withHttpPeer(async (peer) => {
+					serveRead(peer, source, { tables: true });
+					serveImage(peer, outside, 1);
+					return action();
+				});
+			const renamed = changedAnswer(original, (body) => ({
+				...body,
+				name: RENAMED,
+			}));
+			const listed = changesOf(
+				await read(renamed, () =>
+					reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
+				),
+			);
+			expect(listed.publishChanges.join(" ")).not.toMatch(warning);
+			expect(listed.hqChanges.join(" ")).not.toMatch(
+				/removes the unused reference/,
+			);
+			expect(earlier.first_publish_changes?.removedFiles).toHaveLength(1);
+			expect(await read(renamed, () => bringIn(scope, listed))).toMatchObject({
+				kind: "brought-in",
+			});
+			expect((await head(scope.appId)).name).toBe(RENAMED);
+			// Both native file ids and their bytes stay fixed. Only the menu
+			// and form that receive each physical path have changed places.
+			const swapped = changedAnswer(renamed, (body) => {
+				const [menu] = body.modules as {
+					media_image: { en: string };
+					forms: { media_image: { en: string } }[];
+				}[];
+				const [form] = menu.forms;
+				[menu.media_image, form.media_image] = [
+					form.media_image,
+					menu.media_image,
+				];
+				return body;
+			});
+			const moved = changesOf(
+				await read(swapped, () =>
+					reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
+				),
+			);
+			expect(moved.publishChanges.join(" ")).toMatch(warning);
+			expect(await read(swapped, () => bringIn(scope, moved))).toMatchObject({
+				kind: "brought-in",
+			});
+			expect(await review(scope, swapped, false)).toMatchObject({
+				kind: "nothing",
+				reason: "unchanged",
+			});
+			const media = await h
+				.db()
+				.selectFrom("media_assets")
+				.select("id")
+				.where("project_id", "=", E2E_PROJECT)
+				.execute();
+			expect(media).toHaveLength(1);
+			const loaded = await loadApp(scope.appId);
+			if (!loaded) throw new Error("The adopted app disappeared.");
+			expect([
+				...collectAssetRefs(hydratePersistedBlueprint(loaded.blueprint)),
+			]).toEqual([media[0]?.id]);
+		},
+		30_000,
+	);
 
 	it.each([
 		["same-source", "replacement"],

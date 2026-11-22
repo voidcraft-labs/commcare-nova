@@ -30,7 +30,7 @@ import { builtScopes, sameElementWhole } from "../sameElement";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
-import { itextRecipient } from "./itext";
+import { type ItextReading, itextRecipient } from "./itext";
 import { claimFormValue, formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
@@ -129,9 +129,10 @@ function readSlotMedia(
 	ctx: ReadContext,
 	cursor: XmlCursor,
 	slot: SlotText,
-	defaultLanguage: LanguageTag | undefined,
+	itext: Pick<ItextReading, "languages" | "defaultLanguage">,
 	scope: (element: Element) => NamespaceScope,
 ): void {
+	const { defaultLanguage, languages } = itext;
 	const place = slot.place;
 	const first = slot.first;
 	for (const kind of MEDIA_KINDS) {
@@ -141,6 +142,20 @@ function readSlotMedia(
 			if (value !== undefined) values.set(language, value);
 		}
 		if (values.size === 0) continue;
+		// Core overlays each translation on the default's keys. A file under
+		// a nondefault key supplies its own language only.
+		const defaultValue =
+			defaultLanguage === undefined ? undefined : values.get(defaultLanguage);
+		const inherited =
+			defaultValue === undefined
+				? []
+				: languages
+						.filter((language) => !values.has(language))
+						.map((language) => itextRecipient(slot.owner, language));
+		const inheritedAt = (isDefault: boolean) =>
+			isDefault && inherited.length
+				? { inheritedItextRecipients: inherited }
+				: {};
 		const key = `itext-form:core/${kind}`;
 		if (first)
 			for (const value of values.values())
@@ -174,6 +189,7 @@ function readSlotMedia(
 						place,
 						slot: "unheld_itext",
 						itextRecipients: [itextRecipient(slot.owner, language)],
+						...inheritedAt(value === defaultValue),
 						languageCode: translation.attribs.lang,
 						role:
 							slot.owner.slot === "validate_msg"
@@ -192,6 +208,7 @@ function readSlotMedia(
 					place,
 					slot: "unheld_itext",
 					itextRecipients: [itextRecipient(slot.owner, language)],
+					...inheritedAt(value === defaultValue),
 				});
 			}
 			continue;
@@ -209,6 +226,7 @@ function readSlotMedia(
 			at.push(itextRecipient(slot.owner, language));
 			recipients.set(path, at);
 		}
+		const defaultPath = defaultValue && ownText(defaultValue).trim();
 		const paths = [...recipients.keys()];
 		const joined = paths.length === 1 ? undefined : oneAsset(ctx, paths);
 		// A language whose text holds no form of the kind, or no text, shows the form's default
@@ -240,6 +258,7 @@ function readSlotMedia(
 				ctx.facts.mediaReferences.push({
 					path: one,
 					itextRecipients: recipients.get(one),
+					...inheritedAt(one === defaultPath),
 					assetId: asset.assetId,
 					mediaKind: kind,
 					place,
@@ -264,6 +283,7 @@ function readSlotMedia(
 			mediaKind: kind,
 			resolution: resolution.kind,
 			itextRecipients: recipients.get(path),
+			...inheritedAt(path === defaultPath),
 			place,
 			slot: slotString(slot.media),
 		});
@@ -292,13 +312,7 @@ export function readMediaForms(ctx: ReadContext, form: ReadXForm): void {
 	const text = formText(form);
 	if (text === undefined) return;
 	for (const slot of text.slots) {
-		readSlotMedia(
-			ctx,
-			text.cursor,
-			slot,
-			text.itext.defaultLanguage,
-			form.parsed.scope,
-		);
+		readSlotMedia(ctx, text.cursor, slot, text.itext, form.parsed.scope);
 		if (emptyChoice(slot))
 			ctx.accounting.finding(
 				slot.owner.field.control?.tag === "select"
