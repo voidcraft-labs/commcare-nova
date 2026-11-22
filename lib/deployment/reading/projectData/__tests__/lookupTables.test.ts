@@ -50,7 +50,6 @@ import {
 } from "../index";
 import { broughtInLookupColumnId, broughtInLookupTableId } from "../lookupIds";
 import {
-	candidateLookupTags,
 	type HqLookupTableRead,
 	type LookupTableBinding,
 	type LookupTableStanding,
@@ -347,34 +346,6 @@ function choiceOf(standing: LookupTableStanding) {
 
 // ---------------------------------------------------------------------------
 
-describe("candidateLookupTags", () => {
-	const tables = (tags: readonly string[]) =>
-		tags.map((tag) => ({ ...plainTable, id: `${tag}-id`, tag }));
-
-	it("names a tag a form's instance source, a suite expression or a search prompt holds, in the list's order", () => {
-		const source = [
-			'<instance id="anything" src="jr://fixture/item-list:clinics"/>',
-			'"filter": "instance(\'item-list:districts\')/districts_list/districts"',
-			'"itemset": {"instance_uri": "jr://fixture/item-list:regions"}',
-		].join("\n");
-		expect(
-			candidateLookupTags(
-				source,
-				tables(["regions", "unused", "clinics", "districts"]),
-			),
-		).toEqual(["regions", "clinics", "districts"]);
-	});
-
-	it("names a tag that begins another's beside it", () => {
-		expect(
-			candidateLookupTags(
-				"jr://fixture/item-list:clinics_old",
-				tables(["clinics", "clinics_old"]),
-			),
-		).toEqual(["clinics", "clinics_old"]);
-	});
-});
-
 describe("columnLabelFor", () => {
 	it("keeps a name of 120 characters whole and cuts one of 121 and of 255 to 120", () => {
 		const at = "a".repeat(120);
@@ -533,18 +504,9 @@ describe("lookupTableFindings", () => {
 				"locations_ledgerdb",
 			],
 		]);
-		expect(tagged("clínicas")).toEqual([
-			[
-				"expressions-and-data/tag-or-field-name-with-non-ascii-letters",
-				"clínicas",
-			],
-		]);
-		expect(tagged("health.sites")).toEqual([
-			[
-				"expressions-and-data/tag-or-field-name-holding-a-period",
-				"health.sites",
-			],
-		]);
+		expect(tagged("clínicas")).toEqual([]);
+		expect(tagged("health.sites")).toEqual([]);
+		expect(tagged("名前")).toEqual([]);
 		expect(tagged("xmlsites")).toEqual([["unrecognized", "xmlsites"]]);
 	});
 
@@ -553,15 +515,7 @@ describe("lookupTableFindings", () => {
 			names(
 				lookupTableFindings(plain({ table: { fields }, rows: [] }), within),
 			);
-		expect(fielded(["code", "first.name"])).toEqual([
-			["expressions-and-data/tag-or-field-name-holding-a-period", "first.name"],
-		]);
-		expect(fielded(["code", "nombre_ñ"])).toEqual([
-			[
-				"expressions-and-data/tag-or-field-name-with-non-ascii-letters",
-				"nombre_ñ",
-			],
-		]);
+		expect(fielded(["code", "first.name", "nombre_ñ", "名前"])).toEqual([]);
 		expect(fielded(["code", "has space"])).toEqual([
 			["unrecognized", "has space"],
 		]);

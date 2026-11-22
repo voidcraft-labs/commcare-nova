@@ -101,8 +101,10 @@ keeps the read), the flat location list, and, where the source entry passes
 through a menu whose forms read the search, what the search found,
 `results:inline` (`lib/domain/entryDatumSupplies.ts`, `searchResults`). A Project table tag resolves
 through the authorized catalog into stable table and column identities;
-printing and emission derive its current name, the bare tag in a form and
-`item-list:<tag>` in a suite, and both spellings parse to the same read. A
+printing and emission derive the instance ID from the source. In a form an
+ordinary table uses its tag and a table sharing a runtime name uses
+`item-list:<tag>`. The suite uses the qualified name for all tables. An HQ
+form's own instance declaration binds its local ID to the fixture source. A
 loading catalog cannot establish that a table is missing.
 
 `formPathBinding.ts` types a `results:inline` row with no `@case_type` as the

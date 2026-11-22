@@ -1719,12 +1719,17 @@ def test_a_form_s_read_takes_its_scheme_from_its_id_or_from_the_source_it_declar
     declared = {
         "regions": "jr://fixture/item-list:regions",
         "groups": "jr://fixture/item-list:groups",
+        "item-list:places": "jr://fixture/locations",
+        "item-list:legacy": "jr://fixture/commtrack:locations",
         "locations": "jr://fixture/commtrack:locations",
         "casedb": "jr://instance/casedb",
         "plain": "jr://example/plain",
     }
     read = {instance_id: manifest_usage.read_scheme(manifest, instance_id, declared) for instance_id in declared}
-    assert read == {"regions": "item-list", "groups": "item-list", "locations": "locations", "casedb": "casedb", "plain": "plain"}
+    assert read == {
+        "regions": "item-list", "groups": "item-list", "locations": "locations", "casedb": "casedb",
+        "item-list:places": "locations", "item-list:legacy": "commtrack", "plain": "plain",
+    }
     assert manifest_usage.read_scheme(manifest, "regions", {}) == "regions"
 
 

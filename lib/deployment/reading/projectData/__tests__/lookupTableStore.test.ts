@@ -59,9 +59,6 @@ function serveStatus(
 		.reply(status, "Unavailable");
 }
 
-const SOURCE =
-	'<instance id="a" src="jr://fixture/item-list:plain"/> instance(\'item-list:rich\')';
-
 function calls(peer: MockAgent): readonly string[] {
 	return (
 		peer
@@ -88,7 +85,7 @@ describe("readHqLookupTablesForReading", () => {
 			const answer = await readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: SOURCE,
+				referencedTags: async () => new Set(["plain", "rich"]),
 			});
 			if ("success" in answer) throw new Error("the read failed");
 			expect(
@@ -127,7 +124,7 @@ describe("readHqLookupTablesForReading", () => {
 			const answer = await readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: "jr://fixture/item-list:long",
+				referencedTags: async () => new Set(["long"]),
 			});
 			if ("success" in answer) throw new Error("the read failed");
 			expect(answer.tables).toEqual([
@@ -144,7 +141,7 @@ describe("readHqLookupTablesForReading", () => {
 	const plainOnly = {
 		creds: CREDS,
 		domain: "clinic",
-		sourceText: "item-list:plain",
+		referencedTags: async () => new Set(["plain"]),
 	};
 
 	it("sends a row read CommCare HQ did not answer once more, and reads the rows the second time", async () => {

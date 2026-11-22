@@ -6,11 +6,16 @@ itemset supply the referenced tags. The authorized lookup table list supplies th
 
 from __future__ import annotations
 
+from lxml import etree
+
 from proof.checks import observations
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import instance_scheme
 
 ALIAS_ENTRY = "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns"
+DOTTED_ENTRY = "expressions-and-data/tag-or-field-name-holding-a-period"
+UNICODE_ENTRY = "expressions-and-data/tag-or-field-name-with-non-ascii-letters"
+RESOURCE_ENTRIES = {ALIAS_ENTRY, DOTTED_ENTRY, UNICODE_ENTRY}
 ARTIFACT = "lookup-tables"
 
 
@@ -23,49 +28,125 @@ def resource_entries(manifest, table):
         or manifest.item(f"instance-scheme:{instance_scheme(tag.lower())}") is not None
     ):
         yield "lookup-model:LookupTable.tag", f"/{pointer_token(tag)}/tag", ALIAS_ENTRY
+    names = [(tag, "lookup-model:LookupTable.tag", "tag")]
+    names.extend(
+        (
+            field["field_name"],
+            "lookup-model:TypeField.name",
+            f"fields/{index}/field_name",
+        )
+        for index, field in enumerate(table["fields"])
+    )
+    for name, key, member in names:
+        if not name.isascii():
+            yield key, f"/{pointer_token(tag)}/{member}", UNICODE_ENTRY
+        elif "." in name:
+            yield key, f"/{pointer_token(tag)}/{member}", DOTTED_ENTRY
+
+
+def _objects(document, answer, resource):
+    """None for an observed refusal; an absent, malformed or partial success cannot settle this use."""
+    if not isinstance(answer, dict):
+        raise observations.RecordIncomplete(f"{document}'s authored read lacks {resource}.")
+    if not isinstance(answer.get("status"), int):
+        raise observations.RecordIncomplete(f"{document}'s authored read lacks a status for {resource}.")
+    if answer["status"] != 200:
+        return None
+    body = observations.answer_json(answer)
+    if not isinstance(body, dict) or not isinstance(body.get("objects"), list):
+        raise observations.RecordIncomplete(f"{document}'s authored read lacks {resource} objects.")
+    meta = body.get("meta", {})
+    if meta.get("next") or len(body["objects"]) != meta.get("total_count", len(body["objects"])):
+        raise observations.RecordIncomplete(f"{document}'s authored read lacks all pages of {resource}.")
+    return body["objects"]
+
+
+def _hq_name(name, limit):
+    if not isinstance(name, str) or not name or len(name) > limit or name.startswith("xml") or ":" in name:
+        return False
+    try:
+        return etree.QName(name).localname == name
+    except ValueError:
+        return False
+
+
+def _held_definition(table):
+    """The storage, scope, shape and name preconditions of a Project lookup definition."""
+    tag = table["tag"]
+    fields = table.get("fields", [])
+    names = [field["field_name"] for field in fields]
+    return (
+        _hq_name(tag, 32)
+        and tag.lower() != "types"
+        and not any(word in tag for word in ("casedb", "ledgerdb"))
+        and table.get("is_global") is True
+        and not table.get("item_attributes")
+        and 0 < len(fields) <= 250
+        and len(set(names)) == len(names)
+        and all(_hq_name(name, 255) for name in names)
+        and not any(field.get("properties") for field in fields)
+    )
+
+
+def _held_rows(document, table, observations_by_tag):
+    tag = table["tag"]
+    rows = _objects(document, observations_by_tag.get(tag), f"{tag} rows")
+    if rows is None or len(rows) > 5000:
+        return False
+    for row in rows:
+        for field in row["fields"].values():
+            if isinstance(field, dict):
+                values = field.get("field_list", [])
+                if len(values) != 1:
+                    return False
+                field = values[0]["field_value"]
+            if not isinstance(field, str) or len(field.encode("utf-8", errors="surrogatepass")) > 65536:
+                return False
+            try:
+                etree.Element("value").text = field
+            except (ValueError, UnicodeEncodeError):
+                return False
+    return True
 
 
 def differences(document, manifest, tags, reads, claims):
-    """A referenced resource must receive exactly its observed name-class claim."""
+    """A referenced and admissible resource receives exactly its observed name-class claims."""
     data = reads.get("projectData", {})
-    listing = data.get("lookupTables")
-    if listing is None:
-        if tags:
-            raise observations.RecordIncomplete(
-                f"{document}'s authored read lacks the lookup definition list."
-            )
-        definitions = []
-    else:
-        body = observations.answer_json(listing)
-        if (
-            listing.get("status") != 200
-            or not isinstance(body, dict)
-            or not isinstance(body.get("objects"), list)
-        ):
-            if tags:
-                raise observations.RecordIncomplete(
-                    f"{document}'s authored read lacks a successful lookup definition list."
-                )
-            definitions = []
-        else:
-            definitions = body["objects"]
+    definitions = _objects(document, data.get("lookupTables"), "the lookup definition list") if tags else []
+    references = [table for table in definitions or [] if table["tag"] in tags]
+    row_reads = data.get("fixtureRows", {})
+    # A permission or availability failure while fetching any referenced table stops the whole request.
+    # A repeatable 500 from HQ itself is attributed to that table's rows by the production transport.
+    accessible = True
+    for table in references:
+        answer = row_reads.get(table["tag"])
+        if not isinstance(answer, dict) or not isinstance(answer.get("status"), int):
+            raise observations.RecordIncomplete(f"{document}'s authored read lacks {table['tag']} rows.")
+        status = answer["status"]
+        if status != 200 and (status < 500 or status in (502, 503, 504)):
+            accessible = False
     expected = {
         (where, entry): key
-        for table in definitions
-        if table["tag"] in tags
+        for table in references
+        if accessible and _held_definition(table) and _held_rows(document, table, row_reads)
         for key, where, entry in resource_entries(manifest, table)
     }
     actual = {
         (record.where, record.entry): record.standing
         for record in claims
-        if record.artifact == ARTIFACT and record.entry == ALIAS_ENTRY
+        if record.artifact == ARTIFACT and record.entry in RESOURCE_ENTRIES
     }
     found = []
     for where, entry in sorted(expected.keys() | actual.keys()):
         pair = (where, entry)
         if pair in expected and actual.get(pair) == "held":
             continue
-        key = expected.get(pair, "lookup-model:LookupTable.tag")
+        key = expected.get(
+            pair,
+            "lookup-model:TypeField.name"
+            if where.endswith("/field_name")
+            else "lookup-model:LookupTable.tag",
+        )
         what = (
             "unseen"
             if pair not in expected

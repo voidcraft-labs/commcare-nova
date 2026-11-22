@@ -33,6 +33,7 @@ import {
 import { formRecordScope } from "@/lib/domain/formRecordScope";
 import {
 	caseReferenceText,
+	HASHTAG_SEGMENT_SOURCE,
 	readCaseReference,
 } from "@/lib/domain/hashtagSegments";
 import { isSearchOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
@@ -43,6 +44,8 @@ import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
 import { fieldNameCandidates, fieldPathCandidates } from "./fieldNames";
 import type { QueryPrintContext } from "./printQueryExpression";
 import type { QueryBindings } from "./queryExpressions";
+
+const hashtagSegment = new RegExp(`^${HASHTAG_SEGMENT_SOURCE}$`);
 
 export interface NamedAuthoringField {
 	uuid: Uuid;
@@ -622,7 +625,7 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			const column = this.table(term.tableId).columns.find(
 				(column) => column.id === term.columnId,
 			);
-			if (column) {
+			if (column && hashtagSegment.test(column.wireName)) {
 				try {
 					if (
 						this.column(this.table(term.tableId), column.wireName).id ===

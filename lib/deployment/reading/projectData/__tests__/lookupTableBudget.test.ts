@@ -46,8 +46,6 @@ const LOOKUPS = path.join(process.cwd(), "proof/hq-reads/lookups");
 const LIST = "/a/clinic/api/lookup_table/v1/?limit=1000";
 const PLAIN_ID = "09948f8373da4c86a86b7707a0e9fbcd";
 const RICH_ID = "9ea70d486f644cc4a2f22c063294e197";
-const SOURCE =
-	'<instance id="a" src="jr://fixture/item-list:plain"/> instance(\'item-list:rich\')';
 
 function retained(name: string): {
 	readonly status: number;
@@ -91,7 +89,7 @@ describe("a bring-in's lookup rows", () => {
 			return readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: SOURCE,
+				referencedTags: async () => new Set(["plain", "rich"]),
 			});
 		});
 		if ("success" in answer) throw new Error("the read failed");
@@ -121,7 +119,7 @@ describe("a bring-in's lookup rows", () => {
 			return readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: "clinic",
-				sourceText: SOURCE,
+				referencedTags: async () => new Set(["plain", "rich"]),
 			});
 		});
 		expect(answer).toEqual({

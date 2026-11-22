@@ -160,6 +160,7 @@
 	],
 	"hq-languages": [],
 	"hq-lookup-aliases": [],
+	"hq-lookup-names": [],
 	"hq-lookups": ["hq-lookups/itemset-copy"],
 	"hq-media": [
 		"hq-media/form-media-for-every-language",

@@ -36,8 +36,10 @@ import { type AppDatabase, withAppTx } from "./pg";
  * that needs a parent case, which asks for it before its screen only
  * where Core does, goes on at the parent's row unless the datum it chooses
  * for names a details screen, and lets every case chosen after a screen go
- * when Back returns to it, so the walk past it asks for the parent again. */
-export const RUNTIME_VERSION = 19;
+ * when Back returns to it, so the walk past it asks for the parent again.
+ * Version 20 isolates lookup fixtures from other data sources with the same
+ * name when a form resolves table rows and choices. */
+export const RUNTIME_VERSION = 20;
 const MAX_STEPS = 200;
 const MAX_ACTIVE_TESTS = 8;
 type JsonRecord = Record<string, unknown>;

@@ -11,10 +11,17 @@ import type {
 	LookupRowId,
 	LookupTableId,
 } from "@/lib/domain/lookupIds";
+import {
+	isPortableNameContinuation,
+	isPortableNameStart,
+} from "@/lib/domain/portableName";
 import { coerceLookupCell } from "@/lib/lookup/coercion";
 import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
+	LOOKUP_MAX_TAG_LENGTH,
+	LOOKUP_MAX_WIRE_NAME_LENGTH,
+	RESERVED_INSTANCE_TAG_WORD_SPELLING,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes, formatLookupCount } from "@/lib/lookup/format";
 import { compareLookupRevisions } from "@/lib/lookup/schema";
@@ -95,29 +102,40 @@ export function rowAdditionRefusal(
 	return undefined;
 }
 
-/**
- * A legal export name derived from a human label.
- *
- * A suggestion, never an imposition: the field stays editable and stops
- * tracking the label the moment the author types in it. The rule is
- * `LOOKUP_WIRE_IDENTIFIER_PATTERN`: an unaccented letter or underscore, then
- * letters, digits, underscores and hyphens, plus the boundary's refusal of a
- * lowercase `xml` start. The suggestion keeps to lowercase words joined by
- * underscores, so it is one the server will accept rather than one it will
- * bounce.
- */
-export function suggestWireName(label: string): string {
-	const ascii = label
-		.normalize("NFKD")
-		/* Strip combining marks so "Établissement" suggests "etablissement"
-		 * rather than losing the whole first letter. */
-		.replace(/\p{Diacritic}/gu, "")
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "_")
+/** Suggest a name workers' expressions can read. The author can edit the
+ * suggestion, and a deliberately chosen name is stored as entered. */
+export function suggestWireName(
+	label: string,
+	kind: "tag" | "column" = "column",
+): string {
+	const words = Array.from(label.toLowerCase().normalize("NFC"), (char) => {
+		if (
+			isPortableNameContinuation(char.charCodeAt(0)) &&
+			char !== "-" &&
+			char !== "."
+		)
+			return char;
+		// Keep distinct letters in scripts without case distinguishable when
+		// workers cannot read those letters directly in an expression.
+		return /\p{L}/u.test(char)
+			? `_u${char.codePointAt(0)?.toString(16)}_`
+			: "_";
+	})
+		.join("")
+		.replace(/_+/g, "_")
 		.replace(/^_+|_+$/g, "");
-	if (ascii === "") return "";
-	const led = /^[a-z_]/.test(ascii) ? ascii : `c_${ascii}`;
-	return /^xml/i.test(led) ? `c_${led}` : led;
+	if (words === "") return "";
+	let name =
+		isPortableNameStart(words.charCodeAt(0)) && !words.startsWith("xml")
+			? words
+			: `c_${words}`;
+	if (kind === "column") return name.slice(0, LOOKUP_MAX_WIRE_NAME_LENGTH);
+	for (const [reserved, spelling] of Object.entries(
+		RESERVED_INSTANCE_TAG_WORD_SPELLING,
+	)) {
+		name = name.replaceAll(reserved, spelling);
+	}
+	return name.slice(0, LOOKUP_MAX_TAG_LENGTH);
 }
 
 /** The author-facing name of a column's type, in the workspace's vocabulary. */

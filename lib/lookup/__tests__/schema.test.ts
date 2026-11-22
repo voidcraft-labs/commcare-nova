@@ -1,6 +1,4 @@
-import fc from "fast-check";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { HASHTAG_SEGMENT_SOURCE } from "@/lib/domain/hashtagSegments";
 import {
 	type LookupColumnId,
 	type LookupRowId,
@@ -109,67 +107,40 @@ describe("lookup identity schemas", () => {
 		).toBe(false);
 	});
 
-	it("pins table tags and column wire names to the Nova wire grammar", () => {
-		for (const value of ["patients", "Patient_2026", "_private"]) {
+	it("stores unqualified XML names verbatim and counts Unicode scalars at the HQ length limit", () => {
+		for (const value of [
+			"Patient_2026",
+			"_private",
+			"health-facility.v2",
+			"clínicas",
+			"名前",
+			"nai\u0308ve",
+			"XMLcode",
+			"𐀀",
+		]) {
 			expect(lookupTagSchema.parse(value)).toBe(value);
-			expect(lookupWireNameSchema.parse(value)).toBe(value);
-		}
-		// The same lists the migration's own test inserts, so the schema and
-		// the database checks agree on every one.
-		for (const value of ["health-facility-v2", "XMLcodes", "a-b_c"]) {
-			expect(lookupTagSchema.parse(value)).toBe(value);
-		}
-		for (const value of ["geo-lat", "XMLcode", "xMl_column"]) {
 			expect(lookupWireNameSchema.parse(value)).toBe(value);
 		}
 		for (const value of [
-			"health-facility.v2",
-			"geo.lat",
-			"xmlcodes",
 			"xml",
+			"xmlcodes",
 			"1a",
 			"-a",
+			".a",
 			"a b",
-			"ñ",
 			"",
+			"a:b",
+			"{urn:x}a",
+			"\ud800",
+			"a\n",
 		]) {
 			expect(lookupTagSchema.safeParse(value).success).toBe(false);
 			expect(lookupWireNameSchema.safeParse(value).success).toBe(false);
 		}
-		expect(lookupTagSchema.safeParse("a".repeat(33)).success).toBe(false);
-		expect(lookupWireNameSchema.safeParse("a".repeat(256)).success).toBe(false);
-	});
-
-	it("says what a name may hold, and that only a lowercase xml start is CommCare HQ's", () => {
-		expect(
-			lookupTagSchema.safeParse("geo.lat").error?.issues.map((i) => i.message),
-		).toEqual([
-			"Table tag starts with a letter or an underscore, then holds only unaccented letters, digits, underscores and hyphens.",
-		]);
-		expect(
-			lookupWireNameSchema
-				.safeParse("xmlcode")
-				.error?.issues.map((i) => i.message),
-		).toEqual([
-			'Column wire name can\'t start with lowercase "xml", which CommCare HQ keeps for itself. A capital first letter works.',
-		]);
-	});
-
-	it("admits only wire names that are one hashtag segment, so #row/<wireName> is always one reference", () => {
-		const segment = new RegExp(`^${HASHTAG_SEGMENT_SOURCE}$`);
-		const nameCharacter = fc.constantFrom(..."abcXYZ019_-.é ".split(""));
-		fc.assert(
-			fc.property(
-				fc.array(nameCharacter, { minLength: 1, maxLength: 12 }),
-				(characters) => {
-					const name = characters.join("");
-					if (lookupWireNameSchema.safeParse(name).success) {
-						expect(segment.test(name)).toBe(true);
-					}
-				},
-			),
-			{ seed: 20261113, numRuns: 500 },
-		);
+		expect(lookupTagSchema.safeParse("𐀀".repeat(32)).success).toBe(true);
+		expect(lookupTagSchema.safeParse("𐀀".repeat(33)).success).toBe(false);
+		expect(lookupWireNameSchema.safeParse("𐀀".repeat(255)).success).toBe(true);
+		expect(lookupWireNameSchema.safeParse("𐀀".repeat(256)).success).toBe(false);
 	});
 
 	it("accepts only nonempty canonical base-62 order keys", () => {

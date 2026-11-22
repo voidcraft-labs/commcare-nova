@@ -11,11 +11,13 @@ import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
+import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { casePropertyStep } from "../../xpath/wire/rowScope";
 import type { Accounting } from "../accounting";
-import { readFormSyntax } from "../syntaxRead";
+import { lookupNameRefusal } from "../lookupNames";
+import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
 import type { ReaderLookupCatalog, UnreadTable } from "../types";
 import { ownText, type XmlCursor, type XmlNode } from "../xmlCursor";
 import type { ControlNode } from "./body";
@@ -23,9 +25,6 @@ import { X } from "./claims";
 import { sameTree } from "./generated";
 import type { DraftField } from "./index";
 import type { ParsedXForm } from "./parse";
-
-/** The lookup tables' instance source, `jr://fixture/item-list:<tag>`. */
-const ITEM_LIST_SOURCE = "jr://fixture/item-list:";
 
 /** A select's case choices as the form stage proposes them, decided once the filter is bound. */
 export interface CaseChoicesProposal {
@@ -207,7 +206,7 @@ function instanceChain(node: FormSyntax):
 
 /** A ref that is one name step: the column's or the property's name. */
 function singleName(text: string): string | undefined {
-	const read = readFormSyntax(text);
+	const read = readStoredNameSyntax(text);
 	if (!read.ok || read.node?.kind !== "name" || read.node.wildcard)
 		return undefined;
 	return read.node.name;
@@ -272,7 +271,7 @@ function readItemset(
 		return undefined;
 	}
 	const nodeset = plain(itemset, "nodeset") ?? "";
-	const read = readFormSyntax(nodeset);
+	const read = readStoredNameSyntax(nodeset);
 	const chain =
 		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
 	const labelRef = plain(label, "ref") ?? "";
@@ -287,10 +286,11 @@ function readItemset(
 
 	// A lookup table: instance(id)/<tag>_list/<tag>, with at most one predicate.
 	const tag = chain.steps[1];
+	const lookupId =
+		source === undefined ? chain.id : canonicalInstanceId(source);
 	if (
-		source?.startsWith(ITEM_LIST_SOURCE) &&
 		tag !== undefined &&
-		source.slice(ITEM_LIST_SOURCE.length) === tag &&
+		lookupId === `item-list:${tag}` &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === `${tag}_list` &&
 		chain.predicates.length <= 1
@@ -333,6 +333,17 @@ function readItemset(
 				reason: "parse:unknown-column",
 			});
 			return undefined;
+		}
+		for (const [name, part, at] of [
+			[tag, "tag", { element: itemset, attribute: "nodeset" }],
+			[labelName, "column", refOf(label)],
+			[valueName, "column", refOf(value)],
+		] as const) {
+			const refusal = lookupNameRefusal(name, "lookup_options_source", part);
+			if (refusal !== undefined) {
+				cursor.refuseSubtreeAt(itemset, at, refusal.claim, place, { name });
+				return undefined;
+			}
 		}
 		const sites = X.lookupItemset;
 		const refs = X.lookupRefs;

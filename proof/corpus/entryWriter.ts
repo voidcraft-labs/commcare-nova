@@ -137,6 +137,7 @@ import {
 	LOCAL_CONFIGURATION,
 	OPERATION_ORDINALS,
 } from "./entropy.mts";
+import { fixtureRowsFilename } from "./fixtureRowsFilename";
 import { type Footprint, wireLanguages, wireLayout } from "./footprint";
 import {
 	EMPTY_LIST_TEXT_ARCHIVE,
@@ -963,7 +964,7 @@ type ServedFieldValue =
  * holds them before Nova's first publish over A (`PublishInput.hqTables`):
  * each table HQ's table list answered (`lookup-tables.json`), under the id
  * HQ gave it, with its rows as HQ's rows read answered them
- * (`fixture-rows-<tag>.json`) where the base retains that read, and its
+ * (`fixtureRowsFilename`) where the base retains that read, and its
  * description and each row's attributes as HQ's models hold them
  * (`tables.json`). A table whose rows no reading asked for holds none here,
  * and no publish over A reads them.
@@ -995,7 +996,7 @@ async function retainedPeerTables(retained: string): Promise<PeerTable[]> {
 	const tables: PeerTable[] = [];
 	for (const table of list.objects ?? []) {
 		const model = modelled.find((one) => one.tag === table.tag);
-		const rowsPath = join(retained, `fixture-rows-${table.tag}.json`);
+		const rowsPath = join(retained, fixtureRowsFilename(table.tag));
 		const served = existsSync(rowsPath)
 			? ((
 					(await retainedBody(rowsPath)) as {

@@ -15,6 +15,7 @@
  */
 
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import type { SlotProfile } from "@/lib/domain/expression/profiles";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupColumn, LookupTableDefinition } from "@/lib/lookup/types";
 
@@ -61,6 +62,14 @@ export function lookupXformInstanceId(tag: string): string {
 	return runtimeInstanceIds.has(id) || id.includes("selected_cases")
 		? lookupFixtureId(tag)
 		: tag;
+}
+
+/** A session expression reads the suite's fixture, while form logic reads
+ * the instance declared inside that form. */
+export function lookupInstanceIdForScope(
+	scope: SlotProfile["scope"],
+): (tag: string) => string {
+	return scope === "session" ? lookupFixtureId : lookupXformInstanceId;
 }
 
 /**

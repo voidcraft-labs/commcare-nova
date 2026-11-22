@@ -94,7 +94,7 @@ function invalidInput(error: ZodError): LookupFailure {
 	return {
 		success: false,
 		code: "invalid_input",
-		message: "Some lookup-table input is invalid.",
+		message: error.issues[0]?.message ?? "Some lookup-table input is invalid.",
 		details,
 		totalDetailCount: error.issues.length,
 	};

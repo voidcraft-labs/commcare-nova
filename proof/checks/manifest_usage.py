@@ -1488,24 +1488,22 @@ def _preset_sources(manifest):
 
 
 def read_scheme(manifest, instance_id, declared):
-    """The scheme of an instance a form's expression reads: its id's (``instance_scheme``), where HQ registers that
-    scheme; else, where the form declares the id from a source one of HQ's factories writes, the name that factory
-    declares that source under (``SOURCE_NAMES``, a preset's own id), as HQ's build keeps the form's own declaration
-    of an id it has no factory for (``XForm.add_missing_instances``) and Nova's reader classes the read by the
-    declared source; else the id's."""
+    """The declaration kept by XForm.add_missing_instances, or HQ's implicit factory for an undeclared id."""
     scheme = instance_scheme(instance_id)
     src = declared.get(instance_id)
-    # XForm.add_missing_instances only inserts an absent id. A declared lookup source wins even
-    # when its local alias has a registered scheme of its own.
-    if src and src.startswith("jr://fixture/item-list:"):
-        return "item-list"
-    if f"instance-scheme:{scheme}" in manifest.items or not src:
+    if not src:
         return scheme
+    # HQ's locations factory and its generic commtrack factory can supply the same hierarchical tree.
+    if instance_id == "locations" and src == "jr://fixture/commtrack:locations":
+        return "locations"
     named = _preset_sources(manifest).get(src)
     for prefix, spelled in SOURCE_NAMES:
         if named is None and src.startswith(prefix) and len(src) > len(prefix):
             named = spelled + src[len(prefix) :]
-    return scheme if named is None else instance_scheme(named)
+    if named is not None and f"instance-scheme:{instance_scheme(named)}" in manifest.items:
+        return instance_scheme(named)
+    return scheme
+
 
 
 def _instance_uses(document, manifest, artifact, found, *, schemes):

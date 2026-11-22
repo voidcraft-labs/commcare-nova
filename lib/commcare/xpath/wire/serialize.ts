@@ -1,5 +1,7 @@
 import { decodeHTML } from "entities";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { isPortableName } from "@/lib/domain/portableName";
+import { hasInterpolatedNamePeriod } from "@/lib/lookup/pathNames";
 import { instanceScanCuts } from "../../hqInstanceScan";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { chargeWork } from "../../workMeter";
@@ -17,15 +19,6 @@ import type {
 
 // These examine literal VALUES, never XPath structure.
 const INTERPOLATION_LITERAL = /#(?:user|session\/|case|parent|host)/gu;
-// localName from grammar.lezer.grammar. Endpoint arguments are generated datum
-// identities, never an authored arbitrary variable or a qualified name.
-const NAME_START =
-	"A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
-const ENDPOINT_ARGUMENT_NAME = new RegExp(
-	`^[${NAME_START}][${NAME_START}0-9.\\-\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$`,
-	"u",
-);
-
 /** Python html.unescape has the HTML5 named table but drops certain numeric
  * references that browser decoders retain. Read each original reference once,
  * as Python does: a decoded ampersand never begins another decoding pass. */
@@ -277,6 +270,17 @@ export function serializeWire(
 				"An HQ enum key may use a self placeholder, but cannot contain a parent step.",
 			);
 		}
+		if (
+			mode.target === "hq-json" &&
+			(dotInterpolated || mode.interpolation === "enum-key") &&
+			node.steps.some(
+				(step) =>
+					(step.axis === "child" || step.axis === "attribute") &&
+					step.name !== undefined &&
+					hasInterpolatedNamePeriod(step.name),
+			)
+		)
+			throw new Error("CommCare HQ would replace a period in this path step.");
 		let root: string;
 		switch (node.root.k) {
 			case "form":
@@ -412,7 +416,7 @@ export function serializeWire(
 				result = `$nova_text_${node.index.toString(10).padStart(10, "0")}`;
 				break;
 			case "endpoint-argument-var":
-				if (!ENDPOINT_ARGUMENT_NAME.test(node.name))
+				if (!isPortableName(node.name))
 					throw new Error(
 						"A generated endpoint argument must have an XPath local name.",
 					);

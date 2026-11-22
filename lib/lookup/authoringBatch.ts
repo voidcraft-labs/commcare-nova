@@ -17,7 +17,9 @@ import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
+import { hasLookupDesignProtection } from "./designProtection";
 import { LookupError } from "./errors";
+import { assertLookupRenamesAllowed } from "./nameGovernance";
 import { balancedKeysBetween, deriveKeyAtIndex } from "./orderKeys";
 import {
 	lookupColumnDraftSchema,
@@ -514,40 +516,6 @@ function sameValues(left: LookupRowValues, right: LookupRowValues): boolean {
 	);
 }
 
-async function hasTableProtection(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	tableId: LookupTableId,
-): Promise<boolean> {
-	return (
-		(await tx
-			.selectFrom("design_lookup_protections")
-			.select("id")
-			.where("project_id", "=", projectId)
-			.where("table_id", "=", tableId)
-			.executeTakeFirst()) !== undefined
-	);
-}
-
-async function hasColumnProtection(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	tableId: LookupTableId,
-	columnId: LookupColumnId,
-): Promise<boolean> {
-	return (
-		(await tx
-			.selectFrom("design_lookup_protections")
-			.select("id")
-			.where("project_id", "=", projectId)
-			.where("table_id", "=", tableId)
-			.where((eb) =>
-				eb.or([eb("column_id", "is", null), eb("column_id", "=", columnId)]),
-			)
-			.executeTakeFirst()) !== undefined
-	);
-}
-
 async function blockingAppsFor(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
@@ -588,7 +556,7 @@ async function assertTableRemovable(
 	projectId: string,
 	tableId: LookupTableId,
 ): Promise<void> {
-	if (await hasTableProtection(tx, projectId, tableId))
+	if (await hasLookupDesignProtection(tx, projectId, tableId))
 		acceptedDesignDependency();
 	const blockingApps = await blockingAppsFor(tx, projectId, tableId);
 	if (blockingApps.length > 0) referenced(blockingApps);
@@ -600,7 +568,7 @@ async function assertColumnDestructiveChangeAllowed(
 	tableId: LookupTableId,
 	columnId: LookupColumnId,
 ): Promise<void> {
-	if (await hasColumnProtection(tx, projectId, tableId, columnId)) {
+	if (await hasLookupDesignProtection(tx, projectId, tableId, columnId)) {
 		acceptedDesignDependency();
 	}
 	const blockingApps = await blockingAppsFor(tx, projectId, tableId, columnId);
@@ -1320,7 +1288,19 @@ export async function applyLookupAuthoringBatchInTransaction(
 				.execute();
 			work.definitionChanged = true;
 		}
+		const previousNames = new Map(
+			work.columns.map((column) => [column.id, column.wireName]),
+		);
 		const columnKeys = await applyColumnOperations(tx, scope, work);
+		await assertLookupRenamesAllowed(tx, scope.projectId, work.input.tableId, [
+			...(tag !== work.table.tag ? [{ name: tag }] : []),
+			...work.columns.flatMap((column) => {
+				const before = previousNames.get(column.id);
+				return before !== undefined && before !== column.wireName
+					? [{ columnId: column.id, name: column.wireName }]
+					: [];
+			}),
+		]);
 		await applyRowOperations(tx, scope, work, columnKeys);
 		changed ||= work.definitionChanged || work.rowsChanged;
 	}

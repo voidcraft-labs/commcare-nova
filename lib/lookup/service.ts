@@ -30,6 +30,7 @@ import { LookupError } from "./errors";
 import { readLookupFixtureDataInTransaction } from "./fixtureSnapshot";
 import { formatLookupBytes, formatLookupCount } from "./format";
 import { lookupHqOriginOf, lookupManifestHqOriginOf } from "./managedRules";
+import { assertLookupRenamesAllowed } from "./nameGovernance";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
@@ -931,6 +932,9 @@ export async function updateLookupTableTag(
 					"That table tag is already used in this Project.",
 				);
 			}
+			await assertLookupRenamesAllowed(tx, scope.projectId, parsed.tableId, [
+				{ name: parsed.tag },
+			]);
 			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
 			const updated = await updateLockedTable(
 				tx,
@@ -1090,6 +1094,9 @@ async function updateLookupColumnProjection(
 						"That column wire name is already used in this table.",
 					);
 				}
+				await assertLookupRenamesAllowed(tx, scope.projectId, input.tableId, [
+					{ columnId: input.columnId, name: value },
+				]);
 			}
 			const update = tx
 				.updateTable("lookup_columns")

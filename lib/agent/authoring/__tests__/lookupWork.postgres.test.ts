@@ -31,11 +31,11 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 	const args = { actorUserId, host, workId: begun.workId };
 	const input = {
 		name: "Venues",
-		tag: "venues",
+		tag: "locations",
 		columns: [
 			{
 				key: "name",
-				wireName: "name",
+				wireName: "région.2",
 				label: "Venue",
 				dataType: "text" as const,
 			},
@@ -64,7 +64,16 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 		await executeWorkTool({ ...args, toolName: "getLookupTables", input: {} }),
 	).toMatchObject({
 		kind: "read",
-		data: { tables: [{ id: receipt.tableId, name: "Venues" }] },
+		data: {
+			tables: [
+				{
+					id: receipt.tableId,
+					name: "Venues",
+					tag: "locations",
+					columns: [{ id: receipt.columns[0].columnId, wireName: "région.2" }],
+				},
+			],
+		},
 	});
 	const updated = await executeWorkTool({
 		...args,
@@ -74,6 +83,7 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 			tableId: receipt.tableId,
 			expectedTableRevision: receipt.revisions.tableRevision,
 			name: "Outreach venues",
+			tag: "régions.2",
 		},
 	});
 	expect(updated).toMatchObject({
@@ -84,7 +94,11 @@ it("authors Project tables through new MCP work before app birth and reauthorize
 		await executeWorkTool({ ...args, toolName: "getLookupTables", input: {} }),
 	).toMatchObject({
 		kind: "read",
-		data: { tables: [{ id: receipt.tableId, name: "Outreach venues" }] },
+		data: {
+			tables: [
+				{ id: receipt.tableId, name: "Outreach venues", tag: "régions.2" },
+			],
+		},
 	});
 	expect(
 		await executeWorkTool({

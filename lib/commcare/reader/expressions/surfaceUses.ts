@@ -240,6 +240,8 @@ const NO_FACTS: SurfaceUseFacts = {
  *  the id as written. */
 function classedInstanceId(id: string, facts: SurfaceUseFacts): string {
 	const source = facts.instanceSources.get(id);
+	if (source === "jr://fixture/commtrack:locations")
+		return id === "locations" ? id : "commtrack:locations";
 	return (source === undefined ? undefined : canonicalInstanceId(source)) ?? id;
 }
 
@@ -298,7 +300,10 @@ function instanceClass(
 				? "typed-lookup-carrier"
 				: "other-expression";
 		case "locations":
-			return "flat-locations";
+			return facts.instanceSources.get(id) ===
+				"jr://fixture/commtrack:locations"
+				? "hierarchical-locations"
+				: "flat-locations";
 		case "commtrack":
 			return id === "commtrack:locations"
 				? "hierarchical-locations"
@@ -908,8 +913,13 @@ export function instanceIdsRead(text: string): readonly string[] {
 		return [];
 	}
 	if (!read.ok || read.node === undefined) return [];
+	return instanceIdsIn(read.node);
+}
+
+/** Every literal instance id in an already parsed XPath expression. */
+export function instanceIdsIn(syntax: FormSyntax): readonly string[] {
 	const ids: string[] = [];
-	visitSyntax(read.node, (node) => {
+	visitSyntax(syntax, (node) => {
 		if (node.kind !== "call" || node.name !== "instance") return;
 		const first = node.args[0] === undefined ? undefined : bare(node.args[0]);
 		if (first?.kind === "string") ids.push(first.value);

@@ -423,7 +423,7 @@ describe("persisted JSON source boundaries", () => {
 
 		for (const relative of [
 			"lib/db/canonicalCommitKernel.ts",
-			"lib/db/mediaDeletion.ts",
+			"lib/db/persistedReferenceApps.ts",
 			"scripts/lib/persistedLookupReferenceScan.ts",
 		]) {
 			const source = readFileSync(path.join(root, relative), "utf8");

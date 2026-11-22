@@ -62,12 +62,29 @@ function serveJson(peer: MockAgent, requestPath: string, body: unknown): void {
 }
 
 /** A retained source CommCare HQ served, with `note` added to its body. */
-async function sourceNoting(note: string): Promise<HqAppSource> {
+async function sourceNoting(
+	note: string,
+	condition?: string,
+	declarations = "",
+): Promise<HqAppSource> {
+	const body = retainedSourceBody(
+		"navigation-base/app-source-after-form-settings-save",
+	);
+	const forms = body._attachments as Record<string, string>;
+	const [first] = Object.keys(forms);
 	return sourceFromBody({
-		...retainedSourceBody(
-			"navigation-base/app-source-after-form-settings-save",
-		),
+		...body,
 		note,
+		_attachments: {
+			...forms,
+			[first]:
+				condition === undefined
+					? forms[first]
+					: forms[first].replace(
+							"<bind ",
+							`${declarations}<bind relevant="${condition}" `,
+						),
+		},
 	});
 }
 
@@ -108,7 +125,10 @@ describe("readReadingProjectData", () => {
 			fields: { code: "001" },
 			resource_uri: "",
 		};
-		const source = await sourceNoting("instance('item-list:__proto__')");
+		const source = await sourceNoting(
+			"instance('item-list:unrelated')",
+			"count(instance('item-list:__proto__')/__proto___list/__proto__) > 0",
+		);
 		const answer = await withHttpPeer(async (peer) => {
 			serveJson(peer, LIST, {
 				meta: { limit: 100, next: null, offset: 0, total_count: 1 },
@@ -136,6 +156,44 @@ describe("readReadingProjectData", () => {
 			proto.findings.map((finding) => [finding.code, finding.detail.name]),
 		).toEqual(phrases.map((phrase) => [CAPS_ENTRY, `__proto__: ${phrase}`]));
 		expect(proto.standing).toBeNull();
+	});
+
+	it("reads only the rows reached by the form's local alias, even when prose, a declaration, or a longer tag mentions another table", async () => {
+		const source = await sourceNoting(
+			"Notes about item-list:plain and item-list:unused",
+			"count(instance('item-list:plain')/plain-west_list/plain-west) > 0",
+			'<instance id="item-list:plain" src="jr://fixture/item-list:plain-west"/><instance id="optional" src="jr://fixture/item-list:unused"/>',
+		);
+		await withHttpPeer(async (peer) => {
+			const tables = ["plain", "plain-west", "unused"].map((tag, index) => ({
+				id: String(index + 1).padStart(32, "0"),
+				tag,
+				fields: [{ field_name: "code", properties: [] }],
+				is_global: true,
+				item_attributes: [],
+				resource_uri: "",
+			}));
+			serveJson(peer, LIST, {
+				meta: { limit: 100, offset: 0, next: null, total_count: 3 },
+				objects: tables,
+			});
+			const rowsPath = `/a/${DOMAIN}/api/fixture/v1/?fixture_type_id=${tables[1].id}`;
+			serveJson(peer, rowsPath, {
+				meta: { limit: 1000, offset: 0, next: null, total_count: 0 },
+				objects: [],
+			});
+			const reply = await read(
+				source,
+				emptyProject({ dataBytes: 0, largestRowBytes: 0 }),
+			);
+			expect(reply.kind).toBe("read");
+			expect(
+				peer
+					.getCallHistory()
+					?.calls()
+					.map((call) => call.fullUrl.slice(HOST.length)),
+			).toEqual([LIST, rowsPath]);
+		});
 	});
 
 	it("keeps a refused read of the places that only the source's text asked for, and ends the read where it was asked always", async () => {

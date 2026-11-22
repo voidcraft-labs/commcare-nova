@@ -143,22 +143,26 @@ table-tag and column-wire-name changes plus those destructive schema actions
 require the existing `delete` capability; row operations and non-identity edits
 require `edit`; reads require `view`.
 
-A tag change has a consequence outside this package worth knowing here:
-CommCare HQ addresses a lookup table BY ITS TAG, so a rename makes a NEW table
-on every project space the app was published to and leaves the old one where it
-is. Nova never deletes a remote resource, so it reports the old tag instead
-(`lib/deployment/CLAUDE.md`). A tag holds at most 32 characters
-(`LOOKUP_MAX_TAG_LENGTH`), the length HQ's upload stores: a 32-character tag
-pushes, and Nova refuses a longer one itself, because HQ answers it with a
-server error and not a refusal. A tag containing `casedb` or `ledgerdb`,
-case-sensitively, is refused too (`reservedInstanceTagCause`), because Core
-picks an instance's storage by substring (commcare-core
-`CommCareInstanceInitializer.generateRoot`). A tag and a column's wire name
-start with an unaccented letter or underscore and hold letters, digits,
-underscores and hyphens, never starting with lowercase `xml`
-(`LOOKUP_WIRE_IDENTIFIER_PATTERN`, and the two checks of
-`20261113000000_hq_round_trip_lookup_names`). A period is left out because
-CommCare HQ's build rewrites one in a case list filter and a display condition.
+CommCare HQ identifies a lookup table by tag. Publishing after a tag change
+creates a table under the new tag and reports the old table so its owner can
+decide what to do with it. Rows and app references in Nova keep their UUIDs.
+See `lib/deployment/CLAUDE.md` for the target ownership rules.
+
+HQ accepts up to 32 characters for a tag. A tag and a column export name must
+be namespace-free XML names and must avoid HQ’s reserved lowercase `xml`
+prefix. Project data measures length in Unicode code points. These constraints
+apply to storage and to the PostgreSQL checks. Core routes a fixture whose
+source contains lowercase `ledgerdb` or `casedb` to another store, so Nova
+also rejects those substrings in a tag. A table named `locations` can coexist
+with the worker’s places. Its qualified form instance ID reads the table while
+the places instance continues to read the worker’s assigned places.
+
+A Project can keep an export name that some formulas cannot address. The app
+gate checks the actual table and column names at the expression that uses them.
+Core reads a narrower alphabet than XML, and HQ rewrites periods between
+nondigits in certain list and display conditions. A refused formula names the
+affected source and use so the author can choose a compatible name or change
+the formula.
 
 ## Reference edges and schema governance
 
@@ -207,7 +211,18 @@ updates row provenance plus table counters, stamps both revision axes, and
 reports affected rows/cells/freed bytes. Column retype inspects only present
 cells through typed-input validation, never coercion or stored-value rewriting,
 and changes the definition only after every value passes. Projection changes
-remain allowed while referenced and do not rewrite edges.
+preserve UUIDs and never rewrite edges. Before a tag or column rename commits,
+the Project data actions and the shared authoring batch check its final names
+under the table lock. `nameGovernance.ts` follows exact app edges and reads each
+app root and its entities in a single statement, including apps in the trash.
+The app's production occurrence registry and the commit gate share the same
+per-use name verdict. A period may work in one use and change meaning or hide
+a table from another. A refusal names a dependent app, the affected place and
+a spelling that works there. A temporary pre-genesis protection can establish only
+the identity, so it allows a rename used everywhere and holds a use-dependent
+name until the design finishes or is superseded. A managed refresh matches
+columns by exact spelling. If HQ replaces a field, the new field gets its own
+identity and the old, still-referenced field keeps its identity and spelling.
 
 ## Values, ordering, and limits
 

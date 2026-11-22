@@ -492,6 +492,7 @@ type Resolution =
 			readonly kind: "entry";
 			readonly entryId: string;
 			readonly reason: string;
+			readonly name?: string;
 			/** The surface key the entry is answered under, where the reader
 			 *  that answered it named one. */
 			readonly key?: string;
@@ -582,6 +583,14 @@ function refusalOf(
 	pending: PendingExpression,
 	env: ExpressionReadEnv,
 ): Resolution {
+	if (cause.kind === "lookup-name")
+		return {
+			kind: "entry",
+			entryId: cause.entryId,
+			key: cause.key,
+			name: cause.name,
+			reason: "lookup-name",
+		};
 	if (cause.kind === "no-case-datum")
 		return { kind: "unrecognized", reason: "no-case-datum" };
 	const issue =
@@ -1426,7 +1435,10 @@ export function* readExpressionsSteps(
 					refusal: {
 						entryId: resolution.entryId,
 						key: refusalKey,
-						detail: { name, reason: resolution.reason },
+						detail: {
+							name: resolution.name ?? name,
+							reason: resolution.reason,
+						},
 						...(handOff !== undefined && { handOff }),
 					},
 				});
@@ -1436,7 +1448,7 @@ export function* readExpressionsSteps(
 					entryId: resolution.entryId,
 					place: registration.place,
 					key: registration.key,
-					detail: { name, reason: resolution.reason },
+					detail: { name: resolution.name ?? name, reason: resolution.reason },
 					...(handOff !== undefined && { handOff }),
 				});
 			}

@@ -131,14 +131,6 @@
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},
-	"expressions-and-data/tag-or-field-name-holding-a-period": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
-	"expressions-and-data/tag-or-field-name-with-non-ascii-letters": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
 	"expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any": {
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
