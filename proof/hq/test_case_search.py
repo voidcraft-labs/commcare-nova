@@ -278,3 +278,94 @@ def test_a_request_key_hq_reads_never_searches_the_case_property_it_names(hq, co
                 queried(state, name)
         else:
             assert not queried(state, name)
+
+
+def test_search_expansion_below_the_result_cap_depends_on_hqs_index(hq):
+    """All 150 near terms meet the edit distance. The native index admits only a
+    subset, while its separate exact-token branch returns the exact record."""
+    import hashlib
+    import string
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.case_search.exceptions import CaseFilterError
+    from corehq.apps.case_search.models import CaseSearchConfig, FuzzyProperties, IgnorePatterns
+    from corehq.apps.es.case_search import RELEVANCE_SCORE, wrap_case_search_hit
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    needle = "xxaaaaaa"
+    near_terms = sorted({
+        needle[:position] + letter + needle[position + 1:]
+        for position in range(2, len(needle))
+        for letter in string.ascii_lowercase[1:]
+    })
+    assert len(near_terms) == 150
+    near = {f"near-{index}": term for index, term in enumerate(near_terms)}
+    # The terms on the field are shared by every key in nested case_properties.
+    # Put the vocabulary on each shard, independently of the routing of case ids.
+    vocabulary = " ".join([needle, *near_terms])
+    values = {**near, "exact": "XXAAAAAA", "different-prefix": "zyaaaaaa"}
+
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing():
+            with state.operation("indexed near terms", hashlib.sha256(b"indexed near terms").digest()):
+                blocks = [
+                    CaseBlock(case_id=key, create=True, case_name=key, case_type="patient",
+                              owner_id="worker", update={"alias": value, "lexicon": vocabulary,
+                                                         RELEVANCE_SCORE: "stored"}).as_text()
+                    for key, value in values.items()
+                ]
+                submit_case_blocks(blocks, state.domain, user_id="worker", device_id="proof")
+
+        # The baseline matches the precise stored property including case.
+        assert [hit["_id"] for hit in _built_search(state, [("alias", "XXAAAAAA")]).run().raw_hits] == ["exact"]
+        assert not _built_search(state, [("alias", needle)]).run().raw_hits
+        config = CaseSearchConfig.objects.get(domain=state.domain)
+        config.fuzzy_properties.add(FuzzyProperties.objects.create(
+            domain=state.domain, case_type="patient", properties=["alias"],
+        ))
+        config.ignore_patterns.add(IgnorePatterns.objects.create(
+            domain=state.domain, case_type="patient", case_property="alias", regex=".*",
+        ))
+        # A literal is removed on the incoming query, not from each stored term.
+        hits = _built_search(state, [("alias", "xx.*aaaaaa")]).run().raw_hits
+        by_id = {hit["_id"]: hit for hit in hits}
+        assert "exact" in by_id
+        assert "different-prefix" not in by_id
+        assert set() < near.keys() & by_id.keys() < near.keys()
+        exact = by_id["exact"]
+        assert wrap_case_search_hit(exact).case_json[RELEVANCE_SCORE] == "stored"
+        assert wrap_case_search_hit(exact, include_score=True).case_json[RELEVANCE_SCORE] == exact["_score"]
+        assert exact["_score"] > 0
+        assert any(hit["_score"] != exact["_score"] for key, hit in by_id.items() if key in near)
+        with pytest.raises(CaseFilterError, match="Fuzzy search is not supported with multiple values"):
+            _built_search(state, [("alias", needle), ("alias", "another")])
+
+
+@pytest.mark.parametrize("increased,limit", [(False, 500), (True, 1500)])
+def test_project_space_search_limit_and_literal_matchers(hq, increased, limit):
+    """The cap and optional native matching come from the selected project space,
+    with overrides scoped to the requested types and property. A literal period
+    is removed as text; a rule on another type does not remove the letter B."""
+    from corehq.apps.case_search.models import CaseSearchConfig
+    from corehq.apps.es.case_search import case_property_query
+
+    def includes(node, expected):
+        if node == expected:
+            return True
+        children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else []
+        return any(includes(child, expected) for child in children)
+
+    flags = frozenset(["INCREASED_MAX_SEARCH_RESULTS"]) if increased else frozenset()
+    with hq_check(Configuration(case_search_enabled=True, flags=flags)) as (state, _):
+        config = CaseSearchConfig.objects.get(domain=state.domain)
+        config.fuzzy_properties.create(domain=state.domain, case_type="patient", properties=["badge_code"])
+        config.ignore_patterns.create(domain=state.domain, case_type="patient", case_property="badge_code", regex=".")
+        config.ignore_patterns.create(domain=state.domain, case_type="doctor", case_property="badge_code", regex="B")
+        config.ignore_patterns.create(domain=state.domain, case_type="patient", case_property="other", regex="A")
+        query = _built_search(state, [("badge_code", "A.B")]).raw_query
+        assert query["size"] == limit
+        assert includes(query["query"], case_property_query("badge_code", "AB", fuzzy=True))
+        exact = _built_search(state, [("patient_number", "A.B")]).raw_query
+        assert includes(exact["query"], case_property_query("patient_number", "A.B", fuzzy=False))
