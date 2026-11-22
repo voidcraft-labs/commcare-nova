@@ -17,6 +17,12 @@ drawn by the platform's own Skia and text layout, as on a phone. Nothing of comm
 rewritten. Where a reader is private, the reader calls it by reflection, so
 the method that runs is the app's.
 
+The runtime enables Robolectric's real spinner selection. Android delivers a
+changed selection during layout. Its legacy shadow also fires for an unchanged
+selection, recursively reopening the Gregorian calendar's month callback. Form
+entry waits for CommCare's own pending edit actions before pressing Next or
+Finish, including the date picker's delayed change notification.
+
 ## What it reads
 
 One request is one JVM and one device (`client.py`, `src/.../Runner.java`).

@@ -121,6 +121,8 @@ final class Forms {
         Sensors.allow(activity, form);
 
         Object controller = Screens.field(activity, "uiController");
+        org.commcare.utils.BlockingActionsManager navigation =
+                (org.commcare.utils.BlockingActionsManager)Screens.field(controller, "blockingActionsManager");
         Method next = controller.getClass().getDeclaredMethod("showNextView");
         next.setAccessible(true);
         Method refresh = controller.getClass().getDeclaredMethod("refreshCurrentView", boolean.class);
@@ -213,6 +215,16 @@ final class Forms {
                 refresh.invoke(controller, false);
                 ShadowLooper.idleMainLooper();
                 screen.put("shown", questions(activity));
+            }
+            // DateWidget and other live controls debounce their edit. Android
+            // ignores Next until its own blocking-action queue has completed.
+            // Run only the queued work until the worker can actually go on.
+            ShadowLooper main = ShadowLooper.getShadowMainLooper();
+            for (int pending = 0; navigation.isBlocked(); pending++) {
+                if (main.getNextScheduledTaskTime().isZero() || pending == 1024) {
+                    throw new AssertionError("Android navigation remains blocked after editing " + now);
+                }
+                main.runToNextTask();
             }
             if (done(activity)) {
                 // The form's last screen: Android shows the worker its finish button there, and never a screen

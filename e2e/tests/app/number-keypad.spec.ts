@@ -244,9 +244,6 @@ test("a worker gets a dropdown in Web Apps and an editable picture grid on Andro
 		.getByRole("menuitem", { name: "Single Select", exact: true })
 		.click();
 	expect((await added).ok()).toBe(true);
-	await page
-		.getByRole("button", { name: "Choice layout", exact: true })
-		.click();
 	const layout = page.getByRole("combobox", {
 		name: "Choice layout",
 		exact: true,
