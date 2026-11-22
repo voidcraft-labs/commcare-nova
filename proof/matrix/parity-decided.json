@@ -253,6 +253,7 @@
 		"hq-plain/update-never-alone"
 	],
 	"hq-project-languages": [],
+	"hq-question-display": [],
 	"hq-questions": [
 		"hq-questions/action-inside-control",
 		"hq-questions/appearance-android-inside-held",
