@@ -36,7 +36,7 @@
  */
 
 "use client";
-import { memo, useId } from "react";
+import { type CSSProperties, memo, useId } from "react";
 import { useDeploymentTargetFacts } from "@/components/builder/DeploymentTargetProvider";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
@@ -50,20 +50,31 @@ import {
 	labelShowsAsTyped,
 	type Uuid,
 } from "@/lib/domain";
+import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { usePresentationSelector } from "@/lib/preview/hooks/usePresentationDocument";
 import {
 	usePresentationField,
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { requiredMarkShown } from "@/lib/preview/platform";
+import { questionRows } from "@/lib/preview/questionRows";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { useAppId, usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	useAppId,
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
-import { onFormScreen, useFormScreenScope } from "./FormScreenScope";
+import {
+	onFormScreen,
+	useAdvanceOnChoice,
+	useFormScreenScope,
+} from "./FormScreenScope";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
 import { LabelField } from "./fields/LabelField";
@@ -126,25 +137,60 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	// out through the bottom edge into the surrounding rail / close cap.
 	const containerClass = `flow-root pointer-events-auto${leadingGap ? " pt-6" : ""}`;
 
+	const platform = usePreviewPlatform();
+	const counts = usePresentationSelector(
+		(doc) =>
+			fieldUuids.map((uuid) => {
+				const field = doc.fields[asUuid(uuid)];
+				return field && "itemsPerRow" in field
+					? (field.itemsPerRow ?? null)
+					: null;
+			}),
+		(a, b) => a.length === b.length && a.every((count, i) => count === b[i]),
+	);
+	const parentRepeatCount = usePresentationSelector((doc) => {
+		const parent = doc.fields[asUuid(parentEntityId)];
+		return parent?.kind === "group" ? parent.repeatsPerRow : undefined;
+	});
+	const render = (rawUuid: string, index: number) => {
+		const uuid = asUuid(rawUuid);
+		return (
+			<InteractiveField
+				key={uuid}
+				uuid={uuid}
+				prefix={prefix}
+				parentPath={parentPath}
+				depth={depth}
+				instanceScopeKey={instanceScopeKey}
+				repeatInstances={repeatInstances}
+				accessibleContext={accessibleContext}
+				position={index + 1}
+				siblingCount={fieldUuids.length}
+				repeatsPerRow={platform === "web-apps" ? parentRepeatCount : undefined}
+			/>
+		);
+	};
+	if (platform !== "web-apps" || !counts.some((count) => count !== null))
+		return <div className={containerClass}>{fieldUuids.map(render)}</div>;
+	const rows = questionRows(
+		fieldUuids.map((uuid, index) => ({ uuid, index })),
+		({ index }) => counts[index] ?? undefined,
+	);
 	return (
 		<div className={containerClass}>
-			{fieldUuids.map((rawUuid, index) => {
-				const uuid = asUuid(rawUuid);
-				return (
-					<InteractiveField
-						key={uuid}
-						uuid={uuid}
-						prefix={prefix}
-						parentPath={parentPath}
-						depth={depth}
-						instanceScopeKey={instanceScopeKey}
-						repeatInstances={repeatInstances}
-						accessibleContext={accessibleContext}
-						position={index + 1}
-						siblingCount={fieldUuids.length}
-					/>
-				);
-			})}
+			{rows.map((row) => (
+				<div key={row[0].item.uuid} className="md:grid md:grid-cols-12">
+					{row.map(({ item, columns }) => (
+						<div
+							key={item.uuid}
+							style={{ "--question-columns": columns } as CSSProperties}
+							className="min-w-0 md:col-span-(--question-columns)"
+						>
+							{render(item.uuid, item.index)}
+						</div>
+					))}
+				</div>
+			))}
 		</div>
 	);
 });
@@ -152,6 +198,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 // ── InteractiveField ───────────────────────────────────────────────
 
 interface InteractiveFieldProps {
+	readonly repeatsPerRow?: string;
 	readonly uuid: Uuid;
 	readonly prefix: string;
 	readonly parentPath?: FieldPath;
@@ -186,10 +233,13 @@ const InteractiveField = memo(function InteractiveField({
 	accessibleContext,
 	position,
 	siblingCount,
+	repeatsPerRow,
 }: InteractiveFieldProps) {
 	const { language } = useBuilderLanguage();
 	const rules = usePreviewPlatformRules();
+	const platform = usePreviewPlatform();
 	const screen = useFormScreenScope();
+	const advance = useAdvanceOnChoice();
 	const field = usePresentationField(uuid);
 	// The form's text formatting switch, read beside each text's own setting.
 	const textForm = useFieldTextForm(uuid);
@@ -258,7 +308,7 @@ const InteractiveField = memo(function InteractiveField({
 	// above it (`groupLabel: "screen-header"`), which the pager draws.
 	if (
 		field.kind === "group" &&
-		(!field.label || rules.groupLabel === "screen-header")
+		((!field.label && !field.border) || rules.groupLabel === "screen-header")
 	) {
 		const childContext = [accessibleContext, transparentSectionId]
 			.filter(Boolean)
@@ -402,6 +452,7 @@ const InteractiveField = memo(function InteractiveField({
 	} else if (field.kind === "repeat") {
 		content = (
 			<RepeatField
+				repeatsPerRow={repeatsPerRow}
 				field={field}
 				path={path}
 				fieldPath={fieldPath}
@@ -448,7 +499,7 @@ const InteractiveField = memo(function InteractiveField({
 						 *  in `GroupField`. */}
 						<div
 							id={questionLabelId}
-							className="flex items-center gap-1 px-[5px] py-[5px]"
+							className={`flex items-center gap-1 px-[5px] py-[5px] ${platform === "web-apps" && field.textAlignment === "center" ? "justify-center text-center" : platform === "web-apps" && field.textAlignment === "right" ? "justify-end text-right" : ""}`}
 						>
 							<span className="sr-only">
 								{runtimeMessage(language, "questionPosition", {
@@ -497,6 +548,7 @@ const InteractiveField = memo(function InteractiveField({
 					</span>
 				)}
 				{field.hint &&
+					!(platform === "web-apps" && field.hintPlacement) &&
 					(rules.hint === "markdown" ? (
 						<div id={hintId} className="px-[5px] py-[5px]">
 							<LabelContent
@@ -533,36 +585,75 @@ const InteractiveField = memo(function InteractiveField({
 						placement="label"
 					/>
 				)}
-				<FieldRenderer
-					field={field}
-					state={state}
-					labelledBy={labelId}
-					path={path}
-					appId={appId}
-					entryKey={entryKey}
-					attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
-					questionLabelId={labelId}
-					questionLabelledBy={questionLabelledBy}
-					questionDescriptionIds={field.hint ? hintId : ""}
-					questionLabel={questionLabelText}
-					onCommitCapture={async (value, gate, onAccepted) => {
-						if (entryKey === undefined || !isCaptureFieldKind(field.kind))
-							return false;
-						return controller.commitCaptureAnswer(
-							entryKey,
-							{ fieldUuid: field.uuid, kind: field.kind, repeatInstances },
+				<div
+					className={
+						platform === "web-apps" && "inputWidth" in field
+							? field.inputWidth === "short"
+								? "md:w-1/6"
+								: field.inputWidth === "medium"
+									? "md:w-1/3"
+									: undefined
+							: undefined
+					}
+				>
+					<FieldRenderer
+						field={field}
+						state={state}
+						labelledBy={labelId}
+						path={path}
+						appId={appId}
+						entryKey={entryKey}
+						attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
+						questionLabelId={labelId}
+						questionLabelledBy={questionLabelledBy}
+						questionDescriptionIds={
+							field.hint && !(platform === "web-apps" && field.hintPlacement)
+								? hintId
+								: ""
+						}
+						questionLabel={questionLabelText}
+						onCommitCapture={async (
 							value,
 							gate,
 							onAccepted,
-						);
-					}}
-					onChange={(value) => controller.setValueAtAsync(path, value)}
-					onBlur={() => controller.touchAtAsync(path)}
-					onChangeAt={(targetPath, value) =>
-						controller.setValueAtAsync(targetPath, value)
-					}
-					onBlurAt={(targetPath) => controller.touchAtAsync(targetPath)}
-				/>
+							originalFilename,
+						) => {
+							if (entryKey === undefined || !isCaptureFieldKind(field.kind))
+								return false;
+							return controller.commitCaptureAnswer(
+								entryKey,
+								{ fieldUuid: field.uuid, kind: field.kind, repeatInstances },
+								value,
+								gate,
+								onAccepted,
+								originalFilename,
+							);
+						}}
+						onChange={async (value) => {
+							const applied = await controller.setValueAtAsync(path, value);
+							if (
+								applied &&
+								field.kind === "single_select" &&
+								platform === "android" &&
+								advance &&
+								controller.entryKey === entryKey
+							) {
+								const layout = choiceLayoutForPlatform(field, platform);
+								if (
+									layout?.kind === "advance-on-choice" ||
+									(layout?.kind === "grid" && layout.advanceOnChoice)
+								)
+									await advance();
+							}
+							return applied;
+						}}
+						onBlur={() => controller.touchAtAsync(path)}
+						onChangeAt={(targetPath, value) =>
+							controller.setValueAtAsync(targetPath, value)
+						}
+						onBlurAt={(targetPath) => controller.touchAtAsync(targetPath)}
+					/>
+				</div>
 				<FieldHelp
 					help={"help" in field ? field.help : undefined}
 					resolvedHelp={state.resolvedHelp}
@@ -576,6 +667,10 @@ const InteractiveField = memo(function InteractiveField({
 		);
 	}
 
+	const banner =
+		platform === "android" && "banner" in field ? field.banner : undefined;
+	if (banner === "hidden" && field.kind === "label") return null;
+
 	return (
 		<div
 			className="relative mb-6"
@@ -584,7 +679,22 @@ const InteractiveField = memo(function InteractiveField({
 			data-instance-path={path}
 			tabIndex={showInvalid ? -1 : undefined}
 		>
-			{content}
+			{banner && banner !== "hidden" && "label" in field && field.label && (
+				<div
+					data-question-banner={banner}
+					className={`mb-2 rounded px-3 py-2 text-sm font-semibold ${banner === "good" ? "bg-nova-mint/15 text-nova-mint" : banner === "caution" ? "bg-nova-amber/15 text-nova-amber" : "bg-nova-rose/15 text-nova-rose"}`}
+				>
+					<LabelContent
+						className="text-current"
+						label={field.label}
+						resolvedLabel={state.resolvedLabel}
+						isEditMode={false}
+						rendering={rules.labelMarkdown}
+						plainLabel={labelShowsAsTyped(textForm, field)}
+					/>
+				</div>
+			)}
+			{!(banner && field.kind === "label") && content}
 		</div>
 	);
 });

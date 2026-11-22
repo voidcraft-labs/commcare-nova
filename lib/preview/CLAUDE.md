@@ -2583,3 +2583,7 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+### Worker question presentation
+
+`choiceMatch.ts` selects the match rule of the active platform. `workerCalendar.ts` maps calendar days to civil ISO dates, including the Nepali year lengths at the Core pin. `questionRows.ts` uses the Web Apps twelve-column rule. A Web Apps address or attachment publishes only to the concrete form or repeat instance that owns its question. Capture publishes the original filename after successful acceptance. Receivers use the ordinary answer queue, including validation and calculation. A quick Android choice advances through the pager's ordinary validated Next action.

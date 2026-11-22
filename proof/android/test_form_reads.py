@@ -358,3 +358,33 @@ def test_a_number_keypad_keeps_what_its_keys_enter(android_documents, hq):
         (instance,) = sent
         root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
         assert _child(root, "phone").text == kept, instance
+
+
+def test_android_question_display_preserves_widgets_and_answers(android_documents, hq):
+    """The released form includes both halves of each composition. Worker's
+    choices and dates must survive under their original data identities."""
+    with _served(android_documents["hq-question-display"]) as (served, archive):
+        answer, sent = _app(
+            served, archive, "question-display", commands=[FORM], views=True,
+            questions={
+                "/data/arrival": ["calendar:2016-01-01"], "/data/follow_up": ["calendar:2023-09-12"],
+                "/data/place": ["2"], "/data/plain_place": ["1"],
+            },
+        )
+    (form,) = _forms(answer["walks"][FORM])
+    widgets = {
+        question["reference"]: question["widget"]
+        for screen in form["screens"] for question in screen.get("questions", [])
+    }
+    for path, widget in {
+        "arrival":"EthiopianDateWidget", "follow_up":"DateWidget", "return_day":"NepaliDateWidget",
+        "place":"SelectOneWidget", "plain_place":"SpinnerWidget", "route":"ComboboxWidget",
+        "ranked_route":"ComboboxWidget", "weather":"GridWidget", "auto_weather":"GridWidget",
+        "agreement":"SignatureWidget", "web_agreement":"ImageWidget",
+    }.items():
+        assert widgets.get(f"/data/{path}[1]") == widget, (path, widgets)
+    assert form["saved"]["finishing"] is True, form
+    (instance,) = sent
+    root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+    for path, value in {"arrival":"2023-09-12","follow_up":"2023-09-12","place":"upper","plain_place":"north"}.items():
+        assert _child(root, path).text == value, instance

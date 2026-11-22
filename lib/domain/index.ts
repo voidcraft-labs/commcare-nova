@@ -24,6 +24,7 @@ export * from "./caseScalarTextGuard";
 export * from "./caseTypes";
 export * from "./caseWriteOperationIdentity";
 export * from "./caseWriteViews";
+export * from "./choicePresentation";
 export * from "./columnApplicability";
 export * from "./columnRelation";
 export * from "./commCareDatePattern";

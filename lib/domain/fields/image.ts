@@ -17,10 +17,15 @@
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const imageFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("image"),
+	sendTopics: displaySchemas.sendTopics.optional(),
+	captureSource: z.literal("camera").optional(),
+	overlaySize: displaySchemas.overlaySize.optional(),
+	webSignature: displaySchemas.webSignature.optional(),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),

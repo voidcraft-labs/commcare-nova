@@ -7,9 +7,15 @@ import {
 	type SelectOption,
 	type SingleSelectField,
 } from "@/lib/domain";
+import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
 import { PREVIEW_LABEL_RENDERING, PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	useEditMode,
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
+import { ChoicePresentation } from "./ChoicePresentation";
 import { focusChosenChoice, retainChoiceFocus } from "./choiceLabelActivation";
 import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
@@ -72,6 +78,7 @@ export function SelectOneField({
 	/* Choice media draws on Android and in edit mode; Web Apps draws none
 	 * (manifest `questions/choice-image`, `choice-audio-video`). */
 	const rules = usePreviewPlatformRules();
+	const platform = usePreviewPlatform();
 	const textForm = useFieldTextForm(field.uuid);
 	const drawChoiceMedia = isEditMode || rules.choiceMedia;
 	const labelRendering = isEditMode
@@ -85,13 +92,63 @@ export function SelectOneField({
 	if (dynamicChoices && state.choices === undefined) {
 		return <LookupChoicesLoading />;
 	}
+	const layout = choiceLayoutForPlatform(field, platform);
+	const grid = layout?.kind === "grid" && platform === "android";
+	const row =
+		layout?.kind === "row-without-label" ||
+		(layout?.kind === "row" && platform === "android");
+	const hideChoiceLabels = layout?.kind === "row-without-label";
+	if (
+		layout &&
+		(layout.kind === "dropdown" ||
+			layout.kind === "headings" ||
+			layout.kind === "search" ||
+			(layout.kind === "buttons" && platform === "web-apps"))
+	) {
+		return (
+			<div>
+				<ChoicePresentation
+					layout={layout}
+					options={options}
+					labelledBy={labelledBy}
+					placeholder={
+						platform === "web-apps" &&
+						field.hintPlacement === "placeholder" &&
+						field.hint
+							? (state.resolvedHint ?? projectProse(field.hint))
+							: undefined
+					}
+					value={state.value}
+					onBlur={onBlur}
+					onChange={onChange}
+				/>
+				{showError && state.errorMessage && (
+					<ValidationError message={state.errorMessage} />
+				)}
+			</div>
+		);
+	}
 	return (
 		<fieldset
 			aria-labelledby={labelledBy}
 			className="m-0 border-none p-0"
 			onBlur={onBlur}
 		>
-			<div className="space-y-1.5">
+			<div
+				className={grid || row ? "grid gap-2" : "space-y-1.5"}
+				style={
+					grid || row
+						? {
+								gridTemplateColumns:
+									grid && layout.kind === "grid" && layout.columns
+										? `repeat(${Math.min(layout.columns, Math.max(options.length, 1))}, minmax(0, 1fr))`
+										: row
+											? `repeat(${Math.max(options.length, 1)}, minmax(0,1fr))`
+											: "repeat(auto-fit, minmax(5rem,1fr))",
+							}
+						: undefined
+				}
+			>
 				{dynamicChoices && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {
 					/* A blank value cell must not render pre-selected: the engine
@@ -130,7 +187,13 @@ export function SelectOneField({
 									<div className="w-2 h-2 rounded-full bg-pv-accent" />
 								)}
 							</div>
-							<span className="preview-markdown text-sm text-nova-text">
+							<span
+								className={
+									hideChoiceLabels
+										? "sr-only"
+										: "preview-markdown text-sm text-nova-text"
+								}
+							>
 								{labelShowsAsTyped(textForm, opt) && plainChoiceAsWritten ? (
 									opt.label
 								) : (

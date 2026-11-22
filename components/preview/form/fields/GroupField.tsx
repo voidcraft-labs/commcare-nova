@@ -1,38 +1,11 @@
-/**
- * GroupField: interactive rendering of a group container.
- *
- * Rendered only by `InteractiveFormRenderer` (preview mode). The
- * edit-mode group representation is handled by the flat row model
- * (`GroupOpenRow` + nested rows + `GroupCloseRow`).
- *
- * **Flipbook parity.** This component emits three sibling blocks that
- * mirror the edit-mode row structure pixel-for-pixel:
- *
- *   1. **Header block.** Top-rounded, gray-bordered, surface background,
- *      with a chevron collapse toggle: same chrome the virtualized
- *      `GroupOpenRow` uses.
- *   2. **Rails container.** Wraps the recursive child renderer and
- *      paints continuous left/right borders along the group's column so
- *      a child at any nested depth visually sits inside the group's
- *      outline. Skipped entirely when the group is collapsed.
- *   3. **Close cap.** 2px flat-top / bottom-rounded bracket that caps
- *      the column: matches `GroupCloseRow` exactly.
- *
- * Collapse state is stored in `FormLayoutContext` so it survives
- * mode/cursor switches within a form: toggling a group in edit mode
- * keeps it toggled when the user flips to live, and vice-versa.
- *
- * The card is Web Apps' group. Running as Android, Preview never mounts
- * it: Android draws no group card, and a screen's enclosing groups read as
- * one header line above it (`lib/preview/platform.ts`, `groupLabel`), so
- * `InteractiveFormRenderer` renders every group's children in place there.
- */
-
+/** Worker view of a group and its nested questions. A named collapsible
+ * group starts in its authored state; each repeat instance has its own
+ * toggle. Android's screen header is rendered by the pager. */
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { useCallback, useId } from "react";
+import { useId, useState } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
@@ -46,7 +19,7 @@ import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDoc
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { usePreviewPlatformRules } from "@/lib/session/hooks";
-import { useFormLayout } from "../FormLayoutContext";
+
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
@@ -102,20 +75,19 @@ export function GroupField({
 	// a group inside a repeat instance shows that instance's resolution.
 	const state = useEngineStateAt(field.uuid, path);
 	const textForm = useFieldTextForm(field.uuid);
-	const { toggleCollapse, isCollapsed } = useFormLayout();
-	const collapsed = isCollapsed(field.uuid);
+	const [toggled, setToggled] = useState(false);
+	const collapsed =
+		!!field.collapse && toggled !== (field.collapse === "closed");
 	const headerId = useId();
 	const contentId = useId();
 	const toggleActionId = useId();
-	const childContext = [accessibleContext, headerId].filter(Boolean).join(" ");
+	const childContext = [accessibleContext, field.label && headerId]
+		.filter(Boolean)
+		.join(" ");
 
 	// Subscribe to children presence: drives the empty-state placeholder
 	// block when the group has no template children yet.
 	const hasChildren = usePresentationHasFields(field.uuid);
-
-	const onToggle = useCallback(() => {
-		toggleCollapse(field.uuid);
-	}, [toggleCollapse, field.uuid]);
 
 	return (
 		<>
@@ -127,32 +99,39 @@ export function GroupField({
 				}}
 			>
 				<div
-					className={`border border-pv-input-border bg-pv-surface px-3 py-2 ${
+					className={`${field.border ? "border border-pv-input-border" : ""} bg-pv-surface ${field.label || field.collapse ? "px-3 py-2" : ""} ${
 						collapsed ? "rounded-lg" : "rounded-t-lg border-b-0"
 					}`}
 				>
 					<div className={CONTAINER_HEADER_STYLES.row}>
-						<button
-							type="button"
-							onClick={onToggle}
-							className={CONTAINER_HEADER_STYLES.toggle}
-							aria-expanded={!collapsed}
-							aria-controls={contentId}
-							aria-labelledby={[toggleActionId, accessibleContext, headerId]
-								.filter(Boolean)
-								.join(" ")}
+						{field.collapse && (
+							<button
+								type="button"
+								onClick={() => setToggled((value) => !value)}
+								className={CONTAINER_HEADER_STYLES.toggle}
+								aria-expanded={!collapsed}
+								aria-controls={contentId}
+								aria-labelledby={[toggleActionId, accessibleContext, headerId]
+									.filter(Boolean)
+									.join(" ")}
+							>
+								<span id={toggleActionId} className="sr-only">
+									{runtimeMessage(language, collapsed ? "expand" : "collapse")}
+								</span>
+								<Icon
+									icon={collapsed ? tablerChevronRight : tablerChevronDown}
+									width="14"
+									height="14"
+									aria-hidden="true"
+								/>
+							</button>
+						)}
+						<div
+							id={headerId}
+							className={
+								field.label ? CONTAINER_HEADER_STYLES.title : "sr-only"
+							}
 						>
-							<span id={toggleActionId} className="sr-only">
-								{runtimeMessage(language, collapsed ? "expand" : "collapse")}
-							</span>
-							<Icon
-								icon={collapsed ? tablerChevronRight : tablerChevronDown}
-								width="14"
-								height="14"
-								aria-hidden="true"
-							/>
-						</button>
-						<div id={headerId} className={CONTAINER_HEADER_STYLES.title}>
 							<span className="sr-only">
 								{runtimeMessage(language, "sectionPosition", { position })}{" "}
 							</span>
@@ -172,13 +151,7 @@ export function GroupField({
 										className={FIELD_STYLES.label}
 									/>
 								</div>
-							) : (
-								<div className="px-[5px] py-[5px]">
-									<span className="text-xs italic text-nova-text-muted">
-										{runtimeMessage(language, "untitledGroup")}
-									</span>
-								</div>
-							)}
+							) : null}
 						</div>
 					</div>
 					{/* Groups don't carry `hint` in the domain schema: structural
@@ -196,7 +169,7 @@ export function GroupField({
 						 *  exactly; the header's `border border-b-0` and the close
 						 *  cap's `border border-t-0` seal the top and bottom edges. */}
 						<div
-							className="absolute top-0 bottom-0 border-l border-r border-pv-input-border pointer-events-none"
+							className={`absolute top-0 bottom-0 pointer-events-none ${field.border ? "border-l border-r border-pv-input-border" : ""}`}
 							style={{
 								left: depthPadding(depth),
 								right: depthPadding(depth),
@@ -224,7 +197,13 @@ export function GroupField({
 							paddingRight: depthPadding(depth),
 						}}
 					>
-						<div className="h-2 rounded-b-lg border border-t-0 border-pv-input-border bg-pv-surface/40" />
+						<div
+							className={
+								field.border
+									? "h-2 rounded-b-lg border border-t-0 border-pv-input-border bg-pv-surface/40"
+									: undefined
+							}
+						/>
 					</div>
 				</>
 			)}

@@ -2584,3 +2584,7 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+### Question control presentation
+
+The importer classifies a source appearance on its actual control and bind in `reader/xform/appearances.ts`. `xform/readDisplaySettings.ts` projects its worker and editor effects onto typed settings. `xform/appearance.ts` writes a canonical recipe. Reading the recipe must preserve the editor kind, precedence, Android whole-control behavior, Web Apps word positions, parameter values and returned answer. The validator checks this at authoring and export. `hq/appearanceIdentity.ts` compares the actual source and published controls, and protects every effective setting from a reading claiming it was inert. An image that collects a signature only in Web Apps keeps its native picture identity.

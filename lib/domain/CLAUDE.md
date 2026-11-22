@@ -593,3 +593,7 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+### Question display
+
+`questionDisplaySchemas.ts` and `choicePresentation.ts` define the per-kind slots. `fieldDisplay.ts` lists the choices, labels and platform advice exposed by Builder and the shared tools. A split presentation stores the actual widgets seen by Web Apps and Android. Row counts are normalized decimal digits, including zero and values beyond exact machine integers. Android grid columns are positive Java integers. An address or attachment has ordered channel names. A receiver holds its channel and returned field independently.

@@ -63,6 +63,7 @@ import {
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import { declaredPlatforms, PLATFORMS } from "@/lib/domain/platforms";
 import type { ProseTemplate } from "@/lib/domain/prose";
+import type { QuestionMessage } from "../displayMessages";
 import {
 	effectivePreviewPlatform,
 	type PreviewPlatformRules,
@@ -250,6 +251,7 @@ export type CaptureAnswerCommit = (
 	value: string,
 	gate: CaptureCommitGate,
 	onAccepted: (path: string) => void,
+	originalFilename?: string,
 ) => Promise<boolean>;
 
 export type CaseDatabaseControllerState =
@@ -2918,6 +2920,25 @@ export class EngineController {
 		}
 	}
 
+	/** Apply a successful Web Apps address choice, attachment, or clear to the
+	 * receivers on its own form or repeat. Each answer takes the normal
+	 * assignment path with validation, calculation and lookup refresh. */
+	async applyDisplayMessage(
+		senderPath: string,
+		message: QuestionMessage,
+	): Promise<void> {
+		const engine = this.engine;
+		const entry = this.entryKey;
+		if (!engine || !entry || this.rebuilding) return;
+		const targets = engine.displayMessageAnswers(senderPath, message);
+		// Stage all concrete addresses before yielding. A subsequent repeat
+		// insert/remove cannot retarget a pending message to a different row.
+		const pending = targets.map(({ path, value }) =>
+			this.setValueAtAsync(path, value),
+		);
+		await Promise.all(pending);
+	}
+
 	/** Successful capture completion joins only the engine queue, then stages
 	 * against current stable identities. Ownership adoption shares that exact
 	 * synchronous acceptance boundary; it never relies on stale React paths. */
@@ -2927,6 +2948,7 @@ export class EngineController {
 		value: string,
 		gate: CaptureCommitGate,
 		onAccepted: (path: string) => void,
+		originalFilename?: string,
 	): Promise<boolean> {
 		if (!(await this.awaitCaptureEntryReady(entryKey, gate.signal)))
 			return false;
@@ -2940,10 +2962,18 @@ export class EngineController {
 			return false;
 		if (!gate.isCurrent()) return false;
 		const currentPath = this.captureAnswerPath(target);
-		return (
-			currentPath !== undefined &&
-			this.engine?.store.getState()[currentPath]?.value === value
-		);
+		if (
+			currentPath === undefined ||
+			this.engine?.store.getState()[currentPath]?.value !== value
+		)
+			return false;
+		if (value === "" || originalFilename !== undefined) {
+			await this.applyDisplayMessage(
+				currentPath,
+				originalFilename === undefined ? null : { filename: originalFilename },
+			);
+		}
+		return true;
 	}
 
 	/** Mark a field as touched (on blur). Uuid-resolved template path —

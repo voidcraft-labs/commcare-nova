@@ -1934,3 +1934,7 @@ cancels wording. Suggestion keymaps precede editor commit shortcuts, which prece
 StarterKit's block splitting. Both menus show names plus full paths and empty
 results. The suggestion list keeps focus in the editor; the explicit picker
 moves it into a search input and returns it on dismissal.
+
+### Display in the question inspector
+
+`editor/fields/ChoiceLayoutEditor.tsx` edits the widget and its applicable parameters. `QuestionDisplayEditor.tsx` renders the remaining choices declared for the selected kind by the domain display registry. Counts are edited as decimal digits. Channel and returned field are independent inputs. Each save and clear goes through the same document gate as a chat or remote edit. A rejected edit leaves the preceding display in place.

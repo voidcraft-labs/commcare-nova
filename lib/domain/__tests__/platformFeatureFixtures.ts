@@ -328,6 +328,27 @@ function fieldKindPair(
 	};
 }
 
+function questionSettingPair(
+	feature: PlatformFeatureId,
+	kind: FieldSpec["kind"],
+	slot: string,
+	value: unknown,
+): PlatformFeatureFixture {
+	const field: FieldSpec = { kind, id: "visit", label: "Visit" };
+	if (kind === "single_select" || kind === "multi_select")
+		field.options = [
+			{ value: "east", label: "East" },
+			{ value: "west", label: "West" },
+		];
+	if (kind === "group")
+		field.children = [f({ kind: "text", id: "note", label: "Note" })];
+	return {
+		with: () => oneField({ ...field, [slot]: value }),
+		without: () => oneField(field),
+		use: slotUse(feature, FIELD_OWNER, slot),
+	};
+}
+
 function calculatePair(
 	feature: PlatformFeatureId,
 	withCalculate: string,
@@ -570,6 +591,207 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			]),
 		use: slotUse("question-pages", FIELD_OWNER, "kind"),
 	},
+	"choice-grid": questionSettingPair(
+		"choice-grid",
+		"single_select",
+		"choiceLayout",
+		{ kind: "grid" },
+	),
+	"choice-advance": questionSettingPair(
+		"choice-advance",
+		"single_select",
+		"choiceLayout",
+		{ kind: "advance-on-choice" },
+	),
+	"choice-multiword": questionSettingPair(
+		"choice-multiword",
+		"single_select",
+		"choiceLayout",
+		{ kind: "search", matchWords: "multiword" },
+	),
+	"choice-fuzzy": questionSettingPair(
+		"choice-fuzzy",
+		"single_select",
+		"choiceLayout",
+		{ kind: "search", matchWords: "fuzzy" },
+	),
+	"choice-row": questionSettingPair(
+		"choice-row",
+		"multi_select",
+		"choiceLayout",
+		{ kind: "row" },
+	),
+	"choice-cycle": questionSettingPair(
+		"choice-cycle",
+		"single_select",
+		"choiceLayout",
+		{ kind: "buttons" },
+	),
+	"question-receiver": questionSettingPair(
+		"question-receiver",
+		"text",
+		"receiveFrom",
+		{ channel: "visit", field: "city" },
+	),
+	"secret-keypad": questionSettingPair(
+		"secret-keypad",
+		"secret",
+		"keypad",
+		"numbers",
+	),
+	"android-keypad": questionSettingPair(
+		"android-keypad",
+		"text",
+		"keypad",
+		"android-numbers",
+	),
+	"short-input": questionSettingPair(
+		"short-input",
+		"text",
+		"inputWidth",
+		"short",
+	),
+	"medium-input": questionSettingPair(
+		"medium-input",
+		"int",
+		"inputWidth",
+		"medium",
+	),
+	"address-lookup": questionSettingPair(
+		"address-lookup",
+		"text",
+		"addressLookup",
+		true,
+	),
+	"question-sender": questionSettingPair(
+		"question-sender",
+		"image",
+		"sendTopics",
+		["visit"],
+	),
+	"barcode-text-options": questionSettingPair(
+		"barcode-text-options",
+		"barcode",
+		"keypad",
+		"numbers",
+	),
+	"placeholder-hint": questionSettingPair(
+		"placeholder-hint",
+		"text",
+		"hintPlacement",
+		"placeholder",
+	),
+	"hide-web-hint": questionSettingPair(
+		"hide-web-hint",
+		"date",
+		"hintPlacement",
+		"hidden-on-web",
+	),
+	"auto-scan": questionSettingPair("auto-scan", "barcode", "scanOnOpen", true),
+	"android-calendar": questionSettingPair(
+		"android-calendar",
+		"date",
+		"calendar",
+		"nepali",
+	),
+	"twelve-hour-clock": questionSettingPair(
+		"twelve-hour-clock",
+		"time",
+		"clock",
+		"twelve-hour",
+	),
+	"android-map": questionSettingPair(
+		"android-map",
+		"geopoint",
+		"locationPicker",
+		"map",
+	),
+	"edit-scan": questionSettingPair("edit-scan", "barcode", "canEditScan", true),
+	"camera-only": questionSettingPair(
+		"camera-only",
+		"image",
+		"captureSource",
+		"camera",
+	),
+	"photo-overlay": questionSettingPair(
+		"photo-overlay",
+		"image",
+		"overlaySize",
+		"small",
+	),
+	"classic-recorder": questionSettingPair(
+		"classic-recorder",
+		"audio",
+		"recorder",
+		"legacy",
+	),
+	"record-or-choose": questionSettingPair(
+		"record-or-choose",
+		"audio",
+		"captureSource",
+		"record-or-choose",
+	),
+	"long-recording": questionSettingPair(
+		"long-recording",
+		"audio",
+		"pauseRecording",
+		true,
+	),
+	"select-label-text": questionSettingPair(
+		"select-label-text",
+		"label",
+		"selectableText",
+		true,
+	),
+	"question-banner": questionSettingPair(
+		"question-banner",
+		"text",
+		"banner",
+		"caution",
+	),
+	"hidden-label": questionSettingPair(
+		"hidden-label",
+		"label",
+		"banner",
+		"hidden",
+	),
+	"compact-group": questionSettingPair(
+		"compact-group",
+		"group",
+		"compact",
+		true,
+	),
+	"collapse-group": questionSettingPair(
+		"collapse-group",
+		"group",
+		"collapse",
+		"open",
+	),
+	"group-border": questionSettingPair("group-border", "group", "border", true),
+	"questions-across": questionSettingPair(
+		"questions-across",
+		"text",
+		"itemsPerRow",
+		"2",
+	),
+	"repeats-across": questionSettingPair(
+		"repeats-across",
+		"group",
+		"repeatsPerRow",
+		"3",
+	),
+	"question-alignment": questionSettingPair(
+		"question-alignment",
+		"text",
+		"textAlignment",
+		"center",
+	),
+	"combined-question-display": questionSettingPair(
+		"combined-question-display",
+		"single_select",
+		"choiceLayout",
+		{ kind: "platforms", web: { kind: "dropdown" }, android: { kind: "grid" } },
+	),
 	"number-keypad": {
 		with: () =>
 			oneField({

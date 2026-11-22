@@ -527,6 +527,58 @@ final class Forms {
         return taken;
     }
 
+    /** Selects a date through the calendar shown by the native widget. The
+     * input contains the year, month and day printed by that calendar. */
+    private static boolean pickDay(QuestionWidget widget, FormEntryPrompt prompt,
+                                   String visible, JSONObject entry) throws Exception {
+        String[] date = visible.split("-");
+        if (date.length != 3) throw new IllegalArgumentException("Expected calendar year-month-day: " + visible);
+        int year = Integer.parseInt(date[0]);
+        int month = Integer.parseInt(date[1]);
+        int day = Integer.parseInt(date[2]);
+        if (widget instanceof org.commcare.views.widgets.EthiopianDateWidget) {
+            String[] months = org.javarosa.xform.util.CalendarUtils.getMonthsArray("ethiopian_months");
+            // Move to day one so changing month or year cannot overflow a shorter month.
+            selectNumber(widget, R.id.daytxt, R.id.daydownbtn, R.id.dayupbtn, 1, 31);
+            android.widget.TextView monthLabel = widget.findViewById(R.id.monthtxt);
+            for (int n = 0; !months[month - 1].contentEquals(monthLabel.getText()); n++) {
+                if (n >= months.length) throw new AssertionError("Calendar did not reach " + months[month - 1]);
+                widget.findViewById(R.id.monthupbtn).performClick();
+            }
+            selectNumber(widget, R.id.yeartxt, R.id.yeardownbtn, R.id.yearupbtn, year, 150);
+            selectNumber(widget, R.id.daytxt, R.id.daydownbtn, R.id.dayupbtn, day, 31);
+        } else if (widget instanceof org.commcare.views.widgets.DateWidget) {
+            android.widget.DatePicker picker = null;
+            for (int i = 0; i < widget.getChildCount(); i++) {
+                if (widget.getChildAt(i) instanceof android.widget.DatePicker) {
+                    picker = (android.widget.DatePicker)widget.getChildAt(i);
+                    break;
+                }
+            }
+            if (picker == null) throw new AssertionError("No DatePicker on " + prompt.getIndex());
+            picker.updateDate(year, month - 1, day);
+        } else {
+            throw new AssertionError("No supported calendar widget on " + prompt.getIndex());
+        }
+        IAnswerData selected = widget.getAnswer();
+        if (selected == null) throw new AssertionError("Calendar selection gave no answer on " + prompt.getIndex());
+        entry.put("calendarSelection", visible);
+        entry.put("given", selected.getDisplayText());
+        return FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), selected) ==
+                FormEntryController.ANSWER_OK;
+    }
+
+    private static void selectNumber(QuestionWidget widget, int labelId, int previousId, int nextId,
+                                     int target, int bound) {
+        android.widget.TextView label = widget.findViewById(labelId);
+        for (int n = 0; n <= bound; n++) {
+            int current = Integer.parseInt(label.getText().toString());
+            if (current == target) return;
+            widget.findViewById(current < target ? nextId : previousId).performClick();
+        }
+        throw new AssertionError("Calendar did not reach " + target + " from " + label.getText());
+    }
+
     /**
      * Gives each question on the screen its answer from the table, through the form's own controller: the first
      * value the form takes; a capture question its file, through its own screen (Captures).
@@ -571,6 +623,12 @@ final class Forms {
             JSONArray refused = new JSONArray();
             boolean constraintRefused = false;
             List<String> values = Answers.valuesFor(prompt);
+            if (!values.isEmpty() && values.get(0).startsWith("calendar:") &&
+                    (widget instanceof org.commcare.views.widgets.DateWidget ||
+                     widget instanceof org.commcare.views.widgets.AbstractUniversalDateWidget)) {
+                answered |= pickDay(widget, prompt, values.get(0).substring("calendar:".length()), entry);
+                continue;
+            }
             for (String value : values) {
                 int status;
                 try {

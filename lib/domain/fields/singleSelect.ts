@@ -12,7 +12,9 @@
 
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import { z } from "zod";
+import { singleChoiceLayoutSchema } from "../choicePresentation";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -22,7 +24,9 @@ import { selectOptionsSourceSchema } from "./selectOptionsSource";
 
 export const singleSelectFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("single_select"),
+	receiveFrom: displaySchemas.receiveFrom.optional(),
 	optionsSource: selectOptionsSourceSchema,
+	choiceLayout: singleChoiceLayoutSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),

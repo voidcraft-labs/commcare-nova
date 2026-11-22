@@ -29,6 +29,7 @@ function candidate(
 		throw new Error("The choice fixture is missing.");
 	doc.fields[ids.choice] = {
 		...field,
+		choiceLayout: undefined,
 		kind,
 		optionsSource: {
 			kind: "inline",

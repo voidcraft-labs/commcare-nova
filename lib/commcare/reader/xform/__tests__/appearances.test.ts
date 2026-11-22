@@ -225,10 +225,10 @@ describe("a trigger's appearance, read through the form's stages", () => {
 		);
 		expect(codesAt(reading, "list")).toEqual([acknowledge]);
 		expect(codesAt(reading, "foo")).toEqual([acknowledge]);
-		expect(codesAt(reading, "copy")).toEqual([Q("trigger-selectable")]);
-		expect(codesAt(reading, "banner")).toEqual([
-			Q("floating-good-floating-caution-floating-bad"),
-		]);
+		expect(codesAt(reading, "copy")).toEqual([]);
+		expect(fields[2].field.selectableText).toBe(true);
+		expect(codesAt(reading, "banner")).toEqual([]);
+		expect(fields[3].field.banner).toBe("good");
 		expect(reading.xform?.inertAppearances).toEqual([]);
 	});
 });
@@ -269,7 +269,11 @@ describe("the inert appearances of a form", () => {
 			}),
 		);
 		expect(reading.xform?.inertAppearances).toEqual(["g", "c"]);
-		expect(codesAt(reading, "b")).toEqual([Q("select1-minimal")]);
+		expect(codesAt(reading, "b")).toEqual([]);
+		expect(
+			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "b")
+				?.field.choiceLayout,
+		).toEqual({ kind: "dropdown" });
 		expect(codesAt(reading, "g")).toEqual([]);
 		expect(codesAt(reading, "c")).toEqual([]);
 	});

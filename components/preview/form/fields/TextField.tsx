@@ -1,6 +1,9 @@
 "use client";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { SecretField, TextField as TextFieldEntity } from "@/lib/domain";
+import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { usePreviewPlatform } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 
 interface TextFieldProps {
@@ -20,12 +23,13 @@ export function TextField({
 	onChange,
 	onBlur,
 }: TextFieldProps) {
-	// `secret` kind renders a password-masked input; `text` is plain.
-	const inputType = field.kind === "secret" ? "password" : "text";
-	// A Text question with a number keypad asks a phone for its telephone
-	// keypad, as Web Apps' `PhoneEntry` does; on both platforms the engine
-	// decides what the answer keeps.
-	const numberKeypad = field.kind === "text" && field.keypad !== undefined;
+	const platform = usePreviewPlatform();
+	const project = useProseProjection();
+	const numberKeypad = usesNumberKeypad(field, platform);
+	const inputType =
+		field.kind === "secret" && !(platform === "web-apps" && numberKeypad)
+			? "password"
+			: "text";
 	const showError = state.touched && !state.valid;
 
 	return (
@@ -38,7 +42,13 @@ export function TextField({
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}
-				placeholder=""
+				placeholder={
+					platform === "web-apps" &&
+					field.hintPlacement === "placeholder" &&
+					field.hint
+						? (state.resolvedHint ?? project(field.hint))
+						: undefined
+				}
 				autoComplete="off"
 				data-1p-ignore
 				className={`nova-focusable w-full h-11 px-3 rounded-lg bg-pv-input-bg border text-sm text-nova-text placeholder:text-nova-text-muted outline-none transition-colors ${

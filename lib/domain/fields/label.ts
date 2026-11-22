@@ -9,10 +9,13 @@
 import tablerTag from "@iconify-icons/tabler/tag";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { fieldBaseSchema, formLogicSchema } from "./base";
 
 export const labelFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("label"),
+	selectableText: displaySchemas.selectableText.optional(),
+	banner: displaySchemas.banner.optional(),
 	relevant: formLogicSchema.optional(),
 });
 

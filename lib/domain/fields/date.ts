@@ -8,6 +8,7 @@
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import {
 	formLogicSchema,
 	inputFieldBaseSchema,
@@ -16,6 +17,8 @@ import {
 
 export const dateFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("date"),
+	inputWidth: displaySchemas.inputWidth.optional(),
+	calendar: displaySchemas.calendar.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),

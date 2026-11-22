@@ -466,7 +466,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 			inRepeat: inRepeat(parent),
 		};
 		let row: FieldKindRow | undefined = fieldKindOf(facts);
-		let labelAppearance = false;
+
 		// A trigger whose appearance is not exactly `minimal` is a label only where its
 		// appearance leaves Android's widget no acknowledge; any other is the kind row's refusal.
 		if (
@@ -485,9 +485,6 @@ export function joinForm(input: JoinInput): JoinedForm {
 				triggerStaysLabel(verdict, control.appearance)
 			) {
 				row = fieldKindOf({ ...facts, appearance: "minimal" });
-				if (claimAppearance(cursor, accounting, control, verdict, place).inert)
-					inertAppearances.push(node.path.join("/"));
-				labelAppearance = true;
 			}
 		}
 		const stood = idFinding(node);
@@ -565,7 +562,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				typeDeferred: bind?.type !== undefined && typeClaim === sites.type,
 			};
 		if (control === undefined) return field;
-		if (control.appearance !== undefined && !labelAppearance) {
+		if (control.appearance !== undefined) {
 			const verdict = classifyAppearance(
 				control,
 				bind,
@@ -579,7 +576,8 @@ export function joinForm(input: JoinInput): JoinedForm {
 						sites.appearance,
 					).value;
 			} else if (
-				claimAppearance(cursor, accounting, control, verdict, place).inert
+				claimAppearance(cursor, accounting, control, verdict, place, field)
+					.inert
 			)
 				inertAppearances.push(node.path.join("/"));
 		}
