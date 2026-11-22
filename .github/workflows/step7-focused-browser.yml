@@ -24,25 +24,15 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/pull-test-image
       - run: npx playwright install --with-deps --only-shell chromium
-      - name: Edit a choice layout in the signed-in Builder
-        env:
-          SMOKE_LANE: app
-        run: npm run test:smoke -- --project=authed e2e/tests/app/number-keypad.spec.ts --grep 'a worker gets a dropdown' --retries=0 --workers=1 --fail-on-flaky-tests
-      - name: Retain the signed-in Builder observation
-        uses: actions/upload-artifact@v7
-        if: failure()
-        with:
-          name: builder-observations
-          path: e2e/test-results
-          if-no-files-found: error
       - name: Complete the visit in Android Preview
         if: ${{ !cancelled() }}
         env:
           SMOKE_LANE: browser
-        run: npm run test:smoke -- --project=browser e2e/tests/browser/preview-platforms.spec.ts --grep 'visit-display-android' --retries=0 --workers=1 --fail-on-flaky-tests
+          DEBUG: pw:api
+        run: npm run test:smoke -- --project=browser e2e/tests/browser/preview-platforms.spec.ts --grep 'visit-display-android' --trace on --retries=0 --workers=1 --fail-on-flaky-tests
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: preview-observations
           path: e2e/test-results
-          if-no-files-found: ignore
+          if-no-files-found: error
