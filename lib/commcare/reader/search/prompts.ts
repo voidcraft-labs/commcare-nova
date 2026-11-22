@@ -31,7 +31,12 @@ import {
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
 import { isReservedSearchInputName } from "../../suite/case-search/reservedInputNames";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import {
+	type FormSyntax,
+	literalInstanceId,
+	needsInstanceDeclaration,
+} from "../../xpath/formSyntax";
+import { scannedInstances } from "../../xpath/instanceSources";
 import { withCandidate } from "../candidate";
 import {
 	appCodes,
@@ -60,10 +65,11 @@ import {
 	type UnheldText,
 	unheldRefusal,
 } from "../heldText";
+import { interpolateHqXPath } from "../hqInterpolation";
 import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { manifestFindingOf } from "../languages";
-import { lookupNameRefusal } from "../lookupNames";
+import { lookupNameRefusal, undiscoveredLookupName } from "../lookupNames";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
 import { readGuardText } from "./guardSplit";
@@ -367,7 +373,8 @@ function fieldName(text: unknown): string | undefined {
  *  filter's text, where it is that shape. */
 function itemsetSource(
 	text: unknown,
-): { tag: string; filter?: string } | undefined {
+	suiteSources: ReadonlyMap<string, string>,
+): { tag: string; filter?: string; undiscovered?: true } | undefined {
 	if (typeof text !== "string") return undefined;
 	let node = parse(text, true);
 	let filter: string | undefined;
@@ -384,16 +391,14 @@ function itemsetSource(
 		list.step.name !== `${item}_list`
 	)
 		return undefined;
-	const root = list.left;
+	const id = literalInstanceId(list.left);
+	if (id?.value !== `item-list:${item}`) return undefined;
 	if (
-		root?.kind !== "call" ||
-		root.name !== "instance" ||
-		root.args.length !== 1
+		list.left !== undefined &&
+		needsInstanceDeclaration(list.left, text) &&
+		!suiteSources.has(id.value)
 	)
-		return undefined;
-	const id = root.args[0];
-	if (id?.kind !== "string" || id.value !== `item-list:${item}`)
-		return undefined;
+		return { tag: item, undiscovered: true };
 	return filter === undefined ? { tag: item } : { tag: item, filter };
 }
 
@@ -459,6 +464,31 @@ export function readSearchPrompts(
 	const grouped = prompts.some(
 		(prompt) => prompt.peek("is_group") === true || prompt.used("group_key"),
 	);
+	// Each of these texts is emitted into the same remote request. Exclude
+	// group headings and gated defaults, which need their own target facts.
+	const suiteSources = new Map<string, string>();
+	const scan = (text: unknown, interpolateDots?: boolean) => {
+		if (typeof text !== "string") return;
+		const runtime =
+			interpolateDots === undefined
+				? { ok: true as const, text }
+				: interpolateHqXPath(text, { interpolateDots });
+		if (runtime.ok)
+			for (const [id, source] of scannedInstances(runtime.text))
+				suiteSources.set(id, source);
+	};
+	for (const prompt of prompts) {
+		if (prompt.peek("is_group") === true) continue;
+		const itemset = prompt.peek("itemset");
+		if (isJsonObject(itemset)) scan(itemset.nodeset);
+		const required = prompt.peek("required");
+		if (isJsonObject(required)) scan(required.test, true);
+		const validations = prompt.peek("validations");
+		if (Array.isArray(validations)) {
+			for (const rule of validations)
+				if (isJsonObject(rule)) scan(rule.test, false);
+		}
+	}
 	const out: PromptReading[] = [];
 	for (const prompt of prompts) {
 		const reading = readPrompt(
@@ -468,6 +498,7 @@ export function readSearchPrompts(
 			place,
 			defaultFilterNames,
 			grouped,
+			suiteSources,
 		);
 		if (reading !== undefined) out.push(reading);
 	}
@@ -481,6 +512,7 @@ function readPrompt(
 	place: HqPlace,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 	grouped: boolean,
+	suiteSources: ReadonlyMap<string, string>,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
@@ -746,7 +778,7 @@ function readPrompt(
 					? instance.split(":")[0]
 					: undefined;
 			const source = isJsonObject(itemset)
-				? itemsetSource(itemset.nodeset)
+				? itemsetSource(itemset.nodeset, suiteSources)
 				: undefined;
 			const ITEMSET_KEYS = [
 				"instance_id",
@@ -777,7 +809,9 @@ function readPrompt(
 						? fieldName(sortText)
 						: undefined;
 				const table =
-					source === undefined || instance !== `item-list:${source.tag}`
+					source === undefined ||
+					source.undiscovered ||
+					instance !== `item-list:${source.tag}`
 						? undefined
 						: ctx.input.lookup.table(source.tag);
 				const valueColumn =
@@ -786,19 +820,21 @@ function readPrompt(
 					label === undefined ? undefined : table?.column(label);
 				const sortColumn = sort === undefined ? undefined : table?.column(sort);
 				const nameRefusal =
-					table === undefined || source === undefined
-						? undefined
-						: (lookupNameRefusal(source.tag, "search_input_options", "tag") ??
-							[label, value, sort].flatMap((name) => {
-								if (name === undefined || table.column(name) === undefined)
-									return [];
-								const refusal = lookupNameRefusal(
-									name,
-									"search_input_options",
-									"column",
-								);
-								return refusal === undefined ? [] : [refusal];
-							})[0]);
+					source?.undiscovered && instance === `item-list:${source.tag}`
+						? undiscoveredLookupName(source.tag)
+						: table === undefined || source === undefined
+							? undefined
+							: (lookupNameRefusal(source.tag, "search_input_options", "tag") ??
+								[label, value, sort].flatMap((name) => {
+									if (name === undefined || table.column(name) === undefined)
+										return [];
+									const refusal = lookupNameRefusal(
+										name,
+										"search_input_options",
+										"column",
+									);
+									return refusal === undefined ? [] : [refusal];
+								})[0]);
 				if (nameRefusal !== undefined) {
 					const raised = refuseWith("nodeset", nameRefusal.claim, cursor, {
 						name: nameRefusal.name,
@@ -1051,6 +1087,7 @@ function readPrompt(
 				},
 				text,
 				mode: { target: "hq-json", interpolation },
+				suiteSources,
 				place,
 				key,
 				...(deferRefusal && { deferRefusal: true as const }),

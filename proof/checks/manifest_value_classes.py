@@ -126,6 +126,11 @@ def _core_control_path(control):
     return None if text is None else (attribute, text)
 
 
+def scanned_instance_names(text):
+    """HQ suite_xml/post_process/instances.py::get_instance_names on one emitted XPath or full XForm."""
+    return set(re.findall(r"""instance\(\s*['"]([\w\-:]+)['"]\s*\)""", html.unescape(text)))
+
+
 class Form:
     """One XForm as the value classes read it: its tree and, built once, the relations its readers follow (a
     control to its bind, a path to its instance node). Paths are matched as the text HQ, Vellum and Nova
@@ -147,8 +152,7 @@ class Form:
     @cached_property
     def scanned_instance_ids(self):
         """Names visible to HQ's get_instance_names over XForm.render(), including text outside the slot."""
-        xml = html.unescape(etree.tostring(self.root, encoding="unicode"))
-        names = set(re.findall(r"""instance\(\s*['"]([\w\-:]+)['"]\s*\)""", xml))
+        names = scanned_instance_names(etree.tostring(self.root, encoding="unicode"))
         # A declared inline instance blocks a same-named missing-instance factory, too.
         if self.model is not None:
             names -= {element.get("id") for element in self.model if element.tag in ("instance", f"{{{XFORMS}}}instance")}

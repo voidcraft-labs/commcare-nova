@@ -1738,6 +1738,33 @@ def test_a_form_s_read_takes_its_scheme_from_its_id_or_from_the_source_it_declar
     assert manifest_usage.read_scheme(manifest, "regions", {}) == "regions"
 
 
+def test_a_grouped_suite_lookup_uses_its_own_requests_scanned_instances(manifest):
+    grouped = "instance((('item-list:zones')))/zones_list/zones"
+    canonical = "instance('item-list:zones')/zones_list/zones"
+    # The selection's configured table is not an expression read, even when a source is available for it.
+    configured = "instance('item-list:other')/other_list/other"
+    first = {"itemset": {"instance_id": "item-list:other", "nodeset": grouped}}
+    neighbor = {"required": {"test": canonical}}
+    parsed = {"instancePaths": [{"instance": "item-list:zones"}]}
+    for siblings, tags in (([neighbor], {"zones"}), ([{**neighbor, "is_group": True}], set()), ([], set())):
+        search = {"properties": [first, *siblings, {"required": {"test": configured}}]}
+        module = {"search_config": search, "forms": [{"form_filter": canonical}]}
+        texts = set()
+        observed_manifest.app_expressions(module, texts)
+        assert grouped in texts
+        scope = (("Module", module), ("CaseSearch", search), ("CaseSearchProperty", first),
+                 ("Itemset", first["itemset"]))
+        found = manifest_usage.Uses()
+        for key, value in first["itemset"].items():
+            at = manifest_usage.JsonAt(None, scope, key)
+            manifest_usage._special("Itemset", key, value, "/" + key, manifest, "app", found, at)
+        assert len(found.expressions) == 1
+        expression, = found.expressions
+        assert expression.text == grouped
+        manifest_usage._expression_uses(expression, parsed, manifest, found)
+        assert found.lookup_tags == tags
+
+
 def test_only_deliverable_form_instances_request_lookup_resources(manifest):
     from lxml import etree
 

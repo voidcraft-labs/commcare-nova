@@ -217,6 +217,11 @@ Four rules hold everywhere here:
   example, needs an explicit declaration in the XForm. A selected-entities datum, remote
   search and lookup fixture can have identical suffixes and still supply different data.
   Binding, lookup row discovery and source accounting follow those source families.
+  Core accepts nested parentheses around an instance’s one literal ID. HQ’s missing-instance scanner needs
+  an ordinary spelling elsewhere when that ID has no declaration. Search itemsets, required tests and
+  validations in one remote request can supply one another’s instances. Its `itemset.instance_id` is checked
+  by HQ’s validator. The scanner reads the request’s actual XPath texts. A different command’s expressions
+  cannot establish that a Search field can load its table.
   A secondary instance's source is recorded at its `src`, and its id under
   `xform:model/instance@id` (`provisional.ts::claimDeclarations`). A search row's key is
   recorded at its `property`, and the class its Search field's presence test chooses it in at

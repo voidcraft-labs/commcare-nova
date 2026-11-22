@@ -644,6 +644,41 @@ describe("a select's choices", () => {
 			expect(outcome.defects).toEqual([]);
 		});
 
+		it.each([
+			[
+				"its declared fixture",
+				"jr://fixture/item-list:hq_districts",
+				"(('hq_districts'))",
+				true,
+			],
+			[
+				"a selected-cases source",
+				"jr://instance/selected-entities/item-list:hq_districts",
+				"(('hq_districts'))",
+				false,
+			],
+			[
+				"a second argument",
+				"jr://fixture/item-list:hq_districts",
+				"('hq_districts'), 'extra'",
+				false,
+			],
+		] as const)(
+			"reads a grouped itemset ID with %s",
+			async (_label, source, args, holds) => {
+				const result = await read((xml) =>
+					xml
+						.replace(
+							'src="jr://fixture/item-list:hq_districts"',
+							`src="${source}"`,
+						)
+						.replace("instance(&apos;hq_districts&apos;)", `instance(${args})`),
+				);
+				expect(result.kind).toBe(holds ? "read" : "account");
+				expect(result.defects).toEqual([]);
+			},
+		);
+
 		it("reads a choice from the canonical fixture id HQ's build declares implicitly", async () => {
 			const outcome = await read((xml) =>
 				xml

@@ -15,7 +15,7 @@ import { recordFromEntries } from "@/lib/domain/records";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
 	CSQL_VALUE_FUNCTIONS,
@@ -192,9 +192,8 @@ function instancePath(
 		}
 		break;
 	}
-	if (at.kind !== "call" || at.name !== "instance") return undefined;
-	const first = at.args[0] === undefined ? undefined : bare(at.args[0]);
-	return first?.kind === "string" ? { id: first.value, steps } : undefined;
+	const id = literalInstanceId(at);
+	return id === undefined ? undefined : { id: id.value, steps };
 }
 
 /** What decides the class of a use beyond its syntax and its slot, from the
@@ -479,9 +478,8 @@ function xpathUses(
 				if (node.args.length > 1) token("COMMA");
 				if (node.name === "instance" || node.name === "current") {
 					uses.add("xpath-expr:XPathPathExpr", "instance-or-current-root");
-					const id =
-						node.args[0] === undefined ? undefined : bare(node.args[0]);
-					if (node.name === "instance" && id?.kind === "string") {
+					const id = literalInstanceId(node);
+					if (id !== undefined) {
 						const classed = classifiedInstanceId(
 							id.value,
 							facts.instanceSources.get(id.value),
@@ -680,9 +678,8 @@ function csqlUses(
 	// The device works out a row while the query is built, with the Search
 	// fields' answers: each read of them is that class, whatever the row's CSQL.
 	visitSyntax(wrapper, (node) => {
-		if (node.kind !== "call" || node.name !== "instance") return;
-		const first = node.args[0] === undefined ? undefined : bare(node.args[0]);
-		if (first?.kind === "string" && scheme(first.value) === "search-input")
+		const id = literalInstanceId(node);
+		if (id !== undefined && scheme(id.value) === "search-input")
 			uses.add("instance-scheme:search-input", "query-build");
 	});
 	const row = searchRowCsql(wrapper);
@@ -930,9 +927,8 @@ export function instanceIdsRead(text: string): readonly string[] {
 export function instanceIdsIn(syntax: FormSyntax): readonly string[] {
 	const ids: string[] = [];
 	visitSyntax(syntax, (node) => {
-		if (node.kind !== "call" || node.name !== "instance") return;
-		const first = node.args[0] === undefined ? undefined : bare(node.args[0]);
-		if (first?.kind === "string") ids.push(first.value);
+		const id = literalInstanceId(node);
+		if (id !== undefined) ids.push(id.value);
 	});
 	return ids;
 }

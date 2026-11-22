@@ -20,6 +20,10 @@ const claims = defineClaims("lookup-names", {
 	),
 });
 
+export function undiscoveredLookupName(tag: string) {
+	return { name: tag, claim: claims.undeclared };
+}
+
 export function lookupNameRefusal(
 	name: string,
 	registrySlot: string,

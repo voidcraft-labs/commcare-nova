@@ -75,6 +75,34 @@ describe("reading an HQ form with named table data", () => {
 		}
 	});
 
+	it("keeps grouped fixture references scoped to the form’s suite entry", async () => {
+		const rows = "instance((('item-list:zones')))/zones_list/zones";
+		const ordinary = "instance('item-list:zones')/zones_list/zones";
+		for (const [guard, held] of [
+			[rows, false],
+			[ordinary, true],
+		] as const) {
+			const condition = `if(count(${guard}) > 0, ${rows}[code = 'west'][1]/label, '') != ''`;
+			const result = await reading("zones", "label", {
+				modules(modules) {
+					const [form] = modules[0].forms as Record<string, unknown>[];
+					form.form_filter = condition;
+					return modules;
+				},
+			});
+			expect(result.defects).toEqual([]);
+			if (held)
+				expect(result.kind === "account" ? result.findings : []).toEqual([]);
+			else
+				expect(
+					result.kind === "account" &&
+						result.findings.map((finding) => finding.code),
+				).toContain(
+					"expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+				);
+		}
+	});
+
 	it("points a suite refusal to its form, while that same name remains usable in the form's question", async () => {
 		for (const [tag, column, suffix] of [
 			["meeting.1", "label", "lookup-table-instance-undiscovered-in-suite"],

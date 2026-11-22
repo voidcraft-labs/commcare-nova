@@ -35,7 +35,7 @@
  */
 import type { RuleSet } from "@/lib/domain/expression/profiles";
 import { chargeWork, rethrowWorkStop } from "../workMeter";
-import type { FormSyntax } from "../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../xpath/formSyntax";
 import { readFormSyntax } from "./syntaxRead";
 
 export interface CompareOptions {
@@ -181,17 +181,11 @@ function comparable(
 							name: "selected",
 							args: at.args.map((arg) => normalize(arg, position)),
 						};
-					if (
-						at.name === "instance" &&
-						at.args.length === 1 &&
-						at.args[0].kind === "string" &&
-						options.instanceId !== undefined
-					)
+					const id = literalInstanceId(at);
+					if (id !== undefined && options.instanceId !== undefined)
 						return {
 							...at,
-							args: [
-								{ ...at.args[0], value: options.instanceId(at.args[0].value) },
-							],
+							args: [{ ...id, value: options.instanceId(id.value) }],
 						};
 					if (
 						at.name === "jr:itext" &&

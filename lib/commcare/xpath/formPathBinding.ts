@@ -35,7 +35,11 @@ import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../sessionContext";
 import type { FormNodeProjection } from "./formNodeProjection";
 import { FormParseRefusal, refuse } from "./formParseIssues";
 import type { FormParseScope } from "./formParseScope";
-import { type FormSyntax, readFormSyntax } from "./formSyntax";
+import {
+	type FormSyntax,
+	literalInstanceId,
+	readFormSyntax,
+} from "./formSyntax";
 
 export interface FormPathBinder {
 	readonly scope: FormParseScope;
@@ -344,23 +348,16 @@ function instancePath(
 	whole: FormSyntax,
 ): Expression {
 	const root = path.root;
-	if (
-		root?.kind !== "call" ||
-		root.name !== "instance" ||
-		root.args.length !== 1 ||
-		root.args[0].kind !== "string"
-	)
+	const literal = literalInstanceId(root);
+	if (root === undefined || literal === undefined)
 		refuse(
 			"instance-argument",
 			whole,
 			"instance() needs the name of what it reads in quotes, such as instance('casedb').",
 		);
 	const reading = binder.scope.reading;
-	const binding = reading?.instanceSource(
-		root.args[0].value,
-		root.args[0].from,
-	);
-	const localId = binding?.localId ?? root.args[0].value;
+	const binding = reading?.instanceSource(literal.value, literal.from);
+	const localId = binding?.localId ?? literal.value;
 	const source = binding?.source;
 	if (reading !== undefined && source === undefined)
 		refuse(
@@ -695,7 +692,7 @@ function instancePath(
 			refuse(
 				"instance-unknown",
 				whole,
-				`CommCare can't load instance('${root.args[0].value}') without a matching declaration.`,
+				`CommCare can't load instance('${localId}') without a matching declaration.`,
 			);
 		const tag = id.startsWith("item-list:")
 			? id.slice("item-list:".length)
@@ -724,7 +721,7 @@ function instancePath(
 			refuse(
 				"table-path-mismatch",
 				whole,
-				`The rows of ${tag} are at instance('${root.args[0].value}')/${tag}_list/${tag}.`,
+				`The rows of ${tag} are at instance('${localId}')/${tag}_list/${tag}.`,
 			);
 		base = { kind: "table-rows", tableId: table.id, where: [] };
 		row = { kind: "table", root: "table", tableId: table.id };

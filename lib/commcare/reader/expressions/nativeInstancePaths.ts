@@ -1,4 +1,4 @@
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import { instanceForRead } from "../../xpath/instanceSources";
 
 /** Folds and dependency analysis recognize paths to Core's native databases.
@@ -12,12 +12,8 @@ export function nativeInstancePaths(
 	function visit(node: FormSyntax): FormSyntax {
 		switch (node.kind) {
 			case "call": {
-				const id = node.args[0];
-				if (
-					node.name === "instance" &&
-					node.args.length === 1 &&
-					id?.kind === "string"
-				) {
+				const id = literalInstanceId(node);
+				if (id !== undefined) {
 					const bound = instanceForRead(id.value, sources);
 					localIds.set(id.from, id.value);
 					// Only the native source can match e.g. a fold for /casedb/case.

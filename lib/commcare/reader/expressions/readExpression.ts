@@ -108,7 +108,12 @@ import type {
 	FormParseScope,
 	FormReadingHooks,
 } from "../../xpath/formParseScope";
-import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
+import {
+	type FormSyntax,
+	formSyntaxKey,
+	literalInstanceId,
+	needsInstanceDeclaration,
+} from "../../xpath/formSyntax";
 import { JAVAROSA_NATIVE_FUNCTIONS } from "../../xpath/functionCapabilities";
 import {
 	formInstanceSources,
@@ -126,7 +131,7 @@ import {
 	interpolateHqXPath,
 	syntaxOf,
 } from "../hqInterpolation";
-import { lookupNameRefusal } from "../lookupNames";
+import { lookupNameRefusal, undiscoveredLookupName } from "../lookupNames";
 import type { PendingExpression, ReadMode } from "../pendingExpressions";
 import {
 	type CompareOptions,
@@ -134,9 +139,14 @@ import {
 	sameSyntax,
 	sameXPathText,
 } from "../syntaxCompare";
-import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
+import {
+	readFormSyntax,
+	readStoredNameSyntax,
+	sharedFormSyntax,
+} from "../syntaxRead";
 import type { ReadSourceNames, SourceNodeRef } from "../xform";
 import type { SlotPrint } from "./canonical";
+import { visitSyntax } from "./findings";
 import {
 	core,
 	EXPRESSION_FOLDS,
@@ -375,6 +385,62 @@ interface FoldSites {
 	listedCaseInQuery?: true;
 }
 
+interface SuiteReadSources {
+	readonly sources: ReadonlyMap<string, string>;
+	readonly missingTable?: string;
+}
+
+const requiredIds = new WeakMap<PendingExpression, ReadonlySet<string>>();
+function requiredInstanceIds(pending: PendingExpression): ReadonlySet<string> {
+	const known = requiredIds.get(pending);
+	if (known !== undefined) return known;
+	const ids = new Set<string>();
+	const parsed = sharedFormSyntax(pending.text);
+	if (parsed.ok && parsed.node !== undefined)
+		visitSyntax(parsed.node, (node) => {
+			const id = literalInstanceId(node);
+			if (id !== undefined && needsInstanceDeclaration(node, pending.text))
+				ids.add(id.value);
+		});
+	requiredIds.set(pending, ids);
+	return ids;
+}
+
+/** Core accepts a grouped literal ID. HQ adds a factory instance from a
+ * scanner-visible spelling in one of the generated entry's actual texts. */
+function suiteReadSources(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+): SuiteReadSources | undefined {
+	const mode = pending.mode;
+	if (mode.target !== "hq-json" || !pending.text.includes("instance"))
+		return undefined;
+	const ids = requiredInstanceIds(pending);
+	if (ids.size === 0) return undefined;
+	const text = pending.slotText ?? pending.text;
+	const slot =
+		mode.interpolation !== "none" && mode.interpolation !== "enum-key"
+			? hqInterpolationSlot(doc, pending.ref, mode.interpolation)
+			: undefined;
+	const runtime =
+		slot === undefined
+			? { ok: true as const, text }
+			: interpolateHqXPath(text, slot);
+	const sources = formInstanceSources(
+		pending.suiteSources ?? new Map(),
+		runtime.ok ? runtime.text : "",
+	);
+	const missing = [...ids].find(
+		(id) => id.startsWith("item-list:") && !sources.has(id),
+	);
+	return {
+		sources,
+		...(missing !== undefined && {
+			missingTable: missing.slice("item-list:".length),
+		}),
+	};
+}
+
 /** Only an expression evaluated inside the XForm shares its local declarations.
  * A form's menu condition and return links run under the suite entry. */
 export function instanceSourcesOf(
@@ -382,7 +448,8 @@ export function instanceSourcesOf(
 	pending: PendingExpression,
 	env: ExpressionReadEnv,
 ): ReadonlyMap<string, string> | undefined {
-	if (pending.mode.target !== "xform") return undefined;
+	if (pending.mode.target !== "xform")
+		return suiteReadSources(doc, pending)?.sources;
 	const form = slotForm(doc, pending.ref);
 	const sources =
 		form === undefined ? undefined : env.formReadSources?.get(form);
@@ -1653,6 +1720,19 @@ export function bindSlot(
 ):
 	| { readonly kind: "refused"; readonly cause: SlotRefusal }
 	| { readonly kind: "bound"; readonly bound: BoundSlot } {
+	const missingTable = suiteReadSources(doc, pending)?.missingTable;
+	if (missingTable !== undefined) {
+		const { name, claim } = undiscoveredLookupName(missingTable);
+		return {
+			kind: "refused",
+			cause: {
+				kind: "lookup-name",
+				entryId: claim.entry,
+				key: claim.key ?? "",
+				name,
+			},
+		};
+	}
 	// The source spells identity-bearing names before HQ performs case
 	// interpolation. If HQ would replace a dot, or Core cannot tokenize a
 	// stored XML name, bind that original spelling solely to name the refusal.

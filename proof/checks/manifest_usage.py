@@ -268,6 +268,7 @@ from proof.checks.manifest_value_classes import (
     instance_scheme,
     instance_source,
     preset_source,
+    scanned_instance_names,
     protected_constraint_form,
 )
 from proof.observe.intent import FORM_FILE
@@ -703,11 +704,12 @@ def _special(cls, key, value, at, manifest, artifact, found, slot):
     elif cls == "HQMediaMapItem" and key == "media_type" and isinstance(value, str) and value:
         found.add(f"media-class:{value}", artifact, at, slot)
     elif cls == "Itemset" and key == "instance_id" and isinstance(value, str) and value:
-        # A Search field's choices: HQ's build writes the itemset's nodeset over this instance and declares it by
-        # its scheme (``suite_xml/post_process/remote_requests.py``, ``instances.py::get_instance_factory``).
+        # HQ validates the configured selection here. The worker reads the separately emitted nodeset below.
         found.add(f"instance-scheme:{instance_scheme(value)}", artifact, at, slot)
-        if value.startswith("item-list:"):
-            found.lookup_tags.add(value.removeprefix("item-list:"))
+    elif cls == "Itemset" and key == "nodeset" and isinstance(value, str):
+        # Observe actual row reads without counting the selection scheme twice. The ID alone reads no rows.
+        if not (slot.nearest("CaseSearchProperty") or {}).get("is_group"):
+            found.expression(artifact, at, value, at=slot, schemes_only=True, schemes=frozenset())
     elif cls in ("Application", "LinkedApplication") and key == "translations" and isinstance(value, dict):
         # HQ's build writes the strings of the app's languages alone (``Application._make_language_files``:
         # ``default`` and each of ``get_build_langs``, which ``app_strings.py::create_default_app_strings`` merges
@@ -2065,6 +2067,28 @@ def read_observed(found: Uses, manifest: Manifest, readings: Readings):
     found.questions = []
 
 
+def _suite_fixture_names(slot, expression):
+    """A fixture spelling the actual suite slot or this remote request supplies to HQ's scanner.
+
+    No HQ hashtag expands into an item-list ID. Its lookup spellings in the emitted required and validation
+    tests survive interpolation; defaults depend on a target toggle. Group headings emit no QueryPrompt.
+    """
+    if (slot.nearest("CaseSearchProperty") or {}).get("is_group"):
+        return set()
+    names = scanned_instance_names(expression) if isinstance(expression, str) else set()
+    search = slot.nearest("CaseSearch")
+    if search is not None:
+        for prompt in search.get("properties") or []:
+            if not isinstance(prompt, dict) or prompt.get("is_group"):
+                continue
+            values = [(prompt.get("itemset"), "nodeset"), (prompt.get("required"), "test")]
+            values.extend((test, "test") for test in (prompt.get("validations") or []))
+            for part, key in values:
+                if isinstance(part, dict) and isinstance(part.get(key), str):
+                    names.update(scanned_instance_names(part[key]))
+    return names
+
+
 def _expression_uses(expression, parsed, manifest, found):
     artifact, where, at = expression.artifact, expression.where, expression.at
     if "error" in parsed:
@@ -2080,6 +2104,8 @@ def _expression_uses(expression, parsed, manifest, found):
         for instance_id in referenced:
             src = declared.get(instance_id)
             scheme = read_scheme(manifest, instance_id, declared)
+            if scheme == "item-list" and isinstance(at, JsonAt) and instance_id not in _suite_fixture_names(at, expression.text):
+                continue
             if scheme == "item-list":
                 fixture = src.removeprefix("jr://fixture/") if src is not None else instance_id
                 if fixture.startswith("item-list:") and fixture != "item-list:":

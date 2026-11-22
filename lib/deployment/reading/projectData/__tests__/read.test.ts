@@ -162,7 +162,9 @@ describe("readReadingProjectData", () => {
 		const source = await sourceNoting(
 			"Notes about item-list:locations and item-list:unused",
 			[
-				"count(instance('item-list:locations')/locations-west_list/locations-west) > 0",
+				"count(instance((('item-list:locations')))/locations-west_list/locations-west) > 0",
+				"count(instance(('optional'), 'unknown')/unused_list/unused) > 0",
+				"count(instance(('item-list:unused'))/unused_list/unused) > 0",
 				"count(instance('selected')/unused_list/unused) > 0",
 				"count(instance('remote')/unused_list/unused) > 0",
 				"count(instance('item-list:meeting.1')/meeting.1_list/meeting.1) > 0",
