@@ -79,6 +79,7 @@ import {
 } from "./caseManagement/saveToCase";
 import { account, defineClaims, derived, refuse, take } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
+import { readProjectSearchBindings } from "./context";
 import { readerDefect } from "./defects";
 import {
 	classifyGeneratedTranslationKeys,
@@ -1429,6 +1430,7 @@ function decideGeneratedKeys(
 	const table = ctx.input.appStrings(
 		underProposedDeclaration(doc, declaration),
 		columnFieldWordsRead(ctx, doc),
+		readProjectSearchBindings(ctx),
 	);
 	if (table === null) {
 		const first = [...findings].sort((a, b) => placeOrder(a.place, b.place))[0];
@@ -2051,6 +2053,9 @@ export function* assembleDocumentSteps(
 			),
 			keyedCreates: keyedCreatesRead(ctx, doc),
 			columnFieldWords: columnFieldWordsRead(ctx, doc),
+			...(ctx.draft.projectSearches.size && {
+				projectSearches: readProjectSearchBindings(ctx),
+			}),
 			entries: ctx.identities.entries(),
 		},
 		declaration,

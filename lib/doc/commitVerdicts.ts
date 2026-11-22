@@ -549,7 +549,12 @@ export function* prepareMutationCandidateSteps(
 	 * them alone skips the three whole-document admission indexes too. */
 	const appScalarsOnly =
 		mutations.length > 0 &&
-		mutations.every((mutation) => APP_SCALAR_MUTATION_KINDS.has(mutation.kind));
+		mutations.every(
+			(mutation) =>
+				APP_SCALAR_MUTATION_KINDS.has(mutation.kind) &&
+				(mutation.kind !== "setAppSettings" ||
+					!mutation.settings.projectSearch),
+		);
 	const identityIssue =
 		scalarFieldUpdate || appScalarsOnly
 			? undefined

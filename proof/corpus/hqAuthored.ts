@@ -558,6 +558,9 @@ export async function hqAuthoredDocument(
 		mediaPaths,
 		keyedCaseIds: reading.keyedCaseIds,
 		columnWords: reading.columnWords,
+		...(reading.projectSearches.length && {
+			projectSearches: reading.projectSearches,
+		}),
 		retained: app.directory,
 		hand,
 	};

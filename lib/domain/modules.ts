@@ -1551,6 +1551,38 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 	})
 	.strict();
 
+/** A project search defines what each answer means. The field can send its
+ * answer under its name or only supply another parameter's expression. */
+const projectParameter = {
+	kind: z.literal("parameter"),
+	sendAnswer: z.boolean(),
+};
+export const projectScalarSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
+		default: valueSchema.optional(),
+	})
+	.strict();
+export const projectRangeSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.literal("date-range"),
+	})
+	.strict();
+export const projectChoiceSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
+		options: searchInputLookupOptionsSchema,
+		default: valueSchema.optional(),
+	})
+	.strict();
+export type ProjectParameterSearchInput =
+	| z.infer<typeof projectScalarSearchInput>
+	| z.infer<typeof projectRangeSearchInput>
+	| z.infer<typeof projectChoiceSearchInput>;
+
 /**
  * Hidden search input — a value Nova computes when the Search screen opens
  * and carries with the completed search, never shown and never a filter.
@@ -1567,6 +1599,8 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 export const hiddenSearchInputSchema = searchInputBase
 	.extend({
 		kind: z.literal("hidden"),
+		/** Send the computed value to the search supplied by the project space. */
+		sendAnswer: z.literal(true).optional(),
 		value: valueSchema,
 	})
 	.strict();
@@ -1589,6 +1623,9 @@ export const searchInputDefSchema = z.union([
 	advancedScalarSearchInputSchema,
 	advancedDateRangeSearchInputSchema,
 	advancedSelectSearchInputSchema,
+	projectScalarSearchInput,
+	projectRangeSearchInput,
+	projectChoiceSearchInput,
 	hiddenSearchInputSchema,
 ]);
 export type SimpleScalarSearchInputDef = z.infer<
@@ -1621,10 +1658,12 @@ export type AdvancedSearchInputDef =
 	| AdvancedSelectSearchInputDef;
 /** Every arm a worker can see and answer. */
 export type VisibleSearchInputDef =
+	| ProjectParameterSearchInput
 	| SimpleSearchInputDef
 	| AdvancedSearchInputDef;
 /** Every arm that names a lookup table for its choices. */
 export type SelectSearchInputDef =
+	| z.infer<typeof projectChoiceSearchInput>
 	| SimpleSelectSearchInputDef
 	| AdvancedSelectSearchInputDef;
 
@@ -2795,6 +2834,20 @@ export type SearchScreenTitle = z.infer<typeof searchScreenTitleSchema>;
 
 export const ordinaryCaseSearchConfigSchema = z
 	.strictObject({
+		/** Uses the search supplied by this connected project space. The extra
+		 * inputs are named values, evaluated when the worker submits the search. */
+		projectSearch: z
+			.strictObject({
+				searchUuid: uuidSchema,
+				defaults: z.array(
+					z.strictObject({
+						uuid: uuidSchema,
+						name: z.string().min(1),
+						value: valueSchema,
+					}),
+				),
+			})
+			.optional(),
 		// Owner-availability slot.
 		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
 		// space-separated list of owner ids whose cases are excluded from every
@@ -2898,7 +2951,8 @@ export function caseSearchConfigHasAuthoredSettings(
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
 		config.workflow !== undefined ||
-		config.formsReadSearch !== undefined
+		config.formsReadSearch !== undefined ||
+		config.projectSearch !== undefined
 	);
 }
 
@@ -2920,6 +2974,14 @@ export function isOrdinaryCaseSearchConfig(
 	config: CaseSearchConfig | undefined,
 ): config is OrdinaryCaseSearchConfig {
 	return config !== undefined && !isOwnerOnlyCaseSearchConfig(config);
+}
+
+/** The connected project space runs this menu’s search. */
+export function projectSearchOf(
+	module: Pick<Module, "caseSearchConfig"> | undefined,
+) {
+	const config = module?.caseSearchConfig;
+	return isOrdinaryCaseSearchConfig(config) ? config.projectSearch : undefined;
 }
 
 /** The title a worker reads: the authored text, "Search" where none is
@@ -2959,7 +3021,8 @@ export function caseSearchConfigAfterFinalInputRemoval(
 	const hasSearchActionSetting =
 		action.searchButtonDisplayCondition !== undefined ||
 		action.workflow !== undefined ||
-		action.formsReadSearch !== undefined;
+		action.formsReadSearch !== undefined ||
+		action.projectSearch !== undefined;
 	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };

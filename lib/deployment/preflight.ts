@@ -1,3 +1,4 @@
+import { projectSearchDependencies } from "@/lib/domain/projectSearches";
 import "server-only";
 
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
@@ -163,7 +164,7 @@ import {
 	readSiblingLookupMappings,
 	readTargetIdentity,
 } from "./store";
-import { exportIdentityOf } from "./targetIdentity";
+import { exportIdentityOf, type TargetIdentity } from "./targetIdentity";
 import type {
 	AppBaseline,
 	CanonicalLookupTable,
@@ -411,6 +412,7 @@ export interface LocationPushPlan {
 }
 
 export interface PreflightInput {
+	readonly targetIdentity?: TargetIdentity;
 	/** Bearer permission to copy HQ data into Nova. A browser session has no bearer restriction. */
 	readonly requireHqImport: (() => void) | null;
 	readonly doc: BlueprintDoc;
@@ -791,6 +793,35 @@ export async function runDeploymentPreflight(
 	}
 
 	// ── 2. Is the app itself ready to leave Nova? ───────────────────
+	const identity = exportIdentityOf(
+		input.doc,
+		input.targetIdentity ?? (await readTargetIdentity(input.access, target)),
+	);
+	const missingSearches = Array.from(projectSearchDependencies(input.doc))
+		.filter(([uuid]) => identity.identity.projectSearchId?.(uuid) === undefined)
+		.map(([, name]) => name);
+	if (missingSearches.length) {
+		const detail = `Connect the app's searches to their IDs in ${target.domain} before publishing.`;
+		checks.push({
+			id: "app-readiness",
+			title: "Search connections",
+			status: "blocked",
+			detail,
+			items: missingSearches,
+		});
+		return {
+			checks,
+			outcome: blockedOutcome(
+				input.now,
+				"app_not_ready",
+				detail,
+				missingSearches,
+			),
+			ready: null,
+			projectSpaceCompatibility: null,
+			conflicts: [],
+		};
+	}
 	// The same zero-tolerance boundary every export path runs. One guard
 	// here is still closed: an owner set to one PARTICULAR place, which
 	// travels as Nova's own place id and so names nobody on CommCare HQ.
@@ -805,10 +836,7 @@ export async function runDeploymentPreflight(
 		/* The paths CommCare HQ keeps this target's files under, for an app
 		 * brought in from it: the bulk upload's entries and every reference
 		 * of the body name them. Empty everywhere else. */
-		heldMediaPaths: exportIdentityOf(
-			input.doc,
-			await readTargetIdentity(input.access, target),
-		).heldMediaPaths,
+		heldMediaPaths: identity.heldMediaPaths,
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the
 		// download paths fall back on — the record describes where the app

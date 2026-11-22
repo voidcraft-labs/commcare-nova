@@ -25,6 +25,21 @@ import type { ReviewTable } from "../reading/projectData/reviewTypes";
 
 export interface HqChangesDigestInput {
 	readonly v: 1;
+	readonly projectSearchReview?: {
+		actor: string;
+		project: string;
+		app: string;
+		server: string;
+		domain: string;
+		remoteApp: string;
+		revision: number;
+		claim: string | null;
+		deployment: string;
+		endings: number;
+		changes: readonly import("../targetIdentity").SearchDestinationChange[];
+		prior: readonly import("@/lib/commcare/wireIdentity").ProjectSearchBinding[];
+		proposed: readonly import("@/lib/commcare/wireIdentity").ProjectSearchBinding[];
+	};
 	/** The stored baseline's `source_digest`: the source the base reading read. */
 	readonly baselineDigest: string;
 	/** The digest of CommCare HQ's whole normalized source as this request read it. */
@@ -52,6 +67,9 @@ export interface HqChangesDigestInput {
 export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 	return canonicalJsonDigest({
 		v: input.v,
+		...(input.projectSearchReview && {
+			projectSearchReview: input.projectSearchReview,
+		}),
 		baselineDigest: input.baselineDigest,
 		sourceDigest: input.sourceDigest,
 		headSeq: input.headSeq,

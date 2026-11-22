@@ -64,9 +64,24 @@ export function applyAppMutation(
 			if (mut.logo === null) delete draft.logo;
 			else draft.logo = mut.logo;
 			return;
-		case "setAppSettings":
+		case "setAppSettings": {
 			// Each named key replaces its value; a key the patch leaves out
 			// keeps the document's.
+			const search = mut.settings.projectSearch;
+			if (search) {
+				const entries = draft.appSettings.projectSearches ?? {};
+				if (search.operation === "remove") {
+					delete entries[search.uuid];
+					if (!Object.keys(entries).length)
+						delete draft.appSettings.projectSearches;
+				} else if (
+					(search.operation === "rename") ===
+					Object.hasOwn(entries, search.uuid)
+				) {
+					entries[search.uuid] = { name: search.name };
+					draft.appSettings.projectSearches = entries;
+				}
+			}
 			if (mut.settings.showSavedForms !== undefined) {
 				draft.appSettings.showSavedForms = mut.settings.showSavedForms;
 			}
@@ -80,6 +95,7 @@ export function applyAppMutation(
 			else if (mut.settings.runsOnlyOn !== undefined)
 				draft.appSettings.runsOnlyOn = mut.settings.runsOnlyOn;
 			return;
+		}
 		case "relabelSourceLanguage": {
 			const current = effectiveAppLocalization(draft.localization);
 			if (current.languageOrder.length !== 1) return;

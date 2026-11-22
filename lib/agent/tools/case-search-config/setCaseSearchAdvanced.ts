@@ -138,6 +138,11 @@ export const setCaseSearchAdvancedTool = {
 					? { searchActionEnabled: false, excludedOwnerIds }
 					: {
 							...pickDisplayCluster(existing),
+							...(existing &&
+								"projectSearch" in existing &&
+								existing.projectSearch && {
+									projectSearch: existing.projectSearch,
+								}),
 							...(excludedOwnerIds !== undefined && { excludedOwnerIds }),
 							...(workflow !== undefined && { workflow }),
 							...(formsReadSearch && { formsReadSearch: true as const }),

@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
 			doc,
 			assets,
 			compiledAtSeq,
+			download,
 			attachmentTarget,
 			attachmentTargetState,
 			lookupNaming,
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
 		// empty manifest reducing to the same shape.
 		const hasMedia = assets.size > 0;
 		const hqJson = expandDoc(doc, {
+			...(download.identity && { identity: download.identity }),
 			attachmentTarget,
 			...(hasMedia && { assets }),
 			...(lookupNaming && { lookupNaming }),
@@ -79,7 +81,7 @@ export async function POST(req: NextRequest) {
 		const appName = sanitizeFilename(doc.appName);
 		const projectSpaceCompatibilityHeader =
 			encodeProjectSpaceCompatibilityReport(
-				projectSpaceCompatibilityForDownload(doc),
+				download.compatibility ?? projectSpaceCompatibilityForDownload(doc),
 			);
 		// The import file is complete and correct; the advisories say what it
 		// could not carry, so they ride beside it rather than replacing it.

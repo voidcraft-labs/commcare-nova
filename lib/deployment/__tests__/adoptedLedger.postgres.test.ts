@@ -28,6 +28,7 @@ import {
 } from "../store";
 import { EMPTY_TARGET_IDENTITY } from "../targetIdentity";
 import {
+	appClaimOf,
 	BIRTH_AT,
 	birthAdoptedApp,
 	HELD_COLUMN,
@@ -372,6 +373,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 		const written = await recordRefreshedAppBaseline(birth.scope, TARGET, {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
+			reviewedPushToken: appClaimOf(birth),
 			comparedDigest: stored.sourceDigest,
 			read: {
 				sourceGzip: gzipSync(Buffer.from(text, "utf8")),

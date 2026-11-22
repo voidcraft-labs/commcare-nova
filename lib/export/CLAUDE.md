@@ -49,6 +49,14 @@ the server the app is published on, and the publish dialog lists that space
 as one that cannot be chosen, from the same standing
 (`lib/deployment/downloadTarget.ts::readCczStanding`).
 
+A menu that sends its questions to a project-supplied search gives both
+downloads a destination. The contributor chooses the server, project space
+and the service there. Nova checks the capability with the acting user's
+connection and rereads the revision and bindings before generating bytes.
+The manual HQ file installs a new copy with its ordinary derived identities
+and media paths. Only the external search ID comes from that destination.
+An Android package still uses the physical identities of the published app.
+
 A download records nothing: the HQ import file and the `.ccz` emit each case
 change's effective placement, held or else the simplest, and write no
 `publish-placement` change. Only `publishAppToHq` records placements

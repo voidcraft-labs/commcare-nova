@@ -118,6 +118,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			}
 			case "case-type":
 				return quote(value.caseType);
+			case "search-result-field":
+				return call("result-field", quote(value.name));
 			case "case-row-type":
 				return "record-type()";
 			case "input":

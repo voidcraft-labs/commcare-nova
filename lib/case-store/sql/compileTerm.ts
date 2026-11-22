@@ -356,6 +356,10 @@ export function compileTerm(
 	switch (term.kind) {
 		case "case-type":
 			return eb.val(term.caseType);
+		case "search-result-field":
+			throw new Error(
+				"A project-space result field requires a search run in its project space.",
+			);
 		case "case-row-type":
 			return (eb as DynamicExprBuilder).ref(`${ctx.anchorAlias}.case_type`);
 		case "choice":

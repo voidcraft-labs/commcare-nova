@@ -115,6 +115,7 @@ import {
 	type HqChangesRecordAt,
 	type HqChangesTaken,
 	readAppBaseline,
+	readDeployment,
 	readTargetIdentity,
 	recordHqChangesTaken,
 	recordRefreshedAppBaseline,
@@ -129,6 +130,7 @@ import {
 import type { AppBaselineWrite, AppOwnership } from "../types";
 import {
 	type AdoptedBirth,
+	appClaimOf,
 	birthAdoptedApp,
 	HELD_FILE_ID,
 	HELD_PATH,
@@ -246,6 +248,7 @@ function taken(
 		target: TARGET,
 		expectedEndings: 0,
 		remoteAppId: HQ_APP,
+		reviewedPushToken: appClaimOf(birth),
 		read: { sourceDigest: digestOf(SOURCE), novaRevision: 1 },
 		source: stored(CHANGED_SOURCE, CHANGED_AT),
 		ownership: TAKEN_OWNERSHIP,
@@ -329,8 +332,24 @@ async function ledger() {
 	};
 }
 
+async function editAppAt(head: number) {
+	const result = await applyBlueprintChangeProposal({
+		appId: APP,
+		userId: ACTOR,
+		expectedProjectId: PROJECT,
+		kind: "hq-changes",
+		batchId: crypto.randomUUID(),
+		expectedHeadSeq: head,
+		guard: {
+			mutations: [{ kind: "setAppName", name: `Clinic visits ${head + 1}` }],
+		},
+	});
+	expect(result.seq).toBe(head + 1);
+}
+
 /** A `push` baseline of `SOURCE` at revision 2, which holds no list. */
-async function pushed(birth: AdoptedBirth): Promise<void> {
+async function pushed(birth: AdoptedBirth): Promise<AdoptedBirth> {
+	await editAppAt(1);
 	const baseline: AppBaselineWrite = {
 		origin: "push",
 		remoteAppId: HQ_APP,
@@ -341,7 +360,7 @@ async function pushed(birth: AdoptedBirth): Promise<void> {
 		mediaFiles: { kind: "keep" },
 		firstPublish: { kind: "set", list: null },
 	};
-	await recordRemoteResource(birth.scope, TARGET, {
+	const { deployment } = await recordRemoteResource(birth.scope, TARGET, {
 		expectedEndings: 0,
 		kind: "app",
 		novaResourceId: APP,
@@ -353,6 +372,8 @@ async function pushed(birth: AdoptedBirth): Promise<void> {
 		uploadedAt: baseline.observedAt,
 		baseline,
 	});
+	if (!deployment) throw new Error("Expected the recorded publish.");
+	return { ...birth, deployment };
 }
 
 describe("recordHqChangesTaken", () => {
@@ -391,6 +412,83 @@ describe("recordHqChangesTaken", () => {
 		);
 	});
 
+	it("keeps the reviewed search service while a publish is sending to it", async () => {
+		const birth = await born();
+		const write = await admitAppWrite(birth.scope, TARGET, {
+			expectedEndings: 0,
+			remoteAppId: HQ_APP,
+			writeKind: "import",
+		});
+		if (write.kind !== "admitted")
+			throw new Error("Expected an admitted import.");
+		const targetIdentity = {
+			read: birth.targetIdentity,
+			next: {
+				...EMPTY_TARGET_IDENTITY,
+				projectSearches: [{ searchUuid: testUuid("service"), endpointId: 17 }],
+			},
+		};
+		const before = await ledger();
+		const refresh = () =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				reviewedPushToken: appClaimOf(birth),
+				reviewedHeadSeq: 1,
+				comparedDigest: digestOf(SOURCE),
+				read: stored(SOURCE, CHANGED_AT),
+				targetIdentity,
+			});
+		try {
+			expect((await refresh()).outcome).toBe("superseded");
+			await expect(
+				recordHqChangesTaken(AT_HEAD, taken(birth, { targetIdentity })),
+			).rejects.toMatchObject({ fence: "target-identity" });
+			expect(await ledger()).toEqual(before);
+			expect(await readTargetIdentity(birth.scope, TARGET)).toEqual(
+				birth.targetIdentity,
+			);
+		} finally {
+			await settleRemoteWrites([write.writeId], { kind: "settled" });
+		}
+		expect((await refresh()).outcome).toBe("current");
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).projectSearches,
+		).toEqual(targetIdentity.next.projectSearches);
+	});
+
+	it("rejects an old app claim at the same physical destination and a moved app head", async () => {
+		const birth = await born();
+		const next = await pushed(birth);
+		const before = await ledger();
+		const read = { sourceDigest: digestOf(SOURCE), novaRevision: 2 };
+		await expect(
+			recordHqChangesTaken({ kind: "own", headSeq: 2 }, taken(birth, { read })),
+		).rejects.toMatchObject({ fence: "push-token" });
+		await expect(
+			recordHqChangesTaken(AT_HEAD, taken(next, { read })),
+		).rejects.toMatchObject({ fence: "app-head" });
+		const refresh = (pushToken: string, observedAt: string) =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				reviewedPushToken: pushToken,
+				reviewedHeadSeq: 2,
+				comparedDigest: read.sourceDigest,
+				read: stored(SOURCE, observedAt),
+				targetIdentity: {
+					read: birth.targetIdentity,
+					next: EMPTY_TARGET_IDENTITY,
+				},
+			});
+		expect((await refresh(appClaimOf(birth), CHANGED_AT)).outcome).toBe(
+			"superseded",
+		);
+		expect(
+			(await refresh(appClaimOf(next), "2026-11-11T00:00:00Z")).outcome,
+		).toBe("superseded");
+		expect(await ledger()).toEqual(before);
+	});
 	it("records the sequence of the commit it rides on, and nothing where that commit fails after it", async () => {
 		const birth = await born();
 		const head = await headOf(APP);
@@ -679,8 +777,7 @@ describe("recordHqChangesTaken", () => {
 		});
 
 		it("takes the next publish's changes after a publish, with the setting the source holds", async () => {
-			const birth = await born();
-			await pushed(birth);
+			const birth = await pushed(await born());
 			expect((await baselineRow()).first_publish_changes).toBeNull();
 			await recordHqChangesTaken(
 				{ kind: "own", headSeq: 2 },
@@ -713,8 +810,10 @@ describe("recordHqChangesTaken", () => {
 		});
 
 		/** A first bring-in over a push whose plan names the location list setting. */
-		async function settingBroughtIn(birth: AdoptedBirth): Promise<void> {
-			await pushed(birth);
+		async function settingBroughtIn(
+			adoption: AdoptedBirth,
+		): Promise<AdoptedBirth> {
+			const birth = await pushed(adoption);
 			await recordHqChangesTaken(
 				{ kind: "own", headSeq: 2 },
 				taken(birth, {
@@ -735,13 +834,14 @@ describe("recordHqChangesTaken", () => {
 				webAppsOnInHq: true,
 				of: "next-publish",
 			});
+			return birth;
 		}
 
 		const SECOND = { ...CHANGED_SOURCE, name: "Renamed again" };
 
 		it("keeps a change of the next publish's list that a later bring-in's reading still gives, beside the plan's own", async () => {
-			const birth = await born();
-			await settingBroughtIn(birth);
+			const birth = await settingBroughtIn(await born());
+			await editAppAt(2);
 			/* A second change in CommCare HQ: its base already holds the
 			 * setting, so the plan names only what is new. */
 			await recordHqChangesTaken(
@@ -772,8 +872,8 @@ describe("recordHqChangesTaken", () => {
 		});
 
 		it("clears a list of the next publish whose changes the reading no longer gives and the plan names none", async () => {
-			const birth = await born();
-			await settingBroughtIn(birth);
+			const birth = await settingBroughtIn(await born());
+			await editAppAt(2);
 			await recordHqChangesTaken(
 				{ kind: "own", headSeq: 3 },
 				taken(birth, {
@@ -790,8 +890,7 @@ describe("recordHqChangesTaken", () => {
 		});
 
 		it("reads a baseline that holds no list as none, and says nothing of it", async () => {
-			const birth = await born();
-			await pushed(birth);
+			const birth = await pushed(await born());
 			const errors = vi.spyOn(log, "error");
 			try {
 				await recordHqChangesTaken(
@@ -815,8 +914,7 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 	const SAVED_SOURCE = { ...CHANGED_SOURCE, last_modified: SAVED_AT };
 
 	it("keeps the origin and the revision, and takes the media record and the next publish's list it is given", async () => {
-		const birth = await born();
-		await pushed(birth);
+		const birth = await pushed(await born());
 		await recordHqChangesTaken(
 			{ kind: "own", headSeq: 2 },
 			taken(birth, {
@@ -832,6 +930,7 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 		const refreshed = await recordRefreshedAppBaseline(birth.scope, TARGET, {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
+			reviewedPushToken: appClaimOf(birth),
 			comparedDigest: digestOf(CHANGED_SOURCE),
 			read: stored(SAVED_SOURCE, SAVED_AT),
 			nextPublish: {
@@ -864,6 +963,7 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 		await recordRefreshedAppBaseline(birth.scope, TARGET, {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
+			reviewedPushToken: appClaimOf(birth),
 			comparedDigest: digestOf(SOURCE),
 			read: stored({ ...SOURCE, last_modified: SAVED_AT }, SAVED_AT),
 			nextPublish: {
@@ -885,8 +985,7 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 	});
 
 	it("clears a change of the next publish's list that CommCare HQ's save undid", async () => {
-		const birth = await born();
-		await pushed(birth);
+		const birth = await pushed(await born());
 		await recordHqChangesTaken(
 			{ kind: "own", headSeq: 2 },
 			taken(birth, {
@@ -907,6 +1006,7 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 		await recordRefreshedAppBaseline(birth.scope, TARGET, {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
+			reviewedPushToken: appClaimOf(birth),
 			comparedDigest: digestOf(CHANGED_SOURCE),
 			read: stored(SAVED_SOURCE, SAVED_AT),
 			nextPublish: {
@@ -1543,9 +1643,14 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 				...(current.source as Record<string, unknown>),
 				name: "Survey, read again",
 			};
+			const live = (await readDeployment(scope, KEY_TARGET))?.active.find(
+				(row) => row.kind === "app",
+			);
+			if (!live) throw new Error("Expected the app's live deployment.");
 			await recordRefreshedAppBaseline(scope, KEY_TARGET, {
 				expectedEndings: 0,
 				remoteAppId: current.remoteAppId,
+				reviewedPushToken: live.pushToken,
 				comparedDigest: current.sourceDigest,
 				read: stored(moved, new Date().toISOString()),
 			});

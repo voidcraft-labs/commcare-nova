@@ -56,6 +56,7 @@ import {
 	readingMediaFindings,
 } from "../../reading/projectData/media";
 import { readBackDifferences } from "../../reading/readBack";
+import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import { alignedFromSource } from "../baselineSource";
 import {
 	type HqChangeReadingsInput,
@@ -280,7 +281,7 @@ function readingsOf(
 			renamesSince: [],
 			actors: [],
 		},
-		overrides: [],
+		targetIdentity: EMPTY_TARGET_IDENTITY,
 		media: options.media ?? {
 			published: options.published ?? [],
 			base: null,

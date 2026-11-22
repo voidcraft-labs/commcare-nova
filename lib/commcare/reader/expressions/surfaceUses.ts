@@ -318,7 +318,9 @@ function instanceClass(
 			// answers (`RemoteQuerySessionManager.getRawQueryParams`).
 			if (
 				inModule &&
-				(slot.startsWith("search_input_") || slot === "excluded_owner_ids")
+				(slot.startsWith("search_input_") ||
+					slot === "excluded_owner_ids" ||
+					slot === "project_search_parameter")
 			)
 				return "query-build";
 			// The legacy id is provided only while the query is built.

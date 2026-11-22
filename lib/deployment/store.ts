@@ -12,12 +12,17 @@ import {
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
+import { projectSearchRequestParameters } from "@/lib/commcare/hq/projectSearch";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
 	type TargetFacts,
 	targetFactsFromSource,
 } from "@/lib/commcare/targetFacts";
 import type { ColumnFieldWordRow } from "@/lib/commcare/wireIdentity";
+import {
+	loadAppInRepeatableReadSnapshot,
+	loadAppInTransaction,
+} from "@/lib/db/canonicalCommitKernel";
 import {
 	admitRemoteWritesInTransaction,
 	endDeploymentInTransaction,
@@ -39,6 +44,8 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { projectSearchUses } from "@/lib/domain/projectSearches";
 import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import { lockLookupTablesForPublishInTransaction } from "@/lib/lookup/managed";
@@ -61,6 +68,7 @@ import {
 	deploymentNotFound,
 } from "./errors";
 import { type HqMediaRecord, hqMediaRecordSchema } from "./hqMedia";
+import type { ProjectSearchDestinationEdit } from "./projectSearchDestinationInput";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
@@ -854,28 +862,34 @@ async function readTargetIdentityRows(
 	deploymentId: string,
 	context: { readonly appId: string; readonly server: string },
 ): Promise<TargetIdentity> {
-	const [entityRows, keyedRows, pathRows, wordRows] = await Promise.all([
-		db
-			.selectFrom("app_deployment_identities")
-			.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_keyed_case_ids")
-			.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_media_paths")
-			.select(["media_asset_id", "wire_path"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_column_field_words")
-			.select(["nova_column_uuid", "screen", "field_word"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-	]);
+	const [entityRows, keyedRows, pathRows, wordRows, searchRows] =
+		await Promise.all([
+			db
+				.selectFrom("app_deployment_identities")
+				.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_keyed_case_ids")
+				.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_media_paths")
+				.select(["media_asset_id", "wire_path"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_column_field_words")
+				.select(["nova_column_uuid", "screen", "field_word"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_search_bindings")
+				.select(["search_uuid", "endpoint_id"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+		]);
 	const entities = entityRows.map((row): DeploymentIdentityOverride => {
 		if (row.entity_kind !== "module" && row.entity_kind !== "form") {
 			throw new Error(
@@ -917,6 +931,10 @@ async function readTargetIdentityRows(
 			assetId,
 			wirePath,
 		})),
+		projectSearches: searchRows.map((row) => ({
+			searchUuid: asUuid(row.search_uuid),
+			endpointId: row.endpoint_id,
+		})),
 		columnWords: wordRows.map((row): ColumnFieldWordRow => {
 			if (row.screen !== "short" && row.screen !== "long")
 				throw new Error(
@@ -944,6 +962,8 @@ class TargetIdentityMovedError extends Error {
 		this.name = "TargetIdentityMovedError";
 	}
 }
+
+class SearchConnectionInUseError extends TargetIdentityMovedError {}
 
 /**
  * THE ONE WRITER of a deployment's target-identity record, inside a caller's
@@ -986,6 +1006,24 @@ export async function writeTargetIdentityInTransaction(
 		const kept = new Set(others.map(key));
 		return rows.filter((row) => !kept.has(key(row)));
 	};
+
+	const searchKey = (row: { searchUuid: string; endpointId: number }) =>
+		JSON.stringify([row.searchUuid, row.endpointId]);
+	const oldSearches = stored.projectSearches ?? [];
+	const nextSearches = next.projectSearches ?? [];
+	const goneSearches = without(oldSearches, nextSearches, searchKey);
+	const newSearches = without(nextSearches, oldSearches, searchKey);
+	if (goneSearches.length || newSearches.length) {
+		const pending = await tx
+			.selectFrom("hq_remote_writes")
+			.select("id")
+			.where("deployment_id", "=", deploymentId)
+			.where(openRemoteWrite)
+			.executeTakeFirst();
+		// A refresh can return "superseded" from this transaction. Check
+		// before changing even an unrelated part of the identity record.
+		if (pending) throw new SearchConnectionInUseError(deploymentId);
+	}
 
 	/* Every stored row, read whole: a media row the read rule refused is no
 	 * row of `stored`, and it goes too. */
@@ -1031,6 +1069,27 @@ export async function writeTargetIdentityInTransaction(
 			)
 			.execute();
 
+	if (goneSearches.length)
+		await tx
+			.deleteFrom("app_deployment_search_bindings")
+			.where("deployment_id", "=", deploymentId)
+			.where(
+				"search_uuid",
+				"in",
+				goneSearches.map((row) => row.searchUuid),
+			)
+			.execute();
+	if (newSearches.length)
+		await tx
+			.insertInto("app_deployment_search_bindings")
+			.values(
+				newSearches.map((row) => ({
+					deployment_id: deploymentId,
+					search_uuid: row.searchUuid,
+					endpoint_id: row.endpointId,
+				})),
+			)
+			.execute();
 	const goneWords = without(stored.columnWords, next.columnWords, wordKey);
 	for (const row of goneWords)
 		await tx
@@ -1417,7 +1476,7 @@ async function lockDeploymentRow(
 async function withDeploymentRow<T>(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
-	options: { readonly ensure: boolean; readonly expectedEndings?: number },
+	options: { readonly ensure: boolean } & Partial<DeploymentFence>,
 	body: (
 		tx: Transaction<AppDatabase>,
 		row: Selectable<AppDeploymentsTable>,
@@ -1460,13 +1519,213 @@ async function withDeploymentRow<T>(
 				row.endings,
 			);
 		}
+		await holdSearchConnections(tx, row.id, options.searchConnections);
 		return body(tx, row);
+	});
+}
+
+/** The app row lock and deployment row lock that protect an accepted edit are
+ * held by the caller. An initial preflight row with no remote app has the same
+ * search state as a destination that has never been configured. */
+async function projectSearchDestinationIn(
+	tx: Transaction<AppDatabase>,
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	row:
+		| Pick<
+				Selectable<AppDeploymentsTable>,
+				"id" | "endings" | "content_generation"
+		  >
+		| undefined,
+	reader: typeof loadAppInTransaction = loadAppInTransaction,
+) {
+	const app = await reader(tx, scope.appId);
+	if (!app || app.project_id !== scope.projectId || app.deleted_at !== null)
+		throw deploymentNotFound();
+	const doc = hydratePersistedBlueprint(app.blueprint);
+	const uses = projectSearchUses(doc);
+	const stored = row
+		? await readTargetIdentityRows(tx, row.id, {
+				appId: scope.appId,
+				server: target.server,
+			})
+		: EMPTY_TARGET_IDENTITY;
+	const remote =
+		row &&
+		(await tx
+			.selectFrom("app_deployment_resources")
+			.select(["id", "remote_id", "push_token"])
+			.where("deployment_id", "=", row.id)
+			.where("kind", "=", "app")
+			.where("superseded_at", "is", null)
+			.where("released_at", "is", null)
+			.executeTakeFirst());
+	const ids = new Map(
+		stored.projectSearches?.map((binding) => [
+			binding.searchUuid,
+			binding.endpointId,
+		]),
+	);
+	const version = createHash("sha256")
+		.update(
+			JSON.stringify([
+				scope.actorUserId,
+				scope.role,
+				scope.appId,
+				scope.projectId,
+				target.server,
+				target.domain,
+				app.mutation_seq,
+				row?.endings ?? 0,
+				row?.content_generation ?? null,
+				remote ? [remote.id, remote.remote_id, remote.push_token] : null,
+				canonicalTargetIdentity(stored).projectSearches ?? [],
+			]),
+		)
+		.digest("hex");
+	const searches = Array.from(
+		new Map(uses.map((use) => [use.searchUuid, use.name])),
+		([searchUuid, name]) => ({
+			searchUuid,
+			name,
+			endpointId: ids.get(searchUuid) ?? null,
+			menus: uses
+				.filter((use) => use.searchUuid === searchUuid)
+				.map((use) => ({
+					menuUuid: use.menuUuid,
+					name: use.menu,
+					parameters: projectSearchRequestParameters(use),
+					results: use.results,
+				})),
+		}),
+	);
+	return { doc, stored, review: { version, searches } };
+}
+
+export async function inspectProjectSearchDestination(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	capability: "view" | "edit" = "view",
+) {
+	return withDeploymentReadSnapshot(scope, capability, async (snapshot) => {
+		const row = await snapshot.db
+			.selectFrom("app_deployments")
+			.select(["id", "endings", "content_generation"])
+			.where("app_id", "=", scope.appId)
+			.where("project_id", "=", scope.projectId)
+			.where("server", "=", target.server)
+			.where("domain", "=", target.domain)
+			.executeTakeFirst();
+		const { doc, review } = await projectSearchDestinationIn(
+			snapshot.db,
+			scope,
+			target,
+			row,
+			loadAppInRepeatableReadSnapshot,
+		);
+		return { doc, review };
+	});
+}
+
+export async function saveProjectSearchDestination(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	edit: ProjectSearchDestinationEdit,
+) {
+	return withDeploymentRow(scope, target, { ensure: true }, async (tx, row) => {
+		const { review, stored } = await projectSearchDestinationIn(
+			tx,
+			scope,
+			target,
+			row,
+		);
+		if (review.version !== edit.version)
+			throw new DeploymentError(
+				"invalid",
+				"This app or destination changed. Review its searches again before connecting them.",
+			);
+		const current = new Set(review.searches.map((search) => search.searchUuid));
+		const submitted = new Set(
+			edit.bindings.map((binding) => binding.searchUuid),
+		);
+		if (
+			current.size !== edit.bindings.length ||
+			submitted.size !== current.size ||
+			edit.bindings.some((binding) => !current.has(binding.searchUuid))
+		)
+			throw new DeploymentError(
+				"invalid",
+				"Choose a destination for each search in the current app.",
+			);
+		const bindings = [
+			...(stored.projectSearches ?? []).filter(
+				(binding) => !current.has(binding.searchUuid),
+			),
+			...edit.bindings.flatMap(({ searchUuid, endpointId }) =>
+				endpointId === null ? [] : [{ searchUuid, endpointId }],
+			),
+		];
+		if (
+			new Set(bindings.map((binding) => binding.endpointId)).size !==
+			bindings.length
+		)
+			throw new DeploymentError(
+				"invalid",
+				"Two searches use the same ID in this project space. Choose a different ID, or use one shared search in the app.",
+			);
+		const next = { ...stored, projectSearches: bindings };
+		if (!sameTargetIdentity(stored, next)) {
+			try {
+				await writeTargetIdentityInTransaction(
+					tx,
+					row.id,
+					{ appId: scope.appId, server: target.server },
+					{ read: stored, next },
+				);
+			} catch (error) {
+				if (!(error instanceof SearchConnectionInUseError)) throw error;
+				throw new DeploymentError(
+					"invalid",
+					"A publish is sending this app. Review its searches again after the publish finishes.",
+				);
+			}
+			await notifyAppDeployments(tx, scope.appId);
+		}
+		return (await projectSearchDestinationIn(tx, scope, target, row)).review;
 	});
 }
 
 /** The count of endings a publish read first, which each of its store writes carries. */
 export interface DeploymentFence {
 	readonly expectedEndings: number;
+	/** Only the services this publish will dispatch to. */
+	readonly searchConnections?: TargetIdentity["projectSearches"];
+}
+
+async function holdSearchConnections(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	expected: TargetIdentity["projectSearches"],
+) {
+	if (!expected?.length) return;
+	const rows = await tx
+		.selectFrom("app_deployment_search_bindings")
+		.select(["search_uuid", "endpoint_id"])
+		.where("deployment_id", "=", deploymentId)
+		.where(
+			"search_uuid",
+			"in",
+			expected.map((row) => row.searchUuid),
+		)
+		.execute();
+	const current = new Map(
+		rows.map((row) => [row.search_uuid, row.endpoint_id]),
+	);
+	if (expected.some((row) => current.get(row.searchUuid) !== row.endpointId))
+		throw new DeploymentError(
+			"stale",
+			"The search connections changed during this publish. Review the destination and publish again to use its current searches.",
+		);
 }
 
 /** Refuse a publish's write where the deployment was ended since the publish read it. */
@@ -2443,6 +2702,7 @@ export async function admitAppWrite(
 				row.endings,
 			);
 		}
+		await holdSearchConnections(tx, row.id, input.searchConnections);
 		const live = await tx
 			.selectFrom("app_deployment_resources")
 			.select(["remote_id", "released_at"])
@@ -2493,7 +2753,11 @@ export async function admitAppCreate(
 	return withDeploymentRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: fence.expectedEndings },
+		{
+			ensure: false,
+			expectedEndings: fence.expectedEndings,
+			searchConnections: fence.searchConnections,
+		},
 		async (tx, row) => {
 			const [writeId] = await admitRemoteWritesInTransaction(tx, [
 				{
@@ -2543,7 +2807,11 @@ export async function admitWorkbookWrite(
 	return withDeploymentRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: input.expectedEndings },
+		{
+			ensure: false,
+			expectedEndings: input.expectedEndings,
+			searchConnections: input.searchConnections,
+		},
 		async (tx, row) => {
 			const tables = await lockLookupTablesForPublishInTransaction(
 				tx,
@@ -2596,7 +2864,11 @@ export async function admitPlacesWrite(
 	return withDeploymentRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: input.expectedEndings },
+		{
+			ensure: false,
+			expectedEndings: input.expectedEndings,
+			searchConnections: input.searchConnections,
+		},
 		async (tx, row) =>
 			admitRemoteWritesInTransaction(
 				tx,
@@ -2735,6 +3007,8 @@ export async function recordRefreshedAppBaseline(
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
+		readonly reviewedHeadSeq?: number;
+		readonly reviewedPushToken: string;
 		/** The `sourceDigest` of the baseline the read was compared with. */
 		readonly comparedDigest: string;
 		/** The fresh read: gzip, bytes, digest and `observedAt`. */
@@ -2785,11 +3059,12 @@ export async function recordRefreshedAppBaseline(
 				.executeTakeFirst();
 			const liveMapping = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select(["remote_id", "push_token"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
 				.where("superseded_at", "is", null)
+				.where("released_at", "is", null)
 				.executeTakeFirst();
 			const ownership =
 				stored === undefined ? null : appOwnershipFromRow(stored.ownership);
@@ -2808,7 +3083,8 @@ export async function recordRefreshedAppBaseline(
 					origin !== "read" &&
 					origin !== "changes") ||
 				ownership === null ||
-				liveMapping?.remote_id !== input.remoteAppId
+				liveMapping?.remote_id !== input.remoteAppId ||
+				liveMapping.push_token !== input.reviewedPushToken
 			) {
 				return superseded();
 			}
@@ -2817,6 +3093,27 @@ export async function recordRefreshedAppBaseline(
 				row.id,
 				stored.first_publish_changes,
 			);
+			if (input.reviewedHeadSeq !== undefined) {
+				const app = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", scope.appId)
+					.executeTakeFirstOrThrow();
+				if (
+					safePersistedSequence(app.mutation_seq, "reviewed app revision") !==
+					input.reviewedHeadSeq
+				)
+					return superseded();
+			}
+			// Check the compared source before writing any dependent identity.
+			if (
+				(stored.source_digest !== input.read.sourceDigest &&
+					stored.source_digest !== input.comparedDigest) ||
+				(stored.observed_at.getTime() > readAt &&
+					(stored.source_digest !== input.read.sourceDigest ||
+						input.targetIdentity !== undefined))
+			)
+				return superseded();
 			/* Where CommCare HQ keeps things is no part of the source's digest
 			 * (a form's id normalizes out), so the record goes where the fences
 			 * pass, whether or not the source does. */
@@ -2852,11 +3149,6 @@ export async function recordRefreshedAppBaseline(
 						deployment: await loadWithinTransaction(tx, row.id),
 					};
 				}
-			} else if (
-				stored.source_digest !== input.comparedDigest ||
-				stored.observed_at.getTime() > readAt
-			) {
-				return superseded();
 			}
 			await writeAppBaseline(tx, row.id, scope.actorUserId, {
 				origin,
@@ -2961,6 +3253,8 @@ export type HqChangesBaselineFence =
 	| "source-digest"
 	| "nova-revision"
 	| "remote-app"
+	| "push-token"
+	| "app-head"
 	| "observed-at"
 	| "target-identity";
 
@@ -2983,6 +3277,8 @@ export class HqChangesBaselineMovedError extends Error {
 			"source-digest": "source digest",
 			"nova-revision": "Nova revision",
 			"remote-app": "CommCare HQ app",
+			"push-token": "CommCare HQ app claim",
+			"app-head": "reviewed app revision",
 			"observed-at": "read no later than",
 			"target-identity": "target identity",
 		}[fence];
@@ -3063,6 +3359,7 @@ export interface HqChangesTaken extends DeploymentFence {
 	readonly target: DeploymentTargetKey;
 	/** The CommCare HQ app the review read: the live app mapping must still name it. */
 	readonly remoteAppId: string;
+	readonly reviewedPushToken: string;
 	/** The stored baseline the plan read. */
 	readonly read: {
 		readonly sourceDigest: string;
@@ -3138,7 +3435,23 @@ export async function recordHqChangesTaken(
 			input.scope,
 			input.target,
 			{ ensure: false, expectedEndings: input.expectedEndings },
-			(tx, row) => recordHqChangesInTransaction(tx, row.id, at.headSeq, input),
+			async (tx, row) => {
+				const app = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", input.scope.appId)
+					.executeTakeFirstOrThrow();
+				if (
+					safePersistedSequence(app.mutation_seq, "reviewed app revision") !==
+					at.headSeq
+				)
+					throw new HqChangesBaselineMovedError(
+						"app-head",
+						String(at.headSeq),
+						String(app.mutation_seq),
+					);
+				return recordHqChangesInTransaction(tx, row.id, at.headSeq, input);
+			},
 		);
 	}
 	const { tx } = at;
@@ -3171,7 +3484,7 @@ async function recordHqChangesInTransaction(
 		.executeTakeFirst();
 	const liveMapping = await tx
 		.selectFrom("app_deployment_resources")
-		.select("remote_id")
+		.select(["remote_id", "push_token"])
 		.where("deployment_id", "=", deploymentId)
 		.where("kind", "=", "app")
 		.where("nova_resource_id", "=", scope.appId)
@@ -3183,6 +3496,13 @@ async function recordHqChangesInTransaction(
 			"remote-app",
 			input.remoteAppId,
 			liveMapping?.remote_id ?? null,
+		);
+	}
+	if (liveMapping.push_token !== input.reviewedPushToken) {
+		throw new HqChangesBaselineMovedError(
+			"push-token",
+			input.reviewedPushToken,
+			liveMapping.push_token,
 		);
 	}
 	const holdsAPair =
@@ -4634,7 +4954,11 @@ export async function beginDeploymentContentWrite(
 	return withDeploymentRow(
 		scope,
 		target,
-		{ ensure: false, expectedEndings: fence.expectedEndings },
+		{
+			ensure: false,
+			expectedEndings: fence.expectedEndings,
+			searchConnections: fence.searchConnections,
+		},
 		async (tx, row) => {
 			const generation = crypto.randomUUID();
 			await tx

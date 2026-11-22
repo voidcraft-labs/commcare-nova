@@ -593,3 +593,11 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+A project-supplied search has a catalog UUID and display name in app settings.
+Each participating menu holds the UUID and ordered named values. The values
+are expressions, and a visible search field can send its answer, or supply an
+expression that sends it under another name. An established field keeps its
+UUID when changing search source. The country server, project space, service
+ID and credentials are outside the document. The result contract derives
+from the fields read by the menu and its supplied expressions.

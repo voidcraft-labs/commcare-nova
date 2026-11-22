@@ -57,7 +57,7 @@ import {
 	settleReleasedClaims,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
-import { type AdoptedBirth, birthAdoptedApp } from "./adoptedBirth";
+import { type AdoptedBirth, appClaimOf, birthAdoptedApp } from "./adoptedBirth";
 import { readable } from "./readableRecord";
 
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
@@ -408,6 +408,7 @@ describe("endDeployment", () => {
 					recordRefreshedAppBaseline(scope, TARGET, {
 						...fence,
 						remoteAppId: HQ_APP,
+						reviewedPushToken: appClaimOf(birth),
 						comparedDigest: stored.sourceDigest,
 						read: {
 							sourceGzip: gzipSync(Buffer.from(text)),

@@ -22,6 +22,7 @@ export const NAMED_IDENTITY_FAMILIES = {
 	"select-option": "Choice value",
 	"case-list-column": "Column header",
 	"search-input": "Search input name",
+	"project-search": "Project search name",
 	"worker-property": "Worker property name",
 	"user-type": "Role name",
 	persona: "Persona name",

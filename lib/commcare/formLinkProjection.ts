@@ -1,7 +1,9 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
+import { projectSearchOf } from "@/lib/domain/modules";
 import type { RewriteControl } from "./emissionRewrites";
 import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
+import type { WireIdentity } from "./wireIdentity";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
@@ -242,6 +244,7 @@ export interface FormLinkProjectionContext {
 	readonly onRootSelectionTakesNewCase?: (
 		issue: RootSelectionTakesNewCase,
 	) => void;
+	readonly projectSearchId?: WireIdentity["projectSearchId"];
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
@@ -326,6 +329,7 @@ export function formLinkProjectionContext(
 		readonly onRootSelectionTakesNewCase?: (
 			issue: RootSelectionTakesNewCase,
 		) => void;
+		readonly projectSearchId?: WireIdentity["projectSearchId"];
 		readonly runtimeTarget?: RuntimeTarget;
 		readonly attachmentTarget?: AttachmentUrlTarget | null;
 		readonly lookupNaming?: LookupWireNaming;
@@ -368,6 +372,7 @@ export function formLinkProjectionContext(
 		...(opts.onRootSelectionTakesNewCase !== undefined && {
 			onRootSelectionTakesNewCase: opts.onRootSelectionTakesNewCase,
 		}),
+		projectSearchId: opts.projectSearchId,
 		runtimeTarget: opts.runtimeTarget,
 		moduleOrder,
 		formOrder,
@@ -410,7 +415,9 @@ export function inlineSearchFor(
 	const parentUuid = parentSelectModuleUuid(doc, moduleUuid);
 	const ancestorCaseType =
 		parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
+	const search = projectSearchOf(mod);
 	const built = buildInlineSearch({
+		projectSearchId: search && ctx.projectSearchId?.(search.searchUuid),
 		runtimeTarget: ctx.runtimeTarget,
 		module: mod,
 		moduleIndex: moduleIndexOf(ctx, moduleUuid),
@@ -661,6 +668,7 @@ function selectableDatums(
 			}),
 			...(moduleUsesInlineSearch(selectedModule) && {
 				caseSource: "results:inline" as const,
+				projectSearchResults: projectSearchOf(selectedModule) !== undefined,
 			}),
 		});
 		datum.parentSelection = parentSelection;

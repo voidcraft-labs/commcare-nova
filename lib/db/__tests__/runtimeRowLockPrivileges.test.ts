@@ -503,6 +503,7 @@ describe("runtime row-lock privilege contract", () => {
 			"app_deployment_media_paths",
 			"app_deployment_keyed_case_ids",
 			"app_deployment_column_field_words",
+			"app_deployment_search_bindings",
 		]) {
 			expect(
 				rowLockViolationsInSource(

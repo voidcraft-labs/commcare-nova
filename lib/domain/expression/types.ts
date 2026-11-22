@@ -365,6 +365,13 @@ export const caseTypeTermSchema = z.strictObject({
 	caseType: caseTypeNameSchema,
 });
 export type CaseTypeTerm = z.infer<typeof caseTypeTermSchema>;
+/** A named child of a project-space result row. The service owns its name;
+ * it need not be a property on any case type the app manages. */
+export const searchResultFieldSchema = z.strictObject({
+	kind: z.literal("search-result-field"),
+	name: xmlNameSchema,
+});
+export type SearchResultField = z.infer<typeof searchResultFieldSchema>;
 export const caseRowTypeTermSchema = z.strictObject({
 	kind: z.literal("case-row-type"),
 });
@@ -420,6 +427,7 @@ export type Term =
 	| Literal
 	| Choice
 	| CaseTypeTerm
+	| SearchResultField
 	| CaseRowTypeTerm
 	| CaseIndexTerm
 	| SessionDatumTerm
@@ -442,6 +450,7 @@ export const termSchema: z.ZodType<Term> = z.union([
 	literalSchema,
 	choiceSchema,
 	caseTypeTermSchema,
+	searchResultFieldSchema,
 	caseRowTypeTermSchema,
 	caseIndexTermSchema,
 	sessionDatumTermSchema,
@@ -732,6 +741,7 @@ const TERM_KINDS = new Set<string>([
 	"literal",
 	"choice",
 	"case-type",
+	"search-result-field",
 	"case-row-type",
 	"case-index",
 	"session-datum",
@@ -1025,6 +1035,7 @@ const instanceSchemas = [
 			(v) =>
 				[
 					"prop",
+					"search-result-field",
 					"case-row-type",
 					"case-index",
 					"table-column",
@@ -1144,6 +1155,12 @@ export type FormExpressionSlotRef =
 			};
 	  };
 export type ModuleExpressionSlotRef =
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "project_search_parameter";
+			readonly member: { readonly parameterUuid: Uuid };
+	  }
 	| {
 			readonly entity: "module";
 			readonly uuid: Uuid;

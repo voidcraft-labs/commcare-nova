@@ -38,7 +38,13 @@ import {
 	recordRemoteResource,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
-import { birthAdoptedApp, OWNERSHIP, READ_AT, SOURCE } from "./adoptedBirth";
+import {
+	appClaimOf,
+	birthAdoptedApp,
+	OWNERSHIP,
+	READ_AT,
+	SOURCE,
+} from "./adoptedBirth";
 import { readable } from "./readableRecord";
 import { stopHere } from "./stopHere";
 
@@ -211,6 +217,7 @@ describe("the stored first-publish list", () => {
 		const refreshed = await recordRefreshedAppBaseline(birth.scope, TARGET, {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
+			reviewedPushToken: appClaimOf(birth),
 			comparedDigest: stored.sourceDigest,
 			read: {
 				sourceGzip: gzipSync(Buffer.from(text, "utf8")),

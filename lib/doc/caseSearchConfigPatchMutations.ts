@@ -53,6 +53,12 @@ export function caseSearchConfigPatchMutations(
 				: current;
 	const desired: OrdinaryCaseSearchConfig = structuredClone(next);
 	const patch: CaseSearchConfigPatch = {};
+	if (!deepEqual(baseline.projectSearch, desired.projectSearch)) {
+		patch.projectSearch = {
+			before: baseline.projectSearch ?? null,
+			after: desired.projectSearch ?? null,
+		};
+	}
 	for (const key of SETTINGS) {
 		if (deepEqual(baseline[key], desired[key])) continue;
 		(patch as Record<string, unknown>)[key] = desired[key] ?? null;
@@ -89,6 +95,8 @@ export function clearCaseSearchConfigSettingsMutations(
 		? { excludedOwnerIds: current.excludedOwnerIds }
 		: current;
 	const patch: CaseSearchConfigPatch = {};
+	if (normalized.projectSearch)
+		patch.projectSearch = { before: normalized.projectSearch, after: null };
 	for (const key of SETTINGS) {
 		if (normalized[key] !== undefined) {
 			(patch as Record<string, unknown>)[key] = null;

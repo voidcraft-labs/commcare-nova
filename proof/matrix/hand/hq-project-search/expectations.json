@@ -1,0 +1,31 @@
+[
+	{
+		"id": "record-the-next-area",
+		"entry": "questions/text-input-xsd-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"session": {
+				"data": {
+					"case_id": "visit-one"
+				}
+			},
+			"answers": [
+				{
+					"path": "/data/area",
+					"value": "east"
+				}
+			],
+			"expressions": ["/data/area"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "east"
+			}
+		]
+	}
+]

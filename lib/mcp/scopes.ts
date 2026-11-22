@@ -102,6 +102,8 @@ export const TOOL_SCOPES = {
 	get_hq_connection: [SCOPES.hqRead],
 	check_project_space_compatibility: [SCOPES.hqRead],
 	get_deployment: [SCOPES.hqRead],
+	get_project_search_destination: [SCOPES.hqRead],
+	connect_project_searches: [SCOPES.hqWrite],
 	upload_app_to_hq: [SCOPES.hqWrite],
 	refresh_deployment: [SCOPES.hqWrite],
 	withdraw_deployment_confirmation: [SCOPES.hqWrite],

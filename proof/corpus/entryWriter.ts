@@ -738,6 +738,7 @@ const AUTHORED_FILES_WHERE_HELD = [
 	"tables.json",
 	"places.json",
 	"practice-workers.json",
+	"project-searches.json",
 ] as const;
 
 /**
@@ -1249,6 +1250,9 @@ export async function writeEntry(
 					mediaPaths: authored.mediaPaths,
 					keyedCaseIds: authored.keyedCaseIds,
 					columnWords: authored.columnWords,
+					...(authored.projectSearches?.length && {
+						projectSearches: authored.projectSearches,
+					}),
 				};
 	const captures = new Map<string, PublishCapture | RepublishCapture>();
 	for (const [name, configuration] of named) {
@@ -1275,6 +1279,9 @@ export async function writeEntry(
 							mediaPaths: authored.mediaPaths,
 							keyedCaseIds: authored.keyedCaseIds,
 							columnWords: authored.columnWords,
+							...(authored.projectSearches?.length && {
+								projectSearches: authored.projectSearches,
+							}),
 						},
 						...(hqTables !== undefined && hqTables.length > 0 && { hqTables }),
 					})

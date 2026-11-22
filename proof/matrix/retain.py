@@ -480,6 +480,8 @@ def retain(authoring, base, app_id, credential, core_runner) -> Retained:
     from proof.hq import operations
     from proof.matrix import seed
 
+    from proof.hq.project_search import project_searches_of
+
     state = authoring.state
     retained = Retained(base.id, tree="hq-apps", held=True)
     answers = project_answers = media = answer = None
@@ -502,6 +504,9 @@ def retain(authoring, base, app_id, credential, core_runner) -> Retained:
             places = places_of(state)
             if places is not None:
                 retained.keep("places", places)
+            searches = project_searches_of(state)
+            if searches:
+                retained.keep("project-searches", searches)
             workers = practice_workers_of(state)
             if workers is not None:
                 retained.keep("practice-workers", workers)

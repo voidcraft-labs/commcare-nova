@@ -466,6 +466,7 @@ def saved_requests(document, records):
             **document.document,
             **reading,
             "identity": aligned_identity(reading["doc"], reading["identity"], source),
+            "projectSearches": reading.get("projectSearches", []),
         }
         request = {
             "id": f"{document.id}@{name}@{SAVED}",

@@ -30,6 +30,7 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import { isProjectSearchParameter } from "../../hq/projectSearch";
 import { isReservedSearchInputName } from "../../suite/case-search/reservedInputNames";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { withCandidate } from "../candidate";
@@ -447,6 +448,7 @@ export function readSearchPrompts(
 	module: DraftModule,
 	config: JsonCursor,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
+	projectService = false,
 ): readonly PromptReading[] {
 	const place = searchPlace(module);
 	const prompts = config.list(
@@ -467,6 +469,7 @@ export function readSearchPrompts(
 			place,
 			defaultFilterNames,
 			grouped,
+			projectService,
 		);
 		if (reading !== undefined) out.push(reading);
 	}
@@ -480,6 +483,7 @@ function readPrompt(
 	place: HqPlace,
 	defaultFilterNames: ReadonlyMap<string, readonly string[]>,
 	grouped: boolean,
+	projectService: boolean,
 ): PromptReading | undefined {
 	const stored = prompt.peek("name");
 	const name = typeof stored === "string" ? stored : "";
@@ -605,7 +609,12 @@ function readPrompt(
 	const requiredMap = requiredRead.texts;
 	// A key CommCare HQ reads as part of the request (a setting, a tag, an unsearched key, an
 	// owner, project space or reverse-index filter, CSQL) never searches the property it names.
-	if (isReservedSearchInputName(name)) refuseWith("name", P.nameReserved);
+	if (
+		projectService
+			? !isProjectSearchParameter(name)
+			: isReservedSearchInputName(name)
+	)
+		refuseWith("name", P.nameReserved);
 	else if (!SEARCH_INPUT_NAME_PATTERN.test(name))
 		refuseWith("name", P.nameOutside);
 	else if (defaultFilterNames.has(name)) {
@@ -655,7 +664,7 @@ function readPrompt(
 			? P.hiddenChecked
 			: carriesWidget(prompt)
 				? P.hiddenWidget
-				: !exclude
+				: !exclude && !projectService
 					? P.hiddenNoExclude
 					: !holds("default_value")
 						? P.hiddenNoDefault
@@ -910,12 +919,13 @@ function readPrompt(
 				prompt.drop("appearance", P.appearanceOther);
 		}
 		if (!refusedHere("name")) {
-			if (!exclude && ATTRIBUTE_PROMPT_NAMES.has(name))
+			if (!projectService && !exclude && ATTRIBUTE_PROMPT_NAMES.has(name))
 				refuseWith("name", P.nameAttribute);
 			// A prompt without `exclude` matches the case property of its own name, which Nova holds
 			// as the simple field's property: a name Nova's property grammar refuses (`_x`,
 			// `date-opened`, `external-id`) names a property no document can hold.
 			else if (
+				!projectService &&
 				!exclude &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
 			)
@@ -936,7 +946,7 @@ function readPrompt(
 	if (uuid === undefined) return undefined;
 	if (!refusedHere("name")) {
 		prompt.take("name", P.name, String).value;
-		if (name === "owner_id" && exclude)
+		if (!projectService && name === "owner_id" && exclude)
 			ctx.accounting.claimEntry(
 				{ json: prompt, key: "name" },
 				P.ownerKey.entry,
@@ -1177,6 +1187,7 @@ function readPrompt(
 			name,
 			label: common.label,
 			kind: "hidden",
+			...(projectService && !exclude && { sendAnswer: true as const }),
 			value: pendingPlaceholder("value"),
 		};
 	else {
@@ -1190,18 +1201,20 @@ function readPrompt(
 		// A refused field reads no property: it stands in the provisional document only so the
 		// expressions that read it bind.
 		entry = (
-			exclude || refused
-				? {
-						...widget,
-						kind: "advanced",
-						predicate: pendingPlaceholder("condition"),
-					}
-				: {
-						...widget,
-						kind: "simple",
-						property: name,
-						...(type === "date-range" && { mode: { kind: "range" } }),
-					}
+			projectService
+				? { ...widget, kind: "parameter", sendAnswer: !exclude }
+				: exclude || refused
+					? {
+							...widget,
+							kind: "advanced",
+							predicate: pendingPlaceholder("condition"),
+						}
+					: {
+							...widget,
+							kind: "simple",
+							property: name,
+							...(type === "date-range" && { mode: { kind: "range" } }),
+						}
 		) as SearchInputDef;
 	}
 	return {

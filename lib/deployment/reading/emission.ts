@@ -168,7 +168,11 @@ export function readingEmissionOptions(
 		});
 	}
 	return {
-		identity: targetWireIdentity(overrides, identities.columnFieldWords),
+		identity: targetWireIdentity(
+			overrides,
+			identities.columnFieldWords,
+			identities.projectSearches,
+		),
 		attachmentTarget: {
 			origin: input.reader.target.origin,
 			domain: input.reader.target.domain,

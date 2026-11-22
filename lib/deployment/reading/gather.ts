@@ -1886,6 +1886,7 @@ async function checkWith(
 			identity: targetWireIdentity(
 				targetIdentity.entities,
 				targetIdentity.columnWords,
+				targetIdentity.projectSearches,
 			),
 		}),
 	);

@@ -274,6 +274,7 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"app_deployment_media_paths",
 	"app_deployment_keyed_case_ids",
 	"app_deployment_column_field_words",
+	"app_deployment_search_bindings",
 ] as const;
 
 /** Only a migration writes these, as the migration role: fold baselines,

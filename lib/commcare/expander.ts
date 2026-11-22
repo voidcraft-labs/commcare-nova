@@ -79,6 +79,7 @@ import {
 	projectedModulePreorder,
 	type Uuid,
 } from "@/lib/domain";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
 import { buildConnectSlugMap } from "./connectSlugs";
 import {
@@ -107,6 +108,7 @@ import {
 	serializeHqApplication,
 } from "./hqJson/xpath";
 import { emittedModuleKind } from "./moduleKind";
+import { requiredProjectSearchId } from "./suite/case-search/projectSearch";
 import { buildXFormSource } from "./xform/builder";
 
 /**
@@ -289,6 +291,7 @@ export function* expandDocSteps(
 	// context builds them once (cached) and the shells below consume the
 	// same objects — the projection and the emitted `actions` cannot drift.
 	const linkContext = formLinkProjectionContext(doc, {
+		projectSearchId: opts.identity?.projectSearchId,
 		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
 		attachmentTarget: opts.attachmentTarget ?? null,
@@ -514,6 +517,7 @@ export function* expandDocSteps(
 		// lands — survey-only modules and modules with no case type
 		// fall back to the empty-detail pair; their `search_config`
 		// stays at the shell defaults regardless of authored content.
+		const search = projectSearchOf(mod);
 		const projection = projectCaseListForHq(
 			mod,
 			doc,
@@ -522,6 +526,8 @@ export function* expandDocSteps(
 			undefined,
 			undefined,
 			identity.columnFieldWord,
+			search &&
+				requiredProjectSearchId(identity.projectSearchId?.(search.searchUuid)),
 		);
 		// A menu with no case list of its own (a survey menu, the hidden menu
 		// of a no-matches form) still holds the one `name` column every new

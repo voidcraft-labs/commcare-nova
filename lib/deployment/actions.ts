@@ -15,6 +15,11 @@ import {
 } from "./entryPointTypes";
 import { DeploymentAppDeletedError, DeploymentError } from "./errors";
 import { previewDeploymentAnswerFor } from "./previewSpace";
+import { configureProjectSearchDestination } from "./projectSearchDestination";
+import {
+	projectSearchDestinationEdit,
+	projectSearchDestinationInput,
+} from "./projectSearchDestinationInput";
 import { firstPublishOf, leftBehindResources } from "./resources";
 import type { CczUnavailable } from "./runtimeTarget";
 import {
@@ -37,6 +42,7 @@ import {
 	type DeploymentScope,
 	type DeploymentTargetKey,
 	holdTargetFacts,
+	inspectProjectSearchDestination,
 	readDeploymentsForApp,
 	readFirstPublishStates,
 	readReachedDeploymentTargets,
@@ -968,5 +974,39 @@ export async function getEntryPointLinkAction(
 		};
 	} catch (error) {
 		return failure(error, "check deep link", resolved.scope);
+	}
+}
+
+/** Read or confirm exactly the project-space searches the contributor reviewed. */
+export async function projectSearchDestinationAction(
+	targetInput: unknown,
+	editInput?: unknown,
+) {
+	const target = projectSearchDestinationInput.safeParse(targetInput);
+	const edit = projectSearchDestinationEdit.optional().safeParse(editInput);
+	if (!target.success || !edit.success)
+		return {
+			success: false as const,
+			code: "invalid_input" as const,
+			message:
+				"Choose a destination and a search ID for each connected search.",
+		};
+	const resolved = await resolveScope(
+		target.data.appId,
+		edit.data ? "edit" : "view",
+	);
+	if (!resolved.ok) return resolved.result;
+	try {
+		const data = edit.data
+			? await configureProjectSearchDestination(
+					resolved.scope,
+					target.data,
+					edit.data,
+				)
+			: (await inspectProjectSearchDestination(resolved.scope, target.data))
+					.review;
+		return { success: true as const, data };
+	} catch (error) {
+		return failure(error, "connect project searches", resolved.scope);
 	}
 }

@@ -44,7 +44,7 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
-import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import { moduleFormsReadSearch, projectSearchOf } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { canonicalProseAtom } from "@/lib/domain/proseExpression";
@@ -319,6 +319,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"linkUuid",
 		"operationUuid",
 		"columnUuid",
+		"parameterUuid",
 		"searchInputUuid",
 		"optionUuid",
 	])
@@ -475,6 +476,12 @@ function registrationName(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
 			);
 			if (column !== undefined) return column.header;
+		} else if ("member" in ref && "parameterUuid" in ref.member) {
+			const parameterUuid = ref.member.parameterUuid;
+			const parameter = projectSearchOf(doc.modules[ref.uuid])?.defaults.find(
+				(item) => item.uuid === parameterUuid,
+			);
+			if (parameter) return parameter.name;
 		} else if ("member" in ref && "searchInputUuid" in ref.member) {
 			const uuid = ref.member.searchInputUuid;
 			const input = config?.searchInputs.find(

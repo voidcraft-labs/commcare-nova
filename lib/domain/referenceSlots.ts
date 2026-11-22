@@ -51,7 +51,11 @@ import {
 } from "./expression/types";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
-import type { ColumnKind, SearchInputDef } from "./modules";
+import {
+	type ColumnKind,
+	projectSearchOf,
+	type SearchInputDef,
+} from "./modules";
 import { ownRecordValue } from "./records";
 import { isDeeplySettled } from "./settled";
 import type { Uuid } from "./uuid";
@@ -725,7 +729,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_input_default",
 		path: "caseListConfig.searchInputs[].default",
 		kind: "expression",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
 		// Scalar and choice widgets. A date-range input owns its range mode and
 		// never carries a scalar default, so the two date-range arms declare no key.
 		searchInputWidgets: ["scalar", "select"],
@@ -742,7 +746,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_input_options",
 		path: "caseListConfig.searchInputs[].options",
 		kind: "options-source",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
 		searchInputWidgets: ["select"],
 	},
 	{
@@ -750,14 +754,14 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_input_required_when",
 		path: "caseListConfig.searchInputs[].required.when",
 		kind: "expression",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
 	},
 	{
 		entity: "module",
 		slot: "search_input_validation_rule",
 		path: "caseListConfig.searchInputs[].validation.rule",
 		kind: "expression",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
 	},
 	{
 		entity: "module",
@@ -771,6 +775,18 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_button_display_condition",
 		path: "caseSearchConfig.searchButtonDisplayCondition",
 		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "project_search_parameter",
+		path: "caseSearchConfig.projectSearch.defaults[].value",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "project_search",
+		path: "caseSearchConfig.projectSearch.searchUuid",
+		kind: "entity-uuid",
 	},
 	{
 		entity: "module",
@@ -927,6 +943,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	if ("columnUuid" in member) {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
+	if ("parameterUuid" in member)
+		return JSON.stringify([...base, member.parameterUuid]);
 	return JSON.stringify([...base, member.searchInputUuid]);
 }
 
@@ -962,6 +980,17 @@ function expressionRefForEntry(
 							uuid,
 							slot: entry.slot,
 							member: { columnUuid: column.uuid },
+						};
+			}
+			case "project_search_parameter": {
+				const parameter = projectSearchOf(mod)?.defaults[indices[0] ?? -1];
+				return parameter === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { parameterUuid: parameter.uuid },
 						};
 			}
 			case "search_input_default":
@@ -1689,6 +1718,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].hint": "display-text",
 	"caseListConfig.searchInputs[].required.message": "display-text",
 	"caseListConfig.searchInputs[].validation.message": "display-text",
+	"caseSearchConfig.projectSearch.defaults[].name": "config",
+	"caseSearchConfig.projectSearch.defaults[].uuid": "identity",
 	"caseSearchConfig.searchActionEnabled": "config",
 	"caseSearchConfig.workflow": "config",
 	"caseSearchConfig.formsReadSearch": "config",

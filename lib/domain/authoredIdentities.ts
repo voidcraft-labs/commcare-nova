@@ -1,5 +1,6 @@
 import type { BlueprintDoc } from "./blueprint";
-import type { Uuid } from "./uuid";
+import { projectSearchOf } from "./modules";
+import { asUuid, type Uuid } from "./uuid";
 
 export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"module",
@@ -8,6 +9,8 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"selectOption",
 	"caseListColumn",
 	"searchInput",
+	"projectSearch",
+	"projectSearchParameter",
 	"caseOperation",
 	"formLink",
 	"entryPoint",
@@ -47,9 +50,17 @@ export interface BlueprintAuthoredIdentity {
 export function authoredBlueprintIdentities(
 	doc: BlueprintDoc,
 ): BlueprintAuthoredIdentity[] {
-	const identities: BlueprintAuthoredIdentity[] = [];
+	const identities: BlueprintAuthoredIdentity[] = Object.keys(
+		doc.appSettings.projectSearches ?? {},
+	).map((key) => ({ uuid: asUuid(key), kind: "projectSearch" }));
 	for (const module of Object.values(doc.modules)) {
 		identities.push({ uuid: module.uuid, kind: "module" });
+		for (const parameter of projectSearchOf(module)?.defaults ?? [])
+			identities.push({
+				uuid: parameter.uuid,
+				kind: "projectSearchParameter",
+				ownerUuid: module.uuid,
+			});
 		for (const entryPoint of [module.entryPoint, module.caseListEntryPoint])
 			if (entryPoint)
 				identities.push({

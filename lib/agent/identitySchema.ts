@@ -10,6 +10,8 @@ export type AuthorableIdentityFamily =
 	| "field"
 	| "select-option"
 	| "case-list-column"
+	| "project-search"
+	| "project-search-parameter"
 	| "search-input"
 	| "worker-property"
 	| "user-type"
@@ -109,6 +111,13 @@ export function classifyIdentity(
 	} = occurrence;
 	if (tool === "start_app_test" && pointer === "/places/*/uuid")
 		return "location";
+	if (tool === "configure_project_search") {
+		if (pointer === "/change/search/uuid" || pointer === "/change/uuid")
+			return "project-search";
+		if (pointer === "/change/parameters/*/uuid")
+			return "project-search-parameter";
+		if (pointer === "/change/fields/*/fieldUuid") return "search-input";
+	}
 	if (property === "tableId") return "lookup-table";
 	if (
 		property === "columnId" ||

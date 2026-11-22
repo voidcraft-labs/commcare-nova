@@ -282,7 +282,10 @@ async function bringInInRoom(
 	/* Each arm writes; the room stops nothing from here on. */
 	room.beginWrites();
 	try {
-		if (review.kind === "nothing" && review.reason === "reads-the-same")
+		if (
+			(review.kind === "nothing" && review.reason === "reads-the-same") ||
+			checked?.plan.kind === "nothing"
+		)
 			return answered(await recordReadsTheSame(scope, target, basis, checked));
 		if (checked === null)
 			throw new Error(
@@ -367,8 +370,10 @@ async function recordReadsTheSame(
 		settled: basis.published,
 	});
 	const written = await recordRefreshedAppBaseline(scope, target, {
+		...(checked && { reviewedHeadSeq: basis.head.seq }),
 		expectedEndings: basis.deployment.endings,
 		remoteAppId: basis.live.remoteId,
+		reviewedPushToken: basis.live.pushToken,
 		comparedDigest: basis.baseline.sourceDigest,
 		read: await storedSource(basis),
 		/* A review that answered before the readings read nothing that moves
@@ -808,6 +813,7 @@ async function takenFor(
 			target,
 			expectedEndings: basis.deployment.endings,
 			remoteAppId: basis.live.remoteId,
+			reviewedPushToken: basis.live.pushToken,
 			read: {
 				sourceDigest: basis.baseline.sourceDigest,
 				novaRevision: basis.baseline.novaRevision,
