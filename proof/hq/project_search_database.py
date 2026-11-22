@@ -45,7 +45,7 @@ def visit_database(rows):
                         reader = get_domain_query_engine(domain)
                     try:
                         with reader.connect() as conn:
-                            identity = conn.execute(text("SELECT current_database(), current_user")).one()
+                            [identity] = conn.execute(text("SELECT current_database(), current_user"))
                             assert tuple(identity) == (database.name, DomainSchema(domain).role_name)
                         yield domain
                     finally:
