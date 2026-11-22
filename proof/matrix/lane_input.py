@@ -73,7 +73,7 @@ def project_data(members: Mapping[str, bytes]) -> dict:
     for key, name in (
         ("lookupTables", "lookup-tables.json"),
         ("locationTypes", "location-types.json"),
-        ("locations", "locations.json"),
+        ("locations", "locations.json"), ("locationsV1", "locations-v1.json"),
     ):
         answer = _optional(members, name)
         if answer is not None:

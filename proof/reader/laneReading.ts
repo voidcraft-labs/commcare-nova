@@ -139,6 +139,7 @@ export interface LaneReadInput {
 		readonly lookupTables: RetainedHqAnswer;
 		readonly fixtureRows: Readonly<Record<string, RetainedHqAnswer>>;
 		readonly locationTypes?: RetainedHqAnswer;
+		readonly locationsV1?: RetainedHqAnswer;
 		readonly locations?: RetainedHqAnswer;
 		/** One a mapped path: HQ's answer to the file's read, and its bytes where HQ gave them. */
 		readonly media: readonly {

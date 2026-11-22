@@ -167,6 +167,8 @@ function answerFor(
 		data.locationTypes !== undefined
 	)
 		return { name: "locationTypes", answer: served(data.locationTypes) };
+	if (at === `${space}/api/location/v1/` && data.locationsV1 !== undefined)
+		return { name: "locationsV1", answer: served(data.locationsV1) };
 	if (at === `${space}/api/location/v2/` && data.locations !== undefined)
 		return { name: "locations", answer: served(data.locations) };
 	const file = /^\/hq\/multimedia\/file\/([^/]+)\/([^/]+)\/$/.exec(at);

@@ -290,7 +290,7 @@ def _base_reads(base="hq-plain"):
             for path in sorted(directory.glob("fixture-rows-*.json"))
         },
     }
-    for key, name in (("locationTypes", "location-types.json"), ("locations", "locations.json")):
+    for key, name in (("locationTypes", "location-types.json"), ("locations", "locations.json"), ("locationsV1", "locations-v1.json")):
         if (directory / name).is_file():
             data[key] = _answer(directory / name)
     reads["projectData"] = data

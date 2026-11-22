@@ -1007,6 +1007,7 @@ class _Unit:
                 },
                 "locationTypes": kept(operations.location_types_read(unit, credential)),
                 "locations": kept(operations.locations_read(unit, credential)),
+                "locationsV1": kept(operations.location_external_ids_read(unit, credential)),
             }
         return data
 

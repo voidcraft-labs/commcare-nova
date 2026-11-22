@@ -294,6 +294,8 @@ def project_data_reads(authoring, app_id, credential):
         found["locationTypes"] = operations.location_types_read(state, credential)
     with authoring.step("reads", b"locations"):
         found["locations"] = operations.locations_read(state, credential)
+    with authoring.step("reads", b"locationsV1"):
+        found["locationsV1"] = operations.location_external_ids_read(state, credential)
     return found, media_reads(authoring, app_id, credential)
 
 
@@ -344,6 +346,7 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
             },
             "locationTypes": project_answers["locationTypes"].retained(),
             "locations": project_answers["locations"].retained(),
+            "locationsV1": project_answers["locationsV1"].retained(),
             "media": [
                 {
                     **{key: row[key] for key in ("path", "mediaType", "multimediaId", "status")},
@@ -459,8 +462,9 @@ def keep_answers(retained, answers, project_answers, media, asked=None):
         ("lookupTables", "lookup-tables"),
         ("locationTypes", "location-types"),
         ("locations", "locations"),
+        ("locationsV1", "locations-v1"),
     ):
-        if name in project_answers and wanted(name):
+        if name in project_answers and (wanted(name) or (name == "locationsV1" and wanted("locations"))):
             retained.keep(file_name, project_answers[name])
     for name, read in sorted(project_answers.items()):
         if name.startswith("fixtureRows:") and wanted(name):

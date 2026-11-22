@@ -729,6 +729,12 @@ def locations_read(state, credential: ApiCredential) -> HqAnswer:
     return api_request(state, "GET", f"/a/{state.domain}/api/location/v2/?limit=1000", credential=credential)
 
 
+
+def location_external_ids_read(state, credential: ApiCredential) -> HqAnswer:
+    """The v1 LocationResource exposes external_id, which v2 omits."""
+    return api_request(state, "GET", f"/a/{state.domain}/api/location/v1/?limit=1000", credential=credential)
+
+
 @contextmanager
 def location_types_in_id_order():
     """``LocationTypeResource``'s list, for the block, in the order of its levels' ids.

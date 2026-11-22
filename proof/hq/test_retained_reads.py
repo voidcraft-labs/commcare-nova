@@ -707,6 +707,13 @@ def _places_reads(retained, export, member_name):
             assert made.status == 202, made.retained()
         with _operation(state, "locations"):
             listed = _body(retained.keep("locations", operations.locations_read(state, member)))
+        with _operation(state, "locations-v1"):
+            details = _body(retained.keep("locations-v1", operations.location_external_ids_read(state, member)))
+        by_id = {place["location_id"]: place for place in details["objects"]}
+        assert set(by_id) == {place["location_id"] for place in listed["objects"]}
+        for place in listed["objects"]:
+            assert by_id[place["location_id"]]["last_modified"] == place["last_modified"]
+            assert "external_id" in by_id[place["location_id"]] and "external_id" not in place
         child = next(place for place in listed["objects"] if place["site_code"] == "north_clinic")
         with _operation(state, "unchanged-update"):
             fields = ("name", "site_code", "location_type_code", "parent_location_id", "location_data")
@@ -743,6 +750,38 @@ def _places_reads(retained, export, member_name):
                 SQLLocation.objects.get(location_id=child["location_id"]).full_delete()
             with _operation(state, "locations-after-delete"):
                 retained.keep("locations-after-delete", operations.locations_read(state, member))
+        with state.fork():
+            from types import SimpleNamespace
+
+            from corehq.apps.locations.fixtures import _get_metadata_node
+
+            with _operation(state, "rich-place"):
+                row = SQLLocation.objects.get(location_id=child["location_id"])
+                row.name = None
+                row.site_code = "École"
+                row.external_id = " EXT 01 "
+                row.latitude = "1234567890.0000000000"
+                row.metadata = {"visits": 9007199254740993, "rate": 1.0, "ready": True,
+                                "items": [None, "ward", False], "labels": {"z": "first", "a": "second"}}
+                row.save()
+                row.refresh_from_db()
+                fields = [SimpleNamespace(slug=key) for key in [*row.metadata, "absent"]]
+                worker = _get_metadata_node(row, fields)
+                texts = {elem.tag: elem.text or "" for elem in worker}
+                assert texts == {"visits": "9007199254740993", "rate": "1.0", "ready": "True",
+                                 "items": "[None, 'ward', False]", "labels": "{'z': 'first', 'a': 'second'}",
+                                 "absent": ""}
+                retained.keep("rich-worker-fields", texts)
+            with _operation(state, "rich-locations"):
+                v2 = _body(retained.keep("rich-locations", operations.locations_read(state, member)))
+            with _operation(state, "rich-locations-v1"):
+                v1 = _body(retained.keep("rich-locations-v1", operations.location_external_ids_read(state, member)))
+            rich = next(place for place in v2["objects"] if place["location_id"] == row.location_id)
+            detail = next(place for place in v1["objects"] if place["location_id"] == row.location_id)
+            assert detail["external_id"] == " EXT 01 " and "external_id" not in rich
+            assert rich["site_code"] == "École" and rich["name"] is None
+            assert rich["latitude"] == "1234567890.0000000000"
+            assert list(rich["location_data"]["labels"]) == ["a", "z"]
         with _operation(state, "level-write"):
             level = retained.keep(
                 "level-write", operations.location_type_write(state, member, {"name": "Ward", "code": "ward"})
