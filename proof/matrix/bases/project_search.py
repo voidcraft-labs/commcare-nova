@@ -10,10 +10,18 @@ from proof.hq.configuration import Configuration
 from proof.hq.project_search import install_project_searches
 from proof.matrix import ops
 from proof.matrix.bases import _pages
-from proof.matrix.bases.search import one_question_source
 from proof.matrix.registry import Base, Declaration
 
 ENDPOINT_ID = 17
+
+
+def visit_source(name):
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    form = XFormBuilder(name)
+    form.new_question("area", "Area for the next visit", "select1", choices={"north": "North", "south": "South"})
+    form.new_question("note", "Visit note", "string")
+    return form.tostring(xml_declaration=True).decode("utf-8")
 
 
 def build(authoring):
@@ -25,7 +33,7 @@ def build(authoring):
     _pages.turn_web_apps_on(authoring, app_id)
     _pages.new_case_module(authoring, app_id, name="Area visits", case_type="visit")
     _pages.delete_form(authoring, app_id, 0, 0)
-    ops.upload_form_source(authoring, app_id, 0, 0, one_question_source("area", "Area for the next visit"), "area")
+    ops.upload_form_source(authoring, app_id, 0, 0, visit_source, "area")
     _pages.save_case_actions(authoring, app_id, 0, 0, updates={"district": "/data/area"})
     _pages.save_case_list(authoring, app_id, 0, columns=[_pages.column("name", "Visit")])
     with authoring.step("build:project-search"):
