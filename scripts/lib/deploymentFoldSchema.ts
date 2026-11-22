@@ -13,22 +13,25 @@ export async function deploymentFoldSchema(
 		constraints: string[];
 		immutable: string | null;
 		claim_trigger: string | null;
+		rotate_body: string;
 		trigger_body: string | null;
 		installed: boolean;
 	}>`
 		WITH objects AS (
 			SELECT to_regclass('public.app_deployment_baselines') AS baseline,
 				to_regclass('public.app_deployment_fold_references') AS cert,
+				'public.app_deployment_resources'::regclass AS mappings,
+				'public.hq_remote_writes'::regclass AS writes,
 				to_regprocedure('public.nova_reject_deployment_fold_reference_update()') AS guard
 		)
 		SELECT (SELECT relkind FROM pg_class WHERE oid = cert) AS table_kind,
-			ARRAY(SELECT (CASE WHEN a.attrelid = cert THEN 'certificate.' ELSE 'baseline.' END)
+			ARRAY(SELECT (CASE a.attrelid WHEN cert THEN 'certificate.' WHEN mappings THEN 'mapping.' WHEN writes THEN 'admission.' ELSE 'baseline.' END)
 					|| a.attname || ' ' || format_type(a.atttypid, a.atttypmod)
 					|| CASE WHEN a.attnotnull THEN ' required' ELSE '' END
 					|| CASE WHEN a.atthasdef THEN ' default' ELSE '' END
 				FROM pg_attribute a
 				WHERE a.attnum > 0 AND NOT a.attisdropped AND
-					(a.attrelid = cert OR (a.attrelid = baseline AND
+					(a.attrelid = cert OR (a.attrelid IN (mappings, writes) AND a.attname = 'claim_generation') OR (a.attrelid = baseline AND
 						a.attname IN ('reference_fold_seq', 'reference_source_digest', 'readback_push_token', 'readback_source_digest')))) AS columns,
 			ARRAY(SELECT (CASE WHEN c.conrelid = cert THEN 'certificate ' ELSE 'baseline ' END)
 					|| replace(pg_get_constraintdef(c.oid, true), 'public.', '')
@@ -43,6 +46,7 @@ export async function deploymentFoldSchema(
 			(SELECT replace(pg_get_triggerdef(t.oid, true), 'public.', '') || ' ' || t.tgenabled::text
 				FROM pg_trigger t WHERE t.tgrelid = 'public.app_deployment_resources'::regclass
 					AND t.tgname = 'app_deployment_resources_claim_token') AS claim_trigger,
+			(SELECT p.prosrc FROM pg_proc p WHERE p.oid = 'public.rotate_deployment_push_token()'::regprocedure) AS rotate_body,
 			(SELECT p.prosrc FROM pg_proc p WHERE p.oid = guard) AS trigger_body,
 			EXISTS (SELECT 1 FROM public.kysely_migration
 				WHERE name = '20261204000000_deployment_fold_references') AS installed
@@ -55,10 +59,14 @@ export async function deploymentFoldSchema(
 		!schema.columns.length &&
 		!schema.constraints.length &&
 		schema.trigger_body === null &&
-		schema.claim_trigger === null
+		schema.claim_trigger === null &&
+		schema.rotate_body.replace(/\s+/g, " ").trim() ===
+			"BEGIN NEW.push_token := uuidv7(); RETURN NEW; END;"
 	)
 		return "prior";
 	const columns = [
+		"admission.claim_generation uuid",
+		"mapping.claim_generation uuid",
 		"baseline.readback_push_token uuid",
 		"baseline.readback_source_digest text",
 		"baseline.reference_fold_seq bigint",
@@ -87,7 +95,9 @@ export async function deploymentFoldSchema(
 		equalSet(schema.columns, columns) &&
 		equalSet(schema.constraints, constraints) &&
 		schema.claim_trigger ===
-			"CREATE TRIGGER app_deployment_resources_claim_token BEFORE UPDATE OF released_at ON app_deployment_resources FOR EACH ROW WHEN (old.released_at IS DISTINCT FROM new.released_at) EXECUTE FUNCTION rotate_deployment_push_token() O" &&
+			"CREATE TRIGGER app_deployment_resources_claim_token BEFORE UPDATE OF released_at ON app_deployment_resources FOR EACH ROW WHEN (old.released_at IS DISTINCT FROM new.released_at) EXECUTE FUNCTION rotate_deployment_push_token('claim') O" &&
+		schema.rotate_body.replace(/\s+/g, " ").trim() ===
+			"BEGIN NEW.push_token := uuidv7(); IF TG_NARGS = 1 AND TG_ARGV[0] = 'claim' THEN NEW.claim_generation := NEW.push_token; UPDATE public.app_deployments SET content_generation = uuidv7(), entry_point_manifest = NULL, entry_point_observation = NULL WHERE id = NEW.deployment_id; END IF; RETURN NEW; END;" &&
 		schema.immutable === "app_deployment_fold_reference_immutable O 19 t t" &&
 		schema.trigger_body?.trim() ===
 			"BEGIN RAISE EXCEPTION 'A certified deployment reference is immutable'; END"

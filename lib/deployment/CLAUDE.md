@@ -939,7 +939,11 @@ refresh compares the response to the media record under the deployment lock,
 including a refresh that would only acknowledge the source or move its date.
 A refresh of the same source under the same claim retains its publish receipt.
 Reviews that carry identity, media or next-publish decisions still require
-their original claim and fold. A differing newer read answers
+their original claim and fold. Each HQ change take and same-source review also
+compares the locked file ids at every path its decision judged, including a path
+that had no file id. A replacement, removal or newly resolved id there returns
+a fresh review before the document, identity, or source advances. File ids
+learned at unrelated paths survive in the deployment record. A differing newer read answers
 `superseded`. Whether a refresh changed
 anything is `keptChanged` over the kept lists before and after, which compares
 the labels and a digest of every kept value (`targetFacts.ts::deploymentKeptOf`),
@@ -1651,6 +1655,14 @@ still be in that Project, which a move cannot change while one is open.
 Neither the app's deletion nor the caller's role since is asked, so an app
 deleted, or a publisher who lost edit, between the admission and the record
 still has what the write made recorded, and a restored app holds it. A record
+of an app import or its final entry-point manifest also compares its durable
+admission's claim generation with the mapping. The mapping id identifies its
+first claim. Release and reclaim each assign a fresh generation, including
+when the same HQ app returns to the same Nova app. An expired process may
+record an acknowledgement only on its original uninterrupted claim. If HQ
+accepted it after the transfer, the publish reports what was sent and offers
+a new check, retaining the existing baseline and sending no more media.
+Other imports on the same claim still record in HQ save order. A record
 with no admission behind it (an app that stopped carrying a kind, a seed)
 needs a live app and `edit`, as every other deployment write does. The
 deletion held off would not close it: the write's answer comes before its

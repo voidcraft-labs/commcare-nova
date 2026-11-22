@@ -1818,15 +1818,16 @@ export async function publishAppToHq(
 				appId: result.appId,
 			});
 
-			entryPointManifest = imported.obsoleteFold
-				? null
-				: {
-						generation: contentGeneration,
-						remoteAppId: result.appId,
-						sourceSequence: seq,
-						entries,
-						dependencies: imported.dependencies,
-					};
+			entryPointManifest =
+				imported.obsoleteFold || imported.obsoleteClaim
+					? null
+					: {
+							generation: contentGeneration,
+							remoteAppId: result.appId,
+							sourceSequence: seq,
+							entries,
+							dependencies: imported.dependencies,
+						};
 			log.info("[deployment] app imported", {
 				domain,
 				hqAppId: result.appId,
@@ -1862,7 +1863,11 @@ export async function publishAppToHq(
 			} = { warnings: [], reported: {} };
 			/* The import and the bundle, whose admissions the media record rests on. */
 			const mediaWrites: string[] = [importWrite];
-			if (imported.obsoleteFold) {
+			if (imported.obsoleteClaim) {
+				warnings.push(
+					"The app on CommCare HQ changed hands while this publish was in progress. You can check where this app publishes before trying again.",
+				);
+			} else if (imported.obsoleteFold) {
 				warnings.push(
 					"CommCare HQ accepted an earlier revision of this app. You can review what changed there before publishing again.",
 				);
@@ -1943,6 +1948,7 @@ export async function publishAppToHq(
 			);
 			if (
 				!imported.obsoleteFold &&
+				!imported.obsoleteClaim &&
 				mediaRecorded === "superseded" &&
 				published.length > 0
 			)

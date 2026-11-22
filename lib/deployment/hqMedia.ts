@@ -300,6 +300,9 @@ export function nextHqMediaRecord(input: {
 export interface HqMediaObservation {
 	readonly read: HqMediaRecord | null;
 	readonly next: HqMediaRecord;
+	/** Files whose prior standing the review used to decide what to take.
+	 * An upload reports its results without committing any review decision. */
+	readonly judgedPaths?: readonly string[];
 }
 
 /** Apply only this observation's changes. A new or corrected fact learned
@@ -312,11 +315,22 @@ export function mergeHqMediaObservation(
 	const read = observation.read ?? NO_ENTRIES;
 	const next = observation.next;
 	const merged = recordFromEntries(Object.entries(current ?? NO_ENTRIES));
+	const judged = new Set(observation.judgedPaths);
 	let conflict = false;
-	for (const path of new Set([...Object.keys(read), ...Object.keys(next)])) {
+	for (const path of new Set([
+		...Object.keys(read),
+		...Object.keys(next),
+		...judged,
+	])) {
 		const previous = ownRecordValue(read, path);
 		const observed = ownRecordValue(next, path);
 		const stored = ownRecordValue(merged, path);
+		// A new id can change a replacement into an already-owned file,
+		// even when it is the id the proposed take would store.
+		if (judged.has(path) && previous !== stored) {
+			conflict = true;
+			continue;
+		}
 		if (previous === observed || stored === observed) continue;
 		if (stored !== previous) {
 			conflict = true;

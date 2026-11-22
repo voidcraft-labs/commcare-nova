@@ -1560,6 +1560,8 @@ export interface RecordedImport extends RecordAnswer {
 	readonly dependencies: PublishedEntryPointManifest["dependencies"];
 	/** HQ acknowledged content from a retired fold after its admission expired. */
 	readonly obsoleteFold?: true;
+	/** The app import answered after another claim took over this HQ app. */
+	readonly obsoleteClaim?: true;
 }
 
 /** The live table and place mappings of a deployment, as an entry-point manifest names them. */
@@ -2177,6 +2179,54 @@ export interface RecordRemoteAppInput
 	readonly baseline: AppBaselineWrite;
 }
 
+/** An admission belongs to one uninterrupted claim of a particular HQ app.
+ * Other imports on that claim are ordered by HQ's own save counter. The
+ * mapping's id represents the initial claim without updating existing rows. */
+async function stillHoldsImportedApp(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	remoteAppId: string,
+	mapping:
+		| {
+				id: string;
+				remote_id: string;
+				released_at: Date | null;
+				claim_generation: string | null;
+		  }
+		| undefined,
+	admitted: AdmittedRecord | undefined,
+): Promise<boolean> {
+	const ids = admitted?.writeIds ?? [];
+	if (ids.length === 0) {
+		// A direct record has no prior admission to identify a later claim.
+		return (
+			!mapping ||
+			(mapping.released_at === null && mapping.claim_generation === null)
+		);
+	}
+	if (
+		!mapping ||
+		mapping.released_at !== null ||
+		mapping.remote_id !== remoteAppId
+	)
+		return false;
+	const writes = await tx
+		.selectFrom("hq_remote_writes")
+		.select(["write_kind", "resource_id", "claim_generation"])
+		.where("id", "in", ids)
+		.where("deployment_id", "=", deploymentId)
+		.where("write_kind", "in", ["import", "media"])
+		.execute();
+	return (
+		writes.filter((write) => write.write_kind === "import").length === 1 &&
+		writes.every(
+			(write) =>
+				write.resource_id === remoteAppId &&
+				write.claim_generation === (mapping.claim_generation ?? mapping.id),
+		)
+	);
+}
+
 /**
  * Point a deployment at the app CommCare HQ now holds, and fold the
  * successful upload into the record: one transaction, so a publish that
@@ -2223,12 +2273,31 @@ export async function recordRemoteResource(
 			});
 			const live = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["remote_id", "pushed_remote_revision"])
+				.select([
+					"id",
+					"remote_id",
+					"pushed_remote_revision",
+					"released_at",
+					"claim_generation",
+				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", input.kind)
 				.where("nova_resource_id", "=", input.novaResourceId)
 				.where("superseded_at", "is", null)
 				.executeTakeFirst();
+			// A second publish on this same claim may already have recorded.
+			// Its HQ counter below orders the two. A release and reclaim retires
+			// the admission even if the remote id, source and counter all match.
+			if (
+				!(await stillHoldsImportedApp(
+					tx,
+					row.id,
+					input.remoteId,
+					live,
+					admitted,
+				))
+			)
+				return { ...(await answer(null)), obsoleteClaim: true };
 			const recorded =
 				live === undefined ? null : numberOrNull(live.pushed_remote_revision);
 			if (
@@ -2471,7 +2540,13 @@ export async function admitAppWrite(
 		}
 		const live = await tx
 			.selectFrom("app_deployment_resources")
-			.select(["remote_id", "released_at", "push_token"])
+			.select([
+				"id",
+				"claim_generation",
+				"remote_id",
+				"released_at",
+				"push_token",
+			])
 			.where("deployment_id", "=", row.id)
 			.where("kind", "=", "app")
 			.where("superseded_at", "is", null)
@@ -2499,6 +2574,7 @@ export async function admitAppWrite(
 				projectId: scope.projectId,
 				actorUserId: scope.actorUserId,
 				resourceKind: "app",
+				claimGeneration: live.claim_generation ?? live.id,
 				resourceId: input.remoteAppId,
 				writeKind: input.writeKind,
 				holdSeconds: REMOTE_WRITE_HOLD_SECONDS[input.writeKind],
@@ -2776,6 +2852,8 @@ export async function recordRefreshedAppBaseline(
 		 * neither can refresh only an ordinary, uncertified baseline. */
 		readonly comparedRevision?: number | null;
 		readonly comparedFold?: number;
+		/** The reviewed Nova head, when recording an HQ changes decision. */
+		readonly comparedHead?: number;
 		/** The fresh read: gzip, bytes, digest and `observedAt`. */
 		readonly read: Pick<
 			AppBaselineWrite,
@@ -2855,6 +2933,15 @@ export async function recordRefreshedAppBaseline(
 				liveMapping?.remote_id !== input.remoteAppId
 			) {
 				return superseded();
+			}
+			if (input.comparedHead !== undefined) {
+				const head = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", scope.appId)
+					.executeTakeFirstOrThrow();
+				if (safePersistedSequence(head.mutation_seq) !== input.comparedHead)
+					return superseded();
 			}
 			const currentMedia = storedMediaFiles(row.id, stored.media_files);
 			// A media upload can finish during the HTTP read without changing
@@ -2959,16 +3046,32 @@ export async function recordRefreshedAppBaseline(
 				};
 			}
 			if (input.targetIdentity !== undefined) {
-				try {
-					await writeTargetIdentityInTransaction(
-						tx,
-						row.id,
-						{ appId: scope.appId, server: target.server },
-						input.targetIdentity,
-					);
-				} catch (error) {
-					if (error instanceof TargetIdentityMovedError) return superseded();
-					throw error;
+				const context = { appId: scope.appId, server: target.server };
+				if (
+					sameTargetIdentity(
+						input.targetIdentity.read,
+						input.targetIdentity.next,
+					)
+				) {
+					if (
+						!sameTargetIdentity(
+							await readTargetIdentityRows(tx, row.id, context),
+							input.targetIdentity.read,
+						)
+					)
+						return superseded();
+				} else {
+					try {
+						await writeTargetIdentityInTransaction(
+							tx,
+							row.id,
+							context,
+							input.targetIdentity,
+						);
+					} catch (error) {
+						if (error instanceof TargetIdentityMovedError) return superseded();
+						throw error;
+					}
 				}
 			}
 			await writeAppBaseline(
@@ -2986,7 +3089,8 @@ export async function recordRefreshedAppBaseline(
 					discard: null,
 					novaRevision: numberOrNull(stored.nova_revision),
 					mediaFiles:
-						media === undefined
+						media === undefined ||
+						!hqMediaRecordMoves(currentMedia, media.files)
 							? { kind: "keep" }
 							: { kind: "set", files: media.files },
 					/* An app brought in and not yet published keeps its own list: the
@@ -4985,13 +5089,21 @@ export async function finishDeploymentContentWrite(
 			}
 			const active = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select(["id", "remote_id", "released_at", "claim_generation"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("superseded_at", "is", null)
 				.executeTakeFirst();
 			const accepted =
-				manifest !== null && active?.remote_id === manifest.remoteAppId;
+				manifest !== null &&
+				active?.remote_id === manifest.remoteAppId &&
+				(await stillHoldsImportedApp(
+					tx,
+					row.id,
+					manifest.remoteAppId,
+					active,
+					admitted,
+				));
 			await tx
 				.updateTable("app_deployments")
 				.set({

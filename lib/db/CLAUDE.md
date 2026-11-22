@@ -102,7 +102,14 @@ two publishes of one app. A publish records its mapping token and original sourc
 digest together in `app_deployment_baselines.readback_push_token` and
 `readback_source_digest`. Releasing the claim rotates the mapping token even
 when it is later reclaimed. Older rows acquire a read-back receipt only from
-a publish.
+a publish. An app import or media admission records the live uninterrupted
+claim in `hq_remote_writes.claim_generation`. The first claim uses the mapping
+row id. The release trigger assigns a new `app_deployment_resources.claim_generation`
+on each release or reclaim, including updates from older binaries. The same
+transition retires the completed or pending entry-point manifest and observation. All existing
+rows remain untouched during schema installation. An old admission with no
+recorded claim cannot certify an import or its manifest on the new writer.
+The cutover drains live old writers, and restores code and database together.
 `app_deployment_resources.remote_missing_at` is the "CommCare HQ reports this
 app gone" fact, outside the push-token trigger's column list, so writing it
 rotates no push token.

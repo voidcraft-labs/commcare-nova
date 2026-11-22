@@ -9,8 +9,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		DECLARE deadline timestamptz := clock_timestamp() + interval '5 seconds';
 		BEGIN LOOP
 			BEGIN
-				LOCK TABLE public.app_deployment_baselines IN ACCESS EXCLUSIVE MODE NOWAIT;
-				LOCK TABLE public.app_deployments, public.app_deployment_resources,
+				LOCK TABLE public.app_deployment_baselines, public.app_deployment_resources, public.hq_remote_writes IN ACCESS EXCLUSIVE MODE NOWAIT;
+				LOCK TABLE public.app_deployments,
 					public.app_change_fold_baselines IN SHARE ROW EXCLUSIVE MODE NOWAIT;
 				RETURN;
 			EXCEPTION WHEN lock_not_available THEN
@@ -42,10 +42,27 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	`.execute(db);
 	// A remote read belongs to one continuous claim. A release and restore
 	// must fence an observation even if they both finish during that read.
+	// The row id identifies a mapping's first claim. Only giving up or
+	// reclaiming that HQ app starts another claim. A same-claim publish
+	// continues to rotate its own push token independently.
+	await sql`ALTER TABLE public.app_deployment_resources ADD COLUMN IF NOT EXISTS claim_generation uuid;
+		ALTER TABLE public.hq_remote_writes ADD COLUMN IF NOT EXISTS claim_generation uuid;
+		CREATE OR REPLACE FUNCTION public.rotate_deployment_push_token() RETURNS trigger
+		LANGUAGE plpgsql SET search_path = pg_catalog AS $rotate$
+		BEGIN
+			NEW.push_token := uuidv7();
+			IF TG_NARGS = 1 AND TG_ARGV[0] = 'claim' THEN
+				NEW.claim_generation := NEW.push_token;
+				UPDATE public.app_deployments SET content_generation = uuidv7(),
+					entry_point_manifest = NULL, entry_point_observation = NULL WHERE id = NEW.deployment_id;
+			END IF;
+			RETURN NEW;
+		END;
+		$rotate$`.execute(db);
 	await sql`CREATE OR REPLACE TRIGGER app_deployment_resources_claim_token
 		BEFORE UPDATE OF released_at ON public.app_deployment_resources FOR EACH ROW
 		WHEN (OLD.released_at IS DISTINCT FROM NEW.released_at)
-		EXECUTE FUNCTION public.rotate_deployment_push_token()`.execute(db);
+		EXECUTE FUNCTION public.rotate_deployment_push_token('claim')`.execute(db);
 	await sql`ALTER TABLE public.app_deployment_baselines
 		ADD COLUMN IF NOT EXISTS reference_fold_seq bigint,
 		ADD COLUMN IF NOT EXISTS reference_source_digest text,

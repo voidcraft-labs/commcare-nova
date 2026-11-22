@@ -44,7 +44,7 @@ import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { softDeleteApp } from "@/lib/db/apps";
+import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import type { BlueprintDoc, MediaAssetId } from "@/lib/domain";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
@@ -65,7 +65,7 @@ import {
 	recordRefreshedAppBaseline,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
-import { appMappingToken } from "./adoptedBirth";
+import { appMappingToken, birthAdoptedApp } from "./adoptedBirth";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 import { stopHere } from "./stopHere";
 
@@ -878,6 +878,58 @@ describe("the record after an upload", () => {
 			expect((await publish(doc)).landed).toBe(true);
 		});
 		expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+	});
+
+	it("fences a resumed import from its retired claim before it records or sends any media", async () => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			await publishFirst(peer, doc);
+		});
+		const before = await readAppBaseline(SCOPE, TARGET);
+		let reclaimedToken: string | null = null;
+		await withPeer(async (peer) => {
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			request(peer, IMPORT, "POST").reply(async () => {
+				// The previous process's real admission expires before its
+				// acknowledged HTTP response reaches the application.
+				await h
+					.db()
+					.updateTable("hq_remote_writes")
+					.set((eb) => ({ held_until: eb.ref("opened_at") }))
+					.where("app_id", "=", APP)
+					.where("write_kind", "=", "import")
+					.where("settled_at", "is", null)
+					.execute();
+				await softDeleteApp(APP, "creator");
+				const other = await birthAdoptedApp(h, {
+					appId: crypto.randomUUID(),
+					actorUserId: "creator",
+					projectId: PROJECT,
+					target: TARGET,
+					remoteAppId: HQ_APP,
+				});
+				await softDeleteApp(other.scope.appId, "creator");
+				await restoreApp(APP, "creator");
+				reclaimedToken = appMappingToken(await readDeployment(SCOPE, TARGET));
+				return {
+					statusCode: 200,
+					data: JSON.stringify({
+						success: true,
+						app_id: HQ_APP,
+						version: saves.save(HQ_APP),
+					}),
+				};
+			});
+			serve(peer, "source-live");
+			const outcome = await publish(doc);
+			expect(reclaimedToken).not.toBeNull();
+			expect(requests(peer)).not.toContain(`POST ${MEDIA}`);
+			expect(outcome.landed).toBe(true);
+			expect(appMappingToken(await readDeployment(SCOPE, TARGET))).toBe(
+				reclaimedToken,
+			);
+		});
+		expect(await readAppBaseline(SCOPE, TARGET)).toEqual(before);
 	});
 
 	/* The import lands on CommCare HQ while the app goes to recently deleted,

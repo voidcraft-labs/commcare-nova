@@ -44,7 +44,9 @@ import {
 } from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedHqAnswer,
+	retainedBodyJson,
 	retainedBodyText,
+	retainedGroupRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -105,6 +107,7 @@ import {
 	servedHqApp,
 	servedKeyedApp,
 	serveHqApp,
+	summarizeServedHqApp,
 } from "../reading/__tests__/servedHqApp";
 import { createFromReview } from "../reading/create";
 import { authorizeBringIn, readHqAppForReview } from "../reading/read";
@@ -1217,6 +1220,160 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			.reply(200, bytes, { headers: { "content-type": "image/png" } })
 			.times(times);
 	}
+
+	it.each([
+		["same-source", "replacement"],
+		["already-here", "deletion"],
+		["take", "replacement"],
+		["take", "newly-resolved"],
+		["take", "same"],
+		["take", "disjoint"],
+	] as const)(
+		"checks reviewed media before a %s record when a concurrent upload reports %s",
+		async (arm, change) => {
+			const scope = await broughtInWithIcon();
+			const original = withIcons(fixtureSource(), [ICON]);
+			const source = changedAnswer(original, (body) => {
+				if (arm !== "same-source") return { ...body, name: RENAMED };
+				const form = (body.modules as { forms: { unique_id: string }[] }[])[0]
+					.forms[0];
+				const attachments = body._attachments as Record<string, unknown>;
+				const id = "f".repeat(32);
+				attachments[`${id}.xml`] = attachments[`${form.unique_id}.xml`];
+				delete attachments[`${form.unique_id}.xml`];
+				form.unique_id = id;
+				return body;
+			});
+			if (arm === "already-here") await editName(scope.appId, MEMBER, RENAMED);
+			const before = await head(scope.appId);
+			const oldIdentity = await readTargetIdentity(scope, KEY_TARGET);
+			const token = appMappingToken(await readDeployment(scope, KEY_TARGET));
+			if (change === "newly-resolved") {
+				const originalBaseline = await readAppBaseline(scope, KEY_TARGET);
+				if (!originalBaseline || originalBaseline.origin === "unread")
+					throw new Error("Expected the known image before clearing its id.");
+				expect(
+					await deploymentStore.recordDeploymentMediaFiles(scope, KEY_TARGET, {
+						expectedEndings: 0,
+						remoteAppId: originalBaseline.remoteAppId,
+						sourceDigest: originalBaseline.sourceDigest,
+						pushToken: token,
+						novaRevision: originalBaseline.novaRevision,
+						files: { read: originalBaseline.mediaFiles, next: {} },
+					}),
+				).toBe("recorded");
+			}
+			const listed =
+				change === "newly-resolved"
+					? await withHttpPeer(async (peer) => {
+							serveRead(peer, source, { tables: true });
+							serveImage(peer, ICON, 1);
+							return reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} });
+						})
+					: await review(scope, source);
+			if (
+				(listed.kind !== "changes" && listed.kind !== "nothing") ||
+				!listed.readingId ||
+				!listed.reviewDigest
+			)
+				throw new Error(
+					`Expected a reviewed ${arm}: ${JSON.stringify(listed)}`,
+				);
+			const sent = {
+				readingId: listed.readingId,
+				reviewDigest: listed.reviewDigest,
+			};
+			const baseline = await readAppBaseline(scope, KEY_TARGET);
+			if (!baseline || baseline.origin === "unread")
+				throw new Error("Expected an adopted baseline");
+			const independent = "commcare/image/another.png";
+			const files: Record<string, string> =
+				change === "deletion"
+					? {}
+					: change === "disjoint"
+						? { [WIRE_PATH]: ICON, [independent]: "other" }
+						: {
+								[WIRE_PATH]:
+									change === "same" || change === "newly-resolved"
+										? ICON
+										: "replacement",
+							};
+			const changeMedia = async () => {
+				expect(
+					await deploymentStore.recordDeploymentMediaFiles(scope, KEY_TARGET, {
+						expectedEndings: 0,
+						remoteAppId: baseline.remoteAppId,
+						sourceDigest: baseline.sourceDigest,
+						pushToken: token,
+						novaRevision: baseline.novaRevision,
+						files: { read: baseline.mediaFiles, next: files },
+					}),
+				).toBe("recorded");
+			};
+			const refuse =
+				change === "replacement" ||
+				change === "deletion" ||
+				change === "newly-resolved";
+			const observed = async () =>
+				h
+					.db()
+					.selectFrom("app_deployment_baselines")
+					.selectAll()
+					.select(sql<string>`xmin::text`.as("version"))
+					.executeTakeFirstOrThrow();
+			let afterMedia: Awaited<ReturnType<typeof observed>> | undefined;
+			const interleave = async () => {
+				await changeMedia();
+				afterMedia = await observed();
+			};
+			if (arm === "take") seam.beforeCommit = interleave;
+			const originalTake = deploymentStore.recordHqChangesTaken;
+			const originalRefresh = deploymentStore.recordRefreshedAppBaseline;
+			const take =
+				arm === "already-here"
+					? vi
+							.spyOn(deploymentStore, "recordHqChangesTaken")
+							.mockImplementationOnce(async (...args) => {
+								await interleave();
+								return originalTake(...args);
+							})
+					: null;
+			const refresh =
+				arm === "same-source"
+					? vi
+							.spyOn(deploymentStore, "recordRefreshedAppBaseline")
+							.mockImplementationOnce(async (...args) => {
+								await interleave();
+								return originalRefresh(...args);
+							})
+					: null;
+			try {
+				await withHttpPeer(async (peer) => {
+					serveRead(peer, source, { tables: true, times: refuse ? 2 : 1 });
+					if (refuse) serveImage(peer, ICON, 1);
+					const outcome = await bringIn(scope, sent);
+					expect(outcome.kind).toBe(refuse ? "changed" : "brought-in");
+				});
+			} finally {
+				take?.mockRestore();
+				refresh?.mockRestore();
+				seam.beforeCommit = null;
+			}
+			expect(afterMedia).toBeDefined();
+			expect((await observed()).media_files).toEqual(files);
+			if (refuse) {
+				expect(await observed()).toEqual(afterMedia);
+				expect(await readTargetIdentity(scope, KEY_TARGET)).toEqual(
+					oldIdentity,
+				);
+				expect(await head(scope.appId)).toEqual(before);
+				expect(await hqChangeRows(scope.appId)).toEqual([]);
+			} else {
+				expect((await head(scope.appId)).name).toBe(RENAMED);
+				expect(await hqChangeRows(scope.appId)).toHaveLength(1);
+			}
+		},
+	);
 
 	describe("a file CommCare HQ added whose bytes the app already shows", () => {
 		const SAME = "samebytes";
@@ -2707,6 +2864,240 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			return { outcome, requests, imported };
 		});
 	}
+
+	it("reviews, takes and publishes both targets through their own HQ endpoints after a fold", async () => {
+		const doc = clinic({});
+		const appId = await broughtIn(doc);
+		const north = {
+			domain: FIXTURE_DOMAIN,
+			id: FIXTURE_REMOTE_APP_ID,
+			name: "Northern clinic",
+		};
+		const south = {
+			domain: "south-clinic",
+			id: "b".repeat(32),
+			name: "Southern clinic",
+		};
+		const targets = [north, south];
+		await h
+			.db()
+			.updateTable("user_settings")
+			.set({
+				approved_domains: JSON.stringify(
+					targets.map(({ domain, name }) => ({
+						name: domain,
+						displayName: name,
+					})),
+				),
+			})
+			.where("user_id", "=", MEMBER)
+			.execute();
+		const actor = scope(appId);
+		const key = (domain: string) => ({ server: FIXTURE_SERVER, domain });
+		const baseline = async (domain: string) => {
+			const row = await readAppBaseline(actor, key(domain));
+			if (!row || row.origin === "unread")
+				throw new Error(`Missing verified source for ${domain}.`);
+			return row;
+		};
+		const counter = new HqSaveCounter();
+		counter.standAt(north.id, 2);
+		const sources = new Map<string, Record<string, unknown>>([
+			[north.id, retainedBodyJson(emission(doc, 2).source)],
+			[south.id, retainedBodyJson(retainedGroupRead("shell/app-source"))],
+		]);
+		const body = (id: string) => {
+			const held = sources.get(id);
+			if (!held) throw new Error("Unknown synthetic HQ app.");
+			return held;
+		};
+		const requests: {
+			id: string;
+			action: "create" | "update" | "read";
+			name: unknown;
+		}[] = [];
+		await withHqPeer(counter, FIXTURE_HOST, async (peer) => {
+			const host = peer.get(FIXTURE_HOST);
+			const headers = { authorization: "ApiKey account:fixture-key" };
+			host
+				.intercept({
+					method: "GET",
+					headers,
+					path: (p) => p.startsWith(PROJECT_SPACES),
+				})
+				.reply((request) => {
+					const objects =
+						request.path === PROJECT_SPACES
+							? targets.map(({ domain, name }) => ({
+									domain_name: domain,
+									project_name: name,
+								}))
+							: [];
+					return {
+						statusCode: 200,
+						data: JSON.stringify({
+							meta: { next: null, total_count: objects.length },
+							objects,
+						}),
+					};
+				})
+				.persist();
+			for (const { id, domain } of targets) {
+				const route = (path: string) => `/a/${domain}/${path}`;
+				host
+					.intercept({
+						path: route(`apps/source/${id}/`),
+						method: "GET",
+						headers,
+					})
+					.reply(() => {
+						requests.push({ id, action: "read", name: body(id).name });
+						return { statusCode: 200, data: JSON.stringify(body(id)) };
+					})
+					.persist();
+				host
+					.intercept({
+						path: route(`api/application/v1/${id}/`),
+						method: "GET",
+						headers,
+					})
+					.reply(() => ({
+						statusCode: 200,
+						data: retainedBodyText(summarizeServedHqApp(body(id), id).resource),
+					}))
+					.persist();
+				host
+					.intercept({
+						path: route("api/lookup_table/v1/?limit=1000"),
+						method: "GET",
+						headers,
+					})
+					.reply(
+						200,
+						retainedBodyText(retainedGroupRead("lookups/lookup-tables")),
+					)
+					.persist();
+				host
+					.intercept({
+						path: route("apps/api/import_app/"),
+						method: "POST",
+						headers,
+					})
+					.reply(async (request) => {
+						const parts = await readMultipartRequest(request);
+						const update = parts.get("app_id");
+						const file = parts.get("app_file");
+						if (
+							!(file instanceof Blob) ||
+							(update !== null && update !== id) ||
+							(update === null && counter.at(id) !== 0)
+						)
+							return { statusCode: 400, data: "Wrong target or payload" };
+						const sent = JSON.parse(await file.text()) as Record<
+							string,
+							unknown
+						>;
+						const version = counter.save(id);
+						sources.set(id, { ...body(id), ...sent, version });
+						requests.push({
+							id,
+							action: update === null ? "create" : "update",
+							name: sent.name,
+						});
+						return {
+							statusCode: update === null ? 201 : 200,
+							data: JSON.stringify({ success: true, app_id: id, version }),
+						};
+					})
+					.persist();
+			}
+			const publish = async (domain: string) => {
+				const loaded = await loadApp(appId);
+				if (!loaded) throw new Error("Missing saved clinic.");
+				const head = hydratePersistedBlueprint(loaded.blueprint);
+				const outcome = await publishAppToHq({
+					requireHqImport: null,
+					scope: actor,
+					...key(domain),
+					doc: head,
+					compiledAtSeq: Number(loaded.mutation_seq),
+					reloadHead: reloadHeadFor(appId, MEMBER),
+					appName: head.appName,
+					confirm: CONFIRM_ALL,
+				});
+				expect(outcome.refusal).toBeNull();
+				expect(outcome.landed).toBe(true);
+			};
+			// The first target was actually adopted. A first publish creates
+			// an independent HQ app and fills it in the second project space.
+			await publish(south.domain);
+			expect(
+				requests
+					.filter((r) => r.action !== "read")
+					.map((r) => [r.id, r.action]),
+			).toEqual([
+				[south.id, "create"],
+				[south.id, "update"],
+			]);
+			const cert = await certifyFold(h.db(), appId);
+			expect(cert).toMatchObject({ usable: 2, unavailable: 0 });
+			for (const { domain, id, name } of targets) {
+				expect((await baseline(domain)).foldBinding).toBeDefined();
+				sources.set(id, { ...body(id), name, version: counter.save(id) });
+			}
+			const list = (domain: string) =>
+				reviewHqChanges(actor, key(domain), { onEvent: () => {} });
+			for (const { domain, name, id } of targets) {
+				const review = await list(domain);
+				if (review.kind !== "changes")
+					throw new Error(
+						`Expected to review ${domain}: ${JSON.stringify(review)}`,
+					);
+				expect(review.hqChanges).toContain("The app's name");
+				const taken = await bringInHqChanges(
+					actor,
+					key(domain),
+					{
+						readingId: review.readingId,
+						reviewDigest: review.reviewDigest,
+						tableChoices: {},
+						discardNovaChanges: review.novaChanges.length > 0,
+					},
+					{ onEvent: () => {} },
+				);
+				expect(taken.kind).toBe("brought-in");
+				expect((await loadApp(appId))?.app_name).toBe(name);
+				expect(await readAppBaseline(actor, key(domain))).toMatchObject({
+					origin: "changes",
+					remoteAppId: id,
+				});
+				if (id === north.id)
+					expect((await baseline(south.domain)).foldBinding).toBeDefined();
+				const from = requests.length;
+				await publish(domain);
+				expect(requests.slice(from)).toEqual([
+					{ id, action: "read", name },
+					{ id, action: "update", name },
+					{ id, action: "read", name },
+				]);
+				const pushed = await baseline(domain);
+				expect(pushed).toMatchObject({
+					origin: "push",
+					remoteAppId: id,
+					novaRevision: Number((await loadApp(appId))?.mutation_seq),
+				});
+				expect(pushed?.foldBinding).toBeUndefined();
+				expect(await list(domain)).toMatchObject({
+					kind: "nothing",
+					reason: "unchanged",
+				});
+			}
+			expect(targets.map((t) => body(t.id).name)).toEqual([
+				north.name,
+				south.name,
+			]);
+		});
+	});
 
 	it("writes an ownership that holds the add-on what it took needs, so turning it off in CommCare HQ stops the next publish", async () => {
 		const appId = await broughtIn(clinic({}));

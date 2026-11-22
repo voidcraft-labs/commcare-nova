@@ -58,7 +58,6 @@ import {
 } from "../errors";
 import {
 	hqMediaRecordFromSource,
-	hqMediaRecordMoves,
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "../hqMedia";
@@ -99,7 +98,7 @@ import {
 	recordRefreshedAppBaseline,
 	withDeploymentReadSnapshot,
 } from "../store";
-import { exportIdentityOf, sameTargetIdentity } from "../targetIdentity";
+import { exportIdentityOf } from "../targetIdentity";
 import { hqChangesBatchId } from "./batchId";
 import { hqChangesGateRefusal } from "./gate";
 import {
@@ -373,6 +372,7 @@ async function recordReadsTheSame(
 		comparedPushToken: basis.live.pushToken,
 		comparedRevision: basis.baseline.novaRevision,
 		comparedFold: basis.baseline.foldBinding?.foldSeq,
+		comparedHead: basis.head.seq,
 		read: await storedSource(basis),
 		/* A review that answered before the readings read nothing that moves
 		 * the list, which then stays. */
@@ -386,15 +386,17 @@ async function recordReadsTheSame(
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		}),
-		/* An id learned by content, or one whose file is gone, forgotten. */
-		...(hqMediaRecordMoves(basis.baseline.mediaFiles, mediaFiles) && {
-			mediaFiles: { read: basis.baseline.mediaFiles, next: mediaFiles },
-		}),
-		...(checked !== null &&
-			!sameTargetIdentity(
-				checked.targetIdentity.read,
-				checked.targetIdentity.next,
-			) && { targetIdentity: checked.targetIdentity }),
+		// Even when no id moved, the recorded standings decided that these
+		// were the same files. The transaction verifies that prior evidence.
+		mediaFiles: {
+			read: basis.baseline.mediaFiles,
+			next: mediaFiles,
+			judgedPaths: basis.published.map((file) => file.wirePath),
+		},
+		targetIdentity: checked?.targetIdentity ?? {
+			read: basis.targetIdentity,
+			next: basis.targetIdentity,
+		},
 	});
 	if (written.outcome === "superseded") {
 		const again = await computeHqChanges(
@@ -794,10 +796,11 @@ async function takenFor(
 		keptPaths,
 		basis.source.multimediaMap ?? [],
 	);
+	const published = publishedMediaFiles(
+		bulkUploadAssets(doc, boundary.prepared.assets),
+	);
 	const mediaFiles = nextHqMediaRecord({
-		published: publishedMediaFiles(
-			bulkUploadAssets(doc, boundary.prepared.assets),
-		),
+		published,
 		previous: basis.baseline.mediaFiles,
 		learned: { ...basis.learned, ...fetchedBy },
 		reported: NO_ENTRIES,
@@ -818,7 +821,13 @@ async function takenFor(
 			},
 			source: await storedSource(basis),
 			ownership,
-			mediaFiles: { read: basis.baseline.mediaFiles, next: mediaFiles },
+			mediaFiles: {
+				read: basis.baseline.mediaFiles,
+				next: mediaFiles,
+				judgedPaths: [...basis.published, ...published]
+					.map((file) => file.wirePath)
+					.concat(keptPaths),
+			},
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
 				accepted: firstPublishListToStore(
