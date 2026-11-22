@@ -33,24 +33,12 @@ export function caseParentSelectionVerdict(
 			ok: false,
 			message: "Choose a parent module that has a case list or case forms.",
 		};
-	const recordType = doc.caseTypes?.find(
-		(type) => type.name === module.caseType,
-	);
-	if (recordType?.relationship === "extension")
+	// A selection follows the links on saved records. The catalog describes
+	// what this app writes and cannot describe every link already on a device.
+	if (parent.caseType === module.caseType)
 		return {
 			ok: false,
-			message:
-				"Parent selection follows child records. Extension records need a flat list or an explicit filter.",
-		};
-	const parentType = recordType?.parent_type;
-	if (
-		parentUuid === moduleUuid ||
-		!parentType ||
-		parent.caseType !== parentType
-	)
-		return {
-			ok: false,
-			message: `Choose a module for the parent record type of ${module.name}.`,
+			message: `Choose a menu that lists a different record type from ${module.name}.`,
 		};
 	const seen = new Set<Uuid>([moduleUuid]);
 	let current: Uuid | undefined = parentUuid;

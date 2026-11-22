@@ -569,8 +569,8 @@ export interface PreviewMenuCaseContext {
 /**
  * Resolve the running menu's case context without confusing the menu tree
  * with the case-type tree. Structural ancestry permits only the deliberate
- * same-type reuse. Case-type ancestry independently finds the module HQ's
- * `parent_select` would use and either carries its selection or requests it.
+ * same-type reuse. The explicit parent selection independently names the menu
+ * whose selection a child carries or requests.
  */
 export function previewMenuCaseContext(
 	doc: PreviewMenuSource,
@@ -691,34 +691,26 @@ export function moduleHasChildren(
 	return moduleSiblingUuids(doc, moduleUuid).length > 0;
 }
 
-/** Module selections made stale by choosing a new case of `ancestorCaseType`.
- * Case ancestry is deliberately independent of menu ancestry, so this walks
- * the case-type graph and then projects matching modules wherever they live in
- * the menu tree. The fixed-point walk is cycle-safe for a malformed snapshot. */
-export function previewCaseDescendantModuleUuids(
-	doc: PreviewMenuSource,
-	ancestorCaseType: string,
+/** Choosing in one menu clears later selections that depend on that menu's
+ * navigation or case selection. Two menus can select the same case type
+ * independently. A catalog relationship alone creates no dependency. */
+export function dependentMenuSelectionUuids(
+	doc: ModuleHierarchySource,
+	selectedModuleUuid: Uuid,
 ): Uuid[] {
-	const descendants = new Set<string>();
-	for (let pass = 0; pass < doc.caseTypes.length; pass++) {
-		let changed = false;
-		for (const candidate of doc.caseTypes) {
+	const affected = new Set<Uuid>([selectedModuleUuid]);
+	for (const uuid of affected) {
+		for (const candidate of doc.moduleOrder) {
+			const module = doc.modules[candidate];
 			if (
-				candidate.parent_type !== undefined &&
-				(candidate.parent_type === ancestorCaseType ||
-					descendants.has(candidate.parent_type)) &&
-				!descendants.has(candidate.name)
-			) {
-				descendants.add(candidate.name);
-				changed = true;
-			}
+				module?.parentCaseModuleUuid === uuid ||
+				module?.parentModuleUuid === uuid
+			)
+				affected.add(candidate);
 		}
-		if (!changed) break;
 	}
-	return doc.moduleOrder.filter((uuid) => {
-		const caseType = menuWithInheritedCaseSettings(doc, uuid)?.caseType;
-		return caseType !== undefined && descendants.has(caseType);
-	});
+	affected.delete(selectedModuleUuid);
+	return doc.moduleOrder.filter((uuid) => affected.has(uuid));
 }
 
 function matchingSelection(

@@ -1033,7 +1033,7 @@ const USER_MESSAGE_BY_CODE: Record<
 
 	// ── Module-level ─────────────────────────────────────────────────
 	CASE_PARENT_SELECTION_INVALID: (e) =>
-		`${q(modName(e))} needs a compatible parent list. Choose a module for its parent record type, or turn off parent selection.`,
+		`${q(modName(e))} needs a compatible parent list. Choose a menu that uses a different record type, or turn off parent selection.`,
 	CASE_PARENT_SELECTION_CONFLICT: (e) =>
 		`${q(modName(e))} would reuse a different parent selected in its containing menu. Choose that containing module as the parent selector, or move this module out of the submenu.`,
 	NO_CASE_TYPE: (e) =>
@@ -1051,8 +1051,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		const root = q(det(e, "rootModuleName", ""));
 		return `${q(formName(e))} creates a new ${caseType} case, and ${q(modName(e))} sits under ${root}, whose first form opens a chosen ${caseType} case. CommCare HQ would give the new case that chosen case's place, so the form couldn't open. Move ${q(formName(e))} to a menu outside ${root}, or start ${root} with a form that doesn't open a chosen ${caseType} case.`;
 	},
-	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: (e) =>
-		`${q(modName(e))} uses a different case type from its parent, and that parent only shows Results. Add a form to the parent, use the same case type, or make this module top-level.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>
 		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} holds a character a case type can't. Letters, numbers, underscores and hyphens all work.`,
 	CASE_TYPE_TOO_LONG: (e) =>

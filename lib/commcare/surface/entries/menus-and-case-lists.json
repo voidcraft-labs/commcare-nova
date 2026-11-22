@@ -465,10 +465,8 @@
 			"schema:ShadowModule.root_module_id"
 		],
 		"valueClass": "cross-type-child-of-a-formless-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: HQ builds it (`entries.py::add_parent_datums`); Nova refuses it (`NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM`)",
-		"subject": "menu-structure",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.parentModuleUuid`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -483,7 +481,8 @@
 			"cell": "`root_module_id`; add-on `submenus`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/child-menu-deeper-than-one-tier-grandchild",
@@ -8485,10 +8484,8 @@
 			"schema:ShadowModule.parent_select"
 		],
 		"valueClass": "parent-outside-declared-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a parent menu of any other case type HQ offers (`views/modules.py::get_modules_with_parent_case_type`)",
-		"subject": "parent-selection",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.parentCaseModuleUuid`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8503,7 +8500,8 @@
 			"cell": "that shape",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/parent-select-naming-a-module-that-searches-inline-under-the",

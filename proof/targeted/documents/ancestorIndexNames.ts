@@ -373,6 +373,27 @@ const RESTORE = restoreXml({
 			],
 		},
 		{
+			id: "targeted-cleo",
+			type: "member",
+			name: "Cleo",
+			indices: [
+				{
+					identifier: "home",
+					caseType: "household",
+					caseId: HILL,
+					relationship: "extension",
+				},
+			],
+		},
+		{
+			id: "targeted-dara",
+			type: "member",
+			name: "Dara",
+			indices: [
+				{ identifier: "neighbor", caseType: "household", caseId: HILL },
+			],
+		},
+		{
 			id: PLEDGE,
 			type: "pledge",
 			name: "Roof",
@@ -421,6 +442,34 @@ function readsHillFarm(
 	};
 }
 
+/** Core's actual entity screen. The two links point to the same household.
+ * Only the named-index advanced entry lists Cleo; only the basic entry
+ * lists Dara. A failing nodeset must leave the searched list empty. */
+function selectedMember(advanced: boolean, name: "Cleo" | "Dara"): Expectation {
+	const present = advanced === (name === "Cleo");
+	return {
+		id: `${advanced ? "named" : "direct"}-index-${name.toLowerCase()}`,
+		export: "local",
+		form: uuid(advanced ? "visit-member" : "check-member"),
+		restore: "restore.xml",
+		request: {
+			session: {
+				command: advanced ? "m2-f0" : "m1-f0",
+				data: { [advanced ? "case_id_load_household0" : "parent_id"]: HILL },
+			},
+			caseList: { searchText: name },
+		},
+		expect: present
+			? [
+					{
+						pointer: "/caseList/rows/0/caseId",
+						value: `targeted-${name.toLowerCase()}`,
+					},
+				]
+			: [{ pointer: "/caseList/rows", value: [] }],
+	};
+}
+
 export function ancestorIndexNames() {
 	return targetedDocument({
 		id: ID,
@@ -431,6 +480,10 @@ export function ancestorIndexNames() {
 		doc: ancestorIndexNamesApp(),
 		expected: {
 			intent: [
+				selectedMember(false, "Cleo"),
+				selectedMember(true, "Cleo"),
+				selectedMember(false, "Dara"),
+				selectedMember(true, "Dara"),
 				readsHillFarm("member-home", "A", "check-member", "m1-f0", {
 					parent_id: HILL,
 					case_id: AMINA,

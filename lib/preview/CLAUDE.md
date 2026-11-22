@@ -571,7 +571,7 @@ FormEngine and non-writing form evaluator retain their boolean validation APIs.
 
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
-those selectors in case-type order, then replaces the selector with that exact
+those selectors in the order the app requests, then replaces the selector with that exact
 original location. A selector is entered at its case list
 (`screenProjection.ts::parentCaseSelectorLocation`), never at its menu, so a
 selector whose forms show in the menu above, which has no screen of its own,
@@ -579,11 +579,10 @@ still chooses its case; a selector that needs a parent case of its own enters
 through its module screen (`previewRunningScreenForLocation` keeps it). Selector
 URLs are replace-driven and their ephemeral request clears on cancel, browser
 Back, or any location other than the selector's case list. Menu nesting never
-implies case ancestry: the required selector comes from `CaseType.parent_type`
+implies case ancestry: the required selector comes from `Module.parentCaseModuleUuid`
 and may be a structurally unrelated module. Once selected, a direct same-type
-child Form binds the exact inherited menu case; a different-type child lookup
-is constrained by the selected parent and must never fall back to an
-unfiltered first row. Direct Results records are checked against that same
+child Form binds the exact inherited menu case; a different-type submenu opens its own case list. An explicit case selector
+constrains that list to the cases linked to the chosen parent. Direct Results records are checked against that same
 parent before their detail is shown.
 
 A menu asks for its parent case before it lists its screen only where Core

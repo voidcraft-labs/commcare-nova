@@ -2,7 +2,6 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
-	childModuleUuids,
 	formLaunch,
 	type MenuScreen,
 	menuFormUuidsOf,
@@ -38,8 +37,8 @@ import {
 import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
 	combineNavigationVisibility,
+	dependentMenuSelectionUuids,
 	moduleHasChildren,
-	previewCaseDescendantModuleUuids,
 	previewCaseListMenuEntry,
 	previewContributorVisibility,
 	previewMenuCaseContext,
@@ -610,10 +609,10 @@ export function selectAppTestRecords(
 	};
 	if (selectsForMenu) {
 		selections[screen.moduleUuid] = selection;
-		for (const uuid of [
-			...childModuleUuids(context.doc, screen.moduleUuid),
-			...previewCaseDescendantModuleUuids(context.doc, mod.caseType),
-		])
+		for (const uuid of dependentMenuSelectionUuids(
+			context.doc,
+			screen.moduleUuid,
+		))
 			delete selections[uuid];
 	}
 	const next: AppTestSessionState = {

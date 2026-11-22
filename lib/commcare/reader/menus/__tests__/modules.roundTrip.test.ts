@@ -450,7 +450,7 @@ describe("a parent selection, written early and judged late", () => {
 		expect(members?.module.parentCaseModuleUuid).toBe(named?.uuid);
 	});
 
-	it("is taken out of the document where it names a menu outside the declared parent type", async () => {
+	it("keeps the chosen menu when it lists a different type from the catalog parent", async () => {
 		const ctx = await stagesOver(selecting(households()), (json) => {
 			const visits = json.modules[2] as JsonObject;
 			(json.modules[1]?.parent_select as JsonObject).module_id =
@@ -459,12 +459,16 @@ describe("a parent selection, written early and judged late", () => {
 		const members = ctx.draft.modules.find(
 			(one) => one.module.name === "Members",
 		);
-		expect(ctx.close().findings.map((finding) => finding.code)).toContain(
+		const visits = ctx.draft.modules.find(
+			(one) => one.module.name === "Visits",
+		);
+		expect(visits).toBeDefined();
+		expect(ctx.close().findings.map((finding) => finding.code)).not.toContain(
 			`${M}/parent-select-naming-a-module-outside-the-declared-parent-type`,
 		);
 		expect(
 			ctx.doc?.modules[members?.uuid as string]?.parentCaseModuleUuid,
-		).toBeUndefined();
+		).toBe(visits?.uuid);
 	});
 });
 

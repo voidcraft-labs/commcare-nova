@@ -14,8 +14,8 @@ import { previewDataRefusalOf } from "../engine/dataRefusal";
 import {
 	caseListMenuEntryOf,
 	combineNavigationVisibility,
+	dependentMenuSelectionUuids,
 	inheritedModuleVisibility,
-	previewCaseDescendantModuleUuids,
 	previewCaseListContinuation,
 	previewCaseListFormRequest,
 	previewCaseListHeldChoices,
@@ -456,14 +456,14 @@ describe("Preview menu projection", () => {
 			...base,
 			modules: {
 				...base.modules,
-				[ROOT]: module(ROOT, "clinic"),
-				[OTHER_ROOT]: module(OTHER_ROOT, "household"),
+				[ROOT]: module(ROOT, "household"),
+				[OTHER_ROOT]: module(OTHER_ROOT, "clinic"),
 				[CHILD]: { ...base.modules[CHILD], parentCaseModuleUuid: OTHER_ROOT },
 			},
 		};
 		const selected = {
-			caseType: "household",
-			cases: [{ caseId: "h1", caseName: "Household one" }],
+			caseType: "clinic",
+			cases: [{ caseId: "h1", caseName: "North clinic" }],
 		};
 
 		assertAdmittedPreviewDoc(doc);
@@ -482,11 +482,11 @@ describe("Preview menu projection", () => {
 			parentCase: undefined,
 			parentModuleUuid: undefined,
 			requiredParentCase: {
-				caseType: "household",
+				caseType: "clinic",
 				moduleUuid: OTHER_ROOT,
 			},
 		});
-		expect(previewCaseDescendantModuleUuids(doc, "household")).toEqual([CHILD]);
+		expect(dependentMenuSelectionUuids(doc, OTHER_ROOT)).toEqual([CHILD]);
 	});
 
 	it("takes the case chosen on the parent's screen as the parent case of a submenu that shows its forms there", () => {

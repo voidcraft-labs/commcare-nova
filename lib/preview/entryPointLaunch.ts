@@ -10,6 +10,7 @@ import { entryPointInventory } from "@/lib/domain/entryPoints";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import { parentCaseConstraint } from "./caseSelectionNavigation";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
 import { readPreviewScreen } from "./engine/dataRefusal";
 import {
@@ -166,30 +167,39 @@ export function prepareEntryPointLaunch(args: {
 		};
 	}
 	for (const requirement of required) {
-		const parentType = (args.doc.caseTypes ?? []).find(
-			(type) => type.name === requirement.caseType,
-		)?.parent_type;
-		if (!parentType) continue;
-		const parents =
-			previewMenuCaseContext(
-				{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },
-				requirement.moduleUuid,
-				menuSelections,
-			).parentCase?.cases.map((choice) => choice.caseId) ?? [];
-		if (!parents.length)
+		if (
+			args.doc.modules[requirement.moduleUuid]?.parentCaseModuleUuid ===
+			undefined
+		)
+			continue;
+		const { parentCase } = previewMenuCaseContext(
+			{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },
+			requirement.moduleUuid,
+			menuSelections,
+		);
+		const constraint = parentCaseConstraint(
+			args.doc,
+			requirement.moduleUuid,
+			parentCase,
+		);
+		if (!constraint)
 			return refuse(
 				"This entry point needs a parent case selection. Reload the app and try again.",
 			);
 		for (const choice of menuSelections[requirement.moduleUuid].cases) {
-			const index = args.database.indices.find(
-				(index) =>
-					index.case_id === choice.caseId &&
-					index.identifier === "parent" &&
-					index.relationship === "child" &&
-					index.depth === 1 &&
-					index.target_case_type === parentType,
+			const indices = rows.has(choice.caseId)
+				? args.database.indices
+				: args.notHeld.indices;
+			const linked = indices.some(
+				(edge) =>
+					edge.case_id === choice.caseId &&
+					edge.depth === 1 &&
+					constraint.caseIds.includes(edge.ancestor_id) &&
+					(constraint.index === undefined
+						? edge.relationship !== "extension"
+						: edge.identifier === constraint.index),
 			);
-			if (!index || !parents.includes(index.ancestor_id))
+			if (!linked)
 				return refuse(
 					"Choose child cases that belong to the selected parent cases.",
 				);

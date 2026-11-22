@@ -112,7 +112,6 @@ import {
 	type CaseListConfig,
 	type CaseProperty,
 	type Column,
-	childModuleUuids,
 	effectiveCaseSearchConfig,
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
@@ -235,7 +234,7 @@ import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunSta
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useViewerPositionWatch } from "@/lib/preview/hooks/useViewerPosition";
 import {
-	previewCaseDescendantModuleUuids,
+	dependentMenuSelectionUuids,
 	previewCaseListContinuation,
 	previewCaseListFormRequest,
 	previewCaseListHeldChoices,
@@ -2503,10 +2502,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			caseType: mod.caseType,
 			cases,
 		});
-		const staleSelectionModuleUuids = new Set([
-			...childModuleUuids(menuSource, moduleUuid),
-			...previewCaseDescendantModuleUuids(menuSource, mod.caseType),
-		]);
+		const staleSelectionModuleUuids = dependentMenuSelectionUuids(
+			menuSource,
+			moduleUuid,
+		);
 		for (const staleModuleUuid of staleSelectionModuleUuids) {
 			setPreviewMenuCaseSelection(staleModuleUuid, undefined);
 		}

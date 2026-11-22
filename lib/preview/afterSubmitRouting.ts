@@ -46,8 +46,8 @@ import {
 	type TargetCaseSelection,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import {
+	dependentMenuSelectionUuids,
 	type PreviewMenuSource,
-	previewCaseDescendantModuleUuids,
 	previewContributorGatingModules,
 	previewLandingScreenOf,
 	previewMenuCaseContext,
@@ -600,10 +600,10 @@ export function previewMenuSelectionsAfterTargetCases(
 ): Readonly<Record<string, PreviewMenuCaseSelection>> {
 	const next: Record<string, PreviewMenuCaseSelection> = { ...current };
 	for (const selected of projected) {
-		const staleModuleUuids = new Set([
-			...childModuleUuids(menuSource, selected.moduleUuid),
-			...previewCaseDescendantModuleUuids(menuSource, selected.caseType),
-		]);
+		const staleModuleUuids = dependentMenuSelectionUuids(
+			menuSource,
+			selected.moduleUuid,
+		);
 		for (const staleModuleUuid of staleModuleUuids) {
 			delete next[staleModuleUuid];
 		}
@@ -644,10 +644,10 @@ export function previewMenuSelectionsAfterTargetCases(
 		};
 	}
 	for (const collection of collections) {
-		const staleModuleUuids = new Set([
-			...childModuleUuids(menuSource, collection.moduleUuid),
-			...previewCaseDescendantModuleUuids(menuSource, collection.caseType),
-		]);
+		const staleModuleUuids = dependentMenuSelectionUuids(
+			menuSource,
+			collection.moduleUuid,
+		);
 		for (const staleModuleUuid of staleModuleUuids) {
 			delete next[staleModuleUuid];
 		}

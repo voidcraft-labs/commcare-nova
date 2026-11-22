@@ -565,7 +565,7 @@ from this same domain seam. A destination rename does not rename its external
 ID. Runtime selection requirements and wire eligibility are projections, never
 stored beside the destination.
 
-`Module.parentCaseModuleUuid` names an explicit parent-record selector. Absence means a flat list, even for a child record type. It is independent of structural `parentModuleUuid`; changing catalog ancestry never chooses a navigation route. The selector must use the direct parent type and form an acyclic route. Extension indexes are not child-selection edges.
+`Module.parentCaseModuleUuid` names an explicit parent-record selector. Absence means a flat list, even for a child record type. It is independent of structural `parentModuleUuid`; changing catalog ancestry never chooses a navigation route. The selector must use a different record type and form an acyclic route. A basic case list follows any direct non-extension index to the selected ID. An advanced case list follows its named index to the selected ID regardless of the stored relationship. Historic cases may carry links outside the catalog ancestry.
 
 Operation writer inference preserves a known destination type when the value is
 storage-assignable to it, using `isValueStorageAssignable`: text and single-choice

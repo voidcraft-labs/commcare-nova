@@ -3041,11 +3041,11 @@ gate enforces the
 one-tier topology; `lib/domain/CLAUDE.md` and `lib/doc/CLAUDE.md` own the
 topology, mutation, replay, and deletion contracts.
 
-Menu parentage organizes navigation; case-type parentage selects related data.
-The two may coincide, but neither implies the other. Preview keeps menu-scoped
-case selections separately from its menu tree, reuses a selected case only for
-a same-case-type child, and runs the existing parent-case-first flow for a
-different child case type. Home shows roots, a parent menu shows its own content
+Menu nesting organizes navigation. A separate menu identity determines whether
+a worker chooses another record before this menu lists its cases. A basic list
+follows the saved records' direct non-extension indexes to that choice; an
+advanced list follows its named index. A menu with no forms contributes no
+form datums to its child. Home shows roots, a parent menu shows its own content
 plus child-menu tiles, and UUID-addressed screens, breadcrumbs, search, recovery,
 and Builder placement controls keep their identity through reorder or reparent.
 `components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`,

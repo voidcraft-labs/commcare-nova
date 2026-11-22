@@ -54,6 +54,7 @@ import {
 	type UnheldText,
 	unheldText,
 } from "../heldText";
+import type { JsonCursor } from "../jsonCursor";
 import { isJsonObject, objectMembers } from "../jsonCursor";
 import { readNavMedia } from "./navMedia";
 
@@ -151,7 +152,7 @@ const MENU = {
 	),
 	rootCrossType: perClass(
 		MENU_CLASSES,
-		refuse,
+		take,
 		`${M}/child-menu-of-another-case-type-under-a-parent-with-no-forms`,
 		"root_module_id",
 	),
@@ -290,7 +291,7 @@ const MENU = {
 		`${M}/parent-select-naming-a-survey-module-on-a-child-that-does-not`,
 		"schema:ParentSelect.module_id",
 	),
-	selectOutsideType: refuse(
+	selectOutsideType: take(
 		`${M}/parent-select-naming-a-module-outside-the-declared-parent-type`,
 		"schema:ParentSelect.module_id",
 	),
@@ -729,7 +730,10 @@ interface ModulesReading {
 		{ readonly menu: DraftModule; readonly index: number }
 	>;
 	/** Each parent selection `readModules` wrote, to be judged in `settleModules`. */
-	readonly selections: Map<DraftModule, DraftModule>;
+	readonly selections: Map<
+		DraftModule,
+		{ readonly named: DraftModule; readonly cursor: JsonCursor }
+	>;
 	/** The menus whose case list menu item `readModules` read. */
 	readonly caseLists: Set<DraftModule>;
 }
@@ -871,11 +875,11 @@ function readNesting(
 	}
 	const ownType = module.module.caseType ?? textOf(json.peek("case_type"));
 	const parentType = textOf(target.case_type);
-	if (rawForms(target).length === 0 && ownType !== parentType) {
-		json.refuse("root_module_id", MENU.rootCrossType[cls]);
-		return;
-	}
-	json.take("root_module_id", MENU.root[cls], textOf).value;
+	const claim =
+		rawForms(target).length === 0 && ownType !== parentType
+			? MENU.rootCrossType[cls]
+			: MENU.root[cls];
+	json.take("root_module_id", claim, textOf).value;
 	// A parent with no draft has its own finding; the child keeps no slot.
 	if (parent !== undefined)
 		ctx.writeDraft(() => {
@@ -1004,7 +1008,7 @@ function readParentSelection(
 		return;
 	}
 	cursor.take("module_id", MENU.selectModule, (value) => value).value;
-	readingOf(ctx).selections.set(module, draft);
+	readingOf(ctx).selections.set(module, { named: draft, cursor });
 	ctx.writeDraft(() => {
 		Object.assign(module.module, { parentCaseModuleUuid: draft.uuid });
 	});
@@ -1552,16 +1556,26 @@ function settleParentSelections(
 	ctx: ReadContext,
 	reading: ModulesReading,
 ): void {
-	for (const [module, named] of reading.selections) {
+	for (const [module, { named, cursor }] of reading.selections) {
 		const doc = ctx.doc;
 		if (doc === undefined || doc.modules[module.uuid] === undefined) continue;
 		const verdict = caseParentSelectionVerdict(doc, module.uuid, named.uuid);
-		if (verdict.ok) continue;
-		const recordType = doc.caseTypes?.find(
-			(type) => type.name === doc.modules[module.uuid]?.caseType,
-		);
-		const parentType = recordType?.parent_type;
-		const namedType = doc.modules[named.uuid]?.caseType;
+		if (verdict.ok) {
+			const catalogType = doc.caseTypes?.find(
+				(type) => type.name === doc.modules[module.uuid]?.caseType,
+			);
+			if (
+				catalogType?.parent_type !== doc.modules[named.uuid]?.caseType ||
+				catalogType?.relationship === "extension"
+			)
+				ctx.accounting.claimEntryClass(
+					{ json: cursor, key: "module_id" },
+					MENU.selectOutsideType.entry,
+					"schema:ParentSelect.module_id",
+					module.place,
+				);
+			continue;
+		}
 		// A finding at the named menu or its case list left out of the document
 		// what the selection would choose through: that finding is the cause.
 		// So did a refused `parent` index that leaves the catalog with no parent for the type.
@@ -1569,13 +1583,7 @@ function settleParentSelections(
 			ctx.accounting.hasFindingAt(named.place) ||
 			ctx.accounting.hasFindingAt(caseListPlaceOf(named)) ||
 			parentSelectionsExplained(ctx).has(module.uuid);
-		if (!namedRefused)
-			ctx.accounting.finding(
-				recordType?.relationship === "extension" || parentType !== namedType
-					? MENU.selectOutsideType
-					: MENU.selectInvalid,
-				module.place,
-			);
+		if (!namedRefused) ctx.accounting.finding(MENU.selectInvalid, module.place);
 		ctx.doc = withCandidate(doc, (draft) => {
 			const target = draft.modules[module.uuid];
 			if (target !== undefined) delete target.parentCaseModuleUuid;

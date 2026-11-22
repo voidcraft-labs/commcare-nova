@@ -1165,14 +1165,12 @@ has none. Several `<menu>` elements share an id; the suite oracle admits that
 and the root id `root`.
 
 HQ's `add_parent_datums` aligns a child entry against the root module's first
-form. A bare case list root (a case list menu item and no forms) therefore
-admits only same-case-type children: they reuse the one `case_id` and need no alignment. A different-type
-child is rejected by `NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM` at the commit
-gate; it needs a form-bearing root so HQ can keep the two selections distinct.
+form. A root with no forms contributes no datums. A child with a different
+case type selects its own case even when its parent lists cases.
 
 `formLinkProjection.ts::entrySessionDatums` owns the entry namespace shared by
 the suite, XForm, form links, and post-submit frames. First it builds the
-parent-select chain from case-type relationships. Then, for a child menu, it
+parent-select chain from the explicitly selected menus. Then, for a child menu, it
 mirrors HQ's `add_parent_datums` against the root module's first form datums:
 same-case selections at the same remaining position reuse the root id; an id
 collision for a different case type becomes `case_id_<case-type>`; computed

@@ -271,7 +271,7 @@ describe("entry point parent selection", () => {
 			appName: "Families",
 			caseTypes: [
 				{ name: "household", properties: [] },
-				{ name: "patient", parent_type: "household", properties: [] },
+				{ name: "patient", properties: [] },
 			],
 			modules: [
 				{
@@ -321,7 +321,7 @@ describe("entry point parent selection", () => {
 				case_id: "b",
 				ancestor_id: "house",
 				target_case_type: "household",
-				identifier: "parent",
+				identifier: "clinic",
 				relationship: "child",
 				depth: 1,
 			},
@@ -329,8 +329,25 @@ describe("entry point parent selection", () => {
 		expect(launch(input).kind).toBe("ready");
 		input.database.indices[0].relationship = "extension";
 		expect(launch(input).kind).toBe("refused");
-		input.database.indices[0].relationship = "child";
-		input.database.indices[0].ancestor_id = "other-house";
+		const advancedDoc = structuredClone(doc);
+		advancedDoc.modules[M].heldKind = "advanced";
+		const advanced = { ...input, doc: advancedDoc };
+		expect(launch(advanced).kind).toBe("refused");
+		input.database.indices[0].identifier = "parent";
+		expect(launch(advanced).kind).toBe("ready");
+		expect(launch(input).kind).toBe("refused");
+		const otherLink = {
+			...input.database.indices[0],
+			relationship: "child" as const,
+		};
+		input.database.indices.push(otherLink);
+		expect(launch(input).kind).toBe("ready");
+		input.database.indices = [otherLink];
+		input.notHeld = { rows: [row("b")], indices: [otherLink] };
+		input.database.rows = [row("house", "household")];
+		input.database.indices = [];
+		expect(launch(input).kind).toBe("ready");
+		otherLink.ancestor_id = "other-house";
 		expect(launch(input).kind).toBe("refused");
 	});
 });

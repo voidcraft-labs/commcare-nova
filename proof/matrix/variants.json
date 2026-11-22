@@ -16734,16 +16734,22 @@
 		"id": "hq-case-management/parent-selection-outside-the-parent-type",
 		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/parent-select-naming-a-module-outside-the-declared-parent-type",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "named",
 			"name": "parent_selection_outside_the_parent_type"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/parentCaseModuleUuid",
+				"value": "d29787b1-067a-577e-b82d-cdd9040238d7"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/parent-write-on-a-registration",
@@ -24404,16 +24410,22 @@
 		"id": "hq-menus/child-of-another-type-under-a-formless-parent",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/child-menu-of-another-case-type-under-a-parent-with-no-forms",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 4,
-			"name": "Calculators"
-		},
 		"change": {
 			"op": "named",
 			"name": "child_of_another_type_under_a_formless_parent"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 4
+					}
+				],
+				"pointer": "/parentModuleUuid",
+				"value": "97ffd3bb-4235-5bd2-a702-16e1f88e82de"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/clickable-icon",
