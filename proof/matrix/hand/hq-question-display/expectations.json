@@ -1316,5 +1316,53 @@
 				"value": "7205"
 			}
 		]
+	},
+	{
+		"id": "private-location-answer",
+		"entry": "questions/secret-address",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/private_location",
+					"value": "Market square"
+				}
+			],
+			"expressions": ["/data/private_location"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Market square"
+			}
+		]
+	},
+	{
+		"id": "private-postcode-answer",
+		"entry": "questions/secret-receive-topic-field",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/private_postcode",
+					"value": "00300"
+				}
+			],
+			"expressions": ["/data/private_postcode"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "00300"
+			}
+		]
 	}
 ]

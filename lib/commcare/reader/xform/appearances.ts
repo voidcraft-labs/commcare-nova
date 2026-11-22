@@ -362,6 +362,8 @@ const DISPLAY_ROWS = new Set([
 	"text-address",
 	"broadcast-topic-an-address-entry-under-the-gates-above-and",
 	"text-receive-topic-field",
+	"secret-address",
+	"secret-receive-topic-field",
 	"barcode-numeric-address-or-receive-topic-field",
 	"hint-as-placeholder-on-text-other-than-a-secret-without-numeric",
 	"hint-as-placeholder-on-any-other-entry",
@@ -586,12 +588,33 @@ export const APPEARANCE_ROWS: readonly AppearanceRow[] = [
 		claim: rowClaim("medium", "appearance:web-apps/medium"),
 	},
 	{
+		applies: on("secret"),
+		matches: exactly("address"),
+		claim: rowClaim("secret-address", "appearance:web-apps/address"),
+	},
+	{
+		applies: on("secret"),
+		matches: (value) => RECEIVE.test(value),
+		claim: rowClaim(
+			"secret-receive-topic-field",
+			"appearance:web-apps/receive-*",
+		),
+	},
+	{
 		applies: on("text"),
 		matches: exactly("address"),
 		claim: rowClaim("text-address", "appearance:web-apps/address"),
 	},
 	{
-		applies: on("text", "barcode", "image", "audio", "video", "document"),
+		applies: on(
+			"text",
+			"secret",
+			"barcode",
+			"image",
+			"audio",
+			"video",
+			"document",
+		),
 		matches: (value) => BROADCAST.test(value),
 		claim: rowClaim(
 			"broadcast-topic-an-address-entry-under-the-gates-above-and",

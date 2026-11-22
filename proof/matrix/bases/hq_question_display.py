@@ -144,6 +144,8 @@ def source(name):
 # The second menu gives each independently read setting a control of its own.
 # Every row names the inventory class witnessed at that control after Vellum saves it.
 PALETTE = (
+    ("secret-address", "private_location", "secret", "address"),
+    ("secret-receive-topic-field", "private_postcode", "secret", "receive-stop-postcode"),
     (
         "a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of",
         "house_suffix",
@@ -264,6 +266,8 @@ def palette_source(name):
                 mediatype=uploads[kind],
                 appearance=style,
             )
+        elif kind == "secret":
+            _question(form, qid, label, tag="secret", bind_type="xsd:string", appearance=style)
         elif kind == "label":
             _question(form, qid, label, tag="trigger", appearance=style)
         else:

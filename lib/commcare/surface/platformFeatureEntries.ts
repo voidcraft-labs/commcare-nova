@@ -69,12 +69,13 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"question-receiver": [
 		"questions/select1-receive-topic-field",
 		"questions/text-receive-topic-field",
+		"questions/secret-receive-topic-field",
 	],
 	"secret-keypad": ["questions/secret-numeric"],
 	"android-keypad": ["questions/text-secret-numbers"],
 	"short-input": ["questions/short"],
 	"medium-input": ["questions/medium"],
-	"address-lookup": ["questions/text-address"],
+	"address-lookup": ["questions/text-address", "questions/secret-address"],
 	"question-sender": [
 		"questions/broadcast-topic-an-address-entry-under-the-gates-above-and",
 	],
