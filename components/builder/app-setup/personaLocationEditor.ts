@@ -123,7 +123,9 @@ export function planPersonaLocationChange(
 		input.refreshing
 	)
 		return undefined;
-	const assigned = assignedLocationUuids(input.persona.locations);
+	const assigned: readonly string[] = assignedLocationUuids(
+		input.persona.locations,
+	);
 	const index = assigned.indexOf(change.id);
 	if (change.kind === "add" ? index >= 0 : index < 0) return undefined;
 	if (
