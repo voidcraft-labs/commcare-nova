@@ -221,3 +221,53 @@ describe("facts a worker's search may use", () => {
 			).toBe(false);
 	});
 });
+
+it("compares named regional calendars by IANA identity, across summer and winter", () => {
+	function zones(
+		first: string | null,
+		second: string | null,
+		target?: PreviewSearchTarget,
+	) {
+		return resolvePreviewSearchFacts(
+			{
+				projectId: "shared",
+				profiles: [
+					{
+						target: europe,
+						revision: "4",
+						values: { ...localSearchDefaults, timeZone: first },
+					},
+					{
+						target: india,
+						revision: "12",
+						values: { ...localSearchDefaults, timeZone: second },
+					},
+				],
+			},
+			target,
+		).timeZone;
+	}
+	expect(zones("UTC", "Etc/UTC")).toBe("UTC");
+	expect(zones("US/Eastern", "america/new_york")).toBe("US/Eastern");
+	expect(zones("US/Eastern", null)).toBeNull();
+	expect(zones("America/Phoenix", "America/Denver")).toBeNull();
+	expect(zones("America/Phoenix", "America/Denver", india)).toBe(
+		"America/Denver",
+	);
+	const offsets = (timeZone: string) =>
+		["2026-01-01", "2026-07-01"].map(
+			(date) =>
+				new Intl.DateTimeFormat("en", { timeZone, timeZoneName: "shortOffset" })
+					.formatToParts(new Date(date))
+					.find((part) => part.type === "timeZoneName")?.value,
+		);
+	expect(offsets("America/Phoenix")).toEqual(["GMT-7", "GMT-7"]);
+	expect(offsets("America/Denver")).toEqual(["GMT-7", "GMT-6"]);
+	for (const ambiguous of ["IST", "PST", "SystemV/AST4"])
+		expect(
+			previewSearchValuesSchema.safeParse({
+				...localSearchDefaults,
+				timeZone: ambiguous,
+			}).success,
+		).toBe(false);
+});

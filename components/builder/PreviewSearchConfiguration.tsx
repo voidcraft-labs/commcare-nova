@@ -1,17 +1,10 @@
 "use client";
 
-import {
-	createContext,
-	type ReactNode,
-	useContext,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { PreviewSearchConfigurationContext } from "@/lib/preview/searchConfigurationContext";
 import {
 	type PreviewSearchCatalog,
-	type PreviewSearchFacts,
 	type PreviewSearchTarget,
 	resolvePreviewSearchFacts,
 } from "@/lib/preview/searchSettings";
@@ -21,20 +14,6 @@ import {
 	useProjectId,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
-
-interface Configuration {
-	catalog: PreviewSearchCatalog | null;
-	target: PreviewSearchTarget | undefined;
-	facts: PreviewSearchFacts;
-	select: (target: PreviewSearchTarget | undefined) => void;
-}
-
-const Context = createContext<Configuration>({
-	catalog: null,
-	target: undefined,
-	facts: resolvePreviewSearchFacts(null),
-	select: () => {},
-});
 
 export function PreviewSearchConfigurationProvider({
 	children,
@@ -69,8 +48,10 @@ export function PreviewSearchConfigurationProvider({
 		}),
 		[catalog, target, scope],
 	);
-	return <Context value={value}>{children}</Context>;
+	return (
+		<PreviewSearchConfigurationContext value={value}>
+			{children}
+		</PreviewSearchConfigurationContext>
+	);
 }
-export function usePreviewSearchConfiguration() {
-	return useContext(Context);
-}
+export { usePreviewSearchConfiguration } from "@/lib/preview/searchConfigurationContext";

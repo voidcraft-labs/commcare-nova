@@ -1,3 +1,4 @@
+import { Pool } from "pg";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder } from "../../lib/pageLoads";
 import { createSmokeContext } from "../../lib/smokeNetwork";
@@ -76,5 +77,59 @@ test("shares a confirmed local search profile across signed-in tabs and lets a s
 	} finally {
 		await viewer.close();
 		await peer.close();
+	}
+});
+
+test("edits one setting in a saved profile larger than the action limit and preserves every rule", {
+	tag: "@seed:app-tests",
+}, async ({ scenario, page }) => {
+	const { appId } = seedFor(scenario, "app-tests");
+	const connectionString = process.env.NOVA_DB_LOCAL_URL;
+	if (!connectionString) throw new Error("The smoke database is required.");
+	const pool = new Pool({ connectionString });
+	const ignoredText = Array.from({ length: 4100 }, (_, i) => ({
+		caseType: "person",
+		property: "badge",
+		literal: String(i).padStart(256, "x"),
+	}));
+	const initial = {
+		maximum: 500,
+		timeZone: "UTC",
+		propertyMatchers: { fuzzyProperties: [], ignoredText },
+	};
+	try {
+		await pool.query(
+			`INSERT INTO preview_search_settings(project_id,server,domain,revision,settings)
+		SELECT project_id,'local','',1,$2::jsonb FROM apps WHERE id=$1`,
+			[appId, JSON.stringify(initial)],
+		);
+		await openBuilder(page, `/build/${appId}`);
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		await page.getByRole("button", { name: /Running as/ }).click();
+		await page
+			.getByRole("menuitem", { name: "Preview search settings", exact: true })
+			.click();
+		const dialog = page.getByRole("dialog", {
+			name: "Preview search settings",
+		});
+		await dialog.getByRole("combobox", { name: "Search destination" }).click();
+		await page.getByRole("option", { name: "Local Preview" }).click();
+		await expect(dialog.getByText("1 to 8 of 4100")).toBeVisible();
+		await dialog.getByRole("button", { name: "Next rules" }).click();
+		await expect(dialog.getByLabel("Text to ignore").first()).toHaveValue(
+			ignoredText[8].literal,
+		);
+		await dialog.getByLabel("Project space time zone").fill("US/Eastern");
+		await dialog.getByRole("button", { name: "Save settings" }).click();
+		await expect(dialog).toBeHidden();
+		const result = await pool.query(
+			`SELECT revision::text,settings FROM preview_search_settings WHERE project_id=(SELECT project_id FROM apps WHERE id=$1) AND server='local'`,
+			[appId],
+		);
+		expect(result.rows).toEqual([
+			{ revision: "2", settings: { ...initial, timeZone: "US/Eastern" } },
+		]);
+	} finally {
+		await pool.end();
 	}
 });

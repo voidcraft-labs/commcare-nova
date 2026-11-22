@@ -4,6 +4,7 @@ import {
 	DEFAULT_SEARCH_RESULT_LIMIT,
 	INCREASED_SEARCH_RESULT_LIMIT,
 } from "@/lib/domain/searchLimits";
+import { searchTimeZoneIdentity } from "./searchTimeZone";
 
 export const previewSearchTargetSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("local") }),
@@ -26,24 +27,28 @@ export const searchTimeZoneSchema = z
 	.string()
 	.min(1)
 	.max(128)
-	.refine((name) => {
-		if (/^[+-]/.test(name)) return false;
-		try {
-			new Intl.DateTimeFormat("en", { timeZone: name });
-			return true;
-		} catch {
-			return false;
-		}
-	}, "Choose an IANA time zone such as America/New_York.");
+	.refine(
+		(name) => searchTimeZoneIdentity(name) !== undefined,
+		"Choose a named time zone such as Asia/Kolkata, America/New_York or UTC. A local abbreviation can refer to more than one place.",
+	);
 
 const propertyAddress = {
 	caseType: z.string().min(1).max(256),
 	property: z.string().min(1).max(256),
 };
 
+export const fuzzySearchPropertySchema = z.strictObject({
+	...propertyAddress,
+	fuzzy: z.boolean(),
+});
+export const ignoredSearchTextSchema = z.strictObject({
+	...propertyAddress,
+	literal: z.string().min(1).max(256),
+});
+
 const propertyMatchingSchema = z.strictObject({
 	fuzzyProperties: z
-		.array(z.strictObject({ ...propertyAddress, fuzzy: z.boolean() }))
+		.array(fuzzySearchPropertySchema)
 		.max(256)
 		.refine(
 			(rows) =>
@@ -53,14 +58,7 @@ const propertyMatchingSchema = z.strictObject({
 		),
 	// HQ processes each literal in the order its configuration supplies it,
 	// including repeated properties on types interleaved through that order.
-	ignoredText: z
-		.array(
-			z.strictObject({
-				...propertyAddress,
-				literal: z.string().min(1).max(256),
-			}),
-		)
-		.max(16384),
+	ignoredText: z.array(ignoredSearchTextSchema).max(16384),
 });
 
 export const previewSearchValuesSchema = z.strictObject({
@@ -126,6 +124,8 @@ export function resolvePreviewSearchFacts(
 	const values = first?.values ?? unconfirmedSearchValues;
 	const projectSpace =
 		first?.target.kind === "destination" ? first.target.domain : undefined;
+	const zoneIdentity =
+		values.timeZone && searchTimeZoneIdentity(values.timeZone);
 	const matcherLists = profiles.map((p) => p.values.propertyMatchers);
 	const sameMatchers = matcherLists.every(
 		(list) => JSON.stringify(list) === JSON.stringify(values.propertyMatchers),
@@ -134,9 +134,15 @@ export function resolvePreviewSearchFacts(
 		maximum: profiles.every((p) => p.values.maximum === values.maximum)
 			? values.maximum
 			: null,
-		timeZone: profiles.every((p) => p.values.timeZone === values.timeZone)
-			? values.timeZone
-			: null,
+		timeZone:
+			zoneIdentity &&
+			profiles.every(
+				(p) =>
+					p.values.timeZone !== null &&
+					searchTimeZoneIdentity(p.values.timeZone) === zoneIdentity,
+			)
+				? values.timeZone
+				: null,
 		propertyMatchers: sameMatchers ? values.propertyMatchers : null,
 		...(sameMatchers ? {} : { matcherAlternatives: matcherLists }),
 		projectSpace: profiles.every(

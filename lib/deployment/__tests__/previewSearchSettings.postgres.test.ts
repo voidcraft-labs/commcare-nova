@@ -7,7 +7,6 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { waitForBlockedLocks } from "@/lib/db/__tests__/heldAppRow";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
-	localSearchDefaults,
 	resolvePreviewSearchFacts,
 	unconfirmedSearchValues,
 } from "@/lib/preview/searchSettings";
@@ -71,19 +70,17 @@ it("shares a confirmed destination across its Project's apps, protects a foreign
 		readAuthorizedPreviewSearchCatalog(peer.appId, foreign.projectId, "author"),
 	).rejects.toBeInstanceOf(AppAccessError);
 	await expect(
-		setPreviewSearchSettings(app, "viewer", eu, "1", unconfirmedSearchValues),
+		setPreviewSearchSettings(app, "viewer", eu, "1", {
+			propertyMatchers: null,
+		}),
 	).rejects.toBeInstanceOf(AppAccessError);
 	await expect(
 		setPreviewSearchSettings(foreign, "author", eu, "0", confirmed),
 	).rejects.toBeInstanceOf(AppAccessError);
 	expect(
-		await setPreviewSearchSettings(
-			peer,
-			"author",
-			eu,
-			"0",
-			unconfirmedSearchValues,
-		),
+		await setPreviewSearchSettings(peer, "author", eu, "0", {
+			propertyMatchers: null,
+		}),
 	).toMatchObject({ kind: "changed" });
 	await setPreviewSearchSettings(peer, "author", eu, "1", {
 		...confirmed,
@@ -100,7 +97,6 @@ it("shares a confirmed destination across its Project's apps, protects a foreign
 it("keeps a local profile separate after first publish, and separates destinations with the same domain", async () => {
 	expect(
 		await setPreviewSearchSettings(app, "author", local, "0", {
-			...localSearchDefaults,
 			timeZone: "Europe/Paris",
 		}),
 	).toMatchObject({ kind: "saved" });

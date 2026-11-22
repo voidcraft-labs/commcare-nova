@@ -277,6 +277,7 @@ const readInputs: Record<ReadToolName, readonly unknown[] | null> = {
 	listMediaAssets: null,
 	readSource: null,
 	getOrganization: null,
+	getPreviewSearchSettings: null,
 	getAuthoringGuide: [{ topic: "expressions" }],
 	getUsers: [{}],
 	getAutomations: [{}],

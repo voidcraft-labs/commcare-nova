@@ -2600,3 +2600,5 @@ rules for a property. On the requested types, Preview compares whether any type
 uses fuzzy matching plus the actual sequence of applicable literals. Differences
 in how the team spelled exact matching, including an explicit exact rule, do
 not hold an otherwise decidable search.
+
+Preview compares project calendars by the named Zone and Link identities from HQ’s pinned pytz data. The user-supplied spelling remains part of the saved confirmation and exact retry. Short ambiguous abbreviations cannot confirm a calendar.

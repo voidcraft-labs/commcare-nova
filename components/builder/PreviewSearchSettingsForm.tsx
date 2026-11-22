@@ -22,10 +22,15 @@ import { savePreviewSearchSettingsAction } from "@/lib/deployment/previewSearchA
 import {
 	type PreviewSearchProfile,
 	type PreviewSearchValues,
-	previewSearchTargetKey,
 	previewSearchValuesSchema,
 } from "@/lib/preview/searchSettings";
 
+import {
+	describePreviewSearchChanges,
+	previewSearchChangesSchema,
+} from "@/lib/preview/searchSettingsEdit";
+
+const rulesPerPage = 8;
 type RuleRow = { key: string; caseType: string; property: string } & (
 	| { kind: "match"; fuzzy: boolean }
 	| { kind: "ignore"; literal: string }
@@ -165,18 +170,21 @@ export function PreviewSearchSettingsForm({
 		base: PreviewSearchProfile;
 		data: FormValues;
 	}>();
-	const [observed, setObserved] = useState<PreviewSearchProfile>();
+	const [conflictRevision, setConflictRevision] = useState<string>();
 	const [busy, setBusy] = useState(false);
+	const [pages, setPages] = useState({ match: 0, ignore: 0 });
 	const [error, setError] = useState("");
 	// The stream is authoritative for clean forms. A failed CAS can reveal a
 	// newer revision before its frame arrives, never after a later revision.
-	const latest =
-		observed && BigInt(observed.revision) > BigInt(profile.revision)
-			? observed
-			: profile;
+	const latest = profile;
+	const waiting =
+		conflictRevision !== undefined &&
+		BigInt(conflictRevision) > BigInt(profile.revision);
 	const base = draft?.base ?? latest;
 	const data = draft?.data ?? formValues(latest.values);
-	const stale = Boolean(draft && base.revision !== latest.revision);
+	const stale = Boolean(
+		draft && (waiting || base.revision !== latest.revision),
+	);
 	const locked = busy || !canEdit;
 	function change(patch: Partial<FormValues>) {
 		const next = { ...data, ...patch };
@@ -207,6 +215,13 @@ export function PreviewSearchSettingsForm({
 			);
 			return;
 		}
+		const changes = previewSearchChangesSchema.safeParse(
+			describePreviewSearchChanges(base.values, values.data),
+		);
+		if (!changes.success) {
+			setError(changes.error.issues[0].message);
+			return;
+		}
 		setBusy(true);
 		setError("");
 		try {
@@ -215,7 +230,7 @@ export function PreviewSearchSettingsForm({
 				projectId,
 				target: profile.target,
 				expectedRevision: base.revision,
-				values: values.data,
+				changes: changes.data,
 			});
 			if (!mounted.current) return;
 			if (saved.kind === "saved") {
@@ -227,12 +242,7 @@ export function PreviewSearchSettingsForm({
 				return;
 			}
 			if (saved.kind === "changed") {
-				const current = saved.catalog.profiles.find(
-					(p) =>
-						previewSearchTargetKey(p.target) ===
-						previewSearchTargetKey(profile.target),
-				);
-				if (current) setObserved(current);
+				if (saved.revision) setConflictRevision(saved.revision);
 			} else
 				setError(
 					"This destination changed. Choose an available destination to continue.",
@@ -256,17 +266,22 @@ export function PreviewSearchSettingsForm({
 			{stale && (
 				<div role="status" className="space-y-2">
 					<p>A teammate updated these settings. Your edits are still here.</p>
-					<details>
-						<summary>Review team settings</summary>
-						<p>
-							Time zone: {latest.values.timeZone ?? "Not recorded"}. Maximum
-							results: {latest.values.maximum ?? "Not recorded"}.{" "}
-							{ruleText(latest)}
-						</p>
-					</details>
+					{waiting ? (
+						<p>Waiting for the latest team settings.</p>
+					) : (
+						<details>
+							<summary>Review team settings</summary>
+							<p>
+								Time zone: {latest.values.timeZone ?? "Not recorded"}. Maximum
+								results: {latest.values.maximum ?? "Not recorded"}.{" "}
+								{ruleText(latest)}
+							</p>
+						</details>
+					)}
 					<Button
 						type="button"
 						variant="outline"
+						disabled={waiting}
 						onClick={() => {
 							setDraft(undefined);
 							setError("");
@@ -312,6 +327,11 @@ export function PreviewSearchSettingsForm({
 			{data.confirmed &&
 				(["match", "ignore"] as const).map((kind) => {
 					const rows = data.rows.filter((r) => r.kind === kind);
+					const page = Math.min(
+						pages[kind],
+						Math.max(0, Math.ceil(rows.length / rulesPerPage) - 1),
+					);
+					const start = page * rulesPerPage;
 					return (
 						<div className="space-y-3" key={kind}>
 							{kind === "ignore" && rows.length > 0 && (
@@ -320,14 +340,38 @@ export function PreviewSearchSettingsForm({
 									types in the search.
 								</p>
 							)}
-							{rows.map((r, index) => (
+							{rows.length > rulesPerPage && (
+								<div className="flex flex-wrap items-center gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										disabled={!page}
+										onClick={() => setPages({ ...pages, [kind]: page - 1 })}
+									>
+										Previous rules
+									</Button>
+									<span>
+										{start + 1} to {Math.min(start + rulesPerPage, rows.length)}{" "}
+										of {rows.length}
+									</span>
+									<Button
+										type="button"
+										variant="outline"
+										disabled={start + rulesPerPage >= rows.length}
+										onClick={() => setPages({ ...pages, [kind]: page + 1 })}
+									>
+										Next rules
+									</Button>
+								</div>
+							)}
+							{rows.slice(start, start + rulesPerPage).map((r, index) => (
 								<fieldset
 									className="space-y-3 rounded-md border p-3"
 									key={r.key}
 								>
 									<legend>
 										{kind === "match" ? "Matching rule" : "Ignored text"}{" "}
-										{index + 1}
+										{start + index + 1}
 									</legend>
 									<Field>
 										<FieldLabel htmlFor={`${id}-type-${r.key}`}>
@@ -388,7 +432,7 @@ export function PreviewSearchSettingsForm({
 													<Button
 														type="button"
 														variant="outline"
-														disabled={busy || index === 0}
+														disabled={busy || start + index === 0}
 														onClick={() => moveLiteral(r.key, -1)}
 													>
 														Move earlier
@@ -396,7 +440,7 @@ export function PreviewSearchSettingsForm({
 													<Button
 														type="button"
 														variant="outline"
-														disabled={busy || index === rows.length - 1}
+														disabled={busy || start + index === rows.length - 1}
 														onClick={() => moveLiteral(r.key, 1)}
 													>
 														Move later
@@ -426,7 +470,11 @@ export function PreviewSearchSettingsForm({
 									type="button"
 									variant="outline"
 									disabled={busy}
-									onClick={() =>
+									onClick={() => {
+										setPages({
+											...pages,
+											[kind]: Math.floor(rows.length / rulesPerPage),
+										});
 										change({
 											rows: [
 												...data.rows,
@@ -439,8 +487,8 @@ export function PreviewSearchSettingsForm({
 														: { kind, literal: "" }),
 												},
 											],
-										})
-									}
+										});
+									}}
 								>
 									{kind === "match"
 										? "Add matching rule"

@@ -4,9 +4,10 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
+	previewSearchTargetKey,
 	previewSearchTargetSchema,
-	previewSearchValuesSchema,
 } from "@/lib/preview/searchSettings";
+import { previewSearchChangesSchema } from "@/lib/preview/searchSettingsEdit";
 import { setPreviewSearchSettings } from "./previewSearchSettings";
 
 const saveSchema = z.strictObject({
@@ -14,7 +15,7 @@ const saveSchema = z.strictObject({
 	projectId: z.string().min(1).max(255),
 	target: previewSearchTargetSchema,
 	expectedRevision: z.string().regex(/^(0|[1-9][0-9]{0,18})$/),
-	values: previewSearchValuesSchema,
+	changes: previewSearchChangesSchema,
 });
 
 export async function savePreviewSearchSettingsAction(input: unknown) {
@@ -31,15 +32,25 @@ export async function savePreviewSearchSettingsAction(input: unknown) {
 		message: "These settings need edit access to this Project.",
 	};
 	if (!session) return denied;
-	const { appId, projectId, target, expectedRevision, values } = request.data;
+	const { appId, projectId, target, expectedRevision, changes } = request.data;
 	try {
-		return await setPreviewSearchSettings(
+		const result = await setPreviewSearchSettings(
 			{ appId, projectId },
 			session.user.id,
 			target,
 			expectedRevision,
-			values,
+			changes,
 		);
+		if (result.kind === "changed")
+			return {
+				kind: result.kind,
+				revision: result.catalog.profiles.find(
+					(p) =>
+						previewSearchTargetKey(p.target) === previewSearchTargetKey(target),
+				)?.revision,
+			};
+		if (result.kind === "invalid") return result;
+		return { kind: result.kind };
 	} catch (error) {
 		if (error instanceof AppAccessError) return denied;
 		throw error;
