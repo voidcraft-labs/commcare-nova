@@ -22,11 +22,10 @@ PLACES = {
     MESSAGE: ["/form/1.2/xform/data/" + n for n in ("kids", MSG_NODE)],
 }
 COUNT_EXPRESSION = "count(/data/people/name[. != ''])"
-# A language's original visible text and interpolation. This is also the protected group's default.
-TEXT = '<value>Asked <output value="/data/kids"/> times</value>'
 
 
-def installed(side):
+def installed(side, *, output="/data/kids", message_id=MESSAGE_ID):
+    text = f"<value>Asked <output value={quoteattr(output)}/> times</value>"
     a = side == "a"
     namespace = "urn:" + side
     suite = (
@@ -34,7 +33,7 @@ def installed(side):
         f'<entry><command id="m1-f2"/><form>{namespace}</form></entry></suite>'
     )
     parts = {
-        "__nova_identity": MESSAGE_ID,
+        "__nova_identity": message_id,
         "__nova_mode": "plain",
         "__nova_locale": "en",
         "__nova_piece_0": json.dumps({"v": "Asked "}),
@@ -42,11 +41,11 @@ def installed(side):
     }
     parts.update({k + ";markdown": v for k, v in parts.items() if k != "__nova_identity"})
     extra = "" if a else "".join(f'<value form="{n}">{v}</value>' for n, v in parts.items())
-    label = f"jr:itext('{MESSAGE_ID}')"
+    label = f"jr:itext('{message_id}')"
     combined = (
-        f"if(jr:itext('{MESSAGE_ID};__nova_mode')='media', {label}, if(count(/data/kids)>1,'', "
-        f"concat(json-property(jr:itext('{MESSAGE_ID};__nova_piece_0'), 'v'), /data/kids, "
-        f"json-property(jr:itext('{MESSAGE_ID};__nova_piece_2'), 'v'))))"
+        f"if(jr:itext('{message_id};__nova_mode')='media', {label}, if(count({output})>1,'', "
+        f"concat(json-property(jr:itext('{message_id};__nova_piece_0'), 'v'), {output}, "
+        f"json-property(jr:itext('{message_id};__nova_piece_2'), 'v'))))"
     )
     hidden = "" if a else f"<{COUNT_NODE}/><{MSG_NODE}/>"
     binds = (
@@ -67,7 +66,7 @@ def installed(side):
     <bind nodeset="/data/adults" type="xsd:int" constraint={quoteattr(calc)}/>
     <bind nodeset="/data/kids" type="xsd:int" constraint=". >= 0"
           jr:constraintMsg={quoteattr(label if a else combined)}/>
-    {binds}<itext><translation lang="en"><text id="{MESSAGE_ID}">{TEXT}{extra}</text></translation></itext>
+    {binds}<itext><translation lang="en"><text id="{message_id}">{text}{extra}</text></translation></itext>
     </model></h:head><h:body><input ref="/data/adults"/><input ref="/data/kids"/>{control}</h:body></h:html>'''
     return {"suite.xml": suite, FILE: xml}
 
@@ -323,3 +322,211 @@ def test_the_alert_core_prefers_over_a_bind_must_preserve_the_original_message(s
     files[FILE] = files[FILE].replace(control, f'<input ref="/data/kids"><alert ref="jr:itext(\'{target}\')"/></input>')
     sites, _ = observe([row(MSG_NODE, "")], **{("before_files" if side == "a" else "after_files"): files})
     assert bool(sites) == classified
+
+
+CASE_ID_READ = "instance('commcaresession')/session/data/case_id"
+NAME_READ = f"instance('casedb')/casedb/case[@case_id = {CASE_ID_READ}]/case_name"
+CASE_BLOCK = '<case xmlns="http://commcarehq.org/case/transaction/v2" case_id="patient-1"/>'
+GROUP = "/data/visit/totals"
+CASE_PLACES = {MESSAGE: ["/form/1.2/xform" + GROUP + "/" + name for name in ("kids", MSG_NODE)]}
+
+
+def case_opening(side):
+    # The old alert and protected expression can use different itext ids. The opening
+    # records the chosen case and, in another group, the scalar both messages interpolate.
+    old = side == "a"
+    message = "visit/totals/kids-alert" if old else "visit-totals-kids-alert"
+    files = installed(side, output=NAME_READ, message_id=message)
+    helper = "" if old else f"<{MSG_NODE}/>"
+    group = f"<visit><totals><kids/>{helper}</totals></visit>"
+    template = group + "<loaded><name/></loaded>" + CASE_BLOCK.replace("patient-1", "")
+    xml = files[FILE].replace(f"<{MSG_NODE}/>", "").replace("<kids/>", template)
+    xml = xml.replace("/data/kids", GROUP + "/kids").replace("/data/" + MSG_NODE, GROUP + "/" + MSG_NODE)
+    control = f'<input ref="{GROUP}/kids"'
+    xml = xml.replace(control, f'<group ref="/data/visit"><group ref="{GROUP}">{control}')
+    if old:
+        xml = xml.replace(f"{control}/>", f"{control}><alert ref=\"jr:itext('{message}')\"/></input>")
+    files[FILE] = xml.replace("</h:body>", "</group></group></h:body>").replace(
+        "</instance>",
+        '</instance><instance id="casedb" src="jr://instance/casedb"/>'
+        '<instance id="commcaresession" src="jr://instance/session"/>'
+        f'<bind nodeset="/data/case/@case_id" calculate="{CASE_ID_READ}"/>'
+        '<bind nodeset="/data/loaded/name" type="xsd:string"/>'
+        f'<setvalue ref="/data/loaded/name" event="xforms-ready" value="{NAME_READ}"/>',
+    )
+    native = f'<data xmlns="urn:{side}">{group}<loaded><name>Mary</name></loaded>{CASE_BLOCK}</data>'
+    return files, native
+
+
+def case_rows(a, b, *, at=None, declared=CASE_PLACES):
+    def opening(native):
+        return {
+            "runs": [
+                {"script": [{"entity": "patient-1"}], "steps": [{"response": {"instanceXml": {"output": native}}}]}
+            ]
+        }
+
+    d = row(MSG_NODE, "")
+    d = replace(d, at=d.at.replace("/data/", "/data/visit[1]/totals[1]/") if at is None else at)
+    sites, [found] = helper_sites(
+        [d],
+        before_files=a[0],
+        after_files=b[0],
+        before_trace=opening(a[1]),
+        after_trace=opening(b[1]),
+        declared=declared,
+    )
+    return sites.get((d.artifact, d.at)), found.path
+
+
+def test_nested_carrier_matches_both_installed_messages_and_the_selected_cases_native_name():
+    a, b = case_opening("a"), case_opening("b")
+    assert case_rows(a, b) == (
+        ("form", "1.2", "xform", "data", "visit", "totals", MSG_NODE),
+        OPEN + "*:reviewed-message",
+    )
+    at = row(MSG_NODE, "").at.replace("/data/", "/data/visit[1]/totals[2]/")
+    assert case_rows(a, b, at=at) == (None, OPEN + "*")
+    places = [p.replace("/visit/", "/another/") if p.endswith("/kids") else p for p in CASE_PLACES[MESSAGE]]
+    assert case_rows(a, b, declared={MESSAGE: places}) == (None, OPEN + "*")
+
+
+@pytest.mark.parametrize(
+    "record, original, replacement",
+    [
+        ("opening", "<totals>", "<totals/><totals>"),
+        ("opening", "<visit>", '<visit xmlns="urn:foreign"/><visit>'),
+        ("opening", "<kids/>", "<kids>different</kids>"),
+        ("opening", f"<{MSG_NODE}/>", f"<{MSG_NODE}>written</{MSG_NODE}>"),
+        ("opening", "<name>Mary</name>", "<name>Ed</name>"),
+        ("opening", 'case_id="patient-1"', 'case_id="patient-2"'),
+        ("installed", 'src="jr://instance/casedb"', 'src="jr://instance/fixture"'),
+        ("installed", f'calculate="{CASE_ID_READ}"', 'calculate="/data/other"'),
+        ("installed", f'event="xforms-ready" value="{NAME_READ}"', 'event="xforms-ready" value="/data/unrelated"'),
+        ("installed", 'event="xforms-ready"', 'event="xforms-revalidate"'),
+        ("installed", "</model>", '<setvalue ref="data/loaded/name" value="\'different\'"/></model>'),
+        ("installed", '<group ref="/data/visit">', '<group ref="/data/visit"><repeat nodeset="/data/visit"/>'),
+        ("installed", "<totals>", "<totals/><totals>"),
+    ],
+)
+def test_another_case_field_occurrence_or_value_cannot_explain_the_reported_empty_carrier(
+    record, original, replacement
+):
+    a, (files, native) = case_opening("a"), case_opening("b")
+    if record == "installed":
+        assert original in files[FILE]
+        files[FILE] = files[FILE].replace(original, replacement)
+    else:
+        assert original in native
+        native = native.replace(original, replacement)
+    assert case_rows(a, (files, native)) == (None, OPEN + "*")
+
+
+@pytest.mark.parametrize("side", ["a", "b"])
+@pytest.mark.parametrize("form", ["bind", "relative"])
+@pytest.mark.parametrize("target", ["visit/totals", "loaded", "people"])
+def test_repeat_binding_on_either_installation_cannot_own_the_message_or_its_scalar_preload(side, form, target):
+    records = {s: case_opening(s) for s in ("a", "b")}
+    files, _ = records[side]
+    if form == "bind":
+        # The bind takes precedence over the repeat's own nodeset and uses the model's data root.
+        xml = files[FILE].replace("</model>", f'<bind id="rows" nodeset="./{target}"/></model>')
+        repeat = '<group ref="/data/people"><repeat bind="rows" nodeset="/data/people"/></group>'
+    else:
+        parent, _, leaf = target.rpartition("/")
+        context = "/data/" + parent if parent else "/data"
+        xml = files[FILE]
+        repeat = f'<group ref="{context}"><group><repeat nodeset="./{leaf}"/></group></group>'
+    files[FILE] = xml.replace("</h:body>", repeat + "</h:body>")
+    assert bool(case_rows(records["a"], records["b"])[0]) == (target == "people")
+
+
+@pytest.mark.parametrize("side", ["a", "b"])
+@pytest.mark.parametrize("target", ["loaded/name", "visit/totals/kids", f"visit/totals/{MSG_NODE}"])
+def test_a_relative_input_cannot_edit_the_preload_or_duplicate_a_source_or_carrier_control(side, target):
+    records = {s: case_opening(s) for s in ("a", "b")}
+    files, _ = records[side]
+    parent, _, field = target.rpartition("/")
+    control = f'<group ref="{parent}"><input ref="./{field}"/></group>'
+    files[FILE] = files[FILE].replace("</h:body>", control + "</h:body>")
+    assert case_rows(records["a"], records["b"]) == (None, OPEN + "*")
+
+
+@pytest.mark.parametrize("separate_id", [False, True])
+def test_an_original_alerts_long_text_in_another_language_cannot_be_replaced_by_the_default(separate_id):
+    from copy import deepcopy
+
+    from lxml import etree
+
+    from proof.checks.native_constraint_helpers import XF
+
+    a, b = case_opening("a"), case_opening("b")
+    for files, _ in (a, b):
+        root = etree.fromstring(files[FILE].encode())
+        en = root.find(".//" + XF + "translation")
+        fr = deepcopy(en)
+        fr.set("lang", "fr")
+        for v in fr.iter(XF + "value"):
+            if (v.get("form") or "").startswith("__nova_locale"):
+                v.text = "fr"
+        en.getparent().append(fr)
+        files[FILE] = etree.tostring(root)
+    assert case_rows(a, b)[0]
+
+    root = etree.fromstring(a[0][FILE])
+    fr = root.find(f".//{XF}translation[@lang='fr']")
+    group = fr.find(XF + "text")
+    if separate_id:
+        group = etree.SubElement(fr, XF + "text", id=group.get("id") + ";long")
+    value = etree.SubElement(group, XF + "value", {} if separate_id else {"form": "long"})
+    value.text = "An entirely different validation message."
+    a[0][FILE] = etree.tostring(root)
+    assert case_rows(a, b) == (None, OPEN + "*")
+
+
+@pytest.mark.parametrize("side", ["a", "b"])
+@pytest.mark.parametrize("competing", ["itext", "foreign-itext", "earlier-model"])
+def test_only_the_installed_localizers_message_can_explain_the_carrier(side, competing):
+    from copy import deepcopy
+
+    from lxml import etree
+
+    records = {s: case_opening(s) for s in ("a", "b")}
+    files, _ = records[side]
+    root = etree.fromstring(files[FILE].encode())
+    model = root.find(".//{*}model")
+    itext = model.find("{*}itext")
+    if competing == "earlier-model":
+        earlier = deepcopy(model)
+        earlier.tag = "{urn:alternate}model"
+        model.addprevious(earlier)
+        active = earlier.find("{*}itext")
+    else:
+        active = deepcopy(itext)
+        if competing == "foreign-itext":
+            # Core reads a single source in this namespace, including its translations and values.
+            for node in active.iter():
+                name = etree.QName(node).localname
+                if name in ("itext", "translation", "text", "value"):
+                    node.tag = f"{{urn:alternate}}{name}"
+            model.replace(itext, active)
+            files[FILE] = etree.tostring(root)
+            assert case_rows(records["a"], records["b"])[0]
+            model.replace(active, itext)
+        model.append(active)
+    group = active.find("{*}translation/{*}text")
+    group.find("{*}value").text = "Other "
+    for value in group.findall("{*}value"):
+        if (value.get("form") or "").startswith("__nova_piece_0"):
+            value.text = json.dumps({"v": "Other "})
+    files[FILE] = etree.tostring(root)
+    assert case_rows(records["a"], records["b"]) == (None, OPEN + "*")
+
+
+@pytest.mark.parametrize("target", [f" {GROUP}/{MSG_NODE} ", GROUP + "/*"])
+def test_an_unplaced_bind_cannot_override_the_hidden_carriers_relevance_or_readonly_flag(target):
+    a, b = case_opening("a"), case_opening("b")
+    files, _ = b
+    other = f'<bind nodeset="{target}" relevant="true()" readonly="false()"/>'
+    files[FILE] = files[FILE].replace("</model>", other + "</model>")
+    assert case_rows(a, b) == (None, OPEN + "*")

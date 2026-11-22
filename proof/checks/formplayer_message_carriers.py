@@ -82,7 +82,7 @@ def shifted_triggers(rows, sites, old_forms, new_forms, before_trace, after_trac
     by_at = {(row.artifact, row.at): row for row in rows}
     classes = {}
     for (artifact, run, opening), owners in openings.items():
-        if len(owners) != 1:
+        if len(owners) != 1 or len(owners[0]) != 5:
             continue
         owner = owners[0]
         old, new = (t["runs"][run]["steps"] for t in (before_trace, after_trace))

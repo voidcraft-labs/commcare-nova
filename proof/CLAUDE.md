@@ -430,6 +430,16 @@ harness keeps, each with its reason.
   recreate A, and the case database from its original seed. Its control still
   runs only the checks its register entries name. Formplayer exposes its
   form instance when it opens and sends another instance on submission.
+  A nested validation-message carrier in an opening needs both installed
+  translations and the empty hidden node beside its declared question in
+  a unique group occurrence. Core resolves a relative control from its
+  enclosing group and a bind ID from the model. An original alert with a
+  long text form can show another message and needs its own evidence.
+  Both forms must have one identifiable itext source under Core's first
+  model, and every model binding must name a fixed target so a competing
+  rule cannot make the carrier visible or writable. When the message reads the selected case
+  name, both installations must preload that read into the same field and
+  both native instances must show the same name and selected case ID.
   For a nested `case-names-checked` helper, both native records being
   compared must identify the declared source field and the case action
   that reads it. The installed binds, relevance, case ID and repeat

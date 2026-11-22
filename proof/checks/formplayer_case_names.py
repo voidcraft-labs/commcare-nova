@@ -1,5 +1,7 @@
 """Locate a submitted create/case_name in the question that the installed form binds to that exact case block."""
 
+from collections import Counter
+
 from lxml import etree
 
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
@@ -35,10 +37,10 @@ def leaves(node, parent):
             yield from leaves(child, path)
 
 
-def _absolute(ref, context):
+def absolute_ref(ref, context):
+    """A fixed path from the binding context Core supplies, or None for a path we cannot place."""
     if _xpath.plain_path(ref):
         return ref
-    # Core resolves a model bind relative to the main instance root, and a setvalue ref relative to /.
     step = ref.removeprefix("./")
     if step and not ref.startswith("/") and _xpath.plain_path("/" + step):
         return context + "/" + step
@@ -53,20 +55,20 @@ def _context(model):
 def bindings_at(model, target):
     """XFormParser.parseModel dispatches direct model children by local name, including a foreign bind."""
     context = _context(model)
-    return [b for b in model.findall("{*}bind") if _absolute(b.get("nodeset") or "", context) == target]
+    return [b for b in model.findall("{*}bind") if absolute_ref(b.get("nodeset") or "", context) == target]
 
 
 def setvalue_targets(form, model):
-    """Fixed targets of native actions. An unresolved write could replace the observed calculation.
+    """Number of native actions writing each fixed target. An unresolved write could replace the observed calculation.
 
     XFormParser.parseModel and parseControlChildren both dispatch actions by local name. A data element
     called setvalue inside the instance is ordinary data. parseSetValueAction uses the bind ID before ref.
     """
     context = _context(model)
     binds = model.findall("{*}bind")
-    if any(b.get("calculate") is not None and _absolute(b.get("nodeset") or "", context) is None for b in binds):
+    if any(b.get("calculate") is not None and absolute_ref(b.get("nodeset") or "", context) is None for b in binds):
         return None
-    targets = set()
+    targets = Counter()
     for action in form.iter("{*}setvalue"):
         parent = action.getparent()
         if parent is not model and (
@@ -76,12 +78,12 @@ def setvalue_targets(form, model):
             continue
         if (identifier := action.get("bind")) is not None:
             bind = _one([b for b in binds if b.get("id") == identifier])
-            target = _absolute(bind.get("nodeset") or "", context) if bind is not None else None
+            target = absolute_ref(bind.get("nodeset") or "", context) if bind is not None else None
         else:
-            target = _absolute(action.get("ref") or "", "")
+            target = absolute_ref(action.get("ref") or "", "")
         if target is None:
             return None
-        targets.add(target)
+        targets[target] += 1
     return targets
 
 
