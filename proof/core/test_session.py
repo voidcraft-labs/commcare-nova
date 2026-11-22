@@ -434,37 +434,23 @@ def test_optional_constraint_refusals_clear_the_saved_value(
         assert "submission" not in step
 
 
+def test_vellum_independent_data_order_reaches_core_submission(hq, core_runner):
+    """HQ builds the unmodified Vellum source, then Core walks and submits that built form."""
+    from proof.checks import casedata, cases
+    from proof.rules.conftest import published, restore, run as run_spelling
 
-def test_vellum_independent_data_order_reaches_core_submission(core_runner, basic_trace, tmp_path):
-    """Walk Vellum's saved questions in body order and inspect Core's actual submitted instance."""
     fixture = Path(__file__).resolve().parents[2] / "lib/commcare/reader/xform/__tests__/fixtures/vellum-in-between.xml"
-    source = etree.fromstring(fixture.read_bytes())
-    entry = "modules-0/forms-0.xml"
-    built = etree.fromstring(read_archive_entry(BASIC_APP, entry))
-    model = built.find(f".//{{{XFORMS}}}model")
-    data = model.find(f"{{{XFORMS}}}instance")[0]
-    submitted_namespace = etree.QName(data).namespace
-    authored = source.find(f".//{{{XFORMS}}}instance")[0]
+    source = fixture.read_text(encoding="utf-8")
+    authored = etree.fromstring(source.encode()).find(f".//{{{XFORMS}}}instance")[0]
     expected_nodes = [etree.QName(node).localname for node in authored]
-    for child in list(authored):
-        for node in child.iter():
-            node.tag = f"{{{submitted_namespace}}}{etree.QName(node).localname}"
-        data.append(child)
-    for bind in source.findall(f".//{{{XFORMS}}}bind"):
-        model.append(bind)
-    itext = source.find(f".//{{{XFORMS}}}itext")
-    dictionary = model.find(f"{{{XFORMS}}}itext")
-    if dictionary is None:
-        model.append(itext)
-    else:
-        units = list(itext.find(f"{{{XFORMS}}}translation"))
-        for translation in dictionary.findall(f"{{{XFORMS}}}translation"):
-            translation.extend(copy.deepcopy(units))
-    body = built.find(f"{{{XHTML}}}body")
-    body.extend(list(source.find(f"{{{XHTML}}}body")))
-    archive = archive_variant(BASIC_APP, tmp_path / "vellum-data-order.ccz", {entry: etree.tostring(built)})
-    original = next(run for run in basic_trace["runs"] if "m0-f0" in commands(run))
-    (run,) = replay(core_runner, archive, [original])
+    document = cases.load_corpus().document("targeted-submitted-groups")
+    with published(document, core_runner) as app:
+        built = app.spell(sources={"0.0": lambda _: source}).build
+        assert built.files is not None and not built.raised, built.raised
+        database = casedata.case_database(document.document)
+        ran = run_spelling(app, core_runner, built, restore(app, database), database)
+    assert ran.trace is not None, ran.admission
+    run, = [run for run in ran.trace["runs"] if "m0-f0" in commands(run)]
     assert run["end"] == "submitted", run
     step = form_step(run)
     paths = ["/data/before-child", "/data/parent/child", "/data/after-child"]
@@ -476,6 +462,7 @@ def test_vellum_independent_data_order_reaches_core_submission(core_runner, basi
         _, _, *parts = event["dataPath"].split("/")
         node = root.find("/".join(f"{{*}}{part}" for part in parts))
         assert node is not None and node.text == event["answer"]
+
 
 def test_the_answer_tables_dates_satisfy_the_date_constraints_hq_forms_carry(basic_trace):
     """basic.ccz's date questions ask for a recent date, one not in the future and one in the future."""

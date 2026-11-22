@@ -1,11 +1,14 @@
 """The installed worker form has one order on screen and another in its submitted XML."""
 
+import pytest
 from lxml import etree
 
 from proof.android import observe
 from proof.formplayer import apps
 from proof.formplayer import hq as hq_forms
 from proof.observe.record import Blobs
+
+pytestmark = pytest.mark.reader("android")
 
 
 def test_android_submits_answers_under_their_data_groups(android_documents, hq):
