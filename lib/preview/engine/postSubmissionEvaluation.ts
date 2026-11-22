@@ -213,6 +213,7 @@ export async function evaluatePostSubmissionSnapshot(
 			const route = afterSubmitRoute({
 				previousTask: () =>
 					resolvePreviousTask({
+						platform: context.device.platform,
 						doc,
 						formUuid: args.formUuid,
 						submittedCaseIds: ids,

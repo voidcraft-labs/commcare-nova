@@ -24,6 +24,11 @@ import {
 	simpleSearchInputDef,
 	tileCell,
 } from "@/lib/domain";
+import {
+	FIXTURE_FORM,
+	FIXTURE_MODULE,
+	PLATFORM_FEATURE_FIXTURES,
+} from "@/lib/domain/__tests__/platformFeatureFixtures";
 import { literal, term } from "@/lib/domain/expression";
 import type { Platform } from "@/lib/domain/platforms";
 import { projectProseTemplate } from "@/lib/domain/prose";
@@ -58,6 +63,7 @@ import {
 	evaluateAfterSubmit,
 } from "../engine/formLinkEvaluation";
 import { previewSessionValues } from "../engine/identity";
+import { resolvePreviousTask } from "../engine/previousTask";
 import {
 	searchInputConstraintErrors,
 	searchInputRequiredMarks,
@@ -295,7 +301,31 @@ function searchFixture() {
 
 // ── The checks ────────────────────────────────────────────────────────
 
+function firstMenuPrevious(platform: Platform) {
+	const doc = PLATFORM_FEATURE_FIXTURES["first-menu-previous"].with();
+	const patient = row();
+	const task = resolvePreviousTask({
+		doc,
+		platform,
+		formUuid: FIXTURE_FORM,
+		submittedCaseIds: [patient.case_id],
+		selections: {},
+		caseDatabase: { rows: [patient], indices: [] },
+	});
+	expect(task.destination).toEqual({ kind: "home" });
+	return (
+		task.selections[FIXTURE_MODULE]?.cases.map((choice) => choice.caseId) ?? []
+	);
+}
+
 export const PLATFORM_MODEL_CHECKS = {
+	"first-menu-previous-web-apps": () => {
+		expect(firstMenuPrevious("web-apps")).toEqual([]);
+	},
+	"first-menu-previous-android": () => {
+		expect(firstMenuPrevious("android")).toEqual([row().case_id]);
+	},
+
 	/* A calculate over the clock and a condition over it re-evaluate after
 	 * an unrelated answer on Web Apps; a starting value does not; on Android
 	 * neither moves. */

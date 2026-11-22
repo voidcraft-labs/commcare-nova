@@ -319,7 +319,7 @@ describe("a menu that shows its forms in the menu above", () => {
 		);
 	});
 
-	it("withholds previous from a form listed on the first menu, after submit and as the otherwise", () => {
+	it("offers Previous on first-menu forms after submit and when no link matches", () => {
 		const doc = docOf({
 			clients: [
 				registration(REGISTER, "Register"),
@@ -345,23 +345,7 @@ describe("a menu that shows its forms in the menu above", () => {
 				finding.code === "POST_SUBMIT_NOT_OFFERED" ||
 				finding.code === "FORM_OTHERWISE_NOT_OFFERED",
 		);
-		expect(
-			found.map((finding) => [
-				finding.code,
-				finding.details?.reason,
-				finding.location.formUuid,
-			]),
-		).toEqual([
-			["POST_SUBMIT_NOT_OFFERED", "menu-forms-on-first-menu", VISIT],
-			[
-				"FORM_OTHERWISE_NOT_OFFERED",
-				"menu-forms-on-first-menu",
-				testUuid("above-visit-2"),
-			],
-		]);
-		expect(found[0]?.message).toContain(
-			"\"Clients\" shows its forms on the app's first menu, where Nova doesn't offer the previous screen.",
-		);
+		expect(found).toEqual([]);
 	});
 
 	it("withholds the parent module under a menu above", () => {

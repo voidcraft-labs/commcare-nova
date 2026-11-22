@@ -5,6 +5,7 @@
  * refusal. Each runs the production model over documents built by
  * `buildDoc`; none renders a screen.
  */
+
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -15,6 +16,7 @@ import {
 	moduleFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
 import type { BlueprintDoc, ResolvedFormLinkTarget } from "@/lib/domain";
+import { postSubmitNotOfferedReason } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import {
 	afterSubmitRoute,
@@ -271,6 +273,7 @@ describe("after submit with forms in the menu above", () => {
 		);
 		expect(destination).toEqual({ kind: "menu", moduleUuid: PARENT });
 		const task = resolvePreviousTask({
+			platform: "web-apps",
 			doc,
 			formUuid: ABOVE_FORM,
 			submittedCaseIds: ["house-a"],
@@ -302,6 +305,43 @@ describe("after submit with forms in the menu above", () => {
 		});
 	});
 
+	it("requires a fresh choice when the returned Android datum would be used by another record type", () => {
+		const doc = nested();
+		doc.modules[PARENT].formsInMenuAbove = true;
+		doc.modules[OWN].parentModuleUuid = undefined;
+		doc.modules[OWN].caseType = "visit";
+		expect(postSubmitNotOfferedReason(doc, PARENT_FORM, "previous")).toBe(
+			"previous-carries-other-case-type",
+		);
+		doc.forms[OWN_FORM].type = "survey";
+		expect(
+			postSubmitNotOfferedReason(doc, PARENT_FORM, "previous"),
+		).toBeUndefined();
+		doc.modules[OWN].caseListMenuItem = {};
+		expect(postSubmitNotOfferedReason(doc, PARENT_FORM, "previous")).toBe(
+			"previous-carries-other-case-type",
+		);
+	});
+	it("keeps the case on Android Home for each matching command and replays Web Apps Home without it", () => {
+		const doc = nested();
+		doc.modules[PARENT].formsInMenuAbove = true;
+		const input = {
+			doc,
+			formUuid: PARENT_FORM,
+			submittedCaseIds: ["house-a"],
+			selections: {},
+			caseDatabase: { rows: [household("house-a")], indices: [] },
+		};
+		const web = resolvePreviousTask({ ...input, platform: "web-apps" });
+		expect(web.destination).toEqual({ kind: "home" });
+		expect(web.selections).toEqual({});
+		const phone = resolvePreviousTask({ ...input, platform: "android" });
+		expect(phone.destination).toEqual({ kind: "home" });
+		for (const uuid of [PARENT, ABOVE, OWN])
+			expect(phone.selections[uuid]?.cases.map((row) => row.caseId)).toEqual([
+				"house-a",
+			]);
+	});
 	it("lands a top-level menu shown above on the first menu", () => {
 		const doc = nested();
 		doc.modules[PARENT].formsInMenuAbove = true;

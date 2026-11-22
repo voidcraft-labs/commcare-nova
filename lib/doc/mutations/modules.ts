@@ -19,6 +19,7 @@ import {
 	otherwiseDestinationsOffered,
 	type PostSubmitDestination,
 	postSubmitDestinationsOffered,
+	postSubmitNotOfferedReason,
 	type Uuid,
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
@@ -875,6 +876,17 @@ export function reconcilePostSubmitWithMenuShape(
 		const form = draft.forms[formUuid];
 		if (!form) continue;
 		const otherwise = form.otherwise;
+		// A new physical collision could open another record type on Android.
+		// Keep the author's selection for the gate to place the finding. An
+		// explicitly chosen replacement in this same batch can clear it.
+		if (
+			(form.postSubmit === "previous" ||
+				(otherwise?.kind === "destination" &&
+					otherwise.destination === "previous")) &&
+			postSubmitNotOfferedReason(draft, formUuid, "previous", firstMenuCase) ===
+				"previous-carries-other-case-type"
+		)
+			continue;
 		if (otherwise?.kind === "destination") {
 			const offered = otherwiseDestinationsOffered(
 				draft,

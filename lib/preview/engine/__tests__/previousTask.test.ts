@@ -154,6 +154,7 @@ describe("the native preceding task", () => {
 	it("reopens the exact forms-first selector and drops even a deep-linked own record", () => {
 		const blueprint = doc(true);
 		const result = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: FORM,
 			submittedCaseIds: ["a"],
@@ -185,6 +186,7 @@ describe("the native preceding task", () => {
 			const blueprint = doc(false, multiple);
 			const ids = multiple ? ["b", "a"] : ["a"];
 			const result = resolvePreviousTask({
+				platform: "web-apps",
 				doc: blueprint,
 				formUuid: FORM,
 				submittedCaseIds: ids,
@@ -213,6 +215,7 @@ describe("the native preceding task", () => {
 			const blueprint = doc(true);
 			if (!mixed) blueprint.formOrder[MODULE] = [testUuid("register")];
 			const result = resolvePreviousTask({
+				platform: "web-apps",
 				doc: blueprint,
 				formUuid: testUuid("register"),
 				submittedCaseIds: ["created"],
@@ -244,6 +247,7 @@ describe("the native preceding task", () => {
 	it("refuses a retained record missing from the receipt world", () => {
 		expect(() =>
 			resolvePreviousTask({
+				platform: "web-apps",
 				doc: doc(false),
 				formUuid: FORM,
 				submittedCaseIds: ["missing"],
@@ -264,6 +268,7 @@ describe("the native preceding task", () => {
 		const { root, child, childForm } = nestSecondModule(blueprint);
 		if (!childForm) throw new Error("Missing child form");
 		const result = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: childForm,
 			submittedCaseIds: ["child"],
@@ -312,6 +317,7 @@ describe("the native preceding task", () => {
 			if (!childForm) throw new Error("Missing child form");
 			if (explicitParent) blueprint.modules[child].parentCaseModuleUuid = root;
 			const result = resolvePreviousTask({
+				platform: "web-apps",
 				doc: blueprint,
 				formUuid: childForm,
 				submittedCaseIds: ["created-service"],
@@ -338,6 +344,7 @@ describe("the native preceding task", () => {
 		const { root, childForm } = nestSecondModule(blueprint);
 		if (!childForm) throw new Error("Missing child form");
 		const result = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: childForm,
 			submittedCaseIds: ["child"],
@@ -351,6 +358,7 @@ describe("the native preceding task", () => {
 	it("uses the same preceding task for a false link fallback and leaves a true link authoritative", () => {
 		const blueprint = doc(true);
 		const task = resolvePreviousTask({
+			platform: "web-apps",
 			doc: blueprint,
 			formUuid: FORM,
 			submittedCaseIds: ["a"],

@@ -319,7 +319,7 @@ export function usePreviewParentCaseRequest():
 	return useBuilderSession((s) => s.previewParentCaseRequest);
 }
 
-export function useClearPreviewNavigation(): () => void {
+export function useClearPreviewNavigation() {
 	return useBuilderSession((s) => s.clearPreviewNavigation);
 }
 

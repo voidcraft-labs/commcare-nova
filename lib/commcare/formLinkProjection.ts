@@ -1316,11 +1316,13 @@ export function entryFrameDatums(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
-	formUuid: Uuid,
+	formUuid?: Uuid,
 ): readonly FrameDatum[] {
-	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).map((datum) =>
-		toFrameDatum(datum, ctx),
-	);
+	const datums =
+		formUuid === undefined
+			? caseListSessionDatums(doc, ctx, moduleUuid)
+			: entrySessionDatums(doc, ctx, moduleUuid, formUuid);
+	return datums.map((datum) => toFrameDatum(datum, ctx));
 }
 
 /** The runtime menu selection that supplies each projected case-selection

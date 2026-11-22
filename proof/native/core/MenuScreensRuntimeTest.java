@@ -47,7 +47,7 @@ import static org.junit.Assert.*;
  * them, and on a list's own details, what Android's details draw. Core's in-memory case storage stands in for a
  * device's; no form is entered and no search or claim reaches a server. */
 public class MenuScreensRuntimeTest {
- private static final String[] DOCUMENTS={"forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings","listed-source-forms"};
+ private static final String[] DOCUMENTS={"first-menu-previous","forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings","listed-source-forms"};
  /** The documents walked for the pinned tile (`<document>.tiles.json`). */
  private static final String[] TILE_DOCUMENTS={"pinned-tile"};
  /** The documents read for a list of workers' data, each refusing some screen for a worker who lacks a field. */
@@ -432,6 +432,32 @@ public class MenuScreensRuntimeTest {
    if(SessionFrame.STATE_SYNC_REQUEST.equals(needed))session.addExtraToCurrentFrameStep(Constants.EXTRA_POST_SUCCESS,true);
    else if(needed==null){assertTrue(label+" leaves the session with nothing after the search's request",session.finishExecuteAndPop(session.getEvaluationContext()));return;}
    else fail(label+" needs "+needed+" before its search's request finishes");
+  }
+ }
+ /** With an explicit Previous on a form listed directly on Home, Android's
+  * Core session leaves a datum before any command. A second menu therefore
+  * offers its form directly. Entering that menu on a fresh session asks
+  * for a new case. Exercise both Nova's local suite and HQ's own build. */
+ @Test public void previousOnFirstMenuKeepsThePatientForTheNextCommand()throws Exception{
+  for(boolean hq:new boolean[]{false,true}){
+   Suite suite=suite("first-menu-previous",hq);
+   String label="first-menu-previous hq="+hq;
+   SessionWrapper session=session(suite,MockDataUtils.getStaticStorage(),new String[]{"patient-a","patient"});
+   session.setCommand("m0-f0");
+   assertEquals(label,SessionFrame.STATE_DATUM_VAL,session.getNeededData(session.getEvaluationContext()));
+   session.setEntityDatum(session.getNeededDatum().getDataId(),"patient-a");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertTrue(label,session.finishExecuteAndPop(session.getEvaluationContext()));
+   assertNull(label,session.getCommand());
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+   session.setCommand("m1");
+   assertEquals(label,SessionFrame.STATE_COMMAND_ID,session.getNeededData(session.getEvaluationContext()));
+   session.setCommand("m1-f0");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+   SessionWrapper fresh=session(suite,MockDataUtils.getStaticStorage(),new String[]{"patient-a","patient"});
+   fresh.setCommand("m1");
+   assertEquals(label,SessionFrame.STATE_DATUM_VAL,fresh.getNeededData(fresh.getEvaluationContext()));
   }
  }
  /** Two top-level menus show their follow-up forms on the first menu, of case types alpha and beta, so every

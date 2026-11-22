@@ -48,6 +48,7 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
+	firstMenuCaseOpensAnotherType,
 	firstMenuOpensOneCase,
 	formLinkEntries,
 	menuScreenContributors,
@@ -240,7 +241,9 @@ export function incrementalValidationScope(
 	if (
 		nextDoc !== doc &&
 		(inferenceFingerprint(doc) !== inferenceFingerprint(nextDoc) ||
-			firstMenuOpensOneCase(doc) !== firstMenuOpensOneCase(nextDoc))
+			firstMenuOpensOneCase(doc) !== firstMenuOpensOneCase(nextDoc) ||
+			firstMenuCaseOpensAnotherType(doc) !==
+				firstMenuCaseOpensAnotherType(nextDoc))
 	)
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);

@@ -220,6 +220,10 @@ export const PLATFORM_CELLS: Readonly<
 		model("skip-to-results-android"),
 	"case-search/workflow-search-first-auto-launch-true-default-search-false@android":
 		model("search-first-android"),
+	"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu@web-apps":
+		model("first-menu-previous-web-apps"),
+	"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu@android":
+		model("first-menu-previous-android"),
 	"forms-and-case-writes/post-form-workflow-default@web-apps": model(
 		"after-submit-home-web-apps",
 	),

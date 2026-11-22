@@ -187,7 +187,10 @@ import {
 } from "@/lib/preview/submitOffer";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { endPreviewStandingSearches } from "@/lib/routing/useClientPath";
+import {
+	endPreviewStandingSearches,
+	recordPreviewSelections,
+} from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
 	useAppId,
@@ -2039,6 +2042,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 						sourceModuleUuid,
 						previousTask: () =>
 							resolvePreviousTask({
+								platform: previewDevice.platform,
 								doc,
 								formUuid: sourceFormUuid,
 								submittedCaseIds: resultCaseIds,
@@ -2283,8 +2287,21 @@ export function FormScreen({ screen }: FormScreenProps) {
 					);
 					settleAttempt({ kind: "idle" });
 					forgetCompletedPages();
-					if (next.kind === "home") navigate.goHome();
-					else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
+					if (next.kind === "home") {
+						navigate.goHome();
+						if (Object.keys(route.task.selections).length > 0) {
+							const current = session.getState();
+							recordPreviewSelections(() => ({
+								session: current.previewSessionId,
+								selections: {
+									task: current.previewTaskId,
+									menu: route.task.selections,
+									selected: undefined,
+									target: undefined,
+								},
+							}));
+						}
+					} else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
 					else {
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,

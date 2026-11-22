@@ -597,3 +597,7 @@ property renames, retirement checks and source replacement like other carriers.
 ## Forms listed in another menu
 
 A menu may list forms owned by another menu. Its `formsFromMenu.menuUuid` names the source, its exclusions and deep links name source form UUIDs, and its own `formOrder` stays empty. `menuFormUuidsOf` enumerates the visible forms of a particular route. `moduleUuidOfForm` still returns the unique owner. Worker commands address the route menu and source form together. A form read, history entry, case write and translation have one source identity across every route. The route derives the source menu's case type and selection cardinality and owns its list, search, display and media. A source submenu has one child under each route to its parent.
+
+### Previous on the first menu
+
+A form listed on the first menu may explicitly return to the previous screen. Its existing implicit destination stays stable. Where the common first-menu prefix supplies a case, Android can consume that same datum in another command. If a command could load a different type of record under that datum, the planner places a finding and offers First menu for a fresh choice.

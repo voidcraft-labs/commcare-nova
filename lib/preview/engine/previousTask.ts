@@ -69,6 +69,7 @@ export function resolvePreviousTask(args: {
 	readonly doc: BlueprintDoc;
 	readonly formUuid: Uuid;
 	readonly submittedCaseIds: readonly string[];
+	readonly platform: "android" | "web-apps";
 	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	readonly caseDatabase: CaseDatabaseSnapshot;
 }): PreviousTask {
@@ -77,7 +78,13 @@ export function resolvePreviousTask(args: {
 	const rowById = new Map(
 		args.caseDatabase.rows.map((row) => [row.case_id, row]),
 	);
-	for (const retained of plan.retainedSelections) {
+	// Formplayer resets and replays choices from the first menu. Without a
+	// command on the frame it stays there and never consumes a case datum.
+	const retainedSelections =
+		plan.destination.kind === "home" && args.platform === "web-apps"
+			? []
+			: plan.retainedSelections;
+	for (const retained of retainedSelections) {
 		const current =
 			retained.source === "form-records"
 				? {
@@ -110,6 +117,8 @@ export function resolvePreviousTask(args: {
 				};
 			}),
 		};
+		for (const recipient of retained.alsoSupplies ?? [])
+			selections[recipient] = selections[retained.moduleUuid];
 	}
 	return {
 		destination: previousTaskDestination(args.doc, args.formUuid, plan),

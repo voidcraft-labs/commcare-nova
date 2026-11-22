@@ -235,10 +235,10 @@ function notOfferedClause(
 			return `${parent} is off the menu`;
 		case "menu-forms-in-menu-above":
 			return `${own} shows its forms in the menu above, so it has no screen of its own`;
+		case "previous-carries-other-case-type":
+			return `on Android another menu could open the returned case as a different record type; First menu starts with a fresh case choice`;
 		case "parent-forms-in-menu-above":
 			return `${parent} shows its forms in the menu above, so it has no screen of its own`;
-		case "menu-forms-on-first-menu":
-			return `${own} shows its forms on the app's first menu, where the previous screen isn't offered`;
 		case "menu-opens-with-first-menu-case":
 			return `${own} opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case, which CommCare HQ would put ahead of ${own}`;
 	}

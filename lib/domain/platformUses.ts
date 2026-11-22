@@ -58,6 +58,7 @@ import {
 	type PlatformFeatureId,
 	unavailablePlatform,
 } from "./platforms";
+import { firstMenuCaseRead, postSubmitModuleFacts } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
 import type { Uuid } from "./uuid";
 
@@ -328,6 +329,7 @@ export function platformFeatureUses(
 		);
 	out.push(...inFeatureOrder(appUses));
 
+	const readFirstMenuCase = firstMenuCaseRead(doc);
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
@@ -345,6 +347,22 @@ export function platformFeatureUses(
 				formUses.push(
 					slotUse(
 						"after-submit-home",
+						formOwner,
+						form.formLinks === undefined ? "postSubmit" : "otherwise",
+					),
+				);
+			if (
+				wanted("first-menu-previous") &&
+				(form.postSubmit === "previous" ||
+					(form.otherwise?.kind === "destination" &&
+						form.otherwise.destination === "previous")) &&
+				postSubmitModuleFacts(doc, moduleUuid, readFirstMenuCase)
+					?.formsOnFirstMenu &&
+				readFirstMenuCase()
+			)
+				formUses.push(
+					slotUse(
+						"first-menu-previous",
 						formOwner,
 						form.formLinks === undefined ? "postSubmit" : "otherwise",
 					),

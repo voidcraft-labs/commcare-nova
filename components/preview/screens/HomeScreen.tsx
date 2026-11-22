@@ -34,7 +34,10 @@ import {
 	moduleLanding,
 } from "@/lib/domain";
 import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
-import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import {
+	type NavigationItemVisibility,
+	navigationSelectedCase,
+} from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -172,13 +175,28 @@ function ModuleListHome() {
 					session,
 					lookup,
 					deviceCases,
-					selectedCaseOf: () => undefined,
+					selectedCaseOf: (entry) => {
+						const choices = previewMenuCaseContext(
+							menuSource,
+							entry.moduleUuid,
+							menuCaseSelections,
+						).selectedCase?.cases;
+						return choices?.length === 1
+							? navigationSelectedCase(
+									menuSource.doc,
+									entry.moduleUuid,
+									entry.formUuid,
+									choices[0].caseId,
+								)
+							: undefined;
+					},
 				}),
 			),
 		[
 			entries,
 			ownModuleVisibility,
 			menuSource,
+			menuCaseSelections,
 			mode,
 			session,
 			lookup,
@@ -306,8 +324,8 @@ function ModuleListHome() {
 									) as string | undefined) ?? form.name
 								}
 								onClick={() => {
-									/* The first menu chooses no case: a form that opens one
-									 * opens its own menu's case list first. */
+									/* Android may arrive with a case given to this command by
+									 * the previous frame. An ordinary Home starts with none. */
 									const launch = formLaunch({
 										formType: form.type,
 										moduleHasCaseType:
@@ -315,8 +333,18 @@ function ModuleListHome() {
 											undefined,
 									});
 									if (launch.kind === "select-case-first") {
-										setPreviewCaseTarget({ formUuid: form.uuid });
-										navigate.openCaseList(entry.moduleUuid);
+										const selected = previewMenuCaseContext(
+											menuSource,
+											entry.moduleUuid,
+											menuCaseSelections,
+										).selectedCase;
+										setPreviewCaseTarget({
+											formUuid: form.uuid,
+											...(selected && { cases: selected.cases }),
+										});
+										if (selected)
+											navigate.openForm(entry.moduleUuid, form.uuid);
+										else navigate.openCaseList(entry.moduleUuid);
 									} else {
 										setPreviewCaseTarget(undefined);
 										navigate.openForm(entry.moduleUuid, form.uuid);

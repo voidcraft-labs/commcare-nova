@@ -951,6 +951,20 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		use: slotUse("after-submit-home", FORM_OWNER, "postSubmit"),
 	},
+	"first-menu-previous": {
+		with: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			doc.forms[FIXTURE_FORM].postSubmit = "previous";
+			return doc;
+		},
+		without: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].formsInMenuAbove = true;
+			return doc;
+		},
+		use: slotUse("first-menu-previous", FORM_OWNER, "postSubmit"),
+	},
 	"after-submit-several-destinations": {
 		with: () =>
 			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {

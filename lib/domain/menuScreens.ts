@@ -526,29 +526,63 @@ export function formRouteBeforeCase(
  * Each call reads a view of its own, so the selection projection's per-document
  * cache never outlives a reducer's write to the same draft.
  */
-export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
+function firstMenuSelection(doc: EntrySelectionSource) {
 	const view: EntrySelectionSource = {
 		modules: doc.modules,
 		moduleOrder: doc.moduleOrder,
 		forms: doc.forms,
 		formOrder: doc.formOrder,
 	};
-	let shared: string | undefined;
+	let shared: ReturnType<typeof entrySelections>[number] | undefined;
 	for (const moduleUuid of projectedModulePreorder(view)) {
 		if (!moduleShowsFormsInMenuAbove(view.modules[moduleUuid])) continue;
 		for (const formUuid of (view.modules[moduleUuid]?.formsFromMenu
 			? menuFormUuidsOf(view, moduleUuid)
 			: view.formOrder[moduleUuid]) ?? []) {
 			if (view.forms[formUuid] === undefined) continue;
-			const key = entrySelections(view, {
+			const choice = entrySelections(view, {
 				kind: "form",
 				module: moduleUuid,
 				form: formUuid,
-			})[0]?.key;
-			if (key === undefined || (shared !== undefined && key !== shared))
-				return false;
-			shared = key;
+			})[0];
+			if (
+				choice === undefined ||
+				(shared !== undefined && choice.key !== shared.key)
+			)
+				return undefined;
+			shared ??= choice;
 		}
 	}
-	return shared !== undefined;
+	return shared && { choice: shared, view };
+}
+
+export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
+	return firstMenuSelection(doc) !== undefined;
+}
+
+/** Android keeps a commandless frame's datum when opening the next command,
+ * even if that command loads a different case type under the same name.
+ * MenuScreensRuntimeTest exercises this with an alpha case and a beta form.
+ * Unrelated datum names and independently named selections remain safe. */
+export function firstMenuCaseOpensAnotherType(
+	doc: EntrySelectionSource,
+): boolean {
+	const shared = firstMenuSelection(doc);
+	if (!shared) return false;
+	const { choice, view } = shared;
+	const caseType = view.modules[choice.module]?.caseType;
+	const collides = (entry: DatumEntry) =>
+		entrySelections(view, entry).some(
+			(other) =>
+				other.key === choice.key &&
+				view.modules[other.module]?.caseType !== caseType,
+		);
+	return view.moduleOrder.some(
+		(module) =>
+			(view.formOrder[module] ?? []).some((form) =>
+				collides({ kind: "form", module, form }),
+			) ||
+			(moduleHasCaseListMenuItem(view.modules[module]) &&
+				collides({ kind: "browse", module })),
+	);
 }

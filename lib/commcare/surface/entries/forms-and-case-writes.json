@@ -1226,17 +1226,24 @@
 			"schema:ShadowForm.post_form_workflow"
 		],
 		"valueClass": "previous-screen-on-a-form-listed-on-the-first-menu",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a return to the screen before a form the first menu lists",
-		"subject": "display-only-forms",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.postSubmit: previous`",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "DIFFERENT (fresh first-menu case choice) / DIFFERENT (first menu retains its shared case)",
+			"webApps": {
+				"reading": "different",
+				"note": "fresh first-menu case choice"
+			},
+			"android": {
+				"reading": "different",
+				"note": "first menu retains its shared case"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`previous_screen`",
+			"markers": []
 		},
 		"gates": []
 	},

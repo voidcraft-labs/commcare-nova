@@ -231,6 +231,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search",
 	"skip-to-results",
 	"after-submit-home",
+	"first-menu-previous",
 	"after-submit-several-destinations",
 	"app-logo",
 	"saved-forms",
@@ -809,6 +810,18 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "different",
 			note: "after submit, App home opens the CommCare home screen, and First menu opens the app's first menu",
+		},
+	},
+	"first-menu-previous": {
+		label: "Previous screen on the first menu",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "returning to the first menu opens it with a fresh case choice",
+		},
+		android: {
+			reading: "different",
+			note: "returning to the first menu keeps the chosen case for the next form that uses it",
 		},
 	},
 	"after-submit-several-destinations": {

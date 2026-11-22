@@ -1,6 +1,7 @@
 /** Native-neutral bridge from the wire owner's exact preceding-task frame. */
 import {
 	type BlueprintDoc,
+	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleUuidOfForm,
 	type NavigationReadFinding,
@@ -11,6 +12,7 @@ import {
 	entryFrameDatums,
 	type FormLinkProjectionContext,
 	type FrameChild,
+	type FrameDatum,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	moduleFrameChildren,
@@ -28,6 +30,8 @@ export interface PreviousTaskSelection {
 	readonly maximum: number;
 	readonly cardinality: "one" | "multiple";
 	readonly source: "form-records" | "menu-records";
+	/** Other selectors that ask for this exact datum after Android returns to Home. */
+	readonly alsoSupplies?: readonly Uuid[];
 }
 
 export interface PreviousTaskProjection {
@@ -207,6 +211,37 @@ export function projectPreviousTask(
 			child.type === "datum" ? [child.datum.id] : [],
 		),
 	);
+	const command = [...children]
+		.reverse()
+		.find((child) => child.type === "command");
+	let menuSelections: readonly FrameDatum[] | undefined;
+	function otherConsumersOf(selection: FrameDatum): readonly Uuid[] {
+		menuSelections ??= context.moduleOrder.flatMap((menu) => {
+			const commands: (Uuid | undefined)[] = [
+				...(context.formOrder[menu] ?? []),
+			];
+			if (moduleHasCaseListMenuItem(doc.modules[menu]))
+				commands.push(undefined);
+			return commands.flatMap((form) =>
+				entryFrameDatums(doc, context, menu, form),
+			);
+		});
+		const recipients = new Set<Uuid>();
+		for (const other of menuSelections) {
+			if (
+				!other.requiresSelection ||
+				other.query ||
+				other.id !== selection.id ||
+				other.caseType !== selection.caseType ||
+				other.maximum !== selection.maximum ||
+				!other.selectionSourceModuleUuid ||
+				other.selectionSourceModuleUuid === selection.selectionSourceModuleUuid
+			)
+				continue;
+			recipients.add(other.selectionSourceModuleUuid);
+		}
+		return [...recipients];
+	}
 	const retainedSelections = children.flatMap(
 		(child): PreviousTaskSelection[] => {
 			if (
@@ -220,6 +255,7 @@ export function projectPreviousTask(
 				throw new Error(
 					"The preceding task's record selection is unavailable.",
 				);
+			const alsoSupplies = command ? [] : otherConsumersOf(datum);
 			return [
 				{
 					moduleUuid: datum.selectionSourceModuleUuid,
@@ -227,13 +263,11 @@ export function projectPreviousTask(
 					maximum: datum.maximum ?? 1,
 					cardinality: datum.maximum === undefined ? "one" : "multiple",
 					source: datum.id === ownSelectionId ? "form-records" : "menu-records",
+					...(alsoSupplies.length > 0 && { alsoSupplies }),
 				},
 			];
 		},
 	);
-	const command = [...children]
-		.reverse()
-		.find((child) => child.type === "command");
 	if (!command) return { destination: { kind: "home" }, retainedSelections };
 	const target = context.commandTargets.get(command);
 	if (!target)

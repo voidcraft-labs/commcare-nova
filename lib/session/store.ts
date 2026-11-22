@@ -792,7 +792,9 @@ export interface BuilderSessionState {
 
 	/** Home ends the running task, retaining worker identity and authorization,
 	 *  and starts a new one (`previewTaskId`). */
-	clearPreviewNavigation: () => void;
+	clearPreviewNavigation: (
+		homeSelections?: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	) => void;
 
 	/** Back or Forward past Home onto a history entry of an earlier task of
 	 *  this session, on Web Apps: the entry's case selections become the
@@ -1721,7 +1723,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ previewSelectedCase: selected });
 				},
 
-				clearPreviewNavigation() {
+				clearPreviewNavigation(homeSelections) {
 					const current = get();
 					/* Home leaves the path the last frame opened, so what was
 					 * pending would be dropped at the next completion anyway
@@ -1746,7 +1748,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewAfterSubmitStack: afterSubmitStack,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
-						previewMenuCaseSelections: {},
+						previewMenuCaseSelections: homeSelections ?? {},
 						previewSearchStates: {},
 					});
 				},

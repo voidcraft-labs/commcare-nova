@@ -17279,14 +17279,6 @@
 		"id": "hq-case-management/return-to-the-screen-before-a-first-menu-form",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1",
@@ -17752,7 +17744,19 @@
 				"use_default_audio_for_all": false,
 				"comment": ""
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/postSubmit",
+				"value": "previous"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/root-question-usercase",

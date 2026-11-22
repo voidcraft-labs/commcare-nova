@@ -160,15 +160,15 @@ export interface MenuAboveWithheldDestination {
 	readonly reason:
 		| "menu-forms-in-menu-above"
 		| "parent-forms-in-menu-above"
-		| "menu-forms-on-first-menu"
-		| "menu-opens-with-first-menu-case";
+		| "menu-opens-with-first-menu-case"
+		| "previous-carries-other-case-type";
 }
 
 const MENU_ABOVE_WITHHELD: readonly MenuAboveWithheldDestination[] = [
+	{ destination: "previous", reason: "previous-carries-other-case-type" },
 	{ destination: "module", reason: "menu-forms-in-menu-above" },
 	{ destination: "module", reason: "menu-opens-with-first-menu-case" },
 	{ destination: "parentMenu", reason: "parent-forms-in-menu-above" },
-	{ destination: "previous", reason: "menu-forms-on-first-menu" },
 ];
 
 /** Each withheld destination by `<destination>:<reason>`, so a hook can

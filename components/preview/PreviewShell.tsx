@@ -63,6 +63,7 @@ import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection } from "@/lib/routing/types";
+import { readCurrentPreviewSelections } from "@/lib/routing/useClientPath";
 import {
 	useClearPreviewNavigation,
 	useEditMode,
@@ -70,6 +71,7 @@ import {
 	usePreviewCaseTarget,
 	usePreviewDevice,
 	usePreviewParentCaseRequest,
+	usePreviewSessionId,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
 	useSetPreviewCaseListRegistrationEntry,
@@ -252,10 +254,23 @@ export function PreviewShell() {
 		setCaseListRegistrationEntry,
 	]);
 
+	const previewDevice = usePreviewDevice();
+	const previewSessionId = usePreviewSessionId();
 	const clearPreviewNavigation = useClearPreviewNavigation();
 	useLayoutEffect(() => {
-		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
-	}, [mode, loc.kind, clearPreviewNavigation]);
+		if (mode !== "preview" || loc.kind !== "home") return;
+		const held =
+			previewDevice.platform === "android"
+				? readCurrentPreviewSelections(previewSessionId)?.menu
+				: undefined;
+		clearPreviewNavigation(held);
+	}, [
+		mode,
+		loc.kind,
+		previewDevice.platform,
+		previewSessionId,
+		clearPreviewNavigation,
+	]);
 	/* Each entry records the cases it was shown with; Back or Forward past
 	 * Home puts them back on Web Apps, as a popped address's selections are
 	 * replayed. Before the search arrival, which reads them. */
@@ -331,7 +346,6 @@ export function PreviewShell() {
 	 * provider's (a child's before its parent's), so a language change
 	 * rebuilds the entry once, with the new device's values, and a platform
 	 * change restarts it (`EngineController.setPreviewDevice`). */
-	const previewDevice = usePreviewDevice();
 	const engineController = useBuilderFormEngine();
 	useLayoutEffect(() => {
 		engineController.setPreviewDevice(previewDevice);

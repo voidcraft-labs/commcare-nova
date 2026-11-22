@@ -141,6 +141,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"skip-to-results": [
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 	],
+	"first-menu-previous": [
+		"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
+	],
 	"after-submit-home": ["forms-and-case-writes/post-form-workflow-default"],
 	"after-submit-several-destinations": [
 		"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once",

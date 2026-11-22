@@ -2586,3 +2586,7 @@ objects, preserving their original stack and cause for server reporting.
 ## Forms listed in another menu
 
 When a menu lists forms from another menu, Preview carries both the route menu UUID and the source form UUID. The route supplies the visible menu, case list and navigation history. The source supplies questions and case writes. The same source form can have independent deep links through its own menu and another menu. A listed form whose menu link or visibility has been turned off keeps its link ID and its entry point explains how to turn it on again.
+
+### Home with a retained case
+
+A commandless Previous frame lands on Home. Formplayer rebuilds the menu with fresh choices. Android keeps each selected datum and makes it available to any form or case-list command with the matching datum. The retained choice and its record properties belong to the corresponding browser history entry and worker. A fresh Home starts empty. An unrelated selector still asks for its own case.

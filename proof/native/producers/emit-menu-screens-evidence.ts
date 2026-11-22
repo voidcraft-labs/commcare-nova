@@ -1298,6 +1298,32 @@ function twoRegistrationsControl(): BlueprintDoc {
 	return doc;
 }
 
+/** The first menu lists a case-loading form directly. Previous ends at a
+ * commandless frame; the ordinary menu's follow-up consumes the same datum. */
+function previousOnFirstMenu(): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Return to visits",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: ["Daily visits", "Reviews"].map((name, i) => ({
+			uuid: `first-menu-previous-menu-${i}`,
+			name,
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					uuid: `first-menu-previous-form-${i}`,
+					name: i === 0 ? "Visit patient" : "Review visit",
+					type: "followup",
+					fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+				},
+			],
+		})),
+	});
+	doc.modules[testUuid("first-menu-previous-menu-0")].formsInMenuAbove = true;
+	doc.forms[testUuid("first-menu-previous-form-0")].postSubmit = "previous";
+	return doc;
+}
+write("first-menu-previous", previousOnFirstMenu(), ROLES);
 write("step-back-control", stepBackControl(), NONE);
 write("two-registrations-control", twoRegistrationsControl(), NONE);
 

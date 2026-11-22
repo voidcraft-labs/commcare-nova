@@ -271,3 +271,7 @@ Children removed with a group or repeat cannot become the new selection.
 browser adapter handles links, native unload and cancellable Navigation API
 history traversals. Same-app locations keep the document runtime and do not
 warn. The registration is released with its provider, including effect replay.
+
+### Home after a submitted form
+
+A fresh Home carries no case selections. The Android Previous task records its retained menu selections on the Home history entry it opened. Back and Forward can restore that entry only for the same Preview session.

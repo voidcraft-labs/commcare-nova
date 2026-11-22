@@ -94,7 +94,10 @@ choice you see is one CommCare can build:
 
 **Module** isn't offered in a menu that shows its forms in the menu above, and
 **Parent menu** isn't offered under one, because neither has a screen of its
-own. **Previous screen** isn't offered to a form shown on the app's first menu.
+own. **Previous screen** can reopen the case picker for a form on the first menu.
+If those forms all start with the same case selection, it returns to the first
+menu. On Android the next form that asks for that selection opens with the
+chosen case. In Web Apps people choose again.
 
 When a change to a module takes a destination away from one of its forms,
 Nova moves the form to the nearest one still offered and tells you.

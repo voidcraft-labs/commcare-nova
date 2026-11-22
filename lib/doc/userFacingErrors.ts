@@ -363,10 +363,10 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 				return `${form} goes to the parent module ${when}, but ${q(parentName)} is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
 			case "menu-forms-in-menu-above":
 				return `${form} goes to its module ${when}, but ${module} shows its forms in the menu above, so it has no screen of its own to land on.`;
+			case "previous-carries-other-case-type":
+				return `${form} would return to the first menu with a chosen case on Android. Another menu could open that case as a different record type. You can choose First menu to start with a fresh case choice.`;
 			case "parent-forms-in-menu-above":
 				return `${form} goes to the parent module ${when}, but ${q(parentName)} shows its forms in the menu above, so it has no screen of its own to land on.`;
-			case "menu-forms-on-first-menu":
-				return `${form} goes to the previous screen ${when}, but ${module} shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 			default:
 				return `${form} goes somewhere ${when} that ${module} doesn't offer.`;
 		}

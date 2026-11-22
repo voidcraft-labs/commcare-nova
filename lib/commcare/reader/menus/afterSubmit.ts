@@ -144,7 +144,7 @@ const AFTER_SUBMIT = {
 		"post_form_workflow",
 	),
 	previousOnFirstMenu: perClass(
-		refuse,
+		take,
 		"post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
 		"post_form_workflow",
 	),
@@ -1491,14 +1491,6 @@ function settleWord(
 	const facts = postSubmitModuleFacts(doc, reading.module.uuid);
 	// Each refusal is a class of the stored word, so it stands at the word too.
 	const wordAt = `${form.json.pointer}/post_form_workflow`;
-	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
-		ctx.accounting.findingAt(
-			AFTER_SUBMIT.previousOnFirstMenu[form.docType],
-			form.place,
-			wordAt,
-		);
-		return;
-	}
 	if (!postSubmitDestinationsOffered(doc, form.uuid).includes(destination)) {
 		ctx.accounting.findingAt(
 			AFTER_SUBMIT.wordNotOffered[form.docType],
@@ -1509,6 +1501,15 @@ function settleWord(
 			},
 		);
 		return;
+	}
+	if (word === "previous_screen" && facts?.formsOnFirstMenu === true) {
+		const claim = AFTER_SUBMIT.previousOnFirstMenu[form.docType];
+		ctx.accounting.claimEntryClass(
+			{ json: form.json, key: "post_form_workflow" },
+			claim.entry,
+			`schema:${form.docType}.post_form_workflow`,
+			form.place,
+		);
 	}
 	if (destination === defaultPostSubmitOf(doc, form.uuid)) return;
 	ctx.doc = withCandidate(doc, (draft) => {

@@ -17,6 +17,7 @@ from proof.native.hq_support import hq_commit, parse_xml_xpaths, sha256, shape, 
 FAMILIES = ("menu-screens",)
 
 DOCUMENTS = (
+    "first-menu-previous",
     "forms-in-menu-above",
     "forms-in-menu-above-nested",
     "forms-in-menu-above-one-case",

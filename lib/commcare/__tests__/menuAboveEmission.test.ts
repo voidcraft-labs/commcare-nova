@@ -525,7 +525,7 @@ describe("stacks of HQ's module-in-root shape", () => {
 			).toEqual(hqStackFrames(hqCommand));
 	});
 
-	it("projects HQ's frames for forms listed on the first menu, which Nova does not offer previous", () => {
+	it("projects the preceding frames for forms listed on the first menu", () => {
 		// HQ's m1-f0 pops to nothing; m1-f1, m2-f0 and m2-f1 keep their own
 		// command, since the root datums share no prefix.
 		for (const [hqCommand, moduleLabel, formLabel] of [

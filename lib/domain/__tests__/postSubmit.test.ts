@@ -228,12 +228,12 @@ describe("postSubmitDestinationsOffered", () => {
 	// HQ's build refuses `module` in a menu that shows its forms above and
 	// `parent_module` under such a parent
 	// (`validators.py::FormBaseValidator.validate_for_module`); a form
-	// listed on the first menu is not offered `previous`, whose HQ frame there
-	// is no screen before the form.
-	it("withholds module and previous from a top-level menu that shows its forms on the first menu", () => {
+	// listed on the first menu can return to its projected preceding frame.
+	it("offers Previous for a form shown on the first menu", () => {
 		expect(offered({ formsInMenuAbove: true })).toEqual([
 			"app_home",
 			"firstMenu",
+			"previous",
 		]);
 	});
 
@@ -274,7 +274,7 @@ describe("postSubmitDestinationsOffered", () => {
 	it("lists a submenu above under a parent above on the first menu", () => {
 		expect(
 			offered({ formsInMenuAbove: true, parent: { formsInMenuAbove: true } }),
-		).toEqual(["app_home", "firstMenu"]);
+		).toEqual(["app_home", "firstMenu", "previous"]);
 	});
 });
 
@@ -350,8 +350,8 @@ describe("otherwiseDestinationsOffered", () => {
 		[
 			"a menu that shows its forms on the first menu",
 			{ formsInMenuAbove: true },
-			"menu-forms-on-first-menu",
-			["firstMenu"],
+			"menu-forms-in-menu-above",
+			["firstMenu", "previous"],
 		],
 		[
 			"a parent above whose forms open one case",

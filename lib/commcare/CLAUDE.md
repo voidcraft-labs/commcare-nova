@@ -2586,3 +2586,7 @@ boundary for historical answers; source evidence is in
 ## Forms listed in another menu
 
 For a source-backed menu, the emitted command identifies the route menu and the physical ordinal of the source form, including earlier excluded forms. Both commands use the same source-form title and namespace. Export includes one physical XForm per owned form. The HQ output uses a version 2 ShadowModule with the deployment's menu and form IDs. The reader resolves exclusions and form endpoints through the aligned application resource's real form IDs. Downloaded form IDs can change independently. Relevance bypass belongs to an ordinary form endpoint. A mirror form endpoint runs only while the menu has an endpoint and lists the form. Its reserved ID survives either setting being turned off.
+
+### First-menu Previous frames
+
+The reader binds `previous_screen` to the form’s explicit Previous choice wherever the form’s menu offers it. The frame projector uses the actual ordered entries to distinguish a commandless Home frame from a form command that still needs a selection. For Android, the projected Home frame includes each other form and browse command that reads the same selected datum and record type. A shared datum that an unrelated command uses for a different record type raises a placed finding.

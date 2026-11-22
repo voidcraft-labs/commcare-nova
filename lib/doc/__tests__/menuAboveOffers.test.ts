@@ -206,7 +206,6 @@ describe("offers around a menu that shows its forms in the menu above", () => {
 			if (householdsAbove)
 				expect(menuAboveWithheldDestinations(doc, VISIT)).toEqual([
 					{ destination: "module", reason: "menu-forms-in-menu-above" },
-					{ destination: "previous", reason: "menu-forms-on-first-menu" },
 				]);
 			else expect(menuAboveWithheldDestinations(doc, VISIT)).toEqual([]);
 		});
