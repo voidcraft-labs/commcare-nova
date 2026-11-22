@@ -368,7 +368,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		});
 		await expect(clearDay).toBeDisabled();
 		await calendar
-			.getByRole("button", { name: "Change day", exact: true })
+			.getByRole("button", { name: /^Question \d+\. Change day$/ })
 			.click();
 		await page
 			.getByRole("button", { pressed: false })
