@@ -182,6 +182,7 @@ export const CASE_LIST_KEY_PARTS = {
  * of its own close are what it saves to cases.
  */
 export const FORM_KEY_PARTS = {
+	submitLabel: "settings",
 	entryPoint: "settings",
 	uuid: null,
 	id: "settings",
