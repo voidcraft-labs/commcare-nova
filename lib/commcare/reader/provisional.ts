@@ -44,7 +44,10 @@ import {
 	type ExpressionReading,
 	readExpressionsSteps,
 } from "./expressions";
-import { EXPRESSION_CLAIMS } from "./expressions/findings";
+import {
+	classifiedInstanceId,
+	EXPRESSION_CLAIMS,
+} from "./expressions/findings";
 import { slotForm } from "./expressions/readExpression";
 import {
 	instanceIdsRead,
@@ -513,14 +516,14 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 		for (const form of module.forms) {
 			const xform = form.xform;
 			if (xform === null) continue;
-			const ids = new Set<string>();
-			const held = heldByForm.get(form.uuid) ?? [];
-			for (const at of held)
-				for (const id of instanceIdsRead(pending[at]?.text ?? "")) ids.add(id);
-			const readClaims = held
-				.flatMap((at) => claimsBySource.get(at) ?? [])
-				.sort((a, b) => a - b)
-				.map((position) => reading.claims[position] as ExpressionClaim);
+			const readsById = new Map<string, number[]>();
+			for (const at of heldByForm.get(form.uuid) ?? []) {
+				for (const id of new Set(instanceIdsRead(pending[at]?.text ?? ""))) {
+					const registrations = readsById.get(id) ?? [];
+					registrations.push(at);
+					readsById.set(id, registrations);
+				}
+			}
 			const where = whereText(form.place);
 			let droppedFixture = false;
 			for (const [id, src] of xform.instanceSources) {
@@ -531,7 +534,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				const unread = unreadDeclarationUse(src);
 				const key = unread.key;
 				// A table only a choice list's itemset reads is that carrier's read.
-				if (!ids.has(id) && xform.carrierInstances.has(id)) {
+				if (!readsById.has(id) && xform.carrierInstances.has(id)) {
 					for (const one of declarationSites(declaration.element, key))
 						claimExpressionEntry(
 							ctx,
@@ -542,7 +545,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 						);
 					continue;
 				}
-				if (!ids.has(id)) {
+				if (!readsById.has(id)) {
 					const claim = unreadAt
 						.get(JSON.stringify([key, where, unread.entryId]))
 						?.shift();
@@ -567,10 +570,18 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 					if (claim.entryId === UNSERVED_MAYBE) droppedFixture = true;
 					continue;
 				}
-				const read = readClaims.find(
-					(claim) =>
-						index.entry(claim.entryId)?.surfaceKeys.includes(key) === true,
-				);
+				const scheme = classifiedInstanceId(id, src).split(":")[0];
+				// Several fixtures can appear in one expression. Each declaration takes
+				// the claim of its own read, including which kind of fixture supplied it.
+				const relevant = (readsById.get(id) ?? [])
+					.flatMap((at) => claimsBySource.get(at) ?? [])
+					.map((at) => reading.claims[at] as ExpressionClaim)
+					.filter((claim) =>
+						index.entry(claim.entryId)?.surfaceKeys.includes(key),
+					);
+				const read =
+					relevant.find((claim) => claim.key === `instance-scheme:${scheme}`) ??
+					relevant[0];
 				if (read === undefined) continue;
 				const standing = index.entry(read.entryId)?.standing;
 				if (
@@ -888,7 +899,11 @@ function readsOfRefusedInlineInstances(
 	const under = new Map<number, Finding>();
 	if (refusedByForm.size === 0) return under;
 	ctx.pending.list().forEach((registration, index) => {
-		if (reading.bound[index] !== undefined) return;
+		if (
+			registration.mode.target !== "xform" ||
+			reading.bound[index] !== undefined
+		)
+			return;
 		const owner = slotForm(reading.doc, registration.ref);
 		const refused = owner === undefined ? undefined : refusedByForm.get(owner);
 		if (refused === undefined) return;

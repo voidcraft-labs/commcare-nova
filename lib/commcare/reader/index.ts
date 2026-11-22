@@ -232,15 +232,12 @@ export function* readHqLookupTagsSteps(
 				registration.text.includes("instance")
 					? readStoredNameSyntax(registration.text)
 					: undefined;
-			const syntax =
-				raw?.ok && raw.node !== undefined
-					? raw.node
-					: prepared.ok
-						? prepared.syntax
-						: undefined;
-			if (syntax === undefined) continue;
+			const ids = new Set(prepared.ok ? instanceIdsIn(prepared.syntax) : []);
+			if (raw?.ok && raw.node !== undefined) {
+				for (const id of instanceIdsIn(raw.node)) ids.add(id);
+			}
 			const sources = instanceSourcesOf(doc, registration, env);
-			for (const id of instanceIdsIn(syntax)) {
+			for (const id of ids) {
 				const source = sources?.get(id);
 				const actual = source === undefined ? id : canonicalInstanceId(source);
 				if (actual?.startsWith("item-list:"))

@@ -10,7 +10,14 @@ validator; emitted wire shapes remain behind `lib/commcare`.
 `grammar.lezer.grammar` defines the syntax. `parser.ts` and `parser.terms.ts` are
 committed generated files; regenerate them with `scripts/build-xpath-parser.ts`.
 `hashtagGuard.ts` keeps a hashtag contiguous and stays aligned with the domain
-hashtag matchers through the divergence corpus.
+hashtag matchers through the divergence corpus. `coreNameTokens.ts` reads each
+QName from the pinned Core lexer’s UTF-16 name alphabet. Web Apps uses the
+build JVM’s table. Apps that run on Android also need the alphabet supported
+from Android API 23. `proof/android/lookup_names/probe.py` records the complete
+range tables from Core on the JVM and on ART and checks the product tables.
+To regenerate a table, use the probe’s `.ranges` output for JDK 17 or API 23
+and format it with Biome. The reader can parse stored XML names for a precise
+refusal, but only a runtime parse is eligible to supply a saved expression.
 
 `formSyntax.ts` converts the Lezer tree into a finite syntax tree. It retains
 source spans for diagnostics, never as saved executable text. `expressionAst.ts`

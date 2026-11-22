@@ -15,7 +15,6 @@ import { recordFromEntries } from "@/lib/domain/records";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
@@ -23,7 +22,11 @@ import {
 } from "../../xpath/functionCapabilities";
 import { sharedFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
-import { EXPRESSION_CLAIMS, visitSyntax } from "./findings";
+import {
+	classifiedInstanceId,
+	EXPRESSION_CLAIMS,
+	visitSyntax,
+} from "./findings";
 
 const C = EXPRESSION_CLAIMS;
 
@@ -232,18 +235,6 @@ const NO_FACTS: SurfaceUseFacts = {
 	shorthand: false,
 	fixtureValue: false,
 };
-
-/** The id an `instance()` read is classed under: in a form, the id the source
- *  it declares for the id names, since Core reads the instance its source
- *  gives (a table's `jr://fixture/item-list:<tag>` under the bare tag Nova
- *  writes is `item-list:<tag>`); elsewhere, and for a source no id names,
- *  the id as written. */
-function classedInstanceId(id: string, facts: SurfaceUseFacts): string {
-	const source = facts.instanceSources.get(id);
-	if (source === "jr://fixture/commtrack:locations")
-		return id === "locations" ? id : "commtrack:locations";
-	return (source === undefined ? undefined : canonicalInstanceId(source)) ?? id;
-}
 
 /** The session path key and class a path through the session instance makes. */
 function sessionUse(
@@ -488,7 +479,10 @@ function xpathUses(
 					const id =
 						node.args[0] === undefined ? undefined : bare(node.args[0]);
 					if (node.name === "instance" && id?.kind === "string") {
-						const classed = classedInstanceId(id.value, facts);
+						const classed = classifiedInstanceId(
+							id.value,
+							facts.instanceSources.get(id.value),
+						);
 						uses.add(
 							`instance-scheme:${scheme(classed)}`,
 							instanceClass(classed, context, facts),

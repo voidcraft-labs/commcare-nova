@@ -205,8 +205,8 @@ function instanceChain(node: FormSyntax):
 }
 
 /** A ref that is one name step: the column's or the property's name. */
-function singleName(text: string): string | undefined {
-	const read = readStoredNameSyntax(text);
+function singleName(text: string, storedName = false): string | undefined {
+	const read = storedName ? readStoredNameSyntax(text) : readFormSyntax(text);
 	if (!read.ok || read.node?.kind !== "name" || read.node.wildcard)
 		return undefined;
 	return read.node.name;
@@ -271,7 +271,8 @@ function readItemset(
 		return undefined;
 	}
 	const nodeset = plain(itemset, "nodeset") ?? "";
-	const read = readStoredNameSyntax(nodeset);
+	const runtime = readFormSyntax(nodeset);
+	const read = runtime.ok ? runtime : readStoredNameSyntax(nodeset);
 	const chain =
 		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
 	const labelRef = plain(label, "ref") ?? "";
@@ -311,8 +312,8 @@ function readItemset(
 			cursor.refuseSubtreeAt(itemset, refOf(label), X.itemsetItextLabel, place);
 			return undefined;
 		}
-		const labelName = singleName(labelRef);
-		const valueName = singleName(valueRef);
+		const labelName = singleName(labelRef, true);
+		const valueName = singleName(valueRef, true);
 		if (labelName === undefined || valueName === undefined) {
 			cursor.refuseSubtreeAt(
 				itemset,
@@ -399,6 +400,7 @@ function readItemset(
 
 	// The worker's cases, in the shape Nova writes (`caseOptions.ts::caseOptionsNodeset`).
 	if (
+		runtime.ok &&
 		source === "jr://instance/casedb" &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&

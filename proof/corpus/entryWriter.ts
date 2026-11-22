@@ -137,7 +137,7 @@ import {
 	LOCAL_CONFIGURATION,
 	OPERATION_ORDINALS,
 } from "./entropy.mts";
-import { fixtureRowsFilename } from "./fixtureRowsFilename";
+import { fixtureRowsFiles } from "./fixtureRowsFilename";
 import { type Footprint, wireLanguages, wireLayout } from "./footprint";
 import {
 	EMPTY_LIST_TEXT_ARCHIVE,
@@ -964,7 +964,7 @@ type ServedFieldValue =
  * holds them before Nova's first publish over A (`PublishInput.hqTables`):
  * each table HQ's table list answered (`lookup-tables.json`), under the id
  * HQ gave it, with its rows as HQ's rows read answered them
- * (`fixtureRowsFilename`) where the base retains that read, and its
+ * (`fixtureRowsFiles`) where the base retains that read, and its
  * description and each row's attributes as HQ's models hold them
  * (`tables.json`). A table whose rows no reading asked for holds none here,
  * and no publish over A reads them.
@@ -994,19 +994,21 @@ async function retainedPeerTables(retained: string): Promise<PeerTable[]> {
 			}[])
 		: [];
 	const tables: PeerTable[] = [];
+	const files = fixtureRowsFiles(await readdir(retained));
 	for (const table of list.objects ?? []) {
 		const model = modelled.find((one) => one.tag === table.tag);
-		const rowsPath = join(retained, fixtureRowsFilename(table.tag));
-		const served = existsSync(rowsPath)
-			? ((
-					(await retainedBody(rowsPath)) as {
-						readonly objects?: readonly {
-							readonly id: string;
-							readonly fields: Readonly<Record<string, ServedFieldValue>>;
-						}[];
-					}
-				).objects ?? [])
-			: [];
+		const name = files.get(table.tag);
+		const served =
+			name !== undefined
+				? ((
+						(await retainedBody(join(retained, name))) as {
+							readonly objects?: readonly {
+								readonly id: string;
+								readonly fields: Readonly<Record<string, ServedFieldValue>>;
+							}[];
+						}
+					).objects ?? [])
+				: [];
 		tables.push({
 			id: table.id,
 			tag: table.tag,

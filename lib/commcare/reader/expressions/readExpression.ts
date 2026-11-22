@@ -118,6 +118,7 @@ import { InstanceSink } from "../../xpath/wire/instances";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import {
+	expandHqShortcuts,
 	type HqInterpolationSlot,
 	hqInterpolationSlot,
 	interpolateHqXPath,
@@ -1644,10 +1645,21 @@ export function bindSlot(
 		/[^ -~]|\./u.test(pending.text) &&
 		catalogNeedsNameDiagnostics(env)
 	) {
-		const original = readStoredNameSyntax(pending.text);
+		const mode = pending.mode;
+		const site =
+			mode.target === "hq-json" &&
+			mode.interpolation !== "none" &&
+			mode.interpolation !== "enum-key"
+				? hqInterpolationSlot(doc, pending.ref, mode.interpolation)
+				: undefined;
+		const spelling =
+			site === undefined
+				? pending.text
+				: expandHqShortcuts(pending.text, site.caseXPath);
+		const original = readStoredNameSyntax(spelling);
 		if (original.ok && original.node !== undefined) {
 			const raw = bindFormSyntax(
-				pending.text,
+				spelling,
 				readingScope(doc, pending, env, withdrawn),
 				original.node,
 			);

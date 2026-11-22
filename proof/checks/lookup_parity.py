@@ -168,3 +168,58 @@ def differences(document, manifest, tags, reads, claims):
             )
         )
     return found
+
+
+OMITTED_INSTANCE = "expressions-and-data/lookup-table-instance-undiscovered-in-suite"
+INTERPOLATED_COLUMN = "expressions-and-data/dotted-column-interpolated-in-suite"
+
+
+def _lookup_condition_names(tree):
+    """Yield the literal fixture instance and each column its parsed location path selects or tests."""
+    if not isinstance(tree, list) or not tree:
+        return
+    if tree[0] == "path" and tree[1].startswith("instance:item-list:"):
+        instance_id = tree[1].removeprefix("instance:")
+        names = set()
+
+        def columns(node):
+            if not isinstance(node, list) or not node:
+                return
+            if node[0] == "path":
+                if node[1] == "relative":
+                    names.update(test for axis, test, _ in node[4] if axis == "child")
+            else:
+                for part in node:
+                    columns(part)
+
+        # The first two steps identify the list and row tags. A predicate on
+        # that row and the result path following it refer to its columns.
+        names.update(test for axis, test, _ in tree[4][2:] if axis == "child")
+        for predicate in tree[3]:
+            columns(predicate)
+        yield instance_id, names
+    for nested in tree:
+        yield from _lookup_condition_names(nested)
+
+
+def changed_form_condition_refusals(base, variant):
+    """Uses at changed form conditions. HQ's own parser identifies the lookup and column; its actual suite
+    discovery and dot interpolation determine each failing class without reading the variant's expected result."""
+    from corehq.apps.app_manager.suite_xml.post_process.instances import get_instance_names
+    from corehq.apps.app_manager.xpath import dot_interpolate
+    from proof.observe.manifest import expression_tree
+
+    for m, (old_module, module) in enumerate(zip(base.get("modules", []), variant.get("modules", []))):
+        for f, (old_form, form) in enumerate(zip(old_module["forms"], module["forms"])):
+            text = form.get("form_filter")
+            if not text or text == old_form.get("form_filter"):
+                continue
+            declared = get_instance_names(text)
+            issues = set()
+            for instance_id, columns in _lookup_condition_names(expression_tree(text)):
+                if instance_id not in declared:
+                    issues.add(("lookup-model:LookupTable.tag", OMITTED_INSTANCE))
+                elif any(dot_interpolate(name, "CURRENT") != name for name in columns):
+                    issues.add(("lookup-model:TypeField.name", INTERPOLATED_COLUMN))
+            for key, entry in sorted(issues):
+                yield key, f"/modules/{m}/forms/{f}/form_filter", entry

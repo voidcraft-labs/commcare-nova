@@ -160,19 +160,21 @@ describe("readReadingProjectData", () => {
 
 	it("reads only the rows reached by the form's local alias, even when prose, a declaration, or a longer tag mentions another table", async () => {
 		const source = await sourceNoting(
-			"Notes about item-list:plain and item-list:unused",
-			"count(instance('item-list:plain')/plain-west_list/plain-west) > 0",
-			'<instance id="item-list:plain" src="jr://fixture/item-list:plain-west"/><instance id="optional" src="jr://fixture/item-list:unused"/>',
+			"Notes about item-list:locations and item-list:unused",
+			"count(instance('item-list:locations')/locations-west_list/locations-west) > 0",
+			'<instance id="item-list:locations" src="jr://fixture/item-list:locations-west"/><instance id="optional" src="jr://fixture/item-list:unused"/>',
 		);
 		await withHttpPeer(async (peer) => {
-			const tables = ["plain", "plain-west", "unused"].map((tag, index) => ({
-				id: String(index + 1).padStart(32, "0"),
-				tag,
-				fields: [{ field_name: "code", properties: [] }],
-				is_global: true,
-				item_attributes: [],
-				resource_uri: "",
-			}));
+			const tables = ["locations", "locations-west", "unused"].map(
+				(tag, index) => ({
+					id: String(index + 1).padStart(32, "0"),
+					tag,
+					fields: [{ field_name: "code", properties: [] }],
+					is_global: tag !== "locations-west",
+					item_attributes: [],
+					resource_uri: "",
+				}),
+			);
 			serveJson(peer, LIST, {
 				meta: { limit: 100, offset: 0, next: null, total_count: 3 },
 				objects: tables,
@@ -186,7 +188,13 @@ describe("readReadingProjectData", () => {
 				source,
 				emptyProject({ dataBytes: 0, largestRowBytes: 0 }),
 			);
-			expect(reply.kind).toBe("read");
+			if (reply.kind !== "read") throw new Error("The table read failed");
+			const [remote] = reply.data.gathered.tables;
+			expect(remote.read.table.tag).toBe("locations-west");
+			expect(remote.findings.map((finding) => finding.detail.name)).toContain(
+				"locations-west: rows limited to certain users",
+			);
+			expect(remote.binding).toBeNull();
 			expect(
 				peer
 					.getCallHistory()

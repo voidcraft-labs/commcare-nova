@@ -213,11 +213,10 @@ def main():
     expected = json.loads(
         (ROOT / "lib/domain" / ("androidNameRanges.json" if args.avd else "portableNameRanges.json")).read_text()
     )
+    def units(pairs):
+        return {n for start, end in zip(pairs[::2], pairs[1::2]) for n in range(start, end + 1)}
+
     for kind, boundaries in expected.items():
-
-        def units(pairs):
-            return {n for start, end in zip(pairs[::2], pairs[1::2]) for n in range(start, end + 1)}
-
         wanted, observed = units(boundaries), units(ranges[kind])
         if result.get("api") in (23, None):
             agrees = wanted == observed

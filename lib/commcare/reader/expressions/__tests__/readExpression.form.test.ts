@@ -32,6 +32,7 @@ import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { simpleSearchInputDef } from "@/lib/domain/modules";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { expressionSlotKey } from "@/lib/domain/referenceSlots";
+import { wireTable } from "../../../lookup/__tests__/lookupWireCorpus";
 import { parseIssueEntry } from "../findings";
 import { readExpressions } from "../index";
 import { readExpression } from "../readExpression";
@@ -360,6 +361,73 @@ describe("a form slot's text read through the reading hook", () => {
 		expect(list).toMatchObject({
 			left: { via: { kind: "table-rows", tableId: results.id } },
 		});
+	});
+
+	it("distinguishes a missing suite instance, a rewritten column, a preserved decimal period and a stored-only XML name", () => {
+		const doc = visitDoc();
+		const form = onlyForm(doc);
+		const ref = {
+			entity: "form",
+			uuid: form,
+			slot: "form_display_condition",
+		} as const;
+		const judge = (tag: string, column: string, condition: string) => {
+			const table = wireTable(tag, [{ name: column, type: "text" }]);
+			return readExpression(
+				doc,
+				registration(doc, ref, condition),
+				readEnv({ lookup: new Map([[table.id, table]]) }),
+			);
+		};
+		const read = (tag: string, column: string) =>
+			`count(instance('item-list:${tag}')/${tag}_list/${tag}[${column} = 'garden']) > 0`;
+		expect(judge("meeting.1", "code", read("meeting.1", "code"))).toMatchObject(
+			{
+				kind: "refused",
+				cause: {
+					entryId:
+						"expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+					name: "meeting.1",
+				},
+			},
+		);
+		expect(
+			judge("ζωνες", "zone.name", read("ζωνες", "zone.name")),
+		).toMatchObject({
+			kind: "refused",
+			cause: {
+				entryId: "expressions-and-data/dotted-column-interpolated-in-suite",
+				name: "zone.name",
+			},
+		});
+		expect(judge("ζωνες", "zone.1", read("ζωνες", "zone.1"))).toMatchObject({
+			kind: "bound",
+			equal: true,
+		});
+		expect(judge("ζωνες", "名前", read("ζωνες", "名前"))).toMatchObject({
+			kind: "refused",
+			cause: {
+				entryId:
+					"expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
+				name: "名前",
+			},
+		});
+		expect(
+			judge(
+				"ζωνες",
+				"zone.name",
+				`#case/age > 1 and ${read("ζωνες", "zone.name")}`,
+			),
+		).toMatchObject({
+			kind: "refused",
+			cause: {
+				entryId: "expressions-and-data/dotted-column-interpolated-in-suite",
+				name: "zone.name",
+			},
+		});
+		expect(
+			judge("ζωνες", "zone.name", "'zone.name' = 'zone.name'"),
+		).toMatchObject({ kind: "bound", equal: true });
 	});
 
 	it("reads an instance declared from jr://fixture/user-groups as the groups read Nova holds later", () => {

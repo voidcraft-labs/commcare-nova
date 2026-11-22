@@ -24,12 +24,8 @@ import {
 	TYPES_SHEET,
 } from "@/lib/commcare/lookup/workbook";
 import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
-import type {
-	ReaderLookupCatalog,
-	ReadOutcome,
-} from "@/lib/commcare/reader/types";
+import type { ReaderLookupCatalog } from "@/lib/commcare/reader/types";
 import { xmlTextIssue } from "@/lib/commcare/xmlText";
-import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
@@ -73,36 +69,6 @@ import {
 	type LookupTableChoice,
 	type ReviewTable,
 } from "./reviewTypes";
-
-// ---------------------------------------------------------------------------
-// Which tables the app reads
-// ---------------------------------------------------------------------------
-
-/**
- * The tags the reader read: those of the tables the document references
- * through `catalog`, and each tag of `ReadFacts.unreadTables` an expression or
- * an itemset reads, each once, in code-unit order. A table a form only
- * declares (`declaredOnly`) is read by nothing and comes in with nothing.
- */
-export function lookupTagsRead(
-	read: Extract<ReadOutcome, { kind: "read" }>,
-	catalog: ReaderLookupCatalog,
-): readonly string[] {
-	const tags = new Set<string>();
-	for (const tableId of extractLookupReferenceTargets(read.draft.doc)
-		.tableIds) {
-		const definition = catalog.definitions.get(tableId);
-		if (definition === undefined) {
-			throw new Error(
-				`A reading's document references the lookup table ${tableId}, which its catalog does not hold.`,
-			);
-		}
-		tags.add(definition.tag);
-	}
-	for (const unread of read.draft.facts.unreadTables)
-		if (unread.declaredOnly !== true) tags.add(unread.tag);
-	return [...tags].sort(compareCodeUnits);
-}
 
 function compareCodeUnits(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;

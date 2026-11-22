@@ -230,6 +230,10 @@ def variant_differences(base_source: dict, variant_source: dict, claims, entries
     """A variant's parity, as the lane judges one (the row's own uses, ``row_uses``, joined to its claim log): the
     uses judged, and the differences. A row whose judged uses are none is one the lane's check does not decide."""
     uses = row_uses(added_uses(base_source, variant_source), claims, entries)
+    if {lookup_parity.OMITTED_INSTANCE, lookup_parity.INTERPOLATED_COLUMN}.intersection(entries):
+        by_id = _entries_by_id(manifest())
+        for key, where, entry in lookup_parity.changed_form_condition_refusals(base_source, variant_source):
+            uses.append(Decided(manifest_usage.Use(key, "app.json", where), manifest_usage.REFUSED, (by_id[entry],)))
     return uses, join(uses, claims, document=document)
 
 

@@ -52,7 +52,7 @@ import {
 } from "./documents";
 import { hydrateAdmittedDocument } from "./editBatches";
 import { WORKTREE } from "./emissionProcess";
-import { fixtureRowsTag } from "./fixtureRowsFilename";
+import { fixtureRowsFiles } from "./fixtureRowsFilename";
 import type { UploadedMedia } from "./publish";
 
 /** Where the retained bases live, from the checkout's root. */
@@ -251,14 +251,12 @@ export function loadRetainedHqApp(
 		readonly mimeType: string;
 		readonly extension: string;
 	}[];
-	const fixtureRows: Record<string, RetainedHqAnswer> = Object.create(null);
-	for (const name of readdirSync(directory).sort()) {
-		const tag = fixtureRowsTag(name);
-		if (tag === undefined) continue;
-		if (Object.hasOwn(fixtureRows, tag))
-			fail(directory, `holds two fixture row answers for ${tag}`);
-		fixtureRows[tag] = answer(directory, name);
-	}
+	const fixtureRows = Object.fromEntries(
+		Array.from(
+			fixtureRowsFiles(readdirSync(directory).sort()),
+			([tag, file]) => [tag, answer(directory, file)],
+		),
+	);
 	const locationTypes = optionalAnswer(directory, "location-types.json");
 	const locations = optionalAnswer(directory, "locations.json");
 	const mediaReads = optionalJson(directory, "media-reads.json") as

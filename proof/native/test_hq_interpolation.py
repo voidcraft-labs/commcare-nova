@@ -247,6 +247,8 @@ def test_hq_suite_lookup_discovery_and_column_interpolation_have_distinct_bounda
     from corehq.apps.app_manager.xpath import interpolate_xpath
     import pytest
 
+    from proof.checks import lookup_parity
+
     module = Module.new_module("Visits", "en")
     results = []
     for tag, field, preserved, discovered in [
@@ -255,7 +257,7 @@ def test_hq_suite_lookup_discovery_and_column_interpolation_have_distinct_bounda
         ("meeting", "a1.b", True, True),
         ("meeting", "a.١", True, True),
         ("a.1", "id", True, False),
-        ("ⓐ", "id", True, False),
+        ("a\N{COMBINING GREEK YPOGEGRAMMENI}", "id", True, False),
         ("ζωνες", "région", True, True),
     ]:
         expression = f"instance('item-list:{tag}')/{tag}_list/{tag}/{field}"
@@ -282,6 +284,15 @@ def test_hq_suite_lookup_discovery_and_column_interpolation_have_distinct_bounda
             else set()
         )
         assert not unknown
+        def source(condition):
+            return {"modules": [{"forms": [{"form_filter": condition}]}]}
+        classified = list(lookup_parity.changed_form_condition_refusals(source("true()"), source(expression)))
+        expected = [] if discovered and preserved else [(
+            "lookup-model:TypeField.name" if discovered else "lookup-model:LookupTable.tag",
+            "/modules/0/forms/0/form_filter",
+            lookup_parity.INTERPOLATED_COLUMN if discovered else lookup_parity.OMITTED_INSTANCE,
+        )]
+        assert classified == expected
         results.append(
             {
                 "tag": tag,

@@ -179,11 +179,17 @@ export function validateLookupReferences(
 		);
 		if (issue === null) return;
 		const subject = part === "tag" ? "table" : "column";
+		const recovery =
+			issue === "unreadable-name" &&
+			lookupPathNameIssue(name, occurrence.registrySlot, part, ["web-apps"]) ===
+				null
+				? `You can choose another ${subject}, or set the app to run in Web Apps only if that's where your workers use it.`
+				: `You can choose another ${subject} for this setting.`;
 		errors.push(
 			validationError(
 				"LOOKUP_PATH_NAME_UNAVAILABLE",
 				occurrence.location.scope,
-				`This setting uses the ${subject} export name “${name}”. ${lookupPathNameExplanation(issue)} You can choose another ${subject} for this setting.`,
+				`This setting uses the ${subject} export name “${name}”. ${lookupPathNameExplanation(issue)} ${recovery}`,
 				occurrenceLocation(occurrence),
 				occurrenceDetails(occurrence, { name, part, issue }),
 			),

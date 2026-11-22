@@ -1496,6 +1496,8 @@ def read_scheme(manifest, instance_id, declared):
     # HQ's locations factory and its generic commtrack factory can supply the same hierarchical tree.
     if instance_id == "locations" and src == "jr://fixture/commtrack:locations":
         return "locations"
+    if src == "jr://instance/search-input":
+        return "search-input"
     named = _preset_sources(manifest).get(src)
     for prefix, spelled in SOURCE_NAMES:
         if named is None and src.startswith(prefix) and len(src) > len(prefix):
