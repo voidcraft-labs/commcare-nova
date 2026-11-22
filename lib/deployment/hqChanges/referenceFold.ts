@@ -25,6 +25,7 @@ import {
 } from "@/lib/domain";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { CasePropertyRename } from "@/lib/publish/hqChangesKinds";
+import { activeCasePropertyRenames } from "./renameLineage";
 export type ReferenceDocument =
 	| {
 			readonly kind: "ok";
@@ -62,10 +63,31 @@ export type FoldedDeploymentReference =
 			readonly doc: BlueprintDoc;
 			readonly projectId: string;
 			readonly editorBefore: boolean;
+			readonly activeRenames: readonly CasePropertyRename[];
+			/** Historical release verdict at this boundary, including a retired name
+			 * it still displayed. Serving never uses this as continuation evidence. */
 			readonly renamesSince: readonly CasePropertyRename[];
 			readonly actors: readonly string[];
 	  }
 	| Exclude<ReferenceDocument, { kind: "ok" }>;
+
+export const displayedPropertyRenamesSchema = z.array(
+	z.strictObject({
+		caseType: z.string().min(1),
+		from: z.string().min(1),
+		to: z.string().min(1),
+	}),
+);
+export const activePropertyRenamesSchema =
+	displayedPropertyRenamesSchema.refine((moves) => {
+		const destinations = new Set<string>();
+		return moves.every((move) => {
+			const key = JSON.stringify([move.caseType, move.to]);
+			if (move.from === move.to || destinations.has(key)) return false;
+			destinations.add(key);
+			return true;
+		});
+	}, "A live rename must identify one non-neutral destination per case type.");
 
 export const storedReferenceSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
@@ -74,13 +96,8 @@ export const storedReferenceSchema = z.discriminatedUnion("kind", [
 		projectId: z.string().min(1),
 		editorBefore: z.boolean(),
 		actors: z.array(z.string().min(1)),
-		renamesSince: z.array(
-			z.strictObject({
-				caseType: z.string(),
-				from: z.string(),
-				to: z.string(),
-			}),
-		),
+		renamesSince: displayedPropertyRenamesSchema,
+		activeRenames: activePropertyRenamesSchema,
 	}),
 	z.strictObject({ kind: z.literal("nova-updated") }),
 	z.strictObject({ kind: z.literal("app-moved") }),
@@ -172,13 +189,25 @@ export function foldServerRows(
 				break;
 		}
 	}
+	const activeRenames = activeCasePropertyRenames(
+		rows,
+		prior.activeRenames,
+		editorAtStart,
+		reduced,
+		(editor, caseType, property) =>
+			removalRetiresCaseProperty(
+				buildCaseTypeMap(editor).get(caseType),
+				property,
+			),
+	);
 	return {
 		kind: "ok",
 		doc,
 		projectId,
 		editorBefore,
 		actors: actorsOf(rows, prior.actors),
-		renamesSince: netRenames(rows, prior.renamesSince, editorAtStart),
+		activeRenames,
+		renamesSince: rows.length === 0 ? prior.renamesSince : activeRenames,
 	};
 }
 
@@ -340,80 +369,6 @@ function withoutSecondOfASlug(
 	drop("userProperties", "userPropertyOrder", users);
 	drop("locationProperties", "locationPropertyOrder", places);
 	return hydratePersistedBlueprint(next as PersistableDoc);
-}
-
-/**
- * The `renameCaseProperties` commands of the editor rows folded in order: a
- * rename of a name an earlier rename gave continues that rename, so a rename
- * and its rename back cancel. Only the pairs whose two names differ are kept.
- */
-function netRenames(
-	rows: readonly AdmittedDurableAppChange[],
-	prior: readonly CasePropertyRename[],
-	editorAtStart: () => BlueprintDoc,
-): readonly CasePropertyRename[] {
-	let renames = [...prior];
-	// Reconstruct the editor document only as far as the last explicit removal.
-	// A certificate carries the target's server-only document, while the app's
-	// immutable snapshot at that same fold carries the actual editor state.
-	const lastRemoval = rows.findLastIndex((row) =>
-		row.mutations.some((m) => m.kind === "removeCaseProperty"),
-	);
-	let editor = lastRemoval < 0 ? undefined : editorAtStart();
-	for (const [index, row] of rows.entries()) {
-		if (editor && index <= lastRemoval) editor = reduced(editor, row.mutations);
-		for (const mutation of row.mutations) {
-			if (
-				mutation.kind === "removeCaseProperty" &&
-				editor &&
-				renames.some(
-					(r) => r.caseType === mutation.caseType && r.to === mutation.property,
-				)
-			) {
-				if (
-					removalRetiresCaseProperty(
-						buildCaseTypeMap(editor).get(mutation.caseType),
-						mutation.property,
-					)
-				)
-					renames = renames.filter(
-						(r) =>
-							r.caseType !== mutation.caseType || r.to !== mutation.property,
-					);
-			}
-			if (
-				mutation.kind !== "renameCaseProperties" ||
-				!EDITOR_KINDS.has(row.kind)
-			)
-				continue;
-			// Sources in a simultaneous command name the facts before it. An
-			// occupied destination outside those sources would have refused the
-			// saved-data rename; a reused destination cannot continue an old slot.
-			const previous = renames;
-			const moved = mutation.renames;
-			renames = previous.flatMap((prior) => {
-				const move = moved.find(
-					(r) => r.caseType === prior.caseType && r.from === prior.to,
-				);
-				if (move)
-					return prior.from === move.to ? [] : [{ ...prior, to: move.to }];
-				return moved.some(
-					(r) => r.caseType === prior.caseType && r.to === prior.to,
-				)
-					? []
-					: [prior];
-			});
-			for (const move of moved) {
-				if (
-					!previous.some(
-						(r) => r.caseType === move.caseType && r.to === move.from,
-					)
-				)
-					renames.push({ ...move });
-			}
-		}
-	}
-	return renames;
 }
 
 /** Each member who made a person's change in the range, once, in the order of their first. */

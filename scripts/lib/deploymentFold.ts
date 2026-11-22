@@ -270,6 +270,7 @@ async function visitDeploymentReferences(
 						editorBefore: old.editorBefore,
 						actors: old.actors,
 						renamesSince: old.renamesSince,
+						activeRenames: old.activeRenames,
 					}
 				: old;
 		const projected = projectDeploymentReference(state, nextHead);
@@ -277,6 +278,10 @@ async function visitDeploymentReferences(
 			old.kind === "ok" &&
 			(projected.kind !== "ok" ||
 				old.projectId !== projectId ||
+				canonicalJsonDigest(projected.renamesSince) !==
+					canonicalJsonDigest(old.renamesSince) ||
+				canonicalJsonDigest(projected.actors) !==
+					canonicalJsonDigest(old.actors) ||
 				canonicalJsonDigest(
 					toPersistableDoc(converted(input, old.published)),
 				) !== canonicalJsonDigest(toPersistableDoc(projected.doc)) ||

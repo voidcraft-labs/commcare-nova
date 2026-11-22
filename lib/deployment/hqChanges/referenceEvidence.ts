@@ -54,6 +54,7 @@ export function foldReferenceEvidence(
 			editorBefore: false,
 			actors: [],
 			renamesSince: [],
+			activeRenames: [],
 		};
 	}
 	const rows = suffix.map((row) =>

@@ -94,6 +94,7 @@ import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import type { AppBaseline } from "../../types";
 import { planFromDocuments } from "../plan";
 import { loadReferenceDocument, usablePair } from "../reference";
+import { withReleasedFoldReader } from "./releasedFoldReader";
 
 const h = setupAppStateTestDb("hq_changes_reference_", {
 	authSchema: "migrated",
@@ -490,6 +491,147 @@ const remove = (property: string): Mutation => ({
 	property,
 });
 
+async function publishedRenameCase(
+	writer: boolean,
+	saved: Record<string, string>,
+) {
+	const target = { server: "india" as const, domain: "clinic" };
+	await h.seedProjectMember(OWNER, PROJECT, "owner");
+	await h.seedProjectMember(COLLEAGUE, PROJECT, "editor");
+	const db = h.db() as unknown as Kysely<Database>;
+	const store = new PostgresCaseStore({
+		projectId: PROJECT,
+		actorUserId: OWNER,
+		ownerId: OWNER,
+		db,
+		sampleGenerator: new HeuristicCaseGenerator(),
+	});
+	const source = buildDoc({
+		appName: "Published",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: ["a", "c"].map((name) => ({
+					name,
+					label: name,
+					data_type: "text",
+				})),
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								...(writer && {
+									caseWrite: { caseType: "patient", property: "a" },
+								}),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const appId = await h.seedAppWithBlueprint(source, {
+		owner: OWNER,
+		projectId: PROJECT,
+	});
+	const scope = {
+		appId,
+		projectId: PROJECT,
+		actorUserId: OWNER,
+		role: "owner",
+	};
+	const revision = await writeHqRoundTripHorizon(h.db(), appId, "Published");
+	const remoteId = crypto.randomUUID().replaceAll("-", "");
+	const when = new Date().toISOString();
+	await foldDeploymentAttempt(
+		scope,
+		target,
+		"preflight",
+		{ status: "succeeded", at: when },
+		{ ensure: true, expectedEndings: 0 },
+	);
+	await recordRemoteResource(scope, target, {
+		expectedEndings: 0,
+		kind: "app",
+		novaResourceId: appId,
+		remoteId,
+		ownership: "nova-created",
+		pushedRevision: revision,
+		remoteRevision: 1,
+		uploadedAt: when,
+		baseline: {
+			origin: "push",
+			remoteAppId: remoteId,
+			...storedRead(expandDoc(source), when),
+			ownership: OWNERSHIP,
+			novaRevision: revision,
+			discard: null,
+			mediaFiles: { kind: "keep" },
+			firstPublish: { kind: "keep" },
+		},
+	});
+	await store.applySchemaChange({
+		appId,
+		caseType: "patient",
+		caseTypeSchemas: buildCaseTypeMap(source),
+		syncedSeq: revision,
+	});
+	const caseId = crypto.randomUUID();
+	await store.insert({
+		appId,
+		row: {
+			case_id: caseId,
+			case_type: "patient",
+			case_name: "Retained case",
+			modified_on: new Date(),
+			properties: saved,
+		},
+	});
+	return { appId, revision, scope, target, caseId, db, store };
+}
+async function reviewRenameCase({
+	appId,
+	revision,
+	scope,
+	target,
+}: Awaited<ReturnType<typeof publishedRenameCase>>) {
+	const pair = await readAppBaseline(scope, target);
+	if (!pair || pair.origin === "unread")
+		throw new Error("The comparison is unavailable");
+	const now = await head(appId);
+	const ref = okOf(
+		await loadReferenceDocument({
+			appId,
+			novaRevision: revision,
+			head: now,
+			binding: pair.foldBinding,
+		}),
+	);
+	return {
+		ref,
+		plan: planFromDocuments({
+			ref: ref.doc,
+			now: now.doc,
+			base: ref.doc,
+			theirs: { ...ref.doc, appName: "Renamed in HQ" },
+			renamesSince: ref.renamesSince,
+		}),
+	};
+}
+
 interface RenameJourney {
 	name: string;
 	writer: boolean;
@@ -550,116 +692,12 @@ it.each<RenameJourney>([
 ])(
 	"carries the same take decision at every fold boundary: $name",
 	async (journey) => {
-		const target = { server: "india" as const, domain: "clinic" };
-		await h.seedProjectMember(OWNER, PROJECT, "owner");
-		await h.seedProjectMember(COLLEAGUE, PROJECT, "editor");
-		const db = h.db() as unknown as Kysely<Database>;
-		const store = new PostgresCaseStore({
-			projectId: PROJECT,
-			actorUserId: OWNER,
-			ownerId: OWNER,
-			db,
-			sampleGenerator: new HeuristicCaseGenerator(),
-		});
 		for (let cut = -1; cut <= journey.rows.length; cut++) {
-			const source = buildDoc({
-				appName: "Published",
-				caseTypes: [
-					{
-						name: "patient",
-						properties: ["a", "c"].map((name) => ({
-							name,
-							label: name,
-							data_type: "text",
-						})),
-					},
-				],
-				modules: [
-					{
-						name: "Patients",
-						caseType: "patient",
-						caseListConfig: caseListConfig([
-							{ field: "case_name", header: "Name" },
-						]),
-						forms: [
-							{
-								name: "Visit",
-								type: "followup",
-								fields: [
-									f({
-										kind: "text",
-										id: "note",
-										...(journey.writer && {
-											caseWrite: { caseType: "patient", property: "a" },
-										}),
-									}),
-								],
-							},
-						],
-					},
-				],
-			});
-			const appId = await h.seedAppWithBlueprint(source, {
-				owner: OWNER,
-				projectId: PROJECT,
-			});
-			const scope = {
-				appId,
-				projectId: PROJECT,
-				actorUserId: OWNER,
-				role: "owner",
-			};
-			const revision = await writeHqRoundTripHorizon(
-				h.db(),
-				appId,
-				"Published",
+			const published = await publishedRenameCase(
+				journey.writer,
+				journey.saved,
 			);
-			const remoteId = crypto.randomUUID().replaceAll("-", "");
-			const when = new Date().toISOString();
-			await foldDeploymentAttempt(
-				scope,
-				target,
-				"preflight",
-				{ status: "succeeded", at: when },
-				{ ensure: true, expectedEndings: 0 },
-			);
-			await recordRemoteResource(scope, target, {
-				expectedEndings: 0,
-				kind: "app",
-				novaResourceId: appId,
-				remoteId,
-				ownership: "nova-created",
-				pushedRevision: revision,
-				remoteRevision: 1,
-				uploadedAt: when,
-				baseline: {
-					origin: "push",
-					remoteAppId: remoteId,
-					...storedRead(expandDoc(source), when),
-					ownership: OWNERSHIP,
-					novaRevision: revision,
-					discard: null,
-					mediaFiles: { kind: "keep" },
-					firstPublish: { kind: "keep" },
-				},
-			});
-			await store.applySchemaChange({
-				appId,
-				caseType: "patient",
-				caseTypeSchemas: buildCaseTypeMap(source),
-				syncedSeq: revision,
-			});
-			const caseId = crypto.randomUUID();
-			await store.insert({
-				appId,
-				row: {
-					case_id: caseId,
-					case_type: "patient",
-					case_name: "Retained case",
-					modified_on: new Date(),
-					properties: journey.saved,
-				},
-			});
+			const { appId, db, caseId } = published;
 			await edit(appId, [{ kind: "setAppName", name: "Edited in Nova" }]);
 			for (let index = 0; index <= journey.rows.length; index++) {
 				if (index === cut) await certifyFold(h.db(), appId);
@@ -676,29 +714,10 @@ it.each<RenameJourney>([
 						guard: { mutations: [command] },
 					});
 			}
-			const pair = await readAppBaseline(scope, target);
-			if (!pair || pair.origin === "unread")
-				throw new Error("The comparison is unavailable");
-			const now = await head(appId);
-			const ref = okOf(
-				await loadReferenceDocument({
-					appId,
-					novaRevision: revision,
-					head: now,
-					binding: pair.foldBinding,
-				}),
-			);
+			const { ref, plan } = await reviewRenameCase(published);
 			expect(ref.actors).toEqual([OWNER, COLLEAGUE]);
 			expect(ref.renamesSince).toEqual(journey.renames);
-			expect(
-				planFromDocuments({
-					ref: ref.doc,
-					now: now.doc,
-					base: ref.doc,
-					theirs: { ...ref.doc, appName: "Renamed in HQ" },
-					renamesSince: ref.renamesSince,
-				}),
-			).toMatchObject({
+			expect(plan).toMatchObject({
 				kind: "changes",
 				appliedTo: "published",
 				renamedInNova: journey.renames,
@@ -716,6 +735,137 @@ it.each<RenameJourney>([
 	},
 	30000,
 );
+
+it("carries live saved values across the released decoder even when its displayed rename survives a removal", async () => {
+	await withReleasedFoldReader(async (migration) => {
+		const outward = [move("a", "b"), move("c", "d")],
+			back = [move("b", "a"), move("d", "c")];
+		// The release cuts straddle the removal and reuse of b. A writer in
+		// the control keeps that very same storage slot alive at both cuts.
+		for (const writer of [false, true])
+			for (const cut of [1, 2, 3]) {
+				const before: Record<string, string> = writer
+					? { a: "Original A", c: "Independent C" }
+					: { c: "Independent C" };
+				const published = await publishedRenameCase(writer, before);
+				const { appId, revision, store, db, caseId } = published;
+				const nextCase = crypto.randomUUID();
+				const mutations: Mutation[] = [
+					rename(...outward),
+					remove("b"),
+					{
+						kind: "addCaseProperty",
+						caseType: "patient",
+						after: null,
+						property: {
+							name: "b",
+							label: proseText("Worker response"),
+							data_type: "text",
+						},
+					},
+					rename(...back),
+					{ kind: "setAppName", name: "Edited in Nova" },
+				];
+				for (const [index, command] of mutations.entries()) {
+					if (index === cut) {
+						// The selected source release kept both a→b and c→d on its review,
+						// even after the empty b was retired. The operator preserves that
+						// exact decision through an immediate second fold with no suffix.
+						for (const cutover of [
+							"hq-round-trip-expressions",
+							"hq-round-trip-case-writes",
+						] as const) {
+							await certifyFold(
+								h.db(),
+								appId,
+								cutover,
+								cutover === "hq-round-trip-expressions"
+									? migration
+									: sameRepresentationFold,
+							);
+							const state = await h
+								.db()
+								.selectFrom("app_deployment_fold_references")
+								.select("state")
+								.where("app_id", "=", appId)
+								.orderBy("fold_seq", "desc")
+								.executeTakeFirstOrThrow();
+							expect(state.state).toMatchObject({
+								kind: "ok",
+								renamesSince: outward,
+								activeRenames: writer || cut === 1 ? outward : [move("c", "d")],
+							});
+							const { ref } = await reviewRenameCase(published);
+							expect(ref.renamesSince).toEqual(outward);
+						}
+					}
+					await applyBlueprintChangeProposal({
+						appId,
+						userId: index % 2 ? OWNER : COLLEAGUE,
+						expectedProjectId: PROJECT,
+						batchId: crypto.randomUUID(),
+						kind: "autosave",
+						guard: { mutations: [command] },
+					});
+					if (index === 2) {
+						const current = await head(appId);
+						await store.applySchemaChange({
+							appId,
+							caseType: "patient",
+							caseTypeSchemas: buildCaseTypeMap(current.doc),
+							syncedSeq: current.seq,
+						});
+						await store.insert({
+							appId,
+							row: {
+								case_id: nextCase,
+								case_type: "patient",
+								case_name: "Later case",
+								modified_on: new Date(),
+								properties: { b: "Later B" },
+							},
+						});
+					}
+				}
+				const { ref, plan } = await reviewRenameCase(published);
+				expect(ref.actors).toEqual([COLLEAGUE, OWNER]);
+				const moves = writer ? [] : [move("b", "a")];
+				expect(ref.renamesSince).toEqual(moves);
+				expect(
+					plan,
+					plan.kind === "changes"
+						? undefined
+						: JSON.stringify({ writer, cut, plan }),
+				).toMatchObject({
+					kind: "changes",
+					appliedTo: "published",
+					renamedInNova: moves,
+				});
+				if (plan.kind !== "changes") throw new Error("Expected a review.");
+				if (writer) expect(plan.batch.length).toBeGreaterThan(0);
+				else expect(plan.batch).toEqual([]);
+				for (const [id, saved] of [
+					[caseId, before],
+					[nextCase, { a: "Later B" }],
+				] as const) {
+					expect(
+						(
+							await db
+								.selectFrom("cases")
+								.select("properties")
+								.where("app_id", "=", appId)
+								.where("case_id", "=", id)
+								.executeTakeFirstOrThrow()
+						).properties,
+					).toEqual(saved);
+				}
+				expect(
+					(await readAppBaseline(published.scope, published.target))
+						?.novaRevision,
+				).toEqual(revision);
+			}
+	});
+}, 240_000);
 
 describe("published comparisons at a new fold", () => {
 	it("keeps two targets’ original revisions, composes the next edits and rebinds only the fresh reads", async () => {

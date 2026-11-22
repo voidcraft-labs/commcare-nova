@@ -1,6 +1,7 @@
 // Bootstrap for the release immediately preceding the certificate table.
-// The builder exposes four private functions of this exact release in its
+// The builder exposes the private pure functions of this exact release in its
 // temporary archive. All stored document and mutation parsing is the old code.
+import { buildCaseTypeMap } from "@/lib/case-store/store";
 import {
 	foldCanonicalAppChangeSuffixBounded,
 	parseFoldBaselineSnapshot,
@@ -10,6 +11,7 @@ import {
 	actorsOf,
 	foldServerRows,
 	netRenames,
+	reduced,
 	withHeadUnsent,
 	withoutSecondOfASlug,
 } from "@/lib/deployment/hqChanges/reference";
@@ -17,6 +19,8 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import { isStandardCaseListProperty } from "@/lib/domain";
+import { activeCasePropertyRenames } from "./step6-rename-lineage";
 export function readHead(text) {
 	return toPersistableDoc(parseFoldBaselineSnapshot(text));
 }
@@ -76,5 +80,21 @@ export function readReference(headText, evidence) {
 		editorBefore: actors.length > 0,
 		actors,
 		renamesSince: netRenames(rows),
+		// canonicalCommitKernel in this source release retains whole-type storage,
+		// standard properties, and catalog removals backed by a surviving writer.
+		activeRenames: activeCasePropertyRenames(
+			rows,
+			[],
+			() => hydratePersistedBlueprint(published.snapshot),
+			reduced,
+			(editor, caseType, name) => {
+				const type = buildCaseTypeMap(editor).get(caseType);
+				return (
+					!!type &&
+					!isStandardCaseListProperty(name) &&
+					!type.properties.some((property) => property.name === name)
+				);
+			},
+		),
 	};
 }

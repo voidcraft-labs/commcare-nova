@@ -6,9 +6,12 @@ import {
 	scanDeploymentFold,
 	writeDeploymentAwareFold,
 } from "@/scripts/lib/deploymentFold";
-import { sameRepresentationFold } from "@/scripts/lib/deploymentFoldArtifacts";
+import {
+	type DeploymentFoldMigration,
+	sameRepresentationFold,
+} from "@/scripts/lib/deploymentFoldArtifacts";
 
-/** Real conversion entry point with an unchanged representation. The focused
+/** Real conversion entry point with the selected source dialect. The focused
  * tests independently compare the worker and target values across this seam. */
 export async function certifyFold(
 	db: Kysely<AppDatabase>,
@@ -16,6 +19,7 @@ export async function certifyFold(
 	cutover:
 		| "hq-round-trip-expressions"
 		| "hq-round-trip-case-writes" = "hq-round-trip-expressions",
+	migration: DeploymentFoldMigration = sameRepresentationFold,
 ) {
 	const app = await loadApp(appId);
 	if (!app) throw new Error("The test app has no saved document.");
@@ -23,7 +27,7 @@ export async function certifyFold(
 		appId,
 		projectId: app.project_id,
 		headSeq: app.mutation_seq,
-		migration: sameRepresentationFold,
+		migration,
 	};
 	const inventory = await db
 		.transaction()

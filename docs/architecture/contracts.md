@@ -63,7 +63,11 @@ A review that would associate an HQ change with an existing Nova head checks tha
 head under lock. Active HQ app imports hold the fold. A publish prepared below
 the current horizon asks for a new publish before sending app content. A saved
 case-property rename has the same effect on the take decision across every fold,
-including when an old property name is reused.
+including when an old property name is reused. The certificate records the old
+release’s review at the cut and, separately, the origins of surviving case
+properties from its admitted commands and effective storage schema. An
+immediate second fold preserves both. A later edit composes with the surviving
+origins so moving data under a newly reused name still holds the take.
 
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the

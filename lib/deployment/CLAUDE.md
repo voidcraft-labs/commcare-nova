@@ -1068,7 +1068,11 @@ An incompatible app fold retains each target’s comparison independently.
 Prepare its private decoder with `node scripts/build-deployment-fold-reader.mjs --source <checkout> --revision <deployed-commit> --output <private-reader.mjs>`.
 The builder archives that Git tree, installs its exact dependency lock and bundles
 the release’s parser, reducers and projections. For the pre-certificate release
-it takes the deployed reference functions from that archive. Record the printed
+it takes the deployed reference functions from that archive. The retained
+PostgreSQL witness rebuilds the pre-certificate decoder in a temporary
+directory and checks its SHA-256. A shallow checkout running it locally needs
+the exact deployed Git object. A focused replay can use the same verified
+file through `NOVA_DEPLOYMENT_FOLD_TEST_READER`. Record the printed
 source commit, tree, lock hash and reader SHA-256 with the standalone converter’s
 SHA-256 and its JSON settings. Open these via `openDeploymentFoldMigration` in
 the scan and the writer. Both artifacts load from verified bytes. The receipt
@@ -1116,6 +1120,13 @@ the property keeps it, as does whole-type retirement. To distinguish those
 cases the fold reads the actual editor document at the command, starting a
 certified suffix from the app’s immutable head snapshot at the same fold.
 Only the server-folded document represents what the deployment received.
+The source decoder records both the renames its review displayed at the old
+head and the still-live property moves that another edit can continue.
+For the release before certificates, its review could continue displaying a
+retired property. Its admitted editor rows, its own reducer and the same
+effective-storage test its commit kernel used establish which moves survive.
+A fold with no intervening rows retains the displayed review. A subsequent
+edit follows only surviving moves, including after repeated folds.
 
 **Nova holds nothing unpublished exactly where what it would publish reads
 the same as what it published**, `documentDifferences(canonK(reference),

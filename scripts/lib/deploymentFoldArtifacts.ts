@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import type { DeploymentReferenceEvidence } from "@/lib/deployment/hqChanges/reference";
 import {
+	activePropertyRenamesSchema,
+	displayedPropertyRenamesSchema,
+} from "@/lib/deployment/hqChanges/referenceFold";
+import {
 	canonicalJsonDigest,
 	canonicalJsonText,
 } from "@/lib/utils/canonicalJson";
@@ -17,13 +21,8 @@ const sourceResult = z.discriminatedUnion("kind", [
 		projectId: z.string().min(1),
 		editorBefore: z.boolean(),
 		actors: z.array(z.string().min(1)),
-		renamesSince: z.array(
-			z.strictObject({
-				caseType: z.string(),
-				from: z.string(),
-				to: z.string(),
-			}),
-		),
+		renamesSince: displayedPropertyRenamesSchema,
+		activeRenames: activePropertyRenamesSchema,
 	}),
 	z.strictObject({ kind: z.literal("app-moved") }),
 	z.strictObject({ kind: z.literal("nova-updated") }),
@@ -47,7 +46,7 @@ export interface DeploymentFoldMigration {
 /** A repair in the currently served representation never converts a document. */
 export const sameRepresentationFold: DeploymentFoldMigration = {
 	[admittedDialect]: true,
-	provenance: "same-representation-v1",
+	provenance: "same-representation-v2",
 	readHead: currentReader.readHead,
 	readReference(head, evidence) {
 		return sourceResult.parse(currentReader.readReference(head, evidence));

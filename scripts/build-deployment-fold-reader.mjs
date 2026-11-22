@@ -45,8 +45,8 @@ const bootstrap = sourceRevision === "3e16e43f8cfa56e485860f3345c81f5f9a68aec9";
 const source = await mkdtemp(join(tmpdir(), "nova-fold-reader-"));
 try {
 	const tar = join(source, "source.tar");
-	// Every module in this build comes from the selected Git object or its
-	// checked-in npm lock. The state of the operator's checkout is immaterial.
+	// The deployed implementation and dependencies come from the Git object and
+	// its npm lock. The pre-certificate bootstrap below supplies its operator API.
 	git([
 		"archive",
 		"--format=tar",
@@ -108,7 +108,16 @@ try {
 		await writeFile(referencePath, pure);
 		await appendFile(
 			referencePath,
-			"\nexport { actorsOf, foldServerRows, netRenames, withoutSecondOfASlug };\n",
+			"\nexport { actorsOf, foldServerRows, netRenames, reduced, withoutSecondOfASlug };\n",
+		);
+		await copyFile(
+			fileURLToPath(
+				new URL(
+					"../lib/deployment/hqChanges/renameLineage.ts",
+					import.meta.url,
+				),
+			),
+			join(source, "scripts/lib/step6-rename-lineage.ts"),
 		);
 		entry = join(source, "scripts/lib/step6-reader.mjs");
 		await copyFile(

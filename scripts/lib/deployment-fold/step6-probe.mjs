@@ -56,6 +56,8 @@ export function verifyStep6Reader(reader) {
 	assert.deepEqual(persisted(result.published), doc);
 	assert.deepEqual(persisted(result.identity), doc);
 	assert.deepEqual(result.actors, ["author"]);
+	assert.deepEqual(result.activeRenames, []);
+	assert.deepEqual(result.renamesSince, []);
 	assert.equal(result.projectId, projectId);
 	return {
 		published: doc.appName,
