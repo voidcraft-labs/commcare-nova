@@ -51,6 +51,10 @@ name: Proof image
 on:
   workflow_dispatch:
     inputs:
+      ref:
+        description: The exact proof recipe commit to build without the scheduled reader comparisons
+        type: string
+        required: true
       sample_seed:
         description: The ISO year and week whose sample the readers' comparison checks (2026-W42); this week's when empty
         type: string
