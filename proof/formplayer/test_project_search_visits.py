@@ -1,4 +1,5 @@
 """Formplayer selects a visit from an active HQ endpoint, claims it and submits its update."""
+import pytest
 from lxml import etree
 
 from proof.hq.configuration import Configuration
@@ -45,7 +46,13 @@ def _worker_search_app(endpoint_id):
     return app
 
 
-def test_worker_chooses_and_claims_a_directory_visit_through_both_entries(hq, formplayer_runner, evidence):
+@pytest.mark.parametrize(("route", "menu", "expected"), [
+    ("ordinary", "1", {"linked", "other"}),
+    ("inline", "2", {"linked"}),
+])
+def test_worker_chooses_and_claims_a_directory_visit_through_both_entries(
+    route, menu, expected, hq, formplayer_runner, evidence,
+):
     from hashlib import sha256
 
     from corehq.apps.case_search.models import CaseSearchEndpoint, CaseSearchEndpointVersion
@@ -87,34 +94,50 @@ def test_worker_chooses_and_claims_a_directory_visit_through_both_entries(hq, fo
             endpoint.save(update_fields=["current_version"])
             app_id, _ = publish(unit, [nova_shaped_upload(_worker_search_app(endpoint.pk), "Worker visits")])
         with serve(unit, None, app_id, runner=formplayer_runner, database=rows) as served:
-            for route, menu, expected in [("ordinary", "1", {"linked", "other"}), ("inline", "2", {"linked"})]:
-                with served.run(route):
-                    start = len(served.hq.claims)
-                    sent = len(served.hq.submissions)
-                    search = len(served.hq.searches)
-                    web = apps.web(formplayer_runner, served)
-                    response = web.navigate([menu])
-                    if route == "inline":
-                        assert {item["id"] for item in response.get("entities", [])} == {"clinic-a", "clinic-b"}, response
-                        response = web.navigate([*response["selections"], "clinic-a"])
-                    assert screen_kind(response) == "entities", response
-                    assert {item["id"] for item in response["entities"]} == expected, response
-                    assert any(req.values("region") == ("north",) and req.values("x_commcare_endpoint_id") == (str(endpoint.pk),)
-                               for req in served.hq.searches[search:]), served.hq.searches[search:]
-                    selections = [*response["selections"], "linked"]
-                    form = web.navigate(selections)
-                    # A menu with one available form may still ask which form to open.
-                    if screen_kind(form) == "commands":
-                        assert len(form["commands"]) == 1, form
-                        form = web.navigate([*form["selections"], "0"])
-                    assert screen_kind(form) == "form", form
-                    assert [claim.values("case_id") for claim in served.hq.claims[start:] if "linked" in claim.values("case_id")]
-                    assert not served.hq.failures(), served.hq.failures()
-                    [rename] = [node for node in questions(form["tree"]) if node.get("datatype") == "str"]
-                    submitted = web.submit(form["session_id"], {rename["ix"]: "Visited"})
-                    instances = [etree.fromstring(sub.instance) for sub in served.hq.submissions[sent:] if sub.instance]
-                    updates = [(block.get("case_id"), block.xpath("string(./*[local-name()='update']/*[local-name()='case_name'])"))
-                               for instance in instances for block in instance.xpath("//*[local-name()='case'][@case_id]")]
-                    assert ("linked", "Visited") in updates, (submitted, updates)
-                    evidence(route, {"selected": sorted(expected), "claim": [claim.params for claim in served.hq.claims[start:]],
-                                     "updates": updates})
+            with served.run(route):
+                start = len(served.hq.claims)
+                sent = len(served.hq.submissions)
+                search = len(served.hq.searches)
+                web = apps.web(formplayer_runner, served)
+                response = web.navigate([menu])
+                if route == "inline":
+                    assert {item["id"] for item in response.get("entities", [])} == {"clinic-a", "clinic-b"}, response
+                    response = web.navigate([*response["selections"], "clinic-a"])
+                assert screen_kind(response) == "entities", response
+                assert {item["id"] for item in response["entities"]} == expected, response
+                assert any(req.values("region") == ("north",) and req.values("x_commcare_endpoint_id") == (str(endpoint.pk),)
+                           for req in served.hq.searches[search:]), served.hq.searches[search:]
+                selections = [*response["selections"], "linked"]
+                form = web.navigate(selections)
+                def observation(screen):
+                    return {
+                        "kind": screen_kind(screen), "selections": screen.get("selections"),
+                        "entities": [item["id"] for item in screen.get("entities", [])],
+                        "commands": screen.get("commands"), "notifications": screen.get("notifications"),
+                        "searches": [s.params for s in served.hq.searches[search:]],
+                        "claims": [s.params for s in served.hq.claims[start:]],
+                        "answers": [(r.url_name, r.status) for r in served.hq.exchanges],
+                    }
+
+                after_choice = observation(form)
+                evidence("after-choice", after_choice)
+                # The ordinary remote request rewinds to the form's case
+                # selection after the worker claims the case.
+                if route == "ordinary" and screen_kind(form) == "entities":
+                    assert "linked" in after_choice["entities"], after_choice
+                    form = web.navigate([*form["selections"], "linked"])
+                # A menu with one available form may still ask which form to open.
+                if screen_kind(form) == "commands":
+                    assert len(form["commands"]) == 1, form
+                    form = web.navigate([*form["selections"], "0"])
+                assert screen_kind(form) == "form", (after_choice, observation(form))
+                assert [claim.values("case_id") for claim in served.hq.claims[start:] if "linked" in claim.values("case_id")]
+                assert not served.hq.failures(), served.hq.failures()
+                [rename] = [node for node in questions(form["tree"]) if node.get("datatype") == "str"]
+                submitted = web.submit(form["session_id"], {rename["ix"]: "Visited"})
+                instances = [etree.fromstring(sub.instance) for sub in served.hq.submissions[sent:] if sub.instance]
+                updates = [(block.get("case_id"), block.xpath("string(./*[local-name()='update']/*[local-name()='case_name'])"))
+                           for instance in instances for block in instance.xpath("//*[local-name()='case'][@case_id]")]
+                assert ("linked", "Visited") in updates, (submitted, updates)
+                evidence(route, {"selected": sorted(expected), "claim": [claim.params for claim in served.hq.claims[start:]],
+                                 "updates": updates})
