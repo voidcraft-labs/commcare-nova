@@ -19,12 +19,12 @@ from proof.connect.conftest import CONNECT_XMLNS, DELIVER
 from proof.connect.test_receiver_transactions import AREA_ID, submitted_blocks
 from proof.editors import vellum
 from proof.editors.hq import HQAnswers
-from proof.formplayer import apps
 from proof.formplayer import hq as forms
-from proof.formplayer.walk import media_kind, questions
 from proof.observe import connect
 from proof.observe.record import Blobs
 from proof.rules.conftest import published
+from proof.webapps import steps
+from proof.webapps.session import Session
 
 NAME = "area_request"
 PHOTO = "entrance_picture"
@@ -101,26 +101,35 @@ def test_the_designer_creates_a_work_area_request_beside_the_delivery(
         pass
 
 
-def enter_web(served, runner, *, update):
-    """The Web Apps client sends the selected image using Formplayer's multipart answer API."""
-    web = apps.web(runner, served)
-    web.navigate(["0"])
-    opened = web.navigate(["0", "0"])
-    session = opened["session_id"]
-    tree = opened["tree"]
-    (question,) = [q for q in questions(tree) if q.get("type") == "question" and media_kind(q) is None]
-    person = web.answer(session, question["ix"], "Household")
-    assert person["status"] == "accepted", person
-    answers = {str(question["ix"]): "Household"}
+def enter_web(served, editor_driver, directory, *, update):
+    """A worker opens the form in HQ's Web Apps client, chooses a photo in its widget and presses Submit."""
+    menu = served.doc["modules"][0]
+    language = served.languages[0]
+    # Home visit holds one text question before the image added by the designer. The delivery, area
+    # request and learning activity have no widgets. Each answer below is checked against the label
+    # and value the worker actually saw on the form.
+    made = [
+        *steps.open_app(served.doc["name"]),
+        *steps.choose(menu["name"][language]),
+        *steps.choose(menu["forms"][0]["name"][language]),
+        *steps.answer("0", "Household 8"),
+    ]
     if update:
-        (photo,) = [q for q in questions(person["tree"]) if media_kind(q) == "image"]
-        image = (PROOF / "hq-apps/hq-media/media/6.png").read_bytes()
-        answered = web.answer_media(session, photo["ix"], "web-entrance.png", image, "image/png")
-        assert answered["status"] == "accepted", answered
-        (echo,) = [q for q in questions(answered["tree"]) if str(q.get("ix")) == str(photo["ix"])]
-        assert echo.get("answer"), echo
-        answers[str(photo["ix"])] = echo["answer"]
-    assert web.submit(session, answers)["status"] == "success"
+        content = (PROOF / "hq-apps/hq-media/media/6.png").read_bytes()
+        made += steps.answer_media("1", "image", "web-entrance.png", content, "image/png")
+    made += [steps.SCREEN, *steps.submit_and_land()]
+    run = Session(served, editor_driver).run(made, name="area-visit")
+    (directory / "web-apps.json").write_text(json.dumps(run.screens, indent=2) + "\n")
+    assert not run.page_errors, run.page_errors
+    (screen,) = run.screens
+    answers = {q["label"]: q["answer"] for q in screen["form"]["questions"]}
+    assert answers["Household"] == "Household 8", answers
+    if update:
+        assert answers["Entrance photo"] == "web-entrance.png", answers
+        (upload,) = run.answered("answer_media")
+        assert upload.status == 200 and upload.json()["status"] == "accepted", upload.response
+    (submit,) = run.answered("submit-all")
+    assert submit.status == 200 and submit.json()["status"] == "success", submit.response
 
 
 def observe_worker(document, core_runner, editor_driver, runtime, directory, *, reader, update, runner=None):
@@ -207,8 +216,8 @@ def observe_worker(document, core_runner, editor_driver, runtime, directory, *, 
                         commands=["m0-f0"],
                     )
                 else:
-                    with forwarder.reading("formplayer"), served.run("area"):
-                        enter_web(served, runner, update=update)
+                    with forwarder.reading("webapps"):
+                        enter_web(served, editor_driver, directory, update=update)
                 (run,) = forwarder.runs[reader]
                 assert len(captures) == 1 and run["received"] == [{"status": 201}]
                 (forward,) = run["forwards"]
@@ -247,6 +256,7 @@ def test_android_submits_the_vellum_area_form(
     )
 
 
+@pytest.mark.reader("webapps")
 @pytest.mark.parametrize("update", [True, False], ids=["request", "association"])
 def test_web_apps_submits_the_vellum_area_form(
     hq, core_runner, editor_driver, connect_documents, connect_out, connect_runtime, formplayer_runner, update
@@ -257,7 +267,7 @@ def test_web_apps_submits_the_vellum_area_form(
         editor_driver,
         connect_runtime,
         connect_out / "areas" / ("web-request" if update else "web-association"),
-        reader="formplayer",
+        reader="webapps",
         update=update,
         runner=formplayer_runner,
     )
