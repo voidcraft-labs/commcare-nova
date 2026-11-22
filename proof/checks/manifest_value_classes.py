@@ -5555,9 +5555,9 @@ def hierarchical_locations(use, manifest):
     if document is not None:
         if read is None:
             return None
-        places = {instance_id for instance_id in read if instance_id.split(":", 1)[0] in ("locations", "commtrack")}
         verdicts = {
-            _locations_source(source) for instance_id, source in document.declared_instances if instance_id in places
+            _locations_source(source) for instance_id, source in document.declared_instances if instance_id in read
+            and source in (FLAT_LOCATIONS, HIERARCHICAL_LOCATIONS)
         }
         if True in verdicts:
             return True

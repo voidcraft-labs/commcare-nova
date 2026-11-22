@@ -426,6 +426,28 @@ describe("path spelling and shadow eligibility", () => {
 		).toBeUndefined();
 	});
 
+	it("preserves literal and digit-adjacent dots and guards the name HQ would interpolate", () => {
+		for (const interpolation of ["case", "no-case", "enum-key"] as const) {
+			const mode = { target: "hq-json", interpolation } as const;
+			expect(() =>
+				serializeWire(w.context([w.step("site.name")]), mode),
+			).toThrow("period");
+			expect(serializeWire(w.context([w.step("site.١")]), mode).text).toBe(
+				"site.١",
+			);
+			expect(serializeWire(w.context([w.step("site1.name")]), mode).text).toBe(
+				"site1.name",
+			);
+			expect(serializeWire(w.str("site.name"), mode).text).toBe("'site.name'");
+		}
+		expect(
+			serializeWire(w.context([w.step("site.name")]), {
+				target: "hq-json",
+				interpolation: "no-dots",
+			}).text,
+		).toBe("site.name");
+	});
+
 	it("refuses dot paths in dot-interpolated slots and limits the HQ shortcut to its slot", () => {
 		for (const interpolation of ["case", "no-case"] as const) {
 			for (const expr of [

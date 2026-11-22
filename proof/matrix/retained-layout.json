@@ -22,7 +22,10 @@
 				"seed.json",
 				"tables.json"
 			],
-			"patterns": ["fixture-rows-[A-Za-z_][A-Za-z0-9_.-]*\\.json"],
+			"patterns": [
+				"fixture-rows-[A-Za-z_][A-Za-z0-9_.-]*\\.json",
+				"fixture-rows~[0-9a-f]{1,6}(?:-[0-9a-f]{1,6}){0,31}\\.json"
+			],
 			"media": {
 				"directory": "media",
 				"name": "(?:0|[1-9][0-9]*)",

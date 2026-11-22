@@ -641,6 +641,22 @@ describe("a select's choices", () => {
 			expect(outcome.defects).toEqual([]);
 		});
 
+		it("reads a choice from the canonical fixture id HQ's build declares implicitly", async () => {
+			const outcome = await read((xml) =>
+				xml
+					.replace(
+						/<instance\b[^>]*\bsrc="jr:\/\/fixture\/item-list:hq_districts"[^>]*\/>/,
+						"",
+					)
+					.replace(
+						"instance(&apos;hq_districts&apos;)",
+						"instance(&apos;item-list:hq_districts&apos;)",
+					),
+			);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			expect(outcome.defects).toEqual([]);
+		});
+
 		// The itemset is a read of the table: the read and the table's declaration stand under
 		// Nova's typed lookup carrier, never as a declaration nothing reads.
 		it("claims the table the itemset reads, and its declaration, under the typed lookup carrier", async () => {

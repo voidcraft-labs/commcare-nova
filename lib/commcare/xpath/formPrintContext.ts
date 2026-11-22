@@ -11,6 +11,7 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { lookupInstanceIdForScope } from "../lookup/naming";
 import { itextIdFor } from "../xform/itextIds";
 import { formNodeProjection } from "./formNodeProjection";
 import type { FormParseScope } from "./formParseScope";
@@ -92,8 +93,7 @@ export function formPrintContext(
 				? undefined
 				: scope.lookup.get(table)?.columns.find((value) => value.id === column)
 						?.wireName,
-		lookupInstancePrefix:
-			context.profile.scope === "session" ? "item-list:" : "",
+		lookupInstanceId: lookupInstanceIdForScope(context.profile.scope),
 		locationLevelCode: (level) => organizationLevelsOf(scope.doc)[level]?.code,
 		locationPropertySlug: (property) =>
 			locationPropertiesOf(scope.doc)[property]?.slug,

@@ -38,7 +38,7 @@ export interface FormPrintContext {
 		table: LookupTableId,
 		column: LookupColumnId,
 	) => string | undefined;
-	readonly lookupInstancePrefix?: "" | "item-list:";
+	readonly lookupInstanceId?: (tag: string) => string;
 	readonly locationLevelCode?: (level: Uuid) => string | undefined;
 	readonly locationPropertySlug?: (property: Uuid) => string | undefined;
 	readonly itextId?: (unit: ItextUnit) => string | undefined;
@@ -501,7 +501,7 @@ function printWith(
 		const tag = named(ctx.tableTag?.(table), path);
 		if (tag === undefined) return false;
 		emit("instance(");
-		literal(`${ctx.lookupInstancePrefix ?? ""}${tag}`, path);
+		literal(ctx.lookupInstanceId?.(tag) ?? tag, path);
 		emit(`)/${tag}_list/${tag}`);
 		return true;
 	}

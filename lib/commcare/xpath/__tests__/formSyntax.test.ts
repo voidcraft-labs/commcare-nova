@@ -26,6 +26,24 @@ function matchingNames(before: string, after: string): number {
 }
 
 describe("production XPath structural reading", () => {
+	it("tokenizes a single worker-readable name, including qualified names, separators and variables", () => {
+		for (const name of ["_é", "ζωνες", "a.b", "part.١", "Ა"]) {
+			expect(syntax(name)).toMatchObject({ kind: "name", name });
+			expect(syntax(`p:${name}`)).toMatchObject({
+				kind: "name",
+				name: `p:${name}`,
+			});
+			expect(syntax(`$${name}`)).toMatchObject({ kind: "variable", name });
+		}
+		for (const name of ["名前", "𐀀", "a·b", "ǅ", "a\u0308"]) {
+			expect(readFormSyntax(name).ok, name).toBe(false);
+			expect(readFormSyntax(name, "stored-xml")).toMatchObject({
+				ok: true,
+				node: { kind: "name", name },
+			});
+		}
+	});
+
 	it("retains grouping inside binary operands and function arguments", () => {
 		expect(syntax("(1 + 2) * 3")).toMatchObject({
 			kind: "binary",

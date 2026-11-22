@@ -21356,6 +21356,42 @@
 		"holds": []
 	},
 	{
+		"id": "hq-lookup-names/dotted-field-in-form-condition",
+		"base": "hq-lookup-names",
+		"entry": "expressions-and-data/dotted-column-interpolated-in-suite",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Visit",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/form_filter",
+			"value": "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland']/zone.name = 'Upper zone'"
+		}
+	},
+	{
+		"id": "hq-lookup-names/dotted-table-in-form-condition",
+		"base": "hq-lookup-names",
+		"entry": "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Visit",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/forms/0/form_filter",
+			"value": "instance('item-list:meeting.1')/meeting.1_list/meeting.1[label.1 = 'Library']/label.1 = 'Library'"
+		}
+	},
+	{
 		"id": "hq-lookups/choice-name-on-a-lookup-select",
 		"base": "hq-lookups",
 		"entry": "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select",

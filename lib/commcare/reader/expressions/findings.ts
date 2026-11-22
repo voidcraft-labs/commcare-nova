@@ -1949,12 +1949,29 @@ export function tableReadTag(
  *  `jr://instance/remote/<id>`, `ledgerdb` for the ledger's source, and the
  *  legacy `search-input` for `jr://instance/search-input`. */
 function sourceSchemeId(src: string): string | undefined {
+	if (src === "jr://fixture/commcare:reports") return "reports";
 	if (src === "jr://instance/ledgerdb") return "ledgerdb";
 	if (src === LEGACY_SEARCH_INPUT_SOURCE) return "search-input";
 	for (const prefix of ["jr://fixture/", "jr://instance/remote/"])
 		if (src.startsWith(prefix) && src.length > prefix.length)
 			return src.slice(prefix.length);
 	return undefined;
+}
+
+/** The identity for the account of a form's declared source, including
+ * runtime data whose read the app model cannot yet hold. HQ's locations
+ * factory historically produces the same tree as the commtrack factory. */
+export function classifiedInstanceId(
+	id: string,
+	src: string | undefined,
+): string {
+	if (src === undefined) return id;
+	if (id === "locations" && src === "jr://fixture/commtrack:locations")
+		return id;
+	const bound = canonicalInstanceId(src);
+	if (bound !== undefined) return bound;
+	const named = sourceSchemeId(src);
+	return named !== undefined && schemeEntry(named) !== undefined ? named : id;
 }
 
 /** The entry an instance id's scheme claims, the text before its first colon;

@@ -76,6 +76,9 @@ export function lookupFailure(error: LookupError): LookupFailure {
 		...(error.totalDetailCount === undefined
 			? {}
 			: { totalDetailCount: error.totalDetailCount }),
+		...(error.blockingApps === undefined
+			? {}
+			: { blockingApps: error.blockingApps }),
 		...(error.currentRevisions === undefined
 			? {}
 			: { currentRevisions: error.currentRevisions }),

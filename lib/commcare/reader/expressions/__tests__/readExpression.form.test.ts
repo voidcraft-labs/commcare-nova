@@ -28,9 +28,11 @@ import {
 } from "@/lib/commcare/__tests__/caseOperationFixture";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import type { Expression, SlotContextRef } from "@/lib/domain/expression/types";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { simpleSearchInputDef } from "@/lib/domain/modules";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { expressionSlotKey } from "@/lib/domain/referenceSlots";
+import { wireTable } from "../../../lookup/__tests__/lookupWireCorpus";
 import { parseIssueEntry } from "../findings";
 import { readExpressions } from "../index";
 import { readExpression } from "../readExpression";
@@ -285,6 +287,147 @@ describe("a form slot's text read through the reading hook", () => {
 		// reading of it, the text is not held.
 		const unmapped = readExpression(doc, pending, readEnv());
 		expect(unmapped.kind === "bound" && unmapped.equal).toBe(false);
+	});
+
+	it("binds each table to its declared source in the form and to its suite id outside the form", () => {
+		const doc = visitDoc();
+		const form = onlyForm(doc);
+		const locations = {
+			id: lookupTableIdSchema.parse("11111111-1111-7111-8111-111111111111"),
+			tag: "locations",
+			name: "Location codes",
+			columns: [],
+		};
+		const results = {
+			id: lookupTableIdSchema.parse("22222222-2222-7222-8222-222222222222"),
+			tag: "results",
+			name: "Result codes",
+			columns: [],
+		};
+		const env = readEnv({
+			lookup: new Map([
+				[locations.id, locations],
+				[results.id, results],
+			]),
+			instanceSources: new Map([
+				[
+					form,
+					new Map([
+						["item-list:results", "jr://fixture/item-list:locations"],
+						["results-1", "jr://fixture/item-list:results"],
+						["locations", "jr://fixture/locations"],
+					]),
+				],
+			]),
+		});
+		const field = {
+			entity: "field",
+			uuid: fieldNamed(doc, "q1"),
+			slot: "relevant",
+		} as const;
+		const tree = held(
+			readExpression(
+				doc,
+				registration(
+					doc,
+					field,
+					"count(instance('item-list:results')/locations_list/locations) > count(instance('results-1')/results_list/results)",
+				),
+				env,
+			),
+		);
+		expect(tree).toMatchObject({
+			kind: "gt",
+			left: {
+				kind: "count",
+				via: { kind: "table-rows", tableId: locations.id },
+			},
+			right: {
+				kind: "count",
+				via: { kind: "table-rows", tableId: results.id },
+			},
+		});
+		const list = held(
+			readExpression(
+				doc,
+				registration(
+					doc,
+					{ entity: "form", uuid: form, slot: "form_display_condition" },
+					"count(instance('item-list:results')/results_list/results) > 0",
+				),
+				env,
+			),
+		);
+		expect(list).toMatchObject({
+			left: { via: { kind: "table-rows", tableId: results.id } },
+		});
+	});
+
+	it("distinguishes a missing suite instance, a rewritten column, a preserved decimal period and a stored-only XML name", () => {
+		const doc = visitDoc();
+		const form = onlyForm(doc);
+		const ref = {
+			entity: "form",
+			uuid: form,
+			slot: "form_display_condition",
+		} as const;
+		const judge = (tag: string, column: string, condition: string) => {
+			const table = wireTable(tag, [{ name: column, type: "text" }]);
+			return readExpression(
+				doc,
+				registration(doc, ref, condition),
+				readEnv({ lookup: new Map([[table.id, table]]) }),
+			);
+		};
+		const read = (tag: string, column: string) =>
+			`count(instance('item-list:${tag}')/${tag}_list/${tag}[${column} = 'garden']) > 0`;
+		expect(judge("meeting.1", "code", read("meeting.1", "code"))).toMatchObject(
+			{
+				kind: "refused",
+				cause: {
+					entryId:
+						"expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+					name: "meeting.1",
+				},
+			},
+		);
+		expect(
+			judge("ζωνες", "zone.name", read("ζωνες", "zone.name")),
+		).toMatchObject({
+			kind: "refused",
+			cause: {
+				entryId: "expressions-and-data/dotted-column-interpolated-in-suite",
+				name: "zone.name",
+			},
+		});
+		expect(judge("ζωνες", "zone.1", read("ζωνες", "zone.1"))).toMatchObject({
+			kind: "bound",
+			equal: true,
+		});
+		expect(judge("ζωνες", "名前", read("ζωνες", "名前"))).toMatchObject({
+			kind: "refused",
+			cause: {
+				entryId:
+					"expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
+				name: "名前",
+			},
+		});
+		expect(
+			judge(
+				"ζωνες",
+				"zone.name",
+				`#case/age > 1 and ${read("ζωνες", "zone.name")}`,
+			),
+		).toMatchObject({
+			kind: "refused",
+			cause: {
+				entryId: "expressions-and-data/dotted-column-interpolated-in-suite",
+				name: "zone.name",
+			},
+		});
+		expect(
+			judge("ζωνες", "zone.name", "'zone.name' = 'zone.name'"),
+		).toMatchObject({ kind: "bound", equal: true });
 	});
 
 	it("reads an instance declared from jr://fixture/user-groups as the groups read Nova holds later", () => {

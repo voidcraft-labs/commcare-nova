@@ -62,7 +62,7 @@ function context(instances: ReadonlyMap<string, XPathInstance>) {
 	};
 }
 
-function regionsLookup() {
+function regionsLookup(tag = "regions") {
 	const tableId = lookupTableIdSchema.parse(
 		"11111111-1111-7111-8111-111111111111",
 	);
@@ -78,7 +78,7 @@ function regionsLookup() {
 			{
 				id: tableId,
 				name: "Regions",
-				tag: "regions",
+				tag,
 				definitionRevision: parseLookupRevision("1"),
 				columns: [
 					{
@@ -448,7 +448,7 @@ describe("Preview structural XPath instances", () => {
 			),
 			answers: new Map([["patient_name", "Zzz"]]),
 			sessionData: { case_id: "household-1" },
-			lookupData: regionsLookup(),
+			lookupData: regionsLookup("search-input"),
 		});
 		const ctx = context(instances);
 
@@ -467,7 +467,7 @@ describe("Preview structural XPath instances", () => {
 		).toBe("household-1");
 		expect(
 			evaluate(
-				"instance('item-list:regions')/regions_list/regions[value='north']/name",
+				"instance('item-list:search-input')/search-input_list/search-input[value='north']/name",
 				ctx,
 			),
 		).toBe("Northern");

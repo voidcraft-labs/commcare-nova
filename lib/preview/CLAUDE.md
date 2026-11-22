@@ -1085,10 +1085,12 @@ list prints the wire's nodeset (`lib/commcare/lookupOptions.ts::lookupOptionsNod
 shared with the XForm itemset and the Search prompt) and evaluates as Core
 evaluates the itemset, over the fixture instance built under each table's
 XForm id (`lookupEvaluation.ts` reads each selected row node back as its row).
-A `table-lookup` prints the wire's `instance('<tag>')/<tag>_list/<tag>[…]`
+A `table-lookup` prints the wire's `instance('<id>')/<tag>_list/<tag>[…]`
 read: a no-match is Core's empty node-set, and missing and stored-empty cells
 both read blank, the fixture boundary's semantics. Form logic reads a table
-under its bare tag. A form-link slot also reads it under `item-list:<tag>`,
+under the ID the XForm declares for its fixture. This is the tag for an
+ordinary name and `item-list:<tag>` for a name the runtime also uses. A
+form-link slot reads the same table under `item-list:<tag>`,
 the id the suite declares (`includeFixtureAliases`).
 
 Data is ONE Project fixture snapshot (definitions + complete ordered rows for

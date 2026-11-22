@@ -59,11 +59,11 @@ A table has columns and rows. Each column carries three things:
 - **A type of value**: Text, Whole number, Decimal number, Date, Time, or Date
   and time.
 
-Table export tags cannot use names reserved for the app's own data. A tag also
-can't contain `casedb` or `ledgerdb` anywhere, written in those letters, because
-CommCare reads a table named that way as its own case or stock data and the
-table's choices never appear. You can write `case_db` or `ledger_db` instead; a
-different case, such as `CaseDB`, works too. A tag holds at most 32 characters.
+You can give a table an export tag like `locations` even if the app also uses
+worker locations. Nova gives the form a separate name for reading that table.
+A tag can hold up to 32 characters. CommCare treats the lowercase words
+`casedb` and `ledgerdb` anywhere in a tag as a request for case or stock data.
+You can use `case_db`, `ledger_db` or a spelling such as `CaseDB` for your table.
 Nova names a conflict when you create or rename a table. If an older table has a conflicting
 tag, exporting an app that uses it pauses until an admin changes that tag. The
 table's rows and its references in Nova keep their identities.

@@ -124,8 +124,7 @@ export function AddColumnDialog({
 								className="h-11"
 							/>
 							<FieldDescription>
-								Letters, digits, underscores and hyphens, with a letter or an
-								underscore first. This is the heading a CSV import must use.
+								This is the heading to use in a CSV import.
 							</FieldDescription>
 						</Field>
 						<Field>

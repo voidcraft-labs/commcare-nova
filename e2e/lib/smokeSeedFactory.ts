@@ -700,7 +700,8 @@ export async function createSmokeBuilders(
 					dataType: "time",
 				},
 				{
-					wireName: "last_verified",
+					// Valid Project data with an export name worker expressions cannot read.
+					wireName: "最近确认",
 					label: CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel,
 					dataType: "datetime",
 				},

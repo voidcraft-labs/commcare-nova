@@ -569,7 +569,7 @@ export function commcareSessionXPathInstance(
 	});
 }
 
-/** Build every XForm-local lookup instance (`instance('<tag>')`) from the
+/** Build every XForm-local lookup instance from the
  * exact lookup snapshot the engine captured at activation.
  *
  * A device parses a lookup table into a plain `TreeElement`
@@ -601,7 +601,8 @@ export function lookupXPathInstances(
 				});
 			return [
 				[table.xformInstanceId, create(table.xformInstanceId)] as const,
-				...(options.includeFixtureAliases
+				...(options.includeFixtureAliases &&
+				table.fixtureId !== table.xformInstanceId
 					? ([[table.fixtureId, create(table.fixtureId)] as const] as const)
 					: []),
 			];

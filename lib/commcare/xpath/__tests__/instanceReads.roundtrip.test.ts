@@ -97,6 +97,26 @@ describe("secondary-instance reads in form logic", () => {
 		).toMatchObject({ kind: "table-lookup", tableId: table.id });
 	});
 
+	it("keeps a table named locations distinct from the worker’s places in editable form logic", () => {
+		const definitions = new Map([[table.id, { ...table, tag: "locations" }]]);
+		const source =
+			"count(instance('item-list:locations')/locations_list/locations)";
+		const parsed = parseFormExpression(source, {
+			doc,
+			slot: VISIT,
+			lookup: definitions,
+		});
+		if (!parsed.ok || parsed.expression === undefined)
+			throw new Error("expected a lookup read");
+		expect(parsed.expression).toMatchObject({
+			kind: "count",
+			via: { kind: "table-rows", tableId: table.id },
+		});
+		expect(
+			projectFormExpression(doc, VISIT, parsed.expression, definitions).text,
+		).toBe(source);
+	});
+
 	it("round-trip a read of places, a level code and a lineage attribute", () => {
 		for (const source of [
 			"instance('locations')/locations/location[@type = 'clinic']/name",

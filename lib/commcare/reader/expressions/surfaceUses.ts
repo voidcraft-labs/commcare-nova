@@ -15,7 +15,6 @@ import { recordFromEntries } from "@/lib/domain/records";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
@@ -23,7 +22,11 @@ import {
 } from "../../xpath/functionCapabilities";
 import { sharedFormSyntax } from "../syntaxRead";
 import { searchRowCsql } from "./csqlRead";
-import { EXPRESSION_CLAIMS, visitSyntax } from "./findings";
+import {
+	classifiedInstanceId,
+	EXPRESSION_CLAIMS,
+	visitSyntax,
+} from "./findings";
 
 const C = EXPRESSION_CLAIMS;
 
@@ -233,16 +236,6 @@ const NO_FACTS: SurfaceUseFacts = {
 	fixtureValue: false,
 };
 
-/** The id an `instance()` read is classed under: in a form, the id the source
- *  it declares for the id names, since Core reads the instance its source
- *  gives (a table's `jr://fixture/item-list:<tag>` under the bare tag Nova
- *  writes is `item-list:<tag>`); elsewhere, and for a source no id names,
- *  the id as written. */
-function classedInstanceId(id: string, facts: SurfaceUseFacts): string {
-	const source = facts.instanceSources.get(id);
-	return (source === undefined ? undefined : canonicalInstanceId(source)) ?? id;
-}
-
 /** The session path key and class a path through the session instance makes. */
 function sessionUse(
 	steps: readonly string[],
@@ -298,7 +291,10 @@ function instanceClass(
 				? "typed-lookup-carrier"
 				: "other-expression";
 		case "locations":
-			return "flat-locations";
+			return facts.instanceSources.get(id) ===
+				"jr://fixture/commtrack:locations"
+				? "hierarchical-locations"
+				: "flat-locations";
 		case "commtrack":
 			return id === "commtrack:locations"
 				? "hierarchical-locations"
@@ -483,7 +479,10 @@ function xpathUses(
 					const id =
 						node.args[0] === undefined ? undefined : bare(node.args[0]);
 					if (node.name === "instance" && id?.kind === "string") {
-						const classed = classedInstanceId(id.value, facts);
+						const classed = classifiedInstanceId(
+							id.value,
+							facts.instanceSources.get(id.value),
+						);
 						uses.add(
 							`instance-scheme:${scheme(classed)}`,
 							instanceClass(classed, context, facts),
@@ -908,8 +907,13 @@ export function instanceIdsRead(text: string): readonly string[] {
 		return [];
 	}
 	if (!read.ok || read.node === undefined) return [];
+	return instanceIdsIn(read.node);
+}
+
+/** Every literal instance id in an already parsed XPath expression. */
+export function instanceIdsIn(syntax: FormSyntax): readonly string[] {
 	const ids: string[] = [];
-	visitSyntax(read.node, (node) => {
+	visitSyntax(syntax, (node) => {
 		if (node.kind !== "call" || node.name !== "instance") return;
 		const first = node.args[0] === undefined ? undefined : bare(node.args[0]);
 		if (first?.kind === "string") ids.push(first.value);

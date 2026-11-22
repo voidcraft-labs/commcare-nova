@@ -97,7 +97,9 @@ document whose expressions the current model does not read. Version 17 fences pl
 a journey started before it ran Preview's former mix of runtimes.
 Version 18 fences repeats and case writes: a journey started before it pinned
 a document whose query repeats, counts and case operations the current
-runtime reads differently. Runtime version 19 fences four things: it names a
+runtime reads differently. Version 20 resolves lookup fixtures by the source
+that the form declares, including when the table shares a name with another
+source of worker data. Runtime version 19 fences four things: it names a
 query repeat's wrapper `<id>.query`; it saves a date and time to a case as
 the text CommCare HQ stores for its moment, UTC with six fraction digits and
 `Z` (`lib/domain/temporalValues.ts::caseDatetimeValue`), where a journey

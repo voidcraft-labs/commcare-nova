@@ -464,7 +464,7 @@ def keep_answers(retained, answers, project_answers, media, asked=None):
             retained.keep(file_name, project_answers[name])
     for name, read in sorted(project_answers.items()):
         if name.startswith("fixtureRows:") and wanted(name):
-            retained.keep(f"fixture-rows-{name.split(':', 1)[1]}", read)
+            retained.keep(lane_input.fixture_rows_stem(name.split(":", 1)[1]), read)
     read_rows = [row for row, _ in media if wanted(f"media:{row['path']}")]
     if read_rows:
         retained.keep("media-reads", read_rows)

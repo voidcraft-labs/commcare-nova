@@ -8,6 +8,7 @@ import "server-only";
  */
 
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { classifyHqFailure, type HqFailure } from "@/lib/commcare/hq/failure";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
@@ -17,6 +18,7 @@ import {
 	listHqLocations,
 	listHqLocationTypes,
 } from "@/lib/commcare/hq/locations";
+import { WorkLimitReached } from "@/lib/commcare/workMeter";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { getAppDb } from "@/lib/db/pg";
 import { projectRoleFor } from "@/lib/db/projectMembership";
@@ -42,12 +44,14 @@ import {
 	type SiblingLookupMapping,
 } from "../../store";
 import { isDeploymentServer } from "../../types";
+import { Pieces } from "../pieces";
 import {
 	assembleReadingProjectData,
 	type ReadingPlacesRead,
 	type ReadingProjectData,
 	rowsToMeasure,
 } from "./index";
+import { referencedLookupTags } from "./lookupDependencies";
 import { readHqLookupTablesForReading } from "./lookupTableStore";
 import { sourceMayReadPlaces } from "./places";
 
@@ -272,7 +276,7 @@ async function readPlaces(
 
 /**
  * Read a bring-in's project data, in order: CommCare HQ's lookup tables the
- * source's text may name, with their rows; the Project's tables of those tags
+ * source reads, with their rows; the Project's tables of those tags
  * through `project`, with the apps that read them, the columns CommCare HQ's
  * content would keep, the sibling mappings and whether the actor may
  * administer the Project; Postgres's measure of each candidate's rows that
@@ -300,6 +304,9 @@ export async function readReadingProjectData(input: {
 	 * for the baseline's source and the app now, which both readings share.
 	 */
 	readonly alsoSource?: HqAppSource;
+	/** The current app's actual alignment. A stored baseline reads by its own form identities. */
+	readonly modules?: readonly HqAlignedModule[];
+	readonly pieces?: Pieces;
 	readonly project: ReadingProjectSide;
 	/** `always` reads places whatever the source's text says. */
 	readonly places: "when-source-reads" | "always";
@@ -307,6 +314,7 @@ export async function readReadingProjectData(input: {
 	readonly cancel?: AbortSignal;
 }): Promise<
 	| { readonly kind: "read"; readonly data: ReadingProjectData }
+	| { readonly kind: "too-intricate" }
 	| { readonly kind: "failed"; readonly failure: HqFailure }
 > {
 	const { creds, domain, cancel, project } = input;
@@ -318,12 +326,23 @@ export async function readReadingProjectData(input: {
 
 	/* Dated before CommCare HQ is asked, as every refresh dates its read. */
 	const tablesReadAt = new Date();
-	const lookups = await readHqLookupTablesForReading({
-		creds,
-		domain,
-		sourceText,
-		cancel,
-	});
+	let lookups: Awaited<ReturnType<typeof readHqLookupTablesForReading>>;
+	try {
+		lookups = await readHqLookupTablesForReading({
+			creds,
+			domain,
+			referencedTags: (listed) =>
+				referencedLookupTags({
+					...input,
+					listed,
+					pieces: input.pieces ?? new Pieces(cancel),
+				}),
+			cancel,
+		});
+	} catch (error) {
+		if (error instanceof WorkLimitReached) return { kind: "too-intricate" };
+		throw error;
+	}
 	if ("success" in lookups) {
 		return {
 			kind: "failed",

@@ -159,6 +159,11 @@
 		"hq-kept-settings/translation-key-with-a-leading-space"
 	],
 	"hq-languages": [],
+	"hq-lookup-aliases": [],
+	"hq-lookup-names": [
+		"hq-lookup-names/dotted-field-in-form-condition",
+		"hq-lookup-names/dotted-table-in-form-condition"
+	],
 	"hq-lookups": ["hq-lookups/itemset-copy"],
 	"hq-media": [
 		"hq-media/form-media-for-every-language",

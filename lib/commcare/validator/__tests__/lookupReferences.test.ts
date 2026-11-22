@@ -101,6 +101,62 @@ function lookupFindings(
 }
 
 describe("lookup reference validation", () => {
+	it("checks the actual worker and each consuming slot, leaving unused XML columns alone", () => {
+		const { doc, table, context } = lookupAppFixture();
+		const withNames = (tag: string, wireName: string) => ({
+			...context,
+			definitions: [
+				{
+					...table,
+					tag,
+					columns: [
+						{ ...table.columns[0], wireName },
+						...table.columns.slice(1),
+						{ ...table.columns[0], wireName: "名前", id: columnId("999") },
+					],
+				},
+			],
+		});
+		const issues = (app: BlueprintDoc, tag: string, wireName: string) =>
+			runValidation(app, withNames(tag, wireName))
+				.filter((one) => one.code === "LOOKUP_PATH_NAME_UNAVAILABLE")
+				.map((one) => [
+					one.details?.registrySlot,
+					one.details?.part,
+					one.details?.issue,
+				]);
+		expect(issues(doc, "clínicas", "code.1")).toEqual([]);
+		expect(issues(doc, "sites.1", "code")).toContainEqual([
+			"case_list_column_expression",
+			"tag",
+			"undeclared-instance",
+		]);
+		expect(issues(doc, "sites.1", "code")).not.toContainEqual([
+			"lookup_options_source",
+			"tag",
+			"undeclared-instance",
+		]);
+		expect(issues(doc, "sites", "名前")).toContainEqual([
+			"lookup_options_source",
+			"column",
+			"unreadable-name",
+		]);
+		// Georgian Mtavruli U+1C90 is cased on the build JVM and is absent
+		// from the minimum Android worker's character table.
+		expect(issues(doc, "sites", "Ა")).toContainEqual([
+			"lookup_options_source",
+			"column",
+			"unreadable-name",
+		]);
+		expect(
+			issues(
+				{ ...doc, appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" } },
+				"sites",
+				"Ა",
+			),
+		).toEqual([]);
+	});
+
 	it("finds no lookup references in documents without lookup carriers", () => {
 		const doc = buildDoc({ appName: "Existing app" });
 		expect(

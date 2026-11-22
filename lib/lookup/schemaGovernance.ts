@@ -11,6 +11,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { coerceLookupCell } from "./coercion";
+import { hasLookupDesignProtection } from "./designProtection";
 import { LookupError } from "./errors";
 import { lookupDataTypeSchema, parseLookupRevision } from "./schema";
 import type {
@@ -282,29 +283,6 @@ async function exactColumnBlockers(
 	return edges.map(({ app_id: appId }) => appId);
 }
 
-async function exactAcceptedDesignProtection(
-	tx: Transaction<AppDatabase>,
-	projectId: string,
-	tableId: LookupTableId,
-	columnId?: LookupColumnId,
-): Promise<boolean> {
-	const protection = await tx
-		.selectFrom("design_lookup_protections")
-		.select("id")
-		.where("project_id", "=", projectId)
-		.where("table_id", "=", tableId)
-		.$if(columnId !== undefined, (query) =>
-			query.where((eb) =>
-				eb.or([
-					eb("column_id", "is", null),
-					eb("column_id", "=", columnId as LookupColumnId),
-				]),
-			),
-		)
-		.executeTakeFirst();
-	return protection !== undefined;
-}
-
 function rejectAcceptedDesignDependency(): never {
 	throw new LookupSchemaGovernanceError(
 		"accepted_design",
@@ -348,9 +326,7 @@ async function deleteTable(
 	table: StoredLookupTable,
 	operation: Extract<NormalizedOperation, { kind: "delete-table" }>,
 ): Promise<DeletedLookupTableResult> {
-	if (
-		await exactAcceptedDesignProtection(tx, scope.projectId, operation.tableId)
-	) {
+	if (await hasLookupDesignProtection(tx, scope.projectId, operation.tableId)) {
 		rejectAcceptedDesignDependency();
 	}
 	const blockers = await exactTableBlockers(
@@ -403,7 +379,7 @@ async function removeColumn(
 		);
 	}
 	if (
-		await exactAcceptedDesignProtection(
+		await hasLookupDesignProtection(
 			tx,
 			scope.projectId,
 			operation.tableId,
@@ -521,7 +497,7 @@ async function retypeColumn(
 		};
 	}
 	if (
-		await exactAcceptedDesignProtection(
+		await hasLookupDesignProtection(
 			tx,
 			scope.projectId,
 			operation.tableId,

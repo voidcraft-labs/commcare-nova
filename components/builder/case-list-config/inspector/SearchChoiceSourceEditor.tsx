@@ -20,6 +20,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import { useId, useMemo, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { LookupChoiceNameOption } from "@/components/builder/lookup/LookupChoiceNameOption";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
@@ -33,6 +34,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import type {
 	CaseType,
@@ -118,10 +120,11 @@ export function SearchChoiceSourceEditor({
 	const sortColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
+	const platforms = useDeclaredPlatforms();
 	const [draft, setDraft] = useState<LookupSourceDraft | null>(null);
 	const [rejection, setRejection] = useState<string | null>(null);
 
-	const tables = catalog.kind === "ready" ? catalog.tables : [];
+	const tables = catalog.kind === "ready" ? catalog.definitions : [];
 	const active: LookupSourceDraft | undefined = draft ?? value;
 	const table =
 		active === undefined || catalog.kind !== "ready"
@@ -224,9 +227,15 @@ export function SearchChoiceSourceEditor({
 					</SelectTrigger>
 					<SelectContent>
 						{table.columns.map((column) => (
-							<SelectItem key={column.id} value={column.id} wrap>
-								{column.label}
-							</SelectItem>
+							<LookupChoiceNameOption
+								key={column.id}
+								value={column.id}
+								name={column.wireName}
+								label={column.label}
+								part="column"
+								slot="search_input_options"
+								platforms={platforms}
+							/>
 						))}
 					</SelectContent>
 				</Select>
@@ -277,9 +286,15 @@ export function SearchChoiceSourceEditor({
 					</SelectTrigger>
 					<SelectContent>
 						{tables.map((candidate) => (
-							<SelectItem key={candidate.id} value={candidate.id} wrap>
-								{candidate.name}
-							</SelectItem>
+							<LookupChoiceNameOption
+								key={candidate.id}
+								value={candidate.id}
+								name={candidate.tag}
+								label={candidate.name}
+								part="tag"
+								slot="search_input_options"
+								platforms={platforms}
+							/>
 						))}
 					</SelectContent>
 				</Select>
@@ -385,9 +400,15 @@ export function SearchChoiceSourceEditor({
 									Label column
 								</SelectItem>
 								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
+									<LookupChoiceNameOption
+										key={column.id}
+										value={column.id}
+										name={column.wireName}
+										label={column.label}
+										part="column"
+										slot="search_input_options"
+										platforms={platforms}
+									/>
 								))}
 							</SelectContent>
 						</Select>

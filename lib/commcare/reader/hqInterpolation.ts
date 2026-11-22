@@ -59,19 +59,28 @@ export function interpolateHqXPath(
 	const caseXPath = slot.caseXPath;
 	if (caseXPath === undefined && hasCaseReference(text, slot.interpolateDots))
 		return { ok: false, reason: "case-reference" };
-	// The replacements in `interpolate_xpath`'s dictionary order, each a plain
-	// substring replacement of every occurrence, as `str.replace` makes it.
-	let result = text
+	const expanded = expandHqShortcuts(text, caseXPath);
+	return {
+		ok: true,
+		text: caseXPath ? dotInterpolate(expanded, caseXPath) : expanded,
+	};
+}
+
+/** HQ first expands named shortcuts, including those inside literals, and
+ * then applies its unquoted dot interpolation. A diagnostic reading of an
+ * unprintable table path needs the first stage on its own. */
+export function expandHqShortcuts(
+	text: string,
+	caseXPath: string | undefined,
+): string {
+	const expanded = text
 		.replaceAll("#user", HQ_USERCASE_XPATH)
 		.replaceAll("#session/", HQ_SESSION_PREFIX);
-	if (caseXPath !== undefined && caseXPath !== "") {
-		result = result
-			.replaceAll("#case", caseXPath)
-			.replaceAll("#parent", hqCaseByIdXPath(`${caseXPath}/index/parent`))
-			.replaceAll("#host", hqCaseByIdXPath(`${caseXPath}/index/host`));
-		result = dotInterpolate(result, caseXPath);
-	}
-	return { ok: true, text: result };
+	if (!caseXPath) return expanded;
+	return expanded
+		.replaceAll("#case", caseXPath)
+		.replaceAll("#parent", hqCaseByIdXPath(`${caseXPath}/index/parent`))
+		.replaceAll("#host", hqCaseByIdXPath(`${caseXPath}/index/host`));
 }
 
 /** `_ensure_no_case_references`: a case shortcut, or (where dots are read)

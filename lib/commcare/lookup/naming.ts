@@ -15,6 +15,7 @@
  */
 
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import type { SlotProfile } from "@/lib/domain/expression/profiles";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupColumn, LookupTableDefinition } from "@/lib/lookup/types";
 
@@ -24,6 +25,51 @@ export const LOOKUP_FIXTURE_ID_PREFIX = "item-list:";
 /** Build the `item-list:<tag>` suite fixture id for a lookup table tag. */
 export function lookupFixtureId(tag: string): string {
 	return `${LOOKUP_FIXTURE_ID_PREFIX}${tag}`;
+}
+
+/** A form may receive these instances from its session or declare them when
+ * a slot reads them. A table's fixture id is in its own namespace: no bare
+ * tag contains a colon, and HQ reserves the item-list scheme for these
+ * fixtures. Using it for collisions keeps each alias stable across forms,
+ * changes to other tables, and the order in which expressions are printed.
+ * HQ also dispatches bare instance names to the factories registered in
+ * suite_xml/post_process/instances.py, including any name containing
+ * selected_cases. XForm.add_missing_instances calls those factories even
+ * when a form supplies its own declaration. */
+const runtimeInstanceIds = new Set([
+	"casedb",
+	"ledgerdb",
+	"commcaresession",
+	"locations",
+	"results",
+	"input",
+	"groups",
+	"reports",
+	"registry",
+	"item-list",
+	"schedule",
+	"indicators",
+	"commtrack",
+	"search-input",
+	"commcare",
+	"commcare-reports",
+	"commcare-reports-filters",
+	"case-search-fixture",
+]);
+
+export function lookupXformInstanceId(tag: string): string {
+	const id = tag.toLowerCase();
+	return runtimeInstanceIds.has(id) || id.includes("selected_cases")
+		? lookupFixtureId(tag)
+		: tag;
+}
+
+/** A session expression reads the suite's fixture, while form logic reads
+ * the instance declared inside that form. */
+export function lookupInstanceIdForScope(
+	scope: SlotProfile["scope"],
+): (tag: string) => string {
+	return scope === "session" ? lookupFixtureId : lookupXformInstanceId;
 }
 
 /**
@@ -39,7 +85,7 @@ export function lookupFixtureSrc(fixtureId: string): string {
 export interface LookupTableWireNaming {
 	readonly tableId: LookupTableId;
 	readonly tag: string;
-	/** `<tag>` — the XForm-local id used by `instance('<tag>')`. */
+	/** The XForm-local id used by instance(), allocated for this fixture. */
 	readonly xformInstanceId: string;
 	/** `item-list:<tag>` — the suite fixture id and XForm src suffix. */
 	readonly fixtureId: string;
@@ -80,7 +126,7 @@ function tableNaming(
 	return {
 		tableId: definition.id,
 		tag: definition.tag,
-		xformInstanceId: definition.tag,
+		xformInstanceId: lookupXformInstanceId(definition.tag),
 		fixtureId: lookupFixtureId(definition.tag),
 		listElementName: `${definition.tag}_list`,
 		rowElementName: definition.tag,

@@ -18,7 +18,6 @@ import "server-only";
  * difference's detail and CommCare HQ's own text reach no line.
  */
 
-import { setImmediate as nextTurn } from "node:timers/promises";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
 import {
@@ -34,6 +33,7 @@ import {
 	publishedCaseBlocks,
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
+import { lookupXformInstanceId } from "@/lib/commcare/lookup/naming";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	type ReadDraft,
@@ -46,7 +46,7 @@ import {
 	type ClaimRecord,
 	serializeClaimLog,
 } from "@/lib/commcare/reader/accounting";
-import { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
+
 import { mintingResolver } from "@/lib/commcare/reader/identity";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
@@ -60,12 +60,7 @@ import {
 	targetWireIdentity,
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
-import {
-	rethrowWorkStop,
-	underMeter,
-	WorkCancelled,
-	WorkMeter,
-} from "@/lib/commcare/workMeter";
+import { rethrowWorkStop, WorkCancelled } from "@/lib/commcare/workMeter";
 import { fieldKindBindType } from "@/lib/commcare/xform/bindType";
 import { heldXmlParse } from "@/lib/commcare/xmlParse";
 import { getHqCredentials } from "@/lib/db/settings";
@@ -124,6 +119,10 @@ import {
 } from "../targetIdentity";
 import { type AcceptedReading, acceptReadingSteps } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
+import { Pieces } from "./pieces";
+
+export { Pieces } from "./pieces";
+
 import { readingAppStrings } from "./appStrings";
 import { reviewDigestOf } from "./digest";
 import { reviewMediaId } from "./mediaIds";
@@ -336,99 +335,6 @@ export function unrecognizedLogKey(name: string): string {
 	if (dot > 0 && dot < name.length - 1 && isClassName(name.slice(0, dot)))
 		return "undeclared-json-key";
 	return "other";
-}
-
-// ---------------------------------------------------------------------------
-// Timing the synchronous pieces
-// ---------------------------------------------------------------------------
-
-/**
- * Times and meters each synchronous piece of a request, and lets the event
- * loop turn before each one, so no two pieces run in one turn. A review of
- * changes made in CommCare HQ times its own pieces with it.
- *
- * Every piece runs under the request's work meter (`workMeter.ts`), which a
- * reading's own meter charges as its parent, so `units` is the work of every
- * piece and `longestUnits` the most one piece did between two turns: the
- * deterministic twin of `longest`. The meter counts and never stops a piece by
- * itself; a run of steps given an allowance (`steps`, the change planner's)
- * runs under a meter of its own whose parent it is.
- * Where the request's `cancel` has aborted, the next piece does not run: it
- * throws `WorkCancelled`, as a charge inside a running piece does, so a
- * request whose caller went away stops working at its next step.
- */
-export class Pieces {
-	total = 0;
-	longest = 0;
-	/** What the longest piece was part of, as `at` named it. */
-	longestAt = "";
-	/** The most units one piece did, and what it was part of. */
-	longestUnits = 0;
-	longestUnitsAt = "";
-	/** What the pieces now running are part of. */
-	private part = "";
-	/** The emissions this request's readings share (`heldExpansions.ts`). */
-	readonly expansions = new HeldExpansions();
-	/** The request's work meter. */
-	readonly meter: WorkMeter;
-
-	constructor(cancel?: AbortSignal) {
-		this.meter = new WorkMeter({
-			limit: Number.POSITIVE_INFINITY,
-			...(cancel !== undefined && { signal: cancel }),
-		});
-	}
-
-	/** Every unit the request's pieces did. */
-	get units(): number {
-		return this.meter.units;
-	}
-
-	/** Names what the pieces that follow are part of, for the facts that
-	 *  name the longest. */
-	at(part: string): this {
-		this.part = part;
-		return this;
-	}
-
-	async run<T>(piece: () => T, meter: WorkMeter = this.meter): Promise<T> {
-		await nextTurn();
-		meter.check();
-		const started = performance.now();
-		const before = this.meter.units;
-		try {
-			return underMeter(meter, piece);
-		} finally {
-			const took = performance.now() - started;
-			this.total += took;
-			if (took > this.longest) {
-				this.longest = took;
-				this.longestAt = this.part;
-			}
-			const units = this.meter.units - before;
-			if (units > this.longestUnits) {
-				this.longestUnits = units;
-				this.longestUnitsAt = this.part;
-			}
-		}
-	}
-
-	/** Runs `steps` to their end, each step its own piece. Given `allowance`, the steps together
-	 *  do at most that many units, and one that would pass it throws `WorkLimitReached` there:
-	 *  for a step a request makes only within a limit of its own (the change planner's). */
-	async steps<T>(
-		steps: Generator<void, T, void>,
-		allowance?: number,
-	): Promise<T> {
-		const meter =
-			allowance === undefined
-				? this.meter
-				: new WorkMeter({ limit: allowance, parent: this.meter });
-		for (;;) {
-			const step = await this.run(() => steps.next(), meter);
-			if (step.done) return step.value;
-		}
-	}
 }
 
 interface Tally {
@@ -819,6 +725,10 @@ const SETTLED = {
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 	/** A table's tag in Nova's grammar, for each table the document reads. */
 	tableTag: "expressions-and-data/table-tag-in-nova-s-grammar",
+	dottedName: "expressions-and-data/tag-or-field-name-holding-a-period",
+	unicodeName: "expressions-and-data/tag-or-field-name-with-non-ascii-letters",
+	aliasedTableTag:
+		"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
 	/** CommCare HQ's ids of a table and its rows, for each table the document reads. */
 	tableIds:
 		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
@@ -921,6 +831,13 @@ export interface SettledReads {
 	readonly media: ReadingMediaPlan | null;
 }
 
+function lookupNameClass(name: string): string | undefined {
+	// The two name classes are disjoint. A Unicode spelling may also contain a period.
+	if (Array.from(name).some((unit) => unit.charCodeAt(0) > 127))
+		return SETTLED.unicodeName;
+	return name.includes(".") ? SETTLED.dottedName : undefined;
+}
+
 /**
  * The claims a reading settles that no key of the source holds, each recorded
  * where the reading met what its entry states, with no surface key but a held
@@ -955,8 +872,36 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 		)
 			continue;
 		const at = `/${pointerToken(tag)}`;
+		const nameClass = lookupNameClass(tag);
+		const alias = lookupXformInstanceId(tag) !== tag;
+		if (alias)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/tag`,
+					SETTLED.aliasedTableTag,
+				),
+			);
+		if (nameClass || !alias)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/tag`,
+					nameClass ?? SETTLED.tableTag,
+				),
+			);
+		for (const [index, field] of table.read.table.fields.entries()) {
+			const fieldClass = lookupNameClass(field);
+			if (fieldClass)
+				records.push(
+					settledRecord(
+						LOOKUP_TABLES_ARTIFACT,
+						`${at}/fields/${index}/field_name`,
+						fieldClass,
+					),
+				);
+		}
 		records.push(
-			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/tag`, SETTLED.tableTag),
 			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/id`, SETTLED.tableIds),
 		);
 	}
@@ -1349,9 +1294,13 @@ async function gatherFromHqWith(
 		readingId: input.readingId,
 		source,
 		project: input.project,
+		pieces,
+		modules,
 		places: "when-source-reads",
 		...(cancel !== undefined && { cancel }),
 	});
+	if (projectData.kind === "too-intricate")
+		return answer(accountOf([atApp("too-intricate")], appName, false));
 	if (projectData.kind === "failed")
 		return answer(failedRead(projectData.failure));
 	let data = projectData.data;
@@ -1391,9 +1340,13 @@ async function gatherFromHqWith(
 			readingId: input.readingId,
 			source,
 			project: input.project,
+			pieces,
+			modules,
 			places: "always",
 			...(cancel !== undefined && { cancel }),
 		});
+		if (again.kind === "too-intricate")
+			return answer(accountOf([atApp("too-intricate")], appName, false));
 		if (again.kind === "failed") return answer(failedRead(again.failure));
 		data = again.data;
 		onEvent({ type: "stage", stage: "checking" });

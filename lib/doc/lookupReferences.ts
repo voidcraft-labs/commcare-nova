@@ -155,7 +155,7 @@ export type LookupReferenceExtractorRegistry =
  * schema-owned AST also means a new recursive operator arm cannot silently
  * hide nested lookup identities.
  */
-function extractAstLookupReferences(input: {
+export function extractAstLookupReferences(input: {
 	readonly carrierUuid: Uuid;
 	readonly ast: Expression;
 	readonly subpath?: readonly LookupReferencePathSegment[];

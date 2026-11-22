@@ -9,6 +9,10 @@
 
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { holdsUserRepeat } from "@/lib/doc/groupFieldLists";
+import {
+	extractLookupReferenceOccurrences,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { applyHoldPlacements } from "@/lib/doc/mutations/placements";
 import {
@@ -36,6 +40,7 @@ import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { formWireName } from "@/lib/domain/formWireName";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
+import { isPortableName } from "@/lib/domain/portableName";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	type ProseTemplate,
@@ -1768,7 +1773,10 @@ function keepShownText(
 // ── The declaration ──────────────────────────────────────────────────────
 
 /** Where a platform use stands in HQ's app. */
-function placeOfUse(ctx: ReadContext, use: PlatformFeatureUse): HqPlace {
+function placeOfUse(
+	ctx: ReadContext,
+	owner: PlatformFeatureUse["owner"],
+): HqPlace {
 	const menuOf = (uuid: Uuid) =>
 		ctx.draft.modules.find((module) => module.uuid === uuid);
 	const formOf = (uuid: Uuid) => {
@@ -1797,7 +1805,6 @@ function placeOfUse(ctx: ReadContext, use: PlatformFeatureUse): HqPlace {
 		const name = module.place.kind === "menu" ? module.place.name : "";
 		return { kind, menu: module.index, name };
 	};
-	const owner = use.owner;
 	switch (owner.kind) {
 		case "app":
 			return appPlace();
@@ -1829,10 +1836,50 @@ function judgeDeclaration(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
 ): ReturnType<typeof planDeclarationChoices> {
+	const androidNames: { name: string; place: HqPlace }[] = [];
+	const lookup = ctx.input.lookup.definitions;
+	if (lookup.size > 0) {
+		const seen = new Set<string>();
+		for (const use of extractLookupReferenceOccurrences(
+			doc,
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		)) {
+			const table = lookup.get(use.tableId);
+			if (table === undefined) continue;
+			const column = table.columns.find((column) => column.id === use.columnId);
+			for (const name of column === undefined
+				? [table.tag]
+				: [table.tag, column.wireName]) {
+				if (isPortableName(name) || !isPortableName(name, ["web-apps"]))
+					continue;
+				const key = JSON.stringify([use.carrierUuid, use.registrySlot, name]);
+				if (seen.has(key)) continue;
+				seen.add(key);
+				const { fieldUuid, formUuid, moduleUuid } = use.location;
+				const owner: PlatformFeatureUse["owner"] =
+					fieldUuid && formUuid && moduleUuid
+						? { kind: "field", fieldUuid, formUuid, moduleUuid }
+						: formUuid && moduleUuid
+							? { kind: "form", formUuid, moduleUuid }
+							: moduleUuid
+								? { kind: "module", moduleUuid }
+								: { kind: "app" };
+				androidNames.push({ name, place: placeOfUse(ctx, owner) });
+			}
+		}
+	}
 	const choices = planDeclarationChoices(doc, {
 		webAppsOnInHq: ctx.facts.webAppsOnInHq,
+		...(androidNames.length > 0 && {
+			unavailableDataPlatforms: new Set(["android"] as const),
+		}),
 	});
 	if (choices.kind === "choices") return choices;
+	for (const { name, place } of androidNames) {
+		ctx.accounting.circumstance("no-platform-runs-everything", place, {
+			name: `The data name “${name}”, which Android can't read`,
+		});
+	}
 	for (const { use, platform } of choices.blocking) {
 		const label = PLATFORM_FEATURES[use.feature].label;
 		const name = `“${label}”, which ${platform === "web-apps" ? "Web Apps" : "Android"} can't run`;
@@ -1842,7 +1889,7 @@ function judgeDeclaration(
 			use.owner.fieldUuid === choices.splitRefused;
 		ctx.accounting.circumstance(
 			"no-platform-runs-everything",
-			placeOfUse(ctx, use),
+			placeOfUse(ctx, use.owner),
 			{
 				name,
 				...(split ? { reason: "split-refused" as const } : {}),

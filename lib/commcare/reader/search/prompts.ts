@@ -63,8 +63,9 @@ import {
 import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { manifestFindingOf } from "../languages";
+import { lookupNameRefusal } from "../lookupNames";
 import { pendingPlaceholder } from "../pendingExpressions";
-import { readFormSyntax } from "../syntaxRead";
+import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
 import { readGuardText } from "./guardSplit";
 import { BLANK_IS_ABSENT, spelledAsShown } from "./settings";
 import { storedPrompts, withoutRuntimeGuard } from "./systemSentences";
@@ -342,15 +343,15 @@ export interface PromptReading {
 	readonly unreadTable?: string;
 }
 
-function parse(text: unknown): FormSyntax | undefined {
+function parse(text: unknown, storedNames = false): FormSyntax | undefined {
 	if (typeof text !== "string") return undefined;
-	const read = readFormSyntax(text);
+	const read = storedNames ? readStoredNameSyntax(text) : readFormSyntax(text);
 	return read.ok ? read.node : undefined;
 }
 
 /** The one child name a label, value or sort ref reads: `name` or `./name`. */
 function fieldName(text: unknown): string | undefined {
-	const node = parse(text);
+	const node = parse(text, true);
 	if (node?.kind === "name" && !node.wildcard) return node.name;
 	if (
 		node?.kind === "child" &&
@@ -368,7 +369,7 @@ function itemsetSource(
 	text: unknown,
 ): { tag: string; filter?: string } | undefined {
 	if (typeof text !== "string") return undefined;
-	let node = parse(text);
+	let node = parse(text, true);
 	let filter: string | undefined;
 	if (node?.kind === "filter") {
 		filter = text.slice(node.where.from, node.where.to);
@@ -776,13 +777,35 @@ function readPrompt(
 						? fieldName(sortText)
 						: undefined;
 				const table =
-					source === undefined ? undefined : ctx.input.lookup.table(source.tag);
+					source === undefined || instance !== `item-list:${source.tag}`
+						? undefined
+						: ctx.input.lookup.table(source.tag);
 				const valueColumn =
 					value === undefined ? undefined : table?.column(value);
 				const labelColumn =
 					label === undefined ? undefined : table?.column(label);
 				const sortColumn = sort === undefined ? undefined : table?.column(sort);
-				if (scheme !== undefined && scheme !== "item-list") {
+				const nameRefusal =
+					table === undefined || source === undefined
+						? undefined
+						: (lookupNameRefusal(source.tag, "search_input_options", "tag") ??
+							[label, value, sort].flatMap((name) => {
+								if (name === undefined || table.column(name) === undefined)
+									return [];
+								const refusal = lookupNameRefusal(
+									name,
+									"search_input_options",
+									"column",
+								);
+								return refusal === undefined ? [] : [refusal];
+							})[0]);
+				if (nameRefusal !== undefined) {
+					const raised = refuseWith("nodeset", nameRefusal.claim, cursor, {
+						name: nameRefusal.name,
+					});
+					cover(cursor, ITEMSET_KEYS, raised);
+					cover(prompt, ["input_"], raised);
+				} else if (scheme !== undefined && scheme !== "item-list") {
 					// An instance of another scheme, which HQ's build refuses.
 					const raised = refuseWith("instance_id", P.itemsetScheme, cursor);
 					cover(cursor, ITEMSET_KEYS, raised);

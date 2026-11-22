@@ -17,6 +17,7 @@ import type {
 	CommCareCredentials,
 } from "@/lib/commcare/hq/http";
 import {
+	type HqLookupTable,
 	listHqLookupTables,
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
@@ -43,7 +44,6 @@ import { readSiblingLookupMappings } from "../../store";
 import { isDeploymentServer } from "../../types";
 import {
 	type BroughtInTableWrite,
-	candidateLookupTags,
 	type HqLookupTableRead,
 	lookupTableStanding,
 	managedLookupContentOf,
@@ -81,8 +81,7 @@ function failsEveryTime(error: CommCareApiError): boolean {
 
 /**
  * The project space's lookup tables the source may read, with their rows.
- * One list read; then, for each table whose tag the source names
- * (`candidateLookupTags`), its rows, one table at a time, stopping once the
+ * One list read; then, for each table the reading references, its rows, one table at a time, stopping once the
  * first page names more rows than Nova holds (`over-row-limit`) or the rows
  * pass `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` (`over-byte-limit`), each a finding of
  * that table. The rows the request keeps are bounded together too: each table
@@ -113,7 +112,9 @@ function failsEveryTime(error: CommCareApiError): boolean {
 export async function readHqLookupTablesForReading(input: {
 	readonly creds: CommCareCredentials;
 	readonly domain: string;
-	readonly sourceText: string;
+	readonly referencedTags: (
+		listed: readonly HqLookupTable[],
+	) => Promise<ReadonlySet<string>>;
 	readonly cancel?: AbortSignal;
 }): Promise<
 	| {
@@ -125,7 +126,10 @@ export async function readHqLookupTablesForReading(input: {
 	const { creds, domain, cancel } = input;
 	const list = await listHqLookupTables(creds, domain, { cancel });
 	if ("success" in list) return { ...list, request: "lookup-tables" };
-	const candidates = new Set(candidateLookupTags(input.sourceText, list));
+	const candidates =
+		list.length === 0
+			? new Set<string>()
+			: new Set(await input.referencedTags(list));
 	const tables: HqLookupTableRead[] = [];
 	/* What remains of the request's bound on the rows it keeps. */
 	let remaining = HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES;

@@ -2914,9 +2914,9 @@ async function reviewOverPeer(input: {
 		project: captureProjectSide(prepared.source),
 		places: "when-source-reads",
 	});
-	if (projectData.kind === "failed") {
+	if (projectData.kind !== "read") {
 		throw new Error(
-			`A review of ${prepared.source.id} could not read the Project's data from the capture peer (${JSON.stringify(projectData.failure)}).`,
+			`A review of ${prepared.source.id} could not read the Project's data from the capture peer (${JSON.stringify(projectData)}).`,
 		);
 	}
 	const fetched: FetchedHqChanges = {
