@@ -64,7 +64,13 @@ export const PLAN_FEATURES: Readonly<
 		consequence:
 			"Without it, CommCare HQ turns away the tables Nova sends and can't build a form that reads one, and its form builder shows an error on each question whose choices come from cases.",
 	},
-	"case-sharing-groups":{id:"case-sharing-groups",label:"Case Sharing via Groups",plans:"Pro, Advanced and Enterprise",consequence:"This app needs the project space to support groups that share cases."},
+	"case-sharing-groups": {
+		id: "case-sharing-groups",
+		label: "Case Sharing via Groups",
+		plans: "Pro, Advanced and Enterprise",
+		consequence:
+			"This app needs the project space to support groups that share cases.",
+	},
 	"child-cases": {
 		id: "child-cases",
 		label: "Child Cases",

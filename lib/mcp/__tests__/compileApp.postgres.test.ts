@@ -1,7 +1,7 @@
-import { Readable } from "node:stream";
 /** Persisted apps through the actual MCP SDK, export gate and wire compilers. */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import type { Client } from "@modelcontextprotocol/client";
 import AdmZip from "adm-zip";
 import { getElementsByTagName, textContent } from "domutils";
@@ -528,8 +528,8 @@ it.each([false, true])(
 		});
 		expect(streamAsset).toHaveBeenCalledTimes(withMedia ? 2 : 0);
 		if (withMedia) {
-			expect(streamAsset).toHaveBeenNthCalledWith(1, KEY,"7");
-			expect(streamAsset).toHaveBeenNthCalledWith(2, KEY,"7");
+			expect(streamAsset).toHaveBeenNthCalledWith(1, KEY, "7");
+			expect(streamAsset).toHaveBeenNthCalledWith(2, KEY, "7");
 		}
 		expect(await snapshot()).toEqual(before);
 		await replaceLookupRows(scope, {

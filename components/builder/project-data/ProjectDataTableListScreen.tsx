@@ -20,7 +20,6 @@ import { requiresLookupProjection } from "@/lib/lookup/source";
 import { MANAGED_TABLE_BADGE } from "@/lib/publish/managedData";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useProjectCanEdit } from "@/lib/session/hooks";
-import {WorkerGroups} from "./WorkerGroups";
 import { CreateTableDialog } from "./CreateTableDialog";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
 import { useProjectDataWorkspace } from "./ProjectDataWorkspaceLazyProvider";
@@ -29,6 +28,7 @@ import {
 	formatLookupCount,
 	type RetainedRowRecovery,
 } from "./projectDataModel";
+import { WorkerGroups } from "./WorkerGroups";
 
 export function ProjectDataTableListScreen() {
 	const workspace = useProjectDataWorkspace();
@@ -50,7 +50,8 @@ export function ProjectDataTableListScreen() {
 			<p className="mt-2 max-w-2xl text-sm leading-relaxed text-pretty text-nova-text-secondary">
 				A data table holds a list you reuse across forms: facilities, districts,
 				products, anything a question should offer as choices instead of asking
-				someone to type. You can share a table with every worker or choose which rows each worker receives.
+				someone to type. You can share a table with every worker or choose which
+				rows each worker receives.
 			</p>
 
 			{canEdit && (
@@ -65,7 +66,7 @@ export function ProjectDataTableListScreen() {
 				</Button>
 			)}
 
-			{canEdit&&<WorkerGroups/>}
+			{canEdit && <WorkerGroups />}
 			{creating && (
 				<CreateTableDialog
 					open

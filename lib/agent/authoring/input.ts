@@ -88,12 +88,17 @@ function searchType(input: Input) {
 function collectPlaceNames(node: AuthoredExpression, names: Set<string>) {
 	if (node.kind === "call") {
 		const [argument] = node.args;
-		if (node.name === "location" && argument?.kind === "literal" && typeof argument.value === "string") names.add(argument.value);
-		for (const child of node.args) collectPlaceNames(child,names);
+		if (
+			node.name === "location" &&
+			argument?.kind === "literal" &&
+			typeof argument.value === "string"
+		)
+			names.add(argument.value);
+		for (const child of node.args) collectPlaceNames(child, names);
 	} else if (node.kind === "binary") {
-		collectPlaceNames(node.left,names);
-		collectPlaceNames(node.right,names);
-	} else if (node.kind === "negative") collectPlaceNames(node.value,names);
+		collectPlaceNames(node.left, names);
+		collectPlaceNames(node.right, names);
+	} else if (node.kind === "negative") collectPlaceNames(node.value, names);
 }
 
 function readsTableCatalog(node: AuthoredExpression): boolean {
@@ -104,9 +109,7 @@ function readsTableCatalog(node: AuthoredExpression): boolean {
 				node.args.some((arg) => readsTableCatalog(arg))
 			);
 		case "binary":
-			return (
-				readsTableCatalog(node.left) || readsTableCatalog(node.right)
-			);
+			return readsTableCatalog(node.left) || readsTableCatalog(node.right);
 		case "negative":
 			return readsTableCatalog(node.value);
 		case "reference":
@@ -395,13 +398,23 @@ async function prepareInput<S extends z.ZodType>(args: {
 	}
 	const placeNames = new Set<string>();
 	async function loadLocations(names: Iterable<string>) {
-		const missing = [...names].filter(name=>!placeNames.has(name));
+		const missing = [...names].filter((name) => !placeNames.has(name));
 		if (!missing.length || ctx.appId === null) return;
-		for(const name of missing) placeNames.add(name);
-		const matches = await readPlaceNames({
-			appId: ctx.appId, projectId: ctx.projectId, actorUserId: ctx.userId, role:"tool",
-		},missing);
-		locations = [...new Map([...(locations ?? []),...matches].map(row=>[row.uuid,row])).values()];
+		for (const name of missing) placeNames.add(name);
+		const matches = await readPlaceNames(
+			{
+				appId: ctx.appId,
+				projectId: ctx.projectId,
+				actorUserId: ctx.userId,
+				role: "tool",
+			},
+			missing,
+		);
+		locations = [
+			...new Map(
+				[...(locations ?? []), ...matches].map((row) => [row.uuid, row]),
+			).values(),
+		];
 	}
 	const lookupIndex = () =>
 		new Map((tables ?? []).map((table) => [table.id, table]));
@@ -518,7 +531,11 @@ async function prepareInput<S extends z.ZodType>(args: {
 	).filter((slot) => !uuidSchema.validate(slot.value));
 	if (references.some((slot) => slot.family.startsWith("lookup-")))
 		await loadTables();
-	await loadLocations(references.filter(slot=>slot.family === "location").map(slot=>slot.value));
+	await loadLocations(
+		references
+			.filter((slot) => slot.family === "location")
+			.map((slot) => slot.value),
+	);
 	// Resolve owners before their children, independent of JSON property order.
 	const priority = (family: string) =>
 		family === "module" || family === "lookup-table"
@@ -571,7 +588,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 				const expression = parseAuthoringExpression(
 					valueExpression.parse(value),
 				);
-				collectPlaceNames(expression,expressionPlaces);
+				collectPlaceNames(expression, expressionPlaces);
 				needsTables ||=
 					enclosingAuthoringTable(input, path) !== undefined ||
 					readsTableCatalog(expression);

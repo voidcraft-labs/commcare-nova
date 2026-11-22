@@ -15,6 +15,7 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { rowAssigneesSchema } from "./assignmentVocabulary";
 import { validateLookupRowValues } from "./coercion";
 import {
 	LOOKUP_MAX_COLUMNS,
@@ -22,8 +23,6 @@ import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
-import {rowAssigneesSchema} from "./assignmentVocabulary";
-import {replaceRowAssignments} from "./rowAssignments";
 import { LookupError } from "./errors";
 import { dropDefinitionExternalRefs } from "./largeValues/projection";
 import { holdLookupReaderReview } from "./memberGovernance";
@@ -36,6 +35,7 @@ import {
 import { lookupEditOnce } from "./operationReceipt";
 import { balancedKeysBetween, deriveKeyAtIndex } from "./orderKeys";
 import { checkLookupRetype } from "./retypeCells";
+import { replaceRowAssignments } from "./rowAssignments";
 import { checkedRowContent, resolveNamedRowContent } from "./rowContent";
 import { rowIndex, rowOrderForPlacement } from "./rowOrdering";
 import {
@@ -156,7 +156,8 @@ export function lookupBatchNeedsDelete(
 ): boolean {
 	return (input.updateTables ?? []).some(
 		(table) =>
-			table.delete === true || table.workerAccess==="all" ||
+			table.delete === true ||
+			table.workerAccess === "all" ||
 			table.tag !== undefined ||
 			(table.columnOperations ?? []).some(
 				(operation) =>
@@ -272,7 +273,12 @@ function parseBatch(
 			invalid(`Table "${update.tableId}" appears more than once in the batch.`);
 		}
 		tableIds.add(update.tableId);
-		if (update.workerAccess!==undefined)parseInput(z.enum(["all","assigned"]),update.workerAccess,"Worker access");
+		if (update.workerAccess !== undefined)
+			parseInput(
+				z.enum(["all", "assigned"]),
+				update.workerAccess,
+				"Worker access",
+			);
 		if (update.name !== undefined) {
 			parseInput(lookupTableNameSchema, update.name, "Table name");
 		}
@@ -290,7 +296,8 @@ function parseBatch(
 		}
 		if (update.delete === true) {
 			if (
-				update.workerAccess !== undefined || update.name !== undefined ||
+				update.workerAccess !== undefined ||
+				update.name !== undefined ||
 				update.tag !== undefined ||
 				update.attributes !== undefined ||
 				(update.columnOperations?.length ?? 0) > 0 ||
@@ -455,10 +462,20 @@ function validateColumnOperation(
 function validateRowOperation(operation: LookupAuthoringRowOperation): void {
 	switch (operation.kind) {
 		case "assign":
-			parseInput(lookupRowIdSchema,operation.rowId,"Row id");
-			parseInput(rowAssigneesSchema,operation.assignments,"Workers who receive this row");return;
+			parseInput(lookupRowIdSchema, operation.rowId, "Row id");
+			parseInput(
+				rowAssigneesSchema,
+				operation.assignments,
+				"Workers who receive this row",
+			);
+			return;
 		case "add":
-			if(operation.assignments!==undefined)parseInput(rowAssigneesSchema,operation.assignments,"Workers who receive this row");
+			if (operation.assignments !== undefined)
+				parseInput(
+					rowAssigneesSchema,
+					operation.assignments,
+					"Workers who receive this row",
+				);
 			assertKey(operation.key, "row key");
 			if (operation.afterRowId !== undefined && operation.afterRowId !== null) {
 				parseInput(lookupRowIdSchema, operation.afterRowId, "Row anchor id");
@@ -1149,7 +1166,13 @@ async function applyRowOperations(
 ): Promise<void> {
 	const rowKeys = new Map<string, LookupRowId>();
 	if (work.input.replaceRows !== undefined) {
-		if(work.table.worker_access==="assigned" || work.input.workerAccess==="assigned") invalid("Replacing this table would clear its row assignments. You can update individual rows and keep their workers, groups and places.");
+		if (
+			work.table.worker_access === "assigned" ||
+			work.input.workerAccess === "assigned"
+		)
+			invalid(
+				"Replacing this table would clear its row assignments. You can update individual rows and keep their workers, groups and places.",
+			);
 		const drafts = work.input.replaceRows;
 		const ids = (await mintIds(tx, drafts.length)).map((id) =>
 			lookupRowIdSchema.parse(id),
@@ -1195,8 +1218,19 @@ async function applyRowOperations(
 	for (const operation of work.input.rowOperations ?? []) {
 		switch (operation.kind) {
 			case "assign": {
-				if((work.input.workerAccess??work.table.worker_access)!=="assigned") invalid("This table goes to everyone. You can choose assigned workers for the table first.");
-				const changed=await replaceRowAssignments(tx,scope.projectId,work.input.tableId,operation.rowId,operation.assignments);
+				if (
+					(work.input.workerAccess ?? work.table.worker_access) !== "assigned"
+				)
+					invalid(
+						"This table goes to everyone. You can choose assigned workers for the table first.",
+					);
+				const changed = await replaceRowAssignments(
+					tx,
+					scope.projectId,
+					work.input.tableId,
+					operation.rowId,
+					operation.assignments,
+				);
 				work.rowsChanged ||= changed;
 				break;
 			}
@@ -1236,9 +1270,20 @@ async function applyRowOperations(
 				work.dataBytes += await insertRows(tx, scope, work.input.tableId, [
 					row,
 				]);
-				if(operation.assignments!==undefined){
-					if((work.input.workerAccess??work.table.worker_access)!=="assigned")invalid("This table goes to everyone. You can choose assigned workers for the table first.");
-					await replaceRowAssignments(tx,scope.projectId,work.input.tableId,id,operation.assignments);
+				if (operation.assignments !== undefined) {
+					if (
+						(work.input.workerAccess ?? work.table.worker_access) !== "assigned"
+					)
+						invalid(
+							"This table goes to everyone. You can choose assigned workers for the table first.",
+						);
+					await replaceRowAssignments(
+						tx,
+						scope.projectId,
+						work.input.tableId,
+						id,
+						operation.assignments,
+					);
 				}
 				work.rowCount++;
 				work.rowIds.push({ key: operation.key, id });
@@ -1634,10 +1679,24 @@ async function applyBatch(
 			changed = true;
 			continue;
 		}
-		if(work.input.workerAccess!==undefined && work.input.workerAccess!==work.table.worker_access){
-			await holdLookupReaderReview(tx,scope.projectId,work.input.tableId,projectState.revision,work.input.reviewed);
-			await tx.updateTable("lookup_tables").set({worker_access:work.input.workerAccess}).where("project_id","=",scope.projectId).where("id","=",work.input.tableId).execute();
-			work.definitionChanged=true;
+		if (
+			work.input.workerAccess !== undefined &&
+			work.input.workerAccess !== work.table.worker_access
+		) {
+			await holdLookupReaderReview(
+				tx,
+				scope.projectId,
+				work.input.tableId,
+				projectState.revision,
+				work.input.reviewed,
+			);
+			await tx
+				.updateTable("lookup_tables")
+				.set({ worker_access: work.input.workerAccess })
+				.where("project_id", "=", scope.projectId)
+				.where("id", "=", work.input.tableId)
+				.execute();
+			work.definitionChanged = true;
 		}
 		const richEdit =
 			work.input.attributes !== undefined ||

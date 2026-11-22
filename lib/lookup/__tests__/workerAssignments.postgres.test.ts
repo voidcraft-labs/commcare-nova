@@ -1,6 +1,6 @@
 import { sql } from "kysely";
 import { v7 } from "uuid";
-import { beforeEach, expect, it } from "vitest";
+import { assert, beforeEach, expect, it } from "vitest";
 import {
 	canonicalTestBlueprint,
 	setupAppStateTestDb,
@@ -8,10 +8,10 @@ import {
 import { withAppTx } from "@/lib/db/pg";
 import { readWorkerLookupProjection } from "@/lib/deployment/workerLookupProjection";
 import { asUuid } from "@/lib/domain/uuid";
+import type { WorkerGroupEdit } from "../assignmentVocabulary";
 import { applyLookupAuthoringBatchInTransaction } from "../authoringBatch";
 import { readLookupFixtureDataInTransaction } from "../fixtureSnapshot";
 import { editWorkerGroup, readPersonaGroups } from "../workerGroups";
-import type { WorkerGroupEdit } from "../assignmentVocabulary";
 import { authorizeLookupWriteInTransaction } from "../writerTransaction";
 
 const h = setupAppStateTestDb("worker_assignments_", {
@@ -151,12 +151,13 @@ it("serves the assigned worker's union in row order, excludes additional places,
 	expect(BigInt(receipt.projectRevision)).toBeGreaterThan(
 		BigInt(added.projectRevision),
 	);
+	assert(t.revisions);
 	const op = {
 		operationId: v7(),
 		updateTables: [
 			{
 				tableId: t.tableId,
-				expectedTableRevision: t.revisions!.tableRevision,
+				expectedTableRevision: t.revisions.tableRevision,
 				workerAccess: "assigned" as const,
 				rowOperations: [
 					{
@@ -193,6 +194,7 @@ it("serves the assigned worker's union in row order, excludes additional places,
 		],
 	};
 	const saved = await batch(op);
+	assert(saved.tables[0].revisions);
 	expect(await batch(op)).toEqual(saved);
 	const load = (personaUuid?: string) =>
 		readWorkerLookupProjection({ scope, grant, personaUuid }, [t.tableId]);
@@ -213,7 +215,7 @@ it("serves the assigned worker's union in row order, excludes additional places,
 		updateTables: [
 			{
 				tableId: t.tableId,
-				expectedTableRevision: saved.tables[0].revisions!.tableRevision,
+				expectedTableRevision: saved.tables[0].revisions.tableRevision,
 				rowOperations: [
 					{
 						kind: "assign",

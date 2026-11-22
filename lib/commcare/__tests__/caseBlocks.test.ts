@@ -1,8 +1,8 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
+import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { SaxesParser } from "saxes";
-import {findAll} from "domutils";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -980,25 +980,62 @@ it("puts a repeat's single subcase block first in its item, before the item's Sa
 });
 
 it("exports the one-group entry and its nonrepeated and repeated owner defaults", () => {
- const doc=patientApp("registration",[
-  f({kind:"text",id:"name",...write("case_name")}),
-  f({kind:"repeat",id:"visits",repeat_mode:"user_controlled",children:[f({kind:"text",id:"name_visit",...write("case_name","visit")})]})
- ]);
- doc.appSettings.caseSharing=true;
- const hq=expandDoc(doc);
- expect(hq.case_sharing).toBe(true);
- const zip=new AdmZip(compileCcz(hq,doc.appName,doc,{runtimeTarget:TEST_RUNTIME_TARGET}));
- const suite=zip.readAsText("suite.xml");
- expect(findAll(n=>n.name==="assert",parseDocument(suite,{xmlMode:true}).children).map(n=>n.attribs.test)).toContain("count(instance('groups')/groups/group) = 1");
- expect(suite).toContain('id="case_sharing.exactly_one_group"');
- const form=read(zip.readAsText("modules-0/forms-0.xml"));
- expect(form.seed("/data/case/create/owner_id").value).toBe("instance('groups')/groups/group/@id");
- const repeat=form.modelNodes.filter(node=>node.name==="bind"&&node.attribs.nodeset.startsWith("/data/visits")&&node.attribs.nodeset.endsWith("/create/owner_id"));
- expect(repeat.map(node=>node.attribs.calculate)).toEqual(["instance('groups')/groups/group/@id"]);
- expect(form.modelNodes.filter(node=>node.name==="instance"&&node.attribs.src==="jr://fixture/user-groups")).toHaveLength(1);
- doc.appSettings.caseSharing=false;
- const plain=expandDoc(doc);
- const ordinary=new AdmZip(compileCcz(plain,doc.appName,doc,{runtimeTarget:TEST_RUNTIME_TARGET}));
- expect(ordinary.readAsText("suite.xml")).not.toContain("case_sharing.exactly_one_group");
- expect(read(ordinary.readAsText("modules-0/forms-0.xml")).bind("/data/case/create/owner_id").calculate).toBe("/data/meta/userID");
+	const doc = patientApp("registration", [
+		f({ kind: "text", id: "name", ...write("case_name") }),
+		f({
+			kind: "repeat",
+			id: "visits",
+			repeat_mode: "user_controlled",
+			children: [
+				f({ kind: "text", id: "name_visit", ...write("case_name", "visit") }),
+			],
+		}),
+	]);
+	doc.appSettings.caseSharing = true;
+	const hq = expandDoc(doc);
+	expect(hq.case_sharing).toBe(true);
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	const suite = zip.readAsText("suite.xml");
+	expect(
+		findAll(
+			(n) => n.name === "assert",
+			parseDocument(suite, { xmlMode: true }).children,
+		).map((n) => n.attribs.test),
+	).toContain("count(instance('groups')/groups/group) = 1");
+	expect(suite).toContain('id="case_sharing.exactly_one_group"');
+	const form = read(zip.readAsText("modules-0/forms-0.xml"));
+	expect(form.seed("/data/case/create/owner_id").value).toBe(
+		"instance('groups')/groups/group/@id",
+	);
+	const repeat = form.modelNodes.filter(
+		(node) =>
+			node.name === "bind" &&
+			node.attribs.nodeset.startsWith("/data/visits") &&
+			node.attribs.nodeset.endsWith("/create/owner_id"),
+	);
+	expect(repeat.map((node) => node.attribs.calculate)).toEqual([
+		"instance('groups')/groups/group/@id",
+	]);
+	expect(
+		form.modelNodes.filter(
+			(node) =>
+				node.name === "instance" &&
+				node.attribs.src === "jr://fixture/user-groups",
+		),
+	).toHaveLength(1);
+	doc.appSettings.caseSharing = false;
+	const plain = expandDoc(doc);
+	const ordinary = new AdmZip(
+		compileCcz(plain, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+	);
+	expect(ordinary.readAsText("suite.xml")).not.toContain(
+		"case_sharing.exactly_one_group",
+	);
+	expect(
+		read(ordinary.readAsText("modules-0/forms-0.xml")).bind(
+			"/data/case/create/owner_id",
+		).calculate,
+	).toBe("/data/meta/userID");
 });

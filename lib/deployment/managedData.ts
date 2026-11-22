@@ -11,7 +11,6 @@ import {
 	type HqFailure,
 	type HqFailureKind,
 } from "@/lib/commcare/hq/failure";
-import { readPlaceState } from "@/lib/organization/pages";
 import { readHqPlaceInventory } from "@/lib/commcare/hq/locationInventory";
 import type { HqLocation } from "@/lib/commcare/hq/locations";
 import { readVerifiedGlobalLookupRows } from "@/lib/commcare/hq/lookupCoverage";
@@ -96,6 +95,7 @@ import {
 	type ManagedPlacesRefresh,
 	refreshManagedPlacesInTransaction,
 } from "@/lib/organization/managed";
+import { readPlaceState } from "@/lib/organization/pages";
 import type { OrganizationScope } from "@/lib/organization/types";
 import {
 	CONNECT_TO_REFRESH_PLACES,
@@ -126,6 +126,7 @@ import {
 } from "@/lib/publish/managedData";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import { transferAssignedSource } from "./assignedSourceTransfer";
 import { deploymentNotFound } from "./errors";
 import { canonicalLookupTable } from "./hqResourceBaseline";
 import {
@@ -133,7 +134,6 @@ import {
 	type UnsupportedLookupContent,
 } from "./lookupResourcePlan";
 import { refreshSourceInventory } from "./managedInventory";
-import { transferAssignedSource } from "./assignedSourceTransfer";
 import { transferManagedGeneration } from "./managedTransfer";
 import {
 	boundSourceFixture,
@@ -1402,7 +1402,7 @@ export async function manageLookupTableInNova(
 	tableId: LookupTableId,
 	reviewDigest: string,
 	dataGrant?: ProjectDataGrant,
- renewedWorkbook?:Buffer,
+	renewedWorkbook?: Buffer,
 ): Promise<ManagedTableOutcome> {
 	const standing = await reviewStanding(scope, tableId, reviewDigest);
 	if (!standing.ok) return standing;
@@ -1410,14 +1410,31 @@ export async function manageLookupTableInNova(
 	if (review.managedBy === "nova") return landed(scope, review.tableId, null);
 	const stored = await storedManagedTable(scope, tableId);
 	if (!stored) return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
-	if(review.definition.hq?.source?.distribution==="assigned"){
-   if(!dataGrant||!renewedWorkbook)return refusedTable("unsupported","You can download just this table from its project space and attach that new workbook to confirm its worker assignments.");
-   if(review.definition.hq.source.inventory!=="complete")return refusedTable("unsupported","You can refresh the source inventory before transferring this table.");
-   try{await transferAssignedSource({scope,tableId,grant:dataGrant},review,renewedWorkbook);}
-   catch(error){const refused=refusedWrite(error,TABLE_TAKEN_OVER_MEANWHILE);if(refused)return refused;throw error;}
-   return landed(scope,review.tableId,null);
- }
- if (review.definition.hq?.source?.storage === "generation") {
+	if (review.definition.hq?.source?.distribution === "assigned") {
+		if (!dataGrant || !renewedWorkbook)
+			return refusedTable(
+				"unsupported",
+				"You can download just this table from its project space and attach that new workbook to confirm its worker assignments.",
+			);
+		if (review.definition.hq.source.inventory !== "complete")
+			return refusedTable(
+				"unsupported",
+				"You can refresh the source inventory before transferring this table.",
+			);
+		try {
+			await transferAssignedSource(
+				{ scope, tableId, grant: dataGrant },
+				review,
+				renewedWorkbook,
+			);
+		} catch (error) {
+			const refused = refusedWrite(error, TABLE_TAKEN_OVER_MEANWHILE);
+			if (refused) return refused;
+			throw error;
+		}
+		return landed(scope, review.tableId, null);
+	}
+	if (review.definition.hq?.source?.storage === "generation") {
 		if (!dataGrant)
 			return refusedTable(
 				"not-permitted",
@@ -1713,7 +1730,7 @@ export const NO_MANAGED_PLACES =
  */
 export async function refreshManagedPlacesFromRead(
 	scope: OrganizationScope,
-	origin: { readonly server:string; readonly domain: string },
+	origin: { readonly server: string; readonly domain: string },
 	hqPlaces: readonly HqLocation[],
 	at: Date,
 ): Promise<ManagedPlacesOutcome> {
@@ -1724,8 +1741,11 @@ export async function refreshManagedPlacesFromRead(
 				return placesRefused("not-found", NO_MANAGED_PLACES);
 			}
 			const doc = hydratePersistedBlueprint(app.blueprint);
-			if (hqPlaces.some(place => place.observation === undefined)) return placesRefused("cannot-read",
-				"Nova needs both place inventories from the source project space to refresh its copy. Check your connection to that space, then try again.");
+			if (hqPlaces.some((place) => place.observation === undefined))
+				return placesRefused(
+					"cannot-read",
+					"Nova needs both place inventories from the source project space to refresh its copy. Check your connection to that space, then try again.",
+				);
 			const plan: ManagedPlacePlan = planManagedPlaces({
 				hqPlaces,
 				levels: orderedOrganizationLevels(doc),
@@ -1735,16 +1755,17 @@ export async function refreshManagedPlacesFromRead(
 			const [finding] = plan.findings;
 			if (finding !== undefined) {
 				return placesRefused(
-							"not-holdable",
-							managedPlaceNotHoldable(
-								finding.detail.name ?? origin.domain,
-								origin.domain,
-							),
-						);
+					"not-holdable",
+					managedPlaceNotHoldable(
+						finding.detail.name ?? origin.domain,
+						origin.domain,
+					),
+				);
 			}
 			const refresh = await refreshManagedPlacesInTransaction(tx, scope, {
 				plan,
-				at, origin,
+				at,
+				origin,
 			});
 			return { ok: true, refresh, refreshedAt: at.toISOString() } as const;
 		});
@@ -1782,7 +1803,7 @@ function placesRefused(
 export async function refreshManagedPlaces(
 	scope: OrganizationScope,
 ): Promise<ManagedPlacesOutcome> {
-	const {hq} = await readPlaceState(scope);
+	const { hq } = await readPlaceState(scope);
 	if (hq === undefined) return placesRefused("not-found", NO_MANAGED_PLACES);
 	if (!roleAllowsApp(scope.role, "edit")) {
 		return placesRefused("not-permitted", REFRESH_NEEDS_EDITOR);
@@ -1795,10 +1816,17 @@ export async function refreshManagedPlaces(
 	}
 	const at = new Date();
 	const inventory = await readHqPlaceInventory(credentials.creds, hq.domain);
-	if (inventory.kind === "inconsistent") return placesRefused("not-holdable", "The place lists in CommCare HQ disagree. You can check the levels and parents there, then refresh again.");
-	if (inventory.kind === "failed") return isAccountRefusal(classifyHqFailure(inventory.error, inventory.request))
-		? placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain))
-		: placesRefused("unavailable", HQ_UNAVAILABLE);
+	if (inventory.kind === "inconsistent")
+		return placesRefused(
+			"not-holdable",
+			"The place lists in CommCare HQ disagree. You can check the levels and parents there, then refresh again.",
+		);
+	if (inventory.kind === "failed")
+		return isAccountRefusal(
+			classifyHqFailure(inventory.error, inventory.request),
+		)
+			? placesRefused("cannot-read", cannotReadManagedPlaces(hq.domain))
+			: placesRefused("unavailable", HQ_UNAVAILABLE);
 	return refreshManagedPlacesFromRead(scope, hq, inventory.places, at);
 }
 
@@ -1809,7 +1837,7 @@ export async function readManagedPlacesView(scope: OrganizationScope): Promise<{
 	/** Whether the viewer has a CommCare HQ connection on that server. */
 	readonly connected: boolean;
 } | null> {
-	const {hq} = await readPlaceState(scope);
+	const { hq } = await readPlaceState(scope);
 	if (hq === undefined) return null;
 	const server = serverOf(hq.server);
 	return {

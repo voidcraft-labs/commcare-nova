@@ -102,7 +102,11 @@ export function PersonasSubsection() {
 						focusOnMount={focusUuid === persona.uuid}
 						onFocused={() => setFocusUuid(undefined)}
 						returnFocusRef={addButtonRef}
-						remote={organization.paged ? {appId:organization.appId, revision:organization.revision} : undefined}
+						remote={
+							organization.paged
+								? { appId: organization.appId, revision: organization.revision }
+								: undefined
+						}
 						locations={organization.locations}
 						locationsLoading={organization.loading}
 						locationsError={organization.error}
@@ -150,7 +154,7 @@ function PersonaRow({
 	focusOnMount: boolean;
 	onFocused: () => void;
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
-	remote?:Parameters<typeof PersonaLocations>[0]["remote"];
+	remote?: Parameters<typeof PersonaLocations>[0]["remote"];
 	locations: Parameters<typeof PersonaLocations>[0]["locations"];
 	locationsLoading: boolean;
 	locationsError: string | undefined;

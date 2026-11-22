@@ -105,10 +105,17 @@ it("captures assigned rows per identity, reopens the original receipt under a cu
 	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt") VALUES (${scope.workerGrant.sessionId},'local-test-token',${actorUserId},now()+interval '1 hour',now(),now())`.execute(
 		h.db(),
 	);
-	const publicInput={requestId:"global",expectedBlueprintSeq:0,input:{purpose:"Check shared clinics"}};
-	const wasPublic=await startAppTest(scope,publicInput);
-	const viewer={...scope,actorUserId:"colleague"};
-	expect((await readAppTestSteps({...viewer,testId:wasPublic.testId})).steps.length).toBeGreaterThan(0);
+	const publicInput = {
+		requestId: "global",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Check shared clinics" },
+	};
+	const wasPublic = await startAppTest(scope, publicInput);
+	const viewer = { ...scope, actorUserId: "colleague" };
+	expect(
+		(await readAppTestSteps({ ...viewer, testId: wasPublic.testId })).steps
+			.length,
+	).toBeGreaterThan(0);
 	const revision = table.revisions?.tableRevision;
 	if (!revision) throw new Error("Missing created table revision.");
 	const assigned = await save({
@@ -136,9 +143,15 @@ it("captures assigned rows per identity, reopens the original receipt under a cu
 			sessions: [{ id: "field", personaUuid: "Kaia" }],
 		},
 	};
-	await expect(startAppTest(scope,publicInput)).rejects.toThrow(/no longer available that way/);
-	await expect(readAppTestSteps({...viewer,testId:wasPublic.testId})).rejects.toThrow(/no longer available that way/);
-	expect(JSON.stringify(await listAppTests(viewer))).not.toContain(wasPublic.testId);
+	await expect(startAppTest(scope, publicInput)).rejects.toThrow(
+		/no longer available that way/,
+	);
+	await expect(
+		readAppTestSteps({ ...viewer, testId: wasPublic.testId }),
+	).rejects.toThrow(/no longer available that way/);
+	expect(JSON.stringify(await listAppTests(viewer))).not.toContain(
+		wasPublic.testId,
+	);
 	const start = await startAppTest(scope, input);
 	const { testId } = start;
 	expect(await startAppTest(scope, input)).toEqual(start);

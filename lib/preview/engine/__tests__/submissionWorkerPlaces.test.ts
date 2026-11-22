@@ -14,7 +14,9 @@ import type { SubmissionMutation } from "../caseDataBindingTypes";
 import type { ResolvedPreviewIdentity } from "../identity";
 
 const readWorkerLocationIds = vi.hoisted(() => vi.fn());
-vi.mock("../workerLocationFixture", () => ({ workerPlaceIds:readWorkerLocationIds }));
+vi.mock("../workerLocationFixture", () => ({
+	workerPlaceIds: readWorkerLocationIds,
+}));
 
 const PERSONA = testUuid("worker-places-persona");
 const REGION = testUuid("worker-places-region");
@@ -77,7 +79,11 @@ describe("the places an owner moved to a place is resolved among", () => {
 	it("are the worker's footprint now when the entry carried none", async () => {
 		readWorkerLocationIds.mockResolvedValueOnce([REGION, DISTRICT]);
 		const built = await submit();
-		expect(readWorkerLocationIds).toHaveBeenCalledWith("worker-places-app",expect.anything(),PERSONA);
+		expect(readWorkerLocationIds).toHaveBeenCalledWith(
+			"worker-places-app",
+			expect.anything(),
+			PERSONA,
+		);
 		expect(built.program?.workerPlaceIds).toEqual([REGION, DISTRICT]);
 	});
 });

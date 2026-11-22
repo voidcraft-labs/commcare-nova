@@ -261,9 +261,17 @@ function levelAnswer(withDistrict: boolean) {
 
 function servePlaces(peer: MockAgent, withDistrict = true): void {
 	serveJson(peer, LEVELS, levelAnswer(withDistrict));
-	for (const [url, file] of [[PLACES,"locations"],[PLACE_DETAILS,"locations-v1"]]) {
+	for (const [url, file] of [
+		[PLACES, "locations"],
+		[PLACE_DETAILS, "locations-v1"],
+	]) {
 		const answer = retained(`places/${file}.json`);
-		serve(peer,url,{...answer, body:answer.body.replaceAll("nova-proof",DOMAIN).replaceAll("https://www.commcarehq.org", HOST) });
+		serve(peer, url, {
+			...answer,
+			body: answer.body
+				.replaceAll("nova-proof", DOMAIN)
+				.replaceAll("https://www.commcarehq.org", HOST),
+		});
 	}
 }
 
@@ -701,7 +709,11 @@ describe("readReadingProjectData over Postgres", () => {
 				"north_clinic",
 				"south",
 			]);
-			expect(data.gathered.hqPlaces.every(place => place.observation !== undefined)).toBe(true);
+			expect(
+				data.gathered.hqPlaces.every(
+					(place) => place.observation !== undefined,
+				),
+			).toBe(true);
 		});
 	});
 
@@ -714,14 +726,30 @@ describe("readReadingProjectData over Postgres", () => {
 			servePlaces(peer, true);
 			const data = await readData(source, "always");
 			expect(data.organization.levelCodes).toEqual(["region", "district"]);
-			expect(calls(peer).slice(-6)).toEqual([LEVELS, PLACES, PLACE_DETAILS, LEVELS, PLACES, PLACE_DETAILS]);
+			expect(calls(peer).slice(-6)).toEqual([
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+			]);
 		});
 		await withHttpPeer(async (peer) => {
 			serveTables(peer);
 			servePlaces(peer, false);
 			servePlaces(peer, false);
-			expect((await readData(source, "always")).gathered.inconsistent).toBe(true);
-			expect(calls(peer).slice(-6)).toEqual([LEVELS, PLACES, PLACE_DETAILS, LEVELS, PLACES, PLACE_DETAILS]);
+			expect((await readData(source, "always")).gathered.inconsistent).toBe(
+				true,
+			);
+			expect(calls(peer).slice(-6)).toEqual([
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+			]);
 		});
 	});
 

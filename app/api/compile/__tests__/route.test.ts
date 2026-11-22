@@ -1,4 +1,3 @@
-import { Readable } from "node:stream";
 /** Native Request -> stored canonical document -> export gate -> real artifacts.
  * Only authentication, authoritative database reads and object storage are
  * controlled. Python's zipfile independently reads the bytes both routes emit;
@@ -6,6 +5,7 @@ import { Readable } from "node:stream";
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -577,7 +577,7 @@ it("bundles the referenced ready image with JSON and a matching XForm reference"
 	expect([...images.keys()]).toEqual([`commcare/${HASH}.png`]);
 	expect(member(images, `commcare/${HASH}.png`)).toEqual(PNG);
 	expect(member(entries, "README.txt").toString()).toContain("multimedia.zip");
-	expect(streamAsset).toHaveBeenCalledWith(ROW.gcsObjectKey,"7");
+	expect(streamAsset).toHaveBeenCalledWith(ROW.gcsObjectKey, "7");
 });
 
 it("ships a readable workbook generated from the same lookup rows as the app reference", async () => {

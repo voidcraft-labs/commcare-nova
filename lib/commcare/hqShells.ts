@@ -310,7 +310,7 @@ export function applicationShell(
 	options: {
 		/** Where the app runs, on the wire: `declaresWebApps(doc)`. */
 		cloudcareEnabled: boolean;
-		caseSharing?:boolean;
+		caseSharing?: boolean;
 		autoGpsCapture?: boolean;
 		langs?: string[];
 		translations?: Record<string, Record<string, string>>;
@@ -371,7 +371,9 @@ export function applicationShell(
 	return {
 		doc_type: "Application",
 		application_version: "2.0",
-		...(options.caseSharing===undefined?{}:{case_sharing:options.caseSharing}),
+		...(options.caseSharing === undefined
+			? {}
+			: { case_sharing: options.caseSharing }),
 		name: appName,
 		langs: options.langs ?? ["en"],
 		translations: options.translations ?? {},

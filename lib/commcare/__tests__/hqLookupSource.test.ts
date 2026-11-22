@@ -216,12 +216,17 @@ it("checks a durable prefix before handing its successor to a restarted job", as
 	});
 });
 
-it("retains a source reference when only the selected rich detail exceeds the inline budget",async()=>{
-    await withHttpPeer(async peer=>{
-        reply(peer,`${root}/lookup_table/v1/${id}/`,definition,1);
-        reply(peer,list,page,2);
-        reply(peer,pathOf(first),rowOf(first,1,"a".repeat(850)),1);
-        reply(peer,pathOf(second),rowOf(second,2),1);
-        expect(await readSelectedHqLookupRows(creds,"sample",table,{maxRows:20,maxBytes:800})).toEqual({kind:"past-limit",by:"bytes",totalCount:2});
-    });
+it("retains a source reference when only the selected rich detail exceeds the inline budget", async () => {
+	await withHttpPeer(async (peer) => {
+		reply(peer, `${root}/lookup_table/v1/${id}/`, definition, 1);
+		reply(peer, list, page, 2);
+		reply(peer, pathOf(first), rowOf(first, 1, "a".repeat(850)), 1);
+		reply(peer, pathOf(second), rowOf(second, 2), 1);
+		expect(
+			await readSelectedHqLookupRows(creds, "sample", table, {
+				maxRows: 20,
+				maxBytes: 800,
+			}),
+		).toEqual({ kind: "past-limit", by: "bytes", totalCount: 2 });
+	});
 });

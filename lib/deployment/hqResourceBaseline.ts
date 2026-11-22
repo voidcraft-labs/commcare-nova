@@ -12,8 +12,10 @@
  * `remoteChanges.ts`.
  */
 
-import {rowsDigest} from "@/lib/commcare/lookup/rowsDigest";
-export {streamingLookupRowsDigest} from "@/lib/commcare/lookup/rowsDigest";
+import { rowsDigest } from "@/lib/commcare/lookup/rowsDigest";
+
+export { streamingLookupRowsDigest } from "@/lib/commcare/lookup/rowsDigest";
+
 import type { HqLocation } from "@/lib/commcare/hq/locations";
 import type {
 	HqFixtureRow,
@@ -37,7 +39,8 @@ export type PlaceChangePart = {
 		| "level"
 		| "parent"
 		| "coordinates"
-		| "information" | "external-id";
+		| "information"
+		| "external-id";
 };
 
 /**
@@ -70,15 +73,36 @@ export function canonicalLookupTable(
 	table: HqLookupTable,
 	rows: readonly HqFixtureRow[] | null,
 ): CanonicalLookupTable {
-	return canonicalLookupObservation(table,rows?.length ?? null,rows===null ? canonicalJsonDigest({inventory:"unavailable"}) : rowsDigest(rows));
+	return canonicalLookupObservation(
+		table,
+		rows?.length ?? null,
+		rows === null
+			? canonicalJsonDigest({ inventory: "unavailable" })
+			: rowsDigest(rows),
+	);
 }
 
-export function canonicalLookupObservation(table:HqLookupTable,rowCount:number|null,rowsDigest:string):CanonicalLookupTable {
-	const definition=definitionOf(table);
-	const content={...definition,rowCount,rowsDigest,definitionDigest:canonicalJsonDigest(definition)};
+export function canonicalLookupObservation(
+	table: HqLookupTable,
+	rowCount: number | null,
+	rowsDigest: string,
+): CanonicalLookupTable {
+	const definition = definitionOf(table);
+	const content = {
+		...definition,
+		rowCount,
+		rowsDigest,
+		definitionDigest: canonicalJsonDigest(definition),
+	};
 	return {
-		remoteId:table.id,source:{inventory:rowCount===null ? "unavailable" : "complete",distribution:table.isGlobal ? "global":"assigned",indexEvidence:"unobserved"},
-		...content,digest:canonicalJsonDigest(content),
+		remoteId: table.id,
+		source: {
+			inventory: rowCount === null ? "unavailable" : "complete",
+			distribution: table.isGlobal ? "global" : "assigned",
+			indexEvidence: "unobserved",
+		},
+		...content,
+		digest: canonicalJsonDigest(content),
 	};
 }
 
@@ -131,7 +155,7 @@ function ownedDataOf(
 	place: HqLocation,
 	ownedKeys: readonly string[],
 ): Readonly<Record<string, unknown>> {
-	const owned = Object.create(null) as Record<string,unknown>;
+	const owned = Object.create(null) as Record<string, unknown>;
 	for (const key of ownedKeys) {
 		if (Object.hasOwn(place.values, key)) owned[key] = place.values[key];
 	}
@@ -141,7 +165,9 @@ function ownedDataOf(
 /** The paired API baseline encodes keys and raw JSON as text because native project
  * metadata can hold strings outside the Postgres jsonb character repertoire. */
 export function baselinePlaceKeys(baseline: CanonicalPlace): readonly string[] {
-	return baseline.observed ? JSON.parse(baseline.observed.keys) as string[] : baseline.ownedKeys;
+	return baseline.observed
+		? (JSON.parse(baseline.observed.keys) as string[])
+		: baseline.ownedKeys;
 }
 
 /**
@@ -155,14 +181,20 @@ export function canonicalPlace(
 	ownedKeys: readonly string[],
 ): CanonicalPlace {
 	const keys = [...new Set(ownedKeys)].sort();
-	const obs=place.observation;
+	const obs = place.observation;
 	const content = {
-		...(obs && { observed: {
-			nameIsNull: obs.nameIsNull,
-			externalId: obs.externalId,
-			keys: JSON.stringify(keys),
-			wire: JSON.stringify(keys.filter(key => Object.hasOwn(obs.wire, key)).map(key => [key, obs.wire[key]])),
-		} }),
+		...(obs && {
+			observed: {
+				nameIsNull: obs.nameIsNull,
+				externalId: obs.externalId,
+				keys: JSON.stringify(keys),
+				wire: JSON.stringify(
+					keys
+						.filter((key) => Object.hasOwn(obs.wire, key))
+						.map((key) => [key, obs.wire[key]]),
+				),
+			},
+		}),
 		name: place.name,
 		siteCode: place.siteCode,
 		locationTypeCode: place.locationTypeCode,
@@ -191,8 +223,17 @@ export function placeChange(
 	if (current === null) return [{ kind: "missing" }];
 	const now = canonicalPlace(current, baselinePlaceKeys(baseline));
 	const parts: PlaceChangePart[] = [];
-	if (baseline.observed && baseline.observed.externalId !== now.observed?.externalId) parts.push({kind:"external-id"});
-	if (now.name !== baseline.name || (baseline.observed && baseline.observed.nameIsNull !== now.observed?.nameIsNull)) parts.push({ kind: "name" });
+	if (
+		baseline.observed &&
+		baseline.observed.externalId !== now.observed?.externalId
+	)
+		parts.push({ kind: "external-id" });
+	if (
+		now.name !== baseline.name ||
+		(baseline.observed &&
+			baseline.observed.nameIsNull !== now.observed?.nameIsNull)
+	)
+		parts.push({ kind: "name" });
 	if (now.siteCode !== baseline.siteCode) parts.push({ kind: "site-code" });
 	if (now.locationTypeCode !== baseline.locationTypeCode) {
 		parts.push({ kind: "level" });
@@ -207,8 +248,11 @@ export function placeChange(
 		parts.push({ kind: "coordinates" });
 	}
 	if (
-		canonicalJsonDigest(baseline.observed ? now.observed?.wire : ownedDataOf(current, baseline.ownedKeys)) !==
-		canonicalJsonDigest(baseline.observed?.wire ?? baseline.ownedData)
+		canonicalJsonDigest(
+			baseline.observed
+				? now.observed?.wire
+				: ownedDataOf(current, baseline.ownedKeys),
+		) !== canonicalJsonDigest(baseline.observed?.wire ?? baseline.ownedData)
 	) {
 		parts.push({ kind: "information" });
 	}

@@ -312,7 +312,9 @@ it("fills a Linux node_modules volume once, serves the selected checks under /wo
 		(call) => call[0] === "run" && call.includes("ci"),
 	);
 	expect(install).toBeDefined();
-	expect(install?.join(" ")).toContain("node scripts/fix-yazl-descriptors.mjs && touch node_modules/.nova-zip64-descriptors-v1");
+	expect(install?.join(" ")).toContain(
+		"node scripts/fix-yazl-descriptors.mjs && touch node_modules/.nova-zip64-descriptors-v1",
+	);
 	const volume = install?.[install.indexOf("-v", 3) + 1]?.split(":")[0];
 	expect(volume).toMatch(/^nova-proof-node-modules-[0-9a-f]{16}$/);
 

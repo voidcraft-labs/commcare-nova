@@ -1,5 +1,5 @@
 import "server-only";
-import { ownRecordValue } from "@/lib/domain/records";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import { baseUrl, type CommCareCredentials, isValidDomainSlug } from "./http";
 import { giveBackHeld } from "./memoryMeter";
 import { isHqObject, readHqCollection } from "./readCollection";
@@ -42,7 +42,7 @@ export async function readTargetWorkerGroup(
 			!raw.users.every(validId)
 		)
 			return null;
-		const metadata = ownRecordValue(raw, "metadata") ?? {};
+		const metadata = ownRecordValue(raw, "metadata") ?? NO_ENTRIES;
 		if (
 			!isHqObject(metadata) ||
 			!Object.values(metadata).every((x) => typeof x === "string")

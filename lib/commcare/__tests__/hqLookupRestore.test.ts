@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { readVerifiedGlobalLookupRows } from "../hq/lookupCoverage";
-import {readWorkerGroupsRestore, readLookupWorkerRestore } from "../hq/lookupRestore";
+import {
+	readLookupWorkerRestore,
+	readWorkerGroupsRestore,
+} from "../hq/lookupRestore";
 import { toHqLookupTable } from "../hq/lookupTables";
 
 const creds = {
@@ -231,21 +234,48 @@ it.each(["match", "missing", "foreign", "changed", "assigned"] as const)(
 	},
 );
 
-it("verifies the native group fixture against registration and preserves order, duplicates, and detail values",async()=>{
- const xml=(fixtureId:string,container:string)=>native("ana","commcare","first",false).replace("</OpenRosaResponse>",`<fixture id="user-groups" user_id="${fixtureId}">${container}</fixture></OpenRosaResponse>`);
- const one='<group id="g"><name>Clinic</name><group_data><data key="level"> 2 </data></group_data></group>';
- await withHttpPeer(async peer=>{
-  const send=(body:string)=>peer.get(scope).intercept({path:restore(true),method:"GET"}).reply(200,body);
-  send(xml(mobile.userId,`<groups>${one}${one}</groups>`));
-  const actual=await readWorkerGroupsRestore(creds,"sample",mobile,"scope");
-  if("success" in actual)throw Error("Missing authenticated worker group fixture");
-  const group={id:"g",name:"Clinic",details:[{key:"level",value:" 2 "}]};
-  expect(actual.groups).toEqual([group,group]);
-  send(xml(mobile.userId,"<groups/>"));
-  expect(await readWorkerGroupsRestore(creds,"sample",mobile,"scope")).toMatchObject({workerId:mobile.userId,groups:[]});
-  for(const body of [xml("other-worker","<groups/>"),native("ana","commcare","first",false),xml(mobile.userId,"<groups><group id='g'/></groups>")]){
-    send(body);
-    expect(await readWorkerGroupsRestore(creds,"sample",mobile,"scope")).toMatchObject({success:false});
-  }
- });
+it("verifies the native group fixture against registration and preserves order, duplicates, and detail values", async () => {
+	const xml = (fixtureId: string, container: string) =>
+		native("ana", "commcare", "first", false).replace(
+			"</OpenRosaResponse>",
+			`<fixture id="user-groups" user_id="${fixtureId}">${container}</fixture></OpenRosaResponse>`,
+		);
+	const one =
+		'<group id="g"><name>Clinic</name><group_data><data key="level"> 2 </data></group_data></group>';
+	await withHttpPeer(async (peer) => {
+		const send = (body: string) =>
+			peer
+				.get(scope)
+				.intercept({ path: restore(true), method: "GET" })
+				.reply(200, body);
+		send(xml(mobile.userId, `<groups>${one}${one}</groups>`));
+		const actual = await readWorkerGroupsRestore(
+			creds,
+			"sample",
+			mobile,
+			"scope",
+		);
+		if ("success" in actual)
+			throw Error("Missing authenticated worker group fixture");
+		const group = {
+			id: "g",
+			name: "Clinic",
+			details: [{ key: "level", value: " 2 " }],
+		};
+		expect(actual.groups).toEqual([group, group]);
+		send(xml(mobile.userId, "<groups/>"));
+		expect(
+			await readWorkerGroupsRestore(creds, "sample", mobile, "scope"),
+		).toMatchObject({ workerId: mobile.userId, groups: [] });
+		for (const body of [
+			xml("other-worker", "<groups/>"),
+			native("ana", "commcare", "first", false),
+			xml(mobile.userId, "<groups><group id='g'/></groups>"),
+		]) {
+			send(body);
+			expect(
+				await readWorkerGroupsRestore(creds, "sample", mobile, "scope"),
+			).toMatchObject({ success: false });
+		}
+	});
 });

@@ -21,15 +21,13 @@ import { type AppDatabase, withAppTx } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { exactRunHolderMatches } from "@/lib/db/runHolderWrites";
 import { runLeaseState } from "@/lib/db/runLiveness";
-import type { LookupTableId } from "@/lib/domain/lookupIds";
+import type { LookupRowId, LookupTableId } from "@/lib/domain/lookupIds";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import type { AssignmentDirectoryQuery } from "./assignmentVocabulary";
 import {
 	applyLookupAuthoringBatchInTransaction,
 	lookupBatchNeedsDelete,
 } from "./authoringBatch";
-import {readRowAssignments,searchAssignmentDirectory} from "./rowAssignments";
-import type {AssignmentDirectoryQuery} from "./assignmentVocabulary";
-import type {LookupRowId} from "@/lib/domain/lookupIds";
 import { LookupError } from "./errors";
 import type {
 	LookupValueEditRequest,
@@ -39,6 +37,10 @@ import {
 	applyLookupValueEditInTransaction,
 	readLookupValueInTransaction,
 } from "./largeValues/service";
+import {
+	readRowAssignments,
+	searchAssignmentDirectory,
+} from "./rowAssignments";
 import { maxLookupRevision, parseLookupRevision } from "./schema";
 import {
 	readAllLookupDefinitionsInTransaction,
@@ -446,11 +448,28 @@ export async function applyAuthorizedLookupAuthoringBatch(
 	}
 }
 
-
-export function readAuthorizedRowAssignments(scope:LookupAgentWriteScope,tableId:LookupTableId,rowId:LookupRowId,search:AssignmentDirectoryQuery,grant?:ProjectDataGrant){
-	return withAppTx(async tx=>{
-		await authorizeAgentScopeInTransaction(tx,scope,"edit");
-		if(grant)await lockProjectDataGrant(tx,scope.actorId,grant,NOVA_MCP_FLOOR_SCOPES);
-		return {selected:await readRowAssignments(tx,scope.projectId,tableId,rowId),...await searchAssignmentDirectory(tx,scope.projectId,search)};
-	},{isolationLevel:"repeatable read"});
+export function readAuthorizedRowAssignments(
+	scope: LookupAgentWriteScope,
+	tableId: LookupTableId,
+	rowId: LookupRowId,
+	search: AssignmentDirectoryQuery,
+	grant?: ProjectDataGrant,
+) {
+	return withAppTx(
+		async (tx) => {
+			await authorizeAgentScopeInTransaction(tx, scope, "edit");
+			if (grant)
+				await lockProjectDataGrant(
+					tx,
+					scope.actorId,
+					grant,
+					NOVA_MCP_FLOOR_SCOPES,
+				);
+			return {
+				selected: await readRowAssignments(tx, scope.projectId, tableId, rowId),
+				...(await searchAssignmentDirectory(tx, scope.projectId, search)),
+			};
+		},
+		{ isolationLevel: "repeatable read" },
+	);
 }

@@ -341,27 +341,85 @@ describe("engine → builder → executor acceptance", () => {
 		expect(ids.size).toBe(4);
 	});
 
-  it("refuses zero or multiple eligible groups and writes the single restored owner to the actual case rows",async()=>{
-    const {doc,formUuid}=ordinaryAuthorityDoc();
-    const sharing={...doc,appSettings:{...doc.appSettings,caseSharing:true}};
-    const owners=[{id:"north-circle",name:"North",details:[]}];
-    expect(()=>ordinaryAuthorityMutation(sharing,formUuid,[])).toThrow();
-    expect(()=>ordinaryAuthorityMutation(sharing,formUuid,[...owners,...owners])).toThrow();
-    const store=makeStore();
-    for(const type of doc.caseTypes??[])await store.applySchemaChange({appId:APP_ID,caseType:type.name,caseTypeSchemas:buildCaseTypeMap(sharing)});
-    const mutation=ordinaryAuthorityMutation(sharing,formUuid,owners),projection=validateCaptureSubmissionProjection(mutation);
-    const built=buildCaseOperationProgramFromDoc({device:webAppsDevice(),blueprint:sharing,identity:IDENTITY,projection,mutation,workerGroups:owners,workerScopeRevision:{project:"0",places:"0"}});
-    const expectedOperations=built.program?.groupDefaults?.operations;
-    expect(expectedOperations?.length).toBeGreaterThan(0);
-    const submission=submissionEnvelopeArgs(mutation,APP_ID,{...built,submissionReceipt:{...buildSubmissionReceiptIdentity({appId:APP_ID,identity:IDENTITY,mutation,projection}),expectedAppMutationSeq:0,blueprintDigest:"0".repeat(64)}});
-    await sql`INSERT INTO lookup_project_state(project_id,revision) VALUES (${PROJECT},1) ON CONFLICT(project_id) DO UPDATE SET revision=1`.execute(dbHandle.db);
-    await expect(store.applySubmission(submission)).rejects.toThrow(/groups or places changed/);
-    expect(await store.query({reading:SEARCH_READING,appId:APP_ID,caseType:"patient"})).toEqual([]);
-    const fresh=buildCaseOperationProgramFromDoc({device:webAppsDevice(),blueprint:sharing,identity:IDENTITY,projection,mutation,workerGroups:owners,workerScopeRevision:{project:"1",places:"0"}});
-    await store.applySubmission(submissionEnvelopeArgs(mutation,APP_ID,{...fresh,submissionReceipt:submission.submissionReceipt}));
-    const [patient]=await store.query({reading:SEARCH_READING,appId:APP_ID,caseType:"patient"});
-    expect(patient.owner_id).toBe(owners[0].id);
-  });
+	it("refuses zero or multiple eligible groups and writes the single restored owner to the actual case rows", async () => {
+		const { doc, formUuid } = ordinaryAuthorityDoc();
+		const sharing = {
+			...doc,
+			appSettings: { ...doc.appSettings, caseSharing: true },
+		};
+		const owners = [{ id: "north-circle", name: "North", details: [] }];
+		expect(() => ordinaryAuthorityMutation(sharing, formUuid, [])).toThrow();
+		expect(() =>
+			ordinaryAuthorityMutation(sharing, formUuid, [...owners, ...owners]),
+		).toThrow();
+		const store = makeStore();
+		for (const type of doc.caseTypes ?? [])
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: type.name,
+				caseTypeSchemas: buildCaseTypeMap(sharing),
+			});
+		const mutation = ordinaryAuthorityMutation(sharing, formUuid, owners),
+			projection = validateCaptureSubmissionProjection(mutation);
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: sharing,
+			identity: IDENTITY,
+			projection,
+			mutation,
+			workerGroups: owners,
+			workerScopeRevision: { project: "0", places: "0" },
+		});
+		const expectedOperations = built.program?.groupDefaults?.operations;
+		expect(expectedOperations?.length).toBeGreaterThan(0);
+		const submission = submissionEnvelopeArgs(mutation, APP_ID, {
+			...built,
+			submissionReceipt: {
+				...buildSubmissionReceiptIdentity({
+					appId: APP_ID,
+					identity: IDENTITY,
+					mutation,
+					projection,
+				}),
+				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
+			},
+		});
+		await sql`INSERT INTO lookup_project_state(project_id,revision) VALUES (${PROJECT},1) ON CONFLICT(project_id) DO UPDATE SET revision=1`.execute(
+			dbHandle.db,
+		);
+		await expect(store.applySubmission(submission)).rejects.toThrow(
+			/groups or places changed/,
+		);
+		expect(
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
+		).toEqual([]);
+		const fresh = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: sharing,
+			identity: IDENTITY,
+			projection,
+			mutation,
+			workerGroups: owners,
+			workerScopeRevision: { project: "1", places: "0" },
+		});
+		await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, {
+				...fresh,
+				submissionReceipt: submission.submissionReceipt,
+			}),
+		);
+		const [patient] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(patient.owner_id).toBe(owners[0].id);
+	});
 
 	it.each([
 		["no", 0, undefined],

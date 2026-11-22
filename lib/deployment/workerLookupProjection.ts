@@ -6,7 +6,10 @@ import {
 	type ProjectDataGrant,
 } from "@/lib/auth/dataGrant";
 import { NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
-import { readLookupWorkerRestore,readWorkerGroupsRestore } from "@/lib/commcare/hq/lookupRestore";
+import {
+	readLookupWorkerRestore,
+	readWorkerGroupsRestore,
+} from "@/lib/commcare/hq/lookupRestore";
 import { verifyHqLookupDefinition } from "@/lib/commcare/hq/lookupSource";
 import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import { findHqMobileWorkers } from "@/lib/commcare/hq/workers";
@@ -332,11 +335,18 @@ async function readRemoteWorkerTable(
 /** Transaction-bound confirmation for a server consumer that fetched the
  * worker's restore before opening its write or evidence-read transaction.
  * The closure pins the actual grant and target mappings and is never serialized. */
-export type WorkerProjectionGrantCheck = (tx: Transaction<AppDatabase>) => Promise<void>;
-const projectionGrants = new WeakMap<LookupFixtureDataSnapshot, WorkerProjectionGrantCheck>();
-export function workerProjectionGrant(snapshot:LookupFixtureDataSnapshot): WorkerProjectionGrantCheck {
-	const check=projectionGrants.get(snapshot);
-	if(!check) return dataAccessLost();
+export type WorkerProjectionGrantCheck = (
+	tx: Transaction<AppDatabase>,
+) => Promise<void>;
+const projectionGrants = new WeakMap<
+	LookupFixtureDataSnapshot,
+	WorkerProjectionGrantCheck
+>();
+export function workerProjectionGrant(
+	snapshot: LookupFixtureDataSnapshot,
+): WorkerProjectionGrantCheck {
+	const check = projectionGrants.get(snapshot);
+	if (!check) return dataAccessLost();
 	return check;
 }
 
@@ -366,9 +376,10 @@ export async function readWorkerLookupProjection(
 				{ ...authority.worker, remoteAssignments: !!access.target },
 				remaining,
 			);
-			const app = includeGroups && !explicit
-				? await loadAppInTransaction(tx, access.scope.appId)
-				: undefined;
+			const app =
+				includeGroups && !explicit
+					? await loadAppInTransaction(tx, access.scope.appId)
+					: undefined;
 			const groupScope = app
 				? await workerRestoreScope(tx, {
 						appId: access.scope.appId,
@@ -391,17 +402,42 @@ export async function readWorkerLookupProjection(
 		initial.authority.principal,
 		initial.explicit?.principal ?? null,
 	];
-	let groupScope=initial.groupScope;
- if(includeGroups && initial.explicit && access.target){
-  const creds=await getHqCredentials(access.scope.actorUserId,access.target.domain);
-  if(!creds.ok || creds.creds.server!==access.target.server)return dataAccessLost();
-  const read=await readWorkerGroupsRestore(creds.creds,access.target.domain,initial.explicit.worker,initial.explicit.digest);
-  if("success" in read||read.principal!==(access.personaUuid?"commcare":"web"))throw new LookupError("managed_in_hq","Nova couldn't read the groups delivered to this worker. You can check their connection and try again.");
-  groupScope={groups:read.groups,ownerIds:[...new Set([read.workerId,...read.groups.map(g=>g.id)])]};
-  principals.push(canonicalJsonDigest([read.workerId,read.principal,read.groups]));
- }
- if(groupScope)chargeDeviceFixture(Buffer.byteLength(JSON.stringify(groupScope)),initial.remaining);
- const reads: {
+	let groupScope = initial.groupScope;
+	if (includeGroups && initial.explicit && access.target) {
+		const creds = await getHqCredentials(
+			access.scope.actorUserId,
+			access.target.domain,
+		);
+		if (!creds.ok || creds.creds.server !== access.target.server)
+			return dataAccessLost();
+		const read = await readWorkerGroupsRestore(
+			creds.creds,
+			access.target.domain,
+			initial.explicit.worker,
+			initial.explicit.digest,
+		);
+		if (
+			"success" in read ||
+			read.principal !== (access.personaUuid ? "commcare" : "web")
+		)
+			throw new LookupError(
+				"managed_in_hq",
+				"Nova couldn't read the groups delivered to this worker. You can check their connection and try again.",
+			);
+		groupScope = {
+			groups: read.groups,
+			ownerIds: [...new Set([read.workerId, ...read.groups.map((g) => g.id)])],
+		};
+		principals.push(
+			canonicalJsonDigest([read.workerId, read.principal, read.groups]),
+		);
+	}
+	if (groupScope)
+		chargeDeviceFixture(
+			Buffer.byteLength(JSON.stringify(groupScope)),
+			initial.remaining,
+		);
+	const reads: {
 		access: WorkerProjectionAccess;
 		definition: LookupTableDefinition;
 		digest: string;
@@ -444,8 +480,8 @@ export async function readWorkerLookupProjection(
 		...initial.snapshot,
 		rowsByTable,
 		workerBinding: canonicalJsonDigest(principals),
-		...(groupScope && {groupScope}),
+		...(groupScope && { groupScope }),
 	};
-	projectionGrants.set(projected,check);
+	projectionGrants.set(projected, check);
 	return projected;
 }

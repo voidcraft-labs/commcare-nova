@@ -757,7 +757,8 @@ export function* expandDocSteps(
 	const derivedProfile = derivedProfileProperties(doc);
 	const serialized = serializeHqApplication(
 		applicationShell(doc.appName, modules, attachments, {
-			cloudcareEnabled: declaresWebApps(doc),caseSharing:doc.appSettings.caseSharing,
+			cloudcareEnabled: declaresWebApps(doc),
+			caseSharing: doc.appSettings.caseSharing,
 			...appLevelValues(doc, localization),
 			profileProperties: appProfileProperties(authoredDoc),
 			...(Object.keys(derivedProfile).length > 0 && {
@@ -903,7 +904,8 @@ export function expandAppShell(doc: BlueprintDoc): HqAppShell {
 			[],
 			{},
 			{
-				cloudcareEnabled: declaresWebApps(doc),caseSharing:doc.appSettings.caseSharing,
+				cloudcareEnabled: declaresWebApps(doc),
+				caseSharing: doc.appSettings.caseSharing,
 				...appLevelValues(doc, commCareLocalization(doc)),
 			},
 		),

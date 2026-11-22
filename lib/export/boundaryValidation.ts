@@ -1,5 +1,5 @@
-import { requiresLookupProjection } from "@/lib/lookup/source";
 import { ApiError } from "@/lib/apiError";
+import { requiresLookupProjection } from "@/lib/lookup/source";
 /**
  * The Nova export boundary shared by every artifact and HQ-upload surface.
  *
@@ -29,6 +29,7 @@ import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { ProjectAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
+import type { DestinationOwnerAccess } from "@/lib/deployment/destinationRowOwners";
 import {
 	extractLookupReferenceTargets,
 	type LookupReferenceExtractorRegistry,
@@ -42,12 +43,6 @@ import {
 	MAX_MEDIA_EXPORT_ASSETS,
 	type MediaAssetId,
 } from "@/lib/domain/multimedia";
-import type { DestinationOwnerAccess } from "@/lib/deployment/destinationRowOwners";
-import {
-	installLookupWitness,
-	readAssignmentCarriers,
-	type AssignmentWitness,
-} from "./privateAssignments";
 import { getLookupFixtureData } from "@/lib/lookup/service";
 import type {
 	LookupFixtureDataSnapshot,
@@ -67,6 +62,11 @@ import {
 	type ManagedLookupTable,
 	type ManagedLookupWorkbook,
 } from "./boundaryFindings";
+import {
+	type AssignmentWitness,
+	installLookupWitness,
+	readAssignmentCarriers,
+} from "./privateAssignments";
 
 export {
 	EXPORT_MODES,
@@ -81,15 +81,15 @@ export type AvailableLookupValidationContext = Extract<
 	{ readonly kind: "available" }
 >;
 
-import { describeLookupCarrierAlternative } from "@/lib/commcare/lookup/carrier";
 import {
 	planLargeWorkbooks,
 	type StreamLookupWorkbook,
 } from "@/lib/commcare/lookup/archiveWorkbooks";
+import { describeLookupCarrierAlternative } from "@/lib/commcare/lookup/carrier";
 import { prepareArchiveTables } from "@/lib/deployment/prepareArchiveTables";
 import type {
-	StreamingLookupTable,
 	ArchiveLookupAccess,
+	StreamingLookupTable,
 } from "@/lib/lookup/archiveRows";
 
 export interface PrepareExportBoundaryInput {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { type ZodError, z } from "zod";
 import {
@@ -18,11 +19,10 @@ import {
 	hasUnpairedUtf16Surrogate,
 	lookupRevisionSchema,
 } from "@/lib/lookup/schema";
-import { createHash } from "node:crypto";
 import {
 	getLookupImportDefinition,
-	replayLookupCsvImport,
 	replaceLookupRows,
+	replayLookupCsvImport,
 } from "@/lib/lookup/service";
 import type {
 	LookupFailure,

@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
-import { ZipFile } from "yazl";
 import { expect, it } from "vitest";
+import { ZipFile } from "yazl";
 import { streamZip, textMember } from "../streamZip";
 
 it("round-trips a literal UTF-8 member across a surrogate boundary through an independent ZIP reader", async () => {

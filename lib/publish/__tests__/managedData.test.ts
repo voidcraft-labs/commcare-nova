@@ -828,7 +828,6 @@ describe("the forms a sentence chooses by its arguments", () => {
 		expect(managedPlacesKeptLeftOut(["Mercy Clinic", "Old Post"])).toBe(
 			"2 places in CommCare HQ sit at a level this app doesn't have, and a persona, an owner rule or an automation still uses them: Mercy Clinic and Old Post. Nova kept them as they stood before. You can add the levels they sit at, or move or change what uses them, then refresh again.",
 		);
-
 	});
 
 	it("joins the caps' phrases with and", () => {

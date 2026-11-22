@@ -270,9 +270,7 @@ function readSelector(
 		);
 	const base = typeof inner === "string" ? { columnId: inner } : inner;
 	if (name === "value-with" && base.where)
-		throw new AuthoringInputError(
-			"Choose a single value detail to match.",
-		);
+		throw new AuthoringInputError("Choose a single value detail to match.");
 	if (name === "value-at" && base.occurrence !== undefined)
 		throw new AuthoringInputError("Choose one position in the list of values.");
 	const selected =
@@ -281,7 +279,9 @@ function readSelector(
 			: name === "value-with"
 				? {
 						...base,
-						...(base.occurrence !== undefined && {positionBeforeFilter:true as const}),
+						...(base.occurrence !== undefined && {
+							positionBeforeFilter: true as const,
+						}),
 						where: {
 							propertyId: member(base.columnId, string(args[1])),
 							equals: string(args[2]),

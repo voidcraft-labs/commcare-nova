@@ -7,7 +7,6 @@
  * array, so adding a shared tool cannot silently omit its UUID-bearing paths.
  */
 
-import {getWorkerGroupsTool,editWorkerGroupTool} from "@/lib/agent/tools/workerGroups";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
 import {
 	continueAppTestTool,
@@ -128,6 +127,10 @@ import {
 	updateUserPropertyTool,
 	updateUserTypeTool,
 } from "@/lib/agent/tools/users";
+import {
+	editWorkerGroupTool,
+	getWorkerGroupsTool,
+} from "@/lib/agent/tools/workerGroups";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
 import type { SHARED_TOOL_PRESENTATION } from "./toolPresentation";
@@ -378,8 +381,24 @@ export const SHARED_TOOL_REGISTRY = [
 		requires: "edit",
 		policy: LOOKUP_WRITE_POLICY,
 	},
-	{saName:"getWorkerGroups",mcpName:"get_worker_groups",tool:getWorkerGroupsTool,requires:"edit",policy:{effect:"read-blueprint",staging:"allowed",capabilities:["lookup-read"]}},
-	{saName:"editWorkerGroup",mcpName:"edit_worker_group",tool:editWorkerGroupTool,requires:"edit",policy:LOOKUP_WRITE_POLICY},
+	{
+		saName: "getWorkerGroups",
+		mcpName: "get_worker_groups",
+		tool: getWorkerGroupsTool,
+		requires: "edit",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			capabilities: ["lookup-read"],
+		},
+	},
+	{
+		saName: "editWorkerGroup",
+		mcpName: "edit_worker_group",
+		tool: editWorkerGroupTool,
+		requires: "edit",
+		policy: LOOKUP_WRITE_POLICY,
+	},
 	{
 		saName: "editLookupRows",
 		mcpName: "edit_lookup_rows",

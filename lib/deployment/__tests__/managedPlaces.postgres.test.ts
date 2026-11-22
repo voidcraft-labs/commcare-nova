@@ -11,11 +11,7 @@
  */
 
 import AdmZip from "adm-zip";
-import {sql} from "kysely";
-import {preparePlaceWorkbook} from "@/lib/deployment/placeWorkbook";
-import {exportRange} from "@/lib/export/artifacts/store";
-import {fetchExportPart,storeExportPart} from "@/lib/storage/media";
-import {servePlaceInventory} from "./placeInventoryPeer";
+import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import { readHttpRequestBody } from "@/__tests__/helpers/httpPeer";
@@ -25,14 +21,17 @@ import { decrypt } from "@/lib/commcare/encryption";
 import type { HqLocation } from "@/lib/commcare/hq/locations";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import { preparePlaceWorkbook } from "@/lib/deployment/placeWorkbook";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, term } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
+import { exportRange } from "@/lib/export/artifacts/store";
 import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { readOrganization } from "@/lib/organization/service";
 import { managedPlacesPassed } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
+import { fetchExportPart, storeExportPart } from "@/lib/storage/media";
 import { publishConfirmationNeeds } from "../preflight";
 import { planManagedPlaces } from "../reading/projectData/places";
 import { type PublishOutcome, publishAppToHq } from "../service";
@@ -48,10 +47,13 @@ import {
 	serveSource,
 	withManagedPeer,
 } from "./managedFixtures";
+import { servePlaceInventory } from "./placeInventoryPeer";
 import { reloadHeadFor } from "./publishFixtures";
 
-vi.mock("@/lib/storage/media", async original => ({
-	...await original<typeof import("@/lib/storage/media")>(), fetchExportPart: vi.fn(), storeExportPart: vi.fn(),
+vi.mock("@/lib/storage/media", async (original) => ({
+	...(await original<typeof import("@/lib/storage/media")>()),
+	fetchExportPart: vi.fn(),
+	storeExportPart: vi.fn(),
 }));
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 beforeEach(() => {
@@ -85,7 +87,7 @@ const north: HqLocation = {
 	latitude: null,
 	longitude: null,
 	values: {},
-	observation:{externalId:null, nameIsNull:false, wire:{}, worker:{}},
+	observation: { externalId: null, nameIsNull: false, wire: {}, worker: {} },
 };
 
 const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
@@ -184,10 +186,18 @@ function publish(
 }
 
 function serveManagedPlace(peer: MockAgent, name = north.name) {
-	servePlaceInventory(peer, MANAGING.domain, [{
-		location_id: north.locationId, name, site_code:north.siteCode, location_type_code:"region",
-		parent_location_id:"", latitude:null, longitude:null,location_data:{},
-	}]);
+	servePlaceInventory(peer, MANAGING.domain, [
+		{
+			location_id: north.locationId,
+			name,
+			site_code: north.siteCode,
+			location_type_code: "region",
+			parent_location_id: "",
+			latitude: null,
+			longitude: null,
+			location_data: {},
+		},
+	]);
 }
 
 function request(peer: MockAgent, path: string, method = "GET") {
@@ -546,88 +556,167 @@ it("refuses, before any account exists, a persona standing in a managed place Co
 	});
 });
 
-
 it("stages the external ID against each new destination's own durable ID before sending app content", async () => {
-	const source: HqLocation = {...north, values:{visits:12}, observation:{nameIsNull:false,externalId:"N-45",wire:{visits:"12"},worker:{visits:"12"}}};
+	const source: HqLocation = {
+		...north,
+		values: { visits: 12 },
+		observation: {
+			nameIsNull: false,
+			externalId: "N-45",
+			wire: { visits: "12" },
+			worker: { visits: "12" },
+		},
+	};
 	const doc = await seed(source);
-	const actor = {userId: ACTOR, grant:{kind:"session",sessionId:"place-export-session"}} as const;
+	const actor = {
+		userId: ACTOR,
+		grant: { kind: "session", sessionId: "place-export-session" },
+	} as const;
 	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt") VALUES
-		(${actor.grant.sessionId},'synthetic-place-export',${ACTOR},now()+interval '1 hour',now(),now())`.execute(h.db());
-	const stored = new Map<string,Buffer>();
-	vi.mocked(storeExportPart).mockImplementation(async (key,bytes)=>{stored.set(key,Buffer.from(bytes));return "1"});
-	vi.mocked(fetchExportPart).mockImplementation(async (key,generation,length)=>{
-		const bytes=stored.get(key);
-		if(generation!=="1" || bytes?.length!==length) throw Error("Unknown synthetic export part");
-		return bytes;
+		(${actor.grant.sessionId},'synthetic-place-export',${ACTOR},now()+interval '1 hour',now(),now())`.execute(
+		h.db(),
+	);
+	const stored = new Map<string, Buffer>();
+	vi.mocked(storeExportPart).mockImplementation(async (key, bytes) => {
+		stored.set(key, Buffer.from(bytes));
+		return "1";
 	});
+	vi.mocked(fetchExportPart).mockImplementation(
+		async (key, generation, length) => {
+			const bytes = stored.get(key);
+			if (generation !== "1" || bytes?.length !== length)
+				throw Error("Unknown synthetic export part");
+			return bytes;
+		},
+	);
 	for (const domain of ["district", "coast"]) {
-		const target = {...OTHER,domain};
+		const target = { ...OTHER, domain };
 		const remoteId = domain + "-north";
 		const arrived = {
-			location_id:remoteId,site_code:"north",name:"North",location_type_code:"region",parent_location_id:"",
-			latitude:null,longitude:null,location_data:{},external_id:null,
+			location_id: remoteId,
+			site_code: "north",
+			name: "North",
+			location_type_code: "region",
+			parent_location_id: "",
+			latitude: null,
+			longitude: null,
+			location_data: {},
+			external_id: null,
 		};
-		await withManagedPeer(async peer => {
-			servePlaceInventory(peer,domain,[]);
-			acceptImport(peer,domain,201,{appId:domain+"-app"});
-			serveSource(peer,domain,"source-shell",domain+"-app");
-			request(peer,"/a/"+domain+"/api/location/v2/","PATCH").reply(async req => {
-				const body = JSON.parse((await readHttpRequestBody(req)).toString());
-				expect(body.objects).toEqual([{name:"North",site_code:"north",location_type_code:"region"}]);
-				return {statusCode:202,data:JSON.stringify([remoteId])};
+		await withManagedPeer(async (peer) => {
+			servePlaceInventory(peer, domain, []);
+			acceptImport(peer, domain, 201, { appId: domain + "-app" });
+			serveSource(peer, domain, "source-shell", domain + "-app");
+			request(peer, "/a/" + domain + "/api/location/v2/", "PATCH").reply(
+				async (req) => {
+					const body = JSON.parse((await readHttpRequestBody(req)).toString());
+					expect(body.objects).toEqual([
+						{ name: "North", site_code: "north", location_type_code: "region" },
+					]);
+					return { statusCode: 202, data: JSON.stringify([remoteId]) };
+				},
+			);
+			servePlaceInventory(peer, domain, [arrived]);
+			request(
+				peer,
+				"/a/" + domain + "/api/location/v1/" + remoteId + "/",
+			).reply(200, { ...arrived, domain });
+			const result = await publish(doc, target);
+			expect(result, JSON.stringify(result)).toMatchObject({
+				landed: false,
+				refusal: {
+					phase: "resources",
+					failure: { code: "hq_place_ids_need_setup", details: ["north"] },
+				},
 			});
-			servePlaceInventory(peer,domain,[arrived]);
-			request(peer,"/a/"+domain+"/api/location/v1/"+remoteId+"/").reply(200,{...arrived,domain});
-			const result=await publish(doc,target);
-			expect(result,JSON.stringify(result)).toMatchObject({landed:false,refusal:{phase:"resources",failure:{code:"hq_place_ids_need_setup",details:["north"]}}});
 		});
-		const baseline=await h.db().selectFrom("project_space_resource_baselines")
-			.select(["remote_id","origin","canonical"]).where("project_id","=",PROJECT).where("server","=","india")
-			.where("domain","=",domain).where("kind","=","location").executeTakeFirstOrThrow();
-		expect(baseline).toMatchObject({remote_id:remoteId,origin:"push",canonical:{pendingExternalId:"N-45",observed:{externalId:null}}});
-		const mapping=await h.db().selectFrom("app_deployment_resources as r").innerJoin("app_deployments as d","d.id","r.deployment_id")
-			.select(["r.remote_id"]).where("d.app_id","=",APP).where("d.domain","=",domain).where("r.kind","=","location")
-			.where("r.superseded_at","is",null).execute();
-		expect(mapping).toEqual([{remote_id:remoteId}]);
-		const artifact = await withManagedPeer(async peer => {
-			servePlaceInventory(peer,domain,[arrived],undefined,true);
-			request(peer,"/a/"+domain+"/api/location/v1/"+remoteId+"/").reply(200,{...arrived,domain}).persist();
-			const file = await preparePlaceWorkbook(actor,APP,target);
-			const bytes:Buffer[]=[];
-			for await (const part of exportRange(actor,file.id,{start:0,end:file.byteLength-1})) bytes.push(Buffer.from(part));
-			const zip=new AdmZip(Buffer.concat(bytes));
-			const nested=new AdmZip(zip.readFile("place-ids-1.xlsx") as Buffer);
-			const sheet=nested.readAsText("xl/worksheets/sheet2.xml");
+		const baseline = await h
+			.db()
+			.selectFrom("project_space_resource_baselines")
+			.select(["remote_id", "origin", "canonical"])
+			.where("project_id", "=", PROJECT)
+			.where("server", "=", "india")
+			.where("domain", "=", domain)
+			.where("kind", "=", "location")
+			.executeTakeFirstOrThrow();
+		expect(baseline).toMatchObject({
+			remote_id: remoteId,
+			origin: "push",
+			canonical: { pendingExternalId: "N-45", observed: { externalId: null } },
+		});
+		const mapping = await h
+			.db()
+			.selectFrom("app_deployment_resources as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select(["r.remote_id"])
+			.where("d.app_id", "=", APP)
+			.where("d.domain", "=", domain)
+			.where("r.kind", "=", "location")
+			.where("r.superseded_at", "is", null)
+			.execute();
+		expect(mapping).toEqual([{ remote_id: remoteId }]);
+		const artifact = await withManagedPeer(async (peer) => {
+			servePlaceInventory(peer, domain, [arrived], undefined, true);
+			request(peer, "/a/" + domain + "/api/location/v1/" + remoteId + "/")
+				.reply(200, { ...arrived, domain })
+				.persist();
+			const file = await preparePlaceWorkbook(actor, APP, target);
+			const bytes: Buffer[] = [];
+			for await (const part of exportRange(actor, file.id, {
+				start: 0,
+				end: file.byteLength - 1,
+			}))
+				bytes.push(Buffer.from(part));
+			const zip = new AdmZip(Buffer.concat(bytes));
+			const nested = new AdmZip(zip.readFile("place-ids-1.xlsx") as Buffer);
+			const sheet = nested.readAsText("xl/worksheets/sheet2.xml");
 			expect(sheet).toContain(remoteId);
 			expect(sheet).toContain("N-45");
 			expect(sheet).not.toContain(north.locationId);
 			return file;
 		});
 
-		const corrected={...arrived,external_id:"N-45"};
-		await withManagedPeer(async peer =>{
+		const corrected = { ...arrived, external_id: "N-45" };
+		await withManagedPeer(async (peer) => {
 			// As soon as someone changes the external ID, a retained file
 			// for the previous destination state cannot serve another range.
-			servePlaceInventory(peer,domain,[corrected]);
-			await expect(exportRange(actor,artifact.id,{start:0,end:0}).next()).rejects.toThrow();
+			servePlaceInventory(peer, domain, [corrected]);
+			await expect(
+				exportRange(actor, artifact.id, { start: 0, end: 0 }).next(),
+			).rejects.toThrow();
 		});
-		await withManagedPeer(async peer =>{
-			servePlaceInventory(peer,domain,[corrected]);
-			request(peer,"/a/"+domain+"/api/location/v1/"+remoteId+"/").reply(200,{...corrected,domain});
-			serveSource(peer,domain,"source-shell",domain+"-app");
-			request(peer,"/a/"+domain+"/api/location/v2/","PATCH").reply(async req => {
-				const body = JSON.parse((await readHttpRequestBody(req)).toString());
-				expect(body.objects).toEqual([{location_id:remoteId,location_data:{visits:12}}]);
-				return {statusCode:202,data:JSON.stringify([remoteId])};
-			});
-			const complete={...corrected,location_data:{visits:12}};
-			servePlaceInventory(peer,domain,[complete]);
-			request(peer,"/a/"+domain+"/api/location/v1/"+remoteId+"/").reply(200,{...complete,domain});
-			serveSource(peer,domain,"source-shell",domain+"-app");
-			acceptImport(peer,domain,200,{appId:domain+"-app"});
-			serveSource(peer,domain,"source-after-create-then-update",domain+"-app");
-			const result=await publish(doc,target);
-			expect(result,JSON.stringify(result)).toMatchObject({landed:true});
+		await withManagedPeer(async (peer) => {
+			servePlaceInventory(peer, domain, [corrected]);
+			request(
+				peer,
+				"/a/" + domain + "/api/location/v1/" + remoteId + "/",
+			).reply(200, { ...corrected, domain });
+			serveSource(peer, domain, "source-shell", domain + "-app");
+			request(peer, "/a/" + domain + "/api/location/v2/", "PATCH").reply(
+				async (req) => {
+					const body = JSON.parse((await readHttpRequestBody(req)).toString());
+					expect(body.objects).toEqual([
+						{ location_id: remoteId, location_data: { visits: 12 } },
+					]);
+					return { statusCode: 202, data: JSON.stringify([remoteId]) };
+				},
+			);
+			const complete = { ...corrected, location_data: { visits: 12 } };
+			servePlaceInventory(peer, domain, [complete]);
+			request(
+				peer,
+				"/a/" + domain + "/api/location/v1/" + remoteId + "/",
+			).reply(200, { ...complete, domain });
+			serveSource(peer, domain, "source-shell", domain + "-app");
+			acceptImport(peer, domain, 200, { appId: domain + "-app" });
+			serveSource(
+				peer,
+				domain,
+				"source-after-create-then-update",
+				domain + "-app",
+			);
+			const result = await publish(doc, target);
+			expect(result, JSON.stringify(result)).toMatchObject({ landed: true });
 		});
 	}
 });

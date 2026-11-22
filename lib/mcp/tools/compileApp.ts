@@ -34,30 +34,28 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	streamHqJsonExportArchive,
 	hqImportFileGuide,
+	streamHqJsonExportArchive,
 } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { projectSpaceCompatibilityForDownload } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import { errorToString } from "@/lib/commcare/validator/errors";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	downloadAttachmentState,
 	downloadKeptAdvisoryFacts,
 	resolveDownloadTarget,
 } from "@/lib/deployment/downloadTarget";
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
+import { compileExportSpec } from "@/lib/export/artifacts/access";
+import { EXPORT_RESOURCE_BYTES } from "@/lib/export/artifacts/range";
+import { deliverExport } from "@/lib/export/artifacts/store";
 import {
 	type ExportMode,
 	prepareExportBoundary,
 } from "@/lib/export/boundaryValidation";
-import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
-import { withAppTx } from "@/lib/db/pg";
-import { assertScope, SCOPES } from "../scopes";
-import { compileExportSpec } from "@/lib/export/artifacts/access";
-import { deliverExport } from "@/lib/export/artifacts/store";
-import { EXPORT_RESOURCE_BYTES } from "@/lib/export/artifacts/range";
-import { sanitizeFilename } from "@/lib/utils/sanitize";
 import { streamLocalArchive } from "@/lib/export/localArchive";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
 import {
 	type ExportAdvisory,
 	exportAdvisories,
@@ -67,6 +65,7 @@ import {
 	renderManualImportGuide,
 } from "@/lib/publish/manualImportGuide";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { sanitizeFilename } from "@/lib/utils/sanitize";
 import {
 	McpInvalidInputError,
 	type McpToolErrorResult,
@@ -74,6 +73,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 type CompileFormat = "json" | "ccz";
@@ -217,10 +217,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					);
 				}
 				const { attachmentTarget } = download;
+				const grant = ctx.grant;
 				const boundary = await prepareExportBoundary({
 					streamMedia: true,
-					...(ctx.grant && {
-						archiveActor: () => ({ appId, grant: ctx.grant! }),
+					...(grant && {
+						archiveActor: () => ({ appId, grant }),
 					}),
 					assignmentAccess,
 					mode,

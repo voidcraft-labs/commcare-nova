@@ -1466,7 +1466,10 @@ function checkFixtures(
 	// with id `locations` (`corehq/apps/locations/fixtures.py::
 	// flat_location_fixture_generator`), so the suite never embeds it.
 	// UserGroupsFixtureProvider emits one fixture for the authenticated worker.
- const restoreDelivered = new Set([locationsInstance().src,"jr://fixture/user-groups"]);
+	const restoreDelivered = new Set([
+		locationsInstance().src,
+		"jr://fixture/user-groups",
+	]);
 	for (const inst of findAll(
 		(el) => el.name === "instance",
 		model.doc.children,

@@ -12,15 +12,14 @@ import {
 	type DestinationOwnerAccess,
 	readDestinationRowOwners,
 } from "@/lib/deployment/destinationRowOwners";
+import {
+	type InstallLookupBinding,
+	readInstallLookupBinding,
+} from "@/lib/deployment/installLookupRestore";
 import type { LookupRowId, LookupTableId } from "@/lib/domain/lookupIds";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-
-import {
-	readInstallLookupBinding,
-	type InstallLookupBinding,
-} from "@/lib/deployment/installLookupRestore";
 
 export interface AssignmentWitness {
 	restore?: InstallLookupBinding;

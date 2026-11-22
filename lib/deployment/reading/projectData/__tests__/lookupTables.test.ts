@@ -693,29 +693,92 @@ describe("lookupTableStanding", () => {
 	});
 
 	it("compares ordered field occurrences and their details, and keeps Project member identities in either binding", () => {
-		const existing=equalPlain();
-		const [code,name]=existing.table.columns;
-		const lang={id:lookupMemberIdSchema.parse(uuidV7()),wireName:"lang",label:"Language"};
-		const district={id:lookupMemberIdSchema.parse(uuidV7()),wireName:"district",label:"District"};
-		const table={...existing.table, attributes:[district], columns:[code, {...name,repeated:true as const,properties:[lang]}]};
-		const hq=plain({table:{itemAttributes:["district"],fieldProperties:{name:["lang"]}},rows:plainRows.map((row,i)=>({
-			...row,itemAttributes:{district:`zone-${i}`},fields:{code:row.fields.code,name:[
-				{value:"One",properties:{lang:"en"}},{value:"Une",properties:{lang:"fr"}}
-			]} }))});
-		const rows=existing.rows.map((row,i)=>({...row,values:{[code.id]:row.values[code.id]},attributes:{[district.id]:`zone-${i}`},occurrences:{[name.id]:[
-			{text:"One",properties:{[lang.id]:"en"}},{text:"Une",properties:{[lang.id]:"fr"}}
-		]}}));
-		for (const siblings of [[],[sibling(table,hq.table.id)]]) {
-			const standing=standingOf(hq,{table,rows},{siblings});
+		const existing = equalPlain();
+		const [code, name] = existing.table.columns;
+		const lang = {
+			id: lookupMemberIdSchema.parse(uuidV7()),
+			wireName: "lang",
+			label: "Language",
+		};
+		const district = {
+			id: lookupMemberIdSchema.parse(uuidV7()),
+			wireName: "district",
+			label: "District",
+		};
+		const table = {
+			...existing.table,
+			attributes: [district],
+			columns: [code, { ...name, repeated: true as const, properties: [lang] }],
+		};
+		const hq = plain({
+			table: {
+				itemAttributes: ["district"],
+				fieldProperties: { name: ["lang"] },
+			},
+			rows: plainRows.map((row, i) => ({
+				...row,
+				itemAttributes: { district: `zone-${i}` },
+				fields: {
+					code: row.fields.code,
+					name: [
+						{ value: "One", properties: { lang: "en" } },
+						{ value: "Une", properties: { lang: "fr" } },
+					],
+				},
+			})),
+		});
+		const rows = existing.rows.map((row, i) => ({
+			...row,
+			values: { [code.id]: row.values[code.id] },
+			attributes: { [district.id]: `zone-${i}` },
+			occurrences: {
+				[name.id]: [
+					{ text: "One", properties: { [lang.id]: "en" } },
+					{ text: "Une", properties: { [lang.id]: "fr" } },
+				],
+			},
+		}));
+		for (const siblings of [[], [sibling(table, hq.table.id)]]) {
+			const standing = standingOf(hq, { table, rows }, { siblings });
 			expect(standing.kind).toBe(siblings.length ? "same-equal" : "choice");
-			const [bound]=resolveLookupBindings([hq],{plain:standing},{plain:"use-project"},IDS);
-			expect(bound.memberIds).toEqual({attributes:{district:district.id},properties:{name:{lang:lang.id}}});
+			const [bound] = resolveLookupBindings(
+				[hq],
+				{ plain: standing },
+				{ plain: "use-project" },
+				IDS,
+			);
+			expect(bound.memberIds).toEqual({
+				attributes: { district: district.id },
+				properties: { name: { lang: lang.id } },
+			});
 		}
-		const reversed=rows.map(row=>({...row,occurrences:{[name.id]:[...row.occurrences[name.id]].reverse()}}));
-		const reassigned=rows.map(row=>({...row,attributes:{[district.id]:"changed"}}));
-		const relabeled=rows.map(row=>({...row,occurrences:{[name.id]:row.occurrences[name.id].map(it=>({...it,properties:{[lang.id]:"changed"}}))}}));
-		for(const different of [reversed,reassigned,relabeled])
-			expect(choiceOf(standingOf(hq,{table,rows:different},{siblings:[sibling(table,hq.table.id)]})).differs).toEqual(["rows"]);
+		const reversed = rows.map((row) => ({
+			...row,
+			occurrences: { [name.id]: [...row.occurrences[name.id]].reverse() },
+		}));
+		const reassigned = rows.map((row) => ({
+			...row,
+			attributes: { [district.id]: "changed" },
+		}));
+		const relabeled = rows.map((row) => ({
+			...row,
+			occurrences: {
+				[name.id]: row.occurrences[name.id].map((it) => ({
+					...it,
+					properties: { [lang.id]: "changed" },
+				})),
+			},
+		}));
+		for (const different of [reversed, reassigned, relabeled])
+			expect(
+				choiceOf(
+					standingOf(
+						hq,
+						{ table, rows: different },
+						{ siblings: [sibling(table, hq.table.id)] },
+					),
+				).differs,
+			).toEqual(["rows"]);
 	});
 
 	it("reads a missing cell as equal to an empty one", () => {

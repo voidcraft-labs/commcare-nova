@@ -37,7 +37,8 @@ async function main() {
 				(await withAppTx(
 					async (tx) =>
 						(await reclaimLookupStorageBatch(tx, id)) ||
-						(await reclaimCellStorageBatch(tx, id)) || (await reclaimExportBatch(tx,id)),
+						(await reclaimCellStorageBatch(tx, id)) ||
+						(await reclaimExportBatch(tx, id)),
 				))
 			)
 				batches++;

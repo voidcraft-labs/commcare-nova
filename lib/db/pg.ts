@@ -459,7 +459,11 @@ export interface LookupProjectStateTable {
 }
 
 export interface LookupTablesTable {
-	worker_access: ColumnType<"all"|"assigned","all"|"assigned"|undefined,"all"|"assigned">;
+	worker_access: ColumnType<
+		"all" | "assigned",
+		"all" | "assigned" | undefined,
+		"all" | "assigned"
+	>;
 	project_id: string;
 	id: DefaultedUuidV7Column<LookupTableId>;
 	name: string;
@@ -484,7 +488,11 @@ export interface LookupTablesTable {
 	hq_remote_id: string | null;
 	/** The canonical value of CommCare HQ's table at the last refresh, an
 	 * object whose `digest` is 64 lowercase hex digits. */
-	hq_source_observation: JSONColumnType<Readonly<Record<string,unknown>> | null, string | null | undefined, string | null>;
+	hq_source_observation: JSONColumnType<
+		Readonly<Record<string, unknown>> | null,
+		string | null | undefined,
+		string | null
+	>;
 	hq_canonical: JSONColumnType<
 		Readonly<Record<string, unknown>> | null,
 		string | null,
@@ -535,7 +543,7 @@ export interface LookupColumnsTable {
 }
 
 export interface LookupRowsTable {
-	external_bytes:ColumnType<string,never|undefined,never>;
+	external_bytes: ColumnType<string, never | undefined, never>;
 	hq_row_id: string | null;
 	hq_sort_key: number | null;
 	content: ColumnType<unknown, string | undefined, string>;
@@ -593,7 +601,11 @@ export interface AppOrganizationStateTable {
 }
 
 export interface AppLocationsTable {
-	hq_observation: ColumnType<string | null, string | null | undefined, string | null>;
+	hq_observation: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	id: DefaultedUuidV7Column<string>;
 	app_id: string;
 	level_uuid: Uuid;
@@ -1917,7 +1929,7 @@ export interface AppDatabase {
 	lookup_rows: LookupRowsTable;
 	lookup_members: LookupMembersTable;
 	lookup_project_edit_receipts: {
-		required_capability:"edit"|"delete";
+		required_capability: "edit" | "delete";
 		project_id: string;
 		actor_id: string;
 		operation_id: string;

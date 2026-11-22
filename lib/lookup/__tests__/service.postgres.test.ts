@@ -1041,7 +1041,8 @@ describe("lookup persistence service", () => {
 			values: rowValues([[storageColumnId, maxCell]]),
 		});
 		const beforeShrink = await getLookupTableWindow(OWNER_A, storageTable.id);
-		if (beforeShrink.dataBytes === null) throw new Error("The public table's byte count is unavailable.");
+		if (beforeShrink.dataBytes === null)
+			throw new Error("The public table's byte count is unavailable.");
 		expect(beforeShrink.dataBytes).toBeGreaterThan(LOOKUP_MAX_TABLE_BYTES);
 		expect(beforeShrink.rows[0].fragmented).toBe(true);
 		const shrunk = await updateLookupRow(OWNER_A, {

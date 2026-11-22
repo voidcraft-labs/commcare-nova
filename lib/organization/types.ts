@@ -62,8 +62,8 @@ export type OrganizationRevision = string;
  * legacy managed row without an observation must refresh before transfer. */
 export interface PlaceSourceObservation {
 	readonly nameIsNull: boolean;
-	readonly wire: Readonly<Record<string,string>>;
-	readonly worker: Readonly<Record<string,string>>;
+	readonly wire: Readonly<Record<string, string>>;
+	readonly worker: Readonly<Record<string, string>>;
 	readonly latitudeText: string | null;
 	readonly longitudeText: string | null;
 }

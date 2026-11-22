@@ -230,7 +230,10 @@ async function readAnswer(
 	try {
 		/* What was parsed stays charged to the request's lease, as the data
 		 * its caller keeps. */
-		return { data: (options.parse ?? parseHqJsonText)(text), bytes: body.bytes.byteLength };
+		return {
+			data: (options.parse ?? parseHqJsonText)(text),
+			bytes: body.bytes.byteLength,
+		};
 	} catch {
 		/* HQ answers its sign-in page, its plan page and an inactive project
 		 * space's page as HTML where JSON was asked. Nothing of it is kept. */

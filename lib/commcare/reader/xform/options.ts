@@ -8,8 +8,8 @@ import { bindLookupRead, lookupReadPath } from "../../lookup/readPath";
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
-import {questionChoiceReadIssue} from "@/lib/domain/lookupRead";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
+import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
@@ -336,12 +336,22 @@ function readItemset(
 			});
 			return undefined;
 		}
-		if(questionChoiceReadIssue(labelColumn) || questionChoiceReadIssue(valueColumn)){
-			cursor.refuseSubtreeAt(itemset, questionChoiceReadIssue(labelColumn) ? refOf(label):refOf(value), X.itemsetRefShape, place);
+		if (
+			questionChoiceReadIssue(labelColumn) ||
+			questionChoiceReadIssue(valueColumn)
+		) {
+			cursor.refuseSubtreeAt(
+				itemset,
+				questionChoiceReadIssue(labelColumn) ? refOf(label) : refOf(value),
+				X.itemsetRefShape,
+				place,
+			);
 			return undefined;
 		}
-		const labelSites = typeof labelColumn === "string" ? X.lookupRefs : X.richLookupRefs;
-		const valueSites = typeof valueColumn === "string" ? X.lookupRefs : X.richLookupRefs;
+		const labelSites =
+			typeof labelColumn === "string" ? X.lookupRefs : X.richLookupRefs;
+		const valueSites =
+			typeof valueColumn === "string" ? X.lookupRefs : X.richLookupRefs;
 		const sites = X.lookupItemset;
 		const refs = X.lookupRefs;
 		const one = select === "select1";

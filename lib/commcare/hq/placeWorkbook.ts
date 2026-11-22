@@ -1,6 +1,6 @@
-import {xmlTextIssue} from "../xmlText";
 import { streamTextWorkbook } from "../lookup/streamWorkbook";
 import { type StreamMember, streamZip, textMember } from "../streamZip";
+import { xmlTextIssue } from "../xmlText";
 import type { HqLocation, HqLocationType } from "./locations";
 import { writableSiteCode } from "./placeTransfer";
 
@@ -32,12 +32,15 @@ const reserved = new Set([
 ]);
 // Python str.strip() includes the four ASCII information separators alongside
 // Unicode White_Space. Its set differs from JavaScript's trim at both ends.
-function nativeSpace(character:string):boolean {
-	const code=character.charCodeAt(0);
+function nativeSpace(character: string): boolean {
+	const code = character.charCodeAt(0);
 	return /\p{White_Space}/u.test(character) || (code >= 0x1c && code <= 0x1f);
 }
 const textCell = (text: string) =>
-	text.length <= 32767 && !nativeSpace(text.charAt(0)) && !nativeSpace(text.slice(-1)) && xmlTextIssue(text) === undefined;
+	text.length <= 32767 &&
+	!nativeSpace(text.charAt(0)) &&
+	!nativeSpace(text.slice(-1)) &&
+	xmlTextIssue(text) === undefined;
 const sheetTitle = (code: string) =>
 	code.length > 0 &&
 	code.length <= 31 &&

@@ -119,16 +119,14 @@ function servePages(snapshot: OrganizationSnapshot) {
 				}),
 				matching: filtered.length,
 				nextCursor: end < filtered.length ? String(end) : null,
-				locations: filtered
-					.slice(start, end)
-					.map((row) => ({
-						...row,
-						path: [],
-						hasChildren: false,
-						hasNextSibling: false,
-						previousId: null,
-						gone: false,
-					})),
+				locations: filtered.slice(start, end).map((row) => ({
+					...row,
+					path: [],
+					hasChildren: false,
+					hasNextSibling: false,
+					previousId: null,
+					gone: false,
+				})),
 			};
 		});
 }

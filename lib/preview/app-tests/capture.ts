@@ -7,7 +7,7 @@ import {
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { PersistableDoc } from "@/lib/domain";
 import { balancedKeysBetween } from "@/lib/lookup/orderKeys";
-import {readAppTestPlaces} from "@/lib/organization/testProjection";
+import { readAppTestPlaces } from "@/lib/organization/testProjection";
 import { type AppTestLookupScope, captureAppTestLookup } from "./lookupAccess";
 import type { AppTestSnapshot, AppTestStartInput } from "./types";
 
@@ -31,7 +31,8 @@ export async function captureAppTestSnapshot(
 		scope,
 		doc,
 		extractLookupReferenceTargets(doc).tableIds,
-		input,checks,
+		input,
+		checks,
 	);
 	const assigned = new Set<string>();
 	for (const assignment of input.assignments ?? []) {
@@ -52,8 +53,14 @@ export async function captureAppTestSnapshot(
 			};
 	}
 	const testPlaces = input.places ?? [];
-	const organization = await readAppTestPlaces(scope,doc,testPlaces,
-		(input.owners ?? []).flatMap(({owner}) => owner.kind === "place" ? [owner.locationUuid] : []));
+	const organization = await readAppTestPlaces(
+		scope,
+		doc,
+		testPlaces,
+		(input.owners ?? []).flatMap(({ owner }) =>
+			owner.kind === "place" ? [owner.locationUuid] : [],
+		),
+	);
 	const locations = [...organization.locations];
 	const placeIds = new Set(locations.map((place) => place.id));
 	const placeOrder = balancedKeysBetween(null, null, testPlaces.length);

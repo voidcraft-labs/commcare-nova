@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { dataAccessLost } from "@/lib/auth/dataGrant";
-import { deploymentTargetSchema } from "@/lib/deployment/types";
 import { preparePlaceWorkbook } from "@/lib/deployment/placeWorkbook";
+import { deploymentTargetSchema } from "@/lib/deployment/types";
 import { toMcpErrorResult } from "../errors";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";

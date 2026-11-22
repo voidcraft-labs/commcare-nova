@@ -299,7 +299,12 @@ describe("levels whose names differ only in capitalization", () => {
 			],
 			claimsUnder(mintingResolver("app-1")),
 		);
-		expect(levels.map((one) => one.code)).toEqual(["state","clinic","site","ward"]);
+		expect(levels.map((one) => one.code)).toEqual([
+			"state",
+			"clinic",
+			"site",
+			"ward",
+		]);
 		expect(findings).toEqual([]);
 		const doc = produce(survey(), (draft) => {
 			draft.organizationLevels = Object.fromEntries(

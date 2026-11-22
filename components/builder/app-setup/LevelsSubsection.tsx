@@ -447,7 +447,6 @@ function LevelRow({
 						onChange={(tracksStock) => commitPatch({ tracksStock })}
 					/>
 
-
 					<div className="flex flex-col gap-1.5">
 						<Label
 							htmlFor={parentId}

@@ -408,11 +408,22 @@ function servePlaces(
 	places: readonly Record<string, unknown>[],
 	meta: Record<string, unknown> = {},
 ): void {
-	const details = places.map(place => ({
-		...place, external_id:null, location_type: `/a/${DOMAIN}/api/location_type/v1/${LOCATION_LEVELS.findIndex(level => level.code === place.location_type_code)+1}/`,
-		parent: place.parent_location_id ? `/a/${DOMAIN}/api/location/v1/${place.parent_location_id}/` : null,
+	const details = places.map((place) => ({
+		...place,
+		external_id: null,
+		location_type: `/a/${DOMAIN}/api/location_type/v1/${LOCATION_LEVELS.findIndex((level) => level.code === place.location_type_code) + 1}/`,
+		parent: place.parent_location_id
+			? `/a/${DOMAIN}/api/location/v1/${place.parent_location_id}/`
+			: null,
 	}));
-	serve(peer,`/a/${DOMAIN}/api/location/v1/?limit=1000`,{status:200,headers:{"content-type":"application/json"},body:JSON.stringify({meta:{next:null,total_count:details.length,...meta},objects:details})});
+	serve(peer, `/a/${DOMAIN}/api/location/v1/?limit=1000`, {
+		status: 200,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			meta: { next: null, total_count: details.length, ...meta },
+			objects: details,
+		}),
+	});
 	serve(peer, PATHS.places, {
 		status: 200,
 		headers: { "Content-Type": "application/json" },
@@ -833,14 +844,13 @@ describe("readHqAppForReview", () => {
 				code: "place-hierarchy-inconsistent",
 				serving: (peer) => {
 					serveExport(peer, locationOwnerFixture("plain", { placeRead: true }));
-					for(let read=0;read<2;read++) {
-serveLevels(peer);
-					servePlaces(peer, [
-						hqPlace("north", "region", null),
-						hqPlace("north_district", "district", "elsewhere"),
-					]);
-}
-
+					for (let read = 0; read < 2; read++) {
+						serveLevels(peer);
+						servePlaces(peer, [
+							hqPlace("north", "region", null),
+							hqPlace("north_district", "district", "elsewhere"),
+						]);
+					}
 				},
 			},
 			{

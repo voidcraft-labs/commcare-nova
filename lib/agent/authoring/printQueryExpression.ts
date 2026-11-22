@@ -100,7 +100,8 @@ export function queryPrinter(context: QueryPrintContext) {
 		if ("attributeId" in read)
 			return call("row-detail", member(undefined, read.attributeId));
 		let base = identity("column", read.columnId, table);
-		if(read.positionBeforeFilter && read.occurrence !== undefined) base=call("value-at",base,String(read.occurrence));
+		if (read.positionBeforeFilter && read.occurrence !== undefined)
+			base = call("value-at", base, String(read.occurrence));
 		if (read.where)
 			base = call(
 				"value-with",

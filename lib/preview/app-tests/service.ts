@@ -141,15 +141,17 @@ export async function startAppTest(
 		throw new AppTestActionError(
 			"The app changed. Read its current design before starting a test.",
 		);
-	const checks:import("@/lib/deployment/workerLookupProjection").WorkerProjectionGrantCheck[]=[];
+	const checks: import("@/lib/deployment/workerLookupProjection").WorkerProjectionGrantCheck[] =
+		[];
 	const snapshot = await captureAppTestSnapshot(
 		{ ...scope, role: authorized.role },
 		authorized.app.blueprint,
-		input,checks,
+		input,
+		checks,
 	);
 	return createAppTestSession({
 		...proofScope,
-		workerGrantChecks:[...(proofScope.workerGrantChecks ?? []), ...checks],
+		workerGrantChecks: [...(proofScope.workerGrantChecks ?? []), ...checks],
 		requestId: args.requestId,
 		requestDigest,
 		expectedBlueprintSeq: args.expectedBlueprintSeq,
@@ -291,7 +293,10 @@ export async function continueAppTest(
 	);
 	return advanceAppTestSession({
 		...proofScope,
-		workerGrantChecks:[...(proofScope.workerGrantChecks ?? []), ...Array.from(identities.values(),capture=>capture.check)],
+		workerGrantChecks: [
+			...(proofScope.workerGrantChecks ?? []),
+			...Array.from(identities.values(), (capture) => capture.check),
+		],
 		testId: args.testId,
 		requestId: args.requestId,
 		// Bind the authored bytes, not names resolved against a later screen/source.

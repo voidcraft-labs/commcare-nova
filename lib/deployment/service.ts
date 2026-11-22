@@ -1,5 +1,5 @@
-import type {ProjectDataGrant} from "@/lib/auth/dataGrant";
-import {verifyAssignmentWitness} from "@/lib/export/privateAssignments";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
+import { verifyAssignmentWitness } from "@/lib/export/privateAssignments";
 import "server-only";
 
 import { gzipSync } from "node:zlib";
@@ -19,10 +19,12 @@ import {
 	readHqAppSourceAtVersion,
 } from "@/lib/commcare/hq/appSourceAtVersion";
 import { classifyHqFailure, type HqFailure } from "@/lib/commcare/hq/failure";
-import type { HqLocationPush } from "@/lib/commcare/hq/locations";
 import { readHqPlaceInventory } from "@/lib/commcare/hq/locationInventory";
-import {placePatch,placeContentMatches} from "@/lib/commcare/hq/placeTransfer";
-import { patchHqLocations,readHqPlaceExternalId } from "@/lib/commcare/hq/locations";
+import type { HqLocationPush } from "@/lib/commcare/hq/locations";
+import {
+	patchHqLocations,
+	readHqPlaceExternalId,
+} from "@/lib/commcare/hq/locations";
 import {
 	FIXTURE_UPLOAD_PARTIAL_CODE,
 	type FixtureUploadRefusal,
@@ -31,16 +33,20 @@ import {
 	uploadLookupTableWorkbook,
 } from "@/lib/commcare/hq/lookupTables";
 import {
+	placeContentMatches,
+	placePatch,
+} from "@/lib/commcare/hq/placeTransfer";
+import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import {mediaMembers} from "@/lib/commcare/multimedia/streamMedia";
-import {streamZip} from "@/lib/commcare/streamZip";
-import {mediaUploadBatches} from "@/lib/commcare/multimedia/uploadBatches";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import { mediaMembers } from "@/lib/commcare/multimedia/streamMedia";
+import { mediaUploadBatches } from "@/lib/commcare/multimedia/uploadBatches";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
+import { streamZip } from "@/lib/commcare/streamZip";
 import {
 	buildProfileLanguageGaps,
 	publishedLanguageCodes,
@@ -99,18 +105,15 @@ import {
 	publishedMediaFiles,
 } from "./hqMedia";
 import { settleHqMedia } from "./hqMediaSettle";
-import {readLookupReceipt} from "./largeLookupReceipt";
-import { readMediaReceipt } from "./mediaReceipt";
-import {
-	canonicalPlace,
-	lookupDefinitionChange,
-} from "./hqResourceBaseline";
+import { canonicalPlace, lookupDefinitionChange } from "./hqResourceBaseline";
 import { diffHqAppSource, normalizeHqAppSource } from "./hqSourceBaseline";
 import {
 	type HqImportApplicationResult,
 	hqImportApplication,
 } from "./importApplication";
+import { readLookupReceipt } from "./largeLookupReceipt";
 import type { PlannedPlacePush } from "./locationResourcePlan";
+import { readMediaReceipt } from "./mediaReceipt";
 import { observeDeployment } from "./observe";
 import { placementMoveOffer, placementMoveOfferView } from "./placementMoves";
 import { recordPublishPlacements } from "./placements";
@@ -339,7 +342,7 @@ export interface PublishLogoStep {
 export interface PublishInput {
 	/** Bearer permission to copy HQ data into Nova. A browser session has no bearer restriction. */
 	readonly requireHqImport: (() => void) | null;
-	readonly dataGrant?:ProjectDataGrant;
+	readonly dataGrant?: ProjectDataGrant;
 	readonly scope: DeploymentScope;
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
@@ -972,7 +975,7 @@ export async function publishAppToHq(
 		for (let attempt = 1; ; attempt++) {
 			const run = await runDeploymentPreflight({
 				requireHqImport: input.requireHqImport,
-				dataGrant:input.dataGrant,
+				dataGrant: input.dataGrant,
 				doc,
 				compiledAtSeq: seq,
 				mappings: existing?.active ?? [],
@@ -1428,51 +1431,91 @@ export async function publishAppToHq(
 			// been sent at this point, which is what makes a failure here
 			// resumable without re-importing anything.
 			const resourceWarnings: string[] = [];
-			const files=lookupPush?.files??(lookupPush?[lookupPush.workbook]:[]);
-			const earlierLookups:{novaResourceId:string;remoteId:string}[]=[];
-			const pendingFiles:typeof files[number][]=[];
-			if(lookupPush) for (const file of files) {
-				if (!file.tables.every(({tableId})=>lookupPush.verifiedFiles.has(tableId))) {
-					pendingFiles.push(file);
-					continue;
+			const files =
+				lookupPush?.files ?? (lookupPush ? [lookupPush.workbook] : []);
+			const earlierLookups: { novaResourceId: string; remoteId: string }[] = [];
+			const pendingFiles: (typeof files)[number][] = [];
+			if (lookupPush)
+				for (const file of files) {
+					if (
+						!file.tables.every(({ tableId }) =>
+							lookupPush.verifiedFiles.has(tableId),
+						)
+					) {
+						pendingFiles.push(file);
+						continue;
+					}
+					if ("check" in file) await file.check();
+					for (const { tableId } of file.tables) {
+						const remoteId = lookupPush.verifiedFiles.get(tableId);
+						if (!remoteId)
+							throw new Error("An observed workbook lost its table binding.");
+						earlierLookups.push({ novaResourceId: tableId, remoteId });
+					}
 				}
-				if ("check" in file) await file.check();
-				for(const {tableId} of file.tables) {
-					const remoteId=lookupPush.verifiedFiles.get(tableId);
-					if (!remoteId) throw new Error("An observed workbook lost its table binding.");
-					earlierLookups.push({novaResourceId:tableId,remoteId});
-				}
-			}
-			if(files.length && !pendingFiles.length)deployment=goOnFrom(await recordPushedResources(input.scope,target,[],{status:"complete",kinds:["lookup-table"],previousLookups:earlierLookups,pushedAt:new Date().toISOString()},fence));
-			if (lookupPush !== null) for(const [fileIndex,file] of pendingFiles.entries()){
-				const selected=new Set(file.tables.map(table=>table.tableId as string));
-				sent = true;
-				const pushed = await pushLookupTables(
-					input.scope,
-					target,
-					creds,
-					domain,
-					{...lookupPush,workbook:file,pushes:lookupPush.pushes.filter(push=>selected.has(push.tableId)),lastFile:fileIndex===pendingFiles.length-1,previousVerified:earlierLookups},
-					createdApp,
-					confirmedChanges,
-					fence,
-					letOut,
+			if (files.length && !pendingFiles.length)
+				deployment = goOnFrom(
+					await recordPushedResources(
+						input.scope,
+						target,
+						[],
+						{
+							status: "complete",
+							kinds: ["lookup-table"],
+							previousLookups: earlierLookups,
+							pushedAt: new Date().toISOString(),
+						},
+						fence,
+					),
 				);
-				if (pushed.readBackFailed) {
-					resourceWarnings.push(RESOURCES_READ_BACK_FAILED_WARNING);
+			if (lookupPush !== null)
+				for (const [fileIndex, file] of pendingFiles.entries()) {
+					const selected = new Set(
+						file.tables.map((table) => table.tableId as string),
+					);
+					sent = true;
+					const pushed = await pushLookupTables(
+						input.scope,
+						target,
+						creds,
+						domain,
+						{
+							...lookupPush,
+							workbook: file,
+							pushes: lookupPush.pushes.filter((push) =>
+								selected.has(push.tableId),
+							),
+							lastFile: fileIndex === pendingFiles.length - 1,
+							previousVerified: earlierLookups,
+						},
+						createdApp,
+						confirmedChanges,
+						fence,
+						letOut,
+					);
+					if (pushed.readBackFailed) {
+						resourceWarnings.push(RESOURCES_READ_BACK_FAILED_WARNING);
+					}
+					resourceWarnings.push(...pushed.warnings);
+					/* Even a refused push can have left tables over there — CommCare
+					 * HQ's `warning` verdict means it took part of the workbook — and
+					 * `pushLookupTables` records those before it returns. Reading its
+					 * view back keeps the refusal's report honest about what the
+					 * project space now holds. */
+					if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
+					if (pushed.failure !== null)
+						return refused("resources", pushed.failure);
+					if (fileIndex !== pendingFiles.length - 1)
+						for (const item of deployment.active)
+							if (
+								item.kind === "lookup-table" &&
+								selected.has(item.novaResourceId)
+							)
+								earlierLookups.push({
+									novaResourceId: item.novaResourceId,
+									remoteId: item.remoteId,
+								});
 				}
-				resourceWarnings.push(...pushed.warnings);
-				/* Even a refused push can have left tables over there — CommCare
-				 * HQ's `warning` verdict means it took part of the workbook — and
-				 * `pushLookupTables` records those before it returns. Reading its
-				 * view back keeps the refusal's report honest about what the
-				 * project space now holds. */
-				if (pushed.recorded !== null) deployment = goOnFrom(pushed.recorded);
-				if (pushed.failure !== null)
-					return refused("resources", pushed.failure);
-				if(fileIndex!==pendingFiles.length-1)for(const item of deployment.active)
-					if(item.kind==="lookup-table"&&selected.has(item.novaResourceId))earlierLookups.push({novaResourceId:item.novaResourceId,remoteId:item.remoteId});
-			}
 
 			/* Places after tables, and both before the app's content. The order
 			 * between the two does not matter to CommCare HQ; it is stable so
@@ -1873,7 +1916,7 @@ export async function publishAppToHq(
 			} = { warnings: [], reported: {} };
 			/* The import and the bundle, whose admissions the media record rests on. */
 			const mediaWrites: string[] = [importWrite];
-			let incompleteMedia=false;
+			let incompleteMedia = false;
 			if (bulkAssets.size > 0 && imported.pushToken === null) {
 				warnings.push(MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING);
 			} else if (bulkAssets.size > 0) {
@@ -1881,45 +1924,98 @@ export async function publishAppToHq(
 				 * leaves the publish landed, with its media not sent, and so does
 				 * an app deleted, or a publisher who lost edit, since: the app is
 				 * there, and nothing more is sent for it. */
-				const settled=new Map([...(ready.media?.paths??[]),...settledBetween].map(p=>[p.wirePath,p]));
-				for(const batch of mediaUploadBatches(bulkAssets)) {
-				const mediaAdmission = await admitAppWrite(input.scope, target, {
-					...fence,
-					remoteAppId: result.appId,
-					writeKind: "media",
-				}).catch((error: unknown) => {
-					if (error instanceof DeploymentEndedError)
-						return { kind: "stopped" as const };
-					if (error instanceof DeploymentError && error.code === "not_found")
-						return { kind: "no-access" as const };
-					throw error;
-				});
-				if (mediaAdmission.kind === "admitted") {
-					letOut.push(mediaAdmission.writeId);
-					mediaWrites.push(mediaAdmission.writeId);
-				}
-				if(mediaAdmission.kind!=="admitted"){
-					upload={...upload,warnings:[...upload.warnings,mediaAdmission.kind==="no-access"?MEDIA_NOT_SENT_AFTER_ACCESS_WARNING:MEDIA_NOT_SENT_AFTER_STOP_WARNING]};
-					break;
-				}
-				const candidates=new Map([...batch].filter(([,asset])=>settled.get(asset.wirePath)?.standing==="recorded"));
-				const prior=candidates.size?await readMediaReceipt(creds,domain,result.appId,candidates):{files:{},missing:[],absent:[]};
-				upload={...upload,reported:{...upload.reported,...prior.files}};
-				const changed=prior.missing.filter(path=>!prior.absent.includes(path));
-				if(changed.length){
-					await settleRemoteWrites([mediaAdmission.writeId],{kind:"settled"});
-					incompleteMedia=true;
-					upload={...upload,warnings:[...upload.warnings,"Nova could not verify the existing files in this project space.",...changed]};
-					break;
-				}
-				const needed=new Map([...batch].filter(([,asset])=>!Object.hasOwn(prior.files,asset.wirePath)));
-				if(!needed.size){
-					await settleRemoteWrites([mediaAdmission.writeId],{kind:"settled"});
-					continue;
-				}
-				const part=await uploadMediaBytes(creds,domain,result.appId,{assets:needed,doc:prepared.doc},input.scope.appId,mediaAdmission.writeId);
-				upload={warnings:[...upload.warnings,...part.warnings],reported:{...upload.reported,...part.reported}};
-				if(part.warnings.length){incompleteMedia=true;break;}
+				const settled = new Map(
+					[...(ready.media?.paths ?? []), ...settledBetween].map((p) => [
+						p.wirePath,
+						p,
+					]),
+				);
+				for (const batch of mediaUploadBatches(bulkAssets)) {
+					const mediaAdmission = await admitAppWrite(input.scope, target, {
+						...fence,
+						remoteAppId: result.appId,
+						writeKind: "media",
+					}).catch((error: unknown) => {
+						if (error instanceof DeploymentEndedError)
+							return { kind: "stopped" as const };
+						if (error instanceof DeploymentError && error.code === "not_found")
+							return { kind: "no-access" as const };
+						throw error;
+					});
+					if (mediaAdmission.kind === "admitted") {
+						letOut.push(mediaAdmission.writeId);
+						mediaWrites.push(mediaAdmission.writeId);
+					}
+					if (mediaAdmission.kind !== "admitted") {
+						upload = {
+							...upload,
+							warnings: [
+								...upload.warnings,
+								mediaAdmission.kind === "no-access"
+									? MEDIA_NOT_SENT_AFTER_ACCESS_WARNING
+									: MEDIA_NOT_SENT_AFTER_STOP_WARNING,
+							],
+						};
+						break;
+					}
+					const candidates = new Map(
+						[...batch].filter(
+							([, asset]) =>
+								settled.get(asset.wirePath)?.standing === "recorded",
+						),
+					);
+					const prior = candidates.size
+						? await readMediaReceipt(creds, domain, result.appId, candidates)
+						: { files: {}, missing: [], absent: [] };
+					upload = {
+						...upload,
+						reported: { ...upload.reported, ...prior.files },
+					};
+					const changed = prior.missing.filter(
+						(path) => !prior.absent.includes(path),
+					);
+					if (changed.length) {
+						await settleRemoteWrites([mediaAdmission.writeId], {
+							kind: "settled",
+						});
+						incompleteMedia = true;
+						upload = {
+							...upload,
+							warnings: [
+								...upload.warnings,
+								"Nova could not verify the existing files in this project space.",
+								...changed,
+							],
+						};
+						break;
+					}
+					const needed = new Map(
+						[...batch].filter(
+							([, asset]) => !Object.hasOwn(prior.files, asset.wirePath),
+						),
+					);
+					if (!needed.size) {
+						await settleRemoteWrites([mediaAdmission.writeId], {
+							kind: "settled",
+						});
+						continue;
+					}
+					const part = await uploadMediaBytes(
+						creds,
+						domain,
+						result.appId,
+						{ assets: needed, doc: prepared.doc },
+						input.scope.appId,
+						mediaAdmission.writeId,
+					);
+					upload = {
+						warnings: [...upload.warnings, ...part.warnings],
+						reported: { ...upload.reported, ...part.reported },
+					};
+					if (part.warnings.length) {
+						incompleteMedia = true;
+						break;
+					}
 				}
 			}
 			warnings.push(...upload.warnings);
@@ -1929,21 +2025,31 @@ export async function publishAppToHq(
 			 * before the upload, else what the baseline knew. Against the
 			 * baseline this publish wrote, so a later publish's is left to that
 			 * publish. */
-			const installedOnCurrent=await recordDeploymentMediaFiles(input.scope, target, {
-				...fence,
-				remoteAppId: result.appId,
-				sourceDigest: pushBaseline.write.sourceDigest,
-				pushToken: imported.pushToken,
-				files: nextHqMediaRecord({
-					published,
-					previous: appBaseline?.mediaFiles ?? null,
-					learned: { ...ready.media?.learned, ...learnedBetween },
-					reported: upload.reported,
-					settled: [...(ready.media?.paths ?? []), ...settledBetween],
-				}),
-				admitted: { writeIds: mediaWrites, settle: [] },
-			});
-			if(incompleteMedia && installedOnCurrent) return await refused("upload",{code:"hq_rejected_resource_push",message:"The app reached CommCare HQ. Some media still needs to be installed there. You can add the original file in that project space and publish again to verify it.",details:[...upload.warnings]});
+			const installedOnCurrent = await recordDeploymentMediaFiles(
+				input.scope,
+				target,
+				{
+					...fence,
+					remoteAppId: result.appId,
+					sourceDigest: pushBaseline.write.sourceDigest,
+					pushToken: imported.pushToken,
+					files: nextHqMediaRecord({
+						published,
+						previous: appBaseline?.mediaFiles ?? null,
+						learned: { ...ready.media?.learned, ...learnedBetween },
+						reported: upload.reported,
+						settled: [...(ready.media?.paths ?? []), ...settledBetween],
+					}),
+					admitted: { writeIds: mediaWrites, settle: [] },
+				},
+			);
+			if (incompleteMedia && installedOnCurrent)
+				return await refused("upload", {
+					code: "hq_rejected_resource_push",
+					message:
+						"The app reached CommCare HQ. Some media still needs to be installed there. You can add the original file in that project space and publish again to verify it.",
+					details: [...upload.warnings],
+				});
 
 			return {
 				landed: true,
@@ -2566,8 +2672,12 @@ async function pushLookupTables(
 	 * preflight is CommCare HQ's again, and writing it would replace what a
 	 * person chose to leave there, so nothing is sent; otherwise a hand-back
 	 * of any table the workbook carries waits until the upload has settled. */
-	if("check" in plan.workbook)await plan.workbook.check();
-	if(plan.assignments) await verifyAssignmentWitness({scope,target,grant:plan.assignments.grant,purpose:"publish"},plan.assignments.witness);
+	if ("check" in plan.workbook) await plan.workbook.check();
+	if (plan.assignments)
+		await verifyAssignmentWitness(
+			{ scope, target, grant: plan.assignments.grant, purpose: "publish" },
+			plan.assignments.witness,
+		);
 	const admission = await admitWorkbookWrite(scope, target, {
 		...fence,
 		tableIds: plan.pushes.map((push) => push.tableId),
@@ -2673,8 +2783,19 @@ async function pushLookupTables(
 		async (push) => {
 			const landed = remoteByTag.get(push.tag);
 			const expected = plan.expected.get(push.tableId);
-			if (expected === undefined) throw new Error("The lookup workbook is missing its intended read-back.");
-			return landed === undefined ? null : readLookupReceipt(creds, domain, landed, expected, "check" in plan.workbook ? plan.workbook.check : undefined);
+			if (expected === undefined)
+				throw new Error(
+					"The lookup workbook is missing its intended read-back.",
+				);
+			return landed === undefined
+				? null
+				: readLookupReceipt(
+						creds,
+						domain,
+						landed,
+						expected,
+						"check" in plan.workbook ? plan.workbook.check : undefined,
+					);
 		},
 	);
 	for (const [index, push] of plan.pushes.entries()) {
@@ -2791,10 +2912,20 @@ async function pushLookupTables(
 		};
 	}
 
-	if(readBackFailed)return {
-		failure:{code:"hq_resource_state_unknown",message:"The workbook reached CommCare HQ. Nova could not verify the complete table there. Check the destination’s rows and publish again.",details:plan.workbook.tables.map(t=>plan.names.get(t.tableId)??t.tag)},
-		recorded:await recordPartial(),readBackFailed,warnings:[],
-	};
+	if (readBackFailed)
+		return {
+			failure: {
+				code: "hq_resource_state_unknown",
+				message:
+					"The workbook reached CommCare HQ. Nova could not verify the complete table there. Check the destination’s rows and publish again.",
+				details: plan.workbook.tables.map(
+					(t) => plan.names.get(t.tableId) ?? t.tag,
+				),
+			},
+			recorded: await recordPartial(),
+			readBackFailed,
+			warnings: [],
+		};
 
 	if (missing.length > 0) {
 		log.error("[deployment] lookup tables absent after upload", undefined, {
@@ -2818,12 +2949,14 @@ async function pushLookupTables(
 		scope,
 		target,
 		mappings,
-		plan.lastFile===false?{status:"partial"}:{
-			previousLookups:plan.previousVerified,
-			status: "complete",
-			kinds: ["lookup-table"],
-			pushedAt: new Date().toISOString(),
-		},
+		plan.lastFile === false
+			? { status: "partial" }
+			: {
+					previousLookups: plan.previousVerified,
+					status: "complete",
+					kinds: ["lookup-table"],
+					pushedAt: new Date().toISOString(),
+				},
 		{ baselines, ...fence, admitted },
 	);
 	log.info("[deployment] lookup tables pushed", {
@@ -2938,7 +3071,7 @@ async function pushLocations(
 	readonly readBackFailed: boolean;
 }> {
 	const remoteIdByLocationUuid = new Map<string, string>();
-	const externalIdMismatches:string[]=[];
+	const externalIdMismatches: string[] = [];
 	const landed: RecordRemoteResourceInput[] = [];
 	const landedPushes: { push: PlannedPlacePush; remoteId: string }[] = [];
 	/* Every batch's admission, and how CommCare HQ ended each batch. */
@@ -2963,7 +3096,7 @@ async function pushLocations(
 		if (landedPushes.length === 0) {
 			return { baselines: unreadOf(uncertain), failed: uncertain.length > 0 };
 		}
-		const inventory = await readHqPlaceInventory(creds,domain);
+		const inventory = await readHqPlaceInventory(creds, domain);
 		if (inventory.kind !== "read") {
 			return {
 				baselines: [
@@ -2991,22 +3124,47 @@ async function pushLocations(
 				push.locationUuid,
 			);
 			const place = byId.get(remoteId);
-			if (place === undefined || !placeContentMatches(push, place, push.parentLocationUuid ? remoteIdByLocationUuid.get(push.parentLocationUuid) ?? null : null, push.ownedKeys,push.desiredWire)) {
+			if (
+				place === undefined ||
+				!placeContentMatches(
+					push,
+					place,
+					push.parentLocationUuid
+						? (remoteIdByLocationUuid.get(push.parentLocationUuid) ?? null)
+						: null,
+					push.ownedKeys,
+					push.desiredWire,
+				)
+			) {
 				failed = true;
 				baselines.push(unreadResourceBaseline("location", remoteId, discard));
 				continue;
 			}
-			if (push.externalId !== undefined && (push.externalId !== null || place.observation?.externalId != null)) {
-                const detail = await readHqPlaceExternalId(creds,domain,remoteId);
-                if ("success" in detail || detail.siteCode !== place.siteCode || detail.externalId !== place.observation?.externalId) {
-                    failed = true;
-                    baselines.push(unreadResourceBaseline("location",remoteId,discard));
-                    continue;
-                }
-                if (push.externalId !== detail.externalId) externalIdMismatches.push(push.siteCode);
-            }
-			const canonical = {...canonicalPlace(place,push.ownedKeys),
-                ...(push.stagedWire && push.externalId!==undefined && push.externalId!==place.observation?.externalId && {pendingExternalId:push.externalId})};
+			if (
+				push.externalId !== undefined &&
+				(push.externalId !== null || place.observation?.externalId != null)
+			) {
+				const detail = await readHqPlaceExternalId(creds, domain, remoteId);
+				if (
+					"success" in detail ||
+					detail.siteCode !== place.siteCode ||
+					detail.externalId !== place.observation?.externalId
+				) {
+					failed = true;
+					baselines.push(unreadResourceBaseline("location", remoteId, discard));
+					continue;
+				}
+				if (push.externalId !== detail.externalId)
+					externalIdMismatches.push(push.siteCode);
+			}
+			const canonical = {
+				...canonicalPlace(place, push.ownedKeys),
+				...(push.stagedWire &&
+					push.externalId !== undefined &&
+					push.externalId !== place.observation?.externalId && {
+						pendingExternalId: push.externalId,
+					}),
+			};
 			baselines.push({
 				origin: "push",
 				kind: "location",
@@ -3062,8 +3220,8 @@ async function pushLocations(
 	for (const batch of plan.batches) {
 		const places: HqLocationPush[] = [];
 		const sentIndices: number[] = [];
-		const batchIds = batch.map(push=>push.remoteId);
-		for (const [index,push] of batch.entries()) {
+		const batchIds = batch.map((push) => push.remoteId);
+		for (const [index, push] of batch.entries()) {
 			const parentRemoteId =
 				push.parentLocationUuid === null
 					? undefined
@@ -3086,7 +3244,7 @@ async function pushLocations(
 					details: [],
 				});
 			}
-			const patch = placePatch(push,push.current,parentRemoteId ?? null);
+			const patch = placePatch(push, push.current, parentRemoteId ?? null);
 			if (patch !== null) {
 				sentIndices.push(index);
 				places.push(patch);
@@ -3106,7 +3264,9 @@ async function pushLocations(
 		}
 		admittedIds.push(...batchWrites);
 		letOut.push(...batchWrites);
-		const result = places.length ? await patchHqLocations(creds,domain,places) : {ids:[]};
+		const result = places.length
+			? await patchHqLocations(creds, domain, places)
+			: { ids: [] };
 		/* A batch whose answer leaves it unknown may still be applied after
 		 * Nova stopped waiting, so it stays open for its grace. */
 		ended.push({
@@ -3141,9 +3301,13 @@ async function pushLocations(
 			);
 		}
 
-		for(const [index,id] of result.ids.entries()) batchIds[sentIndices[index]] = id;
+		for (const [index, id] of result.ids.entries())
+			batchIds[sentIndices[index]] = id;
 		for (const [index, remoteId] of batchIds.entries()) {
-			if (remoteId === null) throw new Error("A place receipt was missing its destination identity.");
+			if (remoteId === null)
+				throw new Error(
+					"A place receipt was missing its destination identity.",
+				);
 			const push = batch[index];
 			if (push === undefined) continue;
 			remoteIdByLocationUuid.set(push.locationUuid, remoteId);
@@ -3170,11 +3334,13 @@ async function pushLocations(
 		scope,
 		target,
 		landed,
-		read.failed || externalIdMismatches.length ? {status:"partial"} : {
-			status: "complete",
-			kinds: ["location"],
-			pushedAt: new Date().toISOString(),
-		},
+		read.failed || externalIdMismatches.length
+			? { status: "partial" }
+			: {
+					status: "complete",
+					kinds: ["location"],
+					pushedAt: new Date().toISOString(),
+				},
 		{ baselines: read.baselines, ...fence, admitted: admitted() },
 	);
 	log.info("[deployment] places pushed", {
@@ -3182,9 +3348,23 @@ async function pushLocations(
 		appId: scope.appId,
 		places: landed.length,
 	});
-	return { failure: read.failed ? {code:"hq_resource_state_unknown",message:`Nova could not verify the places on “${domain}” after publishing them. Your app content is still waiting. Check that project space, then publish again.`,details:[]}
-		: externalIdMismatches.length ? {code:"hq_place_ids_need_setup",message:`The places on “${domain}” need their IDs in another system before this app can use them. Apply the organization workbook there, then publish again.`,details:externalIdMismatches}
-		: null, recorded, readBackFailed: read.failed };
+	return {
+		failure: read.failed
+			? {
+					code: "hq_resource_state_unknown",
+					message: `Nova could not verify the places on “${domain}” after publishing them. Your app content is still waiting. Check that project space, then publish again.`,
+					details: [],
+				}
+			: externalIdMismatches.length
+				? {
+						code: "hq_place_ids_need_setup",
+						message: `The places on “${domain}” need their IDs in another system before this app can use them. Apply the organization workbook there, then publish again.`,
+						details: externalIdMismatches,
+					}
+				: null,
+		recorded,
+		readBackFailed: read.failed,
+	};
 }
 
 /**
@@ -3223,7 +3403,10 @@ async function uploadMediaBytes(
 			{
 				onAccepted: async (processingId) => {
 					jobId = processingId;
-					await settleRemoteWrites([writeId],{kind:"media-job",jobId:processingId});
+					await settleRemoteWrites([writeId], {
+						kind: "media-job",
+						jobId: processingId,
+					});
 				},
 			},
 		);
@@ -3267,12 +3450,30 @@ async function uploadMediaBytes(
 			reported: {},
 		};
 	}
-	const receipt=await readMediaReceipt(creds,domain,hqAppId,prepared.assets,mediaResult);
-	const missing=new Set(mediaResult.unmatchedFiles.map(file=>file.path));
-	const unmatchedFiles=[...mediaResult.unmatchedFiles,...receipt.missing.filter(path=>!missing.has(path)).map(path=>({path,reason:"The destination file did not match this upload."}))];
+	const receipt = await readMediaReceipt(
+		creds,
+		domain,
+		hqAppId,
+		prepared.assets,
+		mediaResult,
+	);
+	const missing = new Set(mediaResult.unmatchedFiles.map((file) => file.path));
+	const unmatchedFiles = [
+		...mediaResult.unmatchedFiles,
+		...receipt.missing
+			.filter((path) => !missing.has(path))
+			.map((path) => ({
+				path,
+				reason: "The destination file did not match this upload.",
+			})),
+	];
 	return {
 		warnings: reportMediaAttach({
-			result: {...mediaResult,unmatched:unmatchedFiles.length,unmatchedFiles},
+			result: {
+				...mediaResult,
+				unmatched: unmatchedFiles.length,
+				unmatchedFiles,
+			},
 			assetWirePath: assetWirePaths(prepared.assets),
 			doc: prepared.doc,
 			logPrefix: "[deployment]",

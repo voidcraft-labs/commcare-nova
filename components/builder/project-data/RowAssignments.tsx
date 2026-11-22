@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import {
@@ -113,6 +113,7 @@ export function RowAssignments({
 	canEdit: boolean;
 }) {
 	const [open, setOpen] = useState(false);
+	const [revision, setRevision] = useState(0);
 	if (!canEdit || table.workerAccess !== "assigned") return null;
 	return (
 		<div className="space-y-2">
@@ -125,7 +126,11 @@ export function RowAssignments({
 			</Button>
 			{open && (
 				<AssignmentPicker
-					key={row.id}
+					key={`${row.id}:${revision}`}
+					refresh={async () => {
+						await workspace.reload();
+						setRevision((value) => value + 1);
+					}}
 					table={table}
 					row={row}
 					workspace={workspace}
@@ -140,11 +145,13 @@ function AssignmentPicker({
 	table,
 	row,
 	workspace,
+	refresh,
 	close,
 }: {
 	table: LookupTableSnapshot;
 	row: LookupRow;
 	workspace: ProjectDataWorkspace;
+	refresh: () => Promise<void>;
 	close: () => void;
 }) {
 	const [query, setQuery] = useState("");
@@ -152,8 +159,8 @@ function AssignmentPicker({
 	const [more, setMore] = useState<number | null>(null);
 	const [choices, setChoices] = useState<NamedAssignee[]>([]);
 	const [selected, setSelected] = useState<NamedAssignee[]>();
-	const [baseline, setBaseline] = useState(table.tableRevision);
-	const [revision, setRevision] = useState(0);
+	const [baseline] = useState(table.tableRevision);
+	const searchId = useId();
 	const [message, setMessage] = useState("");
 	const [busy, setBusy] = useState(false);
 	const stale = baseline !== table.tableRevision;
@@ -185,14 +192,7 @@ function AssignmentPicker({
 		return () => {
 			active = false;
 		};
-	}, [table.projectId, table.id, row.id, query, offset, revision]);
-	const refresh = async () => {
-		await workspace.reload();
-		setSelected(undefined);
-		setBaseline(table.tableRevision);
-		setRevision((x) => x + 1);
-		setMessage("");
-	};
+	}, [table.projectId, table.id, row.id, query, offset]);
 	const save = async () => {
 		if (!selected || stale || busy) return;
 		setBusy(true);
@@ -234,7 +234,6 @@ function AssignmentPicker({
 						<div key={keyOf(value)}>
 							{label(value)}{" "}
 							<Button
-
 								variant="ghost"
 								onClick={() =>
 									setSelected(selected.filter((x) => keyOf(x) !== keyOf(value)))
@@ -246,9 +245,10 @@ function AssignmentPicker({
 					))}
 				</>
 			)}
-			<label>
+			<label htmlFor={searchId}>
 				Find a worker, group or place
 				<Input
+					id={searchId}
 					value={query}
 					onChange={(e) => {
 						setQuery(e.target.value);
@@ -260,7 +260,6 @@ function AssignmentPicker({
 				.filter((v) => !keys.has(keyOf(v)))
 				.map((v) => (
 					<Button
-
 						key={keyOf(v)}
 						variant="outline"
 						disabled={!selected}

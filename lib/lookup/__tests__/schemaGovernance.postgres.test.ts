@@ -402,7 +402,8 @@ describe("lookup schema governance", () => {
 				rowsRevision: result.projectRevision,
 				tableRevision: result.projectRevision,
 			});
-			if (before.dataBytes === null) throw new Error("The public table's byte count is unavailable.");
+			if (before.dataBytes === null)
+				throw new Error("The public table's byte count is unavailable.");
 			expect(after).toMatchObject({
 				columnCount: 1,
 				rowCount: 3,

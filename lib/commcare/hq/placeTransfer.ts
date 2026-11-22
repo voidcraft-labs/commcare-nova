@@ -1,4 +1,4 @@
-import {recordFromEntries} from "@/lib/domain/records";
+import { recordFromEntries } from "@/lib/domain/records";
 import { locationWireValue } from "./locationMetadata";
 import type { HqLocationPush } from "./locations";
 

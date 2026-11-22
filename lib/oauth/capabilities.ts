@@ -123,7 +123,8 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 	},
 	{
 		key: "nova.projects.data.export",
-		label: "Download private Project data assignments and worker installation data for project spaces you can access",
+		label:
+			"Download private Project data assignments and worker installation data for project spaces you can access",
 		icon: tablerCloudDownload,
 		matches: (s) => s.has("nova.projects.data.export"),
 	},

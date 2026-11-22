@@ -41,16 +41,14 @@ export async function installSourceAssignments(
 		tx,
 	);
 	for (let i = 0; i < rows.length; i += 100) {
-		const entries = rows
-			.slice(i, i + 100)
-			.flatMap((row) =>
-				row.principals.map((p) => ({
-					source: row.sourceId,
-					kind: p.kind,
-					id: p.id,
-					app: p.kind === "group" ? null : p.appId,
-				})),
-			);
+		const entries = rows.slice(i, i + 100).flatMap((row) =>
+			row.principals.map((p) => ({
+				source: row.sourceId,
+				kind: p.kind,
+				id: p.id,
+				app: p.kind === "group" ? null : p.appId,
+			})),
+		);
 		if (!entries.length) continue;
 		await sql`INSERT INTO lookup_row_assignments(project_id,table_id,row_id,kind,principal_id,app_id)
       SELECT ${projectId},${tableId}::uuid,r.id,a.kind,a.id,a.app

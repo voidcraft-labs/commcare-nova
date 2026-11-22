@@ -1,6 +1,6 @@
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
-import { isPortableName } from "../portableName";
+
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
 import {
@@ -18,6 +18,7 @@ import {
 	platformRefusalMessage,
 	unavailablePlatform,
 } from "../platforms";
+import { isPortableName } from "../portableName";
 import {
 	isSearchOnlyCaseProperty,
 	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
@@ -3434,10 +3435,15 @@ function inferTerm(
 					"location-property",
 				);
 			if (typeof field === "object" && "profile" in ctx) {
-				const name = "level" in field ? ctx.facts.organizationLevels[field.level]?.code : ctx.facts.locationProperties.get(field.property)?.slug;
-				if (name !== undefined && !isPortableName(name, ctx.platforms)) return fail(
-					"operation-context-value", `A worker platform for this app cannot read the place field "${name}". Choose another field or platform.`,
-				);
+				const name =
+					"level" in field
+						? ctx.facts.organizationLevels[field.level]?.code
+						: ctx.facts.locationProperties.get(field.property)?.slug;
+				if (name !== undefined && !isPortableName(name, ctx.platforms))
+					return fail(
+						"operation-context-value",
+						`A worker platform for this app cannot read the place field "${name}". Choose another field or platform.`,
+					);
 			}
 			return nodes("text", "string");
 		}
@@ -3495,7 +3501,14 @@ function inferTerm(
 					"operation-context-value",
 					`The destination level '${destination.name}' has no case-owning level above it to match against the current owner.`,
 				);
-			if (ancestor !== undefined && !isPortableName(ancestor.code,ctx.platforms)) return fail("operation-context-value", `A worker platform for this app cannot follow the owner path through "${ancestor.code}". Choose another owner rule or platform.`);
+			if (
+				ancestor !== undefined &&
+				!isPortableName(ancestor.code, ctx.platforms)
+			)
+				return fail(
+					"operation-context-value",
+					`A worker platform for this app cannot follow the owner path through "${ancestor.code}". Choose another owner rule or platform.`,
+				);
 			return inferTerm(
 				{ kind: "prop", caseType: term.ownerCaseType, property: "owner_id" },
 				ctx,

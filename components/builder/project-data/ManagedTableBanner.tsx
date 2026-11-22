@@ -134,12 +134,17 @@ export function ManagedTableBanner({
 				projectId: string,
 				tableId: string,
 				reviewDigest: string,
-        workbook?:FormData,
+				workbook?: FormData,
 			) => Promise<ManagedTableOutcome>,
 			reviewDigest: string,
 		) =>
-		async (workbook?:FormData): Promise<string | null> => {
-			const answer = await run(table.projectId, table.id, reviewDigest,...(workbook?[workbook]:[]));
+		async (workbook?: FormData): Promise<string | null> => {
+			const answer = await run(
+				table.projectId,
+				table.id,
+				reviewDigest,
+				...(workbook ? [workbook] : []),
+			);
 			if (!answer.ok) {
 				if (answer.reason === "review-moved") await view.reload();
 				return answer.message;
@@ -353,7 +358,7 @@ export function ManagedTableBanner({
 			)}
 			{loaded !== null && dialog === "manage" && (
 				<ManageInNovaDialog
-          needsWorkbook={hq.source?.distribution==="assigned"}
+					needsWorkbook={hq.source?.distribution === "assigned"}
 					open
 					tableName={table.name}
 					domain={hq.domain}

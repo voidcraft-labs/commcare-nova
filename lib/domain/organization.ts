@@ -35,11 +35,11 @@
 // location framework) — is an HQ console authorization axis with no wire
 // representation at all. Nothing here models it.
 
-import { XML_NCNAME_PATTERN } from "./xmlName";
 import { z } from "zod";
 import { CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH } from "./customDataFieldLimits";
 import { recordFromEntries } from "./records";
 import { type Uuid, uuidSchema } from "./uuid";
+import { XML_NCNAME_PATTERN } from "./xmlName";
 
 const nonemptyUniqueUuidArraySchema = z
 	.array(uuidSchema)
@@ -278,8 +278,16 @@ export const organizationLevelSchema = z.strictObject({
 	uuid: uuidSchema,
 	// HQ can derive the empty code from a punctuation-only name. Its flat
 	// fixture then emits type="" and the legal ancestry attribute "_id".
-	code: z.string().refine(value => LEVEL_CODE_PATTERN.test(value + "_id") && Array.from(value).length <= LEVEL_CODE_MAX_LENGTH),
-	name: z.string().refine(value => Array.from(value).length <= LEVEL_NAME_MAX_LENGTH),
+	code: z
+		.string()
+		.refine(
+			(value) =>
+				LEVEL_CODE_PATTERN.test(value + "_id") &&
+				Array.from(value).length <= LEVEL_CODE_MAX_LENGTH,
+		),
+	name: z
+		.string()
+		.refine((value) => Array.from(value).length <= LEVEL_NAME_MAX_LENGTH),
 	/** A level brought in from a project space exposes whether it tracks stock. */
 	tracksStock: z.boolean().optional(),
 	description: z.string().optional(),
@@ -459,7 +467,7 @@ export function orderedLocationProperties(
  */
 export function assignedLocationUuids(
 	locations: PersonaLocations | undefined,
-): readonly string[] {
+): readonly Uuid[] {
 	if (locations === undefined) return [];
 	return [locations.primaryUuid, ...(locations.additionalUuids ?? [])];
 }

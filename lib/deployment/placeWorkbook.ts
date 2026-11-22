@@ -13,9 +13,9 @@ import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
 import { getHqCredentials } from "@/lib/db/settings";
 import { exportTargetRevision } from "@/lib/deployment/exportTargetRevision";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { ExportActor, ExportSpec } from "@/lib/export/artifacts/access";
 import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 export interface PlaceWorkbookWitness {
 	target: { server: string; domain: string };

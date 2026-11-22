@@ -1320,7 +1320,7 @@ export async function loadCaseDatabaseSnapshotAction(
 			appId,
 			restoreScope: context.restoreScope,
 		});
-		const snapshot={...cases,workerGroups:context.restoreScope.groups};
+		const snapshot = { ...cases, workerGroups: context.restoreScope.groups };
 		if (!includePlaces) return { kind: "data", snapshot };
 		return {
 			kind: "data",
@@ -1930,7 +1930,7 @@ export async function submitFormAction(
 	/** The device Preview runs on (`previewDevice.ts`), plain JSON: a case
 	 *  operation writing a session context value writes the platform's. */
 	device?: PreviewDevice,
- entryGroupOwner?:string,
+	entryGroupOwner?: string,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -2085,7 +2085,7 @@ export async function submitFormAction(
 			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
-      entryGroupOwner,
+			entryGroupOwner,
 			...(entryPlaceIds === undefined ? {} : { workerPlaceIds: entryPlaceIds }),
 		});
 		if (built.captureIntent !== undefined) {

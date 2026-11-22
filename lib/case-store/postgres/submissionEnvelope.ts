@@ -1168,10 +1168,14 @@ async function resolveOperationProgram(
 	const ordinary = args.ordinary;
 	const revisions = program.groupDefaults?.revisions;
 	if (revisions) {
-    // A zero revision can mean no prior writer. Materialize both clock rows
-    // before locking so the first concurrent membership or place edit also waits.
-    await sql`INSERT INTO lookup_project_state(project_id) VALUES (${host.projectId}) ON CONFLICT DO NOTHING`.execute(trx);
-    await sql`INSERT INTO app_organization_state(app_id) VALUES (${appId}) ON CONFLICT DO NOTHING`.execute(trx);
+		// A zero revision can mean no prior writer. Materialize both clock rows
+		// before locking so the first concurrent membership or place edit also waits.
+		await sql`INSERT INTO lookup_project_state(project_id) VALUES (${host.projectId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
+		await sql`INSERT INTO app_organization_state(app_id) VALUES (${appId}) ON CONFLICT DO NOTHING`.execute(
+			trx,
+		);
 		const current = await sql<{
 			project: string;
 			places: string;

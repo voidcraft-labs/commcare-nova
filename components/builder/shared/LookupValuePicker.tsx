@@ -10,7 +10,11 @@ import {
 } from "@/components/shadcn/select";
 import { Switch } from "@/components/shadcn/switch";
 import type { LookupMemberId } from "@/lib/domain/lookupIds";
-import { type LookupRead, questionChoiceReadIssue, readColumnId } from "@/lib/domain/lookupRead";
+import {
+	type LookupRead,
+	questionChoiceReadIssue,
+	readColumnId,
+} from "@/lib/domain/lookupRead";
 import type { EditorLookupTableDecl } from "./lookupTablePresentation";
 import { BlurCommitTextInput } from "./primitives/BlurCommitTextInput";
 
@@ -21,7 +25,7 @@ interface Props {
 	value?: LookupRead;
 	onChange: (read: LookupRead) => void;
 	disabled?: boolean;
-	questionChoice?:boolean;
+	questionChoice?: boolean;
 	defaultChoice?: { label: string; select: () => void };
 }
 export function LookupValuePicker({
@@ -46,7 +50,7 @@ export function LookupValuePicker({
 				? { columnId: column.id, occurrence: 1 }
 				: column.id,
 		});
-		for (const member of questionChoice ? [] : column.properties ?? [])
+		for (const member of questionChoice ? [] : (column.properties ?? []))
 			options.push({
 				key: member.id,
 				label: `${column.label} · ${member.label}`,
@@ -76,14 +80,17 @@ export function LookupValuePicker({
 			: undefined;
 	const setDetails = (next: {
 		occurrence?: number;
-		positionBeforeFilter?:true;
+		positionBeforeFilter?: true;
 		where?: { propertyId: LookupMemberId; equals: string };
 	}) => {
 		if (!column) return;
 		const part = { ...detail, ...next, columnId: column.id };
 		if (!part.occurrence || !part.where) delete part.positionBeforeFilter;
-		const issue=questionChoice && questionChoiceReadIssue(part);
-		if(issue) { setError(issue); return; }
+		const issue = questionChoice && questionChoiceReadIssue(part);
+		if (issue) {
+			setError(issue);
+			return;
+		}
 		setError("");
 		onChange(
 			part.occurrence === undefined &&
@@ -204,8 +211,19 @@ export function LookupValuePicker({
 					)}
 					{detail?.where && detail.occurrence !== undefined && (
 						<div className="flex items-center gap-2">
-							<Switch id={orderingId} checked={!!detail.positionBeforeFilter} onCheckedChange={checked => setDetails({positionBeforeFilter:checked ? true : undefined})} disabled={disabled}/>
-							<Label htmlFor={orderingId}>Choose the position before matching the detail</Label>
+							<Switch
+								id={orderingId}
+								checked={!!detail.positionBeforeFilter}
+								onCheckedChange={(checked) =>
+									setDetails({
+										positionBeforeFilter: checked ? true : undefined,
+									})
+								}
+								disabled={disabled}
+							/>
+							<Label htmlFor={orderingId}>
+								Choose the position before matching the detail
+							</Label>
 						</div>
 					)}
 					{error && (

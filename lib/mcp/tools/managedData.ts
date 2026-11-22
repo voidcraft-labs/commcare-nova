@@ -249,7 +249,14 @@ export function registerRefreshManagedData(
 				);
 				return jsonResult(
 					checked.ok
-						? { ok: true, inspection: {rows:checked.worker.rows.length,observedAt:checked.worker.observedAt,indexedFields:checked.worker.indexedFields} }
+						? {
+								ok: true,
+								inspection: {
+									rows: checked.worker.rows.length,
+									observedAt: checked.worker.observedAt,
+									indexedFields: checked.worker.indexedFields,
+								},
+							}
 						: checked,
 				);
 			} catch (error) {
@@ -370,7 +377,13 @@ export function registerSetLookupTableManagement(
 			description:
 				'Change who manages a lookup table that came from CommCare HQ. Without `review_digest` this changes nothing: it returns what the change does, the apps that read the table and a `review_digest`. Show the user that answer and ask. Only after they agree, send the same call again with that `review_digest`. The change is made only while the table and the apps that read it are still what that answer showed; otherwise nothing changes, the answer\'s `reason` is `review-moved`, and it holds the change as it stands now with a new `review_digest`: show it and ask again. `managed_by: "nova"` means the table is edited in Nova from then on and each publish replaces it in CommCare HQ, and a later change there stops the next publish. `managed_by: "commcare-hq"` hands it back: Nova takes CommCare HQ\'s columns and rows and stops changing the table there. Never decide this for the user.',
 			inputSchema: z.strictObject({
-   current_workbook_base64:z.string().max(Math.ceil(sourceWorkbookBytes/3)*4).optional().describe("For a confirmed transfer of an assigned table, attach the current selected-table workbook downloaded from its source project space for this transfer."),
+				current_workbook_base64: z
+					.string()
+					.max(Math.ceil(sourceWorkbookBytes / 3) * 4)
+					.optional()
+					.describe(
+						"For a confirmed transfer of an assigned table, attach the current selected-table workbook downloaded from its source project space for this transfer.",
+					),
 				project_id: projectIdSchema,
 				table_id: tableIdSchema,
 				managed_by: z
@@ -402,19 +415,27 @@ export function registerSetLookupTableManagement(
 					);
 				}
 				if (args.review_digest !== undefined) {
-					let workbook:Buffer|undefined;
-          if(args.current_workbook_base64!==undefined){
-            workbook=Buffer.from(args.current_workbook_base64,"base64");
-            if(args.managed_by!=="nova"||!workbook.length||workbook.length>sourceWorkbookBytes||workbook.toString("base64")!==args.current_workbook_base64)throw new McpInvalidInputError("You can attach the current selected-table workbook with a confirmed transfer to Nova.");
-          }
-          const outcome =
+					let workbook: Buffer | undefined;
+					if (args.current_workbook_base64 !== undefined) {
+						workbook = Buffer.from(args.current_workbook_base64, "base64");
+						if (
+							args.managed_by !== "nova" ||
+							!workbook.length ||
+							workbook.length > sourceWorkbookBytes ||
+							workbook.toString("base64") !== args.current_workbook_base64
+						)
+							throw new McpInvalidInputError(
+								"You can attach the current selected-table workbook with a confirmed transfer to Nova.",
+							);
+					}
+					const outcome =
 						args.managed_by === "nova"
 							? await manageLookupTableInNova(
 									scope,
 									tableId,
 									args.review_digest,
 									ctx.grant,
-                    ...(workbook?[workbook]:[]),
+									...(workbook ? [workbook] : []),
 								)
 							: await letHqManageLookupTable(
 									scope,

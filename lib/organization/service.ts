@@ -151,7 +151,9 @@ async function readOrganizationInTransaction(
 			// revision 0 is the honest answer rather than an error.
 			revision:
 				state === undefined ? "0" : parseOrganizationRevision(state.revision),
-			locations: locations.map(includeSource ? toStoredLocation : toPublicLocation),
+			locations: locations.map(
+				includeSource ? toStoredLocation : toPublicLocation,
+			),
 			// The origin columns are all set or all null (a CHECK holds them
 			// whole), so `hq_server` alone decides.
 			...(state === undefined ||
@@ -178,10 +180,12 @@ async function readOrganizationInTransaction(
 
 export async function readOrganization(
 	scope: OrganizationScope,
-	options?: {includeSource: true},
+	options?: { includeSource: true },
 ): Promise<OrganizationSnapshot> {
 	return withAppTx(
-		async (tx) => (await readOrganizationInTransaction(tx, scope, options?.includeSource)).snapshot,
+		async (tx) =>
+			(await readOrganizationInTransaction(tx, scope, options?.includeSource))
+				.snapshot,
 		{ isolationLevel: "repeatable read" },
 	);
 }

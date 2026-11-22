@@ -182,16 +182,30 @@ export function readPlaceState(scope: OrganizationScope) {
 
 /** Name resolution on the SA and MCP auth scope. Return all exact matches so
  * duplicate display names can never silently resolve to an arbitrary place. */
-export function readPlaceNames(scope: OrganizationScope, names:readonly string[]) {
-	return withAppTx(async tx=>{
-		await stateFor(tx,scope);
-		const valid = [...new Set(names)].filter(name=>name.isWellFormed() && !name.includes("\0"));
-		const ids = valid.filter(key => uuidSchema.safeParse(key).success);
-		return (await sql<{uuid: import("@/lib/domain").Uuid; name:string; siteCode:string}>`
+export function readPlaceNames(
+	scope: OrganizationScope,
+	names: readonly string[],
+) {
+	return withAppTx(
+		async (tx) => {
+			await stateFor(tx, scope);
+			const valid = [...new Set(names)].filter(
+				(name) => name.isWellFormed() && !name.includes("\0"),
+			);
+			const ids = valid.filter((key) => uuidSchema.safeParse(key).success);
+			return (
+				await sql<{
+					uuid: import("@/lib/domain").Uuid;
+					name: string;
+					siteCode: string;
+				}>`
 			SELECT id AS uuid, name, site_code AS "siteCode" FROM app_locations
 			WHERE app_id=${scope.appId} AND (id=ANY(${ids}::uuid[]) OR name=ANY(${valid}::text[]) OR site_code=ANY(${valid}::text[]))
-		`.execute(tx)).rows;
-	},{isolationLevel:"repeatable read"});
+		`.execute(tx)
+			).rows;
+		},
+		{ isolationLevel: "repeatable read" },
+	);
 }
 
 function decodeCursor(token: string) {

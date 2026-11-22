@@ -14,6 +14,10 @@
 
 import { hqNestedSelectionFindings } from "@/lib/commcare/hqNestedSelection";
 import {
+	alternativeLookupCarrier,
+	describeLookupCarrierAlternative,
+} from "@/lib/commcare/lookup/carrier";
+import {
 	buildLookupFixtures,
 	type CompiledLookupFixtureSet,
 	lookupFixtureBudgetExcess,
@@ -31,6 +35,11 @@ import {
 	MAX_HQ_FIXTURE_WORKBOOK_ROWS,
 	TYPES_SHEET,
 } from "@/lib/commcare/lookup/workbook";
+import {
+	type LookupWorkbookOwners,
+	lookupWorkbookShape,
+	observeLookupWorkbookRow,
+} from "@/lib/commcare/lookup/workbookRows";
 import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
 import {
 	type ValidationError,
@@ -38,15 +47,6 @@ import {
 } from "@/lib/commcare/validator/errors";
 import type { BlueprintDoc } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
-import {
-	type LookupWorkbookOwners,
-	lookupWorkbookShape,
-	observeLookupWorkbookRow,
-} from "@/lib/commcare/lookup/workbookRows";
-import {
-	alternativeLookupCarrier,
-	describeLookupCarrierAlternative,
-} from "@/lib/commcare/lookup/carrier";
 import { requiresLookupProjection } from "@/lib/lookup/source";
 import type {
 	LookupFixtureDataSnapshot,

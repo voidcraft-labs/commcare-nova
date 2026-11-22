@@ -310,8 +310,10 @@ describe("a form slot's text read through the reading hook", () => {
 				]),
 			}),
 		);
-		expect(held(judgment)).toMatchObject({kind:"gt",left:{kind:"count",via:{kind:"worker-groups",where:[]}}});
-
+		expect(held(judgment)).toMatchObject({
+			kind: "gt",
+			left: { kind: "count", via: { kind: "worker-groups", where: [] } },
+		});
 	});
 
 	it("reads what Core's own spelling of normalize-space prints back", () => {

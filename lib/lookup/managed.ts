@@ -37,7 +37,6 @@ import {
 	type TransferGenerationEvidence,
 	transferGeneration,
 } from "./generations/transfer";
-import { installSourceAssignments, type SourceRowAssignment } from "./sourceAssignments";
 import { bindManagedMembers } from "./managedMembers";
 import {
 	columnLabelFor,
@@ -58,6 +57,10 @@ import {
 	parseLookupRevision,
 	storedLookupRowValuesSchema,
 } from "./schema";
+import {
+	installSourceAssignments,
+	type SourceRowAssignment,
+} from "./sourceAssignments";
 import type {
 	LookupAuthoringBatchReceipt,
 	LookupColumn,
@@ -940,8 +943,10 @@ export async function refreshManagedLookupTableInTransaction(
 		if (publishing !== null) {
 			throw new LookupError("conflict", handBackWhilePublishing(publishing));
 		}
-    // A renewed takeover must reconstruct access from its own current source.
-    await sql`DELETE FROM lookup_row_assignments WHERE project_id=${scope.projectId} AND table_id=${tableId}`.execute(tx);
+		// A renewed takeover must reconstruct access from its own current source.
+		await sql`DELETE FROM lookup_row_assignments WHERE project_id=${scope.projectId} AND table_id=${tableId}`.execute(
+			tx,
+		);
 	}
 	if (input.olderReadYields) {
 		if (table.hq_taken_over_at !== null && table.hq_taken_over_at > at) {
@@ -1536,8 +1541,8 @@ export async function refreshManagedLookupTableInTransaction(
 			? {
 					hq_brought_in_at: table.hq_brought_in_at ?? at,
 					hq_brought_in_by: table.hq_brought_in_by ?? scope.actorId,
-					worker_access:"all" as const,
-          hq_taken_over_at: null,
+					worker_access: "all" as const,
+					hq_taken_over_at: null,
 					hq_taken_over_by: null,
 				}
 			: {}),
@@ -1746,7 +1751,11 @@ export async function takeOverManagedLookupTableInTransaction(
 		)
 			throw new LookupReviewMovedError();
 		const verify = async () => {
-			const current = await transferGeneration(tx, access, observed.assignments?"assigned":"global");
+			const current = await transferGeneration(
+				tx,
+				access,
+				observed.assignments ? "assigned" : "global",
+			);
 			if (!deepEqual(current.evidence, evidence))
 				throw new LookupReviewMovedError();
 		};
@@ -1773,7 +1782,13 @@ export async function takeOverManagedLookupTableInTransaction(
 			tx,
 		);
 	}
-	if (observed?.assignments) await installSourceAssignments(tx,scope.projectId,tableId,observed.assignments);
+	if (observed?.assignments)
+		await installSourceAssignments(
+			tx,
+			scope.projectId,
+			tableId,
+			observed.assignments,
+		);
 	const projectRevision = await advanceLookupProjectRevision(
 		tx,
 		scope.projectId,
@@ -1781,13 +1796,15 @@ export async function takeOverManagedLookupTableInTransaction(
 	const updated = await updateLockedLookupTable(tx, scope.projectId, tableId, {
 		...(observed
 			? {
-          worker_access:observed.assignments?"assigned" as const:"all" as const,
+					worker_access: observed.assignments
+						? ("assigned" as const)
+						: ("all" as const),
 					hq_canonical: JSON.stringify({
 						...original,
 						source: {
 							inventory: "complete",
-							distribution: observed.assignments?"assigned":"global",
-							indexEvidence: observed.assignments?"workbook":"restore",
+							distribution: observed.assignments ? "assigned" : "global",
+							indexEvidence: observed.assignments ? "workbook" : "restore",
 						},
 					}),
 				}

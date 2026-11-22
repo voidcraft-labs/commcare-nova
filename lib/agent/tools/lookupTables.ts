@@ -1,4 +1,3 @@
-import {assignmentDirectorySchema,rowAssigneesSchema} from "@/lib/lookup/assignmentVocabulary";
 import { z } from "zod";
 import {
 	lookupColumnIdSchema,
@@ -10,10 +9,14 @@ import {
 	applyAuthorizedLookupAuthoringBatch,
 	editAuthorizedLookupValue,
 	readAuthorizedLookupRowsPage,
-	readAuthorizedRowAssignments,
 	readAuthorizedLookupValue,
+	readAuthorizedRowAssignments,
 	readAuthorizedTableReaders,
 } from "@/lib/lookup/agentService";
+import {
+	assignmentDirectorySchema,
+	rowAssigneesSchema,
+} from "@/lib/lookup/assignmentVocabulary";
 import { LookupError } from "@/lib/lookup/errors";
 import {
 	lookupValueEditRequestSchema,
@@ -179,7 +182,12 @@ export const getLookupTableRowsInputSchema = z
 				"For a schema change, read the apps using this table. Start at offset 0 and continue with nextReaderPage until complete.",
 			),
 		tableId: lookupTableIdSchema,
-		assignments:z.strictObject({rowId:lookupRowIdSchema,search:assignmentDirectorySchema}).optional(),
+		assignments: z
+			.strictObject({
+				rowId: lookupRowIdSchema,
+				search: assignmentDirectorySchema,
+			})
+			.optional(),
 		rowId: lookupRowIdSchema
 			.optional()
 			.describe("Open one row by stable ID, including its later pages."),
@@ -212,7 +220,17 @@ export const getLookupTableRowsTool = {
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
-			if(input.assignments)return {kind:"read",data:await readAuthorizedRowAssignments(lookupAgentScope(ctx),input.tableId,input.assignments.rowId,input.assignments.search,ctx.dataGrant)};
+			if (input.assignments)
+				return {
+					kind: "read",
+					data: await readAuthorizedRowAssignments(
+						lookupAgentScope(ctx),
+						input.tableId,
+						input.assignments.rowId,
+						input.assignments.search,
+						ctx.dataGrant,
+					),
+				};
 			if (input.valueSlice)
 				return {
 					kind: "read",
@@ -509,7 +527,11 @@ const toolPatchSchema = z.union([
 ]);
 
 const rowOperationSchema = z.discriminatedUnion("kind", [
-	z.strictObject({kind:z.literal("assign"),rowId:lookupRowIdSchema,assignments:rowAssigneesSchema}),
+	z.strictObject({
+		kind: z.literal("assign"),
+		rowId: lookupRowIdSchema,
+		assignments: rowAssigneesSchema,
+	}),
 	z.strictObject({
 		kind: z.literal("patch"),
 		rowId: lookupRowIdSchema,
@@ -517,7 +539,7 @@ const rowOperationSchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({
 		kind: z.literal("add"),
-		assignments:rowAssigneesSchema.optional(),
+		assignments: rowAssigneesSchema.optional(),
 		cells: z.array(existingCellSchema).max(250),
 		content: rowContentSchema.optional(),
 		afterRowId: lookupRowIdSchema.nullable().optional(),
@@ -540,8 +562,8 @@ export const editLookupRowsToolInputSchema = z
 	.strictObject({
 		tableId: lookupTableIdSchema,
 		expectedTableRevision: lookupRevisionSchema,
-		workerAccess:z.enum(["all","assigned"]).optional(),
-		reviewed:lookupReaderReviewSchema.optional(),
+		workerAccess: z.enum(["all", "assigned"]).optional(),
+		reviewed: lookupReaderReviewSchema.optional(),
 		operations: z.array(rowOperationSchema).max(5000).optional(),
 		valueEdit: lookupValueEditRequestSchema.optional(),
 	})
@@ -603,7 +625,11 @@ export const editLookupRowsTool = {
 		});
 		if (overflow !== null) return { kind: "read", data: overflow };
 		const rowOperations = operations.map((operation, operationIndex) => {
-			if (operation.kind === "move" || operation.kind === "remove" || operation.kind==="assign")
+			if (
+				operation.kind === "move" ||
+				operation.kind === "remove" ||
+				operation.kind === "assign"
+			)
 				return operation;
 			if (operation.kind === "patch")
 				return {
@@ -638,7 +664,8 @@ export const editLookupRowsTool = {
 				{
 					tableId: input.tableId,
 					expectedTableRevision: input.expectedTableRevision,
-					workerAccess:input.workerAccess,reviewed:input.reviewed,
+					workerAccess: input.workerAccess,
+					reviewed: input.reviewed,
 					rowOperations,
 				},
 			],

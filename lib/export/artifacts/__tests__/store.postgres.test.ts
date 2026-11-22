@@ -5,8 +5,8 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { withAppTx } from "@/lib/db/pg";
 import {
 	connect,
-	withManagedPeer,
 	serveTableList,
+	withManagedPeer,
 } from "@/lib/deployment/__tests__/managedFixtures";
 import {
 	installLookupWitness,

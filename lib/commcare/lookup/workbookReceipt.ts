@@ -3,7 +3,7 @@ import type {
 	LookupFixtureRow,
 } from "@/lib/lookup/types";
 import type { HqFixtureRow } from "../hq/lookupTables";
-import { lookupWireNaming, type LookupTableWireNaming } from "./naming";
+import { type LookupTableWireNaming, lookupWireNaming } from "./naming";
 import { workerFixtureRow } from "./row";
 import { streamingLookupRowsDigest } from "./rowsDigest";
 

@@ -36,7 +36,15 @@ export function toStoredLocation(
 
 /** Public organization data contains the worker's modeled values. The exact
  * API observation belongs solely to a managed transfer. */
-export function toPublicLocation(row: Selectable<AppLocationsTable>): StoredLocation {
-	const {source, ...place} = toStoredLocation(row);
-	return source ? {...place, latitude:source.latitudeText, longitude:source.longitudeText} : place;
+export function toPublicLocation(
+	row: Selectable<AppLocationsTable>,
+): StoredLocation {
+	const { source, ...place } = toStoredLocation(row);
+	return source
+		? {
+				...place,
+				latitude: source.latitudeText,
+				longitude: source.longitudeText,
+			}
+		: place;
 }

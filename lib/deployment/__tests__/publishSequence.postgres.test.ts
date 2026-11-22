@@ -15,7 +15,6 @@
  * 500 is a bare status.
  */
 
-import {servePlaceInventory} from "./placeInventoryPeer";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
@@ -115,6 +114,7 @@ import {
 	readTargetIdentity,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
+import { servePlaceInventory } from "./placeInventoryPeer";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 import { stopHere } from "./stopHere";
 
@@ -429,7 +429,12 @@ function tableRows(peer: MockAgent) {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	servePlaceInventory(peer, "clinic", withNorth ? [remotePlace] : [], remoteLevels);
+	servePlaceInventory(
+		peer,
+		"clinic",
+		withNorth ? [remotePlace] : [],
+		remoteLevels,
+	);
 }
 /** The inventory read after the last batch, which reads the pushed place back. */
 function placesReadBack(peer: MockAgent) {
@@ -980,9 +985,14 @@ describe("a stop at a table or place push", () => {
 				if (places) {
 					// Identical places are never patched. Make this a real
 					// authored edit before exercising HQ's write refusal.
-					const location = await h.db().selectFrom("app_locations").select("id").where("app_id", "=", APP)
-						.where("site_code","=","north").executeTakeFirstOrThrow();
-					await updateLocation(SCOPE, location.id, {name:"North region"});
+					const location = await h
+						.db()
+						.selectFrom("app_locations")
+						.select("id")
+						.where("app_id", "=", APP)
+						.where("site_code", "=", "north")
+						.executeTakeFirstOrThrow();
+					await updateLocation(SCOPE, location.id, { name: "North region" });
 				}
 				preflight(peer, true);
 				serve(peer, SOURCE, "source-live");

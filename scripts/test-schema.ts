@@ -1,5 +1,8 @@
-import {getWorkerGroupsTool,editWorkerGroupTool} from "../lib/agent/tools/workerGroups";
 import { readSourceTool } from "../lib/agent/tools/media/readSource";
+import {
+	editWorkerGroupTool,
+	getWorkerGroupsTool,
+} from "../lib/agent/tools/workerGroups";
 /**
  * Verifies that the SA's tool input schemas are accepted by the OpenAI
  * API — i.e. the model makes a tool call against each schema without the
@@ -118,10 +121,10 @@ import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "../lib/agent/tools/moveField";
 import {
 	addOrganizationLevelsTool,
-	updateOrganizationLevelTool,
 	createLocationTool,
 	getOrganizationTool,
 	updateLocationTool,
+	updateOrganizationLevelTool,
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
 import { setFieldOptionsSourceTool } from "../lib/agent/tools/setFieldOptionsSource";
@@ -523,7 +526,8 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		name: "updateOrganizationLevel",
 		description: updateOrganizationLevelTool.description,
 		schema: updateOrganizationLevelTool.inputSchema,
-		prompt: "Use updateOrganizationLevel to change stock tracking at the clinic level.",
+		prompt:
+			"Use updateOrganizationLevel to change stock tracking at the clinic level.",
 	},
 	{
 		name: "getOrganization",
@@ -559,8 +563,19 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		prompt:
 			'Use editLookupColumns for tableId 11111111-1111-4111-8111-111111111111 at expectedTableRevision "4" with one add operation: key district and column {wireName: "district", label: "District", dataType: "text"}.',
 	},
-	{name:"getWorkerGroups",description:getWorkerGroupsTool.description,schema:getWorkerGroupsTool.inputSchema,prompt:"Find groups named North with getWorkerGroups."},
-	{name:"editWorkerGroup",description:editWorkerGroupTool.description,schema:editWorkerGroupTool.inputSchema,prompt:'Create a worker group named North with no details that shares cases at Project revision "3". Use operationId 11111111-1111-4111-8111-111111111111.'},
+	{
+		name: "getWorkerGroups",
+		description: getWorkerGroupsTool.description,
+		schema: getWorkerGroupsTool.inputSchema,
+		prompt: "Find groups named North with getWorkerGroups.",
+	},
+	{
+		name: "editWorkerGroup",
+		description: editWorkerGroupTool.description,
+		schema: editWorkerGroupTool.inputSchema,
+		prompt:
+			'Create a worker group named North with no details that shares cases at Project revision "3". Use operationId 11111111-1111-4111-8111-111111111111.',
+	},
 	{
 		name: "editLookupRows",
 		description: editLookupRowsTool.description,

@@ -1,6 +1,7 @@
 "use server";
 
 import { type ZodError, type ZodType, z } from "zod";
+import { lockProjectDataGrant } from "@/lib/auth/dataGrant";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
@@ -10,17 +11,22 @@ import {
 } from "@/lib/db/lookupReferenceEdges";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
 import {
+	bindWorkerGroupTarget,
+	readGroupTarget,
+} from "@/lib/deployment/workerGroupBinding";
+import {
 	lookupColumnIdSchema,
 	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { log } from "@/lib/logger";
-import {bindWorkerGroupTarget,readGroupTarget} from "@/lib/deployment/workerGroupBinding";
-import {readGroupDirectory,editWorkerGroup} from "./workerGroups";
-import {workerDirectoryReadSchema,workerGroupEditSchema,assignmentDirectorySchema,rowAssigneesSchema} from "./assignmentVocabulary";
-import {readRowAssignments,searchAssignmentDirectory} from "./rowAssignments";
-import {lockProjectDataGrant} from "@/lib/auth/dataGrant";
+import {
+	assignmentDirectorySchema,
+	rowAssigneesSchema,
+	workerDirectoryReadSchema,
+	workerGroupEditSchema,
+} from "./assignmentVocabulary";
 import { applyLookupAuthoringBatchInTransaction } from "./authoringBatch";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError, lookupFailure } from "./errors";
@@ -30,6 +36,10 @@ import {
 	STRUCTURED_ROW_IMPORT_MAX_BYTES,
 } from "./namedRowInput";
 import { lookupEditOnce } from "./operationReceipt";
+import {
+	readRowAssignments,
+	searchAssignmentDirectory,
+} from "./rowAssignments";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
@@ -89,6 +99,7 @@ import type {
 	LookupScope,
 	LookupTableSnapshot,
 } from "./types";
+import { editWorkerGroup, readGroupDirectory } from "./workerGroups";
 import {
 	authorizeLookupWriteInTransaction,
 	lockLookupProjectState,
@@ -144,7 +155,11 @@ async function runLookupAction<Value, Input>(
 	input: unknown,
 	inputSchema: ZodType<Input>,
 	capability: AppCapability,
-	operation: (scope: LookupScope, input: Input, sessionId:string) => Promise<Value>,
+	operation: (
+		scope: LookupScope,
+		input: Input,
+		sessionId: string,
+	) => Promise<Value>,
 ): Promise<LookupResult<Value>> {
 	try {
 		const session = await getSession();
@@ -176,7 +191,7 @@ async function runLookupAction<Value, Input>(
 		};
 		return {
 			success: true,
-			value: await operation(scope, inputResult.data,session.session.id),
+			value: await operation(scope, inputResult.data, session.session.id),
 		};
 	} catch (error) {
 		if (error instanceof AppAccessError) {
@@ -796,43 +811,156 @@ export async function retypeLookupColumnAction(
 	);
 }
 
+export async function readRowAssignmentsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		z.strictObject({
+			tableId: lookupTableIdSchema,
+			rowId: lookupRowIdSchema,
+			search: assignmentDirectorySchema,
+		}),
+		"edit",
+		async (scope, request, sessionId) =>
+			withAppTx(
+				async (tx) => {
+					await authorizeLookupWriteInTransaction(tx, scope, "edit");
+					await lockProjectDataGrant(
+						tx,
+						scope.actorId,
+						{ kind: "session", sessionId },
+						[],
+					);
+					return {
+						selected: await readRowAssignments(
+							tx,
+							scope.projectId,
+							request.tableId,
+							request.rowId,
+						),
+						...(await searchAssignmentDirectory(
+							tx,
+							scope.projectId,
+							request.search,
+						)),
+					};
+				},
+				{ isolationLevel: "repeatable read" },
+			),
+	);
+}
+export async function updateRowAssignmentsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		z
+			.strictObject({
+				operationId: z.uuid(),
+				tableId: lookupTableIdSchema,
+				rowId: lookupRowIdSchema.optional(),
+				expectedTableRevision: lookupRevisionSchema,
+				reviewed: lookupReaderReviewSchema.optional(),
+				workerAccess: z.enum(["all", "assigned"]).optional(),
+				assignments: rowAssigneesSchema.optional(),
+			})
+			.refine(
+				(x) =>
+					!!x.workerAccess ||
+					(x.rowId !== undefined && x.assignments !== undefined),
+			)
+			.refine((x) => x.assignments === undefined || x.rowId !== undefined),
+		"edit",
+		async (scope, request, sessionId) =>
+			withAppTx(async (tx) => {
+				const auth = await authorizeLookupWriteInTransaction(tx, scope, "edit");
+				await lockProjectDataGrant(
+					tx,
+					scope.actorId,
+					{ kind: "session", sessionId },
+					[],
+				);
+				return applyLookupAuthoringBatchInTransaction(tx, auth, {
+					operationId: request.operationId,
+					updateTables: [
+						{
+							tableId: request.tableId,
+							expectedTableRevision: request.expectedTableRevision,
+							reviewed: request.reviewed,
+							workerAccess: request.workerAccess,
+							rowOperations:
+								request.assignments && request.rowId
+									? [
+											{
+												kind: "assign",
+												rowId: request.rowId,
+												assignments: request.assignments,
+											},
+										]
+									: [],
+						},
+					],
+				});
+			}),
+	);
+}
 
-export async function readRowAssignmentsAction(projectId:unknown,input:unknown){
-	return runLookupAction(projectId,input,z.strictObject({tableId:lookupTableIdSchema,rowId:lookupRowIdSchema,search:assignmentDirectorySchema}),"edit",async(scope,request,sessionId)=>withAppTx(async tx=>{
-		await authorizeLookupWriteInTransaction(tx,scope,"edit");
-		await lockProjectDataGrant(tx,scope.actorId,{kind:"session",sessionId},[]);
-		return {selected:await readRowAssignments(tx,scope.projectId,request.tableId,request.rowId),...await searchAssignmentDirectory(tx,scope.projectId,request.search)};
-	},{isolationLevel:"repeatable read"}));
+export async function readWorkerGroupsAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		workerDirectoryReadSchema,
+		"edit",
+		async (scope, request, sessionId) => {
+			const grant = { kind: "session" as const, sessionId };
+			const target = request.target
+				? await readGroupTarget({ scope, grant }, request.target)
+				: undefined;
+			const directory = await withAppTx(
+				async (tx) => {
+					await authorizeLookupWriteInTransaction(tx, scope, "edit");
+					await lockProjectDataGrant(tx, scope.actorId, grant, []);
+					return readGroupDirectory(tx, scope.projectId, request);
+				},
+				{ isolationLevel: "repeatable read" },
+			);
+			return { ...directory, target };
+		},
+	);
 }
-export async function updateRowAssignmentsAction(projectId:unknown,input:unknown){
-	return runLookupAction(projectId,input,z.strictObject({operationId:z.uuid(),tableId:lookupTableIdSchema,rowId:lookupRowIdSchema.optional(),expectedTableRevision:lookupRevisionSchema,reviewed:lookupReaderReviewSchema.optional(),workerAccess:z.enum(["all","assigned"]).optional(),assignments:rowAssigneesSchema.optional()}).refine(x=>!!x.workerAccess || (x.rowId!==undefined&&x.assignments!==undefined)).refine(x=>x.assignments===undefined||x.rowId!==undefined),"edit",async(scope,request,sessionId)=>withAppTx(async tx=>{
-		const auth=await authorizeLookupWriteInTransaction(tx,scope,"edit");
-		await lockProjectDataGrant(tx,scope.actorId,{kind:"session",sessionId},[]);
-		return applyLookupAuthoringBatchInTransaction(tx,auth,{operationId:request.operationId,updateTables:[{tableId:request.tableId,expectedTableRevision:request.expectedTableRevision,reviewed:request.reviewed,workerAccess:request.workerAccess,rowOperations:request.assignments && request.rowId?[{kind:"assign",rowId:request.rowId,assignments:request.assignments}]:[]}]});
-	}));
+export async function editWorkerGroupAction(
+	projectId: unknown,
+	input: unknown,
+) {
+	return runLookupAction(
+		projectId,
+		input,
+		workerGroupEditSchema,
+		"edit",
+		async (scope, request, sessionId) => {
+			const grant = { kind: "session" as const, sessionId };
+			if (request.change.kind === "connect")
+				return bindWorkerGroupTarget(
+					{ scope, grant },
+					{
+						...request.change,
+						operationId: request.operationId,
+						expectedProjectRevision: request.expectedProjectRevision,
+					},
+				);
+			return withAppTx(async (tx) => {
+				const auth = await authorizeLookupWriteInTransaction(tx, scope, "edit");
+				await lockProjectDataGrant(tx, scope.actorId, grant, []);
+				return editWorkerGroup(tx, auth, request);
+			});
+		},
+	);
 }
-
-export async function readWorkerGroupsAction(projectId:unknown,input:unknown){
- return runLookupAction(projectId,input,workerDirectoryReadSchema,"edit",async(scope,request,sessionId)=>{
-  const grant={kind:"session" as const,sessionId};
-  const target=request.target?await readGroupTarget({scope,grant},request.target):undefined;
-  const directory=await withAppTx(async tx=>{
-    await authorizeLookupWriteInTransaction(tx,scope,"edit");
-    await lockProjectDataGrant(tx,scope.actorId,grant,[]);
-    return readGroupDirectory(tx,scope.projectId,request);
-  },{isolationLevel:"repeatable read"});
-  return {...directory,target};
- });
-}
-export async function editWorkerGroupAction(projectId:unknown,input:unknown){
- return runLookupAction(projectId,input,workerGroupEditSchema,"edit",async(scope,request,sessionId)=>{
-  const grant={kind:"session" as const,sessionId};
-  if(request.change.kind==="connect")return bindWorkerGroupTarget({scope,grant},{...request.change,operationId:request.operationId,expectedProjectRevision:request.expectedProjectRevision});
-  return withAppTx(async tx=>{
-   const auth=await authorizeLookupWriteInTransaction(tx,scope,"edit");
-   await lockProjectDataGrant(tx,scope.actorId,grant,[]);
-   return editWorkerGroup(tx,auth,request);
-  });
- });
-}
-

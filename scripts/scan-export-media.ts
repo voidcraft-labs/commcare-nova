@@ -3,8 +3,8 @@
 import "./lib/loadEnv";
 import { Command } from "commander";
 import { sql } from "kysely";
-import { getAppDb } from "@/lib/db/pg";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import { getAppDb } from "@/lib/db/pg";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 

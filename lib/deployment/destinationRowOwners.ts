@@ -92,8 +92,7 @@ async function readOwnerState(
 		.forShare()
 		.executeTakeFirst();
 	if (
-		!table ||
-		table.worker_access !== "assigned" ||
+		table?.worker_access !== "assigned" ||
 		(table.hq_server && !table.hq_taken_over_at)
 	)
 		return missing();

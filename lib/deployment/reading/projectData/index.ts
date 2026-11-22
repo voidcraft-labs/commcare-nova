@@ -66,14 +66,14 @@ import {
 	boundSourceFixture,
 	type HqLookupTableRead,
 	type LookupTableBinding,
-	lookupBindingNames,
 	type LookupTableStanding,
+	lookupBindingNames,
 	lookupFixtureBudgetFinding,
 	lookupSourceFieldDetails,
 	lookupTableFindings,
 	lookupTableStanding,
-	needsWorkerRows,
 	managedLookupContentOf,
+	needsWorkerRows,
 	provisionalLookupBinding,
 	readerLookupCatalog,
 	readingLookupSnapshot,
@@ -564,18 +564,25 @@ export function projectDataReadsOf(
 		const binding = bindingOf(tableId);
 		if (!fields.has(binding.tag)) fields.set(binding.tag, new Set());
 	}
-	const idsByTable = new Map<LookupTableId,Set<string>>();
-	for (const target of [...targets.columnTargets,...(targets.memberTargets ?? [])]) {
-		const ids=idsByTable.get(target.tableId) ?? new Set<string>();
+	const idsByTable = new Map<LookupTableId, Set<string>>();
+	for (const target of [
+		...targets.columnTargets,
+		...(targets.memberTargets ?? []),
+	]) {
+		const ids = idsByTable.get(target.tableId) ?? new Set<string>();
 		ids.add("memberId" in target ? target.memberId : target.columnId);
-		idsByTable.set(target.tableId,ids);
+		idsByTable.set(target.tableId, ids);
 	}
-	for (const [tableId,ids] of idsByTable) {
+	for (const [tableId, ids] of idsByTable) {
 		const binding = bindingOf(tableId);
-		const set=fields.get(binding.tag) ?? new Set<string>();
-		for(const [name,id] of lookupBindingNames(binding)) if(ids.delete(id)) set.add(name);
-		if(ids.size) throw new Error("The app reads a data table member that its source binding does not name.");
-		fields.set(binding.tag,set);
+		const set = fields.get(binding.tag) ?? new Set<string>();
+		for (const [name, id] of lookupBindingNames(binding))
+			if (ids.delete(id)) set.add(name);
+		if (ids.size)
+			throw new Error(
+				"The app reads a data table member that its source binding does not name.",
+			);
+		fields.set(binding.tag, set);
 	}
 
 	return {
@@ -711,7 +718,13 @@ export function readingProjectDataFindingsFor(
 
 	if (reads.readsPlaces) {
 		if (data.gathered.inconsistent) {
-			findings.push(circumstanceFinding("place-hierarchy-inconsistent", {kind:"organization"}, {}));
+			findings.push(
+				circumstanceFinding(
+					"place-hierarchy-inconsistent",
+					{ kind: "organization" },
+					{},
+				),
+			);
 		} else {
 			const levels = levelsFromHq(
 				data.gathered.hqLevels,

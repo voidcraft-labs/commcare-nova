@@ -50,9 +50,9 @@ import {
 	setLocationArchived,
 	updateLocation,
 } from "../service";
+import { readAppTestPlaces } from "../testProjection";
 import type { OrganizationScope, StoredLocation } from "../types";
 import { readWorkerFixtureRows } from "../workerFootprint";
-import {readAppTestPlaces} from "../testProjection";
 import { readWorkerOwnerPlaces } from "../workerPlaces";
 
 const h = setupAppStateTestDb("organization_managed_", {
@@ -1467,12 +1467,35 @@ it("pages a 10,004-place adoption by revision and reads only the assigned worker
 		locations: { primaryUuid: near.locations[0].id },
 	};
 	const syntheticId = asUuid("aaaaaaaa-1111-4777-8888-111111111111");
-	const simulated = {...persona,locations:{primaryUuid:syntheticId}};
-	const projected = await readAppTestPlaces(scope(),{...managedDoc(),personas:{[PERSONA_ASHA]:simulated}},
-		[{uuid:syntheticId,levelUuid:FACILITY,parentUuid:near.locations[0].id,name:"Test-only clinic"}],[]);
-	expect(projected.locations.map(place=>place.siteCode)).toEqual(["north","riverside"]);
-	expect(projected.locations.every(place=>place.source===undefined)).toBe(true);
-	await expect(readAppTestPlaces(scope(),managedDoc(),[{uuid:root.id,levelUuid:REGION,name:"Overlapping test place"}],[])).rejects.toThrow("distinct identity");
+	const simulated = { ...persona, locations: { primaryUuid: syntheticId } };
+	const projected = await readAppTestPlaces(
+		scope(),
+		{ ...managedDoc(), personas: { [PERSONA_ASHA]: simulated } },
+		[
+			{
+				uuid: syntheticId,
+				levelUuid: FACILITY,
+				parentUuid: near.locations[0].id,
+				name: "Test-only clinic",
+			},
+		],
+		[],
+	);
+	expect(projected.locations.map((place) => place.siteCode)).toEqual([
+		"north",
+		"riverside",
+	]);
+	expect(projected.locations.every((place) => place.source === undefined)).toBe(
+		true,
+	);
+	await expect(
+		readAppTestPlaces(
+			scope(),
+			managedDoc(),
+			[{ uuid: root.id, levelUuid: REGION, name: "Overlapping test place" }],
+			[],
+		),
+	).rejects.toThrow("distinct identity");
 
 	const worker = await withAppTx(async (tx) => ({
 		places: await readWorkerFixtureRows(tx, APP_ID, managedDoc(), persona),

@@ -13,7 +13,7 @@ type NamedRead =
 	| {
 			column: string;
 			occurrence?: number;
-			positionBeforeFilter?:true;
+			positionBeforeFilter?: true;
 			where?: { property: string; equals: string };
 			property?: string;
 	  };
@@ -107,17 +107,18 @@ export function lookupReadSyntax(syntax: FormSyntax): NamedRead | undefined {
 		where = { property: name, equals };
 		node = relative(node.base);
 		if (occurrence === undefined && node.kind === "filter") {
-			const n=ungroup(node.where);
-			if(n.kind !== "number" || !Number.isSafeInteger(n.value) || n.value < 1) return undefined;
-			occurrence=n.value;
-			positionBeforeFilter=true;
-			node=relative(node.base);
+			const n = ungroup(node.where);
+			if (n.kind !== "number" || !Number.isSafeInteger(n.value) || n.value < 1)
+				return undefined;
+			occurrence = n.value;
+			positionBeforeFilter = true;
+			node = relative(node.base);
 		}
 	}
 	if (node.kind !== "name" || node.wildcard) return undefined;
 	return {
 		column: node.name,
-		...(positionBeforeFilter && {positionBeforeFilter}),
+		...(positionBeforeFilter && { positionBeforeFilter }),
 		...(property !== undefined && { property }),
 		...(where && { where }),
 		...(occurrence !== undefined && { occurrence }),
@@ -155,6 +156,6 @@ export function bindLookupRead(
 			}),
 		...(propertyId && { propertyId }),
 		...(read.occurrence !== undefined && { occurrence: read.occurrence }),
-		...(read.positionBeforeFilter && {positionBeforeFilter: true as const}),
+		...(read.positionBeforeFilter && { positionBeforeFilter: true as const }),
 	};
 }

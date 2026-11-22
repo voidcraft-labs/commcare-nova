@@ -221,7 +221,7 @@ const CLAIMS = defineClaims("appShell", {
 		`${A}/attachments-entry-for-a-form-no-longer-in-the-app`,
 		key("_attachments"),
 	),
-	caseSharing:take(`${A}/39-hq-case-sharing`,key("case_sharing")),
+	caseSharing: take(`${A}/39-hq-case-sharing`, key("case_sharing")),
 	cloudcareEnabled: take(
 		`${A}/40-hq-cloudcare-enabled`,
 		key("cloudcare_enabled"),
@@ -1294,8 +1294,15 @@ export function readApplication(ctx: ReadContext): void {
 		});
 	const languages = readLanguages(ctx);
 	const attachments = readAttachments(ctx);
-	const sharing=app.take("case_sharing",CLAIMS.caseSharing,value=>value===true);
-	if(sharing.value)ctx.writeDraft(()=>{ctx.draft.appSettings.caseSharing=true;});
+	const sharing = app.take(
+		"case_sharing",
+		CLAIMS.caseSharing,
+		(value) => value === true,
+	);
+	if (sharing.value)
+		ctx.writeDraft(() => {
+			ctx.draft.appSettings.caseSharing = true;
+		});
 	const cloudcare = app.take(
 		"cloudcare_enabled",
 		CLAIMS.cloudcareEnabled,

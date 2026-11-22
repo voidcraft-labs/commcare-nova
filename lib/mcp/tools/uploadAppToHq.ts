@@ -283,7 +283,7 @@ export const UPLOAD_ERROR_TAGS = {
 	managed_table_handed_back: "managed_table_handed_back",
 	/** The app's organization does not fit the target's levels. */
 	hq_organization_mismatch: "hq_organization_mismatch",
-	hq_place_ids_need_setup:"hq_place_ids_need_setup",
+	hq_place_ids_need_setup: "hq_place_ids_need_setup",
 	/** Required target support is missing or could not be verified. */
 	project_space_incompatible: "project_space_incompatible",
 	/** The current HQ app source could not be read safely for an update. */
@@ -792,7 +792,7 @@ export function registerUploadAppToHq(
 					 * omitted and whitespace-only inputs to the blueprint's
 					 * denormalized name, which the schema keeps non-blank. */
 					const outcome = await publishAppToHq({
-						dataGrant:ctx.grant,
+						dataGrant: ctx.grant,
 						requireHqImport: () =>
 							assertScope(ctx, SCOPES.hqImport, "upload_app_to_hq"),
 						scope: {

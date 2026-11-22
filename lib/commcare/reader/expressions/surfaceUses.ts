@@ -297,7 +297,8 @@ function instanceClass(
 			return slot === "lookup_options_source" || slot === "search_input_options"
 				? "typed-lookup-carrier"
 				: "other-expression";
-		case "groups":return "user-groups-fixture";
+		case "groups":
+			return "user-groups-fixture";
 		case "locations":
 			return "flat-locations";
 		case "commtrack":

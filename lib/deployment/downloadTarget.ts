@@ -22,6 +22,7 @@ import {
 	type AttachmentUrlTarget,
 	attachmentUrlTarget,
 } from "./attachmentTarget";
+import { exportTargetRevision } from "./exportTargetRevision";
 import {
 	type CczUnavailable,
 	cczUnavailableRefusal,
@@ -41,7 +42,6 @@ import {
 	targetFactsOf,
 	withDeploymentReadSnapshot,
 } from "./store";
-import { exportTargetRevision } from "./exportTargetRevision";
 import { keptAdvisoryFacts } from "./targetFacts";
 import { exportIdentityOf } from "./targetIdentity";
 
@@ -87,7 +87,8 @@ export type DownloadTarget = { readonly targetRevision?: string } & (
 			readonly attachmentTarget: AttachmentUrlTarget | null;
 			/** The reached deployments on the chosen server, or all of them. */
 			readonly reached: readonly ReachedDeploymentTarget[];
-	  });
+	  }
+);
 
 export type { DownloadTargetRefusal };
 
@@ -171,11 +172,20 @@ export async function resolveDownloadTarget(
 		readonly doc: BlueprintDoc;
 	},
 ): Promise<DownloadTarget | DownloadTargetRefusal> {
-	const {read,targetRevision} = await withDeploymentReadSnapshot(scope, "view", async (snapshot) => ({
-		read: await resolveDownloadTargetIn(snapshot,input),
-		targetRevision: await exportTargetRevision(snapshot.db,scope.projectId,scope.appId),
-	}));
-	if (!("held" in read)) return "kind" in read ? read : {...read,targetRevision};
+	const { read, targetRevision } = await withDeploymentReadSnapshot(
+		scope,
+		"view",
+		async (snapshot) => ({
+			read: await resolveDownloadTargetIn(snapshot, input),
+			targetRevision: await exportTargetRevision(
+				snapshot.db,
+				scope.projectId,
+				scope.appId,
+			),
+		}),
+	);
+	if (!("held" in read))
+		return "kind" in read ? read : { ...read, targetRevision };
 	const { target, reached, targetIdentity, held } = read;
 	const standing = cczStandingOf(target, held);
 	if (standing.unavailable !== null) {
@@ -235,8 +245,9 @@ async function resolveDownloadTargetIn(
 	if (format === "json") {
 		return {
 			format,
-			attachmentTarget: input.assignmentDestination ? attachmentUrlTarget(input.assignmentDestination) :
-				choice.kind === "project-space"
+			attachmentTarget: input.assignmentDestination
+				? attachmentUrlTarget(input.assignmentDestination)
+				: choice.kind === "project-space"
 					? attachmentUrlTarget(choice.target)
 					: null,
 			reached: reached.filter(

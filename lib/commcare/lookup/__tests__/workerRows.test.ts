@@ -41,9 +41,22 @@ it("binds the same owned selector for a nested path, reads the qualified values 
 	expect(
 		lookupReadText(rows[0], read, required(resolveLookupRead(table, read))),
 	).toBe("fr");
-	const firstThenFrench=required(bindLookupRead(required(lookupReadPath("label[1][@lang = 'fr']")),names));
-	expect(firstThenFrench).toEqual({ columnId:column.id,where:{propertyId:lang.id,equals:"fr"},occurrence:1,positionBeforeFilter:true });
-	expect([...lookupReadNodes(rows[0],firstThenFrench,required(resolveLookupRead(table,firstThenFrench)))]).toEqual([]);
+	const firstThenFrench = required(
+		bindLookupRead(required(lookupReadPath("label[1][@lang = 'fr']")), names),
+	);
+	expect(firstThenFrench).toEqual({
+		columnId: column.id,
+		where: { propertyId: lang.id, equals: "fr" },
+		occurrence: 1,
+		positionBeforeFilter: true,
+	});
+	expect([
+		...lookupReadNodes(
+			rows[0],
+			firstThenFrench,
+			required(resolveLookupRead(table, firstThenFrench)),
+		),
+	]).toEqual([]);
 	expect(
 		[
 			...lookupReadNodes(
@@ -127,7 +140,10 @@ it("keeps absent, zero and one-empty values distinct and prevents assigned rows 
 
 it("reads the literal qualification that HQ preserves for quote marks, interpolation and a trailing backslash", () => {
 	const value = `She said "'hello'" #case/id\\`;
-	const literal = serializeWire(w.str(value), { target: "hq-json", interpolation: "case" }).text;
+	const literal = serializeWire(w.str(value), {
+		target: "hq-json",
+		interpolation: "case",
+	}).text;
 	expect(lookupReadPath(`label[@lang = ${literal}][1]`)).toEqual({
 		column: "label",
 		occurrence: 1,

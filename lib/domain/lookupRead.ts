@@ -34,7 +34,13 @@ export const lookupReadSchema = z.union([
 				read.occurrence !== undefined ||
 				read.propertyId !== undefined,
 			"Choose an occurrence or a value detail.",
-		).refine(read => !read.positionBeforeFilter || (read.where !== undefined && read.occurrence !== undefined), "Choose both a position and a value detail to change their order."),
+		)
+		.refine(
+			(read) =>
+				!read.positionBeforeFilter ||
+				(read.where !== undefined && read.occurrence !== undefined),
+			"Choose both a position and a value detail to change their order.",
+		),
 ]);
 export type LookupRead = z.infer<typeof lookupReadSchema>;
 
@@ -62,8 +68,10 @@ export function readMemberIds(read: LookupRead): readonly LookupMemberId[] {
  * field value can qualify that field or be read by an expression. */
 export function questionChoiceReadIssue(read: LookupRead): string | undefined {
 	if (typeof read === "string" || "attributeId" in read) return undefined;
-	if (read.propertyId) return "You can use a row detail or a column value for a question’s choices. A value detail can narrow the values in that column.";
-	if (read.where?.equals.includes("[")) return "The form editor cannot keep a choice filter containing an opening square bracket. You can choose a different detail value or a position.";
+	if (read.propertyId)
+		return "You can use a row detail or a column value for a question’s choices. A value detail can narrow the values in that column.";
+	if (read.where?.equals.includes("["))
+		return "The form editor cannot keep a choice filter containing an opening square bracket. You can choose a different detail value or a position.";
 	return undefined;
 }
 

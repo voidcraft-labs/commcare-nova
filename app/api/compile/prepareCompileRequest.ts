@@ -6,9 +6,8 @@ import {
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { isCommCareServer } from "@/lib/commcare/servers";
-import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
-import { withAppTx } from "@/lib/db/pg";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	type DownloadTarget,
 	downloadAttachmentState,
@@ -18,12 +17,13 @@ import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
+import type { ExportActor } from "@/lib/export/artifacts/access";
 import {
 	type ExportMode,
 	type PreparedExportBoundary,
 	prepareExportBoundary,
 } from "@/lib/export/boundaryValidation";
-import type { ExportActor } from "@/lib/export/artifacts/access";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
 import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
 
 /**

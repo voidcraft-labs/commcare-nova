@@ -752,7 +752,7 @@ export interface HqApplicationProfile {
  */
 export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	doc_type: "Application";
-	case_sharing?:boolean;
+	case_sharing?: boolean;
 	application_version: string;
 	name: string;
 	langs: string[];

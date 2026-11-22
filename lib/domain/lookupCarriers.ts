@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { conditionSchema } from "./expression/types";
-import {lookupReadSchema} from "./lookupRead";
 import { lookupTableIdSchema } from "./lookupIds";
+import { lookupReadSchema } from "./lookupRead";
 
 /**
  * A select whose choices come from one Project lookup table.

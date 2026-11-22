@@ -865,9 +865,14 @@ export interface CanonicalLookupTable {
 
 /** A place as CommCare HQ returned it, restricted to what a push modeled. */
 export interface CanonicalPlace {
-    /** A reviewed pending native workbook, anchored to this observed destination. */
-    readonly pendingExternalId?:string|null;
-	readonly observed?: {readonly externalId:string|null; readonly nameIsNull:boolean; readonly keys:string; readonly wire:string};
+	/** A reviewed pending native workbook, anchored to this observed destination. */
+	readonly pendingExternalId?: string | null;
+	readonly observed?: {
+		readonly externalId: string | null;
+		readonly nameIsNull: boolean;
+		readonly keys: string;
+		readonly wire: string;
+	};
 	readonly remoteId: string;
 	readonly name: string;
 	readonly siteCode: string;

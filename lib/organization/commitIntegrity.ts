@@ -20,9 +20,11 @@ import {
 	fixedLocationOwnerIssue,
 	reverseHopDestinationLevelUuids,
 	reverseVerdictMessage,
-	
 } from "./ownerTargetVerdicts";
-import { storedOwnerPaths,storedReverseOwnerVerdict } from "./storedOwnerVerdict";
+import {
+	storedOwnerPaths,
+	storedReverseOwnerVerdict,
+} from "./storedOwnerVerdict";
 import { locationValueCatalogIssue } from "./valueCatalog";
 import { advanceOrganizationRevision } from "./writerTransaction";
 
@@ -534,12 +536,22 @@ export async function assertReverseHopTargetsUnambiguous(
 		args.candidateDoc,
 	);
 	if (destinationLevelUuids.length === 0) return;
-	const managingDomain = managingDomainReader(tx,args.appId);
+	const managingDomain = managingDomainReader(tx, args.appId);
 	for (const level of destinationLevelUuids) {
-		const result=await storedReverseOwnerVerdict(tx,args.appId,args.candidateDoc,level);
+		const result = await storedReverseOwnerVerdict(
+			tx,
+			args.appId,
+			args.candidateDoc,
+			level,
+		);
 		if (!result) continue;
-		const domain=await managingDomain();
-		throw new BlueprintCommitRejectedError(reverseVerdictMessage(result.verdict,domain ? {domain,goneIds:result.gone} : undefined));
+		const domain = await managingDomain();
+		throw new BlueprintCommitRejectedError(
+			reverseVerdictMessage(
+				result.verdict,
+				domain ? { domain, goneIds: result.gone } : undefined,
+			),
+		);
 	}
 }
 
@@ -558,7 +570,12 @@ export async function assertLocationOwnerTargetsValid(
 ): Promise<void> {
 	const targets = fixedOwnerTargets(args.candidateDoc);
 	if (targets.length === 0) return;
-	const verdictRows=await storedOwnerPaths(tx,args.appId,args.candidateDoc,targets);
+	const verdictRows = await storedOwnerPaths(
+		tx,
+		args.appId,
+		args.candidateDoc,
+		targets,
+	);
 	for (const targetId of targets) {
 		const issue = fixedLocationOwnerIssue(
 			args.candidateDoc,

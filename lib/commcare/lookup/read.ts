@@ -78,7 +78,12 @@ export function* lookupReadCandidates(
 		return;
 	}
 	for (const [index, item] of items.entries()) {
-		if (typeof read !== "string" && read.positionBeforeFilter && index + 1 !== read.occurrence) continue;
+		if (
+			typeof read !== "string" &&
+			read.positionBeforeFilter &&
+			index + 1 !== read.occurrence
+		)
+			continue;
 		const property = (
 			propertyId: NonNullable<LookupColumn["properties"]>[number]["id"],
 		): FixtureAtom | undefined => {
@@ -104,7 +109,9 @@ export function* lookupReadCandidates(
 }
 export function lookupReadPosition(read: LookupRead) {
 	return typeof read !== "string" && "columnId" in read
-		? (read.positionBeforeFilter ? undefined : read.occurrence)
+		? read.positionBeforeFilter
+			? undefined
+			: read.occurrence
 		: undefined;
 }
 export function lookupReadFilter(read: LookupRead) {

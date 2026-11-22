@@ -1,7 +1,11 @@
-import {dataAccessLost,type ProjectDataGrant} from "@/lib/auth/dataGrant";
-import {authorizeAssignmentExport,type AssignmentWitness} from "@/lib/export/privateAssignments";
+import { dataAccessLost, type ProjectDataGrant } from "@/lib/auth/dataGrant";
+import {
+	type AssignmentWitness,
+	authorizeAssignmentExport,
+} from "@/lib/export/privateAssignments";
 import "server-only";
 
+import type { Transaction } from "kysely";
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import type {
 	CommCareApiError,
@@ -20,10 +24,10 @@ import {
 	type HqFailure,
 	type HqFailureKind,
 } from "@/lib/commcare/hq/failure";
+import { readHqPlaceInventory } from "@/lib/commcare/hq/locationInventory";
 import {
-	type HqLocation, readHqPlaceExternalId,
-	
-	
+	type HqLocation,
+	readHqPlaceExternalId,
 } from "@/lib/commcare/hq/locations";
 import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
 import {
@@ -31,17 +35,22 @@ import {
 	LOOKUP_ROWS_READ_CONCURRENCY,
 	listHqLookupTables,
 } from "@/lib/commcare/hq/lookupTables";
+import {
+	type PlaceIdUpdate,
+	PlaceWorkbookMismatch,
+	placeIdWorkbookMembers,
+} from "@/lib/commcare/hq/placeWorkbook";
+import type { StreamLookupWorkbook } from "@/lib/commcare/lookup/archiveWorkbooks";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { placeIdWorkbookMembers, PlaceWorkbookMismatch, type PlaceIdUpdate } from "@/lib/commcare/hq/placeWorkbook";
-import { readHqPlaceInventory } from "@/lib/commcare/hq/locationInventory";
-import { levelsAsPublished } from "@/lib/commcare/reader/worldEntities";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
-import { matchesRecordedLookup, observeLargeLookup } from "./largeLookupReceipt";
-import {inlineWorkbookReceipts,type ExpectedLookupData} from "@/lib/commcare/lookup/workbookReceipt";
-import type {StreamLookupWorkbook} from "@/lib/commcare/lookup/archiveWorkbooks";
+import {
+	type ExpectedLookupData,
+	inlineWorkbookReceipts,
+} from "@/lib/commcare/lookup/workbookReceipt";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
+import { levelsAsPublished } from "@/lib/commcare/reader/worldEntities";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import {
 	type BuildProfileLanguageGap,
@@ -54,7 +63,6 @@ import {
 	compareToVersionFloor,
 } from "@/lib/commcare/versionFloor";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
-import type { Transaction } from "kysely";
 import { getHqCredentials } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -114,6 +122,7 @@ import {
 import { settleHqMedia } from "./hqMediaSettle";
 import {
 	ABSENT_RESOURCE_DIGEST,
+	baselinePlaceKeys,
 	canonicalLookupTable,
 	canonicalPlace,
 	lookupDefinitionChange,
@@ -121,9 +130,12 @@ import {
 	lookupIdentityChange,
 	lookupRowsChange,
 	placeChange,
-	baselinePlaceKeys,
 } from "./hqResourceBaseline";
 import { diffHqAppSource, normalizeHqAppSource } from "./hqSourceBaseline";
+import {
+	matchesRecordedLookup,
+	observeLargeLookup,
+} from "./largeLookupReceipt";
 import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
@@ -131,8 +143,8 @@ import {
 	type PlannedPlace,
 	type PlannedPlacePush,
 	planLocationResourcePush,
-	projectedTargetTree,
 	plannedPlacesFor,
+	projectedTargetTree,
 } from "./locationResourcePlan";
 import {
 	describeUnsupportedLookupContent,
@@ -401,12 +413,18 @@ export type PreflightResult =
 /** The tables to push, and what Nova may claim about each. */
 export interface LookupPushPlan {
 	readonly workbook: LookupWorkbook | StreamLookupWorkbook;
-	readonly expected:ReadonlyMap<string,ExpectedLookupData>;
-	readonly files?:readonly (LookupWorkbook | StreamLookupWorkbook)[];
-	readonly verifiedFiles: ReadonlyMap<string,string>;
-	readonly previousVerified?:readonly {novaResourceId:string;remoteId:string}[];
-	readonly lastFile?:boolean;
-	readonly assignments?: {witness:AssignmentWitness;grant:ProjectDataGrant};
+	readonly expected: ReadonlyMap<string, ExpectedLookupData>;
+	readonly files?: readonly (LookupWorkbook | StreamLookupWorkbook)[];
+	readonly verifiedFiles: ReadonlyMap<string, string>;
+	readonly previousVerified?: readonly {
+		novaResourceId: string;
+		remoteId: string;
+	}[];
+	readonly lastFile?: boolean;
+	readonly assignments?: {
+		witness: AssignmentWitness;
+		grant: ProjectDataGrant;
+	};
 	readonly pushes: readonly PlannedLookupPush[];
 	/** The author's name for each table, by Nova table id. */
 	readonly names: ReadonlyMap<string, string>;
@@ -430,7 +448,7 @@ export interface LocationPushPlan {
 export interface PreflightInput {
 	/** Bearer permission to copy HQ data into Nova. A browser session has no bearer restriction. */
 	readonly requireHqImport: (() => void) | null;
-	readonly dataGrant?:ProjectDataGrant;
+	readonly dataGrant?: ProjectDataGrant;
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
 	/**
@@ -564,14 +582,17 @@ export async function publishConfirmationNeeds(
  */
 async function readAppOrganization(
 	access: PreflightInput["access"],
-): Promise<SetupArtifactOrganization & {revision:string}> {
+): Promise<SetupArtifactOrganization & { revision: string }> {
 	try {
-		const snapshot = await readOrganization({
-			appId: access.appId,
-			projectId: access.projectId,
-			role: access.role,
-			actorUserId: access.actorUserId,
-		}, {includeSource:true});
+		const snapshot = await readOrganization(
+			{
+				appId: access.appId,
+				projectId: access.projectId,
+				role: access.role,
+				actorUserId: access.actorUserId,
+			},
+			{ includeSource: true },
+		);
 		return snapshot;
 	} catch (error) {
 		if (error instanceof OrganizationError && error.code === "not_found") {
@@ -824,18 +845,41 @@ export async function runDeploymentPreflight(
 	// Lookup tables and an owner beneath the current case owner both pass
 	// now, the first because this publish pushes them and the second
 	// because it never carried a Nova identity to begin with.
-	const grant=input.dataGrant;
+	const grant = input.dataGrant;
 	let archiveBinding: string | undefined;
-	const checkPublishAccess = grant ? async (tx:Transaction<AppDatabase>) => {
-		const binding=await authorizeAssignmentExport(tx,input.access,grant,target,"publish");
-		if (archiveBinding !== undefined && archiveBinding !== binding) return dataAccessLost();
-		archiveBinding=binding;
-	} : undefined;
+	const checkPublishAccess = grant
+		? async (tx: Transaction<AppDatabase>) => {
+				const binding = await authorizeAssignmentExport(
+					tx,
+					input.access,
+					grant,
+					target,
+					"publish",
+				);
+				if (archiveBinding !== undefined && archiveBinding !== binding)
+					return dataAccessLost();
+				archiveBinding = binding;
+			}
+		: undefined;
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
-		streamMedia:true,
-		...(grant && checkPublishAccess && { archiveActor:()=>({appId:input.access.appId,grant,recheck:checkPublishAccess}) }),
-		...(input.dataGrant&&{assignmentAccess:{scope:input.access,grant:input.dataGrant,target,purpose:"publish" as const}}),
+		streamMedia: true,
+		...(grant &&
+			checkPublishAccess && {
+				archiveActor: () => ({
+					appId: input.access.appId,
+					grant,
+					recheck: checkPublishAccess,
+				}),
+			}),
+		...(input.dataGrant && {
+			assignmentAccess: {
+				scope: input.access,
+				grant: input.dataGrant,
+				target,
+				purpose: "publish" as const,
+			},
+		}),
 		access: input.access,
 		doc: input.doc,
 		compiledAtSeq: input.compiledAtSeq,
@@ -943,15 +987,27 @@ export async function runDeploymentPreflight(
 	// Blocking, and it runs BEFORE anything is sent, because the fixture
 	// upload matches tables by tag: pushing without knowing what is there
 	// would take over a same-named table somebody else made.
-	const files=[...(boundary.prepared.lookupWorkbook?[boundary.prepared.lookupWorkbook]:[]),...(boundary.prepared.streamedWorkbooks??[])];
-	const workbook=files[0];
-	const sentTables=files.flatMap(file=>file.tables);
-	const expected=inlineWorkbookReceipts(boundary.prepared.lookupSnapshot,new Set(boundary.prepared.lookupWorkbook?.tables.map(table=>table.tableId)??[]));
-	const streamChecks=new Map<string,()=>Promise<void>>();
-	for(const book of boundary.prepared.streamedWorkbooks??[])for(const [id,receipt] of book.expected){
-		expected.set(id,receipt);
-		streamChecks.set(id,book.check);
-	}
+	const files = [
+		...(boundary.prepared.lookupWorkbook
+			? [boundary.prepared.lookupWorkbook]
+			: []),
+		...(boundary.prepared.streamedWorkbooks ?? []),
+	];
+	const workbook = files[0];
+	const sentTables = files.flatMap((file) => file.tables);
+	const expected = inlineWorkbookReceipts(
+		boundary.prepared.lookupSnapshot,
+		new Set(
+			boundary.prepared.lookupWorkbook?.tables.map((table) => table.tableId) ??
+				[],
+		),
+	);
+	const streamChecks = new Map<string, () => Promise<void>>();
+	for (const book of boundary.prepared.streamedWorkbooks ?? [])
+		for (const [id, receipt] of book.expected) {
+			expected.set(id, receipt);
+			streamChecks.set(id, book.check);
+		}
 	let lookupPush: LookupPushPlan | null = null;
 	if (workbook !== undefined) {
 		/* The `managed-data` edge read the list moments ago where a table
@@ -998,7 +1054,7 @@ export async function runDeploymentPreflight(
 		);
 		const plan = planLookupResourcePush({
 			tables: sentTables,
-			intended:expected,
+			intended: expected,
 			mappings: input.mappings,
 			hqTables,
 			adoptTableIds: input.adoptResourceIds,
@@ -1086,8 +1142,22 @@ export async function runDeploymentPreflight(
 				conflicts,
 			};
 		}
-		const verifiedFiles = new Map<string,string>();
-		lookupPush = { workbook, expected, files, verifiedFiles, pushes: plan.pushes, names: nameByTableId, ...(input.dataGrant && boundary.prepared.assignmentWitness && {assignments:{grant:input.dataGrant,witness:boundary.prepared.assignmentWitness}}) };
+		const verifiedFiles = new Map<string, string>();
+		lookupPush = {
+			workbook,
+			expected,
+			files,
+			verifiedFiles,
+			pushes: plan.pushes,
+			names: nameByTableId,
+			...(input.dataGrant &&
+				boundary.prepared.assignmentWitness && {
+					assignments: {
+						grant: input.dataGrant,
+						witness: boundary.prepared.assignmentWitness,
+					},
+				}),
+		};
 
 		/* Each table a mapping accounts for under the tag it still plans, the
 		 * table there now or the one HQ deleted or renamed since, compared
@@ -1147,8 +1217,9 @@ export async function runDeploymentPreflight(
 						mappedRemoteId: remoteId,
 						hqTables,
 						baseline: baselineOf(push, remoteId),
-						streamCheck:streamChecks.get(push.tableId),
-						checkLargeTarget: checkPublishAccess && (() => withAppTx(checkPublishAccess)),
+						streamCheck: streamChecks.get(push.tableId),
+						checkLargeTarget:
+							checkPublishAccess && (() => withAppTx(checkPublishAccess)),
 						/* A table Nova manages that came from this project space can be
 						 * handed back on its page, which takes the version CommCare HQ
 						 * holds here. One that came from another project space would
@@ -1185,17 +1256,36 @@ export async function runDeploymentPreflight(
 					conflicts: [],
 				};
 			}
-			for(const [index, change] of found.entries()){
-				if (change !== null && change!=="unreadable")observed.push(change);
+			for (const [index, change] of found.entries()) {
+				if (change !== null && change !== "unreadable") observed.push(change);
 				if (files.length < 2 || change !== null) continue;
-				const {push, remoteId} = comparedTables[index];
-				const own = input.mappings.some(m=>m.kind==="lookup-table" && m.novaResourceId===push.tableId && m.remoteId===remoteId && m.pushedIdentity===push.tag && !m.supersededAt);
+				const { push, remoteId } = comparedTables[index];
+				const own = input.mappings.some(
+					(m) =>
+						m.kind === "lookup-table" &&
+						m.novaResourceId === push.tableId &&
+						m.remoteId === remoteId &&
+						m.pushedIdentity === push.tag &&
+						!m.supersededAt,
+				);
 				const baseline = stored.get(remoteId);
 				const wanted = expected.get(push.tableId);
 				// A read of the HQ row API cannot attest native indexes or owners.
-				const definition=boundary.prepared.lookupSnapshot.definitions.find(t=>t.id===push.tableId);
-				if (own && baseline?.origin==="push" && wanted?.isGlobal && definition && !definition.columns.some(c=>c.index!==undefined) && matchesRecordedLookup(baseline.canonical as CanonicalLookupTable,wanted))
-					verifiedFiles.set(push.tableId,remoteId);
+				const definition = boundary.prepared.lookupSnapshot.definitions.find(
+					(t) => t.id === push.tableId,
+				);
+				if (
+					own &&
+					baseline?.origin === "push" &&
+					wanted?.isGlobal &&
+					definition &&
+					!definition.columns.some((c) => c.index !== undefined) &&
+					matchesRecordedLookup(
+						baseline.canonical as CanonicalLookupTable,
+						wanted,
+					)
+				)
+					verifiedFiles.set(push.tableId, remoteId);
 			}
 		}
 		const leftOut = boundary.prepared.managedLookupTables.map(
@@ -1240,9 +1330,10 @@ export async function runDeploymentPreflight(
 			title: "Organization",
 			status: "blocked",
 			detail,
-			items: ambiguous.map(
-				(hop) =>
-					hop.destinationNames.length ? `${hop.ownerName} holds both ${hop.destinationNames.join(" and ")} at “${hop.destinationCode}”.` : `${hop.ownerName} has no place at “${hop.destinationCode}”.`,
+			items: ambiguous.map((hop) =>
+				hop.destinationNames.length
+					? `${hop.ownerName} holds both ${hop.destinationNames.join(" and ")} at “${hop.destinationCode}”.`
+					: `${hop.ownerName} has no place at “${hop.destinationCode}”.`,
 			),
 		});
 		return {
@@ -1283,44 +1374,110 @@ export async function runDeploymentPreflight(
 	 * place beneath the case owner is judged on that project space's tree,
 	 * and the read refreshes Nova's copy, which Preview shows. A copy that
 	 * cannot be refreshed stops nothing, and the check's item is why. */
-	const organizationMismatch = (detail:string,items:readonly string[]=[]): PreflightResult => {
-		checks.push({id:"organization",title:"Organization",status:"blocked",detail,items});
-		return {checks,outcome:blockedOutcome(input.now,"hq_organization_mismatch",detail,items),ready:null, projectSpaceCompatibility:null, conflicts:[]};
+	const organizationMismatch = (
+		detail: string,
+		items: readonly string[] = [],
+	): PreflightResult => {
+		checks.push({
+			id: "organization",
+			title: "Organization",
+			status: "blocked",
+			detail,
+			items,
+		});
+		return {
+			checks,
+			outcome: blockedOutcome(
+				input.now,
+				"hq_organization_mismatch",
+				detail,
+				items,
+			),
+			ready: null,
+			projectSpaceCompatibility: null,
+			conflicts: [],
+		};
 	};
 	const expectedLevels = levelsAsPublished(boundary.prepared.doc);
 	const readAt = new Date();
-	const inventory = expectedLevels.length > 0 ? await readHqPlaceInventory(creds,domain) : null;
-	if (inventory?.kind === "failed") return organizationUnreadable(inventory.error);
-	if (inventory?.kind === "inconsistent") return organizationMismatch(
-		`The two place lists on “${domain}” disagreed when Nova checked again. Check the levels and parent places there, then publish again.`);
+	const inventory =
+		expectedLevels.length > 0
+			? await readHqPlaceInventory(creds, domain)
+			: null;
+	if (inventory?.kind === "failed")
+		return organizationUnreadable(inventory.error);
+	if (inventory?.kind === "inconsistent")
+		return organizationMismatch(
+			`The two place lists on “${domain}” disagreed when Nova checked again. Check the levels and parent places there, then publish again.`,
+		);
 	if (inventory?.kind === "read") {
-		const remoteLevels = new Map(inventory.levels.map(level => [level.code,level]));
-		const items = expectedLevels.flatMap(level => {
+		const remoteLevels = new Map(
+			inventory.levels.map((level) => [level.code, level]),
+		);
+		const items = expectedLevels.flatMap((level) => {
 			const remote = remoteLevels.get(level.code);
 			if (!remote) return [`Add “${level.name}” with code “${level.code}”.`];
 			const differences = [
 				remote.name !== level.name ? `display name “${level.name}”` : null,
-				remote.parentCode !== level.parentCode ? (level.parentCode === null ? "top level" : `parent level “${level.parentCode}”`) : null,
-				remote.sharesCases !== level.sharesCases ? `case sharing ${level.sharesCases ? "on" : "off"}` : null,
-				remote.viewDescendants !== level.viewDescendants ? `view descendants ${level.viewDescendants ? "on" : "off"}` : null,
-				Object.values(boundary.prepared.doc.organizationLevels ?? {}).some(item=>item.code === level.code && item.tracksStock !== undefined) &&
-					remote.administrative !== level.administrative ? `stock tracking ${level.administrative ? "off" : "on"}` : null,
+				remote.parentCode !== level.parentCode
+					? level.parentCode === null
+						? "top level"
+						: `parent level “${level.parentCode}”`
+					: null,
+				remote.sharesCases !== level.sharesCases
+					? `case sharing ${level.sharesCases ? "on" : "off"}`
+					: null,
+				remote.viewDescendants !== level.viewDescendants
+					? `view descendants ${level.viewDescendants ? "on" : "off"}`
+					: null,
+				Object.values(boundary.prepared.doc.organizationLevels ?? {}).some(
+					(item) => item.code === level.code && item.tracksStock !== undefined,
+				) && remote.administrative !== level.administrative
+					? `stock tracking ${level.administrative ? "off" : "on"}`
+					: null,
 			].filter(Boolean);
-			return differences.length ? [`Set “${level.code}” to use ${differences.join(", ")}.`] : [];
+			return differences.length
+				? [`Set “${level.code}” to use ${differences.join(", ")}.`]
+				: [];
 		});
-		if (items.length) return organizationMismatch(`Check the organization levels on “${domain}”. These settings affect the places and cases workers receive.`,items);
+		if (items.length)
+			return organizationMismatch(
+				`Check the organization levels on “${domain}”. These settings affect the places and cases workers receive.`,
+				items,
+			);
 	}
 	if (placesManagedHere && inventory?.kind === "read") {
-		const ambiguous = ambiguousReverseHopsOnTarget(authoredReverseHops(boundary.prepared.doc), inventory.places);
+		const ambiguous = ambiguousReverseHopsOnTarget(
+			authoredReverseHops(boundary.prepared.doc),
+			inventory.places,
+		);
 		if (ambiguous.length) return ambiguousOwners(ambiguous);
-		const refreshed = await refreshManagedPlacesFromRead(input.access, {server:target.server,domain},inventory.places,readAt);
+		const refreshed = await refreshManagedPlacesFromRead(
+			input.access,
+			{ server: target.server, domain },
+			inventory.places,
+			readAt,
+		);
 		if (!refreshed.ok) return organizationMismatch(refreshed.message);
-		checks.push({id:"organization",title:"Organization", status:"passed",detail:managedPlacesPassed(domain,true),items:[]});
+		checks.push({
+			id: "organization",
+			title: "Organization",
+			status: "passed",
+			detail: managedPlacesPassed(domain, true),
+			items: [],
+		});
 	}
 	if (places.length > 0 && inventory?.kind === "read") {
-		const {levels:hqLevels, places:hqPlaces} = inventory;
-		if (organization.hq && organization.locations.some(place => place.archivedAt === null && !place.source))
-			return organizationMismatch(`These places came from “${organization.hq.domain}” before Nova could read their external IDs. Refresh places from that space in Organization, then publish again.`);
+		const { levels: hqLevels, places: hqPlaces } = inventory;
+		if (
+			organization.hq &&
+			organization.locations.some(
+				(place) => place.archivedAt === null && !place.source,
+			)
+		)
+			return organizationMismatch(
+				`These places came from “${organization.hq.domain}” before Nova could read their external IDs. Refresh places from that space in Organization, then publish again.`,
+			);
 		const plan = planLocationResourcePush({
 			places,
 			mappings: input.mappings,
@@ -1387,49 +1544,95 @@ export async function runDeploymentPreflight(
 				conflicts,
 			};
 		}
-		const byLocalId = new Map(places.map(place => [place.locationUuid, place]));
-        const pending = new Map<string,PlaceIdUpdate>();
-        for (const batch of plan.batches) for (const push of batch) {
-            if (push.externalId === undefined) continue;
-            const existing = push.current?.observation;
-            if (push.remoteId && (existing?.externalId != null || push.externalId !== null)) {
-                const detail = await readHqPlaceExternalId(creds,domain,push.remoteId);
-                if ("success" in detail) return organizationUnreadable(detail);
-                if (detail.siteCode !== push.current?.siteCode || detail.externalId !== existing?.externalId)
-                    return organizationMismatch("The destination changed while Nova checked its place IDs. Publish again to read the current places.");
-            }
-            if (push.externalId === (existing?.externalId ?? null)) continue;
-            const parent = push.parentLocationUuid && byLocalId.get(push.parentLocationUuid);
-            // In the first phase the v2 writer puts the hierarchy in place but
-            // leaves destination metadata intact. Stage rich source metadata
-            // only after the native workbook has set the ID.
-            pending.set(push.locationUuid,{
-                externalId:push.externalId,parentCode:parent ? parent.siteCode : null,
-                place:{locationId:push.remoteId ?? "",name:push.name,siteCode:push.siteCode,locationTypeCode:push.levelCode,
-                    parentLocationId:null,latitude:push.latitude,longitude:push.longitude,values:push.current?.values ?? {},
-                    observation:{nameIsNull:push.source?.nameIsNull ?? false,externalId:existing?.externalId ?? null,
-                        wire:existing?.wire ?? {},worker:existing?.worker ?? {}}}
-            });
-        }
-        if(pending.size) {
-            // Validate every planned member before the first resource write.
-            // The eventual download re-reads the assigned destination IDs and
-            // current data under its own actor, target and export grant.
-            try { placeIdWorkbookMembers(domain,hqLevels,[...pending.values()]); }
-            catch(error) {
-                if(error instanceof PlaceWorkbookMismatch) return organizationMismatch(error.message);
-                throw error;
-            }
-        }
-        const after = projectedTargetTree(hqPlaces,plan.batches);
-		const ambiguous = ambiguousReverseHopsOnTarget(authoredReverseHops(boundary.prepared.doc),after);
+		const byLocalId = new Map(
+			places.map((place) => [place.locationUuid, place]),
+		);
+		const pending = new Map<string, PlaceIdUpdate>();
+		for (const batch of plan.batches)
+			for (const push of batch) {
+				if (push.externalId === undefined) continue;
+				const existing = push.current?.observation;
+				if (
+					push.remoteId &&
+					(existing?.externalId != null || push.externalId !== null)
+				) {
+					const detail = await readHqPlaceExternalId(
+						creds,
+						domain,
+						push.remoteId,
+					);
+					if ("success" in detail) return organizationUnreadable(detail);
+					if (
+						detail.siteCode !== push.current?.siteCode ||
+						detail.externalId !== existing?.externalId
+					)
+						return organizationMismatch(
+							"The destination changed while Nova checked its place IDs. Publish again to read the current places.",
+						);
+				}
+				if (push.externalId === (existing?.externalId ?? null)) continue;
+				const parent =
+					push.parentLocationUuid && byLocalId.get(push.parentLocationUuid);
+				// In the first phase the v2 writer puts the hierarchy in place but
+				// leaves destination metadata intact. Stage rich source metadata
+				// only after the native workbook has set the ID.
+				pending.set(push.locationUuid, {
+					externalId: push.externalId,
+					parentCode: parent ? parent.siteCode : null,
+					place: {
+						locationId: push.remoteId ?? "",
+						name: push.name,
+						siteCode: push.siteCode,
+						locationTypeCode: push.levelCode,
+						parentLocationId: null,
+						latitude: push.latitude,
+						longitude: push.longitude,
+						values: push.current?.values ?? {},
+						observation: {
+							nameIsNull: push.source?.nameIsNull ?? false,
+							externalId: existing?.externalId ?? null,
+							wire: existing?.wire ?? {},
+							worker: existing?.worker ?? {},
+						},
+					},
+				});
+			}
+		if (pending.size) {
+			// Validate every planned member before the first resource write.
+			// The eventual download re-reads the assigned destination IDs and
+			// current data under its own actor, target and export grant.
+			try {
+				placeIdWorkbookMembers(domain, hqLevels, [...pending.values()]);
+			} catch (error) {
+				if (error instanceof PlaceWorkbookMismatch)
+					return organizationMismatch(error.message);
+				throw error;
+			}
+		}
+		const after = projectedTargetTree(hqPlaces, plan.batches);
+		const ambiguous = ambiguousReverseHopsOnTarget(
+			authoredReverseHops(boundary.prepared.doc),
+			after,
+		);
 		if (ambiguous.length) return ambiguousOwners(ambiguous);
-		locationPush = {batches:plan.batches.map(batch=>batch.map(push=>{
-            if (!pending.has(push.locationUuid)) return push;
-            const stagedWire=push.current?.observation?.wire ?? {};
-            return {...push,rawData:undefined,locationData:null,desiredWire:stagedWire,stagedWire,
-                ownedKeys:Object.keys(stagedWire)};
-        })),placeCount:places.length,organizationRevision:organization.revision};
+		locationPush = {
+			batches: plan.batches.map((batch) =>
+				batch.map((push) => {
+					if (!pending.has(push.locationUuid)) return push;
+					const stagedWire = push.current?.observation?.wire ?? {};
+					return {
+						...push,
+						rawData: undefined,
+						locationData: null,
+						desiredWire: stagedWire,
+						stagedWire,
+						ownedKeys: Object.keys(stagedWire),
+					};
+				}),
+			),
+			placeCount: places.length,
+			organizationRevision: organization.revision,
+		};
 
 		/* Each planned place with a live mapping, by the mapping's id. A
 		 * mapped place the read no longer lists is `missing` whatever the
@@ -1473,9 +1676,15 @@ export async function runDeploymentPreflight(
 			id: "organization",
 			title: "Organization",
 			status: "passed",
-			detail:pending.size ? `Nova will prepare the places on “${domain}”. Apply the place ID workbook there before sending the app.` :
-                `Nova will put ${describePlaceCount(places.length)} on “${domain}” before sending the app, parents first.`,
-            items:pending.size ? [...pending.values()].map(({place})=>`${place.name || place.siteCode} (${place.siteCode})`) : describePlacesByLevel(places),
+			detail: pending.size
+				? `Nova will prepare the places on “${domain}”. Apply the place ID workbook there before sending the app.`
+				: `Nova will put ${describePlaceCount(places.length)} on “${domain}” before sending the app, parents first.`,
+			items: pending.size
+				? [...pending.values()].map(
+						({ place }) =>
+							`${place.name || place.siteCode} (${place.siteCode})`,
+					)
+				: describePlacesByLevel(places),
 		});
 	}
 
@@ -2186,8 +2395,8 @@ function appRemoteChange(input: {
 async function lookupRemoteChange(input: {
 	readonly creds: CommCareCredentials;
 	readonly domain: string;
-	readonly streamCheck?:()=>Promise<void>;
-	readonly checkLargeTarget?:()=>Promise<void>;
+	readonly streamCheck?: () => Promise<void>;
+	readonly checkLargeTarget?: () => Promise<void>;
 	readonly tableId: string;
 	readonly tag: string;
 	readonly name: string;
@@ -2272,10 +2481,21 @@ async function lookupRemoteChange(input: {
 			true,
 		);
 	}
-	if(input.streamCheck){
-		const seen=await observeLargeLookup(input.creds,input.domain,current,input.streamCheck);
-		if(!("canonical" in seen))return "unreadable";
-		return seen.canonical.digest===canonical.digest?null:change(withHandBack([describe({kind:"rows"})]),seen.canonical.digest,true);
+	if (input.streamCheck) {
+		const seen = await observeLargeLookup(
+			input.creds,
+			input.domain,
+			current,
+			input.streamCheck,
+		);
+		if (!("canonical" in seen)) return "unreadable";
+		return seen.canonical.digest === canonical.digest
+			? null
+			: change(
+					withHandBack([describe({ kind: "rows" })]),
+					seen.canonical.digest,
+					true,
+				);
 	}
 	const rows = await readSelectedHqLookupRows(
 		input.creds,
@@ -2291,9 +2511,20 @@ async function lookupRemoteChange(input: {
 	// table. Its size alone cannot authorize erasing a changing row set.
 	if ("kind" in rows) {
 		if (!input.checkLargeTarget) return "unreadable";
-		const seen = await observeLargeLookup(input.creds, input.domain, current, input.checkLargeTarget);
+		const seen = await observeLargeLookup(
+			input.creds,
+			input.domain,
+			current,
+			input.checkLargeTarget,
+		);
 		if (!("canonical" in seen)) return "unreadable";
-		return seen.canonical.digest === canonical.digest ? null : change(withHandBack([describe({kind:"rows"})]),seen.canonical.digest,true);
+		return seen.canonical.digest === canonical.digest
+			? null
+			: change(
+					withHandBack([describe({ kind: "rows" })]),
+					seen.canonical.digest,
+					true,
+				);
 	}
 	const changed = lookupRowsChange(canonical, rows);
 	return changed.length === 0
@@ -2347,12 +2578,29 @@ function placeRemoteChange(input: {
 		);
 	}
 	const canonical = baseline.canonical as CanonicalPlace;
-	if (!canonical.observed && current.observation && (current.observation.nameIsNull ||
-        (input.push.rawData && canonical.ownedKeys.some(key=>typeof current.values[key] !== "string" && Object.hasOwn(current.values,key))))) {
-        return change([],canonicalPlace(current,input.push.ownedKeys).digest,false);
-    }
-    const parts = placeChange(canonical, current).filter(part => part.kind !== "external-id" ||
-        !current.observation || current.observation.externalId !== input.push.externalId);
+	if (
+		!canonical.observed &&
+		current.observation &&
+		(current.observation.nameIsNull ||
+			(input.push.rawData &&
+				canonical.ownedKeys.some(
+					(key) =>
+						typeof current.values[key] !== "string" &&
+						Object.hasOwn(current.values, key),
+				)))
+	) {
+		return change(
+			[],
+			canonicalPlace(current, input.push.ownedKeys).digest,
+			false,
+		);
+	}
+	const parts = placeChange(canonical, current).filter(
+		(part) =>
+			part.kind !== "external-id" ||
+			!current.observation ||
+			current.observation.externalId !== input.push.externalId,
+	);
 	return parts.length === 0
 		? null
 		: change(

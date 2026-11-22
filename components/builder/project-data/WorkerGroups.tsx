@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useId, useState } from "react";
+import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import type { Uuid } from "@/lib/domain/uuid";
@@ -314,10 +315,7 @@ function GroupSettings({
 			<Button
 				variant="ghost"
 				onClick={() =>
-					setMetadata([
-						...metadata,
-						{ localId: crypto.randomUUID(), key: "", value: "" },
-					])
+					setMetadata([...metadata, { localId: uuidv4(), key: "", value: "" }])
 				}
 			>
 				Add group detail

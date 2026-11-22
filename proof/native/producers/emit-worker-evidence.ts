@@ -3,13 +3,6 @@ import { resolve } from "node:path";
 import AdmZip from "adm-zip";
 import { buildDoc, f } from "../../../lib/__tests__/docHelpers";
 import {
-	wireRow,
-	wireTable,
-} from "../../../lib/commcare/lookup/__tests__/lookupWireCorpus";
-import { lookupWireNaming } from "../../../lib/commcare/lookup/naming";
-import { buildLookupWorkbook } from "../../../lib/commcare/lookup/workbook";
-import { proseText } from "../../../lib/domain";
-import {
 	WORKER_PLACE_OWNER_FORM,
 	workerPlaceOwnerFixture,
 	workerSlugs,
@@ -17,7 +10,14 @@ import {
 } from "../../../lib/commcare/__tests__/workerWireFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
+import {
+	wireRow,
+	wireTable,
+} from "../../../lib/commcare/lookup/__tests__/lookupWireCorpus";
+import { lookupWireNaming } from "../../../lib/commcare/lookup/naming";
+import { buildLookupWorkbook } from "../../../lib/commcare/lookup/workbook";
 import type { BlueprintDoc } from "../../../lib/domain";
+import { proseText } from "../../../lib/domain";
 import { previewDataRefusalOf } from "../../../lib/preview/engine/dataRefusal";
 import { buildEngineInput } from "../../../lib/preview/engine/engineInput";
 import { FormEngine } from "../../../lib/preview/engine/formEngine";

@@ -1,9 +1,5 @@
 /** Typed constructors for the canonical expression vocabulary. */
-import type {
-	CasePropertyDataType,
-	LookupTableId,
-	Uuid,
-} from "@/lib/domain";
+import type { CasePropertyDataType, LookupTableId, Uuid } from "@/lib/domain";
 import type { LookupRead } from "../lookupRead";
 import {
 	reduceAnd as reduceAndImpl,

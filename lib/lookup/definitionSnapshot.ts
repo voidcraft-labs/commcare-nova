@@ -24,7 +24,7 @@ import type {
 
 interface StoredDefinitionRow extends StoredLookupHqColumns {
 	project_revision: string;
-	worker_access: "all"|"assigned"|null;
+	worker_access: "all" | "assigned" | null;
 	table_id: string | null;
 	table_name: string | null;
 	table_tag: string | null;
@@ -140,7 +140,9 @@ export async function readLookupDefinitionsInTransaction(
 			}
 			definition = {
 				id: tableId,
-				...(row.worker_access==="assigned"?{workerAccess:"assigned" as const}:{}),
+				...(row.worker_access === "assigned"
+					? { workerAccess: "assigned" as const }
+					: {}),
 				name: row.table_name,
 				tag: row.table_tag,
 				definitionRevision: parseLookupRevision(row.definition_revision),

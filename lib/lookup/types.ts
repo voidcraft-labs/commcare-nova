@@ -237,7 +237,7 @@ export interface LookupFixtureRow extends LookupRowContent {
  */
 export interface LookupFixtureDataSnapshot extends LookupDefinitionsSnapshot {
 	/** Complete global tables prepared by the paged archive reader, outside an inline snapshot. */
-	streamedTables?: ReadonlyMap<LookupTableId,{rowCount:number}>;
+	streamedTables?: ReadonlyMap<LookupTableId, { rowCount: number }>;
 	rowsByTable: ReadonlyMap<LookupTableId, readonly LookupFixtureRow[]>;
 }
 
@@ -343,11 +343,15 @@ export type LookupRowPatch = import("zod").infer<
 >;
 
 export type LookupAuthoringRowOperation =
-	| {kind:"assign";rowId:LookupRowId;assignments:import("./assignmentVocabulary").RowAssignee[]}
+	| {
+			kind: "assign";
+			rowId: LookupRowId;
+			assignments: import("./assignmentVocabulary").RowAssignee[];
+	  }
 	| { kind: "patch"; rowId: LookupRowId; changes: LookupRowPatch[] }
 	| {
 			kind: "add";
-			assignments?:import("./assignmentVocabulary").RowAssignee[];
+			assignments?: import("./assignmentVocabulary").RowAssignee[];
 			key: LookupAuthoringKey;
 			cells: LookupAuthoringCell[];
 			content?: NamedLookupRowContent;
@@ -375,7 +379,7 @@ export interface LookupReaderReview {
 }
 
 export interface LookupAuthoringExistingTable {
-	workerAccess?:"all"|"assigned";
+	workerAccess?: "all" | "assigned";
 	reviewed?: LookupReaderReview;
 	attributes?: LookupMemberEdit[];
 	tableId: LookupTableId;

@@ -180,9 +180,7 @@ export async function readPlacePageAction(appId: string, input: unknown) {
 	);
 }
 
-export async function readOrganizationAction(
-	appId: string,
-): Promise<
+export async function readOrganizationAction(appId: string): Promise<
 	OrganizationResult<
 		OrganizationSnapshot & {
 			paged?: { total: number; occupied: Record<string, { kept: boolean }> };

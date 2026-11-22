@@ -13,6 +13,7 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { projectRoleFor } from "@/lib/db/projectMembership";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { readWorkerLookupProjection } from "@/lib/deployment/workerLookupProjection";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
@@ -32,7 +33,10 @@ import {
 	type EvaluationScenario,
 	evaluationScenarioCases,
 } from "@/lib/preview/engine/evaluationScenario";
-import {appReadsWorkerGroups,appReadsPlaces } from "@/lib/preview/engine/expressionCaseReads";
+import {
+	appReadsPlaces,
+	appReadsWorkerGroups,
+} from "@/lib/preview/engine/expressionCaseReads";
 import type { FormEvaluationContext } from "@/lib/preview/engine/formEvaluationTypes";
 import {
 	previewAsMe,
@@ -44,7 +48,6 @@ import {
 	previewAppLanguage,
 	serverPreviewDevice,
 } from "@/lib/preview/engine/previewDevice";
-import { readWorkerLookupProjection } from "@/lib/deployment/workerLookupProjection";
 import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
 import { serverPreviewDataRefusalOf } from "@/lib/preview/engine/serverDataRefusal";
 import {
@@ -149,22 +152,37 @@ export async function loadFormEvaluationContext(
 		ctx.appId && scenario === undefined
 			? await withProjectContext(ctx.projectId, ctx.userId, identity.ownerId)
 			: undefined;
- const tableIds=extractLookupReferenceTargets(doc).tableIds;
- const needsGroups=appReadsWorkerGroups(doc);
- const scope={projectId:ctx.projectId,actorId:ctx.userId,role};
- const workerData=ctx.appId&&(tableIds.length||store||needsGroups)?await readWorkerLookupProjection({
-   scope:{appId:ctx.appId,projectId:ctx.projectId,actorUserId:ctx.userId},
-   grant:ctx.dataGrant??{kind:"architect",authority:lookupAgentScope(ctx)},
-   personaUuid:workerUuidSchema.optional().parse(personaUuid),
- },tableIds,Boolean(store)||needsGroups):undefined;
- const restoreScope=workerData?.groupScope;
- const lookup=workerData??await readPreviewLookup(scope,tableIds);
+	const tableIds = extractLookupReferenceTargets(doc).tableIds;
+	const needsGroups = appReadsWorkerGroups(doc);
+	const scope = { projectId: ctx.projectId, actorId: ctx.userId, role };
+	const workerData =
+		ctx.appId && (tableIds.length || store || needsGroups)
+			? await readWorkerLookupProjection(
+					{
+						scope: {
+							appId: ctx.appId,
+							projectId: ctx.projectId,
+							actorUserId: ctx.userId,
+						},
+						grant: ctx.dataGrant ?? {
+							kind: "architect",
+							authority: lookupAgentScope(ctx),
+						},
+						personaUuid: workerUuidSchema.optional().parse(personaUuid),
+					},
+					tableIds,
+					Boolean(store) || needsGroups,
+				)
+			: undefined;
+	const restoreScope = workerData?.groupScope;
+	const lookup = workerData ?? (await readPreviewLookup(scope, tableIds));
 	if (ctx.appId && store && restoreScope)
 		cases = await store.readDeviceCaseDatabase({
 			appId: ctx.appId,
 			restoreScope,
 		});
-	if(restoreScope && needsGroups)cases={...cases,workerGroups:restoreScope.groups};
+	if (restoreScope && needsGroups)
+		cases = { ...cases, workerGroups: restoreScope.groups };
 	// The places are the organization's, real in a scenario as lookup data
 	// is, and loaded for an app whose forms read them, as Preview loads them.
 	if (ctx.appId && appReadsPlaces(doc))

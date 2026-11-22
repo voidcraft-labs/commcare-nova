@@ -22,8 +22,8 @@ import {
 	chosenCaseProperty,
 } from "@/lib/domain/expression/chosenCase";
 import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
-import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
 import type { Expression } from "@/lib/domain/expression/types";
+import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
@@ -77,7 +77,10 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 			],
 		}),
 		identity,
-		memberIdentity: (table,column,name) => lookupMemberIdSchema.parse(identity(`member/${table}/${column ?? ""}`,name)),
+		memberIdentity: (table, column, name) =>
+			lookupMemberIdSchema.parse(
+				identity(`member/${table}/${column ?? ""}`, name),
+			),
 		chosenCaseMenu(name) {
 			return { module: asUuid(identity("module", name)), caseType: "Client" };
 		},

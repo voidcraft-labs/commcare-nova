@@ -8,10 +8,10 @@
  */
 
 import { sql } from "kysely";
-import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { BlueprintDoc } from "@/lib/domain";

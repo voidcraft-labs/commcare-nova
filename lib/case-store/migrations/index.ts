@@ -1,8 +1,3 @@
-import * as organizationPlacePages from "./20261207050000_organization_place_pages";
-import * as exportArtifacts from "./20261207040000_export_artifacts";
-import * as workerAssignments from "./20261207000000_worker_assignments";
-import * as lookupCellValues from "./20261206010000_lookup_cell_values";
-import * as lookupGenerations from "./20261206000000_lookup_generations";
 import * as deploymentEntryPoints from "./20260904000000_deployment_entry_points";
 import * as entryPointHandles from "./20260904010000_entry_point_handles";
 import * as deploymentPushTokens from "./20260906000000_deployment_push_tokens";
@@ -46,6 +41,11 @@ import * as hqBringInLedger from "./20261201000000_hq_bring_in_ledger";
 import * as hqChangesAppChangeKind from "./20261201010000_hq_changes_app_change_kind";
 import * as hqBringInProjectData from "./20261202000000_hq_bring_in_project_data";
 import * as lookupOccurrences from "./20261205000000_lookup_occurrences";
+import * as lookupGenerations from "./20261206000000_lookup_generations";
+import * as lookupCellValues from "./20261206010000_lookup_cell_values";
+import * as workerAssignments from "./20261207000000_worker_assignments";
+import * as exportArtifacts from "./20261207040000_export_artifacts";
+import * as organizationPlacePages from "./20261207050000_organization_place_pages";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's

@@ -9,9 +9,9 @@ import {
 import { NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import type { AppDatabase } from "@/lib/db/pg";
-import type { PlaceWorkbookWitness } from "@/lib/deployment/placeWorkbook";
 import type { DownloadTarget } from "@/lib/deployment/downloadTarget";
 import { exportTargetRevision } from "@/lib/deployment/exportTargetRevision";
+import type { PlaceWorkbookWitness } from "@/lib/deployment/placeWorkbook";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import {
 	type AssignmentWitness,
@@ -34,7 +34,7 @@ export interface ExportSpec {
 	format: "zip" | "ccz";
 	filename: string;
 	assignments?: AssignmentWitness;
-	places?:PlaceWorkbookWitness;
+	places?: PlaceWorkbookWitness;
 }
 
 export function compileExportSpec(
@@ -83,7 +83,7 @@ export async function lockExportAccess(
 		actor.grant,
 		NOVA_MCP_FLOOR_SCOPES,
 	);
-	const protectedTarget=spec.places?.target ?? spec.assignments?.target;
+	const protectedTarget = spec.places?.target ?? spec.assignments?.target;
 	const destination = protectedTarget
 		? await authorizeAssignmentExport(
 				tx,
@@ -100,7 +100,8 @@ export async function lockExportAccess(
 		const org = await sql<{ revision: string }>`
 			SELECT revision::text FROM app_organization_state WHERE app_id=${spec.appId} FOR SHARE
 		`.execute(tx);
-		if(org.rows[0]?.revision!==spec.places.organizationRevision) return artifactUnavailable();
+		if (org.rows[0]?.revision !== spec.places.organizationRevision)
+			return artifactUnavailable();
 	}
 	const member = await sql<{
 		id: string;

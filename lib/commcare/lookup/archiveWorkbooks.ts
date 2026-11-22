@@ -1,15 +1,8 @@
-import { hqWouldTrimLookupText } from "./hqCellText";
-import type { LookupValueSlot } from "@/lib/lookup/largeValues/input";
 import { lookupLexicalSlots } from "@/lib/commcare/lookup/lexicalSlots";
 import {
 	type LookupTableWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
-import {
-	type ExpectedLookupData,
-	expectedLookupData,
-	intendedHqRow,
-} from "./workbookReceipt";
 import {
 	type StreamSheet,
 	streamTextWorkbook,
@@ -32,13 +25,19 @@ import type {
 	StreamingLookupTable,
 } from "@/lib/lookup/archiveRows";
 import { slotFromStoragePath } from "@/lib/lookup/fixtureValues";
+import type { LookupValueSlot } from "@/lib/lookup/largeValues/input";
 import { lookupRowContentSchema } from "@/lib/lookup/schema";
-import { streamingLookupRowsDigest } from "./rowsDigest";
-
 import {
-	type LookupCarrierAlternative,
 	alternativeLookupCarrier,
+	type LookupCarrierAlternative,
 } from "./carrier";
+import { hqWouldTrimLookupText } from "./hqCellText";
+import { streamingLookupRowsDigest } from "./rowsDigest";
+import {
+	type ExpectedLookupData,
+	expectedLookupData,
+	intendedHqRow,
+} from "./workbookReceipt";
 
 interface Planned {
 	table: StreamingLookupTable;

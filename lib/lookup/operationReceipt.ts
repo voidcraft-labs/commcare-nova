@@ -9,7 +9,10 @@ import {
 } from "./writerTransaction";
 
 type LocalReceipt =
-	| {groupId:import("@/lib/domain/uuid").Uuid;projectRevision:import("./types").LookupRevision}
+	| {
+			groupId: import("@/lib/domain/uuid").Uuid;
+			projectRevision: import("./types").LookupRevision;
+	  }
 	| import("./types").LookupMutationReceipt
 	| import("./types").LookupAuthoringBatchReceipt;
 

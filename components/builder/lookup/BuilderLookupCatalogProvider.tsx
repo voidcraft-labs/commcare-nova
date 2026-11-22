@@ -190,7 +190,7 @@ export function BuilderLookupCatalogProvider({
 				id: definition.id,
 				name: definition.name,
 				columns: definition.columns,
-				attributes:definition.attributes,
+				attributes: definition.attributes,
 			}),
 		);
 		return {

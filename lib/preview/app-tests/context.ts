@@ -22,7 +22,6 @@ import {
 } from "@/lib/domain/localization";
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { memberOwnerIds, personaOwnerIds } from "@/lib/organization/ownerSets";
-import { workerPlaceGroup } from "../engine/restoreScope";
 import { viewerTimeZone } from "../engine/caseDataBindingClient";
 import { previewAsMe, previewAsPersona } from "../engine/identity";
 import { previewLookupData } from "../engine/lookupEvaluation";
@@ -30,6 +29,7 @@ import {
 	previewAppLanguage,
 	serverPreviewDevice,
 } from "../engine/previewDevice";
+import { workerPlaceGroup } from "../engine/restoreScope";
 import {
 	effectivePreviewPlatform,
 	platformUnavailableSentence,

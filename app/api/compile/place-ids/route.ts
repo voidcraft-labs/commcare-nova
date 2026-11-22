@@ -1,7 +1,7 @@
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { deploymentTargetSchema } from "@/lib/deployment/types";
 import { preparePlaceWorkbook } from "@/lib/deployment/placeWorkbook";
+import { deploymentTargetSchema } from "@/lib/deployment/types";
 
 export async function POST(req: Request) {
 	try {

@@ -1,5 +1,4 @@
 import type { NextRequest } from "next/server";
-import { compileDownloadResponse } from "@/lib/export/artifacts/response";
 import { handleApiError } from "@/lib/apiError";
 import {
 	encodeProjectSpaceCompatibilityReport,
@@ -7,6 +6,7 @@ import {
 	projectSpaceCompatibilityForDownload,
 } from "@/lib/commcare/projectSpaceCompatibility";
 import { downloadKeptAdvisoryFacts } from "@/lib/deployment/downloadTarget";
+import { compileDownloadResponse } from "@/lib/export/artifacts/response";
 import { streamLocalArchive } from "@/lib/export/localArchive";
 import {
 	EXPORT_ADVISORY_HEADER,

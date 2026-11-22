@@ -61,9 +61,7 @@ function fixturesOf(
 ): ReadonlyMap<string, CompiledLookupFixture> {
 	const set = buildLookupFixtures(
 		lookupWireNaming(
-			snapshot.definitions.filter(
-				(table) => !needsWorkerRows(table),
-			),
+			snapshot.definitions.filter((table) => !needsWorkerRows(table)),
 		),
 		snapshot.rowsByTable,
 	);
@@ -268,7 +266,10 @@ function standingWithReads(
 	}
 	const { project, origin } = data.gathered;
 	const existing = standing.table;
-	if (!needsWorkerRows(existing) && !Object.hasOwn(project.rowsByTable, existing.id)) {
+	if (
+		!needsWorkerRows(existing) &&
+		!Object.hasOwn(project.rowsByTable, existing.id)
+	) {
 		throw new Error(
 			`The Project's lookup table ${existing.id} was read without its rows.`,
 		);
@@ -276,7 +277,12 @@ function standingWithReads(
 	const again = lookupTableStanding({
 		read,
 		origin,
-		existing: { table: existing, rows: needsWorkerRows(existing) ? undefined : project.rowsByTable[existing.id] },
+		existing: {
+			table: existing,
+			rows: needsWorkerRows(existing)
+				? undefined
+				: project.rowsByTable[existing.id],
+		},
 		apps: Object.hasOwn(project.apps, existing.id)
 			? project.apps[existing.id]
 			: [],

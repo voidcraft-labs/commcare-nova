@@ -59,7 +59,12 @@ export const updateAppInputSchema = z
 			.describe(
 				"App display name (the title users see on devices). Leave it out to keep the current name.",
 			),
-		case_sharing:z.boolean().optional().describe("Automatically give a new case to the worker’s one case-sharing group where its form uses the default owner."),
+		case_sharing: z
+			.boolean()
+			.optional()
+			.describe(
+				"Automatically give a new case to the worker’s one case-sharing group where its form uses the default owner.",
+			),
 		show_saved_forms: z
 			.boolean()
 			.optional()
@@ -95,7 +100,11 @@ function changedSettings(
 	current: AppSettings,
 ): AppSettingsPatch {
 	const settings: AppSettingsPatch = {};
-	if(input.case_sharing!==undefined && input.case_sharing!==(current.caseSharing??false)) settings.caseSharing=input.case_sharing;
+	if (
+		input.case_sharing !== undefined &&
+		input.case_sharing !== (current.caseSharing ?? false)
+	)
+		settings.caseSharing = input.case_sharing;
 	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms

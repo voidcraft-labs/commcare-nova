@@ -114,9 +114,10 @@ function uncertifiedLookup() {
 	)`;
 }
 function assertCurrentLookup(classification: boolean) {
-	if(classification) throw new AppTestUnavailableError(
-		"This journey used shared data that is no longer available that way. You can start a test with the worker’s current data.",
-	);
+	if (classification)
+		throw new AppTestUnavailableError(
+			"This journey used shared data that is no longer available that way. You can start a test with the worker’s current data.",
+		);
 }
 function assertLookupProof(
 	scope: AppTestScope,
@@ -125,7 +126,8 @@ function assertLookupProof(
 ) {
 	if (
 		proof &&
-		(creator !== scope.actorUserId || !scope.workerGrantChecks?.length ||
+		(creator !== scope.actorUserId ||
+			!scope.workerGrantChecks?.length ||
 			scope.workerProofKey !== canonicalJsonDigest(proof))
 	)
 		throw new AppTestUnavailableError(
@@ -149,7 +151,8 @@ export async function appTestLookupProof(
 				sql<AppTestLookupProof | null>`snapshot #> '{lookup,proof}'`.as(
 					"proof",
 				),
-				"created_by",uncertifiedLookup().as("uncertified"),
+				"created_by",
+				uncertifiedLookup().as("uncertified"),
 			])
 			.where("app_id", "=", scope.appId)
 			.where("project_id", "=", scope.projectId);
@@ -178,7 +181,8 @@ async function startReceipt(
 ): Promise<AppTestStep | undefined> {
 	const prior = await tx
 		.selectFrom("app_test_sessions")
-		.selectAll().select(uncertifiedLookup().as("uncertified"))
+		.selectAll()
+		.select(uncertifiedLookup().as("uncertified"))
 		.where("app_id", "=", args.appId)
 		.where("created_by", "=", args.actorUserId)
 		.where("request_id", "=", args.requestId)
@@ -368,7 +372,8 @@ export async function advanceAppTestSession(
 				const scope = await authorize(tx, args);
 				const test = await tx
 					.selectFrom("app_test_sessions")
-					.selectAll().select(uncertifiedLookup().as("uncertified"))
+					.selectAll()
+					.select(uncertifiedLookup().as("uncertified"))
 					.where("id", "=", args.testId)
 					.where("app_id", "=", args.appId)
 					.where("project_id", "=", scope.projectId)
@@ -603,7 +608,8 @@ export async function readAppTestSteps(
 				"created_by",
 				sql<AppTestLookupProof | null>`snapshot #> '{lookup,proof}'`.as(
 					"worker_proof",
-				),uncertifiedLookup().as("uncertified"),
+				),
+				uncertifiedLookup().as("uncertified"),
 				"expires_at",
 				"disposed_at",
 				"step",

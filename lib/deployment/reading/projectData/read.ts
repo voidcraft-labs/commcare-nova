@@ -195,10 +195,18 @@ async function readPlaces(
 	cancel?: AbortSignal,
 ): Promise<PlacesAnswer> {
 	const read = await readHqPlaceInventory(creds, domain, cancel);
-	if (read.kind === "failed") return { kind: "failed", failure: classifyHqFailure(read.error, read.request) };
-	return { kind: "read", places: read.kind === "inconsistent"
-		? { hqLevels: [], hqPlaces: [], inconsistent: true }
-		: { hqLevels: read.levels, hqPlaces: read.places } };
+	if (read.kind === "failed")
+		return {
+			kind: "failed",
+			failure: classifyHqFailure(read.error, read.request),
+		};
+	return {
+		kind: "read",
+		places:
+			read.kind === "inconsistent"
+				? { hqLevels: [], hqPlaces: [], inconsistent: true }
+				: { hqLevels: read.levels, hqPlaces: read.places },
+	};
 }
 
 /**

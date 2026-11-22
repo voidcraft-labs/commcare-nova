@@ -205,9 +205,18 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
 		"parser:QueryPromptParser/prompt@input",
 	),
-	itemsetRichLabel: take(`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`, "schema:Itemset.label"),
-	itemsetRichValue: take(`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`, "schema:Itemset.value"),
-	itemsetRichSort: take(`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`, "schema:Itemset.sort"),
+	itemsetRichLabel: take(
+		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
+		"schema:Itemset.label",
+	),
+	itemsetRichValue: take(
+		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
+		"schema:Itemset.value",
+	),
+	itemsetRichSort: take(
+		`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
+		"schema:Itemset.sort",
+	),
 	defaultOnRange: refuse(
 		`${S}default-value-on-a-date-range-input`,
 		"schema:CaseSearchProperty.default_value",
@@ -796,7 +805,16 @@ function readPrompt(
 						sortText !== "" &&
 						sort === undefined)
 				) {
-					const raised = refuseWith(label === undefined ? "label" : value === undefined ? "value" : "sort", P.itemsetColumn, cursor, {...named,reason:"parse:invalid-lookup-selector"});
+					const raised = refuseWith(
+						label === undefined
+							? "label"
+							: value === undefined
+								? "value"
+								: "sort",
+						P.itemsetColumn,
+						cursor,
+						{ ...named, reason: "parse:invalid-lookup-selector" },
+					);
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
 				} else if (table === undefined) {
@@ -854,10 +872,28 @@ function readPrompt(
 					// A filter's claim on the nodeset is the expression stage's, by the registration below.
 					if (source.filter === undefined)
 						cursor.take("nodeset", P.itemsetNodeset, String).value;
-					cursor.take("label", typeof labelColumn === "string" ? P.itemsetLabel : P.itemsetRichLabel, String).value;
-					cursor.take("value", typeof valueColumn === "string" ? P.itemsetValue : P.itemsetRichValue, String).value;
+					cursor.take(
+						"label",
+						typeof labelColumn === "string"
+							? P.itemsetLabel
+							: P.itemsetRichLabel,
+						String,
+					).value;
+					cursor.take(
+						"value",
+						typeof valueColumn === "string"
+							? P.itemsetValue
+							: P.itemsetRichValue,
+						String,
+					).value;
 					if (sortColumn !== undefined)
-						cursor.take("sort", typeof sortColumn === "string" ? P.itemsetSort : P.itemsetRichSort, String).value;
+						cursor.take(
+							"sort",
+							typeof sortColumn === "string"
+								? P.itemsetSort
+								: P.itemsetRichSort,
+							String,
+						).value;
 					type = input === "select1" ? "select" : "multi-select";
 					options = {
 						kind: "lookup",

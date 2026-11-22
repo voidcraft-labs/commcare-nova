@@ -36,8 +36,11 @@ import type {
 	LookupMemberId,
 	LookupTableId,
 } from "@/lib/domain/lookupIds";
-import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
-import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
+import {
+	NO_ENTRIES,
+	ownRecordValue,
+	recordFromEntries,
+} from "@/lib/domain/records";
 import {
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
@@ -71,6 +74,7 @@ import {
 	type Finding,
 	type HqPlace,
 } from "@/lib/publish/hqFindings";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type { SiblingLookupMapping } from "../../store";
 import type { CanonicalLookupTable } from "../../types";
 import { manifestFinding } from "./findings";
@@ -526,11 +530,19 @@ export interface LookupTableBinding {
 
 /** Qualified names exist only in the source-reading comparison and review.
  * Each component comes from its owned binding and never needs XPath parsing. */
-export function lookupBindingNames(binding: LookupTableBinding): Map<string,string> {
-	const names = new Map<string,string>(Object.entries(binding.columns));
-	for (const [name,id] of Object.entries(binding.memberIds?.attributes ?? {})) names.set(`@${name}`,id);
-	for(const [column, members] of Object.entries(binding.memberIds?.properties ?? {}))
-		for(const [name,id] of Object.entries(members)) names.set(`${column}/@${name}`,id);
+export function lookupBindingNames(
+	binding: LookupTableBinding,
+): Map<string, string> {
+	const names = new Map<string, string>(Object.entries(binding.columns));
+	for (const [name, id] of Object.entries(
+		binding.memberIds?.attributes ?? NO_ENTRIES,
+	))
+		names.set(`@${name}`, id);
+	for (const [column, members] of Object.entries(
+		binding.memberIds?.properties ?? {},
+	))
+		for (const [name, id] of Object.entries(members))
+			names.set(`${column}/@${name}`, id);
 	return names;
 }
 /**
@@ -582,9 +594,13 @@ export function readerLookupCatalog(
 			});
 			continue;
 		}
-		const attributes = Object.entries(binding.memberIds?.attributes ?? {}).map(
-			([wireName, id]) => ({ id, wireName, label: columnLabelFor(wireName) }),
-		);
+		const attributes = Object.entries(
+			binding.memberIds?.attributes ?? NO_ENTRIES,
+		).map(([wireName, id]) => ({
+			id,
+			wireName,
+			label: columnLabelFor(wireName),
+		}));
 		definitions.set(binding.tableId, {
 			id: binding.tableId,
 			name,
@@ -679,23 +695,29 @@ function projectCellText(column: LookupColumn, row: LookupFixtureRow): string {
 /** An existing table can only stand in for a source when every row detail
  * and field property has the same owning scope. REST does not report indexes. */
 function memberNames(members: readonly LookupMember[] | undefined) {
-	return members?.map(member => member.wireName) ?? [];
+	return members?.map((member) => member.wireName) ?? [];
 }
 export function needsWorkerRows(table: LookupTableDefinition): boolean {
-	return table.workerAccess === "assigned" || requiresLookupProjection(table.hq);
+	return (
+		table.workerAccess === "assigned" || requiresLookupProjection(table.hq)
+	);
 }
 function columnsEqual(
 	read: Extract<HqLookupTableRead, { kind: "read" }>,
 	table: LookupTableDefinition,
 ): boolean {
 	return (
-		canonicalJsonText(memberNames(table.attributes)) === canonicalJsonText(read.table.itemAttributes) &&
+		canonicalJsonText(memberNames(table.attributes)) ===
+			canonicalJsonText(read.table.itemAttributes) &&
 		table.columns.length === read.table.fields.length &&
 		table.columns.every(
 			(column, index) =>
 				column.wireName === read.table.fields[index] &&
 				column.dataType === "text" &&
-				canonicalJsonText(memberNames(column.properties)) === canonicalJsonText(ownRecordValue(read.table.fieldProperties,column.wireName) ?? []),
+				canonicalJsonText(memberNames(column.properties)) ===
+					canonicalJsonText(
+						ownRecordValue(read.table.fieldProperties, column.wireName) ?? [],
+					),
 		)
 	);
 }
@@ -715,24 +737,43 @@ function rowsEqual(
 	// with their metadata only where HQ declared details, or either side has
 	// a real repeated list. The old scalar missing/empty equivalence stays
 	// available for ordinary native fields.
-	const rich = !!table.attributes?.length || read.table.itemAttributes.length > 0 ||
-		table.columns.some(c => c.repeated || c.properties?.length) ||
-		Object.values(read.table.fieldProperties).some(props => props.length) ||
-		read.rows.some(row => Object.values(row.fields).some(list => Array.isArray(list) && (list.length !== 1 || Object.keys(list[0].properties).length)));
+	const rich =
+		!!table.attributes?.length ||
+		read.table.itemAttributes.length > 0 ||
+		table.columns.some((c) => c.repeated || c.properties?.length) ||
+		Object.values(read.table.fieldProperties).some((props) => props.length) ||
+		read.rows.some((row) =>
+			Object.values(row.fields).some(
+				(list) =>
+					Array.isArray(list) &&
+					(list.length !== 1 || Object.keys(list[0].properties).length),
+			),
+		);
 	if (rich) {
-		if (!columnsEqual(read,table)) return false;
-		const source = boundSourceFixture(read.table,read.rows,asItStandsBinding(table.tag,table));
-		return source.rows.every((row,index) => {
+		if (!columnsEqual(read, table)) return false;
+		const source = boundSourceFixture(
+			read.table,
+			read.rows,
+			asItStandsBinding(table.tag, table),
+		);
+		return source.rows.every((row, index) => {
 			const project = rows[index];
-			if (canonicalJsonText(row.attributes ?? {}) !== canonicalJsonText(project.attributes ?? {})) return false;
-			return table.columns.every(col => {
+			if (
+				canonicalJsonText(row.attributes ?? NO_ENTRIES) !==
+				canonicalJsonText(project.attributes ?? NO_ENTRIES)
+			)
+				return false;
+			return table.columns.every((col) => {
 				const field = (record: LookupFixtureRow) => {
 					const occurrences = record.occurrences?.[col.id];
 					if (occurrences !== undefined) return occurrences;
-					if (!Object.hasOwn(record.values,col.id)) return undefined;
-					return [{text:projectCellText(col,record), properties:{}}];
+					if (!Object.hasOwn(record.values, col.id)) return undefined;
+					return [{ text: projectCellText(col, record), properties: {} }];
 				};
-				return canonicalJsonText(field(row) ?? null) === canonicalJsonText(field(project) ?? null);
+				return (
+					canonicalJsonText(field(row) ?? null) ===
+					canonicalJsonText(field(project) ?? null)
+				);
 			});
 		});
 	}
@@ -907,7 +948,9 @@ export function lookupTableStanding(input: {
 		read.canonical.source?.inventory === "unavailable" || !read.table.isGlobal;
 	const privateProject = needsWorkerRows(table);
 	if (rows === undefined && !privateProject)
-		throw new Error(`The Project's lookup table ${table.id} was read without its rows.`);
+		throw new Error(
+			`The Project's lookup table ${table.id} was read without its rows.`,
+		);
 	const sameColumns = columnsEqual(read, table);
 	const comparable = !restricted && !privateProject && rows !== undefined;
 	const sameRows = comparable && rowsEqual(read, table, rows);
@@ -930,38 +973,41 @@ export function lookupTableStanding(input: {
 
 	const fields = new Set(read.table.fields);
 	const columnsHeld = columnsAfterHqFills(read, table, input.keptColumnIds);
-	const useCommCareHq: LookupChoiceOffer = restricted || privateProject
-		? { offered: false, why: "needs-source-evidence", name: null }
-		: managedElsewhere !== null
-			? {
-					offered: false,
-					why: "managed-elsewhere",
-					name: managedElsewhere.domain,
-				}
-			: !input.mayAdminister
-				? { offered: false, why: "needs-admin", name: null }
-				: columnsHeld > LOOKUP_MAX_COLUMNS
-					? {
-							offered: false,
-							why: "too-many-columns",
-							name: count(columnsHeld),
-						}
-					: {
-							offered: true,
-							goneColumns:
-								input.apps.length === 0
-									? []
-									: table.columns
-											.filter((column) => !fields.has(column.wireName))
-											.map((column) => column.label),
-							retypedColumns: table.columns
-								.filter((column) => column.dataType !== "text")
-								.map((column) => column.label),
-						};
+	const useCommCareHq: LookupChoiceOffer =
+		restricted || privateProject
+			? { offered: false, why: "needs-source-evidence", name: null }
+			: managedElsewhere !== null
+				? {
+						offered: false,
+						why: "managed-elsewhere",
+						name: managedElsewhere.domain,
+					}
+				: !input.mayAdminister
+					? { offered: false, why: "needs-admin", name: null }
+					: columnsHeld > LOOKUP_MAX_COLUMNS
+						? {
+								offered: false,
+								why: "too-many-columns",
+								name: count(columnsHeld),
+							}
+						: {
+								offered: true,
+								goneColumns:
+									input.apps.length === 0
+										? []
+										: table.columns
+												.filter((column) => !fields.has(column.wireName))
+												.map((column) => column.label),
+								retypedColumns: table.columns
+									.filter((column) => column.dataType !== "text")
+									.map((column) => column.label),
+							};
 
 	const wireNames = new Set(table.columns.map((column) => column.wireName));
-	for(const attr of table.attributes ?? []) wireNames.add(`@${attr.wireName}`);
-	for(const column of table.columns) for(const detail of column.properties ?? []) wireNames.add(`${column.wireName}/@${detail.wireName}`);
+	for (const attr of table.attributes ?? []) wireNames.add(`@${attr.wireName}`);
+	for (const column of table.columns)
+		for (const detail of column.properties ?? [])
+			wireNames.add(`${column.wireName}/@${detail.wireName}`);
 	const reads = new Set(input.appReads);
 	const missing = [
 		...read.table.fields.filter((field) => reads.has(field)),
@@ -972,7 +1018,9 @@ export function lookupTableStanding(input: {
 			? { offered: false, why: "needs-source-evidence", name: null }
 			: missing !== undefined
 				? { offered: false, why: "app-reads-a-missing-column", name: missing }
-				: !passesRules || rows === undefined || holdsUnrepresentableCell(table, rows)
+				: !passesRules ||
+						rows === undefined ||
+						holdsUnrepresentableCell(table, rows)
 					? { offered: false, why: "fails-a-project-space-rule", name: null }
 					: { offered: true, goneColumns: [], retypedColumns: [] };
 
@@ -1195,11 +1243,27 @@ function asItStandsBinding(
 	tag: string,
 	table: LookupTableDefinition,
 ): LookupTableBinding {
-	const attributes = recordFromEntries((table.attributes ?? []).map(member => [member.wireName,member.id]));
-	const properties = recordFromEntries(table.columns.flatMap(column => column.properties?.length ?
-		[[column.wireName,recordFromEntries(column.properties.map(member => [member.wireName,member.id]))] as const] : []));
+	const attributes = recordFromEntries(
+		(table.attributes ?? []).map((member) => [member.wireName, member.id]),
+	);
+	const properties = recordFromEntries(
+		table.columns.flatMap((column) =>
+			column.properties?.length
+				? [
+						[
+							column.wireName,
+							recordFromEntries(
+								column.properties.map((member) => [member.wireName, member.id]),
+							),
+						] as const,
+					]
+				: [],
+		),
+	);
 	return {
-		...(Object.keys(attributes).length || Object.keys(properties).length ? {memberIds:{ attributes, properties }} : {}),
+		...(Object.keys(attributes).length || Object.keys(properties).length
+			? { memberIds: { attributes, properties } }
+			: {}),
 		tag,
 		tableId: table.id,
 		columns: recordFromEntries(
@@ -1425,9 +1489,7 @@ export function lookupFixtureBudgetFinding(
 	const excess = lookupFixtureBudgetExcess(
 		buildLookupFixtures(
 			lookupWireNaming(
-				snapshot.definitions.filter(
-					(table) => !needsWorkerRows(table),
-				),
+				snapshot.definitions.filter((table) => !needsWorkerRows(table)),
 			),
 			snapshot.rowsByTable,
 		),

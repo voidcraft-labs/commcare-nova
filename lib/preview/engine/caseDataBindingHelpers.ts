@@ -62,8 +62,10 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
-import {resolveRestoreScope,type WorkerRestoreScope} from "./restoreScope";
-import { formSharingPlan,planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
+import {
+	formSharingPlan,
+	planFormCaseWire,
+} from "@/lib/commcare/casePlacementPlan";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
@@ -173,6 +175,7 @@ import { entryCreatedCaseKeys } from "./entrySessionData";
 import { previewSessionValues, type ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 import type { PreviewDevice } from "./previewDevice";
+import { resolveRestoreScope, type WorkerRestoreScope } from "./restoreScope";
 import {
 	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
@@ -1705,7 +1708,7 @@ export async function buildSubmissionOperationProgram(args: {
 	 * opened, which an owner moved to a place is resolved among. Absent, the
 	 * entry carried no snapshot of places, and they are read now. */
 	readonly testWorkerGroups?: WorkerRestoreScope["groups"];
- readonly entryGroupOwner?:string;
+	readonly entryGroupOwner?: string;
 	readonly workerPlaceIds?: readonly string[];
 }): Promise<BuiltSubmissionOperations> {
 	const receiptIdentity = buildSubmissionReceiptIdentity({
@@ -1731,9 +1734,18 @@ export async function buildSubmissionOperationProgram(args: {
 	const movesOwnerToPlace = (
 		app.blueprint.forms[args.projection.formUuid]?.caseOperations ?? []
 	).some(operationOwnerMovesToPlace);
-	const workerScope=app.blueprint.appSettings.caseSharing && !args.testWorkerGroups?await resolveRestoreScope({appId:args.appId,projectId:args.lookupScope.projectId,identity:args.identity,blueprint:app.blueprint}):undefined;
- const built = buildCaseOperationProgramFromDoc({
-  workerGroups:args.testWorkerGroups??workerScope?.groups,workerScopeRevision:workerScope?.revisions,
+	const workerScope =
+		app.blueprint.appSettings.caseSharing && !args.testWorkerGroups
+			? await resolveRestoreScope({
+					appId: args.appId,
+					projectId: args.lookupScope.projectId,
+					identity: args.identity,
+					blueprint: app.blueprint,
+				})
+			: undefined;
+	const built = buildCaseOperationProgramFromDoc({
+		workerGroups: args.testWorkerGroups ?? workerScope?.groups,
+		workerScopeRevision: workerScope?.revisions,
 		blueprint: app.blueprint,
 		mutation: args.mutation,
 		projection: args.projection,
@@ -1752,8 +1764,14 @@ export async function buildSubmissionOperationProgram(args: {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
 	});
-  if(workerScope && built.program?.groupDefaults && built.program.groupDefaults.owner!==args.entryGroupOwner)
-    throw new CaptureSubmissionRejectedError("The group that receives new cases changed. You can reopen the form with the worker's current groups.");
+	if (
+		workerScope &&
+		built.program?.groupDefaults &&
+		built.program.groupDefaults.owner !== args.entryGroupOwner
+	)
+		throw new CaptureSubmissionRejectedError(
+			"The group that receives new cases changed. You can reopen the form with the worker's current groups.",
+		);
 
 	/* Attach the program's rows-free lookup-definition snapshot BEFORE the
 	 * capture intent, so both augmentations ride one returned value. A
@@ -2001,7 +2019,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly device: PreviewDevice;
 	/** The ids of the places the worker's `locations` fixture holds, read by
 	 * the I/O half when an operation moves its owner to a place. */
-	readonly workerGroups?:WorkerRestoreScope["groups"]; readonly workerScopeRevision?:WorkerRestoreScope["revisions"];
+	readonly workerGroups?: WorkerRestoreScope["groups"];
+	readonly workerScopeRevision?: WorkerRestoreScope["revisions"];
 	readonly workerPlaceIds?: readonly string[];
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
@@ -2229,10 +2248,13 @@ export function buildCaseOperationProgramFromDoc(args: {
 	for (const [field, value] of Object.entries(session.context)) {
 		if (value !== undefined) sessionContext.set(field, value);
 	}
-	const sharing=formSharingPlan(doc,formUuid);
- const group=args.workerGroups?.[0];
- if(sharing && (!group || args.workerGroups?.length!==1))throw new CaptureSubmissionRejectedError("This form needs one group to own its new cases. You can check this worker's groups and places, then open it again.");
- const entryCaseKeys = entryNamedCreates(doc, formUuid);
+	const sharing = formSharingPlan(doc, formUuid);
+	const group = args.workerGroups?.[0];
+	if (sharing && (!group || args.workerGroups?.length !== 1))
+		throw new CaptureSubmissionRejectedError(
+			"This form needs one group to own its new cases. You can check this worker's groups and places, then open it again.",
+		);
+	const entryCaseKeys = entryNamedCreates(doc, formUuid);
 	return {
 		...ordinaryStructure,
 		program: {
@@ -2240,7 +2262,14 @@ export function buildCaseOperationProgramFromDoc(args: {
 			operations: envelopeOperations,
 			...(ownCase === undefined ? {} : { ownCase }),
 			...(entryCaseKeys.size > 0 && { entryCaseKeys }),
- ...(sharing && group && {groupDefaults:{owner:group.id,operations:sharing.groupDefaultOwners,revisions:args.workerScopeRevision}}),
+			...(sharing &&
+				group && {
+					groupDefaults: {
+						owner: group.id,
+						operations: sharing.groupDefaultOwners,
+						revisions: args.workerScopeRevision,
+					},
+				}),
 			scopes,
 			...(mutation.kind === "followup" || mutation.kind === "close"
 				? { sessionCaseIds: mutation.caseIds }

@@ -14,7 +14,6 @@
  * privilege, below the floor or with each logo shape is the proof lane's.
  */
 
-import {servePlaceInventory} from "./placeInventoryPeer";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { produce } from "immer";
@@ -82,6 +81,7 @@ import {
 } from "../service";
 import { readDeployment, withdrawDeploymentConfirmation } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
+import { servePlaceInventory } from "./placeInventoryPeer";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -481,7 +481,12 @@ async function seedPlace() {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	servePlaceInventory(peer, "clinic", withNorth ? [remotePlace] : [], remoteLevels);
+	servePlaceInventory(
+		peer,
+		"clinic",
+		withNorth ? [remotePlace] : [],
+		remoteLevels,
+	);
 }
 /** The place batch taken, and the inventory read that reads it back. */
 function placeTaken(peer: MockAgent) {
@@ -1377,11 +1382,28 @@ describe("links between cases of the same type", () => {
 
 function serveConfiguredLevels(peer: MockAgent, doc: BlueprintDoc) {
 	const levels = Object.values(doc.organizationLevels ?? {});
-	servePlaceInventory(peer,"clinic",[],levels.map((level,index)=>({
-		id:index+1, code:level.code, name:level.name, shares_cases:level.caseFlow.ownsCases, administrative:true,
-		view_descendants:"descendantCases" in level.caseFlow && level.caseFlow.descendantCases.kind !== "none",
-		parent:level.parentLevelUuid ? HOST+"/a/clinic/api/location_type/v1/"+(levels.findIndex(parent=>parent.uuid===level.parentLevelUuid)+1)+"/" : null,
-	})));
+	servePlaceInventory(
+		peer,
+		"clinic",
+		[],
+		levels.map((level, index) => ({
+			id: index + 1,
+			code: level.code,
+			name: level.name,
+			shares_cases: level.caseFlow.ownsCases,
+			administrative: true,
+			view_descendants:
+				"descendantCases" in level.caseFlow &&
+				level.caseFlow.descendantCases.kind !== "none",
+			parent: level.parentLevelUuid
+				? HOST +
+					"/a/clinic/api/location_type/v1/" +
+					(levels.findIndex((parent) => parent.uuid === level.parentLevelUuid) +
+						1) +
+					"/"
+				: null,
+		})),
+	);
 }
 
 describe("the flat location list", () => {
@@ -1401,7 +1423,7 @@ describe("the flat location list", () => {
 				whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 			});
 			expect(allRequests(peer)).toEqual([]);
-			serveConfiguredLevels(peer,doc);
+			serveConfiguredLevels(peer, doc);
 			await firstPublishConfirming(
 				peer,
 				doc,
@@ -1422,7 +1444,7 @@ describe("the flat location list", () => {
 			expect(needed.map((need) => need.kind)).not.toContain(
 				"flat-location-fixture",
 			);
-			serveConfiguredLevels(peer,doc);
+			serveConfiguredLevels(peer, doc);
 			await firstPublishConfirming(
 				peer,
 				doc,

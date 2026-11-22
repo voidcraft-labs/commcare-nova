@@ -2780,7 +2780,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 					 * is resolved among the ones the form read. */
 					submitted.caseDatabase.locations?.map((place) => place.id),
 					previewDevice,
-          ...(submitted.caseDatabase.workerGroups?.length===1?[submitted.caseDatabase.workerGroups[0].id]:[]),
+					...(submitted.caseDatabase.workerGroups?.length === 1
+						? [submitted.caseDatabase.workerGroups[0].id]
+						: []),
 				);
 			};
 			const result = await runFormAttachmentBarrier(

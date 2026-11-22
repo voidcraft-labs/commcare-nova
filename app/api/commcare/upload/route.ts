@@ -313,7 +313,7 @@ export async function POST(req: NextRequest) {
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const appId = body.appId;
 		const outcome = await publishAppToHq({
-			dataGrant:{kind:"session",sessionId:session.session.id},
+			dataGrant: { kind: "session", sessionId: session.session.id },
 			requireHqImport: null,
 			scope,
 			doc,

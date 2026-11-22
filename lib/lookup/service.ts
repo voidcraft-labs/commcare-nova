@@ -166,7 +166,9 @@ function manifestEntryOf(table: StoredTable): LookupTableManifestEntry {
 	return {
 		id: lookupTableIdSchema.parse(table.id),
 		name: table.name,
-		...(table.worker_access==="assigned"?{workerAccess:"assigned" as const}:{}),
+		...(table.worker_access === "assigned"
+			? { workerAccess: "assigned" as const }
+			: {}),
 		tag: table.tag,
 		columnCount: table.column_count,
 		rowCount: requiresLookupProjection(hq) ? null : table.row_count,
@@ -211,7 +213,9 @@ function snapshotOf(args: {
 		projectRevision: args.projectRevision,
 		id: lookupTableIdSchema.parse(args.table.id),
 		name: args.table.name,
-		...(args.table.worker_access==="assigned"?{workerAccess:"assigned" as const}:{}),
+		...(args.table.worker_access === "assigned"
+			? { workerAccess: "assigned" as const }
+			: {}),
 		tag: args.table.tag,
 		columns,
 		...(attributes?.length ? { attributes } : {}),
@@ -630,10 +634,12 @@ export async function getLookupFixtureData(
 				tx,
 				scope.projectId,
 				tableIds,
-				purpose==="export"?"archive":"device",
+				purpose === "export" ? "archive" : "device",
 			);
-			const unavailable = snapshot.definitions.find((table) =>
-				table.workerAccess==="assigned" || requiresLookupProjection(table.hq),
+			const unavailable = snapshot.definitions.find(
+				(table) =>
+					table.workerAccess === "assigned" ||
+					requiresLookupProjection(table.hq),
 			);
 			if (purpose === "worker" && unavailable)
 				throw new LookupError(
@@ -2072,8 +2078,12 @@ export async function replaceLookupRows(
 						parsed.expectedTableRevision,
 						"author",
 					);
-					if(table.worker_access==="assigned")throw new LookupError("invalid_input","Replacing this table would clear its row assignments. You can update individual rows and keep their workers, groups and places.");
-                    const columns = await orderedColumns(
+					if (table.worker_access === "assigned")
+						throw new LookupError(
+							"invalid_input",
+							"Replacing this table would clear its row assignments. You can update individual rows and keep their workers, groups and places.",
+						);
+					const columns = await orderedColumns(
 						tx,
 						scope.projectId,
 						parsed.tableId,

@@ -197,7 +197,17 @@ export const handleJwtMcp: (req: Request) => Promise<Response> =
 				userId: claims.sub,
 				scopes: parseScopes(claims.scope),
 				authKind: "oauth",
-				...(typeof jwt.exp === "number" && Number.isFinite(jwt.exp) ? { grant: { kind: "oauth" as const, clientId, issuedAt: jwt.iat, expiresAt: jwt.exp, scopes: parseScopes(claims.scope) } } : {}),
+				...(typeof jwt.exp === "number" && Number.isFinite(jwt.exp)
+					? {
+							grant: {
+								kind: "oauth" as const,
+								clientId,
+								issuedAt: jwt.iat,
+								expiresAt: jwt.exp,
+								scopes: parseScopes(claims.scope),
+							},
+						}
+					: {}),
 			};
 			return dispatchMcpTools(req, ctx, {
 				token: (req.headers.get("authorization") ?? "").replace(

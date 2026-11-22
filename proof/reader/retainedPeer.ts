@@ -148,14 +148,15 @@ function answerFor(
 	}
 	const data = answers.projectData;
 	if (data === undefined) return undefined;
-	for(const [collection,resource,name] of [
-		[data.lookupDefinitions,"lookup_table","lookupDefinition"],
-		[data.fixtureDetails,"lookup_table_item","fixtureDetail"],
+	for (const [collection, resource, name] of [
+		[data.lookupDefinitions, "lookup_table", "lookupDefinition"],
+		[data.fixtureDetails, "lookup_table_item", "fixtureDetail"],
 	] as const) {
-		const prefix=`${space}/api/${resource}/v1/`;
+		const prefix = `${space}/api/${resource}/v1/`;
 		if (!collection || !at.startsWith(prefix) || !at.endsWith("/")) continue;
-		const id=at.slice(prefix.length,-1);
-		if(Object.hasOwn(collection,id)) return {name:`${name}:${id}`,answer:served(collection[id])};
+		const id = at.slice(prefix.length, -1);
+		if (Object.hasOwn(collection, id))
+			return { name: `${name}:${id}`, answer: served(collection[id]) };
 	}
 	if (at === `${space}/api/lookup_table/v1/`)
 		return { name: "lookupTables", answer: served(data.lookupTables) };

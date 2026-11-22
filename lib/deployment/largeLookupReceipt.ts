@@ -1,16 +1,18 @@
+import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
-import { streamHqLookupTable } from "@/lib/commcare/hq/lookupSource";
+import {
+	readSelectedHqLookupRows,
+	streamHqLookupTable,
+} from "@/lib/commcare/hq/lookupSource";
 import type { HqLookupTable } from "@/lib/commcare/hq/lookupTables";
 import type { ExpectedLookupData } from "@/lib/commcare/lookup/workbookReceipt";
-import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
-import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
-import type { CanonicalLookupTable } from "./types";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	canonicalLookupObservation,
 	streamingLookupRowsDigest,
 } from "./hqResourceBaseline";
+import type { CanonicalLookupTable } from "./types";
 
 /** Compare the saved native observation that preflight just revalidated
  * against this particular file's intent before resuming another file. */

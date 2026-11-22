@@ -30,7 +30,7 @@ import {
 	rowValuesToDraft,
 } from "./projectDataModel";
 import { RichRowFields } from "./RichRowFields";
-import {RowAssignments} from "./RowAssignments";
+import { RowAssignments } from "./RowAssignments";
 import { RowValueField } from "./RowValueField";
 import { contentOf } from "./richRowModel";
 
@@ -227,8 +227,13 @@ export function RowInspectorBody({
 					canEdit={canEdit && !deleting && !confirmingDelete}
 				/>
 				{failure && <p role="alert">{failure}</p>}
-				<RowAssignments table={table} row={row} workspace={workspace} canEdit={canEdit && !dirty}/>
-			{deleteControls}
+				<RowAssignments
+					table={table}
+					row={row}
+					workspace={workspace}
+					canEdit={canEdit && !dirty}
+				/>
+				{deleteControls}
 			</>
 		);
 	return (
@@ -379,7 +384,12 @@ export function RowInspectorBody({
 				</div>
 			)}
 
-			<RowAssignments table={table} row={row} workspace={workspace} canEdit={canEdit && !dirty}/>
+			<RowAssignments
+				table={table}
+				row={row}
+				workspace={workspace}
+				canEdit={canEdit && !dirty}
+			/>
 			{deleteControls}
 		</div>
 	);

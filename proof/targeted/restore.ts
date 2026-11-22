@@ -62,16 +62,34 @@ export interface RestoreTable {
 export interface RestoreDataRows {
 	readonly tag: string;
 	readonly rows: readonly {
-		readonly attributes: Record<string,string>;
-		readonly fields: readonly {name:string; text:string; attributes?:Record<string,string>}[];
+		readonly attributes: Record<string, string>;
+		readonly fields: readonly {
+			name: string;
+			text: string;
+			attributes?: Record<string, string>;
+		}[];
 	}[];
 }
-function richFixture(table: RestoreDataRows):ChildNode {
-	return el("fixture",{id:`item-list:${table.tag}`,user_id:RESTORE_USER_ID},[
-		el(`${table.tag}_list`,{}, table.rows.map(row=>el(table.tag,row.attributes,
-			row.fields.map(field => el(field.name,field.attributes ?? {}, [text(field.text)]))
-		)))
-	]);
+function richFixture(table: RestoreDataRows): ChildNode {
+	return el(
+		"fixture",
+		{ id: `item-list:${table.tag}`, user_id: RESTORE_USER_ID },
+		[
+			el(
+				`${table.tag}_list`,
+				{},
+				table.rows.map((row) =>
+					el(
+						table.tag,
+						row.attributes,
+						row.fields.map((field) =>
+							el(field.name, field.attributes ?? {}, [text(field.text)]),
+						),
+					),
+				),
+			),
+		],
+	);
 }
 
 function caseBlock(entry: RestoreCase): ChildNode {

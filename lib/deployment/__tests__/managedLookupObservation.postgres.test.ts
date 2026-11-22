@@ -1,17 +1,19 @@
 import { sql } from "kysely";
+import { v7 } from "uuid";
 import { beforeEach, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { decrypt } from "@/lib/commcare/encryption";
-import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { v7 } from "uuid";
-import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
+import {
+	canonicalTestBlueprint,
+	setupAppStateTestDb,
+} from "@/lib/db/__tests__/appStateTestDb";
 import { asUuid } from "@/lib/domain/uuid";
 import { readManagedTableReview } from "@/lib/lookup/managed";
-import { manageLookupTableInNova } from "../managedData";
-import { readWorkerLookupProjection } from "../workerLookupProjection";
 import { getLookupManifest } from "@/lib/lookup/service";
+import { manageLookupTableInNova } from "../managedData";
 import { attestSourceWorkbook } from "../managedLookupObservation";
+import { readWorkerLookupProjection } from "../workerLookupProjection";
 import {
 	connect,
 	hqRowsOf,

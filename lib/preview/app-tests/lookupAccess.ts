@@ -7,7 +7,11 @@ import {
 import { type AppTestScope, appTestLookupProof } from "@/lib/db/appTests";
 import { withAppTx } from "@/lib/db/pg";
 import type { WorkerProjectionAccess } from "@/lib/deployment/workerLookupProjection";
-import { readWorkerLookupProjection, workerProjectionGrant, type WorkerProjectionGrantCheck } from "@/lib/deployment/workerLookupProjection";
+import {
+	readWorkerLookupProjection,
+	type WorkerProjectionGrantCheck,
+	workerProjectionGrant,
+} from "@/lib/deployment/workerLookupProjection";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -18,7 +22,7 @@ import {
 import { requiresLookupProjection } from "@/lib/lookup/source";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import {appReadsWorkerGroups} from "../engine/expressionCaseReads";
+import { appReadsWorkerGroups } from "../engine/expressionCaseReads";
 import { appTestPersona } from "./addresses";
 import { AppTestActionError } from "./errors";
 import type {
@@ -75,7 +79,7 @@ async function readWorker(
 	);
 }
 type WorkerCapture = {
-	check:WorkerProjectionGrantCheck;
+	check: WorkerProjectionGrantCheck;
 	revision: string;
 	digest: string;
 	worker: NonNullable<AppTestSnapshot["lookup"]["workers"]>[number];
@@ -99,7 +103,7 @@ async function captureWorker(
 		proof.groups,
 	);
 	return {
-		check:workerProjectionGrant(current),
+		check: workerProjectionGrant(current),
 		revision: current.projectRevision,
 		digest: appTestLookupKey(
 			current,
@@ -194,7 +198,7 @@ async function verifyAppTestLookup(
 	scope: AppTestLookupScope,
 	proof: AppTestLookupProof,
 ) {
-	const checks:WorkerProjectionGrantCheck[]=[];
+	const checks: WorkerProjectionGrantCheck[] = [];
 	for (const worker of proof.workers) {
 		const current = await readWorker(
 			scope,
@@ -213,7 +217,10 @@ async function verifyAppTestLookup(
 			return unavailable();
 		checks.push(workerProjectionGrant(current));
 	}
-	return {workerProofKey:canonicalJsonDigest(proof), workerGrantChecks:checks};
+	return {
+		workerProofKey: canonicalJsonDigest(proof),
+		workerGrantChecks: checks,
+	};
 }
 export function lookupRowsForTestWorker(
 	lookup: AppTestSnapshot["lookup"],
@@ -305,6 +312,6 @@ export async function withCurrentAppTestProof(
 ): Promise<AppTestScope> {
 	const proof = await appTestLookupProof(scope, selector);
 	return proof
-		? { ...scope, ...await verifyAppTestLookup(scope, proof) }
+		? { ...scope, ...(await verifyAppTestLookup(scope, proof)) }
 		: scope;
 }

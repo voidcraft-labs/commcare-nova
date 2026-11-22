@@ -2,7 +2,6 @@ import "server-only";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { ApiError } from "@/lib/apiError";
-import { claimExportWorkspace } from "@/lib/export/artifacts/capacity";
 import {
 	lookupReadCandidates,
 	lookupReadFilter,
@@ -15,6 +14,7 @@ import type { FixtureAtomBytes } from "@/lib/commcare/lookup/streamFixture";
 import { collectLookupOptionsSourceCarriers } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LookupRead } from "@/lib/domain/lookupRead";
+import { claimExportWorkspace } from "@/lib/export/artifacts/capacity";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
@@ -213,11 +213,11 @@ export async function verifyWorkerChoices(
 			return [{ owner: id, role, read, resolved }];
 		});
 	});
-	const release=claimExportWorkspace("workerChoices");
-	let db:DatabaseSync|undefined;
+	const release = claimExportWorkspace("workerChoices");
+	let db: DatabaseSync | undefined;
 	let position = 0;
 	try {
-		db=new DatabaseSync("");
+		db = new DatabaseSync("");
 		const secret = randomBytes(32);
 		db.exec(
 			"PRAGMA page_size=4096; PRAGMA max_page_count=8192; PRAGMA journal_mode=OFF; PRAGMA cache_size=-1024; CREATE TABLE seen(owner TEXT,key BLOB,position INTEGER,matched INTEGER DEFAULT 0,PRIMARY KEY(owner,key,position)) WITHOUT ROWID",
@@ -297,11 +297,23 @@ export async function verifyWorkerChoices(
 			digest: receipt.update(String(position)).digest("hex"),
 			issues: [...findings.values()],
 		};
-	} catch(error) {
-		if(typeof error === "object" && error !== null && "errcode" in error && error.errcode === 13)
-			throw new ApiError("The choice check ran out of temporary space for this worker’s data. You can reduce the rows assigned to this worker or the number of choice lists that use this table.", 413);
+	} catch (error) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"errcode" in error &&
+			error.errcode === 13
+		)
+			throw new ApiError(
+				"The choice check ran out of temporary space for this worker’s data. You can reduce the rows assigned to this worker or the number of choice lists that use this table.",
+				413,
+			);
 		throw error;
 	} finally {
-		try { db?.close(); } finally { release(); }
+		try {
+			db?.close();
+		} finally {
+			release();
+		}
 	}
 }

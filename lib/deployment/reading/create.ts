@@ -129,8 +129,9 @@ export function movedBindingCount(
 			continue;
 		}
 		const fields = ownRecordValue(lookupFields, tag) ?? [];
-		const oldIds=lookupBindingNames(before), newIds=lookupBindingNames(after);
-		if (fields.some(name => oldIds.get(name) !== newIds.get(name)))
+		const oldIds = lookupBindingNames(before),
+			newIds = lookupBindingNames(after);
+		if (fields.some((name) => oldIds.get(name) !== newIds.get(name)))
 			moved += 1;
 	}
 	return moved;

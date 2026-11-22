@@ -1,4 +1,4 @@
-import {mediaUploadStream} from "./hq/uploadStream";
+import { mediaUploadStream } from "./hq/uploadStream";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -1081,7 +1081,14 @@ export async function uploadAppMediaBundle(
 	try {
 		const response = await sendHq(creds, `${base}/`, {
 			method: "POST",
-			...mediaUploadStream(Buffer.isBuffer(zipBytes) ? (async function*(){yield zipBytes;})() : zipBytes,controller.signal),
+			...mediaUploadStream(
+				Buffer.isBuffer(zipBytes)
+					? (async function* () {
+							yield zipBytes;
+						})()
+					: zipBytes,
+				controller.signal,
+			),
 			signal: controller.signal,
 		});
 		if (!response.ok)
@@ -1231,12 +1238,20 @@ async function pollMediaBundleStatus(
 					unmatchedFiles.push({ path: file.path, reason: file.reason });
 				}
 				if (status.complete) {
-					if(status.skipped_files!==undefined){
-						if(!Array.isArray(status.skipped_files))return {success:false,status:502};
-						for(const skipped of status.skipped_files){
-							if(!isHqObject(skipped)||typeof skipped.path!=="string"||!skipped.path)
-								return {success:false,status:502};
-							unmatchedFiles.push({path:skipped.path,reason:"CommCare HQ skipped this file."});
+					if (status.skipped_files !== undefined) {
+						if (!Array.isArray(status.skipped_files))
+							return { success: false, status: 502 };
+						for (const skipped of status.skipped_files) {
+							if (
+								!isHqObject(skipped) ||
+								typeof skipped.path !== "string" ||
+								!skipped.path
+							)
+								return { success: false, status: 502 };
+							unmatchedFiles.push({
+								path: skipped.path,
+								reason: "CommCare HQ skipped this file.",
+							});
 						}
 					}
 					const matchedFiles = matchedMediaFiles(status.matched_files);

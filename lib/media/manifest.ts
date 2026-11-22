@@ -29,12 +29,12 @@ import {
 	type MediaKind,
 } from "@/lib/domain/multimedia";
 import { downloadAssetBytes } from "@/lib/storage/media";
-import { exportMediaBytes } from "./exportBytes";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
 } from "./builtinIconAssets";
+import { exportMediaBytes } from "./exportBytes";
 
 /**
  * Max GCS object downloads in flight at once when resolving a manifest's

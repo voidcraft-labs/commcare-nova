@@ -4,7 +4,9 @@ import { type Kysely, sql } from "kysely";
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`ALTER TABLE lookup_tables ADD COLUMN hq_source_observation jsonb
 		CHECK (hq_source_observation IS NULL OR (jsonb_typeof(hq_source_observation) = 'object'
-			AND octet_length(hq_source_observation::text) <= 4194304 AND hq_server IS NOT NULL))`.execute(db);
+			AND octet_length(hq_source_observation::text) <= 4194304 AND hq_server IS NOT NULL))`.execute(
+		db,
+	);
 
 	await sql`ALTER TABLE lookup_columns
 		ADD COLUMN repeated boolean NOT NULL DEFAULT false,
@@ -34,7 +36,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			WHERE conrelid = 'lookup_columns'::regclass AND conname = 'lookup_columns_wire_name_check';
 		EXECUTE format('ALTER TABLE lookup_members ADD CONSTRAINT lookup_members_wire_name_check %s', name_check);
 	END $$`.execute(db);
-	await sql`ALTER TABLE lookup_authoring_receipts ADD COLUMN required_capability text CHECK (required_capability IN ('edit','delete'))`.execute(db);
+	await sql`ALTER TABLE lookup_authoring_receipts ADD COLUMN required_capability text CHECK (required_capability IN ('edit','delete'))`.execute(
+		db,
+	);
 	await sql`CREATE TABLE lookup_project_edit_receipts (
 		project_id text NOT NULL, actor_id text NOT NULL, operation_id uuid NOT NULL, required_capability text NOT NULL CHECK (required_capability IN ('edit','delete')),
 		digest text NOT NULL CHECK (digest ~ '^[0-9a-f]{64}$'),
@@ -64,8 +68,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
 export async function down(db: Kysely<unknown>): Promise<void> {
 	await sql`DO $$ BEGIN IF EXISTS (SELECT 1 FROM lookup_tables WHERE hq_source_observation IS NOT NULL)
-		THEN RAISE EXCEPTION 'A selected workbook observation requires the recorded restore point.'; END IF; END $$`.execute(db);
-	await sql`ALTER TABLE lookup_tables DROP COLUMN hq_source_observation`.execute(db);
+		THEN RAISE EXCEPTION 'A selected workbook observation requires the recorded restore point.'; END IF; END $$`.execute(
+		db,
+	);
+	await sql`ALTER TABLE lookup_tables DROP COLUMN hq_source_observation`.execute(
+		db,
+	);
 
 	// A rollback may drop derived "unobserved" on old scalar managed copies.
 	// All user-created structure and row bytes require a compatible restore.
@@ -83,7 +91,9 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 	await sql`ALTER TABLE lookup_rows DROP COLUMN content, DROP COLUMN hq_row_id, DROP COLUMN hq_sort_key`.execute(
 		db,
 	);
-	await sql`ALTER TABLE lookup_authoring_receipts DROP COLUMN required_capability`.execute(db);
+	await sql`ALTER TABLE lookup_authoring_receipts DROP COLUMN required_capability`.execute(
+		db,
+	);
 	await sql`DROP TABLE lookup_project_edit_receipts`.execute(db);
 	await sql`DROP TABLE lookup_member_references`.execute(db);
 	await sql`DROP TABLE lookup_members`.execute(db);

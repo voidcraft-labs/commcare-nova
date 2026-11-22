@@ -283,7 +283,13 @@ async function readPages<T>(
 				pageUrl(spec.firstUrl, offset),
 				label,
 				within === undefined
-					? { maxBytes: remaining, pastBound: "quiet", cancel, keepRefusedBody, parse: spec.parse }
+					? {
+							maxBytes: remaining,
+							pastBound: "quiet",
+							cancel,
+							keepRefusedBody,
+							parse: spec.parse,
+						}
 					: {
 							...within,
 							parse: spec.parse,

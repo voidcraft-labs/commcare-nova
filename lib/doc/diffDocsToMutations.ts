@@ -514,7 +514,8 @@ function appSettingsPatch(
 	next: AppSettings,
 ): AppSettingsPatch | undefined {
 	const patch: AppSettingsPatch = {};
-	if(prev.caseSharing!==next.caseSharing)patch.caseSharing=next.caseSharing??null;
+	if (prev.caseSharing !== next.caseSharing)
+		patch.caseSharing = next.caseSharing ?? null;
 	if (prev.showSavedForms !== next.showSavedForms) {
 		patch.showSavedForms = next.showSavedForms;
 	}

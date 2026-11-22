@@ -34,7 +34,6 @@ import type {
 import { useNavigate } from "@/lib/routing/hooks";
 import { useProjectId } from "@/lib/session/hooks";
 import { AddColumnDialog } from "./AddColumnDialog";
-import {TableWorkerAccess} from "./RowAssignments";
 import { CsvImportDialog } from "./CsvImportDialog";
 import { DestructiveChangeDialog } from "./DestructiveChangeDialog";
 import { EditLookupDetailsDialog } from "./EditLookupDetailsDialog";
@@ -50,6 +49,7 @@ import {
 	readAgainAfterRefusal,
 	reconcileRevisionedTextDraft,
 } from "./projectDataModel";
+import { TableWorkerAccess } from "./RowAssignments";
 import { useTableIsEditable } from "./useProjectData";
 
 export function TableActions({
@@ -257,7 +257,13 @@ export function TableActions({
 				</p>
 			)}
 
-			{canEdit && <TableWorkerAccess table={table} workspace={workspace} canWiden={canChangeSchema}/>}
+			{canEdit && (
+				<TableWorkerAccess
+					table={table}
+					workspace={workspace}
+					canWiden={canChangeSchema}
+				/>
+			)}
 			{canEdit && renaming && (
 				<div className="space-y-2">
 					<div className="flex flex-wrap items-center gap-2">
