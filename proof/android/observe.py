@@ -186,6 +186,7 @@ def app(
     type_refused: bool = False,
     keys: bool = False,
     questions=None,
+    repeat_additions=None,
     save_incomplete: str | None = None,
     reopen: bool = False,
     searches=None,
@@ -204,13 +205,16 @@ def app(
     screen's views as Android laid them out; ``type_refused``, a value the form refused typed into the
     question's own box; ``keys``, a number keypad question's value entered into its own box one character at a
     time, so the box keeps what its own filters keep; ``questions``, the values for each question the answer
-    table carries, by its reference (``Answers.java::valuesFor``); ``save_incomplete``, a form whose first screen is answered and saved
+    table carries, by its reference (``Answers.java::valuesFor``); ``repeat_additions``, how many times the worker
+    selects the button to add a repeat; ``save_incomplete``, a form whose first screen is answered and saved
     incomplete; ``reopen``, that record reopened from home's incomplete forms and completed; and ``searches``,
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
     what each finds held under the list's ``searches`` with fuzzy search as installed, on and off."""
     from proof.observe import walks
 
     answers = _answers()
+    if repeat_additions is not None:
+        answers["repeats"] = {"add": repeat_additions}
     if questions is not None:
         answers["questions"] = {
             reference: [values] if isinstance(values, str) else list(values) for reference, values in questions.items()
