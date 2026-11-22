@@ -13,6 +13,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerClipboardText from "@iconify-icons/tabler/clipboard-text";
+import tablerList from "@iconify-icons/tabler/list";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useState } from "react";
 import { CaseTypePickerContent } from "@/components/builder/shared/CaseTypePicker";
@@ -25,6 +26,7 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useListedFormSources } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -51,7 +53,7 @@ export function AddModulePopover({
 	prominent = false,
 }: AddModulePopoverProps) {
 	const [open, setOpen] = useState(false);
-	const [step, setStep] = useState<"choose" | "caselist">("choose");
+	const [step, setStep] = useState<"choose" | "caselist" | "listed">("choose");
 	const [error, setError] = useState<string | null>(null);
 	// Inline flavor: a (rare) gate rejection surfaces in this popover's own
 	// error line, not as a toast: the popover owns the feedback.
@@ -59,6 +61,7 @@ export function AddModulePopover({
 	const { openModule, openCaseList } = useNavigate();
 	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
+	const sources = useListedFormSources(parentModuleUuid, open && canEdit);
 	const actionLabel = parentModuleUuid === null ? "Add module" : "Add submenu";
 	const placement = {
 		...(parentModuleUuid !== null && { parentModuleUuid }),
@@ -160,6 +163,17 @@ export function AddModulePopover({
 									subtitle="Forms without cases"
 									onClick={handleSurvey}
 								/>
+								{sources.length > 0 && (
+									<ArchetypeRow
+										icon={tablerList}
+										title="Forms from another menu"
+										subtitle="Give workers another way to open the same forms"
+										onClick={() => {
+											setError(null);
+											setStep("listed");
+										}}
+									/>
+								)}
 							</>
 						) : (
 							<>
@@ -175,7 +189,30 @@ export function AddModulePopover({
 									<Icon icon={tablerChevronLeft} width="12" height="12" />
 									Back to module choices
 								</Button>
-								<CaseTypePickerContent onChange={handleCaseList} />
+								{step === "caselist" ? (
+									<CaseTypePickerContent onChange={handleCaseList} />
+								) : (
+									sources.map((source) => (
+										<Button
+											key={source.uuid}
+											type="button"
+											variant="ghost"
+											className="w-full justify-start"
+											onClick={() => {
+												const result = inline.createListedFormMenu({
+													menuUuid: source.uuid,
+													...placement,
+												});
+												if (result.ok) {
+													openModule(result.uuid);
+													close();
+												} else setError(result.messages.join(" "));
+											}}
+										>
+											{source.name}
+										</Button>
+									))
+								)}
 							</>
 						)}
 						{error && (

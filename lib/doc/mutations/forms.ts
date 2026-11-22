@@ -2,7 +2,8 @@ import type { Draft } from "immer";
 import { caseWriteIdOf, caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { caseOperationSchema, type Form } from "@/lib/domain";
+import { caseOperationSchema, type Form, type Uuid } from "@/lib/domain";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
 
@@ -199,6 +200,7 @@ export function applyFormMutation(
 				}
 			}
 			dropCaseListRegistrationsNaming(draft, new Set([mut.uuid]));
+			dropListedFormSettings(draft, mut.uuid);
 			cascadeDeleteForm(draft as unknown as BlueprintDoc, mut.uuid);
 			return;
 		}
@@ -229,6 +231,7 @@ export function applyFormMutation(
 				const idx = formList.indexOf(mut.uuid);
 				if (idx !== -1) {
 					formList.splice(idx, 1);
+					dropListedFormSettings(draft, mut.uuid);
 					clearCaseListRegistrationNaming(draft, modUuid, mut.uuid);
 				}
 			}
@@ -237,6 +240,21 @@ export function applyFormMutation(
 				mut.uuid,
 				mut.after,
 			);
+			// A route’s exclusions are stored in source order so an exported
+			// route and the same route read back after a reorder stay identical.
+			for (const route of Object.values(draft.modules)) {
+				const shared = route.formsFromMenu;
+				if (
+					shared?.menuUuid !== mut.toModuleUuid ||
+					!shared.excludedFormUuids?.includes(mut.uuid)
+				)
+					continue;
+				const excluded = new Set(shared.excludedFormUuids);
+				shared.excludedFormUuids = draft.formOrder[mut.toModuleUuid].filter(
+					(uuid) => excluded.has(uuid),
+				);
+			}
+
 			// A form target names its form AND the module that holds it (the
 			// wire addresses `form_id` inside `form_module_id`), so every link
 			// pointing at this form, a destination or an otherwise, follows it
@@ -250,7 +268,11 @@ export function applyFormMutation(
 					targets.push(other.otherwise.target);
 				}
 				for (const target of targets) {
-					if (target.type === "form" && target.formUuid === mut.uuid) {
+					if (
+						target.type === "form" &&
+						target.formUuid === mut.uuid &&
+						!routeContainsForm(draft, target.moduleUuid, target.formUuid)
+					) {
 						target.moduleUuid = mut.toModuleUuid;
 					}
 				}
@@ -555,5 +577,24 @@ function clearCaseListRegistrationNaming(
 	const slot = draft.modules[moduleUuid]?.caseListRegistrationForm;
 	if (slot?.kind === "after-empty-search" && slot.formUuid === formUuid) {
 		delete draft.modules[moduleUuid]?.caseListRegistrationForm;
+	}
+}
+
+/** A removed or moved form leaves the routes of its old owner, including its
+ * previously hidden links. The form keeps its own link when it moves. */
+function dropListedFormSettings(doc: Draft<BlueprintDoc>, uuid: Uuid): void {
+	for (const menu of Object.values(doc.modules)) {
+		const source = menu.formsFromMenu;
+		if (!source) continue;
+		if (source.excludedFormUuids?.includes(uuid)) {
+			const kept = source.excludedFormUuids.filter((id) => id !== uuid);
+			if (kept.length) source.excludedFormUuids = kept;
+			else delete source.excludedFormUuids;
+		}
+		if (source.entryPoints?.some((row) => row.formUuid === uuid)) {
+			const kept = source.entryPoints.filter((row) => row.formUuid !== uuid);
+			if (kept.length) source.entryPoints = kept;
+			else delete source.entryPoints;
+		}
 	}
 }

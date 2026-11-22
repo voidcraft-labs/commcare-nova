@@ -60,7 +60,7 @@ export function ModuleCaseTypeSection({
 	const pickerTriggerRef = useRef<HTMLButtonElement>(null);
 	const deferFocus = useDeferredFocus();
 
-	if (!module) return null;
+	if (!module || module.formsFromMenu) return null;
 	const hasForms = (formIds?.length ?? 0) > 0;
 
 	// The set/clear patches (including the born-valid Name-column seed and the

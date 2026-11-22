@@ -548,6 +548,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"A media file here is kept at a path CommCare HQ can't build into the app.",
 	},
+	"mirror-menus": {
+		"hq-refuses":
+			"In this mirror menu’s settings on CommCare HQ, check the source menu, the forms and submenus it lists, and whether it shows a separate case list. Nova can bring the menu in once CommCare HQ can keep these choices.",
+	},
 	"missing-media-files": {
 		"breaks-when-run":
 			"The app points at a media file here that CommCare HQ doesn't have. Workers meet a missing file there, and Android may not start the app at all.",

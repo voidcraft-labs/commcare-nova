@@ -8,6 +8,7 @@ import { PopoverTitle } from "@/components/shadcn/popover";
 import { useAdvancedKindLine } from "@/lib/doc/hooks/useAdvancedKindReasons";
 import type { Uuid } from "@/lib/doc/types";
 import { CaseListMenuItemSection } from "./CaseListMenuItemSection";
+import { ListedFormsSection } from "./ListedFormsSection";
 import { MenuPlacementSection } from "./MenuPlacementSection";
 import { MenuScreenSection } from "./MenuScreenSection";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
@@ -65,6 +66,7 @@ export function ModuleSettingsPanel({
 					target={{ kind: "case-list", moduleUuid }}
 					onNavigateAway={onClose}
 				/>
+				<ListedFormsSection moduleUuid={moduleUuid} />
 				<MenuPlacementSection moduleUuid={moduleUuid} />
 				<MenuScreenSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />

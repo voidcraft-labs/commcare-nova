@@ -626,6 +626,24 @@ export const FORM_REFERENCE_SLOTS = [
 export const MODULE_REFERENCE_SLOTS = [
 	{
 		entity: "module",
+		slot: "listed_forms_source",
+		path: "formsFromMenu.menuUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "unlisted_source_form",
+		path: "formsFromMenu.excludedFormUuids[]",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "listed_form_link",
+		path: "formsFromMenu.entryPoints[].formUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "module_case_parent",
 		path: "parentCaseModuleUuid",
 		kind: "entity-uuid",
@@ -1472,7 +1490,14 @@ function walkSlotValues(
 	if (fanOut) {
 		if (!Array.isArray(value)) return;
 		value.forEach((element, index) => {
-			walkSlotValues(element, rest, [...indices, index], visit);
+			if (rest.length === 0)
+				visit(
+					value as unknown as Record<string, unknown>,
+					String(index),
+					element,
+					[...indices, index],
+				);
+			else walkSlotValues(element, rest, [...indices, index], visit);
 		});
 		return;
 	}
@@ -1599,6 +1624,8 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	Record<string, NonReferenceReason>
 > = {
+	"formsFromMenu.entryPoints[].entryPoint.uuid": "identity",
+	"formsFromMenu.entryPoints[].entryPoint.id": "declaration",
 	uuid: "identity",
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",

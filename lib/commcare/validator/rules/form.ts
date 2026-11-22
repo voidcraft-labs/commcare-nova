@@ -1,3 +1,4 @@
+import { routeContainsForm } from "@/lib/domain/listedForms";
 /**
  * Form-level validation rules.
  *
@@ -823,7 +824,7 @@ function formLinkValidation(
 		const targetForm = doc.forms[target.formUuid];
 		if (
 			targetForm === undefined ||
-			!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)
+			!routeContainsForm(doc, target.moduleUuid, target.formUuid)
 		) {
 			targetsResolve = false;
 			errors.push(

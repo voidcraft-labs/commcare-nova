@@ -9,7 +9,8 @@
 // navigation decision goes through these.
 
 import type { BlueprintDoc } from "./blueprint";
-import { type Form, isCaseFirstModule } from "./forms";
+import { isCaseFirstModule } from "./forms";
+import { menuFormUuidsOf, type PreparedMenuForm } from "./listedForms";
 import {
 	type AlwaysOfferedRegistration,
 	type CaseListRegistrationReturn,
@@ -20,26 +21,13 @@ import { effectivePostSubmit, moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
 
 type MenuFormDoc = Pick<BlueprintDoc, "forms" | "formOrder" | "modules">;
-/** One form as an authoring preparation holds it before it is in the doc. */
-export type PreparedMenuForm = Pick<Form, "type"> & {
-	readonly formUuid: Uuid;
-};
 
-/** The module's menu forms, in order: every form of the module except its
- *  case list registration form. */
-export function menuFormUuidsOf(
-	doc: MenuFormDoc,
-	moduleUuid: Uuid,
-	prepared?: PreparedMenuForm,
-): Uuid[] {
-	const registration = afterEmptySearchRegistrationFormOf(doc, moduleUuid);
-	return (doc.formOrder[moduleUuid] ?? []).filter((formUuid) => {
-		if (formUuid === registration) return false;
-		const form =
-			prepared?.formUuid === formUuid ? prepared : doc.forms[formUuid];
-		return form !== undefined;
-	});
-}
+export {
+	menuFormUuidsOf,
+	menuWithInheritedCaseSettings,
+	type PreparedMenuForm,
+	sourceMenuOfListedForm,
+} from "./listedForms";
 
 /** The registration form the module's case list offers after a search finds
  *  nothing, which is on no menu; undefined for the `always` arm and for no
@@ -175,5 +163,8 @@ export function moduleIsCaseFirst(
 			return form === undefined ? [] : [form.type];
 		},
 	);
-	return isCaseFirstModule(types, mod.caseType !== undefined);
+	const owner = mod.formsFromMenu
+		? doc.modules[mod.formsFromMenu.menuUuid]
+		: mod;
+	return isCaseFirstModule(types, owner?.caseType !== undefined);
 }

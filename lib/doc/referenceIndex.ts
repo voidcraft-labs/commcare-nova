@@ -94,6 +94,7 @@ import {
 	uuidSchema,
 	workerFieldNameTargetKey,
 } from "@/lib/domain";
+import { entryPointByUuid } from "@/lib/domain/entryPoints";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import type {
 	DatumRef,
@@ -103,6 +104,7 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
 
@@ -900,6 +902,7 @@ function extractModuleEdges(
 	doc: BlueprintDoc,
 	mod: Module,
 ): void {
+	const effectiveType = menuWithInheritedCaseSettings(doc, mod.uuid)?.caseType;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.kind) {
 			case "expression":
@@ -916,7 +919,7 @@ function extractModuleEdges(
 				break;
 			case "case-property-ref":
 				if (slot.slot === "case_list_column_field") {
-					if (mod.caseType === undefined) break;
+					if (effectiveType === undefined) break;
 					for (const column of mod.caseListConfig?.columns ?? []) {
 						if (column.kind === "calculated") continue;
 						// A column read through a relation names a property of the
@@ -924,7 +927,7 @@ function extractModuleEdges(
 						// (the walk's own hints are `case_list_column_via`'s).
 						const caseType = columnPropertyCaseType(
 							column,
-							mod.caseType,
+							effectiveType,
 							doc.caseTypes ?? [],
 						);
 						if (caseType === undefined) continue;
@@ -937,7 +940,7 @@ function extractModuleEdges(
 						if (input.kind !== "simple") continue;
 						const destination = resolveRelationDestination(
 							input.via,
-							mod.caseType,
+							effectiveType,
 							doc.caseTypes ?? [],
 						);
 						if (!destination.ok) continue;
@@ -1423,6 +1426,13 @@ export function planReferenceIndexMaintenance(
 				carriers.add(carrier);
 		}
 	};
+	// A route may precede its source in a read, undo, or whole-document diff.
+	// Source births, removals and type changes re-key the route's own columns.
+	const addRoutesOf = (source: Uuid): void => {
+		const inbound = ownRecordValue(index.in, entityTargetKey(source));
+		for (const [uuid, slots] of Object.entries(inbound ?? {}))
+			if (ownRecordValue(slots, "listed_forms_source")) carriers.add(uuid);
+	};
 	const addFieldSubtree = (uuid: Uuid): void => {
 		carriers.add(uuid);
 		for (const descendant of walkFormFieldUuids(doc, uuid)) {
@@ -1431,9 +1441,25 @@ export function planReferenceIndexMaintenance(
 	};
 	switch (mut.kind) {
 		case "addEntryPoint":
+			if (
+				mut.target.kind === "form" &&
+				doc.modules[mut.target.moduleUuid]?.formsFromMenu
+			)
+				carriers.add(mut.target.moduleUuid);
+			else return NO_MAINTENANCE;
+			break;
 		case "updateEntryPoint":
-		case "removeEntryPoint":
 			return NO_MAINTENANCE;
+		case "removeEntryPoint": {
+			const target = entryPointByUuid(doc, mut.entryPointUuid)?.target;
+			if (
+				target?.kind !== "form" ||
+				!doc.modules[target.moduleUuid]?.formsFromMenu
+			)
+				return NO_MAINTENANCE;
+			carriers.add(target.moduleUuid);
+			break;
+		}
 		// App-level slots are never indexed (the case-type catalog is
 		// root-level data the planner reads directly), so the granular catalog
 		// kinds are no-ops here.
@@ -1491,9 +1517,11 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "addModule":
 			carriers.add(mut.module.uuid);
+			addRoutesOf(mut.module.uuid);
 			break;
 		case "removeModule":
 			carriers.add(mut.uuid);
+			addRoutesOf(mut.uuid);
 			for (const formUuid of ownRecordValue(doc.formOrder, mut.uuid) ?? []) {
 				carriers.add(formUuid);
 				addRegistrationHosts(formUuid);
@@ -1521,6 +1549,7 @@ export function planReferenceIndexMaintenance(
 			if ("caseType" in mut.patch) {
 				const previous = ownRecordValue(doc.modules, mut.uuid)?.caseType;
 				if (mut.patch.caseType !== previous) {
+					addRoutesOf(mut.uuid);
 					for (const carrier of Object.keys(
 						ownRecordValue(index.ctx, mut.uuid) ?? {},
 					)) {

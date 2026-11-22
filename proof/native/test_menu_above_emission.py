@@ -30,6 +30,7 @@ DOCUMENTS = (
     "worker-place-menus",
     "menu-landings",
     "pinned-tile",
+    "listed-source-forms",
 )
 CONTROLS = ("step-back-control", "two-registrations-control", "undeclared-worker-field-control")
 SELECTORS = ("menu", "entry/stack", "endpoint")
@@ -71,3 +72,20 @@ def test_hq_menus_frames_and_endpoints_equal_novas(native):
             "session endpoints on. No whole HQ build or resource installation.",
         },
     )
+
+def test_source_menu_entries_open_one_form_using_the_detail_of_each_route(native):
+    records = native.step("menu-screens")
+    record = next(row for row in records if row["scenario"] == "listed-source-forms")
+    for artifact in ("local", "native"):
+        suite = etree.fromstring(record[artifact])
+        entries = {entry.find("command").get("id"): entry for entry in suite.findall("entry") if entry.find("form") is not None}
+        assert set(entries) == {"m0-f1", "m1-f0", "m1-f1"}, artifact
+        sources = [entries[command].findtext("form") for command in ("m0-f1", "m1-f1")]
+        assert sources[0] == sources[1] and sources[0] != entries["m1-f0"].findtext("form"), artifact
+        for command, detail in (("m0-f1", "m0_case_short"), ("m1-f1", "m1_case_short")):
+            entry = entries[command]
+            assert entry.find("command/text/locale").get("id") == "forms.m1f1", artifact
+            assert entry.find("session/datum[@id='case_id']").get("detail-select") == detail, artifact
+        endpoints = {endpoint.get("id"): endpoint for endpoint in suite.findall("endpoint")}
+        for link, command in (("clinic-visit", "m0-f1"), ("visit", "m1-f1")):
+            assert command in [el.get("value").strip("'") for el in endpoints[link].findall(".//command")], (artifact,link)

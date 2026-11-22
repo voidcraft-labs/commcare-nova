@@ -593,3 +593,7 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+## Forms listed in another menu
+
+A menu may list forms owned by another menu. Its `formsFromMenu.menuUuid` names the source, its exclusions and deep links name source form UUIDs, and its own `formOrder` stays empty. `menuFormUuidsOf` enumerates the visible forms of a particular route. `moduleUuidOfForm` still returns the unique owner. Worker commands address the route menu and source form together. A form read, history entry, case write and translation have one source identity across every route. The route derives the source menu's case type and selection cardinality and owns its list, search, display and media. A source submenu has one child under each route to its parent.

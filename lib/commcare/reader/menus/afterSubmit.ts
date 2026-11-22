@@ -7,6 +7,7 @@
  * link's structure, so it is taken off the stored condition before the
  * expression stage binds what is left.
  */
+
 import {
 	type BlueprintDoc,
 	defaultPostSubmitOf,
@@ -26,6 +27,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { FormLinkDatumName } from "@/lib/domain/expression/types";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { emissionPlan } from "../../emissionPlan";
 import {
@@ -645,15 +647,23 @@ function readLinkTarget(
 		const menuId =
 			folded === undefined ? named.module.uniqueId : folded.menu.uniqueId;
 		const formModuleId = value.form_module_id;
+		let route = named.module;
 		if (
 			typeof formModuleId === "string" &&
 			formModuleId !== "" &&
 			formModuleId !== menuId
 		) {
-			cursor.refuseWhole(AFTER_SUBMIT.linkChecks);
-			return undefined;
+			const candidate = draftModuleById(ctx.draft, formModuleId);
+			if (
+				!candidate?.module.formsFromMenu ||
+				!routeContainsForm(snapshot, candidate.uuid, named.form.uuid)
+			) {
+				cursor.refuseWhole(AFTER_SUBMIT.linkChecks);
+				return undefined;
+			}
+			route = candidate;
 		}
-		const self = named.form === reading.form;
+		const self = named.form === reading.form && route === named.module;
 		cursor.take(
 			"form_id",
 			self ? AFTER_SUBMIT.targetThisForm : AFTER_SUBMIT.targetForm,
@@ -665,10 +675,14 @@ function readLinkTarget(
 			? { type: "this-form" }
 			: {
 					type: "form",
-					moduleUuid: named.module.uuid,
+					moduleUuid: route.uuid,
 					formUuid: named.form.uuid,
 				};
-		key = self ? ["this-form"] : ["form", named.form.xmlns];
+		key = self
+			? ["this-form"]
+			: route === named.module
+				? ["form", named.form.xmlns]
+				: ["form-in-menu", route.uniqueId, named.form.xmlns];
 	} else {
 		const named = draftModuleById(ctx.draft, moduleId);
 		if (named === undefined) {

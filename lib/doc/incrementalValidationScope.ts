@@ -365,7 +365,12 @@ function mutationFootprint(
 				 * submenus to another screen, which every screen's case-first
 				 * answer, every link and entry point into it, and the first
 				 * menu's shared case read. */
-				if (Object.hasOwn(mutation.patch, "formsInMenuAbove")) return undefined;
+				if (
+					Object.hasOwn(mutation.patch, "formsInMenuAbove") ||
+					Object.hasOwn(mutation.patch, "formsFromMenu") ||
+					mutation.listedForm
+				)
+					return undefined;
 				/* A module case-type/mode change alters the session requirements seen
 				 * by form links elsewhere in the app. Turning Forms read the search
 				 * on or off gives or takes its search instance from a submenu or a

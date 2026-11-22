@@ -1,5 +1,9 @@
 import type { Element } from "domhandler";
-import { type BlueprintDoc, entryPointInventory } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	entryPointInventory,
+	listedFormLinkPause,
+} from "@/lib/domain";
 import { el, type WireElementContext, xel } from "./elementBuilders";
 import {
 	type EntryPointRequiredSelection,
@@ -110,6 +114,7 @@ export function buildEntryPointSuite(
 		remoteRequests: Element[] = [];
 	const urls = runtimeUrls(ctx.runtimeTarget);
 	for (const { target, entryPoint } of entryPointInventory(doc)) {
+		if (listedFormLinkPause(doc, target)) continue;
 		const p = projectEntryPoint(doc, target, ctx);
 		const instances = new InstanceSink();
 		const context: WireElementContext = {

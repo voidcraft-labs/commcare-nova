@@ -118,6 +118,7 @@ export type ValidityClass =
  */
 export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
+	MENU_FORM_SOURCE_INVALID: "soundness",
 	ENTRY_POINT_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",

@@ -8,6 +8,7 @@ import {
 	menuScreenOf,
 	moduleShowsFormsInMenuAbove,
 } from "@/lib/domain";
+import { menuFormUuidsOf } from "@/lib/domain/listedForms";
 import {
 	createEntryPointRequirements,
 	type EntryPointRequirements,
@@ -83,6 +84,7 @@ function destinationFromRequirements(
 				: projected.message);
 	return {
 		target,
+		canSkipDisplayConditions: target.kind === "form" && !module?.formsFromMenu,
 		label,
 		entryPoint: entryPointAt(doc, target),
 		issue,
@@ -96,8 +98,15 @@ export function entryPointDestinations(doc: BlueprintDoc) {
 	return doc.moduleOrder.flatMap((moduleUuid) => [
 		destination({ kind: "module", moduleUuid }),
 		destination({ kind: "case-list", moduleUuid }),
-		...(doc.formOrder[moduleUuid] ?? []).map((formUuid) =>
-			destination({ kind: "form", moduleUuid, formUuid }),
-		),
+		...[
+			...new Set([
+				...(doc.modules[moduleUuid]?.formsFromMenu
+					? menuFormUuidsOf(doc, moduleUuid)
+					: (doc.formOrder[moduleUuid] ?? [])),
+				...(doc.modules[moduleUuid]?.formsFromMenu?.entryPoints ?? []).map(
+					(row) => row.formUuid,
+				),
+			]),
+		].map((formUuid) => destination({ kind: "form", moduleUuid, formUuid })),
 	]);
 }

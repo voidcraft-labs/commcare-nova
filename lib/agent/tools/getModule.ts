@@ -70,7 +70,9 @@ import {
 	caseListRegistrationReturnOf,
 	caseListsOffering,
 	childModuleUuids,
+	menuFormUuidsOf,
 	menuScreenOf,
+	menuWithInheritedCaseSettings,
 	moduleDestination,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
@@ -132,6 +134,11 @@ export type GetModuleResult =
 			name: string;
 			opening: ReturnType<typeof moduleDestination>;
 			parent_module_uuid: Uuid | null;
+			forms_from_menu: {
+				menuUuid: Uuid;
+				name: string;
+				excludedFormUuids: readonly Uuid[];
+			} | null;
 			parentCaseModuleUuid: Uuid | null;
 			child_module_uuids: Uuid[];
 			case_type: string | null;
@@ -238,8 +245,12 @@ export const getModuleTool = {
 				data: { error: resolved.error },
 			};
 		}
-		const { moduleUuid, module: mod } = resolved;
-		const formUuids = orderedFormUuids(doc, moduleUuid);
+		const { moduleUuid } = resolved;
+		const mod =
+			menuWithInheritedCaseSettings(doc, moduleUuid) ?? resolved.module;
+		const formUuids = mod.formsFromMenu
+			? menuFormUuidsOf(doc, moduleUuid)
+			: orderedFormUuids(doc, moduleUuid);
 		const caseListConfig = mod.caseListConfig;
 		const caseSearchConfig = mod.caseSearchConfig;
 		// Each screen's own sequence — the SA addresses a column by naming the
@@ -257,6 +268,13 @@ export const getModuleTool = {
 			data: {
 				uuid: moduleUuid,
 				name: mod.name,
+				forms_from_menu: mod.formsFromMenu
+					? {
+							menuUuid: mod.formsFromMenu.menuUuid,
+							name: doc.modules[mod.formsFromMenu.menuUuid].name,
+							excludedFormUuids: mod.formsFromMenu.excludedFormUuids ?? [],
+						}
+					: null,
 				opening: moduleDestination(doc, moduleUuid),
 				parent_module_uuid: mod.parentModuleUuid ?? null,
 				parentCaseModuleUuid: mod.parentCaseModuleUuid ?? null,

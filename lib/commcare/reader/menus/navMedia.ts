@@ -26,6 +26,7 @@ const F = "forms-and-case-writes";
 type MediaClass =
 	| "Module"
 	| "AdvancedModule"
+	| "ShadowModule"
 	| "Form"
 	| "AdvancedForm"
 	| "CaseList"
@@ -40,7 +41,9 @@ interface ClassClaims {
 	readonly audioForAll: Claim<"derived">;
 }
 
-function menuClaims(cls: "Module" | "AdvancedModule"): ClassClaims {
+function menuClaims(
+	cls: "Module" | "AdvancedModule" | "ShadowModule",
+): ClassClaims {
 	return {
 		image: take(
 			`${M}/media-image-media-audio-same-asset-in-every-language`,
@@ -101,6 +104,7 @@ function formClaims(cls: "Form" | "AdvancedForm"): ClassClaims {
 const CLAIMS: Readonly<Record<MediaClass, ClassClaims>> = {
 	Module: menuClaims("Module"),
 	AdvancedModule: menuClaims("AdvancedModule"),
+	ShadowModule: menuClaims("ShadowModule"),
 	Form: formClaims("Form"),
 	AdvancedForm: formClaims("AdvancedForm"),
 	CaseList: {

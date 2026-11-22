@@ -29,6 +29,7 @@ DOCUMENTS = (
     "search-remote-defaults",
     "targeted-form-link-hidden-target",
     "targeted-hidden-from-menu",
+    "targeted-listed-forms",
     "targeted-invalid-question-ids",
     "targeted-lookup-reserved-tags",
     "targeted-media-slots",

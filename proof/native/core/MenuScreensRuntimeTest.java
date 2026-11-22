@@ -47,7 +47,7 @@ import static org.junit.Assert.*;
  * them, and on a list's own details, what Android's details draw. Core's in-memory case storage stands in for a
  * device's; no form is entered and no search or claim reaches a server. */
 public class MenuScreensRuntimeTest {
- private static final String[] DOCUMENTS={"forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings"};
+ private static final String[] DOCUMENTS={"forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings","listed-source-forms"};
  /** The documents walked for the pinned tile (`<document>.tiles.json`). */
  private static final String[] TILE_DOCUMENTS={"pinned-tile"};
  /** The documents read for a list of workers' data, each refusing some screen for a worker who lacks a field. */

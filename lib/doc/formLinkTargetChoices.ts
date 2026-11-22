@@ -20,6 +20,7 @@ import {
 	postSubmitNotOfferedReason,
 	type Uuid,
 } from "@/lib/domain";
+import { menuFormUuidsOf } from "@/lib/domain/listedForms";
 import {
 	type FormLinkTargetVerdict,
 	formLinkTargetVerdict,
@@ -87,25 +88,27 @@ export function formLinkTargetChoices(
 		if (mod === undefined) return [];
 		const target = { type: "module", moduleUuid } as const;
 		const verdict = formLinkTargetVerdict(doc, formUuid, target);
-		const forms = (doc.formOrder[moduleUuid] ?? []).flatMap(
-			(candidate): FormLinkFormChoice[] => {
-				const form = doc.forms[candidate];
-				if (form === undefined) return [];
-				const formTarget = {
-					type: "form",
-					moduleUuid,
-					formUuid: candidate,
-				} as const;
-				return [
-					{
-						uuid: candidate,
-						name: form.name,
-						target: formTarget,
-						verdict: formLinkTargetVerdict(doc, formUuid, formTarget),
-					},
-				];
-			},
-		);
+		const forms = (
+			mod.formsFromMenu
+				? menuFormUuidsOf(doc, moduleUuid)
+				: (doc.formOrder[moduleUuid] ?? [])
+		).flatMap((candidate): FormLinkFormChoice[] => {
+			const form = doc.forms[candidate];
+			if (form === undefined) return [];
+			const formTarget = {
+				type: "form",
+				moduleUuid,
+				formUuid: candidate,
+			} as const;
+			return [
+				{
+					uuid: candidate,
+					name: form.name,
+					target: formTarget,
+					verdict: formLinkTargetVerdict(doc, formUuid, formTarget),
+				},
+			];
+		});
 		const offered =
 			sourceModuleUuid === undefined
 				? verdict.ok

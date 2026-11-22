@@ -9,6 +9,7 @@ import {
 	asUuid,
 	type CommitOutcome,
 	type EntryPointTarget,
+	entryPointAt,
 	entryPointInventory,
 	type FormEntryPoint,
 	projectLocalizedForm,
@@ -30,6 +31,10 @@ import {
 import type { Mutation } from "../types";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 import { useBlueprintMutations } from "./useBlueprintMutations";
+
+export function useEntryPointOnRoute(target: EntryPointTarget) {
+	return useBlueprintDoc((doc) => entryPointAt(doc, target));
+}
 
 export function useEntryPoints() {
 	const doc = useBlueprintDoc((state) => state);

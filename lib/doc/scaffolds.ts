@@ -26,12 +26,14 @@ import {
 	type CaseOperation,
 	caseDataTypeForFieldKind,
 	caseWriteValueField,
+	childModuleUuids,
 	type Expression,
 	type Form,
 	type FormType,
 	formTypeLabels,
 	humanizeId,
 	type Module,
+	menuFormUuidsOf,
 	type OwnCaseOperation,
 	ownCaseOperationId,
 	plainColumn,
@@ -48,6 +50,7 @@ import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
 } from "./modulePatchMutations";
+import { initialSharedChild, sharedChildUuid } from "./sharedFormChildren";
 import type { Mutation } from "./types";
 
 /** The form a new one inserted at `index` (default append) should follow within
@@ -339,6 +342,119 @@ export function caseListModuleMutations(
 			addModuleMutation(module, after),
 		],
 		moduleUuid,
+	};
+}
+
+/** A second way to reach the same forms. Each route has its own editable case
+ * detail and extends to the source's children. No form or question is copied. */
+export function listedFormMenuMutations(
+	doc: BlueprintDoc,
+	args: {
+		menuUuid: Uuid;
+		uuid?: Uuid;
+		name?: string;
+		purpose?: string;
+		parentCaseModuleUuid?: Uuid;
+		parentModuleUuid?: Uuid;
+		after?: Uuid | null;
+		excludedFormUuids?: readonly Uuid[];
+	},
+):
+	| { ok: true; moduleUuid: Uuid; mutations: Mutation[] }
+	| { ok: false; message: string } {
+	const owner = doc.modules[args.menuUuid];
+	if (!owner || owner.formsFromMenu)
+		return {
+			ok: false,
+			message: "Choose the menu where the forms are edited.",
+		};
+	if (
+		args.parentModuleUuid !== undefined &&
+		args.parentModuleUuid !== owner.parentModuleUuid
+	)
+		return {
+			ok: false,
+			message: `Choose a source that belongs under the same parent as “${owner.name}”.`,
+		};
+	const available = new Set(menuFormUuidsOf(doc, owner.uuid));
+	if (args.excludedFormUuids?.some((uuid) => !available.has(uuid)))
+		return {
+			ok: false,
+			message: `Choose forms that belong to “${owner.name}”.`,
+		};
+	const moduleUuid = args.uuid ?? asUuid(uuidv4());
+	const ids = existingModuleIds(doc);
+	const mutations: Mutation[] = [];
+	const add = (
+		source: Module,
+		uuid: Uuid,
+		name: string,
+		parent: Uuid | undefined,
+		after?: Uuid | null,
+		excluded?: readonly Uuid[],
+	) => {
+		const id = uniqueSlug(name, "module", ids);
+		ids.add(id);
+		const module: Module = {
+			uuid,
+			id,
+			name,
+			...(parent && { parentModuleUuid: parent }),
+			...(uuid === moduleUuid && args.purpose && { purpose: args.purpose }),
+			...(uuid === moduleUuid &&
+				args.parentCaseModuleUuid && {
+					parentCaseModuleUuid: args.parentCaseModuleUuid,
+				}),
+			formsFromMenu: {
+				menuUuid: source.uuid,
+				...(excluded?.length && { excludedFormUuids: [...new Set(excluded)] }),
+			},
+			...(source.caseType && { caseListConfig: caseListConfigWithName() }),
+		};
+		const translations =
+			uuid === moduleUuid ? [] : initialSharedChild(doc, source, module);
+		mutations.push(addModuleMutation(module, after), ...translations);
+	};
+	add(
+		owner,
+		moduleUuid,
+		args.name ?? `${owner.name} forms`,
+		owner.parentModuleUuid,
+		args.after,
+		args.excludedFormUuids,
+	);
+	for (const uuid of childModuleUuids(doc, owner.uuid)) {
+		const child = doc.modules[uuid];
+		if (child && !child.formsFromMenu)
+			add(
+				child,
+				sharedChildUuid(moduleUuid, child.uuid),
+				child.name,
+				moduleUuid,
+			);
+	}
+	return { ok: true, moduleUuid, mutations };
+}
+
+/** One form's visibility, addressed by both menu identities so a stale edit
+ * cannot affect a replacement source. A saved deep link pauses while hidden. */
+export function listedFormVisibilityMutation(
+	doc: BlueprintDoc,
+	routeUuid: Uuid,
+	sourceUuid: Uuid,
+	formUuid: Uuid,
+	included: boolean,
+): Mutation | undefined {
+	if (
+		doc.modules[routeUuid]?.formsFromMenu?.menuUuid !== sourceUuid ||
+		!menuFormUuidsOf(doc, sourceUuid).includes(formUuid)
+	)
+		return;
+	return {
+		kind: "updateModule",
+		uuid: routeUuid,
+		patch: {},
+		listedForm: { sourceUuid, formUuid, included },
 	};
 }
 

@@ -4,10 +4,12 @@ import {
 	entryPointIdProblem,
 	entryPointIdProblemSentence,
 	entryPointInventory,
+	listedFormLinkPause,
 	suffixUntilFree,
 } from "@/lib/domain";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
+import { menuFormSources } from "./menuFormSources";
 /**
  * App-level validation rules.
  *
@@ -499,8 +501,9 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 			target.kind !== "form" &&
 			entryPoint.ignoreDisplayConditions !== undefined;
 		const duplicate = ids.has(entryPoint.id);
+		const paused = listedFormLinkPause(doc, target);
 		const shared =
-			refusal || displayConditions || duplicate
+			refusal || displayConditions || duplicate || paused
 				? undefined
 				: entryPointSharesFirstMenuCase(doc, target);
 		const reason = refusal
@@ -524,7 +527,9 @@ export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 								target,
 								shared.aboveModuleUuid,
 							)
-						: entryPointProjectionIssue(doc, target);
+						: paused
+							? undefined
+							: entryPointProjectionIssue(doc, target);
 		ids.add(entryPoint.id);
 		return issue
 			? [
@@ -565,6 +570,7 @@ function firstMenuSharedCaseEntryPointMessage(
 }
 
 export const APP_RULES = [
+	menuFormSources,
 	authoredXmlText,
 	validEntryPoints,
 	// A link or a built-in `module` destination that opens through the first

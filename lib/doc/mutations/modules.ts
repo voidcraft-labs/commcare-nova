@@ -272,6 +272,24 @@ export function applyModuleMutation(
 		case "updateModule": {
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
+			if (mut.listedForm) {
+				const { sourceUuid, formUuid, included } = mut.listedForm;
+				const source = mod.formsFromMenu;
+				if (
+					source?.menuUuid !== sourceUuid ||
+					!draft.formOrder[sourceUuid]?.includes(formUuid)
+				)
+					return;
+				const excluded = new Set(source.excludedFormUuids);
+				if (included) excluded.delete(formUuid);
+				else excluded.add(formUuid);
+				if (excluded.size > 0)
+					source.excludedFormUuids = (draft.formOrder[sourceUuid] ?? []).filter(
+						(uuid) => excluded.has(uuid),
+					);
+				else delete source.excludedFormUuids;
+				return;
+			}
 			const before = postSubmitBefore(
 				draft,
 				formsOfModuleAndChildren(draft, mut.uuid),
@@ -298,6 +316,12 @@ export function applyModuleMutation(
 				entries.push(["caseSearchConfig", undefined]);
 			}
 			for (const [key, value] of entries) {
+				// Repeating the current source preserves all separately authored route settings.
+				if (
+					key === "formsFromMenu" &&
+					mod.formsFromMenu?.menuUuid === mut.patch.formsFromMenu?.menuUuid
+				)
+					continue;
 				if (key === "caseListConfig" && mut.ensureCaseListConfig) {
 					ensureCaseListConfig(draft, mut.uuid);
 					continue;

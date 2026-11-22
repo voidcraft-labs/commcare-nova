@@ -3,6 +3,7 @@ import {
 	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
 	type EntryPointTarget,
+	listedFormLinkPause,
 	type Uuid,
 } from "@/lib/domain";
 import { emissionPlan } from "./emissionPlan";
@@ -48,6 +49,8 @@ export function projectEntryPoint(
 	target: EntryPointTarget,
 	ctx?: FormLinkProjectionContext,
 ): EntryPointProjection {
+	const paused = listedFormLinkPause(doc, target);
+	if (paused) throw new Error(paused);
 	if (
 		target.kind === "form" &&
 		afterEmptySearchRegistrationFormOf(doc, target.moduleUuid) ===
@@ -67,7 +70,7 @@ export function projectEntryPoint(
 	if (target.kind === "form") {
 		if (
 			!doc.forms[target.formUuid] ||
-			!doc.formOrder[target.moduleUuid]?.includes(target.formUuid)
+			!context.formOrder[target.moduleUuid]?.includes(target.formUuid)
 		)
 			throw new Error("The entry point form is missing.");
 		frame = formFrameChildren(doc, context, target.moduleUuid, target.formUuid);

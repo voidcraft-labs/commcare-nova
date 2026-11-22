@@ -79,6 +79,7 @@ import {
 	type FormLinkTarget,
 	formLinkEntries,
 	guardedLinkDatums,
+	menuFormUuidsOf,
 	menuScreenOf,
 	moduleHasCaseListMenuItem,
 	moduleParent,
@@ -96,6 +97,10 @@ import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
 import { firstOrderedModuleListingForm } from "@/lib/domain/formMembership";
+import {
+	basicMenuSelectionPath,
+	menuWithInheritedCaseSettings,
+} from "@/lib/domain/listedForms";
 import type { PlannedNewCaseDatum } from "./casePlacementPlan";
 import { caseTypeHopMap } from "./caseTypeDepths";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
@@ -272,14 +277,17 @@ export interface FormLinkProjectionContext {
 	/** Entry datums by form, derived once per context: a form target's frame
 	 *  reads every form of its module, once per link, once per pass. The
 	 *  context is built over one immutable document, so the memo is sound. */
-	readonly entryDatums: Map<Uuid, readonly SessionDatum[]>;
+	readonly entryDatums: Map<string, readonly SessionDatum[]>;
 	/** The module whose menu selection supplies each selectable datum. Kept
 	 * out of `SessionDatum` because it is projection provenance, never wire. */
 	readonly selectionSourceModules: WeakMap<SessionDatum, Uuid>;
+	/** The source form's selection whose id the same physical datum supplies when its
+	 * detail and worker-facing choices come from a second menu. */
+	readonly sourceFormSelections: WeakMap<SessionDatum, Uuid>;
 	readonly chainDatumIds: WeakMap<SessionDatum, string>;
 	readonly alignedSelectionSources: WeakMap<SessionDatum, Uuid>;
 	readonly tileGroupingSources: WeakMap<SessionDatum, Uuid>;
-	readonly datumIds: Map<Uuid, readonly EntryDatumId[]>;
+	readonly datumIds: Map<string, readonly EntryDatumId[]>;
 	/** Stable command identity for runtime projections; never emitted on wire.
 	 * A module command records the module whose screen its id names, which is
 	 * the parent for a submenu that shows its forms there; a form command
@@ -341,12 +349,13 @@ export function formLinkProjectionContext(
 	const formOrder: Record<string, readonly Uuid[]> = {};
 	const owningModules = new Map<Uuid, Uuid>();
 	for (const moduleUuid of moduleOrder) {
-		const formUuids = orderedFormUuids(doc, moduleUuid);
-		formOrder[moduleUuid] = formUuids;
-	}
-	for (const moduleUuid of moduleOrder)
-		for (const formUuid of formOrder[moduleUuid] ?? [])
+		const owned = orderedFormUuids(doc, moduleUuid);
+		formOrder[moduleUuid] = doc.modules[moduleUuid]?.formsFromMenu
+			? menuFormUuidsOf(doc, moduleUuid)
+			: owned;
+		for (const formUuid of owned)
 			if (!owningModules.has(formUuid)) owningModules.set(formUuid, moduleUuid);
+	}
 	const newCaseDatums =
 		opts.newCaseDatums ??
 		((formUuid: Uuid) =>
@@ -382,6 +391,7 @@ export function formLinkProjectionContext(
 			: { workerProperty: opts.workerProperty }),
 		entryDatums: new Map(),
 		selectionSourceModules: new WeakMap(),
+		sourceFormSelections: new WeakMap(),
 		chainDatumIds: new WeakMap(),
 		alignedSelectionSources: new WeakMap(),
 		tileGroupingSources: new WeakMap(),
@@ -491,7 +501,12 @@ function formIndexOf(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): number {
-	const index = (ctx.formOrder[moduleUuid] ?? []).indexOf(formUuid);
+	const source = ctx.owningModules.get(formUuid);
+	const index =
+		source !== undefined &&
+		(source === moduleUuid || ctx.formOrder[moduleUuid]?.includes(formUuid))
+			? (ctx.formOrder[source] ?? []).indexOf(formUuid)
+			: -1;
 	if (index < 0) {
 		throw new Error(
 			`Cannot project a form link: target form ${formUuid} is missing from module ${moduleUuid}`,
@@ -577,20 +592,6 @@ export function parentSelectModuleUuid(
 	return doc.modules[moduleUuid]?.parentCaseModuleUuid;
 }
 
-function parentSelectChain(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
-	const reverse: Uuid[] = [];
-	const seen = new Set<Uuid>([moduleUuid]);
-	let current = moduleUuid;
-	while (true) {
-		const parent = parentSelectModuleUuid(doc, current);
-		if (parent === undefined || seen.has(parent)) break;
-		seen.add(parent);
-		reverse.push(parent);
-		current = parent;
-	}
-	return reverse.reverse();
-}
-
 function selectableDatums(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
@@ -601,14 +602,19 @@ function selectableDatums(
 	// A catalog parent relationship does not make primary registration load a
 	// parent; explicit child writes get their computed datums separately below.
 	if (!CASE_LOADING_FORM_TYPES.has(formType)) return [];
-	const chain = parentSelectChain(doc, moduleUuid);
-	chain.push(moduleUuid);
-	if (chain.length === 0) return [];
-
+	const chain = basicMenuSelectionPath(doc, moduleUuid);
 	const datums: SessionDatum[] = [];
-	for (const [index, selectedModuleUuid] of chain.entries()) {
-		const selectedModule = doc.modules[selectedModuleUuid];
-		if (selectedModule === undefined || !selectedModule.caseType) continue;
+	for (const [
+		index,
+		{ source: selectedModuleUuid, detail: detailUuid },
+	] of chain.entries()) {
+		const selectedModule = menuWithInheritedCaseSettings(
+			doc,
+			selectedModuleUuid,
+		);
+		if (!selectedModule?.caseType) continue;
+		const detail = doc.modules[detailUuid];
+		if (!detail) continue;
 		const remaining = chain.length - index - 1;
 		const multiple = selectedModule.caseListConfig?.selection;
 		const id =
@@ -618,7 +624,7 @@ function selectableDatums(
 					? "case_id"
 					: `${"parent_".repeat(remaining)}id`;
 		const parentSelection = datums.at(-1);
-		const moduleIndex = moduleIndexOf(ctx, selectedModuleUuid);
+		const moduleIndex = moduleIndexOf(ctx, detailUuid);
 		// A case chosen earlier in this chain prints under the id its datum
 		// holds when the nodeset renders: after root alignment, which renames
 		// it, `refreshDatumReferences` renders again.
@@ -630,7 +636,8 @@ function selectableDatums(
 						(earlier) =>
 							earlier.maxSelectValue === undefined &&
 							(ctx.selectionSourceModules.get(earlier) === ref.module ||
-								ctx.alignedSelectionSources.get(earlier) === ref.module),
+								ctx.alignedSelectionSources.get(earlier) === ref.module ||
+								ctx.sourceFormSelections.get(earlier) === ref.module),
 					)?.id;
 		const datum = deriveCaseSelectionDatum({
 			datumId,
@@ -638,19 +645,15 @@ function selectableDatums(
 			id,
 			caseType: selectedModule.caseType,
 			moduleIndex,
-			caseListFilter: selectedModule.caseListConfig?.filter,
-			excludedOwnerIds: selectedModule.caseSearchConfig?.excludedOwnerIds,
-			expressions: moduleExpressionContexts(
-				doc,
-				selectedModule.uuid,
-				ctx.lookupNaming,
-			),
+			caseListFilter: detail.caseListConfig?.filter,
+			excludedOwnerIds: detail.caseSearchConfig?.excludedOwnerIds,
+			expressions: moduleExpressionContexts(doc, detail.uuid, ctx.lookupNaming),
 			lookupNaming: ctx.lookupNaming,
-			...(selectedModule.caseListConfig?.tile?.persistOnForms === true && {
+			...(detail.caseListConfig?.tile?.persistOnForms === true && {
 				persistentDetailId: `m${moduleIndex}_case_short`,
 			}),
-			...(selectedModuleUuid === moduleUuid &&
-			(selectedModule.caseListConfig?.columns ?? []).some(
+			...(index === chain.length - 1 &&
+			(detail.caseListConfig?.columns ?? []).some(
 				(column) => column.visibleInDetail !== false,
 			)
 				? { detailConfirm: true }
@@ -659,12 +662,14 @@ function selectableDatums(
 			...(multiple?.kind === "multiple" && {
 				maxSelectValue: multiple.maximum,
 			}),
-			...(moduleUsesInlineSearch(selectedModule) && {
+			...(moduleUsesInlineSearch(detail) && {
 				caseSource: "results:inline" as const,
 			}),
 		});
 		datum.parentSelection = parentSelection;
-		ctx.selectionSourceModules.set(datum, selectedModuleUuid);
+		ctx.selectionSourceModules.set(datum, detailUuid);
+		if (detailUuid !== selectedModuleUuid)
+			ctx.sourceFormSelections.set(datum, selectedModuleUuid);
 		ctx.chainDatumIds.set(datum, id);
 		datums.push(datum);
 	}
@@ -832,7 +837,8 @@ export function entrySessionDatums(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): readonly SessionDatum[] {
-	const held = ctx.entryDatums.get(formUuid);
+	const route = `${moduleUuid}/${formUuid}`;
+	const held = ctx.entryDatums.get(route);
 	if (held !== undefined) return held;
 	const form = doc.forms[formUuid];
 	const mod = doc.modules[moduleUuid];
@@ -852,7 +858,7 @@ export function entrySessionDatums(
 				formUuid,
 				plan,
 			);
-			ctx.entryDatums.set(formUuid, aligned);
+			ctx.entryDatums.set(route, aligned);
 			return aligned;
 		}
 	}
@@ -906,7 +912,7 @@ export function entrySessionDatums(
 			),
 		),
 	);
-	ctx.entryDatums.set(formUuid, aligned);
+	ctx.entryDatums.set(route, aligned);
 	return aligned;
 }
 
@@ -1052,9 +1058,13 @@ export function entryDatumIds(
 	formUuid?: Uuid,
 ): readonly EntryDatumId[] {
 	if (formUuid !== undefined) {
-		const held = ctx.datumIds.get(formUuid);
+		const held = ctx.datumIds.get(`${moduleUuid}/${formUuid}`);
 		if (held !== undefined) return held;
-		if (owningModuleOf(ctx, formUuid) !== moduleUuid) return [];
+		if (
+			owningModuleOf(ctx, formUuid) !== moduleUuid &&
+			!ctx.formOrder[moduleUuid]?.includes(formUuid)
+		)
+			return [];
 	}
 	const datums =
 		formUuid === undefined
@@ -1087,6 +1097,13 @@ export function entryDatumIds(
 		const grouping = ctx.tileGroupingSources.get(datum);
 		if (sessionDatumRequiresSelection(datum) && source !== undefined) {
 			refs.push({ kind: "selected-case", module: source });
+			const canonical = ctx.sourceFormSelections.get(datum);
+			if (
+				canonical !== undefined &&
+				canonical !== source &&
+				canonical !== aligned
+			)
+				refs.push({ kind: "selected-case", module: canonical });
 			if (aligned !== undefined && aligned !== source)
 				refs.push({ kind: "selected-case", module: aligned });
 		} else if (datum.id === USERCASE_DATUM_ID || datum.workerRecord === true) {
@@ -1117,7 +1134,8 @@ export function entryDatumIds(
 				: {}),
 		};
 	});
-	if (formUuid !== undefined) ctx.datumIds.set(formUuid, rows);
+	if (formUuid !== undefined)
+		ctx.datumIds.set(`${moduleUuid}/${formUuid}`, rows);
 	return rows;
 }
 
@@ -2307,7 +2325,10 @@ export function moduleFrameActionsBuildable(
 		const uuid = pending.pop();
 		if (uuid === undefined || modules.has(uuid)) continue;
 		modules.add(uuid);
-		for (const formUuid of doc.formOrder[uuid] ?? []) forms.add(formUuid);
+		for (const formUuid of (doc.modules[uuid]?.formsFromMenu
+			? menuFormUuidsOf(doc, uuid)
+			: doc.formOrder[uuid]) ?? [])
+			forms.add(formUuid);
 		const module = doc.modules[uuid];
 		if (!module) return false;
 		if (module.parentModuleUuid) pending.push(module.parentModuleUuid);
@@ -2595,14 +2616,20 @@ export function formLinkCarriedCaseGuards(
 		readonly datums?: readonly FormLinkDatum[];
 	},
 	projected: ReadonlyArray<{ readonly name: string; readonly xpath: WireExpr }>,
+	routeMenuUuid?: Uuid,
 ): WireExpr[] {
 	const guarded = new Set(
-		guardedLinkDatums(doc, sourceFormUuid, link).map((datum) =>
+		guardedLinkDatums(doc, sourceFormUuid, link, routeMenuUuid).map((datum) =>
 			datumRefKey(datum.name),
 		),
 	);
 	if (guarded.size === 0) return [];
-	const target = resolveFormLinkTarget(doc, sourceFormUuid, link.target);
+	const target = resolveFormLinkTarget(
+		doc,
+		sourceFormUuid,
+		link.target,
+		routeMenuUuid,
+	);
 	if (target === undefined) return [];
 	const caseTypes = new Map(
 		targetSelectionDatums(doc, ctx, target).map((datum) => [
@@ -2642,11 +2669,17 @@ function projectFormLinkFrame(
 	},
 	sourceDatums: readonly FrameDatum[],
 	sourceIds: ReadonlySet<string>,
+	routeMenuUuid?: Uuid,
 ): {
 	readonly frame: Omit<ProjectedFormLink, "role" | "xpath" | "uuid">;
 	readonly guards: readonly WireExpr[];
 } {
-	const resolved = resolveFormLinkTarget(doc, formUuid, link.target);
+	const resolved = resolveFormLinkTarget(
+		doc,
+		formUuid,
+		link.target,
+		routeMenuUuid,
+	);
 	if (resolved === undefined)
 		throw new Error(
 			"The after-submit link starts this form again, but the form is in no menu.",
@@ -2669,7 +2702,14 @@ function projectFormLinkFrame(
 			}),
 		};
 	});
-	const guards = formLinkCarriedCaseGuards(doc, ctx, formUuid, link, datums);
+	const guards = formLinkCarriedCaseGuards(
+		doc,
+		ctx,
+		formUuid,
+		link,
+		datums,
+		routeMenuUuid,
+	);
 	if (link.datums !== undefined) {
 		const manual = projectManualSearchLink(
 			target,
@@ -2734,6 +2774,7 @@ export function projectAfterSubmit(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	formUuid: Uuid,
+	routeMenuUuid?: Uuid,
 ): ProjectedAfterSubmit | undefined {
 	const form = doc.forms[formUuid];
 	const links = form?.formLinks;
@@ -2763,6 +2804,7 @@ export function projectAfterSubmit(
 			entry.link,
 			sourceDatums,
 			sourceIds,
+			routeMenuUuid,
 		);
 		if (entry.role === "otherwise") {
 			otherwiseLink = { uuid: entry.link.uuid, projected };

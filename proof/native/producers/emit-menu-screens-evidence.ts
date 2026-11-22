@@ -76,6 +76,7 @@ import AdmZip from "adm-zip";
 import { testUuid } from "../../../__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "../../../lib/__tests__/docHelpers";
 import type { CaseRow } from "../../../lib/case-store";
+import { twoMenus } from "../../../lib/commcare/__tests__/menuFormRoutesFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import {
@@ -2320,3 +2321,5 @@ if (loneFormStepBacks === 0)
 	throw new Error(
 		"No step back is read on a case-first screen that lists one form; give a document a case-first menu of one form.",
 	);
+
+write("listed-source-forms", twoMenus(), ROLES);

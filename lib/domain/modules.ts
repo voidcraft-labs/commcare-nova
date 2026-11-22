@@ -3028,7 +3028,22 @@ export type AlwaysOfferedRegistration = z.infer<
 	typeof alwaysOfferedRegistrationSchema
 >;
 
+const menuFormSourceSchema = z.strictObject({
+	menuUuid: uuidSchema,
+	excludedFormUuids: z.array(uuidSchema).min(1).optional(),
+	entryPoints: z
+		.array(
+			z.strictObject({ formUuid: uuidSchema, entryPoint: entryPointSchema }),
+		)
+		.min(1)
+		.optional(),
+});
+export type MenuFormSource = z.infer<typeof menuFormSourceSchema>;
+
 export const moduleSchema = z.strictObject({
+	/** A second route to the source menu's actual forms. The menu owns its appearance,
+	 * case views and links. Its source owns each form and its XForm namespace. */
+	formsFromMenu: menuFormSourceSchema.optional(),
 	entryPoint: entryPointSchema.optional(),
 	caseListEntryPoint: entryPointSchema.optional(),
 	uuid: uuidSchema,

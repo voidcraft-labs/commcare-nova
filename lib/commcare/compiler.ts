@@ -5,6 +5,10 @@ import {
 	profileUniqueId,
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
+import {
+	menuFormUuidsOf,
+	menuWithInheritedCaseSettings,
+} from "@/lib/domain/listedForms";
 import { buildEntryPointSuite } from "./entryPointSuite";
 import { basicActionsWriteWorker } from "./session";
 import type { TargetFacts } from "./targetFacts";
@@ -558,9 +562,14 @@ export function compileCczParts(
 	for (let mIdx = 0; mIdx < hqModules.length; mIdx++) {
 		const hqMod = hqModules[mIdx];
 		const moduleUuid = sortedModuleUuids[mIdx];
-		const formUuids = orderedFormUuids(doc, moduleUuid);
-
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
+		if (!mod) throw new Error("The menu or its source is missing.");
+		const sourceUuid = mod.formsFromMenu?.menuUuid ?? moduleUuid;
+		const sourceIndex = moduleIndexOf(linkContext, sourceUuid);
+		const formUuids = orderedFormUuids(doc, sourceUuid);
+		const visible = mod.formsFromMenu
+			? new Set(menuFormUuidsOf(doc, moduleUuid))
+			: undefined;
 		const expressions = moduleExpressionContexts(doc, moduleUuid, lookupNaming);
 		const modName = mod.name;
 		// The hidden module of a no-matches form, or the host that offers one.
@@ -572,8 +581,8 @@ export function compileCczParts(
 		const caseType =
 			synthetic === undefined
 				? moduleCaseTypeForActions(doc, moduleUuid)
-				: hqMod.case_type;
-		const hqForms = hqMod.forms;
+				: (hqMod.case_type ?? "");
+		const hqForms = hqModules[sourceIndex].forms;
 		const caseSearchConfig = effectiveCaseSearchConfig(mod);
 		const noMatches = plan.caseListRegistrationOf.get(moduleUuid);
 		// Owner exclusion belongs to case availability, not to the presence of
@@ -823,6 +832,7 @@ export function compileCczParts(
 		for (let fIdx = 0; fIdx < hqForms.length; fIdx++) {
 			const hqForm = hqForms[fIdx];
 			const formUuid = formUuids[fIdx];
+			if (visible !== undefined && !visible.has(formUuid)) continue;
 			// Form type + post-submit destination live only on the domain
 			// doc. The HQ wire shape stores a coerced `post_form_workflow`
 			// string whose mapping is lossy (e.g. "app_home" and an absent
@@ -860,10 +870,10 @@ export function compileCczParts(
 			const xmlns = hqForm.xmlns;
 			const uniqueId = hqForm.unique_id;
 			const cmdId = `m${mIdx}-f${fIdx}`;
-			const filePath = formMemberPath(mIdx, fIdx);
+			const filePath = formMemberPath(sourceIndex, fIdx);
 
-			appStrings[`forms.m${mIdx}f${fIdx}`] = formName;
-			appStringUnits[`forms.m${mIdx}f${fIdx}`] = makeTranslationUnitId(
+			appStrings[`forms.m${sourceIndex}f${fIdx}`] = formName;
+			appStringUnits[`forms.m${sourceIndex}f${fIdx}`] = makeTranslationUnitId(
 				"form",
 				formUuid,
 				"name",
@@ -871,7 +881,8 @@ export function compileCczParts(
 			// HQ's build writes every form's submit label, "Submit" where none
 			// is set, which Nova never sets. Nova's own system copy, so every
 			// language takes it verbatim.
-			appStrings[formSubmitLabelLocaleId(mIdx, fIdx)] = FORM_SUBMIT_LABEL;
+			appStrings[formSubmitLabelLocaleId(sourceIndex, fIdx)] =
+				FORM_SUBMIT_LABEL;
 
 			// Build-time injection. The emitter produces a clean XForm (no case
 			// blocks, no meta — those are CCHQ render-time artifacts the HQ-upload
@@ -891,7 +902,8 @@ export function compileCczParts(
 			// the `auto_gps_capture` `expandDoc` writes under the same condition,
 			// and the form's data node carries the sequence as its version, as
 			// HQ's build stamps its own form version (`FormBase.add_stuff_to_xform`).
-			let xform = attachments[`${uniqueId}.xml`];
+			let xform =
+				visible === undefined ? attachments[`${uniqueId}.xml`] : undefined;
 			// An advanced form's blocks are `_create_casexml_advanced`'s, in its
 			// place (`XForm.add_case_and_meta_advanced`).
 			if (xform) {
@@ -947,7 +959,12 @@ export function compileCczParts(
 			// Dependency declarations come from the exact rendered datum, stack,
 			// command, and referenced detail trees. The independent suite oracle
 			// checks their final XML scopes after the entry has been assembled.
-			const projectedLinks = projectAfterSubmit(doc, linkContext, formUuid);
+			const projectedLinks = projectAfterSubmit(
+				doc,
+				linkContext,
+				formUuid,
+				moduleUuid,
+			);
 			// The static frame the stack writes: the after-submit of a form
 			// without destinations, else a built-in otherwise's fallback.
 			const frameDestination =
@@ -1024,6 +1041,7 @@ export function compileCczParts(
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
 				formIndex: fIdx,
+				sourceMenuIndex: sourceIndex,
 				formType,
 				postSubmit,
 				caseType: caseType || undefined,
@@ -1086,18 +1104,22 @@ export function compileCczParts(
 				}
 			}
 
-			files[filePath] = xform;
+			if (visible === undefined) {
+				if (xform === undefined)
+					throw new Error("The source form has no XForm attachment.");
+				files[filePath] = xform;
 
-			// XForm resource declaration in suite.xml. Constructed via
-			// nested `el(...)` calls — the serializer escapes the file
-			// path and version once at render time.
-			suiteResources.push(
-				el("xform", {}, [
-					el("resource", { id: filePath, version: String(sequence) }, [
-						el("location", { authority: "local" }, [text(`./${filePath}`)]),
+				// XForm resource declaration in suite.xml. Constructed via
+				// nested `el(...)` calls — the serializer escapes the file
+				// path and version once at render time.
+				suiteResources.push(
+					el("xform", {}, [
+						el("resource", { id: filePath, version: String(sequence) }, [
+							el("location", { authority: "local" }, [text(`./${filePath}`)]),
+						]),
 					]),
-				]),
-			);
+				);
+			}
 
 			// Form menu-command media: the entry's `<command>` display gains
 			// `<text form="image|audio">` media locales (icon / audio label)
@@ -1106,8 +1128,8 @@ export function compileCczParts(
 			// (the jr:// path locales) merge into the table the suite oracle
 			// resolves `<locale id>` against.
 			const formNav = buildNavMenuNode(
-				`forms.m${mIdx}f${fIdx}`,
-				`forms.m${mIdx}f${fIdx}`,
+				`forms.m${sourceIndex}f${fIdx}`,
+				`forms.m${sourceIndex}f${fIdx}`,
 				form.icon,
 				form.audioLabel,
 				assets,

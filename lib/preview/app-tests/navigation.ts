@@ -12,6 +12,10 @@ import {
 	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	menuWithInheritedCaseSettings,
+	routeContainsForm,
+} from "@/lib/domain/listedForms";
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
@@ -263,7 +267,7 @@ export function appTestForms(
 	loadingOnly = false,
 ) {
 	const { doc, identity, lookup } = context;
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	/* A form's row shows while every menu whose condition it carries does: its
 	 * own, and its parent where its menu shows its forms above. */
 	const contributor = previewContributorVisibility(
@@ -507,7 +511,7 @@ export function enterAppTestForm(
 	if (
 		entry?.visibility !== "shown" ||
 		!entry.form ||
-		!(context.doc.formOrder[moduleUuid] ?? []).includes(formUuid)
+		!routeContainsForm(context.doc, moduleUuid, formUuid)
 	)
 		throw new AppTestActionError(
 			"This form is not available on the current menu.",

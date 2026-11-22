@@ -3520,3 +3520,7 @@ ordinary choice widget can appear unanswered until another path needs the
 selection. A leading empty multi-select token fails during initialization.
 The pinned evidence and retained regression are recorded in
 `docs/research/inline-choice-starting-values.md`.
+
+## Forms listed in another menu
+
+One form may appear under several menus. A route refers to the source menu and forms by UUID. Both menus open the same form identity, namespace, edits and case writes. A route can exclude source forms and own separate deep links, case details and search. Child routes follow the source hierarchy while retaining their own settings. HQ `models/modules.py::ShadowModule`, `views/utils.py::handle_shadow_child_modules`, `suite_xml/sections/entries.py::get_datum_meta_module` and `suite_xml/post_process/endpoints.py` define the wire behavior. The reader binds stored exclusions and endpoint references to real source IDs from the application API and keeps those deployment identities through subsequent reads.

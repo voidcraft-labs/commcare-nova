@@ -130,7 +130,9 @@ function noFormsOrCaseList(
 	// must NOT be gated on caseType: a typeless, formless menu is just as
 	// invalid, and Nova would emit the exact wire CommCare then refuses to
 	// build.
-	if (moduleHasCaseListMenuItem(mod) || forms.length > 0) return [];
+	// A shared menu needs a source. HQ’s ShadowModuleValidator also accepts a route with every form hidden.
+	if (mod.formsFromMenu || moduleHasCaseListMenuItem(mod) || forms.length > 0)
+		return [];
 	// One finding, two contexts: creating a module without a form, and removing
 	// a module's LAST form. So the wording can't just say "add a form" — that
 	// reads backwards when you're deleting. It states the rule, then names the

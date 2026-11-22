@@ -25,6 +25,7 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	type ModuleHierarchySource,
 	moduleParent,
@@ -100,7 +101,7 @@ export function authoringScreenEntries(
 			moduleUuid,
 		}));
 	const { moduleUuid } = screen;
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (mod === undefined) return [];
 	return [
 		...menuFormUuidsOf(doc, moduleUuid).map(
@@ -389,7 +390,7 @@ export function previewModuleOwnVisibility(
 	},
 ): ReadonlyMap<Uuid, NavigationItemVisibility> {
 	return new LazyModuleVisibility(doc.moduleOrder, (uuid) => {
-		const mod = doc.modules[uuid];
+		const mod = menuWithInheritedCaseSettings(doc, uuid);
 		return args.authoring || mod === undefined
 			? "shown"
 			: moduleDisplayVisibility({
@@ -576,7 +577,7 @@ export function previewMenuCaseContext(
 	moduleUuid: Uuid,
 	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
 ): PreviewMenuCaseContext {
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (!mod) return emptyCaseContext();
 
 	const direct = matchingSelection(selections[moduleUuid], mod.caseType);
@@ -586,7 +587,7 @@ export function previewMenuCaseContext(
 			? undefined
 			: matchingSelection(
 					selections[structuralParentUuid],
-					doc.modules[structuralParentUuid]?.caseType,
+					menuWithInheritedCaseSettings(doc, structuralParentUuid)?.caseType,
 				);
 	const inherited =
 		structuralParentSelection !== undefined &&
@@ -715,7 +716,7 @@ export function previewCaseDescendantModuleUuids(
 		if (!changed) break;
 	}
 	return doc.moduleOrder.filter((uuid) => {
-		const caseType = doc.modules[uuid]?.caseType;
+		const caseType = menuWithInheritedCaseSettings(doc, uuid)?.caseType;
 		return caseType !== undefined && descendants.has(caseType);
 	});
 }
@@ -802,7 +803,7 @@ export function previewCaseListContinuation(
 		readonly selectsForParentRequest?: boolean;
 	} = {},
 ): PreviewCaseListContinuation {
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (request.selectsForParentRequest === true) return "menu-selection";
 	const hasChildren = moduleHasChildren(doc, moduleUuid);
 	const listingScreen = menuScreenOf(doc, moduleUuid);
@@ -1187,7 +1188,7 @@ export function caseListMenuEntryOf(
 	doc: MenuScreenSource,
 	moduleUuid: Uuid,
 ): PreviewCaseListMenuEntry | undefined {
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (
 		mod === undefined ||
 		mod.caseType === undefined ||

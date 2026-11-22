@@ -703,10 +703,29 @@ export interface HqAdvancedModule<XPath = string, LinkXPath = XPath>
 	product_details: DetailPair<XPath>;
 }
 
-/** Either kind of menu Nova writes. */
+/** A menu with its own navigation and details that lists a source menu's forms. */
+export interface HqSharedFormsModule<XPath = string>
+	extends Omit<HqModuleBase<XPath>, "case_type"> {
+	case_type?: never;
+	doc_type: "ShadowModule";
+	module_type: "shadow";
+	shadow_module_version: 2;
+	source_module_id: string;
+	excluded_form_ids: string[];
+	form_session_endpoints: {
+		doc_type: "ShadowFormEndpoint";
+		form_id: string;
+		session_endpoint_id: string;
+	}[];
+	forms: [];
+	parent_select: HqModule<XPath>["parent_select"];
+}
+
+/** Every kind of menu Nova writes. */
 export type HqAnyModule<XPath = string, LinkXPath = XPath> =
 	| HqModule<XPath, LinkXPath>
-	| HqAdvancedModule<XPath, LinkXPath>;
+	| HqAdvancedModule<XPath, LinkXPath>
+	| HqSharedFormsModule<XPath>;
 
 /** Either kind of form Nova writes. */
 export type HqAnyForm<XPath = string, LinkXPath = XPath> =
@@ -801,6 +820,6 @@ export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	 * carries the target's other slugs beside them.
 	 */
 	add_ons?: Record<string, boolean>;
-	modules: (HqModule<XPath, LinkXPath> | HqAdvancedModule<XPath, LinkXPath>)[];
+	modules: HqAnyModule<XPath, LinkXPath>[];
 	_attachments: Record<string, string>;
 }

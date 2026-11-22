@@ -294,7 +294,7 @@ function RailFormButton({
 		makeTranslationUnitId("form", formUuid, "name"),
 	);
 	const onSelect = useAppTreeSelection();
-	const isSelected = useIsFormSelected(formUuid);
+	const isSelected = useIsFormSelected(formUuid, moduleUuid);
 	if (!form) return null;
 	const formName = localizedFormName ?? form.name;
 	return (

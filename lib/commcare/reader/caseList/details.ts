@@ -87,6 +87,10 @@ import { readTile, type TileReading } from "./tile";
 const A = "menus-and-case-lists/";
 
 export const DETAIL_CLAIMS = defineClaims("caseList.details", {
+	pairShared: take(
+		`${A}detail-columns-short`,
+		"schema:ShadowModule.case_details",
+	),
 	pairModule: take(`${A}detail-columns-short`, "schema:Module.case_details"),
 	pairAdvanced: take(
 		`${A}detail-columns-short`,
@@ -738,7 +742,12 @@ function listNeeded(
 		const caseList = module.json.peek("case_list");
 		if (isJsonObject(caseList) && caseList.show === true) return "needed";
 	}
-	for (const form of module.forms) {
+	// HQ delegates requires_case_details to the complete source, including excluded forms.
+	const source = module.module.formsFromMenu;
+	const owner = source
+		? ctx.draft.modules.find((menu) => menu.uuid === source.menuUuid)
+		: module;
+	for (const form of owner?.forms ?? []) {
 		const requires = form.json.peek("requires");
 		if (requires === "case") return "needed";
 		const actions = form.json.peek("actions");
@@ -1385,7 +1394,11 @@ export function readCaseDetails(
 	const pair = module.json.object(
 		"case_details",
 		"DetailPair",
-		module.docType === "AdvancedModule" ? D.pairAdvanced : D.pairModule,
+		module.docType === "ShadowModule"
+			? D.pairShared
+			: module.docType === "AdvancedModule"
+				? D.pairAdvanced
+				: D.pairModule,
 	);
 	const listPlace = caseListPlace(module, "case-list");
 	const detailPlace = caseListPlace(module, "case-detail");

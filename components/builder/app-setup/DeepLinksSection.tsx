@@ -128,7 +128,7 @@ export function DeepLinksSection() {
 							onCommit={(id) => model.update(point, { id })}
 						/>
 					</div>
-					{selected.target.kind === "form" && (
+					{selected.canSkipDisplayConditions && (
 						<div className="space-y-2">
 							<div className="flex items-center gap-3">
 								<Switch

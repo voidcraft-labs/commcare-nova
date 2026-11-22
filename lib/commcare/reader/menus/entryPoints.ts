@@ -19,11 +19,12 @@ import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { whereText } from "../place";
 import { rawModules } from "./modules";
+import type { SharedFormLink } from "./sharedForms";
 
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
-type MenuClass = "Module" | "AdvancedModule";
+type MenuClass = DraftModule["docType"];
 type FormClass = "Form" | "AdvancedForm";
 
 function byClass<C extends string, U extends Claim["use"]>(
@@ -37,10 +38,38 @@ function byClass<C extends string, U extends Claim["use"]>(
 	) as Record<C, Claim<U>>;
 }
 
-const MENUS: readonly MenuClass[] = ["Module", "AdvancedModule"];
+const MENUS: readonly MenuClass[] = [
+	"Module",
+	"AdvancedModule",
+	"ShadowModule",
+];
 const FORMS: readonly FormClass[] = ["Form", "AdvancedForm"];
 
 const ENTRY_POINTS = {
+	sharedFormId: take(
+		`${M}/shadowmodule-form-session-endpoints-non-empty`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedFormNotSlug: refuse(
+		`${M}/module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedFormWhitespace: refuse(
+		`${M}/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedMenuWhitespace: refuse(
+		`${M}/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding`,
+		"schema:ShadowModule.session_endpoint_id",
+	),
+	sharedFormDuplicate: refuse(
+		`${M}/two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
+	sharedFirstMenu: refuse(
+		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		"schema:ShadowFormEndpoint.session_endpoint_id",
+	),
 	menu: byClass(MENUS, take, `${M}/session-endpoint-id`, "session_endpoint_id"),
 	caseList: byClass(
 		MENUS,
@@ -181,7 +210,10 @@ interface StoredId {
 /** One deep link read: its owner, and the slot it stands in. */
 interface ReadEntryPoint {
 	readonly owner: DraftModule | DraftForm;
-	readonly slot: "session_endpoint_id" | "case_list_session_endpoint_id";
+	readonly slot:
+		| "session_endpoint_id"
+		| "case_list_session_endpoint_id"
+		| "form_session_endpoints";
 }
 
 /** The deep links each reading read, for the gate's rule over the document. */
@@ -192,7 +224,11 @@ const READ = new WeakMap<ReadContext, Map<Uuid, ReadEntryPoint>>();
  * where `slugify` would change it or another link shares it, and read into
  * its entry point otherwise. A folded hidden menu stores none.
  */
-export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
+export function readEntryPoints(
+	ctx: ReadContext,
+	app: DraftApp,
+	sharedFormLinks: readonly SharedFormLink[],
+): void {
 	const folded = new Set(app.foldedMenus.map((one) => one.menu));
 	const stored = rawModules(ctx);
 	const read = new Map<Uuid, ReadEntryPoint>();
@@ -249,7 +285,12 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 					}
 				},
 				notSlug: () =>
-					json.refuse("session_endpoint_id", ENTRY_POINTS.menuNotSlug[cls]),
+					json.refuse(
+						"session_endpoint_id",
+						cls === "ShadowModule" && menuId.trim() !== menuId
+							? ENTRY_POINTS.sharedMenuWhitespace
+							: ENTRY_POINTS.menuNotSlug[cls],
+					),
 				shared: (place) =>
 					json.refuse(
 						"session_endpoint_id",
@@ -308,6 +349,47 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 						),
 				});
 		}
+	}
+	for (const { route, form, json, id } of sharedFormLinks) {
+		ids.push({
+			id,
+			place: route.place,
+			form: false,
+			read: () => {
+				json.take("session_endpoint_id", ENTRY_POINTS.sharedFormId, textOf)
+					.value;
+				const uuid = mint(
+					externalKey.entryPoint("shared-form", route.uniqueId, form.xmlns),
+					route.place,
+					"schema:ShadowFormEndpoint.session_endpoint_id",
+				);
+				if (!uuid) return;
+				ctx.writeDraft(() => {
+					const source = route.module.formsFromMenu;
+					if (!source) return;
+					source.entryPoints ??= [];
+					source.entryPoints.push({
+						formUuid: form.uuid,
+						entryPoint: { uuid, id },
+					});
+				});
+				read.set(uuid, { owner: route, slot: "form_session_endpoints" });
+			},
+			notSlug: () =>
+				json.refuse(
+					"session_endpoint_id",
+					id.trim() !== id
+						? ENTRY_POINTS.sharedFormWhitespace
+						: ENTRY_POINTS.sharedFormNotSlug,
+				),
+			shared: (place) =>
+				json.refuse(
+					"session_endpoint_id",
+					ENTRY_POINTS.sharedFormDuplicate,
+					undefined,
+					place,
+				),
+		});
 	}
 	for (const module of app.modules)
 		for (const form of module.forms) {
@@ -432,9 +514,11 @@ export function settleEntryPoints(ctx: ReadContext): void {
 			ctx.accounting.finding(
 				"form" in owner
 					? ENTRY_POINTS.sharedFirstMenuCase[owner.docType]
-					: slot === "session_endpoint_id"
-						? ENTRY_POINTS.menuSharedFirstMenuCase[owner.docType]
-						: ENTRY_POINTS.caseListSharedFirstMenuCase[owner.docType],
+					: slot === "form_session_endpoints"
+						? ENTRY_POINTS.sharedFirstMenu
+						: slot === "session_endpoint_id"
+							? ENTRY_POINTS.menuSharedFirstMenuCase[owner.docType]
+							: ENTRY_POINTS.caseListSharedFirstMenuCase[owner.docType],
 				owner.place,
 			);
 		else

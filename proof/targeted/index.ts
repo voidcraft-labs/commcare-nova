@@ -93,6 +93,7 @@ import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
 import { labelSort } from "./documents/labelSort";
+import { listedForms } from "./documents/listedForms";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
@@ -218,6 +219,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
 	hiddenFromMenu,
+	listedForms,
 	listFirstPlaces,
 	sessionReads,
 	expressionRenames,

@@ -1078,6 +1078,8 @@ export function deriveFormLinkStack(
 export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formXmlns: string;
 	readonly formIndex: number;
+	/** The form title is shared by every menu that lists the same form. */
+	readonly sourceMenuIndex?: number;
 	readonly postSubmit: PostSubmitDestination;
 	/**
 	 * The form's projected after-submit (`formLinkProjection.ts::
@@ -1136,7 +1138,7 @@ export function deriveEntryDefinition(
 		projectedSessionDatums,
 	} = args;
 	const commandId = `m${moduleIndex}-f${formIndex}`;
-	const localeId = `forms.m${moduleIndex}f${formIndex}`;
+	const localeId = `forms.m${args.sourceMenuIndex ?? moduleIndex}f${formIndex}`;
 
 	// Every datum field is already on `args`, so this forwards the whole
 	// object rather than re-listing ten arguments in order. That re-listing

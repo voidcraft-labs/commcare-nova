@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { BlueprintDoc } from "./blueprint";
 import { type FreeNameOffer, freeNameClause, uniqueSlug } from "./idSlug";
+import { menuFormUuidsOf } from "./listedForms";
 import { ownRecordValue } from "./records";
 import { uuidSchema } from "./uuid";
 
@@ -95,6 +96,10 @@ export function entryPointAt(
 ): FormEntryPoint | undefined {
 	const module = ownRecordValue(doc.modules, target.moduleUuid);
 	if (!module) return;
+	if (target.kind === "form" && module.formsFromMenu)
+		return module.formsFromMenu.entryPoints?.find(
+			(row) => row.formUuid === target.formUuid,
+		)?.entryPoint;
 	if (target.kind === "form")
 		return doc.formOrder[target.moduleUuid]?.includes(target.formUuid)
 			? ownRecordValue(doc.forms, target.formUuid)?.entryPoint
@@ -103,6 +108,20 @@ export function entryPointAt(
 		? module.entryPoint
 		: module.caseListEntryPoint;
 }
+/** A route can keep its form link while the worker temporarily cannot open it. */
+export function listedFormLinkPause(
+	doc: BlueprintDoc,
+	target: EntryPointTarget,
+): string | undefined {
+	if (target.kind !== "form") return;
+	const route = doc.modules[target.moduleUuid];
+	if (!route?.formsFromMenu) return;
+	if (!route.entryPoint)
+		return `Add a deep link for “${route.name}” to turn on its form links.`;
+	if (!menuFormUuidsOf(doc, route.uuid).includes(target.formUuid))
+		return `Show “${doc.forms[target.formUuid]?.name ?? "this form"}” in “${route.name}” to turn on its link.`;
+}
+
 export function entryPointInventory(
 	doc: BlueprintDoc,
 ): EntryPointInventoryItem[] {
@@ -120,8 +139,15 @@ export function entryPointInventory(
 				target: { kind: "case-list", moduleUuid },
 				entryPoint: module.caseListEntryPoint,
 			});
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const entryPoint = ownRecordValue(doc.forms, formUuid)?.entryPoint;
+		const forms = module.formsFromMenu
+			? (doc.formOrder[module.formsFromMenu.menuUuid] ?? [])
+			: (doc.formOrder[moduleUuid] ?? []);
+		for (const formUuid of forms) {
+			const entryPoint = module.formsFromMenu
+				? module.formsFromMenu.entryPoints?.find(
+						(row) => row.formUuid === formUuid,
+					)?.entryPoint
+				: ownRecordValue(doc.forms, formUuid)?.entryPoint;
 			if (entryPoint)
 				items.push({
 					target: { kind: "form", moduleUuid, formUuid },

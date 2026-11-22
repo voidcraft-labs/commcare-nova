@@ -17,7 +17,11 @@
 
 import { afterSubmitCanGoHome } from "./afterSubmit";
 import type { BlueprintDoc } from "./blueprint";
-import { type EntryPointTarget, entryPointInventory } from "./entryPoints";
+import {
+	type EntryPointTarget,
+	entryPointInventory,
+	listedFormLinkPause,
+} from "./entryPoints";
 import {
 	type ExpressionContext,
 	type LookupTypeIndex,
@@ -380,7 +384,8 @@ export function platformFeatureUses(
 	}
 
 	if (wanted("entry-points"))
-		for (const item of entryPointInventory(doc))
+		for (const item of entryPointInventory(doc)) {
+			if (listedFormLinkPause(doc, item.target)) continue;
 			out.push(
 				slotUse(
 					"entry-points",
@@ -388,6 +393,7 @@ export function platformFeatureUses(
 					"entryPoint",
 				),
 			);
+		}
 	return out;
 }
 

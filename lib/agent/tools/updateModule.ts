@@ -49,7 +49,14 @@ import {
 	setModuleHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { moduleCaseTypeChangeMutations } from "@/lib/doc/formTypeMutations";
-import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
+import {
+	caseTypeCatalogMutations,
+	listedFormVisibilityMutation,
+} from "@/lib/doc/scaffolds";
+import {
+	changeListedMenuSource,
+	withListedMenuHierarchy,
+} from "@/lib/doc/sharedMenuHierarchy";
 import {
 	alwaysOfferedRegistrationOf,
 	asUuid,
@@ -95,6 +102,22 @@ import type {
 
 export const updateModuleInputSchema = moduleAddressSchema
 	.extend({
+		forms_from_menu: z
+			.strictObject({ previousMenuUuid: uuidSchema, menuUuid: uuidSchema })
+			.optional()
+			.describe(
+				"Change which source supplies forms for this menu. The previous menu identifies the choice you inspected.",
+			),
+		listed_form: z
+			.strictObject({
+				sourceMenuUuid: uuidSchema,
+				formUuid: uuidSchema,
+				included: z.boolean(),
+			})
+			.optional()
+			.describe(
+				"Show or hide one form in a menu listing another menu’s forms. Edits to the form are shared. Its deep link pauses while it is hidden.",
+			),
 		parentCaseModuleUuid: uuidSchema
 			.nullable()
 			.optional()
@@ -196,6 +219,8 @@ export const updateModuleTool = {
 		try {
 			if (
 				name == null &&
+				input.listed_form === undefined &&
+				input.forms_from_menu === undefined &&
 				case_type == null &&
 				displayCondition === undefined &&
 				hiddenFromMenu === undefined &&
@@ -224,6 +249,36 @@ export const updateModuleTool = {
 			}
 			const { moduleUuid, module: mod } = address;
 
+			const sourceChange =
+				input.forms_from_menu &&
+				changeListedMenuSource(
+					doc,
+					moduleUuid,
+					input.forms_from_menu.previousMenuUuid,
+					input.forms_from_menu.menuUuid,
+				);
+			if (sourceChange && !sourceChange.ok)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: sourceChange.message },
+				};
+
+			const visibility =
+				input.listed_form &&
+				listedFormVisibilityMutation(
+					doc,
+					moduleUuid,
+					input.listed_form.sourceMenuUuid,
+					input.listed_form.formUuid,
+					input.listed_form.included,
+				);
+			if (input.listed_form && !visibility)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: "Choose a form from this menu's current source." },
+				};
 			/* The case list menu item lists the module's cases, so it needs the
 			 * case type this call leaves; and a menu with no forms is its case
 			 * list, so the item is how it opens. */
@@ -348,6 +403,8 @@ export const updateModuleTool = {
 			 * chokepoint. Catalog writes lead so the type is present when the
 			 * column resolves. */
 			const mutations = [
+				...(sourceChange?.mutations ?? []),
+				...(visibility ? [visibility] : []),
 				...(parentCaseModuleUuid === undefined
 					? []
 					: [updateModuleMutation(moduleUuid, { parentCaseModuleUuid })]),
@@ -427,7 +484,7 @@ export const updateModuleTool = {
 			];
 			const commit = await guardedMutate(
 				ctx,
-				mutations,
+				withListedMenuHierarchy(doc, mutations),
 				`module:${moduleUuid}`,
 			);
 			if (!commit.ok) {

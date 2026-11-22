@@ -47,6 +47,7 @@ import {
 } from "./modules";
 import { shownBlockMedia } from "./navMedia";
 import { readCaseListRegistration, settleRegistrations } from "./registration";
+import { readSharedFormMenus } from "./sharedForms";
 
 export { registerLinkExpressions } from "./afterSubmit";
 
@@ -68,10 +69,11 @@ const CLAIMS = defineClaims("menus", {
 /** Every menu's registration block, its own navigation, each form's
  *  workflow word and every deep link, in that order. */
 export function readMenus(ctx: ReadContext, app: DraftApp): void {
+	const links = readSharedFormMenus(ctx, app);
 	readCaseListRegistration(ctx, app);
 	readModules(ctx, app);
 	readAfterSubmit(ctx, app);
-	readEntryPoints(ctx, app);
+	readEntryPoints(ctx, app, links);
 }
 
 /**

@@ -422,6 +422,7 @@ function propertyPatch(
 // would clobber a concurrent collection edit. An explicit config removal still
 // travels as `updateModule{caseListConfig:null}`.
 const MODULE_PATCH_SKIP = new Set<string>([
+	"formsFromMenu",
 	"entryPoint",
 	"caseListEntryPoint",
 	"icon",
@@ -626,6 +627,7 @@ function* diffGranularSteps(
 	const renames: Mutation[] = [];
 	const converts: Mutation[] = [];
 	const updates: Mutation[] = [];
+	const listedFormLinkRemoves: Mutation[] = [];
 	const media: Mutation[] = [];
 	const orders: Mutation[] = [];
 	// Granular collection edits — case-list columns / search-inputs /
@@ -846,6 +848,16 @@ function* diffGranularSteps(
 				{ kind: "case-list", moduleUuid: uuid },
 			),
 		);
+		const sharedEdits = diffListedFormSettings(
+			uuid,
+			prevModule.formsFromMenu,
+			nextModule.formsFromMenu,
+			next,
+		);
+		for (const edit of sharedEdits) {
+			if (edit.kind === "removeEntryPoint") listedFormLinkRemoves.push(edit);
+			else updates.push(edit);
+		}
 		const p = prevModule as unknown as Record<string, unknown>;
 		const n = nextModule as unknown as Record<string, unknown>;
 		if (p.name !== n.name) {
@@ -1052,6 +1064,7 @@ function* diffGranularSteps(
 	// demote a root while any child remains.
 	const structural: Mutation[] = [
 		...appLevel,
+		...listedFormLinkRemoves,
 		...rootModuleAdds,
 		...moduleStructure.promotions,
 		...childModuleAdds,
@@ -3460,4 +3473,65 @@ function diffEntryPoint(
 	return Object.keys(patch).length
 		? [{ kind: "updateEntryPoint", entryPointUuid: before.uuid, patch }]
 		: [];
+}
+
+/** Shared forms and deep links have one owner per (route, form). Source changes
+ * retain the menu identity while explicit per-form edits merge across authors. */
+function diffListedFormSettings(
+	moduleUuid: Uuid,
+	before: Module["formsFromMenu"],
+	after: Module["formsFromMenu"],
+	next: BlueprintDoc,
+): Mutation[] {
+	if (!before && !after) return [];
+	const edits: Mutation[] = [];
+	const changedSource = before?.menuUuid !== after?.menuUuid;
+	const beforeLinks = new Map(
+		before?.entryPoints?.map((row) => [row.formUuid, row.entryPoint]),
+	);
+	const afterLinks = new Map(
+		after?.entryPoints?.map((row) => [row.formUuid, row.entryPoint]),
+	);
+	if (changedSource)
+		edits.push({
+			kind: "updateModule",
+			uuid: moduleUuid,
+			patch: { formsFromMenu: after ? { menuUuid: after.menuUuid } : null },
+		});
+	for (const formUuid of new Set([
+		...beforeLinks.keys(),
+		...afterLinks.keys(),
+	])) {
+		const target = { kind: "form" as const, moduleUuid, formUuid };
+		const prior = beforeLinks.get(formUuid);
+		const following = afterLinks.get(formUuid);
+		if (changedSource && prior && following) {
+			// The intermediate form move leaves the old source, dropping its listed links.
+			// Each external link that still opens the same form by the same route survives.
+			edits.push(
+				...diffEntryPoint(prior, undefined, target),
+				...diffEntryPoint(undefined, following, target),
+			);
+		} else {
+			edits.push(...diffEntryPoint(prior, following, target));
+		}
+	}
+	if (after) {
+		const oldExcluded = new Set(changedSource ? [] : before?.excludedFormUuids);
+		const newExcluded = new Set(after.excludedFormUuids);
+		for (const formUuid of next.formOrder[after.menuUuid] ?? []) {
+			if (oldExcluded.has(formUuid) !== newExcluded.has(formUuid))
+				edits.push({
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {},
+					listedForm: {
+						sourceUuid: after.menuUuid,
+						formUuid,
+						included: !newExcluded.has(formUuid),
+					},
+				});
+		}
+	}
+	return edits;
 }

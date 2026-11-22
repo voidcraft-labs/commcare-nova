@@ -8,6 +8,7 @@ import {
 	menuScreenOf,
 	menuTileScreenOf,
 } from "@/lib/domain";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
 import type { CaseDatabaseSnapshot } from "./engine/xpathInstances";
@@ -343,6 +344,7 @@ export async function settleAfterSubmitRoute(args: {
 }
 
 export function afterSubmitRoute(args: {
+	readonly sourceModuleUuid?: Uuid;
 	readonly previousTask?: () => PreviousTask;
 	readonly choice: AfterSubmitFrameChoice;
 	/** The submitted form, which `this-form` names. */
@@ -402,7 +404,12 @@ export function afterSubmitRoute(args: {
 			reason: "The destination names no link.",
 		};
 	const { link } = entry;
-	const target = resolveFormLinkTarget(doc, args.sourceFormUuid, link.target);
+	const target = resolveFormLinkTarget(
+		doc,
+		args.sourceFormUuid,
+		link.target,
+		args.sourceModuleUuid,
+	);
 	if (target === undefined)
 		return {
 			kind: "unresolvable",
@@ -454,7 +461,7 @@ export function afterSubmitRoute(args: {
 	if (target.type === "module") return moduleRoute(target.moduleUuid);
 	if (
 		doc.forms[target.formUuid] === undefined ||
-		!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)
+		!routeContainsForm(doc, target.moduleUuid, target.formUuid)
 	) {
 		return {
 			kind: "unresolvable",
@@ -720,7 +727,12 @@ export function automaticLinkedCaseCollection(args: {
 	const target =
 		entry === undefined
 			? undefined
-			: resolveFormLinkTarget(args.doc, args.sourceFormUuid, entry.link.target);
+			: resolveFormLinkTarget(
+					args.doc,
+					args.sourceFormUuid,
+					entry.link.target,
+					args.sourceModuleUuid,
+				);
 	if (
 		entry === undefined ||
 		/* HQ's flat module frame contains only the module command. It does not

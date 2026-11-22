@@ -90,6 +90,7 @@ const ROUND_TRIP = `${S}the-generated-search-round-trip-remote-request-query-res
 const MARKERS = MARKERS_HELD;
 
 export const SEARCH_CLAIMS = defineClaims("search", {
+	configShared: take(ROUND_TRIP, "schema:ShadowModule.search_config"),
 	configModule: take(ROUND_TRIP, "schema:Module.search_config"),
 	configAdvanced: take(ROUND_TRIP, "schema:AdvancedModule.search_config"),
 	inactive: derived(ROUND_TRIP, "schema:CaseSearch"),
@@ -489,7 +490,11 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const cursor = module.json.object(
 			"search_config",
 			"CaseSearch",
-			module.docType === "AdvancedModule" ? C.configAdvanced : C.configModule,
+			module.docType === "ShadowModule"
+				? C.configShared
+				: module.docType === "AdvancedModule"
+					? C.configAdvanced
+					: C.configModule,
 			searchPlace(module),
 		);
 		const offers = offersSearch(cursor);

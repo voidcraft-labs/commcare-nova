@@ -145,6 +145,7 @@ export const MENU_KEY_PARTS = {
 	uuid: null,
 	id: "settings",
 	name: "name",
+	formsFromMenu: "settings",
 	parentModuleUuid: "settings",
 	parentCaseModuleUuid: "case-list",
 	caseType: "settings",

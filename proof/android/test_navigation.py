@@ -213,3 +213,22 @@ def test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion
     assert status["answer"] is None, status
     assert sent == [], sent
     assert FORM_RECORD_QUARANTINED in record["landed"]["notifications"], record["landed"]
+
+
+def test_reaching_shared_forms_by_android_intent_keeps_each_routes_command_and_breadcrumb(android_documents, hq):
+    routes = {
+        "visit": ("m0-f1", "Visits", "Visit notes"),
+        "clinic_visit": ("m1-f1", "Clinic", "Visit notes"),
+        "private_notes": ("m0-f3", "Visits", "Private notes"),
+        "clinic_private": ("m1-f3", "Clinic", "Private notes"),
+    }
+    navs = _navs(
+        android_documents["targeted-listed-forms"], "listed-forms", endpoints=[{"id": key} for key in routes]
+    )
+    for endpoint, (command, menu, title) in routes.items():
+        record = navs[f"endpoint:{endpoint}"]
+        assert record["handedHome"]["endpoint"] == endpoint, record
+        opened = record["landed"]["steps"][0]
+        assert opened["screen"] == FORM_ENTRY and opened["session"]["command"] == command, (endpoint, opened)
+        assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (endpoint, opened)
+        assert opened["form"]["FormEntryActivity.getHeaderString"] == f"Field visits > {menu} > {title}", opened

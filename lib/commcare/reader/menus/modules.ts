@@ -60,9 +60,13 @@ import { readNavMedia } from "./navMedia";
 const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
-type MenuClass = "Module" | "AdvancedModule";
+type MenuClass = DraftModule["docType"];
 type FormClass = "Form" | "AdvancedForm";
-const MENU_CLASSES: readonly MenuClass[] = ["Module", "AdvancedModule"];
+const MENU_CLASSES: readonly MenuClass[] = [
+	"Module",
+	"AdvancedModule",
+	"ShadowModule",
+];
 const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
 
 /** One claim per class, its key the class's own spelling of the field. */
@@ -126,6 +130,10 @@ const MENU = {
 		`${M}/root-module-id-naming-a-missing-module-or-a-cycle`,
 		"root_module_id",
 	),
+	rootSharedChild: take(
+		`${M}/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow`,
+		"schema:ShadowModule.root_module_id",
+	),
 	rootUnderMirror: perClass(
 		MENU_CLASSES,
 		refuse,
@@ -160,13 +168,17 @@ const MENU = {
 		`${M}/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of`,
 		"put_in_root",
 	),
-	taskListHidden: drop(
+	taskListHidden: perClass(
+		["Module", "ShadowModule"] as const,
+		drop,
 		`${M}/module-task-list-show-false`,
-		"schema:Module.task_list",
+		"task_list",
 	),
-	taskListShown: refuse(
+	taskListShown: perClass(
+		["Module", "ShadowModule"] as const,
+		refuse,
 		`${M}/module-task-list-show-true`,
-		"schema:Module.task_list",
+		"task_list",
 	),
 	fixtureSelectInactive: perClass(
 		MENU_CLASSES,
@@ -231,9 +243,11 @@ const MENU = {
 		`${M}/auto-select-case-true-on-any-other-basic-module`,
 		"schema:Module.auto_select_case",
 	),
-	selectActive: take(
+	selectActive: perClass(
+		["Module", "ShadowModule"] as const,
+		take,
 		`${M}/parent-select-active-true-relationship-parent-module-id-a-non`,
-		"schema:Module.parent_select",
+		"parent_select",
 	),
 	selectActiveFlag: take(
 		`${M}/parent-select-active-true-relationship-parent-module-id-a-non`,
@@ -251,9 +265,11 @@ const MENU = {
 		`${M}/parent-select-relationship-null-other`,
 		"schema:ParentSelect.relationship",
 	),
-	selectInactive: drop(
+	selectInactive: perClass(
+		["Module", "ShadowModule"] as const,
+		drop,
 		`${M}/parent-select-active-false`,
-		"schema:Module.parent_select",
+		"parent_select",
 	),
 	selectInvalid: refuse(
 		`${M}/parent-select-module-id-naming-a-multi-select-module-or-an`,
@@ -290,6 +306,14 @@ const MENU = {
 	caseListWithFormsShow: take(
 		`${M}/module-case-list-show-true-on-a-basic-module-with-forms`,
 		"schema:CaseList.show",
+	),
+	sharedListShown: refuse(
+		`${M}/shadowmodule-case-list-show-true`,
+		"schema:ShadowModule.case_list",
+	),
+	sharedListHidden: drop(
+		`${M}/shadowmodule-case-list-show-false`,
+		"schema:ShadowModule.case_list",
 	),
 	caseListAdvanced: take(
 		`${M}/module-case-list-show-true-on-an-advancedmodule`,
@@ -748,6 +772,7 @@ export function keepsRefusedCaseType(ctx: ReadContext): boolean {
 }
 
 function readCaseType(ctx: ReadContext, module: DraftModule): void {
+	if (module.docType === "ShadowModule") return;
 	const { json } = module;
 	const caseType = json.peek("case_type");
 	if (typeof caseType === "string" && caseType !== "") {
@@ -814,8 +839,22 @@ function readNesting(
 		json.refuse("root_module_id", MENU.rootMissing[cls]);
 		return;
 	}
+	const parent = draftModuleById(app, rootId);
 	if (target.doc_type === "ShadowModule") {
-		json.refuse("root_module_id", MENU.rootUnderMirror[cls]);
+		const source = rawModuleById(ctx, json.peek("source_module_id"));
+		if (
+			cls !== "ShadowModule" ||
+			target.shadow_module_version !== 2 ||
+			source?.root_module_id !== target.source_module_id ||
+			!parent?.module.formsFromMenu
+		) {
+			json.refuse("root_module_id", MENU.rootUnderMirror[cls]);
+			return;
+		}
+		json.take("root_module_id", MENU.rootSharedChild, textOf).value;
+		ctx.writeDraft(() => {
+			module.module.parentModuleUuid = parent.uuid;
+		});
 		return;
 	}
 	if (target.is_training_module === true) {
@@ -827,14 +866,13 @@ function readNesting(
 		json.refuse("root_module_id", MENU.rootDeeper[cls]);
 		return;
 	}
-	const ownType = textOf(json.peek("case_type"));
+	const ownType = module.module.caseType ?? textOf(json.peek("case_type"));
 	const parentType = textOf(target.case_type);
 	if (rawForms(target).length === 0 && ownType !== parentType) {
 		json.refuse("root_module_id", MENU.rootCrossType[cls]);
 		return;
 	}
 	json.take("root_module_id", MENU.root[cls], textOf).value;
-	const parent = draftModuleById(app, rootId);
 	// A parent with no draft has its own finding; the child keeps no slot.
 	if (parent !== undefined)
 		ctx.writeDraft(() => {
@@ -914,19 +952,19 @@ function readParentSelection(
 	module: DraftModule,
 	stored: JsonObject,
 ): void {
-	if (module.docType !== "Module") return;
+	if (module.docType === "AdvancedModule") return;
 	const { json } = module;
 	const select = isJsonObject(stored.parent_select)
 		? stored.parent_select
 		: NO_ENTRIES;
 	if (select.active !== true) {
-		json.drop("parent_select", MENU.selectInactive);
+		json.drop("parent_select", MENU.selectInactive[module.docType]);
 		return;
 	}
 	const cursor = json.object(
 		"parent_select",
 		"ParentSelect",
-		MENU.selectActive,
+		MENU.selectActive[module.docType],
 	);
 	cursor.take("active", MENU.selectActiveFlag, (value) => value).value;
 	if (select.relationship !== "parent") {
@@ -979,6 +1017,11 @@ function readCaseListMenuItem(
 	const caseList = isJsonObject(stored.case_list)
 		? stored.case_list
 		: NO_ENTRIES;
+	if (module.docType === "ShadowModule") {
+		if (caseList.show === true) json.refuse("case_list", MENU.sharedListShown);
+		else json.drop("case_list", MENU.sharedListHidden);
+		return;
+	}
 	if (caseList.show !== true) {
 		if (!json.used("case_list")) return;
 		json.drop(
@@ -1090,13 +1133,16 @@ function readMenuSettings(
 	const cls = menuClass(module);
 	if (stored.is_training_module === true)
 		json.refuse("is_training_module", MENU.training[cls]);
-	if (module.docType === "Module") {
+	if (module.docType === "Module" || module.docType === "ShadowModule") {
 		const taskList = isJsonObject(stored.task_list)
 			? stored.task_list
 			: NO_ENTRIES;
 		if (json.used("task_list"))
-			if (taskList.show === true) json.refuse("task_list", MENU.taskListShown);
-			else json.drop("task_list", MENU.taskListHidden);
+			if (taskList.show === true)
+				json.refuse("task_list", MENU.taskListShown[module.docType]);
+			else json.drop("task_list", MENU.taskListHidden[module.docType]);
+	}
+	if (module.docType === "Module") {
 		if (stored.lazy_load_case_list_fields === true)
 			json.refuse("lazy_load_case_list_fields", MENU.lazyLoad);
 		if (json.used("display_style"))

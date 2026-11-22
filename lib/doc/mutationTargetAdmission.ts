@@ -47,7 +47,10 @@ export function mutationTargetsInvalid(
 			(m) =>
 				m.kind === "addEntryPoint" ||
 				m.kind === "updateEntryPoint" ||
-				m.kind === "removeEntryPoint",
+				m.kind === "removeEntryPoint" ||
+				(mutations.length > 1 &&
+					m.kind === "updateModule" &&
+					Object.hasOwn(m.patch, "formsFromMenu")),
 		)
 	) {
 		if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined)
@@ -65,15 +68,32 @@ export function mutationTargetsInvalid(
 					return true;
 				if (
 					target.kind === "form" &&
+					current.modules[target.moduleUuid].formsFromMenu &&
+					mutation.entryPoint.ignoreDisplayConditions
+				)
+					return true;
+				if (
+					target.kind === "form" &&
 					(!ownRecordValue(current.forms, target.formUuid) ||
-						!current.formOrder[target.moduleUuid]?.includes(target.formUuid))
+						!current.formOrder[
+							current.modules[target.moduleUuid].formsFromMenu?.menuUuid ??
+								target.moduleUuid
+						]?.includes(target.formUuid))
 				)
 					return true;
 			} else if (
 				mutation.kind === "updateEntryPoint" ||
 				mutation.kind === "removeEntryPoint"
 			) {
-				if (!entryPointByUuid(current, mutation.entryPointUuid)) return true;
+				const item = entryPointByUuid(current, mutation.entryPointUuid);
+				if (
+					!item ||
+					(mutation.kind === "updateEntryPoint" &&
+						mutation.patch.ignoreDisplayConditions &&
+						item.target.kind === "form" &&
+						current.modules[item.target.moduleUuid]?.formsFromMenu)
+				)
+					return true;
 			} else if (mutationTargetsInvalid(current, [mutation])) return true;
 			current = produce(current, (draft) => {
 				applyMutations(draft, [mutation]);
@@ -100,9 +120,15 @@ export function mutationTargetsInvalid(
 	if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined) return true;
 	const modules = new Set(Object.keys(doc.modules));
 	const moduleParents = new Map<string, string | null>();
+	const routeSources = new Map<string, string>();
+	const hasRouteFormLinks = new Set<string>();
 	const moduleChildren = new Map<string, Set<string>>();
 	for (const module of Object.values(doc.modules)) {
 		const parent = module.parentModuleUuid ?? null;
+		if (module.formsFromMenu)
+			routeSources.set(module.uuid, module.formsFromMenu.menuUuid);
+		if (module.formsFromMenu?.entryPoints?.length)
+			hasRouteFormLinks.add(module.uuid);
 		moduleParents.set(module.uuid, parent);
 		moduleChildren.set(module.uuid, new Set());
 	}
@@ -362,6 +388,8 @@ export function mutationTargetsInvalid(
 			if (owner === moduleUuid) removeFormTree(formUuid);
 		}
 		modules.delete(moduleUuid);
+		routeSources.delete(moduleUuid);
+		hasRouteFormLinks.delete(moduleUuid);
 		moduleParents.delete(moduleUuid);
 		moduleChildren.delete(moduleUuid);
 		modulesWithConfig.delete(moduleUuid);
@@ -429,6 +457,10 @@ export function mutationTargetsInvalid(
 						return true;
 					}
 					modules.add(m.module.uuid);
+					if (m.module.formsFromMenu)
+						routeSources.set(m.module.uuid, m.module.formsFromMenu.menuUuid);
+					if (m.module.formsFromMenu?.entryPoints?.length)
+						hasRouteFormLinks.add(m.module.uuid);
 					moduleParents.set(m.module.uuid, parent);
 					moduleChildren.set(m.module.uuid, new Set());
 					if (parent !== null) moduleChildren.get(parent)?.add(m.module.uuid);
@@ -459,6 +491,25 @@ export function mutationTargetsInvalid(
 				break;
 			case "updateModule":
 				if (!modules.has(m.uuid)) return true;
+				if (
+					m.listedForm &&
+					(routeSources.get(m.uuid) !== m.listedForm.sourceUuid ||
+						!modules.has(m.listedForm.sourceUuid) ||
+						formOwners.get(m.listedForm.formUuid) !== m.listedForm.sourceUuid)
+				)
+					return true;
+				if (Object.hasOwn(m.patch, "formsFromMenu")) {
+					const source = m.patch.formsFromMenu?.menuUuid;
+					if (source !== routeSources.get(m.uuid)) {
+						if (
+							hasRouteFormLinks.has(m.uuid) ||
+							(source && !modules.has(source))
+						)
+							return true;
+						if (source) routeSources.set(m.uuid, source);
+						else routeSources.delete(m.uuid);
+					}
+				}
 				// Canonical update payloads own only structural teardown here:
 				// `caseListConfig:null` clears the config and all of its members.
 				// Config birth is the distinct `ensureCaseListConfig` command below.

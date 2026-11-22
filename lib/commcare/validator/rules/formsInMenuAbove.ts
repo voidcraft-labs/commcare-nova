@@ -1,3 +1,4 @@
+import { routeContainsForm } from "@/lib/domain/listedForms";
 /**
  * A menu that shows its forms in the menu above (`Module.formsInMenuAbove`)
  * has no entry and no screen of its own: its forms list on its parent's
@@ -268,7 +269,7 @@ function frameSharesFirstMenuCase(
 	if (
 		target.kind === "form" &&
 		(doc.forms[target.formUuid] === undefined ||
-			!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid))
+			!routeContainsForm(doc, target.moduleUuid, target.formUuid))
 	)
 		return undefined;
 	if (!moduleFrameActionsBuildable(doc, [target.moduleUuid])) return undefined;

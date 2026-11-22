@@ -1947,6 +1947,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
+				routeMenuUuid: sourceModuleUuid,
 				session: previewSessionValues(entryIdentity, previewDevice),
 				usercase: postSubmissionUsercase,
 				/* The entry's own session map: the device's session does not
@@ -2035,6 +2036,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				const collections = collection === undefined ? [] : [collection];
 				const routeOnce = () =>
 					afterSubmitRoute({
+						sourceModuleUuid,
 						previousTask: () =>
 							resolvePreviousTask({
 								doc,

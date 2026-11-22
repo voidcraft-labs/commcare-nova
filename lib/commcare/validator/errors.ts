@@ -9,6 +9,7 @@
 
 /** All validation error codes — one per distinct check. */
 export type ValidationErrorCode =
+	| "MENU_FORM_SOURCE_INVALID"
 	| "ENTRY_POINT_INVALID"
 	| "SUITE_ENDPOINT_INVALID"
 	// App-level

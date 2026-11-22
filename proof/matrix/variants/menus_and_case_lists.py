@@ -1237,3 +1237,93 @@ def inline_search_under_a_parent_selection(authoring, app_id):
             {"active": True, "relationship": "parent", "module_id": {"$menu": 0}, "doc_type": "ParentSelect"},
         ),
     )
+
+
+def child_menus_listing_the_same_forms(authoring, app_id):
+    """Two physical source menus and the pair of linked parent and child menus that list their forms."""
+    parent = "5adc0de0000000000000000000000003"
+    for position, name, menu_id, source, root in (
+        (5, "Tools mirror", parent, 3, None),
+        (6, "Calculators mirror", "5adc0de0000000000000000000000004", 4, parent),
+    ):
+        ops.set_json(
+            authoring,
+            app_id,
+            f"/modules/{position}",
+            {
+                "doc_type": "ShadowModule",
+                "name": {"en": name},
+                "forms": [],
+                "case_type": None,
+                "shadow_module_version": 2,
+                "unique_id": menu_id,
+                "source_module_id": {"$menu": source},
+                **({"root_module_id": root} if root else {}),
+            },
+        )
+
+
+def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False):
+    """A second route to the hq-plain forms. HQ resolves the actual source form ids before saving."""
+    owner = _held(authoring, app_id)["modules"][0]
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/-",
+        {
+            "doc_type": "ShadowModule",
+            "shadow_module_version": 2,
+            "module_type": "shadow",
+            "unique_id": "00000000000000000000000000000017",
+            "source_module_id": {"$menu": 0},
+            "name": {"en": "At home"},
+            "forms": [],
+            "case_type": None,
+            "case_details": owner["case_details"],
+            "case_list": {"show": show},
+            "excluded_form_ids": list(excluded),
+            "session_endpoint_id": "at-home",
+            "form_session_endpoints": [
+                {"doc_type": "ShadowFormEndpoint", "form_id": form_id, "session_endpoint_id": link}
+                for form_id, link in linked
+            ],
+        },
+    )
+
+
+def all_forms_listed_in_another_menu(authoring, app_id):
+    _add_listed_menu(authoring, app_id)
+
+
+def some_forms_listed_in_another_menu(authoring, app_id):
+    _add_listed_menu(authoring, app_id, excluded=[{"$form": [0, 0]}], linked=[({"$form": [0, 1]}, "home-followup")])
+
+
+def list_item_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, show=True)
+
+
+def spaced_link_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, linked=[({"$form": [0, 1]}, " home-followup ")])
+
+
+def unavailable_form_on_a_menu_listing_source_forms(authoring, app_id):
+    _add_listed_menu(authoring, app_id, excluded=["00000000000000000000000000000000"])
+
+
+def listed_menu_missing_its_required_child(authoring, app_id):
+    """The first half of the working Tools / Calculators pair. No Calculators submenu is present."""
+    ops.set_json(
+        authoring,
+        app_id,
+        "/modules/5",
+        {
+            "doc_type": "ShadowModule",
+            "name": {"en": "Tools mirror"},
+            "forms": [],
+            "case_type": None,
+            "shadow_module_version": 2,
+            "unique_id": "5adc0de0000000000000000000000003",
+            "source_module_id": {"$menu": 3},
+        },
+    )

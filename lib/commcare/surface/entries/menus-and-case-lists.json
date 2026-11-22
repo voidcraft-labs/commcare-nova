@@ -204,10 +204,9 @@
 			"schema:ShadowModule.source_module_id"
 		],
 		"valueClass": "version-2-naming-a-source",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf`: re-lists another module's forms under its own menu, case list, search and parent selection; a mirror of a menu with child menus has one child mirror per child menu of its source (below); when a mirror's source is chosen, HQ also gives the mirror its source's parent (`views/utils.py::handle_shadow_child_modules`), and the mirror's parent-menu selector is disabled (`module_view_settings.html`)",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the menu holds its source by UUID and owns its own navigation and case views",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -223,6 +222,62 @@
 			"markers": []
 		},
 		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "A second menu has an unavailable owning menu, exclusion or form link",
+		"surfaceKeys": [
+			"schema:ShadowModule.source_module_id",
+			"schema:ShadowModule.excluded_form_ids",
+			"schema:ShadowModule.form_session_endpoints"
+		],
+		"valueClass": "unavailable-source-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the source menu page offers only an owning menu and its actual forms. Choose that menu and reselect each form in CommCare HQ.",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "mirror-menus",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the selected source or form is absent from the source menu choices offered by the HQ menu settings page"
+			}
+		]
+	},
+	{
+		"id": "menus-and-case-lists/shared-form-menus-with-incomplete-submenus",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "A second menu has a different parent or does not have one corresponding submenu for each child of its source",
+		"surfaceKeys": ["schema:ShadowModule.source_module_id"],
+		"valueClass": "uneditable-source-submenu-topology",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ gives a second menu its source's parent and creates one corresponding submenu for each owning child. Repair the submenu set on the source menu in HQ before checking again.",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"subject": "mirror-menus",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "handle_shadow_child_modules builds one corresponding submenu per source child and sets the parent from the selected source"
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/shadowmodule-with-no-source-module-id-or-one-naming-no-module",
@@ -471,10 +526,9 @@
 			"schema:ShadowModule.root_module_id"
 		],
 		"valueClass": "child-mirror-naming-its-shadow-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf` child mirrors, kept in step with the source's child menus as HQ keeps them: HQ creates one per source child when a mirror's source or a child's parent changes, deletes it with its source or its mirror parent, and offers no way to re-source, re-parent or delete one alone (`views/utils.py::handle_shadow_child_modules`, `views/modules.py::delete_module`, `ModuleBase.user_deletable`); each holds its own menu fields like any mirror",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the child holds the matching source menu and its route parent by UUID",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2489,10 +2543,9 @@
 		"item": "`ShadowModule.excluded_form_ids` non-empty",
 		"surfaceKeys": ["schema:ShadowModule.excluded_form_ids"],
 		"valueClass": "non-empty",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf.excludedForms` (form identities): the app source keeps these as real form ids while re-minting the forms' own ids, and the reader maps them through the real ids from `ApplicationResource`",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: source form UUIDs excluded on this menu in source order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2557,10 +2610,9 @@
 			"schema:ShadowModule.form_session_endpoints"
 		],
 		"valueClass": "non-empty-with-unique-slug-ids",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf.formEntryPoints` (form identity + endpoint id), mapped through the real form ids from `ApplicationResource`",
-		"subject": "mirror-menus",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the route menu holds a separate deep link for each listed source form",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT (as for module and form entry points, Module fields)",
@@ -8996,7 +9048,8 @@
 			"schema:CaseListForm.post_form_workflow",
 			"schema:CaseListForm.relevancy_expression",
 			"schema:Module.case_list_form",
-			"schema:AdvancedModule.case_list_form"
+			"schema:AdvancedModule.case_list_form",
+			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "beside-a-blank-form-id",
 		"disposition": "INERT",

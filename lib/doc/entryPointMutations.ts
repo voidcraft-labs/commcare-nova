@@ -10,6 +10,7 @@ import {
 	ownRecordValue,
 	type Uuid,
 } from "@/lib/domain";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import type { Mutation } from "./types";
 export type EntryPointCommitPlan =
 	| { ok: true; mutations: readonly Mutation[] }
@@ -27,11 +28,26 @@ export function planEntryPointAdd(
 		!ownRecordValue(doc.modules, target.moduleUuid) ||
 		(target.kind === "form" &&
 			(!ownRecordValue(doc.forms, target.formUuid) ||
-				!doc.formOrder[target.moduleUuid]?.includes(target.formUuid)))
+				!routeContainsForm(doc, target.moduleUuid, target.formUuid)))
 	)
 		return refuse(
 			"target-not-found",
 			"This destination is no longer available.",
+		);
+	const route = doc.modules[target.moduleUuid];
+	if (
+		target.kind === "form" &&
+		route.formsFromMenu &&
+		entryPoint.ignoreDisplayConditions
+	)
+		return refuse(
+			"display-conditions",
+			"A link through another menu follows the form’s display conditions. Turn off the option to skip them, or link directly to the original form.",
+		);
+	if (target.kind === "form" && route.formsFromMenu && !route.entryPoint)
+		return refuse(
+			"menu-link-required",
+			"Add a deep link for this menu before adding one for a form it lists.",
 		);
 	if (entryPointAt(doc, target))
 		return refuse(
@@ -40,7 +56,9 @@ export function planEntryPointAdd(
 		);
 	if (
 		!(
-			target.kind === "form" ? formEntryPointSchema : entryPointSchema
+			target.kind === "form" && !route.formsFromMenu
+				? formEntryPointSchema
+				: entryPointSchema
 		).validate(entryPoint)
 	)
 		return refuse(
@@ -72,12 +90,24 @@ export function planEntryPointUpdate(
 			"entry-point-not-found",
 			"This deep link is no longer available.",
 		);
+	if (
+		item.target.kind === "form" &&
+		doc.modules[item.target.moduleUuid]?.formsFromMenu &&
+		patch.ignoreDisplayConditions
+	)
+		return refuse(
+			"display-conditions",
+			"A link through another menu follows the form’s display conditions. Turn off the option to skip them, or link directly to the original form.",
+		);
 	const candidate = { ...item.entryPoint, ...patch };
 	if (candidate.ignoreDisplayConditions === null)
 		delete candidate.ignoreDisplayConditions;
 	if (
 		!(
-			item.target.kind === "form" ? formEntryPointSchema : entryPointSchema
+			item.target.kind === "form" &&
+			!doc.modules[item.target.moduleUuid]?.formsFromMenu
+				? formEntryPointSchema
+				: entryPointSchema
 		).validate(candidate)
 	)
 		return refuse(

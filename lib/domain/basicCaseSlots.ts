@@ -824,9 +824,11 @@ export function moduleCaseTypeForActions(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): string {
-	const mod = doc.modules[moduleUuid];
+	const route = doc.modules[moduleUuid];
+	const owner = route?.formsFromMenu?.menuUuid ?? moduleUuid;
+	const mod = doc.modules[owner];
 	if (mod === undefined || !mod.caseType) return "";
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	const formUuids = doc.formOrder[owner] ?? [];
 	const hasCases =
 		moduleHasCaseListMenuItem(mod) ||
 		formUuids.some((formUuid) => doc.forms[formUuid]?.type !== "survey");

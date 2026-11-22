@@ -27,6 +27,7 @@ import {
 	rootSelectionAlignment,
 } from "./entryDatumSupplies";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
+import { formRouteUuids, menuWithInheritedCaseSettings } from "./listedForms";
 import { menuFormUuidsOf, type PreparedMenuForm } from "./menuForms";
 import { projectedModulePreorder } from "./moduleHierarchy";
 import {
@@ -129,7 +130,7 @@ function screensOf(doc: MenuScreenSource): Screens {
 	for (const moduleUuid of projectedModulePreorder(doc)) {
 		const own = menuScreenKey(menuScreenOf(doc, moduleUuid));
 		push(contributors, own, moduleUuid);
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 		if (mod === undefined) continue;
 		for (const formUuid of menuFormUuidsOf(doc, moduleUuid))
 			push(entries, own, { kind: "form", moduleUuid, formUuid });
@@ -328,7 +329,7 @@ function entryFirstDatumKey(
 	if (visiting.has(entry.module)) return undefined;
 	if (entry.kind === "browse" && menuEmittedAdvanced(doc, entry.module))
 		return advancedDatumKey(
-			`case_${doc.modules[entry.module]?.caseType ?? ""}`,
+			`case_${menuWithInheritedCaseSettings(doc, entry.module)?.caseType ?? ""}`,
 		);
 	const [first] = entrySelections(doc, entry);
 	if (first === undefined) return undefined;
@@ -344,7 +345,13 @@ function entryFirstDatumKey(
 			? entryFirstDatumKey(doc, parent, new Set([...visiting, entry.module]))
 			: parentFirst.key;
 	}
-	if (entry.kind === "browse" || !menuEmittedAdvanced(doc, entry.module))
+	if (
+		entry.kind === "browse" ||
+		!menuEmittedAdvanced(
+			doc,
+			doc.modules[entry.module]?.formsFromMenu?.menuUuid ?? entry.module,
+		)
+	)
 		return first.key;
 	const [tag] = advancedLoadTags(doc, entry.form);
 	return tag === undefined ? first.key : advancedDatumKey(tag);
@@ -356,7 +363,7 @@ function caseListEntryKey(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): string | undefined {
-	const mod = doc.modules[moduleUuid];
+	const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 	if (mod === undefined || !moduleHasCaseListMenuItem(mod)) return undefined;
 	return entryFirstDatumKey(doc, { kind: "browse", module: moduleUuid });
 }
@@ -396,7 +403,8 @@ export function screenShapeBlocker(
 	if (screenIsBareCaseList(doc, screen)) return { reason: "bare-case-list" };
 	for (const moduleUuid of menuScreenContributors(doc, screen)) {
 		// A form of a module with no case type loads no case, whatever its type.
-		const hasCaseType = doc.modules[moduleUuid]?.caseType !== undefined;
+		const hasCaseType =
+			menuWithInheritedCaseSettings(doc, moduleUuid)?.caseType !== undefined;
 		const formUuid = menuFormUuidsOf(doc, moduleUuid, prepared).find((uuid) => {
 			const type = formTypeOf(doc, uuid, prepared);
 			return (
@@ -470,12 +478,25 @@ export function screenChoosesCaseFirst(
 ): boolean {
 	if (screenCaseFirstBlocker(doc, screen, prepared) !== undefined) return false;
 	return menuScreenContributors(doc, screen).some((moduleUuid) => {
-		const mod = doc.modules[moduleUuid];
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
 		return (
 			menuFormUuidsOf(doc, moduleUuid, prepared).length > 0 ||
 			(mod !== undefined && moduleHasCaseListMenuItem(mod))
 		);
 	});
+}
+
+/** The first route whose worker has yet to choose a case when this form is
+ * listed. A display condition is stored once and runs on all of its routes. */
+export function formRouteBeforeCase(
+	doc: BlueprintDoc,
+	owner: Uuid,
+	form: Uuid,
+	prepared?: PreparedMenuForm,
+): Uuid | undefined {
+	return formRouteUuids(doc, owner, form).find(
+		(route) => !screenChoosesCaseFirst(doc, menuScreenOf(doc, route), prepared),
+	);
 }
 
 /**
@@ -504,7 +525,9 @@ export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
 	let shared: string | undefined;
 	for (const moduleUuid of projectedModulePreorder(view)) {
 		if (!moduleShowsFormsInMenuAbove(view.modules[moduleUuid])) continue;
-		for (const formUuid of view.formOrder[moduleUuid] ?? []) {
+		for (const formUuid of (view.modules[moduleUuid]?.formsFromMenu
+			? menuFormUuidsOf(view, moduleUuid)
+			: view.formOrder[moduleUuid]) ?? []) {
 			if (view.forms[formUuid] === undefined) continue;
 			const key = entrySelections(view, {
 				kind: "form",

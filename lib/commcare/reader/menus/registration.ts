@@ -65,7 +65,7 @@ import { readNavMedia, shownBlockMedia } from "./navMedia";
 
 const M = "menus-and-case-lists";
 
-type MenuClass = "Module" | "AdvancedModule";
+type MenuClass = DraftModule["docType"];
 
 /** The registration rows that read the whole block, each per host class. */
 function blockClaims<U extends "take" | "refuse" | "drop">(
@@ -74,6 +74,7 @@ function blockClaims<U extends "take" | "refuse" | "drop">(
 ): Readonly<Record<MenuClass, Claim<U>>> {
 	return {
 		Module: make(`${M}/${entry}`, "schema:Module.case_list_form"),
+		ShadowModule: make(`${M}/${entry}`, "schema:ShadowModule.case_list_form"),
 		AdvancedModule: make(
 			`${M}/${entry}`,
 			"schema:AdvancedModule.case_list_form",

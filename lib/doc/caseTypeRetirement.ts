@@ -703,6 +703,9 @@ function collectModuleConfigReferences(
 		switch (slot.slot) {
 			case "module_parent":
 			case "module_case_parent":
+			case "listed_forms_source":
+			case "unlisted_source_form":
+			case "listed_form_link":
 			case "module_case_list_registration_form":
 				// Entity parentage and the registration form's identity are
 				// unrelated to the case-type catalog.

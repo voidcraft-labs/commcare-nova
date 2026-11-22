@@ -255,10 +255,6 @@
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): the class stands only beside an address column on the same detail, which 8-address refuses, so no reading holds it and the reading counts it beside that finding."
 	},
-	"menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
 	"menus-and-case-lists/a-stored-tab-without-istab": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): every stored tab is refused by its kind, so no reading holds one."
@@ -302,34 +298,6 @@
 	"menus-and-case-lists/lookup-responses-key": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
-	"menus-and-case-lists/shadowmodule-case-list-show-false": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-case-list-show-true": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-case-type-stored-key": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-excluded-form-ids-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-excluded-form-ids-non-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-form-session-endpoints-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a mirror menu is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
 	},
 	"menus-and-case-lists/unknown-module-doc-type": {
 		"reason": "hq-never-serves-the-value",

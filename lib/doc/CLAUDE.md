@@ -328,3 +328,9 @@ direct-name authoring, or second starter reconstruction.
   derived from the validator classification. Internal oracle findings use the
   generic Nova-side error. Text findings carry display labels so repair messages
   identify the affected app content or Project data table and column.
+
+## Forms listed in another menu
+
+For a source-backed menu, `listedFormVisibilityMutation` changes one source form's membership under the addressed route. The source UUID participates in stale-edit admission. Separate entry-point mutations own each form link. `withListedMenuHierarchy` adds the explicit child creates, moves and removals to a structural menu edit. Each new child and its own list and search controls get identities derived from its parent and source. Existing children, including children originally adopted from HQ, retain their IDs and local edits. The commit gate checks the complete topology and the undo record contains the complete edit.
+
+The source keeps the single `formOrder` entry and field tree. A form crossing between owners leaves its old menu routes. A combined HQ edit that also changes a route’s source preserves a link to the same form on that same route.

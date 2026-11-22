@@ -24377,57 +24377,28 @@
 	{
 		"id": "hq-menus/child-mirror-menu",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 5,
-			"name": "Tools mirror"
-		},
+		"entry": "menus-and-case-lists/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow",
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/5",
-			"value": {
-				"doc_type": "ShadowModule",
-				"name": {
-					"en": "Tools mirror"
-				},
-				"unique_id": "5adc0de0000000000000000000000003",
-				"source_module_id": {
-					"$menu": 3
-				},
-				"shadow_module_version": 2,
-				"case_type": null,
-				"forms": []
-			}
+			"op": "named",
+			"name": "child_menus_listing_the_same_forms"
 		},
-		"second": {
-			"entry": "menus-and-case-lists/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow",
-			"standing": "not-yet",
-			"place": {
-				"kind": "menu",
-				"menu": 6,
-				"name": "Calculators mirror"
+		"holds": [
+			{
+				"key": ["module", "5adc0de0000000000000000000000003"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "97ffd3bb-4235-5bd2-a702-16e1f88e82de"
 			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/6",
-				"value": {
-					"doc_type": "ShadowModule",
-					"name": {
-						"en": "Calculators mirror"
-					},
-					"unique_id": "5adc0de0000000000000000000000004",
-					"source_module_id": {
-						"$menu": 4
-					},
-					"shadow_module_version": 2,
-					"case_type": null,
-					"forms": [],
-					"root_module_id": "5adc0de0000000000000000000000003"
-				}
+			{
+				"key": ["module", "5adc0de0000000000000000000000004"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "ce9c978b-ca12-5bf9-8f89-cafc1c73252b"
+			},
+			{
+				"key": ["module", "5adc0de0000000000000000000000004"],
+				"pointer": "/parentModuleUuid",
+				"value": "76a67f55-1bc0-5fcb-be81-2396a6bbee1e"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-menus/child-of-another-type-under-a-formless-parent",
@@ -25797,10 +25768,10 @@
 			}
 		},
 		"second": {
-			"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
-			"standing": "not-yet",
+			"entry": "menus-and-case-lists/short-columns-empty-on-a-module-that-needs-case-details",
+			"standing": "fix-in-hq",
 			"place": {
-				"kind": "menu",
+				"kind": "case-list",
 				"menu": 4,
 				"name": "Household mirror"
 			},
@@ -25858,10 +25829,10 @@
 	{
 		"id": "hq-menus/mirror-menu",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/short-columns-empty-on-a-module-that-needs-case-details",
+		"standing": "fix-in-hq",
 		"place": {
-			"kind": "menu",
+			"kind": "case-list",
 			"menu": 5,
 			"name": "Household mirror"
 		},
@@ -25935,6 +25906,21 @@
 				"case_type": null,
 				"forms": []
 			}
+		}
+	},
+	{
+		"id": "hq-menus/missing-listed-submenu",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/shared-form-menus-with-incomplete-submenus",
+		"change": {
+			"op": "named",
+			"name": "listed_menu_missing_its_required_child"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 5,
+			"name": "Tools mirror"
 		}
 	},
 	{
@@ -27757,6 +27743,162 @@
 		"holds": []
 	},
 	{
+		"id": "hq-plain/listed-menu-empty-links",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-form-session-endpoints-empty",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-exclusion",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-excluded-form-ids-non-empty",
+		"change": {
+			"op": "named",
+			"name": "some_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			},
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/excludedFormUuids/0",
+				"value": "49a3f76e-5630-5ddb-9af2-2cba3c00f32e"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-hidden-list-item",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-case-list-show-false",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-inherited-type",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-case-type-stored-key",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-link",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
+		"change": {
+			"op": "named",
+			"name": "some_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			},
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/entryPoints/0/formUuid",
+				"value": "f8122808-5253-5357-b567-c3f9c7d0e371"
+			},
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/entryPoints/0/entryPoint/id",
+				"value": "home-followup"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-missing-form",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shared-form-menu-with-an-unavailable-source-form",
+		"change": {
+			"op": "named",
+			"name": "unavailable_form_on_a_menu_listing_source_forms"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 1,
+			"name": "At home"
+		}
+	},
+	{
+		"id": "hq-plain/listed-menu-no-exclusions",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-excluded-form-ids-empty",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
+	},
+	{
+		"id": "hq-plain/listed-menu-separate-list-item",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-case-list-show-true",
+		"change": {
+			"op": "named",
+			"name": "list_item_on_a_menu_listing_source_forms"
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 1,
+			"name": "At home"
+		}
+	},
+	{
+		"id": "hq-plain/listed-menu-spaced-link",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding",
+		"change": {
+			"op": "named",
+			"name": "spaced_link_on_a_menu_listing_source_forms"
+		},
+		"standing": "never",
+		"place": {
+			"kind": "menu",
+			"menu": 1,
+			"name": "At home"
+		}
+	},
+	{
 		"id": "hq-plain/long-detail-with-no-column",
 		"base": "hq-plain",
 		"entry": "menus-and-case-lists/long-columns-empty",
@@ -28866,6 +29008,22 @@
 			"pointer": "/modules/0/forms/1/show_count",
 			"value": true
 		}
+	},
+	{
+		"id": "hq-plain/source-backed-menu",
+		"base": "hq-plain",
+		"entry": "menus-and-case-lists/shadowmodule-shadow-module-version-2",
+		"change": {
+			"op": "named",
+			"name": "all_forms_listed_in_another_menu"
+		},
+		"holds": [
+			{
+				"key": ["module", "00000000000000000000000000000017"],
+				"pointer": "/formsFromMenu/menuUuid",
+				"value": "520c1cb0-cc64-51ec-8439-0f479fa0dcce"
+			}
+		]
 	},
 	{
 		"id": "hq-plain/submit-label",

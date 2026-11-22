@@ -2583,3 +2583,7 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+## Forms listed in another menu
+
+When a menu lists forms from another menu, Preview carries both the route menu UUID and the source form UUID. The route supplies the visible menu, case list and navigation history. The source supplies questions and case writes. The same source form can have independent deep links through its own menu and another menu. A listed form whose menu link or visibility has been turned off keeps its link ID and its entry point explains how to turn it on again.

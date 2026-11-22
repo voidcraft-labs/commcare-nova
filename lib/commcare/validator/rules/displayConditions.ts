@@ -31,12 +31,12 @@ import {
 import {
 	type BlueprintDoc,
 	type Form,
+	formRouteBeforeCase,
 	type Module,
 	menuScreenOf,
 	moduleIsCaseFirst,
 	type ScreenCaseFirstBlocker,
 	screenCaseFirstBlocker,
-	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -359,15 +359,17 @@ export function formDisplayCondition(
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
 	if (form.displayCondition === undefined) return [];
-	const mod = doc.modules[moduleUuid];
-	const screen = menuScreenOf(doc, moduleUuid);
+	const missing = formRouteBeforeCase(doc, moduleUuid, formUuid);
+	const route = missing ?? moduleUuid;
+	const mod = doc.modules[route];
+	const screen = menuScreenOf(doc, route);
 	const blocker = screenCaseFirstBlocker(doc, screen);
 	// The same answer `slotContext` gives the condition (`caseData`).
-	const caseFirst = screenChoosesCaseFirst(doc, screen);
+	const caseFirst = missing === undefined;
 	return validateCarrier(
 		{
 			kind: "form",
-			moduleUuid,
+			moduleUuid: route,
 			mod,
 			formUuid,
 			form,
@@ -377,7 +379,7 @@ export function formDisplayCondition(
 			// would choose its case first; otherwise the module is the reason.
 			...(!caseFirst &&
 				blocker !== undefined &&
-				moduleIsCaseFirst(doc, moduleUuid) && { blocker }),
+				moduleIsCaseFirst(doc, route) && { blocker }),
 		},
 		doc,
 		lookupTables,

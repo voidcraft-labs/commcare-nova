@@ -305,7 +305,7 @@ export function detailPair(
 
 export function applicationShell(
 	appName: string,
-	modules: (HqModuleTree | HqAdvancedModuleTree)[],
+	modules: HqApplicationTree["modules"],
 	attachments: Record<string, string>,
 	options: {
 		/** Where the app runs, on the wire: `declaresWebApps(doc)`. */

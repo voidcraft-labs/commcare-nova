@@ -225,3 +225,43 @@ def test_web_apps_opens_a_form_off_the_menu_only_from_an_entry_point_that_ignore
     assert [body["endpoint_id"] for body in asked] == [entry_point]
     assert _shown(opened) == HIDDEN_ENTRY_POINTS[entry_point]
     assert opened["alerts"] == []
+
+
+def test_web_apps_shows_each_menus_forms_and_uses_its_own_link_to_the_same_form(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from django.urls import reverse
+
+    with webapps_hq.project(webapps_documents["targeted-listed-forms"]) as project:
+        with project.released(formplayer_runner) as release:
+            session = Session(release, editor_driver)
+            for menu, listed in (
+                ("Visits", ["Archive", "Visit notes", "Check supplies"]),
+                ("Clinic", ["Visit notes", "Check supplies"]),
+            ):
+                run = session.run(
+                    [
+                        *steps.open_app("Field visits"),
+                        *steps.choose(menu),
+                        steps.SCREEN,
+                        *steps.choose("Visit notes"),
+                        steps.SCREEN,
+                    ]
+                )
+                assert run.page_errors == [] and run.dialogs == []
+                assert [_shown(screen) for screen in run.screens] == [
+                    {"title": menu, "commands": listed},
+                    {"form": "Visit notes"},
+                ]
+            for endpoint, expected in (
+                ("private_notes", {"form": "Private notes"}),
+                ("clinic_private", {"title": "Clinic", "commands": ["Visit notes", "Check supplies"]}),
+            ):
+                link = reverse("session_endpoint", args=[release.domain, release.app_id, endpoint])
+                opened = session.run([{"goto": link}, steps.SETTLE, *steps.arrive(any_screen=True), steps.SCREEN])
+                assert opened.page_errors == [] and opened.dialogs == []
+                assert [exchange.request_json()["endpoint_id"] for exchange in opened.answered("get_endpoint")] == [
+                    endpoint
+                ]
+                assert [_shown(screen) for screen in opened.screens] == [expected]
+                evidence(endpoint, opened.screens)

@@ -27,6 +27,7 @@ DOCUMENTS = (
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
     "targeted-hidden-from-menu",
+    "targeted-listed-forms",
     "targeted-missing-media",
     "targeted-multi-select-destinations",
     "targeted-number-keypad",

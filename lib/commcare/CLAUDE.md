@@ -2584,3 +2584,7 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+## Forms listed in another menu
+
+For a source-backed menu, the emitted command identifies the route menu and the physical ordinal of the source form, including earlier excluded forms. Both commands use the same source-form title and namespace. Export includes one physical XForm per owned form. The HQ output uses a version 2 ShadowModule with the deployment's menu and form IDs. The reader resolves exclusions and form endpoints through the aligned application resource's real form IDs. Downloaded form IDs can change independently. Relevance bypass belongs to an ordinary form endpoint. A mirror form endpoint runs only while the menu has an endpoint and lists the form. Its reserved ID survives either setting being turned off.

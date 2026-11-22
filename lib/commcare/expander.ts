@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import type { HqApplicationTree } from "./hqJson/xpath";
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -323,7 +324,9 @@ export function* expandDocSteps(
 		const hasCases = caseType !== "";
 		// Every form of a menu emitted advanced is an `AdvancedForm`
 		// (`moduleKind.ts::emittedModuleKind`).
-		const advanced = emittedModuleKind(doc, moduleUuid) === "advanced";
+		const advanced =
+			mod.formsFromMenu === undefined &&
+			emittedModuleKind(doc, moduleUuid) === "advanced";
 
 		const forms = formUuids.map((formUuid) => {
 			const form = doc.forms[formUuid];
@@ -740,6 +743,53 @@ export function* expandDocSteps(
 			};
 		}
 
+		const shared = mod.formsFromMenu;
+		if (shared !== undefined) {
+			if (shell.doc_type !== "Module")
+				throw new Error(
+					"A menu listing another menu's forms needs its own list settings.",
+				);
+			const sourceId = moduleUniqueIdOf.get(shared.menuUuid);
+			if (!sourceId)
+				throw new Error("The menu that provides these forms is missing.");
+			const formId = (uuid: Uuid) => {
+				const id = formUniqueIdOf.get(uuid);
+				if (!id)
+					throw new Error("A listed form is missing its deployment identity.");
+				return id;
+			};
+			const {
+				display_style: _style,
+				case_type: _sourceType,
+				...common
+			} = shell;
+			const mirror: HqApplicationTree["modules"][number] = {
+				...common,
+				doc_type: "ShadowModule",
+				module_type: "shadow",
+				forms: [],
+				shadow_module_version: 2,
+				source_module_id: sourceId,
+				excluded_form_ids: (shared.excludedFormUuids ?? []).map(formId),
+				form_session_endpoints: (doc.formOrder[shared.menuUuid] ?? []).flatMap(
+					(uuid) => {
+						const endpoint = shared.entryPoints?.find(
+							(row) => row.formUuid === uuid,
+						)?.entryPoint;
+						return endpoint
+							? [
+									{
+										doc_type: "ShadowFormEndpoint" as const,
+										form_id: formId(uuid),
+										session_endpoint_id: endpoint.id,
+									},
+								]
+							: [];
+					},
+				),
+			};
+			return mirror;
+		}
 		return shell;
 	};
 	const modules: ReturnType<typeof moduleShellOf>[] = [];

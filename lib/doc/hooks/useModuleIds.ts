@@ -59,6 +59,42 @@ export function useModuleIds(): Uuid[] {
 	return useBlueprintDocEq((s) => [...s.moduleOrder], sameSequenceByIdentity);
 }
 
+/** A closed insertion point has no menu choices to observe. */
+export function useListedFormSources(
+	parent: Uuid | null,
+	open: boolean,
+): { uuid: Uuid; name: string }[] {
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	return useBlueprintDocEq(
+		(doc) =>
+			open
+				? doc.moduleOrder.flatMap((uuid) => {
+						const module = doc.modules[uuid];
+						if (
+							!module ||
+							module.formsFromMenu ||
+							(module.parentModuleUuid ?? null) !== parent
+						)
+							return [];
+						const name =
+							(language &&
+								projectLocalizedModule(
+									doc,
+									resolveAppLanguage(doc.localization, language),
+									uuid,
+								)?.name) ||
+							module.name;
+						return [{ uuid, name }];
+					})
+				: [],
+		(a, b) =>
+			a.length === b.length &&
+			a.every(
+				(menu, i) => menu.uuid === b[i]?.uuid && menu.name === b[i]?.name,
+			),
+	);
+}
+
 /** Only labels and identities reach the case-selection control. */
 export function useCaseParentModuleOptions(moduleUuid: Uuid) {
 	const language = useContext(BlueprintAuthoringLanguageContext);
@@ -143,7 +179,9 @@ export function useOrderedModules(): Module[] {
 export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
 	return useBlueprintDocEq(
 		(s) => {
-			const order = s.formOrder[moduleUuid];
+			const order = s.modules[moduleUuid]?.formsFromMenu
+				? menuFormUuidsOf(s, moduleUuid)
+				: s.formOrder[moduleUuid];
 			return order === undefined ? undefined : [...order];
 		},
 		(a, b) =>
@@ -160,7 +198,13 @@ export function useOrderedForms(moduleUuid: Uuid | undefined): Form[] {
 	return useBlueprintDocEq((s) => {
 		const snapshotLanguage =
 			language === null ? null : resolveAppLanguage(s.localization, language);
-		return (moduleUuid === undefined ? [] : (s.formOrder[moduleUuid] ?? []))
+		return (
+			moduleUuid === undefined
+				? []
+				: s.modules[moduleUuid]?.formsFromMenu
+					? menuFormUuidsOf(s, moduleUuid)
+					: (s.formOrder[moduleUuid] ?? [])
+		)
 			.map((uuid) =>
 				snapshotLanguage === null
 					? s.forms[uuid]
