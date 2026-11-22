@@ -56,7 +56,6 @@ import {
 	admitAppWrite,
 	admitPlacesWrite,
 	admitWorkbookWrite,
-	beginDeploymentContentWrite,
 	type DeploymentScope,
 	endDeployment,
 	finishDeploymentContentWrite,
@@ -558,9 +557,11 @@ describe("two publishes of one HQ app", () => {
 
 	it("retires completed links and refuses a resumed manifest or direct record across a reclaim", async () => {
 		const birth = await born();
+		const generation = crypto.randomUUID();
 		const write = await admitAppWrite(birth.scope, TARGET, {
 			compiledIdentity: birth.targetIdentity,
 			...fence,
+			firstContentGeneration: generation,
 			remoteAppId: HQ_APP,
 			observedPushToken: appMappingToken(birth.deployment),
 			writeKind: "import",
@@ -568,11 +569,6 @@ describe("two publishes of one HQ app", () => {
 		});
 		if (write.kind !== "admitted")
 			throw new Error("Expected a live import admission.");
-		const generation = await beginDeploymentContentWrite(
-			birth.scope,
-			TARGET,
-			fence,
-		);
 		await pushed(birth.scope, 3, 43, write.writeId);
 		const manifest = {
 			generation,
@@ -998,6 +994,7 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 				const tableId = await managedInNova();
 				const admitted = await admitWorkbookWrite(birth.scope, TARGET, {
 					...fence,
+					firstContentGeneration: crypto.randomUUID(),
 					tableIds: [tableId],
 				});
 				if (admitted.kind !== "admitted")
@@ -1370,12 +1367,11 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 
 	it("marks a push's tables unread, records the files an import left and closes its entry-point evidence on their admissions once the app was deleted", async () => {
 		const birth = await born();
-		const generation = await beginDeploymentContentWrite(
-			birth.scope,
-			TARGET,
-			fence,
-		);
 		const table = await (WRITES["a pushed table"] ?? fail())(birth);
+		const generation = (await readEntryPointEvidence(birth.scope, TARGET))
+			.generation;
+		if (!generation)
+			throw new Error("Expected the workbook admission’s generation.");
 		const imported = await (WRITES["the import"] ?? fail())(birth);
 		await recordOf(imported);
 		const observed = await readAppBaseline(birth.scope, TARGET);

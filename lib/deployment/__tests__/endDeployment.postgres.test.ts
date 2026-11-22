@@ -40,8 +40,8 @@ import {
 } from "../resources";
 import { publishAppToHq, refreshDeployment } from "../service";
 import {
+	admitAppCreate,
 	applyDeploymentObservation,
-	beginDeploymentContentWrite,
 	type DeploymentScope,
 	endDeployment,
 	finishDeploymentContentWrite,
@@ -62,6 +62,7 @@ import {
 	appMappingToken,
 	birthAdoptedApp,
 } from "./adoptedBirth";
+import { admitEntryPointImport } from "./entryPointWrite";
 import { readable } from "./readableRecord";
 
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
@@ -320,7 +321,7 @@ describe("endDeployment", () => {
 		const stored = await readAppBaseline(scope, TARGET);
 		if (stored === null || stored.origin === "unread")
 			throw new Error("Expected a read baseline");
-		const generation = await beginDeploymentContentWrite(scope, TARGET, {
+		const { generation } = await admitEntryPointImport(scope, TARGET, {
 			expectedEndings: 0,
 		});
 		await endDeployment(scope, TARGET, HQ_APP);
@@ -347,8 +348,12 @@ describe("endDeployment", () => {
 					),
 			],
 			[
-				"beginDeploymentContentWrite",
-				() => beginDeploymentContentWrite(scope, TARGET, fence),
+				"admitAppCreate",
+				() =>
+					admitAppCreate(scope, TARGET, {
+						...fence,
+						firstContentGeneration: crypto.randomUUID(),
+					}),
 			],
 			[
 				"recordCreatedRemoteApp",

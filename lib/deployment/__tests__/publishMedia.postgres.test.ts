@@ -437,6 +437,7 @@ async function observeImport() {
 		expectedEndings: 0,
 		remoteAppId: HQ_APP,
 		comparedPushToken: pushToken,
+		reviewedVersion: saves.at(HQ_APP),
 	};
 	const identity = await readTargetIdentity(SCOPE, TARGET);
 	const nextPublish = {
@@ -470,7 +471,6 @@ async function observeImport() {
 					...fence,
 					scope: SCOPE,
 					target: TARGET,
-					reviewedVersion: 3,
 					read: {
 						sourceDigest: baseline.sourceDigest,
 						novaRevision: comparedRevision,
@@ -542,7 +542,7 @@ it.each(["refresh", "take"] as const)(
 );
 
 it.each(["remove", "replace"] as const)(
-	"preserves a review’s %s when the upload report arrives after it",
+	"lets a member retry a file %s after an outstanding HQ media job settles",
 	async (action) => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
 		await withPeer(async (peer) => {
@@ -554,18 +554,26 @@ it.each(["remove", "replace"] as const)(
 				action === "remove" ? {} : { [WIRE]: "confirmed-replacement" };
 			const checkPoll = mediaTaken(peer, "late-upload-report", {
 				whileProcessing: async () => {
-					const review = await observeImport();
-					expect((await review.refresh(corrected)).outcome).toBe("current");
+					const before = {
+						files: await record(),
+						identity: await readTargetIdentity(SCOPE, TARGET),
+					};
+					const observed = await observeImport();
+					await expect(observed.refresh(corrected)).rejects.toMatchObject({
+						name: "HqReviewWriteInFlightError",
+					});
+					expect(await record()).toEqual(before.files);
+					expect(await readTargetIdentity(SCOPE, TARGET)).toEqual(
+						before.identity,
+					);
 				},
 			});
-			const result = await publish(doc);
+			expect((await publish(doc)).landed).toBe(true);
 			checkPoll();
-			expect(result).toMatchObject({
-				landed: true,
-				warnings: expect.arrayContaining([
-					expect.stringContaining("File information changed"),
-				]),
-			});
+			expect(await openMediaWrites()).toEqual([]);
+			expect(await record()).toEqual({ [WIRE]: "late-upload-report" });
+			const fresh = await observeImport();
+			expect((await fresh.refresh(corrected)).outcome).toBe("current");
 			expect(await record()).toEqual(corrected);
 		});
 	},

@@ -945,11 +945,7 @@ export async function readTargetIdentityRows(
 	});
 }
 
-/**
- * The record a reading resolved (`targetIdentity.ts::resolveTargetIdentity`)
- * did not resolve over what the deployment holds now: another write moved it
- * between the read that resolved and this one. Nothing was written.
- */
+/** A changed review crosses an admitted write that HQ may still apply. */
 export class HqReviewWriteInFlightError extends Error {
 	constructor() {
 		super(
@@ -959,6 +955,11 @@ export class HqReviewWriteInFlightError extends Error {
 	}
 }
 
+/**
+ * The record a reading resolved (`targetIdentity.ts::resolveTargetIdentity`)
+ * did not resolve over what the deployment holds now: another write moved it
+ * between the read that resolved and this one. Nothing was written.
+ */
 class TargetIdentityMovedError extends Error {
 	constructor(deploymentId: string) {
 		super(
@@ -1006,6 +1007,7 @@ export async function writeTargetIdentityInTransaction(
 				entry_point_observation: null,
 			})
 			.where("id", "=", deploymentId)
+			.where("content_generation", "is not", null)
 			.execute();
 	}
 	const entityKey = (row: DeploymentIdentityOverride) =>
@@ -3040,8 +3042,8 @@ export async function readOpenMediaJobs(key: {
  * the app it describes, which a read without a publish does not change. A
  * stored discard record is kept too, and so are the media record and the
  * first-publish list unless the input carries what the next publish changes:
- * that keeps a stored list of that kind by `hqChangesFirstPublishList`, and
- * never touches the list of an app brought in and not yet published.
+ * a full changes reading then updates the first or next publish’s list by
+ * `hqChangesFirstPublishList`. A passive refresh and a media-only read keep it.
  */
 export async function recordRefreshedAppBaseline(
 	scope: DeploymentScope,
@@ -3209,6 +3211,10 @@ export async function recordRefreshedAppBaseline(
 				row.id,
 				stored.first_publish_changes,
 			);
+			const nextList =
+				input.nextPublish === undefined
+					? storedList
+					: hqChangesFirstPublishList(storedList, input.nextPublish);
 			/* Check the read date, its revision and its fold before changing any
 			 * side record. A repeated observation succeeds only when its requested
 			 * target identities already stand. */
@@ -3232,15 +3238,7 @@ export async function recordRefreshedAppBaseline(
 					hqMediaRecordMoves(currentMedia, media.files)
 				)
 					return superseded();
-				if (
-					input.nextPublish !== undefined &&
-					storedList?.of !== "first-publish" &&
-					!deepEqual(
-						storedList,
-						hqChangesFirstPublishList(storedList, input.nextPublish),
-					)
-				)
-					return superseded();
+				if (!deepEqual(storedList, nextList)) return superseded();
 				if (input.targetIdentity !== undefined) {
 					const current = await readTargetIdentityRows(tx, row.id, {
 						appId: scope.appId,
@@ -3294,10 +3292,6 @@ export async function recordRefreshedAppBaseline(
 					}
 				}
 			}
-			const nextList =
-				input.nextPublish === undefined || storedList?.of === "first-publish"
-					? storedList
-					: hqChangesFirstPublishList(storedList, input.nextPublish);
 			const changed =
 				stored.source_digest !== input.read.sourceDigest ||
 				(media !== undefined &&
@@ -3327,17 +3321,10 @@ export async function recordRefreshedAppBaseline(
 						!hqMediaRecordMoves(currentMedia, media.files)
 							? { kind: "keep" }
 							: { kind: "set", files: media.files },
-					/* An app brought in and not yet published keeps its own list: the
-					 * first publish still makes every change of it, and a read that
-					 * compared equal reads the same app it was given for. */
 					firstPublish:
-						input.nextPublish === undefined ||
-						storedList?.of === "first-publish"
+						input.nextPublish === undefined
 							? { kind: "keep" }
-							: {
-									kind: "set",
-									list: nextList,
-								},
+							: { kind: "set", list: nextList },
 				},
 				{
 					reviewedVersion: input.reviewedVersion,
@@ -5439,28 +5426,6 @@ export async function applyDeploymentObservation(
 					.execute();
 			}
 			return { view: await loadWithinTransaction(tx, row.id), applied: true };
-		},
-	);
-}
-
-/** Invalidate link evidence BEFORE any remote dependency or app mutation. */
-export async function beginDeploymentContentWrite(
-	scope: DeploymentScope,
-	target: DeploymentTargetKey,
-	fence: DeploymentFence,
-): Promise<string> {
-	return withDeploymentRow(
-		scope,
-		target,
-		{ ensure: false, expectedEndings: fence.expectedEndings },
-		async (tx, row) => {
-			const generation = crypto.randomUUID();
-			await tx
-				.updateTable("app_deployments")
-				.set({ content_generation: generation, entry_point_manifest: null })
-				.where("id", "=", row.id)
-				.execute();
-			return generation;
 		},
 	);
 }

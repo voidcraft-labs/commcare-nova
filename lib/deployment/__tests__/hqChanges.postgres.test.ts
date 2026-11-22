@@ -892,29 +892,37 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 		});
 	});
 
-	it("keeps the list of an app brought in and not yet published", async () => {
+	it("requires the complete accepted first-publish list to match when repeating a read", async () => {
 		const birth = await born();
-		await recordRefreshedAppBaseline(birth.scope, TARGET, {
-			expectedEndings: 0,
-			remoteAppId: HQ_APP,
-			comparedPushToken: appMappingToken(birth.deployment),
-			comparedDigest: digestOf(SOURCE),
-			read: stored({ ...SOURCE, last_modified: SAVED_AT }, SAVED_AT),
-			nextPublish: {
-				accepted: {
-					ids: ["media-paths-joined"],
-					touchesWorkers: false,
-					of: "first-publish",
+		const apply = (id: "media-paths-joined" | "forms-and-settings-rewritten") =>
+			recordRefreshedAppBaseline(birth.scope, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				comparedPushToken: appMappingToken(birth.deployment),
+				comparedDigest: digestOf(SOURCE),
+				read: stored({ ...SOURCE, last_modified: SAVED_AT }, SAVED_AT),
+				nextPublish: {
+					accepted: {
+						ids: [id],
+						touchesWorkers: false,
+						of: "first-publish",
+					},
+					publishChanges: [],
+					webAppsOnInHq: true,
 				},
-				publishChanges: ["media-paths-joined"],
-				webAppsOnInHq: true,
-			},
-		});
-		expect(await baselineRow()).toMatchObject({
+			});
+		expect((await apply("media-paths-joined")).outcome).toBe("current");
+		const accepted = await baselineRow();
+		expect((await apply("media-paths-joined")).outcome).toBe("current");
+		expect((await apply("forms-and-settings-rewritten")).outcome).toBe(
+			"superseded",
+		);
+		expect(await baselineRow()).toEqual(accepted);
+		expect(accepted).toMatchObject({
 			origin: "read",
 			nova_revision: 1,
 			observed_at: SAVED_AT,
-			first_publish_changes: BORN_LIST,
+			first_publish_changes: { ...BORN_LIST, ids: ["media-paths-joined"] },
 		});
 	});
 
@@ -3685,6 +3693,128 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			})),
 		};
 	}
+
+	it.each(["adds", "removes"] as const)(
+		"updates the adopted app’s Publishing card when an HQ save %s a first-publish change without changing its document",
+		async (direction) => {
+			const birth = clinic({});
+			const appId = await broughtIn(birth);
+			const other = { ...KEY_TARGET, domain: "other-clinic" };
+			const otherView = await deploymentStore.foldDeploymentAttempt(
+				scope(appId),
+				other,
+				"preflight",
+				{ status: "succeeded", at: new Date().toISOString() },
+				{ ensure: true, expectedEndings: 0 },
+			);
+			const app =
+				direction === "adds"
+					? birth
+					: clinic({ appName: "Clinic, renamed in HQ" });
+			const prior =
+				direction === "adds"
+					? emission(app, 2)
+					: withLocationList(emission(app, 3), "both_fixtures");
+			if (direction === "removes") {
+				const changed = await reviewAndBringIn(appId, app, prior);
+				expect(changed.outcome.kind).toBe("brought-in");
+			}
+			const saved =
+				direction === "adds"
+					? withLocationList(emission(app, 4), "both_fixtures")
+					: emission(app, 4);
+			const read = () =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, saved);
+					return reviewHqChanges(scope(appId), KEY_TARGET, {
+						onEvent: () => {},
+					});
+				});
+			const before = await baselineOfApp();
+			const beforeHead = (await loadApp(appId))?.mutation_seq;
+			const reviewed = await read();
+			expect(await baselineOfApp()).toEqual(before);
+			if (
+				reviewed.kind !== "nothing" ||
+				reviewed.reason !== "reads-the-same" ||
+				!reviewed.readingId ||
+				!reviewed.reviewDigest
+			)
+				throw new Error(
+					"Expected a recordable save with the same document: " +
+						JSON.stringify(reviewed),
+				);
+			const approval = {
+				readingId: reviewed.readingId,
+				reviewDigest: reviewed.reviewDigest,
+				tableChoices: {},
+			};
+			const id = "location-list-setting-reset";
+			expect(reviewed.publishChanges.length > 0).toBe(direction === "adds");
+			const apply = () =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, saved);
+					return bringInHqChanges(scope(appId), KEY_TARGET, approval, {
+						onEvent: () => {},
+					});
+				});
+			const admit = deploymentStore.admitAppWrite;
+			const hook = vi
+				.spyOn(deploymentStore, "admitAppWrite")
+				.mockImplementationOnce(async (...args) => {
+					const recorded = await apply();
+					if (recorded.kind !== "recorded")
+						throw new Error(JSON.stringify(recorded));
+					expect(recorded.deployment?.deployment.deployment.domain).toBe(
+						KEY_TARGET.domain,
+					);
+					const card = recorded.deployment?.firstPublish;
+					expect(card?.of).toBe("first-publish");
+					expect(card?.ids.includes(id)).toBe(direction === "adds");
+					return admit(...args);
+				});
+			try {
+				const stale = await publishOver(appId, prior.source, false);
+				expect(stale.outcome.landed).toBe(false);
+				expect(stale.requests).not.toContain(`POST ${IMPORT_PATH}`);
+				expect(hook).toHaveBeenCalledOnce();
+			} finally {
+				hook.mockRestore();
+			}
+			expect(await readDeployment(scope(appId), other)).toEqual(otherView);
+			const after = await baselineOfApp();
+			expect(after.source_digest).not.toBe(before.source_digest);
+			expect(after).toMatchObject({
+				origin: before.origin,
+				nova_revision: before.nova_revision,
+			});
+			expect((await loadApp(appId))?.mutation_seq).toEqual(beforeHead);
+			// Applying the same approval again makes no change to the accepted source or card.
+			const repeated = await withHttpPeer(async (peer) => {
+				serveEmission(peer, saved, 1, false);
+				return bringInHqChanges(scope(appId), KEY_TARGET, approval, {
+					onEvent: () => {},
+				});
+			});
+			expect(repeated.kind).toBe("changed");
+			expect(await baselineOfApp()).toEqual(after);
+			const pushed = await publishOver(
+				appId,
+				saved.source,
+				true,
+				emission(app, 5).source,
+				4,
+			);
+			expect(pushed.outcome.landed).toBe(true);
+			expect(pushed.imported).toEqual([
+				expect.objectContaining({
+					location_fixture_restore: "project_default",
+				}),
+			]);
+			expect((await baselineOfApp()).first_publish_changes).toBeNull();
+		},
+		30_000,
+	);
 
 	it("writes the next publish's list after a publish, keeps it over a second change, and clears it where CommCare HQ's save undid it", async () => {
 		const doc = clinic({});

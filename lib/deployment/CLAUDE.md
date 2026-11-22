@@ -1252,8 +1252,13 @@ sent:
   prefix, a form's id, a file's path or a column's word changed in CommCare HQ
   and nothing else), which the review named: the source
   is replaced, origin, `nova_revision`, ownership and any discard stay, the
-  next publish's list is kept by the same rule where the review ran its
-  readings, and the media record is written wherever it moves
+  complete last accepted reading determines every remaining first-publish
+  change for that project space. After the first push, the review carries
+  applicable pending changes and adds its own. Restoring a setting in HQ
+  removes its warning in either case. A passive refresh or a comparison
+  which only settles files keeps the stored list. A repeated response
+  succeeds only when its projected card still matches. The media record is
+  written wherever it moves
   (`hqMedia.ts::hqMediaRecordMoves`): an id the review learned by content is
   recorded, and an id whose file CommCare HQ no longer serves is forgotten
   (`nextHqMediaRecord`'s `settled`), so Refresh counts neither again. A take
@@ -1895,7 +1900,7 @@ records a new app.
 **The fence.** No lock spans a publish's round trips, so an ending can land
 in the middle of one. `publishAppToHq` reads `endings` once, from its first
 read, and every store write of that publish carries it (`DeploymentFence`):
-`foldDeploymentAttempt`, `beginDeploymentContentWrite`,
+`foldDeploymentAttempt`, the first outbound write’s admission,
 `recordCreatedRemoteApp`, `recordRemoteResource` and
 `recordRefreshedAppBaseline` throw `DeploymentEndedError` and write nothing
 where the row's count differs, `finishDeploymentContentWrite` answers false

@@ -20,12 +20,13 @@ import {
 	appMappingToken,
 	birthAdoptedApp,
 } from "@/lib/deployment/__tests__/adoptedBirth";
+import { admitEntryPointImport } from "@/lib/deployment/__tests__/entryPointWrite";
 import { publishedEntryPoints } from "@/lib/deployment/entryPointManifest";
 import { publishAppToHq } from "@/lib/deployment/service";
 import * as deploymentStore from "@/lib/deployment/store";
 import {
+	admitAppCreate,
 	admitAppWrite,
-	beginDeploymentContentWrite,
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
 	readDeployment,
@@ -275,8 +276,14 @@ async function seed(publish = true) {
 		{ status: "succeeded", at: "2026-09-01T00:00:00.000Z" },
 		{ ensure: true, expectedEndings: 0 },
 	);
-	const generation = await beginDeploymentContentWrite(SCOPE, TARGET, {
+	const generation = crypto.randomUUID();
+	const created = await admitAppCreate(SCOPE, TARGET, {
 		expectedEndings: 0,
+		firstContentGeneration: generation,
+	});
+	await settleRemoteWrites([created], {
+		kind: "settled",
+		resourceId: "working-app",
 	});
 	await recordRemoteResource(SCOPE, TARGET, {
 		expectedEndings: 0,
@@ -491,9 +498,10 @@ it("keeps the released link observed after a settled publisher's claim was retir
 	const original = (await readEntryPointEvidence(SCOPE, TARGET)).manifest;
 	if (!original) throw new Error("Expected the published entry point.");
 	const publish = async (counter: number) => {
-		const generation = await beginDeploymentContentWrite(SCOPE, TARGET, fence);
+		const generation = crypto.randomUUID();
 		const write = await admitAppWrite(SCOPE, TARGET, {
 			...fence,
+			firstContentGeneration: generation,
 			remoteAppId: original.remoteAppId,
 			observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
 			compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
@@ -576,9 +584,10 @@ it("keeps the released link observed after a settled publisher's claim was retir
 	// A real media job on the current claim remained open into the
 	// next generation. A settled response alone cannot order that job
 	// before the later publisher, so this completion invalidates the link.
-	const earlier = await beginDeploymentContentWrite(SCOPE, TARGET, fence);
+	const earlier = crypto.randomUUID();
 	const media = await admitAppWrite(SCOPE, TARGET, {
 		...fence,
+		firstContentGeneration: earlier,
 		observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
 		remoteAppId: original.remoteAppId,
 		compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
@@ -660,9 +669,10 @@ it("rejects a completed remote check after another publish invalidates its gener
 	await withHttpPeer(async (peer) => {
 		released(peer, suite);
 		confirm(peer, 3, async () => {
-			await beginDeploymentContentWrite(SCOPE, TARGET, {
+			const { writeId } = await admitEntryPointImport(SCOPE, TARGET, {
 				expectedEndings: 0,
 			});
+			await settleRemoteWrites([writeId], { kind: "settled" });
 		});
 		await asUser(async (client) => {
 			const result = await call(client);
