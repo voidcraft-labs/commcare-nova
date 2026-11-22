@@ -483,6 +483,7 @@ function makeRemoteChangesError(
 						 * `bring_in_hq_changes` take it: the app's own change over a
 						 * usable pair, and never a table's or a place's. */
 						can_bring_in: change.canBringIn,
+						...(change.requiresReview && { requires_review: true }),
 					})),
 					...answer,
 				}),

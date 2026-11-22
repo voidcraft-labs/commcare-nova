@@ -486,6 +486,7 @@ export function adoptedAppBaselineWrite(input: {
 	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);
 	const ownership = adoptedBaselineOwnership(input);
 	const list: StoredFirstPublish = {
+		reviewed: 1,
 		ids: input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id)),
 		webAppsOnInHq: input.source.cloudcareEnabled,
 		of: "first-publish",

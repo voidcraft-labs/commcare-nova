@@ -282,13 +282,21 @@ async function bringInInRoom(
 	/* Each arm writes; the room stops nothing from here on. */
 	room.beginWrites();
 	try {
-		if (review.kind === "nothing" && review.reason === "reads-the-same")
+		if (
+			(review.kind === "nothing" && review.reason === "reads-the-same") ||
+			checked?.plan.kind === "nothing"
+		)
 			return answered(await recordReadsTheSame(scope, target, basis, checked));
 		if (checked === null)
 			throw new Error(
 				"A review that lists changes or finds them already here came back with no check. computeHqChanges answers both only after the readings.",
 			);
-		if (review.kind === "nothing")
+		if (
+			review.kind === "nothing" ||
+			(checked.plan.kind === "changes" &&
+				checked.plan.batch.length === 0 &&
+				checked.plan.renamedInNova.length === 0)
+		)
 			return answered(
 				await recordAlreadyHere(
 					scope,

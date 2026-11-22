@@ -473,6 +473,7 @@ export interface DeploymentRemoteChange {
 	 * place.
 	 */
 	readonly canBringIn: boolean;
+	readonly requiresReview?: true;
 }
 
 /**
@@ -839,10 +840,14 @@ export type AppBaseline =
 			readonly sourceBytes: number;
 			/** The target has accepted first- or next-publish changes to preserve across passive reads. */
 			readonly hasPublishList?: true;
+			/** An older first-publish card may predate the source left by a passive Refresh. */
+			readonly firstPublishReview?: "required" | "current";
 			readonly foldBinding?: DeploymentFoldBinding;
 	  }
 	| {
 			readonly origin: "unread";
+			/** An older first-publish card may predate the source left by a passive Refresh. */
+			readonly firstPublishReview?: "required" | "current";
 			readonly remoteAppId: string;
 			readonly observedAt: string;
 			readonly observedBy: string;

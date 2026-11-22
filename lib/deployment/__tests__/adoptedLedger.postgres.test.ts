@@ -160,6 +160,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			discarded_at: null,
 			media_files: MEDIA_FILES,
 			first_publish_changes: {
+				reviewed: 1,
 				ids: ["forms-and-settings-rewritten"],
 				webAppsOnInHq: true,
 				of: "first-publish",
@@ -296,6 +297,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 		expect(await readAppBaseline(birth.scope, TARGET)).toEqual({
 			origin: "read",
 			hasPublishList: true,
+			firstPublishReview: "current",
 			remoteAppId: HQ_APP,
 			observedAt: READ_AT,
 			observedBy: ACTOR,
@@ -400,6 +402,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			observed_at: new Date("2026-11-12T00:00:00.000Z"),
 			media_files: MEDIA_FILES,
 			first_publish_changes: {
+				reviewed: 1,
 				ids: ["forms-and-settings-rewritten"],
 				webAppsOnInHq: true,
 				of: "first-publish",

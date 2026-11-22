@@ -3560,6 +3560,7 @@ function hqChangesFirstPublishList(
 	if (stored?.of === "first-publish") {
 		return {
 			ids: storedIds(input.accepted.ids),
+			reviewed: 1,
 			webAppsOnInHq: input.webAppsOnInHq,
 			of: "first-publish",
 		};
@@ -4297,7 +4298,12 @@ function verifiedAppBaseline(
 	row: Awaited<ReturnType<typeof appBaselineRow>>,
 ): AppBaseline | null {
 	if (row === undefined) return null;
+	const list = row.first_publish_changes;
 	const observed = {
+		...(list?.of === "first-publish" && {
+			firstPublishReview:
+				list.reviewed === 1 ? ("current" as const) : ("required" as const),
+		}),
 		remoteAppId: row.remote_app_id,
 		observedAt: row.observed_at.toISOString(),
 		observedBy: row.observed_by,
@@ -4544,7 +4550,10 @@ function storedFirstPublish(
 		return unreadable("not an object");
 	const record = value as Record<string, unknown>;
 	const keys = Object.keys(record).sort();
-	if (keys.join(",") !== "ids,of,webAppsOnInHq")
+	if (
+		keys.join(",") !== "ids,of,webAppsOnInHq" &&
+		keys.join(",") !== "ids,of,reviewed,webAppsOnInHq"
+	)
 		return unreadable(`keys ${keys.join(", ")}`);
 	if (!Array.isArray(record.ids)) return unreadable("ids is not a list");
 	const ids = record.ids.filter((id) => {

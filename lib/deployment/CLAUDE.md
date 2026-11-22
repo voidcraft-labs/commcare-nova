@@ -1264,7 +1264,18 @@ sent:
   values and runtime strings can still refresh directly. Recording the Web
   Apps reading updates the card; changing the switch on publish still needs
   its own confirmation. A repeated response
-  succeeds only when its projected card still matches. The media record is
+  succeeds only when its projected card still matches. The stored first-publish
+  card carries `reviewed: 1` when the adoption or a full accepted reading
+  established its consequences. Earlier releases could refresh their stored
+  source while retaining an older card. A live unmarked card needs a complete
+  signed review before publishing, including on an otherwise identical HQ
+  source. A source or reference that cannot be verified leaves the target
+  blocked and offers a new bring-in. Passive refresh and a discard cannot
+  establish this provenance. The review identifies the unused multimedia
+  paths and HQ files that the first publish would prune. Changing or adding
+  one of these files calls for explicit review even when the register still
+  contains the same warning. A fresh take records the card on that target
+  only. No historical card is marked as reviewed by a migration. The media record is
   written wherever it moves
   (`hqMedia.ts::hqMediaRecordMoves`): an id the review learned by content is
   recorded, and an id whose file CommCare HQ no longer serves is forgotten

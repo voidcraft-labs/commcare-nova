@@ -166,6 +166,7 @@ export async function birthAdoptedApp(
 			firstPublish: {
 				kind: "set",
 				list: {
+					reviewed: 1,
 					ids: ["forms-and-settings-rewritten"],
 					webAppsOnInHq: true,
 					of: "first-publish",

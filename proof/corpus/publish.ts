@@ -3245,7 +3245,8 @@ async function bringInOverPeer(input: {
 	 * app records too where it moved (`bringIn.ts::recordReadsTheSame`), and
 	 * the record as it stood where the review read nothing. */
 	const readsTheSame =
-		review.kind === "nothing" && review.reason === "reads-the-same";
+		(review.kind === "nothing" && review.reason === "reads-the-same") ||
+		checked?.plan.kind === "nothing";
 	if (!readsTheSame && checked === null) {
 		throw new Error(
 			`Nova's review of ${id} answered ${JSON.stringify(review)} with no readings to take ids from.`,

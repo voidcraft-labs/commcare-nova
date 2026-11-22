@@ -31,6 +31,7 @@ import {
 import {
 	type HqAppSource,
 	publishReadingFactsMoved,
+	unreadableMediaIdentity,
 } from "@/lib/commcare/hq/appSource";
 import {
 	classifyHqFailure,
@@ -102,6 +103,7 @@ import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
 } from "../reading/acceptance";
+import { unusedMediaEntries } from "../reading/firstPublishChanges";
 import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
 import {
 	projectDataReadsOf,
@@ -198,6 +200,7 @@ export function reviewMatchingSource(
 		since,
 	} = basis;
 	if (
+		baseline.firstPublishReview === "required" ||
 		!formIdsAgree(reference.doc, targetIdentity, modules) ||
 		publishReadingFactsMoved(
 			baseline.source,
@@ -484,8 +487,14 @@ function failedRead(failure: HqFailure): HqChangesReview {
 function unavailable(
 	reason: HqChangesUnavailable,
 	since: DriftReference | null,
+	requiresReview = false,
 ): HqChangesReview {
-	return { kind: "unavailable", reason, since };
+	return {
+		kind: "unavailable",
+		reason,
+		since,
+		...(requiresReview && { requiresReview: true }),
+	};
 }
 
 function unchanged(
@@ -797,13 +806,21 @@ async function standingOf(
 	if (baseline.origin === "unread")
 		return {
 			kind: "answer",
-			review: unavailable("baseline-unread", driftReferenceOf(baseline, live)),
+			review: unavailable(
+				"baseline-unread",
+				driftReferenceOf(baseline, live),
+				baseline.firstPublishReview === "required",
+			),
 		};
 	const foldSeq = await greatestFoldBaselineSeq(await getAppDb(), scope.appId);
 	if (!usablePair(baseline, live, foldSeq) || baseline.novaRevision === null)
 		return {
 			kind: "answer",
-			review: unavailable("no-reference", driftReferenceOf(baseline, live)),
+			review: unavailable(
+				"no-reference",
+				driftReferenceOf(baseline, live),
+				baseline.firstPublishReview === "required",
+			),
 		};
 	return {
 		kind: "deployment",
@@ -874,12 +891,20 @@ async function computeWith(
 ): Promise<HqChangesComputation> {
 	const { onEvent, cancel } = options;
 	let sourceBytes: number | null = null;
+	const standing = await standingOf(scope, target);
 	const answer = (
 		review: HqChangesReview,
 		basis: HqChangesBasis | null = null,
 		checked: CheckedHqChanges | null = null,
 	): HqChangesComputation => ({
-		review,
+		review:
+			standing.kind === "deployment" &&
+			standing.baseline.firstPublishReview === "required" &&
+			(review.kind === "account" ||
+				review.kind === "held" ||
+				review.kind === "unavailable")
+				? { ...review, requiresReview: true }
+				: review,
 		facts: {
 			sourceBytes,
 			checkMs: pieces.total,
@@ -894,8 +919,7 @@ async function computeWith(
 		ended: false,
 	});
 
-	/* 1. The deployment, its baseline and the pair. */
-	const standing = await standingOf(scope, target);
+	/* The deployment, its baseline and the pair. */
 	if (standing.kind === "ended")
 		return {
 			...answer(unavailable("publishing-stopped", null)),
@@ -1015,6 +1039,7 @@ async function computeWith(
 			}),
 		);
 		if (
+			baseline.firstPublishReview !== "required" &&
 			parts.length === 0 &&
 			formIdsAgree(head.doc, targetIdentity, modules) &&
 			!publishReadingFactsMoved(baseline.source, source, new Set())
@@ -1617,6 +1642,40 @@ export async function checkHqChanges(
 				.run(() => takenTargetIdentity({ ...input, assetNames }))
 		: recorded;
 	if (!receipt) return identityRowsDefect(fetched);
+	// Older passive refreshes could advance the source while retaining a card
+	// from another reading. Otherwise compare the concrete file references:
+	// the same register entry can describe a different path or a different file.
+	const legacy = fetched.baseline.firstPublishReview === "required";
+	const before = new Map(
+		(fetched.baseline.firstPublishReview === "current"
+			? unusedMediaEntries(
+					readings.inputs.base.source,
+					readings.base.draft.facts,
+				)
+			: []
+		).map((item) => [item.path, item]),
+	);
+	const unused = fetched.baseline.firstPublishReview
+		? unusedMediaEntries(fetched.source, draft.facts)
+		: [];
+	const changedFiles = unused
+		.filter((item) => {
+			const old = before.get(item.path);
+			return (
+				legacy ||
+				old === undefined ||
+				old.multimediaId !== item.multimediaId ||
+				old.mediaType !== item.mediaType ||
+				old.unreadable !== item.unreadable ||
+				(item.unreadable &&
+					unreadableMediaIdentity(
+						readings.inputs.base.source.raw,
+						item.path,
+					) !== unreadableMediaIdentity(fetched.source.raw, item.path))
+			);
+		})
+		.sort((a, b) => compareText(a.path, b.path));
+	const requiresReview = legacy || changedFiles.length > 0;
 	const built = await pieces.at("the next publish's body").run(() => {
 		const baseTags = new Set(
 			Object.keys(projectDataReadsOf(data, readings.base).lookupFields),
@@ -1636,6 +1695,11 @@ export async function checkHqChanges(
 					).tables.filter((table) => newTagSet.has(table.tag));
 		const reviewDigest = hqChangesReviewDigest({
 			identity: receipt,
+			...(requiresReview && {
+				requiredReview: legacy
+					? "historical-first-publish"
+					: "new-unused-files",
+			}),
 			mappingToken: fetched.live.pushToken,
 			baselineDigest: fetched.baseline.sourceDigest,
 			sourceDigest: fetched.normalized.digest,
@@ -1667,7 +1731,25 @@ export async function checkHqChanges(
 		data,
 		targetIdentity: recorded,
 	};
-	const publishChanges = publishChangeSentences(plan.publishChanges);
+	const reviewLines = [
+		...(legacy
+			? ["Review what the first publish would change in this project space."]
+			: []),
+		...changedFiles.map((item) =>
+			item.multimediaId
+				? `Publishing removes the unused reference “${item.path}” to HQ file “${item.multimediaId}”.`
+				: `Publishing removes the unused reference “${item.path}”.`,
+		),
+	];
+	const publishChanges = [
+		...publishChangeSentences(
+			legacy ? declaration.firstPublish.ids : plan.publishChanges,
+		),
+	];
+	if (requiresReview && unused.length > 0)
+		publishChanges.push(
+			`This publish removes ${unused.length} unused file ${unused.length === 1 ? "reference" : "references"}.`,
+		);
 	const whereHqKeeps = await pieces
 		.at("where HQ keeps")
 		.run(() =>
@@ -1682,8 +1764,9 @@ export async function checkHqChanges(
 			),
 		);
 	if (
-		plan.kind === "nothing" ||
-		(plan.batch.length === 0 && plan.renamedInNova.length === 0)
+		!requiresReview &&
+		(plan.kind === "nothing" ||
+			(plan.batch.length === 0 && plan.renamedInNova.length === 0))
 	)
 		return {
 			kind: "checked",
@@ -1702,24 +1785,34 @@ export async function checkHqChanges(
 		kind: "checked",
 		review: {
 			kind: "changes",
+			...(legacy && { requiresReview: true }),
 			since: fetched.since,
 			hqChanges: [
-				...documentChangeLines(plan.hqChanges, "hq"),
+				...reviewLines,
+				...(plan.kind === "changes"
+					? documentChangeLines(plan.hqChanges, "hq")
+					: []),
 				...whereHqKeeps,
 			],
-			novaChanges: documentChangeLines(plan.novaChanges, "nova"),
+			novaChanges:
+				plan.kind === "changes"
+					? documentChangeLines(plan.novaChanges, "nova")
+					: [],
 			madeBy: [],
-			caseData: [
-				...(plan.removedCaseProperties.length > 0
-					? [caseDataLine(plan.removedCaseProperties)]
-					: []),
-				...(plan.removedCaseTypes.length > 0
-					? [caseTypesLine(plan.removedCaseTypes)]
-					: []),
-			],
+			caseData:
+				plan.kind === "nothing"
+					? []
+					: [
+							...(plan.removedCaseProperties.length > 0
+								? [caseDataLine(plan.removedCaseProperties)]
+								: []),
+							...(plan.removedCaseTypes.length > 0
+								? [caseTypesLine(plan.removedCaseTypes)]
+								: []),
+						],
 			publishChanges,
 			observedDigest: fetched.normalized.digest,
-			renamedInNova: plan.renamedInNova,
+			renamedInNova: plan.kind === "changes" ? plan.renamedInNova : [],
 			tables: built.tables,
 			projectName: fetched.projectName,
 			readingId: fetched.readingId,

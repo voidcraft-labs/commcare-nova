@@ -3084,6 +3084,7 @@ function confirmsRemoteChange(
 	discard: RemoteChangeDiscard,
 	change: DeploymentRemoteChange,
 ): boolean {
+	if (change.requiresReview) return false;
 	if (sameRemoteChange(discard, change)) return true;
 	return (
 		change.kind === "app" &&
@@ -3172,7 +3173,9 @@ function RemoteChangeChoice({
 								{baselineUnknownSentence(change.since, viewerDriftDate())}
 							</p>
 						)}
-						{change.kind === "app" && !change.canBringIn ? (
+						{change.kind === "app" &&
+						!change.canBringIn &&
+						!change.requiresReview ? (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{hqChangesUnavailableLine("no-reference", {
 									domain,
@@ -3186,24 +3189,26 @@ function RemoteChangeChoice({
 								{change.note}
 							</p>
 						) : null}
-						<label
-							htmlFor={id}
-							className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
-						>
-							<Checkbox
-								id={id}
-								checked={discarded.some((entry) =>
-									sameRemoteChange(entry, change),
-								)}
-								onCheckedChange={(next) =>
-									onDiscardChange(change, next === true)
-								}
-							/>
-							<span>
-								Publish over this
-								<span className="sr-only"> {change.name}</span>
-							</span>
-						</label>
+						{!change.requiresReview && (
+							<label
+								htmlFor={id}
+								className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+							>
+								<Checkbox
+									id={id}
+									checked={discarded.some((entry) =>
+										sameRemoteChange(entry, change),
+									)}
+									onCheckedChange={(next) =>
+										onDiscardChange(change, next === true)
+									}
+								/>
+								<span>
+									Publish over this
+									<span className="sr-only"> {change.name}</span>
+								</span>
+							</label>
+						)}
 						{change.kind === "app" && stop !== null ? (
 							<DriftStop
 								canStop={stop.canStop}

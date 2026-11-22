@@ -1044,19 +1044,17 @@ function leftOutMediaPlaces(
 }
 
 /** A source map entry is in use even when the slot or logo that names it has no available file. */
-function unusedMediaPaths(facts: FirstPublishFacts): string[] {
+export function unusedMediaEntries(source: HqAppSource, facts: ReadFacts) {
 	// HQ's logo_paths takes the stored value verbatim. ApplicationMediaReference strips surrounding
 	// whitespace from other slots, and remove_unused_mappings compares the actual map keys to those paths.
-	const named = logoPaths(facts.source);
+	const named = logoPaths(source);
 	for (const reference of [
-		...facts.facts.unheldMedia,
-		...facts.facts.mediaReferences,
-		...facts.facts.pendingMedia,
+		...facts.unheldMedia,
+		...facts.mediaReferences,
+		...facts.pendingMedia,
 	])
 		if (reference.slot !== "app_logo") named.add(pythonStrip(reference.path));
-	return (facts.source.multimediaMap ?? [])
-		.map((item) => item.path)
-		.filter((path) => !named.has(path));
+	return (source.multimediaMap ?? []).filter((item) => !named.has(item.path));
 }
 
 /** The menus whose search the shell's `auto_launch` respells (`inactiveAutoLaunchRespelled`). */
@@ -1688,11 +1686,12 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"unused-media-entries-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => unusedMediaPaths(facts).length > 0,
+		applies: (facts) =>
+			unusedMediaEntries(facts.source, facts.facts).length > 0,
 		at: {
 			kinds: ["app"],
 			places: (facts) =>
-				unusedMediaPaths(facts).map((path) =>
+				unusedMediaEntries(facts.source, facts.facts).map(({ path }) =>
 					placeOf("app", "multimedia_map", path),
 				),
 		},

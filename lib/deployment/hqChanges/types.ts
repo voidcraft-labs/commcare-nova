@@ -63,6 +63,8 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "changes";
+			/** An older first-publish card cannot authorize a discard on this target. */
+			readonly requiresReview?: true;
 			readonly since: DriftReference;
 			/**
 			 * Every line of what changed in CommCare HQ, then where CommCare HQ
@@ -102,6 +104,7 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "account";
+			readonly requiresReview?: true;
 			readonly findings: readonly Finding[];
 			readonly more: number;
 			readonly counts: {
@@ -112,6 +115,7 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "held";
+			readonly requiresReview?: true;
 			readonly reason: HqChangeHeld;
 			/** For `runs-elsewhere`: where the app runs, and where CommCare HQ's version runs. */
 			readonly runs: {
@@ -121,6 +125,7 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "unavailable";
+			readonly requiresReview?: true;
 			readonly reason: HqChangesUnavailable;
 			/**
 			 * What the change is measured against, as the deployment's baseline

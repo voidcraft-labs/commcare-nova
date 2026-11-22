@@ -54,6 +54,7 @@ import {
 	NEXT_PUBLISH_LEAD,
 	nothingToBringInLine,
 	novaLimitLead,
+	REQUIRED_FIRST_PUBLISH_RECOVERY,
 	renamedInNovaLine,
 	sincePhrase,
 } from "@/lib/publish/hqChangesCopy";
@@ -218,6 +219,7 @@ export type HqChangesReviewProjection = ReviewHead &
 		  }
 		| {
 				readonly kind: "changes";
+				readonly requires_review?: true;
 				readonly since: DriftReference;
 				/** The lead over `hq_changes`. */
 				readonly message: string;
@@ -699,6 +701,7 @@ export function describeHqChangesReview(
 			const shell = {
 				...head,
 				kind: "changes" as const,
+				...(review.requiresReview && { requires_review: true as const }),
 				since: review.since,
 				message: hqChangesLead(
 					since(review.since),
@@ -744,7 +747,9 @@ export function describeHqChangesReview(
 			const shell = {
 				...head,
 				kind: "account" as const,
-				message: cannotBringInLeadFor(review),
+				message: review.requiresReview
+					? `${cannotBringInLeadFor(review)} ${REQUIRED_FIRST_PUBLISH_RECOVERY}`
+					: cannotBringInLeadFor(review),
 				restarted: options.page.restarted,
 				restarted_message: options.page.restarted
 					? CHANGES_RESTARTED_MESSAGE
@@ -788,7 +793,11 @@ export function describeHqChangesReview(
 				kind: "held",
 				reason: review.reason,
 				runs: review.runs,
-				message: hqChangesHeldLine(review.reason, review.runs),
+				message: hqChangesHeldLine(
+					review.reason,
+					review.runs,
+					review.requiresReview,
+				),
 			};
 		case "unavailable":
 			return {
@@ -797,6 +806,7 @@ export function describeHqChangesReview(
 				reason: review.reason,
 				since: review.since,
 				message: hqChangesUnavailableLine(review.reason, {
+					requiresReview: review.requiresReview,
 					domain: head.domain,
 					/* Every reason whose sentence names what the change is measured
 					 * against carries it; the others name none. */

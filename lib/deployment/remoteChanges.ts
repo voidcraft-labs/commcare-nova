@@ -91,10 +91,12 @@ export function driftReferenceOf(
 export function hqChangedMessage(
 	changes: readonly Pick<
 		DeploymentRemoteChange,
-		"since" | "kind" | "canBringIn"
+		"since" | "kind" | "canBringIn" | "requiresReview"
 	>[],
 	options?: DriftDateOptions,
 ): string {
+	if (changes.some((change) => change.requiresReview))
+		return "Nova needs a current review of what the first publish would change in CommCare HQ.";
 	const app = changes.find((change) => change.kind === "app");
 	const others = changes.some((change) => change.kind !== "app");
 	if (app === undefined) return HQ_CHANGED_MESSAGE;
@@ -269,6 +271,7 @@ export function decideRemoteChanges(input: {
 			readonly remoteChanges: readonly DeploymentRemoteChange[];
 	  } {
 	const confirmed = (change: DeploymentRemoteChange): boolean =>
+		!change.requiresReview &&
 		input.discards.some(
 			(discard) =>
 				discard.kind === change.kind &&

@@ -544,6 +544,18 @@ function readMultimediaMap(
 	return items;
 }
 
+/** An unreadable entry has no typed id. Preserve changes to the actual file
+ * or its type without treating an unrelated save or a new entry UUID as a new file. */
+export function unreadableMediaIdentity(source: unknown, path: string): string {
+	const map = isRecord(source) ? source.multimedia_map : null;
+	const entry = isRecord(map) ? map[path] : null;
+	return canonicalJsonText(
+		isRecord(entry)
+			? [entry.multimedia_id ?? null, entry.media_type ?? null]
+			: (entry ?? null),
+	);
+}
+
 /**
  * App-shell inputs the changes reader uses beyond the part Nova overwrites.
  * HQ prunes map keys unreferenced by both content and the retained logos.
@@ -575,6 +587,9 @@ export function publishReadingFactsMoved(
 			before === undefined ||
 			before.mediaType !== item.mediaType ||
 			before.unreadable !== item.unreadable ||
+			(item.unreadable &&
+				unreadableMediaIdentity(previous, item.path) !==
+					unreadableMediaIdentity(current.raw, item.path)) ||
 			(before.multimediaId !== item.multimediaId &&
 				!settledPaths.has(item.path))
 		);

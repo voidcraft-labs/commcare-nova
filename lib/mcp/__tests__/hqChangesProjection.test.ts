@@ -183,6 +183,21 @@ describe("a review of changes made in CommCare HQ", () => {
 	 * under the limit, with each list's lines put back together from the
 	 * parts of a cut line.
 	 */
+	it("preserves a mandatory first-publish review and the concrete references it asks the member to approve", () => {
+		const listed = changes({
+			requiresReview: true,
+			hqChanges: ["Publishing removes the old picture reference."],
+			publishChanges: ["This publish removes 1 unused file reference."],
+		});
+		expect(projected(listed)).toMatchObject({
+			kind: "changes",
+			requires_review: true,
+			hq_changes: listed.hqChanges,
+			publish_changes: listed.publishChanges,
+			review_digest: listed.reviewDigest,
+		});
+	});
+
 	function followPages(review: Extract<HqChangesReview, { kind: "changes" }>) {
 		const lists = { hq_changes: [] as string[], nova_changes: [] as string[] };
 		const rest = {

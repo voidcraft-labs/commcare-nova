@@ -64,6 +64,7 @@ const HQ_APP = "c".repeat(32);
 const OTHER_HQ_APP = "d".repeat(32);
 const APP = testUuid("first-publish-app");
 const BORN_LIST: StoredFirstPublish = {
+	reviewed: 1,
 	ids: ["forms-and-settings-rewritten"],
 	webAppsOnInHq: true,
 	of: "first-publish",
@@ -299,6 +300,7 @@ describe("the stored first-publish list", () => {
 				.set({
 					first_publish_changes: JSON.stringify({
 						ids: ["forms-and-settings-rewritten", "no-longer-registered"],
+						reviewed: 1,
 						webAppsOnInHq: true,
 						of: "first-publish",
 					}),

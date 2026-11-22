@@ -2061,6 +2061,18 @@ function appRemoteChange(input: {
 		canBringIn: baselineKnown && input.canBringIn,
 	});
 	const { baseline } = input;
+	if (baseline?.firstPublishReview === "required") {
+		return {
+			...change(
+				["Review what the first publish would change in this project space."],
+				baseline.origin !== "unread",
+			),
+			requiresReview: true,
+			note: input.canBringIn
+				? "Review changes from CommCare HQ before publishing here."
+				: "Nova cannot verify the previous reading. You can bring the app in again from CommCare HQ or publish to a different project space.",
+		};
+	}
 	if (baseline === null || baseline.origin === "unread") {
 		return change([], false);
 	}

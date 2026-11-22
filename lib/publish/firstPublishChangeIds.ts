@@ -64,6 +64,8 @@ export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
 export interface FirstPublishView {
 	readonly ids: readonly FirstPublishChangeId[];
 	readonly touchesWorkers: boolean;
+	/** A historical card whose accepted source can only be re-established by a full review. */
+	readonly needsReview?: true;
 	/** Which kind of list this is (`StoredFirstPublish.of`). */
 	readonly of: "first-publish" | "next-publish";
 }
@@ -75,6 +77,7 @@ export const firstPublishViewSchema: z.ZodType<FirstPublishView> =
 	z.strictObject({
 		ids: z.array(firstPublishChangeIdSchema).readonly(),
 		touchesWorkers: z.boolean(),
+		needsReview: z.literal(true).optional(),
 		of: firstPublishKindSchema,
 	});
 
@@ -168,6 +171,9 @@ export const FIRST_PUBLISH_PLATFORM: ReadonlyMap<
 
 /** What a baseline keeps of a list. */
 export interface StoredFirstPublish {
+	/** Set by a full accepted reading under the source-preserving Refresh contract.
+	 * An older first-publish list can describe a different source. */
+	readonly reviewed?: 1;
 	/**
 	 * The ids that applied under the chosen declaration, less the two Web Apps
 	 * ids, and each id of `FIRST_PUBLISH_PLATFORM` the reading gives under
@@ -187,6 +193,7 @@ export interface StoredFirstPublish {
 export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish> =
 	z.strictObject({
 		ids: z.array(firstPublishChangeIdSchema).readonly(),
+		reviewed: z.literal(1).optional(),
 		webAppsOnInHq: z.boolean(),
 		of: firstPublishKindSchema,
 	});

@@ -36,6 +36,7 @@ export interface HqChangesDigestInput {
 	readonly mappingToken: string;
 	/** The stored baseline's `source_digest`: the source the base reading read. */
 	readonly baselineDigest: string;
+	readonly requiredReview?: "historical-first-publish" | "new-unused-files";
 	/** The digest of CommCare HQ's whole normalized source as this request read it. */
 	readonly sourceDigest: string;
 	/** The app's head sequence the plan was computed at. */
@@ -64,6 +65,7 @@ export interface HqChangesDigestInput {
 export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 	return canonicalJsonDigest({
 		v: 3,
+		...(input.requiredReview && { requiredReview: input.requiredReview }),
 		identity: {
 			read: canonicalTargetIdentity(input.identity.read),
 			next: canonicalTargetIdentity(input.identity.next),

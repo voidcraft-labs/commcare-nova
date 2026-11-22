@@ -352,11 +352,15 @@ export function baselineUnknownSentence(
 	}
 }
 
+export const REQUIRED_FIRST_PUBLISH_RECOVERY =
+	"You can bring the app in again from CommCare HQ or publish to a different project space.";
+
 const AFTER_NEXT_PUBLISH =
 	"Nova can bring in changes made in CommCare HQ after your next publish here.";
 
 /** What an unavailable review's line reads: the project space and what the change is measured against. */
 export interface HqChangesLineContext {
+	readonly requiresReview?: true;
 	readonly domain: string;
 	readonly since: DriftReference;
 	readonly options?: DriftDateOptions;
@@ -376,6 +380,12 @@ export function hqChangesUnavailableLine(
 ): string {
 	const { domain } = context;
 	const since = sincePhrase(context.since, domain, context.options);
+	const next = context.requiresReview
+		? REQUIRED_FIRST_PUBLISH_RECOVERY
+		: AFTER_NEXT_PUBLISH;
+	const otherWays = context.requiresReview
+		? REQUIRED_FIRST_PUBLISH_RECOVERY
+		: "You can publish over the change, or stop publishing here.";
 	switch (reason) {
 		case "not-published":
 			return `Nova hasn't published this app to “${domain}”, so there's nothing there to bring in. Publishing there makes a new app.`;
@@ -386,23 +396,23 @@ export function hqChangesUnavailableLine(
 		case "hq-app-taken":
 			return `Another Nova app took this app's app in “${domain}” while this app was in recently deleted, so there's nothing there to bring in. You can publish there again. Nova updates that app if no other Nova app publishes to it by then, and makes a new one beside it otherwise.`;
 		case "no-reference":
-			return `Nova can't tell CommCare HQ's changes from this app's here, because its record of the last publish to “${domain}” doesn't hold what that takes. ${AFTER_NEXT_PUBLISH}`;
+			return `Nova can't tell CommCare HQ's changes from this app's here, because its record of the last publish to “${domain}” doesn't hold what that takes. ${next}`;
 		case "baseline-unread":
-			return `${baselineUnknownSentence(context.since, context.options)} ${AFTER_NEXT_PUBLISH}`;
+			return `${baselineUnknownSentence(context.since, context.options)} ${next}`;
 		case "base-needs-project-data":
-			return `This Project's lookup tables or organization changed since ${since}, so Nova can't read its own record of what it left in “${domain}”, and can't tell what changed there. ${AFTER_NEXT_PUBLISH}`;
+			return `This Project's lookup tables or organization changed since ${since}, so Nova can't read its own record of what it left in “${domain}”, and can't tell what changed there. ${next}`;
 		case "base-unreadable":
-			return `Nova couldn't read its own record of what it left in “${domain}”, so it can't tell what changed there. That's Nova's to fix, and Nova has reported it. ${AFTER_NEXT_PUBLISH}`;
+			return `Nova couldn't read its own record of what it left in “${domain}”, so it can't tell what changed there. That's Nova's to fix, and Nova has reported it. ${next}`;
 		case "base-too-large":
-			return `Nova's record of what it left in “${domain}” is larger than Nova compares, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.`;
+			return `Nova's record of what it left in “${domain}” is larger than Nova compares, so it can't tell what changed there. That limit is Nova's, not the app's. ${otherWays}`;
 		case "comparison-too-intricate":
-			return `Comparing CommCare HQ's version with what Nova left in “${domain}” takes more checking than Nova gives one app, so it can't tell what changed there. That limit is Nova's, not the app's. You can publish over the change, or stop publishing here.`;
+			return `Comparing CommCare HQ's version with what Nova left in “${domain}” takes more checking than Nova gives one app, so it can't tell what changed there. That limit is Nova's, not the app's. ${otherWays}`;
 		case "nova-updated":
-			return `Nova updated how this app is stored since ${since}, so it can't tell this app's changes from CommCare HQ's here. ${AFTER_NEXT_PUBLISH}`;
+			return `Nova updated how this app is stored since ${since}, so it can't tell this app's changes from CommCare HQ's here. ${next}`;
 		case "nova-defect":
-			return "Nova read what changed in CommCare HQ and couldn't fit it to this app, so it changed nothing. That's Nova's to fix, and Nova has reported it. You can check again later, publish over the change, or stop publishing here.";
+			return `Nova read what changed in CommCare HQ and couldn't fit it to this app, so it changed nothing. That's Nova's to fix, and Nova has reported it. ${context.requiresReview ? "You can check again later. " + REQUIRED_FIRST_PUBLISH_RECOVERY : "You can check again later, publish over the change, or stop publishing here."}`;
 		case "app-moved":
-			return `This app moved to another Project after it was changed in Nova and before it was published to “${domain}” again, so Nova can't tell this app's changes from CommCare HQ's here. ${AFTER_NEXT_PUBLISH}`;
+			return `This app moved to another Project after it was changed in Nova and before it was published to “${domain}” again, so Nova can't tell this app's changes from CommCare HQ's here. ${next}`;
 		default: {
 			const unplaced: never = reason;
 			return unplaced;
@@ -421,16 +431,20 @@ export function hqChangesHeldLine(
 		readonly app: readonly Platform[];
 		readonly hq: readonly Platform[];
 	} | null,
+	requiresReview = false,
 ): string {
+	const next = requiresReview
+		? " and check again."
+		: " and check again, or publish over the change.";
 	switch (reason) {
 		case "languages-reordered":
-			return "The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ and check again, or publish over the change.";
+			return `The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ${next}`;
 		case "runs-elsewhere": {
 			const where =
 				runs === null
 					? ""
 					: ` This app runs ${namesInWords(runs.app.map(inPlatform))}, and what changed in CommCare HQ runs only ${namesInWords(runs.hq.map(inPlatform))}.`;
-			return `CommCare HQ's version doesn't run everywhere this app does.${where} You can change where this app runs in App settings and check again, or publish over the change.`;
+			return `CommCare HQ's version doesn't run everywhere this app does.${where} You can change where this app runs in App settings${next}`;
 		}
 		default: {
 			const unplaced: never = reason;

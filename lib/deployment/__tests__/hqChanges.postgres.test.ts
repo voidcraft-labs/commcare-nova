@@ -116,6 +116,7 @@ import {
 import { createFromReview } from "../reading/create";
 import { authorizeBringIn, readHqAppForReview } from "../reading/read";
 import {
+	landedFirstPublish,
 	peekHqAppChanged,
 	publishAppToHq,
 	refreshKeptValues,
@@ -140,7 +141,11 @@ import {
 	EMPTY_TARGET_IDENTITY,
 	resolveTargetIdentity,
 } from "../targetIdentity";
-import type { AppBaselineWrite, AppOwnership } from "../types";
+import type {
+	AppBaselineWrite,
+	AppOwnership,
+	RemoteChangeDiscard,
+} from "../types";
 import {
 	type AdoptedBirth,
 	appMappingToken,
@@ -218,6 +223,7 @@ const TAKEN_OWNERSHIP: AppOwnership = {
 
 /** The born list, as `adoptedBirth.ts` stores it. */
 const BORN_LIST: StoredFirstPublish = {
+	reviewed: 1,
 	ids: ["forms-and-settings-rewritten"],
 	webAppsOnInHq: true,
 	of: "first-publish",
@@ -406,6 +412,7 @@ describe("recordHqChangesTaken", () => {
 			nova_revision: 1,
 			media_files: files,
 			first_publish_changes: {
+				reviewed: 1,
 				ids: ["forms-and-settings-rewritten"],
 				webAppsOnInHq: false,
 				of: "first-publish",
@@ -705,6 +712,7 @@ describe("recordHqChangesTaken", () => {
 				}),
 			);
 			expect((await baselineRow()).first_publish_changes).toEqual({
+				reviewed: 1,
 				ids: ["case-names-checked", "text-spaces-dropped"],
 				webAppsOnInHq: false,
 				of: "first-publish",
@@ -1550,8 +1558,7 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		const listed = await answer(() =>
 			reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
 		);
-		if (listed.kind !== "nothing" || !listed.readingId || !listed.reviewDigest)
-			throw new Error(JSON.stringify(listed));
+		if (listed.kind !== "changes") throw new Error(JSON.stringify(listed));
 		expect(listed.publishChanges).not.toEqual([]);
 		const approved = {
 			readingId: listed.readingId,
@@ -2873,6 +2880,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		accepts: boolean,
 		readBack: RetainedHqAnswer | TargetPeer = source,
 		versionBefore = 3,
+		discardRemoteChanges: readonly RemoteChangeDiscard[] = [],
 	) {
 		const loaded = await loadApp(appId);
 		if (loaded === null) throw new Error(`No app ${appId}.`);
@@ -2964,6 +2972,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				reloadHead: reloadHeadFor(appId, MEMBER),
 				appName: doc.appName,
 				confirm: CONFIRM_ALL,
+				discardRemoteChanges,
 			});
 			const requests = (peer.getCallHistory()?.calls() ?? [])
 				.map(
@@ -3968,12 +3977,12 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} }),
 			);
 			if (
-				review.kind !== "nothing" ||
+				(review.kind !== "nothing" && review.kind !== "changes") ||
 				!review.readingId ||
 				!review.reviewDigest
 			)
 				throw new Error(JSON.stringify(review));
-			expect(review.reason).toBe("reads-the-same");
+			expect(review.kind).toBe(direction === "adds" ? "changes" : "nothing");
 			expect(review.publishChanges.length > 0).toBe(direction === "adds");
 			const approval = {
 				readingId: review.readingId,
@@ -4027,6 +4036,255 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				JSON.parse(gunzipSync(observed.source_gzip).toString("utf8"))
 					.multimedia_map ?? {},
 			).toEqual(model.snapshot().source?.multimedia_map ?? {});
+			expect((await baselineOfApp()).first_publish_changes).toBeNull();
+		},
+		30_000,
+	);
+
+	// A passive Refresh on the released version wrote these normalized bytes
+	// with the original (unversioned) card. Use the production baseline writer
+	// and then restore that exact released card shape, the input to cutover.
+	async function releasedRefresh(appId: string, source: RetainedHqAnswer) {
+		const actor = scope(appId);
+		const earlier = await readAppBaseline(actor, KEY_TARGET);
+		const normalized = normalizeHqAppSource(retainedBodyJson(source));
+		if (!earlier || earlier.origin === "unread" || "malformed" in normalized)
+			throw new Error(
+				"Expected the adopted target and a readable HQ application.",
+			);
+		const result = await recordRefreshedAppBaseline(actor, KEY_TARGET, {
+			expectedEndings: 0,
+			remoteAppId: FIXTURE_REMOTE_APP_ID,
+			comparedPushToken: appMappingToken(
+				await readDeployment(actor, KEY_TARGET),
+			),
+			comparedDigest: earlier.sourceDigest,
+			read: {
+				sourceGzip: gzipSync(normalized.text),
+				sourceBytes: normalized.bytes,
+				sourceDigest: normalized.digest,
+				observedAt: new Date().toISOString(),
+			},
+		});
+		expect(result.outcome).toBe("current");
+		await sql`UPDATE app_deployment_baselines
+			SET first_publish_changes = first_publish_changes - 'reviewed'
+			WHERE remote_app_id = ${FIXTURE_REMOTE_APP_ID}`.execute(h.db());
+		return normalized.digest;
+	}
+
+	it.each(["added", "removed", "replaced", "unchanged", "unread"] as const)(
+		"recovers a released first-publish review after an old Refresh left its unused file %s",
+		async (scenario) => {
+			const doc = clinic({});
+			const original = emission(doc, 2);
+			const saved = emission(doc, 3);
+			const withFiles = (source: RetainedHqAnswer, files: readonly string[]) =>
+				changedAnswer(source, (body) => ({
+					...body,
+					multimedia_map: Object.fromEntries(
+						files.map((id) => [
+							`jr://file/commcare/image/data/${id}.png`,
+							{
+								doc_type: "HQMediaMapItem",
+								media_type: "CommCareImage",
+								multimedia_id: id,
+								unique_id: `map-${id}`,
+								version: 1,
+							},
+						]),
+					),
+				}));
+			const old =
+				scenario === "replaced"
+					? ["first", "second"]
+					: scenario === "removed"
+						? ["first"]
+						: [];
+			const current =
+				scenario === "added"
+					? ["later"]
+					: scenario === "replaced"
+						? ["new-one", "new-two"]
+						: [];
+			const appId = await broughtIn(doc, {
+				...original,
+				source: withFiles(original.source, old),
+			});
+			const actor = scope(appId);
+			const served = { ...saved, source: withFiles(saved.source, current) };
+			const currentDigest = await releasedRefresh(appId, served.source);
+			if (scenario === "unread")
+				await h
+					.db()
+					.updateTable("app_deployment_baselines")
+					.set({ source_gzip: Buffer.from("invalid gzip") })
+					.execute();
+			if (scenario === "replaced") await certifyFold(h.db(), appId);
+			const held = await baselineOfApp();
+			const dep = await readDeployment(actor, KEY_TARGET);
+			if (!dep) throw new Error("The adopted target was lost.");
+			expect(await landedFirstPublish(actor, dep, doc, "check-status")).toEqual(
+				{
+					of: "first-publish",
+					ids: [],
+					touchesWorkers: false,
+					needsReview: true,
+				},
+			);
+			expect(held.source_digest).toBe(currentDigest);
+			expect(
+				held.first_publish_changes?.ids.includes(
+					"unused-media-entries-removed",
+				),
+			).toBe(old.length > 0);
+			const blocked = await publishOver(
+				appId,
+				served.source,
+				false,
+				served.source,
+				3,
+				[{ kind: "app", novaResourceId: appId, observedDigest: currentDigest }],
+			);
+			expect(blocked.outcome).toMatchObject({
+				landed: false,
+				refusal: {
+					failure: { code: "hq_changed" },
+					remoteChanges: [
+						expect.objectContaining({
+							requiresReview: true,
+							canBringIn: scenario !== "unread",
+						}),
+					],
+				},
+			});
+			expect(blocked.requests).not.toContain(`POST ${IMPORT_PATH}`);
+			const read = (reading: typeof served, tables = true) =>
+				withHttpPeer(async (peer) => {
+					if (scenario !== "unread") serveEmission(peer, reading, 1, tables);
+					return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+				});
+			const review = await read(served);
+			if (scenario === "unread") {
+				expect(review).toMatchObject({
+					kind: "unavailable",
+					reason: "baseline-unread",
+					requiresReview: true,
+				});
+				return;
+			}
+			if (review.kind !== "changes" || !review.requiresReview)
+				throw new Error(
+					"Expected an explicit first-publish review: " +
+						JSON.stringify(review),
+				);
+			const approval = {
+				readingId: review.readingId,
+				reviewDigest: review.reviewDigest,
+				tableChoices: {},
+			};
+			const take = (reading: typeof served) =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, reading);
+					return bringInHqChanges(actor, KEY_TARGET, approval, {
+						onEvent: () => {},
+					});
+				});
+			expect(await baselineOfApp()).toEqual(held);
+			for (const id of current)
+				expect(review.hqChanges).toContain(
+					`Publishing removes the unused reference “jr://file/commcare/image/data/${id}.png” to HQ file “${id}”.`,
+				);
+			if (current.length)
+				expect(review.publishChanges).toContain(
+					`This publish removes ${current.length} unused file ${current.length === 1 ? "reference" : "references"}.`,
+				);
+			if (scenario === "replaced") {
+				// Same names and count, but HQ has rebound the first path to a different asset.
+				const different = {
+					...served,
+					source: changedAnswer(served.source, (body) => {
+						const map = body.multimedia_map as Record<
+							string,
+							{ multimedia_id: string }
+						>;
+						map["jr://file/commcare/image/data/new-one.png"].multimedia_id =
+							"another-file";
+						return body;
+					}),
+				};
+				expect((await take(different)).kind).toBe("changed");
+				expect(await baselineOfApp()).toEqual(held);
+			}
+			if (scenario === "unchanged") {
+				const edited = clinic({ appName: "Clinic renamed in HQ" });
+				const competing = await reviewAndBringIn(
+					appId,
+					edited,
+					emission(edited, 4),
+				);
+				expect(competing.outcome.kind).toBe("brought-in");
+				const accepted = await baselineOfApp();
+				expect((await take(served)).kind).toBe("changed");
+				expect(await baselineOfApp()).toEqual(accepted);
+				return;
+			}
+			const written = await take(served);
+			if (written.kind !== "recorded") throw new Error(JSON.stringify(written));
+			expect(
+				written.deployment?.firstPublish?.ids.includes(
+					"unused-media-entries-removed",
+				),
+			).toBe(current.length > 0);
+			expect((await baselineOfApp()).first_publish_changes).toMatchObject({
+				reviewed: 1,
+			});
+			if (scenario === "replaced") {
+				// This card is current now. The register still lists the same change
+				// when HQ replaces an asset at this path, but the user approved another file.
+				const rebound = {
+					...served,
+					source: changedAnswer(served.source, (body) => {
+						const map = body.multimedia_map as Record<
+							string,
+							{ multimedia_id: string }
+						>;
+						map["jr://file/commcare/image/data/new-two.png"].multimedia_id =
+							"new-identity";
+						return body;
+					}),
+				};
+				const changed = await read(rebound);
+				expect(changed.kind).toBe("changes");
+				if (changed.kind === "changes")
+					expect(changed.hqChanges).toContain(
+						"Publishing removes the unused reference “jr://file/commcare/image/data/new-two.png” to HQ file “new-identity”.",
+					);
+			}
+			const repeat = await read(served, false);
+			expect(repeat).toMatchObject({
+				kind: "nothing",
+				reason: "unchanged",
+				reviewDigest: null,
+			});
+			const model = new TargetPeer({
+				credentials: {
+					username: "account",
+					apiKey: "fixture-key",
+					server: FIXTURE_SERVER,
+				},
+				domain: FIXTURE_DOMAIN,
+				flags: new Set(),
+				caseSearchEnabled: false,
+				appId: FIXTURE_REMOTE_APP_ID,
+				commcareVersion: "2.60.0",
+				cloudcareGranted: true,
+			});
+			model.holdSource(retainedBodyJson(served.source));
+			const pushed = await publishOver(appId, served.source, true, model, 3);
+			expect(pushed.outcome.landed).toBe(true);
+			expect(pushed.imported).toHaveLength(1);
+			expect(model.snapshot().source?.multimedia_map ?? {}).toEqual({});
 			expect((await baselineOfApp()).first_publish_changes).toBeNull();
 		},
 		30_000,

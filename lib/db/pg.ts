@@ -1001,6 +1001,7 @@ export interface AppDeploymentBaselinesTable {
 	first_publish_changes: JSONColumnType<
 		{
 			readonly ids: readonly string[];
+			readonly reviewed?: 1;
 			readonly webAppsOnInHq: boolean;
 			readonly of: "first-publish" | "next-publish";
 		} | null,

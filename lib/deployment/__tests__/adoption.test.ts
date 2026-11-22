@@ -746,6 +746,7 @@ describe("adoptedAppBaselineWrite", () => {
 	it("stores the list less the two Web Apps lines, beside HQ's setting, and reads back the same list", () => {
 		const write = baselineFor(PLAIN);
 		const stored = {
+			reviewed: 1,
 			ids: ["forms-and-settings-rewritten", "media-files-renamed"],
 			webAppsOnInHq: false,
 			of: "first-publish",

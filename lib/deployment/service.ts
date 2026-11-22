@@ -4090,6 +4090,7 @@ async function compareWithHq(
 		),
 	});
 	if (
+		baseline.firstPublishReview === "required" ||
 		parts.length > 0 ||
 		((remote.ownership === "adopted" || baseline.hasPublishList) &&
 			publishReadingFactsMoved(baseline.source, read.source, new Set()))

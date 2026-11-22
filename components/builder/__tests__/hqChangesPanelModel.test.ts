@@ -146,6 +146,36 @@ describe("the review", () => {
 		).toEqual({ id: 1, kind: "review" });
 	});
 
+	it("waits for the member to accept an older target's first-publish review and shows no discard", () => {
+		const state = answered(
+			changes({
+				requiresReview: true,
+				hqChanges: ["Publishing removes the old picture reference."],
+			}),
+		);
+		expect(nextRequest(state)).toBeNull();
+		expect(publishOverDiscard(state, "app-1")).toBeNull();
+		for (const context of [CARD, PUBLISH])
+			expect(panelView(state, context).body).toMatchObject({
+				kind: "lists",
+				choices: { bringIn: { discard: false }, publishOver: null },
+			});
+		const pending = reduceHqChangesPanel(state, {
+			type: "bring-in-pressed",
+			discard: false,
+			at: AT,
+		});
+		expect(nextRequest(pending)?.kind).toBe("bring-in");
+		const done = reduceHqChangesPanel(pending, {
+			type: "bring-in-answered",
+			outcome: { kind: "recorded", deployment: VIEW },
+		});
+		expect(panelView(done, CARD).body).toEqual({
+			kind: "brought-in",
+			line: "Nova recorded your review for the next publish.",
+		});
+	});
+
 	it("draws the stage row with the stage the stream names, its file count moving every ten files for a screen reader", () => {
 		const states = statesBeforeAnswer();
 		expect(panelView(states[0], PUBLISH).stage).toEqual({

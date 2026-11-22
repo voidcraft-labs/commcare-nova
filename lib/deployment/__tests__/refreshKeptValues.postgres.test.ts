@@ -707,6 +707,7 @@ describe("refreshKeptValues", () => {
 			await seedApp();
 			const files = { "commcare/image/logo.png": "hq-file-1" };
 			const list = {
+				reviewed: 1,
 				ids: ["forms-and-settings-rewritten"],
 				webAppsOnInHq: true,
 				of: "first-publish",
