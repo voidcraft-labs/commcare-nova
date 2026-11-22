@@ -851,6 +851,22 @@ class Unit:
             self._run_commit_callbacks()
 
     @contextmanager
+    def app_save(self):
+        """An HQ application save can add a case type or property. With
+        ProjectDB enabled its post-save signal schedules schema synchronization
+        after commit. Run that callback at its real transaction boundary.
+        Fresh databases commit themselves; reusable nonrollback units retain
+        their existing refusal of callbacks.
+        """
+        if self._transactional and "PROJECT_DB" in self.configuration.flags:
+            from proof.hq import redis as hq_redis
+
+            with hq_redis.shared(None), self.committing():
+                yield
+        else:
+            yield
+
+    @contextmanager
     def committing(self):
         """Inside the block, a function HQ asks to run when its transaction commits (``transaction.on_commit``)
         runs where production's commit would run it, in place of being refused (the module's "Commit
