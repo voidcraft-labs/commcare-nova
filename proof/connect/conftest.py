@@ -128,6 +128,7 @@ class Submitted:
 
     xml: bytes
     forwarded: object
+    hq_attachments: dict = field(default_factory=dict)
 
     @property
     def payload(self):
@@ -416,7 +417,7 @@ def _refuses_to_answer(method, url, headers, body):
     )
 
 
-def _forwarded_by_hq(app, document, made, connect_runtime) -> dict:
+def _forwarded_by_hq(app, document, made, connect_runtime, *, attachments_by_name=None) -> dict:
     """Each submission of ``made`` (by name) as HQ forwards it: posted to HQ's own receiver view as a device
     posts it, under the app's id, which every archive Nova compiles names in its ``PostURL``, or, for the
     control's pre-fix local archive (``control-local``), which names none, with no app named; taken by HQ's
@@ -432,26 +433,66 @@ def _forwarded_by_hq(app, document, made, connect_runtime) -> dict:
     with formplayer_hq.serve(app.unit, document, app.app_id) as served:
         session = connect_runtime.session(_refuses_to_answer)
         try:
-            session.step("hq_server", hqUrl="https://www.commcarehq.org", oauthClient=connect_hq.OAUTH_CLIENT)
+            session.step(
+                "hq_server",
+                hqUrl="https://www.commcarehq.org",
+                oauthClient=connect_hq.OAUTH_CLIENT,
+            )
             with connect_hq.forwarding(app.unit, session.url, app.unit.operation, "package"):
                 views = formplayer_hq.HqViews(app.unit, served.username)
                 for name, xml, receiver_id in wanted:
                     with served.run(f"forward-{name}"):
                         views.begin(f"forward-{name}".encode(), None)
                         path = connect_hq.receiver_url(app.unit.domain, receiver_id)
-                        request = connect_hq.device_request(path, served.username, formplayer_hq.PASSWORD, xml)
+                        attachments = (attachments_by_name or {}).get(name, ())
+                        request = connect_hq.device_request(
+                            path,
+                            served.username,
+                            formplayer_hq.PASSWORD,
+                            xml,
+                            attachments=attachments,
+                        )
                         answer = views(request)
-                        assert answer.status == 201, (name, answer.status, answer.body[:300])
+                        assert answer.status == 201, (
+                            name,
+                            answer.status,
+                            answer.body[:300],
+                        )
                         registered = connect_hq.forwards(app.unit)
                         arrived = [
                             exchange
                             for exchange in session.step("collect")["exchanges"]
                             if exchange["path"] == "/api/receiver/"
                         ]
-                    assert len(registered) == len(arrived) == 1, (name, registered, arrived)
-                    payload = arrived[0]["payload"]
+                        assert len(registered) == len(arrived) == 1, (
+                            name,
+                            registered,
+                            arrived,
+                        )
+                        payload = arrived[0]["payload"]
+                        metadata = {}
+                        if attachments:
+                            from corehq.apps.api.resources.v0_4 import (
+                                XFormInstanceResource,
+                            )
+                            from corehq.apps.api.util import form_to_es_form
+                            from corehq.form_processor.models import XFormInstance
+
+                            held = XFormInstance.objects.get_form(payload["id"], domain=app.unit.domain)
+                            resource = XFormInstanceResource()
+                            bundle = resource.build_bundle(obj=form_to_es_form(held, include_attachments=True))
+                            metadata = resource.dehydrate_attachments(bundle)
+                            for filename, content_type, contents in attachments:
+                                assert held.get_attachment(filename) == contents, (
+                                    name,
+                                    filename,
+                                )
+                                assert metadata[filename]["length"] == len(contents)
+                                assert metadata[filename]["content_type"] == content_type
                     found[name] = Submitted(
-                        xml, connect_hq.Forwarded(payload["app_id"], payload["build_id"], True, payload)
+                        xml,
+                        connect_hq.Forwarded(payload["app_id"], payload["build_id"], True, payload),
+                        metadata,
                     )
         finally:
             session.close()
