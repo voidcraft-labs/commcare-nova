@@ -1165,17 +1165,40 @@ export async function findReadyAssetByProjectAndHash(
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<MediaAssetRecord | null> {
 	const db = lockedDb ?? (await getAppDb());
-	const row = await db
-		.selectFrom("media_assets")
+	const row = await readyAssetsForContents(db, projectId, [contentHash])
 		.selectAll()
-		.where("project_id", "=", projectId)
-		.where("content_hash", "=", contentHash)
-		.where("status", "=", "ready")
-		.orderBy("created_at")
-		.orderBy("id")
 		.limit(1)
 		.executeTakeFirst();
 	return row ? mediaAssetRecordFromRow(row) : null;
+}
+
+/** The same Project and hash choice for the incoming review and the locked
+ * upload, including old Projects with several ready rows for one content. */
+function readyAssetsForContents(
+	db: Kysely<AppDatabase>,
+	projectId: string,
+	contentHashes: readonly string[],
+) {
+	return db
+		.selectFrom("media_assets")
+		.distinctOn("content_hash")
+		.where("project_id", "=", projectId)
+		.where("content_hash", "in", contentHashes)
+		.where("status", "=", "ready")
+		.orderBy("content_hash")
+		.orderBy("created_at")
+		.orderBy("id");
+}
+
+/** Only the matching IDs and hashes cross the review boundary. */
+export async function findReadyAssetIdsByProjectAndHashes(
+	projectId: string,
+	contentHashes: readonly string[],
+): Promise<readonly Pick<MediaAssetRecord, "id" | "contentHash">[]> {
+	if (contentHashes.length === 0) return [];
+	return readyAssetsForContents(await getAppDb(), projectId, contentHashes)
+		.select(["id", "content_hash as contentHash"])
+		.execute();
 }
 
 /**

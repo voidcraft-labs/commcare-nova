@@ -453,7 +453,7 @@ function makeConflictError(
  * stop during the resource push lists nothing: calling again reads CommCare
  * HQ afresh and lists what changed then.
  */
-function makeRemoteChangesError(
+export function makeRemoteChangesError(
 	message: string,
 	appId: string,
 	changes: readonly DeploymentRemoteChange[],
@@ -484,19 +484,17 @@ function makeRemoteChangesError(
 		...answer,
 	};
 	// Withhold the overwrite receipt when this surface cannot show all the
-	// app changes. Publishing in the Builder shows the complete review.
-	const response =
-		changes.some((change) => change.kind === "app") &&
-		!fitsReviewResult(body, true)
-			? {
-					error_type: UPLOAD_ERROR_TAGS.hq_changed,
-					app_id: appId,
-					requires_review: true,
-					message:
-						"The complete list of changes in CommCare HQ needs more room. Open Publishing in the Builder to review what would change before choosing which version to keep.",
-					placements: answer.placements,
-				}
-			: body;
+	// app, table or place changes. Publishing in the Builder shows every entry.
+	const response = !fitsReviewResult(body, true)
+		? {
+				error_type: UPLOAD_ERROR_TAGS.hq_changed,
+				app_id: appId,
+				requires_review: true,
+				message:
+					"The complete list of changes in CommCare HQ needs more room. Open Publishing in the Builder to review what would change before choosing which version to keep.",
+				placements: answer.placements,
+			}
+		: body;
 	return {
 		isError: true,
 		content: [{ type: "text", text: JSON.stringify(response) }],

@@ -779,6 +779,11 @@ export function importRetryWaitMs(retryAfter: string | null): number | null {
 	return ms !== null && ms <= IMPORT_RETRY_MAX_WAIT_MS ? ms : null;
 }
 
+interface ImportStoppedBeforeView {
+	readonly kind: "save-not-confirmed";
+	readonly counter: number | CommCareApiError;
+}
+
 /**
  * Import an app into a CommCare HQ project space.
  *
@@ -824,10 +829,6 @@ export function importApp(
 	updateAppId: string,
 	expectedVersion: number,
 ): Promise<ImportResponse | ImportStoppedBeforeView>;
-interface ImportStoppedBeforeView {
-	readonly kind: "save-not-confirmed";
-	readonly counter: number | CommCareApiError;
-}
 export async function importApp(
 	creds: CommCareCredentials,
 	domain: string,

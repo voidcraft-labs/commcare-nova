@@ -1287,7 +1287,11 @@ sent:
   release already recorded the identical HQ source. A new adoption's birth
   review lists kinds of change. Its first destructive publish names the actual
   file references. The reading and its second request cover both accepted and
-  prospective removals. An explicit discard covers the source and that publish's
+  prospective removals. Both historical and current readings bind held files by
+  their bytes to the same ready Project asset the uploader would use. Several
+  HQ ids may therefore name one file. The take and the keep-Nova choice each
+  project their own actual outgoing paths before signing the physical losses.
+  An explicit discard covers the source and that publish's
   exact removals. A bounded list that cannot show them all opens the full
   paged review. A late source read after Project data went checks the map again.
   A passive Refresh can't advance a pending review. A successful import
@@ -2520,3 +2524,7 @@ assertion. Record-scope session expressions are not worker-record reads.
 A parked empty app remains editable in CommCare HQ. Each resumed publish checks its file destinations before it writes the content. After HQ accepts the content, `hqMediaSettle.ts::verifyHqMediaBatch` uses the source compared for that import and its counter-bound read-back to authorize the next bundle. A subsequent save requires a stable fresh source. A path that now holds another ID or file type is checked against the outgoing bytes. If the evidence is unavailable or different, the accepted app stays published, the batch stays unsent, and the prior file record stays available for the next review. The capture uses the same check.
 
 Every live source read for bring-in, passive refresh or publishing must include HQ’s multimedia map. A content import can remove references even when it sends zero files. A newly created shell with an affected mapping is recorded and left for target preflight. The capture and preflight share the same removal decision, including the exact reviewed file identities, outgoing paths and limit on a discard list. An outstanding import can precede a concurrent take only when HQ acknowledged the same app at a save counter strictly greater than the one compared before sending.
+
+The MCP tools page HQ birth and change reviews against 80,000 characters of the complete serialized SDK result, including the outer write response around a fresh reading. Size the opaque continuation and every escaped piece before adding it. Move a large case catalog, a lookup choice with many column consequences, or a contributor list onto those same pages. Preserve their complete identities and offer the review digest only when every decision-bearing item has been returned. An oversized upload refusal sends the user to this review before it offers any discard receipt.
+
+A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.

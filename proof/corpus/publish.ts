@@ -2996,6 +2996,20 @@ async function reviewOverPeer(input: {
 	}
 	const fetched: FetchedHqChanges = {
 		...basis,
+		projectMedia: {
+			byIds: (ids) =>
+				mediaRows(
+					prepared.source,
+					ids.filter((id) => prepared.source.media?.has(id)),
+				),
+			byContent: async (hashes) => {
+				const files = captureAssetsByContent(prepared.source);
+				return hashes.flatMap((contentHash) => {
+					const id = files.get(contentHash);
+					return id === undefined ? [] : [{ contentHash, id }];
+				});
+			},
+		},
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		data: projectData.data,
 	};
@@ -3165,6 +3179,20 @@ function valueAt(value: unknown, path: string): unknown {
 	return at;
 }
 
+/** Capture rows share a creation time. Resolve ties by asset ID, as the real Project library does. */
+function captureAssetsByContent(
+	source: PublishDocument,
+): Map<string, MediaAssetId> {
+	const files = new Map<string, MediaAssetId>();
+	for (const [key, asset] of source.media ?? []) {
+		const id = asMediaAssetId(key);
+		const hash = sha256(asset.bytes);
+		const previous = files.get(hash);
+		if (previous === undefined || id < previous) files.set(hash, id);
+	}
+	return files;
+}
+
 /**
  * The asset of the Project's library that holds the bytes of SHA-256
  * `contentHash`, which a bring-in's publication of a file of those bytes
@@ -3176,11 +3204,11 @@ function valueAt(value: unknown, path: string): unknown {
  */
 function projectAssetOf(
 	source: PublishDocument,
+	files: ReadonlyMap<string, MediaAssetId>,
 	contentHash: string,
 ): MediaAssetId {
-	for (const [assetId, asset] of source.media ?? []) {
-		if (sha256(asset.bytes) === contentHash) return asMediaAssetId(assetId);
-	}
+	const id = files.get(contentHash);
+	if (id !== undefined) return id;
 	throw new Error(
 		`Nova's bring-in of ${source.id} takes a file CommCare HQ holds whose bytes the document's Project does not hold, and the capture has no library to publish it to. Give the document that file among its media.`,
 	);
@@ -3305,6 +3333,7 @@ async function bringInOverPeer(input: {
 	if (checked !== null && fetched !== null && checked.plan.kind === "changes") {
 		const shown = collectAssetRefs(checked.plan.target);
 		const nowPlan = checked.media.now;
+		const files = captureAssetsByContent(prepared.source);
 		const published: Record<string, MediaAssetId> = { ...nowPlan.published };
 		for (const file of nowPlan.files) {
 			const verdict = Object.hasOwn(nowPlan.verdicts, file.key)
@@ -3313,6 +3342,7 @@ async function bringInOverPeer(input: {
 			if (!shown.has(file.provisionalId) || verdict?.kind !== "held") continue;
 			published[file.key] = projectAssetOf(
 				prepared.source,
+				files,
 				verdict.file.contentHash,
 			);
 		}

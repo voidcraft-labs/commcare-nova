@@ -40,7 +40,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { toolText } from "../paging";
+import { fitPiece, toolText } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
@@ -102,11 +102,12 @@ function bodyOf(
 	switch (answer.kind) {
 		case "created": {
 			const { receipt } = answer;
+			const appName = fitPiece(receipt.blueprint.appName);
 			return {
 				status: "created",
 				app_id: receipt.appId,
 				project_id: receipt.projectId,
-				app_name: receipt.blueprint.appName,
+				app_name: appName,
 				url: `${AS_ORIGIN}/build/${receipt.appId}`,
 				/* The app's id derives from the key, so the receipt's adoption is the key's. */
 				brought_in_from: {
@@ -114,7 +115,7 @@ function bodyOf(
 					domain: key.domain,
 					hq_app_id: key.remoteAppId,
 				},
-				message: broughtInToolMessage(receipt.blueprint.appName, key.domain),
+				message: broughtInToolMessage(appName, key.domain),
 			};
 		}
 		case "changed": {

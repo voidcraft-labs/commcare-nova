@@ -15,15 +15,15 @@
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { hqPlaceUrl } from "@/lib/deployment/hqPlaceUrl";
 import type { AccountAnswer } from "@/lib/deployment/reading/answers";
-import {
-	READING_ID_PATTERN,
-	type ReadingAnswer,
-	type ReadingDeclarationChoice,
-	type ReadingKey,
-	type ReadingRefusal,
-	type ReadingReview,
-	type ReviewTable,
+import type {
+	ReadingAnswer,
+	ReadingDeclarationChoice,
+	ReadingKey,
+	ReadingRefusal,
+	ReadingReview,
+	ReviewTable,
 } from "@/lib/deployment/reading/types";
+import { READING_ID_PATTERN } from "@/lib/deployment/reading/types";
 import {
 	PLATFORM_DECLARATION_LABELS,
 	PLATFORM_DECLARATION_LINES,
@@ -90,10 +90,13 @@ import { BringInToolError } from "../errors";
 import {
 	arrayItemChars,
 	cutPage,
+	encodedJsonChars,
 	fitPiece,
+	indexedReview,
 	lineParts,
 	PIECE_MAX_CHARS,
 	reviewedPageDigest,
+	toolResultChars,
 } from "../paging";
 import {
 	describeFirstPublish,
@@ -147,26 +150,30 @@ export interface ReviewPublishDetail {
 	readonly parts: number;
 	readonly text: string;
 }
-function reviewPublishDetails(review: ReadingReview): ReviewPublishDetail[] {
-	return review.runsOn.flatMap((choice) =>
-		(choice.removesFiles ?? []).flatMap((line, item) => {
+function* reviewPublishDetails(
+	review: ReadingReview,
+): Generator<ReviewPublishDetail> {
+	for (const choice of review.runsOn) {
+		for (const [item, line] of (choice.removesFiles ?? []).entries()) {
 			const parts = lineParts(line, PIECE_MAX_CHARS - 256);
-			return parts.map((text, i) => ({
-				kind: "file-removal" as const,
-				runs_only_on: choice.runsOnlyOn,
-				split_datetime: choice.splitDatetime,
-				item: item + 1,
-				part: i + 1,
-				parts: parts.length,
-				text,
-			}));
-		}),
-	);
+			for (const [i, text] of parts.entries()) {
+				yield {
+					kind: "file-removal",
+					runs_only_on: choice.runsOnlyOn,
+					split_datetime: choice.splitDatetime,
+					item: item + 1,
+					part: i + 1,
+					parts: parts.length,
+					text,
+				};
+			}
+		}
+	}
 }
 
 export interface ReviewProjection {
-	readonly review_digest: string | null;
 	readonly publish_details?: readonly ReviewPublishDetail[];
+	readonly review_digest: string | null;
 	readonly app_name: string;
 	readonly read_at: string;
 	readonly creates: {
@@ -217,6 +224,9 @@ export interface ReviewProjection {
 	}[];
 	/** How many lookup tables the app reads, over every page. */
 	readonly tables_total: number;
+	readonly table_parts?: readonly TableReviewPart[];
+	readonly case_types_total?: number;
+	readonly case_type_parts?: readonly TextReviewPart[];
 	/** The cursor of the page that holds the tables after this page's, or null on the last. */
 	readonly next_page: string | null;
 	readonly places: { readonly count: number; readonly sentence: string } | null;
@@ -352,12 +362,30 @@ export function accountDigest(
 function pageCursor(from: number, digest: string): string {
 	return `${from}:${digest}`;
 }
+/** The birth approval commits every review field except its read timestamp.
+ * Table choices also display the Project and HQ domain supplied by the caller.
+ * Keep this presentation identity separate from the user's approval. */
+export function birthPageSubject(
+	reviewDigest: string,
+	project: string,
+	domain: string,
+): string {
+	return canonicalJsonDigest([
+		"hq-birth-display-v1",
+		reviewDigest,
+		project,
+		domain,
+	]);
+}
 
-/** A cursor at its longest, so a page measured with it fits whatever cursor it ends up holding. */
-const LONGEST_CURSOR = pageCursor(99_999, "0".repeat(64));
-
-const LONGEST_REVIEW_CURSOR = `99999999:${"0".repeat(64)}:00000000-0000-7000-8000-000000000000`;
-
+function reviewCursor(from: number, digest: string, readingId: string): string {
+	return `${from}:${reviewedPageDigest("birth", digest, from)}:${readingId}`;
+}
+const LONGEST_CURSOR = reviewCursor(
+	Number.MAX_SAFE_INTEGER,
+	"0".repeat(64),
+	"00000000-0000-7000-8000-000000000000",
+);
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
 
 /** The cursor's two halves, or null for text the schema let through and no account could give. */
@@ -366,17 +394,21 @@ export function parseAccountPage(page: string): {
 	readonly digest: string;
 	readonly readingId?: string;
 } | null {
-	const [index, digest, readingId, ...more] = page.split(":");
+	const [index, digest, readingId, ...extra] = page.split(":");
 	if (
 		!index ||
 		!digest ||
-		more.length ||
-		!HEX_DIGEST.test(digest) ||
+		extra.length ||
 		(readingId !== undefined && !READING_ID_PATTERN.test(readingId))
 	)
 		return null;
 	const from = Number(index);
-	if (!Number.isSafeInteger(from) || from < 1 || String(from) !== index)
+	if (
+		!Number.isSafeInteger(from) ||
+		String(from) !== index ||
+		from < 1 ||
+		!HEX_DIGEST.test(digest)
+	)
 		return null;
 	return { from, digest, ...(readingId && { readingId }) };
 }
@@ -386,23 +418,91 @@ export function parseAccountPage(page: string): {
  * carries: an account's findings under `accountDigest`, or a review's lookup
  * tables under its review digest. Null for a stop, which no page is cut from.
  */
-function pagedOf(
-	answer: ReadingAnswer,
-): { readonly length: number; readonly digest: string } | null {
-	switch (answer.kind) {
-		case "stop":
-			return null;
-		case "account":
-			return { length: answer.findings.length, digest: accountDigest(answer) };
-		case "review":
-			return {
-				length:
-					answer.review.tables.length +
-					reviewPublishDetails(answer.review).length,
-				digest: answer.reviewDigest,
+export interface TextReviewPart {
+	item: number;
+	part: number;
+	parts: number;
+	text: string;
+}
+export interface TableReviewPart extends TextReviewPart {
+	tag?: string;
+	standing: ReviewTable["standing"];
+	answers: readonly {
+		answer: TableAnswerProjection["answer"];
+		offered: boolean;
+	}[];
+}
+export function reviewTextParts(text: string, item: number): TextReviewPart[] {
+	const pieces = lineParts(text, PIECE_MAX_CHARS - 1024);
+	return pieces.map((text, i) => ({
+		item,
+		part: i + 1,
+		parts: pieces.length,
+		text,
+	}));
+}
+export type TableReviewPiece =
+	| { kind: "table"; table: ReviewProjection["tables"][number] }
+	| { kind: "table-part"; fragment: TableReviewPart };
+export function* tableReviewPieces(
+	tables: readonly ReviewTable[],
+	project: string,
+	domain: string,
+): Generator<TableReviewPiece> {
+	for (const [item, table] of tables.entries()) {
+		const row = tableProjection(table, project, domain);
+		if (encodedJsonChars(row) < PIECE_MAX_CHARS) {
+			yield { kind: "table", table: row };
+			continue;
+		}
+		const answers =
+			row.choice?.answers.map(({ answer, offered }) => ({ answer, offered })) ??
+			[];
+		for (const part of reviewTextParts(JSON.stringify(row), item))
+			yield {
+				kind: "table-part",
+				fragment: {
+					...part,
+					...(encodedJsonChars(row.tag) < 512 && { tag: row.tag }),
+					standing: row.standing,
+					answers,
+				},
 			};
 	}
 }
+
+/** Stop counting as soon as the catalog belongs on the pages. */
+function pagesCaseCatalog(types: readonly string[]) {
+	let size = 2;
+	for (const [index, name] of types.entries()) {
+		size += arrayItemChars(name, index);
+		if (size > 4096) return true;
+	}
+	return false;
+}
+
+const birthReviewPieces = indexedReview(function* (
+	review: ReadingReview,
+	project: string,
+	domain: string,
+) {
+	for (const value of reviewPublishDetails(review))
+		yield { kind: "file" as const, value };
+	if (pagesCaseCatalog(review.creates.caseTypes)) {
+		for (const [item, name] of review.creates.caseTypes.entries()) {
+			if (encodedJsonChars(name) < PIECE_MAX_CHARS)
+				yield { kind: "case" as const, value: name };
+			else
+				for (const value of reviewTextParts(name, item))
+					yield { kind: "case-part" as const, value };
+		}
+	}
+	for (const row of tableReviewPieces(review.tables, project, domain)) {
+		if (row.kind === "table")
+			yield { kind: "table" as const, value: row.table };
+		else yield { kind: "table-part" as const, value: row.fragment };
+	}
+});
 
 /**
  * Where a fresh read's answer starts for a call that sent `cursor`: at the
@@ -417,21 +517,33 @@ function pagedOf(
 export function pageFor(
 	answer: ReadingAnswer,
 	cursor: ReturnType<typeof parseAccountPage>,
+	context: { project: string; domain: string },
 ): { readonly from: number; readonly restarted: boolean } | null {
-	const paged = pagedOf(answer);
-	if (cursor === null || paged === null) return { from: 0, restarted: false };
-	const expected =
-		answer.kind === "review"
-			? reviewedPageDigest("birth", paged.digest, cursor.from)
-			: paged.digest;
+	if (cursor === null) return { from: 0, restarted: false };
+	if (answer.kind === "stop") return { from: 0, restarted: false };
+	const birth = answer.kind === "review";
+	const proof = birth
+		? reviewedPageDigest(
+				"birth",
+				birthPageSubject(answer.reviewDigest, context.project, context.domain),
+				cursor.from,
+			)
+		: accountDigest(answer);
 	if (
-		expected !== cursor.digest ||
-		(answer.kind === "review"
-			? cursor.readingId !== answer.readingId
+		proof !== cursor.digest ||
+		(birth
+			? answer.readingId !== cursor.readingId
 			: cursor.readingId !== undefined)
 	)
 		return { from: 0, restarted: true };
-	if (cursor.from >= paged.length) return null;
+	const exists = birth
+		? birthReviewPieces(
+				answer.review,
+				cutFindingName(context.project),
+				context.domain,
+			).has(cursor.from)
+		: cursor.from < answer.findings.length;
+	if (!exists) return null;
 	return { from: cursor.from, restarted: false };
 }
 
@@ -662,6 +774,7 @@ export function tableProjection(
 function reviewProjection(
 	review: ReadingReview,
 	reviewDigest: string,
+	pageSubject: string,
 	readingId: string,
 	project: string,
 	domain: string,
@@ -674,7 +787,13 @@ function reviewProjection(
 			"A review answered with no preselected way to run. A review offers at least one, exactly one of them preselected. Look at lib/deployment/reading/gather.ts::gatherReading.",
 		);
 	const asks = firstUploadAsks(review, preselected);
+	const pieces = birthReviewPieces(review, project, domain);
+	const pagedCases = pagesCaseCatalog(review.creates.caseTypes);
+	const hasFiles = review.runsOn.some((choice) =>
+		Boolean(choice.removesFiles?.length),
+	);
 	const shell: ReviewProjection = {
+		...(hasFiles && { publish_details: [] }),
 		review_digest: reviewDigest,
 		app_name: cutFindingName(review.appName),
 		read_at: review.readAt,
@@ -682,7 +801,7 @@ function reviewProjection(
 			menus: review.creates.menus,
 			forms: review.creates.forms,
 			questions: review.creates.questions,
-			case_types: review.creates.caseTypes,
+			case_types: pagedCases ? [] : review.creates.caseTypes,
 			languages: review.creates.languages.length,
 			media_files: review.creates.mediaFiles,
 		},
@@ -696,7 +815,6 @@ function reviewProjection(
 				? splitDatetimeLine(review.datetimeQuestions)
 				: null,
 			recorded_features: recordedFeatureLabels(choice),
-
 			first_publish: describeFirstPublish(
 				firstPublishLines(choice.firstPublish, "review"),
 			),
@@ -728,7 +846,11 @@ function reviewProjection(
 		},
 		tables: [],
 		tables_total: review.tables.length,
-		next_page: LONGEST_REVIEW_CURSOR,
+		...(pagedCases && {
+			case_types_total: review.creates.caseTypes.length,
+			case_type_parts: [],
+		}),
+		next_page: LONGEST_CURSOR,
 		places:
 			review.places === null
 				? null
@@ -752,47 +874,52 @@ function reviewProjection(
 			ANOTHER_SPACE_NEW_APP_LINE,
 		],
 	};
-	const projected = new Map<number, ReviewProjection["tables"][number]>();
-	const projectedAt = (index: number) => {
-		let one = projected.get(index);
-		if (one === undefined) {
-			one = fitPiece(
-				tableProjection(review.tables[index] as ReviewTable, project, domain),
-			);
-			projected.set(index, one);
-		}
-		return one;
-	};
+
 	const tables: ReviewProjection["tables"][number][] = [];
-	const details = reviewPublishDetails(review);
 	const shown: ReviewPublishDetail[] = [];
-	const count = details.length + review.tables.length;
+	const tableParts: TableReviewPart[] = [];
+	const caseTypes: string[] = [];
+	const caseParts: TextReviewPart[] = [];
 	const end = cutPage({
-		count,
+		count: pieces.has,
 		from,
-		shellChars: measure({
-			...shell,
-			...(details.length > 0 && { publish_details: [] }),
-		}),
-		pieceChars: (i) =>
-			i < details.length
-				? arrayItemChars(details[i], shown.length)
-				: arrayItemChars(projectedAt(i - details.length), tables.length),
-		take: (i) => {
-			if (i < details.length) shown.push(details[i]);
-			else tables.push(projectedAt(i - details.length));
+		shellChars: measure({ ...shell, table_parts: [] }),
+		pieceChars: (index) => arrayItemChars(pieces.get(index).value, 1),
+		take: (index) => {
+			const piece = pieces.get(index);
+			switch (piece.kind) {
+				case "file":
+					shown.push(piece.value);
+					break;
+				case "case":
+					caseTypes.push(piece.value);
+					break;
+				case "case-part":
+					caseParts.push(piece.value);
+					break;
+				case "table":
+					tables.push(piece.value);
+					break;
+				case "table-part":
+					tableParts.push(piece.value);
+					break;
+			}
 		},
 	});
-	const next =
-		end < count
-			? `${end}:${reviewedPageDigest("birth", reviewDigest, end)}:${readingId}`
-			: null;
+
 	return {
 		...shell,
 		tables,
-		...(details.length > 0 && { publish_details: shown }),
-		next_page: next,
-		review_digest: next ? null : reviewDigest,
+		...(tableParts.length && { table_parts: tableParts }),
+		...(pagedCases && {
+			creates: { ...shell.creates, case_types: caseTypes },
+			case_type_parts: caseParts,
+		}),
+		...(hasFiles && { publish_details: shown }),
+		review_digest: pieces.has(end) ? null : reviewDigest,
+		next_page: pieces.has(end)
+			? reviewCursor(end, pageSubject, readingId)
+			: null,
 	};
 }
 
@@ -844,7 +971,7 @@ export function describeReading(
 					key,
 					context,
 					options.from,
-					(account) => JSON.stringify(wrap({ ...head, account })).length,
+					(account) => toolResultChars(wrap({ ...head, account })),
 				),
 			};
 		case "review":
@@ -854,14 +981,15 @@ export function describeReading(
 				review: reviewProjection(
 					answer.review,
 					answer.reviewDigest,
+					birthPageSubject(answer.reviewDigest, options.project, key.domain),
 					answer.readingId,
 					project,
 					key.domain,
 					options.from,
 					(review) =>
-						JSON.stringify(
+						toolResultChars(
 							wrap({ ...head, reading_id: answer.readingId, review }),
-						).length,
+						),
 				),
 			};
 	}

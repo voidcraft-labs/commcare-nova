@@ -16,6 +16,7 @@
  */
 
 import type { Client } from "@modelcontextprotocol/client";
+import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HqSaveCounter, withHqPeer } from "@/__tests__/helpers/hqSaveCounter";
@@ -190,6 +191,7 @@ async function call(
 	args: Json,
 ): Promise<{ readonly isError: boolean; readonly body: Json }> {
 	const result = await client.callTool({ name, arguments: args });
+	expect(JSON.stringify(result).length).toBeLessThanOrEqual(80_000);
 	return {
 		isError: result.isError === true,
 		body: JSON.parse(resultContentText(result)) as Json,
@@ -547,6 +549,127 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 		});
 		expect(await head(appId)).toEqual({ seq: edited.seq + 1, name: RENAMED });
 	});
+
+	it("shows all 600 quoted file removals through the changed apply receipt and the later-read SDK before accepting a decision", async () => {
+		const appId = await broughtIn();
+		const before = await head(appId);
+		const files = Array.from(
+			{ length: 600 },
+			(_, i) =>
+				[`jr://file/visits/${'"'.repeat(145)}${i}.png`, `remote${i}`] as const,
+		);
+		const source = changedAnswer(renamed(), (body) => ({
+			...body,
+			multimedia_map: {
+				...(body.multimedia_map as object),
+				...Object.fromEntries(
+					files.map(([path, id]) => [
+						path,
+						{ media_type: "CommCareImage", multimedia_id: id },
+					]),
+				),
+			},
+		}));
+		await withHttpPeer(async (peer) =>
+			withTools(async (client) => {
+				serveRead(peer, renamed(), { tables: true });
+				const earlier = await readChanges(client, appId);
+				const args = {
+					app_id: appId,
+					reading_id: earlier.reading_id,
+					review_digest: earlier.review_digest,
+					discard_nova_changes: false,
+					table_choices: {},
+				};
+				type Changes = {
+					kind: string;
+					hq_changes: string[];
+					reading_id: string;
+					review_digest: string | null;
+					observed_digest: string | null;
+					requires_review?: true;
+					next_page: string | null;
+				};
+				serveRead(peer, source, { tables: true });
+				const nested = await call(client, "bring_in_hq_changes", args);
+				expect(nested.isError).toBe(false);
+				expect(nested.body).toMatchObject({
+					kind: "changed",
+					next: expect.any(String),
+					now: { kind: "changes", review_digest: null, observed_digest: null },
+				});
+				let review = nested.body.now as Changes;
+				if (!review.next_page)
+					throw new Error("The first page did not name its continuation.");
+				serveRead(peer, source, { tables: true });
+				const attempt = await call(client, "bring_in_hq_changes", {
+					...args,
+					review_digest: review.next_page.split(":")[1],
+				});
+				expect(attempt.body).toMatchObject({
+					kind: "changed",
+					now: { review_digest: null, observed_digest: null },
+				});
+				await sql`UPDATE auth_organization SET name = ${"New field team"} WHERE id = ${PROJECT}`.execute(
+					h.db(),
+				);
+				serveRead(peer, source, { tables: true });
+				const restart = await call(client, "read_hq_changes", {
+					app_id: appId,
+					page: review.next_page,
+				});
+				expect(restart.body).toMatchObject({
+					kind: "changes",
+					restarted: true,
+					review_digest: null,
+					observed_digest: null,
+				});
+				expect((restart.body.hq_changes as string[])[0]).toBe(
+					review.hq_changes[0],
+				);
+				review = restart.body as Changes;
+				const lines: string[] = [];
+				const seen = new Set<string>();
+				for (;;) {
+					lines.push(...review.hq_changes);
+					// Taking and overwriting remove the very same 600 references. Both
+					// decisions become available once every reference has been disclosed.
+					expect(review.requires_review).toBeUndefined();
+					if (!review.next_page) break;
+					expect(review.observed_digest).toBeNull();
+					expect(review.review_digest).toBeNull();
+					expect(seen.has(review.next_page)).toBe(false);
+					seen.add(review.next_page);
+					serveRead(peer, source, { tables: true });
+					const reply = await call(client, "read_hq_changes", {
+						app_id: appId,
+						page: review.next_page,
+					});
+					expect(reply.isError).toBe(false);
+					expect(reply.body).toMatchObject({
+						kind: "changes",
+						restarted: false,
+					});
+					review = reply.body as Changes;
+				}
+				expect(review.review_digest).toMatch(/^[0-9a-f]{64}$/);
+				expect(review.observed_digest).toMatch(/^[0-9a-f]{64}$/);
+				expect(seen.size).toBeGreaterThan(1);
+				const offered = lines.filter((line) =>
+					line.includes("Publishing removes the unused reference"),
+				);
+				expect(offered).toHaveLength(files.length);
+				for (const [path, id] of files)
+					expect(
+						offered.filter(
+							(line) => line.includes(path) && line.includes(`“${id}”`),
+						),
+					).toHaveLength(1);
+			}),
+		);
+		expect(await head(appId)).toEqual(before);
+		expect(await hqChangeRows(appId)).toEqual([]);
+	}, 60_000);
 
 	it("answers changed with the review as it now stands where CommCare HQ moved since the read, and takes nothing", async () => {
 		const appId = await broughtIn();

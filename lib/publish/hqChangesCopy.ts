@@ -126,6 +126,13 @@ export function showAllAction(n: number): string {
 }
 export const CHECK_AGAIN_ACTION = "Check again";
 
+/** Shared recovery beside complete rename evidence in the Builder and MCP pages. */
+export function renameRecoveryLine(reused: boolean): string {
+	return reused
+		? "A name was reused, so reversing the listed changes could move the wrong case values. You can check your case properties and saved values in Nova before deciding which app to keep."
+		: "If these names still identify the same case properties, you can rename them back in Nova and check again. Their saved values move with them.";
+}
+
 /**
  * A case property renamed in Nova since then holds "Use CommCare HQ's
  * version" back, and this line stands in its place. A property is a case type's, so each is named with its
@@ -140,7 +147,7 @@ export function renamedInNovaLine(
 		const listed = renames
 			.map((move) => `“${move.from}” to “${move.to}” on “${move.caseType}”`)
 			.join(", ");
-		return `Nova’s published comparison records ${listed}. A name was reused, so reversing the listed changes could move the wrong case values. You can check your case properties and saved values in Nova before deciding which app to keep.`;
+		return `Nova’s published comparison records ${listed}. ${renameRecoveryLine(true)}`;
 	}
 	if (renames.length === 1) {
 		const [rename] = renames;
@@ -154,7 +161,7 @@ export function renamedInNovaLine(
 	);
 	const listed = `${pairs.slice(0, -1).join(", ")}, and ${pairs[pairs.length - 1]}`;
 	const where = oneType ? ` on the case type “${renames[0].caseType}”` : "";
-	return `Since then, Nova recorded ${listed}${where}. If these names still identify the same case properties, you can rename them back in Nova and check again. Their saved values move with them.`;
+	return `Since then, Nova recorded ${listed}${where}. ${renameRecoveryLine(false)}`;
 }
 
 // ── The case data lines ──────────────────────────────────────────────

@@ -1389,9 +1389,13 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 				),
 			);
 			expect(moved.publishChanges.join(" ")).toMatch(warning);
-			expect(await read(swapped, () => bringIn(scope, moved))).toMatchObject({
-				kind: "brought-in",
-			});
+			// Only consent and the native source moved: both carriers still use
+			// the same Project asset. Recording it creates no document edit.
+			const before = await head(scope.appId);
+			const recorded = await read(swapped, () => bringIn(scope, moved));
+			if (recorded.kind !== "recorded")
+				throw new Error(JSON.stringify(recorded));
+			expect(await head(scope.appId)).toEqual(before);
 			expect(await review(scope, swapped, false)).toMatchObject({
 				kind: "nothing",
 				reason: "unchanged",
@@ -1564,6 +1568,114 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 				expect(await hqChangeRows(scope.appId)).toHaveLength(1);
 			}
 		},
+	);
+
+	it.each(["new", "parked", "older ready duplicate"] as const)(
+		"reviews the lost path of two later HQ files with identical bytes (%s Project picture)",
+		async (origin) => {
+			const scope =
+				origin === "new" ? await broughtIn() : await broughtInWithIcon();
+			const olderId = crypto.randomUUID();
+			if (origin !== "new") {
+				const source = withIcons(fixtureSource(), []);
+				const removal = changesOf(await review(scope, source));
+				await withHttpPeer(async (peer) => {
+					serveRead(peer, source, { tables: true });
+					expect((await bringIn(scope, removal)).kind).toBe("brought-in");
+				});
+				const loaded = await loadApp(scope.appId);
+				if (!loaded) throw new Error("The app is gone.");
+				expect([
+					...collectAssetRefs(hydratePersistedBlueprint(loaded.blueprint)),
+				]).toEqual([]);
+				expect(await mediaPathRows()).toMatchObject([{ wire_path: WIRE_PATH }]);
+			}
+			if (origin === "older ready duplicate") {
+				// Released databases permit two ready rows for the same immutable
+				// Project object. The oldest one is what the actual uploader reuses.
+				const [parked] = await mediaPathRows();
+				await sql`INSERT INTO media_assets
+					(id,project_id,owner,content_hash,mime_type,extension,size_bytes,kind,gcs_object_key,original_filename,status,media_format,created_at)
+					SELECT ${olderId},project_id,owner,content_hash,mime_type,extension,size_bytes,kind,gcs_object_key,original_filename,status,media_format,created_at - interval '1 day'
+					FROM media_assets WHERE id = ${parked.media_asset_id}`.execute(
+					h.db(),
+				);
+			}
+			const first = "firstalias",
+				second = "secondalias";
+			const path = (id: string) => `jr://file/commcare/image/${id}.png`;
+			const source = changedAnswer(
+				withUnusedImage(withIcons(fixtureSource(), [first, second])),
+				(body) => ({
+					...body,
+					logo_refs: {
+						hq_logo_android_home: { path: UNUSED_PATH, m_id: "unused-image" },
+					},
+				}),
+			);
+			const observe = <R>(
+				action: () => Promise<R>,
+				remote = source,
+				otherId = second,
+			) =>
+				withHttpPeer(async (peer) => {
+					serveRead(peer, remote, { tables: true });
+					serveImage(peer, first, 1);
+					serveImage(peer, otherId, 1);
+					return action();
+				});
+			const listed = changesOf(
+				await observe(() =>
+					reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
+				),
+			);
+			// The local document uploads neither of the two incoming paths. Taking
+			// HQ's changes keeps one and removes the other; HQ keeps its own logo.
+			expect(listed.requiresReview).toBe(true);
+			expect(
+				listed.hqChanges.filter((line) => line.includes("unused reference")),
+			).toEqual([
+				`Publishing removes the unused reference “${path(second)}” to HQ file “${second}”.`,
+			]);
+			expect(listed.publishChanges.join(" ")).toContain("under several names");
+			const before = await e2eBaseline();
+			const rebound = changedAnswer(source, (body) => {
+				const map = body.multimedia_map as Record<
+					string,
+					{ multimedia_id: string }
+				>;
+				map[path(second)].multimedia_id = "replacementalias";
+				return body;
+			});
+			const stale = await observe(
+				() => bringIn(scope, listed),
+				rebound,
+				"replacementalias",
+			);
+			expect(stale.kind).toBe("changed");
+			expect(await e2eBaseline()).toEqual(before);
+			const taken = await observe(() => bringIn(scope, listed));
+			if (taken.kind !== "brought-in") throw new Error(JSON.stringify(taken));
+			const loaded = await loadApp(scope.appId);
+			if (!loaded) throw new Error("The app is gone.");
+			const ids = [
+				...collectAssetRefs(hydratePersistedBlueprint(loaded.blueprint)),
+			];
+			expect(ids).toHaveLength(1);
+			expect(await mediaPathRows()).toContainEqual({
+				media_asset_id: ids[0],
+				wire_path: `commcare/image/${first}.png`,
+			});
+			if (origin === "older ready duplicate") {
+				expect(ids).toEqual([olderId]);
+				expect(await mediaPathRows()).toHaveLength(2);
+			}
+			expect(await review(scope, source, false)).toMatchObject({
+				kind: "nothing",
+				reason: "unchanged",
+			});
+		},
+		30_000,
 	);
 
 	describe("a file CommCare HQ added whose bytes the app already shows", () => {
@@ -4676,7 +4788,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		const appId = await broughtIn(doc);
 		const actor = scope(appId);
 		const other = { domain: "independent-clinic", appId: "independent-hq-app" };
-		const target = { server: FIXTURE_SERVER, domain: other.domain };
+		const target = { server: FIXTURE_SERVER, domain: other.domain } as const;
 		await h
 			.db()
 			.updateTable("user_settings")
@@ -5058,76 +5170,159 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		30_000,
 	);
 
-	it("requires a new review before recording that a different answer loses a missing Web Apps picture", async () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Visits",
-					// Window width is supplied only when Web Apps opens a menu. Reading
-					// this actual feature declares Web Apps before resolving missing files.
-					displayCondition: gt(sessionContext("window_width"), literal(0)),
-					forms: [
+	it.each(["missing only", "also joining two held pictures"] as const)(
+		"requires a new review before recording that a different answer loses a missing Web Apps picture (%s)",
+		async (files) => {
+			const doc = buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						// Window width is supplied only when Web Apps opens a menu. Reading
+						// this actual feature declares Web Apps before resolving missing files.
+						displayCondition: gt(sessionContext("window_width"), literal(0)),
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind: "single_select",
+										id: "destination",
+										label: "Destination",
+										options: [
+											{ value: "home", label: "Home visit" },
+											{ value: "clinic", label: "Clinic visit" },
+										],
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const image =
+				'<value form="image">jr://file/commcare/image/visit.png</value>';
+			const saved = (label: string, version: number) =>
+				servedHqApp(doc, version, (xml) => {
+					const value = `<value>${label}</value>`;
+					expect(xml.split(value)).toHaveLength(2);
+					return xml.replace(value, value + image);
+				});
+			const joins = files === "also joining two held pictures";
+			const ids = ["visit-menu", "visit-survey"];
+			const joined = (served: ServedHqApp) =>
+				summarizeServedHqApp(
+					retainedBodyJson(
+						changedAnswer(
+							withUnusedImage(withIcons(served.source, ids)),
+							(body) => ({
+								...body,
+								logo_refs: {
+									hq_logo_android_home: {
+										path: UNUSED_PATH,
+										m_id: "unused-image",
+									},
+								},
+							}),
+						),
+					),
+				);
+			const picture = readFileSync(
+				join(import.meta.dirname, "../../media/__tests__/fixtures/pattern.png"),
+			);
+			const servePictures = (peer: MockAgent, current: readonly string[]) => {
+				for (const id of current)
+					peer
+						.get(FIXTURE_HOST)
+						.intercept({ method: "GET", path: FIXTURE_PATHS.media(id) })
+						.reply(200, picture, { headers: { "content-type": "image/png" } });
+			};
+			const appId = await broughtIn(doc, saved("Home visit", 2));
+			const baseline = await baselineOfApp();
+			expect(baseline.first_publish_changes?.ids).toContain(
+				"media-references-with-no-file-removed",
+			);
+			const read = (served: ServedHqApp, current: readonly string[] = []) =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, served);
+					servePictures(peer, current);
+					return reviewHqChanges(scope(appId), KEY_TARGET, {
+						onEvent: () => {},
+					});
+				});
+			const changed = saved("Clinic visit", 3);
+			const now = joins ? joined(changed) : changed;
+			const listed = await read(now, joins ? ids : []);
+			if (listed.kind !== "changes") throw new Error(JSON.stringify(listed));
+			expect(listed.publishChanges.length).toBeGreaterThan(0);
+			if (joins) {
+				expect(listed.publishChanges.join(" ")).toMatch(/under several names/);
+				expect(
+					listed.hqChanges.filter((line) => line.includes("unused reference")),
+				).toEqual([
+					"Publishing removes the unused reference “jr://file/commcare/image/visit-survey.png” to HQ file “visit-survey”.",
+				]);
+				// A take keeps the first path. Keeping Nova's current document at
+				// this moment would also remove that path. Its different loss must
+				// go through the real publish disclosure before any import is sent.
+				const publish = await publishOver(
+					appId,
+					now.source,
+					false,
+					now.source,
+					3,
+					[
 						{
-							name: "Visit",
-							type: "survey",
-							fields: [
-								f({
-									kind: "single_select",
-									id: "destination",
-									label: "Destination",
-									options: [
-										{ value: "home", label: "Home visit" },
-										{ value: "clinic", label: "Clinic visit" },
-									],
-								}),
-							],
+							kind: "app",
+							novaResourceId: appId,
+							observedDigest: listed.observedDigest,
 						},
 					],
-				},
-			],
-		});
-		const image =
-			'<value form="image">jr://file/commcare/image/visit.png</value>';
-		const saved = (label: string, version: number) =>
-			servedHqApp(doc, version, (xml) => {
-				const value = `<value>${label}</value>`;
-				expect(xml.split(value)).toHaveLength(2);
-				return xml.replace(value, value + image);
+				);
+				expect(publish.imported).toHaveLength(0);
+				const replacement = publish.outcome.refusal?.remoteChanges.find(
+					(change) => change.kind === "app",
+				);
+				expect(replacement?.observedDigest).not.toBe(listed.observedDigest);
+				expect(replacement?.parts.join(" ")).toContain("visit-menu.png");
+				expect(replacement?.parts.join(" ")).toContain("visit-survey.png");
+				expect(replacement?.parts.join(" ")).not.toContain(UNUSED_PATH);
+			}
+			expect(await baselineOfApp()).toEqual(baseline);
+			const outcome = await withHttpPeer(async (peer) => {
+				serveEmission(peer, now);
+				servePictures(peer, joins ? ids : []);
+				return bringInHqChanges(
+					scope(appId),
+					KEY_TARGET,
+					{
+						readingId: listed.readingId,
+						reviewDigest: listed.reviewDigest,
+						tableChoices: {},
+					},
+					{ onEvent: () => {} },
+				);
 			});
-		const appId = await broughtIn(doc, saved("Home visit", 2));
-		const baseline = await baselineOfApp();
-		expect(baseline.first_publish_changes?.ids).toContain(
-			"media-references-with-no-file-removed",
-		);
-		const read = (served: ServedHqApp) =>
-			withHttpPeer(async (peer) => {
-				serveEmission(peer, served);
-				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
+			expect(outcome.kind).toBe(joins ? "brought-in" : "recorded");
+			if (joins) {
+				const app = await loadApp(appId);
+				if (!app) throw new Error("The app is gone.");
+				expect([
+					...collectAssetRefs(hydratePersistedBlueprint(app.blueprint)),
+				]).toHaveLength(1);
+				expect(await mediaPathRows()).toMatchObject([
+					{ wire_path: "commcare/image/visit-menu.png" },
+				]);
+			}
+			expect(
+				await read(respelled(now), joins ? ["visit-survey"] : []),
+			).toMatchObject({
+				kind: "nothing",
+				publishChanges: [],
 			});
-		const now = saved("Clinic visit", 3);
-		const listed = await read(now);
-		if (listed.kind !== "changes") throw new Error(JSON.stringify(listed));
-		expect(listed.publishChanges.length).toBeGreaterThan(0);
-		expect(await baselineOfApp()).toEqual(baseline);
-		const outcome = await withHttpPeer(async (peer) => {
-			serveEmission(peer, now);
-			return bringInHqChanges(
-				scope(appId),
-				KEY_TARGET,
-				{
-					readingId: listed.readingId,
-					reviewDigest: listed.reviewDigest,
-					tableChoices: {},
-				},
-				{ onEvent: () => {} },
-			);
-		});
-		expect(outcome.kind).toBe("recorded");
-		expect(await read(respelled(now))).toMatchObject({
-			kind: "nothing",
-			publishChanges: [],
-		});
-	}, 30_000);
+		},
+		30_000,
+	);
 
 	it("asks about changed worker text in the same translated name map and clears a retired warning", async () => {
 		const doc = clinic({});
@@ -5189,7 +5384,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			function saved(
 				current: BlueprintDoc,
 				version: number,
-				recipient: string,
+				recipient: Uuid,
 			) {
 				const base = emission(current, version);
 				const index =

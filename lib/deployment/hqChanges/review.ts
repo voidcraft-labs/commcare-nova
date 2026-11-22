@@ -47,7 +47,11 @@ import { readWorkLimit, sourceCharacters } from "@/lib/commcare/reader/work";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { WorkCancelled, WorkLimitReached } from "@/lib/commcare/workMeter";
-import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
+import {
+	findReadyAssetIdsByProjectAndHashes,
+	loadAssetsByIds,
+	type MediaAssetRecord,
+} from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
 import { getHqCredentials } from "@/lib/db/settings";
 import type {
@@ -116,6 +120,7 @@ import {
 } from "../reading/acceptance";
 
 import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
+import { reviewMediaId } from "../reading/mediaIds";
 import {
 	projectDataReadsOf,
 	type ReaderProjectDataReads,
@@ -295,6 +300,7 @@ async function prospectiveFileLosses(
 	doc: BlueprintDoc,
 	identity: TargetIdentity,
 	incoming: readonly AdoptedMediaFile[],
+	assetNames?: ReadonlyMap<MediaAssetId, MediaAssetId>,
 ) {
 	if (basis.source.multimediaMap?.length === 0) return [];
 	const visible = bulkUploadAssetIds(doc);
@@ -306,7 +312,9 @@ async function prospectiveFileLosses(
 	let manifest: Awaited<ReturnType<typeof resolveMediaManifest>> | undefined;
 	for (const assetId of visible) {
 		const asset = files.get(assetId) ?? basis.ownRows.get(assetId);
-		let path = isBuiltinIconRef(assetId) ? undefined : paths.get(assetId);
+		let path = isBuiltinIconRef(assetId)
+			? undefined
+			: paths.get(assetNames?.get(assetId) ?? assetId);
 		if (!path && asset) path = wirePathFor(asset.contentHash, asset.extension);
 		if (!path) {
 			manifest ??= await resolveMediaManifest(doc, basis.scope.projectId, {
@@ -382,6 +390,13 @@ export interface HqChangesBasis {
 
 /** Everything the synchronous check reads. */
 export interface FetchedHqChanges extends HqChangesBasis {
+	/** The authorized Project library that supplies this reading's actual and prospective assets. */
+	readonly projectMedia: {
+		byIds(ids: readonly MediaAssetId[]): Promise<readonly MediaAssetRecord[]>;
+		byContent(
+			hashes: readonly string[],
+		): Promise<readonly Pick<MediaAssetRecord, "id" | "contentHash">[]>;
+	};
 	readonly saveOnlyEditedApplied?: boolean;
 	/** The Project's data, bound with no answer of the person's. */
 	readonly data: ReadingProjectData;
@@ -812,29 +827,57 @@ async function ownAssetRows(
 	);
 }
 
-/**
- * The content of each Project asset `doc` shows that is none of `files`, by
- * asset id, where some file of `files` holds content at all: what
- * `contentNamedDocument` names by content beside the files.
- */
-async function ownAssetContent(
-	doc: BlueprintDoc,
-	files: readonly AdoptedMediaFile[],
-	projectId: string,
-	storedMedia: TargetIdentity["mediaPaths"],
-): Promise<ReadonlyMap<MediaAssetId, string>> {
-	if (files.length === 0) return new Map();
-	const fileIds = new Set<string>(files.map((file) => file.assetId));
-	const { realIds } = partitionAssetRefs(
-		[
-			...new Set([
-				...collectAssetRefs(doc),
-				...storedMedia.map((row) => row.assetId),
-			]),
-		].filter((id) => !fileIds.has(id)),
+/** Both native readings name identical bytes alike before planning, so a
+ * file already on the head, its immutable reference or a parked target path
+ * cannot appear to be a document change just because HQ gave it another id. */
+async function comparisonMedia(
+	fetched: FetchedHqChanges,
+	plans: CheckedHqChanges["media"],
+) {
+	const held = new Set<string>();
+	for (const plan of [plans.base, plans.now])
+		for (const verdict of Object.values(plan.verdicts))
+			if (verdict.kind === "held") held.add(verdict.file.contentHash);
+	const ownContent = new Map<MediaAssetId, string>();
+	if (!held.size) return { plans, ownContent };
+	const { realIds } = partitionAssetRefs([
+		...new Set([
+			...collectAssetRefs(fetched.reference.doc),
+			...collectAssetRefs(fetched.head.doc),
+			...fetched.targetIdentity.mediaPaths.map((row) => row.assetId),
+		]),
+	]);
+	const otherRows = await fetched.projectMedia.byIds(
+		realIds.filter((id) => !fetched.ownRows.has(id)),
 	);
-	const rows = await loadAssetsByIds(realIds, projectId);
-	return new Map(rows.map((row) => [row.id, row.contentHash]));
+	for (const row of [...fetched.ownRows.values(), ...otherRows]) {
+		if (
+			row.status === "ready" &&
+			!isBuiltinIconRef(row.id) &&
+			held.has(row.contentHash)
+		)
+			ownContent.set(row.id, row.contentHash);
+	}
+	const ready = await fetched.projectMedia.byContent([...held]);
+	const known = new Map(ready.map((row) => [row.contentHash, row.id]));
+	const named = (plan: ReadingMediaPlan): ReadingMediaPlan => ({
+		...plan,
+		files: plan.files.map((file) => {
+			const verdict = ownRecordValue(plan.verdicts, file.key);
+			return verdict?.kind === "held"
+				? {
+						...file,
+						provisionalId:
+							known.get(verdict.file.contentHash) ??
+							reviewMediaId(verdict.file.contentHash),
+					}
+				: file;
+		}),
+	});
+	return {
+		plans: { base: named(plans.base), now: named(plans.now) },
+		ownContent,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -1294,6 +1337,11 @@ async function computeWith(
 		return answer(failedRead(projectData.failure));
 	let fetched: FetchedHqChanges = {
 		...basis,
+		projectMedia: {
+			byIds: (ids) => loadAssetsByIds(ids, scope.projectId),
+			byContent: (hashes) =>
+				findReadyAssetIdsByProjectAndHashes(scope.projectId, hashes),
+		},
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		data: projectData.data,
 	};
@@ -1536,7 +1584,10 @@ export type CheckResult =
  */
 export async function checkHqChanges(
 	fetched: FetchedHqChanges,
-	media: { readonly base: ReadingMediaPlan; readonly now: ReadingMediaPlan },
+	incomingMedia: {
+		readonly base: ReadingMediaPlan;
+		readonly now: ReadingMediaPlan;
+	},
 	data: ReadingProjectData,
 	pieces: Pieces,
 	/** The readings over exactly these files and this data, where the caller holds them. */
@@ -1545,10 +1596,14 @@ export async function checkHqChanges(
 	const { scope, reference } = fetched;
 	const appId = scope.appId;
 	const ref = reference.doc;
+	const { plans: media, ownContent } = await comparisonMedia(
+		fetched,
+		incomingMedia,
+	);
 
 	/* The readings, and what the reading now says of its files and its data. */
 	const made: HqChangeReadingsResult =
-		known !== undefined
+		known !== undefined && media === incomingMedia
 			? { kind: "readings", readings: known }
 			: await pieces
 					.at("the readings")
@@ -1749,12 +1804,6 @@ export async function checkHqChanges(
 	/* The review and its digest. */
 	const targetDoc = plan.kind === "changes" ? plan.target : fetched.head.doc;
 	const targetFiles = adoptedMediaFiles(media.now);
-	const ownContent = await ownAssetContent(
-		targetDoc,
-		targetFiles,
-		scope.projectId,
-		fetched.targetIdentity.mediaPaths,
-	);
 	const assetNames = reviewAssetNames(targetFiles, ownContent);
 	// Resolve the same incoming paths twice when HQ supplied a file: first
 	// for storage and then in the content namespace used by the receipt.
@@ -1779,14 +1828,15 @@ export async function checkHqChanges(
 	const unused = await prospectiveFileLosses(
 		fetched,
 		targetDoc,
-		recorded.next,
+		receipt.next,
 		targetFiles,
+		assetNames,
 	);
 	const approved = fetched.baseline.approvedFileRemovals;
 	const changedFiles = unapprovedHqFiles(unused, legacy ? [] : approved);
 	const discardedFiles =
 		targetDoc === fetched.head.doc &&
-		sameTargetIdentity(recorded.next, recorded.read)
+		sameTargetIdentity(receipt.next, receipt.read)
 			? unapprovedHqFiles(unused, approved)
 			: unapprovedHqFiles(
 					await prospectiveFileLosses(

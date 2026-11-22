@@ -2501,40 +2501,47 @@ it("asks before recreating a table deleted in CommCare HQ, then records it as No
 	});
 });
 
-it("withholds the overwrite receipt when one physical HQ file exceeds the MCP response", async () => {
-	await seed();
-	await withManagedPeer(async (peer) => {
-		shellCreated(peer);
-		imported(peer);
-		const live = liveSource();
-		const path = "jr://file/commcare/image/" + "x".repeat(110_000) + ".png";
-		replyRetained(request(peer, SOURCE), {
-			...live,
-			body: {
-				...retainedBodyJson(live),
-				multimedia_map: {
-					[path]: {
-						media_type: "CommCareImage",
-						multimedia_id: "retained-file",
+it.each([
+	["plain", "x".repeat(110_000)],
+	["quoted", '"'.repeat(22_500)],
+])(
+	"withholds the overwrite receipt when one %s physical HQ file exceeds the MCP response",
+	async (_kind, fileName) => {
+		await seed();
+		await withManagedPeer(async (peer) => {
+			shellCreated(peer);
+			imported(peer);
+			const live = liveSource();
+			const path = "jr://file/commcare/image/" + fileName + ".png";
+			replyRetained(request(peer, SOURCE), {
+				...live,
+				body: {
+					...retainedBodyJson(live),
+					multimedia_map: {
+						[path]: {
+							media_type: "CommCareImage",
+							multimedia_id: "retained-file",
+						},
 					},
 				},
-			},
+			});
+			await asUser(async (client) => {
+				body(await call(client));
+				const result = await call(client);
+				const answer = body(result, true);
+				expect(JSON.stringify(result).length).toBeLessThanOrEqual(80_000);
+				expect(answer.error_type).toBe("hq_changed");
+				expect(
+					(answer.remote_changes ?? []).some(
+						(c: { observed_digest?: string | null }) =>
+							Boolean(c.observed_digest),
+					),
+				).toBe(false);
+			});
 		});
-		await asUser(async (client) => {
-			body(await call(client));
-			const result = await call(client);
-			const answer = body(result, true);
-			expect(JSON.stringify(result).length).toBeLessThanOrEqual(100_000);
-			expect(answer.error_type).toBe("hq_changed");
-			expect(
-				(answer.remote_changes ?? []).some(
-					(c: { observed_digest?: string | null }) =>
-						Boolean(c.observed_digest),
-				),
-			).toBe(false);
-		});
-	});
-}, 30000);
+	},
+	30000,
+);
 
 it("lists a change to the app in CommCare HQ, refuses a discard of a state it has since left, and lands one of the state shown with the App Preview line", async () => {
 	await seed();

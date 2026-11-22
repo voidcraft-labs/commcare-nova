@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/client";
+import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
@@ -171,6 +172,7 @@ async function call(
 	args: Json,
 ): Promise<{ readonly isError: boolean; readonly body: Json }> {
 	const result = await client.callTool({ name, arguments: args });
+	expect(JSON.stringify(result).length).toBeLessThanOrEqual(80_000);
 	return {
 		isError: result.isError === true,
 		body: JSON.parse(resultContentText(result)) as Json,
@@ -264,62 +266,110 @@ function serveSourceHeld(
 }
 
 describe("read_hq_app", () => {
-	it("reads one birth over physical-file and lookup pages before offering its approval", async () => {
-		const files = Array.from(
-			{ length: 140 },
-			(_, i) =>
-				[
-					`jr://file/commcare/${i}-${"x".repeat(600)}.png`,
-					{ media_type: "CommCareImage", multimedia_id: `held-${i}` },
-				] as const,
-		);
-		const source = changedAnswer(fixtureSource(), (body) => ({
-			...body,
-			multimedia_map: {
-				...(body.multimedia_map as object),
-				...Object.fromEntries(files),
-			},
-		}));
-		await withHttpPeer(async (peer) =>
-			withTools(async (client) => {
-				let page: string | undefined;
-				let nonce: string | undefined;
-				const paths: string[] = [];
-				const tables: string[] = [];
-				let count = 0;
-				do {
+	it.each([
+		{
+			count: 140,
+			name: "plain",
+			path: (i: number) => `jr://file/commcare/${i}-${"x".repeat(600)}.png`,
+		},
+		{
+			count: 600,
+			name: "quoted",
+			path: (i: number) => `jr://file/visits/${'"'.repeat(145)}${i}.png`,
+		},
+	])(
+		"reads one birth over $count $name physical files and lookup pages before offering approval",
+		async ({ count: fileCount, path }) => {
+			const files = Array.from(
+				{ length: fileCount },
+				(_, i) =>
+					[
+						path(i),
+						{ media_type: "CommCareImage", multimedia_id: `remote${i}` },
+					] as const,
+			);
+			const source = changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				multimedia_map: {
+					...(body.multimedia_map as object),
+					...Object.fromEntries(files),
+				},
+			}));
+			await withHttpPeer(async (peer) =>
+				withTools(async (client) => {
+					serveFixtureApp(peer);
+					const { args } = await readReview(client);
 					serveFixtureApp(peer, { source });
-					const response = await call(client, "read_hq_app", {
-						...READ_ARGS,
-						...(page && { page }),
+					const { body: stale } = await call(client, "bring_in_hq_app", args);
+					const first = stale.reading as unknown as ReadingProjection;
+					expect(stale.status).toBe("changed");
+					expect(first.review?.review_digest).toBeNull();
+					const continuation = first.review?.next_page;
+					if (!continuation)
+						throw new Error("Expected the rest of this review.");
+					serveFixtureApp(peer, { source });
+					const attempted = await call(client, "bring_in_hq_app", {
+						...args,
+						reading_id: first.reading_id,
+						review_digest: continuation.split(":")[1],
 					});
-					expect(response.isError).toBe(false);
-					const body = response.body as unknown as ReadingProjection;
-					if (!body.review || !body.reading_id)
-						throw new Error("Expected a birth review.");
-					nonce ??= body.reading_id;
-					expect(body.reading_id).toBe(nonce);
-					expect(body.restarted).not.toBe(true);
-					paths.push(
-						...(body.review.publish_details ?? []).map((row) => row.text),
+					expect(attempted.body.status).toBe("changed");
+					expect(
+						await h.db().selectFrom("apps").select("id").execute(),
+					).toEqual([]);
+					await sql`UPDATE auth_organization SET name = ${"New field team"} WHERE id = ${PROJECT}`.execute(
+						h.db(),
 					);
-					tables.push(...body.review.tables.map((row) => row.tag));
-					page = body.review.next_page ?? undefined;
-					expect(body.review.review_digest === null).toBe(page !== undefined);
-					if (page) expect(page.endsWith(nonce)).toBe(true);
-					count++;
-					if (count > 20)
-						throw new Error(
-							"The unchanged reading restarted instead of advancing.",
+					serveFixtureApp(peer, { source });
+					const renamedProject = await call(client, "read_hq_app", {
+						...READ_ARGS,
+						page: continuation,
+					});
+					expect(renamedProject.body).toMatchObject({
+						state: "review",
+						restarted: true,
+						review: { review_digest: null },
+					});
+					let page: string | undefined;
+					let nonce: string | undefined;
+					const paths: string[] = [];
+					const tables: string[] = [];
+					let count = 0;
+					do {
+						serveFixtureApp(peer, { source });
+						const response = await call(client, "read_hq_app", {
+							...READ_ARGS,
+							...(page && { page }),
+						});
+						expect(response.isError).toBe(false);
+						const body = response.body as unknown as ReadingProjection;
+						if (!body.review || !body.reading_id)
+							throw new Error("Expected a birth review.");
+						nonce ??= body.reading_id;
+						expect(body.reading_id).toBe(nonce);
+						expect(body.restarted).not.toBe(true);
+						paths.push(
+							...(body.review.publish_details ?? []).map((row) => row.text),
 						);
-				} while (page);
-				expect(count).toBeGreaterThan(1);
-				for (const [name] of files)
-					expect(paths.some((line) => line.includes(name))).toBe(true);
-				expect(tables).toContain("district");
-			}),
-		);
-	}, 30_000);
+						tables.push(...body.review.tables.map((row) => row.tag));
+						page = body.review.next_page ?? undefined;
+						expect(body.review.review_digest === null).toBe(page !== undefined);
+						if (page) expect(page.endsWith(nonce)).toBe(true);
+						count++;
+						if (count > 20)
+							throw new Error(
+								"The unchanged reading restarted instead of advancing.",
+							);
+					} while (page);
+					expect(count).toBeGreaterThan(1);
+					for (const [name] of files)
+						expect(paths.some((line) => line.includes(name))).toBe(true);
+					expect(tables).toContain("district");
+				}),
+			);
+		},
+		60_000,
+	);
 
 	it("answers a review with its reading_id in one call", async () => {
 		await withHttpPeer(async (peer) => {
