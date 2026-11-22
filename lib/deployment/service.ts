@@ -967,6 +967,7 @@ export async function publishAppToHq(
 		let preflight: PassedPreflight;
 		for (let attempt = 1; ; attempt++) {
 			const run = await runDeploymentPreflight({
+				compiledIdentity: targetIdentity,
 				requireHqImport: input.requireHqImport,
 				doc,
 				compiledAtSeq: seq,
@@ -1680,6 +1681,7 @@ export async function publishAppToHq(
 			 * here, and no other Nova app is granted the HQ app until the import
 			 * has settled. */
 			const importAdmission = await admitAppWrite(input.scope, target, {
+				compiledIdentity: targetIdentity,
 				...fence,
 				remoteAppId: appId,
 				observedPushToken: importMapping.pushToken,
@@ -1819,7 +1821,9 @@ export async function publishAppToHq(
 			});
 
 			entryPointManifest =
-				imported.obsoleteFold || imported.obsoleteClaim
+				imported.obsoleteFold ||
+				imported.obsoleteClaim ||
+				imported.laterObservation?.compatible === false
 					? null
 					: {
 							generation: contentGeneration,
@@ -1863,9 +1867,13 @@ export async function publishAppToHq(
 			} = { warnings: [], reported: {} };
 			/* The import and the bundle, whose admissions the media record rests on. */
 			const mediaWrites: string[] = [importWrite];
-			if (imported.obsoleteClaim) {
+			if (imported.laterObservation?.compatible === false) {
 				warnings.push(
-					"The app on CommCare HQ changed hands while this publish was in progress. You can check where this app publishes before trying again.",
+					"CommCare HQ changed after accepting the app. You can review what it holds before publishing again.",
+				);
+			} else if (imported.obsoleteClaim) {
+				warnings.push(
+					"Where this app publishes changed while CommCare HQ accepted the upload. You can review changes from CommCare HQ before publishing again.",
 				);
 			} else if (imported.obsoleteFold) {
 				warnings.push(
@@ -1879,6 +1887,7 @@ export async function publishAppToHq(
 				 * an app deleted, or a publisher who lost edit, since: the app is
 				 * there, and nothing more is sent for it. */
 				const mediaAdmission = await admitAppWrite(input.scope, target, {
+					compiledIdentity: targetIdentity,
 					...fence,
 					remoteAppId: result.appId,
 					observedPushToken: imported.pushToken,
@@ -1930,7 +1939,9 @@ export async function publishAppToHq(
 				{
 					...fence,
 					remoteAppId: result.appId,
-					sourceDigest: pushBaseline.write.sourceDigest,
+					sourceDigest:
+						imported.laterObservation?.digest ??
+						pushBaseline.write.sourceDigest,
 					pushToken: imported.pushToken,
 					novaRevision: pushBaseline.write.novaRevision,
 					files: {
@@ -1949,6 +1960,7 @@ export async function publishAppToHq(
 			if (
 				!imported.obsoleteFold &&
 				!imported.obsoleteClaim &&
+				imported.laterObservation?.compatible !== false &&
 				mediaRecorded === "superseded" &&
 				published.length > 0
 			)

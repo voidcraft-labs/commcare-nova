@@ -96,6 +96,7 @@ import {
 	readMemberNames,
 	recordHqChangesTaken,
 	recordRefreshedAppBaseline,
+	TargetIdentityWriteInFlightError,
 	withDeploymentReadSnapshot,
 } from "../store";
 import { exportIdentityOf } from "../targetIdentity";
@@ -311,6 +312,8 @@ async function bringInInRoom(
 			),
 		);
 	} catch (error) {
+		if (error instanceof TargetIdentityWriteInFlightError)
+			return answered({ kind: "refused", message: error.message });
 		if (error instanceof DeploymentEndedError)
 			return answered({
 				kind: "refused",

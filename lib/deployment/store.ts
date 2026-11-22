@@ -51,6 +51,7 @@ import {
 	type StoredFirstPublish,
 	storedFirstPublishSchema,
 } from "@/lib/publish/firstPublishChangeIds";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { heldMediaPathRows } from "./adoption";
 import type { PublishedEntryPointManifest } from "./entryPointTypes";
@@ -70,6 +71,7 @@ import {
 	mergeHqMediaObservation,
 	movedRecordedPaths,
 } from "./hqMedia";
+import { diffHqAppSource } from "./hqSourceBaseline";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
@@ -118,6 +120,7 @@ import {
 	type ResourceBaselineRef,
 	type ResourceBaselineWrite,
 } from "./types";
+import { baselineWebApps } from "./webApps";
 
 /**
  * An authorized handle on one app's deployments.
@@ -945,6 +948,15 @@ export async function readTargetIdentityRows(
  * did not resolve over what the deployment holds now: another write moved it
  * between the read that resolved and this one. Nothing was written.
  */
+export class TargetIdentityWriteInFlightError extends Error {
+	constructor() {
+		super(
+			"A publish to this project space is still finishing. You can bring these changes in when it finishes.",
+		);
+		this.name = "TargetIdentityWriteInFlightError";
+	}
+}
+
 class TargetIdentityMovedError extends Error {
 	constructor(deploymentId: string) {
 		super(
@@ -974,6 +986,26 @@ export async function writeTargetIdentityInTransaction(
 	if (!sameTargetIdentity(stored, write.read))
 		throw new TargetIdentityMovedError(deploymentId);
 	const next = canonicalTargetIdentity(write.next);
+	if (!sameTargetIdentity(stored, next)) {
+		const sending = await tx
+			.selectFrom("hq_remote_writes")
+			.select("id")
+			.where("deployment_id", "=", deploymentId)
+			.where("write_kind", "in", ["import", "media"])
+			.where(openRemoteWrite)
+			.executeTakeFirst();
+		if (sending) throw new TargetIdentityWriteInFlightError();
+		// A link checked against the previous addressing of a form is no longer evidence.
+		await tx
+			.updateTable("app_deployments")
+			.set({
+				content_generation: crypto.randomUUID(),
+				entry_point_manifest: null,
+				entry_point_observation: null,
+			})
+			.where("id", "=", deploymentId)
+			.execute();
+	}
 	const entityKey = (row: DeploymentIdentityOverride) =>
 		JSON.stringify([
 			row.entityKind,
@@ -1562,6 +1594,11 @@ export interface RecordedImport extends RecordAnswer {
 	readonly obsoleteFold?: true;
 	/** The app import answered after another claim took over this HQ app. */
 	readonly obsoleteClaim?: true;
+	/** A later read of this HQ app stood before the accepted import recorded. */
+	readonly laterObservation?: {
+		readonly digest: string | null;
+		readonly compatible: boolean;
+	};
 }
 
 /** The live table and place mappings of a deployment, as an entry-point manifest names them. */
@@ -2184,7 +2221,7 @@ export interface RecordRemoteAppInput
  * mapping's id represents the initial claim without updating existing rows. */
 async function stillHoldsImportedApp(
 	tx: Transaction<AppDatabase>,
-	deploymentId: string,
+	deployment: Pick<Selectable<AppDeploymentsTable>, "id" | "app_id" | "server">,
 	remoteAppId: string,
 	mapping:
 		| {
@@ -2212,15 +2249,26 @@ async function stillHoldsImportedApp(
 		return false;
 	const writes = await tx
 		.selectFrom("hq_remote_writes")
-		.select(["write_kind", "resource_id", "claim_generation"])
+		.select([
+			"write_kind",
+			"resource_id",
+			"claim_generation",
+			"identity_digest",
+		])
 		.where("id", "in", ids)
-		.where("deployment_id", "=", deploymentId)
+		.where("deployment_id", "=", deployment.id)
 		.where("write_kind", "in", ["import", "media"])
 		.execute();
+	const identity = await readTargetIdentityRows(tx, deployment.id, {
+		appId: deployment.app_id,
+		server: deployment.server,
+	});
+	const digest = canonicalJsonDigest(identity);
 	return (
 		writes.filter((write) => write.write_kind === "import").length === 1 &&
 		writes.every(
 			(write) =>
+				write.identity_digest === digest &&
 				write.resource_id === remoteAppId &&
 				write.claim_generation === (mapping.claim_generation ?? mapping.id),
 		)
@@ -2289,13 +2337,7 @@ export async function recordRemoteResource(
 			// Its HQ counter below orders the two. A release and reclaim retires
 			// the admission even if the remote id, source and counter all match.
 			if (
-				!(await stillHoldsImportedApp(
-					tx,
-					row.id,
-					input.remoteId,
-					live,
-					admitted,
-				))
+				!(await stillHoldsImportedApp(tx, row, input.remoteId, live, admitted))
 			)
 				return { ...(await answer(null)), obsoleteClaim: true };
 			const recorded =
@@ -2326,9 +2368,27 @@ export async function recordRemoteResource(
 				return { ...(await answer(null)), obsoleteFold: true };
 			const now = new Date();
 			const pushToken = await writeResourceMapping(tx, row.id, input, now);
-			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline, {
-				readbackPushToken: input.baseline.origin === "push" ? pushToken : null,
-			});
+			const wrote = await writeAppBaseline(
+				tx,
+				row.id,
+				scope.actorUserId,
+				input.baseline,
+				{
+					readbackPushToken:
+						input.baseline.origin === "push" ? pushToken : null,
+				},
+			);
+			const laterObservation =
+				!wrote &&
+				(input.baseline.origin === "push" || input.baseline.origin === "unread")
+					? await reconcileAcceptedImport(
+							tx,
+							row.id,
+							scope.actorUserId,
+							input,
+							pushToken,
+						)
+					: undefined;
 
 			const record = toDeploymentRecord(row);
 			const progress = applyPhaseOutcome(record, "upload", {
@@ -2354,7 +2414,12 @@ export async function recordRemoteResource(
 				.execute();
 			await notifyAppDeployments(tx, scope.appId);
 
-			return answer(pushToken);
+			return {
+				...(await answer(
+					laterObservation?.compatible === false ? null : pushToken,
+				)),
+				...(laterObservation && { laterObservation }),
+			};
 		},
 	);
 }
@@ -2518,6 +2583,7 @@ export async function admitAppWrite(
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
 		readonly observedPushToken: string;
+		readonly compiledIdentity: TargetIdentity;
 	} & (
 			| { readonly writeKind: "import"; readonly compiledAtSeq: number }
 			| { readonly writeKind: "media"; readonly compiledAtSeq?: number }
@@ -2565,6 +2631,12 @@ export async function admitAppWrite(
 				input.compiledAtSeq
 		)
 			return { kind: "fold-moved" };
+		const identity = await readTargetIdentityRows(tx, row.id, {
+			appId: scope.appId,
+			server: target.server,
+		});
+		if (!sameTargetIdentity(input.compiledIdentity, identity))
+			return { kind: "mapping-moved" };
 		const [writeId] = await admitRemoteWritesInTransaction(tx, [
 			{
 				deploymentId: row.id,
@@ -2575,6 +2647,7 @@ export async function admitAppWrite(
 				actorUserId: scope.actorUserId,
 				resourceKind: "app",
 				claimGeneration: live.claim_generation ?? live.id,
+				identityDigest: canonicalJsonDigest(identity),
 				resourceId: input.remoteAppId,
 				writeKind: input.writeKind,
 				holdSeconds: REMOTE_WRITE_HOLD_SECONDS[input.writeKind],
@@ -3183,7 +3256,15 @@ export async function recordDeploymentMediaFiles(
 					"r.deployment_id",
 					"b.deployment_id",
 				)
-				.select(["b.media_files", "b.nova_revision", "b.source_digest"])
+				.select([
+					"b.media_files",
+					"b.nova_revision",
+					"b.source_digest",
+					"r.id",
+					"r.remote_id",
+					"r.released_at",
+					"r.claim_generation",
+				])
 				.where("b.deployment_id", "=", row.id)
 				.where("b.remote_app_id", "=", input.remoteAppId)
 				.where("r.kind", "=", "app")
@@ -3197,6 +3278,17 @@ export async function recordDeploymentMediaFiles(
 				!baseline ||
 				baseline.source_digest !== input.sourceDigest ||
 				numberOrNull(baseline.nova_revision) !== input.novaRevision
+			)
+				return "superseded";
+			if (
+				input.admitted?.writeIds.length &&
+				!(await stillHoldsImportedApp(
+					tx,
+					row,
+					input.remoteAppId,
+					baseline,
+					input.admitted,
+				))
 			)
 				return "superseded";
 			const current = storedMediaFiles(row.id, baseline.media_files);
@@ -3568,6 +3660,81 @@ async function writeTakenTargetIdentity(
 	}
 }
 
+/** A later observation already landed after this acknowledged import sampled HQ.
+ * Keep its exact bytes, observer, date and learned files. Only a verified source
+ * that agrees on the content the import owns can stand for its Nova revision. */
+async function reconcileAcceptedImport(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	actor: string,
+	input: RecordRemoteAppInput,
+	pushToken: string,
+) {
+	const later = await tx
+		.selectFrom("app_deployment_baselines")
+		.select([
+			"deployment_id",
+			"ownership",
+			"source_gzip",
+			"source_digest",
+			"source_bytes",
+			"origin",
+		])
+		.where("deployment_id", "=", deploymentId)
+		.executeTakeFirstOrThrow();
+	const incoming = input.baseline;
+	const verified =
+		later.source_digest && later.source_gzip
+			? verifiedBaselineSource(later)
+			: null;
+	const accepted =
+		incoming.origin === "push" && incoming.sourceDigest && incoming.sourceGzip
+			? verifiedBaselineSource({
+					deployment_id: deploymentId,
+					source_digest: incoming.sourceDigest,
+					source_gzip: incoming.sourceGzip,
+					source_bytes: incoming.sourceBytes,
+					ownership: incoming.ownership,
+				})
+			: null;
+	const compatible =
+		!!verified &&
+		!!accepted &&
+		(later.source_digest === incoming.sourceDigest ||
+			(baselineWebApps(verified.source) === baselineWebApps(accepted.source) &&
+				diffHqAppSource({
+					baseline: accepted.source,
+					current: verified.source,
+					ownership: accepted.ownership,
+					shell: false,
+					languageNames: input.ownership === "adopted" ? "target" : "nova",
+				}).length === 0));
+	await tx
+		.updateTable("app_deployment_baselines")
+		.set({
+			origin: compatible ? "push" : "unread",
+			nova_revision: compatible ? incoming.novaRevision : null,
+			ownership: incoming.ownership
+				? JSON.stringify(incoming.ownership)
+				: later.ownership
+					? JSON.stringify(later.ownership)
+					: null,
+			readback_push_token: compatible ? pushToken : null,
+			readback_source_digest: compatible ? incoming.sourceDigest : null,
+			reference_fold_seq: null,
+			reference_source_digest: null,
+			first_publish_changes: null,
+			...(incoming.discard && {
+				discarded_digest: incoming.discard.digest,
+				discarded_at: sql<Date>`now()`,
+				discarded_by: actor,
+			}),
+		})
+		.where("deployment_id", "=", deploymentId)
+		.execute();
+	return { digest: later.source_digest, compatible };
+}
+
 /**
  * Upsert the one app baseline of a deployment, inside a caller's
  * transaction.
@@ -3595,7 +3762,7 @@ async function writeAppBaseline(
 		readonly rebindFold?: boolean;
 		readonly readbackPushToken?: string | null;
 	} = {},
-): Promise<void> {
+): Promise<boolean> {
 	const discarded = baseline.discard !== null;
 	const keepMediaFiles = baseline.mediaFiles.kind === "keep";
 	const mediaFiles =
@@ -3607,7 +3774,7 @@ async function writeAppBaseline(
 		baseline.firstPublish.kind === "set" && baseline.firstPublish.list !== null
 			? JSON.stringify(baseline.firstPublish.list)
 			: null;
-	await sql`
+	const result = await sql`
 		INSERT INTO app_deployment_baselines AS existing (
 			deployment_id, remote_app_id, origin, source_gzip, source_bytes,
 			source_digest, ownership, observed_at, observed_by,
@@ -3660,7 +3827,9 @@ async function writeAppBaseline(
 				ELSE EXCLUDED.first_publish_changes END
 		WHERE existing.remote_app_id <> EXCLUDED.remote_app_id
 			OR existing.observed_at <= EXCLUDED.observed_at
+		RETURNING deployment_id
 	`.execute(tx);
+	return result.rows.length === 1;
 }
 
 function compareResourceBaselines(
@@ -3989,6 +4158,7 @@ function knownReadOrigin(
 function verifiedBaselineSource(row: {
 	readonly deployment_id: string;
 	readonly source_gzip: Buffer | null;
+	readonly source_bytes?: number | null;
 	readonly source_digest: string | null;
 	readonly ownership: unknown;
 }): { readonly source: unknown; readonly ownership: AppOwnership } | null {
@@ -4008,6 +4178,8 @@ function verifiedBaselineSource(row: {
 	} catch {
 		return unverified("gzip");
 	}
+	if (row.source_bytes !== undefined && row.source_bytes !== text.length)
+		return unverified("length");
 	if (createHash("sha256").update(text).digest("hex") !== row.source_digest) {
 		return unverified("digest");
 	}
@@ -5099,7 +5271,7 @@ export async function finishDeploymentContentWrite(
 				active?.remote_id === manifest.remoteAppId &&
 				(await stillHoldsImportedApp(
 					tx,
-					row.id,
+					row,
 					manifest.remoteAppId,
 					active,
 					admitted,

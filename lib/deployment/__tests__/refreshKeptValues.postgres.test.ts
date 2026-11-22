@@ -48,19 +48,21 @@ import { DeploymentError } from "../errors";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { deploymentKept, refreshKeptValues } from "../service";
 import {
+	admitAppWrite,
 	type DeploymentScope,
 	foldDeploymentAttempt,
 	holdTargetFacts,
 	readAppBaseline,
 	readDeployment,
 	readTargetFacts,
+	readTargetIdentity,
 	recordCreatedRemoteApp,
 	recordDeploymentMediaFiles,
 	recordRefreshedAppBaseline,
 	recordRemoteResource,
 } from "../store";
 import type { AppBaselineWrite, AppOwnership } from "../types";
-import { birthAdoptedApp } from "./adoptedBirth";
+import { appMappingToken, birthAdoptedApp } from "./adoptedBirth";
 import { certifyFold } from "./certifiedFold";
 import { stopHere } from "./stopHere";
 
@@ -269,6 +271,97 @@ async function baselineRow() {
 }
 
 describe("refreshKeptValues", () => {
+	it.each([
+		"refresh-first-identical",
+		"refresh-first-kept",
+		"refresh-first-owned",
+		"publish-first-identical",
+		"publish-first-owned",
+	] as const)(
+		"orders the accepted import and the newer observation across a fold for %s",
+		async (order) => {
+			await seedApp();
+			const old = await writeHqRoundTripHorizon(h.db(), APP, "Clinic");
+			await published({ ...baselineOf(liveSource()), novaRevision: old });
+			await certifyFold(h.db(), APP);
+			const now = await readAppBaseline(SCOPE, TARGET);
+			if (!now || now.origin === "unread" || !now.foldBinding)
+				throw new Error("Expected a certified earlier target.");
+			const revision = now.foldBinding.foldSeq;
+			const admitted = await admitAppWrite(SCOPE, TARGET, {
+				expectedEndings: 0,
+				remoteAppId: HQ_APP,
+				observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+				compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+				writeKind: "import",
+				compiledAtSeq: revision,
+			});
+			if (admitted.kind !== "admitted")
+				throw new Error("Expected a post-fold import.");
+			const held = order.endsWith("kept") ? fuzzyOnSource() : liveSource();
+			const pushed = baselineOf(
+				order.endsWith("owned") ? formEditedSource() : liveSource(),
+				{ observedAt: new Date(Date.now() - 1000).toISOString() },
+			);
+			const record = () =>
+				recordRemoteResource(
+					SCOPE,
+					TARGET,
+					{
+						expectedEndings: 0,
+						kind: "app",
+						novaResourceId: APP,
+						remoteId: HQ_APP,
+						ownership: "nova-created",
+						pushedRevision: revision,
+						remoteRevision: 5,
+						uploadedAt: pushed.observedAt,
+						baseline: {
+							...pushed,
+							novaRevision: revision,
+							mediaFiles: { kind: "keep" },
+						},
+					},
+					{
+						writeIds: [admitted.writeId],
+						settle: [
+							{ writeIds: [admitted.writeId], how: { kind: "settled" } },
+						],
+					},
+				);
+			const first = order.startsWith("refresh-first");
+			const refresh = await withHttpPeer(async (peer) => {
+				if (first) serveSource(peer, held);
+				else
+					request(peer).reply(async () => {
+						await record();
+						return { statusCode: 200, data: JSON.stringify(held) };
+					});
+				return refreshKeptValues(SCOPE, TARGET);
+			});
+			if (first) {
+				expect(refresh.kind).toBe("refreshed");
+				const seen = await baselineRow();
+				await record();
+				const after = await baselineRow();
+				expect(after?.observed_at).toEqual(seen?.observed_at);
+				expect(after?.source_digest).toBe(baselineOf(held).sourceDigest);
+			}
+			const got = await readAppBaseline(SCOPE, TARGET);
+			if (first && order.endsWith("owned")) {
+				expect(got).toMatchObject({ origin: "unread", novaRevision: null });
+				expect(
+					await certifyFold(h.db(), APP, "hq-round-trip-case-writes"),
+				).toMatchObject({ usable: 0, unavailable: 1 });
+			} else {
+				expect(got).toMatchObject({ origin: "push", novaRevision: revision });
+				expect(got).not.toHaveProperty("foldBinding");
+				expect(
+					await certifyFold(h.db(), APP, "hq-round-trip-case-writes"),
+				).toMatchObject({ usable: 1 });
+			}
+		},
+	);
 	it("refreshes a kept setting across a fold while an editor’s later change stays unpublished", async () => {
 		await seedApp();
 		const publishedSeq = await writeHqRoundTripHorizon(

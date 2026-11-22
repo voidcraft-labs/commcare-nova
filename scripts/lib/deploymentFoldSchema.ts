@@ -31,7 +31,7 @@ export async function deploymentFoldSchema(
 					|| CASE WHEN a.atthasdef THEN ' default' ELSE '' END
 				FROM pg_attribute a
 				WHERE a.attnum > 0 AND NOT a.attisdropped AND
-					(a.attrelid = cert OR (a.attrelid IN (mappings, writes) AND a.attname = 'claim_generation') OR (a.attrelid = baseline AND
+					(a.attrelid = cert OR (a.attrelid = writes AND a.attname = 'identity_digest') OR (a.attrelid IN (mappings, writes) AND a.attname = 'claim_generation') OR (a.attrelid = baseline AND
 						a.attname IN ('reference_fold_seq', 'reference_source_digest', 'readback_push_token', 'readback_source_digest')))) AS columns,
 			ARRAY(SELECT (CASE WHEN c.conrelid = cert THEN 'certificate ' ELSE 'baseline ' END)
 					|| replace(pg_get_constraintdef(c.oid, true), 'public.', '')
@@ -66,6 +66,7 @@ export async function deploymentFoldSchema(
 		return "prior";
 	const columns = [
 		"admission.claim_generation uuid",
+		"admission.identity_digest text",
 		"mapping.claim_generation uuid",
 		"baseline.readback_push_token uuid",
 		"baseline.readback_source_digest text",

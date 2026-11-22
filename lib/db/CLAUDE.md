@@ -103,7 +103,8 @@ digest together in `app_deployment_baselines.readback_push_token` and
 `readback_source_digest`. Releasing the claim rotates the mapping token even
 when it is later reclaimed. Older rows acquire a read-back receipt only from
 a publish. An app import or media admission records the live uninterrupted
-claim in `hq_remote_writes.claim_generation`. The first claim uses the mapping
+claim in `hq_remote_writes.claim_generation`. An admission also records its compiled target identity digest, verified
+under the deployment lock when the write records. The first claim uses the mapping
 row id. The release trigger assigns a new `app_deployment_resources.claim_generation`
 on each release or reclaim, including updates from older binaries. The same
 transition retires the completed or pending entry-point manifest and observation. All existing

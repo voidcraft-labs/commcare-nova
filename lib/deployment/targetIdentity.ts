@@ -37,6 +37,7 @@ import {
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
 import type { BlueprintDoc } from "@/lib/domain";
+import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { columnFieldText } from "@/lib/domain/modules";
@@ -440,6 +441,7 @@ export function targetIdentityChanges(
 	next: TargetIdentity,
 	doc: BlueprintDoc,
 	held: BlueprintDoc,
+	assetNames?: ReadonlyMap<MediaAssetId, MediaAssetId>,
 ): TargetIdentityChanges {
 	const before = exportIdentityOf(doc, stored);
 	const after = exportIdentityOf(doc, next);
@@ -463,7 +465,11 @@ export function targetIdentityChanges(
 				keyedPrefixes.add(nameOf(formUuid));
 		}
 	}
-	const heldAssets: ReadonlySet<string> = collectAssetRefs(held);
+	const heldAssets: ReadonlySet<string> = new Set(
+		[...collectAssetRefs(held)].map((id) =>
+			isBuiltinIconRef(id) ? id : (assetNames?.get(id) ?? id),
+		),
+	);
 	let mediaPaths = 0;
 	for (const assetId of new Set([
 		...before.heldMediaPaths.keys(),

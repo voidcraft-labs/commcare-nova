@@ -151,7 +151,11 @@ import {
 } from "../targetIdentity";
 import type { AppBaseline, DeploymentResource } from "../types";
 import { sourceFromBaseline } from "./baselineSource";
-import { contentNamedDocument, hqChangesReviewDigest } from "./digest";
+import {
+	contentNamedDocument,
+	hqChangesReviewDigest,
+	reviewAssetNames,
+} from "./digest";
 import { type HqChangePlan, planHqChangesSteps } from "./plan";
 import {
 	type HqChangeReadings,
@@ -294,30 +298,39 @@ export interface CheckedHqChanges {
 export function takenTargetIdentity(input: {
 	readonly fetched: HqChangesBasis;
 	readonly draft: ReadDraft;
-	readonly mediaNow: ReadingMediaPlan;
+	readonly files: readonly AdoptedMediaFile[];
+	readonly assetNames?: ReadonlyMap<MediaAssetId, MediaAssetId>;
 	readonly doc: BlueprintDoc;
 }): {
 	readonly read: TargetIdentity;
 	readonly next: TargetIdentity;
 } | null {
 	const shown = collectAssetRefs(input.doc);
+	const id = (assetId: MediaAssetId) =>
+		input.assetNames?.get(assetId) ?? assetId;
+	const original = input.fetched.targetIdentity;
+	const read = input.assetNames?.size
+		? {
+				...original,
+				mediaPaths: original.mediaPaths.map((row) => ({
+					...row,
+					assetId: id(row.assetId),
+				})),
+			}
+		: original;
 	const observed = observedTargetIdentity({
 		read: input.draft.identities,
 		aligned: input.fetched.modules,
-		mediaFiles: adoptedMediaFiles(input.mediaNow).filter((file) =>
-			shown.has(file.assetId),
-		),
+		mediaFiles: input.files
+			.filter((file) => shown.has(file.assetId))
+			.map((file) => ({ ...file, assetId: id(file.assetId) })),
 		mediaMap: input.fetched.source.multimediaMap ?? [],
 		doc: input.doc,
 	});
 	if (!observed.ok) return null;
 	return {
-		read: input.fetched.targetIdentity,
-		next: resolveTargetIdentity(
-			input.fetched.targetIdentity,
-			observed.observed,
-			input.doc,
-		),
+		read,
+		next: resolveTargetIdentity(read, observed.observed, input.doc),
 	};
 }
 
@@ -657,11 +670,17 @@ async function ownAssetContent(
 	doc: BlueprintDoc,
 	files: readonly AdoptedMediaFile[],
 	projectId: string,
+	storedMedia: TargetIdentity["mediaPaths"],
 ): Promise<ReadonlyMap<MediaAssetId, string>> {
 	if (files.length === 0) return new Map();
 	const fileIds = new Set<string>(files.map((file) => file.assetId));
 	const { realIds } = partitionAssetRefs(
-		[...collectAssetRefs(doc)].filter((id) => !fileIds.has(id)),
+		[
+			...new Set([
+				...collectAssetRefs(doc),
+				...storedMedia.map((row) => row.assetId),
+			]),
+		].filter((id) => !fileIds.has(id)),
 	);
 	const rows = await loadAssetsByIds(realIds, projectId);
 	return new Map(rows.map((row) => [row.id, row.contentHash]));
@@ -1036,12 +1055,14 @@ async function computeWith(
 				publishChanges: [],
 				readingId: options.readingId,
 				reviewDigest: hqChangesReviewDigest({
-					v: 2,
+					identity: { read: targetIdentity, next: targetIdentity },
 					mappingToken: basis.live.pushToken,
 					baselineDigest: baseline.sourceDigest,
 					sourceDigest: normalized.digest,
 					headSeq: head.seq,
 					media: published,
+					recordedFiles: baseline.mediaFiles,
+					incomingPaths: [],
 					target: null,
 					tables: [],
 				}),
@@ -1548,12 +1569,30 @@ export async function checkHqChanges(
 		);
 
 	/* The review and its digest. */
-	const targetFiles =
-		plan.kind === "changes" ? adoptedMediaFiles(media.now) : [];
-	const ownContent =
-		plan.kind === "changes"
-			? await ownAssetContent(plan.target, targetFiles, scope.projectId)
-			: new Map<MediaAssetId, string>();
+	const targetDoc = plan.kind === "changes" ? plan.target : fetched.head.doc;
+	const targetFiles = adoptedMediaFiles(media.now);
+	const ownContent = await ownAssetContent(
+		targetDoc,
+		targetFiles,
+		scope.projectId,
+		fetched.targetIdentity.mediaPaths,
+	);
+	const assetNames = reviewAssetNames(targetFiles, ownContent);
+	// Resolve the same incoming paths twice when HQ supplied a file: first
+	// for storage and then in the content namespace used by the receipt.
+	// Deduplicating identical files before assigning their paths gives both
+	// requests the same proposed record, including a previously parked file.
+	const input = { fetched, draft, files: targetFiles, doc: targetDoc };
+	const recorded = await pieces
+		.at("the target identity")
+		.run(() => takenTargetIdentity(input));
+	if (!recorded) return identityRowsDefect(fetched);
+	const receipt = assetNames.size
+		? await pieces
+				.at("the target identity")
+				.run(() => takenTargetIdentity({ ...input, assetNames }))
+		: recorded;
+	if (!receipt) return identityRowsDefect(fetched);
 	const built = await pieces.at("the next publish's body").run(() => {
 		const baseTags = new Set(
 			Object.keys(projectDataReadsOf(data, readings.base).lookupFields),
@@ -1572,12 +1611,18 @@ export async function checkHqChanges(
 						resolverOf(fetched),
 					).tables.filter((table) => newTagSet.has(table.tag));
 		const reviewDigest = hqChangesReviewDigest({
-			v: 2,
+			identity: receipt,
 			mappingToken: fetched.live.pushToken,
 			baselineDigest: fetched.baseline.sourceDigest,
 			sourceDigest: fetched.normalized.digest,
 			headSeq: fetched.head.seq,
 			media: fetched.published,
+			recordedFiles: fetched.baseline.mediaFiles,
+			incomingPaths: targetFiles.flatMap((file) =>
+				file.hqPath.startsWith(JR_FILE)
+					? [file.hqPath.slice(JR_FILE.length)]
+					: [],
+			),
 			target:
 				plan.kind === "changes"
 					? contentNamedDocument(plan.target, targetFiles, ownContent)
@@ -1586,17 +1631,6 @@ export async function checkHqChanges(
 		});
 		return { newTags, tables, reviewDigest };
 	});
-	/* The record a take writes, and the lines naming where it moved, each its
-	 * own piece: a document at the cap walks its media references. */
-	const recorded = await pieces.at("the target identity").run(() =>
-		takenTargetIdentity({
-			fetched,
-			draft,
-			mediaNow: media.now,
-			doc: plan.kind === "changes" ? plan.target : fetched.head.doc,
-		}),
-	);
-	if (recorded === null) return identityRowsDefect(fetched);
 	const checked: CheckedHqChanges = {
 		fetched,
 		plan,
@@ -1615,10 +1649,11 @@ export async function checkHqChanges(
 		.run(() =>
 			whereHqKeepsLines(
 				targetIdentityChanges(
-					recorded.read,
-					recorded.next,
+					receipt.read,
+					receipt.next,
 					plan.kind === "changes" ? plan.target : fetched.head.doc,
 					fetched.head.doc,
+					assetNames,
 				),
 			),
 		);

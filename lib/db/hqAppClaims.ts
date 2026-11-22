@@ -617,6 +617,7 @@ export async function endDeploymentInTransaction(
 /** One write to record in `hq_remote_writes`, as its admission inserts it. */
 export interface RemoteWriteAdmission {
 	readonly claimGeneration?: string;
+	readonly identityDigest?: string;
 	readonly deploymentId: string;
 	readonly server: string;
 	readonly domain: string;
@@ -650,6 +651,7 @@ export async function admitRemoteWritesInTransaction(
 			writes.map((write) => ({
 				deployment_id: write.deploymentId,
 				claim_generation: write.claimGeneration ?? null,
+				identity_digest: write.identityDigest ?? null,
 				server: write.server,
 				domain: write.domain,
 				app_id: write.appId,

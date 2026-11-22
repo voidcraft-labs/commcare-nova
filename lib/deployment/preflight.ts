@@ -163,7 +163,7 @@ import {
 	readSiblingLookupMappings,
 	readTargetIdentity,
 } from "./store";
-import { exportIdentityOf } from "./targetIdentity";
+import { exportIdentityOf, type TargetIdentity } from "./targetIdentity";
 import type {
 	AppBaseline,
 	CanonicalLookupTable,
@@ -411,6 +411,8 @@ export interface LocationPushPlan {
 }
 
 export interface PreflightInput {
+	/** The publish uses these same bindings to compile and admit its outbound requests. */
+	readonly compiledIdentity?: TargetIdentity;
 	/** Bearer permission to copy HQ data into Nova. A browser session has no bearer restriction. */
 	readonly requireHqImport: (() => void) | null;
 	readonly doc: BlueprintDoc;
@@ -807,7 +809,8 @@ export async function runDeploymentPreflight(
 		 * of the body name them. Empty everywhere else. */
 		heldMediaPaths: exportIdentityOf(
 			input.doc,
-			await readTargetIdentity(input.access, target),
+			input.compiledIdentity ??
+				(await readTargetIdentity(input.access, target)),
 		).heldMediaPaths,
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the

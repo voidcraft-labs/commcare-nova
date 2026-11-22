@@ -73,11 +73,13 @@ import { getLookupTable, updateLookupTableTag } from "@/lib/lookup/service";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import { hqChangesPublishingStoppedLine } from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { DeploymentEndedError } from "../errors";
 import { bringInHqChanges } from "../hqChanges/bringIn";
 import { reviewHqChanges } from "../hqChanges/review";
 import type { HqChangesReview } from "../hqChanges/types";
 import type { HqMediaRecord } from "../hqMedia";
+import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { manageLookupTableInNova } from "../managedData";
 import {
 	adoptFixtureApp,
@@ -1771,6 +1773,7 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			throw new Error("Expected verified baseline");
 		const token = appMappingToken(await readDeployment(scope, KEY_TARGET));
 		const request = {
+			compiledIdentity: await readTargetIdentity(scope, KEY_TARGET),
 			expectedEndings: 0,
 			remoteAppId: baseline.remoteAppId,
 			observedPushToken: token,
@@ -2183,6 +2186,10 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			actorUserId: MEMBER,
 		});
 		const write = await admitAppWrite(scopeOf(taker, MEMBER), KEY_TARGET, {
+			compiledIdentity: await readTargetIdentity(
+				scopeOf(taker, MEMBER),
+				KEY_TARGET,
+			),
 			observedPushToken: appMappingToken(
 				await readDeployment(scopeOf(taker, MEMBER), KEY_TARGET),
 			),
@@ -2865,6 +2872,254 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		});
 	}
 
+	function movedFormIds(
+		doc: BlueprintDoc,
+		first: string | undefined,
+		second?: string,
+		cosmetic = false,
+	) {
+		const held = retainedBodyJson(emission(doc, 2).source);
+
+		const body = structuredClone(held);
+		const [menu] = body.modules as { forms: { unique_id: string }[] }[];
+		const attachments = body._attachments as Record<string, string>;
+		for (const [i, id] of [first, second].entries()) {
+			if (!id) continue;
+			const form = menu?.forms[i];
+			if (!form) throw new Error("Expected two forms in one clinic menu.");
+			attachments[`${id}.xml`] = attachments[`${form.unique_id}.xml`];
+			delete attachments[`${form.unique_id}.xml`];
+			form.unique_id = id;
+		}
+		if (cosmetic) body.admin_password = "another transient salted hash";
+		return summarizeServedHqApp(body);
+	}
+	it.each([
+		"different-id",
+		"another-form",
+		"stored-row",
+		"same-id",
+		"cosmetic-read",
+		"open-v2",
+	] as const)(
+		"binds approval to the reviewed target when the second reading has %s",
+		async (scenario) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			await certifyFold(h.db(), appId);
+			const actor = scope(appId);
+
+			const id = "b".repeat(32),
+				another = "c".repeat(32);
+			const reviewed = movedFormIds(doc, id);
+			const later =
+				scenario === "different-id"
+					? movedFormIds(doc, another)
+					: scenario === "another-form"
+						? movedFormIds(doc, id, another)
+						: movedFormIds(doc, id, undefined, scenario === "cosmetic-read");
+			const first = await withHttpPeer(async (peer) => {
+				serveEmission(peer, reviewed);
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			});
+			if (first.kind !== "nothing" || !first.readingId || !first.reviewDigest)
+				throw new Error("Expected a recordable form identity change.");
+			const approval = {
+				readingId: first.readingId,
+				reviewDigest: first.reviewDigest,
+				tableChoices: {},
+			};
+			if (scenario === "open-v2") {
+				const baseline = await readAppBaseline(actor, KEY_TARGET);
+				const normalized = normalizeHqAppSource(
+					retainedBodyJson(reviewed.source),
+				);
+				if (
+					!baseline ||
+					baseline.origin === "unread" ||
+					"malformed" in normalized
+				)
+					throw new Error("Expected original review evidence.");
+				approval.reviewDigest = canonicalJsonDigest({
+					v: 2,
+					mappingToken: appMappingToken(
+						await readDeployment(actor, KEY_TARGET),
+					),
+					baselineDigest: baseline.sourceDigest,
+					sourceDigest: normalized.digest,
+					headSeq: (await loadApp(appId))?.mutation_seq,
+					media: [],
+					target: null,
+					tables: [],
+				});
+			}
+			const take = () =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, later);
+					return bringInHqChanges(actor, KEY_TARGET, approval, {
+						onEvent: () => {},
+					});
+				});
+			if (scenario === "stored-row") {
+				// Another already-reviewed take changes only the second form. Both
+				// reads for the outstanding review return exactly the same bytes.
+				const other = movedFormIds(doc, undefined, another);
+				const competing = await withHttpPeer(async (peer) => {
+					serveEmission(peer, other);
+					return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+				});
+				if (
+					competing.kind !== "nothing" ||
+					!competing.readingId ||
+					!competing.reviewDigest
+				)
+					throw new Error("Expected the independent form edit.");
+				const itsApproval = {
+					readingId: competing.readingId,
+					reviewDigest: competing.reviewDigest,
+					tableChoices: {},
+				};
+				expect(
+					(
+						await withHttpPeer(async (peer) => {
+							serveEmission(peer, other);
+							return bringInHqChanges(actor, KEY_TARGET, itsApproval, {
+								onEvent: () => {},
+							});
+						})
+					).kind,
+				).toBe("recorded");
+			}
+			const baselineAtApply = await readAppBaseline(actor, KEY_TARGET);
+			const identityAtApply = await readTargetIdentity(actor, KEY_TARGET);
+			if (
+				scenario === "different-id" ||
+				scenario === "another-form" ||
+				scenario === "stored-row" ||
+				scenario === "open-v2"
+			) {
+				for (let i = 0; i < 2; i++) {
+					const result = await take();
+					expect(result.kind).toBe("changed");
+					if (result.kind === "changed") {
+						expect(result.now).toMatchObject({
+							kind: "nothing",
+							reason: "reads-the-same",
+						});
+						expect(result.now).not.toMatchObject({
+							reviewDigest: approval.reviewDigest,
+						});
+					}
+				}
+				expect(await readAppBaseline(actor, KEY_TARGET)).toEqual(
+					baselineAtApply,
+				);
+				expect(await readTargetIdentity(actor, KEY_TARGET)).toEqual(
+					identityAtApply,
+				);
+			} else {
+				expect((await take()).kind).toBe("recorded");
+				expect(
+					(await readTargetIdentity(actor, KEY_TARGET)).entities.some(
+						(row) => row.uniqueId === id,
+					),
+				).toBe(true);
+			}
+		},
+	);
+
+	it.each([
+		"take-before-admission",
+		"take-after-admission",
+		"take-after-expiry",
+	] as const)(
+		"fences the compiled target when the second operation is %s",
+		async (order) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const actor = scope(appId);
+			const originalToken = appMappingToken(
+				await readDeployment(actor, KEY_TARGET),
+			);
+			const moved = movedFormIds(doc, "b".repeat(32));
+			const first = await withHttpPeer(async (peer) => {
+				serveEmission(peer, moved);
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			});
+			if (first.kind !== "nothing" || !first.readingId || !first.reviewDigest)
+				throw new Error("Expected an identity-only review.");
+			const approval = {
+				readingId: first.readingId,
+				reviewDigest: first.reviewDigest,
+				tableChoices: {},
+			};
+			const take = () =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, moved);
+					return bringInHqChanges(actor, KEY_TARGET, approval, {
+						onEvent: () => {},
+					});
+				});
+			let taken: Awaited<ReturnType<typeof take>> | undefined;
+			const admit = deploymentStore.admitAppWrite,
+				record = deploymentStore.recordRemoteResource;
+			const hook =
+				order === "take-before-admission"
+					? vi
+							.spyOn(deploymentStore, "admitAppWrite")
+							.mockImplementationOnce(async (...args) => {
+								taken = await take();
+								return admit(...args);
+							})
+					: vi
+							.spyOn(deploymentStore, "recordRemoteResource")
+							.mockImplementationOnce(async (...args) => {
+								if (order === "take-after-expiry")
+									await h
+										.db()
+										.updateTable("hq_remote_writes")
+										.set((eb) => ({ held_until: eb.ref("opened_at") }))
+										.where("app_id", "=", appId)
+										.where("write_kind", "=", "import")
+										.where("settled_at", "is", null)
+										.execute();
+								taken = await take();
+								return record(...args);
+							});
+			try {
+				const result = await publishOver(
+					appId,
+					emission(doc, 2).source,
+					order !== "take-before-admission",
+				);
+				if (order === "take-after-admission") {
+					expect(taken).toMatchObject({ kind: "refused" });
+					expect(result.outcome.landed).toBe(true);
+				} else {
+					expect(taken).toMatchObject({ kind: "recorded" });
+					expect(
+						(await readTargetIdentity(actor, KEY_TARGET)).entities.some(
+							(r) => r.uniqueId === "b".repeat(32),
+						),
+					).toBe(true);
+					if (order === "take-before-admission") {
+						expect(result.outcome.landed).toBe(false);
+						expect(result.requests).not.toContain(`POST ${IMPORT_PATH}`);
+					} else {
+						expect((await readAppBaseline(actor, KEY_TARGET))?.origin).toBe(
+							"read",
+						);
+						expect(
+							appMappingToken(await readDeployment(actor, KEY_TARGET)),
+						).toBe(originalToken);
+					}
+				}
+			} finally {
+				hook.mockRestore();
+			}
+		},
+	);
+
 	it("reviews, takes and publishes both targets through their own HQ endpoints after a fold", async () => {
 		const doc = clinic({});
 		const appId = await broughtIn(doc);
@@ -2893,7 +3148,8 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			.where("user_id", "=", MEMBER)
 			.execute();
 		const actor = scope(appId);
-		const key = (domain: string) => ({ server: FIXTURE_SERVER, domain });
+		const key = (domain: string) =>
+			({ server: FIXTURE_SERVER, domain }) as const;
 		const baseline = async (domain: string) => {
 			const row = await readAppBaseline(actor, key(domain));
 			if (!row || row.origin === "unread")

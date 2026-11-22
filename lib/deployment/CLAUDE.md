@@ -939,7 +939,13 @@ refresh compares the response to the media record under the deployment lock,
 including a refresh that would only acknowledge the source or move its date.
 A refresh of the same source under the same claim retains its publish receipt.
 Reviews that carry identity, media or next-publish decisions still require
-their original claim and fold. Each HQ change take and same-source review also
+their original claim and fold. When an accepted import records after a more
+recent observation, the source, observer, time and learned files of that
+observation stay. Agreement with the owned content of the import and its
+Web App setting establishes its new Nova revision and retires the previous
+certificate. A different owned source keeps its observed settings and has
+no attributed revision. The member can inspect HQ and explicitly publish
+again. The exact pushed digest stays the push receipt. Each HQ change take and same-source review also
 compares the locked file ids at every path its decision judged, including a path
 that had no file id. A replacement, removal or newly resolved id there returns
 a fresh review before the document, identity, or source advances. File ids
@@ -1171,13 +1177,18 @@ move appears on another page.
 `review.ts::reviewHqChanges` (`POST /api/commcare/changes/review`) authorizes
 `edit`, reads CommCare HQ with the member's own key, writes nothing, and
 answers a review with a digest (`digest.ts::hqChangesReviewDigest`: the
-baseline's digest, the continuous claim’s mapping token, CommCare HQ's source now, the head, the settled media
+baseline's digest, the continuous claim’s mapping token, the stored and resolved target identities, CommCare HQ's source now, the head, the settled media
 standings, the target with each file CommCare HQ holds named by its content,
 and the tables the change newly reads). `bringIn.ts::bringInHqChanges`
 (`POST /api/commcare/changes/bring-in`) computes all of it again and acts only
 where its digest is the one sent. Any other answer takes nothing and answers
 `changed` with the review as it now stands, and so do the kernel's
 `AppHeadMovedError` and the record's `store.ts::HqChangesBaselineMovedError`.
+Each form, menu, keyed prefix, column word and held file path participates in
+the canonical identity records. Incoming files and Project files of the same
+bytes share a content identity before paths are resolved, so recording a file
+already in the library keeps the reviewed result. A review left open from
+before this receipt version gets the current review.
 Both routes answer 200 with a stage stream for every outcome. A bring-in
 commits under `batchId.ts::hqChangesBatchId` (the deployment, the digest and
 the member), so a double press converges on the kernel's batch latch and
@@ -1662,7 +1673,14 @@ when the same HQ app returns to the same Nova app. An expired process may
 record an acknowledgement only on its original uninterrupted claim. If HQ
 accepted it after the transfer, the publish reports what was sent and offers
 a new check, retaining the existing baseline and sending no more media.
-Other imports on the same claim still record in HQ save order. A record
+Other imports on the same claim still record in HQ save order.
+The admission also retains a digest of the target bindings used for
+compilation, including the file paths used at preflight. App and media
+admissions compare the complete record under the deployment lock. A take
+that changes bindings during an open write returns a retryable explanation.
+An acknowledgement after expiry can establish a baseline or entry points
+only while the actual target bindings still match. A change of bindings
+retires link evidence attached to the previous names. A record
 with no admission behind it (an app that stopped carrying a kind, a seed)
 needs a live app and `edit`, as every other deployment write does. The
 deletion held off would not close it: the write's answer comes before its

@@ -157,6 +157,12 @@ const WRITES: Record<
 	"a stop": (scope) => endDeployment(scope, TARGET, HQ_APP),
 	"an import admitted": (scope, token) =>
 		admitAppWrite(scope, TARGET, {
+			compiledIdentity: {
+				entities: [],
+				keyedCaseIds: [],
+				columnWords: [],
+				mediaPaths: [],
+			},
 			observedPushToken: token,
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,

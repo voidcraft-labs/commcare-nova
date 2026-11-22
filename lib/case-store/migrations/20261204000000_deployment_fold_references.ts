@@ -46,7 +46,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	// reclaiming that HQ app starts another claim. A same-claim publish
 	// continues to rotate its own push token independently.
 	await sql`ALTER TABLE public.app_deployment_resources ADD COLUMN IF NOT EXISTS claim_generation uuid;
-		ALTER TABLE public.hq_remote_writes ADD COLUMN IF NOT EXISTS claim_generation uuid;
+		ALTER TABLE public.hq_remote_writes ADD COLUMN IF NOT EXISTS claim_generation uuid, ADD COLUMN IF NOT EXISTS identity_digest text;
 		CREATE OR REPLACE FUNCTION public.rotate_deployment_push_token() RETURNS trigger
 		LANGUAGE plpgsql SET search_path = pg_catalog AS $rotate$
 		BEGIN

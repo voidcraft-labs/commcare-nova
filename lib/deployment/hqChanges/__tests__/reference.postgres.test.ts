@@ -1434,6 +1434,7 @@ it("keeps a released comparison through restore and a fold, and fences reads fro
 	const otherAppId = testUuid("second-restored-fold-app");
 	const other = await birthAdoptedApp(h, { ...setup, appId: otherAppId });
 	const admitted = await admitAppWrite(other.scope, target, {
+		compiledIdentity: other.targetIdentity,
 		observedPushToken: appMappingToken(other.deployment),
 		expectedEndings: 0,
 		remoteAppId,
@@ -1489,6 +1490,7 @@ it("keeps a released comparison through restore and a fold, and fences reads fro
 	expect(reclaimed.foldBinding.mappingToken).not.toBe(binding.mappingToken);
 	expect(
 		await admitAppWrite(scope, target, {
+			compiledIdentity: await readTargetIdentity(scope, target),
 			observedPushToken: binding.mappingToken,
 			expectedEndings: 0,
 			remoteAppId,

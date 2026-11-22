@@ -854,6 +854,7 @@ export interface AppDeploymentKeyedCaseIdsTable {
 export interface HqRemoteWritesTable {
 	/** The continuous mapping claim under which this app import was admitted. */
 	claim_generation: ColumnType<string | null, string | null | undefined, never>;
+	identity_digest: ColumnType<string | null, string | null | undefined, never>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
 	server: string;
