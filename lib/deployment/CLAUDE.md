@@ -927,10 +927,14 @@ the live mapping is one it compares, so a released or missing mapping unzips
 none. Its write (`store.ts::recordRefreshedAppBaseline`) lands only
 while the stored baseline and the live mapping token are still the ones compared. Its date is taken
 before CommCare HQ is asked, so a read that predates a publish never replaces
-that publish's. A stored baseline that already holds the read's digest is
-current, whoever wrote it, so two refreshes of an unchanged project space both
-answer `refreshed`; `superseded` is a newer read that differs, a publish's or
-another refresh's, and its sentence names neither. Whether a refresh changed
+that publish's. Two refreshes of an unchanged project space both answer
+`refreshed`. If a publish lands during a kept-values refresh, Nova may
+acknowledge the newer read without writing anything. The live claim must show
+a new push and its read-back must independently verify the same source and
+agree on the recorded media. A change of claim alone cannot acknowledge the
+read. Reviews that carry identity, media or next-publish decisions still
+require their original claim and fold. A differing newer read answers
+`superseded`. Whether a refresh changed
 anything is `keptChanged` over the kept lists before and after, which compares
 the labels and a digest of every kept value (`targetFacts.ts::deploymentKeptOf`),
 so a value that moved under a label listed on both sides reads as an update.

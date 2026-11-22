@@ -68,6 +68,7 @@ import {
 	hqMediaRecordMoves,
 	hqMediaRecordSchema,
 	mergeHqMediaObservation,
+	movedRecordedPaths,
 } from "./hqMedia";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
@@ -2743,14 +2744,12 @@ export async function readOpenMediaJobs(key: {
  * is taken before its request was sent, so it never outdates a publish that
  * imported after that moment.
  *
- * A stored baseline that already holds this read's digest is `current`
- * whatever moved it there: another refresh that read the same, or a publish
- * whose read-back is this read, so two refreshes of an unchanged project
- * space both answer as refreshed, whichever lands first. It is written again
- * only where this read is the later, which moves the date and nothing else.
- * `superseded` therefore names a newer read that differs from this one, a
- * publish's or another refresh's, or a publish that moved the app or could
- * not read it back.
+ * Two refreshes of the same source both answer as current when the compared
+ * claim, revision and fold still stand. A kept-values read may also report a
+ * later publish's verified read-back as current, with no writes: the same
+ * HQ app has a new push, its read is at least as recent as the request, its
+ * bytes match, and its recorded media agree with the response. When only
+ * the claim changed, the old request cannot acknowledge the target.
  *
  * The stored origin, ownership and Nova revision are kept: they say how the
  * app came to be there, what Nova's upload owned in it and which revision of
@@ -2768,6 +2767,12 @@ export async function recordRefreshedAppBaseline(
 		/** The `sourceDigest` of the baseline the read was compared with. */
 		readonly comparedDigest: string;
 		readonly comparedPushToken: string;
+		/** A kept-values refresh may acknowledge an independently verified
+		 * later push without writing. A changes review must keep its token. */
+		readonly keptRefresh?: {
+			readonly pushedAt: string | null;
+			readonly mediaMap: Parameters<typeof movedRecordedPaths>[1];
+		};
 		/** Revision and certified fold the verified read used. Older callers with
 		 * neither can refresh only an ordinary, uncertified baseline. */
 		readonly comparedRevision?: number | null;
@@ -2800,7 +2805,7 @@ export async function recordRefreshedAppBaseline(
 	readonly outcome: "current" | "superseded";
 	readonly deployment: DeploymentWithResources;
 }> {
-	return withDeploymentRow(
+	const result = await withDeploymentRow(
 		scope,
 		target,
 		{ ensure: false, expectedEndings: input.expectedEndings },
@@ -2822,7 +2827,7 @@ export async function recordRefreshedAppBaseline(
 				.executeTakeFirst();
 			const liveMapping = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["remote_id", "push_token"])
+				.select(["remote_id", "push_token", "pushed_at", "remote_missing_at"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
@@ -2846,17 +2851,41 @@ export async function recordRefreshedAppBaseline(
 					origin !== "read" &&
 					origin !== "changes") ||
 				ownership === null ||
-				liveMapping?.remote_id !== input.remoteAppId ||
-				liveMapping.push_token !== input.comparedPushToken
+				liveMapping?.remote_id !== input.remoteAppId
 			) {
 				return superseded();
+			}
+			const readAt = Date.parse(input.read.observedAt);
+			if (liveMapping.push_token !== input.comparedPushToken) {
+				// Release/reclaim also rotates the token. Only a new push
+				// advances pushed_at, and only a read-back can confirm the bytes.
+				if (
+					input.keptRefresh === undefined ||
+					liveMapping.remote_missing_at !== null ||
+					input.targetIdentity !== undefined ||
+					input.mediaFiles !== undefined ||
+					input.nextPublish !== undefined ||
+					origin !== "push" ||
+					stored.reference_fold_seq !== null ||
+					stored.source_digest !== input.read.sourceDigest ||
+					stored.observed_at.getTime() < readAt ||
+					liveMapping.pushed_at === null ||
+					liveMapping.pushed_at.getTime() < readAt ||
+					liveMapping.pushed_at.toISOString() === input.keptRefresh.pushedAt
+				)
+					return superseded();
+				return {
+					outcome: "verify-publish" as const,
+					deployment: await loadWithinTransaction(tx, row.id),
+					baseline: await appBaselineRow(tx, scope, target),
+					mediaMap: input.keptRefresh.mediaMap,
+				};
 			}
 			const currentMedia = storedMediaFiles(row.id, stored.media_files);
 			const media =
 				input.mediaFiles &&
 				mergeHqMediaObservation(currentMedia, input.mediaFiles);
 			if (media?.conflict) return superseded();
-			const readAt = Date.parse(input.read.observedAt);
 			const storedList = storedFirstPublish(
 				row.id,
 				stored.first_publish_changes,
@@ -2913,7 +2942,7 @@ export async function recordRefreshedAppBaseline(
 					await notifyAppDeployments(tx, scope.appId);
 				}
 				return {
-					outcome: "current",
+					outcome: "current" as const,
 					deployment: await loadWithinTransaction(tx, row.id),
 				};
 			}
@@ -2967,11 +2996,24 @@ export async function recordRefreshedAppBaseline(
 			);
 			await notifyAppDeployments(tx, scope.appId);
 			return {
-				outcome: "current",
+				outcome: "current" as const,
 				deployment: await loadWithinTransaction(tx, row.id),
 			};
 		},
 	);
+	if (result.outcome !== "verify-publish") return result;
+	// Verify the winner read under the lock, without holding the connection
+	// while unzipping it. This path never updates the date or any side record.
+	const baseline = verifiedAppBaseline(scope, result.baseline);
+	return {
+		outcome:
+			baseline?.origin === "push" &&
+			baseline.sourceBytes === input.read.sourceBytes &&
+			movedRecordedPaths(baseline.mediaFiles, result.mediaMap) === 0
+				? "current"
+				: "superseded",
+		deployment: result.deployment,
+	};
 }
 
 /**

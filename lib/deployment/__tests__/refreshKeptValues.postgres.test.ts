@@ -20,6 +20,7 @@
  */
 
 import { gzipSync } from "node:zlib";
+import { sql } from "kysely";
 import { Client } from "pg";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -218,7 +219,7 @@ async function published(baseline: AppBaselineWrite, remoteId = HQ_APP) {
 		remoteId,
 		ownership: "nova-created",
 		adoptedBy: null,
-		pushedRevision: 1,
+		pushedRevision: baseline.novaRevision ?? 1,
 		uploadedAt: PUBLISHED_AT,
 		remoteRevision: null,
 		baseline,
@@ -250,6 +251,7 @@ async function baselineRow() {
 		.db()
 		.selectFrom("app_deployment_baselines")
 		.selectAll()
+		.select(sql<string>`xmin::text`.as("written_by_transaction"))
 		.executeTakeFirst();
 }
 
@@ -769,6 +771,106 @@ describe("refreshKeptValues", () => {
 			new Date(readBack.observedAt),
 		);
 	});
+
+	it.each([
+		"verified",
+		"unread",
+		"corrupt",
+		"media moved",
+		"folded again",
+	] as const)(
+		"checks the later publish's %s read-back after it replaces a certified baseline, without writing",
+		async (readBack) => {
+			await seedApp();
+			const path = "commcare/image/facility.png";
+			const source = liveSource();
+			source.multimedia_map = {
+				[`jr://file/${path}`]: {
+					multimedia_id: "original",
+					media_type: "CommCareImage",
+				},
+			};
+			const first = await writeHqRoundTripHorizon(
+				h.db(),
+				APP,
+				"Published survey",
+			);
+			await published({ ...baselineOf(source), novaRevision: first });
+			await certifyFold(h.db(), APP);
+			const before = await readAppBaseline(SCOPE, TARGET);
+			if (!before || before.origin === "unread" || !before.foldBinding)
+				throw new Error("Expected a certified comparison");
+			const latest = before.foldBinding.foldSeq;
+			let afterPublish: Awaited<ReturnType<typeof baselineRow>>;
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					const next = baselineOf(source, {
+						observedAt: new Date().toISOString(),
+					});
+					await published({
+						...next,
+						novaRevision: latest,
+						...(readBack === "unread" && {
+							origin: "unread",
+							ownership: null,
+							sourceGzip: null,
+							sourceDigest: null,
+							sourceBytes: null,
+							novaRevision: null,
+						}),
+						...(readBack === "corrupt" && {
+							sourceGzip: gzipSync(Buffer.from("{}")),
+						}),
+						...(readBack === "media moved" && {
+							mediaFiles: { kind: "set", files: { [path]: "replacement" } },
+						}),
+					});
+					if (readBack === "folded again")
+						await certifyFold(h.db(), APP, "hq-round-trip-case-writes");
+					afterPublish = await baselineRow();
+					expect(afterPublish?.reference_fold_seq === null).toBe(
+						readBack !== "folded again",
+					);
+					return { statusCode: 200, data: JSON.stringify(source) };
+				});
+				const outcome = await refreshKeptValues(SCOPE, TARGET);
+				expect(outcome).toEqual({
+					kind: readBack === "verified" ? "refreshed" : "superseded",
+					deployment: await readDeployment(SCOPE, TARGET),
+				});
+			});
+			expect(await baselineRow()).toEqual(afterPublish);
+		},
+	);
+
+	it.each(["released", "reclaimed"] as const)(
+		"leaves the same source untouched if the claim was %s without a new push during refresh",
+		async (claim) => {
+			await seedApp();
+			await published(
+				baselineOf(liveSource(), {
+					observedAt: new Date(Date.now() + 60_000).toISOString(),
+				}),
+			);
+			const before = await baselineRow();
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					const mapping = h
+						.db()
+						.updateTable("app_deployment_resources")
+						.where("kind", "=", "app");
+					await mapping.set({ released_at: new Date() }).execute();
+					if (claim === "reclaimed")
+						await mapping.set({ released_at: null }).execute();
+					return { statusCode: 200, data: JSON.stringify(liveSource()) };
+				});
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+					"superseded",
+				);
+			});
+			expect(await baselineRow()).toEqual(before);
+		},
+	);
 
 	it.each([
 		["an unchanged project space", liveSource],

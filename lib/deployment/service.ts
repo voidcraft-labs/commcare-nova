@@ -3838,6 +3838,7 @@ export async function refreshKeptValues(
 		remoteAppId: remote.remoteId,
 		comparedDigest: baseline.sourceDigest,
 		comparedPushToken: remote.pushToken,
+		keptRefresh: { pushedAt: remote.pushedAt, mediaMap: compared.mediaMap },
 		comparedRevision: baseline.novaRevision,
 		comparedFold: baseline.foldBinding?.foldSeq,
 		read: {
@@ -3961,6 +3962,7 @@ async function compareWithHq(
 	| {
 			readonly kind: "unchanged";
 			readonly remote: DeploymentResource;
+			readonly mediaMap: NonNullable<HqAppSource["multimediaMap"]>;
 			readonly baseline: Exclude<AppBaseline, { readonly origin: "unread" }>;
 			readonly normalized: Extract<
 				ReturnType<typeof normalizeHqAppSource>,
@@ -4015,5 +4017,12 @@ async function compareWithHq(
 		),
 	});
 	if (parts.length > 0) return { kind: "changed-in-hq" };
-	return { kind: "unchanged", remote, baseline, normalized, observedAt };
+	return {
+		kind: "unchanged",
+		remote,
+		baseline,
+		normalized,
+		observedAt,
+		mediaMap: read.source.multimediaMap ?? [],
+	};
 }

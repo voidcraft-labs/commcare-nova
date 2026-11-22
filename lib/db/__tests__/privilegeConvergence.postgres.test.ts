@@ -729,6 +729,29 @@ describe("database privilege convergence", () => {
 				originalPush.rows[0].push_token,
 			);
 
+			const guardAccess = await sql<{ role: string; can_execute: boolean }>`
+				SELECT role, has_function_privilege(role, 'public.nova_reject_deployment_fold_reference_update()', 'EXECUTE') AS can_execute
+				FROM unnest(${sql.val([config.migrationRole, config.runtimeRole, config.cleanupRole, config.auditRole])}::text[]) AS role
+			`.execute(runtime.db);
+			expect(guardAccess.rows).toEqual([
+				{ role: config.migrationRole, can_execute: true },
+				{ role: config.runtimeRole, can_execute: false },
+				{ role: config.cleanupRole, can_execute: false },
+				{ role: config.auditRole, can_execute: false },
+			]);
+			const referenceAccess = await sql<{
+				privilege: string;
+				allowed: boolean;
+			}>`
+				SELECT privilege, has_table_privilege(current_user, 'public.app_deployment_fold_references', privilege) AS allowed
+				FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) AS privilege
+			`.execute(runtime.db);
+			expect(
+				referenceAccess.rows
+					.filter(({ allowed }) => allowed)
+					.map(({ privilege }) => privilege),
+			).toEqual(["SELECT"]);
+
 			const genesisProof = await sql<{
 				baselines: string;
 				digest_matches: boolean;
