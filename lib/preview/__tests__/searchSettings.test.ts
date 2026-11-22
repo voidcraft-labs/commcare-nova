@@ -271,3 +271,48 @@ it("compares named regional calendars by IANA identity, across summer and winter
 			}).success,
 		).toBe(false);
 });
+
+it("uses only the team's confirmed Web Apps record map at the chosen destination", () => {
+	const facts = (
+		left: boolean | null | undefined,
+		right: boolean | null | undefined,
+		selected?: PreviewSearchTarget,
+	) =>
+		resolvePreviewSearchFacts(
+			{
+				projectId: "team",
+				profiles: [
+					{
+						target: europe,
+						revision: "2",
+						values: {
+							...localSearchDefaults,
+							...(left === undefined ? {} : { caseListMap: left }),
+						},
+					},
+					{
+						target: india,
+						revision: "3",
+						values: {
+							...localSearchDefaults,
+							...(right === undefined ? {} : { caseListMap: right }),
+						},
+					},
+				],
+			},
+			selected,
+		);
+	expect(facts(undefined, undefined).caseListMap).toBeNull();
+	expect(facts(true, undefined)).toMatchObject({
+		caseListMap: null,
+		maximum: 500,
+		timeZone: "UTC",
+	});
+	expect(facts(true, false).caseListMap).toBeNull();
+	expect(facts(false, false).caseListMap).toBe(false);
+	expect(facts(true, true).caseListMap).toBe(true);
+	expect(facts(true, false, europe).caseListMap).toBe(true);
+	expect(facts(true, false, india).caseListMap).toBe(false);
+	expect(facts(null, false, europe).caseListMap).toBeNull();
+	expect(resolvePreviewSearchFacts(localCatalog, local).caseListMap).toBeNull();
+});

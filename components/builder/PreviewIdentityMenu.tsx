@@ -329,7 +329,7 @@ function PreviewIdentityMenuBody() {
 						{appId ? (
 							<>
 								<DropdownMenuItem onClick={() => setSearchSettingsOpen(true)}>
-									Preview search settings
+									Preview search and map settings
 								</DropdownMenuItem>
 								<DropdownMenuItem onClick={() => setShowTests(true)}>
 									Test journeys

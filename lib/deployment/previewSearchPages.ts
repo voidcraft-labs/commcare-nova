@@ -43,6 +43,7 @@ type Summary = {
 	revision: string;
 	maximum: 500 | 1500 | null;
 	timeZone: string | null;
+	caseListMap: boolean | null;
 	matching: { fuzzyProperties: number; ignoredText: number } | null;
 };
 
@@ -84,10 +85,11 @@ export async function readPreviewSearchPage(
 				revision: string | null;
 				maximum: 500 | 1500 | null;
 				time_zone: string | null;
+				case_list_map: boolean | null;
 				fuzzy_count: number | null;
 				ignored_count: number | null;
 			}>`SELECT t.server,t.domain,s.revision::text,
-			(s.settings->>'maximum')::integer AS maximum, s.settings->>'timeZone' AS time_zone,
+			(s.settings->>'maximum')::integer AS maximum, s.settings->>'timeZone' AS time_zone, (s.settings->>'caseListMap')::boolean AS case_list_map,
 			jsonb_array_length(s.settings->'propertyMatchers'->'fuzzyProperties') AS fuzzy_count,
 			jsonb_array_length(s.settings->'propertyMatchers'->'ignoredText') AS ignored_count
 			FROM ${targetTable(targets)} LEFT JOIN preview_search_settings s
@@ -111,6 +113,7 @@ export async function readPreviewSearchPage(
 						revision: "0",
 						maximum: localSearchDefaults.maximum,
 						timeZone: localSearchDefaults.timeZone,
+						caseListMap: null,
 						matching: { fuzzyProperties: 0, ignoredText: 0 },
 					};
 				return {
@@ -118,6 +121,7 @@ export async function readPreviewSearchPage(
 					revision: row.revision ?? "0",
 					maximum: row.maximum,
 					timeZone: row.time_zone,
+					caseListMap: row.case_list_map,
 					matching:
 						row.fuzzy_count === null
 							? null

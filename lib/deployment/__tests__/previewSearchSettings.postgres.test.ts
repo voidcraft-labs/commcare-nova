@@ -250,3 +250,66 @@ it.each(["save-first", "stop-first"] as const)(
 		).toEqual([local]);
 	},
 );
+
+it("preserves an older search profile when the team confirms, corrects and clears a Web Apps record map", async () => {
+	for (const scope of [app, peer, foreign]) await deploy(scope, eu.server);
+	await setPreviewSearchSettings(app, "author", eu, "0", confirmed);
+	const stored = () =>
+		sql<{
+			settings: Record<string, unknown>;
+		}>`SELECT settings FROM preview_search_settings WHERE project_id=${app.projectId} AND server=${eu.server} AND domain=${eu.domain}`.execute(
+			h.db(),
+		);
+	const read = async () =>
+		resolvePreviewSearchFacts(
+			await readAuthorizedPreviewSearchCatalog(
+				peer.appId,
+				peer.projectId,
+				"viewer",
+			),
+			eu,
+		);
+	expect((await stored()).rows[0].settings).not.toHaveProperty("caseListMap");
+	expect((await read()).caseListMap).toBeNull();
+	expect(
+		await setPreviewSearchSettings(app, "author", eu, "1", {
+			caseListMap: true,
+		}),
+	).toMatchObject({ kind: "saved", savedRevision: "2" });
+	expect(await read()).toMatchObject({ ...confirmed, caseListMap: true });
+	expect(
+		await setPreviewSearchSettings(peer, "author", eu, "1", {
+			caseListMap: false,
+		}),
+	).toMatchObject({ kind: "changed" });
+	expect(
+		await setPreviewSearchSettings(peer, "author", eu, "2", {
+			caseListMap: false,
+		}),
+	).toMatchObject({ kind: "saved", savedRevision: "3" });
+	const disabled = await read();
+	expect(disabled.caseListMap).toBe(false);
+	expect(
+		resolvePreviewSearchFacts(
+			await readAuthorizedPreviewSearchCatalog(
+				foreign.appId,
+				foreign.projectId,
+				"other",
+			),
+			eu,
+		).caseListMap,
+	).toBeNull();
+	await expect(
+		setPreviewSearchSettings(app, "viewer", eu, "3", { caseListMap: true }),
+	).rejects.toBeInstanceOf(AppAccessError);
+	expect(
+		await setPreviewSearchSettings(app, "author", eu, "3", {
+			caseListMap: null,
+		}),
+	).toMatchObject({ kind: "saved", savedRevision: "4" });
+	expect((await read()).revision).not.toBe(disabled.revision);
+	expect((await stored()).rows[0].settings).toEqual({
+		...confirmed,
+		caseListMap: null,
+	});
+});

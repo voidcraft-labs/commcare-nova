@@ -30,7 +30,7 @@ function scope(ctx: ToolInvocationContext): SearchToolScope | null {
 
 export const getPreviewSearchSettingsTool = {
 	description:
-		"List the saved app's Preview destinations, revisions, settings and rule counts. Choose a target to read its ordered rules. Repeat with nextCursor and the same target until nextCursor is null. A null setting is unconfirmed. Local Preview defaults apply only when selected. These settings describe Preview and cannot establish the current settings on CommCare HQ.",
+		"List the saved app's Preview destinations, revisions, search settings, Web Apps record map availability and rule counts. Choose a target to read its ordered rules. Repeat with nextCursor and the same target until nextCursor is null. A null setting is unconfirmed. Local Preview defaults apply only when selected. These settings describe Preview and cannot establish the current settings on CommCare HQ.",
 	inputSchema: previewSearchPageSchema,
 	async execute(
 		input: z.infer<typeof previewSearchPageSchema>,
@@ -61,7 +61,7 @@ function saved(revision: string): MutatingToolResult<WriteResult> {
 
 export const setPreviewSearchSettingsTool = {
 	description:
-		"Record a project space's search settings for Preview after a person confirms them. Read getPreviewSearchSettings for the destination and its revision. Send only the confirmed changes. Omitted settings and rule lists keep their values; null marks a fact unconfirmed. An empty propertyMatchers object confirms the current rules, or exact matching when previously unconfirmed. Edit rules with ordered splices of start, remove, insert against each list. Read target pages for exact indexes. For ignored text preserve the overall order across record types. Record the team's settings only, never infer them from an app or its data. Saving affects Preview for this Project and destination.",
+		"Record a project space’s Preview search settings or Web Apps record map availability after a person confirms them. For caseListMap use true for available, false for unavailable, or null for unconfirmed. It does not control Android maps. Read getPreviewSearchSettings for the destination and its revision. Send only the confirmed changes. Omitted settings and rule lists keep their values; null marks a fact unconfirmed. An empty propertyMatchers object confirms the current rules, or exact matching when previously unconfirmed. Edit rules with ordered splices of start, remove, insert against each list. Read target pages for exact indexes. For ignored text preserve the overall order across record types. Record the team's settings only, never infer them from an app or its data. Saving affects Preview for this Project and destination.",
 	inputSchema: saveSchema,
 	async recover(ctx: ToolInvocationContext) {
 		const who = scope(ctx);

@@ -53,6 +53,7 @@ function formValues(values: PreviewSearchValues) {
 	return {
 		timeZone: values.timeZone ?? "",
 		maximum: values.maximum,
+		caseListMap: values.caseListMap ?? null,
 		confirmed: config !== null,
 		rows,
 	};
@@ -62,6 +63,7 @@ function persistedValues(data: FormValues): PreviewSearchValues {
 	return {
 		maximum: data.maximum,
 		timeZone: data.timeZone.trim() || null,
+		...(data.caseListMap === null ? {} : { caseListMap: data.caseListMap }),
 		propertyMatchers: data.confirmed
 			? {
 					fuzzyProperties: data.rows.flatMap((r) =>
@@ -189,7 +191,8 @@ export function PreviewSearchSettingsForm({
 	function change(patch: Partial<FormValues>) {
 		const next = { ...data, ...patch };
 		const unchanged =
-			JSON.stringify(persistedValues(next)) === JSON.stringify(base.values) &&
+			JSON.stringify(persistedValues(next)) ===
+				JSON.stringify(persistedValues(formValues(base.values))) &&
 			next.timeZone === (base.values.timeZone ?? "");
 		setDraft(unchanged ? undefined : { base, data: next });
 		setError("");
@@ -273,8 +276,14 @@ export function PreviewSearchSettingsForm({
 							<summary>Review team settings</summary>
 							<p>
 								Time zone: {latest.values.timeZone ?? "Not recorded"}. Maximum
-								results: {latest.values.maximum ?? "Not recorded"}.{" "}
-								{ruleText(latest)}
+								results: {latest.values.maximum ?? "Not recorded"}. Web Apps
+								record map:{" "}
+								{latest.values.caseListMap == null
+									? "Not recorded"
+									: latest.values.caseListMap
+										? "Available"
+										: "Unavailable"}
+								. {ruleText(latest)}
 							</p>
 						</details>
 					)}
@@ -301,6 +310,27 @@ export function PreviewSearchSettingsForm({
 					onChange={(e) => change({ timeZone: e.target.value })}
 				/>
 			</Field>
+			<SearchSettingChoice
+				label="Web Apps record map"
+				value={
+					data.caseListMap === null
+						? "unknown"
+						: data.caseListMap
+							? "available"
+							: "unavailable"
+				}
+				disabled={locked}
+				options={[
+					["unknown", "Not recorded"],
+					["available", "Available"],
+					["unavailable", "Unavailable"],
+				]}
+				change={(value) =>
+					change({
+						caseListMap: value === "unknown" ? null : value === "available",
+					})
+				}
+			/>
 			<SearchSettingChoice
 				label="Maximum results"
 				value={data.maximum?.toString() ?? "unknown"}

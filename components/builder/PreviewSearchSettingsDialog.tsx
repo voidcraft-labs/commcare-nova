@@ -62,10 +62,10 @@ export function PreviewSearchSettingsDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Preview search settings</DialogTitle>
+					<DialogTitle>Preview search and map settings</DialogTitle>
 					<DialogDescription>
-						These settings tell Preview how your project space searches records.
-						Publishing uses the settings in CommCare HQ.
+						Choose how Preview searches records and whether it can show your Web
+						Apps record map. Publishing uses the settings in CommCare HQ.
 					</DialogDescription>
 				</DialogHeader>
 				<DialogBody>

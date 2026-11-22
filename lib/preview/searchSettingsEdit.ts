@@ -27,6 +27,9 @@ export const previewSearchChangesSchema = z
 	.strictObject({
 		maximum: previewSearchValuesSchema.shape.maximum.optional(),
 		timeZone: previewSearchValuesSchema.shape.timeZone.optional(),
+		caseListMap: previewSearchValuesSchema.shape.caseListMap.describe(
+			"Whether this destination has the Web Apps record map. Omit to keep the team’s setting, or use null when unconfirmed.",
+		),
 		propertyMatchers: z
 			.strictObject({
 				fuzzyProperties: splices(fuzzySearchPropertySchema).optional(),
@@ -147,6 +150,8 @@ export function describePreviewSearchChanges(
 	const changes: PreviewSearchChanges = {};
 	if (base.maximum !== next.maximum) changes.maximum = next.maximum;
 	if (base.timeZone !== next.timeZone) changes.timeZone = next.timeZone;
+	if ((base.caseListMap ?? null) !== (next.caseListMap ?? null))
+		changes.caseListMap = next.caseListMap ?? null;
 	if (next.propertyMatchers === null) {
 		if (base.propertyMatchers !== null) changes.propertyMatchers = null;
 	} else {

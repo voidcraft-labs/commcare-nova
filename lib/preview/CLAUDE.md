@@ -2602,3 +2602,5 @@ in how the team spelled exact matching, including an explicit exact rule, do
 not hold an otherwise decidable search.
 
 Preview compares project calendars by the named Zone and Link identities from HQ’s pinned pytz data. The user-supplied spelling remains part of the saved confirmation and exact retry. Short ambiguous abbreviations cannot confirm a calendar.
+
+The same authorized Project/destination catalog carries `caseListMap`, the team’s confirmation of Web Apps record map availability. The pinned HQ toggle is domain-scoped (`corehq/toggles/__init__.py::CASE_LIST_MAP`). Its worker list also needs an address and a populated result (`cloudcare/js/formplayer/menus/views.js`). A missing or null confirmation is unobserved, including on Local Preview. It leaves ordinary search and Android’s address-driven map independent.

@@ -2579,3 +2579,5 @@ and replaying that write require both the read grant and
 `nova.preview.search.write`, before the work or receipt is resolved.
 
 A settings edit carries only changed scalars and indexed rule splices under the current revision. The Builder transport and the SA/MCP tool share the same 64 KiB change budget. Complete confirmed profiles remain readable. `previewSearchPages.ts` pages destination summaries and twelve ordered rules at a time under a fresh Project/role snapshot. Its continuation binds the app, Project, target and revisions and gives an explicit restart if the selection changed. The stream sends bounded profile segments and the Builder exposes only the complete Project snapshot.
+
+The nullable `caseListMap` field uses the same Project/target/revision, consent and role fences. Older JSON without the field remains readable and unrelated scalar edits preserve that absence. An explicit false records an unavailable Web Apps record map.

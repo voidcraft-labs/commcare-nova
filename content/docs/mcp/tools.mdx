@@ -19,12 +19,12 @@ it can't hold there (`notOffered`). Read individual modules, forms or fields whe
 content matters to the task. This keeps a large app's question text out of
 every startup prompt.
 
-## Preview search settings
+## Preview search and map settings
 
 Use `get_preview_search_settings` to list the destinations for a saved app.
 Each answer includes a `nextCursor`. Pass it as `cursor` until it is null.
 Choose a listed `target` to read its matching rules the same way. Each rule
-includes its list and index. A null setting has yet to be confirmed. If a
+includes its list and index. A null setting has yet to be confirmed. The `caseListMap` value records whether the destination offers a record map in Web Apps. Android uses its own map behavior. If a
 teammate changes the settings during a read, restart without a cursor.
 
 Use `set_preview_search_settings` in an editing work with the target, expected

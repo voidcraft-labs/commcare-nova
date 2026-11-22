@@ -12,9 +12,14 @@ test("shares a confirmed local search profile across signed-in tabs and lets a s
 		await tab.getByRole("button", { name: "Preview", exact: true }).click();
 		await tab.getByRole("button", { name: /Running as/ }).click();
 		await tab
-			.getByRole("menuitem", { name: "Preview search settings", exact: true })
+			.getByRole("menuitem", {
+				name: "Preview search and map settings",
+				exact: true,
+			})
 			.click();
-		const dialog = tab.getByRole("dialog", { name: "Preview search settings" });
+		const dialog = tab.getByRole("dialog", {
+			name: "Preview search and map settings",
+		});
 		await expect(dialog).toContainText("500-record limit.");
 		await dialog.getByRole("combobox", { name: "Search destination" }).click();
 		await tab.getByRole("option", { name: "Local Preview" }).click();
@@ -40,6 +45,14 @@ test("shares a confirmed local search profile across signed-in tabs and lets a s
 			"UTC",
 		);
 		// The viewer and the untouched editor both follow this revision.
+		await expect(
+			viewing.getByRole("combobox", { name: "Web Apps record map" }),
+		).toBeDisabled();
+		await expect(
+			viewing.getByRole("combobox", { name: "Web Apps record map" }),
+		).toHaveText("Not recorded");
+		await first.getByRole("combobox", { name: "Web Apps record map" }).click();
+		await page.getByRole("option", { name: "Available", exact: true }).click();
 		await first.getByLabel("Project space time zone").fill("Europe/Paris");
 		await first.getByRole("button", { name: "Save settings" }).click();
 		await expect(first).toBeHidden();
@@ -49,10 +62,23 @@ test("shares a confirmed local search profile across signed-in tabs and lets a s
 		await expect(second.getByLabel("Project space time zone")).toHaveValue(
 			"Europe/Paris",
 		);
+		await expect(
+			viewing.getByRole("combobox", { name: "Web Apps record map" }),
+		).toHaveText("Available");
+		await expect(
+			second.getByRole("combobox", { name: "Web Apps record map" }),
+		).toHaveText("Available");
 		await second.getByLabel("Project space time zone").fill("Asia/Kolkata");
 		await page.getByRole("button", { name: /Running as/ }).click();
 		await page
-			.getByRole("menuitem", { name: "Preview search settings", exact: true })
+			.getByRole("menuitem", {
+				name: "Preview search and map settings",
+				exact: true,
+			})
+			.click();
+		await first.getByRole("combobox", { name: "Web Apps record map" }).click();
+		await page
+			.getByRole("option", { name: "Unavailable", exact: true })
 			.click();
 		await first.getByLabel("Project space time zone").fill("Europe/Berlin");
 		await first.getByRole("button", { name: "Save settings" }).click();
@@ -73,6 +99,12 @@ test("shares a confirmed local search profile across signed-in tabs and lets a s
 		await expect(second.getByLabel("Project space time zone")).toHaveValue(
 			"Europe/Berlin",
 		);
+		await expect(
+			second.getByRole("combobox", { name: "Web Apps record map" }),
+		).toHaveText("Unavailable");
+		await expect(
+			viewing.getByRole("combobox", { name: "Web Apps record map" }),
+		).toHaveText("Unavailable");
 		await expect(second).toContainText("Supplied by your team");
 	} finally {
 		await viewer.close();
@@ -107,10 +139,13 @@ test("changes a calendar and a single ordered rule in a saved profile larger tha
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		await page.getByRole("button", { name: /Running as/ }).click();
 		await page
-			.getByRole("menuitem", { name: "Preview search settings", exact: true })
+			.getByRole("menuitem", {
+				name: "Preview search and map settings",
+				exact: true,
+			})
 			.click();
 		const dialog = page.getByRole("dialog", {
-			name: "Preview search settings",
+			name: "Preview search and map settings",
 		});
 		await dialog.getByRole("combobox", { name: "Search destination" }).click();
 		await page.getByRole("option", { name: "Local Preview" }).click();
@@ -131,7 +166,10 @@ test("changes a calendar and a single ordered rule in a saved profile larger tha
 		]);
 		await page.getByRole("button", { name: /Running as/ }).click();
 		await page
-			.getByRole("menuitem", { name: "Preview search settings", exact: true })
+			.getByRole("menuitem", {
+				name: "Preview search and map settings",
+				exact: true,
+			})
 			.click();
 		await expect(dialog.getByLabel("Project space time zone")).toHaveValue(
 			"US/Eastern",

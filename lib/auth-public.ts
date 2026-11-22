@@ -84,8 +84,8 @@ export const NOVA_MCP_SCOPE_LABELS: Record<NovaApiKeyScope, string> = {
 	"nova.hq.read": "HQ Read",
 	"nova.hq.write": "HQ Write",
 	"nova.hq.import": "HQ Import",
-	"nova.preview.search.read": "Read Preview search settings",
-	"nova.preview.search.write": "Edit Preview search settings",
+	"nova.preview.search.read": "Read Preview search and map settings",
+	"nova.preview.search.write": "Edit Preview search and map settings",
 	"nova.projects.read": "Projects Read",
 	"nova.projects.write": "Projects Write",
 };

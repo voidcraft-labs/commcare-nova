@@ -118,12 +118,12 @@ export const SHARED_TOOL_PRESENTATION = {
 	),
 	getForm: read("Inspecting a form", "Inspected a form"),
 	getPreviewSearchSettings: read(
-		"Reading Preview search settings",
-		"Read Preview search settings",
+		"Reading Preview search and map settings",
+		"Read Preview search and map settings",
 	),
 	setPreviewSearchSettings: change(
-		"Recording Preview search settings",
-		"Recorded Preview search settings",
+		"Recording Preview search and map settings",
+		"Recorded Preview search and map settings",
 	),
 	startAppTest: {
 		kind: "activity",

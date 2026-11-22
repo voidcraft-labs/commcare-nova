@@ -751,7 +751,7 @@ it.each(["oauth", "api-key"] as const)(
 					app_id: doc.appId,
 				});
 				expect(catalog.profiles).toMatchObject([
-					{ target: { kind: "local" }, revision: "0" },
+					{ target: { kind: "local" }, revision: "0", caseListMap: null },
 				]);
 				const { work_id } = await begin(client, doc.appId);
 				const input = {
@@ -762,6 +762,7 @@ it.each(["oauth", "api-key"] as const)(
 					changes: {
 						maximum: 500,
 						timeZone: "Europe/Paris",
+						caseListMap: true,
 						propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
 					},
 				};
@@ -802,7 +803,7 @@ it.each(["oauth", "api-key"] as const)(
 					app_id: doc.appId,
 				});
 				expect(current.profiles).toMatchObject([
-					{ revision: "1", timeZone: "Europe/Paris" },
+					{ revision: "1", timeZone: "Europe/Paris", caseListMap: true },
 				]);
 				const replay = await client.callTool({
 					name: "set_preview_search_settings",

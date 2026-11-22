@@ -107,13 +107,14 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 	{
 		key: "nova.preview.search.read",
 		label:
-			"See where your apps are published and the Preview search settings your team recorded for each destination",
+			"See where your apps are published and the Preview search and map settings your team recorded for each destination",
 		icon: tablerEye,
 		matches: (s) => s.has("nova.preview.search.read"),
 	},
 	{
 		key: "nova.preview.search.write",
-		label: "Change the Preview search settings shared by apps in your Projects",
+		label:
+			"Change the Preview search and map settings shared by apps in your Projects",
 		icon: tablerPencil,
 		matches: (s) => s.has("nova.preview.search.write"),
 	},

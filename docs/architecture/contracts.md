@@ -499,7 +499,7 @@ These decisions are closed unless the project owner explicitly reopens them.
   A tool needs the scope that covers everything its answers can carry, a
   refusal and a changed review included (`lib/mcp/scopes.ts::TOOL_SCOPES`, held
   by `lib/mcp/scopedTool.ts::registerScopedTool`).
-  Reading Preview search destinations and team-confirmed settings takes
+  Reading Preview destinations and team-confirmed search settings and Web Apps record map availability takes
   `nova.preview.search.read`. Changing them takes that scope and
   `nova.preview.search.write`, including an exact retry through saved work.
   The shared MCP adapter checks the grant before opening an app or work session.

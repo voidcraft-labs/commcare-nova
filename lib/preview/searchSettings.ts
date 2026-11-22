@@ -78,6 +78,7 @@ export const previewSearchValuesSchema = z.strictObject({
 		])
 		.nullable(),
 	timeZone: searchTimeZoneSchema.nullable(),
+	caseListMap: z.boolean().nullable().optional(),
 	propertyMatchers: propertyMatchingSchema.nullable(),
 });
 export type PreviewSearchValues = z.infer<typeof previewSearchValuesSchema>;
@@ -86,6 +87,8 @@ export type PreviewSearchValues = z.infer<typeof previewSearchValuesSchema>;
 export interface PreviewSearchFacts {
 	readonly maximum: PreviewSearchValues["maximum"];
 	readonly timeZone: string | null;
+	/** Team confirmation of the Web Apps record map at this destination. */
+	readonly caseListMap: boolean | null;
 	readonly propertyMatchers: PreviewSearchValues["propertyMatchers"];
 	/** Present only when destinations disagree on their complete matcher lists.
 	 * A criterion can still have the same rules on all of them. */
@@ -135,11 +138,17 @@ export function resolvePreviewSearchFacts(
 		first?.target.kind === "destination" ? first.target.domain : undefined;
 	const zoneIdentity =
 		values.timeZone && searchTimeZoneIdentity(values.timeZone);
+	const caseListMap = values.caseListMap ?? null;
 	const matcherLists = profiles.map((p) => p.values.propertyMatchers);
 	const sameMatchers = matcherLists.every(
 		(list) => JSON.stringify(list) === JSON.stringify(values.propertyMatchers),
 	);
 	return {
+		caseListMap: profiles.every(
+			(p) => (p.values.caseListMap ?? null) === caseListMap,
+		)
+			? caseListMap
+			: null,
 		maximum: profiles.every((p) => p.values.maximum === values.maximum)
 			? values.maximum
 			: null,

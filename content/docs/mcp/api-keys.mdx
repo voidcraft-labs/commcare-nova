@@ -75,8 +75,8 @@ Each key can have any combination of these:
 | `nova.hq.read` | Look up which CommCare HQ project spaces your stored API key can reach, check whether one can run an app, and see where an app is published. |
 | `nova.hq.write` | Upload apps to CommCare HQ and look after where they're published: check how a published app is doing, make worker accounts and links into an app, and stop publishing to a project space. |
 | `nova.hq.import` | Use your stored CommCare HQ API key to read a project space's apps, lookup tables and places, and see who in Nova already manages an app there, and to bring them into a Nova Project, where every member of that Project can see them. It also brings in changes made in CommCare HQ. An upload that refreshes HQ-managed tables or places, or a check that refreshes the settings HQ keeps for an app, needs this scope alongside `nova.hq.write`. Handing a lookup table to Nova or back to CommCare HQ needs it and `nova.hq.write`. |
-| `nova.preview.search.read` | See the selected app's available destinations and the Preview search settings your team recorded for them. |
-| `nova.preview.search.write` | Change the Preview search settings shared by apps in the Project at a destination. Recording a change also needs `nova.preview.search.read`. |
+| `nova.preview.search.read` | See the selected app's available destinations and the Preview search and map settings your team recorded for them. |
+| `nova.preview.search.write` | Change the Preview search and map settings shared by apps in the Project at a destination. Recording a change also needs `nova.preview.search.read`. |
 | `nova.projects.read` | See a shared Project's member list and pending invitations, including members' names and emails. |
 | `nova.projects.write` | Create shared Projects, invite members, change member roles, and move apps between Projects. |
 
