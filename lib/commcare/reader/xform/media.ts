@@ -30,6 +30,7 @@ import { builtScopes, sameElementWhole } from "../sameElement";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
+import { itextRecipient } from "./itext";
 import { claimFormValue, formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
@@ -152,7 +153,7 @@ function readSlotMedia(
 			continue;
 		}
 		if (slot.media === "unheld") {
-			for (const value of values.values()) {
+			for (const [language, value] of values) {
 				const path = ownText(value).trim();
 				const resolution = ctx.input.media.resolve(path);
 				if (resolution.kind === "asset") {
@@ -172,6 +173,7 @@ function readSlotMedia(
 						mediaKind: kind,
 						place,
 						slot: "unheld_itext",
+						itextRecipients: [itextRecipient(slot.owner, language)],
 						languageCode: translation.attribs.lang,
 						role:
 							slot.owner.slot === "validate_msg"
@@ -189,6 +191,7 @@ function readSlotMedia(
 					resolution: resolution.kind,
 					place,
 					slot: "unheld_itext",
+					itextRecipients: [itextRecipient(slot.owner, language)],
 				});
 			}
 			continue;
@@ -199,9 +202,14 @@ function readSlotMedia(
 			)
 		)
 			continue;
-		const paths = [
-			...new Set([...values.values()].map((value) => ownText(value).trim())),
-		];
+		const recipients = new Map<string, ReturnType<typeof itextRecipient>[]>();
+		for (const [language, value] of values) {
+			const path = ownText(value).trim();
+			const at = recipients.get(path) ?? [];
+			at.push(itextRecipient(slot.owner, language));
+			recipients.set(path, at);
+		}
+		const paths = [...recipients.keys()];
 		const joined = paths.length === 1 ? undefined : oneAsset(ctx, paths);
 		// A language whose text holds no form of the kind, or no text, shows the form's default
 		// language's, since Core loads the default locale's keys under every locale
@@ -231,6 +239,7 @@ function readSlotMedia(
 			for (const one of paths)
 				ctx.facts.mediaReferences.push({
 					path: one,
+					itextRecipients: recipients.get(one),
 					assetId: asset.assetId,
 					mediaKind: kind,
 					place,
@@ -254,6 +263,7 @@ function readSlotMedia(
 			path,
 			mediaKind: kind,
 			resolution: resolution.kind,
+			itextRecipients: recipients.get(path),
 			place,
 			slot: slotString(slot.media),
 		});
@@ -321,16 +331,19 @@ export function readMediaMap(
 	// (`menus/navMedia.ts::shownNavMedia`) passes the path every language shows, which this
 	// rule reads as it is.
 	const codes = applicationReading(ctx)?.languages.codes ?? [];
-	const shown: string[] = [];
+	const languagesByPath = new Map<string, string[]>();
 	for (const code of codes) {
 		const one = shownText(byLanguage, code, codes);
 		if (!one.ok) return { kind: "differs" };
-		shown.push(one.text);
+		const languages = languagesByPath.get(one.text) ?? [];
+		languages.push(code);
+		languagesByPath.set(one.text, languages);
 	}
-	if (shown.every((path) => path === "")) return { kind: "none" };
+	const paths = [...languagesByPath.keys()];
+	if (paths.every((path) => path === "")) return { kind: "none" };
 	// A language that shows no file beside one that shows a file differs, as two files do.
-	if (shown.includes("")) return { kind: "differs" };
-	const paths = [...new Set(shown)];
+	if (languagesByPath.has("")) return { kind: "differs" };
+	for (const languages of languagesByPath.values()) languages.sort();
 	const pointer =
 		"json" in at.site
 			? `${at.site.json.pointer}/${pointerToken(at.site.key)}`
@@ -342,6 +355,7 @@ export function readMediaMap(
 		for (const path of paths)
 			ctx.facts.mediaReferences.push({
 				path,
+				shownLanguages: languagesByPath.get(path),
 				assetId: asset.assetId,
 				mediaKind: at.mediaKind,
 				place: at.place,
@@ -366,6 +380,7 @@ export function readMediaMap(
 		place: at.place,
 		...(pointer !== undefined && { pointer }),
 		slot: at.slot,
+		shownLanguages: languagesByPath.get(path),
 	});
 	return { kind: "handed-off" };
 }

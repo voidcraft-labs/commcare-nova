@@ -11,6 +11,7 @@
 
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
 import type {
+	MediaRecipients,
 	ReaderMediaIndex,
 	ReaderMediaResolution,
 	ReadFacts,
@@ -70,7 +71,7 @@ export const HQ_MEDIA_SLOTS = [
 export type HqMediaSlot = (typeof HQ_MEDIA_SLOTS)[number];
 
 /** One reference in the app's source. */
-export interface HqMediaReference {
+export interface HqMediaReference extends MediaRecipients {
 	/** The stored app's source pointer when a JSON value names this file. A question's itext is located by its node. */
 	readonly pointer?: string;
 	/** The path as the source spells it. */
@@ -121,6 +122,8 @@ export function hqMediaReferencesOf(
 		}
 		return {
 			path: read.path,
+			...(read.itextRecipients && { itextRecipients: read.itextRecipients }),
+			...(read.shownLanguages && { shownLanguages: read.shownLanguages }),
 			kind: read.mediaKind,
 			slot,
 			place: read.place,

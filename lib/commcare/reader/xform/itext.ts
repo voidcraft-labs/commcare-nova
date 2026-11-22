@@ -25,6 +25,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import type { Accounting } from "../accounting";
 import type { HqLanguages } from "../languages";
 import { readFormSyntax } from "../syntaxRead";
+import type { ItextRecipient } from "../types";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { DraftField } from "./index";
@@ -44,7 +45,7 @@ export const PRAGMA_KEYS = [
 const PRAGMAS: ReadonlySet<string> = new Set(PRAGMA_KEYS);
 
 /** A text's slot on the field that references it. */
-export type TextSlot = "label" | "hint" | "help" | "validate_msg";
+export type TextSlot = Exclude<ItextRecipient["slot"], "option_label">;
 
 /** One slot that references a text. */
 export interface ItextOwner {
@@ -52,6 +53,27 @@ export interface ItextOwner {
 	readonly slot: TextSlot | "option_label";
 	/** For a choice's label, the option's position in the field's inline options. */
 	readonly option?: number;
+}
+
+export function itextRecipient(
+	owner: ItextOwner,
+	language: LanguageTag,
+): ItextRecipient {
+	const choices = owner.field.field.optionsSource as
+		| { options?: readonly { value: string }[] }
+		| undefined;
+	const choiceValue = choices?.options?.[owner.option ?? -1]?.value ?? null;
+	if (owner.slot === "option_label" && choiceValue === null) {
+		throw new Error(
+			"A choice's itext has no saved value in the options the form reader accepted.",
+		);
+	}
+	return {
+		fieldPath: owner.field.node.path,
+		slot: owner.slot,
+		language,
+		choiceValue,
+	};
 }
 
 export interface ItextTable {

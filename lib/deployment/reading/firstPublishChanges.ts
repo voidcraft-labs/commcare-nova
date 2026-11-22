@@ -18,12 +18,16 @@
  */
 
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
-import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	type HqAppSource,
+	unreadableMediaIdentity,
+} from "@/lib/commcare/hq/appSource";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { pythonStrip } from "@/lib/commcare/localeFile";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { readsTrimmedSibling } from "@/lib/commcare/placement";
 import type {
+	MediaRecipients,
 	ReadFacts,
 	ReadFormFacts,
 	ReadGeneratedNode,
@@ -69,6 +73,7 @@ import {
 	type FormPositions,
 	firstPublishPlaceKind,
 	formPositionsOf,
+	type MediaReferenceAt,
 	mapPath,
 	nodePlace,
 	partPlace,
@@ -2376,6 +2381,114 @@ function caseWriterSubjects(
 	}
 }
 
+/** The physical recipient of a media loss, independent of proof locations
+ * such as the app's media directory. Keep every shared XForm recipient,
+ * and the concrete native value of a JSON-backed media slot. */
+function mediaSubjects(
+	facts: FirstPublishFacts,
+	result: Map<FirstPublishChangeId, Map<string, string>>,
+	reviewPlace: (place: string) => string,
+) {
+	const mediaChanges = [
+		"media-paths-joined",
+		"media-files-renamed",
+		"unshown-form-media-removed",
+		"broken-pictures-removed",
+		"media-references-with-no-file-removed",
+	] as const;
+	if (!mediaChanges.some((id) => result.has(id))) return;
+	const files = new Map(
+		facts.source.multimediaMap?.map((file) => [file.path, file]),
+	);
+	const storedSlots = new Map<string, string>();
+	const add = (
+		id: FirstPublishChangeId,
+		ref: MediaReferenceAt & MediaRecipients & { readonly slot: string },
+		kind: string,
+		move?: unknown,
+	) => {
+		const subjects = result.get(id);
+		if (!subjects) return;
+		const source =
+			ref.pointer === undefined
+				? null
+				: placeOfStoredPointer(facts.positions, ref.pointer);
+		const place =
+			source ??
+			(ref.place.kind === "question"
+				? nodePlace(
+						`${ref.place.menu}.${ref.place.form}`,
+						`/data/${ref.place.path}`,
+					)
+				: null);
+		if (!place || (!source && !ref.itextRecipients?.length))
+			throw new Error(
+				"A media change has no physical recipient in this reading.",
+			);
+		const file = files.get(ref.path);
+		let storedSlot: string | undefined;
+		if (ref.pointer !== undefined) {
+			storedSlot = storedSlots.get(ref.pointer);
+			if (storedSlot === undefined) {
+				storedSlot = canonicalJsonDigest(
+					storedAt(facts.source.raw, ref.pointer) ?? null,
+				);
+				storedSlots.set(ref.pointer, storedSlot);
+			}
+		}
+		const base = canonicalJsonDigest([
+			reviewPlace(place),
+			ref.slot,
+			kind,
+			ref.path,
+			file?.multimediaId ?? null,
+			file?.mediaType ?? null,
+			move ?? null,
+			ref.shownLanguages ?? null,
+			file?.unreadable
+				? unreadableMediaIdentity(facts.source.raw, ref.path)
+				: null,
+			storedSlot ?? null,
+		]);
+		if (ref.itextRecipients?.length) {
+			for (const recipient of ref.itextRecipients)
+				subjects.set(canonicalJsonDigest([base, recipient]), place);
+		} else subjects.set(base, place);
+	};
+	for (const ref of facts.facts.unheldMedia)
+		add("unshown-form-media-removed", ref, ref.mediaKind);
+	for (const claim of facts.mediaClaims)
+		add(
+			claim.brokenPicture
+				? "broken-pictures-removed"
+				: "media-references-with-no-file-removed",
+			claim.reference,
+			claim.reference.kind,
+		);
+	const renamed = new Map(
+		facts.media.rederived.map((move) => [mapPath(move.from), move]),
+	);
+	const joined = new Map(
+		facts.media.collapsed.flatMap((move) =>
+			move.dropped.map(
+				(path) =>
+					[mapPath(path), { kept: move.kept, assetId: move.assetId }] as const,
+			),
+		),
+	);
+	for (const ref of [
+		...facts.facts.mediaReferences,
+		...facts.facts.pendingMedia,
+	]) {
+		const path = mapPath(ref.path);
+		const replacement = renamed.get(path);
+		if (replacement)
+			add("media-files-renamed", ref, ref.mediaKind, replacement);
+		const kept = joined.get(path);
+		if (kept) add("media-paths-joined", ref, ref.mediaKind, kept);
+	}
+}
+
 export function publishChangeSubjects(
 	facts: FirstPublishFacts,
 	ids: readonly FirstPublishChangeId[],
@@ -2449,45 +2562,7 @@ export function publishChangeSubjects(
 				place,
 			);
 	}
-	for (const ref of facts.facts.unheldMedia) {
-		const set = result.get("unshown-form-media-removed");
-		if (!set || ref.place.kind !== "question") continue;
-		const place = nodePlace(
-			`${ref.place.menu}.${ref.place.form}`,
-			`/data/${ref.place.path}`,
-		);
-		set.set(
-			canonicalJsonDigest([
-				reviewPlace(place),
-				ref.role,
-				ref.languageCode,
-				ref.mediaKind,
-				ref.path,
-			]),
-			place,
-		);
-	}
-	for (const claim of facts.mediaClaims) {
-		const set = result.get(
-			claim.brokenPicture
-				? "broken-pictures-removed"
-				: "media-references-with-no-file-removed",
-		);
-		if (!set) continue;
-		for (const place of placesOfMediaReference(
-			facts.positions,
-			claim.reference,
-		))
-			set.set(
-				canonicalJsonDigest([
-					reviewPlace(place),
-					claim.reference.slot,
-					claim.reference.kind,
-					claim.reference.path,
-				]),
-				place,
-			);
-	}
+	mediaSubjects(facts, result, reviewPlace);
 	return result;
 }
 

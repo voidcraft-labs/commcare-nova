@@ -75,6 +75,7 @@ import type {
 } from "@/lib/commcare/reader/types";
 import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { serializeXml } from "@/lib/commcare/serializeXml";
+import { imageMapEnumKey } from "@/lib/commcare/suite/case-list/columns";
 import { servedSchemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { FormPath } from "@/lib/commcare/xform/formPath";
@@ -142,6 +143,7 @@ import type { DeploymentTargetKey } from "../../store";
 import { adoptionExportBoundary } from "../adoptionBoundary";
 import { readingAppStrings } from "../appStrings";
 import {
+	birthPublishSubjects,
 	FIRST_PUBLISH_CHANGES,
 	type FirstPublishFacts,
 	firstPublishChangePlaces,
@@ -858,34 +860,54 @@ describe("where each change stands", () => {
 				imageMapEntry("a", iconFile.assetId),
 			]),
 		]);
-		const reading = await readAs(
-			doc,
-			{
-				expand: {
-					assets: adoptionExportBoundary(doc, [], [iconFile], TARGET).assets,
+		const read = (key: string) =>
+			readAs(
+				doc,
+				{
+					expand: {
+						assets: adoptionExportBoundary(doc, [], [iconFile], TARGET).assets,
+					},
+					...onMenu((menu) => {
+						const short = (
+							menu as unknown as {
+								case_details: {
+									short: {
+										columns: { enum?: { key: string; value: Json }[] }[];
+									};
+								};
+							}
+						).case_details.short;
+						for (const column of short.columns)
+							for (const item of column.enum ?? []) {
+								item.key = imageMapEnumKey(key);
+								item.value = { en: held };
+							}
+					}),
 				},
-				...onMenu((menu) => {
-					const short = (
-						menu as unknown as {
-							case_details: {
-								short: { columns: { enum?: { value: Json }[] }[] };
-							};
-						}
-					).case_details.short;
-					for (const column of short.columns)
-						for (const item of column.enum ?? []) item.value = { en: held };
-				}),
-			},
-			{
-				media: {
-					resolve: (path) =>
-						path === held
-							? { kind: "asset", assetId: iconFile.assetId, mediaKind: "image" }
-							: { kind: "no-entry" },
+				{
+					media: {
+						resolve: (path) =>
+							path === held
+								? {
+										kind: "asset",
+										assetId: iconFile.assetId,
+										mediaKind: "image",
+									}
+								: { kind: "no-entry" },
+					},
 				},
-			},
-		);
-		const facts = factsOf(reading, { mediaFiles: [iconFile] });
+			);
+		const facts = factsOf(await read("a"), { mediaFiles: [iconFile] });
+		const approved = (input: FirstPublishFacts) => {
+			const signed = birthPublishSubjects(
+				input,
+				firstPublishChangesFor(input),
+			).find(([id]) => id === "media-files-renamed");
+			expect(signed).toBeDefined();
+			return signed;
+		};
+		const replacement = factsOf(await read("b"), { mediaFiles: [iconFile] });
+		expect(approved(facts)).not.toEqual(approved(replacement));
 		expect(applies("media-files-renamed", facts)).toBe(true);
 		const [placed] = firstPublishChangePlaces(facts, ["media-files-renamed"]);
 		const pointer = held.replaceAll("~", "~0").replaceAll("/", "~1");
@@ -1029,6 +1051,203 @@ describe("where each change stands", () => {
 		).toEqual(["media-references-with-no-file-removed"]);
 	});
 
+	it("keeps the approved broken menu picture with the HQ file and ignores its upload metadata", async () => {
+		const doc = followUpDoc();
+		const read = async (remoteId: string, version: number) => {
+			const reading = await readAs(
+				doc,
+				{
+					root: {
+						multimedia_map: {
+							[HINT_IMAGE]: { ...mediaMapItem(remoteId), version },
+						},
+					},
+					...onMenu((menu) => {
+						menu.media_image = { en: HINT_IMAGE };
+					}),
+				},
+				{ media: { resolve: () => ({ kind: "unreadable" }) } },
+			);
+			const runsOn = ["web-apps"] as const;
+			const plan = planHqMedia({
+				references: hqMediaReferencesOf(reading.draft.facts),
+				multimediaMap: reading.source.multimediaMap ?? [],
+				runsOn,
+				contentValid: null,
+				lazyLoadVideos: false,
+			});
+			expect(plan.files.map((file) => file.multimediaId)).toEqual([remoteId]);
+			const files = mediaFindings({
+				plan,
+				verdicts: { [`CommCareImage/${remoteId}`]: { kind: "missing" } },
+				runsOn,
+			});
+			expect([...plan.findings, ...files.findings]).toEqual([]);
+			expect(
+				files.claims.map((claim) => [
+					claim.brokenPicture,
+					claim.reference.pointer,
+				]),
+			).toEqual([[true, "/modules/0/media_image"]]);
+			const facts = factsOf(reading, { mediaClaims: files.claims });
+			const signed = birthPublishSubjects(
+				facts,
+				firstPublishChangesFor(facts),
+			).find(([id]) => id === "broken-pictures-removed");
+			expect(signed).toBeDefined();
+			return signed;
+		};
+		const before = await read("original", 1);
+		expect(await read("original", 2)).toEqual(before);
+		expect(await read("replacement", 2)).not.toEqual(before);
+	});
+
+	it.each(["choice", "language", "message", "shared text"] as const)(
+		"keeps a missing Web Apps picture with its physical itext recipient (%s)",
+		async (scenario) => {
+			const inspect = async (
+				text: string,
+				languages: string[],
+				shared: string | null,
+				reversed = false,
+			) => {
+				const choices = reversed
+					? ["Third", "Second", "First"]
+					: ["First", "Second", "Third"];
+				const doc = inSpanish(
+					buildDoc({
+						modules: [
+							{
+								uuid: "recipient-menu",
+								name: "Visits",
+								forms: [
+									{
+										uuid: "recipient-form",
+										name: "Visit",
+										type: "survey",
+										fields: [
+											f({
+												uuid: testUuid("recipient-choice"),
+												id: "choice",
+												kind: "single_select",
+												label: proseText("Pick"),
+												optionsSource: {
+													kind: "inline",
+													options: choices.map((value) => ({
+														uuid: testUuid(value),
+														value: value.toLowerCase(),
+														label: proseText(value),
+													})),
+												},
+											}),
+											f({
+												uuid: testUuid("recipient-note"),
+												id: "note",
+												kind: "text",
+												label: proseText("Note"),
+												hint: proseText("Note hint"),
+												validate: ". != 'bad'",
+												validate_msg: proseText("Note warning"),
+											}),
+										],
+									},
+								],
+							},
+						],
+					}),
+					new Map(),
+				);
+				const reading = await readAs(doc, {
+					xml: (xml) => {
+						const parsed = parseXml(xml);
+						const translations = findAll(
+							(el: Element) => el.name === "translation",
+							parsed.children.filter(isTag),
+						);
+						if (translations.length !== 2)
+							throw new Error("Expected English and Spanish itext.");
+						const findText = (tr: Element, contents: string) =>
+							tr.children
+								.filter(isTag)
+								.find((el) =>
+									el.children
+										.filter(isTag)
+										.some(
+											(v) =>
+												v.name === "value" &&
+												v.children.some(
+													(n) => n.type === "text" && n.data === contents,
+												),
+										),
+								);
+						for (const tr of translations) {
+							const target = findText(tr, text);
+							if (!target) throw new Error(`Source label ${text} was missing.`);
+							if (languages.includes(tr.attribs.lang))
+								target.children.push(
+									new Element("value", { form: "image" }, [
+										new Text(HINT_IMAGE),
+									]),
+								);
+							if (shared) {
+								const other = findText(tr, shared);
+								if (!other)
+									throw new Error("Expected the other choice's own text.");
+								for (const label of findAll(
+									(el: Element) =>
+										el.name === "label" &&
+										el.attribs.ref?.includes(`'${other.attribs.id}'`) === true,
+									parsed.children.filter(isTag),
+								))
+									label.attribs.ref = label.attribs.ref.replace(
+										other.attribs.id,
+										target.attribs.id,
+									);
+								removeElement(other);
+							}
+						}
+						return serializeXml(parsed);
+					},
+				});
+				const plan = planHqMedia({
+					references: hqMediaReferencesOf(reading.draft.facts),
+					multimediaMap: [],
+					runsOn: ["web-apps"],
+					contentValid: null,
+					lazyLoadVideos: false,
+				});
+				expect(plan.findings).toEqual([]);
+				expect(plan.claims).toHaveLength(shared ? 2 : 1);
+				const facts = factsOf(reading, { mediaClaims: plan.claims });
+				const id = "media-references-with-no-file-removed";
+				expect(firstPublishChangesFor(facts).ids).toContain(id);
+				const signed = birthPublishSubjects(
+					facts,
+					firstPublishChangesFor(facts),
+				).find(([entry]) => entry === id);
+				expect(signed).toBeDefined();
+				return signed;
+			};
+			if (scenario === "message") {
+				expect(await inspect("Note hint", ["en"], null)).not.toEqual(
+					await inspect("Note warning", ["en"], null),
+				);
+			} else if (scenario === "shared text") {
+				expect(await inspect("First", ["en"], "Second")).not.toEqual(
+					await inspect("First", ["en"], "Third"),
+				);
+			} else {
+				const first = await inspect("First", ["en"], null);
+				expect(await inspect("First", ["en"], null, true)).toEqual(first);
+				if (scenario === "choice")
+					expect(await inspect("Second", ["en"], null, true)).not.toEqual(
+						first,
+					);
+				else
+					expect(await inspect("First", ["en", "es"], null)).not.toEqual(first);
+			}
+		},
+	);
 	it.each(["same mapping", "other mapping"] as const)(
 		"recognizes the enum key whose label the first publish trims (%s)",
 		async (mode) => {
@@ -1250,8 +1469,10 @@ describe("where each change stands", () => {
 			};
 			const prior = await subjects(true, false);
 			const current = await subjects(mode === "same link", true);
-			if (mode === "same link") expect(current).toEqual(prior);
-			else expect(current).not.toEqual(prior);
+			expect(
+				current.every((key, index) => key === prior[index]) &&
+					current.length === prior.length,
+			).toBe(mode === "same link");
 		},
 	);
 	it("keeps repeated after-submit targets with the case the worker carries", async () => {

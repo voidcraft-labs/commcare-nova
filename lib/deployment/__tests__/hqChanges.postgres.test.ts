@@ -65,7 +65,13 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import {
+	eq,
+	gt,
+	literal,
+	sessionContext,
+	sessionUser,
+} from "@/lib/domain/expression";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { Uuid } from "@/lib/domain/uuid";
@@ -4940,6 +4946,77 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		},
 		30_000,
 	);
+
+	it("requires a new review before recording that a different answer loses a missing Web Apps picture", async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					// Window width is supplied only when Web Apps opens a menu. Reading
+					// this actual feature declares Web Apps before resolving missing files.
+					displayCondition: gt(sessionContext("window_width"), literal(0)),
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "destination",
+									label: "Destination",
+									options: [
+										{ value: "home", label: "Home visit" },
+										{ value: "clinic", label: "Clinic visit" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const image =
+			'<value form="image">jr://file/commcare/image/visit.png</value>';
+		const saved = (label: string, version: number) =>
+			servedHqApp(doc, version, (xml) => {
+				const value = `<value>${label}</value>`;
+				expect(xml.split(value)).toHaveLength(2);
+				return xml.replace(value, value + image);
+			});
+		const appId = await broughtIn(doc, saved("Home visit", 2));
+		const baseline = await baselineOfApp();
+		expect(baseline.first_publish_changes?.ids).toContain(
+			"media-references-with-no-file-removed",
+		);
+		const read = (served: ServedHqApp) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, served);
+				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
+			});
+		const now = saved("Clinic visit", 3);
+		const listed = await read(now);
+		if (listed.kind !== "changes") throw new Error(JSON.stringify(listed));
+		expect(listed.publishChanges.length).toBeGreaterThan(0);
+		expect(await baselineOfApp()).toEqual(baseline);
+		const outcome = await withHttpPeer(async (peer) => {
+			serveEmission(peer, now);
+			return bringInHqChanges(
+				scope(appId),
+				KEY_TARGET,
+				{
+					readingId: listed.readingId,
+					reviewDigest: listed.reviewDigest,
+					tableChoices: {},
+				},
+				{ onEvent: () => {} },
+			);
+		});
+		expect(outcome.kind).toBe("recorded");
+		expect(await read(respelled(now))).toMatchObject({
+			kind: "nothing",
+			publishChanges: [],
+		});
+	}, 30_000);
 
 	it("asks about changed worker text in the same translated name map and clears a retired warning", async () => {
 		const doc = clinic({});

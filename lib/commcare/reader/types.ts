@@ -417,7 +417,7 @@ export interface ReadFormFacts {
 	 *  blank, each read as no translation. */
 	readonly blankTranslations: number;
 	/** Blank non-default slots filled at publication, by field, role, choice and language. */
-	readonly blankTranslationSlots?: readonly string[];
+	readonly blankTranslationSlots?: readonly ItextRecipient[];
 }
 
 export interface ReadGeneratedNode {
@@ -431,7 +431,23 @@ export interface ReadGeneratedNode {
 	readonly name: string;
 }
 
-export interface ReadMediaReference {
+/** A worker-facing itext value can supply several controls. Each label, hint,
+ * message or choice has its own recipient in each language of the form. */
+export interface ItextRecipient {
+	readonly fieldPath: readonly string[];
+	readonly slot: "label" | "hint" | "help" | "validate_msg" | "option_label";
+	readonly choiceValue: string | null;
+	readonly language: LanguageTag;
+}
+
+/** Who receives a native file at one path in a form or localized app slot. */
+export interface MediaRecipients {
+	readonly itextRecipients?: readonly ItextRecipient[];
+	/** For a JSON-backed localized slot, the HQ languages which show this path. */
+	readonly shownLanguages?: readonly string[];
+}
+
+export interface ReadMediaReference extends MediaRecipients {
 	readonly path: string;
 	readonly assetId: string;
 	/** The kind the slot naming the path plays (the itext form, `image` for a logo or an icon),
@@ -450,7 +466,7 @@ export interface ReadMediaReference {
 }
 
 /** A reference whose path the index gives no asset for: handed off, with its node in the log. */
-export interface PendingMedia {
+export interface PendingMedia extends MediaRecipients {
 	readonly path: string;
 	readonly mediaKind: MediaKind;
 	readonly resolution: "no-entry" | "unreadable";

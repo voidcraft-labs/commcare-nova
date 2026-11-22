@@ -68,6 +68,7 @@ import { attributesByName, sameAttributeMaps } from "../sameElement";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { translationEntryFor } from "../translations";
+import type { ItextRecipient } from "../types";
 import { ownText, type XmlCursor, type XmlNode } from "../xmlCursor";
 import type { ControlNode } from "./body";
 import { TEXT_CONTROLS, type TextControl, X } from "./claims";
@@ -77,6 +78,7 @@ import {
 	type ItextOwner,
 	type ItextReading,
 	itextIdsRead,
+	itextRecipient,
 	itextReference,
 	sameValueNodes,
 	settleItext,
@@ -466,7 +468,7 @@ export interface FormText {
 	readonly itext: ItextReading;
 	/** The values blank in a language other than the first whose first-language text is not. */
 	readonly blankTranslations: number;
-	readonly blankTranslationSlots?: readonly string[];
+	readonly blankTranslationSlots?: readonly ItextRecipient[];
 	readonly cursor: XmlCursor;
 }
 
@@ -1023,7 +1025,7 @@ export function readText(input: ReadTextInput): FormText {
 
 	const slots: SlotText[] = [];
 	let blankTranslations = 0;
-	const blankTranslationSlots: string[] = [];
+	const blankTranslationSlots: ItextRecipient[] = [];
 	const firstOwner = new Map<string, Reference>();
 	for (const ref of references) {
 		if (ref.id !== undefined && !firstOwner.has(ref.id))
@@ -1036,20 +1038,7 @@ export function readText(input: ReadTextInput): FormText {
 		// One physical itext value can supply several questions or choices.
 		if (first) blankTranslations += read.blanks.length;
 		for (const language of read.blanks)
-			blankTranslationSlots.push(
-				JSON.stringify([
-					ref.owner.field.node.path,
-					ref.owner.slot,
-					ref.owner.option === undefined
-						? null
-						: ((
-								ref.owner.field.field.optionsSource as
-									| { options?: readonly { value: string }[] }
-									| undefined
-							)?.options?.[ref.owner.option]?.value ?? null),
-					language,
-				]),
-			);
+			blankTranslationSlots.push(itextRecipient(ref.owner, language));
 		if (read.slot !== undefined) slots.push(read.slot);
 	}
 
@@ -1436,7 +1425,10 @@ function readSlotText(
 	input: ReadTextInput,
 	ref: Reference,
 	first: boolean,
-): { readonly slot: SlotText | undefined; readonly blanks: readonly string[] } {
+): {
+	readonly slot: SlotText | undefined;
+	readonly blanks: readonly LanguageTag[];
+} {
 	const { cursor, accounting, itext, scope } = input;
 	const owner = ref.owner;
 	const place = ref.place;
