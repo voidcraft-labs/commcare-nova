@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { expandDoc } from "@/lib/commcare/expander";
+import { expandDoc, expandedFormSources } from "@/lib/commcare/expander";
+import { commtrackReasons } from "@/lib/commcare/planPrivileges";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { plainColumn, projectSearchOf } from "@/lib/domain/modules";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
@@ -54,5 +55,21 @@ it("reads repeated service parameters as ordered values and publishes them under
 		case_search_endpoint_id: 91,
 		default_properties: rows,
 	});
+	// Plan inspection reads the exact submitted forms even before a search
+	// service has been chosen. Only the emitted menu needs the target ID.
+	expect(commtrackReasons(doc, undefined)).toEqual([]);
+	const forms = expandedFormSources(doc);
+	expect(forms.size).toBeGreaterThan(0);
+	for (const endpointId of [17, 91]) {
+		const identity = targetWireIdentity(
+			[],
+			[],
+			[{ searchUuid: search.searchUuid, endpointId }],
+		);
+		const attached = expandDoc(doc, { identity })._attachments;
+		for (const [id, xml] of forms) {
+			expect(xml).toBe(attached[`${identity.formUniqueId(id)}.xml`]);
+		}
+	}
 	expect(() => expandDoc(doc)).toThrow("Choose a project space");
 });

@@ -85,6 +85,7 @@ import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
 	caseListMenuItemLabelUnit,
+	type EmissionPlan,
 	emissionPlan,
 	searchAnswersOf,
 } from "./emissionPlan";
@@ -92,6 +93,7 @@ import { buildCaseReferencesLoad } from "./formActions";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
+	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
@@ -212,6 +214,108 @@ export interface ExpandOptions {
 	readonly keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>;
 }
 
+/** Build a form with its entry datums and its case context. Both the complete
+ * app and inspections of its XForm source use this projection. */
+function formSourceProjection(
+	authoredDoc: BlueprintDoc,
+	plan: EmissionPlan,
+	linkContext: FormLinkProjectionContext,
+	opts: ExpandOptions,
+) {
+	const { doc } = plan;
+	const identity = opts.identity ?? DERIVED_WIRE_IDENTITY;
+	const connectSlugs = buildConnectSlugMap(doc);
+	const assets = opts.assets;
+	return (moduleUuid: Uuid, formUuid: Uuid) => {
+		const mod = doc.modules[moduleUuid];
+		const form = doc.forms[formUuid];
+		const synthetic = plan.synthetic.get(moduleUuid);
+		const xmlns = identity.formXmlns(form);
+
+		// The admitted Connect config for this form. buildConnectSlugMap
+		// checks mode/config agreement and preserves authored identities.
+		const effectiveConnect = connectSlugs.get(formUuid);
+		const ownCaseDatum = selectedCaseSessionDatum(
+			doc,
+			linkContext,
+			moduleUuid,
+			formUuid,
+		);
+		const ownCaseDatumId = ownCaseDatum?.id;
+		// An entry that selects several cases has no one case for HQ's
+		// basic actions; the source works on each through the
+		// selected-entities instance.
+		const multipleCaseDatum =
+			ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
+
+		const source = buildXFormSource(doc, formUuid, {
+			xmlns,
+			expressionDoc: authoredDoc,
+			datumId: entryDatumIdResolver(
+				entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+			),
+			// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
+			// reachable-case-type depth map matches the deep validator's accept
+			// map, which builds from `mod.caseType` directly.
+			...(mod.caseType && { moduleCaseType: mod.caseType }),
+			// The case list registration form and every form of a menu
+			// whose forms read the search read the menu's Search answers from the inline
+			// query's input instance.
+			...(synthetic !== undefined
+				? {
+						searchAnswers: searchAnswersOf(
+							authoredDoc,
+							synthetic.hostModuleUuid,
+						),
+					}
+				: moduleFormsReadSearch(mod)
+					? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
+					: {}),
+			...(ownCaseDatumId !== undefined &&
+				multipleCaseDatum === undefined && {
+					selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
+				}),
+			...(multipleCaseDatum !== undefined && {
+				selectedCasesInstanceId: multipleCaseDatum.id,
+			}),
+			...(effectiveConnect && { connect: effectiveConnect }),
+			...(assets && { assets }),
+			...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
+			...(opts.attachmentTarget && {
+				attachmentTarget: opts.attachmentTarget,
+			}),
+			...(opts.keyedCaseIdPrefixes && {
+				keyedCaseIdPrefixes: opts.keyedCaseIdPrefixes,
+			}),
+		});
+
+		return { source, xmlns, ownCaseDatumId, effectiveConnect };
+	};
+}
+
+/** The forms as they will be submitted. A check of these bytes needs the
+ * entry datum names, independently of the destination's menu service IDs. */
+export function expandedFormSources(
+	authoredDoc: BlueprintDoc,
+	opts: ExpandOptions = {},
+) {
+	const plan = emissionPlan(authoredDoc);
+	const linkContext = formLinkProjectionContext(plan.doc, {
+		entryMetadataOnly: true,
+		expressionDoc: authoredDoc,
+		attachmentTarget: opts.attachmentTarget ?? null,
+		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
+	});
+	const project = formSourceProjection(authoredDoc, plan, linkContext, opts);
+	const sources = new Map<Uuid, string>();
+	for (const moduleUuid of projectedModulePreorder(plan.doc)) {
+		for (const formUuid of orderedFormUuids(plan.doc, moduleUuid)) {
+			sources.set(formUuid, project(moduleUuid, formUuid).source.xml);
+		}
+	}
+	return sources;
+}
+
 export function expandDoc(
 	authoredDoc: BlueprintDoc,
 	opts: ExpandOptions = {},
@@ -298,13 +402,12 @@ export function* expandDocSteps(
 		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 	});
 
-	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
-	// is a typed pass-through — connect ids are already valid + unique + ≤50
-	// by construction (creation autofill + the UI/tool guards), so it asserts
-	// each id is present and narrows the type without transforming. Both the XForm
-	// builder and the case-references load map below read the same per-form
-	// config so their data paths agree. Empty for non-Connect apps.
-	const connectSlugs = buildConnectSlugMap(doc);
+	const projectForm = formSourceProjection(
+		authoredDoc,
+		plan,
+		linkContext,
+		opts,
+	);
 	yield;
 
 	const moduleShellOf = (moduleUuid: Uuid, mIdx: number) => {
@@ -334,18 +437,10 @@ export function* expandDocSteps(
 			if (formUniqueId === undefined) {
 				throw new Error(`Cannot emit form ${formUuid}: no unique id allocated`);
 			}
-			const xmlns = identity.formXmlns(form);
-
-			// The admitted Connect config for this form. buildConnectSlugMap
-			// checks mode/config agreement and preserves authored identities.
-			const effectiveConnect = connectSlugs.get(formUuid);
-			const ownCaseDatum = selectedCaseSessionDatum(
-				doc,
-				linkContext,
+			const { source, xmlns, ownCaseDatumId, effectiveConnect } = projectForm(
 				moduleUuid,
 				formUuid,
 			);
-			const ownCaseDatumId = ownCaseDatum?.id;
 			// The form's case changes on the wire, the same plan the link
 			// projection reads (`casePlacementPlan.ts::planFormCaseWire`).
 			// The export's identity names a load's list menu the way the
@@ -353,52 +448,6 @@ export function* expandDocSteps(
 			const caseWire = planFormCaseWire(doc, formUuid, {
 				attachmentTarget: opts.attachmentTarget ?? null,
 				identity,
-			});
-			// An entry that selects several cases has no one case for HQ's
-			// basic actions; the source works on each through the
-			// selected-entities instance.
-			const multipleCaseDatum =
-				ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
-
-			const source = buildXFormSource(doc, formUuid, {
-				xmlns,
-				expressionDoc: authoredDoc,
-				datumId: entryDatumIdResolver(
-					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
-				),
-				// Raw `mod.caseType` (not the case-activity-gated `caseType`) so the
-				// reachable-case-type depth map matches the deep validator's accept
-				// map, which builds from `mod.caseType` directly.
-				...(mod.caseType && { moduleCaseType: mod.caseType }),
-				// The case list registration form and every form of a menu
-				// whose forms read the search read the menu's Search answers from the inline
-				// query's input instance.
-				...(synthetic !== undefined
-					? {
-							searchAnswers: searchAnswersOf(
-								authoredDoc,
-								synthetic.hostModuleUuid,
-							),
-						}
-					: moduleFormsReadSearch(mod)
-						? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
-						: {}),
-				...(ownCaseDatumId !== undefined &&
-					multipleCaseDatum === undefined && {
-						selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
-					}),
-				...(multipleCaseDatum !== undefined && {
-					selectedCasesInstanceId: multipleCaseDatum.id,
-				}),
-				...(effectiveConnect && { connect: effectiveConnect }),
-				...(assets && { assets }),
-				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
-				...(opts.attachmentTarget && {
-					attachmentTarget: opts.attachmentTarget,
-				}),
-				...(opts.keyedCaseIdPrefixes && {
-					keyedCaseIdPrefixes: opts.keyedCaseIdPrefixes,
-				}),
 			});
 			attachments[`${formUniqueId}.xml`] = source.xml;
 
