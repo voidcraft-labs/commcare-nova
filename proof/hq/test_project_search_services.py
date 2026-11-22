@@ -7,12 +7,63 @@ from proof.hq.configuration import Configuration
 from proof.hq.database import fresh_database
 
 
+def _select_at_both_entries(domain, endpoint_id, result, parent_id):
+    """Apply each HQ-generated entry's actual datum to the same provider response.
+
+    The inline form selects a parent before searching. The ordinary remote
+    request has no parent datum. Preserve the fixture's attributes and
+    children so a literal ProjectDB column called index cannot become an edge.
+    """
+    from copy import deepcopy
+
+    from corehq.apps.app_manager.models import CaseSearch, DefaultCaseSearchProperty
+    from corehq.apps.app_manager.tests.app_factory import AppFactory
+    from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
+
+    factory = AppFactory(domain=domain, build_version="2.54.0")
+    parent, parent_form = factory.new_basic_module("areas", "clinic")
+    factory.form_requires_case(parent_form, "clinic")
+    ordinary, ordinary_form = factory.new_basic_module("directory", "outside")
+    inline, inline_form = factory.new_basic_module("followup", "outside")
+    for module, form, is_inline in [(ordinary, ordinary_form, False), (inline, inline_form, True)]:
+        factory.form_requires_case(form, "outside")
+        module.search_config = CaseSearch(
+            default_properties=[DefaultCaseSearchProperty(property="region", defaultValue="'North'")],
+            case_search_endpoint_id=endpoint_id, inline_search=is_inline, auto_launch=is_inline,
+        )
+    inline.parent_select.active = True
+    inline.parent_select.module_id = parent.unique_id
+    inline.parent_select.relationship = "parent"
+    with patch_get_xform_resource_overrides():
+        suite = etree.fromstring(factory.app.create_suite())
+    result_document = etree.Element("root")
+    result_document.append(deepcopy(result))
+    chosen = {}
+    for route, instance in [("ordinary", "results"), ("inline", inline.search_config.get_instance_name())]:
+        marker = f"instance('{instance}')/results/case"
+        datums = [element for element in suite.xpath("//*[@nodeset]") if element.get("nodeset").startswith(marker)]
+        # The same case selector can be offered under more than one command.
+        selectors = {(datum.get("nodeset"), datum.get("value")) for datum in datums}
+        assert len(selectors) == 1, (route, selectors)
+        expression, value = selectors.pop()
+        session_document = etree.Element("root")
+        data = etree.SubElement(etree.SubElement(session_document, "session"), "data")
+        if route == "inline":
+            parent_datums = datums[0].xpath("preceding-sibling::*[@nodeset]")
+            parent_selectors = [datum for datum in parent_datums if "instance('casedb')" in datum.get("nodeset")]
+            assert len(parent_selectors) == 1, [datum.get("id") for datum in parent_datums]
+            etree.SubElement(data, parent_selectors[0].get("id")).text = parent_id
+        instances = {instance: result_document, "commcaresession": session_document}
+        selected = result_document.xpath(expression, extensions={(None, "instance"): lambda _ctx, name: instances[name]})
+        chosen[route] = [str(row.xpath(value)[0]) for row in selected]
+    return chosen
+
+
 def test_project_database_search_uses_named_parameters_current_version_and_flat_case_fields(hq):
     from unittest.mock import patch
 
-    from django.db import connections
     from django.test import override_settings
-    from sqlalchemy.engine import URL
+    from urllib.parse import urlsplit, urlunsplit
 
     from corehq.apps.case_search.exceptions import CaseSearchUserError
     from corehq.apps.case_search.models import CaseSearchEndpoint, CaseSearchEndpointVersion
@@ -29,13 +80,13 @@ def test_project_database_search_uses_named_parameters_current_version_and_flat_
     with fresh_database() as database:
         domain = "nova-search-" + database.name.rsplit("_", 1)[-1]
         settings = Configuration(domain=domain, flags={"CASE_SEARCH_ENDPOINTS"}, case_search_enabled=True)
-        configured = connections["default"].settings_dict
-        url = URL.create("postgresql+psycopg2", username=configured["USER"],
-                         password=configured["PASSWORD"], database=database.name,
-                         host=configured["HOST"] or None, port=int(configured["PORT"] or 5432))
         original = connection_manager.get_connection_string
+        base = urlsplit(original("default"))
+        cloned_url = urlunsplit(base._replace(path=f"/{database.name}"))
+
         def connection_string(engine):
-            return url.render_as_string(hide_password=False) if engine == "project_db" else original(engine)
+            return cloned_url if engine == "project_db" else original(engine)
+
         with open_unit(settings, root_key=settings.digest(), transactional=False, strict=False), \
                 override_settings(PROJECTDB_USERS_PASSWORD="synthetic-search-proof"), \
                 patch.dict(connection_manager.engine_id_django_db_map, {"project_db": "default"}), \
@@ -86,6 +137,9 @@ def test_project_database_search_uses_named_parameters_current_version_and_flat_
                             "v1", "North", "clinic-a",
                         )
                         assert len(row.find("index")) == 0
+                        assert _select_at_both_entries(domain, service.pk, row.getparent(), "clinic-a") == {
+                            "ordinary": ["v1"], "inline": [],
+                        }
                         for key in ("extra", "_xpath_query", "commcare_blacklisted_owner_ids"):
                             with pytest.raises(BadParameters, match="Unexpected params"):
                                 request(**{key: "field"})
@@ -111,6 +165,7 @@ def test_elasticsearch_search_keeps_real_parent_edges_and_uses_the_service_case_
     from casexml.apps.case.mock import CaseBlock, IndexAttrs
     from corehq.apps.case_search.models import CaseSearchEndpoint, CaseSearchEndpointVersion
     from corehq.apps.case_search.utils import get_case_search_results_from_request
+    from corehq.apps.data_dictionary.models import CaseProperty, CaseType
     from corehq.apps.hqcase.utils import submit_case_blocks
 
     from proof.hq import redis as hq_redis
@@ -129,6 +184,8 @@ def test_elasticsearch_search_keeps_real_parent_edges_and_uses_the_service_case_
             ]
             submit_case_blocks([case.as_text() for case in cases], unit.domain, user_id="worker", device_id="proof")
         with unit.operation("search visits", sha256(b"active-visit-service").digest()):
+            visit = CaseType.objects.create(domain=unit.domain, name="visit")
+            CaseProperty.objects.create(case_type=visit, name="district", data_type=CaseProperty.DataType.PLAIN)
             endpoint = CaseSearchEndpoint.objects.create(domain=unit.domain, name="Visit directory",
                                                          target_type=CaseSearchEndpoint.TargetType.ELASTICSEARCH)
             endpoint.current_version = CaseSearchEndpointVersion.objects.create(
@@ -143,4 +200,6 @@ def test_elasticsearch_search_keeps_real_parent_edges_and_uses_the_service_case_
             })
             fixture = etree.fromstring(raw)
             assert set(fixture.xpath("case/@case_id")) == {"linked", "other"}
-            assert fixture.xpath("case[index/parent = 'clinic']/@case_id") == ["linked"]
+            selected = _select_at_both_entries(unit.domain, endpoint.pk, fixture, "clinic")
+            assert set(selected["ordinary"]) == {"linked", "other"}
+            assert selected["inline"] == ["linked"]
