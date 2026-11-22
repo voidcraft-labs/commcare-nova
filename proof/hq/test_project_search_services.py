@@ -7,7 +7,7 @@ from proof.hq.configuration import Configuration
 from proof.hq.database import fresh_database
 
 
-def _select_at_both_entries(domain, endpoint_id, result, parent_id):
+def _select_at_both_entries(domain, endpoint_id, result, parent_id, *, fixture_value=None):
     """Apply each HQ-generated entry's actual datum to the same provider response.
 
     The inline form selects a parent before searching. The ordinary remote
@@ -34,6 +34,15 @@ def _select_at_both_entries(domain, endpoint_id, result, parent_id):
     inline.parent_select.active = True
     inline.parent_select.module_id = parent.unique_id
     inline.parent_select.relationship = "parent"
+    if fixture_value is not None:
+        # HQ can still build the retiring lookup-before-cases feature. Its
+        # chosen value narrows only the inline route that owns this datum.
+        selection = inline.fixture_select
+        selection.active = True
+        selection.fixture_type = "areas"
+        selection.display_column = "label"
+        selection.variable_column = "district"
+        selection.xpath = "district = $fixture_value"
     with patch_get_xform_resource_overrides():
         suite = etree.fromstring(factory.app.create_suite())
     result_document = etree.Element("root")
@@ -53,6 +62,9 @@ def _select_at_both_entries(domain, endpoint_id, result, parent_id):
             parent_selectors = [datum for datum in parent_datums if "instance('casedb')" in datum.get("nodeset")]
             assert len(parent_selectors) == 1, [datum.get("id") for datum in parent_datums]
             etree.SubElement(data, parent_selectors[0].get("id")).text = parent_id
+            if fixture_value is not None:
+                [selection] = [datum for datum in parent_datums if datum.get("value") == "district"]
+                etree.SubElement(data, selection.get("id")).text = fixture_value
         instances = {instance: result_document, "commcaresession": session_document}
         selected = result_document.xpath(expression, extensions={(None, "instance"): lambda _ctx, name: instances[name]})
         chosen[route] = [str(row.xpath(value)[0]) for row in selected]
@@ -222,4 +234,7 @@ def test_elasticsearch_search_keeps_real_parent_edges_and_uses_the_service_case_
             selected = _select_at_both_entries(unit.domain, endpoint.pk, fixture, "clinic")
             assert set(selected["ordinary"]) == {"linked", "other"}
             assert selected["inline"] == ["linked"]
-
+            for area, expected in [("north", ["linked"]), ("south", [])]:
+                selected = _select_at_both_entries(unit.domain, endpoint.pk, fixture, "clinic", fixture_value=area)
+                assert set(selected["ordinary"]) == {"linked", "other"}
+                assert selected["inline"] == expected
