@@ -44,3 +44,32 @@ def test_each_worker_edit_keeps_the_final_delivery_ids_distinct(
             assert success["status"] == "success", success
             instance = etree.fromstring(served.hq.submissions[-1].instance)
             assert instance.xpath("//*[local-name()='entity_id']/text()") == ["First", "Second"]
+
+
+@pytest.mark.parametrize("skip_unchanged", [False, True], ids=["full","skip-unchanged"])
+def test_a_final_edit_cannot_submit_two_equal_calculated_recipient_ids(hq, core_runner, formplayer_runner, formplayer_documents, skip_unchanged):
+    with apps.published(formplayer_documents[DOCUMENT],core_runner) as published:
+        change = apps.form_written(published, {"0.0": lambda original: source(original,skip_unchanged,calculated=True)})
+        with apps.served(published,formplayer_runner,change=change) as served, served.run("calculated-recipients"):
+            web = apps.web(formplayer_runner,served)
+            web.navigate(["0"])
+            form = web.navigate(["0","0"])
+            assert screen_kind(form) == "form", form
+            session,tree = form["session_id"],form["tree"]
+            fields = []
+            for value in ("First","Second"):
+                add = next(n for n in questions(tree) if n.get("exists")=="false" and n.get("repeatable")=="true")
+                tree = web.form_request("new-repeat",session,ix=add["ix"])["tree"]
+                index = [n["ix"] for n in questions(tree) if n.get("type")=="question"][-1]
+                entered = web.answer(session,index,value)
+                assert entered["status"]=="accepted", entered
+                fields.append(index)
+                tree = entered["tree"]
+            before = len(served.hq.submissions)
+            duplicate = web.submit(session, dict(zip(fields, ("First","Final"), strict=True)))
+            assert duplicate["status"] == "validation-error", duplicate
+            assert len(served.hq.submissions)==before
+            success = web.submit(session,dict(zip(fields, ("First","Second"), strict=True)))
+            assert success["status"]=="success", success
+            instance = etree.fromstring(served.hq.submissions[-1].instance)
+            assert instance.xpath("//*[local-name()='entity_id']/text()")==["F","S"]

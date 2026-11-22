@@ -8,7 +8,7 @@ CONNECT = "http://commcareconnect.com/data/v1/learn"
 DOCUMENT = "targeted-validated-barcode-secret"
 
 
-def source(original, skip_unchanged, *, confirmation=False):
+def source(original, skip_unchanged, *, confirmation=False, calculated=False):
     root = etree.fromstring(original.encode() if isinstance(original, str) else original)
     model, = root.xpath("//*[local-name()='model']")
     instance, = model.xpath("./*[local-name()='instance' and not(@id)]")
@@ -31,12 +31,12 @@ def source(original, skip_unchanged, *, confirmation=False):
         leaf = etree.SubElement(unit, f"{{{CONNECT}}}{name}")
         if name == "name":
             leaf.text = "Visit"
-    path = "/data/rows[true()]/recipient"
+    path = "/data/rows[true()]/visit/deliver/entity_id" if calculated else "/data/rows[true()]/recipient"
     unique = f"string-length(join('|', {path})) = string-length(join('|', distinct-values({path})))"
     etree.SubElement(model, f"{{{XFORMS}}}bind", nodeset="/data/rows/recipient",
                      type="string", required="true()", constraint=unique)
     etree.SubElement(model, f"{{{XFORMS}}}bind", nodeset="/data/rows/visit/deliver/entity_id",
-                     calculate="../../../recipient")
+                     calculate="substr(../../../recipient, 0, 1)" if calculated else "../../../recipient")
     itext = etree.SubElement(model, f"{{{XFORMS}}}itext")
     language = etree.SubElement(itext, f"{{{XFORMS}}}translation", lang="en", default="")
     for key, value in [("rows", "Visit"), ("recipient", "Recipient ID")]:
