@@ -99,6 +99,7 @@ export async function startAppTest(
 			personaUuid: null,
 			language: input.language,
 			platform: input.platform,
+			installedAndroidApps: input.installedAndroidApps,
 		},
 	];
 	if (
@@ -171,6 +172,10 @@ export async function startAppTest(
 						sessionInput.language ?? input.language,
 					),
 					platform,
+					installedAndroidApps:
+						sessionInput.installedAndroidApps ??
+						input.installedAndroidApps ??
+						[],
 					androidDeviceId: randomUUID(),
 					personaUuid: null,
 					screen: appTestEntryScreen(platform),

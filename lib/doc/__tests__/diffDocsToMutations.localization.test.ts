@@ -13,7 +13,11 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { type BlueprintDoc, mutationSchema } from "@/lib/doc/types";
-import { collectTranslationUnits, proseText } from "@/lib/domain";
+import {
+	collectTranslationUnits,
+	proseText,
+	translationSourceFingerprint,
+} from "@/lib/domain";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 function doc(): BlueprintDoc {
@@ -82,6 +86,92 @@ describe("diffDocsToMutations localization", () => {
 					},
 				},
 			]);
+		});
+		expect(toPersistableDoc(wireReplay(before, after))).toEqual(
+			toPersistableDoc(after),
+		);
+		expect(toPersistableDoc(wireReplay(after, before))).toEqual(
+			toPersistableDoc(before),
+		);
+	});
+
+	it("rebases original text and retains another language's provenance, including through persisted inverse replay", () => {
+		const original = doc();
+		const units = collectTranslationUnits(original);
+		const name = units.find((unit) => unit.role === "app-name");
+		const label = units.find((unit) => unit.role === "field-label");
+		if (!name || !label)
+			throw new Error("Expected the original app name and field label");
+		const before = produce(original, (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fr" },
+				{
+					kind: "addLanguage",
+					language: { kind: "project", language: "qaa" },
+					wireCode: "qaa",
+				},
+				{
+					kind: "setProjectLanguageDirection",
+					code: "project:qaa",
+					direction: "rtl",
+				},
+				{
+					kind: "setTranslation",
+					language: "fra",
+					unitId: name.id,
+					entry: {
+						value: "Clinique",
+						sourceFingerprint: name.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+					},
+				},
+				{
+					kind: "setTranslation",
+					language: "project:qaa",
+					unitId: name.id,
+					entry: {
+						value: "Klinik",
+						sourceFingerprint: name.sourceFingerprint,
+						origin: "ai",
+						review: "needs-review",
+						translatedFrom: "eng",
+					},
+				},
+				{
+					kind: "setTranslation",
+					language: "project:qaa",
+					unitId: label.id,
+					entry: {
+						value: label.source,
+						sourceFingerprint: label.sourceFingerprint,
+						origin: "copied",
+						review: "needs-review",
+						translatedFrom: "eng",
+					},
+				},
+			]);
+		});
+		const after = produce(before, (draft) => {
+			applyMutations(draft, [
+				{ kind: "rebaseSourceLanguage", from: "eng", to: "fra" },
+			]);
+		});
+		expect(after.appName).toBe("Clinique");
+		expect(after.localization?.translations.eng[name.id]?.value).toBe("Clinic");
+		expect(after.localization?.translations["project:qaa"]).toEqual({
+			[name.id]: {
+				value: "Klinik",
+				sourceFingerprint: translationSourceFingerprint("text", "Clinique"),
+				origin: "ai",
+				review: "needs-review",
+				translatedFrom: "eng",
+			},
+			[label.id]: before.localization?.translations["project:qaa"][label.id],
+		});
+		expect(after.localization?.rtlProjectLanguages).toEqual({
+			"project:qaa": true,
 		});
 		expect(toPersistableDoc(wireReplay(before, after))).toEqual(
 			toPersistableDoc(after),
@@ -277,6 +367,36 @@ describe("diffDocsToMutations localization", () => {
 		);
 		expect(toPersistableDoc(wireReplay(after, before))).toEqual(
 			toPersistableDoc(before),
+		);
+	});
+
+	it("admits the birth and inverse of a historical English code alongside a project language using en", () => {
+		const empty = doc();
+		const adopted = produce(empty, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "eng" },
+					wireCode: "eng",
+				},
+				{
+					kind: "addLanguage",
+					language: { kind: "project", language: "en" },
+					wireCode: "en",
+				},
+				{ kind: "moveLanguage", code: "project:en", after: null },
+				{
+					kind: "setProjectLanguageDirection",
+					code: "project:en",
+					direction: "rtl",
+				},
+			]);
+		});
+		expect(toPersistableDoc(wireReplay(empty, adopted))).toEqual(
+			toPersistableDoc(adopted),
+		);
+		expect(toPersistableDoc(wireReplay(adopted, empty))).toEqual(
+			toPersistableDoc(empty),
 		);
 	});
 

@@ -23,6 +23,7 @@ import {
 	localizedValueSchema,
 	localizeTranslationUnit,
 	parseLanguageTag,
+	projectLanguageIdentitySchema,
 	type TranslationStatus,
 	type TranslationUnit,
 	type TranslationUnitOwner,
@@ -65,15 +66,18 @@ const translationStatuses = [
 ] as const satisfies readonly TranslationStatus[];
 
 /** The raw language-identity input before null-as-absence collapses. */
-interface LanguageIdentityInput {
+interface RegisteredLanguageInput {
 	readonly language: string;
 	readonly script?: string | null;
 	readonly region?: string | null;
 }
 
 function cleanLanguageIdentity(
-	input: LanguageIdentityInput,
+	input:
+		| RegisteredLanguageInput
+		| z.infer<typeof projectLanguageIdentitySchema>,
 ): AppLanguageIdentity {
+	if ("kind" in input) return input;
 	return {
 		language: input.language,
 		...(input.script != null && { script: input.script }),
@@ -88,7 +92,7 @@ function cleanLanguageIdentity(
  * individual members, a two-letter code names its Set 3 code, a branching
  * language lists its required writing systems).
  */
-export const languageIdentityInputSchema = z
+export const registeredLanguageInputSchema = z
 	.strictObject({
 		language: z
 			.string()
@@ -127,6 +131,13 @@ export const languageIdentityInputSchema = z
 			ctx.addIssue({ code: "custom", message });
 		}
 	});
+
+export const languageIdentityInputSchema = z.union([
+	registeredLanguageInputSchema,
+	projectLanguageIdentitySchema.describe(
+		"An exact project code, such as a language from CommCare HQ that has its own translations.",
+	),
+]);
 
 export const getLanguagesInputSchema = z.strictObject({});
 
@@ -173,7 +184,20 @@ export const addLanguageInputSchema = z.strictObject({
 
 export const updateLanguageInputSchema = z
 	.strictObject({
-		action: z.enum(["set-default", "change-identity"]),
+		action: z.enum(["set-default", "change-identity", "move", "set-direction"]),
+		direction: z
+			.enum(["ltr", "rtl"])
+			.nullable()
+			.optional()
+			.describe(
+				"Writing direction for the project language, for set-direction.",
+			),
+		after: languageIdentityInputSchema
+			.nullable()
+			.optional()
+			.describe(
+				"For move, the app language this one will follow. Use null to move it first and make it the default.",
+			),
 		language: languageIdentityInputSchema.describe(
 			"Existing app language the action applies to.",
 		),
@@ -185,6 +209,20 @@ export const updateLanguageInputSchema = z
 			),
 	})
 	.superRefine((input, ctx) => {
+		if ((input.action === "set-direction") !== (input.direction != null))
+			ctx.addIssue({
+				code: "custom",
+				path: ["direction"],
+				message:
+					"A writing direction applies only to set-direction and is required for that choice.",
+			});
+		if (input.action !== "move" && input.after != null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["after"],
+				message: "Only a move can name a preceding language.",
+			});
+		}
 		const replacementExpected = input.action === "change-identity";
 		if ((input.replacement != null) !== replacementExpected) {
 			ctx.addIssue({
@@ -444,6 +482,7 @@ interface LanguageResultFacts {
 	language: AppLanguageIdentity;
 	copy?: { from: AppLanguageIdentity; strings: number; review: "needs-review" };
 	previousLanguage?: AppLanguageIdentity;
+	direction?: "ltr" | "rtl";
 	source?: true;
 	default?: boolean;
 	translationsMoved?: number;
@@ -506,7 +545,7 @@ export const getLanguagesTool = {
 							resolvedLanguageEnglishName(identity) ??
 							languageDescriptor(identity),
 						qualifiers: languageQualifierLabels(identity),
-						direction: languageDirection(identity),
+						direction: languageDirection(identity, localization),
 						isSource,
 						isDefault: tag === localization.defaultLanguage,
 						automaticTranslation:
@@ -688,7 +727,7 @@ export const addLanguageTool = {
 
 export const updateLanguageTool = {
 	description:
-		"Set the default language or change a language identity. A multilingual source identity is fixed. Changing an identity preserves text and does not translate it.",
+		"Move a language in the app's order, set the default language, change a language identity or choose a project's language text direction. Workers start in the first language. Moving a language preserves each language’s text. A multilingual source identity is fixed.",
 	inputSchema: updateLanguageInputSchema,
 	async execute(
 		input: z.infer<typeof updateLanguageInputSchema>,
@@ -706,6 +745,43 @@ export const updateLanguageTool = {
 				);
 			}
 			switch (input.action) {
+				case "set-direction":
+					if (identity.kind !== "project" || input.direction == null)
+						return mutationError(
+							"Choose a project language to set its writing direction. Other languages use the direction of their writing system.",
+						);
+					return await commitLanguageMutations(
+						ctx,
+						[
+							{
+								kind: "setProjectLanguageDirection",
+								code: tag,
+								direction: input.direction,
+							},
+						],
+						`localization:${tag}:direction`,
+						{ language: identity, direction: input.direction },
+						{ subject: descriptor },
+					);
+				case "move": {
+					const after =
+						input.after == null
+							? null
+							: languageTag(cleanLanguageIdentity(input.after));
+					if (tag === after)
+						return mutationError("A language can't follow itself.");
+					if (after !== null && !localization.languageOrder.includes(after))
+						return mutationError(
+							"The preceding language isn't in this app. You can choose one from getLanguages.",
+						);
+					return await commitLanguageMutations(
+						ctx,
+						[{ kind: "moveLanguage", code: tag, after }],
+						`localization:${tag}:order`,
+						{ language: identity, default: after === null },
+						{ subject: descriptor },
+					);
+				}
 				case "set-default":
 					if (localization.defaultLanguage === tag) {
 						return mutationError(

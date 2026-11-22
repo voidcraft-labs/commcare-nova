@@ -28,7 +28,8 @@
  *   holds the declaration it was read under and that declaration's
  *   first-publish ids. With `expected`, the two documents are compared whole
  *   (`choices: null`). With `holds`, each fragment's value is found at its
- *   pointer of the entity its external key names: `named` says whether the
+ *   pointer of the entity its external key names, or the document itself under
+ *   the key `app`: `named` says whether the
  *   reading holds an entity under the key at all, and `found` is what that
  *   entity holds at the pointer (`null` for nothing, and for a key that names
  *   no entity), so a fragment whose value is `null` is told apart from a key
@@ -209,7 +210,12 @@ function heldOf(
 	);
 	return holds.map(({ key, pointer }) => {
 		const uuid = uuidOfKey.get(key);
-		const entity = uuid === undefined ? undefined : entityOf(reading.doc, uuid);
+		const entity =
+			key === "app"
+				? reading.doc
+				: uuid === undefined
+					? undefined
+					: entityOf(reading.doc, uuid);
 		return {
 			key,
 			pointer,
@@ -256,7 +262,13 @@ async function answer(request: Request): Promise<Answer> {
 				);
 	const expected =
 		expectedDoc !== undefined && request.canon === true
-			? canonDocument(expectedDoc)
+			? canonDocument(
+					expectedDoc,
+					undefined,
+					request.mode === "read-back"
+						? expectedDoc.localization?.sourceLanguage
+						: undefined,
+				)
 			: expectedDoc;
 	const differences =
 		expected === undefined

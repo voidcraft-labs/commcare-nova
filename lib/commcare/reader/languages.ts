@@ -10,7 +10,7 @@
  * language where nothing in the app tells the languages apart.
  */
 
-import type { Draft } from "immer";
+import { rebaseSourceLanguage } from "@/lib/doc/sourceLanguage";
 import {
 	type AppLanguageIdentity,
 	type AppLocalization,
@@ -19,13 +19,10 @@ import {
 	effectiveCaseSearchConfig,
 	isEnglishOnlyLocalization,
 	type LanguageTag,
-	type LocalizedValue,
 	languageTag,
 	languageWireCodeSchema,
-	makeTranslationUnitId,
 	parseLanguageTag,
 	type TranslationEntry,
-	translationSourceFingerprint,
 } from "@/lib/domain";
 import {
 	identityIssues,
@@ -34,11 +31,6 @@ import {
 } from "@/lib/domain/languageRegistry";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { recordFromEntries } from "@/lib/domain/records";
-import {
-	snapshotTranslationUnits,
-	storedTranslationValue,
-	type TranslationUnit,
-} from "@/lib/domain/translationUnits";
 import {
 	cutFindingName,
 	type FindingDetail,
@@ -61,7 +53,7 @@ import { withCandidate } from "./candidate";
 import { type Claim, defineClaims, refuse, take } from "./claims";
 import type { ReadContext } from "./context";
 import { keyDefinedAfterLineEnd } from "./heldText";
-import { isJsonObject, sameJson } from "./jsonCursor";
+import { isJsonObject } from "./jsonCursor";
 import { languagesPlace } from "./place";
 import { systemSentenceHolders } from "./search/systemSentences";
 import type { ReaderKnownLanguageCodes } from "./types";
@@ -77,7 +69,7 @@ const CLAIMS = defineClaims("languages", {
 		`${AREA}/a-non-empty-langs-code-outside-that-grammar-or-repeated`,
 		LANGS,
 	),
-	cannotName: refuse(
+	projectLanguage: take(
 		`${AREA}/langs-code-nova-s-language-registry-cannot-name`,
 		LANGS,
 	),
@@ -135,7 +127,7 @@ function scriptOf(language: string, letters: string): string | undefined {
  * letters a region the language offers, four a script it is written in, six
  * a script then a region offered in that script, the spelling
  * `languageWire.ts::mintLanguageWireCode` writes for an identity holding
- * both; any other suffix adds nothing.
+ * both. An unrecognized suffix is a project-language code.
  *
  * A code with no suffix is the spelling `mintLanguageWireCode` writes for
  * any identity while no other language holds it, so it can stand for a
@@ -185,6 +177,17 @@ export function languageIdentityForHqCode(
 			region = writtenRegion;
 		}
 	}
+	// An arbitrary suffix is a project spelling. A macro code without a
+	// unique registered spelling, script, or name cannot identify the
+	// individual language whose translations workers are reading.
+	if (suffix && script === undefined && region === undefined) return undefined;
+	if (
+		languages.length > 1 &&
+		spelled.length === 0 &&
+		script === undefined &&
+		region === undefined
+	)
+		return undefined;
 	const identity: AppLanguageIdentity = {
 		language,
 		...(script === undefined ? {} : { script }),
@@ -230,18 +233,28 @@ export function manifestFindingOf(
 	};
 }
 
-/** The name the app holds for `code` in its first language's strings, where it holds one. */
-function displayNameOf(
+/** The language selector can have a different wording in each locale. Prefer
+ * the code's own locale, then a stable spelling order. Worker menu order has
+ * no bearing on which code an existing translation belongs to. */
+function languageNames(
 	ctx: ReadContext,
-	first: string,
-	code: string,
-): string | undefined {
+	codes: ReadonlySet<string>,
+): Map<string, string> {
+	const names = new Map<string, string>();
 	const translations = ctx.app.peek("translations");
-	if (!isJsonObject(translations)) return undefined;
-	const strings = translations[first];
-	if (!isJsonObject(strings)) return undefined;
-	const name = strings[code];
-	return typeof name === "string" ? name : undefined;
+	if (!isJsonObject(translations)) return names;
+	for (const locale of [...codes].sort()) {
+		const values = translations[locale];
+		if (!isJsonObject(values)) continue;
+		for (const [code, name] of Object.entries(values))
+			if (
+				codes.has(code) &&
+				typeof name === "string" &&
+				(locale === code || !names.has(code))
+			)
+				names.set(code, name);
+	}
+	return names;
 }
 
 /**
@@ -296,38 +309,60 @@ export function readLanguages(ctx: ReadContext): HqLanguages {
 		if (!refused.has(code))
 			refused.set(code, manifestFindingOf(claim, place, detail));
 	};
+	const known = ctx.input.knownLanguageCodes;
 	for (const code of codes) {
 		if (code === "") {
 			raise(CLAIMS.emptyCode, code, undefined);
-			continue;
-		}
-		if (!languageWireCodeSchema.safeParse(code).success || seen.has(code)) {
-			seen.add(code);
+		} else if (
+			!languageWireCodeSchema.safeParse(code).success ||
+			seen.has(code)
+		) {
 			raise(CLAIMS.outsideGrammarOrRepeated, code, code);
-			continue;
 		}
 		seen.add(code);
-		const known = ctx.input.knownLanguageCodes?.get(code);
-		const identity =
-			known !== undefined
-				? parseLanguageTag(known)
-				: languageIdentityForHqCode(
-						code,
-						first === undefined ? undefined : displayNameOf(ctx, first, code),
-					);
-		const tag = identity === undefined ? undefined : languageTag(identity);
-		if (
-			identity === undefined ||
-			tag === undefined ||
-			[...tagOf.values()].includes(tag)
-		) {
-			raise(CLAIMS.cannotName, code, code);
-			continue;
+	}
+
+	// Recognition is independent of menu order. Reserve the identities of
+	// known bindings first. Where several new codes name one identity,
+	// prefer its canonical spelling and break ties by the code itself.
+	const names = languageNames(ctx, seen);
+	const candidates = [...seen]
+		.filter((code) => !refused.has(code))
+		.map((code) => {
+			const bound = known?.tagByCode.get(code);
+			const identity =
+				bound !== undefined
+					? parseLanguageTag(bound)
+					: languageIdentityForHqCode(code, names.get(code));
+			const canonical =
+				identity !== undefined &&
+				mintLanguageWireCode(new Set(), identity) === code;
+			return {
+				code,
+				identity,
+				priority: bound !== undefined ? 0 : canonical ? 1 : 2,
+			};
+		})
+		.sort(
+			(a, b) =>
+				a.priority - b.priority ||
+				(a.code < b.code ? -1 : a.code > b.code ? 1 : 0),
+		);
+	const assigned = new Set<LanguageTag>();
+	for (const candidate of candidates) {
+		const { code } = candidate;
+		let identity = candidate.identity;
+		if (identity === undefined || assigned.has(languageTag(identity))) {
+			identity = { kind: "project", language: code };
 		}
+		const tag = languageTag(identity);
 		tagOf.set(code, tag);
 		identityOf.set(code, identity);
+		assigned.add(tag);
 	}
-	const held = codes.flatMap((code) => {
+	const held = codes.flatMap((code, index) => {
+		if (identityOf.get(code)?.kind === "project")
+			ctx.app.takePart("langs", code, CLAIMS.projectLanguage, index);
 		const tag = tagOf.get(code);
 		return tag === undefined || refused.has(code) ? [] : [[tag, code] as const];
 	});
@@ -342,10 +377,15 @@ export function readLanguages(ctx: ReadContext): HqLanguages {
 			modules: ctx.app.peek("modules"),
 		},
 		held.map(([, code]) => code),
+		known?.sourceCode,
 	);
 	const source = held.find(([, code]) => code === sourceCode)?.[0];
 	if (defaultLanguage !== undefined && source !== undefined) {
+		const rtl = held
+			.filter(([tag]) => known?.rtlProjectLanguages?.[tag] === true)
+			.map(([tag]) => [tag, true] as const);
 		const localization: AppLocalization = {
+			...(rtl.length > 0 && { rtlProjectLanguages: recordFromEntries(rtl) }),
 			sourceLanguage: source,
 			defaultLanguage,
 			languageOrder: order,
@@ -380,10 +420,15 @@ export function readLanguages(ctx: ReadContext): HqLanguages {
 export function knownLanguageCodesOf(
 	doc: BlueprintDoc,
 ): ReaderKnownLanguageCodes {
-	const { wireCodes } = effectiveAppLocalization(doc.localization);
-	return new Map(
-		Object.entries(wireCodes).map(([tag, code]) => [code, tag as LanguageTag]),
-	);
+	const { wireCodes, sourceLanguage, rtlProjectLanguages } =
+		effectiveAppLocalization(doc.localization);
+	return {
+		tagByCode: new Map(
+			Object.entries(wireCodes).map(([tag, code]) => [code, tag]),
+		),
+		sourceCode: wireCodes[sourceLanguage],
+		rtlProjectLanguages,
+	};
 }
 
 // ── The source language ─────────────────────────────────────────────────
@@ -458,15 +503,19 @@ function namesTheAppAsSource(evidence: SourceEvidence, code: string): boolean {
 export function readingSourceCode(
 	evidence: SourceEvidence,
 	codes: readonly string[],
+	incumbent?: string,
 ): string | undefined {
 	const holders = [...systemSentenceHolders(evidence.modules, codes).values()];
-	return (
-		codes.find(
-			(code) =>
-				namesTheAppAsSource(evidence, code) &&
-				holders.every((held) => held.has(code)),
-		) ?? codes[0]
-	);
+	const admissible = (code: string) =>
+		namesTheAppAsSource(evidence, code) &&
+		holders.every((held) => held.has(code));
+	if (
+		incumbent !== undefined &&
+		codes.includes(incumbent) &&
+		admissible(incumbent)
+	)
+		return incumbent;
+	return codes.find(admissible) ?? codes[0];
 }
 
 // ── The source language of a document Nova made ─────────────────────────
@@ -494,6 +543,7 @@ function printed(value: unknown): unknown {
  */
 export function sourceLanguageAsRead(
 	doc: BlueprintDoc,
+	incumbent?: LanguageTag,
 ): LanguageTag | undefined {
 	const localization = doc.localization;
 	if (localization === undefined) return undefined;
@@ -517,298 +567,23 @@ export function sourceLanguageAsRead(
 	const code = readingSourceCode(
 		{ name: shell.name, translations: shell.translations, modules },
 		order.map((tag) => localization.wireCodes[tag] ?? tag),
+		incumbent === undefined ? undefined : localization.wireCodes[incumbent],
 	);
 	return order.find((tag) => localization.wireCodes[tag] === code) ?? order[0];
 }
 
-type SlotWriter = (draft: Draft<BlueprintDoc>, value: LocalizedValue) => void;
-
-/** Where a unit's source text lives in the document, as a writer of that slot; undefined for a
- *  unit whose source is Nova's own sentence (a system unit), which no document holds. */
-function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
-	const owner = unit.owner;
-	const text = (value: LocalizedValue) => value as string;
-	switch (unit.role) {
-		case "app-name":
-			return (draft, value) => {
-				draft.appName = text(value);
-			};
-		case "module-name":
-			return owner.kind === "module"
-				? (draft, value) => {
-						const module = draft.modules[owner.moduleUuid];
-						if (module !== undefined) module.name = text(value);
-					}
-				: undefined;
-		case "case-list-menu-item-label":
-			return owner.kind === "module"
-				? (draft, value) => {
-						const item = draft.modules[owner.moduleUuid]?.caseListMenuItem;
-						if (item !== undefined) item.label = text(value);
-					}
-				: undefined;
-		case "case-list-registration-label":
-			return owner.kind === "module"
-				? (draft, value) => {
-						const registration =
-							draft.modules[owner.moduleUuid]?.caseListRegistrationForm;
-						if (registration !== undefined) registration.label = text(value);
-					}
-				: undefined;
-		case "form-name":
-			return owner.kind === "form"
-				? (draft, value) => {
-						const form = draft.forms[owner.formUuid];
-						if (form !== undefined) form.name = text(value);
-					}
-				: undefined;
-		case "field-label":
-		case "field-hint":
-		case "field-help":
-		case "field-validation-message": {
-			const slot = {
-				"field-label": "label",
-				"field-hint": "hint",
-				"field-help": "help",
-				"field-validation-message": "validate_msg",
-			}[unit.role];
-			return owner.kind === "field"
-				? (draft, value) => {
-						const field = draft.fields[owner.fieldUuid] as
-							| Record<string, unknown>
-							| undefined;
-						if (field !== undefined) field[slot] = value;
-					}
-				: undefined;
-		}
-		case "select-option-label":
-			return owner.kind === "select-option"
-				? (draft, value) => {
-						const field = draft.fields[owner.fieldUuid];
-						if (
-							field === undefined ||
-							!("optionsSource" in field) ||
-							field.optionsSource.kind !== "inline"
-						)
-							return;
-						const option = field.optionsSource.options.find(
-							(one) => one.uuid === owner.optionUuid,
-						);
-						if (option !== undefined)
-							option.label = value as typeof option.label;
-					}
-				: undefined;
-		case "case-list-header":
-		case "case-list-interval-text":
-		case "case-list-mapping-label":
-			return owner.kind === "case-list-column"
-				? (draft, value) => {
-						const column = draft.modules[
-							owner.moduleUuid
-						]?.caseListConfig?.columns.find(
-							(one) => one.uuid === owner.columnUuid,
-						);
-						if (column === undefined) return;
-						if (unit.role === "case-list-header") column.header = text(value);
-						else if (
-							unit.role === "case-list-interval-text" &&
-							column.kind === "interval"
-						)
-							column.text = text(value);
-						else if (column.kind === "id-mapping") {
-							const mapping = column.mapping.find(
-								(one) => one.value === unit.context.optionValue,
-							);
-							if (mapping !== undefined) mapping.label = text(value);
-						}
-					}
-				: undefined;
-		case "case-list-sort-label":
-			return owner.kind === "case-list-column"
-				? (draft, value) => {
-						const column = draft.modules[
-							owner.moduleUuid
-						]?.caseListConfig?.columns.find(
-							(one) => one.uuid === owner.columnUuid,
-						);
-						if (column?.sort !== undefined) column.sort.label = text(value);
-					}
-				: undefined;
-		case "case-property-option-label":
-			return owner.kind === "case-property-option"
-				? (draft, value) => {
-						const options = draft.caseTypes
-							?.find((type) => type.name === owner.caseType)
-							?.properties.find((one) => one.name === owner.property)?.options;
-						const option = options?.filter((one) => one.value === owner.value)[
-							owner.occurrence
-						];
-						if (option !== undefined)
-							option.label = value as typeof option.label;
-					}
-				: undefined;
-		case "search-input-label":
-		case "search-input-hint":
-		case "search-input-required-message":
-		case "search-input-validation-message":
-			return owner.kind === "search-input"
-				? (draft, value) => {
-						const input = draft.modules[
-							owner.moduleUuid
-						]?.caseListConfig?.searchInputs.find(
-							(one) => one.uuid === owner.searchInputUuid,
-						);
-						if (input === undefined) return;
-						if (unit.role === "search-input-label") input.label = text(value);
-						else if (input.kind === "hidden") return;
-						else if (unit.role === "search-input-hint")
-							input.hint = text(value);
-						else if (
-							unit.role === "search-input-required-message" &&
-							input.required !== undefined
-						)
-							input.required.message = text(value);
-						else if (
-							unit.role === "search-input-validation-message" &&
-							input.validation !== undefined
-						)
-							input.validation.message = text(value);
-					}
-				: undefined;
-		case "search-screen-title":
-		case "search-screen-subtitle":
-			return owner.kind === "module"
-				? (draft, value) => {
-						const module = draft.modules[owner.moduleUuid];
-						if (module === undefined) return;
-						module.caseSearchConfig = {
-							...module.caseSearchConfig,
-							...(unit.role === "search-screen-title"
-								? { searchScreenTitle: text(value) }
-								: { searchScreenSubtitle: text(value) }),
-						};
-					}
-				: undefined;
-		default:
-			return undefined;
-	}
-}
-
-/** The unit of the message every required Search field with none of its own prints. */
-const REQUIRED_DEFAULT = makeTranslationUnitId(
-	"system",
-	"search-required",
-	"default",
-);
-
-/**
- * `doc` with `target` as its source language, every text in every language
- * the same: each unit's slot holds the text `target` read, and each other
- * language a translation where its text differs from that, reviewed and from
- * `target`. A system unit's source stays Nova's sentence, so `target` keeps
- * only the text it reads where that is the sentence, which the reading's rule
- * (`readingSourceCode`) gives for every system unit the app prints, but where
- * no language holds every one and the rule falls back to the first language,
- * whose text for the required message of a Search field with none of its own
- * may be a translation. Each such field then holds the texts it prints as a
- * message of its own, as a reading of them does. The default language and the
- * order are kept.
- */
+/** Keep the reader's candidate budget and memoization boundary while applying
+ * the same source/overlay conversion as a saved language change. */
 export function resourcedDocument(
 	doc: BlueprintDoc,
 	target: LanguageTag,
 ): BlueprintDoc {
-	const localization = doc.localization;
 	if (
-		localization === undefined ||
-		localization.sourceLanguage === target ||
-		!localization.languageOrder.includes(target)
+		doc.localization === undefined ||
+		doc.localization.sourceLanguage === target
 	)
 		return doc;
-	const order = localization.languageOrder;
-	const texts = [...snapshotTranslationUnits(doc).values()].map((unit) => ({
-		unit,
-		byLanguage: order.map(
-			(language) =>
-				[language, storedTranslationValue(doc, language, unit)] as const,
-		),
-	}));
-	const requiredDefault = texts.find(
-		({ unit }) => unit.id === REQUIRED_DEFAULT,
+	return withCandidate(doc, (draft) =>
+		rebaseSourceLanguage(draft, doc, target, "reading"),
 	);
-	const requiredDefaultRead = requiredDefault?.byLanguage.find(
-		([language]) => language === target,
-	)?.[1];
-	const requiredDefaultMoves =
-		requiredDefault !== undefined &&
-		requiredDefaultRead !== undefined &&
-		!sameJson(requiredDefaultRead, requiredDefault.unit.source);
-	return withCandidate(doc, (draft) => {
-		const translations = recordFromEntries(
-			order
-				.filter((tag) => tag !== target)
-				.map((tag) => [tag, recordFromEntries<TranslationEntry>([])]),
-		);
-		for (const { unit, byLanguage } of texts) {
-			if (requiredDefaultMoves && unit.id === REQUIRED_DEFAULT) continue;
-			const write = sourceSlotWriter(unit);
-			const read = byLanguage.find(([language]) => language === target)?.[1];
-			const next =
-				write === undefined || read === undefined ? unit.source : read;
-			if (write !== undefined && !sameJson(next, unit.source))
-				write(draft, next);
-			const sourceFingerprint = translationSourceFingerprint(
-				unit.valueKind,
-				next,
-			);
-			for (const [language, value] of byLanguage) {
-				const into = translations[language];
-				if (into === undefined || sameJson(value, next)) continue;
-				into[unit.id] = {
-					value,
-					sourceFingerprint,
-					origin: "human",
-					review: "reviewed",
-					translatedFrom: target,
-				};
-			}
-		}
-		if (requiredDefaultMoves && requiredDefault !== undefined) {
-			const message = requiredDefaultRead as string;
-			const sourceFingerprint = translationSourceFingerprint("text", message);
-			for (const moduleUuid of draft.moduleOrder)
-				for (const input of draft.modules[moduleUuid]?.caseListConfig
-					?.searchInputs ?? []) {
-					if (
-						input.kind === "hidden" ||
-						input.required === undefined ||
-						input.required.message !== undefined
-					)
-						continue;
-					input.required.message = message;
-					const unit = makeTranslationUnitId(
-						"search-input",
-						input.uuid,
-						"required-message",
-					);
-					for (const [language, value] of requiredDefault.byLanguage) {
-						const into = translations[language];
-						if (into === undefined || sameJson(value, message)) continue;
-						into[unit] = {
-							value,
-							sourceFingerprint,
-							origin: "human",
-							review: "reviewed",
-							translatedFrom: target,
-						};
-					}
-				}
-		}
-		if (draft.localization !== undefined) {
-			draft.localization.sourceLanguage = target;
-			draft.localization.translations = translations as Draft<
-				AppLocalization["translations"]
-			>;
-		}
-	});
 }

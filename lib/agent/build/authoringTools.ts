@@ -7,7 +7,7 @@ import {
 	type SharedToolRegistryEntry,
 } from "@/lib/agent/sharedToolRegistry";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
-import { languageIdentityInputSchema } from "@/lib/agent/tools/localization";
+import { registeredLanguageInputSchema } from "@/lib/agent/tools/localization";
 
 import type { AUTHORING_TOOL_PRESENTATION } from "../toolPresentation";
 
@@ -27,7 +27,7 @@ export const reviewInputSchema = z.strictObject({
 	focus: z.string().max(4000).optional(),
 });
 export const translateLanguageInputSchema = z.strictObject({
-	language: languageIdentityInputSchema,
+	language: registeredLanguageInputSchema,
 });
 
 export const PLANNING_TOOL_DEFINITIONS = {

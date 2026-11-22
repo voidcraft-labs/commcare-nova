@@ -1,8 +1,8 @@
 /**
  * An HQ app's language codes read into Nova's language identities.
  *
- * It would catch `en` beside `eng` held as two languages; a macrolanguage's
- * code read to no identity; a code HQ's grammar refuses, an empty one or a
+ * It would catch `en` and `eng` merged into one language; a macrolanguage's
+ * code assigned to an invented registry identity; a code HQ's grammar refuses, an empty one or a
  * repeated one held; `pt-br`, `zh-hans` and `cmn-hanttw` read without their
  * region or script, since the suffix is lower case; and a code Nova itself
  * wrote for an identity read back to another identity, which would make an
@@ -81,8 +81,8 @@ describe("languageIdentityForHqCode", () => {
 		/* CN is no region of Traditional Chinese, so the suffix adds nothing, and Chinese with
 		 * no script is no identity. */
 		["cmn-hantcn", undefined],
-		["ar", { language: "arb" }],
-		["en-zz", { language: "eng" }],
+		["ar", undefined],
+		["en-zz", undefined],
 		["xx", undefined],
 		["zh", undefined],
 		["lat", undefined],
@@ -162,16 +162,30 @@ describe("readLanguages", () => {
 		});
 	});
 
-	it("refuses a second code that names a language an earlier one named", async () => {
-		const { ctx, findings } = await read(["en", "eng"]);
-		expect(findings).toMatchObject([
-			{
-				code: `${A}/langs-code-nova-s-language-registry-cannot-name`,
-				place: { kind: "languages" },
-				detail: { name: "eng" },
-			},
-		]);
-		expect(ctx.draft.localization).toBeUndefined();
+	it.each([
+		["eng", "qaa", "en"],
+		["en", "qaa", "eng"],
+		["qaa", "eng", "en"],
+	])("keeps every code when %s is first", async (...codes) => {
+		const { ctx, findings } = await read(codes);
+		expect(findings).toEqual([]);
+		const loc = ctx.draft.localization;
+		expect(loc?.wireCodes).toEqual({
+			eng: "en",
+			"project:eng": "eng",
+			"project:qaa": "qaa",
+		});
+		expect(loc?.languageOrder.map((tag) => loc.wireCodes[tag])).toEqual(codes);
+	});
+
+	it("keeps a language code without a registry identity for manual translation", async () => {
+		const { ctx, findings } = await read(["xx", "zh"]);
+		expect(findings).toEqual([]);
+		expect(ctx.draft.localization).toMatchObject({
+			sourceLanguage: "project:xx",
+			languageOrder: ["project:xx", "project:zh"],
+			translations: { "project:zh": {} },
+		});
 	});
 
 	it.each<[readonly string[], string, string | undefined]>([
@@ -186,8 +200,6 @@ describe("readLanguages", () => {
 			"en",
 		],
 		[["en", ""], "langs-containing-an-empty-code", undefined],
-		[["en", "xx"], "langs-code-nova-s-language-registry-cannot-name", "xx"],
-		[["en", "zh"], "langs-code-nova-s-language-registry-cannot-name", "zh"],
 	])(
 		"refuses %o under its entry, at the languages place",
 		async (codes, entry, name) => {
@@ -270,6 +282,36 @@ async function readExport(
 }
 
 describe("a re-read of an app Nova holds", () => {
+	it("reserves an existing code binding before a newly arrived canonical spelling", async () => {
+		const incumbent = produce(survey(), (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "eng" },
+					wireCode: "eng",
+				},
+			]);
+		});
+		const withBoth = produce(incumbent, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addLanguage",
+					language: { kind: "project", language: "en" },
+					wireCode: "en",
+				},
+				{ kind: "moveLanguage", code: "project:en", after: null },
+			]);
+		});
+		const read = await readExport(withBoth, {
+			knownLanguageCodes: knownLanguageCodesOf(incumbent),
+		});
+		expect(read.draft.doc.localization).toMatchObject({
+			languageOrder: ["project:en", "eng"],
+			sourceLanguage: "eng",
+			wireCodes: { eng: "eng", "project:en": "en" },
+		});
+	});
+
 	it.each<[AppLanguageIdentity, string, AppLanguageIdentity]>([
 		[{ language: "swc" }, "sw", { language: "swh" }],
 		[{ language: "prs" }, "fas", { language: "pes" }],

@@ -1,0 +1,59 @@
+[
+	{
+		"id": "landmark-in-en",
+		"entry": "questions/label-default-text-itext-value",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "en",
+			"expressions": ["jr:itext('landmark-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Nearest landmark"
+			}
+		]
+	},
+	{
+		"id": "landmark-in-eng",
+		"entry": "application-and-settings/langs-code-nova-s-language-registry-cannot-name",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "eng",
+			"expressions": ["jr:itext('landmark-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Local landmark"
+			}
+		]
+	},
+	{
+		"id": "landmark-in-qaa",
+		"entry": "application-and-settings/langs-code-nova-s-language-registry-cannot-name",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"locale": "qaa",
+			"expressions": ["jr:itext('landmark-label')"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Meeting place"
+			}
+		]
+	}
+]

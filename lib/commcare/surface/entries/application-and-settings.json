@@ -529,10 +529,9 @@
 		"item": "a `langs` code in HQ's grammar that names no living language of ISO 639-3, or two codes that name one language (`en` beside `eng`)",
 		"surfaceKeys": ["schema:Application.langs"],
 		"valueClass": "code-outside-nova-s-registry",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a language held by a code alone, with no identity in Nova's registry (`languageRegistry/index.ts::languageCodeVerdict`)",
-		"subject": "language-codes",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a project language retains its own code and translations, including a code that shares a registered language with another app language",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3210,10 +3209,9 @@
 			"parser:ProfileParser/android_package@id"
 		],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.androidAppDependencies`",
-		"subject": "android-app-dependencies",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android apps workers need before opening this app",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -3229,6 +3227,32 @@
 			"markers": []
 		},
 		"gates": ["privilege/app_dependencies"]
+	},
+	{
+		"id": "application-and-settings/repeated-android-app-dependency",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "One Android app more than once in the required apps",
+		"surfaceKeys": ["setting:features.dependencies"],
+		"valueClass": "duplicate-package",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the Android app picker in CommCare HQ offers one selection for each app. Selecting the apps again replaces repeated entries.",
+		"subject": "android-app-dependencies",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the multiselect widget offers each package once and writes its selected options"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "application-and-settings/32-features-credentials",

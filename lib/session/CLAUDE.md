@@ -480,3 +480,5 @@ Preview's identity menu and missing-persona recovery return the URL to app entry
 when choosing a different worker. The session action clears prior record and
 Search bindings; the UI navigation replaces the prior form route. Choosing a
 worker never changes the member who authorizes access to Project data.
+
+The Preview phone's installed Android apps belong to its simulated installation. Switching workers or platforms keeps the phone’s selection. App settings own the ordered requirements independently.

@@ -1324,6 +1324,21 @@ function createMutationSchema({
 		}),
 		z.object({ kind: z.literal("removeLanguage"), code: languageTagSchema }),
 		z.object({
+			kind: z.literal("rebaseSourceLanguage"),
+			from: languageTagSchema,
+			to: languageTagSchema,
+		}),
+		z.object({
+			kind: z.literal("setProjectLanguageDirection"),
+			code: languageTagSchema,
+			direction: z.enum(["ltr", "rtl"]),
+		}),
+		z.object({
+			kind: z.literal("moveLanguage"),
+			code: languageTagSchema,
+			after: languageTagSchema.nullable(),
+		}),
+		z.object({
 			kind: z.literal("setDefaultLanguage"),
 			code: languageTagSchema,
 		}),

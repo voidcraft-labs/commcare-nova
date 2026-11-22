@@ -829,7 +829,11 @@ describe("a bring-in's answers that name no deployment", () => {
 				),
 			},
 			{ kind: "unavailable", reason: "nova-defect", since: null },
-			{ kind: "held", reason: "languages-reordered", runs: null },
+			{
+				kind: "held",
+				reason: "runs-elsewhere",
+				runs: { app: ["android", "web-apps"], hq: ["android"] },
+			},
 		];
 		for (const now of stopped) {
 			/* No name rides a review the person can't act on here: one that is

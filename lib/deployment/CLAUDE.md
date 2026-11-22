@@ -1190,11 +1190,11 @@ cell on a list that was no tile, a formatting flag under a form whose
 formatting was off, a registration form's place) takes the reader's spelling
 where it no longer fits.
 
-**What is held, and what is unavailable.** Two changes are named and not
-taken (`held`): a new first language that would change the source language of
-an app with several (`languages-reordered`: no mutation changes the source
-language there), and a version that does not offer the app's own declaration
-of where it runs (`runs-elsewhere`). A reading now that holds something Nova
+**What is held, and what is unavailable.** A version that cannot run on every
+platform the app selects is held for review (`runs-elsewhere`). The language
+that opens first can move independently of the language holding the app’s
+original wording. A source change supported by HQ’s stored wording rebases
+each translation unit in the accepted edit. A reading now that holds something Nova
 cannot hold is an account, and nothing is taken. A review is `unavailable`
 where nothing in the project space is this app's (`not-published`: no
 deployment there, or none whose publish made the app; `publishing-stopped`:

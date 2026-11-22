@@ -36,6 +36,7 @@ import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTra
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
@@ -57,6 +58,7 @@ import {
 	type Platform,
 	platformDeclarationPhrase,
 } from "@/lib/domain/platforms";
+import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 import {
 	countClaimedCasesAction,
 	releaseClaimedCasesAction,
@@ -65,9 +67,11 @@ import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
+	usePreviewInstalledAndroidApps,
 	usePreviewing,
 	usePreviewPersonaUuid,
 	usePreviewPlatform,
+	useSetPreviewAndroidAppInstalled,
 	useSetPreviewing,
 	useSetPreviewPersonaUuid,
 	useSetPreviewPlatform,
@@ -143,6 +147,8 @@ function PreviewIdentityMenuBody() {
 	const declared = declaredPlatforms({ appSettings });
 	const platform = usePreviewPlatform();
 	const setPlatform = useSetPreviewPlatform();
+	const installedApps = usePreviewInstalledAndroidApps();
+	const setInstalled = useSetPreviewAndroidAppInstalled();
 	const caseTypes = useEffectiveCaseTypes();
 	/* The running worker's open claims, read each time the menu opens. The
 	 * read names the worker it asked about, so an answer for a worker the
@@ -271,6 +277,22 @@ function PreviewIdentityMenuBody() {
 						</DropdownMenuRadioGroup>
 					</DropdownMenuGroup>
 					<DropdownMenuSeparator />
+					{platform === "android" &&
+						appSettings.requiredAndroidApps?.length && (
+							<DropdownMenuGroup>
+								<DropdownMenuLabel>Installed on this phone</DropdownMenuLabel>
+								{appSettings.requiredAndroidApps.map((app) => (
+									<DropdownMenuCheckboxItem
+										key={app}
+										checked={installedApps.includes(app)}
+										onCheckedChange={(checked) => setInstalled(app, checked)}
+									>
+										{ANDROID_APP_NAMES[app]}
+									</DropdownMenuCheckboxItem>
+								))}
+								<DropdownMenuSeparator />
+							</DropdownMenuGroup>
+						)}
 					<DropdownMenuGroup>
 						<DropdownMenuLabel>Running as</DropdownMenuLabel>
 						<DropdownMenuRadioGroup

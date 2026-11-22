@@ -40,14 +40,9 @@ export const HQ_CHANGES_UNAVAILABLE = [
 export type HqChangesUnavailable = (typeof HQ_CHANGES_UNAVAILABLE)[number];
 
 /**
- * The two changes Nova names and can't take as a change: the language the
- * app's own text is written in moved, or CommCare HQ's version runs on
- * fewer platforms than the app.
+ * An HQ change whose version runs on fewer platforms than the app requires.
  */
-export const HQ_CHANGE_HELD = [
-	"languages-reordered",
-	"runs-elsewhere",
-] as const;
+export const HQ_CHANGE_HELD = ["runs-elsewhere"] as const;
 export type HqChangeHeld = (typeof HQ_CHANGE_HELD)[number];
 
 /** A case property renamed in Nova: on `caseType`, from `from` to `to`. */

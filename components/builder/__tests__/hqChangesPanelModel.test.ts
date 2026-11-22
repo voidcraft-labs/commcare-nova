@@ -945,7 +945,11 @@ describe("something Nova can't hold, and the stops", () => {
 	it("draws a held change and a failed read of CommCare HQ with the item", () => {
 		expect(
 			panelView(
-				answered({ kind: "held", reason: "languages-reordered", runs: null }),
+				answered({
+					kind: "held",
+					reason: "runs-elsewhere",
+					runs: { app: ["android", "web-apps"], hq: ["android"] },
+				}),
 				PUBLISH,
 			).drawsItem,
 		).toBe(true);
@@ -1227,7 +1231,11 @@ describe("the moved line over what the bring-in found", () => {
 				finding: { code: "hq-unreachable" } as unknown as CircumstanceFinding,
 			},
 			{ kind: "unavailable", reason: "nova-defect", since: null },
-			{ kind: "held", reason: "languages-reordered", runs: null },
+			{
+				kind: "held",
+				reason: "runs-elsewhere",
+				runs: { app: ["android", "web-apps"], hq: ["android"] },
+			},
 			{
 				kind: "account",
 				findings: [{ code: "x" }] as unknown as Finding[],
@@ -1263,7 +1271,11 @@ describe("the ways on the card's sentences name", () => {
 			},
 			{ kind: "unavailable", reason: "base-too-large", since: null },
 			{ kind: "unavailable", reason: "nova-defect", since: null },
-			{ kind: "held", reason: "languages-reordered", runs: null },
+			{
+				kind: "held",
+				reason: "runs-elsewhere",
+				runs: { app: ["android", "web-apps"], hq: ["android"] },
+			},
 			{ kind: "held", reason: "runs-elsewhere", runs: null },
 		];
 		for (const review of named) {

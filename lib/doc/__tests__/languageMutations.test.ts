@@ -89,6 +89,35 @@ describe("the language mutation planner", () => {
 		).toEqual({ eng: "en", "cmn-Hans": "zho" });
 	});
 
+	it("moves a language after a named language without changing its text, codes or source", () => {
+		const before = add(add(fixture(), SIMPLIFIED), TRADITIONAL);
+		const moved = commit(before, [
+			{ kind: "moveLanguage", code: "eng", after: "cmn-Hans" },
+		]);
+		expect(moved.localization).toEqual({
+			...before.localization,
+			languageOrder: ["cmn-Hans", "eng", "cmn-Hant"],
+			defaultLanguage: "cmn-Hans",
+		});
+		for (const after of ["eng", "fra"] as const) {
+			const verdict = mutationCommitVerdict(
+				before,
+				[{ kind: "moveLanguage", code: "eng", after }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok).toBe(false);
+		}
+		const withoutPreviousDefault = commit(before, [
+			{ kind: "setDefaultLanguage", code: "cmn-Hant" },
+			{ kind: "moveLanguage", code: "cmn-Hant", after: "eng" },
+			{ kind: "removeLanguage", code: "cmn-Hant" },
+		]);
+		expect(withoutPreviousDefault.localization?.languageOrder).toEqual([
+			"eng",
+			"cmn-Hans",
+		]);
+	});
+
 	it("gives two adds built for one batch distinct codes", () => {
 		const doc = fixture();
 		const held = heldLanguageWireCodes(doc);

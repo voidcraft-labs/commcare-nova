@@ -520,6 +520,9 @@ function appSettingsPatch(
 	if (prev.showIncompleteForms !== next.showIncompleteForms) {
 		patch.showIncompleteForms = next.showIncompleteForms;
 	}
+	if (!deepEqual(prev.requiredAndroidApps, next.requiredAndroidApps)) {
+		patch.requiredAndroidApps = next.requiredAndroidApps ?? [];
+	}
 	if (prev.runsOnlyOn !== next.runsOnlyOn) {
 		patch.runsOnlyOn = next.runsOnlyOn ?? null;
 	}
@@ -615,6 +618,35 @@ function* diffGranularSteps(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
 ): Generator<void, Mutation[], void> {
+	const beforeLanguages = effectiveAppLocalization(prev.localization);
+	const afterLanguages = effectiveAppLocalization(next.localization);
+	if (
+		beforeLanguages.sourceLanguage !== afterLanguages.sourceLanguage &&
+		beforeLanguages.languageOrder.length > 1
+	) {
+		const target = afterLanguages.sourceLanguage;
+		const prefix: Mutation[] = [];
+		if (!beforeLanguages.languageOrder.includes(target))
+			prefix.push({
+				kind: "addLanguage",
+				language: parseLanguageTag(target),
+				wireCode: storedWireCode(afterLanguages, target),
+			});
+		prefix.push({
+			kind: "rebaseSourceLanguage",
+			from: beforeLanguages.sourceLanguage,
+			to: target,
+		});
+		const rebased = produce(prev, (draft) => {
+			applyMutations(draft, prefix);
+		});
+		if (
+			effectiveAppLocalization(rebased.localization).sourceLanguage !== target
+		)
+			throw new LocalizationEndpointNotRepresentableError();
+		yield;
+		return [...prefix, ...(yield* diffGranularSteps(rebased, next))];
+	}
 	const appLevel: Mutation[] = [];
 	const removes: Mutation[] = [];
 	const adds: Mutation[] = [];
@@ -1225,12 +1257,30 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	const before = effectiveAppLocalization(prev.localization);
 	const after = effectiveAppLocalization(next.localization);
 
-	// A one-language app takes another source by relabelling it, and then
-	// gains every other language the target holds, the old source's tag
-	// among them, through the additions below.
-	if (before.sourceLanguage !== after.sourceLanguage) {
-		if (before.languageOrder.length !== 1) {
-			throw new LocalizationEndpointNotRepresentableError();
+	// The restored source can have the same registered identity as the empty
+	// document's English, with a different historical code. Relabel the sole
+	// language before adding others, or after retiring them on the inverse.
+	if (
+		before.sourceLanguage !== after.sourceLanguage ||
+		storedWireCode(before, before.sourceLanguage) !==
+			storedWireCode(after, after.sourceLanguage)
+	) {
+		if (before.languageOrder.length > 1) {
+			if (
+				after.languageOrder.length !== 1 ||
+				before.sourceLanguage !== after.sourceLanguage
+			)
+				throw new LocalizationEndpointNotRepresentableError();
+			if (before.defaultLanguage !== before.sourceLanguage)
+				out.push({
+					kind: "moveLanguage",
+					code: before.sourceLanguage,
+					after: null,
+				});
+			for (const code of before.languageOrder) {
+				if (code !== before.sourceLanguage)
+					out.push({ kind: "removeLanguage", code });
+			}
 		}
 		out.push({
 			kind: "relabelSourceLanguage",
@@ -1288,27 +1338,19 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		applyMutations(draft, out);
 	});
 	current = effectiveAppLocalization(working.localization);
-	// The order comes from `setDefaultLanguage` alone, which moves a language
-	// to the front: the target's first `lead` languages are moved, last first,
-	// so the last move names the target's default, where `lead` is the fewest
-	// that leaves the others already in the target's order. Additions append,
-	// so a target whose source is not among its first two languages needs more
-	// than its default moved.
-	const kept = current.languageOrder.filter((tag) =>
-		after.languageOrder.includes(tag),
-	);
-	let lead = current.defaultLanguage === after.defaultLanguage ? 0 : 1;
-	while (
-		!deepEqual(
-			kept.filter((tag) => !after.languageOrder.slice(0, lead).includes(tag)),
-			after.languageOrder.slice(lead),
-		)
-	) {
-		lead += 1;
+	// Install the new default before removing a language that currently starts
+	// the app. Then move only the surviving languages whose anchors differ.
+	let ordered = current.languageOrder;
+	if (current.defaultLanguage !== after.defaultLanguage) {
+		out.push({
+			kind: "moveLanguage",
+			code: after.defaultLanguage,
+			after: null,
+		});
+		ordered = spliceAfter(ordered, after.defaultLanguage, null);
 	}
-	for (const tag of after.languageOrder.slice(0, lead).reverse()) {
-		out.push({ kind: "setDefaultLanguage", code: tag });
-	}
+	for (const move of sequenceMovesTo(ordered, after.languageOrder))
+		out.push({ kind: "moveLanguage", code: move.uuid, after: move.after });
 	for (const tag of current.languageOrder) {
 		if (!after.languageOrder.includes(tag)) {
 			out.push({ kind: "removeLanguage", code: tag });
@@ -1329,6 +1371,15 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		throw new LocalizationEndpointNotRepresentableError();
 	}
 	for (const code of after.languageOrder) {
+		if (
+			Boolean(current.rtlProjectLanguages?.[code]) !==
+			Boolean(after.rtlProjectLanguages?.[code])
+		)
+			out.push({
+				kind: "setProjectLanguageDirection",
+				code,
+				direction: after.rtlProjectLanguages?.[code] ? "rtl" : "ltr",
+			});
 		if (code === after.sourceLanguage) continue;
 		const currentEntries = current.translations[code] ?? {};
 		const nextEntries = after.translations[code] ?? {};

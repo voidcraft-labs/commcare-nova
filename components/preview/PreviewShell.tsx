@@ -49,8 +49,13 @@ import { useBuilderLanguage } from "@/components/builder/localization/BuilderLoc
 import { Button } from "@/components/shadcn/button";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import { Spinner } from "@/components/shadcn/spinner";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	ANDROID_APP_NAMES,
+	missingAndroidApps,
+} from "@/lib/domain/requiredAndroidApps";
 import { caseListRegistrationEntryContinues } from "@/lib/preview/caseListRegistrationEntry";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -66,12 +71,17 @@ import type { AppSetupSection } from "@/lib/routing/types";
 import {
 	useClearPreviewNavigation,
 	useEditMode,
+	usePreviewAtDeviceHome,
 	usePreviewCaseListRegistrationEntry,
 	usePreviewCaseTarget,
 	usePreviewDevice,
+	usePreviewInstalledAndroidApps,
 	usePreviewParentCaseRequest,
+	usePreviewPlatform,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
+	useSetPreviewAndroidAppInstalled,
+	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseListRegistrationEntry,
 	useSetPreviewing,
 	useSetPreviewParentCaseRequest,
@@ -177,6 +187,61 @@ const CaseListScreen = dynamic(
 );
 
 export function PreviewShell() {
+	const mode = useEditMode();
+	const platform = usePreviewPlatform();
+	const { requiredAndroidApps } = useAppSettings();
+	const atDeviceHome = usePreviewAtDeviceHome();
+	const setAtDeviceHome = useSetPreviewAtDeviceHome();
+	const navigate = useNavigate();
+	const installed = usePreviewInstalledAndroidApps();
+	const setInstalled = useSetPreviewAndroidAppInstalled();
+	const missing = missingAndroidApps(platform, requiredAndroidApps, installed);
+	if (mode === "preview" && !atDeviceHome && missing.length) {
+		return (
+			<section
+				className="mx-auto my-8 max-w-sm space-y-3 px-4"
+				aria-labelledby="required-apps-heading"
+			>
+				<h2 id="required-apps-heading" className="text-sm font-medium">
+					Apps needed on this phone
+				</h2>
+				<p className="text-sm text-nova-text-muted">
+					This worker can open the app once these apps are installed. You can
+					add them to the Preview phone.
+				</p>
+				<ol className="space-y-2">
+					{missing.map((app) => (
+						<li
+							className="flex items-center justify-between gap-3 text-sm"
+							key={app}
+						>
+							{ANDROID_APP_NAMES[app]}
+							<Button
+								variant="outline"
+								aria-label={`Install ${ANDROID_APP_NAMES[app]} on the Preview phone`}
+								onClick={() => setInstalled(app, true)}
+							>
+								Install in Preview
+							</Button>
+						</li>
+					))}
+				</ol>
+				<Button
+					variant="ghost"
+					onClick={() => {
+						setAtDeviceHome(true);
+						navigate.replace({ kind: "home" });
+					}}
+				>
+					Back to phone home
+				</Button>
+			</section>
+		);
+	}
+	return <BuilderScreens />;
+}
+
+function BuilderScreens() {
 	useEntryPointLaunchLifecycle();
 	const { direction } = useBuilderLanguage();
 	/* ── Location → PreviewScreen adapter ─────────────────────────────

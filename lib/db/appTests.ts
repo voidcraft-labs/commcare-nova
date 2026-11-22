@@ -37,7 +37,8 @@ import { type AppDatabase, withAppTx } from "./pg";
  * where Core does, goes on at the parent's row unless the datum it chooses
  * for names a details screen, and lets every case chosen after a screen go
  * when Back returns to it, so the walk past it asks for the parent again. */
-export const RUNTIME_VERSION = 19;
+// Step 7 changes app startup on Android. Older sessions cannot continue under the new checks.
+export const RUNTIME_VERSION = 20;
 const MAX_STEPS = 200;
 const MAX_ACTIVE_TESTS = 8;
 type JsonRecord = Record<string, unknown>;

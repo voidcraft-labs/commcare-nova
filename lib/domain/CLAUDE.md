@@ -55,23 +55,17 @@ the canonical English-only state (`eng` source, default, and sole order
 entry) and is never materialized. The source language has no duplicate target
 map, the default language is first in `languageOrder`, and every other app
 language has exactly one map. A language is `AppLanguageIdentity`
-`{language, script?, region?}`: an ISO 639:2023 Set 3 individual living
-language, an ISO 15924 script present exactly when the language has more than
-one customary writing system, and an optional ISO 3166-1 alpha-2 region.
-`languageTag(identity)` joins the parts with `-` (`cmn-Hans-CN`) and
-`parseLanguageTag` inverts it; the tag (`LANGUAGE_TAG_PATTERN`, the only tag
-grammar) is the record key, mutation reference, and `?lang=` value, never a
-rendered string. Parsing admits shape only; registry membership is enforced at
-the authoring boundaries (tool schemas, design contract, picker), so the
-persistence layer never consults catalogs. Names, directions, and descriptors
-are never stored or authored anywhere; they derive from the identity through
-`languageRegistry/` (generated ISO/CLDR catalogs plus `search.ts`, the lazy
-big-name chunk behind `load.ts::loadLanguageRegistrySearch`). Neither registry
-module is exported from the `lib/domain` barrel. Each language's CommCare wire
-code is part of the document: `localization.wireCodes` holds it from the
-mutation that adds the language, which carries it, and it never changes while
-the language stays in the app. No author chooses one, and `lib/commcare` is the
-only reader of its spelling.
+`{language, script?, region?}` for a registered language. ISO/CLDR provide
+its names, script choices, English descriptor and writing direction. An app
+may also hold `{kind:"project",language:"qaa"}`, identified by its exact code.
+`languageTag` and `parseLanguageTag` carry both kinds through map keys,
+mutation references and `?lang=`. The registered key keeps its spelling.
+The project key is `project:<code>`. The code cannot be changed while the
+identity exists. The optional `rtlProjectLanguages` record holds the project
+languages whose Builder and Preview text reads right to left. The schema
+closes those keys and each wire code over the app's actual catalog.
+`localization.wireCodes` retains the spelling chosen when each language
+joined, including older registered-language bindings.
 
 `translationUnits.ts::collectTranslationUnits` is the ONE inventory of static
 worker-facing strings. A unit id is an injective, versioned projection of stable

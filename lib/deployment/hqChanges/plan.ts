@@ -36,7 +36,6 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	diffDocsToMutationsSteps,
 	HQ_READING_DELTA,
-	LocalizationEndpointNotRepresentableError,
 } from "@/lib/doc/diffDocsToMutations";
 import {
 	type DocumentChanges,
@@ -226,7 +225,11 @@ function* canonK(
 	withheld?: (rewrite: WithheldRewrite) => void,
 ): Steps<BlueprintDoc> {
 	const canon = toPersistableDoc(
-		yield* canonDocumentSteps(withSlugsBound(doc, givesWay), withheld),
+		yield* canonDocumentSteps(
+			withSlugsBound(doc, givesWay),
+			withheld,
+			doc.localization?.sourceLanguage,
+		),
 	) as Record<string, unknown>;
 	for (const key of KEYS_WITH_NO_EXTERNAL_KEY) delete canon[key];
 	const settings = canon.appSettings as PersistableDoc["appSettings"];
@@ -686,6 +689,9 @@ export function touchedBy(
 			case "relabelSourceLanguage":
 			case "addLanguage":
 			case "removeLanguage":
+			case "rebaseSourceLanguage":
+			case "setProjectLanguageDirection":
+			case "moveLanguage":
 			case "setDefaultLanguage":
 			case "setTranslation":
 			case "reviewTranslation":
@@ -1113,9 +1119,7 @@ function* plannedFromDocuments(
 	let H: Mutation[];
 	try {
 		H = yield* diffDocsToMutationsSteps(B, theirs, HQ_READING_DELTA);
-	} catch (error) {
-		if (error instanceof LocalizationEndpointNotRepresentableError)
-			return { kind: "held", reason: "languages-reordered" };
+	} catch {
 		return differs({
 			check: "apply",
 			segments: ["threw", "diffDocsToMutations"],

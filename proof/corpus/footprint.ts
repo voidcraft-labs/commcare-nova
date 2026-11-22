@@ -254,6 +254,9 @@ const APP_WIDE_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"addLanguage",
 	"removeLanguage",
 	"setDefaultLanguage",
+	"moveLanguage",
+	"rebaseSourceLanguage",
+	"setProjectLanguageDirection",
 	"relabelSourceLanguage",
 	"setConnectType",
 ]);

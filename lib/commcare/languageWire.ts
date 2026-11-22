@@ -156,6 +156,13 @@ export function mintLanguageWireCode(
 	held: ReadonlySet<string>,
 	identity: AppLanguageIdentity,
 ): string {
+	if (identity.kind === "project") {
+		if (held.has(identity.language))
+			throw new Error(
+				`The app already has a language with the code “${identity.language}”. Choose another project code or edit that language.`,
+			);
+		return identity.language;
+	}
 	const preferred = preferredWireSpelling(identity);
 	const holder = preferredSpellingHolders(preferred).get(
 		wireLanguageName(identity),
@@ -163,12 +170,12 @@ export function mintLanguageWireCode(
 	const holdsAlone = holder === undefined || holder === languageTag(identity);
 	if (!held.has(preferred) && holdsAlone) return preferred;
 	const suffixed = `${identity.language}-${(identity.script ?? "").toLowerCase()}${(identity.region ?? "").toLowerCase()}`;
-	if (held.has(suffixed)) {
-		throw new Error(
-			`The CommCare code ${suffixed} for ${languageTag(identity)} is already held by another language of this app. This is a bug in mintLanguageWireCode, not an authorable state.`,
-		);
-	}
-	return suffixed;
+	if (!held.has(suffixed)) return suffixed;
+	// Each imported code has its own identity. Allocate a fresh, grammatically
+	// valid suffix without renaming any of those existing language resources.
+	let code = `${suffixed}a`;
+	while (held.has(code)) code += "a";
+	return code;
 }
 
 /**

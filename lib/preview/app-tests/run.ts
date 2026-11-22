@@ -18,6 +18,10 @@ import {
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
 import { PLATFORM_LABELS } from "@/lib/domain/platforms";
+import {
+	ANDROID_APP_NAMES,
+	missingAndroidApps,
+} from "@/lib/domain/requiredAndroidApps";
 import { locationFixtureRows } from "@/lib/organization/footprint";
 import type {
 	PreviewCaseChoice,
@@ -511,6 +515,30 @@ async function observeAppTestWithEvaluation(
 	state: AppTestSessionState,
 	completedForm?: CompletedFormObservation,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
+	const missing = missingAndroidApps(
+		state.platform,
+		context.doc.appSettings.requiredAndroidApps,
+		state.installedAndroidApps,
+	);
+	if (state.awaitingAndroidApps && missing.length > 0) {
+		return {
+			state,
+			observation: {
+				screen: "required-android-apps",
+				missingApps: missing.map((app) => ({
+					app,
+					name: ANDROID_APP_NAMES[app],
+				})),
+				actions: ["observe", "back", "finish"],
+				platform: {
+					selected: state.platform,
+					label: PLATFORM_LABELS[state.platform],
+				},
+				recovery:
+					"Start a test with the required apps in installedAndroidApps to try opening the app on this phone.",
+			},
+		};
+	}
 	const result = await observeScreen(context, scope, state, completedForm);
 	const screen = result.state.screen;
 	const identity = parseLanguageTag(context.language);
@@ -592,7 +620,7 @@ async function observeAppTestWithEvaluation(
 			},
 			language: {
 				selected: identity,
-				direction: languageDirection(identity),
+				direction: languageDirection(identity, context.doc.localization),
 				runtime: runtimeLanguage(context.language),
 				available: effectiveAppLocalization(
 					context.doc.localization,
@@ -707,6 +735,32 @@ export async function advanceAppTest(
 	action: AppTestAction,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	try {
+		const missing = missingAndroidApps(
+			state.platform,
+			context.doc.appSettings.requiredAndroidApps,
+			state.installedAndroidApps,
+		);
+		if (
+			missing.length &&
+			state.screen.kind === "device-home" &&
+			action.kind === "continue"
+		) {
+			return await observeAppTest(context, scope, {
+				...state,
+				awaitingAndroidApps: true,
+			});
+		}
+		if (state.awaitingAndroidApps && missing.length) {
+			if (action.kind === "back")
+				return await observeAppTest(context, scope, {
+					...state,
+					awaitingAndroidApps: false,
+				});
+			if (action.kind !== "observe")
+				throw new AppTestActionError(
+					`This Android phone needs ${missing.map((app) => ANDROID_APP_NAMES[app]).join(", ")} before the worker can open the app.`,
+				);
+		}
 		return await advanceAppTestOnScreen(context, scope, state, action);
 	} catch (error) {
 		throw appTestDataRefusal(context, error);

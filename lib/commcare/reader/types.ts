@@ -76,7 +76,11 @@ export interface ReaderInput {
 }
 
 /** The language each CommCare HQ code of an app Nova holds names, by the code. */
-export type ReaderKnownLanguageCodes = ReadonlyMap<string, LanguageTag>;
+export interface ReaderKnownLanguageCodes {
+	readonly tagByCode: ReadonlyMap<string, LanguageTag>;
+	readonly sourceCode: string | undefined;
+	readonly rtlProjectLanguages?: Readonly<Record<LanguageTag, true>>;
+}
 
 /** The case types the indices of the app's document reach and the types its catalog declares,
  *  as Nova holds them (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */

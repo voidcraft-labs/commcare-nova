@@ -3,6 +3,7 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
 import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import { type Mutation, placementTargetKey } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -387,8 +388,7 @@ export function mutationTargetsInvalid(
 	};
 	const initialLocalization = effectiveAppLocalization(doc.localization);
 	let sourceLanguage = initialLocalization.sourceLanguage;
-	let defaultLanguage = initialLocalization.defaultLanguage;
-	const languages = new Set(initialLocalization.languageOrder);
+	let languages = [...initialLocalization.languageOrder];
 	const wireCodes = new Map<string, string>(
 		Object.entries(initialLocalization.wireCodes),
 	);
@@ -1116,44 +1116,75 @@ export function mutationTargetsInvalid(
 			case "setAppSettings":
 				break;
 			case "relabelSourceLanguage": {
-				if (languages.size !== 1) return true;
+				if (languages.length !== 1) return true;
 				const tag = languageTag(m.language);
-				languages.clear();
-				languages.add(tag);
+				if ("kind" in m.language && m.language.language !== m.wireCode)
+					return true;
+				languages = [tag];
 				translations.clear();
 				wireCodes.clear();
 				wireCodes.set(tag, m.wireCode);
 				sourceLanguage = tag;
-				defaultLanguage = tag;
 				break;
 			}
 			case "addLanguage": {
 				const tag = languageTag(m.language);
-				if (languages.has(tag)) return true;
+				if ("kind" in m.language && m.language.language !== m.wireCode)
+					return true;
+				if (languages.includes(tag)) return true;
 				// A wire code is an identity: one another language holds would
 				// give two languages one CommCare code.
 				if ([...wireCodes.values()].includes(m.wireCode)) return true;
-				languages.add(tag);
+				languages.push(tag);
 				translations.set(tag, new Map());
 				wireCodes.set(tag, m.wireCode);
 				break;
 			}
 			case "removeLanguage":
 				if (
-					!languages.has(m.code) ||
+					!languages.includes(m.code) ||
 					m.code === sourceLanguage ||
-					m.code === defaultLanguage
+					m.code === languages[0]
 				) {
 					return true;
 				}
-				languages.delete(m.code);
+				languages = languages.filter((tag) => tag !== m.code);
 				translations.delete(m.code);
 				wireCodes.delete(m.code);
 				break;
-			case "setDefaultLanguage":
-				if (!languages.has(m.code)) return true;
-				defaultLanguage = m.code;
+			case "setProjectLanguageDirection":
+				if (!m.code.startsWith("project:") || !languages.includes(m.code))
+					return true;
 				break;
+			case "rebaseSourceLanguage": {
+				if (
+					sourceLanguage !== m.from ||
+					m.from === m.to ||
+					!languages.includes(m.to)
+				)
+					return true;
+				const projected = produce(doc, (draft) => {
+					applyMutations(draft, [...admittedPrefix, m]);
+				});
+				const localization = effectiveAppLocalization(projected.localization);
+				sourceLanguage = localization.sourceLanguage;
+				translations.clear();
+				for (const [tag, entries] of Object.entries(localization.translations))
+					translations.set(tag, new Map(Object.entries(entries)));
+				break;
+			}
+			case "setDefaultLanguage":
+			case "moveLanguage": {
+				const after = m.kind === "moveLanguage" ? m.after : null;
+				if (
+					!languages.includes(m.code) ||
+					after === m.code ||
+					(after !== null && !languages.includes(after))
+				)
+					return true;
+				languages = spliceAfter(languages, m.code, after);
+				break;
+			}
 			case "setTranslation": {
 				refreshTranslationUnits();
 				const unit = translationUnits.get(m.unitId);
@@ -1264,6 +1295,8 @@ export function mutationTargetsInvalid(
 			m.kind !== "relabelSourceLanguage" &&
 			m.kind !== "addLanguage" &&
 			m.kind !== "removeLanguage" &&
+			m.kind !== "moveLanguage" &&
+			m.kind !== "setProjectLanguageDirection" &&
 			m.kind !== "setDefaultLanguage" &&
 			m.kind !== "setTranslation" &&
 			m.kind !== "reviewTranslation"

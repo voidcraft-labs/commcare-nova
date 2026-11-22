@@ -74,6 +74,8 @@ class Decided:
     use: manifest_usage.Use
     standing: str
     entries: tuple
+    # A selected member of an otherwise held collection that has its own exact class.
+    at: str | None = None
 
     @property
     def place(self):
@@ -142,6 +144,35 @@ def decides(held, use, standing) -> bool:
     return True
 
 
+PROJECT_LANGUAGE = "application-and-settings/langs-code-nova-s-language-registry-cannot-name"
+
+
+def _project_languages(use, held):
+    """Independently recognizable Project codes on the app's Languages page. The ISO 639-2
+    local-use range qaa through qtz has no registered individual language. Where both en
+    and eng occur and the app gives neither a display name identifying a particular
+    script/region, en is canonical registered English and eng has independent custody.
+    Other bindings still undergo whole-document read-back and native wording checks."""
+    if use.key != "schema:Application.langs" or use.at is None:
+        return
+    codes = use.at.value
+    if not isinstance(codes, list) or not all(isinstance(code, str) for code in codes):
+        return
+    entry = next((one for one in held.entries[use.key] if one.id == PROJECT_LANGUAGE), None)
+    if entry is None:
+        return
+    translations = use.at.owner.get("translations") or {}
+    distinct_names = any(
+        texts.get("en") or texts.get("eng")
+        for texts in translations.values() if isinstance(texts, dict)
+    ) if isinstance(translations, dict) else True
+    english_alias = "en" in codes and "eng" in codes and not distinct_names
+    for index, code in enumerate(codes):
+        private = len(code) == 3 and code.isascii() and code.isalpha() and code.islower() and "qaa" <= code <= "qtz"
+        if private or (english_alias and code == "eng"):
+            yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{index}")
+
+
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
     """Each use of ``found`` (``manifest_usage.Uses``) the lane decides, with its standing, and the count of the
     others by key."""
@@ -151,6 +182,8 @@ def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:
         standing, entries = manifest_usage.standing(held, use)
         if decides(held, use, standing):
             decided.append(Decided(use, standing, tuple(entries)))
+            if standing == manifest_usage.HELD:
+                decided.extend(_project_languages(use, held))
         else:
             unjudged[use.key] = unjudged.get(use.key, 0) + 1
     return decided, dict(sorted(unjudged.items()))
@@ -240,6 +273,7 @@ def _identity(decided: Decided):
         decided.use.where,
         decided.standing,
         tuple(entry.id for entry in decided.entries),
+        decided.at,
     )
 
 
@@ -260,6 +294,8 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "fix-in-hq", refused
     if standing == manifest_usage.HELD_NEW:
         return record.standing == "not-yet", record.entry in resting
+    if standing == manifest_usage.HELD and decided.at is not None:
+        return record.standing == "held", record.entry in resting and record.at == decided.at
     if standing == manifest_usage.HELD:
         return record.standing in ("held", "kept", "inert"), entry is not None and entry.disposition in ALLOWING
     # UNNAMED and UNHELD: no entry the reader may claim it under names the key.
@@ -279,11 +315,13 @@ def _record_json(record: Record):
         "key": record.key,
         "entry": record.entry,
         "standing": record.standing,
+        **({"at": record.at} if record.at is not None else {}),
     }
 
 
 def _lane_json(decided: Decided):
-    return {"standing": decided.standing, "entries": [entry.id for entry in decided.entries]}
+    return {"standing": decided.standing, "entries": [entry.id for entry in decided.entries],
+            **({"at": decided.at} if decided.at is not None else {})}
 
 
 def join(uses, claims, *, document: str = "", held=None) -> list[Difference]:

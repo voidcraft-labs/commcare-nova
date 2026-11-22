@@ -650,15 +650,19 @@ app's own id, so a test that reads Nova's export whole passes `matchingResolver(
 
 ## The source language
 
-The app's first language is its default. Its source language, whose text the document's own
-slots hold, is the first language, in `langs` order, that a reading with it as the source prints
-back at every place Nova's emitter writes the source's text apart from a translation
-(`languages.ts::readingSourceCode`); where nothing in the app tells the languages apart it is the
-first, and the first too where no language passes. `languages.ts::sourceLanguageAsRead` applies
-the rule to the values Nova's emitter writes for a document (`expander.ts::expandAppShell` and
-`hqJson/caseList.ts::projectCaseListForHq`), so the canonical row `source-language-is-as-read`
-moves a document only to a language whose text at both places is its source's, and the two print
-one export.
+The first language opens by default. A first reading chooses the first
+language that agrees with the app name and generated system sentences, or
+the first language when there is no evidence. On a later read the known
+source keeps its place when it still satisfies that evidence. If HQ's edits
+select a different source, the same conversion used by document replay
+assigns the effective texts to the new source and its overlays. Each
+retained language keeps a value held only in the previous source.
+
+The reader reserves all known wire-code bindings before identifying new
+codes. Among codes naming the same registered language, its preferred wire
+spelling wins, then the lexically first spelling. A remaining code, and a
+code with no registered match, becomes a distinct project language. Its
+selector wording from HQ stays in the deployment overlay.
 
 The places that tell, each held by a pair in `__tests__/readingSource.test.ts`:
 

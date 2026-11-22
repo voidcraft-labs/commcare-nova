@@ -26,7 +26,9 @@ form's id in a ``holds`` key (no external key names a form by its id), and
 one that is not well formed.
 
 A holding row names ``holds``, a list, which is empty where no fragment of
-the document changes (an INERT entry, or one whose held value Nova derives):
+the document changes (an INERT entry, or one whose held value Nova derives).
+A fragment keyed by ``app`` reads its pointer from the document root. An entity
+fragment names its external key. In either case,
 such a row is held by its reading being ``read`` and its claim log counting
 the entry.
 
@@ -141,6 +143,7 @@ from proof.matrix.bases import (  # noqa: E402
     nova_then_builder,
     places,
     plain,
+    project_languages,
     saved_pages,
     search,
     starter_agriculture,
@@ -158,6 +161,7 @@ BASES: tuple[Base, ...] = (
     hq_media.BASE,
     kept_settings.BASE,
     languages.BASE,
+    project_languages.BASE,
     menus.BASE,
     names.BASE,
     case_lists.BASE,

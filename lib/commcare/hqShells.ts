@@ -320,6 +320,7 @@ export function applicationShell(
 			readonly key: string;
 			readonly value: string;
 		}[];
+		androidPackages?: readonly string[];
 		profileCustomProperties?: Readonly<Record<string, string>>;
 	},
 ): HqApplicationTree {
@@ -358,6 +359,9 @@ export function applicationShell(
 	const properties = options.profileProperties ?? [];
 	const customProperties = options.profileCustomProperties ?? {};
 	const profile = {
+		...(options.androidPackages?.length && {
+			features: { dependencies: options.androidPackages },
+		}),
 		...(properties.length > 0 && {
 			properties: Object.fromEntries(
 				properties.map(({ key, value }) => [key, value]),

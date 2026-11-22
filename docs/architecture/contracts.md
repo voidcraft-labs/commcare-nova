@@ -841,3 +841,11 @@ not masquerade as a child of that tree.
   not polish deferred beyond the feature PR.
 - Automations do not pretend to execute inside Preview. The UI explains cadence
   and may show a safe read-only "currently matches N cases" evaluation.
+
+An app's required Android apps are ordered installation requirements. App
+settings and the shared editing tool use their product names. The simulated
+phone's installed apps belong to the device. Android checks before its Start
+button opens a menu. Web Apps ignores the setting. Publishing a selection
+requires the target's App Dependencies confirmation. An older publish that
+never owned these requirements cannot clear a different existing selection
+without a fresh, digest-bound review of that destination.

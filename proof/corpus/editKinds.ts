@@ -794,6 +794,63 @@ const setDefaultLanguage: KindGenerator = (ctx) => {
 		);
 };
 
+const rebaseSourceLanguage: KindGenerator = (ctx) => {
+	const before = effectiveAppLocalization(ctx.doc.localization);
+	return targetLanguages(ctx).map(({ prefix, tag }) =>
+		batch([
+			...prefix,
+			{ kind: "rebaseSourceLanguage", from: before.sourceLanguage, to: tag },
+		]),
+	);
+};
+
+const setProjectLanguageDirection: KindGenerator = (ctx) => {
+	const before = effectiveAppLocalization(ctx.doc.localization);
+	const existing = before.languageOrder.find((code) =>
+		code.startsWith("project:"),
+	);
+	if (existing !== undefined)
+		return [
+			batch([
+				{
+					kind: "setProjectLanguageDirection",
+					code: existing,
+					direction: before.rtlProjectLanguages?.[existing] ? "ltr" : "rtl",
+				},
+			]),
+		];
+	const held = heldLanguageWireCodes(ctx.doc);
+	const code = ["qq", "qq-local"].find((code) => !held.has(code));
+	if (code === undefined) return [];
+	const language: AppLanguageIdentity = { kind: "project", language: code };
+	return [
+		batch([
+			addLanguageMutation(held, language),
+			{
+				kind: "setProjectLanguageDirection",
+				code: languageTag(language),
+				direction: "rtl",
+			},
+		]),
+	];
+};
+
+const moveLanguage: KindGenerator = (ctx) => {
+	const [first, second] = effectiveAppLocalization(
+		ctx.doc.localization,
+	).languageOrder;
+	if (second !== undefined)
+		return [batch([{ kind: "moveLanguage", code: first, after: second }])];
+	return freshLanguages(ctx)
+		.slice(0, 1)
+		.map((language) =>
+			batch([
+				addLanguageMutation(heldLanguageWireCodes(ctx.doc), language),
+				{ kind: "moveLanguage", code: first, after: languageTag(language) },
+			]),
+		);
+};
+
 const setTranslation: KindGenerator = (ctx) =>
 	targetLanguages(ctx).flatMap(({ prefix, doc, tag }) =>
 		take(ctx, collectTranslationUnits(doc), 2).flatMap((unit) => {
@@ -3015,6 +3072,9 @@ export const EDIT_KIND_GENERATORS = {
 	addLanguage,
 	removeLanguage,
 	setDefaultLanguage,
+	moveLanguage,
+	rebaseSourceLanguage,
+	setProjectLanguageDirection,
 	setTranslation,
 	reviewTranslation,
 	renameCaseProperties,

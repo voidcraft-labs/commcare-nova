@@ -64,6 +64,39 @@ function schemaIssues(
 }
 
 describe("shared localization tools", () => {
+	it("creates a project language, edits its writing direction and keeps its own translations", async () => {
+		const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		const language = { kind: "project", language: "qaa" } as const;
+		await harness.runTool(addLanguageTool, { language });
+		const units = readData(
+			await harness.runTool(getTranslatableContentTool, { language }),
+		);
+		expect(units).toMatchObject({
+			items: expect.arrayContaining([
+				expect.objectContaining({ effective: "Clinic" }),
+			]),
+		});
+		await harness.runTool(updateLanguageTool, {
+			action: "set-direction",
+			language,
+			direction: "rtl",
+		});
+		const languages = readData(await harness.runTool(getLanguagesTool, {}));
+		expect(languages).toMatchObject({
+			languages: expect.arrayContaining([
+				expect.objectContaining({
+					language,
+					commcareCode: "qaa",
+					endonym: "qaa",
+					direction: "rtl",
+					automaticTranslation: expect.objectContaining({
+						status: "not-evaluated",
+					}),
+				}),
+			]),
+		});
+	});
+
 	it("reads the effective sentinel identity without materializing it", async () => {
 		const doc = makeCanonicalGenesisDoc("Clinic");
 		const harness = makeToolWorkspaceHarness(doc);
@@ -613,6 +646,29 @@ describe("shared localization tools", () => {
 		expect(
 			effectiveAppLocalization(h.currentDoc().localization).translations.spa,
 		).toBeUndefined();
+	});
+
+	it("moves an existing language and keeps its reviewed and copied text attached", async () => {
+		const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		for (const language of ["spa", "fra"])
+			await harness.runTool(addLanguageTool, { language: { language } });
+		const before = effectiveAppLocalization(harness.currentDoc().localization);
+		const response = await harness.runTool(updateLanguageTool, {
+			action: "move",
+			language: { language: "eng" },
+			after: { language: "spa" },
+		});
+		expect(mutateResult(response).result).toMatchObject({
+			ok: true,
+			default: false,
+		});
+		expect(effectiveAppLocalization(harness.currentDoc().localization)).toEqual(
+			{
+				...before,
+				defaultLanguage: "spa",
+				languageOrder: ["spa", "eng", "fra"],
+			},
+		);
 	});
 
 	it("changes the runtime default before allowing target removal", async () => {

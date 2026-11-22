@@ -10,6 +10,7 @@
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
+import { requiredAndroidAppsFromProfile } from "../androidAppDependencies";
 import {
 	hqCatalogMayHold,
 	isRuntimeUiStringKey,
@@ -447,6 +448,14 @@ const PROFILE_CLAIMS = defineClaims("appShell.profile", {
 		`${A}/profile-custom-properties-any-other-entry-incl-formplayer-keys`,
 		PROFILE,
 	),
+	duplicateAndroidApp: refuse(
+		`${A}/repeated-android-app-dependency`,
+		"setting:features.dependencies",
+	),
+	androidApps: take(
+		`${A}/31-features-dependencies`,
+		"setting:features.dependencies",
+	),
 	showSaved: take(
 		`${A}/20-properties-cc-show-saved`,
 		"setting:properties.cc-show-saved",
@@ -840,6 +849,29 @@ function readProfile(ctx: ReadContext): void {
 				!withinChoices(item, value)
 			) {
 				bag.refuse(name, outside, { name });
+				continue;
+			}
+			if (setting === "setting:features.dependencies") {
+				if (Array.isArray(value) && new Set(value).size !== value.length) {
+					bag.refuse(name, PROFILE_CLAIMS.duplicateAndroidApp, { name });
+					continue;
+				}
+				if (
+					outside !== undefined &&
+					requiredAndroidAppsFromProfile(value) === undefined
+				) {
+					bag.refuse(name, outside, { name });
+					continue;
+				}
+				const apps = bag.take(
+					name,
+					PROFILE_CLAIMS.androidApps,
+					requiredAndroidAppsFromProfile,
+				).value;
+				if (apps?.length)
+					ctx.writeDraft(() => {
+						ctx.draft.appSettings.requiredAndroidApps = apps;
+					});
 				continue;
 			}
 			if (setting === "setting:properties.cc-show-saved") {

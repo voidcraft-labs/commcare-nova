@@ -38,6 +38,7 @@ import {
 	type WireIdentity,
 } from "@/lib/commcare";
 import { addOnsNeededBy } from "@/lib/commcare/addOns";
+import { requiredAndroidPackages } from "@/lib/commcare/androidAppDependencies";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import {
@@ -760,6 +761,9 @@ export function* expandDocSteps(
 			cloudcareEnabled: declaresWebApps(doc),
 			...appLevelValues(doc, localization),
 			profileProperties: appProfileProperties(authoredDoc),
+			androidPackages: requiredAndroidPackages(
+				authoredDoc.appSettings.requiredAndroidApps,
+			).map(({ id }) => id),
 			...(Object.keys(derivedProfile).length > 0 && {
 				profileCustomProperties: derivedProfile,
 			}),

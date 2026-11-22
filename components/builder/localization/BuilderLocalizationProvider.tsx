@@ -47,7 +47,9 @@ export interface BuilderLanguageState {
 	readonly languages: readonly {
 		readonly tag: LanguageTag;
 		readonly identity: AppLanguageIdentity;
+		readonly direction: "ltr" | "rtl";
 	}[];
+	readonly sourceDirection: "ltr" | "rtl";
 	readonly isSource: boolean;
 	readonly direction: "ltr" | "rtl";
 	selectLanguage(language: LanguageTag): void;
@@ -87,9 +89,11 @@ export function BuilderLocalizationProvider({
 			languages: effective.languageOrder.map((tag) => ({
 				tag,
 				identity: parseLanguageTag(tag),
+				direction: languageDirection(tag, effective),
 			})),
 			isSource: language === effective.sourceLanguage,
-			direction: languageDirection(identity),
+			direction: languageDirection(identity, effective),
+			sourceDirection: languageDirection(effective.sourceLanguage, effective),
 			selectLanguage,
 		};
 	}, [effective, language, selectLanguage]);

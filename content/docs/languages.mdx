@@ -6,6 +6,9 @@ description: Add app languages, copy existing text, translate it, and choose wha
 Commcare Nova keeps worker-facing app content in a language catalog. One
 language is the **source** used while the app is designed, and one is the
 **default** workers see when they first open the app. They may be different.
+In **App setup → Languages**, you can move a language earlier or later, or
+choose **Make default** to put it first. Each language keeps its saved text and
+review status when its position changes.
 
 Use the language selector in the Builder header to change the language shown by
 the structure tree, editing canvas, case workspace, and Preview. The selected
@@ -27,6 +30,13 @@ thousand. A group name such as Chinese or Arabic is not itself a choosable
 language: the picker explains the group and lists its member languages as
 choices, so the app always records the one language workers actually speak.
 
+If your project uses its own language code, choose **Use a project language
+code**. Enter the exact code, such as `qaa`, and choose the text to copy.
+Nova also keeps these codes when you bring in an app. Each has its own
+translations, even when two codes refer to the same language. The language
+card lets you switch the writing direction in the Builder and Preview. You
+can translate its text by hand.
+
 When a language is customarily written in more than one writing system, the
 picker asks which one before the language can be added. Mandarin Chinese, for
 example, is added as Simplified or Traditional; there is no unspecified
@@ -36,7 +46,7 @@ appears as well. It is always skippable: the general option targets the
 language as spoken internationally, and a country choice such as Mexico
 tailors the app to that country's conventions.
 
-The language's worker-facing name, its name in its own language, and its
+A registered language's worker-facing name, its name in its own language, and its
 left-to-right or right-to-left direction follow from the choice itself and are
 never edited per app. No language code appears anywhere in the Builder; the
 Builder URL carries a technical tag for the selected language so links and

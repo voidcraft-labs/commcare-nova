@@ -14,7 +14,7 @@ Languages workspace with progressive-disclosure pickers, inline target
 editing, Preview, coverage diagnostics, and focused tests are the current
 source of truth. The production capability manifest marks every direction
 between distinct members of the checked-in 57-language launch set Available.
-Every other individual living language remains fully manual/copy-capable and
+Every other registered language and every project language remains fully manual/copy-capable and
 does not offer automatic translation. Capability-specific public
 documentation is part of the Nova surface.
 
@@ -49,7 +49,7 @@ HQ.
 
 ## Language identity
 
-A language is a three-part identity, not a code string:
+A registered language has three identity axes:
 
 ```ts
 interface AppLanguageIdentity {
@@ -70,18 +70,28 @@ interface AppLanguageIdentity {
   no default and no unspecified option. Region is always skippable: a bare
   `spa` or `cmn` + `Hans` targets the language's general/international
   conventions.
-- The selectable universe is Set 3 scope Individual, type Living, around
+- The registered choices use Set 3 scope Individual, type Living, around
   7,100 languages. Macrolanguages (`zho`), Set 1 two-letter codes (`zh`),
   special codes, and non-living languages are rejected at every authoring
   boundary with the identifiers to use instead; a macrolanguage rejection
   lists its individual members by name.
-- Names and direction are never stored and never authored. Display names
+- Each registered language derives its names and direction. Display names
   (endonym, English qualified name, qualifier labels), the translator-prompt
   descriptor, and text direction all derive from the identity through the
   generated registry: direction from the script first, then the language's
   default script, then `ltr`.
 - Two-letter codes exist in exactly one place in the codebase: inside
   `lib/commcare`, as emitted wire spellings.
+
+A project language carries `{kind:"project",language:"qaa"}` and uses
+`project:qaa` as its local key. Its exact code identifies its worker text,
+profile membership and locale resources for the life of the app. Reading a
+new code reserves all existing bindings, prefers a registered identity’s
+canonical wire spelling, then compares remaining code spellings in stable
+order. Each other code gets its own project language. On read-back the
+existing source language stays selected if it still agrees with HQ’s source
+evidence. A change to the actual source rebases the per-language effective
+text in the same admitted batch.
 
 ### The registry
 
@@ -195,6 +205,7 @@ interface AppLocalization {
   languageOrder: LanguageTag[];
   translations: Record<LanguageTag, Record<TranslationUnitId, TranslationEntry>>;
   wireCodes: Record<LanguageTag, string>;
+  rtlProjectLanguages?: Record<LanguageTag, true>;
 }
 
 interface TranslationEntry {
@@ -206,11 +217,9 @@ interface TranslationEntry {
 }
 ```
 
-There is no per-language metadata record: with names and direction derived
-from the identity, a metadata record would carry nothing beyond its keys.
+The optional `rtlProjectLanguages` record names project languages whose local text direction is right to left. Other project languages open left to right. Registered languages derive direction from the registry.
 
-`wireCodes` holds each language's CommCare wire code, an identity of the app
-like the tag itself and one no author chooses. The schema requires a code for
+`wireCodes` holds each language's immutable CommCare spelling. Nova mints it for a registered language. A project language keeps the exact code entered by its author or read from CommCare HQ. The schema requires a code for
 every tag of `languageOrder` and none for any other tag, and refuses two
 languages that hold one code. The mutation that adds a language carries its
 code (`addLanguage` and `relabelSourceLanguage` carry a required `wireCode`,
@@ -224,8 +233,7 @@ These are the implemented domain semantics:
 - The tag is the language's stable record identity. Changing an identity is
   remove-and-add, because CommCare also treats the emitted spelling as locale
   identity; the sole-language relabel is the one exception.
-- `LANGUAGE_TAG_PATTERN` (`^[a-z]{3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$`) is the
-  only tag grammar. Parsing admits shape only; registry membership is enforced
+- `LANGUAGE_TAG_PATTERN` (`^[a-z]{3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$`) defines the registered part of the tag grammar. Project keys use a distinct `project:` prefix. Parsing admits shape only; registry membership is enforced
   at the authoring boundaries (tool schemas, design contract, picker), so
   persistence never consults catalogs.
 - The source language describes the canonical values already stored on normal
@@ -443,8 +451,7 @@ macrolanguage or alias query yields a code-free notice with the member
 languages as selectable rows); then a Writing system select, rendered only
 when the language branches, with no default; then a Regional conventions
 select, rendered only when meaningful, whose first option is the language's
-general conventions. A resolved duplicate refuses inline by name. There is no
-free-code entry: the registry is the selectable world. The dialog asks for an
+general conventions. A resolved duplicate refuses inline by name. The dialog also accepts an explicit project language code. Its language card offers a local writing direction. The dialog asks for an
 existing “Start with” language; copy is always available. The workspace
 reports whether the exact direction belongs to the automatic launch set, but
 this ordinary edit gesture never initiates a paid model call: automatic
@@ -518,7 +525,7 @@ The shared SA/MCP surface has one coherent language family:
 
 The implemented names follow the registry's camelCase SA / snake_case MCP
 convention. Every tool speaks identity objects wherever a language is named;
-no tool passes or returns a combined tag. Strict membership enforcement lives
+no tool passes or returns a combined tag. Registered identities are checked against the registry
 at this boundary, composed from registry verdicts, each rejection naming what
 was tried, what is expected, and what to use instead: a macrolanguage lists
 its individual members, a two-letter code names its Set 3 replacement, a
@@ -750,14 +757,15 @@ cloning `BlueprintDoc` into a second app model.
   wire-valid. The suffixed form lowers the identity's script and region into
   a single suffix segment (`cmn-Hant` → `cmn-hant`), because Classic's grammar
   allows exactly one hyphen; no preferred spelling holds one, and distinct
-  identities sharing a language differ in script or region, so a suffixed
-  code never meets a held one.
+  registered identities sharing a language differ in script or region. When
+  an exact project code also occupies the suffixed spelling, Nova appends
+  lowercase letters until it finds a free code and stores that binding.
 - `planLanguageWire` reads `localization.wireCodes` and computes no code; the
   map is total and injective because the schema holds it so. A stored code
   never changes while its language stays in the app, so adding or removing a
   language never renames another's; removing a language frees its code. The
   English-only state with no stored root still emits `en`.
-- Device-picker name rows come from the registry's baked display labels at
+- The device picker identifies a project language by its verbatim code. Registered name rows come from the registry's baked display labels at
   the most specific key, so two branches of one language stay distinguishable
   in the device language menu. Never runtime `Intl`: Node/ICU variance must
   not reach wire bytes.
@@ -825,11 +833,11 @@ grounded in the current HQ/Core functions named under Binding CommCare facts.
 
 Language catalog operations and bounded translation updates use the granular
 `relabelSourceLanguage`, `addLanguage`, `removeLanguage`,
+`moveLanguage` (the language and its preceding language, or null for first),
 `setDefaultLanguage`, `setTranslation`, and exact-value-fenced
 `reviewTranslation` mutations. `relabelSourceLanguage` and `addLanguage` carry
 an `AppLanguageIdentity` object; the other kinds reference an existing
-language by its tag. There is no `updateLanguage` kind: names and directions
-derive from the identity, so no mutation edits them. The mutations participate
+language by its tag. `setProjectLanguageDirection` writes the local direction of a project language; `rebaseSourceLanguage` moves effective text when a new HQ source language is evidenced. The mutations participate
 in admission, reducer replay, undo/redo, diffing, accepted app-change rows,
 and multiplayer exactly like existing Blueprint mutations. Shared agent/MCP
 tools compose these same commands rather than introducing a second write

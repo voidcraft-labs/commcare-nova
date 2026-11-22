@@ -27,6 +27,7 @@ import {
 	type Platform,
 } from "@/lib/domain";
 import { walkAuthoredAssetRefs } from "@/lib/domain/mediaRefs";
+import { requiredAndroidAppsSchema } from "@/lib/domain/requiredAndroidApps";
 import { mediaDeclarationVerdict } from "@/lib/media/attachVerdicts";
 import { describeUnplayableReferences } from "@/lib/media/platformPlayback";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -48,7 +49,7 @@ import type {
 
 /** The refusal a call that names nothing to change reads. */
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
-	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms) and where the app runs (runs_only_on); a call needs at least one of them.";
+	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms) where the app runs (runs_only_on), and which apps workers need on Android (required_android_apps). A call needs at least one change.";
 
 export const updateAppInputSchema = z
 	.strictObject({
@@ -70,6 +71,11 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"Whether workers can pick up a form they started and left unfinished, on Android and in Web Apps. Leave it out to keep the current setting.",
+			),
+		required_android_apps: requiredAndroidAppsSchema
+			.optional()
+			.describe(
+				"Apps workers need installed before opening this app on Android, in the order workers should see them. Give the whole selection. An empty list clears it.",
 			),
 		runs_only_on: z
 			.enum(["web-apps", "android"])
@@ -105,6 +111,16 @@ function changedSettings(
 		input.show_incomplete_forms !== current.showIncompleteForms
 	) {
 		settings.showIncompleteForms = input.show_incomplete_forms;
+	}
+	if (
+		input.required_android_apps !== undefined &&
+		(input.required_android_apps.length !==
+			(current.requiredAndroidApps?.length ?? 0) ||
+			input.required_android_apps.some(
+				(app, i) => app !== current.requiredAndroidApps?.[i],
+			))
+	) {
+		settings.requiredAndroidApps = input.required_android_apps;
 	}
 	if (input.runs_only_on === null) {
 		if (current.runsOnlyOn !== undefined) settings.runsOnlyOn = null;
@@ -158,7 +174,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
+		"Set the app's display name, whether workers see their saved forms and their incomplete forms, where it runs, and which apps workers need on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(

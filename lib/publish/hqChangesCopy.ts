@@ -415,8 +415,6 @@ export function hqChangesHeldLine(
 	} | null,
 ): string {
 	switch (reason) {
-		case "languages-reordered":
-			return "The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ and check again, or publish over the change.";
 		case "runs-elsewhere": {
 			const where =
 				runs === null

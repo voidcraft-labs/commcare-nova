@@ -1,6 +1,7 @@
 import "server-only";
 
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
+import { changesUnownedAndroidApps } from "@/lib/commcare/androidAppDependencies";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
@@ -1636,6 +1637,10 @@ export async function runDeploymentPreflight(
 
 		compared = true;
 		const change = appRemoteChange({
+			replacesUnownedAndroidRequirements: changesUnownedAndroidApps(
+				read.source.profile.features,
+				input.doc.appSettings.requiredAndroidApps,
+			),
 			appName: input.doc.appName,
 			novaAppId: input.access.appId,
 			remoteAppId: appId,
@@ -2027,6 +2032,7 @@ function baselinesByRemoteId(
  * confirms exactly the state Nova read, known baseline or not.
  */
 function appRemoteChange(input: {
+	readonly replacesUnownedAndroidRequirements: boolean;
 	readonly appName: string;
 	readonly novaAppId: string;
 	readonly remoteAppId: string;
@@ -2067,9 +2073,16 @@ function appRemoteChange(input: {
 		languageNames: input.languageNames,
 		mediaChanged: input.mediaChanged,
 	});
-	return parts.length === 0
+	const descriptions = parts.map(describeAppChange);
+	if (
+		!baseline.ownership.profileFeatures?.includes("dependencies") &&
+		input.replacesUnownedAndroidRequirements
+	) {
+		descriptions.push("Required Android apps already selected in CommCare HQ");
+	}
+	return descriptions.length === 0
 		? null
-		: change(boundedParts(parts.map(describeAppChange)), true);
+		: change(boundedParts(descriptions), true);
 }
 
 /**

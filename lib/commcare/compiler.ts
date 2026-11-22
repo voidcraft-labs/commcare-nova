@@ -1,3 +1,4 @@
+import { requiredAndroidPackages } from "@/lib/commcare/androidAppDependencies";
 import { defaultAppStringsHeldText } from "@/lib/commcare/appStringKeys";
 import { targetProfileProperties } from "@/lib/commcare/keptProfile";
 import {
@@ -451,6 +452,10 @@ export function compileCczParts(
 		"app.display.name": appName,
 		"cchq.case": "Case",
 	};
+	for (const { id, name } of requiredAndroidPackages(
+		doc.appSettings.requiredAndroidApps,
+	))
+		appStrings[`android.package.name.${id}`] = name;
 	const appStringUnits: Record<string, WireStringSource> = {
 		"homescreen.title": makeTranslationUnitId("app", "name"),
 		"app.display.name": makeTranslationUnitId("app", "name"),
@@ -1583,6 +1588,17 @@ function generateProfile(input: {
 			el("features", {}, [
 				el("checkoff", { active: "true" }),
 				el("users", { active: "true" }),
+				...(input.doc.appSettings.requiredAndroidApps?.length
+					? [
+							el(
+								"dependencies",
+								{ active: "true" },
+								requiredAndroidPackages(
+									input.doc.appSettings.requiredAndroidApps,
+								).map(({ id }) => el("android_package", { id })),
+							),
+						]
+					: []),
 				...(facts === null || facts.credentialLevel === null
 					? []
 					: [

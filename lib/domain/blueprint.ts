@@ -29,6 +29,7 @@ import { PLATFORMS } from "./platforms";
 import { catalogProseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
+import { requiredAndroidAppsSchema } from "./requiredAndroidApps";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
 
@@ -101,6 +102,7 @@ export const appSettingsSchema = z.strictObject({
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
 	runsOnlyOn: z.enum(PLATFORMS).optional(),
+	requiredAndroidApps: requiredAndroidAppsSchema.min(1).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
 
@@ -115,6 +117,7 @@ export const appSettingsPatchSchema = z
 		showSavedForms: z.boolean().optional(),
 		showIncompleteForms: z.boolean().optional(),
 		runsOnlyOn: z.enum(PLATFORMS).nullable().optional(),
+		requiredAndroidApps: requiredAndroidAppsSchema.optional(),
 	})
 	.refine(
 		(patch) => Object.values(patch).some((value) => value !== undefined),

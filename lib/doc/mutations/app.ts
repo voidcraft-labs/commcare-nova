@@ -1,5 +1,7 @@
-import type { Draft } from "immer";
+import { current, type Draft } from "immer";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
+import { rebaseSourceLanguage } from "@/lib/doc/sourceLanguage";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type AppLocalization,
@@ -36,6 +38,9 @@ export function applyAppMutation(
 				| "relabelSourceLanguage"
 				| "addLanguage"
 				| "removeLanguage"
+				| "moveLanguage"
+				| "rebaseSourceLanguage"
+				| "setProjectLanguageDirection"
 				| "setDefaultLanguage"
 				| "setTranslation"
 				| "reviewTranslation"
@@ -73,6 +78,14 @@ export function applyAppMutation(
 			if (mut.settings.showIncompleteForms !== undefined) {
 				draft.appSettings.showIncompleteForms =
 					mut.settings.showIncompleteForms;
+			}
+			if (mut.settings.requiredAndroidApps !== undefined) {
+				if (mut.settings.requiredAndroidApps.length === 0)
+					delete draft.appSettings.requiredAndroidApps;
+				else
+					draft.appSettings.requiredAndroidApps = [
+						...mut.settings.requiredAndroidApps,
+					];
 			}
 			// `null` clears the declaration to Web Apps and Android, the
 			// absent key; a value narrows the app to one platform.
@@ -121,16 +134,48 @@ export function applyAppMutation(
 			);
 			delete localization.translations[mut.code];
 			delete localization.wireCodes[mut.code];
+			if (localization.rtlProjectLanguages) {
+				delete localization.rtlProjectLanguages[mut.code];
+				if (!Object.keys(localization.rtlProjectLanguages).length)
+					delete localization.rtlProjectLanguages;
+			}
 			return;
 		}
-		case "setDefaultLanguage": {
+		case "rebaseSourceLanguage": {
+			if (
+				effectiveAppLocalization(draft.localization).sourceLanguage === mut.from
+			)
+				rebaseSourceLanguage(draft, current(draft), mut.to, "saved-document");
+			return;
+		}
+		case "setProjectLanguageDirection": {
+			const localization = draft.localization;
+			if (
+				!localization?.languageOrder.includes(mut.code) ||
+				!mut.code.startsWith("project:")
+			)
+				return;
+			if (mut.direction === "rtl") {
+				localization.rtlProjectLanguages ??= {};
+				localization.rtlProjectLanguages[mut.code] = true;
+			} else if (localization.rtlProjectLanguages) {
+				delete localization.rtlProjectLanguages[mut.code];
+				if (!Object.keys(localization.rtlProjectLanguages).length)
+					delete localization.rtlProjectLanguages;
+			}
+			return;
+		}
+		case "setDefaultLanguage":
+		case "moveLanguage": {
 			const localization = materializeLocalization(draft);
 			if (!localization.languageOrder.includes(mut.code)) return;
-			localization.defaultLanguage = mut.code;
-			localization.languageOrder = [
+			const after = mut.kind === "setDefaultLanguage" ? null : mut.after;
+			localization.languageOrder = spliceAfter(
+				localization.languageOrder,
 				mut.code,
-				...localization.languageOrder.filter((code) => code !== mut.code),
-			];
+				after,
+			);
+			localization.defaultLanguage = localization.languageOrder[0];
 			return;
 		}
 		case "setTranslation": {

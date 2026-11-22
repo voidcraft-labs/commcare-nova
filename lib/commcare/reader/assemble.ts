@@ -181,7 +181,10 @@ export interface ReaderCanonicalChoice {
 	readonly id: string;
 	/** `one-wire`: two documents print the same bytes. `not-carried`: content no export holds. */
 	readonly kind: "one-wire" | "not-carried";
-	readonly apply: (doc: BlueprintDoc) => BlueprintDoc;
+	readonly apply: (
+		doc: BlueprintDoc,
+		incumbentSource?: LanguageTag,
+	) => BlueprintDoc;
 }
 
 type DraftFields = Record<Uuid, Record<string, unknown>>;
@@ -513,8 +516,8 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		 *  as one whose app name a language before the source translates, keeps its own. */
 		id: "source-language-is-as-read",
 		kind: "one-wire",
-		apply: (doc) => {
-			const source = sourceLanguageAsRead(doc);
+		apply: (doc, incumbentSource) => {
+			const source = sourceLanguageAsRead(doc, incumbentSource);
 			return source === undefined ? doc : resourcedDocument(doc, source);
 		},
 	},

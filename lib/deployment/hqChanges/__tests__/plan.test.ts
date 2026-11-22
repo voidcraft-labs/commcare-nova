@@ -764,28 +764,42 @@ describe("a translation whose own text CommCare HQ changed", () => {
 });
 
 describe("a new first language in an app with several", () => {
-	it("is held, since no mutation changes the source language there", async () => {
+	it("keeps the incumbent source through a reorder and rebases a change to the app's original wording", async () => {
 		const ref = produce(visits(), (draft) => {
 			draft.localization = {
 				sourceLanguage: "eng",
 				defaultLanguage: "eng",
 				languageOrder: ["eng", "fra"],
 				wireCodes: { eng: "en", fra: "fr" },
-				translations: {},
-			} as BlueprintDoc["localization"];
+				translations: { fra: {} },
+			};
 		});
 		const B = await readingOf(ref, ref);
-		// CommCare HQ's languages page puts French first, which a reading takes as French
-		// being the language the app's own text is written in.
-		const T = produce(B, (draft) => {
-			const localization = draft.localization;
-			if (localization === undefined)
-				throw new Error("The reading holds no languages.");
-			localization.sourceLanguage = "fra" as never;
-			localization.defaultLanguage = "fra" as never;
-			localization.languageOrder = ["fra", "eng"] as never;
+		const reordered = await readingOf(ref, ref, undefined, (body) => {
+			body.langs = ["fr", "en"];
 		});
-		expect(
+		expect(reordered.localization).toMatchObject({
+			defaultLanguage: "fra",
+			sourceLanguage: "eng",
+		});
+		const T = await readingOf(ref, ref, undefined, (body) => {
+			body.langs = ["fr", "en"];
+			const strings = body.translations as Record<
+				string,
+				Record<string, string>
+			>;
+			strings.en = {
+				...strings.en,
+				"app.display.name": ref.appName,
+				"homescreen.title": ref.appName,
+			};
+			body.name = "Tournées";
+		});
+		expect(T.localization).toMatchObject({
+			defaultLanguage: "fra",
+			sourceLanguage: "fra",
+		});
+		const plan = changesOf(
 			planFromDocuments({
 				ref,
 				now: ref,
@@ -793,7 +807,13 @@ describe("a new first language in an app with several", () => {
 				theirs: T,
 				renamesSince: [],
 			}),
-		).toEqual({ kind: "held", reason: "languages-reordered" });
+		);
+		expect(plan.target.appName).toBe("Tournées");
+		expect(
+			Object.values(plan.target.localization?.translations.eng ?? {}).map(
+				(entry) => entry.value,
+			),
+		).toContain(ref.appName);
 	});
 });
 

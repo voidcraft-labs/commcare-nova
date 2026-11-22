@@ -22,7 +22,7 @@ import { ownRecordSchema } from "./records";
  * living language, valid script branch, valid region) is enforced at the
  * authoring boundaries — tool schemas, the design contract, and the picker.
  */
-export const appLanguageIdentitySchema = z.strictObject({
+const registeredLanguageIdentitySchema = z.strictObject({
 	language: z
 		.string()
 		.regex(
@@ -44,7 +44,37 @@ export const appLanguageIdentitySchema = z.strictObject({
 		)
 		.optional(),
 });
-export type AppLanguageIdentity = z.infer<typeof appLanguageIdentitySchema>;
+/**
+ * CommCare HQ's language-code grammar (`models/applications.py::validate_lang`
+ * on HQ's languages page). A language's wire code is an identity the app
+ * holds from the moment the language is added: it is minted once by the
+ * producer that adds the language and never recomputed, so adding or
+ * removing another language never renames a code a deployment holds.
+ */
+export const languageWireCodeSchema = z
+	.string()
+	.regex(
+		/^[a-z]{2,3}(-[a-z]*)?$/,
+		"Use a CommCare language code: two or three lower-case letters, optionally followed by a hyphen and lower-case letters.",
+	);
+
+/** A project code is immutable and unique within an app. Keeping it in
+ * its own namespace lets two codes that happen to name the same registered
+ * language retain their separate worker text, links and language menus. */
+export const projectLanguageIdentitySchema = z.strictObject({
+	kind: z.literal("project"),
+	language: languageWireCodeSchema,
+});
+export const appLanguageIdentitySchema = z.union([
+	registeredLanguageIdentitySchema,
+	projectLanguageIdentitySchema,
+]);
+export type AppLanguageIdentity =
+	| (z.infer<typeof registeredLanguageIdentitySchema> & { kind?: never })
+	| (z.infer<typeof projectLanguageIdentitySchema> & {
+			script?: never;
+			region?: never;
+	  });
 
 /**
  * The canonical serialized spelling of an `AppLanguageIdentity` — the record
@@ -54,7 +84,7 @@ export type AppLanguageIdentity = z.infer<typeof appLanguageIdentitySchema>;
  * the identity object.
  */
 export const LANGUAGE_TAG_PATTERN =
-	/^[a-z]{3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2})?$/;
+	/^(?:[a-z]{3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2})?|project:[a-z]{2,3}(?:-[a-z]*)?)$/;
 
 export const languageTagSchema = z
 	.string()
@@ -65,6 +95,7 @@ export const languageTagSchema = z
 export type LanguageTag = z.infer<typeof languageTagSchema>;
 
 export function languageTag(identity: AppLanguageIdentity): LanguageTag {
+	if (identity.kind === "project") return `project:${identity.language}`;
 	let tag = identity.language;
 	if (identity.script !== undefined) tag += `-${identity.script}`;
 	if (identity.region !== undefined) tag += `-${identity.region}`;
@@ -77,6 +108,8 @@ export function languageTag(identity: AppLanguageIdentity): LanguageTag {
  */
 export function parseLanguageTag(tag: LanguageTag): AppLanguageIdentity {
 	const parsed = languageTagSchema.parse(tag);
+	if (parsed.startsWith("project:"))
+		return { kind: "project", language: parsed.slice("project:".length) };
 	const [language = "", ...qualifiers] = parsed.split("-");
 	const identity: AppLanguageIdentity = { language };
 	for (const qualifier of qualifiers) {
@@ -117,20 +150,6 @@ const translationMapSchema = ownRecordSchema(
 );
 
 /**
- * CommCare HQ's language-code grammar (`models/applications.py::validate_lang`
- * on HQ's languages page). A language's wire code is an identity the app
- * holds from the moment the language is added: it is minted once by the
- * producer that adds the language and never recomputed, so adding or
- * removing another language never renames a code a deployment holds.
- */
-export const languageWireCodeSchema = z
-	.string()
-	.regex(
-		/^[a-z]{2,3}(-[a-z]*)?$/,
-		"Use a CommCare language code: two or three lower-case letters, optionally followed by a hyphen and lower-case letters.",
-	);
-
-/**
  * Materialized multilingual state. The source language owns the ordinary
  * Blueprint strings and therefore never has a duplicate translation map.
  * Language records carry nothing beyond identity — names and direction are
@@ -143,6 +162,10 @@ export const appLocalizationSchema = z
 		languageOrder: z.array(languageTagSchema).min(1),
 		translations: ownRecordSchema(languageTagSchema, translationMapSchema),
 		wireCodes: ownRecordSchema(languageTagSchema, languageWireCodeSchema),
+		rtlProjectLanguages: ownRecordSchema(
+			languageTagSchema,
+			z.literal(true),
+		).optional(),
 	})
 	.superRefine((localization, ctx) => {
 		const ordered = new Set<LanguageTag>();
@@ -214,6 +237,20 @@ export const appLocalizationSchema = z
 				});
 			}
 		}
+		if (localization.rtlProjectLanguages !== undefined) {
+			const tags = Object.keys(localization.rtlProjectLanguages);
+			if (
+				tags.length === 0 ||
+				tags.some((tag) => !tag.startsWith("project:") || !ordered.has(tag))
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["rtlProjectLanguages"],
+					message:
+						"Choose right-to-left writing for an existing project language.",
+				});
+			}
+		}
 		const languageByWireCode = new Map<string, LanguageTag>();
 		for (const tag of ordered) {
 			if (!Object.hasOwn(localization.wireCodes, tag)) {
@@ -226,6 +263,13 @@ export const appLocalizationSchema = z
 			}
 			const wireCode = localization.wireCodes[tag];
 			if (wireCode === undefined) continue;
+			const identity = parseLanguageTag(tag);
+			if (identity.kind === "project" && wireCode !== identity.language)
+				ctx.addIssue({
+					code: "custom",
+					path: ["wireCodes", tag],
+					message: "A project language keeps its original spelling.",
+				});
 			const holder = languageByWireCode.get(wireCode);
 			if (holder !== undefined) {
 				ctx.addIssue({
@@ -248,6 +292,7 @@ export interface EffectiveAppLocalization {
 	>;
 	/** Each language's CommCare wire code, keyed by every tag of `languageOrder`. */
 	readonly wireCodes: Readonly<Record<LanguageTag, string>>;
+	readonly rtlProjectLanguages?: Readonly<Record<LanguageTag, true>>;
 }
 
 /**
