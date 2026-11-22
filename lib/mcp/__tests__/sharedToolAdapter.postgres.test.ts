@@ -19,7 +19,9 @@ import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
 import { sectionEntryDoc } from "@/lib/preview/engine/__tests__/fixtures/sectionEntry";
 import { registerSharedTool } from "../adapters/sharedToolAdapter";
+import { SCOPES } from "../scopes";
 import { registerWorkTools } from "../tools/work";
+import type { ToolContext } from "../types";
 import { withMcpClient } from "./client";
 import { promptDoc } from "./promptFixtures";
 import { resultContentText, resultText } from "./resultText";
@@ -32,11 +34,16 @@ const context = {
 	scopes: ["nova.read", "nova.write"],
 	authKind: "oauth" as const,
 };
-const register: Parameters<typeof withMcpClient>[0] = (server) => {
-	registerWorkTools(server, context);
-	for (const entry of SHARED_TOOL_REGISTRY)
-		registerSharedTool(server, entry, context);
-};
+function registerFor(
+	context: ToolContext,
+): Parameters<typeof withMcpClient>[0] {
+	return (server) => {
+		registerWorkTools(server, context);
+		for (const entry of SHARED_TOOL_REGISTRY)
+			registerSharedTool(server, entry, context);
+	};
+}
+const register = registerFor(context);
 async function seedCanonical(doc: BlueprintDoc) {
 	await h.seedProjectMember("creator", PROJECT, "owner");
 	const candidate = prepareGenesisCandidate({
@@ -722,3 +729,90 @@ it("serves ordered journey actions with deferred section names and bounded retai
 		});
 	});
 });
+
+it.each(["oauth", "api-key"] as const)(
+	"requires fresh Preview consent for %s reads, changes and committed-work replay",
+	async (authKind) => {
+		const doc = await seed();
+		const allowed = {
+			...context,
+			authKind,
+			scopes: [
+				...context.scopes,
+				SCOPES.previewSearchRead,
+				SCOPES.previewSearchWrite,
+			],
+		};
+		const selected = await withMcpClient(
+			registerFor(allowed),
+			async (client) => {
+				const catalog = await call(client, "get_preview_search_settings", {
+					app_id: doc.appId,
+				});
+				expect(catalog.profiles).toMatchObject([
+					{ target: { kind: "local" }, revision: "0" },
+				]);
+				const { work_id } = await begin(client, doc.appId);
+				const input = {
+					work_id,
+					request_id: "confirmed-calendar",
+					expectedRevision: "0",
+					target: { kind: "local" },
+					values: {
+						maximum: 500,
+						timeZone: "Europe/Paris",
+						propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
+					},
+				};
+				const receipt = await call(
+					client,
+					"set_preview_search_settings",
+					input,
+				);
+				expect(receipt).toMatchObject({ ok: true, revision: "1" });
+				expect(
+					await call(client, "set_preview_search_settings", input),
+				).toEqual(receipt);
+				return input;
+			},
+		);
+		await withMcpClient(
+			registerFor({ ...context, authKind }),
+			async (client) => {
+				const denied = await client.callTool({
+					name: "get_preview_search_settings",
+					arguments: { app_id: doc.appId },
+				});
+				expect(denied.isError).toBe(true);
+				expect(JSON.parse(resultContentText(denied))).toMatchObject({
+					error_type: "scope_missing",
+					required_scope: SCOPES.previewSearchRead,
+				});
+			},
+		);
+		await withMcpClient(
+			registerFor({
+				...context,
+				authKind,
+				scopes: [...context.scopes, SCOPES.previewSearchRead],
+			}),
+			async (client) => {
+				const current = await call(client, "get_preview_search_settings", {
+					app_id: doc.appId,
+				});
+				expect(current.profiles).toMatchObject([
+					{ revision: "1", values: { timeZone: "Europe/Paris" } },
+				]);
+				const replay = await client.callTool({
+					name: "set_preview_search_settings",
+					arguments: selected,
+				});
+				expect(replay.isError).toBe(true);
+				expect(JSON.parse(resultContentText(replay))).toMatchObject({
+					error_type: "scope_missing",
+					required_scope: SCOPES.previewSearchWrite,
+				});
+			},
+		);
+	},
+);

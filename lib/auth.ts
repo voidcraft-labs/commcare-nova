@@ -92,6 +92,8 @@ const NOVA_OAUTH_SCOPES = [
 	"nova.hq.read",
 	"nova.hq.write",
 	"nova.hq.import",
+	"nova.preview.search.read",
+	"nova.preview.search.write",
 	"nova.projects.read",
 	"nova.projects.write",
 ] as const;
@@ -110,6 +112,8 @@ export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
 	"nova.hq.read",
 	"nova.hq.write",
 	"nova.hq.import",
+	"nova.preview.search.read",
+	"nova.preview.search.write",
 	"nova.projects.read",
 	"nova.projects.write",
 ] as const;

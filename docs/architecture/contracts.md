@@ -499,6 +499,10 @@ These decisions are closed unless the project owner explicitly reopens them.
   A tool needs the scope that covers everything its answers can carry, a
   refusal and a changed review included (`lib/mcp/scopes.ts::TOOL_SCOPES`, held
   by `lib/mcp/scopedTool.ts::registerScopedTool`).
+  Reading Preview search destinations and team-confirmed settings takes
+  `nova.preview.search.read`. Changing them takes that scope and
+  `nova.preview.search.write`, including an exact retry through saved work.
+  The shared MCP adapter checks the grant before opening an app or work session.
 - What Nova holds about another Project (who manages an HQ app there) is
   released only on CommCare HQ's own answer, in the same request, that the
   caller's key reaches that app (`lib/commcare/hq/appsSeen.ts::HqAppsSeen`),

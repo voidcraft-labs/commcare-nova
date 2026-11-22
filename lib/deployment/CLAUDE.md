@@ -2568,3 +2568,12 @@ browser and shared tools reauthorize writes and compare the selected profile's
 revision. Tool retries reauthorize before returning the durable receipt. The
 deployment stream sends the catalog to authorized tabs when a profile changes.
 A Project move, changed target or new revision changes the search observation.
+
+
+Browser and tool settings writes both hold the app row exclusively from
+destination eligibility through commit, including the first insert. A settings
+write can precede or follow stop-publishing, but cannot check a live deployment
+and then write through its ending. The MCP read requires the separate
+`nova.preview.search.read` grant for destinations and shared settings. Writing
+and replaying that write require both the read grant and
+`nova.preview.search.write`, before the work or receipt is resolved.

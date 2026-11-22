@@ -19,6 +19,20 @@ it can't hold there (`notOffered`). Read individual modules, forms or fields whe
 content matters to the task. This keeps a large app's question text out of
 every startup prompt.
 
+## Preview search settings
+
+`get_preview_search_settings` reads a saved app's available search destinations,
+their revisions, and the settings your team recorded for Preview. It needs
+`nova.preview.search.read`. Missing settings are returned as `null`.
+
+`set_preview_search_settings` saves your team's confirmed settings from an
+editing work with the destination, its expected revision and a request id. It
+needs `nova.preview.search.read` and `nova.preview.search.write`. Under
+`propertyMatchers`, `fuzzyProperties` chooses matching by record type and
+property. `ignoredText` lists each literal with its record type and property
+in the order it is removed across requested types. Two empty lists confirm exact
+matching. Existing credentials can add these grants when needed.
+
 ## Private work and saving
 
 App edits use a private workspace. Open one with `begin_work`, supplying a

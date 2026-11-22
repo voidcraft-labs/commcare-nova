@@ -36,46 +36,50 @@ export const searchTimeZoneSchema = z
 		}
 	}, "Choose an IANA time zone such as America/New_York.");
 
-const matcherSchema = z.strictObject({
+const propertyAddress = {
 	caseType: z.string().min(1).max(256),
 	property: z.string().min(1).max(256),
-	fuzzy: z.boolean(),
-	ignoreLiterals: z.array(z.string().min(1).max(256)).max(64),
+};
+
+const propertyMatchingSchema = z.strictObject({
+	fuzzyProperties: z
+		.array(z.strictObject({ ...propertyAddress, fuzzy: z.boolean() }))
+		.max(256)
+		.refine(
+			(rows) =>
+				new Set(rows.map((row) => JSON.stringify([row.caseType, row.property])))
+					.size === rows.length,
+			"Choose one matching method for each record type and property.",
+		),
+	// HQ processes each literal in the order its configuration supplies it,
+	// including repeated properties on types interleaved through that order.
+	ignoredText: z
+		.array(
+			z.strictObject({
+				...propertyAddress,
+				literal: z.string().min(1).max(256),
+			}),
+		)
+		.max(16384),
 });
 
-export const previewSearchValuesSchema = z
-	.strictObject({
-		maximum: z
-			.union([
-				z.literal(DEFAULT_SEARCH_RESULT_LIMIT),
-				z.literal(INCREASED_SEARCH_RESULT_LIMIT),
-			])
-			.nullable(),
-		timeZone: searchTimeZoneSchema.nullable(),
-		propertyMatchers: z.array(matcherSchema).max(256).nullable(),
-	})
-	.refine(({ propertyMatchers }) => {
-		const keys =
-			propertyMatchers?.map((row) =>
-				JSON.stringify([row.caseType, row.property]),
-			) ?? [];
-		return new Set(keys).size === keys.length;
-	}, "Give each record type and property one matching rule.");
-
+export const previewSearchValuesSchema = z.strictObject({
+	maximum: z
+		.union([
+			z.literal(DEFAULT_SEARCH_RESULT_LIMIT),
+			z.literal(INCREASED_SEARCH_RESULT_LIMIT),
+		])
+		.nullable(),
+	timeZone: searchTimeZoneSchema.nullable(),
+	propertyMatchers: propertyMatchingSchema.nullable(),
+});
 export type PreviewSearchValues = z.infer<typeof previewSearchValuesSchema>;
 
 /** Null is an unobserved fact; an empty matcher list confirms exact matching. */
 export interface PreviewSearchFacts {
 	readonly maximum: PreviewSearchValues["maximum"];
 	readonly timeZone: string | null;
-	readonly propertyMatchers:
-		| readonly {
-				readonly caseType: string;
-				readonly property: string;
-				readonly fuzzy: boolean;
-				readonly ignoreLiterals: readonly string[];
-		  }[]
-		| null;
+	readonly propertyMatchers: PreviewSearchValues["propertyMatchers"];
 	/** Present only when destinations disagree on their complete matcher lists.
 	 * A criterion can still have the same rules on all of them. */
 	readonly matcherAlternatives?: readonly PreviewSearchFacts["propertyMatchers"][];
@@ -91,7 +95,7 @@ export const unconfirmedSearchValues: PreviewSearchValues = {
 export const localSearchDefaults: PreviewSearchValues = {
 	maximum: DEFAULT_SEARCH_RESULT_LIMIT,
 	timeZone: "UTC",
-	propertyMatchers: [],
+	propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
 };
 
 export const previewSearchProfileSchema = z.strictObject({
@@ -155,18 +159,33 @@ export function previewSearchPropertyMatchers(
 	facts: PreviewSearchFacts,
 	requestedCaseTypes: readonly string[],
 	property: string,
-): PreviewSearchFacts["propertyMatchers"] {
+): {
+	readonly fuzzy: boolean;
+	readonly ignoreLiterals: readonly string[];
+} | null {
 	const candidates = facts.matcherAlternatives ?? [facts.propertyMatchers];
-	const applicable = candidates.map(
-		(list) =>
-			list?.filter(
-				(r) =>
-					r.property === property && requestedCaseTypes.includes(r.caseType),
-			) ?? null,
+	const applies = (row: { caseType: string; property: string }) =>
+		row.property === property && requestedCaseTypes.includes(row.caseType);
+	const effective = candidates.map(
+		(config) =>
+			config && {
+				fuzzy: config.fuzzyProperties.some((row) => row.fuzzy && applies(row)),
+				ignoreLiterals: config.ignoredText
+					.filter(applies)
+					.map((row) => row.literal),
+			},
 	);
-	const [first] = applicable;
+	const [first] = effective;
 	return first &&
-		applicable.every((rules) => JSON.stringify(rules) === JSON.stringify(first))
+		effective.every(
+			(matcher) =>
+				matcher !== null &&
+				matcher.fuzzy === first.fuzzy &&
+				matcher.ignoreLiterals.length === first.ignoreLiterals.length &&
+				matcher.ignoreLiterals.every(
+					(literal, index) => literal === first.ignoreLiterals[index],
+				),
+		)
 		? first
 		: null;
 }

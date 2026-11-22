@@ -201,14 +201,20 @@ export async function setPreviewSearchSettings(
 					);
 			}
 		}
-		const access = await resolveAppScopeInTransaction(
-			tx,
-			scope.appId,
-			actorId,
-			"edit",
-		);
-		if (access.projectId !== scope.projectId)
-			throw new AppAccessError("not_found");
+		if (!tool) {
+			// Deployment end, creation and resource-release transactions all take
+			// this app row FOR SHARE. Acquire the conflicting lock BEFORE reading
+			// eligible destinations, including a local profile with no deployment.
+			const access = await resolveAppScopeInTransaction(
+				tx,
+				scope.appId,
+				actorId,
+				"edit",
+				"update",
+			);
+			if (access.projectId !== scope.projectId)
+				throw new AppAccessError("not_found");
+		}
 		const catalog = await previewSearchCatalogIn(tx, scope);
 		const key = previewSearchTargetKey(target);
 		const profile = catalog.profiles.find(
