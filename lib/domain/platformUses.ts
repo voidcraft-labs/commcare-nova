@@ -28,7 +28,7 @@ import { walkSearchRuntimeValues } from "./expression/searchRuntimeValues";
 import { scalarDataType, typeOf } from "./expression/typeChecker";
 import type { CheckPath, Expression, SlotContextRef } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
-import { fieldDisplayValues } from "./fieldDisplay";
+import { choiceDisplayFeatures, fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import {
@@ -640,10 +640,33 @@ function fieldUses(
 		uses.push(slotUse("question-pages", owner, "kind"));
 	// Every display setting whose value a platform reads differently, found
 	// through the one registry, so a new setting needs no detector here.
-	for (const { key, row } of fieldDisplayValues(field)) {
+	const settings = fieldDisplayValues(field);
+	for (const { key, row } of settings) {
 		if (row.feature !== undefined && wanted(row.feature))
 			uses.push(slotUse(row.feature, owner, key));
 	}
+	for (const id of choiceDisplayFeatures(field)) {
+		if (wanted(id)) uses.push(slotUse(id, owner, "choiceLayout"));
+	}
+	if (
+		settings.length > 1 &&
+		!uses.some((use) => use.feature === "combined-question-display") &&
+		wanted("combined-question-display")
+	)
+		uses.push(slotUse("combined-question-display", owner, settings[0].key));
+	if (
+		field.kind === "barcode" &&
+		(field.addressLookup || field.receiveFrom) &&
+		!field.keypad &&
+		wanted("barcode-text-options")
+	)
+		uses.push(
+			slotUse(
+				"barcode-text-options",
+				owner,
+				field.addressLookup ? "addressLookup" : "receiveFrom",
+			),
+		);
 	if (
 		"plainLabel" in field &&
 		field.plainLabel === true &&

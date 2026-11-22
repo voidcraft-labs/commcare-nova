@@ -1,6 +1,8 @@
 "use client";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { DecimalField, IntField } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { usePreviewPlatform } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 
 interface NumberFieldProps {
@@ -20,6 +22,8 @@ export function NumberField({
 	onChange,
 	onBlur,
 }: NumberFieldProps) {
+	const platform = usePreviewPlatform();
+	const project = useProseProjection();
 	const showError = state.touched && !state.valid;
 
 	return (
@@ -34,7 +38,13 @@ export function NumberField({
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}
-				placeholder=""
+				placeholder={
+					platform === "web-apps" &&
+					field.hintPlacement === "placeholder" &&
+					field.hint
+						? (state.resolvedHint ?? project(field.hint))
+						: undefined
+				}
 				autoComplete="off"
 				data-1p-ignore
 				className={`nova-focusable w-full h-11 px-3 rounded-lg bg-pv-input-bg border text-sm text-nova-text placeholder:text-nova-text-muted outline-none transition-colors ${

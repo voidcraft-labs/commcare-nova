@@ -293,7 +293,8 @@ function formSections(doc: BlueprintDoc, ctx: FormContext): ValidationError[] {
 					field,
 					section ?? (field.kind === "section" ? field : undefined),
 					fieldListGroup ??
-						(field.kind === "group" && field.fieldList === true
+						(field.kind === "group" &&
+						(field.fieldList === true || field.compact === true)
 							? field
 							: undefined),
 				);

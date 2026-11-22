@@ -27,6 +27,10 @@
 
 import type { HqApplication } from "@/lib/commcare";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
+import {
+	holdsQuestionAppearance,
+	sameQuestionAppearance,
+} from "@/lib/commcare/hq/appearanceIdentity";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import {
 	entryFactsDifference,
@@ -159,51 +163,8 @@ function inRegion(path: string, roots: readonly string[]): boolean {
 	return roots.some((root) => path === root || path.startsWith(`${root}/`));
 }
 
-/** Two appearances as one: equal strings, or `field-list` in any letter case on both sides. */
-function sameAppearance(a: string | null, b: string | null): boolean {
-	if (a === b) return true;
-	return (
-		a !== null &&
-		b !== null &&
-		a.toLowerCase() === "field-list" &&
-		b.toLowerCase() === "field-list"
-	);
-}
-
-function sameMember(key: string, a: unknown, b: unknown): boolean {
-	return key === "appearance"
-		? sameAppearance(a as string | null, b as string | null)
-		: same(a, b);
-}
-
-/**
- * Whether a control holds one of the four appearances Nova writes
- * (`lib/commcare/xform/appearance.ts::fieldAppearance`): a trigger's
- * `minimal`, an image upload's `signature`, a group's `field-list` in any
- * letter case, and a text input's `numeric`. An appearance Nova holds is
- * never taken as inert on the reader's word.
- */
-export function holdsNovaAppearance(
-	record: AnswerLeaf | ContainerIdentity,
-): boolean {
-	const appearance = record.appearance;
-	if (appearance === null) return false;
-	if ("kind" in record)
-		return record.kind === "group" && appearance.toLowerCase() === "field-list";
-	switch (record.control) {
-		case "trigger":
-			return appearance === "minimal";
-		case "upload":
-			return (
-				record.mediatype?.startsWith("image/") === true &&
-				appearance === "signature"
-			);
-		case "input":
-			return record.typeClass === "text" && appearance === "numeric";
-		default:
-			return false;
-	}
-}
+/** A worker or editor reads this appearance. A reader cannot waive it as inert. */
+export const holdsNovaAppearance = holdsQuestionAppearance;
 
 /** The case region of a form Nova writes: each authored scope's three containers. */
 function emittedCaseRegion(doc: BlueprintDoc, formUuid: Uuid): string[] {
@@ -652,7 +613,11 @@ function formDifferences(input: {
 			differ(["leaf", "missing"], at(path), `${path} is not written`);
 			continue;
 		}
-		const key = LEAF_KEYS.find((one) => !sameMember(one, a[one], e[one]));
+		const key = LEAF_KEYS.find((one) =>
+			one === "appearance"
+				? !sameQuestionAppearance(a, e)
+				: !same(a[one], e[one]),
+		);
 		if (key !== undefined)
 			differ(
 				["leaf", key],
@@ -676,7 +641,11 @@ function formDifferences(input: {
 			differ(["container", "missing"], at(path), `${path} is not written`);
 			continue;
 		}
-		const key = CONTAINER_KEYS.find((one) => !sameMember(one, a[one], e[one]));
+		const key = CONTAINER_KEYS.find((one) =>
+			one === "appearance"
+				? !sameQuestionAppearance(a, e)
+				: !same(a[one], e[one]),
+		);
 		if (key !== undefined)
 			differ(
 				["container", key],

@@ -15,10 +15,13 @@
 import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const videoFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("video"),
+	sendTopics: displaySchemas.sendTopics.optional(),
+	captureSource: z.literal("camera").optional(),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),

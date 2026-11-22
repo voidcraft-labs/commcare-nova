@@ -2,6 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerCamera from "@iconify-icons/tabler/camera";
+import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerVideo from "@iconify-icons/tabler/video";
@@ -58,6 +59,7 @@ import {
 	stageAttachment,
 	subscribeAttachmentSlotState,
 } from "./attachmentClient";
+import { FramedPhoto } from "./FramedPhoto";
 import { SignaturePad } from "./SignaturePad";
 
 /**
@@ -250,6 +252,9 @@ function AttachmentControl({
 	const platform = usePreviewPlatform();
 	const rules = usePreviewPlatformRules();
 	const limits = CAPTURE_LIMITS[platform];
+	const drawsSignature =
+		field.kind === "signature" ||
+		(field.kind === "image" && field.webSignature && platform === "web-apps");
 	const projectProse = useProseProjection();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const inputId = useId();
@@ -440,7 +445,7 @@ function AttachmentControl({
 				slotKey,
 				kind: "save",
 			});
-			if (field.kind !== "signature") {
+			if (!drawsSignature) {
 				rememberAttachmentSlotDraft({
 					appId,
 					entryKey,
@@ -498,6 +503,7 @@ function AttachmentControl({
 								attachmentId: previous.attachmentId,
 							});
 					},
+					file.name,
 				);
 				return committed ? "committed" : "canceled";
 			} catch (err) {
@@ -514,13 +520,12 @@ function AttachmentControl({
 					slotKey,
 					issue: {
 						kind: "save",
-						message:
-							field.kind === "signature"
-								? "This signature could not be saved. Retry now or use Clear signature."
-								: message,
+						message: drawsSignature
+							? "This signature could not be saved. Retry now or use Clear signature."
+							: message,
 					},
 				});
-				if (field.kind !== "signature") {
+				if (!drawsSignature) {
 					rememberAttachmentSlotDraft({
 						appId,
 						entryKey,
@@ -546,7 +551,7 @@ function AttachmentControl({
 		[
 			appId,
 			entryKey,
-			field.kind,
+			drawsSignature,
 			field.uuid,
 			slotKey,
 			currentPath,
@@ -598,7 +603,7 @@ function AttachmentControl({
 		if (
 			activeIntent !== "idle" &&
 			!(
-				field.kind === "signature" &&
+				drawsSignature &&
 				(activeIntent === "queued-upload" ||
 					activeIntent === "uploading" ||
 					activeIntent === "queued-retarget")
@@ -667,7 +672,7 @@ function AttachmentControl({
 	}, [
 		appId,
 		entryKey,
-		field.kind,
+		drawsSignature,
 		field.uuid,
 		slotKey,
 		currentPath,
@@ -747,7 +752,7 @@ function AttachmentControl({
 		}
 		if (slotIssue.kind === "invariant") return;
 		if (slotIssue.kind === "save" || slotIssue.kind === "replace") {
-			if (field.kind !== "signature") {
+			if (!drawsSignature) {
 				const retainedDraft = getAttachmentSlotDraft({
 					appId,
 					entryKey,
@@ -774,7 +779,7 @@ function AttachmentControl({
 	}, [
 		appId,
 		entryKey,
-		field.kind,
+		drawsSignature,
 		slotIssue,
 		slotKey,
 		blurCurrent,
@@ -815,11 +820,11 @@ function AttachmentControl({
 	const uploadActive = intent === "queued-upload" || intent === "uploading";
 	const chooseFileRecovery =
 		(slotIssue?.kind === "save" || slotIssue?.kind === "replace") &&
-		field.kind !== "signature" &&
+		!drawsSignature &&
 		slotDraft === undefined;
 	const showRecoveryAction =
 		slotIssue?.kind !== "invariant" &&
-		!(slotIssue?.kind === "replace" && field.kind === "signature");
+		!(slotIssue?.kind === "replace" && drawsSignature);
 	const showError = state.touched && !state.valid;
 	const labelledBy = questionLabelledBy ?? questionLabelId;
 	const describedBy = [
@@ -834,7 +839,7 @@ function AttachmentControl({
 
 	return (
 		<div className="space-y-2">
-			{field.kind === "signature" ? (
+			{drawsSignature ? (
 				<SignaturePad
 					entryKey={entryKey}
 					instancePath={path}
@@ -877,27 +882,70 @@ function AttachmentControl({
 			) : deviceCapture ? (
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					{field.kind === "audio" ? (
-						<AudioRecorder
-							disabled={interactionBlocked}
-							labelledBy={labelledBy}
-							onRecorded={(file) => void pickOnDevice(file)}
-						/>
+						<>
+							{field.recorder === "legacy" ? (
+								<DeviceCaptureInput
+									label="recordSound"
+									icon={tablerMicrophone}
+									accept="audio/*"
+									camera
+									disabled={interactionBlocked}
+									labelledBy={labelledBy}
+									describedBy={describedBy}
+									onFile={(file) => void pickOnDevice(file)}
+								/>
+							) : (
+								<AudioRecorder
+									allowPause={field.pauseRecording === true}
+									disabled={interactionBlocked}
+									labelledBy={labelledBy}
+									onRecorded={(file) => void pickOnDevice(file)}
+								/>
+							)}
+							{(field.recorder === "legacy" ||
+								field.captureSource === "record-or-choose") && (
+								<DeviceCaptureInput
+									label="chooseAudio"
+									icon={tablerMicrophone}
+									accept="audio/*"
+									camera={false}
+									disabled={interactionBlocked}
+									labelledBy={labelledBy}
+									describedBy={describedBy}
+									onFile={(file) => void pickOnDevice(file)}
+								/>
+							)}
+						</>
 					) : (
-						DEVICE_CAPTURE_INPUTS[
-							field.kind === "video" ? "video" : "image"
-						].map((input) => (
-							<DeviceCaptureInput
-								key={input.label}
-								label={input.label}
-								icon={input.icon}
-								accept={input.accept}
-								camera={input.camera}
-								disabled={interactionBlocked}
-								labelledBy={labelledBy}
-								describedBy={describedBy}
-								onFile={(file) => void pickOnDevice(file)}
-							/>
-						))
+						DEVICE_CAPTURE_INPUTS[field.kind === "video" ? "video" : "image"]
+							.filter(
+								(input) =>
+									!(field.kind === "image" || field.kind === "video") ||
+									field.captureSource !== "camera" ||
+									input.camera,
+							)
+							.map((input) =>
+								field.kind === "image" && field.overlaySize && input.camera ? (
+									<FramedPhoto
+										key={input.label}
+										disabled={interactionBlocked}
+										labelledBy={labelledBy}
+										onFile={(file) => void pickOnDevice(file)}
+									/>
+								) : (
+									<DeviceCaptureInput
+										key={input.label}
+										label={input.label}
+										icon={input.icon}
+										accept={input.accept}
+										camera={input.camera}
+										disabled={interactionBlocked}
+										labelledBy={labelledBy}
+										describedBy={describedBy}
+										onFile={(file) => void pickOnDevice(file)}
+									/>
+								),
+							)
 					)}
 					{uploadActive ? (
 						<button
@@ -1054,7 +1102,7 @@ function AttachmentControl({
 
 			{/* The whole confirmation a worker gets: a name, or nothing. Matches
 			    `entry_file.html`'s `fileNameDisplay`. */}
-			{field.kind !== "signature" ? (
+			{!drawsSignature ? (
 				<p
 					id={statusId}
 					role="status"
@@ -1082,7 +1130,7 @@ function AttachmentControl({
 
 			{!mayEdit ? (
 				<p className="text-xs text-nova-text-muted">
-					{field.kind === "signature"
+					{drawsSignature
 						? "Project editors can attach signatures."
 						: "Project editors can attach files."}
 				</p>
@@ -1114,9 +1162,7 @@ function AttachmentControl({
 								aria-label={`${
 									chooseFileRecovery
 										? "Choose file"
-										: `Retry ${
-												field.kind === "signature" ? "signature" : "attachment"
-											}`
+										: `Retry ${drawsSignature ? "signature" : "attachment"}`
 								} for ${accessibleQuestionLabel}`}
 								aria-labelledby={
 									labelledBy ? `${retryActionId} ${labelledBy}` : undefined
@@ -1128,7 +1174,7 @@ function AttachmentControl({
 								</span>
 							</button>
 						) : null}
-						{field.kind === "signature" ? null : (
+						{drawsSignature ? null : (
 							<button
 								type="button"
 								onClick={clear}

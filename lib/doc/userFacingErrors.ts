@@ -1443,6 +1443,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every field belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
 	FORM_SECTION_USER_REPEAT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} lets people add entries, but it sits inside section ${q(det(e, "sectionTitle", det(e, "sectionId", "")))}, and a section shows on one screen where entries can't be added. Move the repeat out of the sections, or give it a fixed count.`,
+	QUESTION_DISPLAY_COMBINATION_INVALID: (e) =>
+		`${q(fieldName(e))}. ${e.message}`,
 	FIELD_LIST_USER_REPEAT: (e) => {
 		const group = q(det(e, "groupTitle", det(e, "groupId", "")));
 		return `${q(formName(e))} has repeat ${q(fieldName(e))} inside ${group}, which shows its questions on one screen, and that repeat lets the worker add entries. The CommCare app can't add entries on a shared screen. You can let ${group} show one question per screen, or give the repeat a fixed count.`;

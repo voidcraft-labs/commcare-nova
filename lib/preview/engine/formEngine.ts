@@ -22,6 +22,7 @@
  * doc's `fields`/`fieldOrder` maps). Internally it walks the fields as a
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
+
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
@@ -81,8 +82,14 @@ import {
 	effectiveQueryRepeatPlacement,
 	type QueryRepeatPlacement,
 } from "@/lib/domain/queryRepeatPlacement";
+import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
+import {
+	type QuestionMessage,
+	questionChannelScope,
+	receivedAnswer,
+} from "../displayMessages";
 import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
 import { toBoolean, xpathToString } from "../xpath/coerce";
@@ -553,7 +560,7 @@ function pageUuid(page: FormScreenPage): string {
  *  (`lib/commcare/xform/builder.ts::buildContainer`), labelled or not. Any
  *  other group is transparent, its questions paged one per screen. */
 function groupDrawsAsFieldList(field: Field & { kind: "group" }): boolean {
-	return field.fieldList === true;
+	return field.fieldList === true || field.compact === true;
 }
 
 /** The engine paths one screen holds: every path for the whole form, else
@@ -1305,7 +1312,7 @@ export class FormEngine {
 		typed: string,
 	): { readonly shown: string; readonly stores: boolean } {
 		const field = this.findField(path);
-		if (field?.kind !== "text" || field.keypad === undefined)
+		if (!field || !usesNumberKeypad(field, this.device.platform))
 			return { shown: typed, stores: true };
 		const shown = numberKeypadTyped(this.rules.numberKeypad, typed);
 		return {
@@ -3018,6 +3025,33 @@ export class FormEngine {
 	 *  use `useStore(engine.store, s => s[path])` in components. */
 	getState(path: string): FieldState {
 		return this.store.getState()[path] ?? DEFAULT_ENGINE_STATE;
+	}
+
+	/** Determine concrete receiver answers in sender topic order using this
+	 * entry's published fields, active-language labels and filtered choices. */
+	displayMessageAnswers(
+		senderPath: string,
+		message: QuestionMessage,
+	): { path: string; value: string }[] {
+		if (this.device.platform !== "web-apps") return [];
+		const sender = this.findField(senderPath);
+		if (!sender || !("sendTopics" in sender) || !sender.sendTopics) return [];
+		const scope = questionChannelScope(senderPath);
+		const targets = Object.entries(this.store.getState()).flatMap(
+			([path, state]) => {
+				if (questionChannelScope(path) !== scope || !state.visible) return [];
+				const receiver = this.findField(path);
+				if (!receiver || !("receiveFrom" in receiver) || !receiver.receiveFrom)
+					return [];
+				const value = receivedAnswer(receiver, state, message);
+				return value === undefined
+					? []
+					: [{ path, value, channel: receiver.receiveFrom.channel }];
+			},
+		);
+		return sender.sendTopics.flatMap((channel) =>
+			targets.filter((target) => target.channel === channel),
+		);
 	}
 
 	/** Get the engine's active field tree — used by the controller when it

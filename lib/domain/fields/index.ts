@@ -19,6 +19,7 @@
 // module graph acyclic with the XPathField/reference provider chain.
 
 import { z } from "zod";
+import { multiChoiceLayoutSchema } from "../choicePresentation";
 import type { FieldKindMetadata } from "../kinds";
 import type { ProseTemplate } from "../prose";
 import { type AudioField, audioFieldMetadata, audioFieldSchema } from "./audio";
@@ -584,6 +585,27 @@ export function reconcileFieldForKind(
 	seed?: { optionsSource?: SelectOptionsSource; label?: ProseTemplate },
 ): Field | undefined {
 	const candidate: Record<string, unknown> = { ...source, kind: toKind };
+	if (
+		source.kind === "single_select" &&
+		toKind === "multi_select" &&
+		source.choiceLayout
+	) {
+		// Both grids share a column count. Only a single answer can finish a page.
+		const layout = source.choiceLayout;
+		if (layout.kind === "grid")
+			candidate.choiceLayout =
+				layout.columns === undefined
+					? { kind: "grid" }
+					: { kind: "grid", columns: layout.columns };
+		else if (
+			layout.kind === "search" ||
+			layout.kind === "advance-on-choice" ||
+			layout.kind === "buttons" ||
+			(layout.kind === "platforms" &&
+				!multiChoiceLayoutSchema.safeParse(layout).success)
+		)
+			delete candidate.choiceLayout;
+	}
 	// A label seed fills only a label the source lacks: it exists for a
 	// conversion out of a kind with no label (a Hidden Value back to a
 	// question), whose destination requires one.
@@ -608,6 +630,13 @@ export function reconcileFieldForKind(
 	if (toKind === "repeat" && candidate.repeat_mode === undefined) {
 		candidate.repeat_mode = "user_controlled";
 	}
+	if (toKind === "barcode" && candidate.keypad === "android-numbers")
+		delete candidate.keypad;
+	if (
+		candidate.captureSource !== undefined &&
+		(toKind === "audio") !== (candidate.captureSource === "record-or-choose")
+	)
+		delete candidate.captureSource;
 	const filtered = pickFieldKeysForKind(candidate, toKind);
 	const result = fieldSchema.safeParse(filtered);
 	if (!result.success) {

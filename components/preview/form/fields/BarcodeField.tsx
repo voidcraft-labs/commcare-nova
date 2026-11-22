@@ -4,10 +4,16 @@ import {
 	BarcodeScanner,
 	useBarcodeScanSupport,
 } from "@/components/preview/shared/BarcodeScanner";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { BarcodeField as BarcodeFieldEntity } from "@/lib/domain";
+import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	useEditMode,
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 
 interface BarcodeFieldProps {
@@ -34,6 +40,7 @@ interface BarcodeFieldProps {
  * and typing stays available. Edit mode draws the text box alone.
  */
 export function BarcodeField({
+	field,
 	state,
 	labelledBy,
 	questionLabel,
@@ -43,12 +50,23 @@ export function BarcodeField({
 	const isEditMode = useEditMode() === "edit";
 	const rules = usePreviewPlatformRules();
 	const scans = !isEditMode && rules.barcodeQuestion === "scan-or-text";
+	const platform = usePreviewPlatform();
+	const project = useProseProjection();
 	const showError = state.touched && !state.valid;
 	return (
 		<div>
 			<div className="flex items-start gap-2">
 				<input
 					type="text"
+					inputMode={usesNumberKeypad(field, platform) ? "tel" : undefined}
+					placeholder={
+						platform === "web-apps" &&
+						field.hintPlacement === "placeholder" &&
+						field.hint
+							? (state.resolvedHint ?? project(field.hint))
+							: undefined
+					}
+					readOnly={scans && !field.canEditScan}
 					aria-labelledby={labelledBy}
 					aria-invalid={showError || undefined}
 					value={state.value}
@@ -63,6 +81,7 @@ export function BarcodeField({
 				{scans ? (
 					<BarcodeScan
 						label={questionLabel ?? ""}
+						openOnMount={!!field.scanOnOpen && !state.value}
 						onScan={(value) => {
 							onChange(value);
 							onBlur();
@@ -78,10 +97,12 @@ export function BarcodeField({
 }
 
 function BarcodeScan({
+	openOnMount,
 	label,
 	onScan,
 }: {
 	readonly label: string;
+	readonly openOnMount: boolean;
 	readonly onScan: (value: string) => void;
 }) {
 	const { language } = useBuilderLanguage();
@@ -90,6 +111,7 @@ function BarcodeScan({
 		return (
 			<BarcodeScanner
 				label={label}
+				openOnMount={openOnMount}
 				scanLabel={runtimeMessage(language, "scanBarcode")}
 				support={support}
 				onScan={onScan}
@@ -98,8 +120,7 @@ function BarcodeScan({
 	if (support.kind === "unsupported")
 		return (
 			<p className="max-w-48 text-xs text-nova-text-muted">
-				Your browser doesn&apos;t support camera scanning. You can type the
-				barcode
+				Camera scanning is unavailable in this browser
 			</p>
 		);
 	return null;

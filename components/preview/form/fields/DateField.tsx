@@ -1,5 +1,6 @@
 "use client";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { AlternateDatePicker } from "@/components/preview/shared/AlternateDatePicker";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { TimeField as ClockTimeField } from "@/components/shadcn/time-field";
 import type {
@@ -7,6 +8,7 @@ import type {
 	DatetimeField,
 	TimeField,
 } from "@/lib/domain";
+import { hasOtherDisplay } from "@/lib/domain/questionDisplay";
 import {
 	paddedTimeOfDay,
 	storageDatetimeValue,
@@ -15,6 +17,7 @@ import {
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { usePreviewPlatform } from "@/lib/session/hooks";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { ValidationError } from "./ValidationError";
 
@@ -107,6 +110,7 @@ export function DateField({
 	onChange,
 	onBlur,
 }: DateFieldProps) {
+	const platform = usePreviewPlatform();
 	const { language } = useBuilderLanguage();
 	const showError = state.touched && !state.valid;
 	const stored = state.value;
@@ -115,6 +119,29 @@ export function DateField({
 	);
 
 	if (field.kind === "date") {
+		const calendar = field.calendar;
+		const usesCalendar =
+			calendar === "ethiopian"
+				? platform === "web-apps" || !hasOtherDisplay(field, "calendar")
+				: !!calendar && platform === "android";
+		if (usesCalendar && calendar)
+			return (
+				<div>
+					<AlternateDatePicker
+						calendar={
+							calendar === "gregorian-with-cancel" ? "gregorian" : calendar
+						}
+						allowCancel={calendar === "gregorian-with-cancel"}
+						value={stored}
+						onChange={onChange}
+						onBlur={onBlur}
+						invalid={!!showError}
+						labelledBy={labelledBy}
+					/>
+					{errorSlot}
+				</div>
+			);
+
 		return (
 			<div>
 				<WorkerDatePicker
@@ -137,7 +164,15 @@ export function DateField({
 		return (
 			<div>
 				<ClockTimeField
-					value={formatClockTime(stored) ?? stored}
+					placeholder={
+						platform === "web-apps" && !field.clock ? "14:30" : "2:30 PM"
+					}
+					value={
+						formatClockTime(
+							stored,
+							platform === "android" || field.clock === "twelve-hour",
+						) ?? stored
+					}
 					onValueChange={onChange}
 					onBlur={(text) => {
 						onChange(storageTimeValue(parseClockTime(text) ?? text));

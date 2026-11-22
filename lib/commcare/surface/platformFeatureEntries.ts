@@ -54,6 +54,71 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"questions/question-list-unlabelled-anywhere-else",
 		"questions/groups-nested-in-a-question-list",
 	],
+	"choice-grid": [
+		"questions/select1-compact-compact-n",
+		"questions/select-compact-compact-n",
+	],
+	"choice-advance": [
+		"questions/select1-quick",
+		"questions/select1-quick-compact-n",
+	],
+	"choice-multiword": ["questions/select1-combobox-multiword"],
+	"choice-fuzzy": ["questions/select1-combobox-fuzzy"],
+	"choice-row": ["questions/select1-list", "questions/select-list"],
+	"choice-cycle": ["questions/select1-button-select"],
+	"question-receiver": [
+		"questions/select1-receive-topic-field",
+		"questions/text-receive-topic-field",
+	],
+	"secret-keypad": ["questions/secret-numeric"],
+	"android-keypad": ["questions/text-secret-numbers"],
+	"short-input": ["questions/short"],
+	"medium-input": ["questions/medium"],
+	"address-lookup": ["questions/text-address"],
+	"question-sender": [
+		"questions/broadcast-topic-an-address-entry-under-the-gates-above-and",
+	],
+	"barcode-text-options": [
+		"questions/barcode-numeric-address-or-receive-topic-field",
+	],
+	"placeholder-hint": [
+		"questions/hint-as-placeholder-on-text-other-than-a-secret-without-numeric",
+	],
+	"hide-web-hint": ["questions/hint-as-placeholder-on-any-other-entry"],
+	"auto-scan": ["questions/barcode-quick"],
+	"android-calendar": [
+		"questions/date-nepali",
+		"questions/date-gregorian-gregorian-cancel",
+	],
+	"twelve-hour-clock": ["questions/time-12-hour"],
+	"android-map": ["questions/geopoint-maps"],
+	"edit-scan": ["questions/barcode-editable"],
+	"camera-only": ["questions/image-acquire", "questions/video-acquire"],
+	"photo-overlay": ["questions/image-overlay-small"],
+	"classic-recorder": ["questions/audio-legacy"],
+	"record-or-choose": ["questions/audio-acquire-or-upload"],
+	"long-recording": ["questions/audio-long"],
+	"select-label-text": ["questions/trigger-selectable"],
+	"question-banner": ["questions/floating-good-floating-caution-floating-bad"],
+	"hidden-label": [
+		"questions/a-label-whose-appearance-string-starts-with-floating-other-than",
+	],
+	"compact-group": ["questions/group-compact"],
+	"collapse-group": [
+		"questions/group-group-collapse",
+		"questions/group-collapse-open",
+	],
+	"group-border": ["questions/group-group-border"],
+	"questions-across": [
+		"questions/n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one",
+	],
+	"repeats-across": [
+		"questions/n-per-row-repeat-group-with-a-repeat-as-a-direct-child-n-one-or",
+	],
+	"question-alignment": ["questions/text-align-center-text-align-right"],
+	"combined-question-display": [
+		"questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
+	],
 	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
 	"plain-text": [
 		"questions/plain-label-containing-html-text",
@@ -162,6 +227,14 @@ export const PLATFORM_FEATURE_ENTRIES = {
 
 /** HELD entries that differ by platform and that no author choice reaches, with why. */
 export const AMBIENT_PLATFORM_ENTRIES = {
+	"questions/any-other-per-row-token-the-first-token-web-apps-per-row-pattern":
+		"Nova writes the normalized number of items or repeats per row. The spelling of an equivalent number is determined at export.",
+	"questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that":
+		"Nova writes the active settings. An unrecognized word alongside them is never an author choice.",
+	"questions/a-single-string-no-row-names-that-holds-values-android-matches":
+		"Nova writes the Android control and its parameters using their canonical spelling. An incidental substring is never an author choice.",
+	"questions/a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of":
+		"Nova writes the calendar, camera, map and keyboard settings using their canonical spelling. Capitalization is outside the document.",
 	"application-and-settings/hq-default-app-strings":
 		"Every local archive carries HQ's default strings; Web Apps reads HQ's build, not Nova's archive.",
 	"application-and-settings/translations-lang-code-language-display-names-equal-to-the-label":

@@ -343,3 +343,7 @@ An architect that consumes its durable request allowance pauses through the same
 message continuation contract as an ordinary pause. Completed tool effects remain
 acknowledged, reconnect spends no new request, and a new user turn may continue.
 A final accepted response may complete at the exact allowance.
+
+### Question display in shared tools
+
+`toolSchemaGenerator.ts::questionDisplayFields` projects one set of optional display settings into both `addFields` and `editField`. The flat tool schema carries the union of choices and validates each field's values through its kind-specific patch schema. A null clears a setting on an edit. Structured choice layouts, counts, channels and returned fields go to the same mutation slots the visual inspector uses.

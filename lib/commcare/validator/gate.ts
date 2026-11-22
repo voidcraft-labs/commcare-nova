@@ -287,6 +287,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_SECTION_NOT_TOP_LEVEL: "soundness",
 	FORM_SECTIONS_INCOMPLETE: "soundness",
 	FORM_SECTION_USER_REPEAT: "soundness",
+	QUESTION_DISPLAY_COMBINATION_INVALID: "soundness",
 	FIELD_LIST_USER_REPEAT: "soundness",
 	// A form's own case is one operation, first, on exactly the forms that
 	// have one; its effects stand apart from every other operation's.

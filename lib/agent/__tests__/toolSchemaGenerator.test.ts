@@ -68,9 +68,17 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
-	it("takes a number keypad on a Text question alone, on both tools", () => {
-		const keypad = { ...validAddPayload("text"), keypad: "numbers" };
-		expect(generated.addFieldsItemSchema.safeParse(keypad).success).toBe(true);
+	it("takes a supported number keypad on text, password and barcode questions and clears it on edit", () => {
+		for (const kind of ["text", "secret", "barcode"] as const) {
+			const keypad = { ...validAddPayload(kind), keypad: "numbers" };
+			expect(generated.addFieldsItemSchema.safeParse(keypad).success).toBe(
+				true,
+			);
+			expect(
+				generated.editFieldUpdatesSchema.safeParse({ kind, keypad: null })
+					.success,
+			).toBe(true);
+		}
 		// A whole-number question is the quantity a number keypad is not for.
 		const onInt = generated.addFieldsItemSchema.safeParse({
 			...validAddPayload("int"),
@@ -94,7 +102,7 @@ describe("toolSchemaGenerator", () => {
 		).toBe(true);
 		expect(
 			generated.editFieldUpdatesSchema.safeParse({
-				kind: "secret",
+				kind: "int",
 				keypad: null,
 			}).success,
 		).toBe(false);

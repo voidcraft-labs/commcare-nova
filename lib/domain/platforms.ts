@@ -21,6 +21,10 @@
 import type { BlueprintDoc } from "./blueprint";
 import type { Expression } from "./expression/types";
 import type { FieldKind } from "./fields";
+import {
+	questionDisplayPlatformIds,
+	questionDisplayPlatforms,
+} from "./questionDisplayPlatforms";
 
 const connectFormLocation =
 	"every form a worker submits includes the device's location if CommCare has location permission and the device gets a GPS fix";
@@ -199,6 +203,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"video-question",
 	"question-pages",
 	"number-keypad",
+	...questionDisplayPlatformIds,
 	"plain-text",
 	"choice-media",
 	"help-media",
@@ -496,6 +501,7 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "the whole form shows on one page" },
 		android: { reading: "runs", note: "each page shows on its own screen" },
 	},
+	...questionDisplayPlatforms,
 	"number-keypad": {
 		label: "Number keypad",
 		channel: "structure",

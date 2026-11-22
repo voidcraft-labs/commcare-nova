@@ -13,6 +13,7 @@
 
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import { z } from "zod";
+import { multiChoiceLayoutSchema } from "../choicePresentation";
 import type { FieldKindMetadata } from "../kinds";
 import {
 	formLogicSchema,
@@ -24,6 +25,7 @@ import { selectOptionsSourceSchema } from "./selectOptionsSource";
 export const multiSelectFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("multi_select"),
 	optionsSource: selectOptionsSourceSchema,
+	choiceLayout: multiChoiceLayoutSchema.optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),

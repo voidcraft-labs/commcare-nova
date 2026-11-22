@@ -2594,3 +2594,7 @@ Preview column display context shares those labels with the quick filter. Its
 image description supplies the accessible name while preserving the case value.
 A field's search check can combine an authored predicate and a generated
 guard. A generated wording override replaces that complete message.
+
+### Worker question presentation
+
+`choiceMatch.ts` selects the match rule of the active platform. `workerCalendar.ts` maps calendar days to civil ISO dates, including the Nepali year lengths at the Core pin. `questionRows.ts` uses the Web Apps twelve-column rule. A Web Apps address or attachment publishes only to the concrete form or repeat instance that owns its question. Capture publishes the original filename after successful acceptance. Receivers use the ordinary answer queue, including validation and calculation. A quick Android choice advances through the pager's ordinary validated Next action.

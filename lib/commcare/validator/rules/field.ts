@@ -44,6 +44,7 @@ import {
 	questionIdProblemSentence,
 } from "@/lib/domain/questionId";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
+import { fieldDisplayProblem } from "../../xform/readDisplaySettings";
 import { type ValidationError, validationError } from "../errors";
 
 /** Presence is structural; a parsed expression cannot be an empty source string. */
@@ -607,7 +608,33 @@ function queryRepeatModelIterationShape(
 	];
 }
 
+function displayCombination(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	const problem =
+		field.kind === "group" &&
+		field.repeatsPerRow !== undefined &&
+		!(ctx.doc.fieldOrder[field.uuid] ?? []).some(
+			(child) => ctx.doc.fields[child]?.kind === "repeat",
+		)
+			? "This group needs a repeat to lay out its entries. You can add a repeat or clear Repeat items per row."
+			: fieldDisplayProblem(field);
+	if (!problem) return [];
+	return [
+		validationError("QUESTION_DISPLAY_COMBINATION_INVALID", "field", problem, {
+			fieldUuid: field.uuid,
+			fieldId: field.id,
+			formName: ctx.formName,
+			formUuid: ctx.formUuid,
+			moduleName: ctx.moduleName,
+			moduleUuid: ctx.moduleUuid,
+		}),
+	];
+}
+
 const FIELD_RULES = [
+	displayCombination,
 	selectNoOptions,
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,

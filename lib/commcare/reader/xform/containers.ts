@@ -224,18 +224,25 @@ export function readContainers(input: ReadContainersInput): void {
 						input.intents,
 					),
 					place,
+					field,
 				).inert
 			)
 				input.inertAppearance(field.node.path.join("/"));
 		}
-		if (fieldList) refuseUserRepeats(field, input, accounting);
+		if (fieldList || field.field.compact)
+			refuseUserRepeats(field, input, accounting);
 	}
 }
 
 /** Whether a container above the field is a Question List, or a section, which is one. */
 function insideQuestionList(field: DraftField): boolean {
 	for (let at = field.parent; at !== null; at = at.parent)
-		if (at.kind === "section" || at.field.fieldList === true) return true;
+		if (
+			at.kind === "section" ||
+			at.field.fieldList === true ||
+			at.field.compact === true
+		)
+			return true;
 	return false;
 }
 

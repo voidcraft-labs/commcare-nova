@@ -9,6 +9,7 @@
  * manifest's Appearances rows.
  */
 
+import type { FieldKind } from "@/lib/domain";
 import { recordFromEntries } from "@/lib/domain/records";
 import { circumstanceFinding, type HqPlace } from "@/lib/publish/hqFindings";
 import { type SourceTable, tableOf } from "../../sourceKeys";
@@ -20,8 +21,9 @@ import {
 } from "../../xform/appearance";
 import { fieldKindBindType } from "../../xform/bindType";
 import { UPLOAD_MEDIATYPE_BY_CAPTURE_KIND } from "../../xform/captureUpload";
+import { readFieldAppearance } from "../../xform/readDisplaySettings";
 import type { Accounting } from "../accounting";
-import { account, type Claim, defineClaims, refuse } from "../claims";
+import { account, type Claim, defineClaims, refuse, take } from "../claims";
 import type { XmlCursor } from "../xmlCursor";
 import { type ControlNode, isFieldListAppearance, wrapsRepeat } from "./body";
 import { stripXsd } from "./kinds";
@@ -331,13 +333,71 @@ export interface AppearanceRow {
 	) => boolean;
 	/** The table's second column: whether the whole appearance string is one the row names. */
 	readonly matches: (value: string) => boolean;
-	/** Always an `account` claim. */
-	readonly claim: Claim<"account">;
+	/** Held rows take the control’s values. Other rows account for a finding. */
+	readonly claim: Claim<"account" | "take">;
 }
 
+const DISPLAY_ROWS = new Set([
+	"select1-minimal",
+	"select1-compact-compact-n",
+	"select1-quick",
+	"select1-quick-compact-n",
+	"select1-combobox",
+	"select1-combobox-multiword",
+	"select1-combobox-fuzzy",
+	"select1-list",
+	"select1-list-nolabel",
+	"select1-label",
+	"select1-button-select",
+	"select1-receive-topic-field",
+	"select-minimal",
+	"select-compact-compact-n",
+	"select-list",
+	"select-list-nolabel",
+	"select-label",
+	"secret-numeric",
+	"text-secret-numbers",
+	"short",
+	"medium",
+	"text-address",
+	"broadcast-topic-an-address-entry-under-the-gates-above-and",
+	"text-receive-topic-field",
+	"barcode-numeric-address-or-receive-topic-field",
+	"hint-as-placeholder-on-text-other-than-a-secret-without-numeric",
+	"hint-as-placeholder-on-any-other-entry",
+	"barcode-quick",
+	"date-ethiopian",
+	"date-nepali",
+	"date-gregorian-gregorian-cancel",
+	"time-12-hour",
+	"geopoint-maps",
+	"barcode-editable",
+	"image-acquire",
+	"image-overlay-small",
+	"audio-legacy",
+	"audio-acquire-or-upload",
+	"audio-long",
+	"video-acquire",
+	"trigger-selectable",
+	"floating-good-floating-caution-floating-bad",
+	"a-label-whose-appearance-string-starts-with-floating-other-than",
+	"group-compact",
+	"group-group-collapse",
+	"group-collapse-open",
+	"group-group-border",
+	"n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one",
+	"n-per-row-repeat-group-with-a-repeat-as-a-direct-child-n-one-or",
+	"any-other-per-row-token-the-first-token-web-apps-per-row-pattern",
+	"text-align-center-text-align-right",
+	"multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
+	"a-multi-token-string-holding-tokens-no-runtime-reads-on-that",
+	"a-single-string-no-row-names-that-holds-values-android-matches",
+	"a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of",
+]);
+
 /** One row's claim, registered under the entry's id less its area. */
-function rowClaim(id: string, key: string): Claim<"account"> {
-	const claim = account(`questions/${id}`, key);
+function rowClaim(id: string, key: string): Claim<"account" | "take"> {
+	const claim = (DISPLAY_ROWS.has(id) ? take : account)(`questions/${id}`, key);
 	defineClaims("xform-appearance", recordFromEntries([[id, claim]]));
 	return claim;
 }
@@ -358,8 +418,8 @@ const exactly =
 		values.includes(value);
 /** `<n>`: one or more digits. */
 const COMPACT_N = /^compact-\d+$/;
-const RECEIVE = /^receive-[^\s-]+-\S+$/;
-const BROADCAST = /^broadcast-\S+$/;
+const RECEIVE = /^receive-[^ ]*-[^ -]*$/;
+const BROADCAST = /^broadcast-[^ ]*$/;
 const FLOATING = ["floating-good", "floating-caution", "floating-bad"];
 /** Web Apps' per-row patterns (`const.js::PER_ROW_PATTERN`, `PER_ROW_REPEAT_PATTERN`), as the
  *  surface records them. */
@@ -531,7 +591,7 @@ export const APPEARANCE_ROWS: readonly AppearanceRow[] = [
 		claim: rowClaim("text-address", "appearance:web-apps/address"),
 	},
 	{
-		applies: on("text", "image", "audio", "video", "document"),
+		applies: on("text", "barcode", "image", "audio", "video", "document"),
 		matches: (value) => BROADCAST.test(value),
 		claim: rowClaim(
 			"broadcast-topic-an-address-entry-under-the-gates-above-and",
@@ -684,8 +744,18 @@ export const APPEARANCE_ROWS: readonly AppearanceRow[] = [
 	},
 	{
 		applies: on("group"),
-		matches: exactly("collapse-open"),
+		matches: (value) =>
+			value.split(/\s+/).includes("group-collapse") &&
+			value.split(/\s+/).includes("collapse-open"),
 		claim: rowClaim("group-collapse-open", "appearance:web-apps/collapse-open"),
+	},
+	{
+		applies: on("group"),
+		matches: exactly("collapse-open"),
+		claim: rowClaim(
+			"group-collapse-open-without-collapsing",
+			"appearance:web-apps/collapse-open",
+		),
 	},
 	{
 		applies: on("group"),
@@ -698,7 +768,11 @@ export const APPEARANCE_ROWS: readonly AppearanceRow[] = [
 		claim: rowClaim("group-collapse-closed", "xform:group@appearance"),
 	},
 	{
-		applies: on("repeat-wrapper"),
+		applies: (control) =>
+			rowControl(control, undefined) === "group" &&
+			control.children.some(
+				(child) => child.tag === "repeat" || wrapsRepeat(child),
+			),
 		matches: (value) => N_PER_ROW_REPEAT.test(value),
 		claim: rowClaim(
 			"n-per-row-repeat-group-with-a-repeat-as-a-direct-child-n-one-or",
@@ -707,8 +781,20 @@ export const APPEARANCE_ROWS: readonly AppearanceRow[] = [
 	},
 	{
 		applies: on("repeat-wrapper"),
-		matches: (value) => perRowToken(value, true) === undefined,
+		matches: () => true,
 		claim: VELLUM_REPEAT,
+	},
+	{
+		applies: (control) =>
+			rowControl(control, undefined) === "group" &&
+			!control.children.some(
+				(child) => child.tag === "repeat" || wrapsRepeat(child),
+			),
+		matches: (value) => N_PER_ROW_REPEAT.test(value),
+		claim: rowClaim(
+			"group-repeat-row-without-a-repeat",
+			"appearance:web-apps/\\d+-per-row-repeat(\\s|$)",
+		),
 	},
 	{ applies: on("repeat"), matches: () => true, claim: VELLUM_REPEAT },
 	{
@@ -1112,7 +1198,7 @@ function rowFor(
 	bind: BindFacts | undefined,
 	value: string,
 	form: AppearanceForm,
-): Claim<"account"> | undefined {
+): Claim<"account" | "take"> | undefined {
 	const at = rowControl(control, bind);
 	if (caseVariantOf(value, at, CASE_VARIANT_ALIKE))
 		return CASE_VARIANT_READ_ALIKE;
@@ -1132,7 +1218,10 @@ export type AppearanceVerdict =
 	/** Rule 1: the kind's own token, which the kind table's row claims. */
 	| { readonly kind: "held" }
 	/** Rules 2 to 4. */
-	| { readonly kind: "claim"; readonly claim: Claim<"account" | "refuse"> }
+	| {
+			readonly kind: "claim";
+			readonly claim: Claim<"account" | "take" | "refuse">;
+	  }
 	/** Rule 5: left unclaimed. */
 	| { readonly kind: "unclaimed" };
 
@@ -1148,7 +1237,7 @@ function everyTokenRead(
 		const verdict = classifyOne(control, bind, token, form);
 		return (
 			verdict.kind === "claim" &&
-			verdict.claim.use === "account" &&
+			verdict.claim.use !== "refuse" &&
 			!isInertCatchAll(verdict.claim)
 		);
 	});
@@ -1194,7 +1283,7 @@ function droppingKeepsReading(
 		return false;
 	if (heldToken(control, bind, restText)) return true;
 	const verdict = classifyOne(control, bind, restText, form);
-	return verdict.kind === "claim" && verdict.claim.use === "account";
+	return verdict.kind === "claim" && verdict.claim.use !== "refuse";
 }
 
 /** Rules 2 to 5, for a string that is not the kind's own token. */
@@ -1206,10 +1295,16 @@ function classifyOne(
 ): AppearanceVerdict {
 	const at = rowControl(control, bind);
 	const facts = appearanceFacts(control, bind);
-	const claim = (one: Claim<"account" | "refuse">): AppearanceVerdict => ({
+	const claim = (
+		one: Claim<"account" | "take" | "refuse">,
+	): AppearanceVerdict => ({
 		kind: "claim",
 		claim: one,
 	});
+	// Core collapses the Vellum wrapping group into the repeat and transfers
+	// its label, never the group's appearance. Formplayer emits no style on
+	// the repeat itself. Neither can supply a per-repeat width to the parent.
+	if (at === "repeat" || at === "repeat-wrapper") return claim(VELLUM_REPEAT);
 	// Rule 2, the refused classes.
 	if (appearanceWhitespaceReadOtherwise(value, facts))
 		return claim(REFUSED.whitespace);
@@ -1319,6 +1414,7 @@ export function claimAppearance(
 	control: ControlNode,
 	verdict: AppearanceVerdict,
 	place: HqPlace,
+	field?: { kind: FieldKind; field: Record<string, unknown> },
 ): { readonly inert: boolean } {
 	const value = control.appearance;
 	if (value === undefined || verdict.kind === "held") return { inert: false };
@@ -1330,7 +1426,28 @@ export function claimAppearance(
 		return { inert: false };
 	}
 	const claim = verdict.claim;
-	if (isUse(claim, "refuse"))
+	if (isUse(claim, "take")) {
+		const next =
+			field &&
+			readFieldAppearance(
+				field.kind,
+				value,
+				control.children.some(
+					(child) => child.tag === "repeat" || wrapsRepeat(child),
+				),
+			);
+		if (!next || !field) {
+			const detail = { name: value };
+			accounting.circumstance("unrecognized", place, detail);
+			accounting.cover(
+				node,
+				circumstanceFinding("unrecognized", place, detail),
+			);
+		} else {
+			Object.assign(field.field, next);
+			cursor.take(node, claim).value;
+		}
+	} else if (isUse(claim, "refuse"))
 		cursor.refuse(node, claim, place, { name: value });
 	else if (isUse(claim, "account"))
 		cursor.account(node, claim, place, { name: value });
