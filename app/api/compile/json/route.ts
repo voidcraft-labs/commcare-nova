@@ -36,10 +36,9 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  * `X-Nova-Manual-Import-Guide` header, so the publish dialog shows exactly
  * what the README says once the file has arrived.
  *
- * The file is made for no project space: it carries derived ids and no
- * runtime URL, because CommCare HQ writes its own when it builds the app, and
- * a `domain` in the request is refused. A reached deployment on the chosen
- * server scopes only its attachment links.
+ * HQ creates the app with derived entity IDs and supplies its runtime URL.
+ * A project-supplied search requires an explicit destination and its verified
+ * service IDs. Other files use a reached deployment only for attachment links.
  *
  * The workbook is the SAME artifact the direct upload pushes through CommCare
  * HQ's fixture API, built from the generation the boundary validated, so a
@@ -86,8 +85,7 @@ export async function POST(req: NextRequest) {
 		// The import file is complete and correct; the advisories say what it
 		// could not carry, so they ride beside it rather than replacing it.
 		const advisoryHeader = encodeExportAdvisories(
-			/* The import file is made for no project space, so nothing it
-			 * keeps is stated. */
+			/* A manual import creates a new app and inherits no remote app settings. */
 			exportAdvisories(doc, attachmentTargetState, null),
 		);
 

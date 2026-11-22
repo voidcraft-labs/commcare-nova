@@ -4471,7 +4471,9 @@ export async function localCcz(
 					: targetWireIdentity(
 							adopted.identity,
 							adopted.columnWords,
-							adopted.projectSearches,
+							options.targetIdentity
+								? record.projectSearches
+								: adopted.projectSearches,
 						),
 				{
 					emptyCaseListText: target.emptyCaseListText,
@@ -4504,6 +4506,7 @@ export async function localCcz(
 export async function importFile(
 	source: PublishDocument,
 	domain: string,
+	projectSearches: readonly ProjectSearchBinding[],
 ): Promise<Buffer> {
 	const choice = chooseDownloadTarget(
 		[
@@ -4531,6 +4534,7 @@ export async function importFile(
 		managedLookupWorkbooks,
 	} = prepared;
 	const hqJson = expandDoc(doc, {
+		identity: targetWireIdentity([], [], projectSearches),
 		attachmentTarget: prepared.attachmentTarget,
 		...(assets.size > 0 && { assets }),
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),

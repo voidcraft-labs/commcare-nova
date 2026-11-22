@@ -544,13 +544,14 @@ function archiveTargetFacts(
  * configuration's republish was sent after a bring-in of those saves
  * (`SentImport`'s `sent` and `sentUnder`), the document the bring-in gave,
  * with the placements its emission records, under the record the bring-in
- * left; otherwise D under the empty record, every id derived.
+ * left; otherwise D under its original search connections, if any.
  * Configurations that disagree stop the emission rather than choose one.
  */
 function republishedDocument(
 	documentId: string,
 	captures: ReadonlyMap<string, PublishCapture | RepublishCapture>,
 	publish: PublishDocument,
+	startingIdentity: TargetIdentity,
 ): {
 	readonly publish: PublishDocument;
 	readonly targetIdentity: TargetIdentity;
@@ -571,7 +572,7 @@ function republishedDocument(
 	});
 	const brought = sent.filter((each) => each.taken !== undefined);
 	if (brought.length === 0)
-		return { publish, targetIdentity: EMPTY_TARGET_IDENTITY };
+		return { publish, targetIdentity: startingIdentity };
 	const [first] = brought;
 	const key = (taken: (typeof sent)[number]["taken"]) =>
 		JSON.stringify({
@@ -1416,7 +1417,10 @@ export async function writeEntry(
 	 * document the republish sent: D, or, where a person's saves in HQ were
 	 * brought in before it, the document the bring-in gave, which A after the
 	 * saves and B both hold (`republishedDocument`). */
-	const republished = republishedDocument(document.id, captures, publish);
+	const republished = republishedDocument(document.id, captures, publish, {
+		...EMPTY_TARGET_IDENTITY,
+		projectSearches: adopted?.projectSearches ?? [],
+	});
 	const targetFacts = archiveTargetFacts(document.id, captures, "republish");
 	await writeJson(
 		join(root, "document.json"),
@@ -1500,7 +1504,11 @@ export async function writeEntry(
 	}
 	await writeFile(
 		join(root, "import-file.zip"),
-		await importFile(republished.publish, PROOF_DOMAIN),
+		await importFile(
+			republished.publish,
+			PROOF_DOMAIN,
+			targetIdentity.projectSearches ?? [],
+		),
 	);
 
 	if (edit !== undefined && editVerdict !== undefined) {
