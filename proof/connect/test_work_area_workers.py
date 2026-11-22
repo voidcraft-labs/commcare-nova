@@ -103,12 +103,18 @@ def test_the_designer_creates_a_work_area_request_beside_the_delivery(
 
 def enter_web(served, editor_driver, directory, *, update):
     """A worker opens the form in HQ's Web Apps client, chooses a photo in its widget and presses Submit."""
+    from corehq import privileges
+
+    from proof.hq.seams import also_granted
+    from proof.webapps.observe import worker_home
+
     menu = served.doc["modules"][0]
     language = served.languages[0]
     # Home visit holds one text question before the image added by the designer. The delivery, area
     # request and learning activity have no widgets. Each answer below is checked against the label
     # and value the worker actually saw on the form.
     made = [
+        steps.SCREEN,
         *steps.open_app(served.doc["name"]),
         *steps.choose(menu["name"][language]),
         *steps.choose(menu["forms"][0]["name"][language]),
@@ -118,10 +124,15 @@ def enter_web(served, editor_driver, directory, *, update):
         content = (PROOF / "hq-apps/hq-media/media/6.png").read_bytes()
         made += steps.answer_media("1", "image", "web-entrance.png", content, "image/png")
     made += [steps.SCREEN, *steps.submit_and_land()]
-    run = Session(served, editor_driver).run(made, name="area-visit")
+    # This opportunity began with an Android app. Enabling its release for Web Apps is one
+    # requirement; the signed-in worker also needs Web Apps on the project space's plan.
+    session = Session(served, editor_driver)
+    with also_granted(privileges.CLOUDCARE):
+        run = session.run(made, name="area-visit")
     (directory / "web-apps.json").write_text(json.dumps(run.screens, indent=2) + "\n")
     assert not run.page_errors, run.page_errors
-    (screen,) = run.screens
+    home, screen = run.screens
+    assert worker_home(session, run, home)
     answers = {q["label"]: q["answer"] for q in screen["form"]["questions"]}
     assert answers["Household"] == "Household 8", answers
     if update:
