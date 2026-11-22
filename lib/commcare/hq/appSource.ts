@@ -25,6 +25,7 @@ import "server-only";
 import type { HqApplicationProfile } from "@/lib/commcare";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 import {
 	baseUrl,
@@ -541,6 +542,43 @@ function readMultimediaMap(
 			firstIndexes,
 		});
 	return items;
+}
+
+/**
+ * App-shell inputs the changes reader uses beyond the part Nova overwrites.
+ * HQ prunes map keys unreferenced by both content and the retained logos.
+ * A file outside the settled manifest may also be one the earlier reading
+ * left out, or one HQ now serves. Map item versions and upload metadata
+ * describe neither a path nor a file. Web Apps also affects how the reader
+ * interprets an absent Incomplete Forms setting.
+ */
+export function publishReadingFactsMoved(
+	previous: unknown,
+	current: HqAppSource,
+	settledPaths: ReadonlySet<string>,
+): boolean {
+	if (!isRecord(previous)) return true;
+	if ((previous.cloudcare_enabled === true) !== current.cloudcareEnabled)
+		return true;
+	if (
+		canonicalJsonText(previous.logo_refs ?? NO_ENTRIES) !==
+		canonicalJsonText(current.logoRefs)
+	)
+		return true;
+	const earlier = readMultimediaMap(previous.multimedia_map, undefined) ?? [];
+	const now = current.multimediaMap ?? [];
+	if (earlier.length !== now.length) return true;
+	const byPath = new Map(earlier.map((item) => [item.path, item]));
+	return now.some((item) => {
+		const before = byPath.get(item.path);
+		return (
+			before === undefined ||
+			before.mediaType !== item.mediaType ||
+			before.unreadable !== item.unreadable ||
+			(before.multimediaId !== item.multimediaId &&
+				!settledPaths.has(item.path))
+		);
+	});
 }
 
 function malformed(

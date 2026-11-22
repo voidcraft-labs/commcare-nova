@@ -504,7 +504,7 @@ describe("refreshKeptValues", () => {
 		expect(await baselineRow()).toEqual(before);
 	});
 
-	it("answers changed-in-hq for a file replaced at a path the record holds, and nothing for a path it holds no record of", async () => {
+	it("preserves the compared source for a replaced file and for a new unaccounted mapping the next import may prune", async () => {
 		const path = "commcare/image/visit.png";
 		const withFile = (id: string) => {
 			const source = liveSource();
@@ -543,7 +543,9 @@ describe("refreshKeptValues", () => {
 			.execute();
 		await withHttpPeer(async (peer) => {
 			serveSource(peer, withFile("doc-person"));
-			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+				"changed-in-hq",
+			);
 			expect(sent(peer)).toBe(1);
 		});
 	});

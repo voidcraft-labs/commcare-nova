@@ -837,6 +837,8 @@ export type AppBaseline =
 			readonly mediaFiles: HqMediaRecord | null;
 			/** The row's `source_bytes`. */
 			readonly sourceBytes: number;
+			/** The target has accepted first- or next-publish changes to preserve across passive reads. */
+			readonly hasPublishList?: true;
 			readonly foldBinding?: DeploymentFoldBinding;
 	  }
 	| {

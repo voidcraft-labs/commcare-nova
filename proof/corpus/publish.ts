@@ -1990,6 +1990,10 @@ function appEdge(
 		current: current.normalized,
 		ownership: ledger.app.ownership,
 		shell: ledger.app.origin === "create",
+		importFiles: {
+			published: media?.paths ?? [],
+			recorded: ledger.app.mediaFiles,
+		},
 		languageNames,
 		mediaChanged:
 			media?.paths.filter((path) => path.standing === "replaced").length ?? 0,
@@ -2084,6 +2088,7 @@ async function sendContent(
 			current: normalizedRead(prepared, source).normalized,
 			ownership: held.ownership,
 			shell: held.origin === "create",
+			importFiles: { published: media?.paths ?? [], recorded: held.mediaFiles },
 			languageNames,
 		});
 		if (moved.length > 0) {

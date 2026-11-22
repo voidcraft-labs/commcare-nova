@@ -1643,6 +1643,7 @@ export async function runDeploymentPreflight(
 			novaAppId: input.access.appId,
 			remoteAppId: appId,
 			current: normalized,
+			published: media?.paths ?? [],
 			baseline: appBaseline,
 			since: driftReferenceOf(appBaseline, input.inPlaceUpdate),
 			languageNames: input.languageNames,
@@ -2040,6 +2041,7 @@ function appRemoteChange(input: {
 	readonly languageNames: "nova" | "target";
 	/** How many files this publish sends CommCare HQ holds another file in place of. */
 	readonly mediaChanged: number;
+	readonly published: readonly { readonly wirePath: string }[];
 	/** Whether the deployment has a usable pair (`hqChanges/reference.ts::usablePair`). */
 	readonly canBringIn: boolean;
 }): DeploymentRemoteChange | null {
@@ -2069,6 +2071,7 @@ function appRemoteChange(input: {
 		shell: baseline.origin === "create",
 		languageNames: input.languageNames,
 		mediaChanged: input.mediaChanged,
+		importFiles: { published: input.published, recorded: baseline.mediaFiles },
 	});
 	return parts.length === 0
 		? null

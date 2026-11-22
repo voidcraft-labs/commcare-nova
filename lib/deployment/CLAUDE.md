@@ -1255,8 +1255,15 @@ sent:
   complete last accepted reading determines every remaining first-publish
   change for that project space. After the first push, the review carries
   applicable pending changes and adds its own. Restoring a setting in HQ
-  removes its warning in either case. A passive refresh or a comparison
-  which only settles files keeps the stored list. A repeated response
+  removes its warning in either case. Kept settings refresh independently. On an adopted target or one with a
+  pending list, Refresh preserves the accepted source when a media-map key,
+  an unsettled file, the logo references HQ keeps, or the Web Apps switch
+  changed. Review then reads both complete sources, even when a different
+  ID at a published path settled as the same file. HQ prunes map keys
+  outside the app’s and logos’ paths on import. Ordinary target-kept profile
+  values and runtime strings can still refresh directly. Recording the Web
+  Apps reading updates the card; changing the switch on publish still needs
+  its own confirmation. A repeated response
   succeeds only when its projected card still matches. The media record is
   written wherever it moves
   (`hqMedia.ts::hqMediaRecordMoves`): an id the review learned by content is

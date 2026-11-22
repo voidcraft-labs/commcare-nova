@@ -28,7 +28,10 @@ import {
 	type HqAlignedModule,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
-import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	type HqAppSource,
+	publishReadingFactsMoved,
+} from "@/lib/commcare/hq/appSource";
 import {
 	classifyHqFailure,
 	type HqFailure,
@@ -180,8 +183,8 @@ import type {
 // Types
 // ---------------------------------------------------------------------------
 
-/** A normalized match can still move a real form id or the file at a
- * published path. Both the live reader and the capture peer use this decision. */
+/** Matching owned content may still change a real form ID, a file, or a
+ * first-publish consequence. The live reader and capture use the same decision. */
 export function reviewMatchingSource(
 	basis: HqChangesBasis,
 ): Extract<HqChangesReview, { kind: "nothing" }> | null {
@@ -194,7 +197,15 @@ export function reviewMatchingSource(
 		learned,
 		since,
 	} = basis;
-	if (!formIdsAgree(reference.doc, targetIdentity, modules)) return null;
+	if (
+		!formIdsAgree(reference.doc, targetIdentity, modules) ||
+		publishReadingFactsMoved(
+			baseline.source,
+			basis.source,
+			new Set(published.map((file) => `${JR_FILE}${file.wirePath}`)),
+		)
+	)
+		return null;
 	const next = nextHqMediaRecord({
 		published,
 		previous: baseline.mediaFiles,
@@ -988,8 +999,8 @@ async function computeWith(
 		return answer({ kind: "stop", finding: atApp("changed-while-reading") });
 	const targetIdentity = await readTargetIdentity(scope, target);
 	if (reference.kind !== "ok") {
-		/* With no reference there are no files to settle: only a recorded id
-		 * that moved says a file changed, as Refresh reads it. */
+		/* With no reference there are no files to settle by content. An
+		 * observed move still needs the missing reference for a full reading. */
 		const parts = await pieces.at("the source's comparison").run(() =>
 			diffHqAppSource({
 				baseline: baseline.source,
@@ -1003,7 +1014,11 @@ async function computeWith(
 				),
 			}),
 		);
-		if (parts.length === 0 && formIdsAgree(head.doc, targetIdentity, modules))
+		if (
+			parts.length === 0 &&
+			formIdsAgree(head.doc, targetIdentity, modules) &&
+			!publishReadingFactsMoved(baseline.source, source, new Set())
+		)
 			return answer(unchanged(since));
 		logUnavailable(scope, operation, reference.kind);
 		return answer(unavailable(reference.kind, since));

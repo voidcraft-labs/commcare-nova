@@ -15,6 +15,7 @@
 
 import { translationKeyOwner } from "@/lib/commcare/appStringKeys";
 import { servedSchemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
+import { withoutPathOnlyLogoRefs } from "@/lib/commcare/targetLogoRefs";
 import { ownedProfilePart } from "@/lib/commcare/targetOverlay";
 import {
 	canonicalJsonText,
@@ -270,7 +271,7 @@ export type AppChangePart =
 	| { readonly kind: "name" | "languages" | "settings" | "text" | "menu-list" }
 	| { readonly kind: "menu"; readonly menu: number; readonly name: string }
 	/** Files this app publishes that CommCare HQ now holds another file at the path of. */
-	| { readonly kind: "media"; readonly count: number }
+	| { readonly kind: "media" | "unused-media"; readonly count: number }
 	| {
 			readonly kind: "form";
 			readonly menu: number;
@@ -406,6 +407,66 @@ function langsOf(normalized: unknown): readonly string[] {
 		: [];
 }
 
+/** Logo paths retained by this content update. HQ then keeps map keys named
+ * either by the sent forms and menus or by these exact logo paths
+ * (ApplicationMediaMixin.remove_unused_mappings). */
+function keptLogoPaths(source: JsonObject): Set<string> {
+	const logos = isObject(source.logo_refs) ? source.logo_refs : {};
+	const kept = withoutPathOnlyLogoRefs(logos) ?? logos;
+	return new Set(
+		Object.values(kept).flatMap((ref) =>
+			isObject(ref) && typeof ref.path === "string" ? [ref.path] : [],
+		),
+	);
+}
+
+interface ImportFiles {
+	readonly published: readonly { readonly wirePath: string }[];
+	readonly recorded: Readonly<Record<string, string>> | null;
+}
+
+/** New losses on this import: a new file outside the outgoing app, a changed
+ * file at a previously unused path, or a mapping its previous logo protected.
+ * Dropping a file in Nova itself is a local edit. A completed upload can put
+ * Nova's own file on HQ after the baseline source was sampled. */
+function newlyPrunedMedia(
+	previous: unknown,
+	current: unknown,
+	files: ImportFiles,
+): number {
+	if (!isObject(current) || !isObject(current.multimedia_map)) return 0;
+	const before = isObject(previous) ? previous : {};
+	const oldMap = isObject(before.multimedia_map) ? before.multimedia_map : {};
+	const retained = keptLogoPaths(current);
+	for (const file of files.published)
+		retained.add(`jr://file/${file.wirePath}`);
+	const oldLogos = keptLogoPaths(before);
+	let count = 0;
+	for (const [path, entry] of Object.entries(current.multimedia_map)) {
+		if (retained.has(path)) continue;
+		if (oldLogos.has(path)) {
+			count++;
+			continue;
+		}
+		const old = oldMap[path];
+		const ours =
+			path.startsWith("jr://file/") &&
+			files.recorded?.[path.slice("jr://file/".length)];
+		if (ours && isObject(entry) && entry.multimedia_id === ours) continue;
+		if (!Object.hasOwn(oldMap, path)) {
+			count++;
+			continue;
+		}
+		const sameFile =
+			isObject(old) && isObject(entry)
+				? sameJson(old.multimedia_id ?? null, entry.multimedia_id ?? null) &&
+					sameJson(old.media_type ?? null, entry.media_type ?? null)
+				: sameJson(old, entry);
+		if (!sameFile) count++;
+	}
+	return count;
+}
+
 /**
  * Empty when nothing Nova writes differs. Both sides are projected with the
  * BASELINE's ownership, at check time, so a publish whose document now needs
@@ -436,6 +497,9 @@ export function diffHqAppSource(input: {
 	readonly shell: boolean;
 	readonly languageNames: "nova" | "target";
 	readonly mediaChanged?: number;
+	/** When making a content import, which media keys the outgoing app names
+	 * and which late upload results Nova can already account for. */
+	readonly importFiles?: ImportFiles;
 }): readonly AppChangePart[] {
 	/* One set of language codes for both reads, so a key is classed alike on
 	 * each side and a changed list of languages is the `languages` part. */
@@ -527,5 +591,13 @@ export function diffHqAppSource(input: {
 	if (appKeysDiffer("text")) parts.push({ kind: "text" });
 	const mediaChanged = input.mediaChanged ?? 0;
 	if (mediaChanged > 0) parts.push({ kind: "media", count: mediaChanged });
+	if (input.importFiles) {
+		const count = newlyPrunedMedia(
+			input.baseline,
+			input.current,
+			input.importFiles,
+		);
+		if (count) parts.push({ kind: "unused-media", count });
+	}
 	return parts;
 }

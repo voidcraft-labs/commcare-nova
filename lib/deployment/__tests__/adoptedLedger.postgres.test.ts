@@ -295,6 +295,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 		const birth = await born();
 		expect(await readAppBaseline(birth.scope, TARGET)).toEqual({
 			origin: "read",
+			hasPublishList: true,
 			remoteAppId: HQ_APP,
 			observedAt: READ_AT,
 			observedBy: ACTOR,

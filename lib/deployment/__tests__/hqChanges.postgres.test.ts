@@ -28,7 +28,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { type Kysely, sql } from "kysely";
 import sharp from "sharp";
 import type { MockAgent } from "undici";
@@ -39,6 +39,7 @@ import {
 	withHqPeer,
 } from "@/__tests__/helpers/hqSaveCounter";
 import {
+	readHttpRequestBody,
 	readMultipartRequest,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
@@ -74,6 +75,7 @@ import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import { hqChangesPublishingStoppedLine } from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { TargetPeer } from "@/proof/corpus/targetPeer";
 import { DeploymentEndedError } from "../errors";
 import { bringInHqChanges } from "../hqChanges/bringIn";
 import { reviewHqChanges } from "../hqChanges/review";
@@ -113,7 +115,12 @@ import {
 } from "../reading/__tests__/servedHqApp";
 import { createFromReview } from "../reading/create";
 import { authorizeBringIn, readHqAppForReview } from "../reading/read";
-import { peekHqAppChanged, publishAppToHq, setupArtifactFor } from "../service";
+import {
+	peekHqAppChanged,
+	publishAppToHq,
+	refreshKeptValues,
+	setupArtifactFor,
+} from "../service";
 import * as deploymentStore from "../store";
 import {
 	admitAppWrite,
@@ -969,6 +976,24 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 // The review and the bring-in, end to end
 // ---------------------------------------------------------------------------
 
+const UNUSED_PATH = "jr://file/commcare/logo/data/hq_logo_android_home.png";
+
+function withUnusedImage(source: RetainedHqAnswer): RetainedHqAnswer {
+	return changedAnswer(source, (body) => ({
+		...body,
+		multimedia_map: {
+			...(body.multimedia_map as Record<string, unknown>),
+			[UNUSED_PATH]: {
+				doc_type: "HQMediaMapItem",
+				media_type: "CommCareImage",
+				multimedia_id: "unused-image",
+				unique_id: "unused-map-entry",
+				version: 1,
+			},
+		},
+	}));
+}
+
 /**
  * The fixture app of a bring-in (`reading/__tests__/adoptionFixture.ts`),
  * brought in through the production create, then changed in CommCare HQ
@@ -1501,6 +1526,45 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			).toMatchObject({ kind: "nothing", reason: "unchanged" });
 		});
 	});
+
+	it("records a newly unused HQ mapping alongside an identical published image under a new file id", async () => {
+		const scope = await broughtInWithIcon();
+		const current = withUnusedImage(
+			changedAnswer(withIcons(fixtureSource(), [ICON]), (body) => {
+				const map = body.multimedia_map as Record<
+					string,
+					Record<string, unknown>
+				>;
+				const original = map[ICON_PATH];
+				if (!original) throw new Error("The adopted menu image is missing.");
+				original.multimedia_id = "same-image";
+				return body;
+			}),
+		);
+		const answer = <T>(request: () => Promise<T>) =>
+			withHttpPeer(async (peer) => {
+				serveRead(peer, current, { tables: true });
+				serveImage(peer, "same-image", 1);
+				return request();
+			});
+		const listed = await answer(() =>
+			reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
+		);
+		if (listed.kind !== "nothing" || !listed.readingId || !listed.reviewDigest)
+			throw new Error(JSON.stringify(listed));
+		expect(listed.publishChanges).not.toEqual([]);
+		const approved = {
+			readingId: listed.readingId,
+			reviewDigest: listed.reviewDigest,
+		};
+		const recorded = await answer(() => bringIn(scope, approved));
+		if (recorded.kind !== "recorded") throw new Error(JSON.stringify(recorded));
+		expect(recorded.deployment?.firstPublish?.ids).toContain(
+			"unused-media-entries-removed",
+		);
+		const baseline = await readAppBaseline(scope, KEY_TARGET);
+		expect(baseline?.mediaFiles).toEqual({ [WIRE_PATH]: "same-image" });
+	}, 30_000);
 
 	describe("a recorded file whose new id CommCare HQ no longer serves", () => {
 		const GONE = "gonefile";
@@ -2807,7 +2871,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		appId: string,
 		source: RetainedHqAnswer,
 		accepts: boolean,
-		readBack: RetainedHqAnswer = source,
+		readBack: RetainedHqAnswer | TargetPeer = source,
 		versionBefore = 3,
 	) {
 		const loaded = await loadApp(appId);
@@ -2839,16 +2903,49 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				})
 				.persist();
 			serveAnswer(peer, FIXTURE_PATHS.source, source);
-			if (accepts) serveAnswer(peer, FIXTURE_PATHS.source, readBack);
+			if (accepts && !(readBack instanceof TargetPeer))
+				serveAnswer(peer, FIXTURE_PATHS.source, readBack);
 			if (accepts)
 				peer
 					.get(FIXTURE_HOST)
 					.intercept({ path: IMPORT_PATH, method: "POST" })
 					.reply(async (request) => {
-						const file = (await readMultipartRequest(request)).get("app_file");
+						const body = await readHttpRequestBody(request);
+						const file = (await readMultipartRequest({ ...request, body })).get(
+							"app_file",
+						);
 						if (!(file instanceof Blob))
 							throw new Error("The import carried no app file.");
 						imported.push(JSON.parse(await file.text()));
+						if (readBack instanceof TargetPeer) {
+							const answer = await readBack.answer({
+								method: request.method,
+								path: request.path,
+								contentType:
+									new Headers(request.headers as Record<string, string>).get(
+										"content-type",
+									) ?? undefined,
+								body,
+							});
+							const updated = readBack.snapshot().source;
+							const counter = readBack.saveCounter();
+							if (
+								!updated ||
+								counter === null ||
+								answer.status !== 200 ||
+								typeof answer.body !== "string"
+							)
+								throw new Error(
+									`The HQ peer refused the update: ${answer.body}`,
+								);
+							saves.standAt(FIXTURE_REMOTE_APP_ID, counter);
+							serveAnswer(
+								peer,
+								FIXTURE_PATHS.source,
+								changedAnswer(source, () => updated),
+							);
+							return { statusCode: answer.status, data: answer.body };
+						}
 						return {
 							statusCode: 200,
 							data: JSON.stringify({
@@ -3815,6 +3912,199 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		},
 		30_000,
 	);
+
+	it.each(["adds", "removes", "keeps as a logo"] as const)(
+		"keeps the accepted source through Refresh when HQ %s an unused file before first publish",
+		async (direction) => {
+			const doc = clinic({});
+			const original = emission(doc, 2);
+			const now = emission(doc, 3);
+			const withLogo = (source: RetainedHqAnswer) =>
+				changedAnswer(withUnusedImage(source), (body) => ({
+					...body,
+					logo_refs: {
+						hq_logo_android_home: { path: UNUSED_PATH, m_id: "unused-image" },
+					},
+				}));
+			const saved =
+				direction === "adds"
+					? { ...now, source: withUnusedImage(now.source) }
+					: direction === "removes"
+						? now
+						: { ...now, source: withLogo(now.source) };
+			const appId = await broughtIn(
+				doc,
+				direction === "adds"
+					? original
+					: { ...original, source: withUnusedImage(original.source) },
+			);
+			const before = await baselineOfApp();
+			if (direction === "adds") {
+				const stopped = await publishOver(appId, saved.source, false);
+				expect(stopped.outcome).toMatchObject({
+					landed: false,
+					refusal: { phase: "preflight", failure: { code: "hq_changed" } },
+				});
+				expect(stopped.requests).not.toContain(`POST ${IMPORT_PATH}`);
+				expect(await baselineOfApp()).toEqual(before);
+			}
+			expect(
+				before.first_publish_changes?.ids.includes(
+					"unused-media-entries-removed",
+				),
+			).toBe(direction !== "adds");
+			const refreshed = await withHttpPeer(async (peer) => {
+				serveAnswer(peer, FIXTURE_PATHS.source, saved.source);
+				return refreshKeptValues(scope(appId), KEY_TARGET);
+			});
+			expect(refreshed.kind).toBe("changed-in-hq");
+			expect(await baselineOfApp()).toEqual(before);
+			const answer = <T>(request: () => Promise<T>) =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, saved);
+					return request();
+				});
+			const review = await answer(() =>
+				reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} }),
+			);
+			if (
+				review.kind !== "nothing" ||
+				!review.readingId ||
+				!review.reviewDigest
+			)
+				throw new Error(JSON.stringify(review));
+			expect(review.reason).toBe("reads-the-same");
+			expect(review.publishChanges.length > 0).toBe(direction === "adds");
+			const approval = {
+				readingId: review.readingId,
+				reviewDigest: review.reviewDigest,
+				tableChoices: {},
+			};
+			const taken = await answer(() =>
+				bringInHqChanges(scope(appId), KEY_TARGET, approval, {
+					onEvent: () => {},
+				}),
+			);
+			if (taken.kind !== "recorded") throw new Error(JSON.stringify(taken));
+			expect(
+				taken.deployment?.firstPublish?.ids.includes(
+					"unused-media-entries-removed",
+				),
+			).toBe(direction === "adds");
+			expect((await baselineOfApp()).nova_revision).toBe(before.nova_revision);
+			const model = new TargetPeer({
+				credentials: {
+					username: "account",
+					apiKey: "fixture-key",
+					server: FIXTURE_SERVER,
+				},
+				domain: FIXTURE_DOMAIN,
+				flags: new Set(),
+				caseSearchEnabled: false,
+				appId: FIXTURE_REMOTE_APP_ID,
+				commcareVersion: "2.60.0",
+				cloudcareGranted: true,
+			});
+			model.holdSource(retainedBodyJson(saved.source));
+			const pushed = await publishOver(appId, saved.source, true, model, 3);
+			expect(pushed.outcome.landed).toBe(true);
+			expect(pushed.imported).toHaveLength(1);
+			const kept = Object.keys(model.snapshot().source?.multimedia_map ?? {});
+			expect(kept.includes(UNUSED_PATH)).toBe(direction === "keeps as a logo");
+			expect(model.saveCounter()).toBe(direction === "adds" ? 5 : 4);
+			const after = await readAppBaseline(scope(appId), KEY_TARGET);
+			// An actual prune costs an extra HQ save. Nova keeps that observation
+			// for target settings, and asks again before attributing it to this push.
+			expect(after?.origin).toBe(direction === "adds" ? "unread" : "push");
+			const observed = await h
+				.db()
+				.selectFrom("app_deployment_baselines")
+				.select("source_gzip")
+				.executeTakeFirstOrThrow();
+			if (!observed.source_gzip)
+				throw new Error("The first publish retained no target observation.");
+			expect(
+				JSON.parse(gunzipSync(observed.source_gzip).toString("utf8"))
+					.multimedia_map ?? {},
+			).toEqual(model.snapshot().source?.multimedia_map ?? {});
+			expect((await baselineOfApp()).first_publish_changes).toBeNull();
+		},
+		30_000,
+	);
+
+	it("refreshes ordinary kept values and records the changed Web Apps card without confirming the target switch", async () => {
+		const doc = clinic({});
+		const appId = await broughtIn(doc);
+		const kept = changedAnswer(emission(doc, 3).source, (body) => {
+			const profile = body.profile as { properties: Record<string, string> };
+			profile.properties["cc-fuzzy-search-enabled"] = "yes";
+			const translations = body.translations as Record<
+				string,
+				Record<string, string>
+			>;
+			translations.en = {
+				...translations.en,
+				"home.start": "Begin visit",
+				en: "Local English",
+			};
+			return body;
+		});
+		const refresh = (source: RetainedHqAnswer) =>
+			withHttpPeer(async (peer) => {
+				serveAnswer(peer, FIXTURE_PATHS.source, source);
+				return refreshKeptValues(scope(appId), KEY_TARGET);
+			});
+		const before = await baselineOfApp();
+		expect((await refresh(kept)).kind).toBe("refreshed");
+		const refreshed = await baselineOfApp();
+		expect(refreshed.first_publish_changes).toEqual(
+			before.first_publish_changes,
+		);
+		expect(refreshed.source_digest).not.toBe(before.source_digest);
+		const saved = {
+			...emission(doc, 4),
+			source: changedAnswer(kept, (body) => ({
+				...body,
+				version: 4,
+				cloudcare_enabled: false,
+			})),
+		};
+		expect((await refresh(saved.source)).kind).toBe("changed-in-hq");
+		expect(await baselineOfApp()).toEqual(refreshed);
+		const withSaved = <T>(request: () => Promise<T>) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, saved);
+				return request();
+			});
+		const review = await withSaved(() =>
+			reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} }),
+		);
+		if (review.kind !== "nothing" || !review.readingId || !review.reviewDigest)
+			throw new Error(JSON.stringify(review));
+		const approval = {
+			readingId: review.readingId,
+			reviewDigest: review.reviewDigest,
+			tableChoices: {},
+		};
+		const result = await withSaved(() =>
+			bringInHqChanges(scope(appId), KEY_TARGET, approval, {
+				onEvent: () => {},
+			}),
+		);
+		if (result.kind !== "recorded") throw new Error(JSON.stringify(result));
+		expect(result.deployment?.firstPublish?.ids).toContain(
+			"web-apps-turned-on",
+		);
+		const refused = await publishOver(appId, saved.source, false);
+		expect(refused.outcome).toMatchObject({
+			landed: false,
+			refusal: {
+				failure: { code: "hq_web_apps_change" },
+				webAppsChange: { from: false, to: true, changedInHq: false },
+			},
+		});
+		expect(refused.imported).toEqual([]);
+	}, 30_000);
 
 	it("writes the next publish's list after a publish, keeps it over a second change, and clears it where CommCare HQ's save undid it", async () => {
 		const doc = clinic({});

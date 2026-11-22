@@ -10,7 +10,11 @@ import {
 	type MediaBundleUploadResult,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
-import { type HqAppSource, readHqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	type HqAppSource,
+	publishReadingFactsMoved,
+	readHqAppSource,
+} from "@/lib/commcare/hq/appSource";
 import {
 	type HqAppSourceAtVersionRead,
 	readHqAppSaveCounter,
@@ -1597,6 +1601,7 @@ export async function publishAppToHq(
 					baseline: heldRead,
 					current: second.normalized,
 					ownership: comparedOwnership,
+					importFiles: { published, recorded: appBaseline?.mediaFiles ?? null },
 					shell,
 					languageNames,
 				});
@@ -3841,7 +3846,9 @@ function keptReadFailure(
  * equal to it by the publish's own comparison: a baseline stays one read of
  * CommCare HQ with one date, and replacing it where nothing Nova publishes
  * has moved changes no later drift verdict. Where something has, nothing is
- * written and the person is told.
+ * written and the person is told. An adopted target or one with a pending
+ * Publishing list also retains its comparison source when a change affects
+ * the reading of its media or Web Apps state.
  *
  * It authorizes `edit`, as Check status does: it writes the baseline and
  * reads CommCare HQ with the acting member's own key, whose absence or reach
@@ -4072,13 +4079,22 @@ async function compareWithHq(
 		current: normalized.normalized,
 		ownership: baseline.ownership,
 		shell: false,
+		// Refresh has no outgoing document. A newly observed unmapped file
+		// may be pruned on import; keep it for the complete review. An upload
+		// receipt already accounts for Nova's own file arriving after its read.
+		importFiles: { published: [], recorded: baseline.mediaFiles },
 		languageNames: remote.ownership === "adopted" ? "target" : "nova",
 		mediaChanged: movedRecordedPaths(
 			baseline.mediaFiles,
 			read.source.multimediaMap ?? [],
 		),
 	});
-	if (parts.length > 0) return { kind: "changed-in-hq" };
+	if (
+		parts.length > 0 ||
+		((remote.ownership === "adopted" || baseline.hasPublishList) &&
+			publishReadingFactsMoved(baseline.source, read.source, new Set()))
+	)
+		return { kind: "changed-in-hq" };
 	return {
 		kind: "unchanged",
 		remote,

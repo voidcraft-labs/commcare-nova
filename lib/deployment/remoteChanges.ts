@@ -297,6 +297,10 @@ export function describeAppChange(part: AppChangePart): string {
 			return "A setting this app writes";
 		case "text":
 			return "Text this app writes";
+		case "unused-media":
+			return part.count === 1
+				? "A changed file reference that publishing would remove"
+				: `${part.count} changed file references that publishing would remove`;
 		case "media":
 			return part.count === 1
 				? "A picture or sound this app publishes"

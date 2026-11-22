@@ -1314,6 +1314,32 @@ describe("a file whose id moved while the Project's data went", () => {
 		expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 	});
 
+	it("stops before importing when HQ adds an unused file while Nova publishes the table", async () => {
+		const doc = await seedWithTable();
+		await withPeer(async (peer) => {
+			await publishFirstWithTable(peer, doc);
+			const start = sentCount(peer);
+			republishReads(
+				peer,
+				{ [WIRE]: "doc-nova" },
+				{ [WIRE]: "doc-nova", "commcare/image/unused.png": "doc-extra" },
+			);
+			const result = await publish(doc);
+			expect(refusal(result)).toMatchObject({
+				phase: "upload",
+				failure: {
+					code: "hq_changed",
+					message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+				},
+			});
+			const after = requests(peer, start);
+			expect(after).toContain(`POST ${WORKBOOK}`);
+			expect(after).not.toContain(`POST ${IMPORT}`);
+			expect(after).not.toContain(`POST ${MEDIA}`);
+		});
+		expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+	});
+
 	it("lands where Nova's own earlier upload mapped its file between the two reads, and records that file's id", async () => {
 		const doc = await seedWithTable();
 		await withPeer(async (peer) => {

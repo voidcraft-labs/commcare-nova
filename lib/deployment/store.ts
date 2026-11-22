@@ -2388,27 +2388,33 @@ export async function recordRemoteResource(
 					input.pushedRevision
 			)
 				return { ...(await answer(null)), obsoleteFold: true };
-			// The reviewed counter belongs only to this working app and claim.
-			// An older/equal or unconfirmed import cannot replace a verified
-			// take, including its ownership and pending first-publish changes.
+			// A verified take can only be superseded by a later HQ save. An
+			// admitted import on its still-current review generation can also
+			// land an exact observation from that later counter: HQ prunes
+			// unused media in an extra save. This ends the list and retains the
+			// source for settings, without attributing either save's content.
 			const reviewed =
 				live?.remote_id === input.remoteId
 					? numberOrNull(live.reviewed_remote_revision)
 					: null;
-			if (
-				reviewed !== null &&
-				(input.remoteRevision === null ||
+			if (reviewed !== null) {
+				const orderedObservation =
+					(admitted?.writeIds?.length ?? 0) > 0 &&
+					input.baseline.origin === "unread";
+				if (
+					input.remoteRevision === null ||
 					input.remoteRevision <= reviewed ||
-					input.baseline.origin !== "push" ||
+					(input.baseline.origin !== "push" && !orderedObservation) ||
 					!verifiedBaselineSource({
 						deployment_id: row.id,
 						source_digest: input.baseline.sourceDigest,
 						source_gzip: input.baseline.sourceGzip,
 						source_bytes: input.baseline.sourceBytes,
 						ownership: input.baseline.ownership,
-					}))
-			)
-				return { ...(await answer(null)), retainedTake: true };
+					})
+				)
+					return { ...(await answer(null)), retainedTake: true };
+			}
 			const now = new Date();
 			const pushToken = await writeResourceMapping(tx, row.id, input, now);
 			const wrote = await writeAppBaseline(
@@ -4244,6 +4250,7 @@ function baselineSourceRow(
 			"b.observed_by",
 			"b.nova_revision",
 			"b.media_files",
+			"b.first_publish_changes",
 		])
 		.where("d.app_id", "=", scope.appId)
 		.where("d.project_id", "=", scope.projectId)
@@ -4321,6 +4328,9 @@ function verifiedAppBaseline(
 		sourceDigest: row.source_digest,
 		ownership: verified.ownership,
 		sourceBytes: row.source_bytes,
+		...(row.first_publish_changes !== null && {
+			hasPublishList: true as const,
+		}),
 		...(row.certified_mapping_token !== null &&
 			row.reference_fold_seq !== null &&
 			row.reference_source_digest !== null &&
