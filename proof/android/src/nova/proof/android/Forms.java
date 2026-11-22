@@ -441,6 +441,10 @@ final class Forms {
         found.put("event", event(FormEntryActivity.mFormController.getEvent()));
         found.put("index", String.valueOf(FormEntryActivity.mFormController.getFormIndex().getReference()));
         found.put("questions", questions(activity));
+        if (controls) {
+            View banners = activity.findViewById(R.id.form_entry_label_layout);
+            if (banners != null) found.put("banners", Views.describe(banners));
+        }
         if (views && activity.getODKView() != null) {
             // The whole screen as Android built it: each question's widget with its label, hint and media, and
             // a group's header above them.
@@ -515,6 +519,16 @@ final class Forms {
             grid.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
             shown.put("columns", grid.getNumColumns());
+            if (grid.getAdapter().getCount() > 0) {
+                View tile = grid.getAdapter().getView(0, null, grid);
+                shown.put("firstTile", tile.getClass().getSimpleName());
+                if (tile instanceof android.widget.ImageView) {
+                    shown.put("firstTileHasImage", ((android.widget.ImageView)tile).getDrawable() != null);
+                }
+            }
+        }
+        if (widget instanceof org.commcare.views.widgets.GregorianDateWidget) {
+            shown.put("canClearDay", widget.findViewById(R.id.clear_all).getVisibility() == View.VISIBLE);
         }
         if (widget instanceof org.commcare.views.widgets.TriggerWidget) {
             android.widget.TextView label = (android.widget.TextView)Screens.field(widget, "mQuestionText");
@@ -690,6 +704,21 @@ final class Forms {
             JSONArray refused = new JSONArray();
             boolean constraintRefused = false;
             List<String> values = Answers.valuesFor(prompt);
+            if (widget instanceof org.commcare.views.widgets.GregorianDateWidget &&
+                    values.size() == 1 && "clear-calendar".equals(values.get(0))) {
+                View clear = widget.findViewById(R.id.clear_all);
+                if (clear.getVisibility() != View.VISIBLE || widget.getAnswer() == null) {
+                    throw new AssertionError("Expected an answered Gregorian question with a clear button");
+                }
+                entry.put("beforeClear", widget.getAnswer().getDisplayText());
+                clear.performClick();
+                ShadowLooper.idleMainLooper();
+                if (widget.getAnswer() != null) throw new AssertionError("Clear retained a calendar answer");
+                entry.put("given", JSONObject.NULL);
+                answered |= FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), null) ==
+                        FormEntryController.ANSWER_OK;
+                continue;
+            }
             if (!values.isEmpty() && values.get(0).startsWith("calendar:") &&
                     (widget instanceof org.commcare.views.widgets.DateWidget ||
                      widget instanceof org.commcare.views.widgets.AbstractUniversalDateWidget)) {

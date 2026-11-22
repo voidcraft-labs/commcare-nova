@@ -120,6 +120,13 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					},
 					{
 						kind: "date",
+						id: "change_day",
+						label: "Change day",
+						calendar: "gregorian-with-clear",
+					},
+
+					{
+						kind: "date",
 						id: "arrival",
 						label: "Arrival day",
 						calendar: "ethiopian",
@@ -127,9 +134,14 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					},
 					{
 						kind: "date",
+						id: "return_day",
+						label: "Return day",
+						calendar: "nepali",
+					},
+					{
+						kind: "date",
 						id: "departure",
 						label: "Departure day",
-						calendar: "nepali",
 						hint: "Ask the driver",
 						hintPlacement: "hidden-on-web",
 					},
@@ -164,7 +176,12 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 						label: "Arrival clip",
 						captureSource: "camera",
 					},
-					{ kind: "label", id: "ready", label: "Ready", banner: "good" },
+					{
+						kind: "label",
+						id: "ready",
+						label: "[Ready](https://example.org)",
+						banner: "good",
+					},
 					{ kind: "label", id: "check", label: "Check", banner: "caution" },
 					{
 						kind: "label",

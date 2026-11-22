@@ -109,6 +109,55 @@ function GridColumns({
 	);
 }
 
+function SearchMatches({
+	field,
+	layout,
+	side,
+	commit,
+}: {
+	field: SingleSelectField | MultiSelectField;
+	layout: ChoiceLayout;
+	side?: "web" | "android";
+	commit: (value: ChoiceLayout) => void;
+}) {
+	const search = layout.kind === "platforms" && side ? layout[side] : layout;
+	if (search.kind !== "search") return null;
+	const choices = new Map<string, ChoiceLayout>();
+	for (const mode of Object.keys(matchLabels)) {
+		const setting =
+			mode === "standard"
+				? { kind: "search" }
+				: { kind: "search", matchWords: mode };
+		const candidate = singleChoiceLayoutSchema.safeParse(
+			side ? { ...layout, [side]: setting } : setting,
+		);
+		if (
+			candidate.success &&
+			canSetQuestionDisplay(field, "choiceLayout", candidate.data)
+		)
+			choices.set(mode, candidate.data);
+	}
+	return (
+		<LayoutSelect
+			label={
+				side === "web"
+					? "Search matches in Web Apps"
+					: side === "android"
+						? "Search matches on Android"
+						: "Search matches"
+			}
+			options={Object.fromEntries(
+				Object.entries(matchLabels).filter(([key]) => choices.has(key)),
+			)}
+			value={search.matchWords ?? "standard"}
+			onChange={(key) => {
+				const choice = choices.get(key);
+				if (choice) commit(choice);
+			}}
+		/>
+	);
+}
+
 export function ChoiceLayoutEditor({
 	field,
 	label,
@@ -178,9 +227,31 @@ export function ChoiceLayoutEditor({
 					: CHOICE_LAYOUT_LABELS[layout.kind],
 			value: layout,
 		});
-	const options = Object.fromEntries(
-		[...layouts].map(([key, option]) => [key, option.name]),
-	);
+	const options: Record<string, string> = {};
+	const pairs: Record<string, string> = {};
+	for (const [key, option] of layouts) {
+		if (option.value?.kind === "platforms") pairs[key] = option.name;
+		else options[key] = option.name;
+	}
+	const firstPair = Object.keys(pairs)[0];
+	if (firstPair) options.platforms = CHOICE_LAYOUT_LABELS.platforms;
+	const grid =
+		layout?.kind === "grid"
+			? layout
+			: layout?.kind === "platforms" && layout.android.kind === "grid"
+				? layout.android
+				: undefined;
+	const gridLayout = (
+		next: Extract<ChoiceLayout, { kind: "grid" }>,
+	): ChoiceLayout =>
+		layout?.kind === "platforms" ? { ...layout, android: next } : next;
+	const fixedColumns =
+		grid &&
+		canSetQuestionDisplay(
+			field,
+			"choiceLayout",
+			gridLayout({ ...grid, columns: 1 }),
+		);
 	function commit(next: ChoiceLayout | null) {
 		const result =
 			field.kind === "single_select"
@@ -194,67 +265,93 @@ export function ChoiceLayoutEditor({
 		<div className="space-y-3" data-field-id="choiceLayout">
 			<LayoutSelect
 				label={label}
-				value={active}
+				value={layout?.kind ?? "ordinary"}
 				options={options}
 				onChange={(key) => {
-					const selected = layouts.get(key);
+					const selected = layouts.get(key === "platforms" ? firstPair : key);
 					if (selected) commit(selected.value);
 				}}
 			/>
-			{layout?.kind === "grid" && (
+			{layout?.kind === "platforms" && (
+				<LayoutSelect
+					label="Platform layouts"
+					value={active}
+					options={pairs}
+					onChange={(key) => {
+						const selected = layouts.get(key);
+						if (selected) commit(selected.value);
+					}}
+				/>
+			)}
+			{grid && (
 				<>
-					<GridColumns
-						key={`${field.uuid}:${layout.columns}`}
-						columns={layout.columns}
-						commit={(columns) => {
-							const { columns: _previous, ...rest } = layout;
-							commit(columns === undefined ? rest : { ...rest, columns });
-						}}
-					/>
+					{field.optionsSource.kind === "inline" &&
+						field.optionsSource.options.some(
+							(option) => !option.media?.image,
+						) && (
+							<p className="text-xs text-muted-foreground">
+								A choice without a picture appears as an empty tile on Android.
+								You can add a picture to each choice.
+							</p>
+						)}
+					{fixedColumns ? (
+						<GridColumns
+							key={`${field.uuid}:${grid.columns}`}
+							columns={grid.columns}
+							commit={(columns) => {
+								const { columns: _previous, ...rest } = grid;
+								commit(
+									gridLayout(
+										columns === undefined ? rest : { ...rest, columns },
+									),
+								);
+							}}
+						/>
+					) : (
+						<p className="text-xs text-muted-foreground">
+							These display settings use automatic columns on Android.
+						</p>
+					)}
 					{single && (
 						<ToggleRow
 							label="Advance after a choice"
 							checked={
-								"advanceOnChoice" in layout && layout.advanceOnChoice === true
+								"advanceOnChoice" in grid && grid.advanceOnChoice === true
 							}
-							onChange={(value) =>
-								commit({
-									kind: "grid",
-									...(layout.columns !== undefined && {
-										columns: layout.columns,
+							onChange={(advance) =>
+								commit(
+									gridLayout({
+										kind: "grid",
+										...(grid.columns !== undefined && {
+											columns: grid.columns,
+										}),
+										...(advance && { advanceOnChoice: true }),
 									}),
-									...(value && { advanceOnChoice: true }),
-								})
+								)
 							}
 						/>
 					)}
 				</>
 			)}
-			{layout?.kind === "search" && (
-				<LayoutSelect
-					label="Search matches"
-					options={Object.fromEntries(
-						Object.entries(matchLabels).filter(([mode]) =>
-							canSetQuestionDisplay(
-								field,
-								"choiceLayout",
-								mode === "standard"
-									? { kind: "search" }
-									: { kind: "search", matchWords: mode },
-							),
-						),
-					)}
-					value={layout.matchWords ?? "standard"}
-					onChange={(mode) =>
-						commit(
-							singleChoiceLayoutSchema.parse(
-								mode === "standard"
-									? { kind: "search" }
-									: { kind: "search", matchWords: mode },
-							),
-						)
-					}
-				/>
+			{layout?.kind === "platforms" ? (
+				<>
+					<SearchMatches
+						field={field}
+						layout={layout}
+						side="web"
+						commit={commit}
+					/>
+					<SearchMatches
+						field={field}
+						layout={layout}
+						side="android"
+						commit={commit}
+					/>
+				</>
+			) : (
+				layout?.kind === "search" && (
+					<SearchMatches field={field} layout={layout} commit={commit} />
+				)
 			)}
 			<RejectionInline message={rejection} />
 		</div>

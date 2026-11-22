@@ -294,6 +294,15 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await stage.click();
 		await expect(stage).toContainText("Upper valley");
 		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		await expect(
+			question("rating").getByText("North valley", { exact: true }),
+		).toBeVisible();
+		await expect(
+			question("change_day").getByRole("button", {
+				name: "Clear",
+				exact: true,
+			}),
+		).toHaveCount(0);
 		await expect(question("supplies").getByRole("checkbox")).toHaveCount(3);
 		await expect(question("signature_photo").locator("canvas")).toBeVisible();
 		for (const id of ["photo", "voice", "clip"]) {
@@ -347,6 +356,27 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(route).toHaveValue("");
 		await expect(question("stage").getByRole("radio")).toHaveCount(3);
 		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		const tiles = question("rating").getByRole("radio");
+		await expect(tiles.nth(0)).toHaveAccessibleName("North valley");
+		await expect(
+			question("rating").getByText("North valley", { exact: true }),
+		).toHaveCount(0);
+		const calendar = question("change_day");
+		const clearDay = calendar.getByRole("button", {
+			name: "Clear",
+			exact: true,
+		});
+		await expect(clearDay).toBeDisabled();
+		await calendar
+			.getByRole("button", { name: "Change day", exact: true })
+			.click();
+		await page
+			.getByRole("button", { pressed: false })
+			.filter({ hasText: /^1$/ })
+			.click();
+		await expect(clearDay).toBeEnabled();
+		await clearDay.click();
+		await expect(clearDay).toBeDisabled();
 		await expect(question("signature_photo").locator("canvas")).toHaveCount(0);
 		await expect(page.locator('[data-question-banner="good"]')).toHaveText(
 			"Ready; Check",

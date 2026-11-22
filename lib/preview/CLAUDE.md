@@ -2589,7 +2589,7 @@ objects, preserving their original stack and cause for server reporting.
 `choiceMatch.ts` selects the match rule of the active platform. `workerCalendar.ts` maps calendar days to civil ISO dates, including the Nepali year lengths at the Core pin. `questionRows.ts` uses the Web Apps twelve-column rule. A Web Apps address or attachment publishes only to the concrete form or repeat instance that owns its question. Capture publishes the original filename after successful acceptance. Receivers use the ordinary answer queue, including validation and calculation. A quick Android choice advances through the pager's ordinary validated Next action.
 
 Question display uses the effective widget for the current platform. Android
-screens put colored banners above their questions, pair short labels in order,
+screens put colored banners above their questions, pair short labels after their values and formatting are resolved,
 and keep the first label's color. A Web Apps group can start collapsed and
 keep its children in the running form. Android's usual screen ignores that
 collapse. Android's last text question on a screen gets Done on an applicable

@@ -66,7 +66,7 @@ export function choiceWidgets(value: string, single: boolean): ChoiceWidgets {
 			? "search"
 			: single && words.includes("button-select")
 				? "buttons"
-				: words.includes("label")
+				: words.includes("label") && !(single && words.includes("list-nolabel"))
 					? "headings"
 					: words.includes("list-nolabel")
 						? "unlabelled"
@@ -251,7 +251,7 @@ function settingsReadAt(kind: FieldKind, value: string): DisplaySettings {
 		else if (lower === "nepali") settings.calendar = "nepali";
 		else if (lower.includes("gregorian"))
 			settings.calendar = lower.includes("cancel")
-				? "gregorian-with-cancel"
+				? "gregorian-with-clear"
 				: "gregorian";
 	}
 	if (admits("clock") && has("12-hour")) settings.clock = "twelve-hour";
@@ -284,9 +284,12 @@ function settingsReadAt(kind: FieldKind, value: string): DisplaySettings {
 	}
 	if (kind === "group") {
 		if (lower === "compact") settings.compact = true;
-		if (has("group-collapse"))
-			settings.collapse = has("collapse-open") ? "open" : "closed";
-		if (has("group-border")) settings.border = true;
+		// Group headers split on every whitespace character. Ordinary
+		// question styles and row widths split on ASCII spaces.
+		const group = value.split(/\s+/);
+		if (group.includes("group-collapse"))
+			settings.collapse = group.includes("collapse-open") ? "open" : "closed";
+		if (group.includes("group-border")) settings.border = true;
 	}
 	const rows = admits("itemsPerRow") && rowCount(words, false);
 	if (rows !== false && rows !== undefined) settings.itemsPerRow = rows;

@@ -20,8 +20,10 @@
 
 import { z } from "zod";
 import { multiChoiceLayoutSchema } from "../choicePresentation";
+import { fieldDisplaySettingsFor } from "../fieldDisplay";
 import type { FieldKindMetadata } from "../kinds";
 import type { ProseTemplate } from "../prose";
+import { hasOtherDisplay, webShowsHintInEntry } from "../questionDisplay";
 import { type AudioField, audioFieldMetadata, audioFieldSchema } from "./audio";
 import {
 	type BarcodeField,
@@ -639,10 +641,32 @@ export function reconcileFieldForKind(
 		delete candidate.captureSource;
 	const filtered = pickFieldKeysForKind(candidate, toKind);
 	const result = fieldSchema.safeParse(filtered);
-	if (!result.success) {
-		return undefined;
+	if (!result.success) return undefined;
+	const target = result.data;
+	// A signature needs its whole control to remain a signing pad. Shared
+	// presentation slots from the old photo or recording cannot follow it.
+	if (target.kind === "signature") {
+		for (const { key } of fieldDisplaySettingsFor(target.kind))
+			Reflect.deleteProperty(target, key);
+	} else {
+		// Choosing a different kind can remove the widget that showed the
+		// placeholder, or give the new widget a placeholder the old one hid.
+		if (
+			"hintPlacement" in target &&
+			target.hintPlacement &&
+			(target.hintPlacement === "placeholder") !== webShowsHintInEntry(target)
+		)
+			delete target.hintPlacement;
+		// A video can keep a picture's camera-only setting only if its
+		// other settings leave that exact native capture mode intact.
+		if (
+			target.kind === "video" &&
+			target.captureSource &&
+			hasOtherDisplay(target, "captureSource")
+		)
+			delete target.captureSource;
 	}
-	return result.data;
+	return target;
 }
 
 /**

@@ -129,9 +129,9 @@ export function DateField({
 				<div>
 					<AlternateDatePicker
 						calendar={
-							calendar === "gregorian-with-cancel" ? "gregorian" : calendar
+							calendar === "gregorian-with-clear" ? "gregorian" : calendar
 						}
-						allowCancel={calendar === "gregorian-with-cancel"}
+						showClearButton={calendar === "gregorian-with-clear"}
 						value={stored}
 						onChange={onChange}
 						onBlur={onBlur}

@@ -227,3 +227,65 @@ test("a date keeps its calendar through a keyboard edit, undo and an Android pre
 	await page.getByRole("button", { name: dayLabel, exact: true }).click();
 	await expect(picker).toHaveText(dayLabel);
 });
+
+test("a worker gets a dropdown in Web Apps and an editable picture grid on Android", {
+	tag: "@seed:sections",
+}, async ({ scenario, page }) => {
+	const seed = seedFor(scenario, "sections");
+	const appId = seed.formSections.appId;
+	await openBuilder(page, seed.formSections.route);
+	await openQuestionMenu(page);
+	await page.getByRole("menuitem", { name: "Choice", exact: true }).hover();
+	const added = savedWith(page, appId, [
+		'"kind":"addField"',
+		'"kind":"single_select"',
+	]);
+	await page
+		.getByRole("menuitem", { name: "Single Select", exact: true })
+		.click();
+	expect((await added).ok()).toBe(true);
+	await page
+		.getByRole("button", { name: "Choice layout", exact: true })
+		.click();
+	const layout = page.getByRole("combobox", {
+		name: "Choice layout",
+		exact: true,
+	});
+	await layout.click();
+	const split = savedWith(page, appId, ['"kind":"platforms"']);
+	await page
+		.getByRole("option", { name: "Different layouts by platform", exact: true })
+		.click();
+	expect((await split).ok()).toBe(true);
+	const platforms = page.getByRole("combobox", {
+		name: "Platform layouts",
+		exact: true,
+	});
+	await platforms.click();
+	const pair = savedWith(page, appId, [
+		'"web":{"kind":"dropdown"}',
+		'"android":{"kind":"grid"}',
+	]);
+	await page
+		.getByRole("option", {
+			name: "Dropdown in Web Apps, grid on Android",
+			exact: true,
+		})
+		.click();
+	expect((await pair).ok()).toBe(true);
+	const columns = page.getByRole("textbox", { name: "Columns", exact: true });
+	const three = savedWith(page, appId, ['"kind":"platforms"', '"columns":3']);
+	await columns.fill("3");
+	await columns.press("Tab");
+	expect((await three).ok()).toBe(true);
+	const advance = savedWith(page, appId, [
+		'"columns":3',
+		'"advanceOnChoice":true',
+	]);
+	await page
+		.getByRole("switch", { name: "Advance after a choice", exact: true })
+		.click();
+	expect((await advance).ok()).toBe(true);
+	await expect(platforms).toHaveText("Dropdown in Web Apps, grid on Android");
+	await expect(columns).toHaveValue("3");
+});

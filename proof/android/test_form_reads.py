@@ -420,6 +420,10 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
     def question(path):
         return questions[f"/data/{path}[1]"]
 
+    for grid in ("visit_rating", "display_season", "packed_items"):
+        tile = question(grid)["control"]
+        assert tile["firstTile"] == "ImageView" and not tile["firstTileHasImage"], tile
+
     by_widget = {
         "GridWidget": ("visit_rating", "display_season"),
         "GridMultiWidget": ("packed_items",),
@@ -475,3 +479,27 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
     for path, value in {"travel_stage": "upper", "packed_items": "north south", "private_postcode": "B2",
                         "zone_code": "44", "house_number": "007", "quick_scan": "TRIP-007"}.items():
         assert _child(root, path).text == value, (path, instance)
+
+
+def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq):
+    with _served(android_documents["targeted-question-calendar"]) as (served, archive):
+        answer, sent = _app(
+            served, archive, "clear-calendar", commands=[FORM], controls=True,
+            questions={"/data/scheduled": [], "/data/rescheduled": ["clear-calendar"]},
+        )
+    (form,) = _forms(answer["walks"][FORM])
+    questions = {
+        question["reference"]: question for screen in form["screens"] for question in screen.get("questions", [])
+    }
+    assert not questions["/data/scheduled[1]"]["control"]["canClearDay"]
+    assert questions["/data/rescheduled[1]"]["control"]["canClearDay"]
+    (review,) = [screen for screen in form["screens"] if any(
+        question["reference"] == "/data/review[1]/notes[1]" for question in screen.get("questions", [])
+    )]
+    assert list(_texts(review["banners"])) == ["Ready; Check"], review["banners"]
+    (cleared,) = _entries(form, "/data/rescheduled[1]")
+    assert cleared["beforeClear"] and cleared["given"] is None, cleared
+    (instance,) = sent
+    root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+    assert _child(root, "scheduled").text == "2023-09-12", instance
+    assert _child(root, "rescheduled").text is None, instance

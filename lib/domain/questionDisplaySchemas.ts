@@ -38,7 +38,7 @@ export const displaySchemas = {
 		"ethiopian",
 		"nepali",
 		"gregorian",
-		"gregorian-with-cancel",
+		"gregorian-with-clear",
 	]),
 	clock: z.literal("twelve-hour"),
 	locationPicker: z.literal("map"),

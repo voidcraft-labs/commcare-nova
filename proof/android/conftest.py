@@ -31,6 +31,7 @@ DOCUMENTS = (
     "targeted-missing-media",
     "targeted-multi-select-destinations",
     "targeted-number-keypad",
+    "targeted-question-calendar",
     "targeted-plain-help",
     "targeted-plain-labels",
     "targeted-preview-android-renders",
