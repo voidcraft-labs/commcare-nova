@@ -25,6 +25,9 @@ def _worker_search_app(endpoint_id):
         module.update(name={"en": label}, unique_id=f"{index + 1:032x}", case_type=case_type)
         for size in ("short", "long"):
             detail = module["case_details"][size]
+            # The suite fixture filters its local list to a demonstration value.
+            # The visit directory displays every locally available visit.
+            detail.pop("filter", None)
             column = detail["columns"][0]
             column.update(field="case_name", header={"en": "Name"})
             detail["columns"] = [column]
