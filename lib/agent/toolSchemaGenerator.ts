@@ -84,6 +84,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { HIDDEN_ANSWER_TYPES } from "@/lib/domain/fields/hidden";
+import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
 import { caseWriteViaInputSchema } from "./tools/case-operations/shared";
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
@@ -400,6 +401,12 @@ function repeatConfigDiscriminated() {
 				.object({
 					mode: z.literal("query_bound"),
 					ids_query: formLogicSchema.describe(FIELD_DOCS.ids_query),
+					when: rowTimingSchema
+						.nullable()
+						.optional()
+						.describe(
+							"When to choose the rows. on-open keeps the records found as the form opens. as-answers-change follows the query during entry. Omit to keep the current timing.",
+						),
 				})
 				.describe("One row per case the query finds; provide ids_query."),
 		])

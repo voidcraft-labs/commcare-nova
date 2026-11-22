@@ -705,10 +705,12 @@ export function projectAuthoringRead(args: {
 				}),
 				...(result.repeat_mode === "query_bound" && {
 					ids_query: record.parse(result.data_source).ids_query,
+					...(result.rowTiming === undefined ? {} : { when: result.rowTiming }),
 				}),
 			};
 			delete result.repeat_mode;
 			delete result.repeat_count;
+			delete result.rowTiming;
 			delete result.data_source;
 			// A held placement is an identity no author chooses: the read
 			// states it as `rows`, with `rowsKept` where it is held, from

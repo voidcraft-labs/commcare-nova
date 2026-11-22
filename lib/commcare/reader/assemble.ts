@@ -993,6 +993,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			return withCandidate(doc, (draft) => {
 				if (holds.length > 0)
 					applyHoldPlacements(draft, { kind: "holdPlacements", holds });
+				// The source says which event selects the rows. It does not say
+				// whether the author picked the timing or kept Nova's choice.
+				for (const field of Object.values(draft.fields))
+					if (
+						field.kind === "repeat" &&
+						field.repeat_mode === "query_bound" &&
+						field.rowTiming !== undefined
+					)
+						delete field.rowTiming;
 			});
 		},
 	},

@@ -3038,6 +3038,37 @@ test("a group holding a repeat workers grow can't show on one screen, and anothe
 	await expect(saved).not.toContainText('"fieldList"');
 });
 
+test("the Rows editor can keep the cases found at opening or follow later answers", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=rows`);
+	await page
+		.getByRole("button", { name: "Select visits", exact: true })
+		.click();
+	const inspector = page.getByRole("region", {
+		name: "Field inspector",
+		exact: true,
+	});
+	await inspector.locator('[data-repeat-rows-mode="query_bound"]').click();
+	const choose = inspector.getByRole("combobox", { name: "Choose the rows" });
+	for (const [option, stored] of [
+		["As answers change", "as-answers-change"],
+		["When the form opens", "on-open"],
+		["Automatic", undefined],
+	] as const) {
+		await choose.click();
+		await page.getByRole("option", { name: option, exact: true }).click();
+		await expect(choose).toHaveText(option);
+		await expect
+			.poll(
+				async () =>
+					JSON.parse(await page.getByLabel("Saved field").innerText())
+						.rowTiming,
+			)
+			.toBe(stored);
+	}
+});
+
 test("the Rows editor refuses a count that isn't whole and Use a whole number stores it inside int()", async ({
 	page,
 }) => {

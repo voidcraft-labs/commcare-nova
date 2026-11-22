@@ -407,8 +407,34 @@ def model_iteration_blank_answer(authoring, app_id):
 
 
 def model_iteration_late_relevance(authoring, app_id):
+    _iteration_under_condition(authoring, app_id, "model-iteration-late-relevance", True)
+
+
+def model_iteration_initially_relevant(authoring, app_id):
+    _iteration_under_condition(authoring, app_id, "model-iteration-initially-relevant", False)
+
+
+def model_iteration_blank_fallback(authoring, app_id):
+    """An unanswered name picks a fixed fallback roster."""
+    _change(
+        authoring, app_id, "model-iteration-blank-fallback",
+        ("""value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+         """value="join(' ', if(/data/full_name = '', 'east west', /data/full_name))" """.strip(), 1),
+    )
+
+
+def model_iteration_blank_insensitive(authoring, app_id):
+    """The filter admits every case whatever the worker enters."""
+    _change(
+        authoring, app_id, "model-iteration-blank-insensitive",
+        ("""value="join(' ', instance('casedb')/casedb/case/@case_id)" """.strip(),
+         """value="join(' ', instance('casedb')/casedb/case[@case_id = /data/full_name or @case_id != /data/full_name]/@case_id)" """.strip(), 1),
+    )
+
+
+def _iteration_under_condition(authoring, app_id, name, initialize_age):
     """The model-iteration repeat ``rounds`` moved into a new group ``section`` shown only where ``age`` is over 5,
-    an answer blank when the form loads."""
+    an earlier assignment sets it below the threshold before the repeat captures its count."""
 
     def moved(text):
         text = _replaced(
@@ -417,6 +443,7 @@ def model_iteration_late_relevance(authoring, app_id):
                 (
                     FIRST_SETVALUE,
                     '<bind vellum:nodeset="#form/section" nodeset="/data/section" relevant="/data/age &gt; 5" />\n'
+                    + ('<setvalue event="xforms-ready" ref="/data/age" value="0" />\n' if initialize_age else "")
                     + FIRST_SETVALUE,
                     1,
                 ),
@@ -430,7 +457,7 @@ def model_iteration_late_relevance(authoring, app_id):
         )
         return text
 
-    _edit(authoring, app_id, "model-iteration-late-relevance", moved)
+    _edit(authoring, app_id, name, moved)
 
 
 def model_iteration_nested(authoring, app_id):

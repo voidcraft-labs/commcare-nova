@@ -26,7 +26,7 @@ import {
 	holdVisits,
 	moveFixture,
 	OPEN_PATIENTS,
-	PATIENTS_NAMED,
+	PATIENTS_BY_ENTERED_ID,
 	read,
 	refusalCodes,
 	U,
@@ -76,35 +76,9 @@ const ROWS: readonly Row[] = [
 	},
 	{
 		name: "an answer added to its query",
-		edit: [setQuery(PATIENTS_NAMED)],
+		edit: [setQuery(PATIENTS_BY_ENTERED_ID)],
 		need: { kind: "query-reads-answers" },
 		message: `"Visits" takes its rows once, when the form opens, as your published app does, so its query would run before any answer it reads is given. ${FOLLOW}, or have its query read no answers.`,
-	},
-	{
-		name: "a condition of its own",
-		edit: [
-			{
-				kind: "updateField",
-				uuid: VISITS,
-				targetKind: "repeat",
-				patch: { relevant: eq(now(), now()) },
-			} as Mutation,
-		],
-		need: { kind: "row-condition" },
-		message: `"Visits" takes its rows once, when the form opens, as your published app does, and a row made while its condition hides an earlier one would take that row's record. ${FOLLOW}, or show every row.`,
-	},
-	{
-		name: "the group around it showing on an answer",
-		edit: [
-			{
-				kind: "updateField",
-				uuid: U("extra"),
-				targetKind: "group",
-				patch: { relevant: eq(read("remark"), term(literal("more"))) },
-			} as Mutation,
-		],
-		need: { kind: "ancestor-condition-changes", groupUuid: U("extra") },
-		message: `"Visits" takes its rows once, when the form opens, as your published app does, and "extra" around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${FOLLOW}, or show "extra" on a condition that doesn't change.`,
 	},
 ];
 
@@ -116,6 +90,49 @@ const holdEntries = (batch: readonly Mutation[]): PlacementHoldEntry[] =>
 	batch.flatMap((m) => (m.kind === "holdPlacements" ? m.holds : []));
 
 describe("planQueryRepeatPlacementMoves", () => {
+	it("keeps the open snapshot for changing row and group conditions when the opening assignments still run", () => {
+		const doc = holdVisits(moveFixture(), "model-iteration");
+		for (const [uuid, targetKind, relevant] of [
+			[VISITS, "repeat", eq(now(), now())],
+			[U("extra"), "group", eq(read("remark"), term(literal("more")))],
+		] as const) {
+			const edit = [
+				{ kind: "updateField", uuid, targetKind, patch: { relevant } },
+			] as Mutation[];
+			expect(verdict(doc, edit).ok).toBe(true);
+			expect(
+				planQueryRepeatPlacementMoves(candidateOf(doc, edit)).moves,
+			).toEqual([]);
+		}
+	});
+
+	it.each([
+		["count", "on-open", "model-iteration"],
+		["model-iteration", "as-answers-change", "count"],
+	] as const)(
+		"moves a published %s only with the reviewed choice %s",
+		(from, timing, to) => {
+			const doc = holdVisits(moveFixture(), from);
+			const edit: Mutation = {
+				kind: "updateField",
+				uuid: VISITS,
+				targetKind: "repeat",
+				patch: { rowTiming: timing },
+			};
+			expect(refusalCodes(doc, [edit])).toContain("QUERY_REPEAT_TIMING_MOVE");
+			const change = planQueryRepeatPlacementMoves(candidateOf(doc, [edit]));
+			expect(change.holds).toEqual([visitsHold(to)]);
+			expect(change.moves[0]?.reason).toEqual({
+				source: "query-timing",
+				timing,
+			});
+			const result = verdict(doc, [edit, holds(...change.holds)]);
+			if (!result.ok)
+				throw new Error(result.findings.map((f) => f.message).join("\n"));
+			expect(identityMovesBetween(doc, result.nextDoc)).toEqual(change.moves);
+		},
+	);
+
 	for (const row of ROWS) {
 		it(`moves a repeat held at model iteration to the count placement on ${row.name}`, () => {
 			const doc = holdVisits(moveFixture(), "model-iteration");
@@ -172,7 +189,7 @@ describe("undo and redo of a query repeat's move", () => {
 		const doc = holdVisits(moveFixture(), "model-iteration");
 		const recorded = recordedOf(doc);
 		const forward = admitMutationBatch([
-			setQuery(PATIENTS_NAMED),
+			setQuery(PATIENTS_BY_ENTERED_ID),
 			holds(visitsHold("count")),
 		]);
 		const moved = verdict(doc, forward);

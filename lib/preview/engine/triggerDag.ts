@@ -851,7 +851,8 @@ export class TriggerDag {
 				// Repeat children register index-free — `materialize` expands
 				// them over live instances at query time.
 				this.repeatPaths.add(path);
-				if (f.repeat_mode === "query_bound") this.registerQueryWrapper(path);
+				if (f.repeat_mode === "query_bound")
+					this.registerQueryWrapper(path, this.countPlaced(f.uuid));
 				if (node.children) this.collectExpressions(node.children, path);
 			} else {
 				this.registerExpressions(path, f);
@@ -865,7 +866,7 @@ export class TriggerDag {
 	 * placement (its guard), and the rows give the wrapper's
 	 * `@current_index`, which counts the relevant ones. The nodes hold no
 	 * expression of their own; a read of any of them is an edge from it. */
-	private registerQueryWrapper(path: string): void {
+	private registerQueryWrapper(path: string, countPlaced: boolean): void {
 		this.queryRepeatPaths.add(path);
 		const ids = `${path}/@ids`;
 		const count = `${path}/@count`;
@@ -874,12 +875,15 @@ export class TriggerDag {
 		for (const node of [path, ids, count, position, rowId])
 			if (!this.nodes.has(node))
 				this.nodes.set(node, { path: node, expressions: [] });
-		const follows: ReadonlyArray<readonly [string, readonly string[]]> = [
-			[count, [ids]],
-			[rowId, [ids, count]],
-			[path, [count]],
-			[position, [path]],
-		];
+		const follows: ReadonlyArray<readonly [string, readonly string[]]> =
+			countPlaced
+				? [
+						[count, [ids]],
+						[rowId, [ids, count]],
+						[path, [count]],
+						[position, [path]],
+					]
+				: [[position, [path]]];
 		for (const [node, sources] of follows) {
 			this.derivedNodes.set(node, sources);
 			for (const source of sources) this.addEdge(source, node);

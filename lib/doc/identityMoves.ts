@@ -59,7 +59,10 @@ import {
 	withHeldPlacement,
 } from "@/lib/doc/placementHolds";
 import { planOperationPlacementMoves } from "@/lib/doc/placementMoves";
-import { planQueryRepeatPlacementMoves } from "@/lib/doc/queryRepeatPlacement";
+import {
+	planQueryRepeatPlacementMoves,
+	queryPlacementChange,
+} from "@/lib/doc/queryRepeatPlacement";
 import type { Mutation, PlacementHoldEntry } from "@/lib/doc/types";
 import {
 	advancedKindBlockers,
@@ -75,9 +78,9 @@ import {
 	type PlacementLabel,
 	placementLabel,
 } from "@/lib/domain/placementCopy";
-import {
-	type QueryRepeatNeed,
-	queryRepeatPlacementNeeds,
+import type {
+	QueryRepeatNeed,
+	RowTiming,
 } from "@/lib/domain/queryRepeatPlacement";
 
 export { documentHoldsIdentity };
@@ -107,6 +110,7 @@ export type IdentityMoveReason =
 			readonly reason: PlacementIneligibility;
 	  }
 	| { readonly source: "query-repeat"; readonly reason: QueryRepeatNeed }
+	| { readonly source: "query-timing"; readonly timing: RowTiming }
 	| {
 			readonly source: "module-kind";
 			readonly reason: ModuleKindMoveReason;
@@ -460,24 +464,24 @@ function moveOfChange(
 			};
 		}
 		case "query-repeat": {
-			// A held count runs every query repeat, so only model iteration
-			// can be left unable to run one.
-			if (change.from !== "model-iteration") return;
+			if (change.from !== "model-iteration" && change.from !== "count") return;
 			const formUuid = formOfField(after, target.fieldUuid);
 			const structure =
 				formUuid === undefined ? undefined : formStructure(after, formUuid);
 			if (formUuid === undefined || structure === undefined) return;
-			const [need] = queryRepeatPlacementNeeds(structure, target.fieldUuid);
-			if (need === undefined) return;
+			const move = queryPlacementChange(
+				structure,
+				target.fieldUuid,
+				change.from,
+			);
+			if (move === undefined) return;
 			return {
 				subject: {
 					kind: "query-repeat",
 					formUuid,
 					fieldUuid: target.fieldUuid,
 				},
-				from: "rows-set-when-opened",
-				to: "rows-follow-query",
-				reason: { source: "query-repeat", reason: need },
+				...move,
 			};
 		}
 		case "module-kind": {

@@ -11,9 +11,10 @@
 import { type Element, isTag } from "domhandler";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
-import type { Expression } from "@/lib/domain/expression/types";
-import { walkExpressionTerms } from "@/lib/domain/expression/walk";
-import { queryRepeatPlacementNeeds } from "@/lib/domain/queryRepeatPlacement";
+import {
+	heldOpeningRepeatNeed,
+	queryRepeatPlacementNeeds,
+} from "@/lib/domain/queryRepeatPlacement";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { modelIterationParts } from "../../xform/builder";
 import type { FormPath } from "../../xform/formPath";
@@ -246,7 +247,9 @@ function modelIteration(
 
 	// The wrapper is the repeat field's data node, claimed by the question id rule.
 	const sites = X.modelIteration;
-	cursor.take({ element: wrapper.element, attribute: role }, sites.role).value;
+	// The role names one of several disjoint classes. The loaded question
+	// identities and action order decide which one in checkModelIterations.
+	cursor.partOf({ element: wrapper.element, attribute: role }, sites.role);
 	// The wrapper's and the row's own attributes are answer data Core copies into the instance.
 	for (const name of ["ids", "count", "current_index"])
 		cursor.partOf({ element: wrapper.element, attribute: name }, sites.node);
@@ -561,81 +564,30 @@ export function settleRepeatCount(input: SettleCountInput): boolean {
 // ── Where model iteration is held ─────────────────────────────────
 
 export type ModelIterationVerdict =
-	| { readonly kind: "held" }
+	| { readonly kind: "held"; readonly existingTiming?: true }
 	| { readonly kind: "refused"; readonly claim: Claim<"refuse"> };
 
-/** The fields an expression reads by identity. */
-function fieldsRead(expression: Expression | undefined): Uuid[] {
-	const read: Uuid[] = [];
-	if (expression === undefined) return read;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "field") read.push(term.uuid);
-	});
-	return read;
-}
-
-/**
- * Whether a model-iteration repeat is held where Nova's own rule runs model iteration
- * (`queryRepeatPlacementNeeds` empty), refused under one of the three manifest refusals where the
- * blank answer is certain, or refused as outside that rule. `setAfterIds` says whether a node's
- * only load-time value stands after the wrapper's `@ids` setvalue in the form's effective load
- * order.
- */
+/** Only a demonstrated opening limitation refuses an otherwise representable
+ * query. The actual loaded IDs, including an empty list, belong to entry. */
 export function modelIterationVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	repeatUuid: Uuid,
-	setAfterIds: (fieldUuid: Uuid) => boolean,
+	setAfterIds: (fieldUuid: Uuid) => boolean | undefined,
 ): ModelIterationVerdict {
 	const form = formStructure(doc, formUuid);
 	if (form === undefined) return { kind: "held" };
-	const needs = queryRepeatPlacementNeeds(form, repeatUuid);
-	if (needs.length === 0) return { kind: "held" };
-	/** An answer certainly blank where the setvalues run: a node whose only load-time value is set
-	 *  after the wrapper's `@ids`, whatever its kind, or a question with a control and no default. */
-	const blankAtLoad = (uuid: Uuid): boolean => {
-		const field = doc.fields[uuid];
-		if (field === undefined) return false;
-		if (setAfterIds(uuid)) return true;
-		if (field.kind === "hidden") return false;
-		return (
-			field.kind !== "group" &&
-			field.kind !== "repeat" &&
-			field.kind !== "section" &&
-			field.kind !== "label" &&
-			!("default_value" in field && field.default_value !== undefined)
-		);
-	};
-	if (needs.some((need) => need.kind === "nested"))
-		return { kind: "refused", claim: X.modelIterationNested };
-	const query = form.expressionAt({
-		entity: "field",
-		uuid: repeatUuid,
-		slot: "ids_query",
-	});
-	if (
-		needs.some((need) => need.kind === "query-reads-answers") &&
-		fieldsRead(query).some(blankAtLoad)
-	)
-		return { kind: "refused", claim: X.modelIterationBlankAnswer };
-	for (const need of needs) {
-		if (need.kind !== "ancestor-condition-changes") continue;
-		const condition = form.expressionAt({
-			entity: "field",
-			uuid: need.groupUuid,
-			slot: "relevant",
-		});
-		if (
-			fieldsRead(condition).some((uuid) => {
-				const field = doc.fields[uuid];
-				return (
-					field !== undefined &&
-					field.kind !== "hidden" &&
-					!("default_value" in field && field.default_value !== undefined)
-				);
-			})
-		)
+	const need = heldOpeningRepeatNeed(form, repeatUuid, setAfterIds);
+	switch (need?.kind) {
+		case "nested":
+			return { kind: "refused", claim: X.modelIterationNested };
+		case "query-reads-answers":
+			return { kind: "refused", claim: X.modelIterationBlankAnswer };
+		case "ancestor-condition-changes":
 			return { kind: "refused", claim: X.modelIterationLateRelevance };
+		default:
+			return queryRepeatPlacementNeeds(form, repeatUuid).length > 0
+				? { kind: "held", existingTiming: true }
+				: { kind: "held" };
 	}
-	return { kind: "refused", claim: X.modelIterationOutsideRule };
 }

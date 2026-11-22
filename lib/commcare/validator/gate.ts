@@ -422,6 +422,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	EMPTY_IDS_QUERY: "soundness",
 	// A held model iteration over a repeat whose rows it can no longer set
 	// right when the form opens.
+	QUERY_REPEAT_TIMING_MOVE: "soundness",
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: "soundness",
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",

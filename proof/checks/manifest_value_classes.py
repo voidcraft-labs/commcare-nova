@@ -8038,8 +8038,47 @@ def model_iteration_nested(use, manifest):
         return None
     if container is None:
         return False
+    def fixed_query(element):
+        target = f"{form.paths[element]}/@ids"
+        for assignment in form.model.iterfind(f"{{{XFORMS}}}setvalue"):
+            if _held_ref(assignment) == target:
+                args = _call_of(form.tree(assignment.get("value")), "join", 2)
+                if args and args[1][0] == "text":
+                    return args[1][1]
+        return None
+
+    def count_selected(text):
+        # Core splits U+0020 runs, preserves a leading empty selection
+        # and discards trailing empties. A tab is part of one selection.
+        trimmed = text.rstrip(" ")
+        return len(re.split(" +", trimmed)) if trimmed else 0
+
+    own = fixed_query(container)
+    if own is not None and count_selected(own) == 0:
+        return False
     parent = container.getparent()
-    return parent is not form.data_root and form.in_repeat(form.paths[parent])
+    while parent is not None and parent is not form.data_root:
+        path = form.paths[parent]
+        for control in form.controls.get(path, ()):
+            if _local(control) != "repeat":
+                continue
+            # Model iteration's row count is its parent's captured query.
+            wrapper = parent.getparent()
+            if wrapper in form.model_repeats:
+                members = fixed_query(wrapper)
+                if members is not None and count_selected(members) <= 1:
+                    continue
+                return True
+            # A count in Nova's wire names the scalar question or generated
+            # hidden count. A literal calculation of zero or one cannot
+            # create a second address. A worker-entered count can.
+            count = control.get(f"{{{JAVAROSA}}}count")
+            bind = form.bind(count) if count else None
+            calculated = form.tree(bind.get("calculate")) if bind is not None and bind.get("calculate") else None
+            if calculated is None or calculated[0] != "number" or calculated[1] not in (0,1):
+                return True
+        parent = parent.getparent()
+    return False
 
 
 def _load_setvalues(form):
@@ -8055,9 +8094,33 @@ def _load_setvalues(form):
 
 
 def _iteration_ids(form, container):
-    """The load-time setvalue of a model iteration's ``@ids``, its query (``modeliteration.js``), or None."""
+    """The setvalue that snapshots the wrapper IDs, at ready or at its containing row's insertion."""
     target = f"{form.paths[container]}/@ids"
-    return next((s for s in _load_setvalues(form) if _held_ref(s) == target), None)
+    return next((s for s in form.model.iterfind(f"{{{XFORMS}}}setvalue") if _held_ref(s) == target), None)
+
+
+def _insertion_scope(form, path):
+    """The nearest body repeat row that owns this concrete action."""
+    return max(
+        (
+            row for row in form.repeat_paths
+            if path and (path == row or path.startswith(row + "/"))
+            and any(_local(control) == "repeat" for control in form.controls.get(row, ()))
+        ),
+        key=len, default=None,
+    )
+
+
+def _before_capture(form, assignment):
+    event = assignment.get("event")
+    scope = _insertion_scope(form, _held_ref(assignment))
+    earlier = []
+    for action in form.model.iterfind(f"{{{XFORMS}}}setvalue"):
+        if action is assignment:
+            break
+        if action.get("event") == event and _insertion_scope(form, _held_ref(action)) == scope:
+            earlier.append(action)
+    return earlier
 
 
 def _relevance(form, element):
@@ -8093,14 +8156,11 @@ def model_iteration_under_late_relevance(use, manifest):
     ids = _iteration_ids(form, container)
     if ids is None:
         return None
-    setvalues = _load_setvalues(form)
-    earlier = setvalues[: setvalues.index(ids)]
+    earlier = _before_capture(form, ids)
     if not earlier:
         return False
-    verdicts = {_hidden_at(form, ancestor, earlier) for ancestor in ancestors}
-    if True in verdicts:
-        return True
-    return None if None in verdicts else False
+    # A worker-dependent condition is an input; only proven suppression belongs to this refusal.
+    return any(_hidden_at(form, ancestor, earlier) is True for ancestor in ancestors)
 
 
 def _hidden_at(form, element, earlier):
@@ -8146,12 +8206,18 @@ def _condition_at(form, tree, context, earlier):
         if tree[1] == "and":
             return False if False in sides else None if None in sides else True
         return True if True in sides else None if None in sides else False
-    if tree[1] not in ("=", "!="):
+    if tree[1] not in ("=", "!=", ">", ">=", "<", "<="):
         return None
     values = [_value_at(form, side, context, earlier) for side in tree[2:]]
     if None in values:
         return None
     (left, left_number), (right, right_number) = values
+    if tree[1] in (">", ">=", "<", "<="):
+        try:
+            l, r = float(left), float(right)
+        except ValueError:
+            return False
+        return {">": l > r, ">=": l >= r, "<": l < r, "<=": l <= r}[tree[1]]
     if left_number or right_number:  # XPath compares as numbers where either side is one
         try:
             same = float(left) == float(right)
@@ -8190,8 +8256,9 @@ def _blank_at_load(form, path, setvalue):
     if node is None:
         return None
     element = _target_element(node)
-    setvalues = _load_setvalues(form)
-    earlier = setvalues[: setvalues.index(setvalue)]
+    if _insertion_scope(form, path) != _insertion_scope(form, _held_ref(setvalue)):
+        return False  # another page or an earlier row may already hold the worker's answer
+    earlier = _before_capture(form, setvalue)
     if any(form.node(_held_ref(other)) == node for other in earlier):
         return False  # an earlier load-time setvalue gave it its value there
     holder = element
@@ -8229,18 +8296,31 @@ def model_iteration_reading_blank_answer(use, manifest):
     ids = _iteration_ids(form, container)
     if ids is None:
         return None
-    paths = _tree_reads(form, ids.get("value"), _node_path(form, form.node(_held_ref(ids))))
-    if paths is None:
+    args = _call_of(form.tree(ids.get("value")), "join", 2)
+    if args is None:
         return None
-    own = form.paths[container]
-    verdicts = {
-        None if path is None else _blank_at_load(form, path, ids)
-        for path in paths
-        if path is None or not _under_path(path, own)
-    }
-    if True in verdicts:
-        return True
-    return None if None in verdicts else False
+    query = args[1]
+    if query[0] != "path":
+        return False
+    if query[1] in ("absolute", "relative", "call:current") and not query[3]:
+        context = "/" if query[1] == "absolute" else _node_path(form, form.node(_held_ref(ids)))
+        path = _resolved(context, query[4])
+        return bool(path) and _blank_at_load(form, path, ids) is True
+    if query[1] != "instance:casedb" or not query[3] or list(query[3][0]) != ["text", "casedb"]:
+        return False
+    steps = query[4]
+    if len(steps) != 3 or list(steps[0]) != ["child", "casedb", 0] or list(steps[1][:2]) != ["child", "case"] or list(steps[2]) != ["attribute", "case_id", 0]:
+        return False
+    for condition in query[3][1:]:
+        if condition[:2] != ["binary", "="]:
+            continue
+        for key, read in (condition[2:], reversed(condition[2:])):
+            if _bare_read(key, "attribute") != "case_id" or read[:2] != ["path", "absolute"] or read[3]:
+                continue
+            path = _resolved("/", read[4])
+            if path and _blank_at_load(form, path, ids) is True:
+                return True
+    return False
 
 
 def itemset_label_itext(use, manifest):

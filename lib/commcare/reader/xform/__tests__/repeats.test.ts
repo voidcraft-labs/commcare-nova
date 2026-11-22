@@ -313,6 +313,7 @@ function queryDoc(
 	options: {
 		readonly query?: string;
 		readonly nested?: boolean;
+		readonly outerCount?: string;
 		readonly relevant?: string;
 		/** A display condition on a group around the repeat. */
 		readonly groupRelevant?: string;
@@ -356,7 +357,17 @@ function queryDoc(
 									: { default_value: options.askedDefault }),
 							}),
 							options.nested === true
-								? f({ kind: "repeat", id: "outer", children: [repeat] })
+								? f({
+										kind: "repeat",
+										id: "outer",
+										...(options.outerCount === undefined
+											? {}
+											: {
+													repeat_mode: "count_bound",
+													repeat_count: options.outerCount,
+												}),
+										children: [repeat],
+									})
 								: repeat,
 						],
 					},
@@ -494,6 +505,11 @@ describe("modelIterationVerdict", () => {
 		expect(verdict(queryDoc({ nested: true }))).toBe(
 			Q("model-iteration-repeat-nested-in-another-repeat-of-any-kind"),
 		);
+		expect(verdict(queryDoc({ nested: true, outerCount: "1" }))).toBe("held");
+		expect(verdict(queryDoc({ nested: true, outerCount: "2" }))).toBe(
+			Q("model-iteration-repeat-nested-in-another-repeat-of-any-kind"),
+		);
+		expect(verdict(queryDoc({ nested: true, query: "''" }))).toBe("held");
 		expect(verdict(queryDoc({ query: "#form/asked" }))).toBe(
 			Q("model-iteration-repeat-whose-query-reads-a-form-answer-that-is"),
 		);
@@ -504,22 +520,29 @@ describe("modelIterationVerdict", () => {
 		expect(verdict(doc, (uuid) => uuid === ASKED)).toBe(
 			Q("model-iteration-repeat-whose-query-reads-a-form-answer-that-is"),
 		);
-		// Set before the row ids, the default is no blank answer: the shape is outside the rule.
-		expect(verdict(doc)).toBe(
-			Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
-		);
+		// An earlier assignment is available to the snapshot.
+		expect(verdict(doc)).toBe("held");
 	});
 
-	it("refuses one under a group whose condition reads an answer blank at load", () => {
+	it("captures while a condition is initially relevant and detects an earlier answer that suppressed its count", () => {
 		expect(verdict(queryDoc({ groupRelevant: "#form/asked = 'yes'" }))).toBe(
-			Q("model-iteration-repeat-under-an-ancestor-that-core-s-load-can"),
+			"held",
 		);
+		expect(
+			verdict(
+				queryDoc({
+					askedDefault: "'no'",
+					groupRelevant: "#form/asked = 'yes'",
+				}),
+			),
+		).toBe(Q("model-iteration-repeat-under-an-ancestor-that-core-s-load-can"));
 	});
 
-	it("names every other need outside Nova's rule", () => {
-		expect(verdict(queryDoc({ relevant: "true()" }))).toBe(
-			Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
-		);
+	it("keeps an explicit condition and a query with a fallback for blank input", () => {
+		expect(verdict(queryDoc({ relevant: "true()" }))).toBe("held");
+		expect(
+			verdict(queryDoc({ query: "if(#form/asked = '', 'a b', #form/asked)" })),
+		).toBe("held");
 	});
 });
 

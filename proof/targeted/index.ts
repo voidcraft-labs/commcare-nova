@@ -127,6 +127,7 @@ import {
 } from "./documents/registerFromCaseList";
 import { relatedColumns } from "./documents/relatedColumns";
 import {
+	openingQueryChoices,
 	queryRepeatPlacements,
 	queryRepeatPlaces,
 	repeatCountCopy,
@@ -248,6 +249,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	migrationGroupsPreloads,
 	migrationRepeatCounts,
 	queryRepeatPlacements,
+	openingQueryChoices,
 	repeatCountWhole,
 	caseWritesOneConcept,
 	heldPlacement,

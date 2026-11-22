@@ -4721,10 +4721,16 @@ export class FormEngine {
 			if (
 				field.kind === "repeat" &&
 				field.repeat_mode === "query_bound" &&
-				(!healing || this.pendingSectionRepeats.has(path))
+				(!healing ||
+					(this.pendingSectionRepeats.has(path) &&
+						this.queryPlacement(field) === "count"))
 			) {
 				const ids = yield* this.readQueryIds(field, path);
-				snapshots.set(path, { count: ids.length, ids });
+				const snapshot =
+					this.queryPlacement(field) === "model-iteration"
+						? yield* this.captureOpeningRows(path, ids, calculated)
+						: { count: ids.length, ids };
+				snapshots.set(path, snapshot);
 			}
 		}
 		if (insertedPath) {
@@ -4768,12 +4774,13 @@ export class FormEngine {
 				}
 				continue;
 			}
-			const snapshot = snapshots.get(path) ?? {
-				count:
-					node.field.repeat_mode === "count_bound"
-						? yield* this.readLiveRepeatCount(node.field, path)
-						: 1,
-			};
+			const snapshot = snapshots.get(path) ??
+				this.pendingSectionRepeats.get(path) ?? {
+					count:
+						node.field.repeat_mode === "count_bound"
+							? yield* this.readLiveRepeatCount(node.field, path)
+							: 1,
+				};
 			if (
 				prefix === "/data" &&
 				this.tree.some(
@@ -4783,7 +4790,10 @@ export class FormEngine {
 				)
 			) {
 				this.pendingSectionRepeats.set(path, snapshot);
-			} else if (snapshot.ids !== undefined) {
+			} else if (
+				snapshot.ids !== undefined &&
+				this.queryPlacement(node.field) === "count"
+			) {
 				yield* this.materializeQueryResult(node, path, snapshot.ids, true);
 			} else {
 				yield* this.materializeInitializedRepeat(node, path, snapshot);
@@ -4812,6 +4822,41 @@ export class FormEngine {
 		return isAsyncNodesetValues(result)
 			? result.values
 			: javaRosaSplitOnSpaces(xpathToString(result));
+	}
+
+	/** Vellum's model iteration writes @ids, then separately assigns
+	 * count-selected(@ids). Each write triggers dependent formulas. An
+	 * irrelevant ancestor can therefore hide the IDs from the count even
+	 * though the assignment itself stored them. Neither value is recalculated
+	 * when a worker later changes an answer or enters the repeat's page. */
+	private *captureOpeningRows(
+		path: string,
+		query: readonly string[],
+		calculated: Set<string>,
+	): Generator<
+		InitializationRead,
+		RepeatInitializationSnapshot,
+		InitializationValue
+	> {
+		const joined = query.join(" ");
+		this.instance.setElementAttributes(path, { ids: joined, count: "" });
+		yield* this.initializeExpressions(
+			this.dag.getAffectedInitialization([`${path}/@ids`], this.repeatCounts),
+			calculated,
+		);
+		const ids = javaRosaSplitOnSpaces(joined);
+		const parent = path.slice(0, path.lastIndexOf("/"));
+		const count =
+			this.effectiveRelevanceByPath().get(parent) === false ? 0 : ids.length;
+		this.instance.setElementAttributes(path, {
+			ids: joined,
+			count: String(count),
+		});
+		yield* this.initializeExpressions(
+			this.dag.getAffectedInitialization([`${path}/@count`], this.repeatCounts),
+			calculated,
+		);
+		return { ids, count };
 	}
 
 	/** Where a query repeat's rows come from: model iteration takes them when
@@ -5109,14 +5154,14 @@ export class FormEngine {
 					// and its `@count` with it; a row its condition kept from
 					// being made is made once the condition holds at its place
 					// (`rowPromptRelevant`).
-					const written = this.instance.elementAttributesAt(path).ids;
-					const ids =
-						written === undefined ? [] : javaRosaSplitOnSpaces(written);
-					if (ids.length > this.instance.getRepeatCount(path)) {
+					const captured = this.instance.elementAttributesAt(path);
+					const count = Number(captured.count ?? 0);
+					if (count > this.instance.getRepeatCount(path)) {
+						const ids = javaRosaSplitOnSpaces(captured.ids ?? "");
 						beforeInsertion?.();
 						grew =
 							(yield* this.materializeInitializedRepeat(node, path, {
-								count: ids.length,
+								count,
 								ids,
 							})) || grew;
 					}
@@ -5332,13 +5377,12 @@ export class FormEngine {
 			const node = this.findTreeNode(path);
 			if (!node) throw new Error("Section repeat is unavailable.");
 			const field = node.field;
-			if (field.kind === "repeat" && field.repeat_mode === "query_bound") {
-				// Model iteration keeps the membership the form opened with; the
-				// count placement reads its query again as the page is entered.
-				const ids =
-					this.queryPlacement(field) === "count"
-						? yield* this.readQueryIds(field, path)
-						: (snapshot.ids ?? []);
+			if (
+				field.kind === "repeat" &&
+				field.repeat_mode === "query_bound" &&
+				this.queryPlacement(field) === "count"
+			) {
+				const ids = yield* this.readQueryIds(field, path);
 				yield* this.materializeQueryResult(node, path, ids, true);
 			} else {
 				const current =

@@ -92,6 +92,10 @@ export function identityMoveReasonSentence(
 	switch (reason.source) {
 		case "case-placement":
 			return placementIneligibilitySentence(reason.reason.reason);
+		case "query-timing":
+			return reason.timing === "on-open"
+				? "You chose to keep the records found when the form opens."
+				: "You chose to follow changes to the records found during entry.";
 		case "query-repeat": {
 			const need = reason.reason;
 			switch (need.kind) {

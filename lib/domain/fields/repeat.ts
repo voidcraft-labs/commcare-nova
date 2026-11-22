@@ -46,7 +46,10 @@
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { queryRepeatPlacementSchema } from "../queryRepeatPlacement";
+import {
+	queryRepeatPlacementSchema,
+	rowTimingSchema,
+} from "../queryRepeatPlacement";
 import { containerFieldBase, formLogicSchema } from "./base";
 
 /**
@@ -115,6 +118,8 @@ export const queryBoundRepeatSchema = repeatBase.extend({
 	 *  placement (`effectiveQueryRepeatPlacement`). An identity no author
 	 *  chooses: no edit carries it (`HELD_FIELD_KEYS`). */
 	placement: queryRepeatPlacementSchema.optional(),
+	/** When the person wants the rows chosen. An absent choice uses the existing timing. */
+	rowTiming: rowTimingSchema.optional(),
 });
 
 /**

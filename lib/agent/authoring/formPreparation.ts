@@ -33,6 +33,7 @@ import {
 	formLinkDatumNameSchema,
 } from "@/lib/domain/expression/types";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
 import {
 	expressionSlotKey,
 	expressionSlotValue,
@@ -262,6 +263,15 @@ function fieldDeclaration(
 		...(kind !== "repeat"
 			? {}
 			: {
+					...(repeat?.when === undefined
+						? { rowTiming: previous?.rowTiming }
+						: {
+								rowTiming:
+									rowTimingSchema.nullish().parse(repeat.when) ?? undefined,
+							}),
+					...(previous?.heldQueryPlacement === undefined
+						? {}
+						: { heldQueryPlacement: previous.heldQueryPlacement }),
 					repeatMode: z
 						.enum(["user_controlled", "count_bound", "query_bound"])
 						.parse(repeat?.mode ?? previous?.repeatMode ?? "user_controlled"),

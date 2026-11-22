@@ -777,7 +777,17 @@ it("changes repeat modes without replacing its children or retaining the old mod
 	for (const repeat of [
 		{ mode: "user_controlled" as const },
 		{ mode: "count_bound" as const, count: term(literal(3)) },
-		{ mode: "query_bound" as const, ids_query: term(literal("")) },
+		{
+			mode: "query_bound" as const,
+			ids_query: term(literal("")),
+			when: "on-open" as const,
+		},
+		{
+			mode: "query_bound" as const,
+			ids_query: term(literal("a")),
+			when: "as-answers-change" as const,
+		},
+		{ mode: "query_bound" as const, ids_query: term(literal("a")), when: null },
 		{ mode: "user_controlled" as const },
 	]) {
 		const result = await h.runTool(editFieldTool, {
@@ -794,8 +804,14 @@ it("changes repeat modes without replacing its children or retaining the old mod
 		expect(current.fieldOrder[FIELD]).toEqual([AGE]);
 		if (repeat.mode !== "count_bound")
 			expect(current.fields[FIELD]).not.toHaveProperty("repeat_count");
-		if (repeat.mode !== "query_bound")
+		if (repeat.mode !== "query_bound") {
 			expect(current.fields[FIELD]).not.toHaveProperty("data_source");
+			expect(current.fields[FIELD]).not.toHaveProperty("rowTiming");
+		} else if (repeat.when === null) {
+			expect(current.fields[FIELD]).not.toHaveProperty("rowTiming");
+		} else {
+			expect(current.fields[FIELD]).toHaveProperty("rowTiming", repeat.when);
+		}
 	}
 });
 

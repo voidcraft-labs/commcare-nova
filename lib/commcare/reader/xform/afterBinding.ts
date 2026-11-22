@@ -1,3 +1,5 @@
+import { VELLUM_NS } from "../../xmlNamespaces";
+import { attributeNameIn } from "./model";
 /**
  * Stage 10: what the bound document decides for a form. A case choices
  * itemset compared with the nodeset Nova's emitter builds for it; a
@@ -564,28 +566,38 @@ function checkModelIterations(
 		if (uuid === undefined || doc.fields[uuid] === undefined) continue;
 		if (ctx.accounting.hasFindingAt(repeat.place)) continue;
 		const ids = [...repeat.node.path, "@ids"].join("/");
-		const idsAt = order.findIndex(
-			(step) => step.event === "xforms-ready" && step.target === ids,
-		);
-		const setAfterIds = (fieldUuid: Uuid): boolean => {
+		const idsAt = order.findIndex((step) => step.target === ids);
+		const event = order[idsAt]?.event;
+		const setAfterIds = (fieldUuid: Uuid): boolean | undefined => {
 			const path = names.fieldPath(fieldUuid)?.slice(1).join("/");
-			if (path === undefined || idsAt < 0) return false;
+			if (path === undefined || idsAt < 0) return undefined;
 			const own = order
 				.map((step, at) => ({ step, at }))
-				.filter(
-					({ step }) => step.event === "xforms-ready" && step.target === path,
-				);
-			return own.length > 0 && own.every(({ at }) => at > idsAt);
+				.filter(({ step }) => step.event === event && step.target === path);
+			return own.length === 0 ? undefined : own.every(({ at }) => at > idsAt);
 		};
 		const verdict = modelIterationVerdict(doc, formUuid, uuid, setAfterIds);
-		// Each refusal is a class of the model iteration, which its node's role names.
-		if (verdict.kind === "refused")
-			ctx.accounting.findingAtNode(
-				verdict.claim,
-				repeat.place,
-				{ element: repeat.node.element },
-				"vellum-markup:model/instance//*@vellum:role",
-			);
+		// The role's wire spelling is shared. Its one manifest class is known
+		// only after the query, opening assignments and ancestors are bound.
+		const attribute = attributeNameIn(
+			repeat.node.element,
+			xform.parsed,
+			VELLUM_NS,
+			"role",
+		);
+		if (attribute === undefined) continue;
+		const claim =
+			verdict.kind === "refused"
+				? verdict.claim
+				: verdict.existingTiming
+					? X.modelIterationOutsideRule
+					: X.modelIteration.role;
+		ctx.accounting.claimEntry(
+			{ element: repeat.node.element, attribute },
+			claim.entry,
+			"vellum-markup:model/instance//*@vellum:role",
+			repeat.place,
+		);
 	}
 }
 

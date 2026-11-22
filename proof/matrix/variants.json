@@ -31208,22 +31208,92 @@
 		}
 	},
 	{
+		"id": "hq-questions/model-iteration-initially-relevant",
+		"base": "hq-questions",
+		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
+		"change": {
+			"op": "named",
+			"name": "model_iteration_initially_relevant"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["section", "rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/model-iteration-blank-fallback",
+		"base": "hq-questions",
+		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
+		"change": {
+			"op": "named",
+			"name": "model_iteration_blank_fallback"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/model-iteration-blank-insensitive",
+		"base": "hq-questions",
+		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
+		"change": {
+			"op": "named",
+			"name": "model_iteration_blank_insensitive"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
+	},
+	{
 		"id": "hq-questions/model-iteration-outside-rule",
 		"base": "hq-questions",
 		"entry": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "rounds"
-		},
 		"change": {
 			"op": "named",
 			"name": "model_iteration_outside_rule"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["rounds"]
+				],
+				"pointer": "/placement",
+				"value": "model-iteration"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/no-add-remove-without-count",

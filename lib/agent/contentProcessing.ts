@@ -403,6 +403,7 @@ export function flatFieldToField(
 					repeat_count: q.repeat.count,
 				}),
 				...(q.repeat.mode === "query_bound" && {
+					...(q.repeat.when == null ? {} : { rowTiming: q.repeat.when }),
 					data_source: {
 						ids_query: q.repeat.ids_query,
 					},

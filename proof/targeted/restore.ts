@@ -218,6 +218,7 @@ function places(entries: readonly RestorePlace[]): ChildNode[] {
 /** A restore holding these cases, lookup tables and places for Core's template user. */
 export function restoreXml(
 	content: {
+		readonly username?: string;
 		readonly cases?: readonly RestoreCase[];
 		readonly tables?: readonly RestoreTable[];
 		readonly places?: readonly RestorePlace[];
@@ -225,13 +226,13 @@ export function restoreXml(
 ): string {
 	const root = el("OpenRosaResponse", {}, [
 		el("message", { nature: "ota_restore_success" }, [
-			text("Successfully restored account test!"),
+			text(`Successfully restored account ${content.username ?? "test"}!`),
 		]),
 		el("Sync", { xmlns: "http://commcarehq.org/sync" }, [
 			el("restore_id", {}, [text("sync_token")]),
 		]),
 		el("Registration", { xmlns: "http://openrosa.org/user/registration" }, [
-			el("username", {}, [text("test")]),
+			el("username", {}, [text(content.username ?? "test")]),
 			el("password", {}, [
 				text("sha1$60441$53cf77c2ac3608a944db96af177a6dfe1579e4ba"),
 			]),

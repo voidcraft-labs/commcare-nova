@@ -256,8 +256,10 @@ function editPatchToFieldPatch(
 	if (repeat != null) {
 		patch.repeat_mode = repeat.mode;
 		if (repeat.mode === "count_bound") patch.repeat_count = repeat.count;
-		if (repeat.mode === "query_bound")
+		if (repeat.mode === "query_bound") {
 			patch.data_source = { ids_query: repeat.ids_query };
+			if (repeat.when !== undefined) patch.rowTiming = repeat.when;
+		}
 	}
 	return patch as FieldPatchFor<FieldKind>;
 }

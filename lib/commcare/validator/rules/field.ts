@@ -33,8 +33,9 @@ import {
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { inferStructuralTemporalType } from "@/lib/domain/expression/temporalType";
 import {
+	heldOpeningRepeatNeed,
 	type QueryRepeatNeed,
-	queryRepeatPlacementNeeds,
+	requestedQueryPlacement,
 } from "@/lib/domain/queryRepeatPlacement";
 import {
 	freeQuestionId,
@@ -553,11 +554,13 @@ export function queryRepeatModelIterationMessage(
 		readonly repeat: string;
 		readonly outer: string;
 		readonly group: string;
+		readonly published: boolean;
 	},
 ): string {
-	const opening = `"${words.repeat}" takes its rows once, when the form opens, as your published app does`;
-	const follow =
-		"You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id";
+	const opening = `"${words.repeat}" takes its rows once, when the form opens${words.published ? ", as your published app does" : ""}`;
+	const follow = words.published
+		? "You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id"
+		: "You can choose As answers change";
 	switch (reason) {
 		case "nested":
 			return `${opening}, and inside "${words.outer}" that would give its rows the wrong records. ${follow}, or keep it outside "${words.outer}".`;
@@ -577,7 +580,7 @@ export function queryRepeatModelIterationMessage(
 /**
  * A query repeat whose held placement is model iteration, while the form
  * now holds it in a shape model iteration cannot run
- * (`lib/domain/queryRepeatPlacement.ts::queryRepeatPlacementNeeds`). The
+ * (`lib/domain/queryRepeatPlacement.ts::heldOpeningRepeatNeed`). The
  * published app keeps each row's record id where model iteration writes it,
  * so the move to the count placement is stated and held with the change
  * that needs it (`lib/doc/queryRepeatPlacement.ts`); a batch that reaches
@@ -587,16 +590,39 @@ function queryRepeatModelIterationShape(
 	field: Field,
 	ctx: FieldContext,
 ): ValidationError[] {
-	if (
-		field.kind !== "repeat" ||
-		field.repeat_mode !== "query_bound" ||
-		field.placement !== "model-iteration"
-	)
-		return [];
+	if (field.kind !== "repeat" || field.repeat_mode !== "query_bound") return [];
+	const requested = requestedQueryPlacement(field.rowTiming);
+	const placement = requested ?? field.placement;
 	const structure = formStructure(ctx.doc, ctx.formUuid);
 	if (structure === undefined) return [];
-	const [need] = queryRepeatPlacementNeeds(structure, field.uuid);
-	if (need === undefined) return [];
+	const need =
+		placement === "model-iteration"
+			? heldOpeningRepeatNeed(structure, field.uuid)
+			: undefined;
+	if (need === undefined) {
+		if (
+			field.placement !== undefined &&
+			requested !== undefined &&
+			requested !== field.placement
+		) {
+			return [
+				validationError(
+					"QUERY_REPEAT_TIMING_MOVE",
+					"field",
+					`The timing for “${field.id}” changes where published row identifiers are saved. You can review the change to use the new timing.`,
+					{
+						formUuid: ctx.formUuid,
+						formName: ctx.formName,
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
+				),
+			];
+		}
+		return [];
+	}
 	const outer =
 		need.kind === "nested" ? ctx.doc.fields[need.repeatUuid] : undefined;
 	const group =
@@ -605,6 +631,7 @@ function queryRepeatModelIterationShape(
 			: undefined;
 	const words = {
 		repeat: fieldWords(field, ctx),
+		published: field.placement !== undefined,
 		outer: fieldWords(outer, ctx),
 		group: fieldWords(group, ctx),
 	};
@@ -623,6 +650,7 @@ function queryRepeatModelIterationShape(
 			},
 			{
 				reason: need.kind,
+				published: String(words.published),
 				repeatLabel: words.repeat,
 				...(need.kind === "nested" && {
 					repeatUuid: need.repeatUuid,

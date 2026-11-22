@@ -1973,7 +1973,7 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum's canonical shape: `@ids` and `@count` setvalues at `xforms-ready`, `@index` and `@id` at `jr-insert`, absolute `@current_index`, the condition on `…/item`, only where model iteration runs: a query repeat in no other repeat, whose query reads no form answer, under no group whose condition can change during entry",
+			"cell": "model iteration with ordered ready assignments of IDs and count, assignments of the row index and ID on insertion, and the condition on the item",
 			"markers": []
 		},
 		"gates": []
@@ -1982,7 +1982,7 @@
 		"id": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
 		"area": "questions",
 		"section": "Question types",
-		"item": "a model-iteration repeat with a display condition, or whose query reads a form answer set when the form loads, or under a group whose display condition reads an answer or the clock, outside the three refused rows",
+		"item": "a fixed query that takes the rows available at its opening or outer-row insertion event, including a fallback or intentionally empty selection, outside the three record or initialization failures",
 		"surfaceKeys": [
 			"mug:Repeat",
 			"jr-control:repeat",
@@ -2007,10 +2007,9 @@
 			"vellum-markup:model/instance//*@vellum:role"
 		],
 		"valueClass": "model-iteration-outside-nova-s-rule",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: model iteration by the load-time rule (README, \"Load-time values\"); Nova runs model iteration only where nothing the query reads can change (`queryRepeatPlacement.ts::queryRepeatPlacementNeeds`)",
-		"subject": "repeats",
-		"owner": "xform",
+		"disposition": "HELD",
+		"slotChanges": [],
+		"dispositionCell": "**HELD**: the ordered cases captured when a form opens stay captured, including an empty result, as subsequent answers change.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2022,7 +2021,7 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum's canonical shape: `@ids` and `@count` setvalues at `xforms-ready`, `@index` and `@id` at `jr-insert`, absolute `@current_index`, the condition on `…/item`, only where model iteration runs: a query repeat in no other repeat, whose query reads no form answer, under no group whose condition can change during entry",
+			"cell": "the captured query and count at the opening event and each row’s stored index and identifier at insert",
 			"markers": []
 		},
 		"gates": []
@@ -2094,11 +2093,11 @@
 		"id": "questions/model-iteration-repeat-whose-query-reads-a-form-answer-that-is",
 		"area": "questions",
 		"section": "Question types",
-		"item": "model-iteration repeat whose query reads a form answer that is blank where the repeat's setvalues run, on every opening (README, \"Load-time values\"): an answer entered in the form, one only a later default or HQ's appended values set, a calculated value no earlier setvalue feeds, or one an earlier setvalue leaves not relevant",
+		"item": "a model iteration whose only possible source of case IDs requires an answer that is blank when its opening query runs",
 		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "model-iteration-reading-a-blank-answer",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's setvalues evaluate the query once, when the form loads or the parent row is added, while that answer is still blank, so the rows never reflect it (executed); Nova writes the count placement there",
+		"dispositionCell": "**REFUSED**: the query requires a case identifier a worker has not yet supplied, so its one opening assignment cannot produce the intended rows; a changing query can follow the answer.",
 		"subject": "repeats",
 		"reasons": [
 			{
@@ -2120,7 +2119,7 @@
 		"id": "questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind",
 		"area": "questions",
 		"section": "Question types",
-		"item": "model-iteration repeat nested in another repeat of any kind",
+		"item": "model iteration whose absolute row index can address another outer row’s inner records",
 		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "model-iteration-nested",
 		"disposition": "REFUSED",

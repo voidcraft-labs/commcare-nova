@@ -1030,7 +1030,7 @@ export const X = {
 		"vellum-markup:model/instance//*@vellum:role",
 	),
 	modelIterationOutsideRule: one(
-		"refuse",
+		"take",
 		Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
 		"vellum-markup:model/instance//*@vellum:role",
 	),

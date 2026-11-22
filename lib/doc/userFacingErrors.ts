@@ -794,9 +794,11 @@ const looseFieldsPhrase = (e: ValidationError): string => {
  * the labels its details carry. */
 function queryRepeatModelIterationSentence(e: ValidationError): string {
 	const repeat = q(det(e, "repeatLabel", fieldName(e)));
-	const opening = `${repeat} takes its rows once, when the form opens, as your published app does`;
-	const follow =
-		"You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id";
+	const published = e.details?.published !== "false";
+	const opening = `${repeat} takes its rows once, when the form opens${published ? ", as your published app does" : ""}`;
+	const follow = published
+		? "You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id"
+		: "You can choose As answers change";
 	switch (e.details?.reason) {
 		case "nested": {
 			const outer = q(det(e, "outerLabel", "the repeat around it"));
@@ -1807,6 +1809,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats over a list of records, but none is chosen yet. Pick the records it should repeat over.`,
+	QUERY_REPEAT_TIMING_MOVE: (e) => e.message,
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: (e) =>
 		queryRepeatModelIterationSentence(e),
 	INVALID_FIELD_ID: (e) => {

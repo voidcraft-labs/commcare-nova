@@ -3,7 +3,7 @@ import type { FieldKind, RepeatMode } from "../fields";
 import { type FormLinkTarget, type FormType, formLinkEntries } from "../forms";
 import type { LookupTableId } from "../lookupIds";
 import { moduleUuidOfForm } from "../postSubmit";
-import type { QueryRepeatPlacement } from "../queryRepeatPlacement";
+import type { QueryRepeatPlacement, RowTiming } from "../queryRepeatPlacement";
 import { ownRecordValue } from "../records";
 import { expressionSlotValue } from "../referenceSlots";
 import type { Uuid } from "../uuid";
@@ -36,6 +36,7 @@ export interface FormStructureField {
 	/** A query repeat's held placement (its stored `placement`), absent where
 	 * it holds none. */
 	readonly heldQueryPlacement?: QueryRepeatPlacement;
+	readonly rowTiming?: RowTiming;
 	/** A Hidden Value's value slot, absent where it holds neither. Where both slots are present, the calculation supplies the final answer. */
 	readonly hiddenValueSource?: "calculate" | "default_value";
 	readonly choices?: FormStructureChoices;
@@ -126,6 +127,11 @@ export function formStructure(
 				field.repeat_mode === "query_bound" &&
 				field.placement !== undefined
 					? { heldQueryPlacement: field.placement }
+					: {}),
+				...(field.kind === "repeat" &&
+				field.repeat_mode === "query_bound" &&
+				field.rowTiming !== undefined
+					? { rowTiming: field.rowTiming }
 					: {}),
 				...(field.kind === "hidden"
 					? field.calculate !== undefined
