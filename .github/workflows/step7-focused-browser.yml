@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 75bfce9e91b62d4186e287a4a7b69c631ca7946f
+          ref: 34ecfc7a231d0ac140845901a2ccdf2c935ae0b1
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -27,7 +27,7 @@ jobs:
       - name: Edit the calendar in the signed-in Builder
         env:
           SMOKE_LANE: app
-        run: npm run test:smoke -- --project=authed e2e/tests/app/number-keypad.spec.ts --grep 'a date keeps' --workers=1 --fail-on-flaky-tests
+        run: npm run test:smoke -- --project=authed e2e/tests/app/number-keypad.spec.ts --grep 'a date keeps|a worker gets a dropdown' --workers=1 --fail-on-flaky-tests
       - name: Complete the visit on both preview platforms
         env:
           SMOKE_LANE: browser
