@@ -2,6 +2,7 @@
 
 import base64
 import json
+from dataclasses import replace
 from contextlib import contextmanager
 from xml.etree import ElementTree
 
@@ -13,7 +14,7 @@ from proof.webapps.session import Session
 
 
 @contextmanager
-def _released(document, publication, runner):
+def _released(document, publication, runner, *, configure=None):
     # HQ's Web Apps page supplies its Mapbox credential. The pinned SDK
     # instantiates its widget only after parsing the public token payload.
     # This synthetic unsigned configuration is confined to this witness;
@@ -22,7 +23,7 @@ def _released(document, publication, runner):
 
     payload = base64.urlsafe_b64encode(json.dumps({"u": "proof-worker"}).encode()).decode().rstrip("=")
     with (override_settings(MAPBOX_ACCESS_TOKEN=f"pk.{payload}.synthetic"),
-          webapps_hq.authored_project(document, publication) as project,
+          webapps_hq.authored_project(document, publication, configure=configure) as project,
           project.released(runner) as release):
         yield release
 
@@ -195,3 +196,76 @@ def test_row_width_zero_and_rounding_have_separate_browser_outcomes(
     ], tiles
     assert 0.07 < tiles[1]["fraction"] < 0.1, tiles
     assert all(0.99 < tiles[index]["fraction"] < 1.01 for index in (0, 2, 3)), tiles
+
+
+# A fixed response at the external service boundary. HQ and its bundled
+# geocoder draw the suggestions, handle selection/clear and send the answers.
+ADDRESS = {
+    "type": "Feature", "id": "address.proof-office", "place_type": ["address"],
+    "relevance": 1, "text": "Visit Road", "place_name": "18 Visit Road, Example Town",
+    "address": "18", "center": [35.12, -1.9], "geometry": {"type": "Point", "coordinates": [35.12, -1.9]},
+    "properties": {}, "context": [{"id": "place.proof-town", "text": "Example Town"}],
+}
+
+
+@pytest.mark.parametrize("publication", ["A", "B"])
+def test_address_search_selects_clears_and_submits_the_returned_city(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, publication
+):
+    search = [
+        {"eval": """() => {
+            const input = document.querySelector('#webforms input.mapboxgl-ctrl-geocoder--input');
+            if (!input) throw Error("The Meeting point address entry is missing");
+            input.focus(); input.value = "Visit Road";
+            input.dispatchEvent(new KeyboardEvent("keydown", {key:"d",bubbles:true}));
+        }"""},
+        {"until": "webapps/choose_address", "arg": ADDRESS["place_name"]},
+        {"until": "webapps/question-value", "arg": {"ix": "14", "value": "Example Town"}},
+        steps.SETTLE,
+    ]
+    with _released(webapps_documents["hq-question-display"], publication, formplayer_runner) as release:
+        run = Session(release, editor_driver).run([
+            {"geocoderFixture": {"query": "Visit Road", "feature": ADDRESS}},
+            *steps.open_app("Visit display"), *steps.choose("Visits"), *steps.choose("Survey"),
+            *search,
+            {"eval": """() => document.querySelector('#webforms .mapboxgl-ctrl-geocoder--button').click()"""},
+            {"until": "webapps/question-value", "arg": {"ix": "14", "value": ""}},
+            steps.SETTLE, *search, *steps.submit_and_land(),
+        ])
+        submitted = [ElementTree.fromstring(s.instance) for s in release.hq.submissions]
+    assert not run.page_errors, run.page_errors
+    assert len(submitted) == 1, submitted
+    address = json.loads(submitted[0].findtext("{*}address"))
+    assert address["full"] == ADDRESS["place_name"] and address["geopoint"] == "-1.9 35.12", address
+    assert address["city"] == submitted[0].findtext("{*}city") == "Example Town"
+    received = [
+        e.request_json().get("answer") for e in run.answered("answer")
+        if e.request_json()["ix"] == "14" and e.json().get("status") == "accepted"
+    ]
+    evidence("selected-address", {"address": address, "received": received})
+    assert received == ["Example Town", None, "Example Town"], received
+
+
+@pytest.mark.parametrize("missing", ["GEOCODER", "CASE_SEARCH_ADVANCED"])
+def test_address_question_is_unavailable_when_one_hq_gate_is_missing(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, missing
+):
+    def without_gate(config):
+        if missing == "GEOCODER":
+            assert missing in config.privileges
+            return replace(config, privileges=config.privileges - {missing})
+        assert missing in config.flags
+        return replace(config, flags=config.flags - {missing})
+
+    with _released(webapps_documents["hq-question-display"], "A", formplayer_runner, configure=without_gate) as release:
+        run = Session(release, editor_driver).run([
+            *steps.open_app("Visit display"), *steps.choose("Visits"), *steps.choose("Survey"),
+            {"eval": """() => {
+                const q = [...document.querySelectorAll("#webforms .q")].find(q=>
+                    q.querySelector(":scope > .ix")?.textContent.trim().split(" :: ").pop() === "13");
+                return {unsupported:!!q?.querySelector(".unsupported-question-type-trigger"),
+                    search:!!q?.querySelector(".mapboxgl-ctrl-geocoder--input")};
+            }"""}
+        ])
+    assert not run.page_errors, run.page_errors
+    assert run.value(-1) == {"unsupported": True, "search": False}, run.outcomes

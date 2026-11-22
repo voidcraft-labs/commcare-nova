@@ -164,14 +164,17 @@ def _archive(build) -> bytes:
 
 
 @contextmanager
-def authored_project(document, publication):
+def authored_project(document, publication, *, configure=None):
     """Release the app Vellum saved (A) or Nova's captured adoption republish over it (B)."""
     from proof.hq.check import hq_check
     from proof.observe import publish
 
     assert document.authored is not None and publication in ("A", "B")
     export = document.exports["minimum"]
-    with hq_check(export.configuration.hq()) as (unit, _):
+    held = export.configuration.hq()
+    if configure is not None:
+        held = configure(held)
+    with hq_check(held) as (unit, _):
         with unit.operation("authored-project:a", document.id.encode()):
             app_id, _, _ = publish.create_authored(unit, document)
         if publication == "B":
