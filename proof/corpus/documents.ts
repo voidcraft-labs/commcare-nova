@@ -276,6 +276,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly recorded?: never;
 				readonly bringsIn?: never;
 				readonly publishChanges?: never;
+				readonly removedFileReferences?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -284,6 +285,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly recorded?: never;
 				readonly bringsIn?: never;
 				readonly publishChanges?: never;
+				readonly removedFileReferences?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -292,6 +294,7 @@ export type HqSideSaves = HqSideSaveKinds &
 				readonly recorded: HqSideRecorded;
 				readonly bringsIn?: never;
 				readonly publishChanges?: never;
+				readonly removedFileReferences?: never;
 				readonly alsoPublishesOver?: never;
 		  }
 		| {
@@ -307,6 +310,8 @@ export type HqSideSaves = HqSideSaveKinds &
 				 * sentence (`lib/deployment/hqChanges/review.ts::publishChangeSentences`).
 				 */
 				readonly publishChanges: readonly FirstPublishChangeId[];
+				/** Additional exact file removals the review discloses beside its register entries. */
+				readonly removedFileReferences?: readonly string[];
 				/**
 				 * Present, and `true`, where the capture also runs the person's
 				 * other choice over the same saves, publishing over the change:
@@ -326,7 +331,8 @@ export type HqSideSaves = HqSideSaveKinds &
  * its sentence (`lib/deployment/hqChanges/review.ts::publishChangeSentences`).
  */
 export interface HqSideRecorded {
-	readonly reason: "reads-the-same" | "already-here";
+	/** A setting can read as the same document while its next publish requires an explicit choice. */
+	readonly reason: "reads-the-same" | "already-here" | "publish-changes";
 	readonly publishChanges: readonly FirstPublishChangeId[];
 }
 

@@ -81,7 +81,9 @@ import {
 	firstPublishChangesFor,
 	firstPublishFactsOf,
 	firstPublishListToStore,
+	publishChangeSubjects,
 } from "../reading/firstPublishChanges";
+import { placeSteps } from "../reading/firstPublishPlaces";
 import {
 	KEYS_WITH_NO_EXTERNAL_KEY,
 	readBackDifferences,
@@ -106,6 +108,8 @@ export type HqChangePlan =
 	| {
 			readonly kind: "nothing";
 			readonly publishChanges: readonly FirstPublishChangeId[];
+			readonly changedPublishSubjects?: readonly FirstPublishChangeId[];
+			readonly changedPublishForms?: readonly string[];
 	  }
 	| {
 			readonly kind: "changes";
@@ -132,6 +136,8 @@ export type HqChangePlan =
 			/** Case property renames made in Nova since the reference. Not empty: no batch. */
 			readonly renamedInNova: readonly CasePropertyRename[];
 			readonly publishChanges: readonly FirstPublishChangeId[];
+			readonly changedPublishSubjects?: readonly FirstPublishChangeId[];
+			readonly changedPublishForms?: readonly string[];
 	  }
 	/** CommCare HQ's app now holds something Nova cannot hold. */
 	| { readonly kind: "account"; readonly findings: readonly Finding[] }
@@ -1374,38 +1380,70 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 	/* 13. What the next publish changes that it would not have changed before,
 	 * each list as a baseline stores it: an id a worker meets on Android alone
 	 * by its reading, whatever the declaration, and no Web Apps line. */
-	let baseIds: readonly FirstPublishChangeId[];
+	const currentIds = firstPublishListToStore(
+		nowChoice.firstPublish,
+		nowReading.draft.facts,
+	).ids;
+	let publishChanges: readonly FirstPublishChangeId[];
+	const changedPublishSubjects: FirstPublishChangeId[] = [];
+	const changedPublishForms = new Set<string>();
 	try {
-		baseIds = firstPublishListToStore(
-			firstPublishChangesFor(
-				firstPublishFactsOf({
-					source: readings.inputs.base.source,
-					doc: B,
-					facts: baseDraft.facts,
-					forms: formsOf(baseDraft),
-					attachmentTarget: readings.inputs.base.target,
-					mediaFiles: [],
-					mediaClaims: readings.baseMediaClaims,
-					choice: {
-						runsOnlyOn: baseChoice.runsOnlyOn ?? null,
-						split: baseChoice.split,
-					},
-				}),
-			),
+		const baseFacts = firstPublishFactsOf({
+			source: readings.inputs.base.source,
+			doc: B,
+			facts: baseDraft.facts,
+			forms: formsOf(baseDraft),
+			attachmentTarget: readings.inputs.base.target,
+			mediaFiles: [],
+			mediaClaims: readings.baseMediaClaims,
+			choice: {
+				runsOnlyOn: baseChoice.runsOnlyOn ?? null,
+				split: baseChoice.split,
+			},
+		});
+		const baseIds = firstPublishListToStore(
+			firstPublishChangesFor(baseFacts),
 			baseDraft.facts,
 		).ids;
+		// The app-wide spelling is unconditional. A physical file has its own
+		// prospective import comparison, using target paths and upload receipts.
+		const compared = currentIds.filter(
+			(id) =>
+				id !== "forms-and-settings-rewritten" &&
+				id !== "unused-media-entries-removed",
+		);
+		const prior = publishChangeSubjects(
+			baseFacts,
+			compared.filter((id) => baseIds.includes(id)),
+		);
+		const next = publishChangeSubjects(nowChoice.firstPublishFacts, compared);
+		const forms = new Map<string, string | undefined>(
+			[...nowChoice.firstPublishFacts.formPositions].map(([uuid, position]) => [
+				position,
+				T.forms[uuid]?.name,
+			]),
+		);
+		for (const id of compared) {
+			for (const [subject, place] of next.get(id) ?? []) {
+				if (prior.get(id)?.has(subject)) continue;
+				if (!changedPublishSubjects.includes(id))
+					changedPublishSubjects.push(id);
+				const [root, position] = placeSteps(place);
+				const name = root === "form" ? forms.get(position) : null;
+				if (name) changedPublishForms.add(name);
+			}
+		}
+		publishChanges = currentIds.filter(
+			(id) =>
+				id !== "forms-and-settings-rewritten" &&
+				(!baseIds.includes(id) || changedPublishSubjects.includes(id)),
+		);
 	} catch {
 		return differs({
 			check: "apply",
 			segments: ["threw", "firstPublishChangesFor"],
 		});
 	}
-	const publishChanges = firstPublishListToStore(
-		nowChoice.firstPublish,
-		nowReading.draft.facts,
-	).ids.filter(
-		(id) => !baseIds.includes(id) && id !== "forms-and-settings-rewritten",
-	);
 
 	yield;
 
@@ -1418,6 +1456,15 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 		renamesSince: reference.renamesSince,
 	});
 	return plan.kind === "nothing" || plan.kind === "changes"
-		? { ...plan, publishChanges }
+		? {
+				...plan,
+				publishChanges,
+				...(changedPublishSubjects.length
+					? {
+							changedPublishSubjects,
+							changedPublishForms: [...changedPublishForms].sort(),
+						}
+					: {}),
+			}
 		: plan;
 }

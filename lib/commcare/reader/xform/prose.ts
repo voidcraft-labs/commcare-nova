@@ -466,6 +466,7 @@ export interface FormText {
 	readonly itext: ItextReading;
 	/** The values blank in a language other than the first whose first-language text is not. */
 	readonly blankTranslations: number;
+	readonly blankTranslationSlots?: readonly string[];
 	readonly cursor: XmlCursor;
 }
 
@@ -483,8 +484,14 @@ export function formText(xform: ReadXForm): FormText | undefined {
 
 /** The itext values blank in a non-first language that read as no translation, for
  *  `ReadFormFacts.blankTranslations`. */
-export function formBlankTranslations(xform: ReadXForm): number {
-	return FORM_TEXTS.get(xform)?.blankTranslations ?? 0;
+export function formBlankTranslations(xform: ReadXForm) {
+	const text = FORM_TEXTS.get(xform);
+	return {
+		blankTranslations: text?.blankTranslations ?? 0,
+		...(text?.blankTranslationSlots?.length && {
+			blankTranslationSlots: text.blankTranslationSlots,
+		}),
+	};
 }
 
 /**
@@ -1016,6 +1023,7 @@ export function readText(input: ReadTextInput): FormText {
 
 	const slots: SlotText[] = [];
 	let blankTranslations = 0;
+	const blankTranslationSlots: string[] = [];
 	const firstOwner = new Map<string, Reference>();
 	for (const ref of references) {
 		if (ref.id !== undefined && !firstOwner.has(ref.id))
@@ -1023,12 +1031,25 @@ export function readText(input: ReadTextInput): FormText {
 		if (ref.id !== undefined) itext.own(ref.id, ref.owner);
 	}
 	for (const ref of references) {
-		const read = readSlotText(
-			input,
-			ref,
-			firstOwner.get(ref.id ?? "") === ref || ref.id === undefined,
-		);
-		blankTranslations += read.blanks;
+		const first = firstOwner.get(ref.id ?? "") === ref || ref.id === undefined;
+		const read = readSlotText(input, ref, first);
+		// One physical itext value can supply several questions or choices.
+		if (first) blankTranslations += read.blanks.length;
+		for (const language of read.blanks)
+			blankTranslationSlots.push(
+				JSON.stringify([
+					ref.owner.field.node.path,
+					ref.owner.slot,
+					ref.owner.option === undefined
+						? null
+						: ((
+								ref.owner.field.field.optionsSource as
+									| { options?: readonly { value: string }[] }
+									| undefined
+							)?.options?.[ref.owner.option]?.value ?? null),
+					language,
+				]),
+			);
 		if (read.slot !== undefined) slots.push(read.slot);
 	}
 
@@ -1042,7 +1063,14 @@ export function readText(input: ReadTextInput): FormText {
 		refusedReferences: refusedReferences(input, elsewhere),
 	});
 
-	return { slots, protectedMessages, itext, blankTranslations, cursor };
+	return {
+		slots,
+		protectedMessages,
+		itext,
+		blankTranslations,
+		blankTranslationSlots,
+		cursor,
+	};
 }
 
 function claimRef(
@@ -1408,13 +1436,13 @@ function readSlotText(
 	input: ReadTextInput,
 	ref: Reference,
 	first: boolean,
-): { readonly slot: SlotText | undefined; readonly blanks: number } {
+): { readonly slot: SlotText | undefined; readonly blanks: readonly string[] } {
 	const { cursor, accounting, itext, scope } = input;
 	const owner = ref.owner;
 	const place = ref.place;
 	const context: ValueContext = { cursor, accounting, scope, place };
 	const empty = new Map<LanguageTag, ReadValue>();
-	const none = { slot: undefined, blanks: 0 };
+	const none = { slot: undefined, blanks: [] };
 
 	if (ref.id === undefined) {
 		// A text written inline (a label, a hint, a help text or a choice's label) holds its
@@ -1525,7 +1553,12 @@ function readSlotText(
 			: source;
 	const ownValue = read.get(own) as ReadValue;
 	const blankEverywhere = [...read.values()].every(valueIsBlank);
-	let blanks = 0;
+	const blanks = [...read]
+		.filter(
+			([language, value]) =>
+				language !== defaultLanguage && !defaultBlank && valueIsBlank(value),
+		)
+		.map(([language]) => language);
 	let refused = false;
 	const copies: ReadValue[] = [];
 
@@ -1547,7 +1580,6 @@ function readSlotText(
 				cursor.refuse({ element: value.element }, X.blankFirstLanguage, place);
 			else if (language !== defaultLanguage && blank && !defaultBlank) {
 				cursor.take({ element: value.element }, X.blankTranslation).value;
-				blanks += 1;
 			} else
 				cursor.take(
 					{ element: value.element },

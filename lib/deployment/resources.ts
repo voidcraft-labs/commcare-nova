@@ -10,10 +10,11 @@
 // files had already worked around by re-implementing them: a copy of a
 // rule is a rule that can drift.
 
-import type { FirstPublishApp } from "@/lib/publish/firstPublishChangeIds";
 import {
+	type FirstPublishApp,
 	type FirstPublishView,
 	firstPublishViewFromStored,
+	needsStoredPublishReview,
 	type StoredFirstPublish,
 } from "@/lib/publish/firstPublishChangeIds";
 import type {
@@ -182,9 +183,9 @@ export function firstPublishOf(
 	const live = activeRemoteApp(deployment);
 	if (live?.remoteId !== state.remoteAppId || live.remoteMissingAt !== null)
 		return null;
-	if (state.stored.of === "first-publish" && state.stored.reviewed !== 1)
+	if (needsStoredPublishReview(state.stored))
 		return {
-			of: "first-publish",
+			of: state.stored.of,
 			ids: [],
 			touchesWorkers: false,
 			needsReview: true,

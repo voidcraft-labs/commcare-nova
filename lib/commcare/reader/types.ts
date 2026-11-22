@@ -284,6 +284,18 @@ export interface ReadFacts {
 	/** Each same-state rule applied: the entry, a JSON Pointer, and the id of the first-publish
 	 *  register's row the rule falls under. */
 	readonly sameStateRewrites: readonly SameStateRewrite[];
+	/** Every joined list/detail column, including the two source rows it represents. */
+	readonly detailColumnOwners: readonly {
+		readonly uuid: Uuid;
+		readonly short?: string;
+		readonly long?: string;
+	}[];
+	/** The rematched link owning a physical form_links row. HQ's array order and
+	 * scrubbed destination IDs can both change between reads of the same app. */
+	readonly formLinkOwners: readonly {
+		readonly pointer: string;
+		readonly uuid: Uuid;
+	}[];
 	/** The forms `compareEntryFacts` found differing. */
 	readonly entryFactsRefused: readonly Uuid[];
 	/**
@@ -363,6 +375,7 @@ export type SameStateRegister =
  *  stored value Nova writes back differently, and the register's row. */
 /** A rewrite of `emissionRewrites.ts` the first publish applies at one slot of the source. */
 export interface ReadRewrite {
+	readonly formExpression?: string;
 	readonly id: ExpressionReading["rewrites"][number]["id"];
 	readonly place: HqPlace;
 	/** The surface key of the slot. */
@@ -377,6 +390,10 @@ export interface SameStateRewrite {
 	readonly entry: string;
 	readonly path: string;
 	readonly register: SameStateRegister;
+	/** Inputs the first publish drops at this place, by source identity. A
+	 * later comparison distinguishes another fixture or another default at
+	 * the same form or field. No such evidence is stored in the blueprint. */
+	readonly removedInputs?: readonly (readonly [string, string])[];
 }
 
 export interface UnreadTable {
@@ -399,6 +416,8 @@ export interface ReadFormFacts {
 	/** The itext values blank in a language other than the first whose first-language text is not
 	 *  blank, each read as no translation. */
 	readonly blankTranslations: number;
+	/** Blank non-default slots filled at publication, by field, role, choice and language. */
+	readonly blankTranslationSlots?: readonly string[];
 }
 
 export interface ReadGeneratedNode {

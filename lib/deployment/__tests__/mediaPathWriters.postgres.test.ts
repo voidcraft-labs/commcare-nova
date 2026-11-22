@@ -171,6 +171,40 @@ function holdFirstWriter(first: HqChangesTaken) {
 	return { wrote, committed, release };
 }
 
+it("names the later accepted HQ save when an earlier review tries to take its place", async () => {
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	const birth = await birthAdoptedApp(h, {
+		appId: APP,
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		target: TARGET,
+		remoteAppId: HQ_APP,
+	});
+	const identity = { read: birth.targetIdentity, next: birth.targetIdentity };
+	const input = taken(
+		birth,
+		{ sourceDigest: digestOf(SOURCE), novaRevision: 1 },
+		FIRST_SOURCE,
+		"2026-11-14T08:00:00.000Z",
+		identity,
+	);
+	await recordHqChangesTaken({ kind: "own", headSeq: 1 }, input);
+	const stale = {
+		...input,
+		reviewedVersion: 41,
+		read: { sourceDigest: digestOf(FIRST_SOURCE), novaRevision: 1 },
+	};
+	await expect(
+		recordHqChangesTaken({ kind: "own", headSeq: 1 }, stale),
+	).rejects.toMatchObject({
+		name: "HqChangesBaselineMovedError",
+		fence: "remote-version",
+		expected: "41",
+		found: "42",
+		message: expect.stringContaining("expected CommCare HQ save 41, found 42"),
+	});
+});
+
 describe("two writers of one deployment's media paths", () => {
 	it("makes the second wait for the first and write its difference over the rows the first wrote", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");

@@ -101,7 +101,7 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { questionPlace, whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { caseReferencesOf } from "../structure";
-import { sameXPathText } from "../syntaxCompare";
+import { sameXPathText, sourceFormExpression } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { ReadMenuAndFormIdentities } from "../types";
 import { holdsWorkerRecordWrite } from "../worldEntities";
@@ -1784,6 +1784,12 @@ function readBlock(
 					entry: SAVE_TO_CASE_CLAIMS.rows.entry,
 					path: `/_attachments/${readId ?? form.xmlns}.xml`,
 					register: DATETIME_REGISTER,
+					removedInputs: [
+						[
+							JSON.stringify([caseType, ...rowPath]),
+							sourceFormExpression(value.text),
+						],
+					],
 				});
 			}
 			const condition = rowCondition(

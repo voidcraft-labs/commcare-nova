@@ -85,7 +85,7 @@ import {
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
 import { BringInToolError } from "../errors";
-import { PAGE_LIMIT_CHARS } from "../paging";
+import { PAGE_LIMIT_CHARS, reviewedPageDigest } from "../paging";
 import {
 	accountDigest,
 	describeReading,
@@ -755,6 +755,11 @@ describe("a review's lookup tables a page at a time", () => {
 			const shown = projection.review;
 			if (shown === undefined) throw new Error("no review");
 			expect(shown.tables_total).toBe(2000);
+			expect(shown.review_digest).toBe(
+				shown.next_page === null ? DIGEST : null,
+			);
+			if (shown.next_page)
+				expect(shown.next_page.endsWith(READING_ID)).toBe(true);
 			expect(shown.tables.length).toBeGreaterThan(0);
 			for (const table of shown.tables) seen.push(table.tag);
 			cursor = shown.next_page;
@@ -794,8 +799,20 @@ describe("a review's lookup tables a page at a time", () => {
 	});
 
 	it("reads no cursor past the review's last table", () => {
-		expect(pageFor(reviewAnswer(), { from: 3, digest: DIGEST })).toBeNull();
-		expect(pageFor(reviewAnswer(), { from: 2, digest: DIGEST })).toEqual({
+		expect(
+			pageFor(reviewAnswer(), {
+				from: 3,
+				digest: reviewedPageDigest("birth", DIGEST, 3),
+				readingId: READING_ID,
+			}),
+		).toBeNull();
+		expect(
+			pageFor(reviewAnswer(), {
+				from: 2,
+				digest: reviewedPageDigest("birth", DIGEST, 2),
+				readingId: READING_ID,
+			}),
+		).toEqual({
 			from: 2,
 			restarted: false,
 		});

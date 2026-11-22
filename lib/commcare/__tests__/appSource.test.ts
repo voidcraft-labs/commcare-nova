@@ -391,19 +391,32 @@ describe("readHqAppSource", () => {
 		);
 	});
 
-	it("reads no name, no save time and no media map where HQ sent none, and refuses nothing for them", async () => {
+	it("reads no name or save time where HQ sent none", async () => {
 		const { plain } = await readUnderBoth(
 			changed(retainedPublishRead("source-live"), (body) => {
 				body.name = 7;
 				delete body.last_modified;
-				body.multimedia_map = [];
+				body.multimedia_map = {};
 			}),
 		);
 		const source = sourceOf(plain);
 		expect(source.name).toBeNull();
 		expect(source.lastModified).toBeNull();
-		expect(source.multimediaMap).toBeNull();
+		expect(source.multimediaMap).toEqual([]);
 	});
+	it.each(["absent", "array"] as const)(
+		"refuses a live source with an %s media map under either reading",
+		async (kind) => {
+			const outcomes = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), (body) => {
+					if (kind === "absent") delete body.multimedia_map;
+					else body.multimedia_map = [];
+				}),
+			);
+			expect(outcomes.plain).toEqual(MALFORMED);
+			expect(outcomes.any).toEqual(MALFORMED);
+		},
+	);
 
 	it.each(["hq-built/app-source", "reading/source-shadow"])(
 		"refuses %s under the default and reads it with its mirror menus and shadow form under admit any",

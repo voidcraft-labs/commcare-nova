@@ -161,7 +161,16 @@ const RECORD: TargetIdentity = canonicalTargetIdentity({
 });
 
 const BASE: ReviewDigestInput = {
-	v: 2,
+	v: 3,
+	authority: {
+		appId: "app",
+		user: "user",
+		role: "editor",
+		projectId: "project",
+		server: "production",
+		domain: "domain",
+		remoteAppId: "remote",
+	},
 	review: REVIEW,
 	document: "e".repeat(64),
 	targetIdentity: RECORD,

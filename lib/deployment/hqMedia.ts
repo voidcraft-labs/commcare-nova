@@ -211,6 +211,7 @@ export function mediaMovedBetween(
 	first: readonly HqMediaMapItem[],
 	second: readonly HqMediaMapItem[],
 	published: readonly PublishedMediaFile[],
+	unreadableMoved?: (path: string) => boolean,
 ): readonly HqMediaPath[] {
 	const before = entriesByWirePath(first);
 	const after = entriesByWirePath(second);
@@ -219,7 +220,11 @@ export function mediaMovedBetween(
 		const later = after.get(file.wirePath);
 		if (earlier === undefined || later === undefined) return earlier !== later;
 		return (
+			(earlier.unreadable &&
+				later.unreadable &&
+				(unreadableMoved?.(later.path) ?? true)) ||
 			earlier.unreadable !== later.unreadable ||
+			earlier.mediaType !== later.mediaType ||
 			earlier.multimediaId !== later.multimediaId
 		);
 	});

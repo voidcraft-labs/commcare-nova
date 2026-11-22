@@ -55,6 +55,7 @@ import { broughtInLookupTableId } from "../projectData/lookupIds";
 import { authorizeBringIn, readHqAppForReview } from "../read";
 import type { BringInInput, CreateAnswer, ReadingEvent } from "../types";
 import {
+	changedAnswer,
 	counterOf,
 	createInputFor,
 	FIXTURE_DOMAIN,
@@ -508,6 +509,48 @@ describe("createFromReview", () => {
 		});
 	});
 
+	it("requires the current editor to review the actual file their adopted app would remove", async () => {
+		const earlier = "file-approved-before-birth";
+		const later = "file-put-there-later";
+		const path = "jr://file/commcare/orphan.png";
+		const source = (id: string) =>
+			changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				multimedia_map: {
+					...(body.multimedia_map as object),
+					[path]: { media_type: "CommCareImage", multimedia_id: id },
+				},
+			}));
+		const other = "birth-second-editor";
+		await h.seedProjectMember(other, PROJECT, "editor");
+		await seedFixtureConnection(other);
+		const first = await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { source: source(earlier) });
+			return read();
+		});
+		expect(
+			first.review.runsOn
+				.filter((choice) => choice.preselected)
+				.flatMap((choice) => choice.removesFiles ?? [])
+				.join(" "),
+		).toContain(earlier);
+		const createAt = (user: string, id: string, of: typeof first) =>
+			withHttpPeer(async (peer) => {
+				serveFixtureApp(peer, { source: source(id) });
+				return create(createInputFor(KEY, of), user);
+			});
+		expect((await createAt(other, earlier, first)).kind).toBe("changed");
+		const changed = await createAt(ACTOR, later, first);
+		if (changed.kind !== "changed" || changed.now.kind !== "review")
+			throw new Error(`Expected new file review, received ${changed.kind}.`);
+		const current = changed.now;
+		expect(
+			current.review.runsOn
+				.find((choice) => choice.preselected)
+				?.removesFiles?.join(" "),
+		).toContain(later);
+		expect((await createAt(ACTOR, later, current)).kind).toBe("created");
+	});
 	it("creates where CommCare HQ's save counter alone moved, and records the create's counter", async () => {
 		const resource = fixtureResource(fixtureSource(), { version: 7 });
 		const answer = await withHttpPeer(async (peer) => {

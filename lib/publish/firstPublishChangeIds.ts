@@ -174,6 +174,10 @@ export interface StoredFirstPublish {
 	/** Set by a full accepted reading under the source-preserving Refresh contract.
 	 * An older first-publish list can describe a different source. */
 	readonly reviewed?: 1;
+	/** The accepted review bound the concrete non-file inputs of its listed changes. */
+	readonly reviewedInputs?: 1;
+	/** Canonical identities of the target file references this complete reading approved removing. */
+	readonly removedFiles?: readonly string[];
 	/**
 	 * The ids that applied under the chosen declaration, less the two Web Apps
 	 * ids, and each id of `FIRST_PUBLISH_PLATFORM` the reading gives under
@@ -190,10 +194,34 @@ export interface StoredFirstPublish {
 	readonly of: "first-publish" | "next-publish";
 }
 
+/** The universal spelling has no independent affected input. File removals
+ * are authorized separately for the exact projected import. */
+export function hasRegisteredPublishInputs(
+	ids: readonly FirstPublishChangeId[],
+): boolean {
+	return ids.some(
+		(id) =>
+			id !== "forms-and-settings-rewritten" &&
+			id !== "unused-media-entries-removed",
+	);
+}
+
+export function needsStoredPublishReview(card: StoredFirstPublish): boolean {
+	return (
+		(card.of === "first-publish" && card.reviewed !== 1) ||
+		(card.reviewedInputs !== 1 && hasRegisteredPublishInputs(card.ids))
+	);
+}
+
 export const storedFirstPublishSchema: z.ZodType<StoredFirstPublish> =
 	z.strictObject({
 		ids: z.array(firstPublishChangeIdSchema).readonly(),
 		reviewed: z.literal(1).optional(),
+		reviewedInputs: z.literal(1).optional(),
+		removedFiles: z
+			.array(z.string().regex(/^[0-9a-f]{64}$/))
+			.readonly()
+			.optional(),
 		webAppsOnInHq: z.boolean(),
 		of: firstPublishKindSchema,
 	});

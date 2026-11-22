@@ -145,6 +145,8 @@ function emptyFacts(input: ReaderInput): MutableReadFacts {
 		foldedTranslationKeys: [],
 		forms: [],
 		sameStateRewrites: [],
+		detailColumnOwners: [],
+		formLinkOwners: [],
 		entryFactsRefused: [],
 		childCasesUnread: [],
 		rewrites: [],

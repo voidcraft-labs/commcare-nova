@@ -61,6 +61,7 @@ import {
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "../hqMedia";
+import { removalLedgerPaths } from "../hqSourceBaseline";
 import { hqImportApplicationSteps } from "../importApplication";
 import { movedBindingCount } from "../reading/create";
 import { firstPublishListToStore } from "../reading/firstPublishChanges";
@@ -269,6 +270,7 @@ async function bringInInRoom(
 	)
 		return answered(changedOutcome(review));
 
+	scope = basis.scope;
 	/* The caller's statement about Nova's own changes, where it sent one. */
 	const removes = review.kind === "changes" && review.novaChanges.length > 0;
 	if (
@@ -395,6 +397,10 @@ async function recordReadsTheSame(
 					checked.draft.facts,
 				),
 				publishChanges: checked.plan.publishChanges,
+				removedFiles: {
+					compared: basis.baseline.approvedFileRemovals ?? [],
+					accepted: checked.removedFiles,
+				},
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		}),
@@ -403,7 +409,10 @@ async function recordReadsTheSame(
 		mediaFiles: {
 			read: basis.baseline.mediaFiles,
 			next: mediaFiles,
-			judgedPaths: basis.published.map((file) => file.wirePath),
+			judgedPaths: [
+				...basis.published.map((file) => file.wirePath),
+				...removalLedgerPaths(basis.normalized.normalized, basis.published),
+			],
 		},
 		targetIdentity: checked?.targetIdentity ?? {
 			read: basis.targetIdentity,
@@ -839,7 +848,10 @@ async function takenFor(
 				next: mediaFiles,
 				judgedPaths: [...basis.published, ...published]
 					.map((file) => file.wirePath)
-					.concat(keptPaths),
+					.concat(
+						keptPaths,
+						removalLedgerPaths(basis.normalized.normalized, published),
+					),
 			},
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
@@ -848,6 +860,10 @@ async function takenFor(
 					checked.draft.facts,
 				),
 				publishChanges: plan.publishChanges,
+				removedFiles: {
+					compared: basis.baseline.approvedFileRemovals ?? [],
+					accepted: checked.removedFiles,
+				},
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		},

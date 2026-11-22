@@ -489,7 +489,7 @@ function keyedVisitApp(): BlueprintDoc {
 	);
 }
 
-it("prints each keyed create of an app brought in from CommCare HQ under the prefix its cases stand under there, in the republish and the local archive", async () => {
+async function keyedAppOnHq() {
 	const app = keyedVisitApp();
 	const document: PublishDocument = {
 		id: "keyed-visits",
@@ -528,6 +528,44 @@ it("prints each keyed create of an app brought in from CommCare HQ under the pre
 	if (source === undefined)
 		throw new Error("The peer holds no app after Nova's first publish.");
 
+	return { app, document, configuration, source };
+}
+
+it("stops the capture before importing over an adopted app's unapproved file, even with no outgoing media", async () => {
+	const { document, configuration, source } = await keyedAppOnHq();
+	const path = "jr://file/commcare/image/retained-by-a-worker.jpg";
+	const stored = {
+		...source,
+		multimedia_map: {
+			[path]: {
+				doc_type: "HQMediaMapItem",
+				media_type: "CommCareImage",
+				multimedia_id: "previous-image",
+			},
+		},
+	};
+	const capture = capturePublish({
+		create: document,
+		updates: [{ name: "republish", document }],
+		configuration,
+		seed: DEFAULT_CORPUS_SEED,
+		hqAuthoredA: {
+			source: stored,
+			identity: [],
+			mediaPaths: new Map(),
+			keyedCaseIds: [],
+			columnWords: [],
+		},
+	});
+	const outcome = await capture.then(
+		(result) => result.status,
+		(error: unknown) => String(error),
+	);
+	expect(outcome).toContain("retained-by-a-worker");
+});
+
+it("prints each keyed create of an app brought in from CommCare HQ under the prefix its cases stand under there, in the republish and the local archive", async () => {
+	const { app, document, configuration, source } = await keyedAppOnHq();
 	const scope = {
 		formUuid: testUuid("keyed-form"),
 		operationUuid: testUuid("keyed-create"),

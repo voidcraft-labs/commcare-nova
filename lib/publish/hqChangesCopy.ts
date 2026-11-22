@@ -353,7 +353,7 @@ export function baselineUnknownSentence(
 }
 
 export const REQUIRED_FIRST_PUBLISH_RECOVERY =
-	"You can bring the app in again from CommCare HQ or publish to a different project space.";
+	"A Project admin or owner can choose Stop publishing here for this project space. Once any publish in progress finishes, you can bring this HQ app in as a new Nova app. You can also publish the current Nova app to a different project space.";
 
 const AFTER_NEXT_PUBLISH =
 	"Nova can bring in changes made in CommCare HQ after your next publish here.";

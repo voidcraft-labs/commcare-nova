@@ -448,17 +448,18 @@ export interface DeploymentRemoteChange {
 	readonly name: string;
 	/** What CommCare HQ shows it as: the HQ app id, a table's tag, or a place's site code. */
 	readonly identity: string;
-	/** What changed, in Nova's voice, bounded; empty exactly when `baselineKnown` is false. */
+	/** What changed or what the next import would remove. The list is bounded. */
 	readonly parts: readonly string[];
 	/** One sentence shown after the parts, outside the bound. */
 	readonly note: string | null;
 	/** The digest of CommCare HQ's state as shown, which a discard names back. */
 	readonly observedDigest: string;
 	/**
-	 * False exactly when the change carries no parts: an `unread` baseline,
+	 * False when no earlier source can be compared: an `unread` baseline,
 	 * or a live mapping with no baseline row, where no rule that needs no
 	 * baseline applied. A table `deleted` or `renamed` and a place `missing`
 	 * are named whatever the baseline, so they carry their part and read true.
+	 * A file the current app import would prune is named even on an unknown baseline.
 	 */
 	readonly baselineKnown: boolean;
 	/**
@@ -840,14 +841,19 @@ export type AppBaseline =
 			readonly sourceBytes: number;
 			/** The target has accepted first- or next-publish changes to preserve across passive reads. */
 			readonly hasPublishList?: true;
+			readonly hasFileRemovalWarning?: true;
 			/** An older first-publish card may predate the source left by a passive Refresh. */
 			readonly firstPublishReview?: "required" | "current";
+			readonly unverifiedNextChanges?: StoredFirstPublish["ids"];
+			readonly approvedFileRemovals?: readonly string[];
 			readonly foldBinding?: DeploymentFoldBinding;
 	  }
 	| {
 			readonly origin: "unread";
 			/** An older first-publish card may predate the source left by a passive Refresh. */
 			readonly firstPublishReview?: "required" | "current";
+			readonly unverifiedNextChanges?: StoredFirstPublish["ids"];
+			readonly approvedFileRemovals?: readonly string[];
 			readonly remoteAppId: string;
 			readonly observedAt: string;
 			readonly observedBy: string;

@@ -100,6 +100,8 @@ export interface ReadingDeclarationChoice {
 	readonly recordedFeatures: readonly DeploymentConfirmationKey[];
 	/** What a first publish changes where this choice is made. */
 	readonly firstPublish: FirstPublishView;
+	/** The concrete source references this choice would remove on its first publish. */
+	readonly removesFiles?: readonly string[];
 }
 
 /** What creating will make. Everything here is shown to the person or is a count of what is. */

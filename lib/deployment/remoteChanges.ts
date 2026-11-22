@@ -16,9 +16,24 @@ import {
 	type DriftReference,
 	driftDate,
 } from "@/lib/publish/driftReference";
-import { hqChangedBringInMessage } from "@/lib/publish/hqChangesCopy";
+import {
+	hqChangedBringInMessage,
+	REQUIRED_FIRST_PUBLISH_RECOVERY,
+} from "@/lib/publish/hqChangesCopy";
+import { LOOKUP_DISCARD_NOTE } from "@/lib/publish/managedData";
+
+export { LOOKUP_DISCARD_NOTE } from "@/lib/publish/managedData";
+
 import type { LookupChangePart, PlaceChangePart } from "./hqResourceBaseline";
-import type { AppChangePart } from "./hqSourceBaseline";
+import {
+	type AppChangePart,
+	type appConfirmationScope,
+	diffHqAppSource,
+	hqDiscardDigest,
+	removedHqFileLine,
+	removedHqFiles,
+	unapprovedHqFiles,
+} from "./hqSourceBaseline";
 import type {
 	AppBaseline,
 	DeploymentRemoteChange,
@@ -96,7 +111,7 @@ export function hqChangedMessage(
 	options?: DriftDateOptions,
 ): string {
 	if (changes.some((change) => change.requiresReview))
-		return "Nova needs a current review of what the first publish would change in CommCare HQ.";
+		return "Nova needs a current review of what publishing would change in CommCare HQ.";
 	const app = changes.find((change) => change.kind === "app");
 	const others = changes.some((change) => change.kind !== "app");
 	if (app === undefined) return HQ_CHANGED_MESSAGE;
@@ -135,17 +150,6 @@ export {
 	BASELINE_UNKNOWN_SENTENCE,
 	baselineUnknownSentence,
 } from "@/lib/publish/hqChangesCopy";
-
-/**
- * The note on a lookup table change whose discard replaces a table HQ still
- * holds under that tag and id: a change to its definition or rows, or one
- * whose baseline Nova could not read. HQ's table key holds a description
- * and each field's indexed flag (`fixtures/upload/run_upload.py::table_key`),
- * which no API-key read returns and no workbook carries a description of,
- * so the push makes such a table again without them.
- */
-export const LOOKUP_DISCARD_NOTE =
-	"If it has a description or indexed fields in CommCare HQ, publishing removes them: CommCare HQ doesn't show those to Nova, and a lookup upload can't carry a description.";
 
 /**
  * What taking over a lookup table means, said where a person confirms it:
@@ -346,9 +350,137 @@ export function describePlaceChange(part: PlaceChangePart): string {
 	}
 }
 
+/** File removals precede ordinary differences; the overflow line itself occupies a slot. */
+export function fileDisclosureTruncated(
+	files: number,
+	otherLines: number,
+): boolean {
+	return files >= MAX_PART_LINES && files + otherLines > MAX_PART_LINES;
+}
+
 /** At most 20 lines; past 20 the last line is "and N more". */
 export function boundedParts(lines: readonly string[]): readonly string[] {
 	if (lines.length <= MAX_PART_LINES) return lines;
 	const shown = lines.slice(0, MAX_PART_LINES - 1);
 	return [...shown, `and ${lines.length - shown.length} more`];
+}
+
+/**
+ * The app's change since its baseline, or null when nothing it writes
+ * differs. Observed as the digest of the whole normalized read, so a person
+ * confirms exactly the state Nova read, known baseline or not.
+ */
+export function appRemoteChange(input: {
+	readonly authority: ReturnType<typeof appConfirmationScope>;
+	/** A completed review may disclose a removal the shorter publish preview cannot show. */
+	readonly discards?: readonly RemoteChangeDiscard[];
+	readonly appName: string;
+	readonly novaAppId: string;
+	readonly remoteAppId: string;
+	readonly current: { readonly normalized: unknown; readonly digest: string };
+	readonly baseline:
+		| (Pick<
+				AppBaseline,
+				| "mediaFiles"
+				| "approvedFileRemovals"
+				| "firstPublishReview"
+				| "unverifiedNextChanges"
+		  > &
+				(
+					| { readonly origin: "unread" }
+					| Pick<
+							Exclude<AppBaseline, { origin: "unread" }>,
+							"origin" | "source" | "ownership"
+					  >
+				))
+		| null;
+	/** What the baseline is: a publish's read, or the read Nova brought the app in from. */
+	readonly since: DriftReference;
+	readonly languageNames: "nova" | "target";
+	/** How many files this publish sends CommCare HQ holds another file in place of. */
+	readonly mediaChanged: number;
+	readonly published: readonly { readonly wirePath: string }[];
+	/** Whether the deployment has a usable pair (`hqChanges/reference.ts::usablePair`). */
+	readonly canBringIn: boolean;
+}): DeploymentRemoteChange | null {
+	const { baseline } = input;
+	const files = {
+		published: input.published,
+		recorded: baseline?.mediaFiles ?? null,
+	};
+	const removed = unapprovedHqFiles(
+		removedHqFiles(input.current.normalized, files),
+		baseline?.approvedFileRemovals,
+	);
+	const lines = removed.map(removedHqFileLine);
+	const change = (
+		parts: readonly string[],
+		baselineKnown: boolean,
+	): DeploymentRemoteChange => {
+		const full = [...lines, ...parts];
+		const shown = boundedParts(full);
+		const truncated = fileDisclosureTruncated(lines.length, parts.length);
+		const complete = hqDiscardDigest(
+			input.authority,
+			input.current.digest,
+			removed,
+			"complete",
+		);
+		const reviewed = input.discards?.some(
+			(discard) =>
+				discard.kind === "app" &&
+				discard.novaResourceId === input.novaAppId &&
+				discard.observedDigest === complete,
+		);
+		const needsReview = truncated && !reviewed;
+		return {
+			kind: "app",
+			novaResourceId: input.novaAppId,
+			name: input.appName,
+			identity: input.remoteAppId,
+			parts: shown,
+			...(needsReview && { requiresReview: true }),
+			note: needsReview
+				? input.canBringIn
+					? "Review the complete list of files before publishing here."
+					: REQUIRED_FIRST_PUBLISH_RECOVERY
+				: null,
+			observedDigest: reviewed
+				? complete
+				: hqDiscardDigest(input.authority, input.current.digest, removed),
+			baselineKnown,
+			since: input.since,
+			canBringIn: baselineKnown && input.canBringIn,
+		};
+	};
+	if (baseline?.firstPublishReview === "required") {
+		return {
+			...change(
+				[
+					baseline.unverifiedNextChanges
+						? "Review what the next publish would change in this project space."
+						: "Review what the first publish would change in this project space.",
+				],
+				baseline.origin !== "unread",
+			),
+			requiresReview: true,
+			note: input.canBringIn
+				? "Review changes from CommCare HQ before publishing here."
+				: `Nova cannot verify the previous reading. ${REQUIRED_FIRST_PUBLISH_RECOVERY}`,
+		};
+	}
+	if (baseline === null || baseline.origin === "unread") {
+		return change([], false);
+	}
+	const parts = diffHqAppSource({
+		baseline: baseline.source,
+		current: input.current.normalized,
+		ownership: baseline.ownership,
+		shell: baseline.origin === "create",
+		languageNames: input.languageNames,
+		mediaChanged: input.mediaChanged,
+	});
+	return parts.length === 0 && removed.length === 0
+		? null
+		: change(parts.map(describeAppChange), true);
 }

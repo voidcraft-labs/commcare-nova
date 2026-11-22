@@ -1177,6 +1177,7 @@ function registerLink(
 	uuid: Uuid,
 	role: "destination" | "otherwise",
 ): ReadLink {
+	ctx.facts.formLinkOwners.push({ pointer: link.cursor.pointer, uuid });
 	const xpath = textOf(link.value.xpath);
 	const guards = linkGuards(
 		snapshot,

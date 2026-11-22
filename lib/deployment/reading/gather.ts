@@ -35,6 +35,7 @@ import {
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
+import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	type ReadDraft,
 	type ReaderInput,
@@ -113,6 +114,8 @@ import {
 	adoptedSourceTree,
 	adoptionPlanFeatureConfirmations,
 } from "../adoption";
+import { publishedMediaFiles } from "../hqMedia";
+import { removedHqFileLine, removedHqFiles } from "../hqSourceBaseline";
 import { readHqAppClaims } from "../store";
 import { keptListFor } from "../targetFacts";
 import {
@@ -126,6 +129,7 @@ import { type AcceptedReading, acceptReadingSteps } from "./acceptance";
 import { adoptionExportBoundary } from "./adoptionBoundary";
 import { readingAppStrings } from "./appStrings";
 import { reviewDigestOf } from "./digest";
+import { birthPublishSubjects } from "./firstPublishChanges";
 import { reviewMediaId } from "./mediaIds";
 import { claimDetail } from "./picker";
 import {
@@ -1191,6 +1195,7 @@ export async function gatherReading(
 			origin: { server: key.server, domain: key.domain },
 		}),
 		claimOf: (seen) => claimOfSeen(actor.userId, seen),
+		actorRole: actor.role,
 		actorUserId: actor.userId,
 	});
 	return { result, facts };
@@ -1232,6 +1237,7 @@ type GatherFromHqInput = Omit<GatherInput, "actor"> &
 		/** Counts alone by default, as every request keeps them. The proof lane asks `full`. */
 		readonly claims?: "counts" | "full";
 		readonly actorUserId?: string;
+		readonly actorRole?: string;
 	};
 
 async function gatherFromHqWith(
@@ -1516,6 +1522,7 @@ async function gatherFromHqWith(
 			media: plan,
 			first,
 			claims: claimsMode,
+			actorRole: input.actorRole,
 		},
 		pieces,
 		tally,
@@ -1616,6 +1623,7 @@ export async function checkFetched(input: {
 	readonly media: ReadingMediaPlan;
 	readonly first?: ReadOutcome;
 	readonly actorUserId?: string;
+	readonly actorRole?: string;
 }): Promise<{
 	readonly result: Exclude<GatherResult, { kind: "stop" }>;
 	readonly facts: GatherFacts;
@@ -1651,6 +1659,7 @@ async function checkWith(
 		readonly first?: ReadOutcome;
 		/** How the reader, where it runs once more, keeps its claim log. */
 		readonly claims?: "counts" | "full";
+		readonly actorRole?: string;
 	},
 	pieces: Pieces,
 	tally: Tally,
@@ -1911,8 +1920,30 @@ async function checkWith(
 			throw new Error(
 				`The reading ${appId} observed its menus and forms once and then found a form with no real CommCare HQ id. The two observations read one draft, so look at targetIdentity.ts::observedTargetIdentity.`,
 			);
+		const inputs = accepted.declarations.map((choice) =>
+			birthPublishSubjects(choice.firstPublishFacts, choice.firstPublish),
+		);
 		return reviewDigestOf({
-			v: 2,
+			v: 3,
+			authority: {
+				appId,
+				...key,
+				user: scope.userId,
+				role: input.actorRole ?? null,
+			},
+			...(review.runsOn.some((choice) => choice.removesFiles?.length)
+				? {
+						source: {
+							digest: canonicalJsonDigest(
+								adoptedSourceTree(key.remoteAppId, source),
+							),
+							revision: fetched.hqVersion,
+						},
+					}
+				: {}),
+			...(inputs.some((items) => items.length > 0) && {
+				publishInputs: canonicalJsonDigest(inputs),
+			}),
 			review,
 			document: canonicalJsonDigest(
 				remapAssetRefs(toPersistableDoc(draft.doc), contentId),
@@ -1983,7 +2014,27 @@ function* reviewOf(input: {
 	const runsOn: ReadingReview["runsOn"][number][] = [];
 	for (const declaration of accepted.declarations) {
 		yield;
+		const removesFiles = source.multimediaMap?.length
+			? removedHqFiles(source.raw, {
+					published: publishedMediaFiles(
+						bulkUploadAssets(
+							declaration.doc,
+							adoptionExportBoundary(
+								declaration.doc,
+								input.lookup.definitions,
+								input.mediaFiles,
+								{
+									origin: COMMCARE_SERVERS[key.server].baseUrl,
+									domain: key.domain,
+								},
+							).assets,
+						),
+					),
+					recorded: null,
+				}).map(removedHqFileLine)
+			: [];
 		runsOn.push({
+			...(removesFiles.length > 0 && { removesFiles }),
 			runsOnlyOn: declaration.runsOnlyOn,
 			splitDatetime: declaration.splitDatetime,
 			preselected: declaration.preselected,

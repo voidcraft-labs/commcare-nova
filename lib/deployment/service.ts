@@ -54,9 +54,12 @@ import { log } from "@/lib/logger";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { getLookupDefinitions } from "@/lib/lookup/service";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
-import { assetWirePaths } from "@/lib/media/manifest";
+import { assetWirePaths, resolveMediaManifest } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
-import { readOrganization } from "@/lib/organization/service";
+import {
+	readOrganization,
+	readOrganizationAuthoringSnapshot,
+} from "@/lib/organization/service";
 import type { DriftDateOptions } from "@/lib/publish/driftReference";
 import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import type { KeptRefreshKind } from "@/lib/publish/keptValues";
@@ -95,18 +98,30 @@ import {
 	type HqMediaPath,
 	type HqMediaRecord,
 	isHoldableWirePath,
-	mediaMovedBetween,
 	movedRecordedPaths,
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "./hqMedia";
-import { settleHqMedia } from "./hqMediaSettle";
+import {
+	filesMovedSinceSource,
+	freshShellHasAffectedFiles,
+	type SettledHqMedia,
+	settleHqMedia,
+	verifyHqMediaBatch,
+} from "./hqMediaSettle";
 import {
 	canonicalLookupTable,
 	canonicalPlace,
 	lookupDefinitionChange,
 } from "./hqResourceBaseline";
-import { diffHqAppSource, normalizeHqAppSource } from "./hqSourceBaseline";
+import {
+	confirmedAppSourceMoved,
+	diffHqAppSource,
+	fileReviewMoved,
+	normalizeHqAppSource,
+	removalLedgerPaths,
+	removedHqFiles,
+} from "./hqSourceBaseline";
 import {
 	type HqImportApplicationResult,
 	hqImportApplication,
@@ -169,6 +184,7 @@ import {
 	admitPlacesWrite,
 	admitWorkbookWrite,
 	applyDeploymentObservation,
+	cancelUnsentImport,
 	type DeploymentFence,
 	type DeploymentReadSnapshot,
 	type DeploymentScope,
@@ -1354,6 +1370,14 @@ export async function publishAppToHq(
 						hqAppSourceReadFailure(read, domain, true),
 					);
 				}
+				if (freshShellHasAffectedFiles(read.source, published)) {
+					return refused("resources", {
+						code: "hq_changed",
+						message:
+							"CommCare HQ created the app with a file this publish would change. You can publish again to review the file.",
+						details: [],
+					});
+				}
 				if (createBaseline.normalized === null) {
 					return refused(
 						"resources",
@@ -1546,8 +1570,9 @@ export async function publishAppToHq(
 				 * stands now rather than on the read before the pushes. A key Nova
 				 * writes that moved since the read this publish holds stops it
 				 * here: the person decided over the earlier state, not this one.
-				 * The two digests are not compared, so a save of a key Nova
-				 * ignores never stops a publish whose data is already pushed. An
+				 * A confirmed overwrite also checks the exact save and normalized
+				 * source the person reviewed. An ordinary publish keeps later
+				 * changes to values that Nova passes through. An
 				 * app this publish created that reads as gone keeps its mapping,
 				 * as the import's 404 does below: the next publish reads it at
 				 * `target-app` and records it gone there if it is. */
@@ -1616,6 +1641,13 @@ export async function publishAppToHq(
 				};
 				if (
 					moved.length > 0 ||
+					confirmedAppSourceMoved(
+						confirmedChanges.some((change) => change.kind === "app")
+							? targetApp
+							: null,
+						counter,
+						second.digest,
+					) ||
 					(!shell && webAppsMovedDuringPush(source, read.source))
 				) {
 					return refused("upload", changedDuringPush);
@@ -1627,17 +1659,13 @@ export async function publishAppToHq(
 				 * have mapped it while the data went; only a file that is not
 				 * this app's stops the publish. */
 				const secondMap = read.source.multimediaMap;
-				if (secondMap === null && published.length > 0) {
+				if (secondMap === null) {
 					return refused(
 						"upload",
 						hqAppSourceReadFailure(MALFORMED_SOURCE, domain, createdApp),
 					);
 				}
-				const between = mediaMovedBetween(
-					source.multimediaMap ?? [],
-					secondMap ?? [],
-					published,
-				);
+				const between = filesMovedSinceSource(source, read.source, published);
 				settledBetween = between;
 				if (
 					!between.some((path) => path.standing === "replaced") &&
@@ -1693,9 +1721,15 @@ export async function publishAppToHq(
 			 * has settled. */
 			const comparedFiles = {
 				files: appBaseline?.mediaFiles ?? null,
-				paths: published.map((file) => file.wirePath),
+				paths: [
+					...published.map((file) => file.wirePath),
+					...removalLedgerPaths(source.raw, published),
+				],
 			};
 			const importAdmission = await admitAppWrite(input.scope, target, {
+				...(confirmedChanges.some((change) => change.kind === "app") && {
+					reviewedRole: input.scope.role,
+				}),
 				firstContentGeneration:
 					letOut.length === 0 ? contentGeneration : undefined,
 				compiledIdentity: targetIdentity,
@@ -1712,21 +1746,43 @@ export async function publishAppToHq(
 				return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
 			}
 			const importWrite = importAdmission.writeId;
-			letOut.push(importWrite);
 			const result = await importApp(
 				creds,
 				domain,
 				input.appName,
 				hqJson,
 				appId,
+				counterBeforeRead,
 			);
-			if (!result.success) {
-				await settleQuietly(
-					[importWrite],
-					hqAnsweredWrite(result)
-						? { kind: "settled" }
-						: { kind: "unanswered" },
+			if ("kind" in result) {
+				await cancelUnsentImport(importAdmission);
+				return refused(
+					"upload",
+					typeof result.counter === "number"
+						? {
+								code: "hq_changed",
+								message:
+									"CommCare HQ saved this app again while Nova was preparing its content. Publishing again checks what changed before sending the app.",
+								details: [],
+							}
+						: hqAppSourceReadFailure(result.counter, domain, createdApp),
 				);
+			}
+			// A final 429 also explicitly precedes the view, including one whose
+			// wait exhausted the deadline. No content was let out by this import.
+			if (!result.success && result.status === 429) {
+				await cancelUnsentImport(importAdmission);
+			} else {
+				letOut.push(importWrite);
+			}
+			if (!result.success) {
+				if (result.status !== 429)
+					await settleQuietly(
+						[importWrite],
+						hqAnsweredWrite(result)
+							? { kind: "settled" }
+							: { kind: "unanswered" },
+					);
 				/* HQ answering that the mapped app is gone is a fact about the
 				 * target. Not for the app this publish just created, though: its
 				 * mapping is kept, so the next publish reads it at `target-app`
@@ -1747,11 +1803,17 @@ export async function publishAppToHq(
 
 			// A review can now order the import against the save it read, even
 			// if the publisher is still waiting for the verification read below.
-			if (result.version !== null && result.appId === appId)
+			const acceptedVersion =
+				result.version !== null &&
+				result.version > counterBeforeRead &&
+				result.appId === appId
+					? result.version
+					: null;
+			if (acceptedVersion !== null)
 				await recordImportAcknowledgement(
 					importWrite,
 					result.appId,
-					result.version,
+					acceptedVersion,
 				).catch((error: unknown) => {
 					// Its open hold still fences a conflicting review. Continue to
 					// record the import that HQ accepted, including its read-back.
@@ -1789,15 +1851,13 @@ export async function publishAppToHq(
 						!("success" in readBack) &&
 						readBack.kind === "moved" &&
 						readBack.version > counterBeforeRead + 1));
+			const forwardRead = acceptedVersion === null ? null : readBack;
 			const pushBaseline = appBaselineFor({
 				// An extra save leaves authorship open. An exact read of a forward
 				// counter still tells downloads and Preview which settings HQ holds.
 				origin: extraSave ? "observed" : "push",
 				remoteAppId: result.appId,
-				read:
-					result.version !== null && result.version > counterBeforeRead
-						? readBack
-						: null,
+				read: forwardRead,
 				ownership,
 				novaRevision: seq,
 				discard:
@@ -1829,7 +1889,7 @@ export async function publishAppToHq(
 						? { ownership: "adopted", adoptedBy: inPlaceUpdate.adoptedBy }
 						: { ownership: "nova-created" }),
 					pushedRevision: seq,
-					remoteRevision: result.version,
+					remoteRevision: acceptedVersion,
 					uploadedAt: new Date().toISOString(),
 					baseline: pushBaseline.write,
 					offeredLogoContentHash: logoStep?.contentHash ?? null,
@@ -1901,6 +1961,10 @@ export async function publishAppToHq(
 			} = { warnings: [], reported: {} };
 			/* The import and the bundle, whose admissions the media record rests on. */
 			const mediaWrites: string[] = [importWrite];
+			let mediaUnverified = false;
+			let afterImportMedia:
+				| Extract<SettledHqMedia, { kind: "settled" }>
+				| undefined;
 			if (imported.laterObservation?.compatible === false) {
 				warnings.push(
 					"CommCare HQ changed after accepting the app. You can review what it holds before publishing again.",
@@ -1946,24 +2010,49 @@ export async function publishAppToHq(
 					letOut.push(mediaAdmission.writeId);
 					mediaWrites.push(mediaAdmission.writeId);
 				}
-				upload =
-					mediaAdmission.kind === "admitted"
-						? await uploadMediaBytes(
-								creds,
-								domain,
-								result.appId,
-								{ assets: bulkAssets, doc: prepared.doc },
-								input.scope.appId,
-								mediaAdmission.writeId,
-							)
-						: {
-								warnings: [
-									mediaAdmission.kind === "no-access"
-										? MEDIA_NOT_SENT_AFTER_ACCESS_WARNING
-										: MEDIA_NOT_SENT_AFTER_STOP_WARNING,
-								],
-								reported: {},
-							};
+				if (mediaAdmission.kind === "admitted") {
+					const verified = await verifyHqMediaBatch(
+						creds,
+						domain,
+						result.appId,
+						source,
+						forwardRead,
+						published,
+					).catch((error: unknown) => {
+						log.error(
+							"[deployment] could not verify the media destinations before dispatch",
+							error,
+							{ domain, appId: input.scope.appId },
+						);
+						return null;
+					});
+					if (verified) {
+						afterImportMedia = verified;
+						upload = await uploadMediaBytes(
+							creds,
+							domain,
+							result.appId,
+							{ assets: bulkAssets, doc: prepared.doc },
+							input.scope.appId,
+							mediaAdmission.writeId,
+						);
+					} else {
+						mediaUnverified = true;
+						await settleQuietly([mediaAdmission.writeId], { kind: "settled" });
+						warnings.push(
+							"CommCare HQ accepted the app. Nova couldn't verify the files at their destinations. You can review the files in CommCare HQ and publish again.",
+						);
+					}
+				} else {
+					upload = {
+						warnings: [
+							mediaAdmission.kind === "no-access"
+								? MEDIA_NOT_SENT_AFTER_ACCESS_WARNING
+								: MEDIA_NOT_SENT_AFTER_STOP_WARNING,
+						],
+						reported: {},
+					};
+				}
 			}
 			warnings.push(...upload.warnings);
 
@@ -1976,30 +2065,36 @@ export async function publishAppToHq(
 				appBaseline?.remoteAppId === result.appId
 					? appBaseline.mediaFiles
 					: null;
-			const mediaRecorded = await recordDeploymentMediaFiles(
-				input.scope,
-				target,
-				{
-					...fence,
-					remoteAppId: result.appId,
-					sourceDigest:
-						imported.laterObservation?.digest ??
-						pushBaseline.write.sourceDigest,
-					pushToken: imported.pushToken,
-					novaRevision: pushBaseline.write.novaRevision,
-					files: {
-						read: previousMedia,
-						next: nextHqMediaRecord({
-							published,
-							previous: previousMedia,
-							learned: { ...ready.media?.learned, ...learnedBetween },
-							reported: upload.reported,
-							settled: [...(ready.media?.paths ?? []), ...settledBetween],
-						}),
-					},
-					admitted: { writeIds: mediaWrites, settle: [] },
-				},
-			);
+			const mediaRecorded = mediaUnverified
+				? null
+				: await recordDeploymentMediaFiles(input.scope, target, {
+						...fence,
+						remoteAppId: result.appId,
+						sourceDigest:
+							imported.laterObservation?.digest ??
+							pushBaseline.write.sourceDigest,
+						pushToken: imported.pushToken,
+						novaRevision: pushBaseline.write.novaRevision,
+						files: {
+							read: previousMedia,
+							next: nextHqMediaRecord({
+								published,
+								previous: previousMedia,
+								learned: {
+									...ready.media?.learned,
+									...learnedBetween,
+									...afterImportMedia?.learned,
+								},
+								reported: upload.reported,
+								settled: [
+									...(ready.media?.paths ?? []),
+									...settledBetween,
+									...(afterImportMedia?.paths ?? []),
+								],
+							}),
+						},
+						admitted: { writeIds: mediaWrites, settle: [] },
+					});
 			if (
 				!imported.retainedTake &&
 				!imported.obsoleteFold &&
@@ -3908,6 +4003,10 @@ export async function refreshKeptValues(
 		comparedDigest: baseline.sourceDigest,
 		comparedPushToken: remote.pushToken,
 		keptMediaMap: compared.mediaMap,
+		keptRemovalFiles: {
+			read: baseline.mediaFiles,
+			paths: compared.removalPaths,
+		},
 		comparedRevision: baseline.novaRevision,
 		comparedFold: baseline.foldBinding?.foldSeq,
 		read: {
@@ -4032,6 +4131,7 @@ async function compareWithHq(
 			readonly kind: "unchanged";
 			readonly remote: DeploymentResource;
 			readonly mediaMap: NonNullable<HqAppSource["multimediaMap"]>;
+			readonly removalPaths: readonly string[];
 			readonly baseline: Exclude<AppBaseline, { readonly origin: "unread" }>;
 			readonly normalized: Extract<
 				ReturnType<typeof normalizeHqAppSource>,
@@ -4074,15 +4174,37 @@ async function compareWithHq(
 	if (read.kind === "unsupported") return { kind: "unreadable" };
 	const normalized = normalizeHqAppSource(read.source.raw);
 	if ("malformed" in normalized) return { kind: "unreadable" };
+	let removalPaths = removalLedgerPaths(normalized.normalized, []);
+	if (
+		removalPaths.length ||
+		baseline.hasFileRemovalWarning ||
+		baseline.approvedFileRemovals?.length
+	) {
+		const head = await readOrganizationAuthoringSnapshot(scope);
+		const identity = await readTargetIdentity(scope, existing.deployment);
+		const manifest = await resolveMediaManifest(
+			head.blueprint,
+			scope.projectId,
+			{
+				withBytes: false,
+				heldPaths: exportIdentityOf(head.blueprint, identity).heldMediaPaths,
+			},
+		);
+		const published = publishedMediaFiles(
+			bulkUploadAssets(head.blueprint, manifest),
+		);
+		const removed = removedHqFiles(normalized.normalized, {
+			published,
+			recorded: baseline.mediaFiles,
+		});
+		if (fileReviewMoved(removed, baseline)) return { kind: "changed-in-hq" };
+		removalPaths = removalLedgerPaths(normalized.normalized, published);
+	}
 	const parts = diffHqAppSource({
 		baseline: baseline.source,
 		current: normalized.normalized,
 		ownership: baseline.ownership,
 		shell: false,
-		// Refresh has no outgoing document. A newly observed unmapped file
-		// may be pruned on import; keep it for the complete review. An upload
-		// receipt already accounts for Nova's own file arriving after its read.
-		importFiles: { published: [], recorded: baseline.mediaFiles },
 		languageNames: remote.ownership === "adopted" ? "target" : "nova",
 		mediaChanged: movedRecordedPaths(
 			baseline.mediaFiles,
@@ -4103,5 +4225,6 @@ async function compareWithHq(
 		normalized,
 		observedAt,
 		mediaMap: read.source.multimediaMap ?? [],
+		removalPaths,
 	};
 }

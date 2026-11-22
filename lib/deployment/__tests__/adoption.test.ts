@@ -747,6 +747,7 @@ describe("adoptedAppBaselineWrite", () => {
 		const write = baselineFor(PLAIN);
 		const stored = {
 			reviewed: 1,
+			reviewedInputs: 1,
 			ids: ["forms-and-settings-rewritten", "media-files-renamed"],
 			webAppsOnInHq: false,
 			of: "first-publish",

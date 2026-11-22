@@ -216,9 +216,7 @@ const MEDIA_TYPES: ReadonlySet<string> = new Set(HQ_MEDIA_TYPES);
  * Anything short of the expected shape is a refusal, never an empty
  * default: an empty profile, `translations`, `add_ons` or `build_profiles`
  * would make the next import erase configuration HQ owns or pass a state a
- * publish must stop on, and a menu with no id cannot be paired. `name`,
- * `last_modified` and `multimedia_map` are read where HQ sent them and null
- * where it did not, so none of them refuses a read.
+ * publish must stop on, and a menu with no id cannot be paired. Every live app source must carry its media map. Its name and save time may be absent.
  */
 export async function readHqAppSource(
 	creds: CommCareCredentials,
@@ -256,23 +254,24 @@ export async function readHqAppSource(
 	const parsed = parseHqAppSource(body, {
 		admit: options.admit,
 		onNote: (note) => {
-			if (note.kind === "media-map-malformed")
-				log.error("[commcare] media map is malformed", undefined, {
-					domain,
-					request: "app-source",
-					appId,
-				});
-			else
-				log.warn("[commcare] media map entries are unreadable", {
-					domain,
-					request: "app-source",
-					appId,
-					count: note.count,
-					firstIndexes: note.firstIndexes,
-				});
+			if (note.kind === "media-map-malformed") return; // The caller logs the malformed required key below.
+			log.warn("[commcare] media map entries are unreadable", {
+				domain,
+				request: "app-source",
+				appId,
+				count: note.count,
+				firstIndexes: note.firstIndexes,
+			});
 		},
 	});
-	if (parsed.kind === "source") return parsed;
+	if (parsed.kind === "source") {
+		// An update can prune mappings even when the app sends no files.
+		// A live reading must account for the map before it may be adopted,
+		// refreshed or used for an import. Older stored sources still decode.
+		return parsed.source.multimediaMap === null
+			? malformed(domain, appId, "multimedia_map")
+			: parsed;
+	}
 	if (parsed.key === "build_profiles") {
 		log.error("[commcare] build profiles are malformed", undefined, {
 			domain,
@@ -488,9 +487,9 @@ function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
  * (`HQMediaMapItem.url` is empty for it); an entry whose id or type Nova
  * cannot ask for is kept as unreadable, so one entry never refuses the read.
  */
-function readMultimediaMap(
+export function readMultimediaMap(
 	value: unknown,
-	onNote: ((note: HqAppSourceParseNote) => void) | undefined,
+	onNote?: (note: HqAppSourceParseNote) => void,
 ): readonly HqMediaMapItem[] | null {
 	if (value === undefined) return null;
 	if (!isRecord(value)) {

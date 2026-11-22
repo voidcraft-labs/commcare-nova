@@ -31,13 +31,13 @@ import {
 import {
 	type HqAppSource,
 	publishReadingFactsMoved,
-	unreadableMediaIdentity,
 } from "@/lib/commcare/hq/appSource";
 import {
 	classifyHqFailure,
 	type HqFailure,
 	hqReadCircumstance,
 } from "@/lib/commcare/hq/failure";
+import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import type { ReadDraft } from "@/lib/commcare/reader";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
@@ -55,7 +55,8 @@ import type {
 	DeclarationChoices,
 } from "@/lib/doc/platformDeclaration";
 import { type BlueprintDoc, PLATFORMS, type Platform } from "@/lib/domain";
-import { collectAssetRefs } from "@/lib/domain/mediaRefs";
+import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
+import { bulkUploadAssetIds, collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	NO_ENTRIES,
@@ -98,12 +99,22 @@ import {
 	publishedMediaFiles,
 } from "../hqMedia";
 import { type SettledHqMediaRead, settleHqMedia } from "../hqMediaSettle";
-import { diffHqAppSource, normalizeHqAppSource } from "../hqSourceBaseline";
+import {
+	appConfirmationScope,
+	diffHqAppSource,
+	fileReviewMoved,
+	hqDiscardDigest,
+	normalizeHqAppSource,
+	removalLedgerPaths,
+	removedHqFileLine,
+	removedHqFiles,
+	unapprovedHqFiles,
+} from "../hqSourceBaseline";
 import {
 	type AcceptedDeclaration,
 	acceptReadingSteps,
 } from "../reading/acceptance";
-import { unusedMediaEntries } from "../reading/firstPublishChanges";
+
 import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
 import {
 	projectDataReadsOf,
@@ -134,7 +145,7 @@ import {
 	withBringInRoom,
 } from "../reading/room";
 import { READING_MAX_LISTED_FINDINGS } from "../reading/types";
-import { driftReferenceOf } from "../remoteChanges";
+import { driftReferenceOf, fileDisclosureTruncated } from "../remoteChanges";
 import { activeRemoteApp, deploymentEnding } from "../resources";
 import {
 	type DeploymentScope,
@@ -151,6 +162,7 @@ import {
 	formIdsAgree,
 	observedTargetIdentity,
 	resolveTargetIdentity,
+	sameTargetIdentity,
 	type TargetIdentity,
 	targetIdentityChanges,
 } from "../targetIdentity";
@@ -199,8 +211,23 @@ export function reviewMatchingSource(
 		learned,
 		since,
 	} = basis;
+	const removed = removedHqFiles(basis.normalized.normalized, {
+		published,
+		recorded: baseline.mediaFiles,
+	});
+	// The historic projection settles files at its own revision. If local
+	// edits changed the carriers a publish sends, compare the actual head.
+	const carriersChanged = () => {
+		const then = bulkUploadAssetIds(reference.doc);
+		const now = bulkUploadAssetIds(basis.head.doc);
+		return then.size !== now.size || [...then].some((id) => !now.has(id));
+	};
 	if (
 		baseline.firstPublishReview === "required" ||
+		fileReviewMoved(removed, baseline) ||
+		(basis.source.multimediaMap?.length &&
+			basis.head.seq !== baseline.novaRevision &&
+			carriersChanged()) ||
 		!formIdsAgree(reference.doc, targetIdentity, modules) ||
 		publishReadingFactsMoved(
 			baseline.source,
@@ -226,17 +253,28 @@ export function reviewMatchingSource(
 		readingId: basis.readingId,
 		reviewDigest: hqChangesReviewDigest({
 			identity: { read: targetIdentity, next: targetIdentity },
-			mappingToken: basis.live.pushToken,
+			authority: reviewAuthority(basis),
 			baselineDigest: baseline.sourceDigest,
 			sourceDigest: basis.normalized.digest,
 			headSeq: basis.head.seq,
 			media: published,
 			recordedFiles: baseline.mediaFiles,
-			incomingPaths: [],
+			incomingPaths: removalLedgerPaths(basis.normalized.normalized, published),
 			target: null,
 			tables: [],
 		}),
 	};
+}
+
+function reviewAuthority(basis: HqChangesBasis) {
+	return appConfirmationScope(
+		basis.scope,
+		basis.target,
+		basis.live,
+		basis.head.seq,
+		basis.remoteRevision,
+		basis.baseline,
+	);
 }
 
 /** A stage or file line, as both requests stream them. */
@@ -249,6 +287,41 @@ export type PairedBaseline = Exclude<
 	AppBaseline,
 	{ readonly origin: "unread" }
 > & { readonly novaRevision: number };
+
+/** Resolve an incoming file at the same held or content path its accepted
+ * export uses, even before the reading has put its bytes in the Project. */
+async function prospectiveFileLosses(
+	basis: HqChangesBasis,
+	doc: BlueprintDoc,
+	identity: TargetIdentity,
+	incoming: readonly AdoptedMediaFile[],
+) {
+	if (basis.source.multimediaMap?.length === 0) return [];
+	const visible = bulkUploadAssetIds(doc);
+	const paths = exportIdentityOf(doc, identity).heldMediaPaths;
+	const files = new Map<string, AdoptedMediaFile>(
+		incoming.map((file) => [file.assetId, file]),
+	);
+	const published: { wirePath: string }[] = [];
+	let manifest: Awaited<ReturnType<typeof resolveMediaManifest>> | undefined;
+	for (const assetId of visible) {
+		const asset = files.get(assetId) ?? basis.ownRows.get(assetId);
+		let path = isBuiltinIconRef(assetId) ? undefined : paths.get(assetId);
+		if (!path && asset) path = wirePathFor(asset.contentHash, asset.extension);
+		if (!path) {
+			manifest ??= await resolveMediaManifest(doc, basis.scope.projectId, {
+				withBytes: false,
+				heldPaths: paths,
+			});
+			path = manifest.get(assetId)?.wirePath;
+		}
+		if (path) published.push({ wirePath: path });
+	}
+	return removedHqFiles(basis.normalized.normalized, {
+		published,
+		recorded: basis.baseline.mediaFiles,
+	});
+}
 
 /** What one computation logs and the test at the cap reads. */
 export interface HqChangesFacts {
@@ -316,6 +389,7 @@ export interface FetchedHqChanges extends HqChangesBasis {
 
 /** What the check decided, for a bring-in to act on. */
 export interface CheckedHqChanges {
+	readonly removedFiles: readonly string[];
 	readonly fetched: FetchedHqChanges;
 	readonly plan: Extract<
 		HqChangePlan,
@@ -765,6 +839,7 @@ type Standing =
 	| {
 			readonly kind: "deployment";
 			readonly deployment: { readonly id: string; readonly endings: number };
+			readonly role: string;
 			readonly live: DeploymentResource;
 			readonly baseline: PairedBaseline;
 			readonly since: DriftReference;
@@ -778,8 +853,16 @@ async function standingOf(
 	/* An app deleted since the request was authorized, for a member who may
 	 * still edit it: the snapshot says so rather than not-found. */
 	let existing: Awaited<ReturnType<typeof readDeployment>>;
+	let role: string;
 	try {
-		existing = await readDeployment(scope, target);
+		({ existing, role } = await withDeploymentReadSnapshot(
+			scope,
+			"edit",
+			async (snapshot) => ({
+				existing: await readDeployment(snapshot, target),
+				role: snapshot.role,
+			}),
+		));
 	} catch (error) {
 		if (error instanceof DeploymentAppDeletedError)
 			return { kind: "answer", review: unavailable("app-deleted", null) };
@@ -824,6 +907,7 @@ async function standingOf(
 		};
 	return {
 		kind: "deployment",
+		role,
 		deployment: {
 			id: existing.deployment.id,
 			endings: existing.deployment.endings,
@@ -891,6 +975,9 @@ async function computeWith(
 ): Promise<HqChangesComputation> {
 	const { onEvent, cancel } = options;
 	let sourceBytes: number | null = null;
+	// Until the outgoing comparison is available, an incomplete reading cannot
+	// promise that publishing over its findings will be possible.
+	let mayOfferDiscard = false;
 	const standing = await standingOf(scope, target);
 	const answer = (
 		review: HqChangesReview,
@@ -899,7 +986,8 @@ async function computeWith(
 	): HqChangesComputation => ({
 		review:
 			standing.kind === "deployment" &&
-			standing.baseline.firstPublishReview === "required" &&
+			(!mayOfferDiscard ||
+				standing.baseline.firstPublishReview === "required") &&
 			(review.kind === "account" ||
 				review.kind === "held" ||
 				review.kind === "unavailable")
@@ -927,6 +1015,7 @@ async function computeWith(
 		};
 	if (standing.kind === "answer") return answer(standing.review);
 	const { baseline, live, since } = standing;
+	scope = { ...scope, role: standing.role };
 
 	/* 2. The baseline's size, before it is read as a source. `readAppBaseline`
 	 * has verified and parsed the stored text, as it does for every publish;
@@ -990,6 +1079,9 @@ async function computeWith(
 			break;
 	}
 	const { source, modules } = reading;
+	mayOfferDiscard =
+		source.multimediaMap !== null &&
+		!fileDisclosureTruncated(source.multimediaMap.length, 1);
 	sourceBytes = await pieces
 		.at("the source's size")
 		.run(() => Buffer.byteLength(JSON.stringify(source.raw)));
@@ -1040,6 +1132,13 @@ async function computeWith(
 		);
 		if (
 			baseline.firstPublishReview !== "required" &&
+			!fileReviewMoved(
+				removedHqFiles(normalized.normalized, {
+					published: [],
+					recorded: baseline.mediaFiles,
+				}),
+				baseline,
+			) &&
 			parts.length === 0 &&
 			formIdsAgree(head.doc, targetIdentity, modules) &&
 			!publishReadingFactsMoved(baseline.source, source, new Set())
@@ -1115,6 +1214,16 @@ async function computeWith(
 		learned,
 		ownRows: await ownAssetRows(published, scope.projectId),
 	};
+	const hiddenFiles =
+		fileDisclosureTruncated(source.multimediaMap?.length ?? 0, parts.length) &&
+		fileDisclosureTruncated(
+			unapprovedHqFiles(
+				await prospectiveFileLosses(basis, head.doc, targetIdentity, []),
+				baseline.approvedFileRemovals,
+			).length,
+			parts.length,
+		);
+	mayOfferDiscard = !hiddenFiles;
 	if (parts.length === 0) {
 		const same = reviewMatchingSource(basis);
 		if (same) return answer(same, same.readingId === null ? null : basis);
@@ -1646,36 +1755,35 @@ export async function checkHqChanges(
 	// from another reading. Otherwise compare the concrete file references:
 	// the same register entry can describe a different path or a different file.
 	const legacy = fetched.baseline.firstPublishReview === "required";
-	const before = new Map(
-		(fetched.baseline.firstPublishReview === "current"
-			? unusedMediaEntries(
-					readings.inputs.base.source,
-					readings.base.draft.facts,
-				)
-			: []
-		).map((item) => [item.path, item]),
+	const priorNext = fetched.baseline.unverifiedNextChanges;
+	const unused = await prospectiveFileLosses(
+		fetched,
+		targetDoc,
+		recorded.next,
+		targetFiles,
 	);
-	const unused = fetched.baseline.firstPublishReview
-		? unusedMediaEntries(fetched.source, draft.facts)
-		: [];
-	const changedFiles = unused
-		.filter((item) => {
-			const old = before.get(item.path);
-			return (
-				legacy ||
-				old === undefined ||
-				old.multimediaId !== item.multimediaId ||
-				old.mediaType !== item.mediaType ||
-				old.unreadable !== item.unreadable ||
-				(item.unreadable &&
-					unreadableMediaIdentity(
-						readings.inputs.base.source.raw,
-						item.path,
-					) !== unreadableMediaIdentity(fetched.source.raw, item.path))
-			);
-		})
-		.sort((a, b) => compareText(a.path, b.path));
-	const requiresReview = legacy || changedFiles.length > 0;
+	const approved = fetched.baseline.approvedFileRemovals;
+	const changedFiles = unapprovedHqFiles(unused, legacy ? [] : approved);
+	const discardedFiles =
+		targetDoc === fetched.head.doc &&
+		sameTargetIdentity(recorded.next, recorded.read)
+			? unapprovedHqFiles(unused, approved)
+			: unapprovedHqFiles(
+					await prospectiveFileLosses(
+						fetched,
+						fetched.head.doc,
+						recorded.read,
+						[],
+					),
+					approved,
+				);
+	// A new register consequence, just like a different input to an existing
+	// consequence, needs a decision even when both sources read to the same doc.
+	const changedPublishSubjects = plan.publishChanges.some(
+		(id) => id !== "unused-media-entries-removed",
+	);
+	const requiresReview =
+		legacy || changedFiles.length > 0 || changedPublishSubjects;
 	const built = await pieces.at("the next publish's body").run(() => {
 		const baseTags = new Set(
 			Object.keys(projectDataReadsOf(data, readings.base).lookupFields),
@@ -1695,22 +1803,29 @@ export async function checkHqChanges(
 					).tables.filter((table) => newTagSet.has(table.tag));
 		const reviewDigest = hqChangesReviewDigest({
 			identity: receipt,
+			approvedRemovals: approved,
+			removedFiles: unused.map((file) => file.digest),
 			...(requiresReview && {
 				requiredReview: legacy
 					? "historical-first-publish"
-					: "new-unused-files",
+					: changedFiles.length
+						? "new-unused-files"
+						: "changed-publish-subjects",
 			}),
-			mappingToken: fetched.live.pushToken,
+			authority: reviewAuthority(fetched),
 			baselineDigest: fetched.baseline.sourceDigest,
 			sourceDigest: fetched.normalized.digest,
 			headSeq: fetched.head.seq,
 			media: fetched.published,
 			recordedFiles: fetched.baseline.mediaFiles,
-			incomingPaths: targetFiles.flatMap((file) =>
-				file.hqPath.startsWith(JR_FILE)
-					? [file.hqPath.slice(JR_FILE.length)]
-					: [],
-			),
+			incomingPaths: [
+				...removalLedgerPaths(fetched.normalized.normalized, []),
+				...targetFiles.flatMap((file) =>
+					file.hqPath.startsWith(JR_FILE)
+						? [file.hqPath.slice(JR_FILE.length)]
+						: [],
+				),
+			],
 			target:
 				plan.kind === "changes"
 					? contentNamedDocument(plan.target, targetFiles, ownContent)
@@ -1720,6 +1835,7 @@ export async function checkHqChanges(
 		return { newTags, tables, reviewDigest };
 	});
 	const checked: CheckedHqChanges = {
+		removedFiles: unused.map((file) => file.digest),
 		fetched,
 		plan,
 		declaration,
@@ -1733,17 +1849,27 @@ export async function checkHqChanges(
 	};
 	const reviewLines = [
 		...(legacy
-			? ["Review what the first publish would change in this project space."]
+			? [
+					priorNext
+						? "Review what the next publish would change in this project space."
+						: "Review what the first publish would change in this project space.",
+				]
 			: []),
-		...changedFiles.map((item) =>
-			item.multimediaId
-				? `Publishing removes the unused reference “${item.path}” to HQ file “${item.multimediaId}”.`
-				: `Publishing removes the unused reference “${item.path}”.`,
+		...changedFiles.map(removedHqFileLine),
+		...(plan.changedPublishForms ?? []).map(
+			(name) =>
+				`The next publish would rewrite another saved value in the form “${name}”.`,
 		),
 	];
 	const publishChanges = [
 		...publishChangeSentences(
-			legacy ? declaration.firstPublish.ids : plan.publishChanges,
+			priorNext
+				? declaration.firstPublish.ids.filter(
+						(id) => priorNext.includes(id) || plan.publishChanges.includes(id),
+					)
+				: legacy
+					? declaration.firstPublish.ids
+					: plan.publishChanges,
 		),
 	];
 	if (requiresReview && unused.length > 0)
@@ -1781,11 +1907,20 @@ export async function checkHqChanges(
 			},
 			checked,
 		};
+	const cannotDiscard =
+		legacy ||
+		unapprovedHqFiles(
+			discardedFiles,
+			changedFiles.map((file) => file.digest),
+		).length > 0;
 	return {
 		kind: "checked",
 		review: {
 			kind: "changes",
-			...(legacy && { requiresReview: true }),
+			...(cannotDiscard && { requiresReview: true }),
+			...(changedFiles.length > 0 && {
+				fileReviewLines: changedFiles.length + Number(legacy),
+			}),
 			since: fetched.since,
 			hqChanges: [
 				...reviewLines,
@@ -1811,7 +1946,12 @@ export async function checkHqChanges(
 								: []),
 						],
 			publishChanges,
-			observedDigest: fetched.normalized.digest,
+			observedDigest: hqDiscardDigest(
+				reviewAuthority(fetched),
+				fetched.normalized.digest,
+				discardedFiles,
+				cannotDiscard ? "unavailable" : "complete",
+			),
 			renamedInNova: plan.kind === "changes" ? plan.renamedInNova : [],
 			tables: built.tables,
 			projectName: fetched.projectName,

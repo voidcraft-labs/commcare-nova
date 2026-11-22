@@ -43,7 +43,7 @@ import {
 	FINDING_NAME_MAX_LENGTH,
 	type Finding,
 } from "@/lib/publish/hqFindings";
-import { PAGE_LIMIT_CHARS } from "../paging";
+import { PAGE_LIMIT_CHARS, reviewedPageDigest } from "../paging";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import {
 	CHANGED_NOW_PAGED_NEXT,
@@ -183,6 +183,23 @@ describe("a review of changes made in CommCare HQ", () => {
 	 * under the limit, with each list's lines put back together from the
 	 * parts of a cut line.
 	 */
+	it("explains how to recover an unread claimed target", () => {
+		const answer = projected({
+			kind: "unavailable",
+			reason: "baseline-unread",
+			since: { kind: "published" },
+			requiresReview: true,
+		});
+		for (const step of [
+			"Project admin or owner",
+			"Stop publishing here",
+			"publish in progress finishes",
+			"new Nova app",
+			"different project space",
+		])
+			expect(answer.message).toContain(step);
+	});
+
 	it("preserves a mandatory first-publish review and the concrete references it asks the member to approve", () => {
 		const listed = changes({
 			requiresReview: true,
@@ -232,7 +249,9 @@ describe("a review of changes made in CommCare HQ", () => {
 				made_by_line:
 					review.madeBy.length > 0 ? madeByLine(review.madeBy) : null,
 				reading_id: READING_ID,
-				review_digest: DIGEST,
+				review_digest: served.next_page === null ? DIGEST : null,
+				observed_digest:
+					served.next_page === null ? review.observedDigest : null,
 			});
 			/* The sentence over the renames names this page's. */
 			expect(served.renamed_in_nova_line).toBe(
@@ -442,7 +461,12 @@ describe("a review of changes made in CommCare HQ", () => {
 			restarted: true,
 			restarted_message: expect.stringContaining("from the start"),
 		});
-		expect(changesPageFor(before, { from: 3001, digest: DIGEST })).toBeNull();
+		expect(
+			changesPageFor(before, {
+				from: 3001,
+				digest: reviewedPageDigest("changes", DIGEST, 3001),
+			}),
+		).toBeNull();
 	});
 
 	it("says nothing would be removed where Nova's list is empty, and names no one", () => {
@@ -518,6 +542,71 @@ describe("a review of changes made in CommCare HQ", () => {
 			),
 		]);
 	});
+
+	it.each(["reads-the-same", "already-here"] as const)(
+		"pages a recordable %s reading losslessly and withholds its receipt until the final identity line",
+		(reason) => {
+			const long = '"☀😀\n'.repeat(25000);
+			const lines = [
+				"This form moved.",
+				long,
+				...Array.from(
+					{ length: 30 },
+					(_, i) => `File ${i}: ${(i % 2 === 0 ? "\\" : "x").repeat(6000)}`,
+				),
+			];
+			const review = {
+				kind: "nothing",
+				reason,
+				since: { kind: "published" },
+				hqChanges: lines,
+				publishChanges: [],
+				readingId: READING_ID,
+				reviewDigest: DIGEST,
+			} as const;
+			const collected: string[] = [];
+			let cursor: string | null = null;
+			let pages = 0;
+			do {
+				const at = changesPageFor(
+					review,
+					cursor === null ? null : parseAccountPage(cursor),
+				);
+				if (!at) throw new Error("Expected the same reading to continue.");
+				const result = describeHqChangesReview(review, HEAD, {
+					...FIRST_PAGE,
+					page: at,
+					envelope: (now) => ({ kind: "changed", now }),
+				});
+				if (result.kind !== "nothing")
+					throw new Error("Expected unchanged document");
+				expect(
+					JSON.stringify({ kind: "changed", now: result }).length,
+				).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+				cursor = result.next_page ?? null;
+				expect(
+					JSON.stringify({
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify({ kind: "changed", now: result }),
+							},
+						],
+					}).length,
+				).toBeLessThanOrEqual(MAX_RESULT_SIZE_CHARS);
+				expect(result.review_digest).toBe(cursor === null ? DIGEST : null);
+				expect(result.next !== null).toBe(cursor === null);
+				expect(result.hq_changes_total).toBe(lines.length);
+				if (result.cut_line && result.cut_line.part > 1)
+					collected[collected.length - 1] += result.hq_changes[0];
+				else collected.push(...result.hq_changes);
+				pages++;
+				if (pages > 40) throw new Error("The unchanged page did not advance.");
+			} while (cursor);
+			expect(pages).toBeGreaterThan(2);
+			expect(collected).toEqual(lines);
+		},
+	);
 
 	it("says why there is nothing to bring in, for each reason", () => {
 		for (const reason of [

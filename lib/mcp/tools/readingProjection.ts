@@ -15,13 +15,14 @@
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { hqPlaceUrl } from "@/lib/deployment/hqPlaceUrl";
 import type { AccountAnswer } from "@/lib/deployment/reading/answers";
-import type {
-	ReadingAnswer,
-	ReadingDeclarationChoice,
-	ReadingKey,
-	ReadingRefusal,
-	ReadingReview,
-	ReviewTable,
+import {
+	READING_ID_PATTERN,
+	type ReadingAnswer,
+	type ReadingDeclarationChoice,
+	type ReadingKey,
+	type ReadingRefusal,
+	type ReadingReview,
+	type ReviewTable,
 } from "@/lib/deployment/reading/types";
 import {
 	PLATFORM_DECLARATION_LABELS,
@@ -86,7 +87,14 @@ import {
 import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { BringInToolError } from "../errors";
-import { arrayItemChars, cutPage, fitPiece } from "../paging";
+import {
+	arrayItemChars,
+	cutPage,
+	fitPiece,
+	lineParts,
+	PIECE_MAX_CHARS,
+	reviewedPageDigest,
+} from "../paging";
 import {
 	describeFirstPublish,
 	type FirstPublishProjection,
@@ -129,8 +137,36 @@ export interface TableAnswerProjection {
 	readonly reason: string | null;
 }
 
+/** Every physical file a declaration would remove, split losslessly when its name is long. */
+export interface ReviewPublishDetail {
+	readonly kind: "file-removal";
+	readonly runs_only_on: ReadingReview["runsOn"][number]["runsOnlyOn"];
+	readonly split_datetime: boolean;
+	readonly item: number;
+	readonly part: number;
+	readonly parts: number;
+	readonly text: string;
+}
+function reviewPublishDetails(review: ReadingReview): ReviewPublishDetail[] {
+	return review.runsOn.flatMap((choice) =>
+		(choice.removesFiles ?? []).flatMap((line, item) => {
+			const parts = lineParts(line, PIECE_MAX_CHARS - 256);
+			return parts.map((text, i) => ({
+				kind: "file-removal" as const,
+				runs_only_on: choice.runsOnlyOn,
+				split_datetime: choice.splitDatetime,
+				item: item + 1,
+				part: i + 1,
+				parts: parts.length,
+				text,
+			}));
+		}),
+	);
+}
+
 export interface ReviewProjection {
-	readonly review_digest: string;
+	readonly review_digest: string | null;
+	readonly publish_details?: readonly ReviewPublishDetail[];
 	readonly app_name: string;
 	readonly read_at: string;
 	readonly creates: {
@@ -320,21 +356,29 @@ function pageCursor(from: number, digest: string): string {
 /** A cursor at its longest, so a page measured with it fits whatever cursor it ends up holding. */
 const LONGEST_CURSOR = pageCursor(99_999, "0".repeat(64));
 
+const LONGEST_REVIEW_CURSOR = `99999999:${"0".repeat(64)}:00000000-0000-7000-8000-000000000000`;
+
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
 
 /** The cursor's two halves, or null for text the schema let through and no account could give. */
-export function parseAccountPage(
-	page: string,
-): { readonly from: number; readonly digest: string } | null {
-	const colon = page.indexOf(":");
-	if (colon < 1) return null;
-	const index = page.slice(0, colon);
-	const digest = page.slice(colon + 1);
+export function parseAccountPage(page: string): {
+	readonly from: number;
+	readonly digest: string;
+	readonly readingId?: string;
+} | null {
+	const [index, digest, readingId, ...more] = page.split(":");
+	if (
+		!index ||
+		!digest ||
+		more.length ||
+		!HEX_DIGEST.test(digest) ||
+		(readingId !== undefined && !READING_ID_PATTERN.test(readingId))
+	)
+		return null;
 	const from = Number(index);
-	/* An index another cursor could spell differently ("007") is none Nova gave. */
-	if (!Number.isSafeInteger(from) || String(from) !== index) return null;
-	if (from < 1 || !HEX_DIGEST.test(digest)) return null;
-	return { from, digest };
+	if (!Number.isSafeInteger(from) || from < 1 || String(from) !== index)
+		return null;
+	return { from, digest, ...(readingId && { readingId }) };
 }
 
 /**
@@ -352,7 +396,9 @@ function pagedOf(
 			return { length: answer.findings.length, digest: accountDigest(answer) };
 		case "review":
 			return {
-				length: answer.review.tables.length,
+				length:
+					answer.review.tables.length +
+					reviewPublishDetails(answer.review).length,
 				digest: answer.reviewDigest,
 			};
 	}
@@ -370,11 +416,21 @@ function pagedOf(
  */
 export function pageFor(
 	answer: ReadingAnswer,
-	cursor: { readonly from: number; readonly digest: string } | null,
+	cursor: ReturnType<typeof parseAccountPage>,
 ): { readonly from: number; readonly restarted: boolean } | null {
 	const paged = pagedOf(answer);
 	if (cursor === null || paged === null) return { from: 0, restarted: false };
-	if (paged.digest !== cursor.digest) return { from: 0, restarted: true };
+	const expected =
+		answer.kind === "review"
+			? reviewedPageDigest("birth", paged.digest, cursor.from)
+			: paged.digest;
+	if (
+		expected !== cursor.digest ||
+		(answer.kind === "review"
+			? cursor.readingId !== answer.readingId
+			: cursor.readingId !== undefined)
+	)
+		return { from: 0, restarted: true };
 	if (cursor.from >= paged.length) return null;
 	return { from: cursor.from, restarted: false };
 }
@@ -606,6 +662,7 @@ export function tableProjection(
 function reviewProjection(
 	review: ReadingReview,
 	reviewDigest: string,
+	readingId: string,
 	project: string,
 	domain: string,
 	from: number,
@@ -639,6 +696,7 @@ function reviewProjection(
 				? splitDatetimeLine(review.datetimeQuestions)
 				: null,
 			recorded_features: recordedFeatureLabels(choice),
+
 			first_publish: describeFirstPublish(
 				firstPublishLines(choice.firstPublish, "review"),
 			),
@@ -670,7 +728,7 @@ function reviewProjection(
 		},
 		tables: [],
 		tables_total: review.tables.length,
-		next_page: LONGEST_CURSOR,
+		next_page: LONGEST_REVIEW_CURSOR,
 		places:
 			review.places === null
 				? null
@@ -706,18 +764,35 @@ function reviewProjection(
 		return one;
 	};
 	const tables: ReviewProjection["tables"][number][] = [];
+	const details = reviewPublishDetails(review);
+	const shown: ReviewPublishDetail[] = [];
+	const count = details.length + review.tables.length;
 	const end = cutPage({
-		count: review.tables.length,
+		count,
 		from,
-		shellChars: measure(shell),
-		pieceChars: (index, taken) => arrayItemChars(projectedAt(index), taken),
-		take: (index) => tables.push(projectedAt(index)),
+		shellChars: measure({
+			...shell,
+			...(details.length > 0 && { publish_details: [] }),
+		}),
+		pieceChars: (i) =>
+			i < details.length
+				? arrayItemChars(details[i], shown.length)
+				: arrayItemChars(projectedAt(i - details.length), tables.length),
+		take: (i) => {
+			if (i < details.length) shown.push(details[i]);
+			else tables.push(projectedAt(i - details.length));
+		},
 	});
+	const next =
+		end < count
+			? `${end}:${reviewedPageDigest("birth", reviewDigest, end)}:${readingId}`
+			: null;
 	return {
 		...shell,
 		tables,
-		next_page:
-			end < review.tables.length ? pageCursor(end, reviewDigest) : null,
+		...(details.length > 0 && { publish_details: shown }),
+		next_page: next,
+		review_digest: next ? null : reviewDigest,
 	};
 }
 
@@ -779,6 +854,7 @@ export function describeReading(
 				review: reviewProjection(
 					answer.review,
 					answer.reviewDigest,
+					answer.readingId,
 					project,
 					key.domain,
 					options.from,

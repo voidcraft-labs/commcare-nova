@@ -63,6 +63,8 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "changes";
+			/** Number of leading HQ change lines through the last file this decision may remove. */
+			readonly fileReviewLines?: number;
 			/** An older first-publish card cannot authorize a discard on this target. */
 			readonly requiresReview?: true;
 			readonly since: DriftReference;

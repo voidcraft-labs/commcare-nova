@@ -51,6 +51,7 @@ import {
 	adoptedAppReceipt,
 	adoptedDeploymentWrite,
 	adoptHqAppInTransaction,
+	BirthRoleChangedError,
 	readBackAdoptedAppReceipt,
 } from "./birth";
 import {
@@ -418,6 +419,7 @@ async function createInRoom(
 			key,
 			fetched: { ...gathered.fetched, data: answeredData },
 			media: plan,
+			actorRole: actor.role,
 			actorUserId: actor.userId,
 		});
 		facts = {
@@ -492,6 +494,7 @@ async function createInRoom(
 	try {
 		outcome = await withAppTx((tx) =>
 			adoptHqAppInTransaction(tx, {
+				reviewedRole: actor.role,
 				actorUserId: actor.userId,
 				runId,
 				candidate,
@@ -506,6 +509,8 @@ async function createInRoom(
 			}),
 		);
 	} catch (error) {
+		if (error instanceof BirthRoleChangedError)
+			return settle({ kind: "read-again" });
 		if (isAppIdConflict(error)) return answered(await readBack());
 		if (error instanceof HqAppAlreadyClaimedError)
 			return settle({

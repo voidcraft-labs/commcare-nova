@@ -22,10 +22,11 @@ import { type BlueprintDoc, operationCaseType } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
-import type {
-	FirstPublishChangeId,
-	FirstPublishView,
-	StoredFirstPublish,
+import {
+	type FirstPublishChangeId,
+	type FirstPublishView,
+	hasRegisteredPublishInputs,
+	type StoredFirstPublish,
 } from "@/lib/publish/firstPublishChangeIds";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import {
@@ -485,9 +486,11 @@ export function adoptedAppBaselineWrite(input: {
 }): AppBaselineWrite & { readonly origin: "read" } {
 	const normalized = adoptedSourceNormalized(input.remoteAppId, input.source);
 	const ownership = adoptedBaselineOwnership(input);
+	const ids = input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id));
 	const list: StoredFirstPublish = {
+		...(hasRegisteredPublishInputs(ids) && { reviewedInputs: 1 as const }),
 		reviewed: 1,
-		ids: input.firstPublish.ids.filter((id) => !DECLARATION_IDS.has(id)),
+		ids,
 		webAppsOnInHq: input.source.cloudcareEnabled,
 		of: "first-publish",
 	};

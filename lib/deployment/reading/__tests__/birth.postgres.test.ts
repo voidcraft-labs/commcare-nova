@@ -204,6 +204,7 @@ async function preparedBirth(
 	return {
 		gathered,
 		birth: {
+			reviewedRole: SCOPE.role,
 			actorUserId: ACTOR,
 			runId: "6f1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
 			candidate,

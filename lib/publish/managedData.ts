@@ -18,6 +18,17 @@ import { namesInWords } from "./planFeatures";
 // Shared pieces
 // ---------------------------------------------------------------------------
 
+/**
+ * The note on a lookup table change whose discard replaces a table HQ still
+ * holds under that tag and id: a change to its definition or rows, or one
+ * whose baseline Nova could not read. HQ's table key holds a description
+ * and each field's indexed flag (`fixtures/upload/run_upload.py::table_key`),
+ * which no API-key read returns and no workbook carries a description of,
+ * so the push makes such a table again without them.
+ */
+export const LOOKUP_DISCARD_NOTE =
+	"If it has a description or indexed fields in CommCare HQ, publishing removes them: CommCare HQ doesn't show those to Nova, and a lookup upload can't carry a description.";
+
 /** An app as these sentences name it: its name, and where it is when it is in the trash. */
 export type NamedApp = Pick<LookupReferencingAppSummary, "appName" | "deleted">;
 
@@ -132,7 +143,7 @@ export function manageInNovaTitle(name: string): string {
 
 /**
  * Manage in Nova's confirmation, its body before the facts a push clears. The dialog follows these with
- * `LOOKUP_DISCARD_NOTE` (`lib/deployment/remoteChanges.ts`), unchanged, and
+ * `LOOKUP_DISCARD_NOTE` unchanged, and
  * then `appsThatReadIt`.
  */
 export function manageInNovaBody(domain: string): readonly string[] {

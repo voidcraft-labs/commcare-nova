@@ -492,6 +492,60 @@ it("keeps a member’s released link when an overlapping publisher sent nothing"
 	});
 }, 30_000);
 
+it.each(["original claim", "overlapping media"] as const)(
+	"restores a member’s link after a guarded import never reached the view (%s)",
+	async (scenario) => {
+		const { suite } = await seed();
+		const verify = () =>
+			withHttpPeer(async (peer) => {
+				released(peer, suite);
+				confirm(peer);
+				return asUser(
+					async (client) => JSON.parse(resultText(await call(client))).url,
+				);
+			});
+		const url = await verify();
+		expect(url).toContain("/working-app/visit/");
+		const before = await readEntryPointEvidence(SCOPE, TARGET);
+		if (!before.manifest) throw new Error("Expected the released manifest.");
+		const options = {
+			expectedEndings: 0,
+			remoteAppId: "working-app",
+			observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+			compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+		};
+		const attempt = await admitAppWrite(SCOPE, TARGET, {
+			...options,
+			firstContentGeneration: crypto.randomUUID(),
+			writeKind: "import",
+			compiledAtSeq: before.manifest.sourceSequence,
+		});
+		if (attempt.kind !== "admitted")
+			throw new Error("Expected an admitted import.");
+		const concurrent =
+			scenario === "overlapping media"
+				? await admitAppWrite(SCOPE, TARGET, { ...options, writeKind: "media" })
+				: null;
+		if (concurrent && concurrent.kind !== "admitted")
+			throw new Error("Expected admitted media.");
+		try {
+			await deploymentStore.cancelUnsentImport(attempt);
+			const after = await readEntryPointEvidence(SCOPE, TARGET);
+			if (concurrent) {
+				expect(after.manifest).toBeNull();
+				expect(
+					await asUser(async (client) => errorBody(await call(client))),
+				).not.toHaveProperty("url");
+			} else {
+				expect(after).toEqual(before);
+				expect(await verify()).toBe(url);
+			}
+		} finally {
+			if (concurrent)
+				await settleRemoteWrites([concurrent.writeId], { kind: "settled" });
+		}
+	},
+);
 it("keeps the released link observed after a settled publisher's claim was retired", async () => {
 	const { suite } = await seed();
 	const fence = { expectedEndings: 0 };
@@ -574,6 +628,18 @@ it("keeps the released link observed after a settled publisher's claim was retir
 			expect(link.released_build_id).toBe("released-build");
 			const before = await readEntryPointEvidence(SCOPE, TARGET);
 			expect(before.observation?.remoteAppId).toBe(original.remoteAppId);
+			const unsent = await admitAppWrite(SCOPE, TARGET, {
+				...fence,
+				firstContentGeneration: crypto.randomUUID(),
+				compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+				observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+				remoteAppId: original.remoteAppId,
+				writeKind: "import",
+				compiledAtSeq: original.sourceSequence,
+			});
+			if (unsent.kind !== "admitted")
+				throw new Error("Expected the reclaimed import to be admitted.");
+			await deploymentStore.cancelUnsentImport(unsent);
 			expect(await finishRetired()).toBe(false);
 			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(before);
 			released(peer, suite);

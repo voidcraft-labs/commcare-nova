@@ -14,14 +14,20 @@
  */
 
 import { translationKeyOwner } from "@/lib/commcare/appStringKeys";
+import {
+	readMultimediaMap,
+	unreadableMediaIdentity,
+} from "@/lib/commcare/hq/appSource";
 import { servedSchemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { withoutPathOnlyLogoRefs } from "@/lib/commcare/targetLogoRefs";
 import { ownedProfilePart } from "@/lib/commcare/targetOverlay";
 import {
+	canonicalJsonDigest,
 	canonicalJsonText,
 	canonicalTextDigest,
 } from "@/lib/utils/canonicalJson";
-import type { AppOwnership } from "./types";
+import type { DeploymentScope, DeploymentTargetKey } from "./store";
+import type { AppOwnership, DeploymentResource } from "./types";
 
 type JsonObject = Record<string, unknown>;
 
@@ -425,46 +431,170 @@ interface ImportFiles {
 	readonly recorded: Readonly<Record<string, string>> | null;
 }
 
-/** New losses on this import: a new file outside the outgoing app, a changed
- * file at a previously unused path, or a mapping its previous logo protected.
- * Dropping a file in Nova itself is a local edit. A completed upload can put
- * Nova's own file on HQ after the baseline source was sampled. */
-function newlyPrunedMedia(
-	previous: unknown,
+export interface RemovedHqFile {
+	readonly path: string;
+	readonly multimediaId: string | null;
+	readonly digest: string;
+}
+
+function prunedHqPaths(
+	source: unknown,
+	published: ImportFiles["published"],
+): string[] {
+	if (!isObject(source) || !isObject(source.multimedia_map)) return [];
+	const retained = keptLogoPaths(source);
+	for (const file of published) retained.add(`jr://file/${file.wirePath}`);
+	return Object.keys(source.multimedia_map).filter(
+		(path) => !retained.has(path),
+	);
+}
+
+/** The local ledger slots consulted to decide whether a residual reference is
+ * Nova's own file. Record them under the same lock as other judged files. */
+export function removalLedgerPaths(
+	source: unknown,
+	published: ImportFiles["published"],
+): string[] {
+	const prefix = "jr://file/";
+	return prunedHqPaths(source, published).flatMap((path) =>
+		path.startsWith(prefix) ? [path.slice(prefix.length)] : [],
+	);
+}
+
+/** The app's import removes the map paths outside the outgoing carriers and
+ * the logo slots HQ retains. A file recorded as Nova's own at the same path
+ * and id can be dropped by an edit in Nova. Every other removal belongs to
+ * this concrete HQ reference, including an unreadable map entry. */
+export function removedHqFiles(
 	current: unknown,
 	files: ImportFiles,
-): number {
-	if (!isObject(current) || !isObject(current.multimedia_map)) return 0;
-	const before = isObject(previous) ? previous : {};
-	const oldMap = isObject(before.multimedia_map) ? before.multimedia_map : {};
-	const retained = keptLogoPaths(current);
-	for (const file of files.published)
-		retained.add(`jr://file/${file.wirePath}`);
-	const oldLogos = keptLogoPaths(before);
-	let count = 0;
-	for (const [path, entry] of Object.entries(current.multimedia_map)) {
-		if (retained.has(path)) continue;
-		if (oldLogos.has(path)) {
-			count++;
-			continue;
-		}
-		const old = oldMap[path];
-		const ours =
-			path.startsWith("jr://file/") &&
-			files.recorded?.[path.slice("jr://file/".length)];
-		if (ours && isObject(entry) && entry.multimedia_id === ours) continue;
-		if (!Object.hasOwn(oldMap, path)) {
-			count++;
-			continue;
-		}
-		const sameFile =
-			isObject(old) && isObject(entry)
-				? sameJson(old.multimedia_id ?? null, entry.multimedia_id ?? null) &&
-					sameJson(old.media_type ?? null, entry.media_type ?? null)
-				: sameJson(old, entry);
-		if (!sameFile) count++;
+): RemovedHqFile[] {
+	if (!isObject(current) || !isObject(current.multimedia_map)) return [];
+	const removed: RemovedHqFile[] = [];
+	const pruned = new Set(prunedHqPaths(current, files.published));
+	for (const item of readMultimediaMap(current.multimedia_map) ?? []) {
+		const { path, multimediaId: id, mediaType } = item;
+		if (!pruned.has(path)) continue;
+		const recorded = path.startsWith("jr://file/")
+			? files.recorded?.[path.slice("jr://file/".length)]
+			: null;
+		if (!item.unreadable && id !== null && recorded === id) continue;
+		const binding = item.unreadable
+			? ["unreadable", unreadableMediaIdentity(current, path)]
+			: [id, mediaType];
+		removed.push({
+			path,
+			multimediaId: id,
+			digest: canonicalJsonDigest([path, binding]),
+		});
 	}
-	return count;
+	return removed.sort((a, b) =>
+		a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+	);
+}
+
+export function unapprovedHqFiles(
+	removed: readonly RemovedHqFile[],
+	approved: readonly string[] | undefined,
+) {
+	const accepted = new Set(approved);
+	return removed.filter((file) => !accepted.has(file.digest));
+}
+
+/** A physical approval is bound to its file. An older category warning, or a
+ * previously accepted file that has since gone, requires reconciling the card. */
+export function fileReviewMoved(
+	removed: readonly RemovedHqFile[],
+	baseline: {
+		readonly approvedFileRemovals?: readonly string[];
+		readonly hasFileRemovalWarning?: true;
+	},
+): boolean {
+	const prior = baseline.approvedFileRemovals ?? [];
+	return (
+		unapprovedHqFiles(removed, prior).length > 0 ||
+		prior.length !== removed.length ||
+		(baseline.hasFileRemovalWarning === true && removed.length === 0)
+	);
+}
+
+/** The reviewed editor, target and revisions. An HQ save number only orders
+ * observations of one actual HQ app during a continuous claim. */
+export function appConfirmationScope(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	live: Pick<
+		DeploymentResource,
+		"deploymentId" | "remoteId" | "pushToken" | "reviewGeneration"
+	>,
+	headSeq: number,
+	remoteRevision: number,
+	baseline: {
+		readonly origin: string;
+		readonly sourceDigest?: string | null;
+		readonly novaRevision?: number | null;
+	} | null,
+) {
+	return {
+		actor: scope.actorUserId,
+		role: scope.role,
+		project: scope.projectId,
+		app: scope.appId,
+		server: target.server,
+		domain: target.domain,
+		remoteApp: live.remoteId,
+		deployment: live.deploymentId,
+		claim: live.pushToken,
+		reviewGeneration: live.reviewGeneration ?? null,
+		headSeq,
+		remoteRevision,
+		baseline: baseline && [
+			baseline.origin,
+			baseline.sourceDigest ?? null,
+			baseline.novaRevision ?? null,
+		],
+	};
+}
+
+/** A confirmed overwrite applies to the same working save and normalized source at the final read. */
+export function confirmedAppSourceMoved(
+	confirmed: {
+		readonly saveCounter: number | null;
+		readonly sourceDigest: string;
+	} | null,
+	observedCounter: number | null,
+	observedDigest: string,
+): boolean {
+	return (
+		confirmed !== null &&
+		(confirmed.saveCounter !== observedCounter ||
+			confirmed.sourceDigest !== observedDigest)
+	);
+}
+
+/** The overwrite receipt is independent of the approval to take HQ's changes. */
+export function hqDiscardDigest(
+	authority: ReturnType<typeof appConfirmationScope>,
+	source: string,
+	removed: readonly RemovedHqFile[],
+	disclosure: "preview" | "complete" | "unavailable" = "preview",
+): string {
+	return canonicalJsonDigest({
+		v: 2,
+		action: "publish-over",
+		authority,
+		source,
+		removed: removed.map((file) => file.digest),
+		disclosure,
+	});
+}
+
+export function removedHqFileLine(
+	file: Pick<RemovedHqFile, "path" | "multimediaId">,
+): string {
+	return file.multimediaId
+		? `Publishing removes the unused reference “${file.path}” to HQ file “${file.multimediaId}”.`
+		: `Publishing removes the unused reference “${file.path}”.`;
 }
 
 /**
@@ -522,10 +652,21 @@ export function diffHqAppSource(input: {
 	const langs = langsOf(input.current);
 	const parts: AppChangePart[] = [];
 
+	const fileChanges: AppChangePart[] = [];
+	if (input.importFiles) {
+		const current = removedHqFiles(input.current, input.importFiles);
+		const approved = removedHqFiles(input.baseline, input.importFiles).map(
+			(file) => file.digest,
+		);
+		const count = unapprovedHqFiles(current, approved).length;
+		if (count) fileChanges.push({ kind: "unused-media", count });
+	}
 	if (input.shell) {
-		return equalUnderSchema(before.modules, after.modules)
-			? []
-			: [{ kind: "menu-list" }];
+		if (!equalUnderSchema(before.modules, after.modules))
+			parts.push({ kind: "menu-list" });
+		if (input.mediaChanged)
+			parts.push({ kind: "media", count: input.mediaChanged });
+		return [...parts, ...fileChanges];
 	}
 
 	const reordered =
@@ -591,13 +732,5 @@ export function diffHqAppSource(input: {
 	if (appKeysDiffer("text")) parts.push({ kind: "text" });
 	const mediaChanged = input.mediaChanged ?? 0;
 	if (mediaChanged > 0) parts.push({ kind: "media", count: mediaChanged });
-	if (input.importFiles) {
-		const count = newlyPrunedMedia(
-			input.baseline,
-			input.current,
-			input.importFiles,
-		);
-		if (count) parts.push({ kind: "unused-media", count });
-	}
-	return parts;
+	return [...parts, ...fileChanges];
 }

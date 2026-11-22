@@ -548,7 +548,7 @@ export function hqChangesLocationList(): CorpusDocument {
 			appAttributes: { location_fixture_restore: "both_fixtures" },
 			republish: "records",
 			recorded: {
-				reason: "reads-the-same",
+				reason: "publish-changes",
 				publishChanges: ["location-list-setting-reset"],
 			},
 		},
@@ -782,6 +782,7 @@ export function hqChangesMedia(): CorpusDocument {
 		/* The replaced picture takes the path of its own bytes, which the next
 		 * publish moves its reference to. */
 		publishChanges: ["media-files-renamed"],
+		removedFileReferences: [ownPath],
 		bringsIn: broughtInDocument(document, pictureDoc(mediaIds.option)),
 		alsoPublishesOver: true,
 	});

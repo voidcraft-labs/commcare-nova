@@ -61,11 +61,7 @@ import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { getLookupDefinitions } from "@/lib/lookup/service";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganization } from "@/lib/organization/service";
-import {
-	type DriftDateOptions,
-	type DriftReference,
-	driftDate,
-} from "@/lib/publish/driftReference";
+import { type DriftDateOptions, driftDate } from "@/lib/publish/driftReference";
 import {
 	HAND_BACK_OFFERED,
 	MANAGED_DATA_CHANGED,
@@ -114,7 +110,7 @@ import {
 	lookupRowsChange,
 	placeChange,
 } from "./hqResourceBaseline";
-import { diffHqAppSource, normalizeHqAppSource } from "./hqSourceBaseline";
+import { appConfirmationScope, normalizeHqAppSource } from "./hqSourceBaseline";
 import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
@@ -139,9 +135,9 @@ import {
 	reReadManagedTablesForPublish,
 } from "./managedData";
 import {
+	appRemoteChange,
 	boundedParts,
 	decideRemoteChanges,
-	describeAppChange,
 	describeLookupChange,
 	describePlaceChange,
 	driftReferenceOf,
@@ -316,6 +312,7 @@ export type PreflightResult =
 					readonly source: HqAppSource;
 					/** The same read, normalized (`hqSourceBaseline.ts::normalizeHqAppSource`). */
 					readonly normalized: unknown;
+					readonly sourceDigest: string;
 					/**
 					 * HQ's save counter, read just before the source: an import
 					 * built over this read and acknowledged at one more replaced
@@ -1445,6 +1442,7 @@ export async function runDeploymentPreflight(
 		readonly appId: string;
 		readonly source: HqAppSource;
 		readonly normalized: unknown;
+		readonly sourceDigest: string;
 		readonly saveCounter: number;
 	} | null = null;
 	let appBaseline: AppBaseline | null = null;
@@ -1566,23 +1564,23 @@ export async function runDeploymentPreflight(
 			appId,
 			source: read.source,
 			normalized: normalized.normalized,
+			sourceDigest: normalized.digest,
 			saveCounter,
 		};
 
 		/* The file at each path this publish sends, against the one Nova
 		 * recorded there, by id; a path the id alone cannot vouch for is
-		 * settled by the file's content. Only over an app that holds Nova's
-		 * content: a shell holds no file. The upload is the one write that
-		 * can put Nova's file over a person's, so every file a person
+		 * settled by the file's content. An earlier attempt may have left a shell on which a person
+		 * has since saved a file. The upload can replace it, so every file a person
 		 * replaced stops the publish here, before anything is sent. */
-		if (appBaseline?.origin !== "create") {
-			const published = publishedMediaFiles(
-				bulkUploadAssets(boundary.prepared.doc, boundary.prepared.assets),
-			);
+		const published = publishedMediaFiles(
+			bulkUploadAssets(boundary.prepared.doc, boundary.prepared.assets),
+		);
+		{
 			const map = read.source.multimediaMap;
 			/* CommCare HQ serializes the map on every app, so a read without
 			 * one is an answer Nova cannot read, and no file is sent over it. */
-			if (map === null && published.length > 0) {
+			if (map === null) {
 				const failure = hqAppSourceReadFailure(
 					{ success: false, status: 502, cause: "malformed" },
 					domain,
@@ -1639,11 +1637,20 @@ export async function runDeploymentPreflight(
 
 		compared = true;
 		const change = appRemoteChange({
+			authority: appConfirmationScope(
+				input.access,
+				target,
+				input.inPlaceUpdate,
+				input.compiledAtSeq,
+				saveCounter,
+				appBaseline,
+			),
+			discards: input.discardRemoteChanges,
 			appName: input.doc.appName,
 			novaAppId: input.access.appId,
 			remoteAppId: appId,
 			current: normalized,
-			published: media?.paths ?? [],
+			published,
 			baseline: appBaseline,
 			since: driftReferenceOf(appBaseline, input.inPlaceUpdate),
 			languageNames: input.languageNames,
@@ -2023,71 +2030,6 @@ function baselinesByRemoteId(
 	return new Map(
 		baselines.map((baseline) => [baseline.remoteId, baseline] as const),
 	);
-}
-
-/**
- * The app's change since its baseline, or null when nothing it writes
- * differs. Observed as the digest of the whole normalized read, so a person
- * confirms exactly the state Nova read, known baseline or not.
- */
-function appRemoteChange(input: {
-	readonly appName: string;
-	readonly novaAppId: string;
-	readonly remoteAppId: string;
-	readonly current: { readonly normalized: unknown; readonly digest: string };
-	readonly baseline: AppBaseline | null;
-	/** What the baseline is: a publish's read, or the read Nova brought the app in from. */
-	readonly since: DriftReference;
-	readonly languageNames: "nova" | "target";
-	/** How many files this publish sends CommCare HQ holds another file in place of. */
-	readonly mediaChanged: number;
-	readonly published: readonly { readonly wirePath: string }[];
-	/** Whether the deployment has a usable pair (`hqChanges/reference.ts::usablePair`). */
-	readonly canBringIn: boolean;
-}): DeploymentRemoteChange | null {
-	const change = (
-		parts: readonly string[],
-		baselineKnown: boolean,
-	): DeploymentRemoteChange => ({
-		kind: "app",
-		novaResourceId: input.novaAppId,
-		name: input.appName,
-		identity: input.remoteAppId,
-		parts,
-		note: null,
-		observedDigest: input.current.digest,
-		baselineKnown,
-		since: input.since,
-		canBringIn: baselineKnown && input.canBringIn,
-	});
-	const { baseline } = input;
-	if (baseline?.firstPublishReview === "required") {
-		return {
-			...change(
-				["Review what the first publish would change in this project space."],
-				baseline.origin !== "unread",
-			),
-			requiresReview: true,
-			note: input.canBringIn
-				? "Review changes from CommCare HQ before publishing here."
-				: "Nova cannot verify the previous reading. You can bring the app in again from CommCare HQ or publish to a different project space.",
-		};
-	}
-	if (baseline === null || baseline.origin === "unread") {
-		return change([], false);
-	}
-	const parts = diffHqAppSource({
-		baseline: baseline.source,
-		current: input.current.normalized,
-		ownership: baseline.ownership,
-		shell: baseline.origin === "create",
-		languageNames: input.languageNames,
-		mediaChanged: input.mediaChanged,
-		importFiles: { published: input.published, recorded: baseline.mediaFiles },
-	});
-	return parts.length === 0
-		? null
-		: change(boundedParts(parts.map(describeAppChange)), true);
 }
 
 /**

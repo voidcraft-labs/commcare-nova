@@ -371,6 +371,13 @@ function withProgress(
 	return state;
 }
 
+function fileListIsShown(
+	state: HqChangesPanelState,
+	review: ChangesReview,
+): boolean {
+	return state.shownAll.hq || (review.fileReviewLines ?? 0) <= LIST_LINES_SHOWN;
+}
+
 /** Whether the person can press a choice now: a review that offers one, with no request in flight. */
 function choicesOpen(state: HqChangesPanelState): ChangesReview | null {
 	const { phase } = state;
@@ -425,7 +432,7 @@ export function reduceHqChangesPanel(
 			};
 		case "bring-in-pressed": {
 			const review = choicesOpen(state);
-			if (review === null) return state;
+			if (review === null || !fileListIsShown(state, review)) return state;
 			/* Use CommCare HQ's version is offered only where something in Nova
 			 * would be removed and no rename holds it back; Bring in these
 			 * changes only where nothing would be. */
@@ -876,7 +883,7 @@ function listsView(
 			? null
 			: {
 					bringIn:
-						renamed !== null
+						renamed !== null || !fileListIsShown(state, review)
 							? null
 							: removes
 								? {
@@ -893,21 +900,22 @@ function listsView(
 					/* Where nothing in Nova would be removed, the card offers no
 					 * publish over of its own, except under the gate's refusal,
 					 * whose sentence names it as the other way on. */
-					publishOver: review.requiresReview
-						? null
-						: removes || (context.home === "card" && notice?.kind === "gate")
-							? {
-									label: PUBLISH_OVER_HQ_ACTION,
-									helper: PUBLISH_OVER_HQ_HELPER,
-									lead: null,
-								}
-							: context.home === "publish"
+					publishOver:
+						review.requiresReview || !fileListIsShown(state, review)
+							? null
+							: removes || (context.home === "card" && notice?.kind === "gate")
 								? {
 										label: PUBLISH_OVER_HQ_ACTION,
-										helper: null,
-										lead: PUBLISH_OVER_INSTEAD_LINE,
+										helper: PUBLISH_OVER_HQ_HELPER,
+										lead: null,
 									}
-								: null,
+								: context.home === "publish"
+									? {
+											label: PUBLISH_OVER_HQ_ACTION,
+											helper: null,
+											lead: PUBLISH_OVER_INSTEAD_LINE,
+										}
+									: null,
 					stop: removes,
 				},
 	};
@@ -1123,7 +1131,12 @@ export function publishOverDiscard(
 	appId: string,
 ): RemoteChangeDiscard | null {
 	const review = choicesOpen(state);
-	if (review === null || review.requiresReview) return null;
+	if (
+		review === null ||
+		review.requiresReview ||
+		!fileListIsShown(state, review)
+	)
+		return null;
 	return {
 		kind: "app",
 		novaResourceId: appId,

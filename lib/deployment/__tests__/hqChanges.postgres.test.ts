@@ -48,6 +48,7 @@ import {
 	retainedBodyJson,
 	retainedBodyText,
 	retainedGroupRead,
+	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -1110,6 +1111,35 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 				row.nova_revision === null ? null : Number(row.nova_revision),
 		};
 	}
+
+	it("keeps the choice to take a changed HQ app with the member who reviewed it", async () => {
+		const owner = await broughtIn();
+		const editor = scopeOf(owner.appId, OTHER);
+		const listed = changesOf(await review(owner, renamed()));
+		const before = await e2eBaseline();
+		const accept = (actor: typeof owner) =>
+			withHttpPeer(async (peer) => {
+				serveRead(peer, renamed(), { tables: true });
+				return bringInHqChanges(
+					actor,
+					KEY_TARGET,
+					{
+						readingId: listed.readingId,
+						reviewDigest: listed.reviewDigest,
+						tableChoices: {},
+					},
+					{ onEvent: () => {} },
+				);
+			});
+		const other = await accept(editor);
+		expect(other.kind).toBe("changed");
+		expect(await e2eBaseline()).toEqual(before);
+		expect(await hqChangeRows(owner.appId)).toEqual([]);
+		expect((await accept(owner)).kind).toBe("brought-in");
+		expect(
+			(await hqChangeRows(owner.appId)).map((row) => row.actor_id),
+		).toEqual([MEMBER]);
+	});
 
 	it("lists what changed, commits it at the reviewed head with its record, and a second review finds nothing", async () => {
 		const scope = await broughtIn();
@@ -2881,12 +2911,20 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		readBack: RetainedHqAnswer | TargetPeer = source,
 		versionBefore = 3,
 		discardRemoteChanges: readonly RemoteChangeDiscard[] = [],
+		acknowledgedVersion?: number,
+		publishingMember = scope(appId),
+		destination = {
+			domain: FIXTURE_DOMAIN as string,
+			appId: FIXTURE_REMOTE_APP_ID as string,
+		},
 	) {
+		const sourcePath = `/a/${destination.domain}/apps/source/${destination.appId}/`;
+		const importPath = `/a/${destination.domain}/apps/api/import_app/`;
 		const loaded = await loadApp(appId);
 		if (loaded === null) throw new Error(`No app ${appId}.`);
 		const doc = hydratePersistedBlueprint(loaded.blueprint);
 		const saves = new HqSaveCounter();
-		saves.standAt(FIXTURE_REMOTE_APP_ID, versionBefore);
+		saves.standAt(destination.appId, versionBefore);
 		/** The app JSON each import carried. */
 		const imported: Record<string, unknown>[] = [];
 		return withHqPeer(saves, FIXTURE_HOST, async (peer) => {
@@ -2899,7 +2937,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				.reply((request) => {
 					const objects =
 						request.path === PROJECT_SPACES
-							? [{ domain_name: FIXTURE_DOMAIN, project_name: "Clinic" }]
+							? [{ domain_name: destination.domain, project_name: "Clinic" }]
 							: [];
 					return {
 						statusCode: 200,
@@ -2910,13 +2948,13 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					};
 				})
 				.persist();
-			serveAnswer(peer, FIXTURE_PATHS.source, source);
+			serveAnswer(peer, sourcePath, source);
 			if (accepts && !(readBack instanceof TargetPeer))
-				serveAnswer(peer, FIXTURE_PATHS.source, readBack);
+				serveAnswer(peer, sourcePath, readBack);
 			if (accepts)
 				peer
 					.get(FIXTURE_HOST)
-					.intercept({ path: IMPORT_PATH, method: "POST" })
+					.intercept({ path: importPath, method: "POST" })
 					.reply(async (request) => {
 						const body = await readHttpRequestBody(request);
 						const file = (await readMultipartRequest({ ...request, body })).get(
@@ -2946,10 +2984,10 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 								throw new Error(
 									`The HQ peer refused the update: ${answer.body}`,
 								);
-							saves.standAt(FIXTURE_REMOTE_APP_ID, counter);
+							saves.standAt(destination.appId, counter);
 							serveAnswer(
 								peer,
-								FIXTURE_PATHS.source,
+								sourcePath,
 								changedAnswer(source, () => updated),
 							);
 							return { statusCode: answer.status, data: answer.body };
@@ -2958,18 +2996,23 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 							statusCode: 200,
 							data: JSON.stringify({
 								success: true,
-								app_id: FIXTURE_REMOTE_APP_ID,
-								version: saves.save(FIXTURE_REMOTE_APP_ID),
+								app_id: destination.appId,
+								version:
+									acknowledgedVersion === undefined ||
+									acknowledgedVersion > versionBefore
+										? saves.save(destination.appId)
+										: acknowledgedVersion,
 							}),
 						};
 					});
 			const outcome = await publishAppToHq({
 				requireHqImport: null,
-				scope: scope(appId),
-				...KEY_TARGET,
+				scope: publishingMember,
+				server: FIXTURE_SERVER,
+				domain: destination.domain,
 				doc,
 				compiledAtSeq: Number(loaded.mutation_seq),
-				reloadHead: reloadHeadFor(appId, MEMBER),
+				reloadHead: reloadHeadFor(appId, publishingMember.actorUserId),
 				appName: doc.appName,
 				confirm: CONFIRM_ALL,
 				discardRemoteChanges,
@@ -3357,6 +3400,64 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		30_000,
 	);
 
+	it.each([2, 3, 4])(
+		"keeps a take fenced until the admitted import proves a forward HQ save (ack %i)",
+		async (version) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const base = emission(doc, 2).source;
+			expect(
+				(await publishOver(appId, base, true, base, 2)).outcome.landed,
+			).toBe(true);
+			const actor = scope(appId);
+			const newer = emission(clinic({ appName: "A later HQ edit" }), 5);
+			const offered = await withHttpPeer(async (peer) => {
+				serveEmission(peer, newer);
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			});
+			if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
+			const original = deploymentStore.recordRemoteResource;
+			let take: string | undefined;
+			const hook = vi
+				.spyOn(deploymentStore, "recordRemoteResource")
+				.mockImplementationOnce(async (...args) => {
+					const result = await withHttpPeer(async (peer) => {
+						serveEmission(peer, newer);
+						return bringInHqChanges(
+							actor,
+							KEY_TARGET,
+							{
+								readingId: offered.readingId,
+								reviewDigest: offered.reviewDigest,
+								tableChoices: {},
+							},
+							{ onEvent: () => {} },
+						);
+					});
+					take = result.kind;
+					return original(...args);
+				});
+			try {
+				const published = await publishOver(
+					appId,
+					base,
+					true,
+					base,
+					3,
+					[],
+					version,
+				);
+				expect(published.outcome.landed).toBe(true);
+				expect(take).toBe(version > 3 ? "brought-in" : "refused");
+				expect((await headDocOf(appId)).appName).toBe(
+					version > 3 ? "A later HQ edit" : doc.appName,
+				);
+			} finally {
+				hook.mockRestore();
+			}
+		},
+		30_000,
+	);
 	it.each([
 		"newer take",
 		"same app with a pending setting",
@@ -3400,9 +3501,11 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 						return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
 					});
 					if (
-						listed.kind !== "nothing" ||
-						listed.reason !==
-							(settingOnly ? "reads-the-same" : "already-here") ||
+						(settingOnly
+							? listed.kind !== "changes"
+							: listed.kind !== "nothing" ||
+								listed.reason !== "already-here") ||
+						(listed.kind !== "nothing" && listed.kind !== "changes") ||
 						!listed.readingId ||
 						!listed.reviewDigest
 					)
@@ -3546,6 +3649,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				throw new Error(`Missing verified source for ${domain}.`);
 			return row;
 		};
+		let prunePeer: TargetPeer | undefined;
 		const counter = new HqSaveCounter();
 		counter.standAt(north.id, 2);
 		const sources = new Map<string, Record<string, unknown>>([
@@ -3630,7 +3734,11 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 						headers,
 					})
 					.reply(async (request) => {
-						const parts = await readMultipartRequest(request);
+						const bytes = await readHttpRequestBody(request);
+						const parts = await readMultipartRequest({
+							...request,
+							body: bytes,
+						});
 						const update = parts.get("app_id");
 						const file = parts.get("app_file");
 						if (
@@ -3643,6 +3751,30 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 							string,
 							unknown
 						>;
+						if (prunePeer && id === south.id) {
+							const result = await prunePeer.answer({
+								method: request.method,
+								path: request.path,
+								contentType:
+									new Headers(request.headers as Record<string, string>).get(
+										"content-type",
+									) ?? undefined,
+								body: bytes,
+							});
+							const after = prunePeer.snapshot().source;
+							const version = prunePeer.saveCounter();
+							if (
+								!after ||
+								version === null ||
+								result.status !== 200 ||
+								typeof result.body !== "string"
+							)
+								throw new Error("The synthetic HQ import failed.");
+							counter.standAt(id, version);
+							sources.set(id, after);
+							requests.push({ id, action: "update", name: sent.name });
+							return { statusCode: result.status, data: result.body };
+						}
 						const version = counter.save(id);
 						sources.set(id, { ...body(id), ...sent, version });
 						requests.push({
@@ -3742,8 +3874,58 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				north.name,
 				south.name,
 			]);
+			// The app in the second space was genuinely created by Nova. A later
+			// response there acquired an unreferenced mapping with no card.
+			const current = {
+				...body(south.id),
+				multimedia_map: retainedBodyJson(
+					withUnusedImage(emission(doc, 1).source),
+				).multimedia_map,
+				version: counter.save(south.id),
+			};
+			sources.set(south.id, current);
+			const northBefore = await baseline(north.domain);
+			const offered = await list(south.domain);
+			if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
+			expect(offered.hqChanges.join(" ")).toContain("unused-image");
+			const taken = await bringInHqChanges(
+				actor,
+				key(south.domain),
+				{
+					readingId: offered.readingId,
+					reviewDigest: offered.reviewDigest,
+					tableChoices: {},
+				},
+				{ onEvent: () => {} },
+			);
+			expect(taken.kind).toBe("recorded");
+			prunePeer = new TargetPeer({
+				credentials: {
+					username: "account",
+					apiKey: "fixture-key",
+					server: FIXTURE_SERVER,
+				},
+				domain: south.domain,
+				flags: new Set(),
+				caseSearchEnabled: false,
+				appId: south.id,
+				commcareVersion: "2.60.0",
+				cloudcareGranted: true,
+			});
+			prunePeer.holdSource(current);
+			const at = requests.length;
+			await publish(south.domain);
+			expect(
+				requests.slice(at).map((request) => [request.id, request.action]),
+			).toEqual([
+				[south.id, "read"],
+				[south.id, "update"],
+				[south.id, "read"],
+			]);
+			expect(body(south.id).multimedia_map ?? {}).toEqual({});
+			expect(await baseline(north.domain)).toEqual(northBefore);
 		});
-	});
+	}, 30_000);
 
 	it("writes an ownership that holds the add-on what it took needs, so turning it off in CommCare HQ stops the next publish", async () => {
 		const appId = await broughtIn(clinic({}));
@@ -3841,8 +4023,11 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			const reviewed = await read();
 			expect(await baselineOfApp()).toEqual(before);
 			if (
-				reviewed.kind !== "nothing" ||
-				reviewed.reason !== "reads-the-same" ||
+				(reviewed.kind !== "changes" && reviewed.kind !== "nothing") ||
+				(direction === "adds"
+					? reviewed.kind !== "changes"
+					: reviewed.kind !== "nothing" ||
+						reviewed.reason !== "reads-the-same") ||
 				!reviewed.readingId ||
 				!reviewed.reviewDigest
 			)
@@ -4068,7 +4253,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		});
 		expect(result.outcome).toBe("current");
 		await sql`UPDATE app_deployment_baselines
-			SET first_publish_changes = first_publish_changes - 'reviewed'
+			SET first_publish_changes = first_publish_changes - 'reviewed' - 'removedFiles' - 'reviewedInputs'
 			WHERE remote_app_id = ${FIXTURE_REMOTE_APP_ID}`.execute(h.db());
 		return normalized.digest;
 	}
@@ -4166,6 +4351,12 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				});
 			const review = await read(served);
 			if (scenario === "unread") {
+				const note = blocked.outcome.refusal?.remoteChanges[0]?.note;
+				expect(note).toContain("Project admin or owner");
+				expect(note).toContain("Stop publishing here");
+				expect(note).toContain("publish in progress finishes");
+				expect(note).toContain("new Nova app");
+				expect(note).toContain("different project space");
 				expect(review).toMatchObject({
 					kind: "unavailable",
 					reason: "baseline-unread",
@@ -4286,6 +4477,1029 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			expect(pushed.imported).toHaveLength(1);
 			expect(model.snapshot().source?.multimedia_map ?? {}).toEqual({});
 			expect((await baselineOfApp()).first_publish_changes).toBeNull();
+		},
+		30_000,
+	);
+
+	it("keeps an app overwrite with its editor, HQ claim and save even when every file is identical", async () => {
+		const doc = clinic({});
+		const appId = await broughtIn(doc);
+		const owner = scope(appId);
+		const editor = {
+			...owner,
+			role: "editor",
+			actorUserId: "file-review-editor",
+		};
+		await h.seedProjectMember(editor.actorUserId, E2E_PROJECT, "editor");
+		await seedFixtureConnection(editor.actorUserId);
+		const source = withUnusedImage(emission(doc, 3).source);
+		const offer = async (
+			member = owner,
+			version = 3,
+			receipt?: string,
+			send = false,
+		) => {
+			return publishOver(
+				appId,
+				source,
+				send,
+				source,
+				version,
+				receipt
+					? [{ kind: "app", novaResourceId: appId, observedDigest: receipt }]
+					: [],
+				undefined,
+				member,
+			);
+		};
+		const first = await offer();
+		const change = first.outcome.refusal?.remoteChanges[0];
+		if (!change)
+			throw new Error("The first publish must name the unapproved file.");
+		expect(change.parts.join(" ")).toContain(UNUSED_PATH);
+		const prior = await baselineOfApp();
+		for (const [member, version] of [
+			[editor, 3],
+			[owner, 4],
+		] as const) {
+			const other = await offer(member, version, change.observedDigest);
+			expect(other.imported).toHaveLength(0);
+			expect(other.outcome.refusal?.failure.code).toBe("hq_changed");
+			expect(other.outcome.refusal?.remoteChanges[0]?.observedDigest).not.toBe(
+				change.observedDigest,
+			);
+		}
+		expect(await baselineOfApp()).toEqual(prior);
+		await softDeleteApp(appId, MEMBER);
+		const otherApp = await birthAdoptedApp(h, {
+			appId: crypto.randomUUID(),
+			projectId: E2E_PROJECT,
+			actorUserId: MEMBER,
+			target: KEY_TARGET,
+			remoteAppId: FIXTURE_REMOTE_APP_ID,
+		});
+		await softDeleteApp(otherApp.scope.appId, MEMBER);
+		expect(await restoreApp(appId, MEMBER)).toEqual({ stoppedPublishing: [] });
+		const reclaimed = await offer(owner, 3, change.observedDigest);
+		expect(reclaimed.imported).toHaveLength(0);
+		const newChoice = reclaimed.outcome.refusal?.remoteChanges[0];
+		if (!newChoice)
+			throw new Error(
+				"A restored claim must ask about the same remote file again.",
+			);
+		expect(newChoice.parts).toEqual(change.parts);
+		expect(newChoice.observedDigest).not.toBe(change.observedDigest);
+		const republished = await offer(owner, 3, newChoice.observedDigest, true);
+		expect(republished.imported).toHaveLength(1);
+		expect(republished.outcome.landed).toBe(true);
+	}, 30_000);
+
+	it("asks independently before replacing the same file in another mapped project space", async () => {
+		const doc = clinic({});
+		const appId = await broughtIn(doc);
+		const actor = scope(appId);
+		const other = { domain: "independent-clinic", appId: "independent-hq-app" };
+		const target = { server: FIXTURE_SERVER, domain: other.domain };
+		await h
+			.db()
+			.updateTable("user_settings")
+			.set({
+				approved_domains: JSON.stringify(
+					[FIXTURE_DOMAIN, other.domain].map((name) => ({
+						name,
+						displayName: name,
+					})),
+				),
+			})
+			.where("user_id", "=", MEMBER)
+			.execute();
+		const first = await readAppBaseline(actor, KEY_TARGET);
+		if (
+			!first ||
+			first.origin === "unread" ||
+			typeof first.source !== "object" ||
+			!first.source
+		)
+			throw new Error("The adoption must retain its HQ comparison.");
+		const at = new Date().toISOString();
+		await deploymentStore.foldDeploymentAttempt(
+			actor,
+			target,
+			"preflight",
+			{ status: "succeeded", at },
+			{ ensure: true, expectedEndings: 0 },
+		);
+		await recordRemoteResource(actor, target, {
+			kind: "app",
+			remoteId: other.appId,
+			novaResourceId: appId,
+			expectedEndings: 0,
+			ownership: "nova-created",
+			pushedRevision: first.novaRevision,
+			remoteRevision: 2,
+			uploadedAt: at,
+			baseline: {
+				origin: "push",
+				remoteAppId: other.appId,
+				...stored(first.source, at),
+				novaRevision: first.novaRevision,
+				ownership: first.ownership,
+				discard: null,
+				mediaFiles: { kind: "keep" },
+				firstPublish: { kind: "set", list: null },
+			},
+		});
+		const source = withUnusedImage(emission(doc, 3).source);
+		const firstPreview = await publishOver(appId, source, false, source, 3);
+		const offered = firstPreview.outcome.refusal?.remoteChanges[0];
+		if (!offered)
+			throw new Error("The first space must expose the file it would remove.");
+		const applying = (token: string, send: boolean) =>
+			publishOver(
+				appId,
+				source,
+				send,
+				source,
+				3,
+				[{ kind: "app", novaResourceId: appId, observedDigest: token }],
+				undefined,
+				actor,
+				other,
+			);
+		const otherPreview = await applying(offered.observedDigest, false);
+		expect(
+			otherPreview.requests.filter((line) => line.startsWith("POST ")),
+		).toEqual([]);
+		const theirs = otherPreview.outcome.refusal?.remoteChanges[0];
+		if (!theirs)
+			throw new Error(
+				`Expected the other project space's own review: ${otherPreview.outcome.refusal?.failure.code}.`,
+			);
+		expect(theirs.identity).toBe(other.appId);
+		expect(theirs.parts.join(" ")).toContain(UNUSED_PATH);
+		expect(theirs.observedDigest).not.toBe(offered.observedDigest);
+		expect((await applying(theirs.observedDigest, true)).imported).toHaveLength(
+			1,
+		);
+	}, 30_000);
+	it.each(["completes", "cannot complete"] as const)(
+		"shows every removal before a keep-Nova decision when twenty files and one form changed and the reading %s",
+		async (mode) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const saved = servedHqApp(
+				clinic({ appName: "Another name from HQ" }),
+				3,
+				(xml) =>
+					mode === "cannot complete"
+						? xml.replace(
+								"</model>",
+								'<submission id="out" resource="https://example.invalid" targetref="/data"/><send submission="out"/></model>',
+							)
+						: xml,
+			);
+			const files = Array.from(
+				{ length: 20 },
+				(_, i) =>
+					[
+						`jr://file/commcare/extra-${i}.png`,
+						{ media_type: "CommCareImage", multimedia_id: `extra-${i}` },
+					] as const,
+			);
+			const source = changedAnswer(saved.source, (body) => ({
+				...body,
+				multimedia_map: Object.fromEntries(files),
+			}));
+			const preview = await publishOver(appId, source, false, source, 3);
+			const partial = preview.outcome.refusal?.remoteChanges[0];
+			if (!partial)
+				throw new Error(
+					`Expected a preview of the proposed replacement: ${preview.outcome.refusal?.failure.code}.`,
+				);
+			expect(partial.parts).toHaveLength(20);
+			expect(partial.requiresReview).toBe(true);
+			const again = await publishOver(appId, source, false, source, 3, [
+				{
+					kind: "app",
+					novaResourceId: appId,
+					observedDigest: partial.observedDigest,
+				},
+			]);
+			expect(again.outcome.refusal?.failure.code).toBe("hq_changed");
+			expect(again.imported).toHaveLength(0);
+			const reviewed = await withHttpPeer(async (peer) => {
+				serveEmission(peer, summarizeServedHqApp(retainedBodyJson(source)));
+				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
+			});
+			if (mode === "cannot complete") {
+				expect(reviewed).toMatchObject({
+					kind: "account",
+					requiresReview: true,
+				});
+				return;
+			}
+			if (reviewed.kind !== "changes")
+				throw new Error(JSON.stringify(reviewed));
+			expect(reviewed.requiresReview).toBeUndefined();
+			for (const [file] of files)
+				expect(reviewed.hqChanges.join(" ")).toContain(file);
+			expect(reviewed.observedDigest).not.toBe(partial.observedDigest);
+			const kept = await publishOver(appId, source, true, source, 3, [
+				{
+					kind: "app",
+					novaResourceId: appId,
+					observedDigest: reviewed.observedDigest,
+				},
+			]);
+			expect(kept.outcome.landed).toBe(true);
+			expect(kept.imported).toHaveLength(1);
+		},
+		30_000,
+	);
+
+	it.each(["uncarded", "next-card", "ordinary-created"] as const)(
+		"reviews the exact file a published target would prune after an earlier Refresh (%s)",
+		async (history) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const first = await publishOver(
+				appId,
+				emission(doc, 2).source,
+				true,
+				emission(doc, 3).source,
+				2,
+			);
+			expect(first.outcome.landed).toBe(true);
+			const actor = scope(appId);
+			if (history === "ordinary-created") {
+				// Reproduce the released ledger for an independently created target,
+				// for which preflight and compile use Nova's settings and identities.
+				await h
+					.db()
+					.updateTable("app_deployment_resources")
+					.set({
+						ownership: "nova-created",
+						adopted_by: null,
+						adopted_at: null,
+					})
+					.where("kind", "=", "app")
+					.execute();
+			}
+			const saved = (
+				id: string,
+				version: number,
+				renamed = false,
+				path = UNUSED_PATH,
+			) => {
+				const incoming = emission(
+					renamed ? clinic({ appName: "Other name from HQ" }) : doc,
+					version,
+				);
+				return {
+					...incoming,
+					source: changedAnswer(withUnusedImage(incoming.source), (body) => {
+						const map = body.multimedia_map as Record<
+							string,
+							{ multimedia_id: string }
+						>;
+						const entry = map[UNUSED_PATH];
+						delete map[UNUSED_PATH];
+						map[path] = { ...entry, multimedia_id: id };
+						return body;
+					}),
+				};
+			};
+			const prior = saved("earlier-file", 4);
+			if (history === "next-card")
+				await h
+					.db()
+					.updateTable("app_deployment_baselines")
+					.set({
+						first_publish_changes: JSON.stringify({
+							of: "next-publish",
+							ids: ["unused-media-entries-removed"],
+							webAppsOnInHq: true,
+						}),
+					})
+					.execute();
+			const priorDigest = await releasedRefresh(appId, prior.source);
+			const before = await baselineOfApp();
+			const stopped = await publishOver(
+				appId,
+				prior.source,
+				false,
+				prior.source,
+				4,
+				[{ kind: "app", novaResourceId: appId, observedDigest: priorDigest }],
+			);
+			expect(stopped.requests).not.toContain(`POST ${IMPORT_PATH}`);
+			expect(stopped.outcome.refusal?.failure.code).toBe("hq_changed");
+			const discard = stopped.outcome.refusal?.remoteChanges[0];
+			if (!discard)
+				throw new Error("Missing file-loss review on the stopped publish.");
+			expect(discard.parts.join(" ")).toContain("earlier-file");
+			expect(discard.observedDigest).not.toBe(priorDigest);
+			const review = (current: typeof prior, tables = true) =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, current, 1, tables);
+					return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+				});
+			const accept = (
+				current: typeof prior,
+				offered: { readingId: string; reviewDigest: string },
+			) =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, current);
+					return bringInHqChanges(
+						actor,
+						KEY_TARGET,
+						{
+							readingId: offered.readingId,
+							reviewDigest: offered.reviewDigest,
+							tableChoices: {},
+						},
+						{ onEvent: () => {} },
+					);
+				});
+			const offered = await review(prior);
+			if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
+			expect(offered.hqChanges.join(" ")).toContain("earlier-file");
+			expect((await accept(prior, offered)).kind).toBe("recorded");
+			expect((await baselineOfApp()).first_publish_changes?.ids).toContain(
+				"unused-media-entries-removed",
+			);
+			expect(await review(prior, false)).toMatchObject({
+				kind: "nothing",
+				reason: "unchanged",
+			});
+			const later = saved(
+				"later-file",
+				5,
+				false,
+				history === "next-card"
+					? UNUSED_PATH.replace(".png", "-different.png")
+					: UNUSED_PATH,
+			);
+			let final = later;
+			let finalVersion = 5;
+			const approved = await baselineOfApp();
+			const refreshed = await withHttpPeer(async (peer) => {
+				serveAnswer(peer, FIXTURE_PATHS.source, later.source);
+				return refreshKeptValues(actor, KEY_TARGET);
+			});
+			expect(refreshed.kind).toBe("changed-in-hq");
+			expect(await baselineOfApp()).toEqual(approved);
+			const changed = await review(later);
+			if (changed.kind !== "changes") throw new Error(JSON.stringify(changed));
+			expect(changed.hqChanges.join(" ")).toContain("later-file");
+			if (history === "next-card")
+				expect(changed.hqChanges.join(" ")).toContain("-different.png");
+			expect(changed.observedDigest).not.toBe(offered.observedDigest);
+			const staleDiscard = await publishOver(
+				appId,
+				later.source,
+				false,
+				later.source,
+				5,
+				[
+					{
+						kind: "app",
+						novaResourceId: appId,
+						observedDigest: discard.observedDigest,
+					},
+				],
+			);
+			expect(staleDiscard.outcome.refusal?.failure.code).toBe("hq_changed");
+			expect(staleDiscard.imported).toHaveLength(0);
+			if (history === "next-card") {
+				const unrelated = saved("third-file", 6, true);
+				expect((await accept(unrelated, changed)).kind).toBe("changed");
+				expect(await baselineOfApp()).toEqual(approved);
+			}
+			if (history !== "ordinary-created")
+				expect((await accept(later, changed)).kind).toBe("recorded");
+			if (history === "uncarded") {
+				const gone = emission(doc, 6);
+				const removal = await review(gone);
+				if (
+					removal.kind !== "nothing" ||
+					!removal.readingId ||
+					!removal.reviewDigest
+				)
+					throw new Error(JSON.stringify(removal));
+				expect(
+					(
+						await accept(gone, {
+							readingId: removal.readingId,
+							reviewDigest: removal.reviewDigest,
+						})
+					).kind,
+				).toBe("recorded");
+				expect((await baselineOfApp()).first_publish_changes).toBeNull();
+				finalVersion = 7;
+				final = saved("later-file", finalVersion);
+				const back = await review(final);
+				if (back.kind !== "changes") throw new Error(JSON.stringify(back));
+				expect((await accept(final, back)).kind).toBe("recorded");
+			}
+			const model = new TargetPeer({
+				credentials: {
+					username: "account",
+					apiKey: "fixture-key",
+					server: FIXTURE_SERVER,
+				},
+				domain: FIXTURE_DOMAIN,
+				flags: new Set(),
+				caseSearchEnabled: false,
+				appId: FIXTURE_REMOTE_APP_ID,
+				commcareVersion: "2.60.0",
+				cloudcareGranted: true,
+			});
+			model.holdSource(retainedBodyJson(final.source));
+			const pushed = await publishOver(
+				appId,
+				final.source,
+				true,
+				model,
+				finalVersion,
+				history === "ordinary-created"
+					? [
+							{
+								kind: "app",
+								novaResourceId: appId,
+								observedDigest: changed.observedDigest,
+							},
+						]
+					: [],
+			);
+			expect(pushed.outcome.landed).toBe(true);
+			expect(pushed.imported).toHaveLength(1);
+			expect(model.snapshot().source?.multimedia_map ?? {}).toEqual({});
+			expect((await baselineOfApp()).first_publish_changes).toBeNull();
+			expect(before.nova_revision).toBe(approved.nova_revision);
+		},
+		30_000,
+	);
+
+	it("asks about changed worker text in the same translated name map and clears a retired warning", async () => {
+		const doc = clinic({});
+		const named = (version: number, label: string) => {
+			const base = emission(doc, version);
+			return {
+				...base,
+				source: changedAnswer(base.source, (body) => {
+					const [menu] = body.modules as { name: Record<string, string> }[];
+					menu.name = { ...menu.name, en: label };
+					return body;
+				}),
+			};
+		};
+		const appId = await broughtIn(doc, named(2, " Patients"));
+		const actor = scope(appId);
+		const read = (served: ReturnType<typeof named>) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, served);
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			});
+		const changed = named(3, "  Patients");
+		const offered = await read(changed);
+		if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
+		expect(offered.publishChanges.length).toBeGreaterThan(0);
+		const accepted = await withHttpPeer(async (peer) => {
+			serveEmission(peer, changed);
+			return bringInHqChanges(
+				actor,
+				KEY_TARGET,
+				{
+					readingId: offered.readingId,
+					reviewDigest: offered.reviewDigest,
+					tableChoices: {},
+				},
+				{ onEvent: () => {} },
+			);
+		});
+		expect(accepted.kind).toBe("recorded");
+		expect(await read(respelled(changed))).toMatchObject({
+			kind: "nothing",
+			publishChanges: [],
+		});
+		expect(await read(named(4, "Patients"))).toMatchObject({
+			kind: "nothing",
+			publishChanges: [],
+		});
+	}, 30_000);
+
+	it.each(["same form", "different form"] as const)(
+		"keeps the title approval with its rematched form when HQ reorders identical menu labels (%s)",
+		async (which) => {
+			const doc = clinic({});
+			const forms = doc.formOrder[doc.moduleOrder[0]];
+			for (const id of forms) doc.forms[id].name = "Visit";
+			const same = forms[0];
+			const reordered = structuredClone(doc);
+			reordered.formOrder[reordered.moduleOrder[0]].reverse();
+			function saved(
+				current: BlueprintDoc,
+				version: number,
+				recipient: string,
+			) {
+				const base = emission(current, version);
+				const index =
+					current.formOrder[current.moduleOrder[0]].indexOf(recipient);
+				const source = changedAnswer(base.source, (body) => {
+					const [m] = body.modules as { forms: { unique_id: string }[] }[];
+					const key = m.forms[index].unique_id + ".xml";
+					const attachments = body._attachments as Record<string, string>;
+					expect(attachments[key]).toContain("<h:title>Visit</h:title>");
+					attachments[key] = attachments[key].replace(
+						"<h:title>Visit</h:title>",
+						"<h:title>Annex visit</h:title>",
+					);
+					return body;
+				});
+				return { ...base, source };
+			}
+			const appId = await broughtIn(doc, saved(doc, 2, same));
+			const now = saved(reordered, 3, which === "same form" ? same : forms[1]);
+			const review = await withHttpPeer(async (peer) => {
+				serveEmission(peer, now);
+				return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
+			});
+			if (review.kind !== "changes") throw new Error(JSON.stringify(review));
+			expect(review.publishChanges.some((line) => /title/i.test(line))).toBe(
+				which === "different form",
+			);
+		},
+		30_000,
+	);
+
+	function withSavedTitle(doc: BlueprintDoc, version: number, title: string) {
+		const base = emission(doc, version);
+		return {
+			...base,
+			source: changedAnswer(base.source, (body) => {
+				const [menu] = body.modules as { forms: { unique_id: string }[] }[];
+				const key = menu.forms[0].unique_id + ".xml";
+				const attachments = body._attachments as Record<string, string>;
+				const before = attachments[key];
+				attachments[key] = before.replace(
+					"<h:title>Register</h:title>",
+					"<h:title>" + title + "</h:title>",
+				);
+				if (before === attachments[key])
+					throw new Error("The published form has no Register title.");
+				return body;
+			}),
+		};
+	}
+
+	it("recovers a generic next-publish title warning left by a released automatic record", async () => {
+		const doc = clinic({});
+		const appId = await broughtIn(doc);
+		expect(
+			(
+				await publishOver(
+					appId,
+					emission(doc, 2).source,
+					true,
+					emission(doc, 3).source,
+					2,
+				)
+			).outcome.landed,
+		).toBe(true);
+		const saved = withSavedTitle(doc, 4, "Visit B");
+		await releasedRefresh(appId, saved.source);
+		await sql`UPDATE app_deployment_baselines SET first_publish_changes = ${JSON.stringify({ of: "next-publish", ids: ["form-titles-written"], webAppsOnInHq: true })}::jsonb WHERE remote_app_id = ${FIXTURE_REMOTE_APP_ID}`.execute(
+			h.db(),
+		);
+		const before = await baselineOfApp();
+		const stop = await publishOver(appId, saved.source, false);
+		expect(stop.outcome.refusal?.remoteChanges[0]).toMatchObject({
+			requiresReview: true,
+		});
+		expect(stop.requests).not.toContain(`POST ${IMPORT_PATH}`);
+		const actor = scope(appId);
+		const read = () =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, saved);
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			});
+		const offered = await read();
+		if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
+		expect(offered.hqChanges.join(" ")).toMatch(/next publish/i);
+		expect(offered.publishChanges.join(" ")).toMatch(/title/i);
+		expect(await baselineOfApp()).toEqual(before);
+		const recorded = await withHttpPeer(async (peer) => {
+			serveEmission(peer, saved);
+			return bringInHqChanges(
+				actor,
+				KEY_TARGET,
+				{
+					readingId: offered.readingId,
+					reviewDigest: offered.reviewDigest,
+					tableChoices: {},
+				},
+				{ onEvent: () => {} },
+			);
+		});
+		expect(recorded.kind).toBe("recorded");
+		expect((await baselineOfApp()).first_publish_changes).toMatchObject({
+			of: "next-publish",
+			reviewedInputs: 1,
+			ids: ["form-titles-written"],
+		});
+		expect(
+			await withHttpPeer(async (peer) => {
+				serveEmission(peer, saved, 1, false);
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			}),
+		).toMatchObject({ kind: "nothing", publishChanges: [] });
+		const ok = await publishOver(
+			appId,
+			saved.source,
+			true,
+			emission(doc, 5).source,
+			4,
+		);
+		expect(ok.outcome.landed).toBe(true);
+		expect(ok.imported).toHaveLength(1);
+	}, 30_000);
+
+	it("brings in the same case writers across two independently scrubbed HQ source responses", async () => {
+		await h.seedProjectMember(MEMBER, E2E_PROJECT, "owner");
+		await seedFixtureConnection(MEMBER);
+		const actor = await authorizeBringIn(MEMBER, E2E_PROJECT);
+		if (!actor) throw new Error("Expected the Project owner.");
+		const key = fixtureKey(E2E_PROJECT);
+		const source = retainedBodyJson(
+			retainedGroupRead("navigation-base/app-source"),
+		);
+		const stable = retainedBodyJson(retainedReadingRead("application"));
+		const scrub = (prefix: string, changed: boolean) => {
+			const body = structuredClone(source);
+			const modules = body.modules as {
+				forms: {
+					unique_id: string;
+					actions: {
+						open_case: { name_update: { question_path: string | null } };
+					};
+				}[];
+			}[];
+			const originals = body._attachments as Record<string, string>;
+			const attachments: Record<string, string> = {};
+			for (const [m, menu] of modules.entries())
+				for (const [f, form] of menu.forms.entries()) {
+					let xml = originals[`${form.unique_id}.xml`];
+					if (
+						form.actions.open_case.name_update.question_path ===
+						"/data/nova_trimmed_name"
+					) {
+						// A regular HQ form uses the answer as its action's name.
+						xml = xml
+							.replace("<nova_trimmed_name/>", "")
+							.replace(/<bind nodeset="\/data\/nova_trimmed_name"[^>]*\/>/, "");
+						form.actions.open_case.name_update.question_path = changed
+							? "/data/external"
+							: "/data/name";
+					}
+					form.unique_id = prefix + m + f;
+					attachments[`${form.unique_id}.xml`] = xml;
+				}
+			body._attachments = attachments;
+			const served = summarizeServedHqApp(body, FIXTURE_REMOTE_APP_ID);
+			const ids = stable.modules as { forms: { unique_id: string }[] }[];
+			const resource = changedAnswer(served.resource, (row) => {
+				const menus = row.modules as { forms: { unique_id: string }[] }[];
+				for (const [m, menu] of menus.entries()) {
+					for (const [f, form] of menu.forms.entries())
+						form.unique_id = ids[m].forms[f].unique_id;
+				}
+				return { ...row, version: stable.version };
+			});
+			return { ...served, resource };
+		};
+		const read = await withHttpPeer(async (peer) => {
+			serveEmission(peer, scrub("first", false));
+			return reviewOf(
+				await readHqAppForReview(actor, key, { onEvent: () => {} }),
+			);
+		});
+		expect(read.review.firstPublish.ids).toContain("case-names-checked");
+		const create = (prefix: string, changed: boolean) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, scrub(prefix, changed));
+				return createFromReview(actor, createInputFor(key, read), {
+					onEvent: () => {},
+				});
+			});
+		expect((await create("changed", true)).kind).toBe("changed");
+		expect((await create("second", false)).kind).toBe("created");
+	}, 30_000);
+	it("binds the worker's saved-form title across the adoption review and create", async () => {
+		const doc = clinic({});
+		await h.seedProjectMember(MEMBER, E2E_PROJECT, "owner");
+		await seedFixtureConnection(MEMBER);
+		const actor = await authorizeBringIn(MEMBER, E2E_PROJECT);
+		if (!actor) throw new Error("Expected the Project owner.");
+		const key = fixtureKey(E2E_PROJECT);
+		const read = await withHttpPeer(async (peer) => {
+			serveEmission(peer, withSavedTitle(doc, 2, "Visit A"));
+			return reviewOf(
+				await readHqAppForReview(actor, key, { onEvent: () => {} }),
+			);
+		});
+		const create = (title: string) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, withSavedTitle(doc, 3, title));
+				return createFromReview(actor, createInputFor(key, read), {
+					onEvent: () => {},
+				});
+			});
+		expect((await create("Visit B")).kind).toBe("changed");
+		expect((await create(" Visit A ")).kind).toBe("created");
+	}, 30_000);
+
+	it("asks before replacing the saved-form title a worker reads after a later HQ save", async () => {
+		const doc = clinic({});
+		const saved = (version: number, title: string) =>
+			withSavedTitle(doc, version, title);
+		const birth = saved(2, "Visit A");
+		const other = saved(3, "Visit B");
+		const appId = await broughtIn(doc, birth);
+		const actor = scope(appId);
+		const before = await baselineOfApp();
+		const passive = await withHttpPeer(async (peer) => {
+			serveAnswer(peer, FIXTURE_PATHS.source, other.source);
+			return refreshKeptValues(actor, KEY_TARGET);
+		});
+		expect(passive.kind).toBe("changed-in-hq");
+		const stop = await publishOver(appId, other.source, false);
+		expect(stop.outcome.refusal?.failure.code).toBe("hq_changed");
+		expect(stop.requests).not.toContain(`POST ${IMPORT_PATH}`);
+		const review = (served: typeof birth) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, served);
+				return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+			});
+		const offered = await review(other);
+		expect(offered.kind).toBe("changes");
+		if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
+		expect(offered.publishChanges.join(" ")).toMatch(/title/i);
+		expect(await baselineOfApp()).toEqual(before);
+		const approve = {
+			readingId: offered.readingId,
+			reviewDigest: offered.reviewDigest,
+			tableChoices: {},
+		};
+		const take = (served: typeof birth) =>
+			withHttpPeer(async (peer) => {
+				serveEmission(peer, served);
+				return bringInHqChanges(actor, KEY_TARGET, approve, {
+					onEvent: () => {},
+				});
+			});
+		expect((await take(saved(4, "Visit C"))).kind).toBe("changed");
+		expect(await baselineOfApp()).toEqual(before);
+		expect((await take(other)).kind).toBe("recorded");
+		expect(await review(saved(4, " Visit B "))).toMatchObject({
+			kind: "nothing",
+			publishChanges: [],
+		});
+		expect(await review(emission(doc, 4))).toMatchObject({
+			kind: "nothing",
+			publishChanges: [],
+		});
+	}, 30_000);
+
+	it.each(["another form", "another declaration", "another setting"] as const)(
+		"asks before rewriting a different input of the same publish warning (%s)",
+		async (difference) => {
+			const doc = clinic({});
+			const source = (
+				version: number,
+				formIndex: number,
+				fixture: string,
+				setting: string,
+			) => {
+				const served = withLocationList(emission(doc, version), setting);
+				return {
+					...served,
+					source: changedAnswer(served.source, (raw) => {
+						const [menu] = raw.modules as { forms: { unique_id: string }[] }[];
+						const attachments = raw._attachments as Record<string, string>;
+						const key = menu.forms[formIndex].unique_id + ".xml";
+						const original = attachments[key];
+						const at = original.indexOf("<bind ");
+						if (at < 0) throw new Error("The test form has no bind.");
+						attachments[key] =
+							original.slice(0, at) +
+							'<instance id="' +
+							fixture +
+							'" src="jr://fixture/' +
+							fixture +
+							'"/>' +
+							original.slice(at);
+						return raw;
+					}),
+				};
+			};
+			const original = source(2, 0, "commcare:reports", "both_fixtures");
+			const appId = await broughtIn(doc, original);
+			const save = source(
+				3,
+				difference === "another form" ? 1 : 0,
+				difference === "another declaration" ? "locations" : "commcare:reports",
+				difference === "another setting"
+					? "only_flat_fixture"
+					: "both_fixtures",
+			);
+			const read = (reading: typeof save) =>
+				withHttpPeer(async (peer) => {
+					serveEmission(peer, reading);
+					return reviewHqChanges(scope(appId), KEY_TARGET, {
+						onEvent: () => {},
+					});
+				});
+			const previous = await baselineOfApp();
+			const offered = await read(save);
+			if (offered.kind !== "changes")
+				throw new Error(
+					"Expected the new input to require a choice: " +
+						JSON.stringify(offered),
+				);
+			expect(offered.publishChanges.length).toBeGreaterThan(0);
+			if (difference !== "another setting")
+				expect(offered.hqChanges.join(" ")).toContain(
+					difference === "another form" ? "Visit" : "Register",
+				);
+			expect(await baselineOfApp()).toEqual(previous);
+			const result = await withHttpPeer(async (peer) => {
+				serveEmission(peer, save);
+				return bringInHqChanges(
+					scope(appId),
+					KEY_TARGET,
+					{
+						readingId: offered.readingId,
+						reviewDigest: offered.reviewDigest,
+						tableChoices: {},
+					},
+					{ onEvent: () => {} },
+				);
+			});
+			expect(result.kind).toBe("recorded");
+			expect((await baselineOfApp()).first_publish_changes?.ids).toContain(
+				difference === "another setting"
+					? "location-list-setting-reset"
+					: "unread-fixture-declarations-dropped",
+			);
+			const safe = respelled(save);
+			const harmless = await read(safe);
+			expect(harmless).toMatchObject({
+				kind: "nothing",
+				reason: "reads-the-same",
+				publishChanges: [],
+			});
+		},
+		30_000,
+	);
+
+	it("distinguishes a damaged media reference from Nova's own file with the same id", async () => {
+		const doc = clinic({});
+		const appId = await broughtIn(doc);
+		const actor = scope(appId);
+		expect(
+			(
+				await publishOver(
+					appId,
+					emission(doc, 2).source,
+					true,
+					emission(doc, 3).source,
+					2,
+				)
+			).outcome.landed,
+		).toBe(true);
+		const good = withUnusedImage(emission(doc, 4).source);
+		const digest = await releasedRefresh(appId, good);
+		const base = await readAppBaseline(actor, KEY_TARGET);
+		if (!base || base.origin === "unread")
+			throw new Error("Expected a verified baseline");
+		const path = UNUSED_PATH.slice("jr://file/".length);
+		expect(
+			await deploymentStore.recordDeploymentMediaFiles(actor, KEY_TARGET, {
+				expectedEndings: 0,
+				remoteAppId: FIXTURE_REMOTE_APP_ID,
+				sourceDigest: digest,
+				pushToken: appMappingToken(await readDeployment(actor, KEY_TARGET)),
+				novaRevision: base.novaRevision,
+				files: { read: base.mediaFiles, next: { [path]: "unused-image" } },
+			}),
+		).toBe("recorded");
+		const damaged = changedAnswer(good, (body) => {
+			const map = body.multimedia_map as Record<
+				string,
+				Record<string, unknown>
+			>;
+			map[UNUSED_PATH].media_type = "unknown-media-kind";
+			return body;
+		});
+		const stopped = await publishOver(appId, damaged, false, damaged, 4);
+		expect(
+			stopped.outcome.refusal?.remoteChanges[0]?.parts.join(" "),
+		).toContain(UNUSED_PATH);
+		expect(stopped.requests).not.toContain(`POST ${IMPORT_PATH}`);
+		const clean = await publishOver(
+			appId,
+			good,
+			true,
+			emission(doc, 5).source,
+			4,
+		);
+		expect(clean.outcome.landed).toBe(true);
+		expect(clean.imported).toHaveLength(1);
+	}, 30_000);
+
+	it.each(["publish", "refresh"] as const)(
+		"checks a no-longer-published file's ownership under lock on %s",
+		async (operation) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const actor = scope(appId);
+			expect(
+				(
+					await publishOver(
+						appId,
+						emission(doc, 2).source,
+						true,
+						emission(doc, 3).source,
+						2,
+					)
+				).outcome.landed,
+			).toBe(true);
+			const saved = withUnusedImage(emission(doc, 4).source);
+			const savedDigest = await releasedRefresh(appId, saved);
+			const token = appMappingToken(await readDeployment(actor, KEY_TARGET));
+			const path = UNUSED_PATH.slice("jr://file/".length);
+			const changeLedger = async (next: Record<string, string>) => {
+				const previous = await readAppBaseline(actor, KEY_TARGET);
+				if (!previous || previous.origin === "unread")
+					throw new Error("Expected the retained read.");
+				expect(
+					await deploymentStore.recordDeploymentMediaFiles(actor, KEY_TARGET, {
+						expectedEndings: 0,
+						remoteAppId: FIXTURE_REMOTE_APP_ID,
+						sourceDigest: savedDigest,
+						pushToken: token,
+						novaRevision: previous.novaRevision,
+						files: { read: previous.mediaFiles, next },
+					}),
+				).toBe("recorded");
+			};
+			await changeLedger({ [path]: "unused-image" });
+			if (operation === "publish") {
+				const original = deploymentStore.admitAppWrite;
+				const hook = vi
+					.spyOn(deploymentStore, "admitAppWrite")
+					.mockImplementationOnce(async (...args) => {
+						expect(args[2].writeKind).toBe("import");
+						await changeLedger({});
+						return original(...args);
+					});
+				try {
+					const result = await publishOver(appId, saved, false, saved, 4);
+					expect(hook).toHaveBeenCalledOnce();
+					expect(result.outcome.landed).toBe(false);
+					expect(result.requests).not.toContain(`POST ${IMPORT_PATH}`);
+				} finally {
+					hook.mockRestore();
+				}
+			} else {
+				const original = deploymentStore.recordRefreshedAppBaseline;
+				const hook = vi
+					.spyOn(deploymentStore, "recordRefreshedAppBaseline")
+					.mockImplementationOnce(async (...args) => {
+						await changeLedger({});
+						return original(...args);
+					});
+				const previous = (await readAppBaseline(actor, KEY_TARGET))?.observedAt;
+				try {
+					const result = await withHttpPeer(async (peer) => {
+						serveAnswer(peer, FIXTURE_PATHS.source, saved);
+						return refreshKeptValues(actor, KEY_TARGET);
+					});
+					expect(hook).toHaveBeenCalledOnce();
+					expect(result.kind).toBe("superseded");
+					expect((await readAppBaseline(actor, KEY_TARGET))?.observedAt).toBe(
+						previous,
+					);
+				} finally {
+					hook.mockRestore();
+				}
+			}
+			const retried = await publishOver(appId, saved, false, saved, 4);
+			expect(
+				retried.outcome.refusal?.remoteChanges[0]?.parts.join(" "),
+			).toContain("unused-image");
+			expect(retried.requests).not.toContain(`POST ${IMPORT_PATH}`);
 		},
 		30_000,
 	);

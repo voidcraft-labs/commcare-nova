@@ -29,6 +29,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { GenesisGateRejectedError } from "@/lib/db/appGenesis";
 import { softDeleteApp } from "@/lib/db/apps";
 import {
+	changedAnswer,
 	counterOf,
 	FIXTURE_DOMAIN,
 	FIXTURE_HOST,
@@ -60,6 +61,7 @@ import {
 } from "../tools/bringInHqApp";
 import { registerListHqApps } from "../tools/listHqApps";
 import { registerReadHqApp } from "../tools/readHqApp";
+import type { ReadingProjection } from "../tools/readingProjection";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
@@ -262,6 +264,63 @@ function serveSourceHeld(
 }
 
 describe("read_hq_app", () => {
+	it("reads one birth over physical-file and lookup pages before offering its approval", async () => {
+		const files = Array.from(
+			{ length: 140 },
+			(_, i) =>
+				[
+					`jr://file/commcare/${i}-${"x".repeat(600)}.png`,
+					{ media_type: "CommCareImage", multimedia_id: `held-${i}` },
+				] as const,
+		);
+		const source = changedAnswer(fixtureSource(), (body) => ({
+			...body,
+			multimedia_map: {
+				...(body.multimedia_map as object),
+				...Object.fromEntries(files),
+			},
+		}));
+		await withHttpPeer(async (peer) =>
+			withTools(async (client) => {
+				let page: string | undefined;
+				let nonce: string | undefined;
+				const paths: string[] = [];
+				const tables: string[] = [];
+				let count = 0;
+				do {
+					serveFixtureApp(peer, { source });
+					const response = await call(client, "read_hq_app", {
+						...READ_ARGS,
+						...(page && { page }),
+					});
+					expect(response.isError).toBe(false);
+					const body = response.body as unknown as ReadingProjection;
+					if (!body.review || !body.reading_id)
+						throw new Error("Expected a birth review.");
+					nonce ??= body.reading_id;
+					expect(body.reading_id).toBe(nonce);
+					expect(body.restarted).not.toBe(true);
+					paths.push(
+						...(body.review.publish_details ?? []).map((row) => row.text),
+					);
+					tables.push(...body.review.tables.map((row) => row.tag));
+					page = body.review.next_page ?? undefined;
+					expect(body.review.review_digest === null).toBe(page !== undefined);
+					if (page) expect(page.endsWith(nonce)).toBe(true);
+					count++;
+					if (count > 20)
+						throw new Error(
+							"The unchanged reading restarted instead of advancing.",
+						);
+				} while (page);
+				expect(count).toBeGreaterThan(1);
+				for (const [name] of files)
+					expect(paths.some((line) => line.includes(name))).toBe(true);
+				expect(tables).toContain("district");
+			}),
+		);
+	}, 30_000);
+
 	it("answers a review with its reading_id in one call", async () => {
 		await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer);

@@ -3084,8 +3084,9 @@ function confirmsRemoteChange(
 	discard: RemoteChangeDiscard,
 	change: DeploymentRemoteChange,
 ): boolean {
-	if (change.requiresReview) return false;
-	if (sameRemoteChange(discard, change)) return true;
+	if (sameRemoteChange(discard, change)) return !change.requiresReview;
+	// Only a completed review offers its own receipt here. The short
+	// preview and the receipt for all disclosed files have distinct digests.
 	return (
 		change.kind === "app" &&
 		change.canBringIn &&
@@ -3161,14 +3162,15 @@ function RemoteChangeChoice({
 				const id = `discard-${change.kind}-${change.novaResourceId}`;
 				const item = (
 					<>
-						{change.baselineKnown ? (
+						{change.parts.length > 0 && (
 							<ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-nova-text-secondary">
 								{change.parts.map((part, index) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: two parts can name forms of the same name, so the text is no key.
 									<li key={index}>{part}</li>
 								))}
 							</ul>
-						) : (
+						)}
+						{!change.baselineKnown && (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{baselineUnknownSentence(change.since, viewerDriftDate())}
 							</p>

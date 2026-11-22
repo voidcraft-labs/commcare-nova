@@ -497,10 +497,27 @@ test("a change Nova can bring in with nothing removed asks no question, and one 
 test("changes made in both places list both, open in full on Show all, and offer three choices with no tick beside them", async ({
 	page,
 }) => {
-	const hqChanges = Array.from(
-		{ length: 12 },
-		(_, index) => `The question Q${index + 1} in the form Visit`,
+	const files = Array.from(
+		{ length: 20 },
+		(_, index) =>
+			`Publishing removes the unused reference “jr://file/visit-${index}.png” to HQ file “photo-${index}”.`,
 	);
+	const hqChanges = [...files, "The question Weight in the form Visit"];
+	const refusal = {
+		...CHANGED_IN_HQ,
+		refusal: {
+			...CHANGED_IN_HQ.refusal,
+			remoteChanges: [
+				{
+					...APP_CHANGE,
+					observedDigest: "e".repeat(64),
+					parts: files.slice(0, 19),
+					requiresReview: true,
+				},
+			],
+		},
+	};
+
 	const novaChanges = [
 		"The form Follow-up in the menu Patients: the questions Weight and Height",
 		"The app's name",
@@ -511,13 +528,19 @@ test("changes made in both places list both, open in full on Show all, and offer
 		const uploads = await recorded(
 			routes,
 			"/api/commcare/upload",
-			(route, index) =>
-				route.fulfill({ json: index === 0 ? CHANGED_IN_HQ : LANDED }),
+			(route, index) => route.fulfill({ json: index === 0 ? refusal : LANDED }),
 		);
 		await recorded(routes, "/api/commcare/changes/review", (route) =>
 			fulfillStream(
 				route,
-				stream(changes({ hqChanges, novaChanges, madeBy: ["Grace Hopper"] })),
+				stream(
+					changes({
+						hqChanges,
+						fileReviewLines: files.length,
+						novaChanges,
+						madeBy: ["Grace Hopper"],
+					}),
+				),
 			),
 		);
 		const bringIns = await recorded(
@@ -547,12 +570,26 @@ test("changes made in both places list both, open in full on Show all, and offer
 		await expect(hqList(page).getByRole("listitem")).toHaveText(
 			hqChanges.slice(0, 10),
 		);
+		await expect(
+			page.getByRole("button", { name: PUBLISH_OVER_HQ_ACTION, exact: true }),
+		).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: USE_HQ_VERSION_ACTION, exact: true }),
+		).toHaveCount(0);
+		expect(uploads).toHaveLength(1);
+
 		await page
-			.getByRole("button", { name: showAllAction(12), exact: true })
+			.getByRole("button", {
+				name: showAllAction(hqChanges.length),
+				exact: true,
+			})
 			.click();
 		await expect(hqList(page).getByRole("listitem")).toHaveText(hqChanges);
 		await expect(
-			page.getByRole("button", { name: showAllAction(12), exact: true }),
+			page.getByRole("button", {
+				name: showAllAction(hqChanges.length),
+				exact: true,
+			}),
 		).toHaveCount(0);
 
 		/* The three choices, each with its sentence, and nothing to tick. */

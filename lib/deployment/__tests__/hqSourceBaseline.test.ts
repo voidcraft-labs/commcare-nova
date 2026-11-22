@@ -20,7 +20,9 @@ import {
 	type AppChangePart,
 	diffHqAppSource,
 	normalizeHqAppSource,
+	removedHqFiles,
 } from "../hqSourceBaseline";
+import { appRemoteChange, decideRemoteChanges } from "../remoteChanges";
 import type { AppOwnership } from "../types";
 
 const READS = path.join(process.cwd(), "proof/hq-reads");
@@ -410,6 +412,138 @@ describe("a baseline an app brought in from CommCare HQ is born with", () => {
 			{ kind: "form", menu: 0, form: 0, name: "Visit", menuName: "Patients" },
 		]);
 	});
+});
+
+describe("the removal decision shared by a real publish and capture", () => {
+	const names = Array.from(
+		{ length: 22 },
+		(_, i) => `commcare/image/kept-${i}.jpg`,
+	);
+	const source = {
+		...retainedRead(NAVIGATION_BASE),
+		multimedia_map: Object.fromEntries(
+			names.map((p, i) => [
+				`jr://file/${p}`,
+				{ media_type: "CommCareImage", multimedia_id: `saved-${i}` },
+			]),
+		),
+	};
+	const current = normalizeHqAppSource(source);
+	if ("malformed" in current) throw new Error(current.malformed);
+	const sourceRead = current;
+	const ownership = retainedOwnership(NAVIGATION_BASE_OWNERSHIP);
+	const authority = {
+		actor: "editor",
+		role: "editor",
+		project: "project",
+		app: "app",
+		server: "production" as const,
+		domain: "test",
+		remoteApp: "remote",
+		deployment: "deployment",
+		claim: "claim",
+		reviewGeneration: null as string | null,
+		headSeq: 1,
+		remoteRevision: 2,
+		baseline: null,
+	};
+	const decision = (
+		origin: "create" | "read" | "push",
+		keep: readonly string[],
+		approved: readonly string[] = [],
+		context = authority,
+	) =>
+		appRemoteChange({
+			authority: context,
+			novaAppId: "app",
+			appName: "Care",
+			remoteAppId: "remote",
+			current: sourceRead,
+			baseline: {
+				source: sourceRead.normalized,
+				origin,
+				ownership,
+				mediaFiles: null,
+				approvedFileRemovals: approved,
+			},
+			since: { kind: "published" },
+			languageNames: "target",
+			mediaChanged: 0,
+			published: keep.map((wirePath) => ({ wirePath })),
+			canBringIn: origin !== "create",
+		});
+	it("asks separately for the identical file on another target, HQ app, or claim", () => {
+		const first = decision("push", names.slice(1));
+		if (!first) throw new Error("Expected the foreign file to be listed.");
+		const receipt = {
+			kind: "app" as const,
+			novaResourceId: "app",
+			observedDigest: first.observedDigest,
+		};
+		for (const scope of [
+			{ domain: "another" },
+			{ remoteApp: "replacement" },
+			{ claim: "later" },
+			{ project: "moved" },
+			{ actor: "co-editor" },
+			{ role: "admin" },
+			{ headSeq: 4 },
+			{ remoteRevision: 5 },
+			{ reviewGeneration: "later review" },
+		]) {
+			const observed = decision("push", names.slice(1), [], {
+				...authority,
+				...scope,
+			});
+			if (!observed)
+				throw new Error("Each independent owner removes the recorded file.");
+			expect(observed.parts).toEqual(first.parts);
+			expect(
+				decideRemoteChanges({ observed: [observed], discards: [receipt] })
+					.proceed,
+				JSON.stringify(scope),
+			).toBe(false);
+		}
+	});
+	it.each(["create", "read", "push"] as const)(
+		"binds the outgoing paths and requires the entire list on a %s baseline",
+		(origin) => {
+			const first = decision(origin, names.slice(1));
+			const next = decision(origin, names.slice(2));
+			if (!first || !next)
+				throw new Error(
+					"The two imports must list the foreign references they remove.",
+				);
+			expect(first.parts.join(" ")).toContain(names[0]);
+			expect(first.observedDigest).not.toBe(next.observedDigest);
+			const discard = {
+				kind: "app" as const,
+				novaResourceId: "app",
+				observedDigest: first.observedDigest,
+			};
+			expect(
+				decideRemoteChanges({ observed: [first], discards: [discard] }).proceed,
+			).toBe(true);
+			expect(
+				decideRemoteChanges({ observed: [next], discards: [discard] }).proceed,
+			).toBe(false);
+			const overflow = decision(origin, []);
+			if (!overflow)
+				throw new Error("Expected every saved file to be considered.");
+			expect(overflow.requiresReview).toBe(true);
+			expect(
+				decideRemoteChanges({
+					observed: [overflow],
+					discards: [{ ...discard, observedDigest: overflow.observedDigest }],
+				}).proceed,
+			).toBe(false);
+			const accepted = removedHqFiles(sourceRead.normalized, {
+				published: [],
+				recorded: null,
+			}).map((file) => file.digest);
+			expect(decision(origin, [], accepted)).toBeNull();
+		},
+	);
 });
 
 describe("the schema-growth rule", () => {

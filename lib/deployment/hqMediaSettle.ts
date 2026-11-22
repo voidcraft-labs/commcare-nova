@@ -1,3 +1,5 @@
+import { hqMediaStandings } from "./hqMedia";
+import { removedHqFiles } from "./hqSourceBaseline";
 /**
  * Settling a published path whose file CommCare HQ's id alone cannot vouch
  * for, by the file's content: the one place a publish, or a review of
@@ -6,7 +8,16 @@
 
 import "server-only";
 import { createHash } from "node:crypto";
-import type { HqMediaType } from "@/lib/commcare/hq/appSource";
+import {
+	type HqAppSource,
+	type HqMediaType,
+	unreadableMediaIdentity,
+} from "@/lib/commcare/hq/appSource";
+import {
+	type HqAppSourceAtVersionRead,
+	readHqAppSaveCounter,
+	readHqAppSourceAtVersion,
+} from "@/lib/commcare/hq/appSourceAtVersion";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
@@ -19,7 +30,13 @@ import {
 } from "@/lib/commcare/hq/media";
 import { giveBackHeld } from "@/lib/commcare/hq/memoryMeter";
 import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain";
-import type { HqMediaPath, HqMediaRecord, HqMediaStanding } from "./hqMedia";
+import {
+	type HqMediaPath,
+	type HqMediaRecord,
+	type HqMediaStanding,
+	mediaMovedBetween,
+	type PublishedMediaFile,
+} from "./hqMedia";
 
 /**
  * What CommCare HQ answered for one file, kept for a later step of the same
@@ -212,4 +229,89 @@ export async function settleHqMedia(
 /** A standing an id alone cannot settle. */
 function isCandidate(standing: HqMediaStanding): boolean {
 	return standing === "moved" || standing === "unrecorded";
+}
+
+/** Include the physical identity of two undecodable entries. Their typed
+ * projections both lack an id, without establishing they name the same file. */
+export function filesMovedSinceSource(
+	compared: HqAppSource,
+	current: HqAppSource,
+	files: readonly PublishedMediaFile[],
+) {
+	return mediaMovedBetween(
+		compared.multimediaMap ?? [],
+		current.multimediaMap ?? [],
+		files,
+		(path) =>
+			unreadableMediaIdentity(compared.raw, path) !==
+			unreadableMediaIdentity(current.raw, path),
+	);
+}
+
+/** The app content was accepted before its media. A deferred batch uses the
+ * source compared for that import, the import's verified read-back, and the HQ
+ * save counter at dispatch. If the counter advanced after read-back, the new
+ * reading must itself stay at that counter. Newly occupied paths are settled
+ * by their bytes. An unread or foreign mapping cannot authorize a bundle. */
+export async function verifyHqMediaBatch(
+	creds: CommCareCredentials,
+	domain: string,
+	appId: string,
+	compared: HqAppSource,
+	readBack: HqAppSourceAtVersionRead | null,
+	files: readonly PublishedMediaFile[],
+): Promise<Extract<SettledHqMedia, { kind: "settled" }> | null> {
+	if (
+		compared.multimediaMap === null ||
+		!readBack ||
+		"success" in readBack ||
+		readBack.kind !== "source-at"
+	)
+		return null;
+	const counter = await readHqAppSaveCounter(creds, domain, appId);
+	if (typeof counter !== "number" || counter < readBack.version) return null;
+	const read =
+		counter === readBack.version
+			? readBack
+			: await readHqAppSourceAtVersion(creds, domain, appId, counter);
+	if (
+		"success" in read ||
+		read.kind !== "source-at" ||
+		read.source.multimediaMap === null
+	)
+		return null;
+	const moved = filesMovedSinceSource(compared, read.source, files);
+	if (moved.some((file) => file.standing === "replaced")) return null;
+	const settled = await settleHqMedia(creds, moved, {});
+	if (
+		settled.kind !== "settled" ||
+		settled.paths.some((file) => file.standing === "replaced")
+	)
+		return null;
+	// Authenticated file reads can span another save. The evidence then
+	// belongs to the earlier map, and the next publish can read again.
+	if (
+		moved.some((file) => file.standing === "unrecorded") &&
+		(await readHqAppSaveCounter(creds, domain, appId)) !== read.version
+	)
+		return null;
+	return settled;
+}
+
+/** The shell was just created, so preflight could not have shown any files on
+ * it. If HQ already holds an affected mapping, park the shell. The next
+ * publish compares its files through the usual target preflight. */
+export function freshShellHasAffectedFiles(
+	source: HqAppSource,
+	published: readonly PublishedMediaFile[],
+): boolean {
+	if (!source.multimediaMap?.length) return false;
+	return (
+		removedHqFiles(source.raw, { published, recorded: null }).length > 0 ||
+		hqMediaStandings({
+			published,
+			record: null,
+			now: source.multimediaMap,
+		}).some((file) => file.standing !== "absent")
+	);
 }

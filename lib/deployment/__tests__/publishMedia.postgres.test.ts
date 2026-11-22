@@ -579,6 +579,76 @@ it.each(["remove", "replace"] as const)(
 	},
 );
 
+it.each([
+	"later HQ save",
+	"unread result",
+	"different file at the acknowledged save",
+] as const)(
+	"keeps a person's file when the content import lands before its media (%s)",
+	async (interleaving) => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			await publishFirst(peer, doc);
+			const from = sentCount(peer);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			request(peer, IMPORT, "POST").reply(() => {
+				const acknowledged = saves.save(HQ_APP);
+				if (interleaving === "later HQ save") saves.save(HQ_APP);
+				return {
+					statusCode: 200,
+					data: { success: true, app_id: HQ_APP, version: acknowledged },
+				};
+			});
+			if (interleaving === "unread result")
+				request(peer, SOURCE).reply(500, "");
+			else
+				serveWithMap(peer, "source-live", { [WIRE]: "foreign-after-import" });
+			if (interleaving === "different file at the acknowledged save")
+				file(peer, "foreign-after-import", PERSONS_FILE);
+			const result = await publish(doc);
+			expect(result.landed).toBe(true);
+			expect(requests(peer, from)).toContain(`POST ${IMPORT}`);
+			expect(requests(peer, from)).not.toContain(`POST ${MEDIA}`);
+			expect(result.warnings.join(" ")).toMatch(
+				/files?.*review|review.*files?/i,
+			);
+			expect((await record())?.[WIRE]).not.toBe("foreign-after-import");
+			expect(await openMediaWrites()).toEqual([]);
+			serveWithMap(peer, "source-live", { [WIRE]: "foreign-after-import" });
+			file(peer, "foreign-after-import", PERSONS_FILE);
+			const retry = refusal(await publish(doc));
+			expect(retry.failure.code).toBe("hq_changed");
+			expect(
+				requests(peer, from).filter((one) => one === `POST ${IMPORT}`),
+			).toHaveLength(1);
+		});
+	},
+);
+
+it("checks a file placed in a parked app before retrying its first content import", async () => {
+	const doc = await seed(withImage(clinicVisitsDocument()));
+	await withPeer(async (peer) => {
+		accepted(peer, 201);
+		serve(peer, "source-shell");
+		request(peer, IMPORT, "POST").reply(400, {
+			success: false,
+			message: "Rejected the content",
+		});
+		expect((await publish(doc)).landed).toBe(false);
+		expect((await readAppBaseline(SCOPE, TARGET))?.origin).toBe("create");
+		saves.save(HQ_APP);
+		const from = sentCount(peer);
+		serveWithMap(peer, "source-shell", { [WIRE]: "person-in-shell" });
+		file(peer, "person-in-shell", PERSONS_FILE);
+		const retry = refusal(await publish(doc));
+		expect(retry.failure.code).toBe("hq_changed");
+		expect(retry.remoteChanges[0]?.parts.join(" ")).toContain(
+			"A picture or sound this app publishes",
+		);
+		expect(requests(peer, from)).not.toContain(`POST ${IMPORT}`);
+		expect(requests(peer, from)).not.toContain(`POST ${MEDIA}`);
+	});
+});
 describe("a file replaced in CommCare HQ", () => {
 	it("stops the publish with one media part before anything is sent, and keeps the record", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
@@ -764,7 +834,7 @@ describe("a read with no media map", () => {
 		});
 	});
 
-	it("passes an app that publishes none, and records no file", async () => {
+	it("requires a complete map before importing an app that sends no files", async () => {
 		const doc = await seed(clinicVisitsDocument());
 		await withPeer(async (peer) => {
 			accepted(peer, 201);
@@ -774,7 +844,13 @@ describe("a read with no media map", () => {
 			expect((await publish(doc)).landed).toBe(true);
 			expect(await record()).toEqual({});
 
+			const sent = sentCount(peer);
 			serveWithMap(peer, "source-live", null);
+			expect(refusal(await publish(doc)).failure.code).toBe(
+				"hq_app_state_unknown",
+			);
+			expect(requests(peer, sent)).not.toContain(`POST ${IMPORT}`);
+			serveWithMap(peer, "source-live", {});
 			accepted(peer, 200);
 			serve(peer, "source-live");
 			expect((await publish(doc)).landed).toBe(true);
@@ -1151,14 +1227,15 @@ describe("the record after an upload", () => {
 		});
 		expect(await record()).toEqual({ [WIRE]: "new-response" });
 
-		/* A publish whose read-back failed wrote an unread baseline, which has
-		 * no digest, and records what its upload reported against that. */
+		/* An unread result cannot authorize another file write. The earlier
+		 * verified file stays and an older report cannot change it. */
 		await withPeer(async (peer) => {
 			serveWithMap(peer, "source-live", { [WIRE]: "new-response" });
 			accepted(peer, 200);
 			request(peer, SOURCE).reply(500, "");
-			mediaTaken(peer, "doc-unread");
+			const start = sentCount(peer);
 			expect((await publish(doc)).landed).toBe(true);
+			expect(requests(peer, start)).not.toContain(`POST ${MEDIA}`);
 		});
 		expect(
 			await h
@@ -1169,17 +1246,17 @@ describe("the record after an upload", () => {
 		).toEqual({
 			origin: "unread",
 			source_digest: null,
-			media_files: { [WIRE]: "doc-unread" },
+			media_files: { [WIRE]: "new-response" },
 		});
 		await write({ sourceDigest: digest, files: { [WIRE]: "x" } });
-		expect(await record()).toEqual({ [WIRE]: "doc-unread" });
+		expect(await record()).toEqual({ [WIRE]: "new-response" });
 	});
 });
 
 describe("a file whose id moved while the Project's data went", () => {
 	/** An app with the image and a select over one lookup table, so each
 	 *  publish pushes the table and reads the app's source a second time. */
-	async function seedWithTable() {
+	async function seedWithTable(withFile = true) {
 		const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 		/* A lookup writer reads its member's role on its own transaction. */
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
@@ -1197,36 +1274,33 @@ describe("a file whose id moved while the Project's data went", () => {
 			expectedTableRevision: table.tableRevision,
 			rows: [{ [code.id]: "001", [name.id]: "Clinic" }],
 		});
-		return seed(
-			withImage(
-				buildDoc({
-					appName: "Facility visits",
-					modules: [
+		const doc = buildDoc({
+			appName: "Facility visits",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
 						{
-							name: "Visits",
-							forms: [
+							name: "Visit",
+							type: "survey",
+							fields: [
 								{
-									name: "Visit",
-									type: "survey",
-									fields: [
-										{
-											id: "facility",
-											kind: "single_select",
-											optionsSource: {
-												kind: "lookup",
-												tableId: table.id,
-												valueColumnId: code.id,
-												labelColumnId: name.id,
-											},
-										},
-									],
+									id: "facility",
+									kind: "single_select",
+									optionsSource: {
+										kind: "lookup",
+										tableId: table.id,
+										valueColumnId: code.id,
+										labelColumnId: name.id,
+									},
 								},
 							],
 						},
 					],
-				}),
-			),
-		);
+				},
+			],
+		});
+		return seed(withFile ? withImage(doc) : doc);
 	}
 	const remoteTable = {
 		id: "hq-table",
@@ -1286,6 +1360,109 @@ describe("a file whose id moved while the Project's data went", () => {
 		serveWithMap(peer, "source-live", second);
 	}
 
+	it.each(["HQ saved", "same working save"] as const)(
+		"checks the reviewed save at each throttled import (%s)",
+		async (outcome) => {
+			const doc = await seed(withImage(clinicVisitsDocument()));
+			await withPeer(async (peer) => {
+				await publishFirst(peer, doc);
+				const baseline = await readAppBaseline(SCOPE, TARGET);
+				const start = sentCount(peer);
+				serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+				for (let i = 0; i < 2; i++)
+					request(peer, IMPORT, "POST").reply(() => {
+						if (i === 1 && outcome === "HQ saved") saves.save(HQ_APP);
+						return {
+							statusCode: 429,
+							data: "",
+							responseOptions: { headers: { "retry-after": "0" } },
+						};
+					});
+				if (outcome === "same working save") {
+					accepted(peer, 200);
+					serve(peer, "source-live");
+					mediaTaken(peer, "doc-nova");
+				}
+				const result = await publish(doc);
+				const sent = requests(peer, start);
+				if (outcome === "HQ saved") {
+					expect(refusal(result).failure.code).toBe("hq_changed");
+					expect(sent.filter((path) => path === `POST ${IMPORT}`)).toHaveLength(
+						2,
+					);
+					expect(sent).not.toContain(`POST ${MEDIA}`);
+					expect(await readAppBaseline(SCOPE, TARGET)).toEqual(baseline);
+				} else {
+					expect(result.landed).toBe(true);
+					expect(sent.filter((path) => path === `POST ${IMPORT}`)).toHaveLength(
+						3,
+					);
+				}
+			});
+		},
+		30_000,
+	);
+	it.each(["no resources", "after resources"] as const)(
+		"checks HQ's final working save after a slow file read (%s)",
+		async (mode) => {
+			const doc =
+				mode === "no resources"
+					? await seed(withImage(clinicVisitsDocument()))
+					: await seedWithTable();
+			await withPeer(async (peer) => {
+				if (mode === "no resources") await publishFirst(peer, doc, null);
+				else await publishFirstWithTable(peer, doc);
+				const earlier = await readAppBaseline(SCOPE, TARGET);
+				const link = () =>
+					h
+						.db()
+						.selectFrom("app_deployments")
+						.select(["content_generation", "entry_point_manifest"])
+						.where("app_id", "=", APP)
+						.executeTakeFirstOrThrow();
+				const previous = await link();
+				if (mode === "no resources")
+					expect(previous.entry_point_manifest).not.toBeNull();
+				const start = sentCount(peer);
+				const moved = { [WIRE]: "late" };
+				if (mode === "no resources") serveWithMap(peer, "source-live", moved);
+				else republishReads(peer, { [WIRE]: "doc-nova" }, moved);
+				request(peer, "/hq/multimedia/file/CommCareImage/late/").reply(() => {
+					saves.save(HQ_APP);
+					return {
+						statusCode: 200,
+						data: PNG,
+						responseOptions: { headers: { "content-type": "image/png" } },
+					};
+				});
+				const outcome = await publish(doc);
+				expect(refusal(outcome)).toMatchObject({
+					phase: "upload",
+					failure: { code: "hq_changed" },
+				});
+				const sent = requests(peer, start);
+				expect(sent).toContain("GET /hq/multimedia/file/CommCareImage/late/");
+				expect(sent).not.toContain(`POST ${IMPORT}`);
+				expect(sent).not.toContain(`POST ${MEDIA}`);
+				expect(sent.includes(`POST ${WORKBOOK}`)).toBe(
+					mode === "after resources",
+				);
+				expect(await readAppBaseline(SCOPE, TARGET)).toEqual(earlier);
+				expect(
+					await h
+						.db()
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("app_id", "=", APP)
+						.where("settled_at", "is", null)
+						.execute(),
+				).toEqual([]);
+				if (mode === "no resources") expect(await link()).toEqual(previous);
+			});
+		},
+		30_000,
+	);
+
 	it("stops at the upload where the file there is not this app's, with neither the content nor the file sent", async () => {
 		const doc = await seedWithTable();
 		await withPeer(async (peer) => {
@@ -1314,6 +1491,31 @@ describe("a file whose id moved while the Project's data went", () => {
 		expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 	});
 
+	it("preserves the newly created shell when its post-workbook source has no media map and no file is being sent", async () => {
+		const doc = await seedWithTable(false);
+		await withPeer(async (peer) => {
+			const begin = sentCount(peer);
+			request(peer, TABLES).reply(200, { objects: [], meta: { next: null } });
+			accepted(peer, 201);
+			serve(peer, "source-shell");
+			workbookTaken(peer);
+			tablesAfterPush(peer);
+			tableRows(peer);
+			serveWithMap(peer, "source-shell", null);
+			const rejected = refusal(await publish(doc));
+			expect(rejected.phase).toBe("upload");
+			expect(rejected.failure.code).toBe("hq_app_state_unknown");
+			const writes = requests(peer, begin).filter((path) =>
+				path.startsWith("POST "),
+			);
+			expect(writes).toContain(`POST ${WORKBOOK}`);
+			expect(writes.filter((path) => path === `POST ${IMPORT}`)).toHaveLength(
+				1,
+			);
+			expect(writes).not.toContain(`POST ${MEDIA}`);
+			expect((await readAppBaseline(SCOPE, TARGET))?.origin).toBe("create");
+		});
+	});
 	it("stops before importing when HQ adds an unused file while Nova publishes the table", async () => {
 		const doc = await seedWithTable();
 		await withPeer(async (peer) => {

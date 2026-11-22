@@ -1002,6 +1002,8 @@ export interface AppDeploymentBaselinesTable {
 		{
 			readonly ids: readonly string[];
 			readonly reviewed?: 1;
+			readonly reviewedInputs?: 1;
+			readonly removedFiles?: readonly string[];
 			readonly webAppsOnInHq: boolean;
 			readonly of: "first-publish" | "next-publish";
 		} | null,

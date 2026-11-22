@@ -20,6 +20,7 @@ import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { AdoptedMediaFile } from "../adoption";
 import type { HqMediaPath, HqMediaRecord } from "../hqMedia";
+import type { appConfirmationScope } from "../hqSourceBaseline";
 import { reviewMediaId } from "../reading/mediaIds";
 import type { ReviewTable } from "../reading/projectData/reviewTypes";
 import {
@@ -33,10 +34,15 @@ export interface HqChangesDigestInput {
 		readonly next: TargetIdentity;
 	};
 	/** The reviewed mapping and its continuous claim of this HQ app. */
-	readonly mappingToken: string;
+	readonly authority: ReturnType<typeof appConfirmationScope>;
 	/** The stored baseline's `source_digest`: the source the base reading read. */
 	readonly baselineDigest: string;
-	readonly requiredReview?: "historical-first-publish" | "new-unused-files";
+	readonly approvedRemovals?: readonly string[];
+	readonly removedFiles?: readonly string[];
+	readonly requiredReview?:
+		| "historical-first-publish"
+		| "new-unused-files"
+		| "changed-publish-subjects";
 	/** The digest of CommCare HQ's whole normalized source as this request read it. */
 	readonly sourceDigest: string;
 	/** The app's head sequence the plan was computed at. */
@@ -64,13 +70,17 @@ export interface HqChangesDigestInput {
  */
 export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 	return canonicalJsonDigest({
-		v: 3,
+		v: 4,
+		...(input.approvedRemovals?.length
+			? { approvedRemovals: input.approvedRemovals }
+			: {}),
+		...(input.removedFiles?.length ? { removedFiles: input.removedFiles } : {}),
 		...(input.requiredReview && { requiredReview: input.requiredReview }),
 		identity: {
 			read: canonicalTargetIdentity(input.identity.read),
 			next: canonicalTargetIdentity(input.identity.next),
 		},
-		mappingToken: input.mappingToken,
+		authority: input.authority,
 		baselineDigest: input.baselineDigest,
 		sourceDigest: input.sourceDigest,
 		headSeq: input.headSeq,

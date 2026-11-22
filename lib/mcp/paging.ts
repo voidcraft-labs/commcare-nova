@@ -14,6 +14,8 @@
  */
 
 import { cutShown } from "@/lib/publish/shownText";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { MAX_RESULT_SIZE_CHARS } from "./resultSize";
 
 /**
  * The most characters of JSON one answer holds, under the result size the
@@ -21,6 +23,17 @@ import { cutShown } from "@/lib/publish/shownText";
  * cut at.
  */
 export const PAGE_LIMIT_CHARS = 80_000;
+/** The MCP host can limit the serialized text-content result as well as its inner text. */
+export function fitsReviewResult(body: unknown, isError = false): boolean {
+	const text = JSON.stringify(body);
+	return (
+		text.length <= PAGE_LIMIT_CHARS &&
+		JSON.stringify({
+			...(isError && { isError: true }),
+			content: [{ type: "text", text }],
+		}).length <= MAX_RESULT_SIZE_CHARS
+	);
+}
 
 /** The most characters of JSON one piece of a page takes, its comma included. */
 export const PIECE_MAX_CHARS = 30_000;
@@ -127,4 +140,57 @@ export function toolText(body: unknown): string {
 			`An answer came to ${text.length} characters, more than the ${PAGE_LIMIT_CHARS} one answer holds, so Nova sent none of it. Every list in an answer is paged by lib/mcp/paging.ts::cutPage; look at what this one held outside its pages.`,
 		);
 	return text;
+}
+
+/** A page continuation identifies one offset without disclosing the approval to write. */
+export function reviewedPageDigest(
+	operation: "birth" | "changes",
+	reviewDigest: string,
+	from: number,
+): string {
+	return canonicalJsonDigest([operation, "page", from, reviewDigest]);
+}
+
+export const LINE_PART_MAX_CHARS = PIECE_MAX_CHARS - 1;
+function jsonCharsOf(codePoint: number): number {
+	if (codePoint === 0x22 || codePoint === 0x5c) return 2;
+	if (codePoint < 0x20)
+		return codePoint === 0x08 ||
+			codePoint === 0x09 ||
+			codePoint === 0x0a ||
+			codePoint === 0x0c ||
+			codePoint === 0x0d
+			? 2
+			: 6;
+	/* A lone surrogate is written as an escape. */
+	if (codePoint >= 0xd800 && codePoint <= 0xdfff) return 6;
+	return codePoint > 0xffff ? 2 : 1;
+}
+
+/**
+ * `line` cut into parts of at most `LINE_PART_MAX_CHARS` characters of JSON
+ * each, never inside a code point; the line itself where it fits.
+ */
+export function lineParts(
+	line: string,
+	limit = LINE_PART_MAX_CHARS,
+): readonly string[] {
+	if (JSON.stringify(line).length <= limit) return [line];
+	const budget = limit - 2;
+	const parts: string[] = [];
+	let start = 0;
+	let size = 0;
+	let at = 0;
+	for (const char of line) {
+		const cost = jsonCharsOf(char.codePointAt(0) ?? 0);
+		if (size + cost > budget) {
+			parts.push(line.slice(start, at));
+			start = at;
+			size = 0;
+		}
+		size += cost;
+		at += char.length;
+	}
+	parts.push(line.slice(start));
+	return parts;
 }
