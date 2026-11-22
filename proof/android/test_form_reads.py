@@ -387,7 +387,7 @@ def test_a_number_keypad_keeps_what_its_keys_enter(android_documents, hq):
 
 
 @pytest.mark.parametrize("publication", ["A", "B"])
-def test_android_question_display_preserves_widgets_and_answers(android_documents, hq, publication):
+def test_android_question_display_preserves_widgets_and_answers(android_documents, hq, publication, android_walk_evidence):
     """The released form includes both halves of each composition. Worker's
     choices and dates must survive under their original data identities."""
     with _served(android_documents["hq-question-display"], publication) as (served, archive):
@@ -398,6 +398,7 @@ def test_android_question_display_preserves_widgets_and_answers(android_document
                 "/data/place": ["2"], "/data/plain_place": ["1"],
             },
         )
+    android_walk_evidence(answer["walks"][FORM])
     form = _completed_walk(answer, FORM)
     widgets = {
         question["reference"]: question["widget"]
@@ -418,7 +419,7 @@ def test_android_question_display_preserves_widgets_and_answers(android_document
 
 
 @pytest.mark.parametrize("publication", ["A", "B"])
-def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answers(android_documents, hq, publication):
+def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answers(android_documents, hq, publication, android_walk_evidence):
     menu = "m1-f0"
     with _served(android_documents["hq-question-display"], publication) as (served, archive):
         answer, sent = _app(
@@ -431,6 +432,7 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
                 "/data/access_video": ["camera"], "/data/quick_scan": ["scan:TRIP-007"],
             },
         )
+    android_walk_evidence(answer["walks"][menu])
     form = _completed_walk(answer, menu)
     questions = {
         q["reference"]: q for screen in form["screens"] for q in screen.get("questions", [])
@@ -500,12 +502,13 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
         assert _child(root, path).text == value, (path, instance)
 
 
-def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq):
+def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq, android_walk_evidence):
     with _served(android_documents["targeted-question-calendar"]) as (served, archive):
         answer, sent = _app(
             served, archive, "clear-calendar", commands=[FORM], controls=True,
             questions={"/data/scheduled": [], "/data/rescheduled": ["clear-calendar"]},
         )
+    android_walk_evidence(answer["walks"][FORM])
     form = _completed_walk(answer, FORM)
     questions = {
         question["reference"]: question for screen in form["screens"] for question in screen.get("questions", [])

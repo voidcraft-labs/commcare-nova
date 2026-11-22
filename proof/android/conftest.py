@@ -10,6 +10,10 @@ themselves.
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
@@ -62,3 +66,13 @@ def android_documents():
             " the Android reader's own tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+@pytest.fixture
+def android_walk_evidence(request):
+    """The unchanged device walk, including its stopping screen or native exception."""
+    def write(walk):
+        directory = Path(os.environ.get("PROOF_OUT") or "/tmp") / "android" / request.node.name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "walk.json").write_text(json.dumps(walk, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    return write
