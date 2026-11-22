@@ -35,6 +35,7 @@ DOCUMENTS = (
     "targeted-preview-android-renders",
     "targeted-styled-value",
     "targeted-tile-hidden-order",
+    "targeted-validated-barcode-secret",
 )
 
 
