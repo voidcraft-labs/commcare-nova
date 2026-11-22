@@ -322,7 +322,7 @@ const stepSources = new Map();
 
 /** A step file's function, as a page expression. Names are "<folder>/<file>". */
 function stepSource(name) {
-	if (!/^[a-z]+\/[a-z_]+$/.test(name)) {
+	if (!/^[a-z]+\/[a-z][a-z_-]*$/.test(name)) {
 		throw new StepFailed(
 			"request",
 			`"${name}" is not a step file name; step files are named "<folder>/<file>" under ${STEPS_DIR}.`,

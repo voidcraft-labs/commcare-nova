@@ -152,6 +152,25 @@ def _forms(walk):
     return [step["form"] for step in walk.get("steps", []) if step.get("screen") == FORM_ENTRY and "form" in step]
 
 
+def _completed_walk(answer, command):
+    walk = answer["walks"][command]
+    # The reader returns the native exception as data so other walks can
+    # continue. Retain that exception, or the actual stopping screen,
+    # before indexing the controls whose absence is only a consequence.
+    assert "raised" not in walk, json.dumps(walk.get("raised"), ensure_ascii=False)
+    forms = _forms(walk)
+    assert len(forms) == 1, json.dumps(walk, ensure_ascii=False)
+    form = forms[0]
+    if form.get("ended") != "end" or not form.get("saved", {}).get("finishing"):
+        last = form.get("screens", [])[-2:]
+        raise AssertionError(json.dumps({
+            "command": command, "ended": form.get("ended"), "saved": form.get("saved"),
+            "screens": [{k: v for k,v in screen.items() if k not in ("view", "banners")} for screen in last],
+            "lastVisibleText": _texts((last[-1].get("view") or {})) if last else [],
+        }, ensure_ascii=False))
+    return form
+
+
 def _child(element, name):
     """The child element of ``element`` whose local name is ``name``."""
     (found,) = [child for child in element if isinstance(child.tag, str) and etree.QName(child).localname == name]
@@ -379,7 +398,7 @@ def test_android_question_display_preserves_widgets_and_answers(android_document
                 "/data/place": ["2"], "/data/plain_place": ["1"],
             },
         )
-    (form,) = _forms(answer["walks"][FORM])
+    form = _completed_walk(answer, FORM)
     widgets = {
         question["reference"]: question["widget"]
         for screen in form["screens"] for question in screen.get("questions", [])
@@ -412,7 +431,7 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
                 "/data/access_video": ["camera"], "/data/quick_scan": ["scan:TRIP-007"],
             },
         )
-    (form,) = _forms(answer["walks"][menu])
+    form = _completed_walk(answer, menu)
     questions = {
         q["reference"]: q for screen in form["screens"] for q in screen.get("questions", [])
     }
@@ -487,7 +506,7 @@ def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq)
             served, archive, "clear-calendar", commands=[FORM], controls=True,
             questions={"/data/scheduled": [], "/data/rescheduled": ["clear-calendar"]},
         )
-    (form,) = _forms(answer["walks"][FORM])
+    form = _completed_walk(answer, FORM)
     questions = {
         question["reference"]: question for screen in form["screens"] for question in screen.get("questions", [])
     }
