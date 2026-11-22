@@ -29,7 +29,7 @@ export async function deploymentFoldSchema(
 				FROM pg_attribute a
 				WHERE a.attnum > 0 AND NOT a.attisdropped AND
 					(a.attrelid = cert OR (a.attrelid = baseline AND
-						a.attname IN ('reference_fold_seq', 'reference_source_digest')))) AS columns,
+						a.attname IN ('reference_fold_seq', 'reference_source_digest', 'readback_push_token', 'readback_source_digest')))) AS columns,
 			ARRAY(SELECT (CASE WHEN c.conrelid = cert THEN 'certificate ' ELSE 'baseline ' END)
 					|| replace(pg_get_constraintdef(c.oid, true), 'public.', '')
 				FROM pg_constraint c WHERE
@@ -59,6 +59,8 @@ export async function deploymentFoldSchema(
 	)
 		return "prior";
 	const columns = [
+		"baseline.readback_push_token uuid",
+		"baseline.readback_source_digest text",
 		"baseline.reference_fold_seq bigint",
 		"baseline.reference_source_digest text",
 		"certificate.app_id text required",

@@ -144,6 +144,16 @@ it("scans the deployed storage read-only and uses its receipt after DDL, rolling
 	);
 	await installCandidate();
 	expect(await scan()).toEqual(before);
+	expect(
+		await h
+			.db()
+			.selectFrom("app_deployment_baselines")
+			.select(["readback_push_token", "readback_source_digest"])
+			.execute(),
+	).toEqual([
+		{ readback_push_token: null, readback_source_digest: null },
+		{ readback_push_token: null, readback_source_digest: null },
+	]);
 	await sql`CREATE FUNCTION refuse_second_certificate() RETURNS trigger
 		LANGUAGE plpgsql AS $$ BEGIN
 		IF EXISTS (SELECT FROM app_deployment_fold_references) THEN RAISE EXCEPTION 'second target'; END IF;

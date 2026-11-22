@@ -3838,7 +3838,7 @@ export async function refreshKeptValues(
 		remoteAppId: remote.remoteId,
 		comparedDigest: baseline.sourceDigest,
 		comparedPushToken: remote.pushToken,
-		keptRefresh: { pushedAt: remote.pushedAt, mediaMap: compared.mediaMap },
+		keptMediaMap: compared.mediaMap,
 		comparedRevision: baseline.novaRevision,
 		comparedFold: baseline.foldBinding?.foldSeq,
 		read: {

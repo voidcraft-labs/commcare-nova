@@ -2257,7 +2257,9 @@ export async function recordRemoteResource(
 				return { ...(await answer(null)), obsoleteFold: true };
 			const now = new Date();
 			const pushToken = await writeResourceMapping(tx, row.id, input, now);
-			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
+			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline, {
+				readbackPushToken: input.baseline.origin === "push" ? pushToken : null,
+			});
 
 			const record = toDeploymentRecord(row);
 			const progress = applyPhaseOutcome(record, "upload", {
@@ -2769,10 +2771,7 @@ export async function recordRefreshedAppBaseline(
 		readonly comparedPushToken: string;
 		/** A kept-values refresh may acknowledge an independently verified
 		 * later push without writing. A changes review must keep its token. */
-		readonly keptRefresh?: {
-			readonly pushedAt: string | null;
-			readonly mediaMap: Parameters<typeof movedRecordedPaths>[1];
-		};
+		readonly keptMediaMap?: Parameters<typeof movedRecordedPaths>[1];
 		/** Revision and certified fold the verified read used. Older callers with
 		 * neither can refresh only an ordinary, uncertified baseline. */
 		readonly comparedRevision?: number | null;
@@ -2819,6 +2818,8 @@ export async function recordRefreshedAppBaseline(
 					"ownership",
 					"nova_revision",
 					"reference_fold_seq",
+					"readback_push_token",
+					"readback_source_digest",
 					"observed_at",
 					"first_publish_changes",
 					"media_files",
@@ -2855,12 +2856,26 @@ export async function recordRefreshedAppBaseline(
 			) {
 				return superseded();
 			}
+			const currentMedia = storedMediaFiles(row.id, stored.media_files);
+			// A media upload can finish during the HTTP read without changing
+			// the token, source or observation time. Recheck its saved files
+			// against the response before acknowledging or recording that read.
+			if (
+				input.keptMediaMap !== undefined &&
+				movedRecordedPaths(currentMedia, input.keptMediaMap) !== 0
+			)
+				return superseded();
 			const readAt = Date.parse(input.read.observedAt);
+			const matchesPublishedRead =
+				stored.readback_push_token === liveMapping.push_token &&
+				stored.readback_source_digest === input.read.sourceDigest;
 			if (liveMapping.push_token !== input.comparedPushToken) {
-				// Release/reclaim also rotates the token. Only a new push
-				// advances pushed_at, and only a read-back can confirm the bytes.
+				// A release/reclaim after a publish preserves its time and bytes
+				// but rotates its claim. A later publish can vouch for the read
+				// only while its own mapping token still holds.
 				if (
-					input.keptRefresh === undefined ||
+					input.keptMediaMap === undefined ||
+					!matchesPublishedRead ||
 					liveMapping.remote_missing_at !== null ||
 					input.targetIdentity !== undefined ||
 					input.mediaFiles !== undefined ||
@@ -2870,18 +2885,15 @@ export async function recordRefreshedAppBaseline(
 					stored.source_digest !== input.read.sourceDigest ||
 					stored.observed_at.getTime() < readAt ||
 					liveMapping.pushed_at === null ||
-					liveMapping.pushed_at.getTime() < readAt ||
-					liveMapping.pushed_at.toISOString() === input.keptRefresh.pushedAt
+					liveMapping.pushed_at.getTime() < readAt
 				)
 					return superseded();
 				return {
 					outcome: "verify-publish" as const,
 					deployment: await loadWithinTransaction(tx, row.id),
 					baseline: await appBaselineRow(tx, scope, target),
-					mediaMap: input.keptRefresh.mediaMap,
 				};
 			}
-			const currentMedia = storedMediaFiles(row.id, stored.media_files);
 			const media =
 				input.mediaFiles &&
 				mergeHqMediaObservation(currentMedia, input.mediaFiles);
@@ -2992,7 +3004,14 @@ export async function recordRefreshedAppBaseline(
 									),
 								},
 				},
-				input.comparedFold !== undefined,
+				{
+					rebindFold: input.comparedFold !== undefined,
+					// Another identical refresh can advance the date without
+					// changing which still-held publish returned these bytes.
+					readbackPushToken: matchesPublishedRead
+						? liveMapping.push_token
+						: null,
+				},
 			);
 			await notifyAppDeployments(tx, scope.appId);
 			return {
@@ -3008,8 +3027,7 @@ export async function recordRefreshedAppBaseline(
 	return {
 		outcome:
 			baseline?.origin === "push" &&
-			baseline.sourceBytes === input.read.sourceBytes &&
-			movedRecordedPaths(baseline.mediaFiles, result.mediaMap) === 0
+			baseline.sourceBytes === input.read.sourceBytes
 				? "current"
 				: "superseded",
 		deployment: result.deployment,
@@ -3469,7 +3487,10 @@ async function writeAppBaseline(
 	deploymentId: string,
 	observedBy: string,
 	baseline: AppBaselineWrite,
-	rebindFold = false,
+	options: {
+		readonly rebindFold?: boolean;
+		readonly readbackPushToken?: string | null;
+	} = {},
 ): Promise<void> {
 	const discarded = baseline.discard !== null;
 	const keepMediaFiles = baseline.mediaFiles.kind === "keep";
@@ -3487,7 +3508,7 @@ async function writeAppBaseline(
 			deployment_id, remote_app_id, origin, source_gzip, source_bytes,
 			source_digest, ownership, observed_at, observed_by,
 			discarded_digest, discarded_by, discarded_at,
-			nova_revision, media_files, first_publish_changes
+			nova_revision, media_files, first_publish_changes, readback_push_token, readback_source_digest
 		) VALUES (
 			${deploymentId}, ${baseline.remoteAppId}, ${baseline.origin},
 			${baseline.sourceGzip}, ${baseline.sourceBytes},
@@ -3499,7 +3520,8 @@ async function writeAppBaseline(
 			${discarded ? sql`now()` : null},
 			${baseline.novaRevision}::bigint,
 			${mediaFiles}::jsonb,
-			${firstPublish}::jsonb
+			${firstPublish}::jsonb, ${options.readbackPushToken ?? null}::uuid,
+			${options.readbackPushToken ? baseline.sourceDigest : null}
 		)
 		ON CONFLICT (deployment_id) DO UPDATE SET
 			remote_app_id = EXCLUDED.remote_app_id,
@@ -3520,8 +3542,10 @@ async function writeAppBaseline(
 				THEN COALESCE(EXCLUDED.discarded_at, existing.discarded_at)
 				ELSE EXCLUDED.discarded_at END,
 			nova_revision = EXCLUDED.nova_revision,
-			reference_fold_seq = CASE WHEN ${rebindFold} THEN existing.reference_fold_seq END,
-			reference_source_digest = CASE WHEN ${rebindFold} THEN EXCLUDED.source_digest END,
+			readback_push_token = EXCLUDED.readback_push_token,
+			readback_source_digest = EXCLUDED.readback_source_digest,
+			reference_fold_seq = CASE WHEN ${options.rebindFold ?? false} THEN existing.reference_fold_seq END,
+			reference_source_digest = CASE WHEN ${options.rebindFold ?? false} THEN EXCLUDED.source_digest END,
 			media_files = CASE
 				WHEN ${keepMediaFiles}::boolean AND EXCLUDED.remote_app_id = existing.remote_app_id
 					THEN existing.media_files

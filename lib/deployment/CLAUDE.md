@@ -930,10 +930,16 @@ before CommCare HQ is asked, so a read that predates a publish never replaces
 that publish's. Two refreshes of an unchanged project space both answer
 `refreshed`. If a publish lands during a kept-values refresh, Nova may
 acknowledge the newer read without writing anything. The live claim must show
-a new push and its read-back must independently verify the same source and
-agree on the recorded media. A change of claim alone cannot acknowledge the
-read. Reviews that carry identity, media or next-publish decisions still
-require their original claim and fold. A differing newer read answers
+the exact token the winning publish saved with its original read-back digest.
+The stored bytes must independently verify against that digest. Releasing
+and reclaiming the HQ app retires that token, including after an intervening
+publish. A legacy row
+has no read-back token until a publish supplies one. Every kept-values
+refresh compares the response to the media record under the deployment lock,
+including a refresh that would only acknowledge the source or move its date.
+A refresh of the same source under the same claim retains its publish receipt.
+Reviews that carry identity, media or next-publish decisions still require
+their original claim and fold. A differing newer read answers
 `superseded`. Whether a refresh changed
 anything is `keptChanged` over the kept lists before and after, which compares
 the labels and a digest of every kept value (`targetFacts.ts::deploymentKeptOf`),

@@ -98,7 +98,11 @@ under its app row while the app has one open
 (`apps.ts::refuseMoveWhilePublishing`); a hand-back reads it under the table
 row. `app_deployment_resources.pushed_remote_revision` is CommCare HQ's save
 counter as the import that wrote the push fields acknowledged it, which orders
-two publishes of one app.
+two publishes of one app. A publish records its mapping token and original source
+digest together in `app_deployment_baselines.readback_push_token` and
+`readback_source_digest`. Releasing the claim rotates the mapping token even
+when it is later reclaimed. Older rows acquire a read-back receipt only from
+a publish.
 `app_deployment_resources.remote_missing_at` is the "CommCare HQ reports this
 app gone" fact, outside the push-token trigger's column list, so writing it
 rotates no push token.

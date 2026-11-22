@@ -48,7 +48,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		EXECUTE FUNCTION public.rotate_deployment_push_token()`.execute(db);
 	await sql`ALTER TABLE public.app_deployment_baselines
 		ADD COLUMN IF NOT EXISTS reference_fold_seq bigint,
-		ADD COLUMN IF NOT EXISTS reference_source_digest text
+		ADD COLUMN IF NOT EXISTS reference_source_digest text,
+		ADD COLUMN IF NOT EXISTS readback_push_token uuid,
+		ADD COLUMN IF NOT EXISTS readback_source_digest text
 	`.execute(db);
 	await sql`
 		DO $body$ BEGIN

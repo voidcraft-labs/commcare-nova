@@ -37,6 +37,7 @@ import { getSession } from "@/lib/auth-utils";
 import { decrypt } from "@/lib/commcare/encryption";
 import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { log } from "@/lib/logger";
 import { refreshKeptValuesAction } from "../actions";
 import {
@@ -54,9 +55,12 @@ import {
 	readDeployment,
 	readTargetFacts,
 	recordCreatedRemoteApp,
+	recordDeploymentMediaFiles,
+	recordRefreshedAppBaseline,
 	recordRemoteResource,
 } from "../store";
 import type { AppBaselineWrite, AppOwnership } from "../types";
+import { birthAdoptedApp } from "./adoptedBirth";
 import { certifyFold } from "./certifiedFold";
 import { stopHere } from "./stopHere";
 
@@ -252,6 +256,15 @@ async function baselineRow() {
 		.selectFrom("app_deployment_baselines")
 		.selectAll()
 		.select(sql<string>`xmin::text`.as("written_by_transaction"))
+		.where(
+			"deployment_id",
+			"in",
+			h
+				.db()
+				.selectFrom("app_deployments")
+				.select("id")
+				.where("app_id", "=", APP),
+		)
 		.executeTakeFirst();
 }
 
@@ -293,6 +306,16 @@ describe("refreshKeptValues", () => {
 		async (origin) => {
 			await seedApp();
 			await published(baselineOf(liveSource(), { origin, discard: DISCARDED }));
+			// A deployment recorded before claim-bound read-backs were available.
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					readback_push_token: null,
+					readback_source_digest: null,
+				})
+				.where("remote_app_id", "=", HQ_APP)
+				.execute();
 			const before = await baselineRow();
 			const listener = new Client({ connectionString: h.uri() });
 			const payloads: unknown[] = [];
@@ -840,6 +863,217 @@ describe("refreshKeptValues", () => {
 				});
 			});
 			expect(await baselineRow()).toEqual(afterPublish);
+		},
+	);
+
+	it("acknowledges the same publish after another refresh on its claim reads the same bytes", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-11-21T12:00:00.000Z"));
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		let later: Awaited<ReturnType<typeof baselineRow>>;
+		await withHttpPeer(async (peer) => {
+			request(peer).reply(async () => {
+				const readBack = baselineOf(liveSource(), {
+					observedAt: new Date().toISOString(),
+				});
+				const push = await published(readBack);
+				vi.setSystemTime(new Date("2026-11-21T12:00:01.000Z"));
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+				later = await baselineRow();
+				expect(later?.observed_at.getTime()).toBeGreaterThan(
+					Date.parse(readBack.observedAt),
+				);
+				expect(later).toMatchObject({
+					readback_push_token: push.pushToken,
+					readback_source_digest: readBack.sourceDigest,
+				});
+				return { statusCode: 200, data: JSON.stringify(liveSource()) };
+			});
+			serveSource(peer, liveSource());
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("refreshed");
+		});
+		expect(await baselineRow()).toEqual(later);
+	});
+
+	it("refuses to attribute a legacy writer's later source to the publish whose token it retained", async () => {
+		await seedApp();
+		await published(baselineOf(liveSource()));
+		let afterLegacyRead: Awaited<ReturnType<typeof baselineRow>>;
+		await withHttpPeer(async (peer) => {
+			request(peer).reply(async () => {
+				const publishedRead = baselineOf(fuzzyOnSource(), {
+					observedAt: new Date().toISOString(),
+				});
+				const push = await published(publishedRead);
+				// An in-flight writer from the previous revision updates the columns
+				// it knows, retaining the candidate's token for a different source.
+				const legacyRead = baselineOf(liveSource(), {
+					observedAt: new Date().toISOString(),
+				});
+				await h
+					.db()
+					.updateTable("app_deployment_baselines")
+					.set({
+						source_digest: legacyRead.sourceDigest,
+						source_gzip: legacyRead.sourceGzip,
+						source_bytes: legacyRead.sourceBytes,
+						observed_at: legacyRead.observedAt,
+					})
+					.where("remote_app_id", "=", HQ_APP)
+					.execute();
+				afterLegacyRead = await baselineRow();
+				expect(afterLegacyRead).toMatchObject({
+					readback_push_token: push.pushToken,
+					readback_source_digest: publishedRead.sourceDigest,
+					source_digest: legacyRead.sourceDigest,
+				});
+				return { statusCode: 200, data: JSON.stringify(liveSource()) };
+			});
+			expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe("superseded");
+		});
+		expect(await baselineRow()).toEqual(afterLegacyRead);
+	});
+
+	it.each([
+		["same", liveSource],
+		["different", fuzzyOnSource],
+	] as const)(
+		"refuses a late read after the matching publish's claim was released and reclaimed and the other owner published %s bytes",
+		async (_name, otherSource) => {
+			await seedApp();
+			const owner = "restore-owner";
+			await h.seedProjectMember(owner, PROJECT, "owner");
+			await published(baselineOf(liveSource()));
+			let winner: Awaited<ReturnType<typeof baselineRow>>;
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					const push = await published(
+						baselineOf(liveSource(), { observedAt: new Date().toISOString() }),
+					);
+					winner = await baselineRow();
+					await softDeleteApp(APP, owner);
+					const other = await birthAdoptedApp(h, {
+						appId: crypto.randomUUID(),
+						projectId: PROJECT,
+						actorUserId: owner,
+						target: TARGET,
+						remoteAppId: HQ_APP,
+					});
+					const theirRead = baselineOf(otherSource(), {
+						observedAt: new Date().toISOString(),
+					});
+					await recordRemoteResource(other.scope, TARGET, {
+						expectedEndings: 0,
+						kind: "app",
+						novaResourceId: other.scope.appId,
+						remoteId: HQ_APP,
+						ownership: "adopted",
+						adoptedBy: owner,
+						pushedRevision: 1,
+						remoteRevision: 42,
+						uploadedAt: theirRead.observedAt,
+						baseline: { ...theirRead, novaRevision: 1 },
+					});
+					expect(await readAppBaseline(other.scope, TARGET)).toMatchObject({
+						sourceDigest: theirRead.sourceDigest,
+					});
+					await softDeleteApp(other.scope.appId, owner);
+					expect(await restoreApp(APP, owner)).toEqual({
+						stoppedPublishing: [],
+					});
+					const reclaimed = (await readDeployment(SCOPE, TARGET))?.active.find(
+						(r) => r.kind === "app",
+					);
+					expect(reclaimed).toMatchObject({
+						releasedAt: null,
+						remoteId: HQ_APP,
+					});
+					expect(reclaimed?.pushToken).not.toBe(push.pushToken);
+					return { statusCode: 200, data: JSON.stringify(liveSource()) };
+				});
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+					"superseded",
+				);
+			});
+			expect(await baselineRow()).toEqual(winner);
+		},
+	);
+
+	it.each([
+		["replacing the source", false, false],
+		["replacing a certified source", true, false],
+		["advancing the date of a now-identical certified source", true, true],
+	] as const)(
+		"refuses a changed media file before %s under the same claim",
+		async (_operation, certified, earlierReadLanded) => {
+			await seedApp();
+			const path = "commcare/image/facility.png";
+			const sequence = await writeHqRoundTripHorizon(
+				h.db(),
+				APP,
+				"Published survey",
+			);
+			const old = baselineOf(liveSource());
+			const push = await published({
+				...old,
+				novaRevision: sequence,
+				mediaFiles: { kind: "set", files: { [path]: "first" } },
+			});
+			if (certified) await certifyFold(h.db(), APP);
+			const before = await readAppBaseline(SCOPE, TARGET);
+			if (!before || before.origin === "unread" || !push.pushToken)
+				throw new Error("Expected a published source");
+			const token = push.pushToken;
+			const source = fuzzyOnSource();
+			source.multimedia_map = {
+				[`jr://file/${path}`]: {
+					multimedia_id: "first",
+					media_type: "CommCareImage",
+				},
+			};
+			const read = baselineOf(source, {
+				observedAt: new Date(Date.parse(PUBLISHED_AT) + 1000).toISOString(),
+			});
+			let afterMedia: Awaited<ReturnType<typeof baselineRow>>;
+			await withHttpPeer(async (peer) => {
+				request(peer).reply(async () => {
+					if (earlierReadLanded) {
+						expect(
+							(
+								await recordRefreshedAppBaseline(SCOPE, TARGET, {
+									expectedEndings: 0,
+									remoteAppId: HQ_APP,
+									comparedDigest: before.sourceDigest,
+									comparedPushToken: token,
+									comparedRevision: sequence,
+									comparedFold: before.foldBinding?.foldSeq,
+									read,
+								})
+							).outcome,
+						).toBe("current");
+					}
+					expect(
+						await recordDeploymentMediaFiles(SCOPE, TARGET, {
+							expectedEndings: 0,
+							remoteAppId: HQ_APP,
+							pushToken: token,
+							novaRevision: sequence,
+							sourceDigest: earlierReadLanded
+								? read.sourceDigest
+								: old.sourceDigest,
+							files: { read: { [path]: "first" }, next: { [path]: "later" } },
+						}),
+					).toBe("recorded");
+					afterMedia = await baselineRow();
+					expect(afterMedia?.media_files).toEqual({ [path]: "later" });
+					return { statusCode: 200, data: JSON.stringify(source) };
+				});
+				expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(
+					"superseded",
+				);
+			});
+			expect(await baselineRow()).toEqual(afterMedia);
 		},
 	);
 

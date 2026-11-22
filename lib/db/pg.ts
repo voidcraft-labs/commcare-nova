@@ -906,6 +906,19 @@ export interface AppDeploymentConfirmationsTable {
  * Upserted only, serialized by the deployment row's lock.
  */
 export interface AppDeploymentBaselinesTable {
+	/** The accepted publish and original digest of its read-back. Old rows
+	 * have neither. An older writer can replace source without updating this
+	 * pair, so acknowledge it only when both token and digest still match. */
+	readback_push_token: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	readback_source_digest: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	reference_fold_seq: ColumnType<
 		string | number | null,
 		number | null | undefined,
