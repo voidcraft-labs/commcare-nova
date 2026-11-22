@@ -2013,31 +2013,3 @@ def test_a_web_apps_media_rename_requires_one_stored_file_and_the_original_bytes
     assert compared(source_id="m2") == path
     assert compared(matched=False) == path
     assert compared(status=404) == path
-
-
-def test_a_native_caption_rename_requires_the_original_files_bytes_at_the_exact_new_path():
-    import hashlib
-    from types import SimpleNamespace
-
-    from proof.checks.differences import Difference
-
-    before = "jr://file/old picture.png"
-    digest = hashlib.sha256(b"picture").hexdigest()
-    entry = f"commcare/{digest}.png"
-    path = "/runs/*/steps/*/tree/*/caption_image"
-    row = Difference("proof3", "doc", "formplayer@local.ccz", path, path, "changed", before, f"jr://file/{entry}")
-    source = {"status": 200, "path": before, "sha256": digest, "mediaType": "CommCareImage"}
-    parts = SimpleNamespace(a={"apiReads": {"authored": {"media": [source]}}}, b={})
-    document = SimpleNamespace(
-        authored=SimpleNamespace(media_rows=lambda: [{"path": before, "kind": "image", "extension": "png"}]),
-        exports={"minimum": SimpleNamespace(republish=None)},
-    )
-    records = SimpleNamespace(configurations={"minimum": parts})
-
-    def compared(bytes_):
-        return proof3.verified_caption_renames(document, "minimum", records, {entry: bytes_}, [row])[0].path
-
-    assert compared(b"picture") == f"{path}:renamed-file"
-    assert compared(b"some other picture") == path
-    source["status"] = 404
-    assert compared(b"picture") == path

@@ -1371,47 +1371,70 @@ def served_equivalence(
     return found
 
 
-def verified_caption_renames(document, name, records, local_files, differences):
+def verified_caption_renames(document, name, records, local_files, differences, *, observed, sessions):
     """Name a changed Formplayer caption image as a rename only if Nova delivered the file HQ served at A.
     Its new path must carry that file's digest. On B, HQ must also have matched that path in the upload."""
-    import io
-    import zipfile
+    from collections import defaultdict
 
-    from proof.hq.operations import upload_field
+    from proof.checks import caption_images, served_places
 
-    candidates = [
-        difference for difference in differences
-        if difference.artifact in (f"{FORMPLAYER}@B", f"{FORMPLAYER}@local.ccz") and difference.kind == "changed"
-        and difference.path.endswith("/caption_image")
-        and isinstance(difference.before, str) and isinstance(difference.after, str)
-    ]
+    candidates = defaultdict(list)
+    for d in differences:
+        if (d.artifact in (f"{FORMPLAYER}@B", f"{FORMPLAYER}@local.ccz") and d.kind == "changed"
+            and d.path in caption_images.CAPTIONS and isinstance(d.before, str) and isinstance(d.after, str)):
+            candidates[d.artifact, d.before, d.after].append(d)
     if not candidates or document.authored is None:
         return differences
     parts = records.configurations[name]
     authored_reads = ((parts.a or {}).get("apiReads") or {}).get("authored") or {}
-    originals = {
-        row["path"]: row["sha256"] for row in authored_reads.get("media") or ()
-        if row.get("status") == 200 and row.get("mediaType") == "CommCareImage" and row.get("sha256")
-    }
+    originals = {}
+    for row in authored_reads.get("media") or ():
+        path = row["path"]
+        if path in originals or row.get("status") != 200 or row.get("mediaType") != "CommCareImage":
+            originals[path] = None
+        else:
+            originals[path] = row
     extensions = {row["path"]: row["extension"] for row in document.authored.media_rows() if row.get("kind") == "image"}
     captured = document.exports[name].republish
     upload = ((parts.b or {}).get("publish") or {}).get("media") or {}
-    matched = {row["path"] for row in upload.get("matched") or () if row.get("class") == "CommCareImage"}
-    wanted = matched.intersection(row.after for row in candidates if row.artifact == f"{FORMPLAYER}@B")
-    pushed = {}
-    if captured and wanted and not upload.get("refused"):
-        for request, _ in captured.media_uploads():
-            with zipfile.ZipFile(io.BytesIO(upload_field(request.upload(), "bulk_upload_file"))) as archive:
-                pushed.update((entry, archive.read(entry)) for entry in archive.namelist() if MEDIA_ROOT + entry in wanted)
+    wanted = {new for artifact, _, new in candidates if artifact == f"{FORMPLAYER}@B"}
+    pushed = caption_images.matched_images(captured, upload, wanted)
+    baseline = _served_a(records, name)
+    states = (parts.b_aligned or {}).get("served") or {}
+    source = served_places.reviewed_source(records, name, "authored")
     verified = set()
-    for difference in candidates:
-        digest, extension = originals.get(difference.before), extensions.get(difference.before)
-        if not digest or not extension or difference.after != f"{MEDIA_ROOT}commcare/{digest}.{extension}":
+    for side, state, files, delivered in (
+        ("B", states.get("B"), observed.b_aligned.files if observed.b_aligned else {}, pushed),
+        ("local", states.get("local"), local_files, local_files),
+    ):
+        if not baseline or not state:
             continue
-        delivered = pushed if difference.artifact == f"{FORMPLAYER}@B" else (local_files or {})
-        content = delivered.get(difference.after.removeprefix(MEDIA_ROOT))
-        if content is not None and hashlib.sha256(content).hexdigest() == digest:
-            verified.add((difference.artifact, difference.at))
+        artifact = f"{FORMPLAYER}@B" if side == "B" else f"{FORMPLAYER}@local.ccz"
+        left_trace = caption_images.formplayer_trace(records, baseline)
+        right_trace = caption_images.formplayer_trace(records, state)
+        paired = caption_images.paired_steps(left_trace, right_trace)
+        for (reader, old, new), rows in candidates.items():
+            if reader != artifact:
+                continue
+            original = originals.get(old) or {}
+            digest, extension = original.get("sha256"), extensions.get(old)
+            if not digest or not extension or new != f"{MEDIA_ROOT}commcare/{digest}.{extension}":
+                continue
+            content = (delivered or {}).get(new.removeprefix(MEDIA_ROOT))
+            if content is None or hashlib.sha256(content).hexdigest() != digest or not caption_images.installed_rename(
+                observed, sessions, baseline, states, local_files, side, old, new, original.get("multimediaId"),
+            ):
+                continue
+            labels = caption_images.source_labels(source, old)
+            matched = [row for row in rows if caption_images.same_step(row, paired)]
+            sites = []
+            for build, served, trace, uri in (
+                (observed.a.build.files, baseline, left_trace, old), (files, state, right_trace, new),
+            ):
+                namespaces, owners = caption_images.installed_labels(build, served, uri, labels)
+                sites.append(caption_images.formplayer_label_sites(matched, trace, namespaces, owners))
+            left, right = sites
+            verified.update(key for key, owner in left.items() if right.get(key) == owner)
     return [
         replace(row, path=f"{row.path}:renamed-file") if (row.artifact, row.at) in verified else row
         for row in differences
@@ -1533,7 +1556,15 @@ def advised_picker_names(app, hq_files, local_files, labels):
 def document_behavior(document, records, *, native_sites=None):
     """Proof 3's differences on one document: each configuration it is exported under, judged from its records,
     each against the local archive Nova compiles for that configuration's project space."""
-    from proof.checks import android, changes, native_question_split, observations, repeated_case_names, served_places
+    from proof.checks import (
+        android,
+        caption_images,
+        changes,
+        native_question_split,
+        observations,
+        repeated_case_names,
+        served_places,
+    )
 
     found = []
     compared = set()
@@ -1613,9 +1644,17 @@ def document_behavior(document, records, *, native_sites=None):
             reviewed_sites=reviewed_sites,
             declared=declared,
         )
-        native = verified_webapps_media_renames(
-            document, name, records, verified_caption_renames(document, name, records, local_files, served)
-        )
+        if served and served_places.review_read(document) == "saved":
+            native = caption_images.saved_renames(
+                document, name, records, observed, local_files, served, before,
+                (records.configurations[name].b_aligned or {}).get("served") or {}, reviewed_sites, sessions=sessions,
+            )
+        else:
+            native = verified_webapps_media_renames(
+                document, name, records, verified_caption_renames(
+                    document, name, records, local_files, served, observed=observed, sessions=sessions,
+                ),
+            )
         if _served_a(records, name) is not None and (
             (records.configurations[name].b_aligned or {}).get("served") or {}
         ).get("local"):

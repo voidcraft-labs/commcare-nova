@@ -14,7 +14,8 @@ def _only(items):
     return items[0] if len(items) == 1 else None
 
 
-def _form(trace, browser):
+def opened_form(trace, browser):
+    """The Formplayer form and final answers for the same completed browser script."""
     run = _only([run for run in trace.get("runs") or [] if run.get("script") == browser.get("script")])
     if not run or run.get("end") != "submitted" or browser.get("submit") != "submitted" or "stopped" in browser:
         return None
@@ -37,7 +38,7 @@ def _questions(tree):
         yield from _questions(n.get("children") or [])
 
 
-def _states(opened, filled):
+def question_states(opened, filled):
     """The native opening tree and the tree after the final gesture or reconciliation."""
     from proof.checks.served import _form_step
 
@@ -114,7 +115,7 @@ def _align_run(a, b, native_a, native_b, spec, expected):
     _, opened_b, filled_b = native_b
     if not gestures_agree(opened_a, filled_a, opened_b, filled_b, spec.questions, expected):
         return {}
-    before, after = _states(opened_a, filled_a), _states(opened_b, filled_b)
+    before, after = question_states(opened_a, filled_a), question_states(opened_b, filled_b)
     # Native indices are positional. The only permitted insertion in either snapshot is each
     # reviewed time immediately after its date at the original bound question's place. This
     # also distinguishes identical captions across different source questions.
@@ -197,7 +198,7 @@ def align_screens(before, after, *, traces, splits):
     for i, (a, b) in enumerate(zip(before.get("runs") or [], after.get("runs") or [], strict=False)):
         if a.get("script") != b.get("script"):
             continue
-        forms = [_form(trace, run) for trace, run in zip(traces, (a, b), strict=True)]
+        forms = [opened_form(trace, run) for trace, run in zip(traces, (a, b), strict=True)]
         if None in forms:
             continue
         source, target = forms
