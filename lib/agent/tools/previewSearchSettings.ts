@@ -1,15 +1,17 @@
 import { z } from "zod";
 import {
-	readAuthorizedPreviewSearchCatalog,
+	previewSearchPageSchema,
+	readPreviewSearchPage,
+} from "@/lib/deployment/previewSearchPages";
+import {
 	recoverPreviewSearchSettings,
 	type SearchToolScope,
 	setPreviewSearchSettings,
 } from "@/lib/deployment/previewSearchSettings";
-import {
-	previewSearchTargetSchema,
-	previewSearchValuesSchema,
-} from "@/lib/preview/searchSettings";
+import { previewSearchTargetSchema } from "@/lib/preview/searchSettings";
+import { previewSearchChangesSchema } from "@/lib/preview/searchSettingsEdit";
 import type { ToolInvocationContext } from "../workspace/types";
+import type { MutatingToolResult } from "./common";
 
 function scope(ctx: ToolInvocationContext): SearchToolScope | null {
 	return ctx.appId
@@ -28,15 +30,14 @@ function scope(ctx: ToolInvocationContext): SearchToolScope | null {
 
 export const getPreviewSearchSettingsTool = {
 	description:
-		"Read the saved app's available Preview search destinations, revisions and team-supplied settings. A null setting is unconfirmed. A local destination uses UTC, exact matching and 500 results by default only when selected. These settings describe Preview and cannot establish the current settings on CommCare HQ.",
-	inputSchema: z.strictObject({}),
-	async execute(_input: unknown, ctx: ToolInvocationContext) {
+		"List the saved app's Preview destinations, revisions, settings and rule counts. Choose a target to read its ordered rules. Repeat with nextCursor and the same target until nextCursor is null. A null setting is unconfirmed. Local Preview defaults apply only when selected. These settings describe Preview and cannot establish the current settings on CommCare HQ.",
+	inputSchema: previewSearchPageSchema,
+	async execute(
+		input: z.infer<typeof previewSearchPageSchema>,
+		ctx: ToolInvocationContext,
+	) {
 		const data = ctx.appId
-			? await readAuthorizedPreviewSearchCatalog(
-					ctx.appId,
-					ctx.projectId,
-					ctx.userId,
-				)
+			? await readPreviewSearchPage(ctx.appId, ctx.projectId, ctx.userId, input)
 			: { error: "Preview search settings need a saved app." };
 		return { kind: "read" as const, data };
 	},
@@ -45,9 +46,12 @@ export const getPreviewSearchSettingsTool = {
 const saveSchema = z.strictObject({
 	target: previewSearchTargetSchema,
 	expectedRevision: z.string().regex(/^(0|[1-9][0-9]{0,18})$/),
-	values: previewSearchValuesSchema,
+	changes: previewSearchChangesSchema,
 });
-function saved(revision: string) {
+type WriteResult =
+	| { ok: true; revision: string }
+	| { error: string; code?: string };
+function saved(revision: string): MutatingToolResult<WriteResult> {
 	return {
 		kind: "mutate" as const,
 		mutations: [],
@@ -57,14 +61,17 @@ function saved(revision: string) {
 
 export const setPreviewSearchSettingsTool = {
 	description:
-		"Record a project space's search settings for Preview after a person confirms them. Read getPreviewSearchSettings for the destination and its revision. Keep unconfirmed facts null. Empty fuzzyProperties and ignoredText lists explicitly confirm exact matching with no ignored text. For each ignoredText entry give its exact literal, property and record type, in the overall order the team confirmed. Record the team's settings only, never infer them from an app or its data. Saving affects Preview for this Project and destination.",
+		"Record a project space's search settings for Preview after a person confirms them. Read getPreviewSearchSettings for the destination and its revision. Send only the confirmed changes. Omitted settings and rule lists keep their values; null marks a fact unconfirmed. An empty propertyMatchers object confirms the current rules, or exact matching when previously unconfirmed. Edit rules with ordered splices of start, remove, insert against each list. Read target pages for exact indexes. For ignored text preserve the overall order across record types. Record the team's settings only, never infer them from an app or its data. Saving affects Preview for this Project and destination.",
 	inputSchema: saveSchema,
 	async recover(ctx: ToolInvocationContext) {
 		const who = scope(ctx);
 		const revision = who && (await recoverPreviewSearchSettings(who));
 		return revision ? saved(revision) : undefined;
 	},
-	async execute(input: z.infer<typeof saveSchema>, ctx: ToolInvocationContext) {
+	async execute(
+		input: z.infer<typeof saveSchema>,
+		ctx: ToolInvocationContext,
+	): Promise<MutatingToolResult<WriteResult>> {
 		const who = scope(ctx);
 		if (!who)
 			return {
@@ -77,10 +84,16 @@ export const setPreviewSearchSettingsTool = {
 			ctx.userId,
 			input.target,
 			input.expectedRevision,
-			input.values,
+			input.changes,
 			who,
 		);
 		if (outcome.kind === "saved") return saved(outcome.savedRevision);
+		if (outcome.kind === "invalid")
+			return {
+				kind: "mutate",
+				mutations: [],
+				result: { error: outcome.message, code: "invalid" },
+			};
 		return {
 			kind: "mutate" as const,
 			mutations: [],

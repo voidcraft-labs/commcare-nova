@@ -12,19 +12,23 @@ import {
 	type PreviewSearchCatalog,
 	type PreviewSearchProfile,
 	type PreviewSearchTarget,
-	type PreviewSearchValues,
 	previewSearchTargetKey,
 	previewSearchValuesSchema,
 	resolvePreviewSearchFacts,
 	unconfirmedSearchValues,
 } from "@/lib/preview/searchSettings";
+import {
+	applyPreviewSearchChanges,
+	type PreviewSearchChanges,
+	previewSearchChangesSchema,
+} from "@/lib/preview/searchSettingsEdit";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { readPreviewDeploymentRecordsIn } from "./previewRecords";
 import { deploymentDisplaysAsReached } from "./stateMachine";
 
 type SearchScope = { readonly appId: string; readonly projectId: string };
 
-function targetsOf(
+export function previewSearchTargets(
 	records: Awaited<ReturnType<typeof readPreviewDeploymentRecordsIn>>,
 ): PreviewSearchTarget[] {
 	const targets = new Map<string, PreviewSearchTarget>();
@@ -51,7 +55,7 @@ export async function previewSearchCatalogIn(
 	scope: SearchScope,
 	records?: Awaited<ReturnType<typeof readPreviewDeploymentRecordsIn>>,
 ): Promise<PreviewSearchCatalog> {
-	const targets = targetsOf(
+	const targets = previewSearchTargets(
 		records ?? (await readPreviewDeploymentRecordsIn(db, scope)),
 	);
 	const pairs = targets.map((t) => {
@@ -116,6 +120,7 @@ export async function readAuthorizedPreviewSearchCatalog(
 
 export type SetSearchSettingsResult =
 	| { kind: "saved"; catalog: PreviewSearchCatalog; savedRevision: string }
+	| { kind: "invalid"; message: string }
 	| { kind: "changed"; catalog: PreviewSearchCatalog }
 	| { kind: "target-unavailable"; catalog: PreviewSearchCatalog };
 
@@ -150,13 +155,15 @@ export async function setPreviewSearchSettings(
 	actorId: string,
 	target: PreviewSearchTarget,
 	expectedRevision: string,
-	values: PreviewSearchValues,
+	changes: PreviewSearchChanges,
 	authority?: Pick<
 		SearchToolScope,
 		"requestId" | "chatRunHolder" | "authoringSessionId" | "ordinaryAuthoring"
 	>,
 ): Promise<SetSearchSettingsResult> {
-	const checked = previewSearchValuesSchema.parse(values);
+	const edit = previewSearchChangesSchema.safeParse(changes);
+	if (!edit.success)
+		return { kind: "invalid", message: edit.error.issues[0].message };
 	const tool: SearchToolScope | undefined = authority && {
 		...authority,
 		...scope,
@@ -165,7 +172,7 @@ export async function setPreviewSearchSettings(
 	};
 	return withAppTx(async (tx) => {
 		const digest = tool
-			? canonicalJsonDigest({ target, expectedRevision, values: checked })
+			? canonicalJsonDigest({ target, expectedRevision, changes: edit.data })
 			: undefined;
 		if (tool) {
 			await authorizeOrganizationWriteInTransaction(tx, tool, {
@@ -224,6 +231,10 @@ export async function setPreviewSearchSettings(
 		if (profile.revision !== expectedRevision)
 			return { kind: "changed", catalog };
 		const { server, domain } = qualified(target);
+		const result = applyPreviewSearchChanges(profile.values, edit.data);
+		if (result.error !== undefined)
+			return { kind: "invalid", message: result.error };
+		const checked = result.values;
 		const json = JSON.stringify(checked);
 		let savedRevision = expectedRevision;
 		if (

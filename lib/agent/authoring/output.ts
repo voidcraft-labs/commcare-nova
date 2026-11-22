@@ -421,6 +421,7 @@ const readProjectors: {
 	readSource: passthrough,
 	getUsers: passthrough,
 	getOrganization: passthrough,
+	getPreviewSearchSettings: passthrough,
 	getAutomations: (data, { project, scope }) =>
 		data.map((item) => ({
 			...item,

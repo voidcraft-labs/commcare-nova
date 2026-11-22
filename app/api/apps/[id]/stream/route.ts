@@ -115,6 +115,7 @@ import { readPreviewDeploymentAnswer } from "@/lib/deployment/previewSpace";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { previewSearchFrames } from "@/lib/preview/searchSettingsFrames";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	nextPersistedSequence,
@@ -675,7 +676,8 @@ function openStream(args: {
 								]);
 								if (announcedSearchCatalog !== stamp) {
 									announcedSearchCatalog = stamp;
-									send("preview-search-settings", searchCatalog);
+									for (const frame of previewSearchFrames(searchCatalog))
+										send("preview-search-settings", frame);
 								}
 							}
 							const frame: PreviewTargetFactsFrame = { facts };

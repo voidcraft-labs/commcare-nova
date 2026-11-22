@@ -82,10 +82,8 @@ import { uuidSchema } from "@/lib/domain";
 import { getLookupManifestAction } from "@/lib/lookup/actions";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
-import {
-	type PreviewSearchCatalog,
-	previewSearchCatalogSchema,
-} from "@/lib/preview/searchSettings";
+import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
+import { createPreviewSearchFrameReader } from "@/lib/preview/searchSettingsFrames";
 import { guardBuilderDeparture } from "@/lib/routing/departureGuard";
 import { buildUrl } from "@/lib/routing/location";
 import {
@@ -809,21 +807,14 @@ export function createReconcilerRuntime(
 				sessionStore.getState().markBuildUnfinished();
 			}
 		});
+		const readSearchFrame = createPreviewSearchFrameReader();
 		es.addEventListener("preview-search-settings", (ev) => {
 			if (es !== eventSource) return;
-			try {
-				const result = previewSearchCatalogSchema.safeParse(
-					JSON.parse((ev as MessageEvent).data),
-				);
-				publishPreviewSearchSettings(
-					result.success &&
-						result.data.projectId === sessionStore.getState().projectId
-						? result.data
-						: null,
-				);
-			} catch {
-				publishPreviewSearchSettings(null);
-			}
+			const catalog = readSearchFrame(
+				(ev as MessageEvent).data,
+				sessionStore.getState().projectId ?? null,
+			);
+			if (catalog !== undefined) publishPreviewSearchSettings(catalog);
 		});
 		es.addEventListener("preview-project-space", (ev) => {
 			if (es !== eventSource) return;

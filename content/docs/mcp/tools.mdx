@@ -21,17 +21,23 @@ every startup prompt.
 
 ## Preview search settings
 
-`get_preview_search_settings` reads a saved app's available search destinations,
-their revisions, and the settings your team recorded for Preview. It needs
-`nova.preview.search.read`. Missing settings are returned as `null`.
+Use `get_preview_search_settings` to list the destinations for a saved app.
+Each answer includes a `nextCursor`. Pass it as `cursor` until it is null.
+Choose a listed `target` to read its matching rules the same way. Each rule
+includes its list and index. A null setting has yet to be confirmed. If a
+teammate changes the settings during a read, restart without a cursor.
 
-`set_preview_search_settings` saves your team's confirmed settings from an
-editing work with the destination, its expected revision and a request id. It
-needs `nova.preview.search.read` and `nova.preview.search.write`. Under
-`propertyMatchers`, `fuzzyProperties` chooses matching by record type and
-property. `ignoredText` lists each literal with its record type and property
-in the order it is removed across requested types. Two empty lists confirm exact
-matching. Existing credentials can add these grants when needed.
+Use `set_preview_search_settings` in an editing work with the target, expected
+revision, request id and `changes`. Send only the settings the team confirmed.
+For example, `{"timeZone":"Asia/Kolkata"}` preserves every matching rule.
+A rule edit gives a zero-based `start`, the number of rows to `remove`, and
+rows to `insert`. Within `propertyMatchers`, `fuzzyProperties` chooses matching
+by record type and property. The order of `ignoredText` applies across record
+types. Null clears a confirmed setting. Review a newer revision before retrying
+a changed edit.
+
+Reading needs `nova.preview.search.read`. Editing also needs
+`nova.preview.search.write`. Existing credentials can add these grants when needed.
 
 ## Private work and saving
 

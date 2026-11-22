@@ -19,6 +19,7 @@ import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
 import { sectionEntryDoc } from "@/lib/preview/engine/__tests__/fixtures/sectionEntry";
 import { registerSharedTool } from "../adapters/sharedToolAdapter";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import { SCOPES } from "../scopes";
 import { registerWorkTools } from "../tools/work";
 import type { ToolContext } from "../types";
@@ -758,7 +759,7 @@ it.each(["oauth", "api-key"] as const)(
 					request_id: "confirmed-calendar",
 					expectedRevision: "0",
 					target: { kind: "local" },
-					values: {
+					changes: {
 						maximum: 500,
 						timeZone: "Europe/Paris",
 						propertyMatchers: { fuzzyProperties: [], ignoredText: [] },
@@ -801,7 +802,7 @@ it.each(["oauth", "api-key"] as const)(
 					app_id: doc.appId,
 				});
 				expect(current.profiles).toMatchObject([
-					{ revision: "1", values: { timeZone: "Europe/Paris" } },
+					{ revision: "1", timeZone: "Europe/Paris" },
 				]);
 				const replay = await client.callTool({
 					name: "set_preview_search_settings",
@@ -816,3 +817,105 @@ it.each(["oauth", "api-key"] as const)(
 		);
 	},
 );
+
+it("reads every destination and ordered rule through bounded MCP pages, and refuses a changed cursor", async () => {
+	const doc = await seed();
+	const names = Array.from(
+		{ length: 14 },
+		(_, i) => `clinic-${String(i).padStart(2, "0")}`,
+	);
+	const rules = Array.from({ length: 97 }, (_, i) => ({
+		caseType: "\u0001".repeat(255) + "p",
+		property: "\u0002".repeat(255) + "q",
+		literal: "\u0003".repeat(251) + String(i).padStart(5, "0"),
+	}));
+	for (const domain of names) {
+		await sql`INSERT INTO app_deployments (app_id,project_id,server,domain,state,created_by)
+		VALUES (${doc.appId},${PROJECT},'eu',${domain},'uploaded',${ACTOR})`.execute(
+			h.db(),
+		);
+	}
+	const target = { kind: "destination", server: "eu", domain: names[12] };
+	const values = {
+		maximum: 1500,
+		timeZone: "US/Eastern",
+		propertyMatchers: {
+			fuzzyProperties: [{ caseType: "person", property: "code", fuzzy: true }],
+			ignoredText: rules,
+		},
+	};
+	await sql`INSERT INTO preview_search_settings (project_id,server,domain,revision,settings)
+		VALUES (${PROJECT},'eu',${target.domain},1,${JSON.stringify(values)}::jsonb)`.execute(
+		h.db(),
+	);
+	await withMcpClient(
+		registerFor({
+			...context,
+			scopes: [
+				...context.scopes,
+				SCOPES.previewSearchRead,
+				SCOPES.previewSearchWrite,
+			],
+		}),
+		async (client) => {
+			const read = (args: Record<string, unknown>) =>
+				call(client, "get_preview_search_settings", {
+					app_id: doc.appId,
+					...args,
+				});
+			const first = await read({});
+			const second = await read({ cursor: first.nextCursor });
+			expect(second.nextCursor).toBeNull();
+			expect(
+				[...first.profiles, ...second.profiles].map((p) => p.target.domain),
+			).toEqual(names);
+			let page = await read({ target });
+			const firstCursor = page.nextCursor;
+			const found: unknown[] = [];
+			for (;;) {
+				expect(JSON.stringify(page).length).toBeLessThan(MAX_RESULT_SIZE_CHARS);
+				found.push(...page.rules);
+				if (!page.nextCursor) break;
+				page = await read({ target, cursor: page.nextCursor });
+			}
+			expect(found).toEqual([
+				{
+					list: "fuzzyProperties",
+					index: 0,
+					...values.propertyMatchers.fuzzyProperties[0],
+				},
+				...rules.map((r, index) => ({ list: "ignoredText", index, ...r })),
+			]);
+			const work = await begin(client, doc.appId);
+			const result = await call(client, "set_preview_search_settings", {
+				work_id: work.work_id,
+				request_id: "one-setting",
+				target,
+				expectedRevision: "1",
+				changes: { timeZone: "Europe/Paris" },
+			});
+			expect(result).toMatchObject({ ok: true, revision: "2" });
+			expect(await read({ target, cursor: firstCursor })).toMatchObject({
+				code: "restart",
+			});
+			expect(await read({ cursor: first.nextCursor })).toMatchObject({
+				code: "restart",
+			});
+			const current = await read({ target });
+			expect(current.profile).toMatchObject({
+				revision: "2",
+				timeZone: "Europe/Paris",
+				matching: { fuzzyProperties: 1, ignoredText: rules.length },
+			});
+			const stored = await sql<{
+				settings: unknown;
+			}>`SELECT settings FROM preview_search_settings WHERE project_id=${PROJECT} AND server='eu' AND domain=${target.domain}`.execute(
+				h.db(),
+			);
+			expect(stored.rows[0]?.settings).toEqual({
+				...values,
+				timeZone: "Europe/Paris",
+			});
+		},
+	);
+});

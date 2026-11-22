@@ -137,7 +137,7 @@ const TOOLS = [
 			request_id: "confirmed",
 			target: { kind: "local" },
 			expectedRevision: "0",
-			values: {
+			changes: {
 				timeZone: "UTC",
 				maximum: 500,
 				propertyMatchers: { fuzzyProperties: [], ignoredText: [] },

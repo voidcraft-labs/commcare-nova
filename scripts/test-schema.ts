@@ -157,14 +157,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: getPreviewSearchSettingsTool.description,
 		schema: getPreviewSearchSettingsTool.inputSchema,
 		prompt:
-			"Use getPreviewSearchSettings to read this app's available Preview destinations.",
+			"Use getPreviewSearchSettings to read the first page of this app's available Preview destinations.",
 	},
 	{
 		name: "setPreviewSearchSettings",
 		description: setPreviewSearchSettingsTool.description,
 		schema: setPreviewSearchSettingsTool.inputSchema,
 		prompt:
-			"Use setPreviewSearchSettings to record the confirmed UTC timezone and exact matching with 500 results for the local profile at revision 0.",
+			"Use setPreviewSearchSettings for the local destination at revision 0. Change only the time zone to UTC, keeping existing matching rules and result limit.",
 	},
 	{
 		name: "evaluateForm",
