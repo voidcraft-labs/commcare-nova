@@ -1,5 +1,3 @@
-import { uuidSchema as workerUuidSchema } from "@/lib/domain/uuid";
-
 // lib/preview/engine/caseDataBinding.ts
 //
 // Server Actions for the running-app view's case-data binding.
@@ -20,7 +18,7 @@ import { uuidSchema as workerUuidSchema } from "@/lib/domain/uuid";
 // + membership resolution in these two modules means a change to the
 // auth strategy lands in one place.
 
-("use server");
+"use server";
 
 import { z } from "zod";
 import { getSession } from "@/lib/auth-utils";
@@ -71,7 +69,7 @@ import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
+import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type CaseListSortChoice,
@@ -2078,7 +2076,7 @@ export async function submitFormAction(
 						actorUserId: identity.actorUserId,
 					},
 					grant: { kind: "session", sessionId: session.session.id },
-					personaUuid: workerUuidSchema.optional().parse(identity.personaUuid),
+					personaUuid: uuidSchema.optional().parse(identity.personaUuid),
 				},
 			},
 			mutation: normalizedMutation,

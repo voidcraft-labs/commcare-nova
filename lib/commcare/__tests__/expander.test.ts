@@ -5955,23 +5955,37 @@ describe("expandAppShell", () => {
 			(fixture) => fixture.name === "deliver-default",
 		)?.doc;
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
-		const keys = (connectApp: boolean) => [
+		const keys = (connectApp: boolean, caseSharing: boolean) => [
 			"doc_type",
 			"application_version",
 			"name",
 			"langs",
 			"translations",
 			...(connectApp ? ["auto_gps_capture"] : []),
+			...(caseSharing ? ["case_sharing"] : []),
 			"modules",
 			"_attachments",
 		];
+		expect(APP_SHELL_KEYS).toEqual(keys(true, true));
 		for (const [doc, connectApp] of [
 			[registrationDoc, false],
 			[connect, true],
+			...([true, false] as const).map(
+				(caseSharing) =>
+					[
+						{
+							...registrationDoc,
+							appSettings: { ...registrationDoc.appSettings, caseSharing },
+						},
+						false,
+					] as const,
+			),
 		] as const) {
 			const shell = expandAppShell(doc);
-			expect(Object.keys(shell)).toEqual(keys(connectApp));
-			expect(APP_SHELL_KEYS).toEqual(keys(true));
+			expect(Object.keys(shell)).toEqual(
+				keys(connectApp, doc.appSettings.caseSharing !== undefined),
+			);
+			expect(shell.case_sharing).toBe(doc.appSettings.caseSharing);
 			expect(shell.modules).toEqual([]);
 			expect(shell._attachments).toEqual({});
 			if (connectApp) expect(shell.auto_gps_capture).toBe(true);
