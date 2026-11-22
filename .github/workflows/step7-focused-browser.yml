@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 34ecfc7a231d0ac140845901a2ccdf2c935ae0b1
+          ref: b72813002cc403fc53b839f8a47373c863184a71
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -28,16 +28,21 @@ jobs:
         env:
           SMOKE_LANE: app
         run: npm run test:smoke -- --project=authed e2e/tests/app/number-keypad.spec.ts --grep 'a worker gets a dropdown' --retries=0 --workers=1 --fail-on-flaky-tests
-      - name: Complete the visit on both preview platforms
+      - name: Retain the signed-in Builder observation
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: builder-observations
+          path: e2e/test-results
+          if-no-files-found: error
+      - name: Complete the visit in Android Preview
         if: ${{ !cancelled() }}
         env:
           SMOKE_LANE: browser
-        run: npm run test:smoke -- --project=browser e2e/tests/browser/preview-platforms.spec.ts --grep 'visit-display' --workers=1 --fail-on-flaky-tests
+        run: npm run test:smoke -- --project=browser e2e/tests/browser/preview-platforms.spec.ts --grep 'visit-display-android' --retries=0 --workers=1 --fail-on-flaky-tests
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: browser-observations
-          path: |
-            e2e/test-results
-            test-results
+          name: preview-observations
+          path: e2e/test-results
           if-no-files-found: ignore
