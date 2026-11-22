@@ -437,7 +437,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: moveFieldTool.description,
 		schema: moveFieldTool.inputSchema,
 		prompt:
-			"Use moveField with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to move fieldUuid 33333333-3333-4333-8333-333333333333 after afterFieldUuid 44444444-4444-4444-8444-444444444444.",
+			"Use moveField with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to move fieldUuid 33333333-3333-4333-8333-333333333333 after afterFieldUuid 44444444-4444-4444-8444-444444444444 in its submitted values only, keeping its screen position.",
 	},
 	{
 		name: "createForm",

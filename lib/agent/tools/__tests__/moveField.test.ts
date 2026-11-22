@@ -22,6 +22,8 @@ import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
+import { referenceNames } from "@/lib/domain/referenceNames";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { applyToDoc } from "../common";
@@ -349,5 +351,41 @@ describe("moveField — refusals", () => {
 			"alpha",
 			"golf_two",
 		]);
+	});
+});
+
+describe("where a question appears and where its answer is saved", () => {
+	it("moves its screen, then moves just its answer beside another submitted value", async () => {
+		const initial = makeDoc();
+		const h = makeToolWorkspaceHarness(initial);
+		const alpha = uuidOf(initial, "alpha");
+		const form = formUuidOf(initial);
+		const group = uuidOf(initial, "grp");
+		const address = fieldAddress(initial, "alpha");
+		const screen = await h.runTool(moveFieldTool, {
+			...address,
+			where: "screen",
+			parentUuid: group,
+		});
+		if ("error" in screen.result) throw new Error(screen.result.error);
+		const shown = expectAdmittedDoc(h.currentDoc());
+		expect(shown.fieldOrder[group].at(-1)).toBe(alpha);
+		expect(referenceNames(shown).fieldPathSegments(alpha)).toEqual(["alpha"]);
+		const submitted = await h.runTool(moveFieldTool, {
+			...address,
+			where: "submission",
+			beforeFieldUuid: uuidOf(initial, "golf_two"),
+		});
+		if ("error" in submitted.result) throw new Error(submitted.result.error);
+		const saved = expectAdmittedDoc(h.currentDoc());
+		expect(referenceNames(saved).fieldPathSegments(alpha)).toEqual([
+			"grp",
+			"alpha",
+		]);
+		expect(saved.fieldOrder[group].at(-1)).toBe(alpha);
+		const layout = submissionLayout(form, saved.fields, saved.fieldOrder);
+		expect(
+			layout.children.get(group)?.map((uuid) => saved.fields[uuid].id),
+		).toEqual(["golf_one", "alpha", "golf_two"]);
 	});
 });

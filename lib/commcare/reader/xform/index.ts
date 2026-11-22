@@ -167,6 +167,9 @@ export interface DraftField {
 	kind: FieldKind;
 	readonly id: string;
 	readonly parent: DraftField | null;
+	/** The submitted parent, resolved after all controls have been read. */
+	dataParent: DraftField | null;
+	dataPosition?: number;
 	/** True for the stand-in of a question that got a finding; never in a returned document. */
 	readonly standIn: boolean;
 	/** The refusal a stand-in got (its kind's, its repeat's, or its data node's), which covers
@@ -853,7 +856,7 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 /** A field's ids from the form's root, a query repeat's row left out: its identity key's path. */
 function fieldPath(field: DraftField): string[] {
 	const path: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		path.unshift(at.id);
 	return path;
 }
@@ -931,6 +934,18 @@ export function mintFields(ctx: ReadContext): void {
 								: { event: expression.event },
 						);
 					}
+				}
+				// A parent may appear later in the body, so materialize data
+				// placement only after all identities have been minted.
+				for (const field of fields) {
+					if (field.dataPosition === undefined) continue;
+					const parent =
+						field.dataParent === null ? form.uuid : field.dataParent.uuid;
+					if (parent !== undefined)
+						field.field.submissionPlacement = {
+							parent,
+							position: field.dataPosition,
+						};
 				}
 				xform.sourceNames = sourceNames(xform, fields);
 			});

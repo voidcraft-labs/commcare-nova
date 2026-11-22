@@ -741,6 +741,7 @@ export type PersistableDoc = z.infer<typeof blueprintDocSchema>;
 export type PersistedBlueprint = PersistableDoc & {
 	fieldParent?: never;
 	refIndex?: never;
+	publishedQuestions?: never;
 };
 
 export type BlueprintDoc = PersistableDoc & {
@@ -748,6 +749,9 @@ export type BlueprintDoc = PersistableDoc & {
 	 *  atomically by every mutation that touches fieldOrder. Rebuilt by
 	 *  rebuildFieldParent() on load. Not persisted. */
 	fieldParent: Record<Uuid, Uuid>;
+	/** Which existing questions a saved HQ copy already contains. Supplied
+	 * by the authorized deployment snapshot and excluded from persistence. */
+	publishedQuestions?: readonly Uuid[];
 	/**
 	 * The reference + declarations index (`lib/domain/referenceIndex.ts`)
 	 * — derived state, never persisted. Seeded by every apply entry

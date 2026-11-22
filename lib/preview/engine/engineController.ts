@@ -90,7 +90,7 @@ import {
 	entrySessionData,
 } from "./entrySessionData";
 import type { FieldTreeNode } from "./fieldTree";
-import { buildFieldTree } from "./fieldTree";
+import { formFieldTrees } from "./fieldTree";
 import {
 	type CaseDataByType,
 	FormEngine,
@@ -565,6 +565,7 @@ function activeFormTopologyChanged(
 		if (
 			currentField === undefined ||
 			previousField === undefined ||
+			currentField.submissionPlacement !== previousField.submissionPlacement ||
 			currentField.id !== previousField.id ||
 			currentField.kind !== previousField.kind
 		) {
@@ -3566,6 +3567,15 @@ export class EngineController {
 	}
 
 	/** Get the XForm path for a UUID. */
+	containsControl(outer: string, inner: string): boolean {
+		return (
+			(this.retainedPresentation?.engine ?? this.engine)?.containsControl(
+				outer,
+				inner,
+			) ?? false
+		);
+	}
+
 	getPath(uuid: string): string | undefined {
 		return (this.retainedPresentation?.uuidToPath ?? this.uuidToPath).get(uuid);
 	}
@@ -3797,18 +3807,18 @@ export class EngineController {
 			if (previousInput === undefined || currentInput === undefined) return;
 
 			const previousMaps = buildPathMaps(
-				buildFieldTree(
+				formFieldTrees(
 					previousInput.formUuid,
 					previousInput.fields,
 					previousInput.fieldOrder,
-				),
+				).submitted,
 			);
 			const currentMaps = buildPathMaps(
-				buildFieldTree(
+				formFieldTrees(
 					currentInput.formUuid,
 					currentInput.fields,
 					currentInput.fieldOrder,
-				),
+				).submitted,
 			);
 			const previousUuids = new Set(previousMaps.uuidToPath.keys());
 			const currentUuids = new Set(currentMaps.uuidToPath.keys());
@@ -4427,11 +4437,11 @@ export class EngineController {
 		/* Rebuild path MAPS — the conversion (and any co-incident rename)
 		 * moves paths. The engine's DAG rebuild waits until AFTER the value
 		 * moves below: old paths materialize against the pre-change topology. */
-		const newTree = buildFieldTree(
+		const newTree = formFieldTrees(
 			input.formUuid,
 			input.fields,
 			input.fieldOrder,
-		);
+		).submitted;
 		const maps = buildPathMaps(newTree);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
@@ -4560,7 +4570,11 @@ export class EngineController {
 		if (!input) return;
 
 		/* Rebuild path maps and DAG to include the new fields */
-		const tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		const tree = formFieldTrees(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+		).submitted;
 		const maps = buildPathMaps(tree);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
@@ -4616,11 +4630,11 @@ export class EngineController {
 		/* Rebuild path maps and DAG without the removed fields */
 		const input = this.currentEngineInput();
 		if (input) {
-			const tree = buildFieldTree(
+			const tree = formFieldTrees(
 				input.formUuid,
 				input.fields,
 				input.fieldOrder,
-			);
+			).submitted;
 			const maps = buildPathMaps(tree);
 			this.uuidToPath = maps.uuidToPath;
 			this.pathToUuid = maps.pathToUuid;

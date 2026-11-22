@@ -539,7 +539,7 @@ interface ActionState {
  */
 function advancedRootNames(f: CaseSlotFacts): ReadonlySet<string> {
 	const names = new Set<string>(formConnectIds(f.doc, f.formUuid));
-	for (const uuid of f.doc.fieldOrder[f.formUuid] ?? []) {
+	for (const uuid of f.submittedChildren.get(f.formUuid) ?? []) {
 		const field = f.doc.fields[uuid];
 		if (field !== undefined) names.add(field.id);
 	}
@@ -558,7 +558,7 @@ function advancedRootNames(f: CaseSlotFacts): ReadonlySet<string> {
  *  segment of each Save to Case block held there. */
 function advancedRowNames(f: CaseSlotFacts, repeat: Uuid): ReadonlySet<string> {
 	const names = new Set<string>();
-	for (const uuid of f.doc.fieldOrder[repeat] ?? []) {
+	for (const uuid of f.submittedChildren.get(repeat) ?? []) {
 		const field = f.doc.fields[uuid];
 		if (field !== undefined) names.add(field.id);
 	}

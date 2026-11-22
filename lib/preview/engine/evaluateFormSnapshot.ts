@@ -347,7 +347,7 @@ export async function evaluateFormSnapshot(
 				 * changes nothing; a uuid that is no section of the form refuses
 				 * as it does on Android. */
 				const named = engine
-					.getFieldTree()
+					.getControlTree()
 					.some(
 						(node) =>
 							node.field.kind === "section" && node.field.uuid === sectionUuid,
@@ -492,10 +492,11 @@ export async function evaluateFormSnapshot(
 		const valid = await engine.validateAllAsync(evaluate);
 		const relevantPaths = engine.effectivelyVisiblePaths();
 		const presentation = projectFormPresentation(
-			engine.getFieldTree(),
+			engine.getControlTree(),
 			{ stateAt: (_field, path) => engine.getState(path) },
 			{
 				language: engineInput.language,
+				containsControl: engine.containsControl,
 				/* A sectioned form on Android pages by section; every other
 				 * form's page is its current screen (the whole form on Web
 				 * Apps). */

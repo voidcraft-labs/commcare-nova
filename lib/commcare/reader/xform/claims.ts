@@ -483,7 +483,7 @@ export const X = {
 		"xform:model/instance//*",
 	),
 	dataParentOtherGroup: one(
-		"refuse",
+		"take",
 		Q("data-parent-data-node-under-another-group-than-its-control"),
 		"xform:input@ref",
 	),

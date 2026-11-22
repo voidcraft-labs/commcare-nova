@@ -2830,7 +2830,7 @@ function carriedName(
 /** A field's ids from the form's root. */
 function fieldIdsOf(field: DraftField): string[] {
 	const ids: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		ids.unshift(at.id);
 	return ids;
 }

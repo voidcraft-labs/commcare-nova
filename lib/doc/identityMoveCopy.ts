@@ -70,6 +70,7 @@ export function identitySubjectName(
 			return `${quoted(formWords(doc, subject.formUuid))}: ${describeCaseOperation(doc, subject.formUuid, subject.operationUuid)}`;
 		case "own-close":
 			return `${quoted(formWords(doc, subject.formUuid))}: closing its case`;
+		case "submitted-question":
 		case "query-repeat":
 			return `${quoted(formWords(doc, subject.formUuid))}, ${quoted(fieldWords(doc, subject.fieldUuid))}`;
 		case "module-kind":
@@ -90,6 +91,8 @@ export function identityMoveReasonSentence(
 ): string {
 	const { reason } = move;
 	switch (reason.source) {
+		case "submitted-question":
+			return "Future submissions will store this answer at its new address.";
 		case "case-placement":
 			return placementIneligibilitySentence(reason.reason.reason);
 		case "query-repeat": {

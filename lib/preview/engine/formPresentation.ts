@@ -6,8 +6,9 @@ import type {
 	ProseTemplate,
 	Uuid,
 } from "@/lib/domain";
+import { isProseTemplate } from "@/lib/domain/prose";
 import { runtimeMessage } from "../runtimeMessages";
-import type { FieldTreeNode } from "./fieldTree";
+import { controlValuePath, type FieldTreeNode } from "./fieldTree";
 import { type FieldState, repeatRowRelevantInState } from "./types";
 
 /** Runtime state is path keyed in the engine and UUID/path keyed in React.
@@ -93,7 +94,11 @@ export function fieldHasWorkerPresentation(
 		return (
 			hasOwnPresentation(field, state) ||
 			children.some((child) =>
-				fieldHasWorkerPresentation(child, `${path}/${child.field.id}`, source),
+				fieldHasWorkerPresentation(
+					child,
+					controlValuePath(child, path),
+					source,
+				),
 			)
 		);
 	return true;
@@ -116,7 +121,7 @@ export function visibleRepeatInstances(
 				children.some((child) =>
 					fieldHasWorkerPresentation(
 						child,
-						`${path}[${index}]/${child.field.id}`,
+						controlValuePath(child, `${path}[${index}]`),
 						source,
 					),
 				)),
@@ -135,6 +140,7 @@ export function fieldTreesEqual(
 			(node, index) =>
 				right[index] !== undefined &&
 				fieldsEqual(node.field, right[index].field) &&
+				node.submittedPath === right[index].submittedPath &&
 				fieldTreesEqual(
 					node.children ?? [],
 					right[index].children ?? [],
@@ -158,6 +164,7 @@ export function projectFormPresentation(
 		 *  a question's path on Android. A field is on the current page when
 		 *  it is the screen, inside it, or a container holding it. */
 		currentScreenPath?: string;
+		containsControl?: (outer: string, inner: string) => boolean;
 		availableSectionUuids?: ReadonlySet<Uuid>;
 		text(prose: ProseTemplate): string;
 	},
@@ -180,9 +187,7 @@ export function projectFormPresentation(
 					: state.resolvedHelp;
 		if (resolved !== undefined) return resolved;
 		const prose = slot in field ? field[slot as keyof Field] : undefined;
-		return typeof prose === "object" && prose !== null && "parts" in prose
-			? options.text(prose)
-			: undefined;
+		return isProseTemplate(prose) ? options.text(prose) : undefined;
 	};
 	function walk(
 		nodes: readonly FieldTreeNode[],
@@ -194,19 +199,22 @@ export function projectFormPresentation(
 		const presentation: FormPresentationNode[] = [];
 		for (const node of nodes) {
 			const { field, children = [] } = node;
-			const path = `${parentPath}/${field.id}`;
+			const path = controlValuePath(node, parentPath);
 			const state = source.stateAt(field, path);
 			const section = field.kind === "section" ? field.uuid : sectionUuid;
 			const screenPath = options.currentScreenPath;
 			const onCurrentPage =
 				screenPath === undefined
 					? section === options.currentSectionUuid
-					: screenPath === "/data" ||
-						path === screenPath ||
-						path.startsWith(`${screenPath}/`) ||
-						path.startsWith(`${screenPath}[`) ||
-						screenPath.startsWith(`${path}/`) ||
-						screenPath.startsWith(`${path}[`);
+					: options.containsControl !== undefined
+						? options.containsControl(screenPath, path) ||
+							options.containsControl(path, screenPath)
+						: screenPath === "/data" ||
+							path === screenPath ||
+							path.startsWith(`${screenPath}/`) ||
+							path.startsWith(`${screenPath}[`) ||
+							screenPath.startsWith(`${path}/`) ||
+							screenPath.startsWith(`${path}[`);
 			const visible =
 				ancestorVisible &&
 				(field.kind !== "section" ||

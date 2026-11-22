@@ -2584,3 +2584,5 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+A form has two orders. The primary instance, expressions, generated siblings and HQ case question paths follow the submitted groups in `lib/domain/submissionLayout.ts`. Body controls follow the worker's screen groups from `fieldOrder`. A saved Vellum question can sit under a different group on screen within the same enclosing repeat. The reader joins the controls to their data nodes before minting identities, so a wording change keeps both orders, including intervening hidden values.

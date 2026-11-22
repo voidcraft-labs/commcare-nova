@@ -1,3 +1,4 @@
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 /**
  * Field-level validation rules.
  *
@@ -365,11 +366,14 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 	const problem = questionIdProblem(field.id);
 	if (problem === undefined) return [];
-	// Read from `fieldOrder`, the persisted order, not the derived parent
-	// index, which a document handed in from storage may not hold.
-	const [parentKey, siblingUuids] = Object.entries(ctx.doc.fieldOrder).find(
-		([, order]) => order?.includes(field.uuid),
-	) ?? [undefined, []];
+	const layout = submissionLayout(
+		ctx.formUuid,
+		ctx.doc.fields,
+		ctx.doc.fieldOrder,
+	);
+	const parentKey = layout.parents.get(field.uuid);
+	const siblingUuids =
+		parentKey === undefined ? [] : layout.children.get(parentKey);
 	const siblings = new Set(
 		(siblingUuids ?? [])
 			.filter((uuid) => uuid !== field.uuid)

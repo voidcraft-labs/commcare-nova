@@ -13,11 +13,15 @@
  * / schema refresh and uses it for every internal traversal.
  */
 import type { Field, Uuid } from "@/lib/domain";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
+import { rebaseOntoContext, stripIndices } from "./instancePaths";
 
 /** A single node in the rose-tree representation of a field subtree. */
 export interface FieldTreeNode {
 	/** The domain field entity. */
 	field: Field;
+	/** A separately laid out control reads this submitted value. */
+	submittedPath?: string;
 	/** Recursive child nodes for container kinds (group, repeat). Leaf fields omit. */
 	children?: FieldTreeNode[];
 }
@@ -34,7 +38,7 @@ export interface FieldTreeNode {
 export function buildFieldTree(
 	parentUuid: Uuid,
 	fields: Record<string, Field>,
-	fieldOrder: Record<string, Uuid[]>,
+	fieldOrder: Record<string, readonly Uuid[]>,
 ): FieldTreeNode[] {
 	// The membership array is the one authored sibling sequence.
 	const order = [...(fieldOrder[parentUuid] ?? [])];
@@ -55,4 +59,74 @@ export function buildFieldTree(
 		}
 	}
 	return nodes;
+}
+
+/** The runtime evaluates binds and submits values in data order. A question
+ * can draw that same value on a different screen in the same repeat row. */
+export function formFieldTrees(
+	form: Uuid,
+	fields: Record<string, Field>,
+	order: Record<string, Uuid[]>,
+) {
+	const controls = buildFieldTree(form, fields, order);
+	const layout = submissionLayout(form, fields, order);
+	if (!layout.independent)
+		return { submitted: controls, controls, contains: ordinaryScreenContains };
+	const submitted = buildFieldTree(
+		form,
+		fields,
+		Object.fromEntries(layout.children),
+	);
+	const paths = new Map<Uuid, string>();
+	const collect = (nodes: FieldTreeNode[], parent: string): void => {
+		for (const node of nodes) {
+			const path = `${parent}/${node.field.id}`;
+			paths.set(node.field.uuid, path);
+			if (node.children !== undefined) collect(node.children, path);
+		}
+	};
+	collect(submitted, "/data");
+	const place = (nodes: FieldTreeNode[]): void => {
+		for (const node of nodes) {
+			node.submittedPath = paths.get(node.field.uuid);
+			if (node.children !== undefined) place(node.children);
+		}
+	};
+	place(controls);
+	const byPath = new Map([...paths].map(([uuid, path]) => [path, uuid]));
+	const contains = (outer: string, inner: string): boolean => {
+		if (outer === "/data" || outer === inner) return true;
+		const template = stripIndices(outer);
+		const parent = byPath.get(template);
+		const atRow = rebaseOntoContext(template, inner);
+		if (
+			parent === undefined ||
+			(atRow !== outer &&
+				!(fields[parent].kind === "repeat" && atRow.startsWith(`${outer}[`)))
+		)
+			return false;
+		let uuid = byPath.get(stripIndices(inner));
+		while (uuid !== undefined) {
+			if (uuid === parent) return true;
+			uuid = layout.controlParents.get(uuid);
+		}
+		return false;
+	};
+	return { submitted, controls, contains };
+}
+
+/** Resolve a worker control against its containing live repeat entry. */
+export function controlValuePath(node: FieldTreeNode, context: string): string {
+	return node.submittedPath === undefined
+		? `${context}/${node.field.id}`
+		: rebaseOntoContext(node.submittedPath, context);
+}
+
+function ordinaryScreenContains(outer: string, inner: string): boolean {
+	return (
+		outer === "/data" ||
+		inner === outer ||
+		inner.startsWith(`${outer}/`) ||
+		inner.startsWith(`${outer}[`)
+	);
 }

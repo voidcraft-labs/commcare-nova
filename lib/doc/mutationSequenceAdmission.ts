@@ -1,8 +1,12 @@
+import { produce } from "immer";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
+import { formOfField } from "@/lib/domain/fieldForm";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
+import { applyMutations } from "./mutations";
 
 export interface MutationSequenceAdmissionIssue {
 	readonly mutationIndex: number;
@@ -370,6 +374,41 @@ export function mutationSequenceAdmissionIssue(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): MutationSequenceAdmissionIssue | undefined {
+	// A submitted move's anchor belongs to the data tree as it stands at
+	// that operation, including the effects of earlier edits in this batch.
+	if (
+		mutations.some((m) => m.kind === "moveField" && m.where === "submission")
+	) {
+		let current = doc;
+		for (const [index, mutation] of mutations.entries()) {
+			if (mutation.kind === "moveField" && mutation.where === "submission") {
+				const form = formOfField(current, mutation.uuid);
+				const layout =
+					form === undefined
+						? undefined
+						: submissionLayout(form, current.fields, current.fieldOrder);
+				const siblings = layout?.children.get(mutation.toParentUuid);
+				if (
+					siblings === undefined ||
+					mutation.uuid === mutation.after ||
+					(mutation.after !== null && !siblings.includes(mutation.after))
+				)
+					return issue(
+						mutation,
+						index,
+						`submitted values of ${mutation.toParentUuid}`,
+						mutation.after,
+					);
+			} else {
+				const refused = mutationSequenceAdmissionIssue(current, [mutation]);
+				if (refused !== undefined) return { ...refused, mutationIndex: index };
+			}
+			current = produce(current, (draft) => {
+				applyMutations(draft, [mutation]);
+			});
+		}
+		return;
+	}
 	const state = stateFromDoc(doc);
 	for (const [mutationIndex, mutation] of mutations.entries()) {
 		switch (mutation.kind) {

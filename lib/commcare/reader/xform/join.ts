@@ -349,6 +349,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 			kind,
 			id: node.name,
 			parent,
+			dataParent: parent,
 			standIn,
 			uuid: undefined,
 			field: { kind, id: node.name, ...slots },
@@ -842,6 +843,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 				kind: "repeat",
 				id: node.name,
 				parent,
+				dataParent: dataParent(node),
 				standIn: false,
 				uuid: undefined,
 				field: {},
@@ -932,25 +934,34 @@ export function joinForm(input: JoinInput): JoinedForm {
 		if (made !== undefined) placed.push(made);
 	}
 
-	// A control's place and its node's place must agree, once every field a control makes
-	// is made: a data parent whose control stands later in the body is a field by now. The
-	// path that places the node is the control's `ref`, so the refusal stands there too.
+	// A control can draw a value kept under a different group in the same
+	// repeat row. Vellum compares the nearest repeat in each tree.
 	for (const made of placed) {
-		const expected = dataParent(made.node);
-		if (expected === made.parent) continue;
-		const crossing = repeatOf(expected) !== repeatOf(made.parent);
-		const refusal = crossing
-			? X.dataParentCrossingRepeat
-			: X.dataParentOtherGroup;
+		const parent = dataParent(made.node);
+		if (parent === made.parent) continue;
+		let dataRepeat = parent;
+		while (dataRepeat !== null && dataRepeat.kind !== "repeat")
+			dataRepeat = dataParent(dataRepeat.node);
+		const crossing = dataRepeat !== repeatOf(made.parent);
 		const control = made.control;
-		if (control === undefined) accounting.finding(refusal, made.place);
-		else
-			accounting.findingAtNode(
-				refusal,
-				made.place,
-				{ element: control.element },
-				`xform:${control.tag}@ref`,
+		if (crossing) {
+			if (control === undefined)
+				accounting.finding(X.dataParentCrossingRepeat, made.place);
+			else
+				accounting.findingAtNode(
+					X.dataParentCrossingRepeat,
+					made.place,
+					{ element: control.element },
+					`xform:${control.tag}@ref`,
+				);
+		} else if (control !== undefined) {
+			const attribute = control.tag === "repeat" ? "nodeset" : "ref";
+			cursor.within(
+				{ element: control.element, attribute },
+				X.dataParentOtherGroup,
+				[`xform:${control.tag}@${attribute}`],
 			);
+		}
 	}
 
 	// The head's `odkx:intent`s an input's `intent:<id>` names: a callout question's own
@@ -1129,26 +1140,42 @@ export function joinForm(input: JoinInput): JoinedForm {
 			(a, b) => (dataOrder.get(a.node) ?? 0) - (dataOrder.get(b.node) ?? 0),
 		);
 		const byParent = new Map<DraftField | null, DraftField[]>();
+		const submitted = new Map<DraftField | null, DraftField[]>();
 		for (const field of fields) {
+			field.dataParent = dataParent(field.node);
 			const list = byParent.get(field.parent) ?? [];
 			list.push(field);
 			byParent.set(field.parent, list);
+			const values = submitted.get(field.dataParent) ?? [];
+			values.push(field);
+			submitted.set(field.dataParent, values);
 		}
 		const made = new Map<DraftField | null, readonly DraftField[]>();
 		for (const [parent, list] of byParent) {
-			const controlled = list.filter((field) => field.control !== undefined);
-			const byBody = [...controlled].sort(
-				(a, b) =>
-					(bodyOrder.get(a.control as ControlNode) ?? 0) -
-					(bodyOrder.get(b.control as ControlNode) ?? 0),
-			);
-			const agree = controlled.every((field, index) => byBody[index] === field);
+			// A bodyless field stays in its slot. Only the visible slots are
+			// filled from the body's sequence.
+			const visible = list
+				.flatMap((field) =>
+					field.control === undefined
+						? []
+						: [{ field, index: bodyOrder.get(field.control) ?? 0 }],
+				)
+				.sort((a, b) => a.index - b.index);
+			let slot = 0;
 			made.set(
 				parent,
-				agree
-					? list
-					: [...byBody, ...list.filter((field) => field.control === undefined)],
+				list.map((field) =>
+					field.control === undefined ? field : visible[slot++].field,
+				),
 			);
+		}
+		for (const [parent, siblings] of submitted) {
+			const screens = made.get(parent) ?? [];
+			const separate =
+				screens.length !== siblings.length ||
+				siblings.some((field, index) => screens[index] !== field);
+			for (const [position, field] of siblings.entries())
+				field.dataPosition = separate ? position : undefined;
 		}
 		ordered = made;
 		return made;

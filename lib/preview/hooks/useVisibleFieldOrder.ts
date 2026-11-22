@@ -13,9 +13,14 @@ import {
 	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
+import { formOfField } from "@/lib/domain/fieldForm";
 import type { RuntimeStoreState } from "../engine/engineController";
 import { DEFAULT_RUNTIME_STATE } from "../engine/engineController";
-import { buildFieldTree, type FieldTreeNode } from "../engine/fieldTree";
+import {
+	controlValuePath,
+	type FieldTreeNode,
+	formFieldTrees,
+} from "../engine/fieldTree";
 import {
 	type FormPresentationSource,
 	fieldHasWorkerPresentation,
@@ -86,12 +91,21 @@ function presentationTree(
 	}
 	let tree = byParent.get(parentUuid);
 	if (tree === undefined) {
-		tree = buildFieldTree(
-			parentUuid,
+		const form = formOfField(doc, parentUuid);
+		if (form === undefined) return [];
+		const { controls } = formFieldTrees(
+			form,
 			presentationFields(doc, resolved),
 			doc.fieldOrder,
 		);
-		byParent.set(parentUuid, tree);
+		const remember = (parent: Uuid, list: FieldTreeNode[]) => {
+			byParent.set(parent, list);
+			for (const node of list)
+				if (node.children !== undefined)
+					remember(node.field.uuid, node.children);
+		};
+		remember(form, controls);
+		tree = byParent.get(parentUuid) ?? [];
 	}
 	return tree;
 }
@@ -128,7 +142,7 @@ export function useVisibleFieldOrder(
 				.filter((node) =>
 					fieldHasWorkerPresentation(
 						node,
-						`${prefix}/${node.field.id}`,
+						controlValuePath(node, prefix),
 						presentationSource(state),
 					),
 				)

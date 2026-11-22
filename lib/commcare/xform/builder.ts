@@ -36,6 +36,7 @@ import { caseTypeHopMap } from "../caseTypeDepths";
  */
 
 import { type ChildNode, type Element, isTag } from "domhandler";
+import { findOne } from "domutils";
 import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
@@ -145,6 +146,7 @@ import {
 	datetimeCaseValuePath,
 	questionDatetimeCaseValue,
 } from "./datetimeCaseValue";
+import { appendChildren } from "./domSplice";
 import { formCasePropertyRead } from "./formCaseRead";
 import {
 	type FormExpressionEmission,
@@ -1042,7 +1044,9 @@ export function buildXFormSource(
 
 	// The form's text formatting switch, read beside each text's own setting.
 	const textForm: Pick<Form, "plainText"> = doc.forms[formUuid] ?? {};
-	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
+	const controls = new Map<Uuid, Element>();
+	for (const fieldUuid of expressions.form.fieldOrder.get(formUuid) ?? []) {
+		const ownBody: Element[] = [];
 		buildFieldParts(
 			doc,
 			fieldUuid,
@@ -1050,7 +1054,7 @@ export function buildXFormSource(
 			dataElements,
 			binds,
 			setvalues,
-			bodyElements,
+			ownBody,
 			false,
 			addItext,
 			context,
@@ -1061,8 +1065,11 @@ export function buildXFormSource(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
+		if (ownBody[0] !== undefined) controls.set(fieldUuid, ownBody[0]);
 	}
+	bodyElements.push(...orderedControls(doc, formUuid, controls));
 
 	// Connect data + binds are data-only (no body elements).
 	const connectParts = buildConnectBlocks(opts.connect, context, expressions);
@@ -1268,6 +1275,7 @@ function buildFieldParts(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
+	controls: Map<Uuid, Element>,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1749,6 +1757,7 @@ function buildFieldParts(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
 		return;
 	}
@@ -2153,6 +2162,7 @@ function buildContainer(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
+	controls: Map<Uuid, Element>,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -2174,7 +2184,8 @@ function buildContainer(
 	const childParentPath =
 		queryRepeat === undefined ? nodePath : nodePath.queryBoundIteration();
 
-	for (const childUuid of orderedFieldUuids(doc, fieldUuid)) {
+	for (const childUuid of expressions.form.fieldOrder.get(fieldUuid) ?? []) {
+		const ownBody: Element[] = [];
 		buildFieldParts(
 			doc,
 			childUuid,
@@ -2182,7 +2193,7 @@ function buildContainer(
 			childData,
 			childBinds,
 			childSetvalues,
-			childBody,
+			ownBody,
 			childInsideRepeat,
 			addItext,
 			context,
@@ -2193,7 +2204,9 @@ function buildContainer(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
+		if (ownBody[0] !== undefined) controls.set(childUuid, ownBody[0]);
 	}
 
 	const query =
@@ -2321,6 +2334,32 @@ function buildContainer(
 			groupChildren,
 		),
 	);
+}
+
+/** Controls are emitted against their submitted paths. Nest the visible ones
+ * in the order a worker sees them, including a repeat's actual row control. */
+function orderedControls(
+	doc: BlueprintDoc,
+	parent: Uuid,
+	controls: ReadonlyMap<Uuid, Element>,
+): Element[] {
+	const children: Element[] = [];
+	for (const uuid of orderedFieldUuids(doc, parent)) {
+		const element = controls.get(uuid);
+		if (element === undefined) continue;
+		const field = doc.fields[uuid];
+		if (isContainer(field)) {
+			const holder =
+				field.kind === "repeat"
+					? findOne((node) => node.name === "repeat", element.children, true)
+					: element;
+			if (!holder)
+				throw new Error(`The repeat ${field.id} has no row control.`);
+			appendChildren(holder, orderedControls(doc, uuid, controls));
+		}
+		children.push(element);
+	}
+	return children;
 }
 
 /** What one query repeat writes besides its authored children. */

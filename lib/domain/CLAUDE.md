@@ -593,3 +593,8 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+
+### Independently placed submitted values
+
+`fieldOrder` holds worker controls and each bodyless field's Builder position. A field can keep its submitted value in another group's slot with `submissionPlacement: {parent, position}`. `submissionLayout(form, fields, fieldOrder)` resolves both parent maps, the ordered children of each submitted group, and invalid references, cycles, repeated ranks or repeat crossings. Form expressions, generated case paths and identity read-back use the submitted tree. Workers traverse the control tree and read and write by those same submitted identities. With no independent placement the two walks use exactly the same sequence.

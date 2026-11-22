@@ -1670,6 +1670,7 @@ const USER_MESSAGE_BY_CODE: Record<
 				: "";
 		return `${q(fieldName(e))} and a CommCare Connect block of ${q(formName(e))} share one name, so the form would hold two items CommCare can't tell apart. You can rename the field, or give the block another ID.${offer}`;
 	},
+	FIELD_SUBMISSION_PLACEMENT: (e) => e.message,
 	DUPLICATE_FIELD_ID: (e) =>
 		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
 	CASE_OPERATION_DUPLICATE_UUID: () =>

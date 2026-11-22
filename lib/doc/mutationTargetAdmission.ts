@@ -124,9 +124,6 @@ export function mutationTargetsInvalid(
 	const fieldKinds = new Map<string, BlueprintDoc["fields"][string]["kind"]>(
 		Object.values(doc.fields).map((field) => [field.uuid, field.kind]),
 	);
-	const fieldIds = new Map<string, string>(
-		Object.values(doc.fields).map((field) => [field.uuid, field.id]),
-	);
 	const containerFields = new Set<string>(
 		Object.values(doc.fields)
 			.filter((field) => isContainer(field))
@@ -335,7 +332,6 @@ export function mutationTargetsInvalid(
 		fieldOwners.delete(fieldUuid);
 		fields.delete(fieldUuid);
 		fieldKinds.delete(fieldUuid);
-		fieldIds.delete(fieldUuid);
 		containerFields.delete(fieldUuid);
 		inlineOptionFields.delete(fieldUuid);
 		for (const [optionUuid, owner] of optionOwners) {
@@ -668,7 +664,6 @@ export function mutationTargetsInvalid(
 				if (!container(m.parentUuid)) return true;
 				fields.add(m.field.uuid);
 				fieldKinds.set(m.field.uuid, m.field.kind);
-				fieldIds.set(m.field.uuid, m.field.id);
 				fieldOwners.set(m.field.uuid, m.parentUuid);
 				fieldChildren.get(m.parentUuid)?.add(m.field.uuid);
 				if (isContainer(m.field)) {
@@ -697,6 +692,9 @@ export function mutationTargetsInvalid(
 				) {
 					return true;
 				}
+				// Submitted siblings and cycles are checked in their own tree
+				// by sequence admission and the form placement validator.
+				if (m.where === "submission") break;
 				for (
 					let ancestor: string | undefined = m.toParentUuid;
 					ancestor !== undefined;
@@ -704,19 +702,8 @@ export function mutationTargetsInvalid(
 				) {
 					if (ancestor === m.uuid) return true;
 				}
-				{
-					const movingId = fieldIds.get(m.uuid);
-					if (
-						movingId === undefined ||
-						[...(fieldChildren.get(m.toParentUuid) ?? [])].some(
-							(siblingUuid) =>
-								siblingUuid !== m.uuid &&
-								fieldIds.get(siblingUuid) === movingId,
-						)
-					) {
-						return true;
-					}
-				}
+				// The candidate validator checks sibling names at their submitted addresses.
+				// Screen siblings may legitimately save under different parents.
 				fieldChildren.get(fieldOwners.get(m.uuid) ?? "")?.delete(m.uuid);
 				fieldOwners.set(m.uuid, m.toParentUuid);
 				fieldChildren.get(m.toParentUuid)?.add(m.uuid);
@@ -726,7 +713,6 @@ export function mutationTargetsInvalid(
 				if (fieldKinds.get(m.uuid) !== m.targetKind) return true;
 				if (Object.hasOwn(m.patch, "id")) {
 					if (typeof m.patch.id !== "string") return true;
-					fieldIds.set(m.uuid, m.patch.id);
 				}
 				break;
 			case "convertField": {

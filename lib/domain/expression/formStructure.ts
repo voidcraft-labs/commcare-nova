@@ -6,6 +6,7 @@ import { moduleUuidOfForm } from "../postSubmit";
 import type { QueryRepeatPlacement } from "../queryRepeatPlacement";
 import { ownRecordValue } from "../records";
 import { expressionSlotValue } from "../referenceSlots";
+import { submissionLayout } from "../submissionLayout";
 import type { Uuid } from "../uuid";
 import type {
 	Expression,
@@ -91,14 +92,15 @@ export function formStructure(
 	const form = ownRecordValue(doc.forms, formUuid);
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (form === undefined || moduleUuid === undefined) return undefined;
+	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const fields = new Map<Uuid, FormStructureField>();
-	const fieldOrder = new Map<Uuid, readonly Uuid[]>();
+
 	const visiting = new Set<Uuid>();
 	const visit = (parent: Uuid): void => {
 		if (visiting.has(parent)) return;
 		visiting.add(parent);
 		const ordered = ownRecordValue(doc.fieldOrder, parent) ?? [];
-		fieldOrder.set(parent, ordered);
+
 		for (const uuid of ordered) {
 			const field = ownRecordValue(doc.fields, uuid);
 			if (field === undefined || fields.has(uuid)) continue;
@@ -108,7 +110,7 @@ export function formStructure(
 				uuid,
 				id: field.id,
 				kind: field.kind,
-				parent,
+				parent: layout.parents.get(uuid) ?? parent,
 				proseSlots: [
 					...("label" in field && field.label !== undefined
 						? ["label" as const]
@@ -176,7 +178,7 @@ export function formStructure(
 		moduleUuid,
 		type: form.type,
 		fields,
-		fieldOrder,
+		fieldOrder: layout.children,
 		connect,
 		links: new Map(
 			formLinkEntries(form).map(({ role, link }) => [

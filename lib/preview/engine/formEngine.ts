@@ -142,7 +142,11 @@ import {
 	type PreviewDataRefusalReason,
 	WORKER_INFORMATION_REFUSAL,
 } from "./dataRefusal";
-import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
+import {
+	controlValuePath,
+	type FieldTreeNode,
+	formFieldTrees,
+} from "./fieldTree";
 import {
 	type FormExpressionRuntime,
 	formExpressionRuntime,
@@ -556,16 +560,6 @@ function groupDrawsAsFieldList(field: Field & { kind: "group" }): boolean {
 	return field.fieldList === true;
 }
 
-/** The engine paths one screen holds: every path for the whole form, else
- *  the screen's own and everything under it. */
-function screenIncludes(screenPath: string): (path: string) => boolean {
-	if (screenPath === "/data") return () => true;
-	return (path) =>
-		path === screenPath ||
-		path.startsWith(`${screenPath}/`) ||
-		path.startsWith(`${screenPath}[`);
-}
-
 /** Keep the owning document and replace its active form's localized view.
  *  Runtime expression contexts retain every catalog and sibling identity. */
 function printableDocOf(input: FormEngineInput): BlueprintDoc {
@@ -657,6 +651,8 @@ export class FormEngine {
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
+	private controls: FieldTreeNode[];
+	containsControl: (outer: string, inner: string) => boolean;
 	private caseData: CaseDataByType;
 	/** The resolved identity worker reads see, fixed for the engine's
 	 *  lifetime; an identity change rebuilds the engine so every computed
@@ -832,7 +828,11 @@ export class FormEngine {
 		this.secondaryWorkerSnapshots = [...this.secondaryInstances.values()].map(
 			snapshotXPathWorkerInstance,
 		);
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(input.formUuid, input.fields, input.fieldOrder));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
@@ -1154,14 +1154,13 @@ export class FormEngine {
 		sectionUuid: Uuid,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<boolean> {
-		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
+		const section = this.controls.find(
+			(node) => node.field.uuid === sectionUuid,
+		);
 		if (section === undefined || section.field.kind !== "section") return true;
-		const root = `/data/${section.field.id}`;
+		const root = controlValuePath(section, "/data");
 		return this.validateWhereAsync(
-			(path) =>
-				path === root ||
-				path.startsWith(`${root}/`) ||
-				path.startsWith(`${root}[`),
+			(path) => this.containsControl(root, path),
 			evaluateAsync,
 		);
 	}
@@ -2029,7 +2028,7 @@ export class FormEngine {
 		effectivelyVisible: ReadonlySet<string>,
 	): boolean {
 		for (const node of nodes) {
-			const path = `${prefix}/${node.field.id}`;
+			const path = controlValuePath(node, prefix);
 			if (!effectivelyVisible.has(path)) continue;
 			if (!isContainer(node.field)) {
 				if (node.field.kind !== "hidden") return true;
@@ -2069,7 +2068,7 @@ export class FormEngine {
 		return [...this.pendingSectionRepeats].some(
 			([repeatPath, snapshot]) =>
 				snapshot.count > 0 &&
-				repeatPath.startsWith(`${path}/`) &&
+				this.containsControl(path, repeatPath) &&
 				effectivelyVisible.has(repeatPath),
 		);
 	}
@@ -2085,9 +2084,9 @@ export class FormEngine {
 			this.store.getState(),
 		);
 		const pages: FormScreenPage[] = [];
-		for (const node of this.tree) {
+		for (const node of this.controls) {
 			if (node.field.kind !== "section") continue;
-			const path = `/data/${node.field.id}`;
+			const path = controlValuePath(node, "/data");
 			pages.push({
 				kind: "section",
 				uuid: node.field.uuid,
@@ -2133,14 +2132,14 @@ export class FormEngine {
 					path: "/data",
 					needsEntry: this.sectionNeedsEntry("/data", effectivelyVisible),
 					hasVisibleQuestions: this.screenHasVisibleQuestion(
-						this.tree,
+						this.controls,
 						"/data",
 						effectivelyVisible,
 					),
 				},
 			];
 		}
-		if (this.tree.some((node) => node.field.kind === "section"))
+		if (this.controls.some((node) => node.field.kind === "section"))
 			return this.sectionScreens();
 		return this.unsectionedScreens().screens;
 	}
@@ -2154,7 +2153,7 @@ export class FormEngine {
 		if (
 			this.rules.repeatAdd !== "prompt" ||
 			this.rules.formScreens === "one-screen" ||
-			this.tree.some((node) => node.field.kind === "section")
+			this.controls.some((node) => node.field.kind === "section")
 		)
 			return [];
 		return this.unsectionedScreens().prompts;
@@ -2181,7 +2180,7 @@ export class FormEngine {
 		if (
 			cached !== undefined &&
 			cached.state === state &&
-			cached.tree === this.tree &&
+			cached.tree === this.controls &&
 			cached.instance === this.instance
 		)
 			return cached.result;
@@ -2190,7 +2189,7 @@ export class FormEngine {
 		);
 		this.unsectionedWalk = {
 			state,
-			tree: this.tree,
+			tree: this.controls,
 			instance: this.instance,
 			result,
 		};
@@ -2208,7 +2207,7 @@ export class FormEngine {
 		const walk = (nodes: ReadonlyArray<FieldTreeNode>, prefix: string) => {
 			for (const node of nodes) {
 				const field = node.field;
-				const path = `${prefix}/${field.id}`;
+				const path = controlValuePath(node, prefix);
 				if (field.kind === "repeat") {
 					const count = this.instance.getRepeatCount(path);
 					for (let index = 0; index < count; index++)
@@ -2251,7 +2250,7 @@ export class FormEngine {
 				});
 			}
 		};
-		walk(this.tree, "/data");
+		walk(this.controls, "/data");
 		return { screens, prompts };
 	}
 
@@ -2263,14 +2262,17 @@ export class FormEngine {
 	/** Validate one screen's effectively visible questions: the whole form
 	 *  for `/data`, else every path under the screen's. */
 	validateScreen(path: string): boolean {
-		return this.validateWhere(screenIncludes(path));
+		return this.validateWhere((child) => this.containsControl(path, child));
 	}
 
 	async validateScreenAsync(
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<boolean> {
-		return this.validateWhereAsync(screenIncludes(path), evaluateAsync);
+		return this.validateWhereAsync(
+			(child) => this.containsControl(path, child),
+			evaluateAsync,
+		);
 	}
 
 	/** Enter a screen: a whole-form screen enters every section in order, a
@@ -2310,9 +2312,10 @@ export class FormEngine {
 	}
 
 	private sectionAtScreenPath(path: string): Uuid | undefined {
-		return this.tree.find(
+		return this.controls.find(
 			(node) =>
-				node.field.kind === "section" && `/data/${node.field.id}` === path,
+				node.field.kind === "section" &&
+				controlValuePath(node, "/data") === path,
 		)?.field.uuid;
 	}
 
@@ -2321,7 +2324,7 @@ export class FormEngine {
 		this.allSectionsEntered = true;
 		const active = this.activeSectionUuid;
 		const screen = this.activeScreenPath;
-		for (const node of this.tree) {
+		for (const node of this.controls) {
 			if (node.field.kind !== "section") continue;
 			this.enterSection(node.field.uuid);
 		}
@@ -2335,7 +2338,7 @@ export class FormEngine {
 		this.allSectionsEntered = true;
 		const active = this.activeSectionUuid;
 		const screen = this.activeScreenPath;
-		for (const node of this.tree) {
+		for (const node of this.controls) {
 			if (node.field.kind !== "section") continue;
 			await this.enterSectionAsync(node.field.uuid, evaluateAsync);
 		}
@@ -2366,15 +2369,12 @@ export class FormEngine {
 	 * phone before it turns the page; Back never calls it.
 	 */
 	validateSection(sectionUuid: Uuid): boolean {
-		const section = this.tree.find((node) => node.field.uuid === sectionUuid);
-		if (section === undefined || section.field.kind !== "section") return true;
-		const root = `/data/${section.field.id}`;
-		return this.validateWhere(
-			(path) =>
-				path === root ||
-				path.startsWith(`${root}/`) ||
-				path.startsWith(`${root}[`),
+		const section = this.controls.find(
+			(node) => node.field.uuid === sectionUuid,
 		);
+		if (section === undefined || section.field.kind !== "section") return true;
+		const root = controlValuePath(section, "/data");
+		return this.validateWhere((path) => this.containsControl(root, path));
 	}
 
 	/**
@@ -2396,7 +2396,8 @@ export class FormEngine {
 		const onScreen =
 			opts?.withinScreen === undefined
 				? () => true
-				: screenIncludes(opts.withinScreen);
+				: (child: string) =>
+						this.containsControl(opts.withinScreen as string, child);
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
 			prefix: string,
@@ -2404,7 +2405,7 @@ export class FormEngine {
 			ancestorUuids: readonly Uuid[],
 		): InvalidFieldTarget | undefined => {
 			for (const node of nodes) {
-				const instancePath = `${prefix}/${node.field.id}`;
+				const instancePath = controlValuePath(node, prefix);
 				const effective =
 					ancestorsVisible && states[instancePath]?.visible !== false;
 				if (!effective) continue;
@@ -2450,11 +2451,11 @@ export class FormEngine {
 			return undefined;
 		};
 		if (opts?.withinSection !== undefined) {
-			const section = this.tree.find(
+			const section = this.controls.find(
 				(node) => node.field.uuid === opts.withinSection,
 			);
 			if (section === undefined) return undefined;
-			const sectionPath = `/data/${section.field.id}`;
+			const sectionPath = controlValuePath(section, "/data");
 			return walk(
 				section.children ?? [],
 				sectionPath,
@@ -2462,7 +2463,7 @@ export class FormEngine {
 				[section.field.uuid],
 			);
 		}
-		return walk(this.tree, "/data", true, []);
+		return walk(this.controls, "/data", true, []);
 	}
 
 	/**
@@ -2480,7 +2481,7 @@ export class FormEngine {
 			ancestorUuids: readonly Uuid[],
 		): InvalidFieldTarget | undefined => {
 			for (const node of nodes) {
-				const instancePath = `${prefix}/${node.field.id}`;
+				const instancePath = controlValuePath(node, prefix);
 				const structural = isContainer(node.field);
 				if (
 					!structural &&
@@ -2514,7 +2515,7 @@ export class FormEngine {
 			}
 			return undefined;
 		};
-		return walk(this.tree, "/data", []);
+		return walk(this.controls, "/data", []);
 	}
 
 	/**
@@ -3022,6 +3023,10 @@ export class FormEngine {
 
 	/** Get the engine's active field tree — used by the controller when it
 	 *  needs to look up a field by UUID after a subscription fires. */
+	getControlTree(): readonly FieldTreeNode[] {
+		return this.controls;
+	}
+
 	getFieldTree(): FieldTreeNode[] {
 		return this.tree;
 	}
@@ -3072,7 +3077,11 @@ export class FormEngine {
 			input.wireName ?? input.form.name,
 		);
 		this.instance.setRootAttributes(this.formRootAttributes);
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(input.formUuid, input.fields, input.fieldOrder));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
@@ -3557,7 +3566,11 @@ export class FormEngine {
 			input.wireName ?? input.form.name,
 		);
 		this.instance.setRootAttributes(this.formRootAttributes);
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(input.formUuid, input.fields, input.fieldOrder));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
@@ -3594,7 +3607,11 @@ export class FormEngine {
 			input.wireName ?? input.form.name,
 		);
 		this.caseData = caseData ?? new Map();
-		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		({
+			submitted: this.tree,
+			controls: this.controls,
+			contains: this.containsControl,
+		} = formFieldTrees(input.formUuid, input.fields, input.fieldOrder));
 		this.printDoc = printableDocOf(input);
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
@@ -4799,10 +4816,10 @@ export class FormEngine {
 			};
 			if (
 				prefix === "/data" &&
-				this.tree.some(
+				this.controls.some(
 					(root) =>
 						root.field.kind === "section" &&
-						path.startsWith(`/data/${root.field.id}/`),
+						this.containsControl(controlValuePath(root, "/data"), path),
 				)
 			) {
 				this.pendingSectionRepeats.set(path, snapshot);
@@ -5039,10 +5056,10 @@ export class FormEngine {
 
 	/** A root section's rows grow only once its page is entered. */
 	private queryRowsMayGrow(path: string): boolean {
-		const section = this.tree.find(
+		const section = this.controls.find(
 			(root) =>
 				root.field.kind === "section" &&
-				path.startsWith(`/data/${root.field.id}/`),
+				this.containsControl(controlValuePath(root, "/data"), path),
 		);
 		return (
 			section === undefined ||
@@ -5339,16 +5356,16 @@ export class FormEngine {
 	private *initializeSection(
 		sectionUuid: Uuid,
 	): Generator<InitializationRead, void, InitializationValue> {
-		const section = this.tree.find(
+		const section = this.controls.find(
 			(node) =>
 				node.field.kind === "section" && node.field.uuid === sectionUuid,
 		);
 		if (!section) return;
 		this.activeSectionUuid = sectionUuid;
-		const prefix = `/data/${section.field.id}/`;
+		const sectionPath = controlValuePath(section, "/data");
 		for (const [path, snapshot] of this.pendingSectionRepeats) {
 			if (
-				!path.startsWith(prefix) ||
+				!this.containsControl(sectionPath, path) ||
 				!this.effectivelyVisiblePaths(this.initializationStates).has(path)
 			)
 				continue;
@@ -5423,15 +5440,15 @@ export class FormEngine {
 	}
 
 	private pendingRepeatsInSection(sectionUuid: Uuid): string[] {
-		const section = this.tree.find(
+		const section = this.controls.find(
 			(node) =>
 				node.field.kind === "section" && node.field.uuid === sectionUuid,
 		);
 		if (!section) throw new Error("Section is unavailable.");
-		const prefix = `/data/${section.field.id}/`;
+		const sectionPath = controlValuePath(section, "/data");
 		const visible = this.effectivelyVisiblePaths();
 		return [...this.pendingSectionRepeats.keys()].filter(
-			(path) => path.startsWith(prefix) && visible.has(path),
+			(path) => this.containsControl(sectionPath, path) && visible.has(path),
 		);
 	}
 

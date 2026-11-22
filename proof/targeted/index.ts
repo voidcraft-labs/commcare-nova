@@ -162,6 +162,7 @@ import {
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
 import { styledValue } from "./documents/styledValue";
+import { submittedGroups } from "./documents/submittedGroups";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
@@ -255,6 +256,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	sameTypeChild,
 	supplyPointText,
 	fieldListFlags,
+	submittedGroups,
 	plainLabels,
 	plainHelp,
 	searchWorkflow,

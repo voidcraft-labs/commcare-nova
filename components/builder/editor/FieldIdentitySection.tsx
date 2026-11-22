@@ -87,6 +87,7 @@ import {
 	ConvertImpactDialog,
 	type ConvertImpactRequest,
 } from "./ConvertImpactDialog";
+import { FieldPlacementDialog } from "./FieldPlacementDialog";
 import { classifyRenameOutcome } from "./renameOutcome";
 
 interface FieldIdentitySectionProps {
@@ -185,6 +186,9 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	};
 	/* A conversion the plan flags as failable (`dataLossRisk`) waits here
 	 * for the consent dialog; everything else dispatches directly. */
+	const [placement, setPlacement] = useState<"screen" | "submission" | null>(
+		null,
+	);
 	const [pendingConvert, setPendingConvert] =
 		useState<ConvertImpactRequest | null>(null);
 
@@ -632,6 +636,18 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 										</SimpleTooltip>
 									)}
 
+									{field.kind !== "hidden" && (
+										<MenuItem
+											icon={tablerArrowsExchange}
+											label="Place question on screen"
+											onClick={() => setPlacement("screen")}
+										/>
+									)}
+									<MenuItem
+										icon={tablerArrowsExchange}
+										label="Place submitted answer"
+										onClick={() => setPlacement("submission")}
+									/>
 									{/* Duplicate */}
 									<MenuItem
 										icon={tablerCopyPlus}
@@ -646,6 +662,14 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 				)}
 			</div>
 
+			{canEdit && formUuid !== undefined && placement !== null && (
+				<FieldPlacementDialog
+					form={asUuid(formUuid)}
+					field={field}
+					where={placement}
+					close={() => setPlacement(null)}
+				/>
+			)}
 			{appId !== undefined && (
 				<ConvertImpactDialog
 					appId={appId}

@@ -72,7 +72,6 @@
 
 import { commCareLocalization } from "@/lib/commcare/localization";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -542,10 +541,12 @@ function allocateGeneratedNodes(
 	const heldContainerScopes = new Map<string, Uuid | undefined>();
 	const repeatScopes = new Map<Uuid, FormPath>();
 	const walk = (parentUuid: Uuid, parentPath: FormPath, root: boolean) => {
-		const children = orderedFieldUuids(doc, parentUuid).flatMap((uuid) => {
-			const field = doc.fields[uuid];
-			return field === undefined ? [] : [field];
-		});
+		const children = (structure.fieldOrder.get(parentUuid) ?? []).flatMap(
+			(uuid) => {
+				const field = doc.fields[uuid];
+				return field === undefined ? [] : [field];
+			},
+		);
 		const scopeKey: Uuid | undefined = root ? undefined : parentUuid;
 		const scope = new Namespace([
 			...children.map((field) => field.id),

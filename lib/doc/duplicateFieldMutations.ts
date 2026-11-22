@@ -16,8 +16,13 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
  * duplicate.
  */
 
-import { dedupeSiblingId, findFieldParent } from "@/lib/doc/mutations/helpers";
+import {
+	dedupeSiblingId,
+	findContainingForm,
+	findFieldParent,
+} from "@/lib/doc/mutations/helpers";
 import { HELD_FIELD_KEYS, type HeldFieldKey } from "@/lib/domain/fields";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { asUuid, type BlueprintDoc, type Mutation, type Uuid } from "./types";
 
 /** One field's clone, in the order the adds must land. */
@@ -82,24 +87,52 @@ export function duplicateFieldMutations(
 		}
 	}
 
-	// Only the ROOT clone can collide: every descendant lands under a cloned
-	// parent, where the source's own children are the only other members and
-	// they are not there.
-	const root = cloned[0];
-	if (root !== undefined) {
+	// An ordinary duplicate stays beside the source. When the screen and
+	// submission differ, clone each tree independently. Submitted siblings
+	// outside the duplicate receive a new answer next to the original. A
+	// submitted parent inside it is rebased to its own new UUID.
+	const form = findContainingForm(doc, uuid);
+	if (form === undefined) return undefined;
+	const layout = submissionLayout(form, doc.fields, doc.fieldOrder);
+	const moves: Mutation[] = [];
+	if (layout.independent) {
+		const copies = new Map(cloned.map(({ field }) => [field.uuid, field]));
+		for (const { field } of cloned) delete field.submissionPlacement;
+		for (const [parent, siblings] of layout.children) {
+			const clonedParent = clonedIds.get(parent);
+			let previous: Uuid | null = null;
+			const taken = new Set(siblings.map((id) => doc.fields[id].id));
+			for (const sourceId of siblings) {
+				const copyId = clonedIds.get(sourceId);
+				if (copyId === undefined) continue;
+				const copy = copies.get(copyId);
+				if (copy === undefined) continue;
+				if (clonedParent === undefined) {
+					const desired = copy.id;
+					for (let suffix = 2; taken.has(copy.id); suffix++)
+						copy.id = `${desired}_${suffix}`;
+					taken.add(copy.id);
+				}
+				moves.push({
+					kind: "moveField",
+					where: "submission",
+					uuid: copyId,
+					toParentUuid: clonedParent ?? parent,
+					after: clonedParent === undefined ? sourceId : previous,
+				});
+				previous = copyId;
+			}
+		}
+	} else {
+		const root = cloned[0];
 		root.field.id = dedupeSiblingId(doc, parentUuid, root.field.id, cloneUuid);
 	}
 
-	// The root lands directly after its source; each descendant appends to its
-	// (already-added) cloned parent, which is empty until its siblings arrive,
-	// so writing them in order is the whole placement.
-	return {
-		cloneUuid,
-		mutations: cloned.map((entry, index) => ({
-			kind: "addField",
-			parentUuid: entry.parentUuid,
-			field: entry.field,
-			...(index === 0 && { after: uuid }),
-		})),
-	};
+	const adds: Mutation[] = cloned.map((entry, index) => ({
+		kind: "addField",
+		parentUuid: entry.parentUuid,
+		field: entry.field,
+		...(index === 0 && { after: uuid }),
+	}));
+	return { cloneUuid, mutations: [...adds, ...moves] };
 }

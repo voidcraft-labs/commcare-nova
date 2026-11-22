@@ -96,7 +96,7 @@ import {
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type BlueprintDocStoreApi, isDocDataKey } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import type { PersistableDoc } from "@/lib/domain";
+import type { PersistableDoc, Uuid } from "@/lib/domain";
 import type { MutationFrame } from "./mutationFrame";
 
 export type { MutationFrame } from "./mutationFrame";
@@ -310,6 +310,7 @@ export type ReloadOutcome =
 			/** The hold each target's latest recording wrote, read with
 			 *  `blueprint` in one transaction. */
 			readonly recordedHolds: RecordedPlacementHolds;
+			readonly publishedQuestions?: readonly Uuid[];
 	  } & AuthorizedAccessSnapshot)
 	| { readonly kind: "revoked" }
 	/** The owner suspended and cancelled this read; preserve the reload barrier. */
@@ -376,6 +377,7 @@ export interface ReconcilerInit {
 	/** The hold each target's latest recording wrote, read with `baseDoc`.
 	 *  Absent for a brand-new build, which no publish has recorded. */
 	recordedHolds?: RecordedPlacementHolds;
+	publishedQuestions?: readonly Uuid[];
 	/** The session user id — the `selfUserId` echo classification keys on. */
 	userId: string;
 }
@@ -398,6 +400,7 @@ export interface ReconcilerSnapshot {
 }
 
 export interface Reconciler {
+	setPublishedQuestions(questions: readonly Uuid[]): void;
 	/** Subscribe only to confirmed server revisions, independent of local edits. */
 	subscribeCanonicalRevision(listener: () => void): () => void;
 	canonicalRevision(): number;
@@ -585,6 +588,11 @@ export function createReconciler(
 		for (const listener of revisionListeners) listener();
 	}
 	let confirmedDoc = normalizeConfirmed(init.baseDoc);
+	const setPublishedQuestions = (publishedQuestions: readonly Uuid[] = []) => {
+		confirmedDoc = { ...confirmedDoc, publishedQuestions };
+		docStore.setState({ publishedQuestions });
+	};
+	setPublishedQuestions(init.publishedQuestions);
 	/** The hold each target's latest recording wrote, as of the last
 	 *  authoritative read. It sits beside `confirmedDoc` because the document
 	 *  alone cannot say which of its holds a recording wrote; the store reads
@@ -1539,6 +1547,7 @@ export function createReconciler(
 		// `load()`, which would trip the open-bracket assert if a reload lands
 		// mid-chat-run (the agent bracket is open then).
 		confirmedDoc = hydrateConfirmed(reloaded.blueprint);
+		setPublishedQuestions(reloaded.publishedQuestions);
 		setCanonicalRevision(M);
 		// The reload read every recording the fresh document's holds answer
 		// to, in the same transaction, and those replace what the tab knew of
@@ -1742,7 +1751,10 @@ export function createReconciler(
 				awaitingEcho.delete(b.batchId);
 			}
 		}
-		confirmedDoc = hydrateConfirmed(args.doc);
+		confirmedDoc = {
+			...hydrateConfirmed(args.doc),
+			publishedQuestions: confirmedDoc.publishedQuestions,
+		};
 		setCanonicalRevision(M);
 		// Same suppressed reseed a reload runs (commitDoc + clear undo inside a
 		// remote-apply bracket) — NOT load(), which would trip the open-bracket
@@ -1818,6 +1830,7 @@ export function createReconciler(
 	}
 
 	return {
+		setPublishedQuestions,
 		subscribeCanonicalRevision(listener) {
 			revisionListeners.add(listener);
 			return () => {

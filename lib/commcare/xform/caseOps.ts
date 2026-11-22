@@ -52,7 +52,6 @@ import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
 } from "@/lib/doc/caseOperationOrder";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	AUTHORED_CASE_ID_VERSION,
 	authoredCaseIdPrefix,
@@ -85,6 +84,7 @@ import type {
 	PropertyRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { caseTypeHopMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
@@ -2704,12 +2704,13 @@ export function collectFieldLocations(
 	formUuid: Uuid,
 ): ReadonlyMap<Uuid, FieldLocation> {
 	const result = new Map<Uuid, FieldLocation>();
+	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const walk = (
 		parentUuid: Uuid,
 		parentPath: FormPath,
 		repeat: Uuid | undefined,
 	): void => {
-		for (const uuid of orderedFieldUuids(doc, parentUuid)) {
+		for (const uuid of layout.children.get(parentUuid) ?? []) {
 			const field = doc.fields[uuid];
 			if (field === undefined) continue;
 			const path = parentPath.child(field.id);

@@ -328,3 +328,5 @@ direct-name authoring, or second starter reconstruction.
   derived from the validator classification. Internal oracle findings use the
   generic Nova-side error. Text findings carry display labels so repair messages
   identify the affected app content or Project data table and column.
+
+A question move can name one arrangement. `moveField.where` set to `screen` preserves the submitted parent and sibling order, and `submission` leaves the worker's screen alone. Both use a predecessor UUID resolved in the arrangement being edited. Replaying a batch resolves each predecessor against that operation's submitted or screen siblings. Duplicating a screen mints identities for its questions in both arrangements.

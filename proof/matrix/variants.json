@@ -30036,15 +30036,13 @@
 		"id": "hq-questions/data-parent-other-group",
 		"base": "hq-questions",
 		"entry": "questions/data-parent-data-node-under-another-group-than-its-control",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
+				"pointer": "/submissionPlacement/position",
+				"value": 1
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "data_parent_other_group"

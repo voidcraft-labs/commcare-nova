@@ -4680,7 +4680,9 @@
 		"section": "Question types",
 		"item": "Data Parent (data node under another group than its control, within one repeat)",
 		"surfaceKeys": [
+			"xform:group@ref",
 			"xform:input@ref",
+			"xform:repeat@nodeset",
 			"xform:secret@ref",
 			"xform:select@ref",
 			"xform:select1@ref",
@@ -4688,10 +4690,9 @@
 			"xform:upload@ref"
 		],
 		"valueClass": "data-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.dataParent`",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a question has an independent submitted group and position",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

@@ -10,6 +10,7 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import type { ConnectConfig } from "./forms";
+import { submissionLayout } from "./submissionLayout";
 import type { Uuid } from "./uuid";
 
 /** The four Connect blocks a form can hold. */
@@ -67,7 +68,11 @@ export function formRootFieldIds(
 	formUuid: Uuid,
 ): Set<string> {
 	const ids = new Set<string>();
-	for (const uuid of doc.fieldOrder[formUuid] ?? []) {
+	for (const uuid of submissionLayout(
+		formUuid,
+		doc.fields,
+		doc.fieldOrder,
+	).children.get(formUuid) ?? []) {
 		const id = doc.fields[uuid]?.id;
 		if (id !== undefined) ids.add(id);
 	}

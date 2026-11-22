@@ -28,6 +28,7 @@
  * Pure — reads the doc, never mutates. Reducers stay total and never
  * call these: a degenerate historical event must still replay.
  */
+
 import {
 	CASE_TYPE_REGEX,
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
@@ -46,6 +47,7 @@ import {
 	isCaseOperationProperty,
 	type Uuid,
 } from "@/lib/domain";
+import { formOfField } from "@/lib/domain/fieldForm";
 import {
 	caseOperationIdNameProblem,
 	caseOperationLinkNameProblem,
@@ -57,6 +59,7 @@ import {
 	sourceWritePropertyProblem,
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 
 /** Why an ID was rejected. Useful for tests and for callers that brand
  *  failure classes differently; human-facing copy rides `message` /
@@ -167,6 +170,15 @@ function connectIdsBeside(
 		: formConnectIds(doc, parentUuid);
 }
 
+function siblingsSubmittedTo(doc: BlueprintDoc, parent: Uuid): readonly Uuid[] {
+	const form = formOfField(doc, parent);
+	return form === undefined
+		? (doc.fieldOrder[parent] ?? [])
+		: (submissionLayout(form, doc.fields, doc.fieldOrder).children.get(
+				parent,
+			) ?? []);
+}
+
 /** True when `parentUuid`'s children (minus the excluded uuid) already
  *  contain a field named `proposedId`, or, at a form's root, one of the
  *  form's Connect blocks is. */
@@ -177,7 +189,7 @@ function parentHasSibling(
 	exclude: ReadonlySet<Uuid>,
 ): boolean {
 	if (connectIdsBeside(doc, parentUuid).has(proposedId)) return true;
-	for (const siblingUuid of doc.fieldOrder[parentUuid] ?? []) {
+	for (const siblingUuid of siblingsSubmittedTo(doc, parentUuid)) {
 		if (exclude.has(siblingUuid)) continue;
 		if (doc.fields[siblingUuid]?.id === proposedId) return true;
 	}
@@ -192,7 +204,7 @@ function siblingIds(
 	exclude: ReadonlySet<Uuid>,
 ): Set<string> {
 	const ids = new Set<string>(connectIdsBeside(doc, parentUuid));
-	for (const siblingUuid of doc.fieldOrder[parentUuid] ?? []) {
+	for (const siblingUuid of siblingsSubmittedTo(doc, parentUuid)) {
 		if (exclude.has(siblingUuid)) continue;
 		const id = doc.fields[siblingUuid]?.id;
 		if (id !== undefined) ids.add(id);
@@ -267,7 +279,8 @@ export function findRenameSiblingConflict(
 	const field = doc.fields[fieldUuid];
 	if (!field) return undefined;
 
-	const parent = doc.fieldParent[fieldUuid];
+	const parent =
+		field.submissionPlacement?.parent ?? doc.fieldParent[fieldUuid];
 	if (parent === undefined) return undefined;
 	return parentHasSibling(doc, parent, newId, new Set([fieldUuid]))
 		? parent
@@ -295,7 +308,8 @@ export function renameFieldIdVerdict({
 	const field = doc.fields[fieldUuid];
 	if (!field) return OK;
 
-	const parent = doc.fieldParent[fieldUuid];
+	const parent =
+		field.submissionPlacement?.parent ?? doc.fieldParent[fieldUuid];
 	const format = formatVerdict(
 		newId,
 		parent === undefined

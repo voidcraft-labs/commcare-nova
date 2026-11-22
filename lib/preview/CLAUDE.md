@@ -2583,3 +2583,5 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+A field can appear on a different screen from its submitted group. `engine/fieldTree.ts::formFieldTrees` derives both orders from one field identity. Data initialization, expression paths, captures and submission use the submitted order. Screen traversal, required-answer focus and section progress use the control order and resolve each question at its submitted address in the current repeat row.

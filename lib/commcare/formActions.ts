@@ -15,7 +15,6 @@
  * (`hqLoadReference`), which feeds HQ's app summary / case property usage.
  */
 
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	expressionSlotValue,
@@ -24,6 +23,7 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { planFormCaseWire } from "./casePlacementPlan";
 import { caseTypeHopMap } from "./caseTypeDepths";
 import {
@@ -139,8 +139,9 @@ export function buildCaseReferencesLoad(
 		return [...refs];
 	};
 
+	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const walk = (parentUuid: Uuid, parentPath: FormPath): void => {
-		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
+		for (const fieldUuid of layout.children.get(parentUuid) ?? []) {
 			const field = doc.fields[fieldUuid];
 			if (!field) continue;
 			const nodePath = parentPath.child(field.id);
@@ -169,7 +170,7 @@ export function buildCaseReferencesLoad(
 			// `descendFormPathIntoField` adds the model-iteration `<item>` step for
 			// `query_bound` so descendant paths match the XForm emitter +
 			// identity-backed case binding path derivation.
-			if (doc.fieldOrder[fieldUuid] !== undefined) {
+			if (layout.children.has(fieldUuid)) {
 				walk(fieldUuid, descendFormPathIntoField(field, nodePath));
 			}
 		}

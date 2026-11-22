@@ -1248,6 +1248,7 @@ function createMutationSchema({
 		// destination's array and re-anchors references.
 		z.object({
 			kind: z.literal("moveField"),
+			where: z.enum(["screen", "submission"]).optional(),
 			uuid: uuidSchema,
 			toParentUuid: uuidSchema,
 			/** The uuid this field now follows under the target parent, or `null`

@@ -79,11 +79,17 @@ import {
 	type QueryRepeatNeed,
 	queryRepeatPlacementNeeds,
 } from "@/lib/domain/queryRepeatPlacement";
+import { referenceNames } from "@/lib/domain/referenceNames";
 
 export { documentHoldsIdentity };
 
 /** What an identity move is about. Every UUID is the entity's own. */
 export type IdentityMoveSubject =
+	| {
+			readonly kind: "submitted-question";
+			readonly formUuid: Uuid;
+			readonly fieldUuid: Uuid;
+	  }
 	| {
 			readonly kind: "case-operation";
 			readonly formUuid: Uuid;
@@ -102,6 +108,7 @@ export type IdentityMoveSubject =
  *  model iteration cannot run for a query repeat, or why a menu's kind
  *  moves. */
 export type IdentityMoveReason =
+	| { readonly source: "submitted-question" }
 	| {
 			readonly source: "case-placement";
 			readonly reason: PlacementIneligibility;
@@ -155,6 +162,11 @@ export interface IdentityMoveReport {
 
 export const identityMoveSubjectSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
+		kind: z.literal("submitted-question"),
+		formUuid: uuidSchema,
+		fieldUuid: uuidSchema,
+	}),
+	z.strictObject({
 		kind: z.literal("case-operation"),
 		formUuid: uuidSchema,
 		operationUuid: uuidSchema,
@@ -188,7 +200,18 @@ export function withIdentityMoves(
 	batch: readonly Mutation[],
 	options: IdentityMoveOptions = {},
 ): IdentityMovePlan {
-	if (!documentHoldsIdentity(doc))
+	if (
+		!documentHoldsIdentity(doc) &&
+		!(
+			doc.publishedQuestions?.length &&
+			batch.some(
+				(m) =>
+					m.kind === "moveField" ||
+					m.kind === "updateField" ||
+					m.kind === "updateForm",
+			)
+		)
+	)
 		return {
 			batch,
 			moves: [],
@@ -402,6 +425,27 @@ export function identityMovesBetween(
 ): readonly IdentityMove[] {
 	const recorded = options.recorded ?? NO_RECORDED_HOLDS;
 	const moves: IdentityMove[] = [...carriedCreateKindMoves(before, after)];
+	if (
+		before.publishedQuestions?.length &&
+		(before.fields !== after.fields || before.fieldOrder !== after.fieldOrder)
+	) {
+		const previous = referenceNames(before);
+		const current = referenceNames(after);
+		for (const fieldUuid of before.publishedQuestions) {
+			const oldPath = previous.fieldPathSegments(fieldUuid)?.join("/");
+			const newPath = current.fieldPathSegments(fieldUuid)?.join("/");
+			if (oldPath === undefined || newPath === undefined || oldPath === newPath)
+				continue;
+			const formUuid = formOfField(after, fieldUuid);
+			if (formUuid === undefined) continue;
+			moves.push({
+				subject: { kind: "submitted-question", formUuid, fieldUuid },
+				from: { answerPath: oldPath },
+				to: { answerPath: newPath },
+				reason: { source: "submitted-question" },
+			});
+		}
+	}
 	for (const change of placementHoldChanges(before, after)) {
 		if (change.from === null || holdChangeRestores(change, recorded)) continue;
 		const move = moveOfChange(after, change);

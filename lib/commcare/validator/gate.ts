@@ -370,6 +370,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_HASHTAG_ON_CREATE_FORM: "soundness",
 	USERCASE_WRITE_UNDECLARED_PROPERTY: "soundness",
 	USERCASE_WRITE_MANAGED_PROPERTY: "soundness",
+	FIELD_SUBMISSION_PLACEMENT: "soundness",
 	DUPLICATE_FIELD_ID: "soundness",
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.

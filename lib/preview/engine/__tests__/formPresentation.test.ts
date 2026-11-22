@@ -52,7 +52,7 @@ const literalText = (prose: ProseTemplate) =>
 
 function observe(engine: FormEngine) {
 	return projectFormPresentation(
-		engine.getFieldTree(),
+		engine.getControlTree(),
 		{ stateAt: (_field, path) => engine.getState(path) },
 		{
 			currentSectionUuid: engine.currentSectionUuid(),
@@ -293,7 +293,7 @@ it("puts every shown page on Web Apps' one screen", () => {
 		{ kind: "form", path: "/data" },
 	]);
 	const view = projectFormPresentation(
-		engine.getFieldTree(),
+		engine.getControlTree(),
 		{ stateAt: (_field, path) => engine.getState(path) },
 		{
 			currentScreenPath: engine.currentScreenPath(),
@@ -367,4 +367,50 @@ it("removes empty automatic iterations as relevance changes and keeps blank prom
 	engine.setValue("/data/show", "no");
 	expect(observe(engine).nodes).toHaveLength(1);
 	expect(engine.getRepeatCount("/data/untitled_rows")).toBe(2);
+});
+
+it("draws the question outside its submitted group on Android and saves the answer there", () => {
+	const group = testUuid("address-group");
+	const question = testUuid("address-question");
+	const { input } = runtime([
+		{
+			id: "visit",
+			uuid: group,
+			kind: "group",
+			children: [{ id: "in_group", kind: "text" }],
+		},
+		{
+			id: "outside",
+			uuid: question,
+			kind: "text",
+			submissionPlacement: { parent: group, position: 0 },
+		},
+	]);
+	const engine = new FormEngine(
+		input,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{ device: androidDevice() },
+	);
+	expect(engine.formScreens().map((screen) => screen.path)).toContain(
+		"/data/visit/outside",
+	);
+	expect(engine.containsControl("/data/visit", "/data/visit/outside")).toBe(
+		false,
+	);
+	engine.setValue("/data/visit/outside", "Collected outside the group");
+	expect(engine.getState("/data/visit/outside").value).toBe(
+		"Collected outside the group",
+	);
+	expect(engine.fieldTarget("/data/visit/outside")?.ancestorUuids).toEqual([]);
+	expect(
+		engine.getFieldTree()[0].children?.map((node) => node.field.id),
+	).toEqual(["outside", "in_group"]);
+	expect(engine.getControlTree().map((node) => node.field.id)).toEqual([
+		"visit",
+		"outside",
+	]);
 });
