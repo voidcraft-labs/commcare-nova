@@ -9,6 +9,7 @@ import {
 	sql,
 	type Transaction,
 } from "kysely";
+import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { HqAppsSeen } from "@/lib/commcare/hq/apps";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
@@ -1556,6 +1557,8 @@ export interface RecordedImport extends RecordAnswer {
 	/** This import's mapping token, or null when a later import already stood there. */
 	readonly pushToken: string | null;
 	readonly dependencies: PublishedEntryPointManifest["dependencies"];
+	/** HQ acknowledged content from a retired fold after its admission expired. */
+	readonly obsoleteFold?: true;
 }
 
 /** The live table and place mappings of a deployment, as an entry-point manifest names them. */
@@ -2242,6 +2245,15 @@ export async function recordRemoteResource(
 				});
 				return answer(null);
 			}
+			// An outstanding import normally prevents a fold. An acknowledgement
+			// from a suspended process can arrive after its durable hold ended.
+			if (
+				admitted &&
+				input.pushedRevision !== null &&
+				((await greatestFoldBaselineSeq(tx, scope.appId)) ?? -1) >
+					input.pushedRevision
+			)
+				return { ...(await answer(null)), obsoleteFold: true };
 			const now = new Date();
 			const pushToken = await writeResourceMapping(tx, row.id, input, now);
 			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
@@ -2410,7 +2422,8 @@ export type AppWriteAdmission =
 	 * Nova app took it: this publish no longer publishes there. Nothing was
 	 * recorded, and nothing may be sent.
 	 */
-	| { readonly kind: "mapping-moved" };
+	| { readonly kind: "mapping-moved" }
+	| { readonly kind: "fold-moved" };
 
 /**
  * Admit one write to the HQ app the deployment publishes to, immediately
@@ -2433,8 +2446,10 @@ export async function admitAppWrite(
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
 		readonly observedPushToken: string;
-		readonly writeKind: "import" | "media";
-	},
+	} & (
+			| { readonly writeKind: "import"; readonly compiledAtSeq: number }
+			| { readonly writeKind: "media"; readonly compiledAtSeq?: number }
+		),
 ): Promise<AppWriteAdmission> {
 	return withAppTx(async (tx) => {
 		await lockHqApp(tx, {
@@ -2466,6 +2481,12 @@ export async function admitAppWrite(
 		) {
 			return { kind: "mapping-moved" };
 		}
+		if (
+			input.writeKind === "import" &&
+			((await greatestFoldBaselineSeq(tx, scope.appId)) ?? -1) >
+				input.compiledAtSeq
+		)
+			return { kind: "fold-moved" };
 		const [writeId] = await admitRemoteWritesInTransaction(tx, [
 			{
 				deploymentId: row.id,
@@ -3034,6 +3055,7 @@ export async function recordDeploymentMediaFiles(
 
 /** Which of the baseline's facts a bring-in of changes found moved under its lock. */
 export type HqChangesBaselineFence =
+	| "app-head"
 	| "source-digest"
 	| "media-files"
 	| "mapping-token"
@@ -3059,6 +3081,7 @@ export class HqChangesBaselineMovedError extends Error {
 	) {
 		const what = {
 			"source-digest": "source digest",
+			"app-head": "reviewed app revision",
 			"nova-revision": "Nova revision",
 			"remote-app": "CommCare HQ app",
 			"mapping-token": "HQ app mapping token",
@@ -3219,7 +3242,23 @@ export async function recordHqChangesTaken(
 			input.scope,
 			input.target,
 			{ ensure: false, expectedEndings: input.expectedEndings },
-			(tx, row) => recordHqChangesInTransaction(tx, row.id, at.headSeq, input),
+			async (tx, row) => {
+				// The mutation-bearing path checks the head in the commit kernel.
+				// An empty take has no commit to do that for it. A fold advances
+				// this sequence even when the HQ source and claim are unchanged.
+				const head = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", input.scope.appId)
+					.executeTakeFirstOrThrow();
+				if (safePersistedSequence(head.mutation_seq) !== at.headSeq)
+					throw new HqChangesBaselineMovedError(
+						"app-head",
+						String(at.headSeq),
+						String(head.mutation_seq),
+					);
+				return recordHqChangesInTransaction(tx, row.id, at.headSeq, input);
+			},
 		);
 	}
 	const { tx } = at;

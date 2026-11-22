@@ -59,6 +59,11 @@ read-only scan on the previous schema and the scan after the candidate DDL
 produce the same receipt for unchanged targets. That receipt pins the deployed decoder’s source commit, Git tree, dependency lock, executable bytes and the exact converter and settings. The old release reads old snapshots, certificates and mutations. Serving reads the converted snapshot from its new horizon. The converter verifies targets
 one at a time in the app transaction. A released HQ claim keeps its comparison
 for a possible reclaim. Only a request made under the current claim can use it.
+A review that would associate an HQ change with an existing Nova head checks that
+head under lock. Active HQ app imports hold the fold. A publish prepared below
+the current horizon asks for a new publish before sending app content. A saved
+case-property rename has the same effect on the take decision across every fold,
+including when an old property name is reused.
 
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the

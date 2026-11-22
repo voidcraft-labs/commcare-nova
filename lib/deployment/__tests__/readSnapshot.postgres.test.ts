@@ -161,6 +161,7 @@ const WRITES: Record<
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		}),
 	"the settle a publish starts with": (scope) => settleReleasedClaims(scope),
 };

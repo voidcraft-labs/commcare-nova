@@ -1,6 +1,7 @@
 /** Operator boundary for a stored-shape conversion. The immutable app log
  * remains in its original dialect. Only verified deployment reference states
  * and the canonical app at the new horizon enter the new dialect. */
+
 import { createHash } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import {
@@ -8,6 +9,7 @@ import {
 	loadCanonicalBlueprintAtSequence,
 } from "@/lib/agent/change-set/baseLoader";
 import { isCommCareServer } from "@/lib/commcare/servers";
+import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import type { AppDatabase } from "@/lib/db/pg";
 import {
@@ -349,6 +351,20 @@ export async function writeDeploymentAwareFold(
 	if ((await deploymentFoldSchema(tx)) !== "certificates")
 		throw new Error(
 			"Install the deployment fold migration before writing references.",
+		);
+	// App import admission holds the same app row. An admission spanning
+	// the fold could publish a revision that the candidate no longer reads.
+	const pendingImport = await tx
+		.selectFrom("hq_remote_writes")
+		.select("id")
+		.where("app_id", "=", appId)
+		.where("project_id", "=", projectId)
+		.where("write_kind", "=", "import")
+		.where(openRemoteWrite)
+		.executeTakeFirst();
+	if (pendingImport)
+		throw new Error(
+			"An admitted app import is still open. Retry the fold after it settles.",
 		);
 	const foldSeq = nextPersistedSequence(headSeq);
 	const { nextHead, inventory, statesDigest } = await visitDeploymentReferences(

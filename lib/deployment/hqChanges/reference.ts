@@ -109,7 +109,11 @@ export interface DeploymentReferenceEvidence {
 	readonly headSeq: number;
 	readonly startSeq: number;
 	readonly start:
-		| { readonly kind: "certificate"; readonly stateText: string }
+		| {
+				readonly kind: "certificate";
+				readonly stateText: string;
+				readonly editorSnapshotText: string | null;
+		  }
 		| {
 				readonly kind: "published";
 				readonly canonical: BoundedCanonicalAppChangeFoldInput;
@@ -161,6 +165,18 @@ export async function readDeploymentReferenceEvidence(
 			.innerJoin("app_deployments as d", "d.id", "f.deployment_id")
 			.innerJoin("app_deployment_baselines as b", "b.deployment_id", "d.id")
 			.innerJoin("app_deployment_resources as r", "r.id", "f.mapping_id")
+			.innerJoin("app_change_fold_baselines as start", (join) =>
+				join
+					.onRef("start.app_id", "=", "f.app_id")
+					.onRef("start.seq", "=", "f.fold_seq"),
+			)
+			.select(
+				sql<
+					string | null
+				>`CASE WHEN f.fold_seq < ${headSeq} THEN start.snapshot::text END`.as(
+					"editorSnapshotText",
+				),
+			)
 			.select(sql<string>`f.state::text`.as("state"))
 			.where("d.id", "=", binding.deploymentId)
 			.where("d.app_id", "=", appId)
@@ -185,7 +201,11 @@ export async function readDeploymentReferenceEvidence(
 			throw new DeploymentFoldBindingChangedError(
 				"The deployment comparison changed while its reference was being read.",
 			);
-		source = { kind: "certificate", stateText: held.state };
+		source = {
+			kind: "certificate",
+			stateText: held.state,
+			editorSnapshotText: held.editorSnapshotText,
+		};
 		start = binding.foldSeq;
 	} else {
 		source = {

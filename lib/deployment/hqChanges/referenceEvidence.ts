@@ -73,5 +73,13 @@ export function foldReferenceEvidence(
 		rows.some((row, index) => row.seq !== input.startSeq + index + 1)
 	)
 		throw new Error("The app history has a gap in the deployment comparison.");
-	return foldServerRows(input.appId, state, rows);
+	const published = state.doc;
+	return foldServerRows(input.appId, state, rows, () => {
+		if (start.kind !== "certificate") return published;
+		if (!start.editorSnapshotText)
+			throw new Error(
+				"The deployment comparison has no editor snapshot at its fold.",
+			);
+		return parseFoldBaselineSnapshot(start.editorSnapshotText);
+	});
 }

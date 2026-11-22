@@ -21,10 +21,15 @@
 
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
+import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { writeHqRoundTripHorizon } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
+import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
+import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
+import type { Database } from "@/lib/case-store/sql/database";
+import { buildCaseTypeMap } from "@/lib/case-store/store";
 import {
 	childCreate,
 	OP,
@@ -36,7 +41,10 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { placementCandidates } from "@/lib/commcare/placement";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
 import { canonDocument } from "@/lib/commcare/reader/canon";
-import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
+import {
+	applyBlueprintChangeProposal,
+	commitGuardedBatchProposal,
+} from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
 	appendSyntheticBatch,
@@ -471,6 +479,244 @@ function storedRead(source: object, observedAt: string) {
 	};
 }
 
+const move = (from: string, to: string) => ({ caseType: "patient", from, to });
+const rename = (...renames: ReturnType<typeof move>[]): Mutation => ({
+	kind: "renameCaseProperties",
+	renames,
+});
+const remove = (property: string): Mutation => ({
+	kind: "removeCaseProperty",
+	caseType: "patient",
+	property,
+});
+
+interface RenameJourney {
+	name: string;
+	writer: boolean;
+	rows: Mutation[];
+	saved: Record<string, string>;
+	after: Record<string, string>;
+	renames: ReturnType<typeof move>[];
+}
+
+it.each<RenameJourney>([
+	{
+		name: "retired empty name then a round trip",
+		writer: false,
+		rows: [
+			rename(move("a", "b")),
+			rename(move("b", "a")),
+			remove("a"),
+			rename(move("c", "a")),
+			rename(move("a", "c")),
+		],
+		saved: { c: "C" },
+		after: { c: "C" },
+		renames: [],
+	},
+	{
+		name: "unrelated data moves through a reused name",
+		writer: false,
+		rows: [
+			rename(move("a", "b")),
+			remove("b"),
+			rename(move("c", "b")),
+			rename(move("b", "a")),
+		],
+		saved: { c: "C" },
+		after: { a: "C" },
+		renames: [move("c", "a")],
+	},
+	{
+		name: "removing a writer’s annotation preserves its data",
+		writer: true,
+		rows: [rename(move("a", "b")), remove("b"), rename(move("b", "e"))],
+		saved: { a: "A", c: "C" },
+		after: { e: "A", c: "C" },
+		renames: [move("a", "e")],
+	},
+	{
+		name: "simultaneous moves preserve two independent saved values",
+		writer: false,
+		rows: [
+			rename(move("a", "c"), move("c", "a")),
+			rename(move("c", "b")),
+			rename(move("a", "c")),
+		],
+		saved: { a: "A", c: "C" },
+		after: { b: "A", c: "C" },
+		renames: [move("a", "b")],
+	},
+])(
+	"carries the same take decision at every fold boundary: $name",
+	async (journey) => {
+		const target = { server: "india" as const, domain: "clinic" };
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		await h.seedProjectMember(COLLEAGUE, PROJECT, "editor");
+		const db = h.db() as unknown as Kysely<Database>;
+		const store = new PostgresCaseStore({
+			projectId: PROJECT,
+			actorUserId: OWNER,
+			ownerId: OWNER,
+			db,
+			sampleGenerator: new HeuristicCaseGenerator(),
+		});
+		for (let cut = -1; cut <= journey.rows.length; cut++) {
+			const source = buildDoc({
+				appName: "Published",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: ["a", "c"].map((name) => ({
+							name,
+							label: name,
+							data_type: "text",
+						})),
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({
+										kind: "text",
+										id: "note",
+										...(journey.writer && {
+											caseWrite: { caseType: "patient", property: "a" },
+										}),
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const appId = await h.seedAppWithBlueprint(source, {
+				owner: OWNER,
+				projectId: PROJECT,
+			});
+			const scope = {
+				appId,
+				projectId: PROJECT,
+				actorUserId: OWNER,
+				role: "owner",
+			};
+			const revision = await writeHqRoundTripHorizon(
+				h.db(),
+				appId,
+				"Published",
+			);
+			const remoteId = crypto.randomUUID().replaceAll("-", "");
+			const when = new Date().toISOString();
+			await foldDeploymentAttempt(
+				scope,
+				target,
+				"preflight",
+				{ status: "succeeded", at: when },
+				{ ensure: true, expectedEndings: 0 },
+			);
+			await recordRemoteResource(scope, target, {
+				expectedEndings: 0,
+				kind: "app",
+				novaResourceId: appId,
+				remoteId,
+				ownership: "nova-created",
+				pushedRevision: revision,
+				remoteRevision: 1,
+				uploadedAt: when,
+				baseline: {
+					origin: "push",
+					remoteAppId: remoteId,
+					...storedRead(expandDoc(source), when),
+					ownership: OWNERSHIP,
+					novaRevision: revision,
+					discard: null,
+					mediaFiles: { kind: "keep" },
+					firstPublish: { kind: "keep" },
+				},
+			});
+			await store.applySchemaChange({
+				appId,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(source),
+				syncedSeq: revision,
+			});
+			const caseId = crypto.randomUUID();
+			await store.insert({
+				appId,
+				row: {
+					case_id: caseId,
+					case_type: "patient",
+					case_name: "Retained case",
+					modified_on: new Date(),
+					properties: journey.saved,
+				},
+			});
+			await edit(appId, [{ kind: "setAppName", name: "Edited in Nova" }]);
+			for (let index = 0; index <= journey.rows.length; index++) {
+				if (index === cut) await certifyFold(h.db(), appId);
+				if (cut >= 0 && index === Math.min(cut + 1, journey.rows.length))
+					await certifyFold(h.db(), appId, "hq-round-trip-case-writes");
+				const command = journey.rows[index];
+				if (command)
+					await applyBlueprintChangeProposal({
+						appId,
+						userId: index % 2 ? OWNER : COLLEAGUE,
+						expectedProjectId: PROJECT,
+						batchId: crypto.randomUUID(),
+						kind: "autosave",
+						guard: { mutations: [command] },
+					});
+			}
+			const pair = await readAppBaseline(scope, target);
+			if (!pair || pair.origin === "unread")
+				throw new Error("The comparison is unavailable");
+			const now = await head(appId);
+			const ref = okOf(
+				await loadReferenceDocument({
+					appId,
+					novaRevision: revision,
+					head: now,
+					binding: pair.foldBinding,
+				}),
+			);
+			expect(ref.actors).toEqual([OWNER, COLLEAGUE]);
+			expect(ref.renamesSince).toEqual(journey.renames);
+			expect(
+				planFromDocuments({
+					ref: ref.doc,
+					now: now.doc,
+					base: ref.doc,
+					theirs: { ...ref.doc, appName: "Renamed in HQ" },
+					renamesSince: ref.renamesSince,
+				}),
+			).toMatchObject({
+				kind: "changes",
+				appliedTo: "published",
+				renamedInNova: journey.renames,
+			});
+			expect(
+				(
+					await db
+						.selectFrom("cases")
+						.select("properties")
+						.where("case_id", "=", caseId)
+						.executeTakeFirstOrThrow()
+				).properties,
+			).toEqual(journey.after);
+		}
+	},
+	30000,
+);
+
 describe("published comparisons at a new fold", () => {
 	it("keeps two targets’ original revisions, composes the next edits and rebinds only the fresh reads", async () => {
 		const { appId, revision } = await published();
@@ -864,6 +1110,7 @@ it("keeps a released comparison through restore and a fold, and fences reads fro
 			expectedEndings: 0,
 			remoteAppId,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		}),
 	).toEqual({ kind: "mapping-moved" });
 	expect((await recordRefreshedAppBaseline(scope, target, read)).outcome).toBe(

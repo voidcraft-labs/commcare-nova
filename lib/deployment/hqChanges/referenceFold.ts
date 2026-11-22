@@ -1,5 +1,9 @@
 import { produce } from "immer";
 import { z } from "zod";
+import {
+	buildCaseTypeMap,
+	removalRetiresCaseProperty,
+} from "@/lib/case-store/store";
 import type { AdmittedDurableAppChange } from "@/lib/db/persistedJson";
 import { EDITOR_APP_CHANGE_KINDS } from "@/lib/db/types";
 import {
@@ -129,6 +133,7 @@ export function foldServerRows(
 	appId: string,
 	prior: Extract<FoldedDeploymentReference, { kind: "ok" }>,
 	rows: readonly AdmittedDurableAppChange[],
+	editorAtStart: () => BlueprintDoc,
 ): FoldedDeploymentReference {
 	let { doc, projectId, editorBefore } = prior;
 	for (const row of rows) {
@@ -173,7 +178,7 @@ export function foldServerRows(
 		projectId,
 		editorBefore,
 		actors: actorsOf(rows, prior.actors),
-		renamesSince: netRenames(rows, prior.renamesSince),
+		renamesSince: netRenames(rows, prior.renamesSince, editorAtStart),
 	};
 }
 
@@ -345,27 +350,70 @@ function withoutSecondOfASlug(
 function netRenames(
 	rows: readonly AdmittedDurableAppChange[],
 	prior: readonly CasePropertyRename[],
+	editorAtStart: () => BlueprintDoc,
 ): readonly CasePropertyRename[] {
-	const renames = prior.map((rename) => ({ ...rename }));
-	for (const row of rows) {
-		if (!EDITOR_KINDS.has(row.kind)) continue;
+	let renames = [...prior];
+	// Reconstruct the editor document only as far as the last explicit removal.
+	// A certificate carries the target's server-only document, while the app's
+	// immutable snapshot at that same fold carries the actual editor state.
+	const lastRemoval = rows.findLastIndex((row) =>
+		row.mutations.some((m) => m.kind === "removeCaseProperty"),
+	);
+	let editor = lastRemoval < 0 ? undefined : editorAtStart();
+	for (const [index, row] of rows.entries()) {
+		if (editor && index <= lastRemoval) editor = reduced(editor, row.mutations);
 		for (const mutation of row.mutations) {
-			if (mutation.kind !== "renameCaseProperties") continue;
-			// One command renames simultaneously: each pair is matched against the
-			// renames before the command, never against another pair of it.
-			const before = renames.map((rename) => ({ ...rename }));
-			for (const { caseType, from, to } of mutation.renames) {
-				const at = before.findIndex(
-					(rename) => rename.caseType === caseType && rename.to === from,
+			if (
+				mutation.kind === "removeCaseProperty" &&
+				editor &&
+				renames.some(
+					(r) => r.caseType === mutation.caseType && r.to === mutation.property,
+				)
+			) {
+				if (
+					removalRetiresCaseProperty(
+						buildCaseTypeMap(editor).get(mutation.caseType),
+						mutation.property,
+					)
+				)
+					renames = renames.filter(
+						(r) =>
+							r.caseType !== mutation.caseType || r.to !== mutation.property,
+					);
+			}
+			if (
+				mutation.kind !== "renameCaseProperties" ||
+				!EDITOR_KINDS.has(row.kind)
+			)
+				continue;
+			// Sources in a simultaneous command name the facts before it. An
+			// occupied destination outside those sources would have refused the
+			// saved-data rename; a reused destination cannot continue an old slot.
+			const previous = renames;
+			const moved = mutation.renames;
+			renames = previous.flatMap((prior) => {
+				const move = moved.find(
+					(r) => r.caseType === prior.caseType && r.from === prior.to,
 				);
-				if (at >= 0) (renames[at] as { to: string }).to = to;
-				else renames.push({ caseType, from, to });
+				if (move)
+					return prior.from === move.to ? [] : [{ ...prior, to: move.to }];
+				return moved.some(
+					(r) => r.caseType === prior.caseType && r.to === prior.to,
+				)
+					? []
+					: [prior];
+			});
+			for (const move of moved) {
+				if (
+					!previous.some(
+						(r) => r.caseType === move.caseType && r.to === move.from,
+					)
+				)
+					renames.push({ ...move });
 			}
 		}
 	}
-	return renames
-		.filter((rename) => rename.from !== rename.to)
-		.map(({ caseType, from, to }) => ({ caseType, from, to }));
+	return renames;
 }
 
 /** Each member who made a person's change in the range, once, in the order of their first. */

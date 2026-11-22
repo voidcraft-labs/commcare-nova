@@ -1684,8 +1684,9 @@ export async function publishAppToHq(
 				remoteAppId: appId,
 				observedPushToken: importMapping.pushToken,
 				writeKind: "import",
+				compiledAtSeq: seq,
 			});
-			if (importAdmission.kind === "mapping-moved") {
+			if (importAdmission.kind !== "admitted") {
 				return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
 			}
 			const importWrite = importAdmission.writeId;
@@ -1817,13 +1818,15 @@ export async function publishAppToHq(
 				appId: result.appId,
 			});
 
-			entryPointManifest = {
-				generation: contentGeneration,
-				remoteAppId: result.appId,
-				sourceSequence: seq,
-				entries,
-				dependencies: imported.dependencies,
-			};
+			entryPointManifest = imported.obsoleteFold
+				? null
+				: {
+						generation: contentGeneration,
+						remoteAppId: result.appId,
+						sourceSequence: seq,
+						entries,
+						dependencies: imported.dependencies,
+					};
 			log.info("[deployment] app imported", {
 				domain,
 				hqAppId: result.appId,
@@ -1859,7 +1862,11 @@ export async function publishAppToHq(
 			} = { warnings: [], reported: {} };
 			/* The import and the bundle, whose admissions the media record rests on. */
 			const mediaWrites: string[] = [importWrite];
-			if (bulkAssets.size > 0 && imported.pushToken === null) {
+			if (imported.obsoleteFold) {
+				warnings.push(
+					"CommCare HQ accepted an earlier revision of this app. You can review what changed there before publishing again.",
+				);
+			} else if (bulkAssets.size > 0 && imported.pushToken === null) {
 				warnings.push(MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING);
 			} else if (bulkAssets.size > 0 && imported.pushToken !== null) {
 				/* Admitted as the import was. An ending after the app landed
@@ -1934,7 +1941,11 @@ export async function publishAppToHq(
 					admitted: { writeIds: mediaWrites, settle: [] },
 				},
 			);
-			if (mediaRecorded === "superseded" && published.length > 0)
+			if (
+				!imported.obsoleteFold &&
+				mediaRecorded === "superseded" &&
+				published.length > 0
+			)
 				warnings.push(
 					"File information changed while Nova published. You can review changes from CommCare HQ to see the files it holds now.",
 				);

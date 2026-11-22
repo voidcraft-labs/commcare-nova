@@ -32,6 +32,7 @@ import {
 	type CaseType,
 	type Column,
 	caseClaimCaseType,
+	isStandardCaseListProperty,
 	materializableCaseTypes,
 	type PersistableDoc,
 	USERCASE_CASE_TYPE,
@@ -1371,6 +1372,19 @@ export interface CaseStore extends SchemaCaseStore {
 		id: string;
 		value: JsonValue;
 	}): Promise<void>;
+}
+
+/** The loss of a catalog annotation only retires storage when no writer or
+ * built-in supplies the property. Whole-type retirement retains its schema. */
+export function removalRetiresCaseProperty(
+	type: CaseType | undefined,
+	property: string,
+): boolean {
+	return (
+		type !== undefined &&
+		!isStandardCaseListProperty(property) &&
+		!type.properties.some((entry) => entry.name === property)
+	);
 }
 
 /**

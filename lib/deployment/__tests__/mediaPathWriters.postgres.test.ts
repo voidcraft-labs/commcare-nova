@@ -28,6 +28,7 @@ import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { applyBlueprintChangeProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -152,14 +153,20 @@ function holdFirstWriter(first: HqChangesTaken) {
 	const wrote = new Promise<void>((resolve) => {
 		markWritten = resolve;
 	});
-	const committed = h
-		.db()
-		.transaction()
-		.execute(async (tx) => {
-			await recordHqChangesTaken({ kind: "commit", tx, seq: FIRST_SEQ }, first);
+	const committed = applyBlueprintChangeProposal({
+		appId: APP,
+		userId: ACTOR,
+		expectedProjectId: PROJECT,
+		batchId: crypto.randomUUID(),
+		kind: "hq-changes",
+		expectedHeadSeq: FIRST_SEQ - 1,
+		guard: { mutations: [{ kind: "setAppName", name: "New name in HQ" }] },
+		inTransaction: async ({ tx, seq }) => {
+			await recordHqChangesTaken({ kind: "commit", tx, seq }, first);
 			markWritten();
 			await released;
-		});
+		},
+	});
 	return { wrote, committed, release };
 }
 

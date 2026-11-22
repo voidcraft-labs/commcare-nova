@@ -109,6 +109,7 @@ import {
 import { createFromReview } from "../reading/create";
 import { authorizeBringIn, readHqAppForReview } from "../reading/read";
 import { peekHqAppChanged, publishAppToHq, setupArtifactFor } from "../service";
+import * as deploymentStore from "../store";
 import {
 	admitAppWrite,
 	HqChangesBaselineMovedError,
@@ -338,6 +339,14 @@ async function ledger() {
 
 /** A `push` baseline of `SOURCE` at revision 2, which holds no list. */
 async function pushed(birth: AdoptedBirth): Promise<AdoptedBirth> {
+	await applyBlueprintChangeProposal({
+		appId: APP,
+		userId: ACTOR,
+		expectedProjectId: PROJECT,
+		batchId: crypto.randomUUID(),
+		kind: "autosave",
+		guard: { mutations: [{ kind: "setAppName", name: "Published revision" }] },
+	});
 	const baseline: AppBaselineWrite = {
 		origin: "push",
 		remoteAppId: HQ_APP,
@@ -744,6 +753,16 @@ describe("recordHqChangesTaken", () => {
 				ids: ["location-list-setting-reset"],
 				webAppsOnInHq: true,
 				of: "next-publish",
+			});
+			await applyBlueprintChangeProposal({
+				appId: APP,
+				userId: ACTOR,
+				expectedProjectId: PROJECT,
+				batchId: crypto.randomUUID(),
+				kind: "autosave",
+				guard: {
+					mutations: [{ kind: "setAppName", name: "Next reviewed revision" }],
+				},
 			});
 			return birth;
 		}
@@ -1586,6 +1605,167 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		expect(await hqChangeRows(scope.appId)).toEqual([]);
 		expect(await head(scope.appId)).toEqual(before);
 	});
+
+	it("keeps a retired import from replacing a certified baseline before admission or after its hold expires", async () => {
+		const scope = await broughtIn();
+		const before = await head(scope.appId);
+		const baseline = await readAppBaseline(scope, KEY_TARGET);
+		if (!baseline || baseline.origin === "unread")
+			throw new Error("Expected verified baseline");
+		const token = appMappingToken(await readDeployment(scope, KEY_TARGET));
+		const request = {
+			expectedEndings: 0,
+			remoteAppId: baseline.remoteAppId,
+			observedPushToken: token,
+			writeKind: "import" as const,
+			compiledAtSeq: before.seq,
+		};
+		await editName(scope.appId, MEMBER, "Author’s later draft");
+		const earlier = await admitAppWrite(scope, KEY_TARGET, request);
+		if (earlier.kind !== "admitted")
+			throw new Error(
+				"An ordinary editor change should allow the compiled publish.",
+			);
+		await expect(certifyFold(h.db(), scope.appId)).rejects.toThrow(
+			"An admitted app import is still open",
+		);
+		await h
+			.db()
+			.updateTable("hq_remote_writes")
+			.set({
+				opened_at: new Date("2026-01-01T00:00:00Z"),
+				held_until: new Date("2026-01-01T00:06:00Z"),
+			})
+			.where("id", "=", earlier.writeId)
+			.execute();
+		await certifyFold(h.db(), scope.appId);
+		const certified = await readAppBaseline(scope, KEY_TARGET);
+		expect(certified).toMatchObject({
+			foldBinding: { novaRevision: before.seq, foldSeq: before.seq + 2 },
+		});
+		await expect(admitAppWrite(scope, KEY_TARGET, request)).resolves.toEqual({
+			kind: "fold-moved",
+		});
+		const at = new Date().toISOString();
+		const result = await recordRemoteResource(
+			scope,
+			KEY_TARGET,
+			{
+				expectedEndings: 0,
+				kind: "app",
+				novaResourceId: scope.appId,
+				remoteId: baseline.remoteAppId,
+				ownership: "adopted",
+				adoptedBy: MEMBER,
+				pushedRevision: before.seq,
+				remoteRevision: 53,
+				uploadedAt: at,
+				baseline: {
+					origin: "push",
+					remoteAppId: baseline.remoteAppId,
+					...stored({ name: "delayed HQ import" }, at),
+					novaRevision: before.seq,
+					ownership: baseline.ownership,
+					discard: null,
+					mediaFiles: { kind: "keep" },
+					firstPublish: { kind: "set", list: null },
+				},
+			},
+			{
+				writeIds: [earlier.writeId],
+				settle: [{ writeIds: [earlier.writeId], how: { kind: "settled" } }],
+			},
+		);
+		expect(result).toMatchObject({ pushToken: null, obsoleteFold: true });
+		expect(await readAppBaseline(scope, KEY_TARGET)).toEqual(certified);
+		expect(appMappingToken(await readDeployment(scope, KEY_TARGET))).toBe(
+			token,
+		);
+		const next = await admitAppWrite(scope, KEY_TARGET, {
+			...request,
+			compiledAtSeq: (await head(scope.appId)).seq,
+		});
+		if (next.kind !== "admitted")
+			throw new Error("The current publish should proceed");
+		await settleRemoteWrites([next.writeId], { kind: "settled" });
+	});
+
+	it.each([false, true])(
+		"rereads an already-here review when a fold lands after its head check, with a prior certificate = %s",
+		async (prior) => {
+			const scope = await broughtIn();
+			await editName(scope.appId, MEMBER, RENAMED);
+			if (prior) await certifyFold(h.db(), scope.appId);
+			const before = await e2eBaseline();
+			const at = await head(scope.appId);
+			const list = async () => {
+				const answer = await review(scope, renamed());
+				if (
+					answer.kind !== "nothing" ||
+					answer.reason !== "already-here" ||
+					!answer.readingId ||
+					!answer.reviewDigest
+				)
+					throw new Error(
+						"Expected a reviewed HQ rename already present in Nova",
+					);
+				return {
+					readingId: answer.readingId,
+					reviewDigest: answer.reviewDigest,
+				};
+			};
+			const listed = await list();
+			const record = deploymentStore.recordHqChangesTaken;
+			const pass = vi
+				.spyOn(deploymentStore, "recordHqChangesTaken")
+				.mockImplementationOnce(async (...args) => {
+					expect(args[0]).toEqual({ kind: "own", headSeq: at.seq });
+					await certifyFold(
+						h.db(),
+						scope.appId,
+						prior ? "hq-round-trip-case-writes" : "hq-round-trip-expressions",
+					);
+					return record(...args);
+				});
+			try {
+				const changed = await withHttpPeer(async (peer) => {
+					serveRead(peer, renamed(), { tables: true, times: 2 });
+					return bringIn(scope, listed);
+				});
+				expect(changed).toMatchObject({
+					kind: "changed",
+					now: { kind: "nothing", reason: "already-here" },
+				});
+				expect(pass).toHaveBeenCalledOnce();
+			} finally {
+				pass.mockRestore();
+			}
+			expect(await e2eBaseline()).toEqual(before);
+			expect(await readAppBaseline(scope, KEY_TARGET)).toMatchObject({
+				foldBinding: {
+					foldSeq: at.seq + 1,
+					novaRevision: before.nova_revision,
+					sourceDigest: before.source_digest,
+				},
+			});
+			expect(await hqChangeRows(scope.appId)).toEqual([]);
+			const fresh = await list();
+			const recorded = await withHttpPeer(async (peer) => {
+				serveRead(peer, renamed(), { tables: true });
+				return bringIn(scope, fresh);
+			});
+			expect(recorded.kind).toBe("recorded");
+			expect(await e2eBaseline()).toMatchObject({
+				origin: "changes",
+				nova_revision: at.seq + 1,
+			});
+			const accepted = await readAppBaseline(scope, KEY_TARGET);
+			if (!accepted || accepted.origin === "unread")
+				throw new Error("Missing accepted baseline");
+			expect(accepted.foldBinding).toBeUndefined();
+			expect(await hqChangeRows(scope.appId)).toEqual([]);
+		},
+	);
 
 	it("records the pair at the reviewed head and writes no app change where the app already holds the change", async () => {
 		const scope = await broughtIn();

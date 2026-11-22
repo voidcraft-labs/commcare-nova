@@ -171,6 +171,7 @@ describe("an admitted write and an ending", () => {
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
+					compiledAtSeq: 1,
 				}),
 			);
 			// The admission holds the deployment row and waits at its insert.
@@ -218,6 +219,7 @@ describe("an admitted write and an ending", () => {
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
+					compiledAtSeq: 1,
 				}),
 			);
 			// The admission waits for the deployment row the ending holds.
@@ -271,6 +273,7 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		});
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 		await softDeleteApp(APP, OWNER);
@@ -300,6 +303,7 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 				...fence,
 				remoteAppId: HQ_APP,
 				writeKind: "import",
+				compiledAtSeq: 1,
 			}),
 		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
 		expect(await openWrites()).toBe(0);
@@ -343,6 +347,7 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 				...fence,
 				remoteAppId: HQ_APP,
 				writeKind: "import",
+				compiledAtSeq: 1,
 			}),
 		).toEqual({ kind: "mapping-moved" });
 
@@ -366,6 +371,7 @@ describe("how a write settles", () => {
 				observedPushToken: appMappingToken(birth.deployment),
 				...fence,
 				remoteAppId: HQ_APP,
+				compiledAtSeq: 1,
 				writeKind,
 			});
 			if (admitted.kind !== "admitted")
@@ -416,6 +422,7 @@ describe("a Project move during a publish", () => {
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		});
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 		const move = {
@@ -444,6 +451,7 @@ describe("a Project move during a publish", () => {
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
+			compiledAtSeq: 1,
 		});
 		if (admitted.kind !== "admitted") throw new Error("Expected an admission");
 		const held = await holdAppRow(h.uri(), APP);
@@ -918,6 +926,7 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
+					compiledAtSeq: 1,
 				});
 				if (admitted.kind !== "admitted")
 					throw new Error("Expected an admission");
@@ -1068,6 +1077,7 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 				observedPushToken: appMappingToken(birth.deployment),
 				remoteAppId: HQ_APP,
 				writeKind: "import",
+				compiledAtSeq: 1,
 			},
 		);
 		if (theirs.kind !== "admitted") throw new Error("Expected an admission");

@@ -1100,6 +1100,22 @@ identity, media or next-publish changes together. A new publish, an ended
 deployment or a replacement HQ app retires the binding. A later fold advances
 from the saved published document and the server writes since its fold.
 An editor turn stays unpublished throughout either operation.
+An empty take of a change already in Nova checks the actual app head under
+the same lock as its baseline write. A moved head returns a new review and
+keeps the certificate. A mutating take checks the head in the canonical
+commit. App import admission also checks that the compiled revision still
+falls within the current fold. An open import holds the fold until the import
+settles. An acknowledgement delivered after the hold expires and the fold
+advances leaves the certified mapping, source and side records intact and
+asks the publisher to review the remote app again.
+
+The review composes each case-property rename command simultaneously and
+cancels a round trip at that command. Retiring an empty property ends that
+name’s history. Removing a catalog annotation while a writer still supplies
+the property keeps it, as does whole-type retirement. To distinguish those
+cases the fold reads the actual editor document at the command, starting a
+certified suffix from the app’s immutable head snapshot at the same fold.
+Only the server-folded document represents what the deployment received.
 
 **Nova holds nothing unpublished exactly where what it would publish reads
 the same as what it published**, `documentDifferences(canonK(reference),
