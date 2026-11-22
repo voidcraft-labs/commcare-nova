@@ -32,9 +32,18 @@ export const searchTimeZoneSchema = z
 		"Choose a named time zone such as Asia/Kolkata, America/New_York or UTC. A local abbreviation can refer to more than one place.",
 	);
 
+// PostgreSQL jsonb must be able to store every admitted rule.
+const ruleText = z
+	.string()
+	.min(1)
+	.max(256)
+	.refine(
+		(value) => !value.includes("\0") && value.isWellFormed(),
+		"Use text without a null character or an incomplete Unicode character.",
+	);
 const propertyAddress = {
-	caseType: z.string().min(1).max(256),
-	property: z.string().min(1).max(256),
+	caseType: ruleText,
+	property: ruleText,
 };
 
 export const fuzzySearchPropertySchema = z.strictObject({
@@ -43,7 +52,7 @@ export const fuzzySearchPropertySchema = z.strictObject({
 });
 export const ignoredSearchTextSchema = z.strictObject({
 	...propertyAddress,
-	literal: z.string().min(1).max(256),
+	literal: ruleText,
 });
 
 const propertyMatchingSchema = z.strictObject({

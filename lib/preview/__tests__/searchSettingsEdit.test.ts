@@ -102,3 +102,20 @@ it("publishes a large streamed catalog only when complete in the same Project", 
 	expect(accept(frames[1], "other")).toBeNull();
 	expect(accept(frames[frames.length - 1])).toBeNull();
 });
+
+it("refuses text that PostgreSQL cannot preserve before a rule edit", () => {
+	for (const literal of ["a\0b", "\udcff"])
+		expect(
+			previewSearchChangesSchema.safeParse({
+				propertyMatchers: {
+					ignoredText: [
+						{
+							start: 0,
+							remove: 0,
+							insert: [{ caseType: "person", property: "badge", literal }],
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+});

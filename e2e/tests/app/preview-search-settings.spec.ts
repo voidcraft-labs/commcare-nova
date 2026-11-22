@@ -80,7 +80,7 @@ test("shares a confirmed local search profile across signed-in tabs and lets a s
 	}
 });
 
-test("edits one setting in a saved profile larger than the action limit and preserves every rule", {
+test("changes a calendar and a single ordered rule in a saved profile larger than the action limit", {
 	tag: "@seed:app-tests",
 }, async ({ scenario, page }) => {
 	const { appId } = seedFor(scenario, "app-tests");
@@ -128,6 +128,34 @@ test("edits one setting in a saved profile larger than the action limit and pres
 		);
 		expect(result.rows).toEqual([
 			{ revision: "2", settings: { ...initial, timeZone: "US/Eastern" } },
+		]);
+		await page.getByRole("button", { name: /Running as/ }).click();
+		await page
+			.getByRole("menuitem", { name: "Preview search settings", exact: true })
+			.click();
+		await expect(dialog.getByLabel("Project space time zone")).toHaveValue(
+			"US/Eastern",
+		);
+		await dialog.getByRole("button", { name: "Next rules" }).click();
+		await dialog.getByLabel("Text to ignore").first().fill("updated literal");
+		await dialog.getByRole("button", { name: "Save settings" }).click();
+		await expect(dialog).toBeHidden();
+		const after = await pool.query(
+			`SELECT revision::text,settings FROM preview_search_settings WHERE project_id=(SELECT project_id FROM apps WHERE id=$1) AND server='local'`,
+			[appId],
+		);
+		const expected = ignoredText.map((r, i) =>
+			i === 8 ? { ...r, literal: "updated literal" } : r,
+		);
+		expect(after.rows).toEqual([
+			{
+				revision: "3",
+				settings: {
+					...initial,
+					timeZone: "US/Eastern",
+					propertyMatchers: { fuzzyProperties: [], ignoredText: expected },
+				},
+			},
 		]);
 	} finally {
 		await pool.end();

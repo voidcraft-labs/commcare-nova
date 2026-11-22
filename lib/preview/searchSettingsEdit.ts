@@ -100,6 +100,26 @@ function changedRows<T>(
 		if (positions) positions.push(i);
 		else available.set(key, [i]);
 	}
+	// A move near the start must not turn the rest of the list into an
+	// insertion. Find the longest increasing sequence of original positions.
+	const pairs: { original: number; current: number; previous: number }[] = [];
+	const tails: number[] = [];
+	for (const [current, row] of after.entries()) {
+		const original = available.get(JSON.stringify(row))?.pop();
+		if (original === undefined) continue;
+		let low = 0,
+			high = tails.length;
+		while (low < high) {
+			const middle = Math.floor((low + high) / 2);
+			if (pairs[tails[middle]].original < original) low = middle + 1;
+			else high = middle;
+		}
+		pairs.push({ original, current, previous: low ? tails[low - 1] : -1 });
+		tails[low] = pairs.length - 1;
+	}
+	const anchors: typeof pairs = [];
+	for (let i = tails.at(-1) ?? -1; i >= 0; i = pairs[i].previous)
+		anchors.push(pairs[i]);
 	const changes: Splice<T>[] = [];
 	let oldStart = 0,
 		newStart = 0;
@@ -111,14 +131,10 @@ function changedRows<T>(
 				insert: after.slice(newStart, newEnd),
 			});
 	}
-	for (const [index, row] of after.entries()) {
-		const positions = available.get(JSON.stringify(row));
-		let next = positions?.pop();
-		while (next !== undefined && next < oldStart) next = positions?.pop();
-		if (next === undefined) continue;
-		addUntil(next, index);
-		oldStart = next + 1;
-		newStart = index + 1;
+	for (const { original, current } of anchors.reverse()) {
+		addUntil(original, current);
+		oldStart = original + 1;
+		newStart = current + 1;
 	}
 	addUntil(before.length, after.length);
 	return changes;
