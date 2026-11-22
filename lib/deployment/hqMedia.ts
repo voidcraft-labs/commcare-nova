@@ -295,6 +295,40 @@ export function nextHqMediaRecord(input: {
 	return record;
 }
 
+/** The path evidence the remote request saw and the evidence it can now
+ * establish. A removed key is a deliberate change just like a new file id. */
+export interface HqMediaObservation {
+	readonly read: HqMediaRecord | null;
+	readonly next: HqMediaRecord;
+}
+
+/** Apply only this observation's changes. A new or corrected fact learned
+ * since the read survives. Conflicting paths keep their current fact, allowing
+ * the caller to retry a review or report a partial publish observation. */
+export function mergeHqMediaObservation(
+	current: HqMediaRecord | null,
+	observation: HqMediaObservation,
+) {
+	const read = observation.read ?? NO_ENTRIES;
+	const next = observation.next;
+	const merged = recordFromEntries(Object.entries(current ?? NO_ENTRIES));
+	let conflict = false;
+	for (const path of new Set([...Object.keys(read), ...Object.keys(next)])) {
+		const previous = ownRecordValue(read, path);
+		const observed = ownRecordValue(next, path);
+		const stored = ownRecordValue(merged, path);
+		if (previous === observed || stored === observed) continue;
+		if (stored !== previous) {
+			conflict = true;
+		} else if (observed === undefined) {
+			delete merged[path];
+		} else {
+			merged[path] = observed;
+		}
+	}
+	return { files: merged, conflict };
+}
+
 /**
  * Whether a write of `next` would change what `previous` holds, reading no
  * record as an empty one: a review that settled its paths writes the record

@@ -1,6 +1,7 @@
 /** One-time operator repair of incomplete historical SQL projections.
  * Canonical content and old history stay intact; a new complete baseline starts
  * future authoring. Serving code has no alternate snapshot reader. */
+
 import { sql, type Transaction } from "kysely";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
 import { ChangeSetIntegrityError } from "@/lib/agent/change-set/errors";
@@ -13,10 +14,10 @@ import {
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { designSessionLeaseState, runLeaseState } from "@/lib/db/runLiveness";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { nextPersistedSequence } from "@/lib/utils/persistedSequence";
+import { sameRepresentationFold } from "@/scripts/lib/deploymentFoldArtifacts";
 import {
 	type DeploymentFoldInventory,
 	scanDeploymentFold,
@@ -129,8 +130,7 @@ export async function inspectAuthoringBaseline(
 		appId,
 		projectId: app.project_id,
 		headSeq: app.mutation_seq,
-		oldHead: hydratePersistedBlueprint(canonical),
-		convert: (doc) => doc,
+		migration: sameRepresentationFold,
 	});
 	return { appId, status: "ready", reason, deploymentComparisons };
 }
@@ -200,8 +200,7 @@ export async function repairAuthoringBaselineInTransaction(
 		appId,
 		projectId: app.project_id,
 		headSeq: app.mutation_seq,
-		oldHead: hydratePersistedBlueprint(snapshot),
-		convert: (doc: typeof snapshot) => doc,
+		migration: sameRepresentationFold,
 	};
 	const inventory = expected ?? finding.deploymentComparisons;
 	if (!inventory)

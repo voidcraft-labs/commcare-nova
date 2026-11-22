@@ -1,24 +1,35 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { Migrator } from "kysely/migration";
 import { expect, it } from "vitest";
 import {
 	writeHorizonInTransaction,
+	writeHqRoundTripCaseWritesHorizon,
 	writeHqRoundTripHorizon,
 } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
 import { caseStoreMigrationProvider } from "@/lib/case-store/migrations";
+import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { loadApp } from "@/lib/db/apps";
+import { loadApp, restoreApp, softDeleteApp } from "@/lib/db/apps";
+import { parseFoldBaselineSnapshot } from "@/lib/db/canonicalMutationFold";
 import { OWNERSHIP } from "@/lib/deployment/__tests__/adoptedBirth";
 import { readAppBaseline } from "@/lib/deployment/store";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import type { PersistableDoc } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import {
 	type DeploymentFoldInventory,
 	scanDeploymentFold,
 	writeDeploymentAwareFold,
 } from "@/scripts/lib/deploymentFold";
+import {
+	type DeploymentFoldMigration,
+	openDeploymentFoldMigration,
+	sameRepresentationFold,
+} from "@/scripts/lib/deploymentFoldArtifacts";
+import { loadReferenceDocument } from "../reference";
 
 const migration = "20261204000000_deployment_fold_references";
 const h = setupAppStateTestDb("fold_scan_before_ddl_", {
@@ -38,17 +49,16 @@ async function installCandidate() {
 	if (result.error !== undefined) throw result.error;
 }
 
-async function fixture() {
+async function fixture(
+	dialect: DeploymentFoldMigration = sameRepresentationFold,
+) {
 	const appId = await h.seedApp({ project_id: projectId, owner });
 	const headSeq = await writeHqRoundTripHorizon(h.db(), appId, "Clinic");
-	const app = await loadApp(appId);
-	if (!app) throw new Error("The previous database has no saved app.");
 	const input = {
 		appId,
 		projectId,
 		headSeq,
-		oldHead: hydratePersistedBlueprint(app.blueprint),
-		convert: (doc: PersistableDoc) => doc,
+		migration: dialect,
 	};
 	for (const domain of ["east", "west"]) {
 		const source = JSON.stringify({ name: domain });
@@ -116,7 +126,7 @@ async function fixture() {
 				),
 			),
 		);
-	return { appId, scan, write, headSeq };
+	return { appId, scan, write, headSeq, input };
 }
 
 it("scans the deployed storage read-only and uses its receipt after DDL, rolling a partial multi-target write back before retry", async () => {
@@ -210,3 +220,281 @@ it("refuses a partial install and a broken constraint even when the migration is
 	);
 	await expect(scan()).rejects.toThrow("schema is incomplete");
 });
+
+async function selectedMigration(prefix: string) {
+	async function artifact(name: string) {
+		const path = join(
+			process.cwd(),
+			"lib/deployment/hqChanges/__tests__/fixtures",
+			name,
+		);
+		return {
+			path,
+			sha256: createHash("sha256")
+				.update(await readFile(path))
+				.digest("hex"),
+		};
+	}
+	return openDeploymentFoldMigration({
+		sourceRevision: "1".repeat(40),
+		sourceTree: "2".repeat(40),
+		sourceLockSha256: "3".repeat(64),
+		reader: await artifact("visit-title-source.mjs"),
+		converter: await artifact("visit-title-converter.mjs"),
+		settings: { prefix },
+	});
+}
+
+/** Install the old release's root projection while preserving the candidate
+ * definition for the converted writer. Both actually execute over app rows. */
+async function installEarlierProjection() {
+	const def = (
+		await sql<{
+			definition: string;
+		}>`SELECT pg_get_functiondef('public.nova_current_app_change_fold_snapshot(text)'::regprocedure) AS definition`.execute(
+			h.db(),
+		)
+	).rows[0]?.definition;
+	if (!def) throw new Error("Missing root projection.");
+	await sql
+		.raw(
+			def.replace(
+				"FUNCTION public.nova_current_app_change_fold_snapshot(",
+				"FUNCTION public.witness_candidate_snapshot(",
+			),
+		)
+		.execute(h.db());
+	await sql`CREATE OR REPLACE FUNCTION public.nova_current_app_change_fold_snapshot(text)
+		RETURNS jsonb LANGUAGE sql STABLE AS $f$
+		SELECT (doc - 'appName') || jsonb_build_object('visitTitle', doc->'appName')
+		FROM (SELECT public.witness_candidate_snapshot($1) AS doc) AS candidate $f$`.execute(
+		h.db(),
+	);
+	return def;
+}
+
+async function oldEdit(appId: string, title: string, seq: number) {
+	await h.withTransaction(async (tx) => {
+		await tx
+			.updateTable("apps")
+			.set({
+				app_name: title,
+				app_name_lower: title.toLowerCase(),
+				mutation_seq: seq,
+			})
+			.where("id", "=", appId)
+			.execute();
+		await tx
+			.insertInto("app_changes")
+			.values({
+				app_id: appId,
+				seq,
+				batch_id: crypto.randomUUID(),
+				actor_id: owner,
+				run_id: null,
+				kind: "autosave",
+				mutations: JSON.stringify([{ kind: "setVisitTitle", title }]),
+				from_project_id: null,
+				to_project_id: null,
+			})
+			.execute();
+	});
+}
+
+it.each([false, true])(
+	"converts old roots, old edits and independently published revisions with a prior certificate = %s",
+	async (hasCertificate) => {
+		const candidateDef = await installEarlierProjection();
+		const migration = await selectedMigration("Converted ");
+		const { appId, headSeq, input } = await fixture(migration);
+		await h.seedProjectMember(owner, projectId, "owner");
+		const head = () =>
+			sql<{
+				snapshot: string;
+			}>`SELECT public.nova_current_app_change_fold_snapshot(${appId})::text AS snapshot`
+				.execute(h.db())
+				.then((r) => r.rows[0]?.snapshot ?? "");
+		const oldHead = await head();
+		expect(() => parseFoldBaselineSnapshot(oldHead)).toThrow();
+		expect(JSON.parse(oldHead)).toMatchObject({ visitTitle: "Clinic" });
+		const east = await h
+			.db()
+			.selectFrom("app_deployments")
+			.select("id")
+			.where("domain", "=", "east")
+			.executeTakeFirstOrThrow();
+		const west = await h
+			.db()
+			.selectFrom("app_deployments")
+			.select("id")
+			.where("domain", "=", "west")
+			.executeTakeFirstOrThrow();
+		let seq = headSeq;
+		if (hasCertificate) {
+			await installCandidate();
+			// A later old release issued a certificate for West in this same old
+			// dialect. East published again above that horizon.
+			seq = await writeHqRoundTripCaseWritesHorizon(
+				h.db(),
+				appId,
+				"Later old horizon",
+			);
+			const mapping = await h
+				.db()
+				.selectFrom("app_deployment_resources")
+				.select("id")
+				.where("deployment_id", "=", west.id)
+				.executeTakeFirstOrThrow();
+			const baseline = await h
+				.db()
+				.selectFrom("app_deployment_baselines")
+				.select("source_digest")
+				.where("deployment_id", "=", west.id)
+				.executeTakeFirstOrThrow();
+			if (!baseline.source_digest) throw new Error("Missing original digest");
+			await h
+				.db()
+				.insertInto("app_deployment_fold_references")
+				.values({
+					deployment_id: west.id,
+					app_id: appId,
+					published_revision: headSeq,
+					fold_seq: seq,
+					mapping_id: mapping.id,
+					original_source_digest: baseline.source_digest,
+					state: JSON.stringify({
+						kind: "ok",
+						doc: JSON.parse(oldHead),
+						projectId,
+						actors: ["previous reviewer"],
+						editorBefore: true,
+						renamesSince: [],
+					}),
+				})
+				.execute();
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					reference_fold_seq: seq,
+					reference_source_digest: baseline.source_digest,
+				})
+				.where("deployment_id", "=", west.id)
+				.execute();
+		}
+		const publishedEast = ++seq;
+		await oldEdit(appId, "East revision", seq);
+		await h
+			.db()
+			.updateTable("app_deployment_resources")
+			.set({ pushed_revision: seq })
+			.where("deployment_id", "=", east.id)
+			.execute();
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({ nova_revision: seq })
+			.where("deployment_id", "=", east.id)
+			.execute();
+		await oldEdit(appId, "Unpublished name", ++seq);
+		await softDeleteApp(appId, owner);
+		const source = { ...input, headSeq: seq };
+		const scan = (selected = source) =>
+			h
+				.db()
+				.transaction()
+				.setAccessMode("read only")
+				.setIsolationLevel("repeatable read")
+				.execute((tx) => scanDeploymentFold(tx, selected));
+		await expect(
+			scan({ ...source, projectId: "a different Project" }),
+		).rejects.toThrow();
+		const receipt = await scan();
+		expect(receipt.usable).toBe(2);
+		if (!hasCertificate) await installCandidate();
+		expect(await scan()).toEqual(receipt);
+		const write = (selected: typeof source) =>
+			h.withTransaction((tx) =>
+				writeDeploymentAwareFold(tx, selected, receipt, async (doc, at) => {
+					await sql.raw(candidateDef).execute(tx);
+					await writeHorizonInTransaction(
+						tx,
+						appId,
+						doc,
+						at,
+						"hq-round-trip-expressions",
+					);
+				}),
+			);
+		await expect(
+			write({ ...source, migration: await selectedMigration("Different ") }),
+		).rejects.toThrow("changed after the fold scan");
+		expect(JSON.parse(await head())).toMatchObject({
+			visitTitle: "Unpublished name",
+		});
+		await write(source);
+		expect(blueprintDocSchema.parse(JSON.parse(await head())).appName).toBe(
+			"Converted Unpublished name",
+		);
+		const scope = { appId, projectId, actorUserId: owner, role: "owner" };
+		await expect(
+			readAppBaseline(scope, { server: "india", domain: "east" }),
+		).rejects.toThrow();
+		await expect(restoreApp(appId, owner)).resolves.toEqual({
+			stoppedPublishing: [],
+		});
+		await commitGuardedBatchProposal({
+			appId,
+			expectedProjectId: projectId,
+			batchId: crypto.randomUUID(),
+			actorUserId: owner,
+			kind: "autosave",
+			mutations: [{ kind: "setAppName", name: "Fresh candidate edit" }],
+		});
+		const saved = await loadApp(appId);
+		if (!saved) throw new Error("Missing restored app");
+		expect(saved.blueprint.appName).toBe("Fresh candidate edit");
+		for (const [domain, revision, name, actors] of [
+			[
+				"west",
+				headSeq,
+				"Converted Clinic",
+				hasCertificate ? ["previous reviewer", owner] : [owner],
+			],
+			["east", publishedEast, "Converted East revision", [owner]],
+		] as const) {
+			const baseline = await readAppBaseline(scope, {
+				server: "india",
+				domain,
+			});
+			if (!baseline || baseline.origin === "unread" || !baseline.foldBinding)
+				throw new Error("Missing certified deployment");
+			expect(baseline.novaRevision).toBe(revision);
+			expect(baseline.sourceDigest).toBe(
+				createHash("sha256")
+					.update(JSON.stringify({ name: domain }))
+					.digest("hex"),
+			);
+			const binding = baseline.foldBinding;
+			const read = (project: string) =>
+				loadReferenceDocument({
+					appId,
+					novaRevision: revision,
+					binding: { ...binding, projectId: project },
+					head: {
+						seq: saved.mutation_seq,
+						doc: hydratePersistedBlueprint(saved.blueprint),
+					},
+				});
+			await expect(read("a different Project")).rejects.toThrow(
+				"comparison changed",
+			);
+			expect(await read(projectId)).toMatchObject({
+				kind: "ok",
+				doc: { appName: name },
+				identityDoc: { appName: name },
+				actors,
+			});
+		}
+	},
+);

@@ -2,12 +2,11 @@ import type { Kysely } from "kysely";
 import { writeHorizonInTransaction } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDatabase } from "@/lib/db/pg";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import type { PersistableDoc } from "@/lib/domain";
 import {
 	scanDeploymentFold,
 	writeDeploymentAwareFold,
 } from "@/scripts/lib/deploymentFold";
+import { sameRepresentationFold } from "@/scripts/lib/deploymentFoldArtifacts";
 
 /** Real conversion entry point with an unchanged representation. The focused
  * tests independently compare the worker and target values across this seam. */
@@ -23,9 +22,8 @@ export async function certifyFold(
 	const input = {
 		appId,
 		projectId: app.project_id,
-		oldHead: hydratePersistedBlueprint(app.blueprint),
 		headSeq: app.mutation_seq,
-		convert: (value: PersistableDoc) => value,
+		migration: sameRepresentationFold,
 	};
 	const inventory = await db
 		.transaction()

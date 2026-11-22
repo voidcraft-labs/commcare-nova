@@ -253,7 +253,10 @@ function taken(
 		read: { sourceDigest: digestOf(SOURCE), novaRevision: 1 },
 		source: stored(CHANGED_SOURCE, CHANGED_AT),
 		ownership: TAKEN_OWNERSHIP,
-		mediaFiles: { [HELD_PATH]: HELD_FILE_ID },
+		mediaFiles: {
+			read: { [HELD_PATH]: HELD_FILE_ID },
+			next: { [HELD_PATH]: HELD_FILE_ID },
+		},
 		targetIdentity: { read: birth.targetIdentity, next: birth.targetIdentity },
 		firstPublish: {
 			accepted: {
@@ -367,7 +370,9 @@ describe("recordHqChangesTaken", () => {
 		const files: HqMediaRecord = { [HELD_PATH]: "hq-file-2" };
 		const recorded = await recordHqChangesTaken(
 			AT_HEAD,
-			taken(birth, { mediaFiles: files }),
+			taken(birth, {
+				mediaFiles: { read: { [HELD_PATH]: HELD_FILE_ID }, next: files },
+			}),
 		);
 		expect(await baselineRow()).toEqual({
 			remote_app_id: HQ_APP,
@@ -846,7 +851,7 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 				publishChanges: ["media-paths-joined"],
 				webAppsOnInHq: true,
 			},
-			mediaFiles: files,
+			mediaFiles: { read: { [HELD_PATH]: HELD_FILE_ID }, next: files },
 		});
 		expect(refreshed.outcome).toBe("current");
 		expect(await baselineRow()).toEqual({

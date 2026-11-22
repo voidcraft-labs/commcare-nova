@@ -63,6 +63,7 @@ import {
 	markResourceBaselinesUnread,
 	type RecordAnswer,
 	type RecordRemoteResourceInput,
+	readAppBaseline,
 	readDeployment,
 	recordCreatedRemoteApp,
 	recordDeploymentMediaFiles,
@@ -1230,6 +1231,8 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 		const table = await (WRITES["a pushed table"] ?? fail())(birth);
 		const imported = await (WRITES["the import"] ?? fail())(birth);
 		await recordOf(imported);
+		const observed = await readAppBaseline(birth.scope, TARGET);
+		if (!observed) throw new Error("Missing imported app baseline.");
 		await softDeleteApp(APP, OWNER);
 
 		await markResourceBaselinesUnread(
@@ -1246,7 +1249,8 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 			remoteAppId: HQ_APP,
 			pushToken: (await liveMapping("app", APP))?.push_token ?? fail(),
 			sourceDigest: null,
-			files,
+			novaRevision: observed.novaRevision,
+			files: { read: observed.mediaFiles, next: files },
 			admitted: asTheImport,
 		});
 		await expect(

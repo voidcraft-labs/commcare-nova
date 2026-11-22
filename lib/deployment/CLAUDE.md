@@ -1021,6 +1021,15 @@ replaces in CommCare HQ between the publish's last source read and its media
 upload is written over, and the record then names Nova's file: HQ's upload
 takes no expected id, so this window too stays one round trip wide.
 
+A publish and a review may finish reading the same HQ files in either order.
+Each writer compares each changed path with the file id it observed before the
+request. Independent paths accumulate. A take or refresh encountering a newer
+replacement or removal asks for a fresh review before writing any source, target
+identities or next-publish facts. The late report of an admitted media upload
+can still confirm independent files; it keeps each conflicting current fact and
+reports the need for a new review. A new app claim or published revision also
+invalidates an earlier report.
+
 ## Bringing in what changed in CommCare HQ
 
 `hqChanges/` brings a change a person made in CommCare HQ to an app Nova
@@ -1056,6 +1065,19 @@ no reading holds, the worker setup under the slugs the published document
 gave it, where the app runs, the logo).
 
 An incompatible app fold retains each target’s comparison independently.
+Prepare its private decoder with `node scripts/build-deployment-fold-reader.mjs --source <checkout> --revision <deployed-commit> --output <private-reader.mjs>`.
+The builder archives that Git tree, installs its exact dependency lock and bundles
+the release’s parser, reducers and projections. For the pre-certificate release
+it takes the deployed reference functions from that archive. Record the printed
+source commit, tree, lock hash and reader SHA-256 with the standalone converter’s
+SHA-256 and its JSON settings. Open these via `openDeploymentFoldMigration` in
+the scan and the writer. Both artifacts load from verified bytes. The receipt
+binds their identities, conversion settings, the scoped root and each target’s
+exact history. Keep the source projection available until the old roots are read.
+An incompatible root SQL change must preserve a way to read those exact roots
+until the candidate writes its own rows and snapshot. A same-representation
+repair uses the identity converter. Production serving only uses the candidate
+decoder after the new horizon is written.
 `scripts/lib/deploymentFold.ts` scans the current source, target identities,
 pending-publish facts, mapping and prior reference. The writer repeats the
 scan under the app and deployment locks. It converts the server-folded

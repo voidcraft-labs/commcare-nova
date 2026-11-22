@@ -52,18 +52,13 @@ import {
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	CasePlacement,
-	Form,
-	PersistableDoc,
-	Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, CasePlacement, Form, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	scanDeploymentFold,
 	writeDeploymentAwareFold,
 } from "@/scripts/lib/deploymentFold";
+import { sameRepresentationFold } from "@/scripts/lib/deploymentFoldArtifacts";
 import {
 	appMappingToken,
 	birthAdoptedApp,
@@ -677,7 +672,10 @@ describe("published comparisons at a new fold", () => {
 				refreshTime,
 			),
 			targetIdentity: { read: EMPTY_TARGET_IDENTITY, next: identity },
-			mediaFiles: { "commcare/image/visit.png": "learned" },
+			mediaFiles: {
+				read: previousSouth.mediaFiles,
+				next: { "commcare/image/visit.png": "learned" },
+			},
 		};
 		expect(
 			(await recordRefreshedAppBaseline(scope, north, northRead)).outcome,
@@ -709,7 +707,9 @@ describe("published comparisons at a new fold", () => {
 			);
 		}
 		expect(await readTargetIdentity(scope, south)).toEqual(identity);
-		expect((await baseline(south)).mediaFiles).toEqual(southRead.mediaFiles);
+		expect((await baseline(south)).mediaFiles).toEqual(
+			southRead.mediaFiles.next,
+		);
 		expect(await readFirstPublishStates(scope)).toEqual(beforeLists);
 		await edit(appId, [rename("remark", "summary")]);
 		for (const [target, expected] of [
@@ -770,7 +770,10 @@ it("keeps a released comparison through restore and a fold, and fences reads fro
 		comparedFold: binding.foldSeq,
 		comparedRevision: binding.novaRevision,
 		read: storedRead({ name: "Read while away" }, new Date().toISOString()),
-		mediaFiles: { "commcare/image/logo.png": "from-a-stale-read" },
+		mediaFiles: {
+			read: before.mediaFiles,
+			next: { "commcare/image/logo.png": "from-a-stale-read" },
+		},
 		targetIdentity: {
 			read: await readTargetIdentity(scope, target),
 			next: EMPTY_TARGET_IDENTITY,
@@ -787,8 +790,8 @@ it("keeps a released comparison through restore and a fold, and fences reads fro
 		appId,
 		projectId: PROJECT,
 		headSeq: oldHead.seq,
-		oldHead: oldHead.doc,
-		convert: (doc: PersistableDoc) => doc,
+
+		migration: sameRepresentationFold,
 	};
 	const scan = () =>
 		h

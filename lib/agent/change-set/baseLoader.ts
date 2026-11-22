@@ -25,7 +25,10 @@
  */
 
 import { type Kysely, sql, type Transaction } from "kysely";
-import { foldCanonicalAppChangeSuffixBounded } from "@/lib/db/canonicalMutationFold";
+import {
+	type BoundedCanonicalAppChangeFoldInput,
+	foldCanonicalAppChangeSuffixBounded,
+} from "@/lib/db/canonicalMutationFold";
 import type { AppDatabase } from "@/lib/db/pg";
 import {
 	hydratePersistedBlueprint,
@@ -65,6 +68,30 @@ export async function loadCanonicalBlueprintAtSequence(
 		readonly expectedDigest: string | null;
 	},
 ): Promise<LoadedCanonicalBase> {
+	const folded = foldCanonicalAppChangeSuffixBounded(
+		await readCanonicalFoldInputs(db, args),
+	);
+
+	const digest = canonicalJsonDigest(folded.snapshot);
+	if (args.expectedDigest !== null && digest !== args.expectedDigest) {
+		throw new ChangeSetIntegrityError(
+			`App ${args.appId} at sequence ${args.seq} replays to digest ${digest}, but this change set recorded base digest ${args.expectedDigest}. The change set cannot be rehydrated.`,
+		);
+	}
+	return {
+		doc: hydratePersistedBlueprint(folded.snapshot),
+		snapshot: folded.snapshot,
+		digest,
+		projectId: folded.projectId,
+	};
+}
+
+/** Exact storage carriers. The deployment cutover passes these to the
+ * source revision's decoder before it converts anything to the new model. */
+export async function readCanonicalFoldInputs(
+	db: Kysely<AppDatabase>,
+	args: { readonly appId: string; readonly seq: number },
+): Promise<BoundedCanonicalAppChangeFoldInput> {
 	const baseline = await db
 		.selectFrom("app_change_fold_baselines")
 		.select(["seq", "project_id"])
@@ -111,7 +138,7 @@ export async function loadCanonicalBlueprintAtSequence(
 					.where("seq", "<=", args.seq)
 					.orderBy("seq", "asc")
 					.execute();
-	const folded = foldCanonicalAppChangeSuffixBounded({
+	return {
 		baselineSnapshotText: baseline.snapshot_text,
 		baselineSeq,
 		baselineProjectId: baseline.project_id,
@@ -126,18 +153,6 @@ export async function loadCanonicalBlueprintAtSequence(
 			from_project_id: row.from_project_id,
 			to_project_id: row.to_project_id,
 		})),
-	});
-	const digest = canonicalJsonDigest(folded.snapshot);
-	if (args.expectedDigest !== null && digest !== args.expectedDigest) {
-		throw new ChangeSetIntegrityError(
-			`App ${args.appId} at sequence ${args.seq} replays to digest ${digest}, but this change set recorded base digest ${args.expectedDigest}. The change set cannot be rehydrated.`,
-		);
-	}
-	return {
-		doc: hydratePersistedBlueprint(folded.snapshot),
-		snapshot: folded.snapshot,
-		digest,
-		projectId: folded.projectId,
 	};
 }
 

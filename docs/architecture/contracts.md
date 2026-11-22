@@ -56,7 +56,7 @@ identity projection against that target’s original comparison, including the
 reason one was already unavailable. An editor’s intervening change stays
 unpublished. Recoverable apps in the trash take the same conversion. The
 read-only scan on the previous schema and the scan after the candidate DDL
-produce the same receipt for unchanged targets. The converter verifies targets
+produce the same receipt for unchanged targets. That receipt pins the deployed decoder’s source commit, Git tree, dependency lock, executable bytes and the exact converter and settings. The old release reads old snapshots, certificates and mutations. Serving reads the converted snapshot from its new horizon. The converter verifies targets
 one at a time in the app transaction. A released HQ claim keeps its comparison
 for a possible reclaim. Only a request made under the current claim can use it.
 

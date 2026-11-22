@@ -15,6 +15,7 @@ import {
 	hasPublishedComparison,
 	loadFoldOperatorReference,
 	projectDeploymentReference,
+	readDeploymentReferenceEvidence,
 } from "@/lib/deployment/hqChanges/reference";
 import {
 	readFoldOperatorBaseline,
@@ -34,16 +35,14 @@ import {
 	nextPersistedSequence,
 	safePersistedSequence,
 } from "@/lib/utils/persistedSequence";
+import type { DeploymentFoldMigration } from "./deploymentFoldArtifacts";
 import { deploymentFoldSchema } from "./deploymentFoldSchema";
 
 interface FoldSource {
 	readonly appId: string;
 	readonly projectId: string;
 	readonly headSeq: number;
-	readonly oldHead: BlueprintDoc;
-	/** Converts a server-folded document, an identity projection, or the head.
-	 * All occurrences of an identity must receive the same converted identity. */
-	readonly convert: (snapshot: PersistableDoc) => PersistableDoc;
+	readonly migration: DeploymentFoldMigration;
 }
 
 export interface DeploymentFoldInventory {
@@ -52,9 +51,14 @@ export interface DeploymentFoldInventory {
 	readonly unavailable: number;
 }
 
-function converted(input: FoldSource, doc: BlueprintDoc): BlueprintDoc {
+function converted(input: FoldSource, snapshot: unknown): BlueprintDoc {
 	return hydratePersistedBlueprint(
-		blueprintDocSchema.parse(input.convert(toPersistableDoc(doc))),
+		blueprintDocSchema.parse(
+			input.migration.convert(snapshot, {
+				appId: input.appId,
+				projectId: input.projectId,
+			}),
+		),
 	);
 }
 
@@ -134,7 +138,7 @@ async function visitDeploymentReferences(
 	schema: "prior" | "certificates",
 	save?: (record: Certificate) => Promise<void>,
 ) {
-	const { appId, projectId, headSeq, oldHead } = input;
+	const { appId, projectId, headSeq, migration } = input;
 	const root = await tx
 		.selectFrom("apps")
 		.select("mutation_seq")
@@ -146,14 +150,16 @@ async function visitDeploymentReferences(
 		.where("id", "=", appId)
 		.where("project_id", "=", projectId)
 		.executeTakeFirstOrThrow();
+	const storedHeadDigest = canonicalJsonDigest(
+		parsePersistedJsonText(root.snapshot, "pre-conversion app"),
+	);
+	const oldHead = migration.readHead(root.snapshot);
 	if (
 		safePersistedSequence(root.mutation_seq) !== headSeq ||
-		canonicalJsonDigest(
-			parsePersistedJsonText(root.snapshot, "pre-conversion app"),
-		) !== canonicalJsonDigest(toPersistableDoc(oldHead))
+		storedHeadDigest !== canonicalJsonDigest(oldHead)
 	)
 		throw new Error(
-			"The fold input differs from the saved app in this Project.",
+			"The fold source decoder did not reproduce the saved app in this Project.",
 		);
 	const oldFoldSeq = await greatestFoldBaselineSeq(tx, appId);
 	const nextHead = converted(input, oldHead);
@@ -166,6 +172,8 @@ async function visitDeploymentReferences(
 			headSeq,
 			oldFoldSeq,
 			nextHead: toPersistableDoc(nextHead),
+			source: migration.provenance,
+			storedHeadDigest,
 		}),
 	);
 	const states = createHash("sha256");
@@ -225,42 +233,58 @@ async function visitDeploymentReferences(
 			);
 			continue;
 		}
-		const start: FoldedDeploymentReference =
+		const evidence =
 			!baseline.foldBinding && headSeq === baseline.novaRevision
 				? {
-						kind: "ok",
-						doc: oldHead,
-						projectId,
-						editorBefore: false,
-						actors: [],
-						renamesSince: [],
-					}
-				: await loadFoldOperatorReference(tx, {
 						appId,
 						headSeq,
-						novaRevision: baseline.novaRevision,
-						binding: baseline.foldBinding,
-					});
-		const state =
-			start.kind === "ok"
-				? { ...start, doc: converted(input, start.doc) }
-				: start;
-		const old = projectDeploymentReference(start, oldHead);
+						startSeq: headSeq,
+						start: {
+							kind: "head" as const,
+							snapshotText: root.snapshot,
+							projectId,
+						},
+						suffix: [],
+					}
+				: await readDeploymentReferenceEvidence(
+						tx,
+						{
+							appId,
+							headSeq,
+							novaRevision: baseline.novaRevision,
+							binding: baseline.foldBinding,
+						},
+						"preserve-released",
+					);
+		// The candidate treats every old document and mutation as opaque until
+		// the source release has reduced the old history and projected the head.
+		const old = migration.readReference(root.snapshot, evidence);
+		const state: FoldedDeploymentReference =
+			old.kind === "ok"
+				? {
+						kind: "ok",
+						doc: converted(input, old.doc),
+						projectId: old.projectId,
+						editorBefore: old.editorBefore,
+						actors: old.actors,
+						renamesSince: old.renamesSince,
+					}
+				: old;
 		const projected = projectDeploymentReference(state, nextHead);
-		if (old.kind === "ok" && projected.kind === "ok") {
-			if (
-				state.kind !== "ok" ||
-				state.projectId !== projectId ||
-				canonicalJsonDigest(toPersistableDoc(converted(input, old.doc))) !==
-					canonicalJsonDigest(toPersistableDoc(projected.doc)) ||
+		if (
+			old.kind === "ok" &&
+			(projected.kind !== "ok" ||
+				old.projectId !== projectId ||
 				canonicalJsonDigest(
-					toPersistableDoc(converted(input, old.identityDoc)),
-				) !== canonicalJsonDigest(toPersistableDoc(projected.identityDoc))
-			)
-				throw new Error(
-					"The converted deployment reference changes the published comparison or its target identities.",
-				);
-		}
+					toPersistableDoc(converted(input, old.published)),
+				) !== canonicalJsonDigest(toPersistableDoc(projected.doc)) ||
+				canonicalJsonDigest(
+					toPersistableDoc(converted(input, old.identity)),
+				) !== canonicalJsonDigest(toPersistableDoc(projected.identityDoc)))
+		)
+			throw new Error(
+				"The converted deployment reference changes the published comparison or its target identities.",
+			);
 		if (state.kind === "ok" && row.released_at === null) usable++;
 		else unavailable++;
 		const record = {
@@ -272,7 +296,13 @@ async function visitDeploymentReferences(
 			state: encodeReference(state),
 		};
 		const digest = canonicalJsonDigest(record);
-		receipts.update(canonicalJsonDigest({ facts, reference: digest }));
+		receipts.update(
+			canonicalJsonDigest({
+				facts,
+				sourceEvidence: canonicalJsonDigest(evidence),
+				reference: digest,
+			}),
+		);
 		states.update(digest);
 		if (save) await save(record);
 	}

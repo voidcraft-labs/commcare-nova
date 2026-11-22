@@ -61,7 +61,13 @@ import {
 	DeploymentError,
 	deploymentNotFound,
 } from "./errors";
-import { type HqMediaRecord, hqMediaRecordSchema } from "./hqMedia";
+import {
+	type HqMediaObservation,
+	type HqMediaRecord,
+	hqMediaRecordMoves,
+	hqMediaRecordSchema,
+	mergeHqMediaObservation,
+} from "./hqMedia";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
@@ -2757,7 +2763,7 @@ export async function recordRefreshedAppBaseline(
 		 */
 		readonly nextPublish?: HqChangesFirstPublish;
 		/** The media record with an id a review learned. Absent: it stays. */
-		readonly mediaFiles?: HqMediaRecord;
+		readonly mediaFiles?: HqMediaObservation;
 		/**
 		 * The target-identity record a review that read the same app
 		 * resolved, and the record it resolved over, written whether or not
@@ -2824,6 +2830,11 @@ export async function recordRefreshedAppBaseline(
 			) {
 				return superseded();
 			}
+			const currentMedia = storedMediaFiles(row.id, stored.media_files);
+			const media =
+				input.mediaFiles &&
+				mergeHqMediaObservation(currentMedia, input.mediaFiles);
+			if (media?.conflict) return superseded();
 			const readAt = Date.parse(input.read.observedAt);
 			const storedList = storedFirstPublish(
 				row.id,
@@ -2848,8 +2859,8 @@ export async function recordRefreshedAppBaseline(
 				if (stored.source_digest !== input.read.sourceDigest)
 					return superseded();
 				if (
-					input.mediaFiles !== undefined &&
-					!deepEqual(stored.media_files, input.mediaFiles)
+					media !== undefined &&
+					hqMediaRecordMoves(currentMedia, media.files)
 				)
 					return superseded();
 				if (
@@ -2913,9 +2924,9 @@ export async function recordRefreshedAppBaseline(
 					discard: null,
 					novaRevision: numberOrNull(stored.nova_revision),
 					mediaFiles:
-						input.mediaFiles === undefined
+						media === undefined
 							? { kind: "keep" }
-							: { kind: "set", files: input.mediaFiles },
+							: { kind: "set", files: media.files },
 					/* An app brought in and not yet published keeps its own list: the
 					 * first publish still makes every change of it, and a read that
 					 * compared equal reads the same app it was given for. */
@@ -2968,40 +2979,55 @@ export async function recordDeploymentMediaFiles(
 		readonly pushToken: string | null;
 		/** The digest of the baseline this publish wrote; null when HQ returned no verifiable source. */
 		readonly sourceDigest: string | null;
-		readonly files: HqMediaRecord;
+		readonly novaRevision: number | null;
+		readonly files: HqMediaObservation;
 		readonly admitted?: AdmittedRecord;
 	},
-): Promise<void> {
-	await withRecordRow(
+): Promise<"recorded" | "superseded"> {
+	return withRecordRow(
 		scope,
 		target,
 		{ admitted: input.admitted, writeKinds: ["import", "media"] },
 		async (tx, row) => {
-			const { pushToken } = input;
-			if (row.endings !== input.expectedEndings || pushToken === null) return;
-			await tx
-				.updateTable("app_deployment_baselines")
-				.set({ media_files: JSON.stringify(input.files) })
-				.where("deployment_id", "=", row.id)
-				.where("remote_app_id", "=", input.remoteAppId)
-				.where((eb) =>
-					eb.exists(
-						tx
-							.selectFrom("app_deployment_resources as r")
-							.select("r.id")
-							.where("r.deployment_id", "=", row.id)
-							.where("r.kind", "=", "app")
-							.where("r.remote_id", "=", input.remoteAppId)
-							.where("r.superseded_at", "is", null)
-							.where("r.push_token", "=", pushToken),
-					),
+			if (row.endings !== input.expectedEndings || input.pushToken === null)
+				return "superseded";
+			const baseline = await tx
+				.selectFrom("app_deployment_baselines as b")
+				.innerJoin(
+					"app_deployment_resources as r",
+					"r.deployment_id",
+					"b.deployment_id",
 				)
-				.where((eb) =>
-					input.sourceDigest === null
-						? eb("source_digest", "is", null)
-						: eb("source_digest", "=", input.sourceDigest),
-				)
-				.execute();
+				.select(["b.media_files", "b.nova_revision", "b.source_digest"])
+				.where("b.deployment_id", "=", row.id)
+				.where("b.remote_app_id", "=", input.remoteAppId)
+				.where("r.kind", "=", "app")
+				.where("r.nova_resource_id", "=", scope.appId)
+				.whereRef("r.remote_id", "=", "b.remote_app_id")
+				.where("r.superseded_at", "is", null)
+				.where("r.released_at", "is", null)
+				.where("r.push_token", "=", input.pushToken)
+				.executeTakeFirst();
+			if (
+				!baseline ||
+				baseline.source_digest !== input.sourceDigest ||
+				numberOrNull(baseline.nova_revision) !== input.novaRevision
+			)
+				return "superseded";
+			const current = storedMediaFiles(row.id, baseline.media_files);
+			const media = mergeHqMediaObservation(current, input.files);
+			if (
+				baseline.media_files === null ||
+				hqMediaRecordMoves(current, media.files)
+			) {
+				await tx
+					.updateTable("app_deployment_baselines")
+					.set({ media_files: JSON.stringify(media.files) })
+					.where("deployment_id", "=", row.id)
+					.execute();
+				await notifyAppDeployments(tx, scope.appId);
+			}
+			return media.conflict ? "superseded" : "recorded";
 		},
 	);
 }
@@ -3009,6 +3035,7 @@ export async function recordDeploymentMediaFiles(
 /** Which of the baseline's facts a bring-in of changes found moved under its lock. */
 export type HqChangesBaselineFence =
 	| "source-digest"
+	| "media-files"
 	| "mapping-token"
 	| "nova-revision"
 	| "remote-app"
@@ -3035,6 +3062,7 @@ export class HqChangesBaselineMovedError extends Error {
 			"nova-revision": "Nova revision",
 			"remote-app": "CommCare HQ app",
 			"mapping-token": "HQ app mapping token",
+			"media-files": "recorded HQ files",
 			"observed-at": "read no later than",
 			"target-identity": "target identity",
 		}[fence];
@@ -3132,7 +3160,7 @@ export interface HqChangesTaken extends DeploymentFence {
 	/** The ownership the next publish's body gives over that source and the document taken. */
 	readonly ownership: AppOwnership;
 	/** Which CommCare HQ file stands at each path the app publishes. */
-	readonly mediaFiles: HqMediaRecord;
+	readonly mediaFiles: HqMediaObservation;
 	/**
 	 * The deployment's target-identity record as the take read it (`read`)
 	 * and as the reading resolves it (`next`,
@@ -3219,6 +3247,7 @@ async function recordHqChangesInTransaction(
 			"nova_revision",
 			"observed_at",
 			"first_publish_changes",
+			"media_files",
 		])
 		.where("deployment_id", "=", deploymentId)
 		.executeTakeFirst();
@@ -3272,6 +3301,14 @@ async function recordHqChangesInTransaction(
 		);
 	}
 
+	const currentMedia = storedMediaFiles(deploymentId, stored.media_files);
+	const media = mergeHqMediaObservation(currentMedia, input.mediaFiles);
+	if (media.conflict)
+		throw new HqChangesBaselineMovedError(
+			"media-files",
+			"the reviewed file ids",
+			"a newer observation",
+		);
 	// 2. The pair, and 4. the next publish's list.
 	await writeAppBaseline(tx, deploymentId, scope.actorUserId, {
 		origin: "changes",
@@ -3283,7 +3320,7 @@ async function recordHqChangesInTransaction(
 		observedAt: input.source.observedAt,
 		discard: null,
 		novaRevision,
-		mediaFiles: { kind: "set", files: input.mediaFiles },
+		mediaFiles: { kind: "set", files: media.files },
 		firstPublish: {
 			kind: "set",
 			list: hqChangesFirstPublishList(

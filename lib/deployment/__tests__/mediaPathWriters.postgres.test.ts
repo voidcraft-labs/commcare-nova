@@ -103,7 +103,10 @@ function taken(
 		read,
 		source: stored(source, observedAt),
 		ownership: OWNERSHIP,
-		mediaFiles: { [HELD_PATH]: HELD_FILE_ID },
+		mediaFiles: {
+			read: { [HELD_PATH]: HELD_FILE_ID },
+			next: { [HELD_PATH]: HELD_FILE_ID },
+		},
 		targetIdentity,
 		firstPublish: {
 			accepted: {

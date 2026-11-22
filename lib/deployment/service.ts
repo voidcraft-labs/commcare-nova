@@ -1908,20 +1908,36 @@ export async function publishAppToHq(
 			 * before the upload, else what the baseline knew. Against the
 			 * baseline this publish wrote, so a later publish's is left to that
 			 * publish. */
-			await recordDeploymentMediaFiles(input.scope, target, {
-				...fence,
-				remoteAppId: result.appId,
-				sourceDigest: pushBaseline.write.sourceDigest,
-				pushToken: imported.pushToken,
-				files: nextHqMediaRecord({
-					published,
-					previous: appBaseline?.mediaFiles ?? null,
-					learned: { ...ready.media?.learned, ...learnedBetween },
-					reported: upload.reported,
-					settled: [...(ready.media?.paths ?? []), ...settledBetween],
-				}),
-				admitted: { writeIds: mediaWrites, settle: [] },
-			});
+			const previousMedia =
+				appBaseline?.remoteAppId === result.appId
+					? appBaseline.mediaFiles
+					: null;
+			const mediaRecorded = await recordDeploymentMediaFiles(
+				input.scope,
+				target,
+				{
+					...fence,
+					remoteAppId: result.appId,
+					sourceDigest: pushBaseline.write.sourceDigest,
+					pushToken: imported.pushToken,
+					novaRevision: pushBaseline.write.novaRevision,
+					files: {
+						read: previousMedia,
+						next: nextHqMediaRecord({
+							published,
+							previous: previousMedia,
+							learned: { ...ready.media?.learned, ...learnedBetween },
+							reported: upload.reported,
+							settled: [...(ready.media?.paths ?? []), ...settledBetween],
+						}),
+					},
+					admitted: { writeIds: mediaWrites, settle: [] },
+				},
+			);
+			if (mediaRecorded === "superseded" && published.length > 0)
+				warnings.push(
+					"File information changed while Nova published. You can review changes from CommCare HQ to see the files it holds now.",
+				);
 
 			return {
 				landed: true,

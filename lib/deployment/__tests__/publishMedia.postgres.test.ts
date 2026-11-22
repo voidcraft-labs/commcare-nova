@@ -56,8 +56,16 @@ import {
 	MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
 } from "../remoteChanges";
 import { type PublishOutcome, publishAppToHq } from "../service";
-import { readDeployment, recordDeploymentMediaFiles } from "../store";
+import {
+	readAppBaseline,
+	readDeployment,
+	readTargetIdentity,
+	recordDeploymentMediaFiles,
+	recordHqChangesTaken,
+	recordRefreshedAppBaseline,
+} from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
+import { appMappingToken } from "./adoptedBirth";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 import { stopHere } from "./stopHere";
 
@@ -261,16 +269,31 @@ function file(peer: MockAgent, id: string, bytes: Buffer) {
 function mediaTaken(
 	peer: MockAgent,
 	reported: string | null,
-	options: { readonly errors?: readonly string[] } = {},
+	options: {
+		readonly errors?: readonly string[];
+		readonly whileProcessing?: () => Promise<void>;
+	} = {},
 ) {
 	request(peer, MEDIA, "POST").reply(200, {
 		success: true,
 		processing_id: "media-job",
 	});
-	request(peer, STATUS).reply(
-		200,
-		statusAnswer(reported, options.errors ?? []),
-	);
+	const body = statusAnswer(reported, options.errors ?? []);
+	let failure: { error: unknown } | undefined;
+	if (options.whileProcessing) {
+		const checkpoint = options.whileProcessing;
+		request(peer, STATUS).reply(200, async () => {
+			try {
+				await checkpoint();
+			} catch (error) {
+				failure = { error };
+			}
+			return body;
+		});
+	} else request(peer, STATUS).reply(200, body);
+	return () => {
+		if (failure) throw failure.error;
+	};
 }
 function statusAnswer(reported: string | null, errors: readonly string[]) {
 	const matched =
@@ -383,6 +406,169 @@ function republishLands(
 	serve(peer, "source-live");
 	mediaTaken(peer, reported);
 }
+
+/** The same verified baseline, mapping claim and source bytes a review reads
+ * after the import records the source and before HQ answers the media poll. */
+async function observeImport() {
+	const baseline = await readAppBaseline(SCOPE, TARGET);
+	if (
+		!baseline ||
+		baseline.origin === "unread" ||
+		baseline.novaRevision === null
+	)
+		throw new Error("Expected a verified publish baseline.");
+	const pushToken = appMappingToken(await readDeployment(SCOPE, TARGET));
+	const row = await h
+		.db()
+		.selectFrom("app_deployment_baselines")
+		.select("source_gzip")
+		.where("remote_app_id", "=", HQ_APP)
+		.executeTakeFirstOrThrow();
+	if (!row.source_gzip) throw new Error("Expected the source bytes.");
+	const read = {
+		observedAt: new Date(
+			Math.max(Date.now(), Date.parse(baseline.observedAt)) + 1,
+		).toISOString(),
+		sourceGzip: row.source_gzip,
+		sourceBytes: baseline.sourceBytes,
+		sourceDigest: baseline.sourceDigest,
+	};
+	const fence = {
+		expectedEndings: 0,
+		remoteAppId: HQ_APP,
+		comparedPushToken: pushToken,
+	};
+	const identity = await readTargetIdentity(SCOPE, TARGET);
+	const nextPublish = {
+		accepted: { ids: [], touchesWorkers: false, of: "first-publish" as const },
+		publishChanges: ["media-paths-joined"] as const,
+		webAppsOnInHq: true,
+	};
+	const targetIdentity = {
+		read: identity,
+		next: {
+			...identity,
+			mediaPaths: [{ assetId: IMAGE, wirePath: "commcare/clinic-sign.png" }],
+		},
+	};
+	const comparedRevision = baseline.novaRevision;
+	return {
+		refresh: (next: Readonly<Record<string, string>>) =>
+			recordRefreshedAppBaseline(SCOPE, TARGET, {
+				...fence,
+				comparedDigest: baseline.sourceDigest,
+				comparedRevision,
+				nextPublish,
+				targetIdentity,
+				read,
+				mediaFiles: { read: baseline.mediaFiles, next },
+			}),
+		take: (next: Readonly<Record<string, string>>) =>
+			recordHqChangesTaken(
+				{ kind: "own", headSeq: comparedRevision },
+				{
+					...fence,
+					scope: SCOPE,
+					target: TARGET,
+					read: {
+						sourceDigest: baseline.sourceDigest,
+						novaRevision: comparedRevision,
+					},
+					ownership: baseline.ownership,
+					source: read,
+					mediaFiles: { read: baseline.mediaFiles, next },
+					targetIdentity,
+					firstPublish: nextPublish,
+				},
+			),
+	};
+}
+
+it.each(["refresh", "take"] as const)(
+	"keeps an acknowledged upload when an earlier %s records independently learned files",
+	async (kind) => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		const other = "commcare/clinic-sign.png";
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, "source-shell");
+			accepted(peer, 200);
+			serve(peer, "source-live");
+			let observed: Awaited<ReturnType<typeof observeImport>> | undefined;
+			const checkPoll = mediaTaken(peer, "acknowledged-image", {
+				whileProcessing: async () => {
+					observed = await observeImport();
+				},
+			});
+			expect((await publish(doc)).landed).toBe(true);
+			checkPoll();
+			expect(await record()).toEqual({ [WIRE]: "acknowledged-image" });
+			if (!observed)
+				throw new Error("The peer did not observe the media upload in flight.");
+			const side = async () => ({
+				baseline: await h
+					.db()
+					.selectFrom("app_deployment_baselines")
+					.select([
+						"origin",
+						"observed_at",
+						"source_digest",
+						"first_publish_changes",
+						"reference_fold_seq",
+						"media_files",
+					])
+					.executeTakeFirstOrThrow(),
+				identity: await readTargetIdentity(SCOPE, TARGET),
+			});
+			const before = await side();
+			const conflicting = { [WIRE]: "old-review-file", [other]: "hq-sign" };
+			if (kind === "refresh")
+				expect((await observed.refresh(conflicting)).outcome).toBe(
+					"superseded",
+				);
+			else
+				await expect(observed.take(conflicting)).rejects.toMatchObject({
+					fence: "media-files",
+				});
+			expect(await side()).toEqual(before);
+			await observed[kind]({ [other]: "hq-sign" });
+			expect(await record()).toEqual({
+				[WIRE]: "acknowledged-image",
+				[other]: "hq-sign",
+			});
+		});
+	},
+);
+
+it.each(["remove", "replace"] as const)(
+	"preserves a review’s %s when the upload report arrives after it",
+	async (action) => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			await publishFirst(peer, doc);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			accepted(peer, 200);
+			serve(peer, "source-live");
+			const corrected: Record<string, string> =
+				action === "remove" ? {} : { [WIRE]: "confirmed-replacement" };
+			const checkPoll = mediaTaken(peer, "late-upload-report", {
+				whileProcessing: async () => {
+					const review = await observeImport();
+					expect((await review.refresh(corrected)).outcome).toBe("current");
+				},
+			});
+			const result = await publish(doc);
+			checkPoll();
+			expect(result).toMatchObject({
+				landed: true,
+				warnings: expect.arrayContaining([
+					expect.stringContaining("File information changed"),
+				]),
+			});
+			expect(await record()).toEqual(corrected);
+		});
+	},
+);
 
 describe("a file replaced in CommCare HQ", () => {
 	it("stops the publish with one media part before anything is sent, and keeps the record", async () => {
@@ -848,7 +1034,7 @@ describe("the record after an upload", () => {
 					.executeTakeFirstOrThrow()
 			).push_token;
 		const firstPush = await pushToken();
-		const write = (input: {
+		const write = async (input: {
 			remoteAppId?: string;
 			pushToken?: string;
 			sourceDigest: string | null;
@@ -859,7 +1045,12 @@ describe("the record after an upload", () => {
 				remoteAppId: input.remoteAppId ?? HQ_APP,
 				sourceDigest: input.sourceDigest,
 				pushToken: input.pushToken ?? firstPush,
-				files: input.files,
+				novaRevision:
+					(await readAppBaseline(SCOPE, TARGET))?.novaRevision ?? null,
+				files: {
+					read: (await readAppBaseline(SCOPE, TARGET))?.mediaFiles ?? null,
+					next: input.files,
+				},
 			});
 
 		/* Another publish's baseline followed: its digest is not this one's. */

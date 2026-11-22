@@ -388,7 +388,7 @@ async function recordReadsTheSame(
 		}),
 		/* An id learned by content, or one whose file is gone, forgotten. */
 		...(hqMediaRecordMoves(basis.baseline.mediaFiles, mediaFiles) && {
-			mediaFiles,
+			mediaFiles: { read: basis.baseline.mediaFiles, next: mediaFiles },
 		}),
 		...(checked !== null &&
 			!sameTargetIdentity(
@@ -818,7 +818,7 @@ async function takenFor(
 			},
 			source: await storedSource(basis),
 			ownership,
-			mediaFiles,
+			mediaFiles: { read: basis.baseline.mediaFiles, next: mediaFiles },
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
 				accepted: firstPublishListToStore(
