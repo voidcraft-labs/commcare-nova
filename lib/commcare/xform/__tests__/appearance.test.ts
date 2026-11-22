@@ -99,6 +99,30 @@ describe("fieldAppearance", () => {
 		],
 		[
 			"single_select",
+			"label list-nolabel",
+			{
+				choiceLayout: {
+					kind: "platforms",
+					web: { kind: "row-without-label" },
+					android: { kind: "ordinary" },
+				},
+			},
+			"list-nolabel list",
+		],
+		[
+			"multi_select",
+			"label list-nolabel",
+			{
+				choiceLayout: {
+					kind: "platforms",
+					web: { kind: "headings" },
+					android: { kind: "ordinary" },
+				},
+			},
+			"label list",
+		],
+		[
+			"single_select",
 			"minimal",
 			{ choiceLayout: { kind: "dropdown" } },
 			"minimal",
@@ -114,6 +138,18 @@ describe("fieldAppearance", () => {
 			"signature 2-per-row",
 			{ webSignature: true, itemsPerRow: "2" },
 			"signature 2-per-row",
+		],
+		[
+			"group",
+			"group-collapse\tgroup-border",
+			{ collapse: "closed", border: true },
+			"group-collapse group-border",
+		],
+		[
+			"date",
+			"gregorian cancel",
+			{ calendar: "gregorian-with-clear" },
+			"gregorian cancel",
 		],
 		["signature", "signature", {}, "signature"],
 		["date", "ethiopian", { calendar: "ethiopian" }, "ethiopian"],

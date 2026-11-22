@@ -166,8 +166,8 @@ export const FIELD_DISPLAY_SETTINGS = [
 			ethiopian: { label: "Ethiopian" },
 			nepali: { label: "Nepali", feature: "android-calendar" },
 			gregorian: { label: "Gregorian", feature: "android-calendar" },
-			"gregorian-with-cancel": {
-				label: "Gregorian with a cancel button",
+			"gregorian-with-clear": {
+				label: "Gregorian with a clear button",
 				feature: "android-calendar",
 			},
 		},

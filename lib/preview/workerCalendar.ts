@@ -46,12 +46,15 @@ export function calendarDay(
 ): CalendarDay | undefined {
 	const date = new Date(day * DAY_MS);
 	if (!Number.isFinite(date.getTime())) return undefined;
-	if (calendar === "gregorian")
+	if (calendar === "gregorian") {
+		const year = date.getUTCFullYear();
+		if (year < 1900 || year > 2100) return undefined;
 		return {
-			year: date.getUTCFullYear(),
+			year,
 			month: date.getUTCMonth() + 1,
 			day: date.getUTCDate(),
 		};
+	}
 	if (calendar === "ethiopian") {
 		const values = ethiopian.formatToParts(date);
 		const part = (name: "year" | "month" | "day") =>

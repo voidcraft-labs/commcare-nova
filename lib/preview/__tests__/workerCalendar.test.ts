@@ -40,3 +40,12 @@ it("uses Core's Nepali month lengths, epoch and 32-day months", () => {
 	expect(calendarMonth(month.start - 1, "nepali")?.dates.length).toBe(31);
 	expect(calendarDayOfIso("2024-02-30")).toBeUndefined();
 });
+
+it("bounds alternate Gregorian selections at the years the Android date control accepts", () => {
+	const first = Date.UTC(1900, 0, 1) / 86_400_000;
+	const last = Date.UTC(2100, 11, 31) / 86_400_000;
+	expect(calendarMonth(first, "gregorian")?.previous).toBeUndefined();
+	expect(calendarMonth(last, "gregorian")?.next).toBeUndefined();
+	expect(calendarMonth(first - 1, "gregorian")).toBeUndefined();
+	expect(calendarMonth(last + 1, "gregorian")).toBeUndefined();
+});

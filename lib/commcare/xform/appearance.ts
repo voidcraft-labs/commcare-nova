@@ -17,7 +17,7 @@ export const FIELD_DISPLAY_SETTING_TOKENS = {
 		ethiopian: "ethiopian",
 		nepali: "nepali",
 		gregorian: "gregorian",
-		"gregorian-with-cancel": "gregorian cancel",
+		"gregorian-with-clear": "gregorian cancel",
 	},
 	clock: { "twelve-hour": "12-hour" },
 	locationPicker: { map: "maps" },

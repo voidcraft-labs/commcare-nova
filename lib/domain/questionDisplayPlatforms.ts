@@ -9,7 +9,7 @@ export const questionDisplayPlatforms = {
 			reading: "ignored",
 			note: "choices appear in the ordinary list",
 		},
-		android: { reading: "runs", note: "choices appear in a grid" },
+		android: { reading: "runs", note: "choices appear as picture tiles" },
 	},
 	"choice-advance": {
 		label: "Advance after a choice",

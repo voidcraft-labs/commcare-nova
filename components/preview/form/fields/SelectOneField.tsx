@@ -15,6 +15,7 @@ import {
 	usePreviewPlatform,
 	usePreviewPlatformRules,
 } from "@/lib/session/hooks";
+import { AndroidChoiceGrid } from "./AndroidChoiceGrid";
 import { ChoicePresentation } from "./ChoicePresentation";
 import { focusChosenChoice, retainChoiceFocus } from "./choiceLabelActivation";
 import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
@@ -93,7 +94,27 @@ export function SelectOneField({
 		return <LookupChoicesLoading />;
 	}
 	const layout = choiceLayoutForPlatform(field, platform);
-	const grid = layout?.kind === "grid" && platform === "android";
+
+	if (layout?.kind === "grid" && platform === "android")
+		return (
+			<div>
+				<AndroidChoiceGrid
+					key={options.map((o) => o.media?.image ?? "").join(":")}
+					options={options}
+					columns={layout.columns}
+					labelledBy={labelledBy}
+					path={state.path}
+					value={state.value}
+					editMode={isEditMode}
+					onChoose={onChange}
+					onBlur={onBlur}
+				/>
+				{dynamicChoices && options.length === 0 && <LookupChoicesEmpty />}
+				{showError && state.errorMessage && (
+					<ValidationError message={state.errorMessage} />
+				)}
+			</div>
+		);
 	const row =
 		layout?.kind === "row-without-label" ||
 		(layout?.kind === "row" && platform === "android");
@@ -135,16 +156,11 @@ export function SelectOneField({
 			onBlur={onBlur}
 		>
 			<div
-				className={grid || row ? "grid gap-2" : "space-y-1.5"}
+				className={row ? "grid gap-2" : "space-y-1.5"}
 				style={
-					grid || row
+					row
 						? {
-								gridTemplateColumns:
-									grid && layout.kind === "grid" && layout.columns
-										? `repeat(${Math.min(layout.columns, Math.max(options.length, 1))}, minmax(0, 1fr))`
-										: row
-											? `repeat(${Math.max(options.length, 1)}, minmax(0,1fr))`
-											: "repeat(auto-fit, minmax(5rem,1fr))",
+								gridTemplateColumns: `repeat(${Math.max(options.length, 1)}, minmax(0,1fr))`,
 							}
 						: undefined
 				}

@@ -28,7 +28,7 @@ export function AlternateDatePicker({
 	onBlur,
 	labelledBy,
 	invalid,
-	allowCancel,
+	showClearButton,
 }: {
 	calendar: WorkerCalendar;
 	value: string;
@@ -36,7 +36,7 @@ export function AlternateDatePicker({
 	onBlur: () => void;
 	labelledBy?: string;
 	invalid?: boolean;
-	allowCancel?: boolean;
+	showClearButton?: boolean;
 }) {
 	const { language } = useBuilderLanguage();
 	const locale = runtimeDateLocale(language);
@@ -54,95 +54,98 @@ export function AlternateDatePicker({
 		setOpen(false);
 	};
 	return (
-		<Popover
-			open={open}
-			onOpenChange={(next) => {
-				if (next) {
-					const initial = selected ?? localToday();
-					setMonth(calendarMonth(initial, calendar) ? initial : localToday());
-				}
-				setOpen(next);
-			}}
-		>
-			<PopoverTrigger
-				aria-labelledby={labelledBy}
-				aria-invalid={invalid || undefined}
-				onBlur={onBlur}
-				render={<Button type="button" variant="field" className="w-full" />}
+		<div className="flex items-center gap-2">
+			<Popover
+				open={open}
+				onOpenChange={(next) => {
+					if (next) {
+						const initial = selected ?? localToday();
+						setMonth(calendarMonth(initial, calendar) ? initial : localToday());
+					}
+					setOpen(next);
+				}}
 			>
-				{label ?? (value || runtimeMessage(language, "pickDate"))}
-			</PopoverTrigger>
-			<PopoverContent align="start" className="w-72 p-3">
-				{choices && (
-					<>
-						<div className="mb-2 flex items-center justify-between gap-2">
-							<Button
-								type="button"
-								variant="ghost"
-								aria-label={runtimeMessage(language, "previousMonth")}
-								disabled={choices.previous === undefined}
-								onClick={() =>
-									choices.previous !== undefined && setMonth(choices.previous)
-								}
-							>
-								‹
-							</Button>
-							<span aria-live="polite" className="text-sm font-medium">
-								{calendarText(month, calendar, locale, false)}
-							</span>
-							<Button
-								type="button"
-								variant="ghost"
-								aria-label={runtimeMessage(language, "nextMonth")}
-								disabled={choices.next === undefined}
-								onClick={() =>
-									choices.next !== undefined && setMonth(choices.next)
-								}
-							>
-								›
-							</Button>
-						</div>
-						<div className="grid grid-cols-7 gap-0.5">
-							{choices.dates.map((day, i) => (
-								<button
-									key={day}
+				<PopoverTrigger
+					aria-labelledby={labelledBy}
+					aria-invalid={invalid || undefined}
+					onBlur={onBlur}
+					render={<Button type="button" variant="field" className="w-full" />}
+				>
+					{label ?? (value || runtimeMessage(language, "pickDate"))}
+				</PopoverTrigger>
+				<PopoverContent align="start" className="w-72 p-3">
+					{choices && (
+						<>
+							<div className="mb-2 flex items-center justify-between gap-2">
+								<Button
 									type="button"
-									aria-label={calendarText(day, calendar, locale, true)}
-									aria-pressed={day === selected}
-									className="nova-focusable min-h-8 rounded text-sm hover:bg-accent aria-pressed:bg-primary aria-pressed:text-primary-foreground"
-									style={
-										i === 0
-											? {
-													gridColumnStart:
-														new Date(day * 86400000).getUTCDay() + 1,
-												}
-											: undefined
+									variant="ghost"
+									aria-label={runtimeMessage(language, "previousMonth")}
+									disabled={choices.previous === undefined}
+									onClick={() =>
+										choices.previous !== undefined && setMonth(choices.previous)
 									}
-									onClick={() => choose(isoOfCalendarDay(day))}
 								>
-									{new Intl.NumberFormat(locale).format(i + 1)}
-								</button>
-							))}
-						</div>
-					</>
-				)}
-				<div className="mt-2 flex justify-end gap-2">
-					{value && (
-						<Button type="button" variant="ghost" onClick={() => choose("")}>
-							{runtimeMessage(language, "clear")}
-						</Button>
+									‹
+								</Button>
+								<span aria-live="polite" className="text-sm font-medium">
+									{calendarText(month, calendar, locale, false)}
+								</span>
+								<Button
+									type="button"
+									variant="ghost"
+									aria-label={runtimeMessage(language, "nextMonth")}
+									disabled={choices.next === undefined}
+									onClick={() =>
+										choices.next !== undefined && setMonth(choices.next)
+									}
+								>
+									›
+								</Button>
+							</div>
+							<div className="grid grid-cols-7 gap-0.5">
+								{choices.dates.map((day, i) => (
+									<button
+										key={day}
+										type="button"
+										aria-label={calendarText(day, calendar, locale, true)}
+										aria-pressed={day === selected}
+										className="nova-focusable min-h-8 rounded text-sm hover:bg-accent aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+										style={
+											i === 0
+												? {
+														gridColumnStart:
+															new Date(day * 86400000).getUTCDay() + 1,
+													}
+												: undefined
+										}
+										onClick={() => choose(isoOfCalendarDay(day))}
+									>
+										{new Intl.NumberFormat(locale).format(i + 1)}
+									</button>
+								))}
+							</div>
+						</>
 					)}
-					{allowCancel && (
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={() => setOpen(false)}
-						>
-							{runtimeMessage(language, "cancel")}
-						</Button>
-					)}
-				</div>
-			</PopoverContent>
-		</Popover>
+					<div className="mt-2 flex justify-end gap-2">
+						{value && !showClearButton && (
+							<Button type="button" variant="ghost" onClick={() => choose("")}>
+								{runtimeMessage(language, "clear")}
+							</Button>
+						)}
+					</div>
+				</PopoverContent>
+			</Popover>
+			{showClearButton && (
+				<Button
+					type="button"
+					variant="ghost"
+					disabled={!value}
+					onClick={() => choose("")}
+				>
+					{runtimeMessage(language, "clear")}
+				</Button>
+			)}
+		</div>
 	);
 }
