@@ -9,8 +9,10 @@ from proof.hq.database import fresh_database
 @contextmanager
 def visit_database(rows):
     from django.test import override_settings
+    from sqlalchemy import text
+    from sqlalchemy.pool import QueuePool
 
-    from corehq.apps.project_db.table_ddl import get_domain_query_engine, get_project_db_engine, setup_project_db
+    from corehq.apps.project_db.table_ddl import DomainSchema, get_domain_query_engine, get_project_db_engine, setup_project_db
     from corehq.apps.project_db.tests.util import project_db_table
     from corehq.sql_db.connections import connection_manager
 
@@ -29,14 +31,22 @@ def visit_database(rows):
             patch.dict(connection_manager.engine_id_django_db_map, {"project_db": "default"}),
             patch.object(connection_manager, "get_connection_string", connection_string),
         ):
-            admin = get_project_db_engine()
+            # Production delegates pooling to PgBouncer. This proof has only
+            # PostgreSQL. Hold its two authenticated connections before HQ's
+            # unit opens and starts refusing fresh DBAPI connections.
+            with patch("corehq.sql_db.connections.NullPool", QueuePool):
+                admin = get_project_db_engine()
             try:
                 assert admin.url.database == database.name
                 setup_project_db()
                 columns = ["case_id", "owner_id", "case_name", "parent_id"]
                 with project_db_table(domain, "visit", {}, data=(columns, rows)):
-                    reader = get_domain_query_engine(domain)
+                    with patch("corehq.sql_db.connections.NullPool", QueuePool):
+                        reader = get_domain_query_engine(domain)
                     try:
+                        with reader.connect() as conn:
+                            identity = conn.execute(text("SELECT current_database(), current_user")).one()
+                            assert tuple(identity) == (database.name, DomainSchema(domain).role_name)
                         yield domain
                     finally:
                         reader.dispose()
