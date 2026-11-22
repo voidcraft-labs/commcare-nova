@@ -1,0 +1,39 @@
+name: Step 7 places rehearsal
+on:
+  push:
+    branches: [proof/step7-place-journeys]
+permissions:
+  contents: read
+jobs:
+  places:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: f80d5eddb66758231daa3f77f521c2b8a52a6853
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - run: npm ci
+      - uses: ./.github/actions/pull-test-image
+      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Read and record a large organization by worker
+        run: node_modules/.bin/vitest run --maxWorkers=1 lib/organization/__tests__/managed.postgres.test.ts -t 'pages a 10,004-place adoption'
+      - name: Find a clinic by its path and give a worker access
+        if: "!cancelled()"
+        env:
+          SMOKE_LANE: browser
+        run: npm run test:smoke -- --project=browser e2e/tests/browser/builder-users-readiness.spec.ts --grep 'a persona can find a clinic' --workers=1 --retries=0 --trace on --fail-on-flaky-tests
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: browser-observations
+          path: e2e/test-results
+          if-no-files-found: ignore
