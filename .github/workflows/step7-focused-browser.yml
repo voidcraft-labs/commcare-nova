@@ -1,0 +1,40 @@
+name: Step 7 focused Builder rehearsal
+on:
+  push:
+    branches: [proof/step7-display-browser]
+permissions:
+  contents: read
+jobs:
+  display:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 75bfce9e91b62d4186e287a4a7b69c631ca7946f
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - run: npm ci
+      - uses: ./.github/actions/pull-test-image
+      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Edit the calendar in the signed-in Builder
+        env:
+          SMOKE_LANE: app
+        run: npm run test:smoke -- --project=authed e2e/tests/app/number-keypad.spec.ts --grep 'a date keeps' --workers=1 --fail-on-flaky-tests
+      - name: Complete the visit on both preview platforms
+        env:
+          SMOKE_LANE: browser
+        run: npm run test:smoke -- --project=browser e2e/tests/browser/preview-platforms.spec.ts --grep 'visit-display' --workers=1 --fail-on-flaky-tests
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: browser-observations
+          path: test-results
+          if-no-files-found: ignore
