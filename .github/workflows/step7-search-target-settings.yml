@@ -1,0 +1,73 @@
+name: Step 7 Preview search settings rehearsal
+on:
+  push:
+    branches: [proof/step7-search-settings-v3]
+permissions:
+  contents: read
+jobs:
+  search-settings:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 50633f625e163a8b25804572f7e856be2916c77f
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - run: npm ci
+      - name: Retain checked-out source identity
+        run: |
+          mkdir -p rehearsal
+          git show -s --format='%H %T %P' HEAD | tee rehearsal/source.txt
+      - name: Check target matching and delegated consent
+        run: |
+          set -o pipefail
+          node_modules/.bin/vitest run --maxWorkers=1 --no-file-parallelism \
+            lib/agent/authoring/__tests__/readContract.test.ts lib/preview/__tests__/searchSettingsEdit.test.ts lib/preview/__tests__/searchSettings.test.ts \
+            lib/mcp/__tests__/scopes.test.ts \
+            lib/oauth/__tests__/capabilities.test.ts \
+            lib/mcp/__tests__/bringInToolScopes.test.ts | tee rehearsal/unit.log
+      - uses: ./.github/actions/pull-test-image
+        if: "!cancelled()"
+      - name: Read, change and recover settings across real Projects and deployment endings
+        if: "!cancelled()"
+        run: |
+          set -o pipefail
+          node_modules/.bin/vitest run --maxWorkers=1 --no-file-parallelism \
+            lib/deployment/__tests__/previewSearchSettings.postgres.test.ts \
+            --reporter=verbose | tee rehearsal/storage.log
+      - name: Exercise standing consent and saved-work retries
+        if: "!cancelled()"
+        run: |
+          set -o pipefail
+          node_modules/.bin/vitest run --maxWorkers=1 --no-file-parallelism \
+            lib/mcp/__tests__/sharedToolAdapter.postgres.test.ts lib/auth/__tests__/configuration.postgres.test.ts \
+            -t 'requires fresh Preview consent|reads every destination and ordered rule through bounded MCP pages|sends new HQ import and Preview search scopes' \
+            --reporter=verbose | tee rehearsal/consent.log
+      - name: Install Chromium for the signed app
+        if: "!cancelled()"
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Observe clean viewers, changing settings and recovery of an unsaved edit
+        if: "!cancelled()"
+        env:
+          SMOKE_LANE: app
+          SMOKE_WORKERS: 1
+        run: |
+          set -o pipefail
+          npm run test:smoke -- --project=authed e2e/tests/app/preview-search-settings.spec.ts \
+            --workers=1 --retries=0 --trace on --fail-on-flaky-tests | tee rehearsal/browser.log
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: preview-search-settings-observations
+          path: |
+            rehearsal
+            e2e/test-results
+          if-no-files-found: ignore
