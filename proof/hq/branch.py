@@ -656,6 +656,7 @@ class Unit:
         self.blob_db = blob_db
         self.changes = changes
         self.database = database
+        self.project_visit_table = None
         self.web_user = None
         self.record = None
         # HQ's Elasticsearch as the unit holds it (``proof.hq.elasticsearch.UnitIndexes``), where seams are open.
