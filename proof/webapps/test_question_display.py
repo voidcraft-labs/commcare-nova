@@ -1,6 +1,8 @@
-"""Worker controls on the question-display base after a Vellum save and Nova's first publish."""
+"""Worker controls in the Vellum-saved app and after Nova republishes over that app."""
 
 from xml.etree import ElementTree
+
+import pytest
 
 from proof.webapps import hq as webapps_hq
 from proof.webapps import steps
@@ -34,8 +36,9 @@ def _ethiopian(ix):
     ]
 
 
+@pytest.mark.parametrize("publication", ["A", "B"])
 def test_paired_ethiopian_dates_send_the_same_civil_day(
-    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, publication
 ):
     # Printed order is stable. Each result also records the independently
     # rendered Bootstrap row width and the native picker element.
@@ -46,7 +49,7 @@ def test_paired_ethiopian_dates_send_the_same_civil_day(
         half:!!q.closest(".col-md-6"),
     }))"""
     }
-    with webapps_hq.project(webapps_documents["hq-question-display"]) as project:
+    with webapps_hq.authored_project(webapps_documents["hq-question-display"], publication) as project:
         with project.released(formplayer_runner) as release:
             run = Session(release, editor_driver).run(
                 [
@@ -83,15 +86,16 @@ def test_paired_ethiopian_dates_send_the_same_civil_day(
     ], answers
 
 
+@pytest.mark.parametrize("publication", ["A", "B"])
 def test_upload_notifies_and_clears_the_filename_in_the_same_form(
-    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, publication
 ):
     from proof.formplayer.walk import CAPTURES_DIR
 
     filename = "proof-image.jpg"
     field = """ix => [...document.querySelectorAll('#webforms .q')].find(q =>
         q.querySelector(':scope > .ix')?.textContent.trim().split(' :: ').pop() === ix)"""
-    with webapps_hq.project(webapps_documents["hq-question-display"]) as project:
+    with webapps_hq.authored_project(webapps_documents["hq-question-display"], publication) as project:
         with project.released(formplayer_runner) as release:
             run = Session(release, editor_driver).run(
                 [
@@ -142,8 +146,9 @@ def test_upload_notifies_and_clears_the_filename_in_the_same_form(
     ] == [filename, None], answers
 
 
+@pytest.mark.parametrize("publication", ["A", "B"])
 def test_row_width_zero_and_rounding_have_separate_browser_outcomes(
-    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, publication
 ):
     read = {
         "eval": """() => [...document.querySelectorAll('#webforms .q')].flatMap(q => {
@@ -154,7 +159,7 @@ def test_row_width_zero_and_rounding_have_separate_browser_outcomes(
         return [{name, css:tile.className, fraction:tile.getBoundingClientRect().width/row.getBoundingClientRect().width}];
     })"""
     }
-    with webapps_hq.project(webapps_documents["hq-question-display"]) as project:
+    with webapps_hq.authored_project(webapps_documents["hq-question-display"], publication) as project:
         with project.released(formplayer_runner) as release:
             run = Session(release, editor_driver).run(
                 [

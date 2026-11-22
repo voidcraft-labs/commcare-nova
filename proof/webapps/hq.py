@@ -164,6 +164,25 @@ def _archive(build) -> bytes:
 
 
 @contextmanager
+def authored_project(document, publication):
+    """Release the app Vellum saved (A) or Nova's captured adoption republish over it (B)."""
+    from proof.hq.check import hq_check
+    from proof.observe import publish
+
+    assert document.authored is not None and publication in ("A", "B")
+    export = document.exports["minimum"]
+    with hq_check(export.configuration.hq()) as (unit, _):
+        with unit.operation("authored-project:a", document.id.encode()):
+            app_id, _, _ = publish.create_authored(unit, document)
+        if publication == "B":
+            assert export.republish is not None, f"{document.id} holds no republish over A"
+            with unit.operation("authored-project:b", document.id.encode()):
+                refusal, _ = publish.update(unit, app_id, export.republish, "B")
+                assert refusal is None, refusal
+        yield Project(document, export, unit, app_id)
+
+
+@contextmanager
 def project(document, configuration="minimum", *, web_apps=True):
     """``document`` as Nova's first publish leaves it in a project space that has Web Apps.
 

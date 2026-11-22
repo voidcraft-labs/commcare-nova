@@ -119,12 +119,19 @@ INVALID = "Sorry, this response is invalid!"
 
 
 @contextmanager
-def _served(document):
+def _served(document, publication=None):
     """HQ's release of ``document`` as Nova first publishes it, served by HQ's own views, and the archive a
     worker installs of it."""
     from proof.android import observe
     from proof.formplayer import hq as formplayer_hq
     from proof.rules.conftest import published
+
+    if publication is not None:
+        from proof.webapps.hq import authored_project
+
+        with authored_project(document, publication) as project, project.released(None) as served:
+            yield served, observe.release_archive(served)
+        return
 
     with published(document, None) as app, formplayer_hq.serve(app.unit, document, app.app_id) as served:
         yield served, observe.release_archive(served)
@@ -360,10 +367,11 @@ def test_a_number_keypad_keeps_what_its_keys_enter(android_documents, hq):
         assert _child(root, "phone").text == kept, instance
 
 
-def test_android_question_display_preserves_widgets_and_answers(android_documents, hq):
+@pytest.mark.parametrize("publication", ["A", "B"])
+def test_android_question_display_preserves_widgets_and_answers(android_documents, hq, publication):
     """The released form includes both halves of each composition. Worker's
     choices and dates must survive under their original data identities."""
-    with _served(android_documents["hq-question-display"]) as (served, archive):
+    with _served(android_documents["hq-question-display"], publication) as (served, archive):
         answer, sent = _app(
             served, archive, "question-display", commands=[FORM], views=True,
             questions={
@@ -390,9 +398,10 @@ def test_android_question_display_preserves_widgets_and_answers(android_document
         assert _child(root, path).text == value, instance
 
 
-def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answers(android_documents, hq):
+@pytest.mark.parametrize("publication", ["A", "B"])
+def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answers(android_documents, hq, publication):
     menu = "m1-f0"
-    with _served(android_documents["hq-question-display"]) as (served, archive):
+    with _served(android_documents["hq-question-display"], publication) as (served, archive):
         answer, sent = _app(
             served, archive, "visit-options", commands=[menu], controls=True, keys=True,
             questions={
