@@ -3124,6 +3124,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 
 	it.each([
 		"newer take",
+		"same app with a pending setting",
 		"same save",
 		"unconfirmed publish",
 		"subsequent publish",
@@ -3136,7 +3137,10 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			const base = emission(doc, 2).source;
 			const initial = await publishOver(appId, base, true, base, 2);
 			expect(initial.outcome.landed).toBe(true);
-			const laterDoc = clinic({ appName: "Label the editor took from HQ" });
+			const settingOnly = order === "same app with a pending setting";
+			const laterDoc = settingOnly
+				? doc
+				: clinic({ appName: "Label the editor took from HQ" });
 			const reviewedHq =
 				order === "same save"
 					? emission(laterDoc, 4)
@@ -3153,7 +3157,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					},
 				});
 			const take = async () => {
-				if (order === "same save") {
+				if (order === "same save" || settingOnly) {
 					// This is the name Nova just sent. HQ and the local head
 					// agree on it while the publisher still awaits its record.
 					const listed = await withHttpPeer(async (peer) => {
@@ -3162,11 +3166,14 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					});
 					if (
 						listed.kind !== "nothing" ||
-						listed.reason !== "already-here" ||
+						listed.reason !==
+							(settingOnly ? "reads-the-same" : "already-here") ||
 						!listed.readingId ||
 						!listed.reviewDigest
 					)
-						throw new Error("Expected the local edit to be already here.");
+						throw new Error(
+							"Expected an HQ save the review can record without a document change.",
+						);
 					const approval = {
 						readingId: listed.readingId,
 						reviewDigest: listed.reviewDigest,
@@ -3179,7 +3186,13 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 						});
 					});
 					expect(outcome.kind).toBe("recorded");
-					return baselineOfApp();
+					const row = await baselineOfApp();
+					if (settingOnly)
+						expect(row.first_publish_changes).toMatchObject({
+							of: "next-publish",
+							ids: ["location-list-setting-reset"],
+						});
+					return row;
 				}
 				const moved = await reviewAndBringIn(appId, laterDoc, reviewedHq);
 				expect(moved.outcome.kind).toBe("brought-in");
@@ -3218,6 +3231,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			}
 			const original = deploymentStore.recordRemoteResource;
 			let taken: Awaited<ReturnType<typeof take>> | undefined;
+			let reviewedBaseline: Awaited<ReturnType<typeof readAppBaseline>> = null;
 			const hook = vi
 				.spyOn(deploymentStore, "recordRemoteResource")
 				.mockImplementationOnce(async (...args) => {
@@ -3225,6 +3239,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 					// before the editor saw, took and recorded HQ save 5.
 					expect(args[2].remoteRevision).toBe(4);
 					taken = await take();
+					reviewedBaseline = await readAppBaseline(actor, KEY_TARGET);
 					return original(...args);
 				});
 			try {
@@ -3236,19 +3251,23 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				);
 				expect(published.outcome.landed).toBe(true);
 				expect(await baselineOfApp()).toEqual(taken);
+				expect(await readAppBaseline(actor, KEY_TARGET)).toEqual(
+					reviewedBaseline,
+				);
 				expect((await headDocOf(appId)).appName).toBe(laterDoc.appName);
 				expect(await certifyFold(h.db(), appId)).toMatchObject({ usable: 1 });
-				const next = await withHttpPeer(async (peer) => {
-					serveEmission(
-						peer,
-						withLocationList(
-							emission(clinic({ appName: "HQ's next edit" }), 6),
-							"both_fixtures",
-						),
-					);
-					return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+				const nextDoc = clinic({ appName: "HQ's next edit" });
+				const next = await reviewAndBringIn(
+					appId,
+					nextDoc,
+					withLocationList(emission(nextDoc, 6), "both_fixtures"),
+				);
+				expect(next.outcome.kind).toBe("brought-in");
+				expect((await headDocOf(appId)).appName).toBe(nextDoc.appName);
+				expect((await baselineOfApp()).first_publish_changes).toMatchObject({
+					of: "next-publish",
+					ids: ["location-list-setting-reset"],
 				});
-				expect(next.kind).toBe("changes");
 			} finally {
 				hook.mockRestore();
 			}
