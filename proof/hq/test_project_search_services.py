@@ -60,6 +60,7 @@ def _select_at_both_entries(domain, endpoint_id, result, parent_id):
 
 
 def test_project_database_search_uses_named_parameters_current_version_and_flat_case_fields(hq):
+    from contextlib import ExitStack
     from unittest.mock import patch
 
     from django.test import override_settings
@@ -74,6 +75,12 @@ def test_project_database_search_uses_named_parameters_current_version_and_flat_
     from corehq.apps.project_db.tests.util import project_db_table
     from corehq.apps.project_db.user_sql import BadParameters
     from corehq.sql_db.connections import connection_manager
+    from corehq.util.test_utils import mock_out_couch
+
+    from proof.hq.boot import clear_caches
+    from proof.hq.couch import ComputedViewCouch
+    from proof.hq.seams import SeamRecord, flags
+    from proof.hq.state import build_config_document, domain_document
 
     # The setup SQL owns extensions and role provisioning functions. Its whole
     # database is a disposable clone; the domain role's name is unique across workers.
@@ -87,10 +94,22 @@ def test_project_database_search_uses_named_parameters_current_version_and_flat_
         def connection_string(engine):
             return cloned_url if engine == "project_db" else original(engine)
 
-        with open_unit(settings, root_key=settings.digest(), transactional=False, strict=False), \
-                override_settings(PROJECTDB_USERS_PASSWORD="synthetic-search-proof"), \
-                patch.dict(connection_manager.engine_id_django_db_map, {"project_db": "default"}), \
-                patch.object(connection_manager, "get_connection_string", connection_string):
+        # The provider and its read-only role each open their own connection.
+        # A dedicated clone owns them, while the same domain and flag fixtures
+        # used by an HQ unit supply its clock zone and endpoint entitlement.
+        with ExitStack() as stack:
+            clear_caches()
+            stack.callback(clear_caches)
+            couch = ComputedViewCouch()
+            mock_couch = mock_out_couch()
+            mock_couch.db = couch
+            stack.enter_context(mock_couch)
+            couch.seed(domain_document(settings))
+            couch.seed(build_config_document(settings))
+            stack.enter_context(flags(settings, SeamRecord()))
+            stack.enter_context(override_settings(PROJECTDB_USERS_PASSWORD="synthetic-search-proof"))
+            stack.enter_context(patch.dict(connection_manager.engine_id_django_db_map, {"project_db": "default"}))
+            stack.enter_context(patch.object(connection_manager, "get_connection_string", connection_string))
             admin = get_project_db_engine()
             assert admin.url.database == database.name
             try:
