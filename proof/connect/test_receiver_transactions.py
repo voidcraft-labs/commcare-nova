@@ -192,6 +192,8 @@ def receive(
 ):
     """Scope both roles to the forwarded app and pay the units from its actual releases."""
     sent = submitted.payload if payload is None else payload
+    username = sent["metadata"]["username"]
+    linked_username = username if "@" in username else f"{username}@{sent['domain']}.commcarehq.org"
     setup = [
         {
             "do": "opportunity",
@@ -200,7 +202,7 @@ def receive(
             "learnApp": sent["app_id"],
             "deliverApp": sent["app_id"],
             "passingScore": 5,
-            "commcareUsername": sent["metadata"]["username"],
+            "commcareUsername": linked_username,
             "auto_approve_visits": True,
             "automatic_visit_verification": False,
         },
