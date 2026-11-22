@@ -5,6 +5,7 @@ import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { usePreviewPlatform } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
+import { workerKeyboard } from "./WorkerKeyboard";
 
 interface TextFieldProps {
 	/** Plain text or secret field. The DOM input type differs by kind. */
@@ -35,6 +36,7 @@ export function TextField({
 	return (
 		<div>
 			<input
+				{...workerKeyboard(field, platform)}
 				type={inputType}
 				inputMode={numberKeypad ? "tel" : undefined}
 				aria-labelledby={labelledBy}

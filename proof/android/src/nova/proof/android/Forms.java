@@ -460,6 +460,9 @@ final class Forms {
                 question.put("text", String.valueOf(widget.getPrompt().getLongText()));
                 question.put("reference", String.valueOf(widget.getPrompt().getIndex().getReference()));
                 question.put("required", widget.getPrompt().isRequired());
+                if (controls) {
+                    question.put("control", control(widget));
+                }
                 // The widget's own reading of the answer the form holds. Where the form holds none, a date or
                 // time widget shows the device's present moment, which no record may hold.
                 if (widget.getPrompt().getAnswerValue() == null) {
@@ -493,6 +496,36 @@ final class Forms {
      * own filters decide what it keeps, and the form is given the answer the widget then holds.
      */
     static boolean keys;
+    static boolean controls;
+
+    /** Observe the native control the factory constructed, including affordances that
+     * widgets of the same class show differently. Never infer these from appearance. */
+    private static JSONObject control(QuestionWidget widget) throws Exception {
+        JSONObject shown = new JSONObject();
+        shown.put("visible", widget.getVisibility() == View.VISIBLE);
+        if (widget instanceof org.commcare.views.widgets.StringWidget) {
+            android.widget.EditText input = box((org.commcare.views.widgets.StringWidget)widget);
+            shown.put("masked", input.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod);
+            shown.put("imeAction", input.getImeOptions() & android.view.inputmethod.EditorInfo.IME_MASK_ACTION);
+        }
+        if (widget instanceof org.commcare.views.widgets.GridWidget ||
+                widget instanceof org.commcare.views.widgets.GridMultiWidget) {
+            android.widget.GridView grid = (android.widget.GridView)Screens.field(widget, "gridview");
+            int width = widget.getResources().getDisplayMetrics().widthPixels;
+            grid.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            shown.put("columns", grid.getNumColumns());
+        }
+        if (widget instanceof org.commcare.views.widgets.TriggerWidget) {
+            android.widget.TextView label = (android.widget.TextView)Screens.field(widget, "mQuestionText");
+            shown.put("canCopy", label.isTextSelectable());
+        }
+        if (Captures.kind(widget) != null && !(widget instanceof org.commcare.views.widgets.SignatureWidget)) {
+            View choose = Captures.chooser(widget);
+            shown.put("canChooseFile", choose != null && choose.getVisibility() == View.VISIBLE);
+        }
+        return shown;
+    }
 
     /** The box a text widget types into, the widget's own (``StringWidget.mAnswer``). */
     private static android.widget.EditText box(org.commcare.views.widgets.StringWidget widget) throws Exception {
@@ -617,6 +650,40 @@ final class Forms {
                     && !Answers.valuesFor(prompt).isEmpty()) {
                 answered |= keyIn((org.commcare.views.widgets.StringNumberWidget)widget, prompt,
                         Answers.valuesFor(prompt).get(0), entry);
+                continue;
+            }
+            List<String> instructions = Answers.valuesFor(prompt);
+            if (widget instanceof org.commcare.views.widgets.BarcodeWidget &&
+                    !instructions.isEmpty() && instructions.get(0).startsWith("scan:")) {
+                String before = String.valueOf(FormEntryActivity.mFormController.getFormIndex());
+                ShadowActivity form = Shadows.shadowOf((Activity)activity);
+                ShadowActivity.IntentForResult scanner = form.getNextStartedActivityForResult();
+                entry.put("openedOnArrival", scanner != null);
+                if (scanner == null) {
+                    ((View)Screens.field(widget, "launchIntentButton")).performClick();
+                    scanner = form.getNextStartedActivityForResult();
+                }
+                if (scanner == null) throw new AssertionError("Scan button opened no scanner");
+                form.receiveResult(scanner.intent, Activity.RESULT_CANCELED, new android.content.Intent());
+                ShadowLooper.idleMainLooper();
+                entry.put("cancelledWithoutAnswer", prompt.getAnswerValue() == null);
+                org.commcare.views.widgets.QuestionWidget current = activity.getODKView().getWidgets().stream()
+                        .filter(q -> q.getPrompt().getIndex().equals(prompt.getIndex())).findFirst()
+                        .orElseThrow(() -> new AssertionError("Cancellation left the scan question"));
+                ((View)Screens.field(current, "launchIntentButton")).performClick();
+                ShadowActivity.IntentForResult retried = form.getNextStartedActivityForResult();
+                if (retried == null) throw new AssertionError("Retry opened no scanner");
+                String scanned = instructions.get(0).substring("scan:".length());
+                form.receiveResult(retried.intent, Activity.RESULT_OK,
+                        new android.content.Intent().putExtra("SCAN_RESULT", scanned));
+                ShadowLooper.idleMainLooper();
+                entry.put("given", scanned);
+                answered = true;
+                if (!before.equals(String.valueOf(FormEntryActivity.mFormController.getFormIndex()))) {
+                    entry.put("advanced", true);
+                    screen.put("answered", given);
+                    return ADVANCED;
+                }
                 continue;
             }
             Object taken = JSONObject.NULL;

@@ -286,7 +286,7 @@ The requests (`Reader.java`):
   command), a case list before one answered with its first case. `views`
   records each screen's views as Android laid them out, and `typeRefused`
   types a value the form refused into the question's own box, so Android
-  shows its own message for it. `keys` enters a number keypad question's
+  shows its own message for it. `controls` records the widget's actual input method, grid columns, text selection, and file chooser where applicable. `keys` enters a number keypad question's
   value into its own box one character at a time, through the box's own
   input connection, and gives the form the answer the widget then holds, so
   the box's own filters decide what is kept (`Forms.java::keyIn`). `questions` is a map the answer table

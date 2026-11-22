@@ -513,9 +513,22 @@ function formIdentity(xml: string): FormRecord {
 				const path = bound;
 				const hasRepeatingRows =
 					childNamed(child, XFORMS_NS, "repeat").length > 0 ||
-					childNamed(child, XFORMS_NS, "group").some(
-						(nested) => childNamed(nested, XFORMS_NS, "repeat").length > 0,
-					);
+					childNamed(child, XFORMS_NS, "group").some((nested) => {
+						if (
+							plainAttribute(nested.element, "appearance")?.toLowerCase() ===
+							"field-list"
+						)
+							return false;
+						const controls = childrenOf(nested).filter(
+							({ element, scope }) =>
+								elementNamespace(element, scope) === XFORMS_NS &&
+								!NOT_CONTROLS.has(splitName(element.name).local),
+						);
+						return (
+							controls.length === 1 &&
+							splitName(controls[0].element.name).local === "repeat"
+						);
+					});
 				addContainer({
 					path,
 					kind: "group",

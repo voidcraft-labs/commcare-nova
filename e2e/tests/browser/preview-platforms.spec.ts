@@ -259,6 +259,104 @@ async function attachOnly(run: Run, label: string) {
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
+	async "visit-display-web-apps"(page) {
+		await openScenario(page, "visit-display-web-apps");
+		const question = (id: string) =>
+			page.locator(`[data-instance-path$="/${id}"]`);
+		await expect(question("pin").getByRole("textbox")).toHaveAttribute(
+			"type",
+			"text",
+		);
+		await question("pin").getByRole("textbox").fill("007");
+		await expect(question("place").getByRole("textbox")).toHaveAttribute(
+			"placeholder",
+			"Building name",
+		);
+		await expect(page.getByText("Ask the driver", { exact: true })).toHaveCount(
+			0,
+		);
+		const route = question("route").getByRole("combobox");
+		await route.fill("val");
+		await expect(
+			page.getByRole("option", { name: "North valley" }),
+		).toHaveCount(0);
+		await route.fill("valley");
+		await page.getByRole("option", { name: "Upper valley" }).click();
+		await expect(route).toHaveValue("Upper valley");
+		const market = question("market").getByRole("combobox");
+		await market.fill("Nortt");
+		await page
+			.getByRole("option", { name: "North valley", exact: true })
+			.click();
+		await expect(market).toHaveValue("North valley");
+		const stage = question("stage").getByRole("button");
+		await expect(stage).toContainText("North valley");
+		await stage.click();
+		await expect(stage).toContainText("Upper valley");
+		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		await expect(question("supplies").getByRole("checkbox")).toHaveCount(3);
+		await expect(question("signature_photo").locator("canvas")).toBeVisible();
+		for (const id of ["photo", "voice", "clip"]) {
+			await expect(question(id).locator("input[type=file]")).toHaveCount(1);
+			await expect(
+				question(id).locator("input[type=file][capture]"),
+			).toHaveCount(0);
+		}
+		await expect(question("ready")).toContainText("Ready");
+		await expect(question("absent")).toContainText("Device note");
+		await expect(page.locator("[data-question-banner]")).toHaveCount(0);
+		await expect(question("address_line")).toHaveCount(0);
+		await page.getByRole("button", { name: /Expand.*Visit details/i }).click();
+		await expect(question("address_line").getByRole("textbox")).toBeVisible();
+	},
+	async "visit-display-android"(page) {
+		await openScenario(page, "visit-display-android");
+		const question = (id: string) =>
+			page.locator(`[data-instance-path$="/${id}"]`);
+		await expect(question("pin").locator("input")).toHaveAttribute(
+			"type",
+			"password",
+		);
+		await expect(question("address").locator("input")).toHaveAttribute(
+			"type",
+			"password",
+		);
+		await expect(question("place").getByRole("textbox")).not.toHaveAttribute(
+			"placeholder",
+			"Building name",
+		);
+		await expect(question("place")).toContainText("Building name");
+		await expect(question("departure")).toContainText("Ask the driver");
+		const short = question("code").getByRole("textbox");
+		await short.focus();
+		await expect(short).toHaveAttribute("enterkeyhint", "next");
+		await short.press("Enter");
+		await expect(question("address_line").getByRole("textbox")).toBeFocused();
+		const route = question("route").getByRole("combobox");
+		await route.fill("val");
+		await expect(
+			page.getByRole("option", { name: "North valley" }),
+		).toBeVisible();
+		await route.fill("beyond all choices");
+		await expect(route).toHaveValue("val");
+		await page.getByRole("option", { name: "North valley" }).click();
+		await expect(route).toHaveValue("North valley");
+		await question("route")
+			.getByRole("button", { name: "Clear", exact: true })
+			.click();
+		await expect(route).toHaveValue("");
+		await expect(question("stage").getByRole("radio")).toHaveCount(3);
+		await expect(question("rating").getByRole("radio")).toHaveCount(3);
+		await expect(question("signature_photo").locator("canvas")).toHaveCount(0);
+		await expect(page.locator('[data-question-banner="good"]')).toHaveText(
+			"Ready; Check",
+		);
+		await expect(question("absent")).toHaveCount(0);
+		await expect(question("address_line").getByRole("textbox")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: /Expand.*Visit details/i }),
+		).toHaveCount(0);
+	},
 	async "location-map-web-apps"(page) {
 		await openScenario(page, "location-map-web-apps");
 		await expect(

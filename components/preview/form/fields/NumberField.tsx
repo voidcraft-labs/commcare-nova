@@ -4,6 +4,7 @@ import type { DecimalField, IntField } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { usePreviewPlatform } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
+import { workerKeyboard } from "./WorkerKeyboard";
 
 interface NumberFieldProps {
 	/** The answer type also selects the mobile keyboard. */
@@ -29,6 +30,7 @@ export function NumberField({
 	return (
 		<div>
 			<input
+				{...workerKeyboard(field, platform)}
 				type="text"
 				inputMode={field.kind === "int" ? "numeric" : "decimal"}
 				aria-labelledby={labelledBy}

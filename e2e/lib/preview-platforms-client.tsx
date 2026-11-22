@@ -67,6 +67,130 @@ function inSection(label: string, children: FieldSpec[]): FieldSpec {
 
 function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 	switch (fixture) {
+		case "question-display": {
+			const options = [
+				{ value: "north", label: "North valley" },
+				{ value: "upper", label: "Upper valley" },
+				{ value: "south", label: "South ridge" },
+			];
+			const single = (
+				id: string,
+				label: string,
+				choiceLayout: unknown,
+			): FieldSpec => ({
+				id,
+				label,
+				kind: "single_select",
+				options,
+				choiceLayout,
+			});
+			return [
+				inSection("Visit", [
+					{ kind: "secret", id: "pin", label: "Visit code", keypad: "numbers" },
+					{
+						kind: "secret",
+						id: "address",
+						label: "Private meeting place",
+						addressLookup: true,
+					},
+					{
+						kind: "text",
+						id: "place",
+						label: "Visit place",
+						hint: "Building name",
+						hintPlacement: "placeholder",
+						inputWidth: "medium",
+					},
+					{ kind: "text", id: "code", label: "Stop code", inputWidth: "short" },
+					single("route", "Route", { kind: "search", matchWords: "multiword" }),
+					single("market", "Market", { kind: "search", matchWords: "fuzzy" }),
+					single("stage", "Stage", { kind: "buttons" }),
+					single("rating", "Rating", {
+						kind: "grid",
+						columns: 2,
+						advanceOnChoice: true,
+					}),
+					single("show_only", "Headings", { kind: "headings" }),
+					{
+						kind: "multi_select",
+						id: "supplies",
+						label: "Supplies",
+						choiceLayout: { kind: "row-without-label" },
+						options,
+					},
+					{
+						kind: "date",
+						id: "arrival",
+						label: "Arrival day",
+						calendar: "ethiopian",
+						itemsPerRow: "2",
+					},
+					{
+						kind: "date",
+						id: "departure",
+						label: "Departure day",
+						calendar: "nepali",
+						hint: "Ask the driver",
+						hintPlacement: "hidden-on-web",
+					},
+					{
+						kind: "time",
+						id: "clock",
+						label: "Arrival time",
+						clock: "twelve-hour",
+					},
+					{
+						kind: "image",
+						id: "signature_photo",
+						label: "Witness image",
+						webSignature: true,
+						itemsPerRow: "2",
+					},
+					{
+						kind: "image",
+						id: "photo",
+						label: "Door photo",
+						captureSource: "camera",
+					},
+					{
+						kind: "audio",
+						id: "voice",
+						label: "Visit recording",
+						pauseRecording: true,
+					},
+					{
+						kind: "video",
+						id: "clip",
+						label: "Arrival clip",
+						captureSource: "camera",
+					},
+					{ kind: "label", id: "ready", label: "Ready", banner: "good" },
+					{ kind: "label", id: "check", label: "Check", banner: "caution" },
+					{
+						kind: "label",
+						id: "absent",
+						label: "Device note",
+						banner: "hidden",
+					},
+					{
+						kind: "group",
+						id: "details",
+						label: "Visit details",
+						collapse: "closed",
+						border: true,
+						children: [
+							{
+								kind: "text",
+								id: "address_line",
+								label: "House number",
+								textAlignment: "right",
+								itemsPerRow: "2",
+							},
+						],
+					},
+				]),
+			];
+		}
 		case "questions":
 			return [
 				inSection("Questions", [

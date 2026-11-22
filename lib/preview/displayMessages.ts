@@ -18,7 +18,11 @@ export function receivedAnswer(
 ): string | undefined {
 	if (!field.receiveFrom) return undefined;
 	const property = field.receiveFrom.field;
-	if (field.kind === "text" || field.kind === "barcode")
+	if (
+		field.kind === "text" ||
+		field.kind === "secret" ||
+		field.kind === "barcode"
+	)
 		return message && Object.hasOwn(message, property) ? message[property] : "";
 	if (field.kind !== "single_select") return undefined;
 	return receivedChoice(field, state, property, message);

@@ -133,7 +133,7 @@ export const FIELD_DISPLAY_SETTINGS = [
 	},
 	{
 		key: "hintPlacement",
-		label: "Hint",
+		label: "Hint placement",
 		input: "enum",
 		kinds: visibleQuestions,
 		values: {

@@ -16,6 +16,7 @@
 import type { Platform } from "@/lib/domain/platforms";
 
 export type PreviewPlatformFixture =
+	| "question-display"
 	| "questions"
 	| "sections"
 	| "screens"
@@ -30,6 +31,18 @@ export interface PreviewPlatformScenario {
 }
 
 export const PREVIEW_PLATFORM_SCENARIOS = {
+	"visit-display-web-apps": {
+		platform: "web-apps",
+		fixture: "question-display",
+		describe:
+			"a worker searches for a route, signs, reads a hint and answers a protected number and a field in a collapsed group",
+	},
+	"visit-display-android": {
+		platform: "android",
+		fixture: "question-display",
+		describe:
+			"a worker searches and clears a route, sees a paired status banner, keeps a masked code and uses the keyboard action",
+	},
 	"location-map-web-apps": {
 		platform: "web-apps",
 		fixture: "questions",

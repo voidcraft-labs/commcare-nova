@@ -118,6 +118,19 @@ export function ChoicePresentation({
 				choiceMatches(option.label, query, layout.matchWords, platform)
 			}
 			autoHighlight
+			onInputValueChange={(query, event) => {
+				// Android rejects an edit that leaves an empty suggestion list.
+				// Its fuzzy rule accepts partial spellings while a worker types.
+				if (
+					platform === "android" &&
+					query &&
+					!layout.matchWords?.endsWith("fuzzy") &&
+					!options.some((option) =>
+						choiceMatches(option.label, query, layout.matchWords, platform),
+					)
+				)
+					event.cancel();
+			}}
 			onValueChange={(option: Choice | null) => onChange(option?.value ?? "")}
 		>
 			<ComboboxInput

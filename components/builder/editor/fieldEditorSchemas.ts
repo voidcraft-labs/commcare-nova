@@ -698,6 +698,7 @@ function withDisplay<K extends FieldKind>(kind: K) {
 			label: setting.label,
 			component: QuestionDisplayEditor,
 			addable: true,
+			...(setting.input === "flag" && { valueOnAdd: true }),
 			visible: (field: F) => Object.hasOwn(field, setting.key),
 		}));
 	return {

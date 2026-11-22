@@ -145,7 +145,12 @@ def source(name):
 # Every row names the inventory class witnessed at that control after Vellum saves it.
 PALETTE = (
     ("secret-address", "private_location", "secret", "address"),
-    ("secret-receive-topic-field", "private_postcode", "secret", "receive-stop-postcode"),
+    (
+        "secret-receive-topic-field",
+        "private_postcode",
+        "secret",
+        "receive-stop-postcode",
+    ),
     (
         "a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of",
         "house_suffix",
@@ -267,7 +272,9 @@ def palette_source(name):
                 appearance=style,
             )
         elif kind == "secret":
-            _question(form, qid, label, tag="secret", bind_type="xsd:string", appearance=style)
+            _question(
+                form, qid, label, tag="secret", bind_type="xsd:string", appearance=style
+            )
         elif kind == "label":
             _question(form, qid, label, tag="trigger", appearance=style)
         else:
@@ -287,13 +294,24 @@ def palette_source(name):
             )
     # An upload with only its channel witnesses the single-token sender class.
     # The first form's camera and address senders witness composition instead.
-    _question(form, "attachment", "Travel photo", tag="upload", bind_type="binary",
-              mediatype="image/*", appearance="broadcast-travel")
+    _question(
+        form,
+        "attachment",
+        "Travel photo",
+        tag="upload",
+        bind_type="binary",
+        mediatype="image/*",
+        appearance="broadcast-travel",
+    )
     for qid, label, appearance in [
         ("zero_row", "Zero divisor", "0-per-row"),
         ("last_column", "Last one-column width", "24-per-row"),
         ("no_columns", "First zero-column width", "25-per-row"),
-        ("enormous_row", "Large row count", "90071992547409931234567890123456789-per-row"),
+        (
+            "enormous_row",
+            "Large row count",
+            "90071992547409931234567890123456789-per-row",
+        ),
     ]:
         _question(form, qid, label, bind_type="xsd:string", appearance=appearance)
     return etree.tostring(
