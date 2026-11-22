@@ -55,6 +55,7 @@ import type { ValidationError } from "../../errors";
 export type ModuleWireSlotSurface =
 	| "filter"
 	| "calculated-column"
+	| "calculated-sort"
 	| "search-input-default"
 	| "search-input-required"
 	| "search-input-validation"
@@ -148,6 +149,28 @@ export function collectModuleWireSlotFindings(
 				slotLabel: `calculated field "${label}"`,
 				surface: "calculated-column",
 				column: { uuid: column.uuid, label },
+			}),
+		);
+	}
+
+	for (const [index, sort] of (
+		mod.caseListConfig?.calculatedSorts ?? []
+	).entries()) {
+		collect(
+			judge.judgeExpression(sort.expression, {
+				mod,
+				moduleUuid,
+				slot: `caseListConfig.calculatedSorts[${index}].expression`,
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_sort_expression",
+					member: { sortUuid: sort.uuid },
+				},
+				slotLabel: sort.label
+					? `order calculation "${sort.label}"`
+					: "the default order calculation",
+				surface: "calculated-sort",
 			}),
 		);
 	}

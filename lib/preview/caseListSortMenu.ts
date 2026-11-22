@@ -55,11 +55,19 @@ export const caseListSortChoiceSchema = z.strictObject({
 	thenListOrder: z.boolean(),
 });
 
+type SortMenuColumn =
+	| Column
+	| (Pick<Column, "uuid" | "header"> & {
+			readonly kind: "independent-calculation";
+	  });
+
 /** One field of the short detail, a carrier included, in detail order. */
 interface SortField {
-	readonly column: Column;
+	readonly column: SortMenuColumn;
 	readonly hidden: boolean;
-	readonly rule: CaseListOrderRule | undefined;
+	readonly rule:
+		| Pick<CaseListOrderRule, "order" | "direction" | "label">
+		| undefined;
 }
 
 function detailFields(
@@ -80,6 +88,21 @@ function detailFields(
 				? []
 				: [{ column, hidden: true, rule: carrier.rule }];
 		}),
+		...plan.calculations.map((calc) => ({
+			column: {
+				kind: "independent-calculation" as const,
+				uuid: calc.sort.uuid,
+				header: calc.sort.label ?? "",
+			},
+			hidden: true,
+			rule: {
+				order: calc.order,
+				direction: calc.sort.direction,
+				...(calc.sort.label && {
+					label: { column: calc.sort.uuid, text: calc.sort.label },
+				}),
+			},
+		})),
 	];
 }
 
@@ -93,7 +116,7 @@ function listOrderFields(fields: readonly SortField[]): readonly SortField[] {
 /** One entry of the list's Sort by. */
 export interface CaseListSortOption {
 	/** The column whose field or carrier the entry orders by. */
-	readonly column: Column;
+	readonly column: SortMenuColumn;
 	/** The name a device shows: a shown field's header, a hidden field's
 	 *  name in Sort by, `""` where it shows none (a Web Apps tile's unnamed
 	 *  sort field). */

@@ -11,7 +11,10 @@
  * bundle; the browser reads the refusal the action returns.
  */
 
-import { AbsentWorkerFieldError } from "@/lib/case-store";
+import {
+	AbsentWorkerFieldError,
+	isInvalidCaseLocationError,
+} from "@/lib/case-store";
 import {
 	PreviewDataRefusal,
 	previewDataRefusalOf,
@@ -25,5 +28,7 @@ export function serverPreviewDataRefusalOf(
 ): PreviewDataRefusal | undefined {
 	if (error instanceof AbsentWorkerFieldError)
 		return new PreviewDataRefusal(WORKER_INFORMATION_REFUSAL);
+	if (isInvalidCaseLocationError(error))
+		return new PreviewDataRefusal({ kind: "invalid-case-location" });
 	return previewDataRefusalOf(error);
 }

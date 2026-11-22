@@ -16,7 +16,6 @@ export function calculatedColumnTypeCheck(
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const columns = mod.caseListConfig?.columns ?? [];
-	if (columns.length === 0) return [];
 
 	const errors: ValidationError[] = [];
 
@@ -60,5 +59,39 @@ export function calculatedColumnTypeCheck(
 		}
 	}
 
+	for (const [index, rule] of (
+		mod.caseListConfig?.calculatedSorts ?? []
+	).entries()) {
+		const context = slotContext(
+			doc,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "case_list_sort_expression",
+				member: { sortUuid: rule.uuid },
+			},
+			lookupTables ?? new Map(),
+		);
+		if (!context) continue;
+		for (const error of semanticCheckErrors(
+			checkExpression(rule.expression, context),
+		)) {
+			errors.push(
+				validationError(
+					"CASE_LIST_CALCULATED_SORT_TYPE_ERROR",
+					"module",
+					`The order calculation in "${mod.name}" needs a value for each case. ${error.message}`,
+					{ moduleUuid, moduleName: mod.name },
+					{
+						sortUuid: rule.uuid,
+						index: String(index),
+						slot: `caseListConfig.calculatedSorts[${index}].expression`,
+						registrySlot: "case_list_sort_expression",
+						...checkErrorDetails(error),
+					},
+				),
+			);
+		}
+	}
 	return errors;
 }

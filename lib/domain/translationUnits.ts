@@ -645,6 +645,25 @@ export function collectTranslationUnits(
 		}
 
 		const list = module.caseListConfig;
+		for (const rule of list?.calculatedSorts ?? []) {
+			if (rule.label)
+				out.push(
+					unit({
+						id: makeTranslationUnitId("case-sort", rule.uuid, "label"),
+						valueKind: "text",
+						role: "case-list-sort-label",
+						source: rule.label,
+						owner: { kind: "module", moduleUuid },
+						breadcrumb: [
+							...moduleBreadcrumb,
+							"Cases",
+							"Default order",
+							rule.label,
+						],
+						context: { moduleName: module.name },
+					}),
+				);
+		}
 		for (const column of list?.columns ?? []) {
 			// A sort rule's name in the list's Sort by menu, on a column hidden
 			// from Results, whether or not Details shows the column.

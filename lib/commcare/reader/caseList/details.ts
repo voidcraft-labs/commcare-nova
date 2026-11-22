@@ -1572,6 +1572,9 @@ export function readCaseDetails(
 
 	const config: CaseListConfig = {
 		columns: [],
+		...(sort.calculations.length > 0 && {
+			calculatedSorts: [...sort.calculations],
+		}),
 		listColumnOrder: joined.listOrder.map((index) => uuids[index] as Uuid),
 		detailColumnOrder: joined.detailOrder.map((index) => uuids[index] as Uuid),
 		searchInputs: [],

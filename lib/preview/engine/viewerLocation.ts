@@ -86,11 +86,19 @@ export function columnsReadHere(
 	screen: "list" | "detail",
 ): boolean {
 	if (config === undefined) return false;
+	if (
+		screen === "list" &&
+		config.calculatedSorts?.some((rule) => expressionReadsHere(rule.expression))
+	)
+		return true;
 	return config.columns.some(
 		(column) =>
-			column.kind === "calculated" &&
-			columnShowsOn(column, config, screen) &&
-			expressionReadsHere(column.expression),
+			(screen === "list" &&
+				columnOnList(column) &&
+				column.sort?.comparator === "distance") ||
+			(column.kind === "calculated" &&
+				columnShowsOn(column, config, screen) &&
+				expressionReadsHere(column.expression)),
 	);
 }
 

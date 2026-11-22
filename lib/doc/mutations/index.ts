@@ -108,6 +108,9 @@ function dispatchMutation(
 		case "renameModule":
 		case "updateModule":
 		case "setModuleMedia":
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":

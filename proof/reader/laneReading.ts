@@ -33,6 +33,7 @@ import {
 	publishedCaseBlocks,
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	knownCaseTypesOf,
@@ -901,7 +902,11 @@ async function readBack(
 		modules,
 		resolver: matchingResolver(
 			input.appId,
-			externalIdentityMap(doc, targetWireIdentity(stored.identity)),
+			externalIdentityMap(
+				doc,
+				targetWireIdentity(stored.identity),
+				lookupWireNaming(stored.lookupDefinitions),
+			),
 		),
 		lookup: lookupCatalogOf(stored.lookupDefinitions),
 		organization: { levelCodes: levels.map((level) => level.code), levels },

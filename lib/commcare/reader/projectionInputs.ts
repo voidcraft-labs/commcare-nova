@@ -80,8 +80,10 @@ function isLookupDataType(value: string): value is LookupDataType {
 
 /** The catalog's tables as the wire naming reads them. A column typed outside a
  *  table's own types breaks the catalog's contract, which its builder holds. */
-function namingDefinitions(ctx: ReadContext): LookupNamingDefinition[] {
-	return [...ctx.input.lookup.definitions.values()].map((table) => ({
+export function readerLookupNamingDefinitions(
+	lookup: ReadContext["input"]["lookup"],
+): LookupNamingDefinition[] {
+	return [...lookup.definitions.values()].map((table) => ({
 		id: table.id,
 		tag: table.tag,
 		columns: table.columns.map((column) => {
@@ -211,7 +213,7 @@ function built(ctx: ReadContext): Built {
 		origin: ctx.input.target.origin,
 		domain: ctx.input.target.domain,
 	};
-	const naming = namingDefinitions(ctx);
+	const naming = readerLookupNamingDefinitions(ctx.input.lookup);
 	const inputs: ReadProjectionInputs = {
 		identity: targetWireIdentity(overrides),
 		attachmentTarget,

@@ -83,6 +83,7 @@ import {
 	substituteUnansweredSearchInputs,
 } from "@/lib/domain/expression";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import type { CalculatedSort } from "@/lib/domain/modules";
 import { type RewriteControl, rewriteWithheld } from "../emissionRewrites";
 import {
 	type ModuleExpressionContexts,
@@ -109,6 +110,7 @@ import {
 	caseListOrderOptions,
 	columnProperty,
 	columnStoredAsExpression,
+	hqCalculatedSortExpression,
 	hqEnumPlaceholder,
 	hqExpressionField,
 } from "../suite/case-list/orderPlanOptions";
@@ -470,8 +472,9 @@ function hqJoinText(
  *     and makes the header of a carrier (`util.py::create_temp_sort_column`);
  *     otherwise the first language's wire code with empty text, which the
  *     save adds where it is missing.
- *   - `sort_calculation`: always empty; the save empties it unless the
- *     project has `SORT_CALCULATION_IN_CASE_LIST`.
+ *   - `sort_calculation`: the independent rule's expression beside an empty
+ *     field. HQ saves it under `SORT_CALCULATION_IN_CASE_LIST`. A column rule
+ *     leaves it empty.
  *
  * An unsorted list whose first field is shown writes `[]`, and HQ's build
  * adds its default element for field 0
@@ -485,6 +488,7 @@ function projectSortElements(
 		via: ColumnVia | undefined,
 	) => CaseProperty["data_type"],
 	columnFieldWord: ColumnFieldWordOf | undefined,
+	calculation: (sort: CalculatedSort) => HqXPath,
 ): SortElement<HqXPath>[] {
 	const written: {
 		readonly rule: CaseListOrderRule;
@@ -507,17 +511,13 @@ function projectSortElements(
 		),
 		...plan.carriers.map((carrier) => ({
 			rule: carrier.rule,
-			key: {
-				kind: "property" as const,
-				property: carrier.field,
-				...(carrier.via !== undefined && { via: carrier.via }),
-			},
+			key: carrier.key,
 			comparator: carrier.comparator,
 		})),
 	].filter((entry) => entry.rule.written);
-	return written
-		.sort((a, b) => a.rule.order - b.rule.order)
-		.map(({ rule, key, comparator, word }) => ({
+	const ordinary = written.map(({ rule, key, comparator, word }) => ({
+		order: rule.order,
+		value: {
 			field:
 				rule.element.kind === "property"
 					? hqColumnFieldText(rule.element.property, word)
@@ -526,8 +526,55 @@ function projectSortElements(
 			direction: SORT_DIRECTION_WIRE_MAP[rule.direction],
 			blanks: rule.blanks,
 			display: sortDisplay(rule, localization),
-			sort_calculation: "",
-		}));
+			sort_calculation: "" as const,
+		},
+	}));
+	// HQ keys independent rules by their literal calculation text. Give
+	// distinct choices over the same typed value distinct, equivalent texts.
+	const used = new Set<string>();
+	const calculated = plan.calculations.map(
+		({ order, sort, comparator, blanks }) => {
+			let wire = calculation(sort);
+			let text = hqXPathText(wire);
+			while (used.has(text)) {
+				wire = hqXPath(w.paren(wire.expression), wire.interpolation);
+				text = hqXPathText(wire);
+			}
+			used.add(text);
+			return {
+				order,
+				value: {
+					field: "",
+					type:
+						comparator === "integer"
+							? "int"
+							: comparator === "decimal"
+								? "double"
+								: "plain",
+					direction: SORT_DIRECTION_WIRE_MAP[sort.direction],
+					blanks,
+					display:
+						sort.label === undefined
+							? { [localization.languages[0] ?? "en"]: "" }
+							: localization.textMap(
+									makeTranslationUnitId("case-sort", sort.uuid, "label"),
+								),
+					sort_calculation: wire,
+				},
+			};
+		},
+	);
+	const effective = [...ordinary, ...calculated].sort(
+		(a, b) => a.order - b.order,
+	);
+	const byOrder = new Map(effective.map((row) => [row.order, row.value]));
+	return [
+		...plan.introductionOrders.flatMap((order) => {
+			const value = byOrder.get(order);
+			return value === undefined ? [] : [value];
+		}),
+		...effective.map((row) => row.value),
+	];
 }
 
 /** A written rule's `display`: its name in Sort by, or none. */
@@ -551,8 +598,10 @@ function sortElementType(
 		property: string,
 		via: ColumnVia | undefined,
 	) => CaseProperty["data_type"],
-): "plain" | "date" | "int" | "double" {
+): "plain" | "date" | "int" | "double" | "distance" {
 	if (rule.implicit) return "plain";
+	if (key?.kind === "distance-property" || key?.kind === "distance-calculated")
+		return "distance";
 	if (comparator === "integer") return "int";
 	if (comparator === "decimal") return "double";
 	if (key?.kind === "property") {
@@ -687,6 +736,7 @@ export function projectSearchButtonCondition(
  */
 export interface CaseListRewrites {
 	readonly column?: ColumnRewrites;
+	readonly sort?: (uuid: Uuid) => RewriteControl | undefined;
 	readonly filter?: () => RewriteControl | undefined;
 }
 
@@ -1147,7 +1197,7 @@ export function projectCaseListForHq(
 	// positional sort element indexes the short one.
 	const plan =
 		caseListConfig === undefined
-			? { fields: [], carriers: [], authored: [] }
+			? { fields: [], carriers: [], authored: [], calculations: [] }
 			: caseListOrderPlan(
 					caseListConfig,
 					caseProperties,
@@ -1206,6 +1256,16 @@ export function projectCaseListForHq(
 				caseTypes,
 			)?.data_type,
 		columnFieldWord,
+		(sort) =>
+			hqXPath(
+				hqCalculatedSortExpression(
+					sort,
+					mod,
+					expressions,
+					lookupNaming,
+					listRewrites?.sort?.(sort.uuid),
+				),
+			),
 	);
 	pair.short.filter = filter;
 	if (caseListConfig?.selection?.kind === "multiple") {

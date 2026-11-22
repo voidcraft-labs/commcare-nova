@@ -617,6 +617,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} asks for a date and time, which Web Apps can't show.`,
 		alternative: "ask for the date and the time separately",
 	},
+	"sort-by-distance": {
+		lead: (subject) =>
+			`${subject} uses the worker's location to put nearby cases first. Web Apps can't read that location.`,
+		alternative: "choose a different order",
+	},
 	"case-list-here": {
 		lead: (subject) =>
 			`${subject} uses the worker's location, which Web Apps doesn't know.`,
@@ -673,11 +678,13 @@ const PLATFORM_REFUSAL_FALLBACK =
 const platformFindingSubject = (e: ValidationError): string | undefined =>
 	e.details?.inputName !== undefined
 		? `Search field ${q(e.details.inputName)}`
-		: e.location.fieldId !== undefined
-			? q(e.location.fieldId)
-			: e.location.moduleName !== undefined
-				? q(e.location.moduleName)
-				: undefined;
+		: e.details?.columnHeader !== undefined
+			? `Column ${q(e.details.columnHeader)}`
+			: e.location.fieldId !== undefined
+				? q(e.location.fieldId)
+				: e.location.moduleName !== undefined
+					? q(e.location.moduleName)
+					: undefined;
 
 /**
  * A platform refusal (`PLATFORM_FEATURE_UNAVAILABLE`, or the checker's
@@ -1103,6 +1110,16 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The Cases available setting in ${q(modName(e))}`) ??
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
+	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: (e) =>
+		recordFindingCopy(
+			e,
+			`A calculation in the default order for ${q(modName(e))}`,
+		) ??
+		`The default order for ${q(modName(e))} needs a calculation that gives one value for each case.`,
+	CASE_LIST_UNUSED_COMPARISON: (e) =>
+		det(e, "shape", "") === "distance-without-location-value"
+			? `To put nearby cases first in ${q(modName(e))}, choose an item that holds a location.`
+			: `This item in ${q(modName(e))} already supplies its comparison. You can choose its usual order.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
 	CASE_LIST_SORT_PROPERTY_AMBIGUOUS: (e) =>

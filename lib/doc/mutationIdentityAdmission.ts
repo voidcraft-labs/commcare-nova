@@ -34,6 +34,11 @@ function nestedModuleIdentities(
 					]
 				: [],
 		),
+		...(module.caseListConfig?.calculatedSorts ?? []).map((sort) => ({
+			uuid: sort.uuid,
+			kind: "caseListSort" as const,
+			ownerUuid: module.uuid,
+		})),
 		...(module.caseListConfig?.columns ?? []).map((column) => ({
 			uuid: column.uuid,
 			kind: "caseListColumn" as const,
@@ -353,6 +358,14 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 					ownerUuid: mutation.fieldUuid,
 				},
 			]);
+		case "addCalculatedSort":
+			return createClaims([
+				{
+					uuid: mutation.sort.uuid,
+					kind: "caseListSort",
+					ownerUuid: mutation.moduleUuid,
+				},
+			]);
 		case "addColumn":
 			return createClaims([
 				{
@@ -456,6 +469,8 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "removeOption":
 		case "moveOption":
 		case "updateOption":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "removeColumn":
 		case "moveColumn":
 		case "updateColumn":

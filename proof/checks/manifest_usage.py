@@ -727,6 +727,7 @@ APP_EXPRESSION_KEYS = {
     **{cls: "module_filter" for cls in ("Module", "AdvancedModule", "ShadowModule", "ReportModule")},
     "Detail": "filter",
     "DetailColumn": "field",
+    "SortElement": "sort_calculation",
     "FormLink": "xpath",
     "FormDatum": "xpath",
 }

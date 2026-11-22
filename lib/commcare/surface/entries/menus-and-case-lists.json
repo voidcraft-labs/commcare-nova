@@ -7287,10 +7287,9 @@
 			"schema:SortElement.type"
 		],
 		"valueClass": "authored-numeric-comparator",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.comparator` (authored)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the column’s default order keeps the comparison when it differs from the value’s usual order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7318,10 +7317,9 @@
 			"schema:SortElement.type"
 		],
 		"valueClass": "authored-text-comparator",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.comparator` (authored): HQ writes `string` for `plain`, `date` and none, and any other word as it is (`FormattedDetailColumn.sort_node`, `details.py::get_default_sort_elements`), and Core compares every word but `int` and `double` as text (`DetailFieldParser`), so the list orders numbers as text, where the comparator Nova derives from the property's type orders them as numbers",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the column’s default order keeps the comparison when it differs from the value’s usual order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7349,10 +7347,9 @@
 			"schema:SortElement.type"
 		],
 		"valueClass": "distance",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.comparator: distance` (on a column whose format has its own sort, HQ keeps that format's sort type with the distance function: `double` for `distance`, and `string` for date, time-ago and the ID-mapping formats, where distances compare as text: executed)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Default order compares distances from the worker using the comparison the field keeps.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (sorted from São Paulo) / RUNS",
@@ -7627,10 +7624,8 @@
 			"schema:SortElement.sort_calculation"
 		],
 		"valueClass": "authored-with-an-empty-field",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.expression` (lifts into ValueExpression, else the typed expression model)",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: independent Default order calculation, direction, comparison, blank placement and localized name",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7645,7 +7640,89 @@
 			"cell": "`sort_calculation`; SORT_CALCULATION_IN_CASE_LIST (a save without it strips the value, leaving a row HQ's build refuses, `invalid sort field`)",
 			"markers": []
 		},
-		"gates": ["toggle/SORT_CALCULATION_IN_CASE_LIST"]
+		"gates": ["toggle/SORT_CALCULATION_IN_CASE_LIST"],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/sort-calculation-without-a-typed-value",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "Calculation with no typed value for the selected case",
+		"surfaceKeys": ["schema:SortElement.sort_calculation"],
+		"valueClass": "sort-calculation-without-a-typed-value",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The expression cannot be typed as a value in the selected case’s scope.",
+		"subject": "case-list-sorting",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The expression cannot be typed as a value in the selected case’s scope."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/distance-sort-without-a-location-field",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "Distance comparison of a calculation-only order rule",
+		"surfaceKeys": ["schema:SortElement.type"],
+		"valueClass": "distance-sort-without-a-location-field",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ builds Distance’s position expression from the empty property of its temporary invisible column. The worker cannot evaluate that expression.",
+		"subject": "case-list-sorting",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ builds Distance’s position expression from the empty property of its temporary invisible column. The worker cannot evaluate that expression."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/distance-on-a-translated-calculated-field",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Sorting",
+		"item": "Distance comparison on a translated expression field",
+		"surfaceKeys": ["schema:SortElement.type"],
+		"valueClass": "distance-on-a-translated-calculated-field",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's translated expression format supplies label variables. Its distance expression refers to a missing calculated value, so the worker cannot evaluate the order.",
+		"subject": "case-list-sorting",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's translated expression format supplies label variables. Its distance expression refers to a missing calculated value, so the worker cannot evaluate the order."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/field-and-a-differing-sort-calculation-on-a-column-whose-format",

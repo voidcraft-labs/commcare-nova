@@ -593,6 +593,8 @@ export function* acceptReadingSteps(
 			const runsOnlyOn = choice.runsOnlyOn ?? null;
 			const firstPublishFacts = calling("firstPublishFactsOf", () =>
 				firstPublishFactsOf({
+					lookup: input.reader.lookup,
+					columnFieldWords: draft.identities.columnFieldWords,
 					source,
 					doc,
 					facts: draft.facts,
@@ -905,7 +907,7 @@ function* fixedPointCheck(
 				matchingResolver(
 					input.appId,
 					calling("externalIdentityMap", () =>
-						externalIdentityMap(expected, identity),
+						externalIdentityMap(expected, identity, options.lookupNaming),
 					),
 				),
 			);

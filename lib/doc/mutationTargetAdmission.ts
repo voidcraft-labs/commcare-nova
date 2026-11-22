@@ -151,6 +151,7 @@ export function mutationTargetsInvalid(
 	// data loss this guard closes. Option, column, and search-input uuids are
 	// schema-required in the canonical fresh document.
 	const columnOwners = new Map<string, string>();
+	const sortOwners = new Map<string, string>();
 	const searchInputOwners = new Map<string, string>();
 	// Modules whose `caseListConfig` is present. `setCaseListMeta` EDITS an
 	// existing config's metadata (`filter` / `selection` / `icon` /
@@ -165,6 +166,8 @@ export function mutationTargetsInvalid(
 		const config = mod.caseListConfig;
 		if (!config) continue;
 		modulesWithConfig.add(mod.uuid);
+		for (const sort of config.calculatedSorts ?? [])
+			sortOwners.set(sort.uuid, mod.uuid);
 		for (const col of config.columns) columnOwners.set(col.uuid, mod.uuid);
 		for (const input of config.searchInputs) {
 			searchInputOwners.set(input.uuid, mod.uuid);
@@ -365,6 +368,8 @@ export function mutationTargetsInvalid(
 		moduleParents.delete(moduleUuid);
 		moduleChildren.delete(moduleUuid);
 		modulesWithConfig.delete(moduleUuid);
+		for (const [id, owner] of sortOwners)
+			if (owner === moduleUuid) sortOwners.delete(id);
 		for (const [columnUuid, owner] of columnOwners) {
 			if (owner === moduleUuid) columnOwners.delete(columnUuid);
 		}
@@ -437,6 +442,8 @@ export function mutationTargetsInvalid(
 					// `setCaseListMeta` on it resolves.
 					if (m.module.caseListConfig !== undefined) {
 						modulesWithConfig.add(m.module.uuid);
+						for (const sort of m.module.caseListConfig.calculatedSorts ?? [])
+							sortOwners.set(sort.uuid, m.module.uuid);
 						for (const column of m.module.caseListConfig.columns) {
 							columnOwners.set(column.uuid, m.module.uuid);
 						}
@@ -463,6 +470,8 @@ export function mutationTargetsInvalid(
 				// `caseListConfig:null` clears the config and all of its members.
 				// Config birth is the distinct `ensureCaseListConfig` command below.
 				if ("caseListConfig" in m.patch) {
+					for (const [id, owner] of sortOwners)
+						if (owner === m.uuid) sortOwners.delete(id);
 					for (const [columnUuid, owner] of columnOwners) {
 						if (owner === m.uuid) columnOwners.delete(columnUuid);
 					}
@@ -818,6 +827,22 @@ export function mutationTargetsInvalid(
 			// Add checks the parent module and seeds the new item; update / move
 			// / remove check the ITEM's own uuid (a concurrently-removed target is
 			// a conflict, not a silent no-op). `setCaseListMeta` is module-scoped.
+			case "addCalculatedSort":
+				if (!modules.has(m.moduleUuid)) return true;
+				modulesWithConfig.add(m.moduleUuid);
+				sortOwners.set(m.sort.uuid, m.moduleUuid);
+				break;
+			case "updateCalculatedSort":
+			case "removeCalculatedSort":
+				if (sortOwners.get(m.uuid) !== m.moduleUuid) return true;
+				if (
+					m.kind === "updateCalculatedSort" &&
+					m.after != null &&
+					(m.after === m.uuid || sortOwners.get(m.after) !== m.moduleUuid)
+				)
+					return true;
+				if (m.kind === "removeCalculatedSort") sortOwners.delete(m.uuid);
+				break;
 			case "addColumn":
 				if (!modules.has(m.moduleUuid)) return true;
 				// The first column births a config-less module's config (the

@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
+import { buildUrl } from "@/lib/routing/location";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder } from "../../lib/pageLoads";
 import { SORT_BY_SEED } from "../../lib/sortBySeed";
@@ -103,6 +104,79 @@ test("the case list's Sort by orders the list as Web Apps and Android do", {
 		await pick(page, main, new RegExp(`^${SORT_BY_SEED.sortName}`));
 		await expectOrder(main, ["Ben Osei", "Cy Mensah", "Ada Okafor"]);
 	});
+});
+
+test("a builder adds an independent worker order, moves it first and opens it after a reload", {
+	tag: "@seed:sort-by",
+}, async ({ scenario, page }) => {
+	const { sortBy } = seedFor(scenario, "sort-by");
+	test.setTimeout(120_000);
+	const results = buildUrl(`/build/${sortBy.appId}`, {
+		kind: "cases",
+		moduleUuid: SORT_BY_SEED.moduleUuid,
+	});
+	await openBuilder(page, results);
+	await page
+		.getByRole("button", { name: "Change default order", exact: true })
+		.click();
+	await page
+		.getByRole("button", { name: "Add calculation", exact: true })
+		.click();
+	const commit = async (kind: string, change: () => Promise<void>) => {
+		const [response] = await Promise.all([
+			page.waitForResponse((response) => {
+				const request = response.request();
+				return (
+					request.method() === "PUT" &&
+					new URL(response.url()).pathname === `/api/apps/${sortBy.appId}` &&
+					(request.postData() ?? "").includes(`"kind":"${kind}"`)
+				);
+			}),
+			change(),
+		]);
+		expect(response.ok()).toBe(true);
+	};
+	await commit("addCalculatedSort", () =>
+		page
+			.getByRole("button", { name: "Add calculation to order", exact: true })
+			.click(),
+	);
+	const rule = page
+		.getByRole("list", { name: "Default order" })
+		.getByRole("listitem")
+		.last();
+	const name = rule.getByRole("textbox", { name: "Name in Sort by" });
+	await name.fill("Patient alphabet");
+	await commit("updateCalculatedSort", () => name.press("Enter"));
+	await commit("updateCalculatedSort", () =>
+		rule.getByRole("button", { name: /^Move / }).press("Home"),
+	);
+	await openBuilder(page, results);
+	await page
+		.getByRole("button", { name: "Change default order", exact: true })
+		.click();
+	await expect(
+		page
+			.getByRole("list", { name: "Default order" })
+			.getByRole("listitem")
+			.first()
+			.getByRole("textbox", { name: "Name in Sort by" }),
+	).toHaveValue("Patient alphabet");
+
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const main = page.locator("main");
+	await expectOrder(main, ["Ada Okafor", "Ben Osei", "Cy Mensah"]);
+	await page.getByRole("button", { name: /^Running as / }).click();
+	await page.getByRole("menuitemradio", { name: /^Android/ }).click();
+	await main.getByRole("button", { name: "Start", exact: true }).click();
+	await main
+		.getByRole("button", { name: new RegExp(`^${SORT_BY_SEED.moduleName}`) })
+		.click();
+	await expectOrder(main, ["Ada Okafor", "Ben Osei", "Cy Mensah"]);
+	await pick(page, main, new RegExp(`^${SORT_BY_SEED.sortName}`));
+	await expectOrder(main, ["Ben Osei", "Ada Okafor", "Cy Mensah"]);
+	await pick(page, main, /^Patient alphabet/);
+	await expectOrder(main, ["Ada Okafor", "Ben Osei", "Cy Mensah"]);
 });
 
 /**

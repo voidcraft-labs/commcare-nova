@@ -24,6 +24,7 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
+import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import {
 	ReorderableRow,
 	useReorderableList,
@@ -43,7 +44,10 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { useCaseListOrderChoiceRefusal } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
+import {
+	useCaseListOrderChoiceRefusal,
+	useCaseListOrderControls,
+} from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContextBuilder } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
@@ -55,14 +59,18 @@ import type {
 	CaseType,
 	Column,
 	SortBlanks,
+	SortComparison,
 	SortDirection,
 	Uuid,
 } from "@/lib/domain";
 import {
+	type CalculatedSort,
 	type CaseListConfig,
+	choicePrefixLength,
 	columnSort,
 	orderedColumns,
 	sortBlanks,
+	type UserProperty,
 } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import {
@@ -70,7 +78,8 @@ import {
 	scalarDataType,
 	typeOf,
 } from "@/lib/domain/expression";
-import { platformSentence } from "@/lib/domain/platforms";
+import { prop, term } from "@/lib/domain/expression/builders";
+import { platformRefusal, platformSentence } from "@/lib/domain/platforms";
 import {
 	propertyDisplayLabel,
 	propertyDisplayLabelForName,
@@ -82,8 +91,10 @@ import { blanksAfterDirectionChange } from "./sortBlanksChoice";
 import {
 	columnsAfterRuleSequence,
 	orderChoiceColumn,
+	orderingCalculationRow,
 	resolveSortedColumns,
 } from "./sortPriority";
+import { newUuid } from "./uuid";
 
 export interface CaseOrderingComposerProps {
 	/** The module whose list this orders: the Add menu asks the gate's order
@@ -95,7 +106,11 @@ export interface CaseOrderingComposerProps {
 	readonly value: readonly Column[];
 	readonly caseType?: CaseType;
 	readonly caseTypes?: readonly CaseType[];
-	readonly onChange: (next: readonly Column[]) => void;
+	readonly userProperties?: readonly UserProperty[];
+	readonly onChange: (
+		next: readonly Column[],
+		calculations?: readonly CalculatedSort[],
+	) => void;
 }
 
 /** The column a choice would put in the default order: a stored column, or a
@@ -116,27 +131,47 @@ export function CaseOrderingComposer({
 	config,
 	value,
 	caseType,
+	caseTypes = [],
+	userProperties,
 	onChange,
 }: CaseOrderingComposerProps) {
 	const projectProse = useProseProjection();
 	const buildExpressionContext = useExpressionSlotContextBuilder();
+	const [draftCalculation, setDraftCalculation] = useState<CalculatedSort>();
+	const independent = useMemo(
+		() =>
+			new Map((config.calculatedSorts ?? []).map((rule) => [rule.uuid, rule])),
+		[config.calculatedSorts],
+	);
 	const columnExpressionContext = useCallback(
 		(column: Column) =>
-			buildExpressionContext(
-				{
-					entity: "module",
-					uuid: moduleUuid,
-					slot: "case_list_column_expression",
-					member: { columnUuid: column.uuid },
-				},
-				{ entity: "column", value: column },
-			),
-		[buildExpressionContext, moduleUuid],
+			independent.has(column.uuid)
+				? buildExpressionContext({
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_list_sort_expression",
+						member: { sortUuid: column.uuid },
+					})
+				: buildExpressionContext(
+						{
+							entity: "module",
+							uuid: moduleUuid,
+							slot: "case_list_column_expression",
+							member: { columnUuid: column.uuid },
+						},
+						{ entity: "column", value: column },
+					),
+		[buildExpressionContext, moduleUuid, independent],
 	);
 	const canEdit = useCanEdit();
 	const containerKey = useId();
 	const orderAddReasonId = useId();
 	const [expanded, setExpanded] = useState(false);
+	const { comparisons, extraFields } = useCaseListOrderControls(
+		moduleUuid,
+		config,
+		expanded,
+	);
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
 	/* The side of the Blank values control the person last picked, per
 	 * column, while this workspace is open: a rule stores `blanks` only where
@@ -151,7 +186,14 @@ export function CaseOrderingComposer({
 	} | null>(null);
 	const composerRef = useRef<HTMLDivElement | null>(null);
 	const addRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
-	const sorted = useMemo(() => resolveSortedColumns(config), [config]);
+	const sorted = useMemo(
+		() =>
+			[
+				...resolveSortedColumns(config),
+				...[...independent.values()].map(orderingCalculationRow),
+			].sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0)),
+		[config, independent],
+	);
 	/* The Add control exists only in the expanded editor, so the document is
 	 * read for the menu only while it can open. */
 	const orderChoiceRefusal = useCaseListOrderChoiceRefusal(
@@ -284,10 +326,58 @@ export function CaseOrderingComposer({
 
 	const applyRuleSequence = useCallback(
 		(nextRules: readonly Column[]) => {
-			onChange(columnsAfterRuleSequence(value, nextRules));
+			const positions = new Map(
+				nextRules.map((row, index) => [row.uuid, index]),
+			);
+			const isCalculation = (row: Column) =>
+				independent.has(row.uuid) || draftCalculation?.uuid === row.uuid;
+			const columns = columnsAfterRuleSequence(
+				value,
+				nextRules.filter((row) => !isCalculation(row)),
+				positions,
+			);
+			if (!independent.size && !draftCalculation) {
+				onChange(columns);
+				return;
+			}
+			// Default order edits priority. A calculation already offered to workers
+			// keeps its place in Sort by, including when an HQ edit gave it another priority.
+			const byId = new Map(nextRules.map((row) => [row.uuid, row]));
+			const calculationIds = [...independent.keys()];
+			if (draftCalculation && !independent.has(draftCalculation.uuid))
+				calculationIds.push(draftCalculation.uuid);
+			const calculations: CalculatedSort[] = calculationIds.flatMap((uuid) => {
+				const row = byId.get(uuid);
+				const priority = positions.get(uuid);
+				if (
+					row?.kind !== "calculated" ||
+					!row.sort ||
+					row.sort.comparator === "distance" ||
+					priority === undefined
+				)
+					return [];
+				const { direction, label, blanks, comparator } = row.sort;
+				return [
+					{
+						uuid,
+						expression: row.expression,
+						priority,
+						direction,
+						...(label && { label }),
+						...(blanks && { blanks }),
+						...(comparator && { comparator }),
+					},
+				];
+			});
+			onChange(columns, calculations);
 		},
-		[onChange, value],
+		[onChange, value, independent, draftCalculation],
 	);
+
+	useEffect(() => {
+		if (draftCalculation && independent.has(draftCalculation.uuid))
+			setDraftCalculation(undefined);
+	}, [draftCalculation, independent]);
 
 	const { pendingDrop } = useReorderableList<Column>({
 		containerKey,
@@ -372,6 +462,8 @@ export function CaseOrderingComposer({
 									column.sort?.priority ?? 0,
 									blanks,
 									column.sort?.label,
+									column.sort?.comparator,
+									column.sort?.menuPosition,
 								),
 							}
 						: column,
@@ -396,6 +488,8 @@ export function CaseOrderingComposer({
 									column.sort?.priority ?? 0,
 									column.sort?.blanks,
 									label,
+									column.sort?.comparator,
+									column.sort?.menuPosition,
 								),
 							}
 						: column,
@@ -404,6 +498,77 @@ export function CaseOrderingComposer({
 		},
 		[applyRuleSequence, canEdit, sorted],
 	);
+
+	const setComparison = (uuid: Uuid, choice: SortComparison | undefined) => {
+		if (!canEdit) return;
+		applyRuleSequence(
+			sorted.map((column) => {
+				if (column.uuid !== uuid || !column.sort) return column;
+				const { comparator: _previous, ...sort } = column.sort;
+				return {
+					...column,
+					sort:
+						choice === undefined || choice === comparisons.get(uuid)
+							? sort
+							: { ...sort, comparator: choice },
+				};
+			}),
+		);
+	};
+
+	const calculatedChoices = [...independent.keys()];
+	const fieldById = new Map(value.map((column) => [column.uuid, column]));
+	const choiceGroup = (uuid: Uuid) =>
+		independent.has(uuid) ? calculatedChoices : extraFields;
+	const namedChoices = (uuid: Uuid) =>
+		choiceGroup(uuid).filter(
+			(id) =>
+				(independent.get(id)?.label ?? fieldById.get(id)?.sort?.label) !==
+				undefined,
+		);
+	const moveChoice = (uuid: Uuid, position: number) => {
+		if (!canEdit) return;
+		const named = namedChoices(uuid);
+		const previous = named.indexOf(uuid);
+		if (
+			previous < 0 ||
+			position < 0 ||
+			position >= named.length ||
+			previous === position
+		)
+			return;
+		const namedSlots = new Set(named);
+		named.splice(previous, 1);
+		named.splice(position, 0, uuid);
+		let next = 0;
+		const choices = choiceGroup(uuid).map((id) =>
+			namedSlots.has(id) ? named[next++] : id,
+		);
+		if (independent.has(uuid)) {
+			onChange(
+				value,
+				choices.map((id) => independent.get(id) as CalculatedSort),
+			);
+			return;
+		}
+		const prefix = choicePrefixLength(
+			choices,
+			(id) => fieldById.get(id)?.sort?.priority ?? 0,
+		);
+		const positions = new Map(choices.map((id, index) => [id, index]));
+		onChange(
+			value.map((column) => {
+				const index = positions.get(column.uuid);
+				if (!column.sort || index === undefined) return column;
+				const { menuPosition: _previous, ...sort } = column.sort;
+				return {
+					...column,
+					sort: index < prefix ? { ...sort, menuPosition: index } : sort,
+				};
+			}),
+			config.calculatedSorts,
+		);
+	};
 
 	const removeRule = useCallback(
 		(columnUuid: string) => {
@@ -593,6 +758,15 @@ export function CaseOrderingComposer({
 													onDirectionChange={(direction) =>
 														setDirection(column.uuid, direction)
 													}
+													independent={independent.has(column.uuid)}
+													defaultComparison={comparisons.get(column.uuid)}
+													menuChoices={namedChoices(column.uuid)}
+													onMenuPositionChange={(position) =>
+														moveChoice(column.uuid, position)
+													}
+													onComparisonChange={(choice) =>
+														setComparison(column.uuid, choice)
+													}
 													onBlanksChange={(blanks) =>
 														setBlanks(column.uuid, blanks)
 													}
@@ -601,6 +775,33 @@ export function CaseOrderingComposer({
 													}
 													onRemove={() => removeRule(column.uuid)}
 												/>
+												{canEdit &&
+													independent.has(column.uuid) &&
+													column.kind === "calculated" && (
+														<div className="mt-2 rounded-lg border border-nova-border p-3">
+															<ExpressionSlotEditor
+																slot={{
+																	entity: "module",
+																	uuid: moduleUuid,
+																	slot: "case_list_sort_expression",
+																	member: { sortUuid: column.uuid },
+																}}
+																value={column.expression}
+																onChange={(expression) =>
+																	applyRuleSequence(
+																		sorted.map((one) =>
+																			one.uuid === column.uuid
+																				? { ...column, expression }
+																				: one,
+																		),
+																	)
+																}
+																currentCaseType={caseType?.name ?? ""}
+																caseTypes={caseTypes}
+																userProperties={userProperties}
+															/>
+														</div>
+													)}
 												{previewPortal}
 											</div>
 										)}
@@ -640,6 +841,68 @@ export function CaseOrderingComposer({
 								searchPlaceholder="Search case information"
 								contentClassName="max-h-[min(22rem,var(--available-height))]"
 							/>
+							{caseType &&
+								(draftCalculation ? (
+									<div className="mt-3 space-y-3 rounded-lg border border-nova-border p-3">
+										<p className="font-medium text-nova-text">
+											Order calculation
+										</p>
+										<ExpressionSlotEditor
+											slot={{
+												entity: "module",
+												uuid: moduleUuid,
+												slot: "case_list_sort_expression",
+												member: { sortUuid: draftCalculation.uuid },
+											}}
+											candidate={{
+												entity: "case-sort",
+												value: draftCalculation,
+											}}
+											value={draftCalculation.expression}
+											onChange={(expression) =>
+												setDraftCalculation({ ...draftCalculation, expression })
+											}
+											currentCaseType={caseType.name}
+											caseTypes={caseTypes}
+											userProperties={userProperties}
+										/>
+										<div className="flex gap-2">
+											<Button
+												type="button"
+												variant="ghost"
+												onClick={() => setDraftCalculation(undefined)}
+											>
+												Cancel
+											</Button>
+											<Button
+												type="button"
+												onClick={() =>
+													applyRuleSequence([
+														...sorted,
+														orderingCalculationRow(draftCalculation),
+													])
+												}
+											>
+												Add calculation to order
+											</Button>
+										</div>
+									</div>
+								) : (
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={() =>
+											setDraftCalculation({
+												uuid: newUuid(),
+												expression: term(prop(caseType.name, "case_name")),
+												direction: "asc",
+												priority: sorted.length,
+											})
+										}
+									>
+										Add calculation
+									</Button>
+								))}
 							{orderChoices.length === 0 && (
 								<p
 									id={orderAddReasonId}
@@ -665,6 +928,11 @@ function CaseOrderingRuleRow({
 	setHandleEl,
 	onMove,
 	onDirectionChange,
+	defaultComparison,
+	onComparisonChange,
+	menuChoices,
+	onMenuPositionChange,
+	independent,
 	onBlanksChange,
 	onLabelChange,
 	onRemove,
@@ -677,11 +945,35 @@ function CaseOrderingRuleRow({
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onMove: (key: "ArrowUp" | "ArrowDown" | "Home" | "End") => void;
 	readonly onDirectionChange: (direction: SortDirection) => void;
+	readonly independent: boolean;
+	readonly defaultComparison: SortComparison | undefined;
+	readonly onComparisonChange: (choice: SortComparison | undefined) => void;
+	readonly menuChoices: readonly Uuid[];
+	readonly onMenuPositionChange: (position: number) => void;
 	readonly onBlanksChange: (blanks: SortBlanks) => void;
 	readonly onLabelChange: (label: string | undefined) => void;
 	readonly onRemove: () => void;
 }) {
 	const projectProse = useProseProjection();
+	const platforms = useDeclaredPlatforms();
+	const distanceRefusal = platformRefusal("sort-by-distance", platforms);
+	const comparisonLabel = column.sort?.comparator ?? defaultComparison;
+	const shownComparison = comparisonLabel
+		? comparisonNames[comparisonLabel]
+		: "Field order";
+	const choices: readonly SortComparison[] =
+		defaultComparison === undefined ? ["distance"] : comparisonOptions;
+	const distanceAvailable =
+		!independent &&
+		(column.sort?.comparator === "distance" ||
+			columnDataType(column, caseType, expressionContext) === "geopoint");
+	const alternatives = choices.filter(
+		(choice) =>
+			choice !== defaultComparison &&
+			(choice !== "distance" || distanceAvailable),
+	);
+	const menuPosition = menuChoices.indexOf(column.uuid);
+	const menuGroup = independent ? "named calculations" : "extra fields";
 	const label = friendlyColumnLabel(column, caseType, projectProse);
 	const direction = column.sort?.direction ?? "asc";
 	const options = directionOptions(column, caseType, expressionContext);
@@ -741,6 +1033,54 @@ function CaseOrderingRuleRow({
 							{label}
 						</span>
 					</div>
+
+					{canEdit && alternatives.length > 0 ? (
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={<Button type="button" variant="field" />}
+								aria-label={`Compare values for ${label}`}
+							>
+								{shownComparison}
+								<Icon icon={tablerChevronDown} width="14" height="14" />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuRadioGroup
+									value={column.sort?.comparator ?? "automatic"}
+									onValueChange={(value) =>
+										onComparisonChange(
+											value === "automatic"
+												? undefined
+												: (value as SortComparison),
+										)
+									}
+								>
+									<DropdownMenuRadioItem value="automatic" closeOnClick>
+										Use field order
+										{defaultComparison
+											? ` (${comparisonNames[defaultComparison].toLowerCase()})`
+											: ""}
+									</DropdownMenuRadioItem>
+									{alternatives.map((choice) => (
+										<DropdownMenuRadioItem
+											key={choice}
+											value={choice}
+											disabled={
+												choice === "distance" && distanceRefusal !== undefined
+											}
+											closeOnClick
+										>
+											{comparisonNames[choice]}
+											{choice === "distance" && distanceRefusal !== undefined
+												? " (Android only)"
+												: ""}
+										</DropdownMenuRadioItem>
+									))}
+								</DropdownMenuRadioGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					) : (
+						<span>{shownComparison}</span>
+					)}
 
 					{canEdit ? (
 						<DropdownMenu>
@@ -814,6 +1154,43 @@ function CaseOrderingRuleRow({
 						</span>
 					)}
 				</div>
+				{menuPosition >= 0 &&
+					menuChoices.length > 1 &&
+					(canEdit ? (
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={<Button type="button" variant="field" />}
+								aria-label={`Position of ${label} among ${menuGroup} in Sort by`}
+							>
+								Sort by position {menuPosition + 1} of {menuChoices.length}
+								<Icon icon={tablerChevronDown} width="14" height="14" />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuRadioGroup
+									value={String(menuPosition)}
+									onValueChange={(position) =>
+										onMenuPositionChange(Number(position))
+									}
+								>
+									{menuChoices.map((uuid, index) => (
+										<DropdownMenuRadioItem
+											key={uuid}
+											value={String(index)}
+											closeOnClick
+										>
+											{index + 1} of {menuChoices.length} {menuGroup}
+										</DropdownMenuRadioItem>
+									))}
+								</DropdownMenuRadioGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					) : (
+						<span className="text-sm text-nova-text-secondary">
+							Sort by position {menuPosition + 1} of {menuChoices.length}{" "}
+							{menuGroup}
+						</span>
+					))}
+
 				{column.visibleInList === false && column.notOnList !== true && (
 					<SortNameField
 						columnUuid={column.uuid}
@@ -917,12 +1294,33 @@ const BLANKS_OPTIONS: ReadonlyArray<{
 	{ value: "last", label: "Last" },
 ];
 
+const comparisonOptions = ["text", "integer", "decimal", "distance"] as const;
+const comparisonNames: Record<SortComparison, string> = {
+	text: "Text",
+	integer: "Whole numbers",
+	decimal: "Decimals",
+	distance: "Distance from worker",
+};
+
 function directionOptions(
 	column: Column,
 	caseType: CaseType | undefined,
 	expressionContext: ExpressionContext | undefined,
 ): ReadonlyArray<{ readonly value: SortDirection; readonly label: string }> {
-	const dataType = columnDataType(column, caseType, expressionContext);
+	const comparison = column.sort?.comparator;
+	if (comparison === "distance")
+		return [
+			{ value: "asc", label: "Nearest first" },
+			{ value: "desc", label: "Farthest first" },
+		];
+	const dataType =
+		comparison === "text"
+			? "string"
+			: comparison === "integer"
+				? "int"
+				: comparison === "decimal"
+					? "decimal"
+					: columnDataType(column, caseType, expressionContext);
 	if (dataType === "date" || dataType === "datetime" || dataType === "time") {
 		return [
 			{ value: "asc", label: "Earliest first" },

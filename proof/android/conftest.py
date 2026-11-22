@@ -26,6 +26,8 @@ DOCUMENTS = (
     "navigation-base",
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
+    "targeted-independent-case-order",
+    "targeted-nearest-clinics",
     "targeted-hidden-from-menu",
     "targeted-missing-media",
     "targeted-multi-select-destinations",

@@ -614,6 +614,9 @@ export function touchedBy(
 			case "setModuleMedia":
 				menu(mutation.uuid);
 				break;
+			case "addCalculatedSort":
+			case "updateCalculatedSort":
+			case "removeCalculatedSort":
 			case "addColumn":
 			case "updateColumn":
 			case "removeColumn":
@@ -1391,6 +1394,8 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 	const changedPublishForms = new Set<string>();
 	try {
 		const baseFacts = firstPublishFactsOf({
+			lookup: readings.inputs.base.lookup,
+			columnFieldWords: baseDraft.identities.columnFieldWords,
 			source: readings.inputs.base.source,
 			doc: B,
 			facts: baseDraft.facts,

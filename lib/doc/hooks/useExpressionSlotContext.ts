@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from "react";
 import type {
 	BlueprintDoc,
+	CalculatedSort,
 	CaseOperation,
 	Column,
 	Field,
@@ -23,6 +24,7 @@ export type ExpressionSlotCandidate =
 	| { readonly entity: "field"; readonly value: Field }
 	| { readonly entity: "search-input"; readonly value: SearchInputDef }
 	| { readonly entity: "column"; readonly value: Column }
+	| { readonly entity: "case-sort"; readonly value: CalculatedSort }
 	| { readonly entity: "case-operation"; readonly value: CaseOperation }
 	| { readonly entity: "form-link"; readonly value: FormLink };
 
@@ -43,6 +45,34 @@ export function expressionCandidateDoc(
 		)
 			return undefined;
 		return { ...doc, fields: { ...doc.fields, [slot.uuid]: candidate.value } };
+	}
+	if (candidate.entity === "case-sort") {
+		if (
+			slot.entity !== "module" ||
+			slot.slot !== "case_list_sort_expression" ||
+			slot.member.sortUuid !== candidate.value.uuid
+		)
+			return undefined;
+		const mod = doc.modules[slot.uuid];
+		const config = mod?.caseListConfig;
+		if (!config) return undefined;
+		const other =
+			config.calculatedSorts?.filter(
+				(rule) => rule.uuid !== candidate.value.uuid,
+			) ?? [];
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[slot.uuid]: {
+					...mod,
+					caseListConfig: {
+						...config,
+						calculatedSorts: [...other, candidate.value],
+					},
+				},
+			},
+		};
 	}
 	if (candidate.entity === "column" || candidate.entity === "search-input") {
 		if (slot.entity !== "module" || !("member" in slot)) return undefined;

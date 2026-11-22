@@ -102,6 +102,7 @@ export type ResolvedSortDirective = SortRuleAttributes &
 	(
 		| { readonly kind: "property"; readonly xpath: WireExpr }
 		| { readonly kind: "calculated" }
+		| { readonly kind: "distance-calculated" }
 		| { readonly kind: "variables" }
 	);
 
@@ -152,12 +153,37 @@ function ruleAttributes(
 	};
 }
 
+/** Distance.SORT_XPATH_FUNCTION in HQ's detail_screen.py. A missing case
+ * location is the largest signed 32-bit integer. With no worker fix, Core's
+ * distance() returns -1. Both are real values to the field comparator. */
+export function distanceSortXpath(value: WireExpr): WireExpr {
+	return w.call("if", [
+		w.eq(value, w.str("")),
+		w.num(2147483647),
+		w.call("round", [w.call("distance", [value, w.call("here", [])])]),
+	]);
+}
+
 function keyDirective(
 	key: CaseListSortKey,
 	column: Column,
 	attributes: SortRuleAttributes,
 ): ResolvedSortDirective {
 	switch (key.kind) {
+		case "independent-calculation":
+			throw new Error(
+				"An independent default order calculation has its own hidden field.",
+			);
+		case "distance-property":
+			return {
+				...attributes,
+				kind: "property",
+				xpath: distanceSortXpath(
+					columnPropertyPath({ field: key.property, via: key.via }),
+				),
+			};
+		case "distance-calculated":
+			return { ...attributes, kind: "distance-calculated" };
 		case "property":
 			return {
 				...attributes,
@@ -210,7 +236,10 @@ export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
 		...(carrier.rule.label !== undefined && { label: carrier.rule.label }),
 		directive: {
 			kind: "property" as const,
-			xpath: columnPropertyPath(carrier),
+			xpath:
+				carrier.key.kind === "distance-property"
+					? distanceSortXpath(columnPropertyPath(carrier))
+					: columnPropertyPath(carrier),
 			type: carrier.comparator,
 			...ruleAttributes(carrier.rule),
 		},

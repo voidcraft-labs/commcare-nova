@@ -426,6 +426,9 @@ export function mutationSequenceAdmissionIssue(
 			case "renameModule":
 			case "setModuleMedia":
 			case "setCaseListMenuItem":
+			case "addCalculatedSort":
+			case "updateCalculatedSort":
+			case "removeCalculatedSort":
 			case "setCaseListMeta":
 				break;
 			case "updateModule":

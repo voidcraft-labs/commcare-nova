@@ -20,7 +20,12 @@ import {
 	simpleSearchInputDef,
 	type TranslationUnit,
 } from "@/lib/domain";
-import { input, matchesPattern } from "@/lib/domain/expression/builders";
+import {
+	input,
+	literal,
+	matchesPattern,
+	term,
+} from "@/lib/domain/expression/builders";
 
 const MODULE = testUuid("localized-builder-module");
 const FORM = testUuid("localized-builder-form");
@@ -809,6 +814,59 @@ describe("projectBuilderLanguageMutations", () => {
 				)
 			]?.value,
 		).toBe("Use mayúscula inicial");
+	});
+
+	it("keeps a physical Sort by move when the same edit translates or clears its name", () => {
+		const first = testUuid("first-calculation");
+		const second = testUuid("second-calculation");
+		const doc = apply(
+			fixture(),
+			[first, second].map((uuid, priority) => ({
+				kind: "addCalculatedSort",
+				moduleUuid: MODULE,
+				sort: {
+					uuid,
+					priority,
+					direction: "asc",
+					expression: term(literal(priority)),
+					label: priority ? "Second" : "First",
+				},
+			})),
+		);
+		const update: Mutation = {
+			kind: "updateCalculatedSort",
+			moduleUuid: MODULE,
+			uuid: second,
+			after: null,
+			patch: { label: "Segundo" },
+		};
+		const moved = apply(doc, project(doc, [update]));
+		const raw = moved.modules[MODULE]?.caseListConfig?.calculatedSorts;
+		expect(raw?.map((rule) => [rule.uuid, rule.label])).toEqual([
+			[second, "Second"],
+			[first, "First"],
+		]);
+		expect(
+			projectLocalizedModule(moved, "spa", MODULE)?.caseListConfig
+				?.calculatedSorts?.[0]?.label,
+		).toBe("Segundo");
+		const cleared = apply(
+			moved,
+			project(moved, [{ ...update, after: first, patch: { label: null } }]),
+		);
+		expect(
+			projectLocalizedModule(
+				cleared,
+				"spa",
+				MODULE,
+			)?.caseListConfig?.calculatedSorts?.map((rule) => [
+				rule.uuid,
+				rule.label,
+			]),
+		).toEqual([
+			[first, "First"],
+			[second, "Second"],
+		]);
 	});
 
 	it("clears a Search prompt's translated hint when the worker-language editor removes it, keeping the source", () => {

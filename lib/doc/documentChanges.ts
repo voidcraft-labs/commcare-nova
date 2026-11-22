@@ -167,6 +167,7 @@ export const MENU_KEY_PARTS = {
  * `columnParts`).
  */
 export const CASE_LIST_KEY_PARTS = {
+	calculatedSorts: "case-list",
 	columns: "case-list",
 	listColumnOrder: "case-list",
 	detailColumnOrder: "case-details",

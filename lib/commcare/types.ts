@@ -258,8 +258,9 @@ export type DetailColumn<
  * `_cc_calculated_<position>`; `type` the page's word (`plain`, `date`,
  * `int`, `double`); `direction` the long-form `ascending` / `descending`;
  * `blanks` `first` ascending and `last` descending; `display` the first
- * language's wire code with empty text; `sort_calculation` empty, since the
- * save empties it unless the project has `SORT_CALCULATION_IN_CASE_LIST`.
+ * language's wire code with empty text when no label is supplied. A calculation-only
+ * rule stores its expression under `sort_calculation` and needs the project
+ * flag `SORT_CALCULATION_IN_CASE_LIST` for the Case List editor to retain it.
  * The oracle (`validator/hqJsonOracle.ts`) refuses the former spellings.
  */
 export interface SortElement<XPath = string> {

@@ -279,6 +279,15 @@ field grammar, `lib/commcare/suite/wire.ts::isHqDetailField`, which its build
 holds a sort element to and its Case List page a column to) and a related
 column in a list that offers Search (`CASE_LIST_COLUMN_RELATION_INVALID`).
 
+Default order can use a column's own value or an independent calculation in
+`caseListConfig.calculatedSorts`. Each calculation has its own UUID, checked
+case expression, direction, priority, blank placement and optional localized
+worker name. `priority` orders the rules together. The calculation array
+retains the physical order of the worker's named choices. Column rules
+can select text, integer, decimal or distance where the field supports that
+comparison. A missing comparator takes the field's effective comparison.
+Distance uses the Android worker's position. A sort-only property's optional `sort.menuPosition` gives workers an earlier choice among extra tile fields. After those choices the remaining properties follow their rule priority. Each independent calculation's place in `calculatedSorts` determines its menu position even when its rule supplies a later tie-breaker.
+
 A sort rule may hold `label`, its name in the list's Sort by menu, on a
 column hidden from Results (`modules.ts::columnSortLabelShows`); a shown column
 is listed there under its header. Its text is the `case-list-sort-label`

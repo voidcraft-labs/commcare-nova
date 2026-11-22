@@ -1296,6 +1296,14 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/detail-filter-failing-etree-xpath-dummy-filter",
 		"schema:Detail.filter",
 	),
+	"calculated-order": take(
+		"menus-and-case-lists/sort-calculation-authored-calculation-row-field",
+		"schema:SortElement.sort_calculation",
+	),
+	"calculated-order-untyped": refuse(
+		"menus-and-case-lists/sort-calculation-without-a-typed-value",
+		"schema:SortElement.sort_calculation",
+	),
 	"usexpathexpression-field-xpath-lifting-into-valueexpression": take(
 		"menus-and-case-lists/usexpathexpression-field-xpath-lifting-into-valueexpression",
 		"schema:DetailColumn.field",
@@ -1694,6 +1702,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	case_list_filter: fixed(
 		C["detail-filter-value-lifts-into-predicate"].entry,
 		C["detail-filter-value-outside-predicate"].entry,
+	),
+	case_list_sort_expression: fixed(
+		C["calculated-order"].entry,
+		C["calculated-order-untyped"].entry,
 	),
 	case_list_column_expression: fixed(
 		C["usexpathexpression-field-xpath-lifting-into-valueexpression"].entry,

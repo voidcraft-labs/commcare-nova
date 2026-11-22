@@ -22,10 +22,16 @@ import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { unreadableMediaIdentity } from "@/lib/commcare/hq/mediaMap";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { pythonStrip } from "@/lib/commcare/localeFile";
-import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	identityLookupWireNaming,
+	lookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import { readsTrimmedSibling } from "@/lib/commcare/placement";
+import { renamedField } from "@/lib/commcare/reader/caseList/columns";
+import { readerLookupNamingDefinitions } from "@/lib/commcare/reader/projectionInputs";
 import type {
 	MediaRecipients,
+	ReaderLookupCatalog,
 	ReadFacts,
 	ReadFormFacts,
 	ReadGeneratedNode,
@@ -34,6 +40,10 @@ import {
 	buildRuntimeCsqlPromptValidations,
 	composeXPathQueryEmission,
 } from "@/lib/commcare/suite/case-search/xpathQuery";
+import {
+	type ColumnFieldWordRow,
+	targetWireIdentity,
+} from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import {
@@ -237,6 +247,8 @@ export function emittedGeneratedNodes(
 
 export interface FirstPublishFacts {
 	readonly source: HqAppSource;
+	readonly lookup: ReaderLookupCatalog;
+	readonly columnFieldWords: readonly ColumnFieldWordRow[];
 	/** The document under the declaration choice being judged. */
 	readonly doc: BlueprintDoc;
 	readonly facts: ReadFacts;
@@ -930,17 +942,26 @@ function asList(value: unknown): readonly unknown[] {
  * stores there.
  */
 function sortColumnPlaces(facts: FirstPublishFacts): string[] {
-	const menus = new Set<number>();
-	for (const place of recordedPlaces(
-		facts,
-		"sort-rule-kept-as-hidden-column",
-	)) {
+	const fieldsByMenu = new Map<number, Set<string>>();
+	for (const record of facts.facts.sameStateRewrites) {
+		if (record.register !== "sort-rule-kept-as-hidden-column") continue;
+		const place = placeOfStoredPointer(facts.positions, record.path);
+		if (place === null) continue;
 		const [root, menu] = placeSteps(place);
-		if (root === "menu" && menu !== undefined) menus.add(Number(menu));
+		const field = storedAt(facts.source.raw, record.path);
+		if (root !== "menu" || menu === undefined || typeof field !== "string")
+			continue;
+		const m = Number(menu);
+		const fields = fieldsByMenu.get(m) ?? new Set<string>();
+		fields.add(renamedField(field));
+		fieldsByMenu.set(m, fields);
 	}
+	if (fieldsByMenu.size === 0) return [];
+	const naming = lookupWireNaming(readerLookupNamingDefinitions(facts.lookup));
+	const { columnFieldWord } = targetWireIdentity([], facts.columnFieldWords);
 	const order = projectedModulePreorder(facts.doc);
 	const places: string[] = [];
-	for (const m of menus) {
+	for (const [m, fields] of fieldsByMenu) {
 		const uuid = order[m];
 		const module = uuid === undefined ? undefined : facts.doc.modules[uuid];
 		if (module === undefined) continue;
@@ -952,20 +973,32 @@ function sortColumnPlaces(facts: FirstPublishFacts): string[] {
 			),
 		)) {
 			const field = at(column, "field");
-			if (typeof field === "string")
+			if (
+				typeof field === "string" &&
+				at(column, "useXpathExpression") !== true
+			)
 				stored.set(field, (stored.get(field) ?? 0) + 1);
 		}
-		projectCaseListForHq(module, facts.doc).caseDetails.short.columns.forEach(
-			(column, index) => {
-				if (column.useXpathExpression) return;
-				const left = stored.get(column.field) ?? 0;
-				if (left > 0) stored.set(column.field, left - 1);
-				else
-					places.push(
-						placeOf("menu", m, "case_details", "short", "columns", index),
-					);
-			},
-		);
+		projectCaseListForHq(
+			module,
+			facts.doc,
+			undefined,
+			naming,
+			undefined,
+			undefined,
+			columnFieldWord,
+		).caseDetails.short.columns.forEach((column, index) => {
+			if (column.useXpathExpression) return;
+			const left = stored.get(column.field) ?? 0;
+			if (left > 0) stored.set(column.field, left - 1);
+			else if (
+				column.format === "invisible" &&
+				fields.has(renamedField(column.field))
+			)
+				places.push(
+					placeOf("menu", m, "case_details", "short", "columns", index),
+				);
+		});
 	}
 	return places;
 }
@@ -1908,6 +1941,8 @@ export function pointerCovers(pattern: string, path: string): boolean {
 /** The one builder of a `FirstPublishFacts`. */
 export function firstPublishFactsOf(input: {
 	readonly source: HqAppSource;
+	readonly lookup: ReaderLookupCatalog;
+	readonly columnFieldWords: readonly ColumnFieldWordRow[];
 	/** The document under the declaration choice being judged. */
 	readonly doc: BlueprintDoc;
 	readonly facts: ReadFacts;
@@ -1939,6 +1974,8 @@ export function firstPublishFactsOf(input: {
 	});
 	return {
 		source: input.source,
+		lookup: input.lookup,
+		columnFieldWords: input.columnFieldWords,
 		doc: input.doc,
 		facts: input.facts,
 		generated: generatedDifference(before, after),

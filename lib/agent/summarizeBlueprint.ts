@@ -305,10 +305,13 @@ function summarizeCaseList(mod: Module): string | undefined {
 	if (sortedColumns.length > 0) {
 		lines.push("      default_order:");
 		for (const col of sortedColumns) {
+			const comparison = col.sort?.comparator
+				? `, compare as ${col.sort.comparator}`
+				: "";
 			const name =
 				col.sort?.label === undefined ? "" : sortByName(col.sort.label);
 			lines.push(
-				`        - ${col.uuid}: "${col.header}" (${col.sort?.direction === "asc" ? "ascending" : "descending"}${name})`,
+				`        - ${col.uuid}: "${col.header}" (${col.sort?.direction === "asc" ? "ascending" : "descending"}${comparison}${name})`,
 			);
 		}
 	}

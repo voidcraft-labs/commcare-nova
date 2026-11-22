@@ -120,20 +120,32 @@ export function classifyRelatedCaseSearchExpression(
  * is a field of the short detail.
  */
 export function searchNeedsSupportingCases(
-	config: Pick<CaseListConfig, "columns" | "tile">,
+	config: Pick<CaseListConfig, "columns" | "tile" | "calculatedSorts">,
 	expressions: ModuleExpressionContexts,
 ): boolean {
-	return config.columns.some(
-		(column) =>
-			column.kind === "calculated" &&
-			caseListColumnRuns(column, config) &&
-			classifyRelatedCaseSearchExpression(
-				column.expression,
-				expressions({
-					slot: "case_list_column_expression",
-					member: { columnUuid: column.uuid },
-				}),
-			).kind !== "none",
+	return (
+		(config.calculatedSorts ?? []).some(
+			(rule) =>
+				classifyRelatedCaseSearchExpression(
+					rule.expression,
+					expressions({
+						slot: "case_list_sort_expression",
+						member: { sortUuid: rule.uuid },
+					}),
+				).kind !== "none",
+		) ||
+		config.columns.some(
+			(column) =>
+				column.kind === "calculated" &&
+				caseListColumnRuns(column, config) &&
+				classifyRelatedCaseSearchExpression(
+					column.expression,
+					expressions({
+						slot: "case_list_column_expression",
+						member: { columnUuid: column.uuid },
+					}),
+				).kind !== "none",
+		)
 	);
 }
 

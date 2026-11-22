@@ -319,6 +319,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"linkUuid",
 		"operationUuid",
 		"columnUuid",
+		"sortUuid",
 		"searchInputUuid",
 		"optionUuid",
 	])
@@ -470,6 +471,12 @@ function registrationName(
 	const ref = registration.ref;
 	if (ref.entity === "module") {
 		const config = doc.modules[ref.uuid]?.caseListConfig;
+		if (ref.slot === "case_list_sort_expression") {
+			const sort = config?.calculatedSorts?.find(
+				(rule) => rule.uuid === ref.member.sortUuid,
+			);
+			return sort?.label ?? "Default order";
+		}
 		if (ref.slot === "case_list_column_expression") {
 			const column = config?.columns.find(
 				(candidate) => candidate.uuid === ref.member.columnUuid,

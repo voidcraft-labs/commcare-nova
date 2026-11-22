@@ -114,6 +114,7 @@ import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
 import {
+	buildCalculatedSortField,
 	buildCarrierField,
 	buildColumnField,
 	mergeFieldStrings,
@@ -410,6 +411,12 @@ export function buildShortDetail(args: {
 			{ target, moduleIndex },
 			wire,
 		);
+		fields.push(emission.element);
+		mergeFieldStrings(strings, translationUnits, emission);
+	}
+
+	for (const calc of plan.calculations) {
+		const emission = buildCalculatedSortField(calc, ctx);
 		fields.push(emission.element);
 		mergeFieldStrings(strings, translationUnits, emission);
 	}

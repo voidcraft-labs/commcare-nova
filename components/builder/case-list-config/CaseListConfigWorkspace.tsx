@@ -58,6 +58,7 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import {
 	columnSnapshotBatchMutations,
 	columnSnapshotMutations,
@@ -1099,14 +1100,21 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			surface,
 			toIndex,
 		);
-	const updateColumns = (next: readonly Column[]) => {
-		commitMany(
-			columnSnapshotBatchMutations(
-				requireRetainedModuleUuid(moduleUuid),
-				config,
-				next,
-			),
-		);
+	const updateColumns = (
+		next: readonly Column[],
+		calculations?: readonly import("@/lib/domain").CalculatedSort[],
+	) => {
+		const owner = requireRetainedModuleUuid(moduleUuid);
+		commitMany([
+			...columnSnapshotBatchMutations(owner, config, next),
+			...(calculations === undefined
+				? []
+				: calculatedSortMutations(
+						owner,
+						config.calculatedSorts ?? [],
+						calculations,
+					)),
+		]);
 	};
 	const hideColumnFromSurface = (
 		surface: CaseDisplaySurface,

@@ -12,6 +12,7 @@ import type { PlatformFeatureId } from "@/lib/domain/platforms";
 /** Each platform feature's manifest entries, in inventory order. */
 export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
+	"sort-by-distance": ["menus-and-case-lists/type-distance"],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
 	],

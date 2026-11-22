@@ -699,6 +699,12 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_sort_expression",
+		path: "caseListConfig.calculatedSorts[].expression",
+		kind: "expression",
+	},
+	{
+		entity: "module",
 		slot: "case_list_filter",
 		path: "caseListConfig.filter",
 		kind: "expression",
@@ -927,6 +933,7 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	if ("columnUuid" in member) {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
+	if ("sortUuid" in member) return JSON.stringify([...base, member.sortUuid]);
 	return JSON.stringify([...base, member.searchInputUuid]);
 }
 
@@ -953,6 +960,17 @@ function expressionRefForEntry(
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
 				return { entity: "module", uuid, slot: entry.slot };
+			case "case_list_sort_expression": {
+				const sort = mod.caseListConfig?.calculatedSorts?.[indices[0] ?? -1];
+				return sort === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { sortUuid: sort.uuid },
+						};
+			}
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
 				return column === undefined

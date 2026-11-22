@@ -32,6 +32,7 @@ DOCUMENTS = (
     "targeted-empty-list-no-english",
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
+    "targeted-independent-case-order",
     "targeted-hidden-from-menu",
     "targeted-media-slots",
     "targeted-missing-media",

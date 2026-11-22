@@ -3009,6 +3009,13 @@ def _search_and_menus():
         placed = {"columns": columns} if where == "short" else {"long_columns": columns}
         return details(_detail_module(**placed, doc_type=doc_type, **fields))
 
+    def order_shape(verdict, key, *columns, readings=False, case_types=None, **sort):
+        wire = {"doc_type": "SortElement", "field": "", "sort_calculation": "notes", "type": "plain", **sort}
+        return verdict(
+            "app", columns_app(*columns, case_type="patient", short={"sort_elements": [wire]}),
+            f"schema:SortElement.{key}", f"{short}/sort_elements/0/{key}", readings=readings, case_types=case_types,
+        )
+
     def plain(**module):
         return _module(unique_id=module.pop("unique_id", "p"), **module)
 
@@ -4076,6 +4083,26 @@ def _search_and_menus():
                 "schema:Detail.case_tile_template",
                 f"{long_}/case_tile_template",
             ),
+        ),
+        "menus-and-case-lists/sort-calculation-without-a-typed-value": (
+            order_shape(refused, "sort_calculation", sort_calculation="*", readings=True),
+            order_shape(accepted, "sort_calculation", readings=True),
+            order_shape(accepted, "sort_calculation", sort_calculation="'north'", readings=True),
+            order_shape(accepted, "sort_calculation", sort_calculation="visits * 2", readings=True,
+                        case_types={"patient": {"visits": "int"}}),
+        ),
+        "menus-and-case-lists/distance-sort-without-a-location-field": (
+            order_shape(refused, "type", type="distance"),
+            order_shape(accepted, "type", field="gps", type="distance"),
+            order_shape(accepted, "type", type="int"),
+        ),
+        "menus-and-case-lists/distance-on-a-translated-calculated-field": (
+            order_shape(refused, "type", _column("gps", "translatable-enum", useXpathExpression=True),
+                        field="_cc_calculated_0", type="distance"),
+            order_shape(accepted, "type", _column("gps", "translatable-enum"),
+                        field="gps", type="distance"),
+            order_shape(accepted, "type", _column("gps"), _column("gps", "translatable-enum", useXpathExpression=True),
+                        field="_cc_calculated_1", type="distance"),
         ),
         "menus-and-case-lists/field-and-a-differing-sort-calculation-on-any-other-column": (
             refused(

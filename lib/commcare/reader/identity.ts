@@ -36,6 +36,7 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"field",
 	"selectOption",
 	"caseListColumn",
+	"caseListSort",
 	"searchInput",
 	"caseOperation",
 	"formLink",
@@ -126,6 +127,16 @@ export const externalKey = {
 		return {
 			kind: "caseListColumn",
 			parts: [moduleUniqueId, columnKind, field, ordinal(n)],
+		};
+	},
+	caseListSort(
+		moduleUniqueId: string,
+		expressionKey: string,
+		n: number,
+	): ExternalKey {
+		return {
+			kind: "caseListSort",
+			parts: [moduleUniqueId, expressionKey, ordinal(n)],
 		};
 	},
 	searchInput(moduleUniqueId: string, name: string): ExternalKey {

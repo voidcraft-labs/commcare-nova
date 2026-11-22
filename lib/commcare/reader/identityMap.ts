@@ -24,8 +24,15 @@ import {
 	formFieldPath,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
+import type { Expression } from "@/lib/domain/expression/types";
+import { walkExpression } from "@/lib/domain/expression/walk";
+import type { LookupColumnId, LookupTableId } from "@/lib/lookup/types";
+import { moduleExpressionContexts } from "../expressionContext";
+import type { LookupWireNaming } from "../lookup/naming";
 import { planPlacements } from "../placement";
+import { hqCalculatedSortExpression } from "../suite/case-list/orderPlanOptions";
 import type { WireIdentity } from "../wireIdentity";
+import { serializeWire } from "../xpath/wire/serialize";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
 import {
 	type CaseOperationPlaceKey,
@@ -37,6 +44,7 @@ import {
 	matchingUuidOf,
 	sortIdentityMapEntries,
 } from "./identity";
+import { recordSyntaxKey } from "./syntaxCompare";
 
 /**
  * The UUID a re-read of `doc`'s export gives an entity of `key`, told
@@ -60,12 +68,41 @@ export function reReadUuidOf(
 	};
 }
 
+/** A fresh HQ inventory can have lost a table since the accepted comparison
+ * document was saved. Such a rule has no current wire spelling. Reserve its
+ * identity so a different HQ rule cannot inherit it during review. */
+function canNameCalculation(
+	expression: Expression,
+	naming: LookupWireNaming,
+): boolean {
+	let available = true;
+	const check = (tableId: LookupTableId, columnId?: LookupColumnId) => {
+		const table = naming.maybeTableFor(tableId);
+		if (
+			!table ||
+			(columnId !== undefined &&
+				!table.columns.some((column) => column.id === columnId))
+		)
+			available = false;
+	};
+	walkExpression(expression, {
+		visitTerm(term) {
+			if (term.kind === "table-column") check(term.tableId, term.columnId);
+		},
+		visitExpression(node) {
+			if (node.kind === "table-lookup")
+				check(node.tableId, node.resultColumnId);
+			if (node.kind === "table-rows") check(node.tableId);
+		},
+	});
+	return available;
+}
+
 /**
  * Every entity of `doc` that has an external key, with that key, ordered by
  * `externalKeyText`.
  *
- * Total over a document the commit gate admits: it reads no store and
- * parses nothing. A menu the emission plan adds is not an entity and has no
+ * Total over a document the commit gate admits: it reads no store. A menu the emission plan adds is not an entity and has no
  * entry. Ids are unique among siblings, option values within a select and
  * input names within a module, and the ordinal kinds count among equals, so
  * no two entities of an admitted document share a key; a document that holds
@@ -75,6 +112,7 @@ export function reReadUuidOf(
 export function externalIdentityMap(
 	doc: BlueprintDoc,
 	identity: WireIdentity,
+	lookupNaming?: LookupWireNaming,
 ): readonly IdentityMapEntry[] {
 	const entries: IdentityMapEntry[] = [];
 	const add = (key: ExternalKey, uuid: Uuid): void => {
@@ -96,6 +134,45 @@ export function externalIdentityMap(
 			);
 		const config = module.caseListConfig;
 		if (config !== undefined) {
+			if (config.calculatedSorts?.length) {
+				const expressions = moduleExpressionContexts(
+					doc,
+					module.uuid,
+					lookupNaming,
+				);
+				const counts = new Map<string, number>();
+				for (const rule of config.calculatedSorts) {
+					if (
+						lookupNaming &&
+						!canNameCalculation(rule.expression, lookupNaming)
+					) {
+						add(
+							externalKey.caseListSort(
+								uniqueId,
+								JSON.stringify(["unavailable-table", rule.uuid]),
+								0,
+							),
+							rule.uuid,
+						);
+						continue;
+					}
+					const wire = hqCalculatedSortExpression(
+						rule,
+						module,
+						expressions,
+						lookupNaming,
+					);
+					const text = serializeWire(wire, {
+						target: "hq-json",
+						interpolation: "none",
+					}).text;
+					const key = recordSyntaxKey(text);
+					add(
+						externalKey.caseListSort(uniqueId, key, nextOrdinal(counts, key)),
+						rule.uuid,
+					);
+				}
+			}
 			const columnCounts = new Map<string, number>();
 			for (const column of orderedColumns(config, "list")) {
 				// A calculated column that reads one attribute alone is read as the

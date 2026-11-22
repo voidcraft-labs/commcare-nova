@@ -366,6 +366,7 @@ function describeUserPropertyReference(
 	if (module !== undefined) {
 		const setting: Partial<Record<string, string>> = {
 			case_list_column_expression: "calculated value",
+			case_list_sort_expression: "default order calculation",
 			case_list_filter: "Cases available condition",
 			search_input_default: "search field starting value",
 			search_input_predicate: "search field condition",

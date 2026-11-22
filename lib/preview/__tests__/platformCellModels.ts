@@ -539,6 +539,7 @@ export const PLATFORM_MODEL_CHECKS = {
 				],
 				carriers: [],
 				authored: [],
+				calculations: [],
 			}),
 		).toBe(true);
 	},

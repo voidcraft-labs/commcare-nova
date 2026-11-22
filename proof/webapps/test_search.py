@@ -186,6 +186,23 @@ def test_a_list_search_in_web_apps_finds_a_hidden_columns_value_and_shows_no_col
         assert all(len(row["cells"]) == 1 for row in shown["rows"])
 
 
+def test_an_independent_order_calculation_orders_the_visible_cases(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["targeted-independent-case-order"]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([*steps.open_app("Appointments"), *steps.choose("Visits"), steps.SCREEN])
+    (screen,) = run.screens
+    shown = screen["list"]
+    evidence("independent-order", shown)
+    assert run.page_errors == []
+    assert [header["text"] for header in shown["headers"]] == ["Name"]
+    assert [row["id"] for row in shown["rows"]] == ["row-earlier-c", "row-earlier-z", "row-later", "row-missing"]
+    assert all(len(row["cells"]) == 1 for row in shown["rows"])
+
+
 def test_web_apps_shows_no_header_and_no_cell_for_a_sort_only_column(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):

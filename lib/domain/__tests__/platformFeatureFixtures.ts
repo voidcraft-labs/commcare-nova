@@ -393,6 +393,43 @@ const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
 export const PLATFORM_FEATURE_FIXTURES = {
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
+	"sort-by-distance": {
+		with: () =>
+			caseApp({
+				columns: [
+					plainColumn(FIXTURE_COLUMN, "coordinates", "Coordinates", {
+						sort: columnSort("asc", 0, undefined, undefined, "distance"),
+					}),
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					plainColumn(FIXTURE_COLUMN, "coordinates", "Coordinates", {
+						sort: columnSort("asc", 0),
+					}),
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"sort-by-distance",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].sort.comparator",
+		),
+	},
 	"case-list-here": {
 		with: () =>
 			caseApp({

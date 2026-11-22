@@ -3,9 +3,11 @@
 // Sort-priority resolution for the canvas-owned Default order editor.
 
 import {
+	type CalculatedSort,
 	type CaseListConfig,
 	type Column,
 	type ColumnSort,
+	calculatedColumn,
 	columnSort,
 	orderedColumns,
 	type Uuid,
@@ -37,6 +39,7 @@ export function orderChoiceColumn(column: Column, tiled: boolean): Column {
 export function columnsAfterRuleSequence(
 	columns: readonly Column[],
 	rules: readonly Column[],
+	positions?: ReadonlyMap<Uuid, number>,
 ): Column[] {
 	const ruleByUuid = new Map<
 		Uuid,
@@ -47,9 +50,11 @@ export function columnsAfterRuleSequence(
 			rule,
 			sort: columnSort(
 				rule.sort?.direction ?? "asc",
-				index,
+				positions?.get(rule.uuid) ?? index,
 				rule.sort?.blanks,
 				rule.sort?.label,
+				rule.sort?.comparator,
+				rule.sort?.menuPosition,
 			),
 		});
 	});
@@ -114,4 +119,27 @@ export function resolveSortedColumns(
 		return a.index - b.index;
 	});
 	return sorted.map((entry) => entry.column);
+}
+
+/** A calculation shares the Default order controls with a column. This
+ * projection lives only in the composer and never enters a Results or Details list. */
+export function orderingCalculationRow(
+	rule: CalculatedSort,
+): Extract<Column, { kind: "calculated" }> {
+	return calculatedColumn(
+		rule.uuid,
+		rule.label ?? "Order calculation",
+		rule.expression,
+		{
+			visibleInList: false,
+			visibleInDetail: false,
+			sort: columnSort(
+				rule.direction,
+				rule.priority,
+				rule.blanks,
+				rule.label,
+				rule.comparator,
+			),
+		},
+	);
 }

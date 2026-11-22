@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { eq, literal, prop } from "@/lib/domain/expression";
+import { eq, literal, prop, term } from "@/lib/domain/expression";
 import {
 	configureCaseListInputSchema,
 	configureCaseListTool,
@@ -18,6 +18,83 @@ const PHONE_COLUMN = testUuid("configure-case-list-phone-column");
 const NAME_SEARCH = testUuid("configure-case-list-name-search");
 
 describe("configureCaseList", () => {
+	it("keeps an independent order calculation out of Results and preserves its identity across edits", async () => {
+		const h = makeCaseListFixture();
+		const original = h.currentDoc().modules[MOD_A].caseListConfig;
+		const expression = term(prop("patient", "case_name"));
+		const first = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			calculatedSorts: [
+				{
+					expression,
+					priority: 0,
+					direction: "asc",
+					comparator: "integer",
+					blanks: "last",
+					label: "Visit number",
+				},
+			],
+		});
+		if ("error" in first.result) throw new Error(first.result.error);
+		const uuid = first.result.calculatedSortUuids?.[0];
+		if (!uuid) throw new Error("Missing calculation identity");
+		expect(first.mutations.map((m) => m.kind)).toEqual(["addCalculatedSort"]);
+		expect(h.currentDoc().modules[MOD_A].caseListConfig?.columns).toEqual(
+			original?.columns,
+		);
+
+		const invalid = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			removeCalculatedSorts: [BASE_COLUMN],
+			calculatedSorts: [
+				{
+					sortUuid: uuid,
+					expression,
+					priority: 0,
+					direction: "desc",
+					label: "Changed",
+				},
+			],
+		});
+		expect(invalid.result).toHaveProperty("error");
+		expect(
+			h.currentDoc().modules[MOD_A].caseListConfig?.calculatedSorts?.[0]?.label,
+		).toBe("Visit number");
+
+		const changed = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			calculatedSorts: [
+				{
+					sortUuid: uuid,
+					expression,
+					priority: 0,
+					direction: "desc",
+					blanks: "last",
+					label: "Latest visit",
+				},
+			],
+		});
+		if ("error" in changed.result) throw new Error(changed.result.error);
+		expect(changed.result.calculatedSortUuids).toEqual([uuid]);
+		expect(
+			h.currentDoc().modules[MOD_A].caseListConfig?.calculatedSorts,
+		).toEqual([
+			{
+				uuid,
+				expression,
+				priority: 0,
+				direction: "desc",
+				label: "Latest visit",
+			},
+		]);
+		const removed = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			removeCalculatedSorts: [uuid],
+		});
+		if ("error" in removed.result) throw new Error(removed.result.error);
+		expect(h.currentDoc().modules[MOD_A].caseListConfig).toEqual(original);
+	});
+
 	it("lands one coherent configuration as granular mutations", async () => {
 		const h = makeCaseListFixture();
 		const result = await h.runTool(configureCaseListTool, {

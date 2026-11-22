@@ -37,6 +37,7 @@ import {
 	type HqFailure,
 	hqReadCircumstance,
 } from "@/lib/commcare/hq/failure";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import type { ReadDraft } from "@/lib/commcare/reader";
@@ -121,7 +122,12 @@ import {
 	acceptReadingSteps,
 } from "../reading/acceptance";
 
-import { editModeTest, formsWithinReading, Pieces } from "../reading/gather";
+import {
+	editModeTest,
+	formsWithinReading,
+	Pieces,
+	readerLookupContext,
+} from "../reading/gather";
 import { reviewMediaId } from "../reading/mediaIds";
 import {
 	projectDataReadsOf,
@@ -1487,17 +1493,18 @@ export function projectDataFindingsNow(
 		data,
 		projectDataReadsOf(data, now),
 		now.kind === "account" ? null : now.draft.doc,
-		resolverOf(fetched),
+		resolverOf(fetched, data),
 	);
 }
 
 /** The resolver over the reference's identities under the deployment's ids. */
-function resolverOf(fetched: HqChangesBasis) {
+function resolverOf(fetched: HqChangesBasis, data: ReadingProjectData) {
 	return matchingResolver(
 		fetched.scope.appId,
 		externalIdentityMap(
 			fetched.reference.identityDoc,
 			targetWireIdentity(fetched.targetIdentity.entities),
+			lookupWireNaming(readerLookupContext(data).definitions),
 		),
 	);
 }
@@ -1638,7 +1645,7 @@ export async function checkHqChanges(
 						data,
 						readsNow,
 						null,
-						resolverOf(fetched),
+						resolverOf(fetched, data),
 					),
 				]),
 			};
@@ -1654,7 +1661,7 @@ export async function checkHqChanges(
 			data,
 			readsNow,
 			draft.doc,
-			resolverOf(fetched),
+			resolverOf(fetched, data),
 		);
 		const files = readingMediaFindings({
 			media: hqPlan,
@@ -1881,7 +1888,7 @@ export async function checkHqChanges(
 						data,
 						readsNow,
 						draft.doc,
-						resolverOf(fetched),
+						resolverOf(fetched, data),
 					).tables.filter((table) => newTagSet.has(table.tag));
 		const reviewDigest = hqChangesReviewDigest({
 			identity: receipt,

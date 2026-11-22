@@ -850,7 +850,7 @@ function checkSortElementSpelling(
 						'its blanks is empty, where the Case List page writes "first" or "last"',
 					]
 				: []),
-			...(element.sort_calculation !== ""
+			...(element.sort_calculation !== "" && element.field !== ""
 				? [
 						"it holds a sort_calculation, which the Case List page's save empties",
 					]
@@ -890,7 +890,11 @@ function checkDetailFields(
 ): void {
 	const fields = [
 		...detail.sort_elements
-			.filter((element) => !CALCULATED_SORT_FIELD.test(element.field))
+			.filter(
+				(element) =>
+					!element.sort_calculation &&
+					!CALCULATED_SORT_FIELD.test(element.field),
+			)
 			.map((element) => ["sort element", element.field] as const),
 		...detail.columns
 			.filter((column) => !column.useXpathExpression)

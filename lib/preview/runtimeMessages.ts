@@ -270,6 +270,8 @@ const english = {
 		"{subject} worker information {worker} doesn't have, so a phone stops here. If it reads {worker}'s place, you can give {worker} a place under Users and personas in App setup.",
 	dataRefusalWorkerMe:
 		"{subject} worker information you don't have, so a phone stops here. If it reads your place, you can preview as a persona who has a place.",
+	dataRefusalCaseLocation:
+		"A saved case location has coordinates a phone can’t read. A project editor can correct the location in the case data or choose another way to order the list.",
 	dataRefusalOther:
 		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
 	thisQuestion: "this question",
@@ -604,6 +606,8 @@ const spanish: Record<RuntimeMessage, string> = {
 		"{subject} información del trabajador que {worker} no tiene, así que un teléfono se detiene aquí. Si lee el lugar de {worker}, puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
 	dataRefusalWorkerMe:
 		"{subject} información del trabajador que usted no tiene, así que un teléfono se detiene aquí. Si lee su lugar, puede ver la vista previa como una persona que tenga un lugar.",
+	dataRefusalCaseLocation:
+		"Una ubicación guardada tiene coordenadas que el teléfono no puede leer. Una persona con permiso para editar el proyecto puede corregir la ubicación en los datos del caso o elegir otro orden para la lista.",
 	dataRefusalOther:
 		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
 	thisQuestion: "esta pregunta",
@@ -798,6 +802,8 @@ export function dataRefusalCopy(
 						? body("dataRefusalPlacesMe")
 						: body("dataRefusalPlacesPersona", { worker: names.worker }),
 			};
+		case "invalid-case-location":
+			return { title, body: body("dataRefusalCaseLocation") };
 		case "owner-place":
 			return {
 				title,

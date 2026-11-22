@@ -111,6 +111,7 @@
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import type { ScalarType } from "./expression/typeChecker";
 import {
+	type CalculatedSort,
 	type CaseListConfig,
 	type Column,
 	type ColumnVia,
@@ -121,6 +122,7 @@ import {
 	imageMapShowsImages,
 	orderedColumns,
 	type SortBlanks,
+	type SortComparison,
 	type SortDirection,
 	sameColumnVia,
 	sortBlanks,
@@ -139,6 +141,18 @@ export interface CaseListOrderProperty {
  *  carries the column's walk (`modules.ts::columnViaSchema`); the property is
  *  then the related case's. */
 export type CaseListSortKey =
+	| { readonly kind: "independent-calculation"; readonly sort: CalculatedSort }
+	| {
+			readonly kind: "distance-property";
+			readonly column: Uuid;
+			readonly property: string;
+			readonly via?: ColumnVia;
+	  }
+	| {
+			readonly kind: "distance-calculated";
+			readonly column: Uuid;
+			readonly unbound?: true;
+	  }
 	/** The raw value. */
 	| {
 			readonly kind: "property";
@@ -160,7 +174,13 @@ export type CaseListSortKey =
 	/** The calculated column's value. */
 	| { readonly kind: "calculated"; readonly column: Uuid };
 
-export type CaseListComparator = "text" | "integer" | "decimal";
+/** The query returns the exact distance it used, so filtering and resolving
+ * ties on the displayed page use that same location fix. */
+export function caseSortDistanceValue(column: Uuid): string {
+	return `distance:${column}`;
+}
+
+export type CaseListComparator = Exclude<SortComparison, "distance">;
 
 /** The sort element HQ JSON writes for a rule (rule 4). */
 export type CaseListOrderElement =
@@ -220,6 +240,7 @@ export interface CaseListOrderCarrier {
 	readonly field: string;
 	readonly via?: ColumnVia;
 	readonly comparator: CaseListComparator;
+	readonly key: CaseListSortKey;
 	readonly rule: CaseListOrderRule;
 }
 
@@ -231,6 +252,8 @@ export interface CaseListAuthoredRule {
 	readonly joinText: string;
 	/** The key that column orders by with the rule on itself. */
 	readonly ownKey: CaseListSortKey;
+	/** The ordinary comparison, where the authored rule can select another one. */
+	readonly defaultComparison?: SortComparison;
 	/** The field that takes the rule, or a carrier; absent where another rule
 	 *  with that text replaced it. */
 	readonly landsOn?: number | "carrier";
@@ -241,6 +264,16 @@ export interface CaseListOrderPlan {
 	readonly carriers: readonly CaseListOrderCarrier[];
 	/** Every authored rule that has an element, in rule order. */
 	readonly authored: readonly CaseListAuthoredRule[];
+	/** The effective rules that must introduce their choices early, in the
+	 * worker's physical menu order, before their final default precedence. */
+	readonly introductionOrders: readonly number[];
+	readonly calculations: readonly {
+		readonly sort: CalculatedSort;
+		readonly defaultComparison: CaseListComparator;
+		readonly order: number;
+		readonly comparator: CaseListComparator;
+		readonly blanks: SortBlanks;
+	}[];
 }
 
 export interface CaseListOrderOptions {
@@ -252,12 +285,26 @@ export interface CaseListOrderOptions {
 	readonly calculatedType: (column: Column) => ScalarType | undefined;
 	/** The text HQ JSON writes as an expression column's `field` on Results. */
 	readonly expressionText: (column: Column) => string;
+	readonly sortType?: (sort: CalculatedSort) => ScalarType | undefined;
 	/** The catalog of the case a column's walk reaches; absent or undefined
 	 *  where the caller knows none, which reads every such property as
 	 *  untyped. */
 	readonly relatedProperties?: (
 		via: ColumnVia,
 	) => readonly CaseListOrderProperty[] | undefined;
+}
+
+/** How many choices must be introduced ahead of the default order to keep
+ * their physical sequence. The remaining suffix already appears in order. */
+export function choicePrefixLength<T>(
+	choices: readonly T[],
+	priority: (choice: T) => number,
+): number {
+	let length = 0;
+	for (let i = 1; i < choices.length; i++) {
+		if (priority(choices[i]) < priority(choices[i - 1])) length = i;
+	}
+	return length;
 }
 
 /** The comparator a property's data type orders by: `int` integer,
@@ -270,7 +317,7 @@ export function comparatorForDataType(
 	return "text";
 }
 
-function comparatorForResolvedType(
+export function comparatorForResolvedType(
 	type: ScalarType | undefined,
 ): CaseListComparator {
 	if (type === "int") return "integer";
@@ -298,13 +345,16 @@ export function casePropertyShowsOptionLabels(
 }
 
 /** The key over a property column's own value, its walk included. */
-function propertyKey<K extends "property" | "option-label">(
+function propertyKey<
+	K extends "property" | "option-label" | "distance-property",
+>(
 	kind: K,
 	column: Extract<Column, { field: string }>,
 ): Extract<CaseListSortKey, { kind: K }> {
 	return {
 		kind,
 		property: column.field,
+		...(kind === "distance-property" && { column: column.uuid }),
 		...(column.via !== undefined && { via: column.via }),
 	} as Extract<CaseListSortKey, { kind: K }>;
 }
@@ -462,7 +512,25 @@ export function caseListOrderPlan(
 	function ruledKeyOf(
 		field: FieldDraft,
 		implicit: boolean,
+		override?: SortComparison,
 	): { key: CaseListSortKey; comparator: CaseListComparator } {
+		if (override === "distance") {
+			return {
+				key:
+					field.wire === "expression" || field.column.kind === "calculated"
+						? {
+								kind: "distance-calculated",
+								column: field.column.uuid,
+								...((field.restingKey?.kind === "option-label" ||
+									field.restingKey?.kind === "interval-text") && {
+									unbound: true as const,
+								}),
+							}
+						: propertyKey("distance-property", field.column),
+				comparator:
+					field.restingKey === undefined ? "decimal" : field.restingComparator,
+			};
+		}
 		if (field.restingKey !== undefined) {
 			return { key: field.restingKey, comparator: field.restingComparator };
 		}
@@ -472,18 +540,21 @@ export function caseListOrderPlan(
 				key: { kind: "calculated", column: column.uuid },
 				comparator: implicit
 					? "text"
-					: comparatorForResolvedType(options.calculatedType(column)),
+					: (override ??
+						comparatorForResolvedType(options.calculatedType(column))),
 			};
 		}
 		if (column.kind === "link" && !field.hidden) {
 			return {
 				key: { kind: "link-text", column: column.uuid },
-				comparator: "text",
+				comparator: override ?? "text",
 			};
 		}
 		return {
 			key: propertyKey("property", column),
-			comparator: implicit ? "text" : comparatorForDataType(dataTypeOf(column)),
+			comparator: implicit
+				? "text"
+				: (override ?? comparatorForDataType(dataTypeOf(column))),
 		};
 	}
 
@@ -521,7 +592,10 @@ export function caseListOrderPlan(
 				...base,
 				element: { kind: "property", property: columnFieldText(column) },
 				joinText: columnFieldText(column),
-				ownKey: propertyKey("property", column),
+				ownKey: propertyKey(
+					sort.comparator === "distance" ? "distance-property" : "property",
+					column,
+				),
 			});
 			continue;
 		}
@@ -536,7 +610,10 @@ export function caseListOrderPlan(
 				...base,
 				element: { kind: "property", property: columnFieldText(column) },
 				joinText: columnFieldText(column),
-				ownKey: propertyKey("property", column),
+				ownKey: propertyKey(
+					sort.comparator === "distance" ? "distance-property" : "property",
+					column,
+				),
 			});
 			continue;
 		}
@@ -547,12 +624,16 @@ export function caseListOrderPlan(
 					? { kind: "property", property: field.joinText }
 					: { kind: "positional", position: field.position },
 			joinText: field.joinText,
-			ownKey: ruledKeyOf(field, false).key,
+			ownKey: ruledKeyOf(field, false, sort.comparator).key,
 		});
 	}
 
 	// Rule 7: the implicit rule of a list with no authored element.
-	if (pending.length === 0 && fields.length > 0) {
+	if (
+		pending.length === 0 &&
+		!config.calculatedSorts?.length &&
+		fields.length > 0
+	) {
 		const target = fields.find((field) => !field.hidden) ?? fields[0];
 		pending.push({
 			sequence: 0,
@@ -598,15 +679,48 @@ export function caseListOrderPlan(
 		byJoinText.delete(field.joinText);
 		landedOn.set(rule, field.position);
 	}
-	const carrierRules = [...byPropertyName.values()];
+	const carrierMenuPosition = (rule: Pending) =>
+		rule.authoredOn?.sort?.menuPosition ?? Number.POSITIVE_INFINITY;
+	const carrierRules = [...byPropertyName.values()].sort((a, b) => {
+		const aPosition = carrierMenuPosition(a);
+		const bPosition = carrierMenuPosition(b);
+		return aPosition === bPosition
+			? a.sequence - b.sequence
+			: aPosition - bPosition;
+	});
 	for (const rule of carrierRules) landedOn.set(rule, "carrier");
 
 	// Orders are dense over the rules that land, in rule order: a rule another
 	// one replaced is written nowhere.
-	const orderOf = new Map<Pending, number>();
-	for (const rule of pending.filter((candidate) => landedOn.has(candidate))) {
-		orderOf.set(rule, orderOf.size + 1);
-	}
+	const orderOf = new Map<Pending | CalculatedSort, number>();
+	const sequence = [
+		...pending
+			.filter((rule) => landedOn.has(rule))
+			.map((rule) => ({
+				rule,
+				priority: rule.authoredOn?.sort?.priority ?? 0,
+			})),
+		...(config.calculatedSorts ?? []).map((rule) => ({
+			rule,
+			priority: rule.priority,
+		})),
+	].sort((a, b) => a.priority - b.priority);
+	// HQ's separate property and calculation dictionaries preserve each key's
+	// first insertion. Its last occurrence decides the default order. Introduce
+	// only the prefix needed for each group's physical worker menu order.
+	const calculations = config.calculatedSorts ?? [];
+	const introductions = [
+		...carrierRules.slice(
+			0,
+			choicePrefixLength(carrierRules, (rule) => rule.sequence),
+		),
+		...calculations.slice(
+			0,
+			choicePrefixLength(calculations, (rule) => rule.priority),
+		),
+	];
+	for (const { rule } of sequence)
+		orderOf.set(rule, introductions.length + orderOf.size + 1);
 	// Rule 10: the label rides a rule that lands on a hidden field or a carrier.
 	const labelOf = (rule: Pending): CaseListSortLabel | undefined => {
 		const column = rule.authoredOn;
@@ -638,12 +752,27 @@ export function caseListOrderPlan(
 	}
 
 	return {
+		introductionOrders: introductions.map(
+			(rule) => orderOf.get(rule) as number,
+		),
+		calculations: calculations.map((sort) => {
+			const defaultComparison = comparatorForResolvedType(
+				options.sortType?.(sort),
+			);
+			return {
+				sort,
+				defaultComparison,
+				order: orderOf.get(sort) ?? 0,
+				comparator: sort.comparator ?? defaultComparison,
+				blanks: sort.blanks ?? defaultSortBlanks(sort.direction),
+			};
+		}),
 		fields: fields.map((field): CaseListShortField => {
 			const rule = ruleByPosition.get(field.position);
 			const { key, comparator } =
 				rule === undefined
 					? { key: field.restingKey, comparator: field.restingComparator }
-					: ruledKeyOf(field, rule.implicit);
+					: ruledKeyOf(field, rule.implicit, rule.authoredOn?.sort?.comparator);
 			return {
 				column: field.column,
 				position: field.position,
@@ -655,41 +784,55 @@ export function caseListOrderPlan(
 				...(rule !== undefined && { rule: finalRule(rule) }),
 			};
 		}),
-		carriers: carrierRules
-			.sort((a, b) => a.sequence - b.sequence)
-			.flatMap((rule): CaseListOrderCarrier[] => {
-				// Only an authored rule on a property column can land on a carrier:
-				// the implicit rule always names a field.
-				const column = rule.authoredOn;
-				if (
-					column === undefined ||
-					column.kind === "calculated" ||
-					rule.element.kind !== "property"
-				)
-					return [];
-				return [
-					{
-						property: rule.element.property,
-						column: column.uuid,
-						field: column.field,
-						...(column.via !== undefined && { via: column.via }),
-						comparator: rule.implicit
-							? "text"
-							: comparatorForDataType(dataTypeOf(column)),
-						rule: finalRule(rule),
-					},
-				];
-			}),
+		carriers: carrierRules.flatMap((rule): CaseListOrderCarrier[] => {
+			// Only an authored rule on a property column can land on a carrier:
+			// the implicit rule always names a field.
+			const column = rule.authoredOn;
+			if (
+				column === undefined ||
+				column.kind === "calculated" ||
+				rule.element.kind !== "property"
+			)
+				return [];
+			return [
+				{
+					property: rule.element.property,
+					column: column.uuid,
+					field: column.field,
+					...(column.via !== undefined && { via: column.via }),
+					key: propertyKey(
+						column.sort?.comparator === "distance"
+							? "distance-property"
+							: "property",
+						column,
+					),
+					comparator:
+						column.sort?.comparator === "distance"
+							? "decimal"
+							: (column.sort?.comparator ??
+								comparatorForDataType(dataTypeOf(column))),
+					rule: finalRule(rule),
+				},
+			];
+		}),
 		authored: pending.flatMap((rule): CaseListAuthoredRule[] => {
 			if (rule.authoredOn === undefined || rule.ownKey === undefined) {
 				return [];
 			}
 			const landsOn = landedOn.get(rule);
+			const field = typeof landsOn === "number" ? fields[landsOn] : undefined;
+			const defaultComparison =
+				field && field.restingKey === undefined
+					? ruledKeyOf(field, false).comparator
+					: landsOn === "carrier" && rule.authoredOn.kind !== "calculated"
+						? comparatorForDataType(dataTypeOf(rule.authoredOn))
+						: undefined;
 			return [
 				{
 					column: rule.authoredOn.uuid,
 					joinText: rule.joinText,
 					ownKey: rule.ownKey,
+					...(defaultComparison !== undefined && { defaultComparison }),
 					...(landsOn !== undefined && { landsOn }),
 				},
 			];
@@ -717,16 +860,20 @@ export function caseListSingleFieldOrder(
 ): CaseListSingleFieldOrder | undefined {
 	const turn = (direction: SortDirection): SortDirection =>
 		reversed ? (direction === "asc" ? "desc" : "asc") : direction;
+	const calc = plan.calculations.find((rule) => rule.sort.uuid === column);
+	if (calc)
+		return {
+			key: { kind: "independent-calculation", sort: calc.sort },
+			comparator: calc.comparator,
+			direction: turn(calc.sort.direction),
+			blanks: calc.blanks,
+		};
 	const carrier = plan.carriers.find(
 		(candidate) => candidate.column === column,
 	);
 	if (carrier !== undefined) {
 		return {
-			key: {
-				kind: "property",
-				property: carrier.field,
-				...(carrier.via !== undefined && { via: carrier.via }),
-			},
+			key: carrier.key,
 			comparator: carrier.comparator,
 			direction: turn(carrier.rule.direction),
 			blanks: carrier.rule.blanks,
@@ -810,7 +957,20 @@ export function caseListSortKeysMatch(
 	b: CaseListSortKey,
 	expressionText: (column: Column) => string,
 ): boolean {
-	if (a.kind === "property" || a.kind === "option-label") {
+	if (
+		a.kind === "independent-calculation" ||
+		b.kind === "independent-calculation"
+	)
+		return (
+			a.kind === "independent-calculation" &&
+			b.kind === "independent-calculation" &&
+			a.sort.uuid === b.sort.uuid
+		);
+	if (
+		a.kind === "property" ||
+		a.kind === "option-label" ||
+		a.kind === "distance-property"
+	) {
 		return (
 			sameSortKeyKind(a, b) &&
 			a.property === b.property &&

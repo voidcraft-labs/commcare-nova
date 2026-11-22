@@ -34,6 +34,7 @@ import {
 	type MediaAssetId,
 	type Uuid,
 } from "@/lib/domain";
+import { caseSortDistanceValue } from "@/lib/domain/caseListOrder";
 import {
 	type CaseListSortChoice,
 	LIST_ORDER,
@@ -192,8 +193,19 @@ export function caseListFilterFields(
 			fields.push({ text: shownText(column), sortText: null });
 	for (const carrier of plan.carriers) {
 		const raw = carrierRawText(carrier, row, context);
-		fields.push({ text: raw, sortText: raw });
+		fields.push({
+			text: raw,
+			sortText:
+				carrier.key.kind === "distance-property"
+					? String(row.calculated[caseSortDistanceValue(carrier.column)] ?? "")
+					: raw,
+		});
 	}
+	for (const calc of plan.calculations)
+		fields.push({
+			text: "",
+			sortText: String(row.calculated[calc.sort.uuid] ?? ""),
+		});
 	return fields;
 }
 
@@ -241,6 +253,11 @@ function sortKeyText(
 ): string {
 	const { column } = field;
 	switch (key.kind) {
+		case "distance-property":
+		case "distance-calculated":
+			return String(row.calculated[caseSortDistanceValue(key.column)] ?? "");
+		case "independent-calculation":
+			return String(row.calculated[key.sort.uuid] ?? "");
 		case "property":
 			return keyRawText(key, column, row, context);
 		case "option-label":
@@ -303,12 +320,27 @@ export function caseListOrderTerms(
 			terms: fieldOrderTerms(field.key, field.comparator, field, row, context),
 		});
 	}
+	for (const calc of plan.calculations)
+		rules.push({
+			order: calc.order,
+			terms: [
+				{
+					text: String(row.calculated[calc.sort.uuid] ?? ""),
+					comparator: calc.comparator,
+				},
+			],
+		});
 	for (const carrier of plan.carriers)
 		rules.push({
 			order: carrier.rule.order,
 			terms: [
 				{
-					text: carrierRawText(carrier, row, context),
+					text:
+						carrier.key.kind === "distance-property"
+							? String(
+									row.calculated[caseSortDistanceValue(carrier.column)] ?? "",
+								)
+							: carrierRawText(carrier, row, context),
 					comparator: carrier.comparator,
 				},
 			],
@@ -329,13 +361,25 @@ function pickOrderTerms(
 ): OrderTerm[] {
 	const order = caseListSingleFieldOrder(plan, column, reversed);
 	if (order === undefined) return [];
+	if (order.key.kind === "independent-calculation")
+		return [
+			{
+				text: String(row.calculated[order.key.sort.uuid] ?? ""),
+				comparator: order.comparator,
+			},
+		];
 	const carrier = plan.carriers.find(
 		(candidate) => candidate.column === column,
 	);
 	if (carrier !== undefined)
 		return [
 			{
-				text: carrierRawText(carrier, row, context),
+				text:
+					carrier.key.kind === "distance-property"
+						? String(
+								row.calculated[caseSortDistanceValue(carrier.column)] ?? "",
+							)
+						: carrierRawText(carrier, row, context),
 				comparator: order.comparator,
 			},
 		];
@@ -359,7 +403,11 @@ function fieldOrderTerms(
 			{
 				text: sortKeyText(key, field, row, context),
 				comparator:
-					key.kind === "property" || key.kind === "calculated"
+					key.kind === "property" ||
+					key.kind === "calculated" ||
+					key.kind === "distance-property" ||
+					key.kind === "distance-calculated" ||
+					key.kind === "independent-calculation"
 						? comparator
 						: "text",
 			},

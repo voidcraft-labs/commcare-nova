@@ -39,6 +39,7 @@ const SESSION_INSTANCE_ID = "commcaresession";
 const SEARCH_INPUT_INSTANCE_PREFIX = "search-input:";
 
 export type PreviewDataRefusalReason =
+	| { readonly kind: "invalid-case-location" }
 	/** A value read below an instance that holds nothing, named by its id. */
 	| { readonly kind: "empty-instance"; readonly instanceId: string }
 	/** A case owner moved to the worker's place at a level, for a worker
@@ -83,13 +84,15 @@ export class PreviewDataRefusal extends Error {
 		stage: PreviewDataRefusalStage = "form",
 	) {
 		super(
-			reason.kind === "empty-instance"
-				? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
-				: reason.kind === "owner-without-place"
-					? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
-					: reason.kind === "unoffered-starting-choice"
-						? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
-						: "CommCare refuses this choice list: its table has no rows.",
+			reason.kind === "invalid-case-location"
+				? "A saved case location cannot be read as coordinates."
+				: reason.kind === "empty-instance"
+					? `CommCare refuses this read: the instance “${reason.instanceId}” holds nothing on the device.`
+					: reason.kind === "owner-without-place"
+						? "CommCare refuses this case owner: the worker is assigned no place to move the case to."
+						: reason.kind === "unoffered-starting-choice"
+							? `CommCare refuses this Search screen: its one field “${reason.input}” starts on a choice its list doesn't offer.`
+							: "CommCare refuses this choice list: its table has no rows.",
 		);
 		this.name = "PreviewDataRefusal";
 		this.reason = reason;
@@ -150,6 +153,7 @@ export function workerFailureError(failure: XPathRuntimeFailure): Error {
 
 /** What a refusal is about, named from the document and the lookup data. */
 export type PreviewDataRefusalSubject =
+	| { readonly kind: "invalid-case-location" }
 	| { readonly kind: "places" }
 	| { readonly kind: "owner-place" }
 	| { readonly kind: "table"; readonly tableName: string }
@@ -191,6 +195,7 @@ export function previewDataRefusalSubject(
 				: { fieldUuid: reason.fieldUuid }),
 		};
 	}
+	if (reason.kind === "invalid-case-location") return reason;
 	if (reason.kind === "owner-without-place") return { kind: "owner-place" };
 	if (reason.kind === "unoffered-starting-choice")
 		return { kind: "starting-choice", input: reason.input };

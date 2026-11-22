@@ -4882,6 +4882,94 @@ def _sorted_column(columns, field):
     return None
 
 
+def _case_order_type(tree, properties):
+    """The type supplied by a case-row expression, when its operands establish one."""
+    kind = tree[0]
+    if kind == "number":
+        return "number"
+    if kind == "text":
+        return "text"
+    if kind == "path":
+        prop = _bare_read(tree, "child")
+        if prop == "*" or (
+            tree[1] == "instance:casedb"
+            and tree[4] == [["child", "casedb", 0], ["child", "case", 0]]
+        ):
+            return "collection"
+        if prop is not None:
+            data_type = properties.get(prop)
+            return "number" if data_type in ("int", "decimal") else data_type or "scalar"
+        if _bare_read(tree, "attribute") in ("case_id", "case_type"):
+            return "text"
+        if tree[1] == "instance:commcaresession" and _session_context_read(tree) in (
+            "username", "userid",
+        ):
+            return "text"
+        return None
+    if kind == "negative":
+        return "number" if _case_order_type(tree[1], properties) == "number" else None
+    if kind == "binary":
+        left, right = (_case_order_type(node, properties) for node in tree[2:])
+        if left == right == "number" and tree[1] in ("+", "-", "*", "div", "mod"):
+            return "number"
+        if left == right and left in ("number", "text") and tree[1] in ("=", "!=", "<", "<=", ">", ">="):
+            return "boolean"
+        return None
+    if kind == "call":
+        args = [_case_order_type(node, properties) for node in tree[2]]
+        if tree[1] == "concat" and len(args) >= 2 and all(arg not in (None, "collection") for arg in args):
+            return "text"
+        if tree[1] == "if" and len(args) == 3 and args[0] == "boolean" and args[1] == args[2]:
+            return args[1]
+    return None
+
+
+def independent_sort_without_scalar(use, manifest):
+    """Classify the selected case's scalar independently of Nova's reader.
+    An expression with an unresolved binding or function stays undecided."""
+    at = _json(use)
+    sort = at.nearest("SortElement") if at is not None else None
+    if sort is None:
+        return None
+    text = sort.get("sort_calculation")
+    if sort.get("field") != "" or not isinstance(text, str) or not text.strip():
+        return False
+    tree = at.app.tree(text)
+    if tree is None:
+        return None
+    properties = (at.app.case_types or {}).get(_list_case_type(use)) or {}
+    result = _case_order_type(tree, properties)
+    return None if result is None else result == "collection"
+
+
+def calculated_distance_without_property(use, manifest):
+    """HQ's invisible temporary column has an empty field for Distance to evaluate."""
+    at = _json(use)
+    sort = at.nearest("SortElement") if at is not None else None
+    if sort is None:
+        return None
+    calculation = sort.get("sort_calculation")
+    return sort.get("type") == "distance" and sort.get("field") == "" and isinstance(calculation, str) and bool(calculation.strip())
+
+
+def distance_on_translated_calculation(use, manifest):
+    """The translated expression's sort node reads a calculated variable its template never defines."""
+    at = _json(use)
+    detail = at.nearest("Detail") if at is not None else None
+    sort = at.nearest("SortElement") if at is not None else None
+    if detail is None or sort is None:
+        return None
+    if sort.get("type") != "distance" or not sort.get("field"):
+        return False
+    columns = _columns(detail)
+    named = _sorted_column(columns, sort["field"])
+    if named is None:
+        return False
+    # A positional reference uses the named column's text to find the first column with that field.
+    landing = next((column for column in columns if column.get("field") == named.get("field")), named)
+    return bool(landing.get("useXpathExpression")) and _format(landing) == "translatable-enum"
+
+
 def beside_a_field_on_another_format(use, manifest):
     """``menus-and-case-lists/field-and-a-differing-sort-calculation-on-any-other-column``: a sort element
     with a field and a ``sort_calculation`` that differs from what its column (``_sorted_column``) shows, on a
@@ -9943,6 +10031,9 @@ VALUE_CLASSES = {
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws": (
         media_reference_drawn_without_entry
     ),
+    "menus-and-case-lists/sort-calculation-without-a-typed-value": independent_sort_without_scalar,
+    "menus-and-case-lists/distance-sort-without-a-location-field": calculated_distance_without_property,
+    "menus-and-case-lists/distance-on-a-translated-calculated-field": distance_on_translated_calculation,
     "menus-and-case-lists/type-index-cache-and-index-order-2": sort_type_index,
     "expressions-and-data/image-tiff-heif": tiff_heif,
     "expressions-and-data/image-svg": svg_image,

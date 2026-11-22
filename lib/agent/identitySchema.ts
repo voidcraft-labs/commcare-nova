@@ -10,6 +10,7 @@ export type AuthorableIdentityFamily =
 	| "field"
 	| "select-option"
 	| "case-list-column"
+	| "case-list-sort"
 	| "search-input"
 	| "worker-property"
 	| "user-type"
@@ -223,6 +224,12 @@ export function classifyIdentity(
 	) {
 		return "search-input";
 	}
+	if (
+		property === "sortUuid" ||
+		property === "calculatedSortUuids" ||
+		property === "removeCalculatedSorts"
+	)
+		return "case-list-sort";
 	if (property === "userPropertyUuid") return "worker-property";
 	if (property === "userTypeUuid") return "user-type";
 	if (property === "personaUuid") return "persona";

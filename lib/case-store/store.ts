@@ -219,6 +219,14 @@ export type SortKey =
 			readonly blanks: "first" | "last";
 	  }
 	| {
+			readonly kind: "distance";
+			readonly valueId: string;
+			readonly expression: DomainExpression;
+			readonly comparator: "text" | "integer" | "decimal";
+			readonly direction: "asc" | "desc";
+			readonly blanks: "first" | "last";
+	  }
+	| {
 			readonly kind: "interval-text";
 			readonly property: string;
 			/** The walk to the case whose property it reads, and that case's
@@ -389,7 +397,14 @@ export interface QueryArgs {
 	knownInputs?: readonly SearchInputDecl[];
 	predicate?: DomainExpression;
 	sort?: SortKey[];
-	calculated?: ReadonlyArray<CalculatedColumn>;
+	calculated?: ReadonlyArray<
+		| CalculatedColumn
+		| {
+				readonly uuid: string;
+				readonly expression: DomainExpression;
+				readonly deviceText: true;
+		  }
+	>;
 	/**
 	 * Values a case list reads off another case, each the text a device holds
 	 * for its expression (`compileDeviceTextExpression`: a multi select's

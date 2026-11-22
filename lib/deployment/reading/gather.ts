@@ -555,7 +555,7 @@ function failedRead(failure: HqFailure): GatherResult {
  */
 export function readerLookupContext(
 	data: ReadingProjectData,
-): LookupValidationContext {
+): Extract<LookupValidationContext, { kind: "available" }> {
 	const definitions: LookupTableDefinition[] = [];
 	for (const table of data.gathered.tables) {
 		const { standing, binding } = table;

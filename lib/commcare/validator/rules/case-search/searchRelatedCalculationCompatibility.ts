@@ -75,5 +75,39 @@ export function searchRelatedCalculationCompatibility(
 		);
 	}
 
+	for (const [index, rule] of (
+		mod.caseListConfig?.calculatedSorts ?? []
+	).entries()) {
+		const context = slotContext(
+			doc,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "case_list_sort_expression",
+				member: { sortUuid: rule.uuid },
+			},
+			lookupTables ?? new Map(),
+		);
+		if (
+			!context ||
+			classifyRelatedCaseSearchExpression(rule.expression, context).kind !==
+				"unsupported"
+		)
+			continue;
+		errors.push(
+			validationError(
+				"CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE",
+				"module",
+				`The order calculation in "${mod.name}" uses related information that Search cannot supply. Choose one parent property or use this case's information.`,
+				{ moduleUuid, moduleName: mod.name },
+				{
+					sortUuid: rule.uuid,
+					index: String(index),
+					slot: `caseListConfig.calculatedSorts[${index}].expression`,
+					registrySlot: "case_list_sort_expression",
+				},
+			),
+		);
+	}
 	return errors;
 }

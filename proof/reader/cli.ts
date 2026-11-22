@@ -48,6 +48,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { canonDocument } from "@/lib/commcare/reader/canon";
 import { externalKeyText } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
@@ -200,12 +201,14 @@ function heldOf(
 	holds: readonly Hold[],
 ): Answer["held"] {
 	const uuidOfKey = new Map(
-		externalIdentityMap(reading.doc, targetWireIdentity(reading.identity)).map(
-			(entry) => [
-				externalKeyText({ kind: entry.kind, parts: entry.parts }),
-				entry.uuid,
-			],
-		),
+		externalIdentityMap(
+			reading.doc,
+			targetWireIdentity(reading.identity),
+			reading.lookup && lookupWireNaming(reading.lookup.definitions),
+		).map((entry) => [
+			externalKeyText({ kind: entry.kind, parts: entry.parts }),
+			entry.uuid,
+		]),
 	);
 	return holds.map(({ key, pointer }) => {
 		const uuid = uuidOfKey.get(key);

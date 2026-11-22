@@ -69,7 +69,10 @@ export interface CaseListCanvasProps {
 	readonly onAddCalculated: () => void;
 	readonly addColumnDisabledReason: string | undefined;
 	readonly onMoveColumn: (uuid: Column["uuid"], toIndex: number) => void;
-	readonly onColumnsChange: (next: readonly Column[]) => void;
+	readonly onColumnsChange: (
+		next: readonly Column[],
+		calculations?: readonly import("@/lib/domain").CalculatedSort[],
+	) => void;
 	readonly onShowColumn: (column: Column) => void;
 	readonly filterBroken: boolean;
 	readonly excludedOwnerIdsBroken?: boolean;
@@ -325,6 +328,7 @@ export function CaseListCanvas({
 								value={config.columns}
 								caseType={caseType}
 								caseTypes={caseTypes}
+								userProperties={userProperties}
 								onChange={onColumnsChange}
 							/>
 						</div>

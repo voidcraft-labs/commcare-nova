@@ -92,6 +92,13 @@ export function projectLocalizedModule(
 		module.name,
 	);
 	if (localized.caseListConfig !== undefined) {
+		for (const rule of localized.caseListConfig.calculatedSorts ?? []) {
+			if (rule.label)
+				rule.label = text(
+					makeTranslationUnitId("case-sort", rule.uuid, "label"),
+					rule.label,
+				);
+		}
 		localized.caseListConfig.columns = localized.caseListConfig.columns.map(
 			(column) => {
 				const next = {

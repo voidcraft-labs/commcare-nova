@@ -21,6 +21,7 @@ export type ProjectSpaceCapabilityId =
 	| "multi-select-case-lists"
 	| "related-case-search"
 	| "case-tiles"
+	| "calculated-case-order"
 	| "save-only-edited-answers"
 	| "same-type-child-links";
 
@@ -86,6 +87,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		id: "case-tiles",
 		label: "Case tiles",
 		description: "Lets a case list draw each case as a tile.",
+	},
+	"calculated-case-order": {
+		id: "calculated-case-order",
+		label: "Order cases by a calculation",
+		description:
+			"Lets a case list use a calculation to decide which cases workers see first.",
 	},
 	"save-only-edited-answers": {
 		id: "save-only-edited-answers",
@@ -418,6 +425,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"multi-select-case-lists",
 	"related-case-search",
 	"case-tiles",
+	"calculated-case-order",
 	"save-only-edited-answers",
 	"same-type-child-links",
 ]);

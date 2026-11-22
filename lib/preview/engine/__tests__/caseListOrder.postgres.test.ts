@@ -13,7 +13,7 @@ import { Pool } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { buildCaseTypeMap, type SortKey } from "@/lib/case-store";
+import { buildCaseTypeMap } from "@/lib/case-store";
 import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -35,6 +35,8 @@ import {
 } from "@/lib/domain/expression/temporalType";
 import { readCases } from "../caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "../caseListOrder";
+
+import { serverPreviewDataRefusalOf } from "../serverDataRefusal";
 
 interface ControlOrder {
 	readonly comparator: "text" | "integer" | "decimal";
@@ -102,7 +104,7 @@ const schemas = () =>
 		),
 	);
 
-describe("the case store orders the control's rows as Core does", () => {
+describe("Preview orders the control’s rows from an authored rule as Core does", () => {
 	for (const set of CONTROL.sets)
 		for (const order of set.orders)
 			it(`${set.name}: ${order.comparator}, ${order.direction}, blanks ${order.blanks}`, async () => {
@@ -124,30 +126,17 @@ describe("the case store orders the control's rows as Core does", () => {
 						},
 					});
 				}
-				const sort: SortKey[] = [
-					{
-						kind: "expression",
-						expression: term(prop(CASE_TYPE, "value")),
-						comparator: order.comparator,
-						direction: order.direction === "ascending" ? "asc" : "desc",
-						blanks: order.blanks,
-					},
-					{
-						kind: "expression",
-						expression: term(prop(CASE_TYPE, "case_id")),
-						comparator: "text",
-						direction: "asc",
-						blanks: "first",
-					},
-				];
-				const rows = await store.query({
-					reading: SEARCH_READING,
-					appId: APP_ID,
-					caseType: CASE_TYPE,
-					caseTypeSchemas: schemas(),
-					sort,
-				});
-				expect(rows.map((row) => row.case_id)).toEqual(
+				const { doc, config } = orderedListDoc(
+					{ name: "value" },
+					columnSort(
+						order.direction === "ascending" ? "asc" : "desc",
+						0,
+						order.blanks,
+						undefined,
+						order.comparator === "text" ? undefined : order.comparator,
+					),
+				);
+				expect(await previewOrder(store, doc, config)).toEqual(
 					order.groups.flatMap((group) =>
 						[...group].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
 					),
@@ -309,7 +298,10 @@ const NAME = testUuid("case-list-order-name");
  *  `property`, as Preview's Results read orders it: through the order plan
  *  (`previewCaseStoreOrder`) and `readCases`. */
 function orderedListDoc(
-	property: { readonly name: string; readonly data_type?: "datetime" },
+	property: {
+		readonly name: string;
+		readonly data_type?: "datetime" | "geopoint";
+	},
 	sort: ReturnType<typeof columnSort>,
 ): { doc: BlueprintDoc; config: CaseListConfig } {
 	const columns = [
@@ -356,11 +348,13 @@ async function previewOrder(
 	store: PostgresCaseStore,
 	doc: BlueprintDoc,
 	config: CaseListConfig,
+	viewerLocation?: string,
 ): Promise<string[]> {
 	const mod = Object.values(doc.modules)[0];
 	if (mod?.caseType === undefined) throw new Error("Expected the module.");
 	const result = await readCases(store, {
 		reading: CASEDB_READING,
+		bindings: { viewerLocation },
 		tileGrouping: "flat",
 		appId: APP_ID,
 		caseType: CASE_TYPE,
@@ -377,6 +371,196 @@ async function previewOrder(
 		throw new Error(`Expected rows, got ${result.kind}.`);
 	return result.rows.map((row) => row.case_id);
 }
+
+it("uses an independent numeric calculation first and a displayed name for ties", async () => {
+	const name = plainColumn(NAME, "case_name", "Name", {
+		sort: columnSort("asc", 1),
+	});
+	const config: CaseListConfig = {
+		columns: [name],
+		listColumnOrder: [NAME],
+		detailColumnOrder: [NAME],
+		searchInputs: [],
+		calculatedSorts: [
+			{
+				uuid: ORDERED,
+				expression: term(prop(CASE_TYPE, "value")),
+				direction: "asc",
+				priority: 0,
+				blanks: "last",
+				comparator: "integer",
+				label: "Visit number",
+			},
+		],
+	};
+	const doc = buildDoc({
+		appId: APP_ID,
+		appName: "Appointments",
+		modules: [
+			{
+				name: "Appointments",
+				caseType: CASE_TYPE,
+				caseListMenuItem: {},
+				caseListConfig: config,
+			},
+		],
+		caseTypes: [
+			{
+				name: CASE_TYPE,
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{
+						name: "value",
+						data_type: "text",
+						label: proseText("Visit number"),
+					},
+				],
+			},
+		],
+	});
+	const store = makeStore();
+	await store.applySchemaChange({
+		appId: APP_ID,
+		caseType: CASE_TYPE,
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	});
+	for (const [case_id, case_name, value] of [
+		["a", "Zuri", "2"],
+		["b", "Asha", "10"],
+		["c", "Caro", "2"],
+		["d", "Beno", ""],
+	])
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id,
+				case_type: CASE_TYPE,
+				case_name,
+				status: "open",
+				properties: { value },
+			},
+		});
+	expect(await previewOrder(store, doc, config)).toEqual(["c", "a", "b", "d"]);
+});
+
+it("orders from the worker's current position and keeps the missing location sentinel", async () => {
+	const { doc, config } = orderedListDoc(
+		{ name: "location", data_type: "geopoint" },
+		columnSort("asc", 0, "first", undefined, "distance"),
+	);
+	const store = makeStore();
+	await store.applySchemaChange({
+		appId: APP_ID,
+		caseType: CASE_TYPE,
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	});
+	const positions = [
+		["a-far", "0 0.00009 4 10"],
+		["b-near", "0 0.00002 80 90"],
+		["c-missing", undefined],
+	] as const;
+	for (const [id, location] of positions) {
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: id,
+				case_type: CASE_TYPE,
+				case_name: id,
+				status: "open",
+				properties: location === undefined ? {} : { location },
+			},
+		});
+	}
+	expect(await previewOrder(store, doc, config, "0 0 100 6")).toEqual([
+		"b-near",
+		"a-far",
+		"c-missing",
+	]);
+	expect(await previewOrder(store, doc, config, "0 0.0001 2 5")).toEqual([
+		"a-far",
+		"b-near",
+		"c-missing",
+	]);
+	expect(await previewOrder(store, doc, config)).toEqual([
+		"a-far",
+		"b-near",
+		"c-missing",
+	]);
+});
+
+it("orders location text that an existing case holds in Core's numeric spellings", async () => {
+	const { doc, config } = orderedListDoc(
+		{ name: "location", data_type: "text" },
+		columnSort("asc", 0, "first", undefined, "distance"),
+	);
+	const store = makeStore();
+	await store.applySchemaChange({
+		appId: APP_ID,
+		caseType: CASE_TYPE,
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	});
+	const locations = [
+		["zero", "0x0.0p0 0x0p0 10F 5D"],
+		["far", "0 1e0"],
+		["farther", "0 0x1p1D"],
+		["unknown", "NaN 0"],
+		["missing", undefined],
+	] as const;
+	for (const [id, location] of locations) {
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: id,
+				case_type: CASE_TYPE,
+				case_name: id,
+				status: "open",
+				properties: location === undefined ? {} : { location },
+			},
+		});
+	}
+	expect(await previewOrder(store, doc, config, "0 0")).toEqual([
+		"zero",
+		"far",
+		"farther",
+		"missing",
+		"unknown",
+	]);
+});
+
+it.each(["private-clinic-note", "0 0 0 0 0", "--Infinity 0", "0 +-NaN"])(
+	"stops a distance read with an actionable refusal that omits the stored location",
+	async (location) => {
+		const { doc, config } = orderedListDoc(
+			{ name: "location", data_type: "text" },
+			columnSort("asc", 0, "first", undefined, "distance"),
+		);
+		const store = makeStore();
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: CASE_TYPE,
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "clinic",
+				case_type: CASE_TYPE,
+				case_name: "Clinic",
+				status: "open",
+				properties: { location },
+			},
+		});
+		expect(await previewOrder(store, doc, config)).toEqual(["clinic"]);
+		const read = previewOrder(store, doc, config, "0 0");
+		await expect(read).rejects.toThrow();
+		await read.catch((error: unknown) => {
+			expect(String(error)).not.toContain(location);
+			expect(serverPreviewDataRefusalOf(error)?.reason).toEqual({
+				kind: "invalid-case-location",
+			});
+		});
+	},
+);
 
 describe("a rule's own blanks, through Preview's store read", () => {
 	const VALUES: Record<string, string | undefined> = {

@@ -12676,12 +12676,32 @@
 		"id": "hq-case-lists/sort-by-distance",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/type-distance",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/7/field",
+				"value": "gps"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/7/sort",
+				"value": {
+					"direction": "asc",
+					"priority": 4,
+					"comparator": "distance"
+				}
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/sort_elements",
@@ -12820,12 +12840,56 @@
 		"id": "hq-case-lists/sort-calculation",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/sort-calculation-authored-calculation-row-field",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/calculatedSorts/0/expression",
+				"value": {
+					"kind": "arith",
+					"op": "*",
+					"left": {
+						"kind": "term",
+						"term": {
+							"kind": "prop",
+							"caseType": "patient",
+							"property": "visits"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 2
+						}
+					}
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/calculatedSorts/0/comparator",
+				"value": "text"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/calculatedSorts/0/priority",
+				"value": 4
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/sort_elements",
@@ -12987,12 +13051,32 @@
 		"id": "hq-case-lists/sort-numbers-as-text",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/type-plain-date-or-string-or-none-where-nova-derives-int-or-double",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/field",
+				"value": "visits"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/5/sort",
+				"value": {
+					"direction": "desc",
+					"priority": 0,
+					"comparator": "text"
+				}
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/sort_elements",
@@ -13048,12 +13132,32 @@
 		"id": "hq-case-lists/sort-numbers-on-a-text-column",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/type-int-or-double-differing-from-the-derived-type-on-a-column",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/field",
+				"value": "case_name"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/sort",
+				"value": {
+					"direction": "asc",
+					"priority": 3,
+					"comparator": "integer"
+				}
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/sort_elements",
@@ -15090,6 +15194,228 @@
 					"useXpathExpression": false
 				}
 			]
+		}
+	},
+	{
+		"id": "hq-case-lists/order-by-clinic-label",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/sort-calculation-authored-calculation-row-field",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/sort_elements/-",
+			"value": {
+				"field": "",
+				"type": "plain",
+				"direction": "ascending",
+				"blanks": "first",
+				"display": {
+					"en": ""
+				},
+				"sort_calculation": "concat(village, '-clinic')",
+				"doc_type": "SortElement"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/calculatedSorts/0/expression",
+				"value": {
+					"kind": "concat",
+					"parts": [
+						{
+							"kind": "term",
+							"term": {
+								"kind": "prop",
+								"property": "village",
+								"caseType": "patient"
+							}
+						},
+						{
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "-clinic"
+							}
+						}
+					]
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/order-by-visit-priority",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/sort-calculation-authored-calculation-row-field",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/sort_elements/-",
+			"value": {
+				"field": "",
+				"type": "plain",
+				"direction": "ascending",
+				"blanks": "first",
+				"display": {
+					"en": ""
+				},
+				"sort_calculation": "if(visits > 2, 'next', 'later')",
+				"doc_type": "SortElement"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/calculatedSorts/0/expression",
+				"value": {
+					"kind": "if",
+					"cond": {
+						"kind": "gt",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "prop",
+								"property": "visits",
+								"caseType": "patient"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": 2
+							}
+						}
+					},
+					"then": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "next"
+						}
+					},
+					"else": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "later"
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/order-by-worker-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/sort-calculation-authored-calculation-row-field",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/sort_elements/-",
+			"value": {
+				"field": "",
+				"type": "plain",
+				"direction": "ascending",
+				"blanks": "first",
+				"display": {
+					"en": ""
+				},
+				"sort_calculation": "instance('commcaresession')/session/context/username",
+				"doc_type": "SortElement"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/calculatedSorts/0/expression",
+				"value": {
+					"kind": "term",
+					"term": {
+						"kind": "session-context",
+						"field": "username"
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/sort-calculation-without-a-typed-value",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/sort-calculation-without-a-typed-value",
+		"standing": "never",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/sort_elements/-",
+			"value": {
+				"field": "",
+				"type": "plain",
+				"direction": "ascending",
+				"blanks": "first",
+				"display": {
+					"en": ""
+				},
+				"sort_calculation": "*",
+				"doc_type": "SortElement"
+			}
+		}
+	},
+	{
+		"id": "hq-case-lists/distance-sort-without-a-location-field",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/distance-sort-without-a-location-field",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/sort_elements/-",
+			"value": {
+				"field": "",
+				"type": "distance",
+				"direction": "ascending",
+				"blanks": "first",
+				"display": {
+					"en": ""
+				},
+				"sort_calculation": "notes",
+				"doc_type": "SortElement"
+			}
+		}
+	},
+	{
+		"id": "hq-case-lists/distance-on-a-translated-calculated-field",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/distance-on-a-translated-calculated-field",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "distance_on_translated_calculation"
 		}
 	},
 	{

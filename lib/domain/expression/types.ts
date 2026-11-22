@@ -1162,6 +1162,12 @@ export type ModuleExpressionSlotRef =
 	| {
 			readonly entity: "module";
 			readonly uuid: Uuid;
+			readonly slot: "case_list_sort_expression";
+			readonly member: { readonly sortUuid: Uuid };
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
 			readonly slot:
 				| "search_input_default"
 				| "search_input_predicate"

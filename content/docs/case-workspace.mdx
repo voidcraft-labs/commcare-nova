@@ -684,6 +684,23 @@ first, and drag the rules into priority order. The first rule decides first;
 when two cases match, the next rule breaks the tie. The information used for
 ordering can stay hidden from both Results and Details.
 
+Choose **Add calculation** to order the list by a value that workers don’t need
+to see as a column. For example, an appointment number saved as text can put
+appointment 2 ahead of appointment 10. Choose **Whole numbers**, then add the
+case name as the next item to break ties. **Name in Sort by** gives workers a
+way to choose that calculation themselves. Publishing checks that the project
+space can keep calculated order rules.
+
+On Android, a location can order cases by distance from the worker. Preview
+uses the worker location selected for the run. A case with no location comes
+last in nearest-first order. Without a worker position, all located cases tie,
+so the next rule determines their order.
+
+To sort a number saved as text, open its rule in **Default order** and choose
+**Whole numbers** or **Decimals**. For example, a visit count of 2 comes before
+10 in number order. Choose **Text** for a code that workers look up
+alphabetically. **Use field order** follows the kind of value the field holds.
+
 When you order by a calculated value, Results uses the same case values for
 display and ordering, including information from a supporting parent case in
 Search results.
@@ -702,8 +719,8 @@ list the same way:
   A time since a date orders by the text it shows. A calculated value orders by
   its result, and a link by the saved address. An item hidden from Results
   orders by the saved value.
-- **A list keeps one rule for each value.** Two rules over the same property,
-  or over two calculated values with the same formula, can't both order it.
+- **A list keeps one rule for each value.** Two column rules over the same property go to its first matching field.
+  Independent calculations can give workers different named choices over the same value.
   Where two items read one property and order it differently, such as a plain
   item and its Value labels, the rule belongs on whichever comes first in
   Results. **Add to order** still lists a choice like that, with the reason it
@@ -715,7 +732,10 @@ listed there only under a name you give it: type one in **Name in Sort by** on
 its rule in Default order, such as "Feeling sick" for an item that orders the
 list by whether a patient feels sick. Leave the name empty to keep it out of
 Sort by. Android lists every named item, and Web Apps lists them only in the
-Sort By menu of a list laid out as tiles. When you show the item on Results
+Sort By menu of a list laid out as tiles. When a list has several named
+calculations or extra tile fields, **Sort by position** arranges the choices
+within that group. Workers can see “Next appointment” first while the list
+itself opens with the most urgent cases first. When you show the item on Results
 again, its heading takes over and the name is cleared. Preview's running list has the
 same menu, so you can try a name there; [Preview on Web Apps and
 Android](/docs/building-with-nova#preview-on-web-apps-and-android) says how

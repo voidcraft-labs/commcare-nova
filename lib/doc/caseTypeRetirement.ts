@@ -749,6 +749,17 @@ function collectModuleConfigReferences(
 				// Contextual property names — they follow the module's own
 				// type and never name a type.
 				break;
+			case "case_list_sort_expression": {
+				for (const rule of list?.calculatedSorts ?? []) {
+					if (expressionRefsCaseType(rule.expression, caseType)) {
+						out.push({
+							verbose: `a default order calculation on ${where} reads a "${caseType}" property`,
+							concise: `the default order on ${where} uses "${caseType}" information`,
+						});
+					}
+				}
+				break;
+			}
 			case "case_list_column_expression": {
 				for (const col of list?.columns ?? []) {
 					if (

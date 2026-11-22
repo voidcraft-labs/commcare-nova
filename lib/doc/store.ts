@@ -507,6 +507,9 @@ function affectsCaseWriteProjection(
 		case "removeOption":
 		case "moveOption":
 		case "setCaseListMeta":
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":

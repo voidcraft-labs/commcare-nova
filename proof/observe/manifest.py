@@ -760,6 +760,7 @@ APP_EXPRESSION_SLOTS = (
     ("module_filter", None),
     ("filter", None),
     ("field", "useXpathExpression"),
+    ("sort_calculation", None),
     ("xpath", None),
     ("defaultValue", None),
     ("nodeset_filter", None),

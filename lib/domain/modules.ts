@@ -74,10 +74,8 @@ import { type Uuid, uuidSchema } from "./uuid";
 // whole-document admission enforces uniqueness. The positional tie-break keeps
 // the pure projection deterministic without weakening that stored invariant.
 //
-// The comparator type (lexicographic / numeric / date / decimal)
-// is NOT authored here — wire emission derives it from the case
-// property's `data_type` (or, for calculated columns, from the
-// expression's resolved result type).
+// A rule follows the value’s type unless the author selects another
+// comparison. A display format with its own key still decides its comparison.
 
 export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
@@ -103,7 +101,27 @@ export function defaultSortBlanks(direction: SortDirection): SortBlanks {
 
 /** A rule's keys with no rule between them: what a tool input takes before
  *  `columnSort` stores it. */
+export const SORT_COMPARISONS = [
+	"text",
+	"integer",
+	"decimal",
+	"distance",
+] as const;
+export type SortComparison = (typeof SORT_COMPARISONS)[number];
+
 export const columnSortShape = {
+	/** Earlier positions name hidden choices before those that follow the default order. */
+	menuPosition: persistableJsonNonnegativeIntegerSchema
+		.optional()
+		.describe(
+			"Position among the extra choices workers can pick in Sort by, starting at 0. Leave it out to follow the default case order. Displayed fields already follow their Results positions.",
+		),
+	comparator: z
+		.enum(SORT_COMPARISONS)
+		.optional()
+		.describe(
+			"How to compare the values. Leave it out to use the field’s usual order. Text orders 10 before 2. A whole-number or decimal comparison orders 2 before 10. Distance orders locations from the worker’s position on Android.",
+		),
 	direction: z.enum(SORT_DIRECTIONS),
 	priority: persistableJsonNonnegativeIntegerSchema,
 	/** Where cases with no value sort. Stored only where it differs from the
@@ -127,8 +145,8 @@ export const columnSortShape = {
 
 /**
  * Per-column sort directive: direction, priority, and where blanks sort
- * where that differs from the direction's own. The comparator type is
- * derived at wire emission, not authored.
+ * where that differs from the direction's own. The field supplies its ordinary comparator.
+ * An explicit comparator chooses another reading.
  *
  * `priority` is a non-negative integer; tie-break to Results display
  * order is uniform across saga / preview / wire layers (no layer
@@ -180,6 +198,8 @@ export function columnSort(
 	priority: number,
 	blanks?: SortBlanks,
 	label?: string,
+	comparator?: SortComparison,
+	menuPosition?: number,
 ): ColumnSort {
 	return {
 		direction,
@@ -187,6 +207,8 @@ export function columnSort(
 		...(blanks !== undefined &&
 			blanks !== defaultSortBlanks(direction) && { blanks }),
 		...(label !== undefined && { label }),
+		...(comparator !== undefined && { comparator }),
+		...(menuPosition !== undefined && { menuPosition }),
 	};
 }
 
@@ -2529,6 +2551,41 @@ export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
 export type CaseSelectionCardinality = "single" | "multiple";
 
+/** An independent rule of Default order. Its value never becomes a Results
+ * or Details column. Its optional name is the entry workers can choose in Sort by. */
+export const calculatedSortSchema = z
+	.strictObject({
+		uuid: uuidSchema,
+		expression: valueSchema,
+		direction: columnSortShape.direction,
+		priority: columnSortShape.priority,
+		comparator: z.enum(["text", "integer", "decimal"]).optional(),
+		blanks: columnSortShape.blanks,
+		label: columnSortShape.label,
+	})
+	.superRefine((rule, ctx) => {
+		if (
+			rule.label !== undefined &&
+			(rule.label.trim() === "" ||
+				[...rule.label].every((char) => (char.codePointAt(0) ?? 0) <= 32))
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["label"],
+				message:
+					"Give the calculation a name workers can read, or leave it unnamed.",
+			});
+		}
+		if (rule.blanks === defaultSortBlanks(rule.direction)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["blanks"],
+				message: "Leave out the ordinary blank placement for this direction.",
+			});
+		}
+	});
+export type CalculatedSort = z.infer<typeof calculatedSortSchema>;
+
 export const caseListConfigSchema = z
 	.strictObject({
 		/**
@@ -2537,6 +2594,7 @@ export const caseListConfigSchema = z
 		 * sequences over these same columns and one array cannot hold both.
 		 */
 		columns: z.array(columnSchema),
+		calculatedSorts: z.array(calculatedSortSchema).min(1).optional(),
 		/**
 		 * The Results sequence, and the Details sequence — each a complete
 		 * permutation of `columns` by uuid.
@@ -2571,6 +2629,16 @@ export const caseListConfigSchema = z
 				path: ["columns"],
 				message: "Case-list column UUIDs must be unique.",
 			});
+		}
+		const memberIds = new Set(columnUuids);
+		for (const [index, rule] of (config.calculatedSorts ?? []).entries()) {
+			if (memberIds.has(rule.uuid))
+				ctx.addIssue({
+					code: "custom",
+					path: ["calculatedSorts", index, "uuid"],
+					message: "Each default order rule needs its own identity.",
+				});
+			memberIds.add(rule.uuid);
 		}
 		const checkOrder = (
 			order: readonly Uuid[],

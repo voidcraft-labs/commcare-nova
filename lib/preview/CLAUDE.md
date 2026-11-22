@@ -1512,6 +1512,13 @@ walk, and the cell and the quick filter read that value through
 `columnDisplay.ts::columnSourceValue` and `columnRawText`, with the related
 type's catalog entry from `ColumnDisplayContext.relatedProperties`.
 
+Independent order calculations read case rows in the same SQL query as the
+visible fields' sort rules. An Android distance rule reads the current
+worker fix once per query, uses Core's rounded metres, and assigns a missing
+case location the sentinel 2147483647. Changing the worker fix can reverse
+the row order. Named calculations join the Android Sort by choices under
+their translated name without adding a visible cell.
+
 The quick filter (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`)
 matches what a device's search matches, all from the plan: each shown column's
 text, each hidden field's text (the raw property, or a hidden calculated

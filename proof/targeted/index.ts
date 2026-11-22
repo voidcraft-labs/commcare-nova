@@ -46,6 +46,7 @@ import { datetimeOrdering } from "./documents/datetimeOrdering";
 import { datetimeSaved } from "./documents/datetimeSaved";
 import { datetimeSplit } from "./documents/datetimeSplit";
 import { detailOnlyColumn } from "./documents/detailOnlyColumn";
+import { nearestClinics } from "./documents/distanceOrder";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import {
 	expressionPropertyRenames,
@@ -154,7 +155,7 @@ import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
 import { sortBlanks } from "./documents/sortBlanks";
-import { sharedPropertySort } from "./documents/sortKeys";
+import { independentCaseOrder, sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
 import {
 	parentFormPreviousFrame,
@@ -190,6 +191,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchRelatedLookups,
 	loadTimeValues,
 	sharedPropertySort,
+	independentCaseOrder,
+	nearestClinics,
 	searchDefaultFilterName,
 	syncOnFormEntry,
 	hqSideState,

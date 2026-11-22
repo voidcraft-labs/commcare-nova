@@ -82,6 +82,37 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		).toEqual({ capabilities: [], advisories: [] });
 	});
 
+	it("checks the project space's calculation flag for an independent order, including a rule with no menu name", () => {
+		const patient = module();
+		const config = patient.caseListConfig;
+		if (!config) throw new Error("The fixture needs a case list.");
+		const input = doc({ modules: { [patient.uuid]: patient } });
+		expect(projectSpaceCompatibilityProbePlan(input).capabilities).toEqual([]);
+		config.calculatedSorts = [
+			{
+				uuid: testUuid("appointment-order"),
+				expression: term(prop("patient", "appointment")),
+				direction: "asc",
+				priority: 0,
+			},
+		];
+		const plan = projectSpaceCompatibilityProbePlan(input);
+		expect(
+			plan.capabilities.map(({ capability, featureFlags }) => ({
+				id: capability.id,
+				flags: featureFlags.map(({ slug }) => slug),
+			})),
+		).toEqual([
+			{
+				id: "calculated-case-order",
+				flags: [domainFeatureFlag("SORT_CALCULATION_IN_CASE_LIST").slug],
+			},
+		]);
+		expect(requiredProjectSpaceCapabilities(input).map(({ id }) => id)).toEqual(
+			["calculated-case-order"],
+		);
+	});
+
 	it("checks only base Search for a zero-input Search", () => {
 		const patient = module({ caseSearchConfig: {} });
 		const plan = projectSpaceCompatibilityProbePlan(

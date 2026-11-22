@@ -89,6 +89,7 @@ import {
 	caseOperationRunsPerSelectedCase,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
+	caseSortDistanceValue,
 	caseWriteValueField,
 	columnPropertyCaseType,
 	columnRelationPath,
@@ -195,13 +196,20 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * every one of a list with no tile layout, hidden ones included, since each
  * is a field of the short detail. A calculation no runtime evaluates remains
  * fully valid but contributes no query projection. */
-function runtimeCalculatedColumns(
-	config: CaseListConfig | undefined,
-): Extract<Column, { kind: "calculated" }>[] | undefined {
-	return config?.columns.filter(
+function runtimeCalculatedColumns(config: CaseListConfig | undefined) {
+	if (!config) return undefined;
+	const columns = config.columns.filter(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
 			column.kind === "calculated" && caseListColumnRuns(column, config),
 	);
+	return [
+		...columns,
+		...(config.calculatedSorts ?? []).map((rule) => ({
+			uuid: rule.uuid,
+			expression: rule.expression,
+			deviceText: true as const,
+		})),
+	];
 }
 
 /** The value each property column read through a relation shows: the
@@ -1071,6 +1079,15 @@ function buildCaseStoreSortKeys(
 	};
 	if (order === undefined) return [stablePageTieBreaker];
 	const rules = [
+		...order.plan.calculations.map((calc) => ({
+			rule: {
+				order: calc.order,
+				direction: calc.sort.direction,
+				blanks: calc.blanks,
+			},
+			key: { kind: "independent-calculation", sort: calc.sort } as const,
+			comparator: calc.comparator,
+		})),
 		...order.plan.fields.flatMap((field) =>
 			field.rule === undefined || field.key === undefined
 				? []
@@ -1078,11 +1095,7 @@ function buildCaseStoreSortKeys(
 		),
 		...order.plan.carriers.map((carrier) => ({
 			rule: carrier.rule,
-			key: {
-				kind: "property",
-				property: carrier.field,
-				...(carrier.via !== undefined && { via: carrier.via }),
-			} as CaseListSortKey,
+			key: carrier.key,
 			comparator: carrier.comparator,
 		})),
 	].sort((a, b) => a.rule.order - b.rule.order);
@@ -1157,6 +1170,28 @@ function sortKeysForRule(
 		via === undefined
 			? prop(caseType, property)
 			: prop(reachedType(via), property, { kind: "ancestor", via });
+	const linkDisplayValue = (column: Extract<Column, { kind: "link" }>) => {
+		const raw = read(column.field, column.via);
+		return ifExpr(
+			isBlank(raw),
+			textLiteral(""),
+			concat(textLiteral(`[${column.linkText}](`), term(raw), textLiteral(")")),
+		);
+	};
+	if (key.kind === "independent-calculation")
+		return [expressionKey(key.sort.expression)];
+	if (key.kind === "distance-property") {
+		return [
+			{
+				kind: "distance",
+				valueId: caseSortDistanceValue(key.column),
+				expression: term(read(key.property, key.via)),
+				comparator,
+				direction,
+				blanks,
+			},
+		];
+	}
 	if (key.kind === "property") {
 		return [expressionKey(term(read(key.property, key.via)))];
 	}
@@ -1209,6 +1244,24 @@ function sortKeysForRule(
 	}
 	const column = columns.get(key.column);
 	if (column === undefined) return [];
+	if (key.kind === "distance-calculated") {
+		const expression =
+			column.kind === "calculated"
+				? column.expression
+				: column.kind === "link" && column.visibleInList !== false
+					? linkDisplayValue(column)
+					: term(read(column.field, column.via));
+		return [
+			{
+				kind: "distance",
+				valueId: caseSortDistanceValue(key.column),
+				expression,
+				comparator,
+				direction,
+				blanks,
+			},
+		];
+	}
 	if (key.kind === "calculated") {
 		if (column.kind !== "calculated") return [];
 		return [expressionKey(column.expression, comparator)];
@@ -1228,21 +1281,9 @@ function sortKeysForRule(
 		];
 	}
 	if (key.kind === "link-text") {
-		if (column.kind !== "link") return [];
-		return [
-			expressionKey(
-				ifExpr(
-					isBlank(raw),
-					textLiteral(""),
-					concat(
-						textLiteral(`[${column.linkText}](`),
-						term(raw),
-						textLiteral(")"),
-					),
-				),
-				"text",
-			),
-		];
+		return column.kind === "link"
+			? [expressionKey(linkDisplayValue(column), "text")]
+			: [];
 	}
 	if (column.kind !== "interval") return [];
 	const divisorDays = TIME_SINCE_UNIT_DAYS[column.unit];

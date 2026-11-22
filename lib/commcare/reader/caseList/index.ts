@@ -59,7 +59,12 @@ import {
 	readCaseDetails,
 	sameState,
 } from "./details";
-import { CALCULATED_FIELD, implicitRuleColumn, ORDER_CLAIMS } from "./order";
+import {
+	CALCULATED_FIELD,
+	implicitRuleColumn,
+	ORDER_CLAIMS,
+	retainSortComparisons,
+} from "./order";
 import { withReadTexts } from "./readTexts";
 
 export { joinDetailColumns } from "./details";
@@ -433,12 +438,12 @@ function sortMenuName(element: JsonObject, detail: unknown): unknown {
 
 function sortDifference(
 	ctx: ReadContext,
-	place: HqPlace,
 	reading: CaseListReading,
 	stored: readonly JsonObject[],
 	ours: readonly JsonObject[],
 	columns: { readonly stored: unknown; readonly ours: unknown },
 	handedOff: ReadonlySet<number>,
+	handedOffSorts: ReadonlySet<Uuid>,
 ): string | undefined {
 	// The text a positional element joins by: the `field` of the short column it names
 	// (`util.py::get_sort_and_sort_only_columns`).
@@ -461,6 +466,41 @@ function sortDifference(
 	const kept = reading.sort.defaulted
 		? []
 		: reading.sort.kept.map((index) => stored[index] as JsonObject);
+	// A property or calculation introduced earlier for its worker menu
+	// position has one effective row in its own last-value map.
+	const keptIndices = new Set(reading.sort.kept);
+	const sortKeys = [
+		"field",
+		"sort_calculation",
+		"type",
+		"direction",
+		"blanks",
+		"display",
+	] as const;
+	stored.forEach((row, index) => {
+		if (keptIndices.has(index)) return;
+		const emitted = ours[index];
+		if (emitted && sortKeys.every((key) => sameJson(row[key], emitted[key])))
+			return;
+		sameState(
+			ctx,
+			ORDER_CLAIMS.earlier.entry,
+			`${reading.short.pointer}/sort_elements/${index}`,
+			"list-settings-respelled",
+		);
+	});
+	const keyOf = (element: JsonObject) =>
+		element.field === "" ? element.sort_calculation : element.field;
+	const lastField = new Map<unknown, number>();
+	const lastCalculation = new Map<unknown, number>();
+	const mapOf = (element: JsonObject) =>
+		element.field === "" ? lastCalculation : lastField;
+	ours.forEach((element, index) => {
+		mapOf(element).set(keyOf(element), index);
+	});
+	ours = ours.filter(
+		(element, index) => mapOf(element).get(keyOf(element)) === index,
+	);
 	const expected = reading.sort.defaulted ? 1 : kept.length;
 	if (ours.length !== expected) return "schema:Detail.sort_elements";
 	// A whole-number or decimal comparison where HQ's build compares text orders the list
@@ -470,7 +510,7 @@ function sortDifference(
 	// writes it as `string` or as it is, and Core's `DetailFieldParser` reads any other word so).
 	const numericWord = (type: unknown) => type === "int" || type === "double";
 	if (reading.sort.defaulted && numericWord(ours[0]?.type))
-		ctx.accounting.finding(ORDER_CLAIMS.typeText, place);
+		return "schema:SortElement.type";
 	for (const [position, element] of kept.entries()) {
 		const other = ours[position] as JsonObject;
 		const storedText = positionalText(element.field, columns.stored);
@@ -513,6 +553,20 @@ function sortDifference(
 				"list-settings-respelled",
 			);
 		}
+		if (element.field === "" && typeof element.sort_calculation === "string") {
+			const rule = reading.sort.calculations.find(
+				(one) => one.priority === position,
+			);
+			if (
+				rule === undefined ||
+				(!handedOffSorts.has(rule.uuid) &&
+					(typeof other.sort_calculation !== "string" ||
+						!sameXPathText(element.sort_calculation, other.sort_calculation)))
+			)
+				return "schema:SortElement.sort_calculation";
+		}
+		if (element.type === "distance" && other.type !== "distance")
+			return "schema:SortElement.type";
 		if (element.direction !== other.direction)
 			return "schema:SortElement.direction";
 		// A stored `""` is the direction's own: blanks first ascending, last descending.
@@ -544,9 +598,9 @@ function sortDifference(
 		const index = reading.sort.kept[position] as number;
 		const numeric = reading.sort.numeric.get(index);
 		if (numeric !== undefined && other.type !== numeric)
-			ctx.accounting.finding(ORDER_CLAIMS.typeNumeric, place);
+			return "schema:SortElement.type";
 		if (reading.sort.textual.has(index) && numericWord(other.type))
-			ctx.accounting.finding(ORDER_CLAIMS.typeText, place);
+			return "schema:SortElement.type";
 		// A date comparison over a property whose type is not of the date class HQ's build writes as
 		// it writes a text one (`detail_screen.py::FormattedDetailColumn.sort_node` maps `date` and
 		// `plain` to `string`), and the first publish writes Nova's word for it: the stored word
@@ -585,14 +639,16 @@ function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 		const ref = (registrations[index] as PendingExpression).ref;
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
-		const member = (ref as { readonly member?: { columnUuid?: string } })
-			.member;
-		held.set(
-			member?.columnUuid === undefined
-				? ref.slot
-				: `${ref.slot}/${member.columnUuid}`,
-			{ tree: expression, level },
-		);
+		const member =
+			"member" in ref && "columnUuid" in ref.member
+				? ref.member.columnUuid
+				: "member" in ref && "sortUuid" in ref.member
+					? ref.member.sortUuid
+					: undefined;
+		held.set(member === undefined ? ref.slot : `${ref.slot}/${member}`, {
+			tree: expression,
+			level,
+		});
 	}
 	if (held.size === 0) return {};
 	const at = (key: string, tree: Expression | undefined) => {
@@ -602,6 +658,14 @@ function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 			: undefined;
 	};
 	return {
+		sort: (uuid) => {
+			const rule = mod.caseListConfig?.calculatedSorts?.find(
+				(one) => one.uuid === uuid,
+			);
+			return levelControl(
+				at(`case_list_sort_expression/${uuid}`, rule?.expression),
+			);
+		},
 		column: (columnUuid) => {
 			const column = mod.caseListConfig?.columns.find(
 				(one) => one.uuid === columnUuid,
@@ -708,12 +772,12 @@ function listDifference(
 	}
 	const sortKey = sortDifference(
 		ctx,
-		caseListPlace(reading.module),
 		reading,
 		objects(reading.short.peek("sort_elements")),
 		objects(pair.short.sort_elements),
 		{ stored: reading.short.peek("columns"), ours: pair.short.columns },
 		handed.short,
+		handed.sorts,
 	);
 	if (sortKey !== undefined) return sortKey;
 	// The owner clause of an exclusion the reading refused is that refusal's: Nova's print writes
@@ -934,6 +998,14 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		if (reading === undefined || caseType === undefined || !reading.whole)
 			continue;
 		ctx.doc = declareNumericSorts(ctx.doc, caseType, reading);
+		const inputs = readProjectionInputs(ctx);
+		ctx.doc = retainSortComparisons(
+			ctx.doc,
+			module.uuid,
+			reading.sort,
+			inputs.assets !== undefined,
+			inputs.lookupNaming,
+		);
 		ctx.doc = withoutImplicitRule(ctx, ctx.doc, reading);
 		const doc = ctx.doc;
 		const mod = doc.modules[module.uuid];
@@ -991,9 +1063,11 @@ function handedOffListSlots(
 ): {
 	readonly short: ReadonlySet<number>;
 	readonly long: ReadonlySet<number>;
+	readonly sorts: ReadonlySet<Uuid>;
 	readonly filter: boolean;
 } {
 	const columns = new Set<Uuid>();
+	const sorts = new Set<Uuid>();
 	let filter = false;
 	const registrations = ctx.pending.list();
 	for (const index of ctx.pending.of("module", reading.module.uuid)) {
@@ -1001,6 +1075,8 @@ function handedOffListSlots(
 		if (ref.entity !== "module" || !handedOff(ctx.pending.outcome(index)))
 			continue;
 		if (ref.slot === "case_list_filter") filter = true;
+		else if (ref.slot === "case_list_sort_expression")
+			sorts.add(ref.member.sortUuid);
 		else if (ref.slot === "case_list_column_expression")
 			columns.add(ref.member.columnUuid);
 	}
@@ -1012,5 +1088,5 @@ function handedOffListSlots(
 		if (column.short !== undefined) short.add(column.short);
 		if (column.long !== undefined) long.add(column.long);
 	});
-	return { short, long, filter };
+	return { short, long, sorts, filter };
 }

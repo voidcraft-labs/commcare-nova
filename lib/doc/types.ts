@@ -28,6 +28,7 @@ import {
 	automationUserDataFilterSchema,
 	CONNECT_TYPES,
 	type Column,
+	calculatedSortSchema,
 	caseListMenuItemSchema,
 	caseOperationSchema,
 	casePropertySchema,
@@ -1663,6 +1664,30 @@ function createMutationSchema({
 		// The module's case-list metadata that is NOT a membership array — the
 		// always-on `filter` predicate, selection behavior, and the tile.
 		// Each slot is nullable so a clear crosses the JSON wire as `null`.
+		z.strictObject({
+			kind: z.literal("addCalculatedSort"),
+			moduleUuid: uuidSchema,
+			sort: calculatedSortSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("updateCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			after: uuidSchema.nullable().optional(),
+			patch: z.strictObject({
+				expression: calculatedSortSchema.shape.expression.optional(),
+				direction: calculatedSortSchema.shape.direction.optional(),
+				priority: calculatedSortSchema.shape.priority.optional(),
+				comparator: calculatedSortSchema.shape.comparator.nullable(),
+				blanks: calculatedSortSchema.shape.blanks.nullable(),
+				label: calculatedSortSchema.shape.label.nullable(),
+			}),
+		}),
+		z.strictObject({
+			kind: z.literal("removeCalculatedSort"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+		}),
 		z.object({
 			kind: z.literal("setCaseListMeta"),
 			uuid: uuidSchema,

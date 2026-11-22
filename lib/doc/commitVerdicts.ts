@@ -190,7 +190,8 @@ export function expressionEditVerdict(
 	}
 	if (
 		remote &&
-		context.slot.slot === "case_list_column_expression" &&
+		(context.slot.slot === "case_list_column_expression" ||
+			context.slot.slot === "case_list_sort_expression") &&
 		classifyRelatedCaseSearchExpression(candidate, context).kind ===
 			"unsupported"
 	) {

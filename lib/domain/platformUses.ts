@@ -521,6 +521,9 @@ function moduleUses(
 		const target = columnOwner(column.uuid);
 		const uses: PlatformFeatureUse[] = [...byOwner(target)];
 		const slot = (path: string) => `caseListConfig.columns[${index}].${path}`;
+		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
+			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
+		}
 		const cell = tileCellFor(column, list?.tile);
 		if (
 			cell !== undefined &&

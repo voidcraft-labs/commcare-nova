@@ -13,6 +13,7 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type BlueprintDoc,
+	type CalculatedSort,
 	type CaseListOrderOptions,
 	type CaseListOrderPlan,
 	type CaseType,
@@ -64,6 +65,40 @@ export function columnStoredAsExpression(column: Column): boolean {
 		column.kind !== "calculated" &&
 		(EXPRESSION_ONLY_COLUMN_PROPERTIES as ReadonlySet<string>).has(column.field)
 	);
+}
+
+/** The selected case, Search's supporting-case view and suite lookup names
+ * are the same when HQ prints a sort calculation for its editor and when
+ * the reader checks the expression it bound against the stored text. */
+export function hqCalculatedSortExpression(
+	sort: Pick<CalculatedSort, "uuid" | "expression">,
+	mod: Module,
+	expressions: ModuleExpressionContexts,
+	naming?: LookupWireNaming,
+	rewrites?: RewriteControl,
+): WireExpr {
+	const types = expressions({
+		slot: "case_list_sort_expression",
+		member: { sortUuid: sort.uuid },
+	});
+	if (effectiveCaseSearchConfig(mod) !== undefined) {
+		const related = classifyRelatedCaseSearchExpression(sort.expression, types);
+		if (related.kind === "ancestor-property") return related.hqExpression;
+	}
+	return toWire(sort.expression, {
+		target: "hq-json",
+		types,
+		rewrites,
+		bindings: {
+			lookup: {
+				naming: naming ?? identityLookupWireNaming(),
+				instanceScope: "suite",
+			},
+			...(moduleFormsReadSearch(mod)
+				? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
+				: {}),
+		},
+	});
 }
 
 /**
@@ -241,6 +276,16 @@ export function caseListOrderOptions(
 			const reached = columnPropertyCaseType({ via }, mod.caseType, caseTypes);
 			return caseTypes.find((type) => type.name === reached)?.properties;
 		},
+		sortType: (sort) => {
+			const context = expressions({
+				slot: "case_list_sort_expression",
+				member: { sortUuid: sort.uuid },
+			});
+			const result = checkExpression(sort.expression, context);
+			return result.errors.length
+				? undefined
+				: scalarDataType(result.type?.data);
+		},
 		calculatedType: (column) => {
 			if (column.kind !== "calculated") return undefined;
 			const context = expressions({
@@ -294,7 +339,8 @@ export function moduleCaseListOrderPlan(
 	lookupNaming?: LookupWireNaming,
 ): CaseListOrderPlan {
 	const config = mod.caseListConfig;
-	if (config === undefined) return { fields: [], carriers: [], authored: [] };
+	if (config === undefined)
+		return { fields: [], carriers: [], authored: [], calculations: [] };
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];

@@ -212,6 +212,38 @@
 				},
 				{
 					"case": "number-missing"
+				},
+				{
+					"case": "number-minus-zero",
+					"value": "-0"
+				},
+				{
+					"case": "number-half",
+					"value": ".5"
+				},
+				{
+					"case": "number-one-end",
+					"value": "1."
+				},
+				{
+					"case": "number-trim",
+					"value": "\t2\t"
+				},
+				{
+					"case": "number-epoch-plus-one",
+					"value": "1970-1-2"
+				},
+				{
+					"case": "number-bad-date",
+					"value": "2001-2-29"
+				},
+				{
+					"case": "number-big",
+					"value": "9007199254740992"
+				},
+				{
+					"case": "number-big-rounded",
+					"value": "9007199254740993"
 				}
 			],
 			"orders": [
@@ -222,14 +254,20 @@
 					"groups": [
 						["number-blank", "number-missing"],
 						["number-minus-3"],
-						["number-minus-half"],
-						["number-0"],
-						["number-1-5", "number-1"],
-						["number-2"],
+						["number-minus-half", "number-minus-zero"],
+						["number-0", "number-half"],
+						[
+							"number-1-5",
+							"number-1",
+							"number-one-end",
+							"number-epoch-plus-one"
+						],
+						["number-2", "number-trim"],
 						["number-007", "number-7"],
 						["number-9-0"],
 						["number-10"],
-						["number-abc", "number-1e2"]
+						["number-big", "number-big-rounded"],
+						["number-abc", "number-1e2", "number-bad-date"]
 					]
 				},
 				{
@@ -238,14 +276,20 @@
 					"blanks": "last",
 					"groups": [
 						["number-minus-3"],
-						["number-minus-half"],
-						["number-0"],
-						["number-1-5", "number-1"],
-						["number-2"],
+						["number-minus-half", "number-minus-zero"],
+						["number-0", "number-half"],
+						[
+							"number-1-5",
+							"number-1",
+							"number-one-end",
+							"number-epoch-plus-one"
+						],
+						["number-2", "number-trim"],
 						["number-007", "number-7"],
 						["number-9-0"],
 						["number-10"],
-						["number-abc", "number-1e2"],
+						["number-big", "number-big-rounded"],
+						["number-abc", "number-1e2", "number-bad-date"],
 						["number-blank", "number-missing"]
 					]
 				},
@@ -255,14 +299,20 @@
 					"blanks": "first",
 					"groups": [
 						["number-blank", "number-missing"],
-						["number-abc", "number-1e2"],
+						["number-abc", "number-1e2", "number-bad-date"],
+						["number-big", "number-big-rounded"],
 						["number-10"],
 						["number-9-0"],
 						["number-007", "number-7"],
-						["number-2"],
-						["number-1-5", "number-1"],
-						["number-0"],
-						["number-minus-half"],
+						["number-2", "number-trim"],
+						[
+							"number-1-5",
+							"number-1",
+							"number-one-end",
+							"number-epoch-plus-one"
+						],
+						["number-0", "number-half"],
+						["number-minus-half", "number-minus-zero"],
 						["number-minus-3"]
 					]
 				},
@@ -271,14 +321,20 @@
 					"direction": "descending",
 					"blanks": "last",
 					"groups": [
-						["number-abc", "number-1e2"],
+						["number-abc", "number-1e2", "number-bad-date"],
+						["number-big", "number-big-rounded"],
 						["number-10"],
 						["number-9-0"],
 						["number-007", "number-7"],
-						["number-2"],
-						["number-1-5", "number-1"],
-						["number-0"],
-						["number-minus-half"],
+						["number-2", "number-trim"],
+						[
+							"number-1-5",
+							"number-1",
+							"number-one-end",
+							"number-epoch-plus-one"
+						],
+						["number-0", "number-half"],
+						["number-minus-half", "number-minus-zero"],
 						["number-minus-3"],
 						["number-blank", "number-missing"]
 					]
@@ -291,14 +347,17 @@
 						["number-blank", "number-missing"],
 						["number-minus-3"],
 						["number-minus-half"],
+						["number-minus-zero"],
 						["number-0"],
-						["number-1"],
+						["number-half"],
+						["number-1", "number-one-end", "number-epoch-plus-one"],
 						["number-1-5"],
-						["number-2"],
+						["number-2", "number-trim"],
 						["number-007", "number-7"],
 						["number-9-0"],
 						["number-10"],
-						["number-abc", "number-1e2"]
+						["number-big", "number-big-rounded"],
+						["number-abc", "number-1e2", "number-bad-date"]
 					]
 				},
 				{
@@ -308,14 +367,17 @@
 					"groups": [
 						["number-minus-3"],
 						["number-minus-half"],
+						["number-minus-zero"],
 						["number-0"],
-						["number-1"],
+						["number-half"],
+						["number-1", "number-one-end", "number-epoch-plus-one"],
 						["number-1-5"],
-						["number-2"],
+						["number-2", "number-trim"],
 						["number-007", "number-7"],
 						["number-9-0"],
 						["number-10"],
-						["number-abc", "number-1e2"],
+						["number-big", "number-big-rounded"],
+						["number-abc", "number-1e2", "number-bad-date"],
 						["number-blank", "number-missing"]
 					]
 				},
@@ -325,14 +387,17 @@
 					"blanks": "first",
 					"groups": [
 						["number-blank", "number-missing"],
-						["number-abc", "number-1e2"],
+						["number-abc", "number-1e2", "number-bad-date"],
+						["number-big", "number-big-rounded"],
 						["number-10"],
 						["number-9-0"],
 						["number-007", "number-7"],
-						["number-2"],
+						["number-2", "number-trim"],
 						["number-1-5"],
-						["number-1"],
+						["number-1", "number-one-end", "number-epoch-plus-one"],
+						["number-half"],
 						["number-0"],
+						["number-minus-zero"],
 						["number-minus-half"],
 						["number-minus-3"]
 					]
@@ -342,14 +407,17 @@
 					"direction": "descending",
 					"blanks": "last",
 					"groups": [
-						["number-abc", "number-1e2"],
+						["number-abc", "number-1e2", "number-bad-date"],
+						["number-big", "number-big-rounded"],
 						["number-10"],
 						["number-9-0"],
 						["number-007", "number-7"],
-						["number-2"],
+						["number-2", "number-trim"],
 						["number-1-5"],
-						["number-1"],
+						["number-1", "number-one-end", "number-epoch-plus-one"],
+						["number-half"],
 						["number-0"],
+						["number-minus-zero"],
 						["number-minus-half"],
 						["number-minus-3"],
 						["number-blank", "number-missing"]

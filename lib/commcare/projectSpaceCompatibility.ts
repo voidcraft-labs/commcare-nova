@@ -62,6 +62,7 @@ export type HqPrivateFeatureFlagId =
 	| "related-case-lookups"
 	| "case-tiles"
 	| "custom-case-tiles"
+	| "calculated-case-order"
 	| "save-only-edited-answers"
 	| "same-type-links-dropped";
 
@@ -89,6 +90,7 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"related-case-lookups": "CASE_SEARCH_RELATED_LOOKUPS",
 	"case-tiles": "CASE_LIST_TILE",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
+	"calculated-case-order": "SORT_CALCULATION_IN_CASE_LIST",
 	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
 	"same-type-links-dropped": "DONT_INDEX_SAME_CASETYPE",
 } as const satisfies Record<HqPrivateFeatureFlagId, string>;
@@ -464,6 +466,11 @@ export function projectSpaceCompatibilityProbePlan(
 		 * a case type and a form that is not a survey, or a case list alone
 		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
 		if (moduleCaseTypeForActions(doc, module.uuid) === "") continue;
+		if (module.caseListConfig?.calculatedSorts?.length)
+			addReason(
+				"calculated-case-order",
+				`${module.name} orders cases using a calculation.`,
+			);
 		if (module.caseListConfig?.selection?.kind === "multiple") {
 			addReason(
 				"multi-select-case-lists",
@@ -557,6 +564,7 @@ export function projectSpaceCompatibilityProbePlan(
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
 		["commcare-connect", ["commcare-connect"]],
 		["attachment-links", ["attachment-links"]],
+		["calculated-case-order", ["calculated-case-order"]],
 		["save-only-edited-answers", ["save-only-edited-answers"]],
 	] as const) {
 		const reasons = reasonsByCapability.get(capability);

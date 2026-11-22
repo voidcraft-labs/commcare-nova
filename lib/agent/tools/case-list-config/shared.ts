@@ -332,7 +332,7 @@ export const SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE =
  * `CASE_TILE_HIDDEN_CALCULATED_SORT`, `CASE_LIST_SORT_LABEL_NOT_SHOWN`).
  */
 export const CASE_LIST_ORDER_GUIDANCE =
-	"Order: each column's sort is one rule, and the rule with the lowest priority decides first; the next breaks ties. Cases with no value come first when ascending and last when descending. A list keeps one rule for each value: a second rule over the same property, or over the same calculation, is refused. Where two columns read one property and order differently (a plain column and an ID mapping, say), the rule goes on whichever comes first in Results. With no rule at all, a list orders by its first column shown on Results, ascending. A column hidden from Results can carry a rule, and then orders by the saved value whatever its kind (a calculated column by its result); in a list with a case tile that holds for any column but a calculated one and one over case_id. Workers can also reorder the list from its Sort by menu, which lists each column shown on Results under its header; a column hidden from Results is listed there only under its sort's label, and a label on a column shown on Results is refused.";
+	"The lowest priority decides the default order. Later priorities break ties. With no rules, cases follow the first item shown on Results, ascending. Blanks come first when ascending and last when descending unless the rule changes that choice. A property rule belongs to the first Results field whose order key it uses. A hidden field can order by its saved value. In a tile, hidden calculated columns and hidden case IDs cannot carry a column rule. A named independent calculation in calculatedSorts can order the list without a display column. Two independent choices can use the same value under different names. A visible field is offered in Sort by under its heading. Give a hidden field a sort label to offer it as a worker choice. A sort-only property's menuPosition can place it before other extra fields without changing its priority.";
 
 export const columnInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm,
@@ -716,6 +716,8 @@ export function stampColumnUuid(
 				body.sort.priority,
 				body.sort.blanks,
 				body.sort.label,
+				body.sort.comparator,
+				body.sort.menuPosition,
 			),
 		}),
 		uuid,

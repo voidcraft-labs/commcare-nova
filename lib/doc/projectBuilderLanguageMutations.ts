@@ -267,6 +267,23 @@ export function projectBuilderLanguageMutations(
 				if (Object.keys(next.patch).length > 0) projected.push(next);
 				break;
 			}
+			case "updateCalculatedSort": {
+				if (!hasOwn(mutation.patch, "label")) {
+					projected.push(mutation);
+					break;
+				}
+				const next = structuredClone(mutation);
+				const id = makeTranslationUnitId("case-sort", mutation.uuid, "label");
+				if (!units.has(id)) {
+					if (next.patch.label != null) refuseMissingSource();
+				} else if (next.patch.label === null) redirectClear(id);
+				else if (typeof next.patch.label === "string")
+					redirect(id, next.patch.label);
+				delete next.patch.label;
+				if (next.after !== undefined || Object.keys(next.patch).length > 0)
+					projected.push(next);
+				break;
+			}
 			case "updateColumn": {
 				if (mutation.column === undefined) {
 					projected.push(mutation);

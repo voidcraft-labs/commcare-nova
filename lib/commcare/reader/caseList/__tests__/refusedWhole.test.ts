@@ -369,12 +369,31 @@ describe("a calculated column", () => {
 });
 
 describe("a sort calculation row", () => {
-	it("is one finding, its empty field the row's own", async () => {
+	it("names a wildcard that cannot identify one value on the selected case", async () => {
 		const reading = await readDetails((short) => {
 			short.sort_elements = [
 				{
 					field: "",
-					type: "string",
+					type: "plain",
+					direction: "ascending",
+					blanks: "first",
+					display: { en: "" },
+					sort_calculation: "*",
+					doc_type: "SortElement",
+				},
+			];
+		});
+		expect(closedCodes(reading)).toEqual([
+			`${M}sort-calculation-without-a-typed-value`,
+		]);
+	});
+
+	it("names a distance rule whose empty property leaves the worker no position", async () => {
+		const reading = await readDetails((short) => {
+			short.sort_elements = [
+				{
+					field: "",
+					type: "distance",
 					direction: "ascending",
 					blanks: "first",
 					display: { en: "" },
@@ -384,7 +403,7 @@ describe("a sort calculation row", () => {
 			];
 		});
 		expect(closedCodes(reading)).toEqual([
-			`${M}sort-calculation-authored-calculation-row-field`,
+			`${M}distance-sort-without-a-location-field`,
 		]);
 	});
 });

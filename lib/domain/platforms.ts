@@ -184,6 +184,7 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"sort-by-distance",
 	"forms-read-search",
 	"list-first",
 	"several-cases",
@@ -243,6 +244,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"sort-by-distance",
 	"forms-read-search",
 	"list-first",
 	"several-cases",
@@ -289,6 +291,21 @@ export const PLATFORM_FEATURES: Readonly<
 			what: "reads here(), the worker's location",
 			why: "Web Apps doesn't know where the worker is, so here() reads blank there, or a fixed place while the list is built.",
 			alternative: "take here() out of this value",
+		},
+	},
+	"sort-by-distance": {
+		label: "Case lists ordered by distance",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "Web Apps cannot order cases from the worker’s current location.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "orders cases by distance from the worker",
+			why: "Web Apps doesn’t know the worker’s current location.",
+			alternative:
+				"choose a different default order or run this app on Android",
 		},
 	},
 	"forms-read-search": {

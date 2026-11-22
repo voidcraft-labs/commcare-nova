@@ -139,6 +139,7 @@ import {
 	type TranslationUnitId,
 	tileCellFor,
 } from "@/lib/domain";
+import type { CaseListOrderPlan } from "@/lib/domain/caseListOrder";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	type AssetManifest,
@@ -152,6 +153,7 @@ import { columnStoredAsExpression } from "./orderPlanOptions";
 import {
 	buildSortBlock,
 	calculatedPropertyText,
+	distanceSortXpath,
 	type ResolvedSortDirective,
 } from "./sortKeys";
 import { buildTileStyleBlock } from "./tileStyle";
@@ -1277,6 +1279,10 @@ function sortText(
 			return { xpath: directive.xpath, variables: [] };
 		case "calculated":
 			return calculatedPropertyText(fieldText().xpath, context);
+		case "distance-calculated": {
+			const text = calculatedPropertyText(fieldText().xpath, context);
+			return { ...text, xpath: distanceSortXpath(text.xpath) };
+		}
 		case "variables":
 			return fieldText();
 	}
@@ -1575,6 +1581,51 @@ function buildExpressionField(args: {
 		translationUnits: {
 			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
 		},
+	};
+}
+
+/** The temporary invisible field HQ appends for a calculation with no
+ * property. The empty field leaves the template blank. Its order expression
+ * and optional Sort by name exist only on the temporary field. */
+export function buildCalculatedSortField(
+	calculation: CaseListOrderPlan["calculations"][number],
+	ctx: CaseListEmitContext,
+): CaseListFieldEmission {
+	const { sort, order, comparator, blanks } = calculation;
+	const xpath = toWire(sort.expression, {
+		target: "suite",
+		root: instanceRootFor(ctx),
+		types: ctx.expressions({
+			slot: "case_list_sort_expression",
+			member: { sortUuid: sort.uuid },
+		}),
+		bindings: lookupTermContext(ctx),
+	});
+	const localeId = detailHeaderLocaleId(
+		ctx.target,
+		"short",
+		ctx.moduleIndex,
+		"",
+		order + 1,
+	);
+	const header =
+		sort.label === undefined
+			? undefined
+			: labelledHiddenHeader(localeId, { column: sort.uuid, text: sort.label });
+	return {
+		element: el("field", {}, [
+			header?.element ?? buildHiddenHeaderBlock(),
+			el("template", { width: "0" }, [el("text", {})]),
+			buildSortBlock(
+				{ type: comparator, order, direction: sort.direction, blanks },
+				{ xpath, variables: [] },
+				ctx.wire,
+			),
+		]),
+		strings: header?.strings ?? {},
+		translationUnits: header
+			? { [localeId]: makeTranslationUnitId("case-sort", sort.uuid, "label") }
+			: {},
 	};
 }
 

@@ -3433,11 +3433,13 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							<CaseListSortMenu
 								options={sortOptions}
 								nameOf={(option) =>
-									caseColumnLabel(
-										option.column,
-										caseType.properties,
-										projectProse,
-									)
+									option.column.kind === "independent-calculation"
+										? option.column.header
+										: caseColumnLabel(
+												option.column,
+												caseType.properties,
+												projectProse,
+											)
 								}
 								onPick={pickSort}
 							/>

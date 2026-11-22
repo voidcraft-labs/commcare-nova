@@ -134,6 +134,15 @@ function moduleReadSite(
 			return site(search, ["searchButtonDisplayCondition"]);
 		case "excluded_owner_ids":
 			return site(search, ["excludedOwnerIds"]);
+		case "case_list_sort_expression": {
+			const index =
+				list?.calculatedSorts?.findIndex(
+					(rule) => rule.uuid === ref.member.sortUuid,
+				) ?? -1;
+			return index < 0
+				? undefined
+				: site(list, ["calculatedSorts", index, "expression"]);
+		}
 		case "case_list_column_expression": {
 			const column = (list?.columns ?? []).findIndex(
 				(candidate) => candidate.uuid === ref.member.columnUuid,

@@ -1205,6 +1205,12 @@ def village_label_column_sorted(authoring, app_id):
     )
 
 
+def distance_on_translated_calculation(authoring, app_id):
+    """The saved village-label column sorted by distance, which requires a position at the worker."""
+    village_label_column_sorted(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/sort_elements/4/type", "distance")
+
+
 # A text Search field as HQ's Case List page stores one.
 _STATUS_FIELD = {
     "name": "status_note",

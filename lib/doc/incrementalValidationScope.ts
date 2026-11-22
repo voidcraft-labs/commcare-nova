@@ -307,6 +307,9 @@ function mutationFootprint(
 				break;
 
 			/* These collections are owned wholly by one module. */
+			case "addCalculatedSort":
+			case "updateCalculatedSort":
+			case "removeCalculatedSort":
 			case "addColumn":
 			case "updateColumn":
 			case "removeColumn":

@@ -151,3 +151,53 @@ def test_a_case_list_save_drops_a_custom_tile_under_case_list_tile_alone_and_kee
             after = operations.held_app(state, app_id).modules[0].case_details.short
             found[name] = after.case_tile_template
     assert found == {"both": "custom", "tile alone": None}, found
+
+
+def test_named_independent_order_survives_the_case_list_page_save(hq, core_runner, editor_driver):
+    document = corpus_document("targeted-independent-case-order")
+    minimum = document.exports["minimum"].configuration.hq()
+    flag = "SORT_CALCULATION_IN_CASE_LIST"
+    assert flag in minimum.flags
+    for active in (True, False):
+        flags = minimum.flags if active else minimum.flags - {flag}
+        with _published(document, _with_flags(minimum, flags)) as (state, app_id):
+            module = operations.held_app(state, app_id).modules[0]
+            offered = _offered(editor_driver, state, app_id, module.unique_id,
+                               {"order calculation": 'input[data-bind="value: sortCalculation"]'})
+            assert offered["order calculation"] is active
+            saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+            assert saved.save is not None and saved.save.status == 200 and not saved.refused, saved.alerts
+            short = operations.held_app(state, app_id).modules[0].case_details.short
+            assert len(short.columns) == 1
+            assert [(row.field or "", row.sort_calculation or "", row.type) for row in short.sort_elements] == [
+                ("", "appointment_number" if active else "", "int"), ("name", "", "plain"),
+            ]
+            if active:
+                assert short.sort_elements[0].display["en"] == "Appointment number"
+
+
+def test_case_tile_save_keeps_extra_sort_choices_in_menu_order_and_cases_in_rule_order(hq, core_runner, editor_driver):
+    from corehq.apps.app_manager.models.case_list import SortElement
+    from lxml import etree
+
+    document = corpus_document("targeted-custom-tile")
+    with _published(document, document.exports["minimum"].configuration.hq()) as (state, app_id):
+        app = operations.held_app(state, app_id)
+        module = app.modules[0]
+        rows = [("phone", "descending", "Phone"), ("notes", "ascending", "Notes"), ("phone", "descending", "Phone")]
+        module.case_details.short.sort_elements = [
+            SortElement(field=field, type="plain", direction=direction, blanks="first", display={"en": label})
+            for field, direction, label in rows
+        ]
+        app.save()
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+        assert saved.save is not None and saved.save.status == 200 and not saved.refused, saved.alerts
+        app = operations.held_app(state, app_id)
+        short = app.modules[0].case_details.short
+        assert [(r.field, r.direction, r.display["en"]) for r in short.sort_elements] == rows
+        source = app.create_suite()
+        root = etree.fromstring(source.encode("utf-8") if isinstance(source, str) else source)
+        fields = root.xpath('./detail[@id="m0_case_short"]/field[sort/@order]')
+        assert [(field.find("sort").get("order"), field.xpath("sort/text/xpath/@function")) for field in fields] == [
+            ("3", ["phone"]), ("2", ["notes"]),
+        ]

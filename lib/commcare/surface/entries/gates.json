@@ -1872,7 +1872,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Sorting `sort_calculation`)",
+		"content": "Default order calculates a value independently of Results columns.",
 		"contentEntries": [
 			"menus-and-case-lists/sort-calculation-authored-calculation-row-field"
 		],

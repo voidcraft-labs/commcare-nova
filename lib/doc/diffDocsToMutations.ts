@@ -85,6 +85,7 @@ import type {
 
 import { produce } from "immer";
 import { addModuleMutation } from "@/lib/doc/addModuleMutation";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import {
 	columnAddMutation,
 	columnSnapshotMutations,
@@ -2306,6 +2307,11 @@ function diffCaseListConfig(
 	return [
 		...birth,
 		...diffColumns(prevC, nextConfig, moduleUuid),
+		...calculatedSortMutations(
+			moduleUuid,
+			prevC.calculatedSorts ?? [],
+			nextConfig.calculatedSorts ?? [],
+		),
 		...diffSearchInputs(
 			prevC.searchInputs,
 			nextConfig.searchInputs,

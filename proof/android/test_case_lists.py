@@ -78,13 +78,13 @@ def _restored(document):
     return casedata.database_of_restore((document.root / "restore.xml").read_bytes())
 
 
-def _list(served, archive, label, command, searches):
+def _list(served, archive, label, command, searches, **device):
     """The first list the walk of ``command`` opens on a device that installed ``archive``."""
     from proof.android import observe
     from proof.observe.record import Blobs
 
     blobs = Blobs()
-    found = observe.app(served, blobs, label=label, archive=archive, commands=[command], searches=searches)
+    found = observe.app(served, blobs, label=label, archive=archive, commands=[command], searches=searches, **device)
     answer = blobs.get_json(found["answer"])
     assert answer["install"] == "Installed", answer["install"]
     walk = answer["walks"][command]
@@ -113,6 +113,32 @@ def test_a_list_search_finds_a_hidden_columns_value_on_both_exports(android_docu
         listed = {name: _list(served, archive, name, "m0-f0", ["Riverside"]) for name, archive in archives.items()}
     for name, held in listed.items():
         assert _searched(held, "Riverside") == {setting: ["Amina"] for setting in FUZZY}, name
+
+
+def test_named_calculation_orders_without_adding_a_display_column(android_documents, hq):
+    document = android_documents["targeted-independent-case-order"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            held = _list(served, archive, label, "m0-f0", [])
+            assert [_texts(row) for row in held["rows"]] == [["Caro"], ["Zuri"], ["Asha"], ["Beno"]], label
+            assert held[f"{LIST}.getSortOptionsList"] == ["2 (^) Name", "1 (^) Appointment number"], label
+            assert [(result["option"], result["rows"]) for result in held["sorted"]] == [
+                ("2 (^) Name", ["Asha", "Beno", "Caro", "Zuri"]),
+                ("1 (^) Appointment number", ["Caro", "Zuri", "Asha", "Beno"]),
+            ], label
+
+
+@pytest.mark.parametrize(("fix", "names"), [
+    (None, ["Asha", "Zuri", "Beno"]),
+    ([0, 0, 0, 5], ["Zuri", "Asha", "Beno"]),
+    ([0, 0.002, 0, 5], ["Asha", "Zuri", "Beno"]),
+], ids=["no-fix", "west", "east"])
+def test_android_orders_clinics_from_the_workers_current_position(android_documents, hq, fix, names):
+    document = android_documents["targeted-nearest-clinics"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            held = _list(served, archive, label, "m0-f0", [], fix=fix, location_granted=True)
+            assert [_texts(row) for row in held["rows"]] == [[name] for name in names], label
 
 
 # The first rule's values, set by hand so its order is the reverse of the names'.

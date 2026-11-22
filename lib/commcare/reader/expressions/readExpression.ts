@@ -62,7 +62,10 @@ import {
 import { type LookupWireNaming, lookupWireNaming } from "../../lookup/naming";
 import { lookupOptionsNodeset } from "../../lookupOptions";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../../suite/case-list/nodesetFilter";
-import { hqExpressionField } from "../../suite/case-list/orderPlanOptions";
+import {
+	hqCalculatedSortExpression,
+	hqExpressionField,
+} from "../../suite/case-list/orderPlanOptions";
 import { searchPromptWire } from "../../suite/case-search/searchPrompts";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
@@ -1110,6 +1113,16 @@ function printSlotWith(
 							searchInstanceOf(mod),
 							rewrites,
 						),
+					),
+				);
+			case "case_list_sort_expression":
+				return text(
+					hqCalculatedSortExpression(
+						{ uuid: ref.member.sortUuid, expression },
+						mod,
+						expressions,
+						naming,
+						rewrites,
 					),
 				);
 			case "case_list_column_expression": {

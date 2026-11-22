@@ -1621,6 +1621,9 @@ export function planReferenceIndexMaintenance(
 		// search-input AST edges + the always-on filter live on the module
 		// carrier, so a re-extract of the module keeps the index current (a
 		// later rename must find these edges, so they cannot be stubbed away).
+		case "addCalculatedSort":
+		case "updateCalculatedSort":
+		case "removeCalculatedSort":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":

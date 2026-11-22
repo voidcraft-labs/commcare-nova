@@ -100,6 +100,25 @@ function platformFeatureError(
 				base,
 			);
 		}
+		case "column": {
+			const module = doc.modules[owner.moduleUuid];
+			const moduleName = module?.name ?? "";
+			const column = module?.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === owner.columnUuid,
+			);
+			return validationError(
+				"PLATFORM_FEATURE_UNAVAILABLE",
+				"module",
+				message(`Column "${column?.header ?? ""}" in module "${moduleName}"`),
+				{ moduleUuid: owner.moduleUuid, moduleName },
+				{
+					...base,
+					columnUuid: owner.columnUuid,
+					columnHeader: column?.header ?? "",
+					...(use.site.kind === "slot" && { slot: use.site.slot }),
+				},
+			);
+		}
 		case "search-input": {
 			const module = doc.modules[owner.moduleUuid];
 			const moduleName = module?.name ?? "";

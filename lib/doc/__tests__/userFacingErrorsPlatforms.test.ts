@@ -36,6 +36,10 @@ function finding(feature: PlatformFeatureId): ValidationError {
 describe("each refusable structural feature in the builder's words", () => {
 	it.each([
 		[
+			"sort-by-distance",
+			"Column \"Coordinates\" uses the worker's location to put nearby cases first. Web Apps can't read that location. You can choose a different order, or set the app to run only on Android in App settings.",
+		],
+		[
 			"datetime-question",
 			'"answer" asks for a date and time, which Web Apps can\'t show. You can ask for the date and the time separately, or set the app to run only on Android in App settings.',
 		],

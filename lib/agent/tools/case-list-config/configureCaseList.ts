@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
 import { withWorkflowAfterInputChange } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { planSearchTakeawayDependents } from "@/lib/doc/searchReadDependents";
 import type { Mutation } from "@/lib/doc/types";
@@ -14,6 +15,8 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type CaseSearchConfig,
+	calculatedSortSchema,
+	defaultSortBlanks,
 	findAuthoredBlueprintIdentity,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
@@ -77,6 +80,32 @@ export const configureCaseListInputSchema = z
 			.describe(
 				`Columns to add, in their initial Results and Details order. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE} ${CASE_LIST_ORDER_GUIDANCE}`,
 			),
+		calculatedSorts: z
+			.array(
+				z.strictObject({
+					sortUuid: uuidInputSchema
+						.optional()
+						.describe(
+							"Use the existing order calculation’s ID to change it. Leave this out for a new calculation.",
+						),
+					expression: calculatedSortSchema.shape.expression,
+					direction: calculatedSortSchema.shape.direction,
+					priority: calculatedSortSchema.shape.priority,
+					comparator: calculatedSortSchema.shape.comparator,
+					blanks: calculatedSortSchema.shape.blanks,
+					label: calculatedSortSchema.shape.label,
+				}),
+			)
+			.min(1)
+			.optional()
+			.describe(
+				"Add or replace these independent Default order calculations. Priority is shared with column ordering. The optional label makes the calculation available in the worker’s Sort by menu.",
+			),
+		removeCalculatedSorts: z
+			.array(uuidInputSchema)
+			.min(1)
+			.optional()
+			.describe("IDs of independent order calculations to remove."),
 		searchInputs: z
 			.array(searchInputDefInputSchema)
 			.min(1)
@@ -133,6 +162,8 @@ export const configureCaseListInputSchema = z
 		}
 		if (
 			input.columns === undefined &&
+			input.calculatedSorts === undefined &&
+			input.removeCalculatedSorts === undefined &&
 			input.searchInputs === undefined &&
 			input.searchWorkflow === undefined &&
 			input.formsReadSearch === undefined &&
@@ -173,6 +204,7 @@ function hasCompleteSearchDisplay(
 export interface ConfigureCaseListSuccess {
 	readonly ok: true;
 	readonly columnUuids: readonly Uuid[];
+	readonly calculatedSortUuids?: readonly Uuid[];
 	readonly searchInputUuids: readonly Uuid[];
 	readonly summary: ToolCallSummary;
 }
@@ -331,6 +363,61 @@ export const configureCaseListTool = {
 					).mutations,
 				);
 			}
+			const sortUuids = (input.calculatedSorts ?? []).map((rule) =>
+				rule.sortUuid === undefined ? newUuid() : asUuid(rule.sortUuid),
+			);
+			if (input.calculatedSorts || input.removeCalculatedSorts) {
+				const before = workingModule.caseListConfig?.calculatedSorts ?? [];
+				const removals = new Set(
+					(input.removeCalculatedSorts ?? []).map(asUuid),
+				);
+				if (
+					removals.size !== (input.removeCalculatedSorts?.length ?? 0) ||
+					[...removals].some(
+						(uuid) => !before.some((rule) => rule.uuid === uuid),
+					) ||
+					new Set(sortUuids).size !== sortUuids.length ||
+					sortUuids.some((uuid) => removals.has(uuid))
+				) {
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							error:
+								"Each order calculation can be changed once in a call. Remove a calculation that this menu already holds.",
+						},
+					};
+				}
+				const next = new Map(
+					before
+						.filter((rule) => !removals.has(rule.uuid))
+						.map((rule) => [rule.uuid, rule]),
+				);
+				for (const [i, inputRule] of (input.calculatedSorts ?? []).entries()) {
+					const { sortUuid: _id, blanks, ...values } = inputRule;
+					const uuid = sortUuids[i];
+					if (
+						createdUuids.includes(uuid) ||
+						(!next.has(uuid) && findAuthoredBlueprintIdentity(doc, uuid))
+					) {
+						return {
+							kind: "mutate",
+							mutations: [],
+							result: {
+								error:
+									"This ID already belongs to another part of the app. Choose a calculation from this menu or add a new one.",
+							},
+						};
+					}
+					next.set(uuid, {
+						uuid,
+						...values,
+						...(blanks !== undefined &&
+							blanks !== defaultSortBlanks(values.direction) && { blanks }),
+					});
+				}
+				append(calculatedSortMutations(moduleUuid, before, [...next.values()]));
+			}
 			if (input.searchInputs !== undefined) {
 				append(
 					addSearchInputsMutation(
@@ -432,6 +519,7 @@ export const configureCaseListTool = {
 				result: {
 					ok: true,
 					columnUuids,
+					...(input.calculatedSorts && { calculatedSortUuids: sortUuids }),
 					searchInputUuids,
 					summary: { location: originalModule.name },
 				},

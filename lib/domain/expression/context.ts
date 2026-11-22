@@ -1048,9 +1048,20 @@ export function slotContext(
 			);
 			if (column?.kind !== "calculated") return undefined;
 		}
+		if (
+			slot.slot === "case_list_sort_expression" &&
+			!module.caseListConfig?.calculatedSorts?.some(
+				(rule) => rule.uuid === slot.member.sortUuid,
+			)
+		)
+			return undefined;
+		const orderValue =
+			slot.slot === "case_list_sort_expression" ||
+			slot.slot === "case_list_column_expression";
 		const caseSlot = [
 			"case_list_filter",
 			"case_list_column_expression",
+			"case_list_sort_expression",
 			"search_input_predicate",
 		].includes(slot.slot);
 		if (caseSlot && module.caseType === undefined) return undefined;
@@ -1066,6 +1077,7 @@ export function slotContext(
 		const admitsInputs = [
 			"case_list_filter",
 			"case_list_column_expression",
+			"case_list_sort_expression",
 			"search_input_predicate",
 			"excluded_owner_ids",
 			"search_input_required_when",
@@ -1079,7 +1091,7 @@ export function slotContext(
 					? searchable
 						? ["SU", "HQ", "CS", "PG"]
 						: ["SU", "HQ", "PG"]
-					: slot.slot === "case_list_column_expression"
+					: orderValue
 						? searchable
 							? ["SU", "HQ", "CS", "PG", "PV"]
 							: ["SU", "HQ", "PG", "PV"]
@@ -1096,7 +1108,7 @@ export function slotContext(
 				patternMatching:
 					slot.slot === "search_input_required_when" ||
 					slot.slot === "search_input_validation_rule",
-				here: slot.slot === "case_list_column_expression",
+				here: orderValue,
 			},
 		);
 		if (slot.slot === "excluded_owner_ids")

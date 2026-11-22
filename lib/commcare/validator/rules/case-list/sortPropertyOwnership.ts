@@ -32,6 +32,7 @@
  * counted in stored order.
  */
 
+import type { ModuleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	type BlueprintDoc,
 	type CaseListOrderPlan,
@@ -39,9 +40,16 @@ import {
 	type Column,
 	caseListOrderPlan,
 	caseListSortKeysMatch,
+	comparatorForResolvedType,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	checkExpression,
+	type LookupTypeIndex,
+	scalarDataType,
+	slotContext,
+} from "@/lib/domain/expression";
 import { caseListOrderOptions } from "../../../suite/case-list/orderPlanOptions";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -54,11 +62,15 @@ export function sortPropertyOwnership(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables: LookupTypeIndex = new Map(),
 ): ValidationError[] {
 	const config = mod.caseListConfig;
 	if (config === undefined) return [];
 	const columns = config.columns;
-	if (!columns.some((column) => column.sort !== undefined)) {
+	if (
+		!config.calculatedSorts?.length &&
+		!columns.some((column) => column.sort !== undefined)
+	) {
 		return [];
 	}
 
@@ -74,6 +86,77 @@ export function sortPropertyOwnership(
 	);
 	const location = { moduleUuid, moduleName: mod.name };
 	const errors: ValidationError[] = [];
+
+	const expressions: ModuleExpressionContexts = (address) => {
+		const context = slotContext(
+			doc,
+			{ entity: "module", uuid: moduleUuid, ...address },
+			lookupTables,
+		);
+		if (!context)
+			throw new Error("The default order calculation has no owning module.");
+		return context;
+	};
+	for (const { sort } of plan.calculations) {
+		// A failed expression is named by its owning type/portability rule.
+		const checked = checkExpression(
+			sort.expression,
+			expressions({
+				slot: "case_list_sort_expression",
+				member: { sortUuid: sort.uuid },
+			}),
+		);
+		if (checked.errors.length) continue;
+		if (
+			sort.comparator ===
+			comparatorForResolvedType(scalarDataType(checked.type?.data))
+		)
+			errors.push(
+				validationError(
+					"CASE_LIST_UNUSED_COMPARISON",
+					"module",
+					"This calculation already uses that comparison. Choose its usual order.",
+					location,
+					{ sortUuid: sort.uuid },
+				),
+			);
+	}
+	for (const rule of plan.authored) {
+		const column = columns[indexByUuid.get(rule.column) ?? -1];
+		const override = column?.sort?.comparator;
+		if (column === undefined || override === undefined) continue;
+		if (override === "distance") {
+			const landing = landingField(plan, rule.landsOn);
+			if (landing?.key?.kind === "distance-calculated" && landing.key.unbound) {
+				errors.push(
+					validationError(
+						"CASE_LIST_UNUSED_COMPARISON",
+						"module",
+						`"${column.header}" orders by translated labels. Choose a location field to put nearby cases first.`,
+						location,
+						{
+							columnUuid: column.uuid,
+							shape: "distance-without-location-value",
+						},
+					),
+				);
+			}
+			continue;
+		}
+		if (
+			rule.defaultComparison === undefined ||
+			rule.defaultComparison === override
+		)
+			errors.push(
+				validationError(
+					"CASE_LIST_UNUSED_COMPARISON",
+					"module",
+					`"${column.header}" already supplies its comparison. Choose the field’s usual order.`,
+					location,
+					{ columnUuid: column.uuid, shape: "unused-comparison" },
+				),
+			);
+	}
 
 	// (a) one join text, two rules: the first in rule order keeps it.
 	const firstByJoinText = new Map<string, Uuid>();
