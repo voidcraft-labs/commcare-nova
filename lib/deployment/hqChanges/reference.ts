@@ -15,7 +15,7 @@ import "server-only";
  */
 
 import { produce } from "immer";
-import { type Kysely, sql } from "kysely";
+import { type Kysely, sql, type Transaction } from "kysely";
 import { z } from "zod";
 import {
 	greatestFoldBaselineSeq,
@@ -163,7 +163,16 @@ export async function loadReferenceDocument(input: {
 	);
 }
 
-export async function loadFoldedDeploymentReference(
+/** A released claim can be taken back on restore. Its maintenance-only read
+ * keeps the original comparison available for that later holder. */
+export function loadFoldOperatorReference(
+	db: Transaction<AppDatabase>,
+	input: Parameters<typeof loadFoldedDeploymentReference>[1],
+) {
+	return loadFoldedDeploymentReference(db, input, "preserve-released");
+}
+
+async function loadFoldedDeploymentReference(
 	db: Kysely<AppDatabase>,
 	input: {
 		readonly appId: string;
@@ -171,6 +180,7 @@ export async function loadFoldedDeploymentReference(
 		readonly headSeq: number;
 		readonly binding?: DeploymentFoldBinding;
 	},
+	claim: "held" | "preserve-released" = "held",
 ): Promise<FoldedDeploymentReference> {
 	const { appId, novaRevision, headSeq, binding } = input;
 	if (headSeq < novaRevision)
@@ -216,7 +226,9 @@ export async function loadFoldedDeploymentReference(
 			.where("r.kind", "=", "app")
 			.where("r.nova_resource_id", "=", appId)
 			.where("r.remote_id", "=", binding.remoteAppId)
+			.where("r.push_token", "=", binding.mappingToken)
 			.where("r.superseded_at", "is", null)
+			.$if(claim === "held", (q) => q.where("r.released_at", "is", null))
 			.whereRef("b.remote_app_id", "=", "r.remote_id")
 			.executeTakeFirst();
 		if (!held)
@@ -560,12 +572,28 @@ function actorsOf(
  * the live app mapping's `pushed_revision`. Revisions before the current
  * horizon need the certified comparison which the verified baseline binds.
  */
+type ReferenceMapping = Pick<
+	DeploymentResource,
+	"pushedRevision" | "deploymentId" | "remoteId"
+>;
+
 export function usablePair(
 	baseline: AppBaseline | null,
-	mapping: Pick<
-		DeploymentResource,
-		"pushedRevision" | "deploymentId" | "remoteId"
-	> | null,
+	mapping: (ReferenceMapping & Pick<DeploymentResource, "releasedAt">) | null,
+	foldSeq: number | null,
+): boolean {
+	return (
+		mapping !== null &&
+		mapping.releasedAt === null &&
+		mapping.remoteId === baseline?.remoteAppId &&
+		hasPublishedComparison(baseline, mapping, foldSeq)
+	);
+}
+
+/** Whether this mapping has a comparison to preserve even while its claim is released. */
+export function hasPublishedComparison(
+	baseline: AppBaseline | null,
+	mapping: ReferenceMapping,
 	foldSeq: number | null,
 ): boolean {
 	if (baseline === null) return false;
@@ -577,10 +605,7 @@ export function usablePair(
 		return false;
 	const revision = baseline.novaRevision;
 	if (revision === null) return false;
-	if (
-		baseline.origin === "push" &&
-		(mapping === null || mapping.pushedRevision !== revision)
-	)
+	if (baseline.origin === "push" && mapping.pushedRevision !== revision)
 		return false;
 	if (foldSeq === null) return false;
 	if (revision >= foldSeq) return true;
@@ -591,7 +616,6 @@ export function usablePair(
 		binding.novaRevision === revision &&
 		binding.sourceDigest === baseline.sourceDigest &&
 		binding.remoteAppId === baseline.remoteAppId &&
-		mapping !== null &&
 		binding.deploymentId === mapping.deploymentId &&
 		binding.remoteAppId === mapping.remoteId
 	);

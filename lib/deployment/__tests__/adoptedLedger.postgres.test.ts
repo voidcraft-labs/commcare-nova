@@ -28,6 +28,7 @@ import {
 } from "../store";
 import { EMPTY_TARGET_IDENTITY } from "../targetIdentity";
 import {
+	appMappingToken,
 	BIRTH_AT,
 	birthAdoptedApp,
 	HELD_COLUMN,
@@ -373,6 +374,7 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
 			comparedDigest: stored.sourceDigest,
+			comparedPushToken: appMappingToken(birth.deployment),
 			read: {
 				sourceGzip: gzipSync(Buffer.from(text, "utf8")),
 				sourceBytes: Buffer.byteLength(text, "utf8"),

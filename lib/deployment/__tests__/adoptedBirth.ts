@@ -20,6 +20,7 @@ import { canonicalAppGenesis, emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { HqMediaRecord } from "../hqMedia";
+import { activeRemoteApp } from "../resources";
 import {
 	type AdoptedDeploymentWrite,
 	type DeploymentScope,
@@ -35,6 +36,15 @@ import type {
 	DeploymentConfirmationKey,
 	DeploymentWithResources,
 } from "../types";
+
+/** The exact app mapping a refresh or reviewed take observed. */
+export function appMappingToken(
+	deployment: DeploymentWithResources | null,
+): string {
+	const mapping = deployment && activeRemoteApp(deployment);
+	if (!mapping) throw new Error("Expected a current app mapping.");
+	return mapping.pushToken;
+}
 
 export const BIRTH_AT = new Date("2026-11-10T09:30:00.000Z");
 export const READ_AT = "2026-11-10T09:29:00.000Z";

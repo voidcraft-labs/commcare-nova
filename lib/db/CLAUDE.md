@@ -342,7 +342,7 @@ review of changes made in CommCare HQ measures changes in Nova against) is a
 fold at the revision the deployment's baseline describes. An incompatible cutover
 can certify that deployment’s prior comparison in `app_deployment_fold_references`.
 The serving role can read that table. Its baseline’s digest and fold bind the
-certificate to the published revision and active mapping. Without a certificate, a fold horizon
+certificate to the published revision and active mapping. Release and reclaim each rotate the mapping token, so an HQ read that crossed either transition cannot update the source or side records. A released claim keeps its certificate for a later reclaim. Without a certificate, a fold horizon
 above that revision hides it: `usablePair` answers false and the review is
 unavailable until the deployment's next publish writes a revision at or after
 the horizon. A `blueprint-migration` batch is granular mutations, not a

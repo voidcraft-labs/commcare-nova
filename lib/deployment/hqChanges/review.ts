@@ -1036,7 +1036,8 @@ async function computeWith(
 				publishChanges: [],
 				readingId: options.readingId,
 				reviewDigest: hqChangesReviewDigest({
-					v: 1,
+					v: 2,
+					mappingToken: basis.live.pushToken,
 					baselineDigest: baseline.sourceDigest,
 					sourceDigest: normalized.digest,
 					headSeq: head.seq,
@@ -1571,7 +1572,8 @@ export async function checkHqChanges(
 						resolverOf(fetched),
 					).tables.filter((table) => newTagSet.has(table.tag));
 		const reviewDigest = hqChangesReviewDigest({
-			v: 1,
+			v: 2,
+			mappingToken: fetched.live.pushToken,
 			baselineDigest: fetched.baseline.sourceDigest,
 			sourceDigest: fetched.normalized.digest,
 			headSeq: fetched.head.seq,

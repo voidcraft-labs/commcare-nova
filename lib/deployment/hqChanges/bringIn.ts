@@ -370,6 +370,7 @@ async function recordReadsTheSame(
 		expectedEndings: basis.deployment.endings,
 		remoteAppId: basis.live.remoteId,
 		comparedDigest: basis.baseline.sourceDigest,
+		comparedPushToken: basis.live.pushToken,
 		comparedRevision: basis.baseline.novaRevision,
 		comparedFold: basis.baseline.foldBinding?.foldSeq,
 		read: await storedSource(basis),
@@ -810,6 +811,7 @@ async function takenFor(
 			target,
 			expectedEndings: basis.deployment.endings,
 			remoteAppId: basis.live.remoteId,
+			comparedPushToken: basis.live.pushToken,
 			read: {
 				sourceDigest: basis.baseline.sourceDigest,
 				novaRevision: basis.baseline.novaRevision,

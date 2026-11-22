@@ -38,7 +38,12 @@ import { placementsToHold } from "@/lib/commcare/placementHolds";
 import { canonDocument } from "@/lib/commcare/reader/canon";
 import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { appendSyntheticBatch, loadApp } from "@/lib/db/apps";
+import {
+	appendSyntheticBatch,
+	loadApp,
+	restoreApp,
+	softDeleteApp,
+} from "@/lib/db/apps";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	hydratePersistedBlueprint,
@@ -47,22 +52,40 @@ import {
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, CasePlacement, Form, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CasePlacement,
+	Form,
+	PersistableDoc,
+	Uuid,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { OWNERSHIP } from "../../__tests__/adoptedBirth";
+import {
+	scanDeploymentFold,
+	writeDeploymentAwareFold,
+} from "@/scripts/lib/deploymentFold";
+import {
+	appMappingToken,
+	birthAdoptedApp,
+	OWNERSHIP,
+} from "../../__tests__/adoptedBirth";
 import { certifyFold } from "../../__tests__/certifiedFold";
 import { placementMoveOffer } from "../../placementMoves";
 import { recordPublishPlacements } from "../../placements";
 import { readBackDifferences } from "../../reading/readBack";
 import {
+	admitAppWrite,
 	type DeploymentTargetKey,
 	endDeployment,
 	foldDeploymentAttempt,
 	readAppBaseline,
+	readDeployment,
 	readFirstPublishStates,
 	readTargetIdentity,
 	recordRefreshedAppBaseline,
 	recordRemoteResource,
+	settleReleasedClaims,
+	settleRemoteWrites,
 } from "../../store";
 import { EMPTY_TARGET_IDENTITY } from "../../targetIdentity";
 import type { AppBaseline } from "../../types";
@@ -633,6 +656,7 @@ describe("published comparisons at a new fold", () => {
 		const northRead = {
 			expectedEndings: 0,
 			remoteAppId: northId,
+			comparedPushToken: previousNorth.foldBinding.mappingToken,
 			comparedDigest: previousNorth.sourceDigest,
 			comparedRevision: previousNorth.novaRevision,
 			comparedFold: previousNorth.foldBinding?.foldSeq,
@@ -644,6 +668,7 @@ describe("published comparisons at a new fold", () => {
 		const southRead = {
 			expectedEndings: 0,
 			remoteAppId: southId,
+			comparedPushToken: appMappingToken(await readDeployment(scope, south)),
 			comparedDigest: previousSouth.sourceDigest,
 			comparedRevision: previousSouth.novaRevision,
 			comparedFold: previousSouth.foldBinding?.foldSeq,
@@ -725,6 +750,178 @@ describe("published comparisons at a new fold", () => {
 	});
 });
 
+it("keeps a released comparison through restore and a fold, and fences reads from the earlier claim after reclaim", async () => {
+	const appId = testUuid("restored-fold-app");
+	const target = { server: "india", domain: "restore" } as const;
+	const remoteAppId = "a".repeat(32);
+	await h.seedProjectMember(OWNER, PROJECT, "owner");
+	const setup = { projectId: PROJECT, actorUserId: OWNER, target, remoteAppId };
+	const { scope } = await birthAdoptedApp(h, { ...setup, appId });
+	await certifyFold(h.db(), appId);
+	const before = await readAppBaseline(scope, target);
+	if (!before || before.origin === "unread" || !before.foldBinding)
+		throw new Error("Expected the original comparison.");
+	const binding = before.foldBinding;
+	const read = {
+		expectedEndings: 0,
+		comparedPushToken: binding.mappingToken,
+		remoteAppId,
+		comparedDigest: before.sourceDigest,
+		comparedFold: binding.foldSeq,
+		comparedRevision: binding.novaRevision,
+		read: storedRead({ name: "Read while away" }, new Date().toISOString()),
+		mediaFiles: { "commcare/image/logo.png": "from-a-stale-read" },
+		targetIdentity: {
+			read: await readTargetIdentity(scope, target),
+			next: EMPTY_TARGET_IDENTITY,
+		},
+	};
+	const beforeReference = await loadReferenceDocument({
+		appId,
+		novaRevision: binding.novaRevision,
+		binding,
+		head: await head(appId),
+	});
+	const oldHead = await head(appId);
+	const input = {
+		appId,
+		projectId: PROJECT,
+		headSeq: oldHead.seq,
+		oldHead: oldHead.doc,
+		convert: (doc: PersistableDoc) => doc,
+	};
+	const scan = () =>
+		h
+			.db()
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.setAccessMode("read only")
+			.execute((tx) => scanDeploymentFold(tx, input));
+	const originalReceipt = await scan();
+	await softDeleteApp(appId, OWNER);
+	const otherAppId = testUuid("second-restored-fold-app");
+	const other = await birthAdoptedApp(h, { ...setup, appId: otherAppId });
+	const admitted = await admitAppWrite(other.scope, target, {
+		observedPushToken: appMappingToken(other.deployment),
+		expectedEndings: 0,
+		remoteAppId,
+		writeKind: "media",
+	});
+	if (admitted.kind !== "admitted")
+		throw new Error("Expected the other app's active HQ write.");
+	await softDeleteApp(otherAppId, OWNER);
+	await restoreApp(appId, OWNER);
+	const releasedReceipt = await scan();
+	expect(releasedReceipt).toMatchObject({ usable: 0, unavailable: 1 });
+	expect(releasedReceipt.digest).not.toBe(originalReceipt.digest);
+	await expect(
+		h.withTransaction((tx) =>
+			writeDeploymentAwareFold(tx, input, originalReceipt, async () => {
+				throw new Error("A stale receipt reached the horizon writer.");
+			}),
+		),
+	).rejects.toThrow("deployment comparisons changed after the fold scan");
+	expect(await scan()).toEqual(releasedReceipt);
+	expect(await settleReleasedClaims(scope)).toMatchObject({
+		waiting: [target],
+	});
+	expect(await readAppBaseline(scope, target)).not.toHaveProperty(
+		"foldBinding",
+	);
+	await expect(
+		loadReferenceDocument({
+			appId,
+			head: oldHead,
+			novaRevision: binding.novaRevision,
+			binding,
+		}),
+	).rejects.toThrow("comparison changed");
+	expect((await recordRefreshedAppBaseline(scope, target, read)).outcome).toBe(
+		"superseded",
+	);
+	expect(await readTargetIdentity(scope, target)).toEqual(
+		read.targetIdentity.read,
+	);
+	expect((await readAppBaseline(scope, target))?.mediaFiles).toEqual(
+		before.mediaFiles,
+	);
+
+	// Reclaim without any fresh publish, fold or source read. The old
+	// comparison is available again, but the remote request that crossed the
+	// release still cannot land or reuse its old certified read handle.
+	await settleRemoteWrites([admitted.writeId], { kind: "settled" });
+	expect(await settleReleasedClaims(scope)).toMatchObject({ waiting: [] });
+	const reclaimed = await readAppBaseline(scope, target);
+	if (!reclaimed || reclaimed.origin === "unread" || !reclaimed.foldBinding)
+		throw new Error("Expected the reclaimed comparison.");
+	expect(reclaimed.foldBinding.mappingToken).not.toBe(binding.mappingToken);
+	expect(
+		await admitAppWrite(scope, target, {
+			observedPushToken: binding.mappingToken,
+			expectedEndings: 0,
+			remoteAppId,
+			writeKind: "import",
+		}),
+	).toEqual({ kind: "mapping-moved" });
+	expect((await recordRefreshedAppBaseline(scope, target, read)).outcome).toBe(
+		"superseded",
+	);
+	await expect(
+		loadReferenceDocument({
+			appId,
+			head: oldHead,
+			novaRevision: binding.novaRevision,
+			binding,
+		}),
+	).rejects.toThrow("comparison changed");
+	expect(
+		await loadReferenceDocument({
+			appId,
+			head: oldHead,
+			novaRevision: binding.novaRevision,
+			binding: reclaimed.foldBinding,
+		}),
+	).toEqual(beforeReference);
+
+	// The next actual release spans a conversion of the recoverable app.
+	// Its holder is in recently deleted but the other app can reclaim on restore.
+	await softDeleteApp(appId, OWNER);
+	await restoreApp(otherAppId, OWNER);
+	expect(
+		await certifyFold(h.db(), appId, "hq-round-trip-case-writes"),
+	).toMatchObject({ usable: 0, unavailable: 1 });
+	await softDeleteApp(otherAppId, OWNER);
+	await restoreApp(appId, OWNER);
+	const after = await readAppBaseline(scope, target);
+	if (!after || after.origin === "unread" || !after.foldBinding)
+		throw new Error("Expected the restored comparison at the new fold.");
+	expect(after).toMatchObject({
+		novaRevision: binding.novaRevision,
+		sourceDigest: before.sourceDigest,
+		mediaFiles: before.mediaFiles,
+	});
+	expect(
+		await loadReferenceDocument({
+			appId,
+			head: await head(appId),
+			novaRevision: binding.novaRevision,
+			binding: after.foldBinding,
+		}),
+	).toEqual(beforeReference);
+	expect(
+		(
+			await recordRefreshedAppBaseline(scope, target, {
+				...read,
+				comparedPushToken: after.foldBinding.mappingToken,
+				comparedFold: after.foldBinding.foldSeq,
+			})
+		).outcome,
+	).toBe("current");
+	expect(await readTargetIdentity(scope, target)).toEqual(
+		EMPTY_TARGET_IDENTITY,
+	);
+});
+
 describe("usablePair", () => {
 	const source = (
 		origin: "create" | "push" | "cutover" | "read" | "changes",
@@ -742,6 +939,7 @@ describe("usablePair", () => {
 		sourceBytes: 10,
 	});
 	const mapping = (pushedRevision: number | null) => ({
+		releasedAt: null,
 		pushedRevision,
 		remoteId: "hq-app",
 		deploymentId: "deployment",

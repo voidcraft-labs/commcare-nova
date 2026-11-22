@@ -38,6 +38,7 @@ import {
 import type { TargetIdentity } from "../targetIdentity";
 import {
 	type AdoptedBirth,
+	appMappingToken,
 	birthAdoptedApp,
 	HELD_FILE_ID,
 	HELD_PATH,
@@ -98,6 +99,7 @@ function taken(
 		target: TARGET,
 		expectedEndings: 0,
 		remoteAppId: HQ_APP,
+		comparedPushToken: appMappingToken(birth.deployment),
 		read,
 		source: stored(source, observedAt),
 		ownership: OWNERSHIP,

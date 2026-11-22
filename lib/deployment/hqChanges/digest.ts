@@ -24,7 +24,9 @@ import { reviewMediaId } from "../reading/mediaIds";
 import type { ReviewTable } from "../reading/projectData/reviewTypes";
 
 export interface HqChangesDigestInput {
-	readonly v: 1;
+	readonly v: 2;
+	/** The reviewed mapping and its continuous claim of this HQ app. */
+	readonly mappingToken: string;
 	/** The stored baseline's `source_digest`: the source the base reading read. */
 	readonly baselineDigest: string;
 	/** The digest of CommCare HQ's whole normalized source as this request read it. */
@@ -52,6 +54,7 @@ export interface HqChangesDigestInput {
 export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 	return canonicalJsonDigest({
 		v: input.v,
+		mappingToken: input.mappingToken,
 		baselineDigest: input.baselineDigest,
 		sourceDigest: input.sourceDigest,
 		headSeq: input.headSeq,

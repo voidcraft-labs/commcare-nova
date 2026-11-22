@@ -657,7 +657,7 @@ export interface DeploymentResource {
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
 	readonly pushedAt: string | null;
-	/** Unique identity of this accepted mapping write, independent of time. */
+	/** Unique identity of this accepted mapping write and its continuous HQ claim. */
 	readonly pushToken: string;
 	/** CommCare HQ's own version number, as of the last observation. */
 	readonly remoteRevision: number | null;
@@ -812,6 +812,7 @@ export interface DeploymentFoldBinding {
 	readonly appId: string;
 	readonly projectId: string;
 	readonly remoteAppId: string;
+	readonly mappingToken: string;
 	readonly sourceDigest: string;
 	readonly novaRevision: number;
 	readonly foldSeq: number;

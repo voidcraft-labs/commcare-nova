@@ -2426,6 +2426,7 @@ export async function admitAppWrite(
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
+		readonly observedPushToken: string;
 		readonly writeKind: "import" | "media";
 	},
 ): Promise<AppWriteAdmission> {
@@ -2446,7 +2447,7 @@ export async function admitAppWrite(
 		}
 		const live = await tx
 			.selectFrom("app_deployment_resources")
-			.select(["remote_id", "released_at"])
+			.select(["remote_id", "released_at", "push_token"])
 			.where("deployment_id", "=", row.id)
 			.where("kind", "=", "app")
 			.where("superseded_at", "is", null)
@@ -2454,7 +2455,8 @@ export async function admitAppWrite(
 		if (
 			live === undefined ||
 			live.remote_id !== input.remoteAppId ||
-			live.released_at !== null
+			live.released_at !== null ||
+			live.push_token !== input.observedPushToken
 		) {
 			return { kind: "mapping-moved" };
 		}
@@ -2738,6 +2740,7 @@ export async function recordRefreshedAppBaseline(
 		readonly remoteAppId: string;
 		/** The `sourceDigest` of the baseline the read was compared with. */
 		readonly comparedDigest: string;
+		readonly comparedPushToken: string;
 		/** Revision and certified fold the verified read used. Older callers with
 		 * neither can refresh only an ordinary, uncertified baseline. */
 		readonly comparedRevision?: number | null;
@@ -2792,11 +2795,12 @@ export async function recordRefreshedAppBaseline(
 				.executeTakeFirst();
 			const liveMapping = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select(["remote_id", "push_token"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
 				.where("superseded_at", "is", null)
+				.where("released_at", "is", null)
 				.executeTakeFirst();
 			const ownership =
 				stored === undefined ? null : appOwnershipFromRow(stored.ownership);
@@ -2815,7 +2819,8 @@ export async function recordRefreshedAppBaseline(
 					origin !== "read" &&
 					origin !== "changes") ||
 				ownership === null ||
-				liveMapping?.remote_id !== input.remoteAppId
+				liveMapping?.remote_id !== input.remoteAppId ||
+				liveMapping.push_token !== input.comparedPushToken
 			) {
 				return superseded();
 			}
@@ -3004,6 +3009,7 @@ export async function recordDeploymentMediaFiles(
 /** Which of the baseline's facts a bring-in of changes found moved under its lock. */
 export type HqChangesBaselineFence =
 	| "source-digest"
+	| "mapping-token"
 	| "nova-revision"
 	| "remote-app"
 	| "observed-at"
@@ -3028,6 +3034,7 @@ export class HqChangesBaselineMovedError extends Error {
 			"source-digest": "source digest",
 			"nova-revision": "Nova revision",
 			"remote-app": "CommCare HQ app",
+			"mapping-token": "HQ app mapping token",
 			"observed-at": "read no later than",
 			"target-identity": "target identity",
 		}[fence];
@@ -3104,6 +3111,7 @@ function hqChangesFirstPublishList(
 
 /** What a bring-in of changes made in CommCare HQ records beside its commit. */
 export interface HqChangesTaken extends DeploymentFence {
+	readonly comparedPushToken: string;
 	readonly scope: DeploymentScope;
 	readonly target: DeploymentTargetKey;
 	/** The CommCare HQ app the review read: the live app mapping must still name it. */
@@ -3216,7 +3224,7 @@ async function recordHqChangesInTransaction(
 		.executeTakeFirst();
 	const liveMapping = await tx
 		.selectFrom("app_deployment_resources")
-		.select("remote_id")
+		.select(["remote_id", "push_token"])
 		.where("deployment_id", "=", deploymentId)
 		.where("kind", "=", "app")
 		.where("nova_resource_id", "=", scope.appId)
@@ -3230,6 +3238,12 @@ async function recordHqChangesInTransaction(
 			liveMapping?.remote_id ?? null,
 		);
 	}
+	if (liveMapping.push_token !== input.comparedPushToken)
+		throw new HqChangesBaselineMovedError(
+			"mapping-token",
+			input.comparedPushToken,
+			liveMapping.push_token,
+		);
 	const holdsAPair =
 		stored !== undefined &&
 		(stored.origin === "push" ||
@@ -3543,16 +3557,28 @@ export async function readAppBaseline(
 	return verifiedAppBaseline(scope, row);
 }
 
-/** The same verified source read in the operator’s app-locked transaction. */
-export async function readAppBaselineIn(
-	db: Kysely<AppDatabase>,
+/** A maintenance transaction preserves a dormant comparison for a released
+ * claim. Only the pre-DDL scan can request the previous schema. */
+export async function readFoldOperatorBaseline(
+	db: Transaction<AppDatabase>,
 	scope: Pick<DeploymentScope, "appId" | "projectId">,
 	target: DeploymentTargetKey,
+	schema: "prior" | "certificates",
 ): Promise<AppBaseline | null> {
-	return verifiedAppBaseline(scope, await appBaselineRow(db, scope, target));
+	const row =
+		schema === "prior"
+			? await baselineSourceRow(db, scope, target)
+					.select([
+						sql<null>`NULL`.as("certified_mapping_token"),
+						sql<null>`NULL`.as("reference_fold_seq"),
+						sql<null>`NULL`.as("reference_source_digest"),
+					])
+					.executeTakeFirst()
+			: await appBaselineRow(db, scope, target, "preserve-released");
+	return verifiedAppBaseline(scope, row);
 }
 
-function appBaselineRow(
+function baselineSourceRow(
 	db: Kysely<AppDatabase>,
 	scope: Pick<DeploymentScope, "appId" | "projectId">,
 	target: DeploymentTargetKey,
@@ -3560,24 +3586,7 @@ function appBaselineRow(
 	return db
 		.selectFrom("app_deployment_baselines as b")
 		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
-		.leftJoin("app_deployment_fold_references as f", (join) =>
-			join
-				.onRef("f.deployment_id", "=", "b.deployment_id")
-				.onRef("f.app_id", "=", "d.app_id")
-				.onRef("f.fold_seq", "=", "b.reference_fold_seq")
-				.onRef("f.published_revision", "=", "b.nova_revision"),
-		)
-		.leftJoin("app_deployment_resources as r", (join) =>
-			join
-				.onRef("r.id", "=", "f.mapping_id")
-				.onRef("r.deployment_id", "=", "d.id")
-				.onRef("r.remote_id", "=", "b.remote_app_id")
-				.onRef("r.nova_resource_id", "=", "d.app_id")
-				.on("r.kind", "=", "app")
-				.on("r.superseded_at", "is", null),
-		)
 		.select([
-			"r.id as certified_mapping",
 			"b.deployment_id",
 			"b.remote_app_id",
 			"b.origin",
@@ -3588,16 +3597,48 @@ function appBaselineRow(
 			"b.observed_at",
 			"b.observed_by",
 			"b.nova_revision",
-			"b.reference_fold_seq",
-			"b.reference_source_digest",
 			"b.media_files",
 		])
 		.where("d.app_id", "=", scope.appId)
 		.where("d.project_id", "=", scope.projectId)
 		.where("d.server", "=", target.server)
-		.where("d.domain", "=", target.domain)
+		.where("d.domain", "=", target.domain);
+}
+
+function appBaselineRow(
+	db: Kysely<AppDatabase>,
+	scope: Pick<DeploymentScope, "appId" | "projectId">,
+	target: DeploymentTargetKey,
+	claim: "held" | "preserve-released" = "held",
+) {
+	return baselineSourceRow(db, scope, target)
+		.leftJoin("app_deployment_fold_references as f", (join) =>
+			join
+				.onRef("f.deployment_id", "=", "b.deployment_id")
+				.onRef("f.app_id", "=", "d.app_id")
+				.onRef("f.fold_seq", "=", "b.reference_fold_seq")
+				.onRef("f.published_revision", "=", "b.nova_revision"),
+		)
+		.leftJoin("app_deployment_resources as r", (join) => {
+			const mapping = join
+				.onRef("r.id", "=", "f.mapping_id")
+				.onRef("r.deployment_id", "=", "d.id")
+				.onRef("r.remote_id", "=", "b.remote_app_id")
+				.onRef("r.nova_resource_id", "=", "d.app_id")
+				.on("r.kind", "=", "app")
+				.on("r.superseded_at", "is", null);
+			return claim === "held"
+				? mapping.on("r.released_at", "is", null)
+				: mapping;
+		})
+		.select([
+			"r.push_token as certified_mapping_token",
+			"b.reference_fold_seq",
+			"b.reference_source_digest",
+		])
 		.executeTakeFirst();
 }
+
 function verifiedAppBaseline(
 	scope: Pick<DeploymentScope, "appId" | "projectId">,
 	row: Awaited<ReturnType<typeof appBaselineRow>>,
@@ -3634,12 +3675,13 @@ function verifiedAppBaseline(
 		sourceDigest: row.source_digest,
 		ownership: verified.ownership,
 		sourceBytes: row.source_bytes,
-		...(row.certified_mapping !== null &&
+		...(row.certified_mapping_token !== null &&
 			row.reference_fold_seq !== null &&
 			row.reference_source_digest !== null &&
 			observed.novaRevision !== null && {
 				foldBinding: {
 					deploymentId: row.deployment_id,
+					mappingToken: row.certified_mapping_token,
 					appId: scope.appId,
 					projectId: scope.projectId,
 					remoteAppId: row.remote_app_id,
@@ -4840,6 +4882,7 @@ export async function readEntryPointEvidence(
 export async function recordEntryPointObservation(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
+	observedPushToken: string,
 	observation: import("./entryPointTypes").EntryPointObservation,
 ): Promise<boolean> {
 	return withDeploymentRow(
@@ -4868,12 +4911,17 @@ export async function recordEntryPointObservation(
 				return false;
 			const active = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select(["remote_id", "push_token"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("superseded_at", "is", null)
+				.where("released_at", "is", null)
 				.executeTakeFirst();
-			if (active?.remote_id !== observation.remoteAppId) return false;
+			if (
+				active?.remote_id !== observation.remoteAppId ||
+				active.push_token !== observedPushToken
+			)
+				return false;
 			await tx
 				.updateTable("app_deployments")
 				.set({ entry_point_observation: JSON.stringify(observation) })

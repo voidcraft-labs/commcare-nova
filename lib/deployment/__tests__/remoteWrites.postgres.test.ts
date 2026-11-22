@@ -74,7 +74,11 @@ import {
 	settleRemoteWrites,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
-import { type AdoptedBirth, birthAdoptedApp } from "./adoptedBirth";
+import {
+	type AdoptedBirth,
+	appMappingToken,
+	birthAdoptedApp,
+} from "./adoptedBirth";
 import { readable } from "./readableRecord";
 
 const h = setupAppStateTestDb("remote_writes_", {
@@ -162,6 +166,7 @@ describe("an admitted write and an ending", () => {
 			await gate(client, 9_301_001, "hq_remote_writes", "INSERT");
 			admission = outcome(
 				admitAppWrite(birth.scope, TARGET, {
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
@@ -208,6 +213,7 @@ describe("an admitted write and an ending", () => {
 			await waitForBlockedLocks(client, 1);
 			admission = outcome(
 				admitAppWrite(birth.scope, TARGET, {
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
@@ -236,6 +242,7 @@ describe("an admitted write and an ending", () => {
 			await gate(client, 9_301_003, "hq_remote_writes", "INSERT");
 			admission = outcome(
 				admitAppWrite(birth.scope, TARGET, {
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "media",
@@ -259,6 +266,7 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 	it("leaves a deleted holder's mapping to it while its write is open, and releases it once the write settles", async () => {
 		const birth = await born();
 		const admitted = await admitAppWrite(birth.scope, TARGET, {
+			observedPushToken: appMappingToken(birth.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
@@ -287,6 +295,7 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 		await claim();
 		await expect(
 			admitAppWrite(birth.scope, TARGET, {
+				observedPushToken: appMappingToken(birth.deployment),
 				...fence,
 				remoteAppId: HQ_APP,
 				writeKind: "import",
@@ -306,6 +315,7 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 			remoteAppId: HQ_APP,
 		});
 		const takerWrite = await admitAppWrite(taker.scope, TARGET, {
+			observedPushToken: appMappingToken(taker.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "media",
@@ -328,6 +338,7 @@ describe("an admitted write and a claim taken from an app in recently deleted", 
 		/* A write of the restored app to the HQ app it gave up is no write. */
 		expect(
 			await admitAppWrite(birth.scope, TARGET, {
+				observedPushToken: appMappingToken(birth.deployment),
 				...fence,
 				remoteAppId: HQ_APP,
 				writeKind: "import",
@@ -351,6 +362,7 @@ describe("how a write settles", () => {
 		const ids: string[] = [];
 		for (const writeKind of ["import", "media", "import"] as const) {
 			const admitted = await admitAppWrite(birth.scope, TARGET, {
+				observedPushToken: appMappingToken(birth.deployment),
 				...fence,
 				remoteAppId: HQ_APP,
 				writeKind,
@@ -399,6 +411,7 @@ describe("a Project move during a publish", () => {
 	it("waits while the app has a write open, and goes on once it settles", async () => {
 		const birth = await born();
 		const admitted = await admitAppWrite(birth.scope, TARGET, {
+			observedPushToken: appMappingToken(birth.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
@@ -426,6 +439,7 @@ describe("a Project move during a publish", () => {
 	it("goes on once the write settled, though its transaction began before the settle", async () => {
 		const birth = await born();
 		const admitted = await admitAppWrite(birth.scope, TARGET, {
+			observedPushToken: appMappingToken(birth.deployment),
 			...fence,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
@@ -899,6 +913,7 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 			},
 			"the import": async (birth) => {
 				const admitted = await admitAppWrite(birth.scope, TARGET, {
+					observedPushToken: appMappingToken(birth.deployment),
 					...fence,
 					remoteAppId: HQ_APP,
 					writeKind: "import",
@@ -1047,7 +1062,12 @@ describe("what a publish's admitted writes made, recorded on their admissions", 
 		const theirs = await admitAppWrite(
 			{ ...birth.scope, actorUserId: "writes-editor", role: "editor" },
 			TARGET,
-			{ ...fence, remoteAppId: HQ_APP, writeKind: "import" },
+			{
+				...fence,
+				observedPushToken: appMappingToken(birth.deployment),
+				remoteAppId: HQ_APP,
+				writeKind: "import",
+			},
 		);
 		if (theirs.kind !== "admitted") throw new Error("Expected an admission");
 		await softDeleteApp(APP, OWNER);

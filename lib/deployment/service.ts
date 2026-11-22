@@ -1221,6 +1221,7 @@ export async function publishAppToHq(
 			// `resources`: nothing of that phase has run, and folding them at
 			// `upload` would draw the Project data as pushed.
 			let appId: string;
+			let importMapping: DeploymentResource | null;
 			let source: HqAppSource;
 			let createdApp = false;
 			/* The read this publish holds of the app, normalized, and how the
@@ -1399,6 +1400,7 @@ export async function publishAppToHq(
 					);
 				}
 				appId = created.appId;
+				importMapping = activeRemoteApp(deployment);
 				source = read.source;
 				heldRead = createBaseline.normalized;
 				heldOwnership = shellBody.ownership;
@@ -1406,6 +1408,7 @@ export async function publishAppToHq(
 				counterBeforeRead = read.version;
 			} else {
 				appId = targetApp.appId;
+				importMapping = inPlaceUpdate;
 				source = targetApp.source;
 				counterBeforeRead = targetApp.saveCounter;
 				heldRead = targetApp.normalized;
@@ -1415,6 +1418,12 @@ export async function publishAppToHq(
 						: appBaseline.ownership;
 				shell = appBaseline?.origin === "create";
 			}
+
+			if (
+				importMapping?.remoteId !== appId ||
+				importMapping.releasedAt !== null
+			)
+				return refused("upload", APP_CHANGED_WHILE_PUBLISHING);
 
 			// ── Put everything the app depends on there first ───────────────
 			// The app's selects read these tables by name at runtime and its
@@ -1673,6 +1682,7 @@ export async function publishAppToHq(
 			const importAdmission = await admitAppWrite(input.scope, target, {
 				...fence,
 				remoteAppId: appId,
+				observedPushToken: importMapping.pushToken,
 				writeKind: "import",
 			});
 			if (importAdmission.kind === "mapping-moved") {
@@ -1851,7 +1861,7 @@ export async function publishAppToHq(
 			const mediaWrites: string[] = [importWrite];
 			if (bulkAssets.size > 0 && imported.pushToken === null) {
 				warnings.push(MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING);
-			} else if (bulkAssets.size > 0) {
+			} else if (bulkAssets.size > 0 && imported.pushToken !== null) {
 				/* Admitted as the import was. An ending after the app landed
 				 * leaves the publish landed, with its media not sent, and so does
 				 * an app deleted, or a publisher who lost edit, since: the app is
@@ -1859,6 +1869,7 @@ export async function publishAppToHq(
 				const mediaAdmission = await admitAppWrite(input.scope, target, {
 					...fence,
 					remoteAppId: result.appId,
+					observedPushToken: imported.pushToken,
 					writeKind: "media",
 				}).catch((error: unknown) => {
 					if (error instanceof DeploymentEndedError)
@@ -3799,6 +3810,7 @@ export async function refreshKeptValues(
 		expectedEndings: existing.deployment.endings,
 		remoteAppId: remote.remoteId,
 		comparedDigest: baseline.sourceDigest,
+		comparedPushToken: remote.pushToken,
 		comparedRevision: baseline.novaRevision,
 		comparedFold: baseline.foldBinding?.foldSeq,
 		read: {

@@ -2870,7 +2870,8 @@ async function reviewOverPeer(input: {
 				publishChanges: [],
 				readingId: CAPTURE_READING_ID,
 				reviewDigest: hqChangesReviewDigest({
-					v: 1,
+					v: 2,
+					mappingToken: basis.live.pushToken,
 					baselineDigest: baseline.sourceDigest,
 					sourceDigest: normalized.digest,
 					headSeq: head.seq,

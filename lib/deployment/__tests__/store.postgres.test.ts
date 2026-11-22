@@ -1840,7 +1840,7 @@ describe("tenancy", () => {
 describe("entry point release evidence", () => {
 	it("invalidates before dependencies change and rejects a stale observation", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 1);
+		const token = pushToken(await publish(scope, "hq-1", 1));
 		const generation = await beginDeploymentContentWrite(
 			scope,
 			TARGET,
@@ -1871,14 +1871,14 @@ describe("entry point release evidence", () => {
 			releasedBuildId: "build-1",
 			releasedVersion: 1,
 		};
-		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
-			true,
-		);
+		expect(
+			await recordEntryPointObservation(scope, TARGET, token, observation),
+		).toBe(true);
 		await beginDeploymentContentWrite(scope, TARGET, NEVER_ENDED);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
-		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
-			false,
-		);
+		expect(
+			await recordEntryPointObservation(scope, TARGET, token, observation),
+		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).observation).toEqual(
 			observation,
 		);
@@ -1926,7 +1926,7 @@ describe("entry point release evidence", () => {
 	});
 	it("refuses entry point evidence when the persisted source sequence has advanced", async () => {
 		const scope = await seed();
-		await publish(scope, "hq-1", 1);
+		const token = pushToken(await publish(scope, "hq-1", 1));
 		const generation = await beginDeploymentContentWrite(
 			scope,
 			TARGET,
@@ -1949,7 +1949,7 @@ describe("entry point release evidence", () => {
 			h.db(),
 		);
 		expect(
-			await recordEntryPointObservation(scope, TARGET, {
+			await recordEntryPointObservation(scope, TARGET, token, {
 				generation,
 				remoteAppId: "hq-1",
 				entryPointUuid: "entry",

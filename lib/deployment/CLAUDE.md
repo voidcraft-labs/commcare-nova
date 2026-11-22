@@ -925,7 +925,7 @@ where the publish's own comparison finds no change, so it moves no later
 drift verdict. That comparison (`compareWithHq`) reads the baseline only once
 the live mapping is one it compares, so a released or missing mapping unzips
 none. Its write (`store.ts::recordRefreshedAppBaseline`) lands only
-while the stored baseline is still the one compared, and its date is taken
+while the stored baseline and the live mapping token are still the ones compared. Its date is taken
 before CommCare HQ is asked, so a read that predates a publish never replaces
 that publish's. A stored baseline that already holds the read's digest is
 current, whoever wrote it, so two refreshes of an unchanged project space both
@@ -1062,12 +1062,18 @@ scan under the app and deployment locks. It converts the server-folded
 published document, ordered actors and net property renames to the new
 representation, then checks the head projection and slug resolution against
 their converted results. A prior move or migration refusal keeps its reason.
-Only the migration writer inserts the certificate. The operator verifies the
-new fold and reads the bound certificate back before committing.
+The read-only scan recognizes the complete prior schema and the complete
+candidate schema. A partial install refuses. The same logical inventory
+produces the same digest on both. Scan and writer visit one target at a time in
+deployment ID order. The writer binds each converted certificate and compares
+the aggregate receipt before it moves the horizon. It then reads each bound
+certificate back and compares their ordered digest before committing. Failure
+rolls back the entire app transaction. A released mapping counts as unavailable
+and keeps its comparison privately through later folds, for a possible reclaim.
 
 The current binding lives on the deployment’s own baseline. Refreshing kept
 settings or recording an equivalent HQ save verifies the observed revision,
-source digest, fold and time before writing a new digest and any reviewed
+source digest, mapping token, fold and time before writing a new digest and any reviewed
 identity, media or next-publish changes together. A new publish, an ended
 deployment or a replacement HQ app retires the binding. A later fold advances
 from the saved published document and the server writes since its fold.
@@ -1095,7 +1101,7 @@ until it is renamed back, since that rename moved saved case data.
 `review.ts::reviewHqChanges` (`POST /api/commcare/changes/review`) authorizes
 `edit`, reads CommCare HQ with the member's own key, writes nothing, and
 answers a review with a digest (`digest.ts::hqChangesReviewDigest`: the
-baseline's digest, CommCare HQ's source now, the head, the settled media
+baseline's digest, the continuous claim’s mapping token, CommCare HQ's source now, the head, the settled media
 standings, the target with each file CommCare HQ holds named by its content,
 and the tables the change newly reads). `bringIn.ts::bringInHqChanges`
 (`POST /api/commcare/changes/bring-in`) computes all of it again and acts only
@@ -1497,7 +1503,7 @@ because each fold states its precondition against that fresh row:
   produce.
 - `applyDeploymentObservation` folds only while the active mapping still
   carries the remote id AND the `push_token` the observation read before
-  asking, and is not released. Postgres assigns a fresh UUID on insertion and every update of
+  asking, and is not released. An import, its media bundle, and a checked entry-point link also prove their observed token at admission. Postgres assigns a fresh UUID on a change of claim, on insertion and on every update of
   push fields, even when the timestamp, source revision, and remote id stay
   equal. Observation-only updates and supersession retain that identity.
   Thus a refresh that spent five seconds asking

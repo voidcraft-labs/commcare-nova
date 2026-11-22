@@ -42,7 +42,11 @@ import {
 	withDeploymentReadSnapshot,
 	withdrawDeploymentConfirmation,
 } from "../store";
-import { birthAdoptedApp, CONFIRMATIONS } from "./adoptedBirth";
+import {
+	appMappingToken,
+	birthAdoptedApp,
+	CONFIRMATIONS,
+} from "./adoptedBirth";
 
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
 afterEach(() => vi.restoreAllMocks());
@@ -140,7 +144,10 @@ it("tells a member the app was deleted, and anyone else only that nothing is fou
 /* Every write takes the app row through the authorization the snapshot makes,
  * so each answers a deletion that committed before its lock as a read does,
  * in a write's words. */
-const WRITES: Record<string, (scope: DeploymentScope) => Promise<unknown>> = {
+const WRITES: Record<
+	string,
+	(scope: DeploymentScope, token: string) => Promise<unknown>
+> = {
 	"a confirmation withdrawn": (scope) =>
 		withdrawDeploymentConfirmation(
 			scope,
@@ -148,8 +155,9 @@ const WRITES: Record<string, (scope: DeploymentScope) => Promise<unknown>> = {
 			CONFIRMATIONS[0] ?? fail("Expected a confirmation"),
 		),
 	"a stop": (scope) => endDeployment(scope, TARGET, HQ_APP),
-	"an import admitted": (scope) =>
+	"an import admitted": (scope, token) =>
 		admitAppWrite(scope, TARGET, {
+			observedPushToken: token,
 			expectedEndings: 0,
 			remoteAppId: HQ_APP,
 			writeKind: "import",
@@ -185,8 +193,10 @@ async function writesState() {
 it.each(Object.keys(WRITES))(
 	"tells a member who may make %s that the app was deleted, writing nothing, and tells nobody else",
 	async (write) => {
-		const run = WRITES[write] ?? fail(`No write named ${write}`);
+		const writeAs = WRITES[write] ?? fail(`No write named ${write}`);
 		const birth = await born();
+		const run = (scope: DeploymentScope) =>
+			writeAs(scope, appMappingToken(birth.deployment));
 		await softDeleteApp(APP, OWNER);
 		const before = await writesState();
 

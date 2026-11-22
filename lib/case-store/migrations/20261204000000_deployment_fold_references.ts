@@ -40,6 +40,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			BEFORE UPDATE ON public.app_deployment_fold_references FOR EACH ROW
 			EXECUTE FUNCTION public.nova_reject_deployment_fold_reference_update()
 	`.execute(db);
+	// A remote read belongs to one continuous claim. A release and restore
+	// must fence an observation even if they both finish during that read.
+	await sql`CREATE OR REPLACE TRIGGER app_deployment_resources_claim_token
+		BEFORE UPDATE OF released_at ON public.app_deployment_resources FOR EACH ROW
+		WHEN (OLD.released_at IS DISTINCT FROM NEW.released_at)
+		EXECUTE FUNCTION public.rotate_deployment_push_token()`.execute(db);
 	await sql`ALTER TABLE public.app_deployment_baselines
 		ADD COLUMN IF NOT EXISTS reference_fold_seq bigint,
 		ADD COLUMN IF NOT EXISTS reference_source_digest text

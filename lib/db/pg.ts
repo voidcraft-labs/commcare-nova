@@ -687,7 +687,7 @@ export interface AppDeploymentsTable {
  * space, kept precisely so the author can be told it is still there.
  */
 export interface AppDeploymentResourcesTable {
-	/** Database-generated on insert and every update of push fields. */
+	/** Database-generated on insert, every update of push fields, and every change of claim. */
 	push_token: ColumnType<string, never, never>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
