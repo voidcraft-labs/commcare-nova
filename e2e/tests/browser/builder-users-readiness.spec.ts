@@ -426,7 +426,15 @@ test("a persona can find a clinic beyond the initial organization page and keep 
 			)
 			.toContain(targetId);
 		await expect(
-			page.getByText("Clinic · river_clinic", { exact: true }),
+			page
+				.getByRole("listitem")
+				.filter({
+					has: page.getByRole("button", {
+						name: "Remove Clinic · river_clinic",
+						exact: true,
+					}),
+				})
+				.getByText("Clinic · river_clinic", { exact: true }),
 		).toBeVisible();
 	} finally {
 		await close(page, peer);

@@ -342,6 +342,10 @@ it(
 				domain: LANE_TARGET.domain,
 				remoteId: FIXTURE_TABLE_ID,
 				managedBy: "commcare-hq",
+				source: expect.objectContaining({
+					distribution: "global",
+					inventory: "complete",
+				}),
 				broughtInAt: LANE_BROUGHT_IN_AT,
 				takenOverAt: null,
 				takenOverBy: null,

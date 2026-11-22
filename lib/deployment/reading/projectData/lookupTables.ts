@@ -1449,22 +1449,20 @@ export function readingLookupSnapshot(
 			definitionRevision: (gathered.projectTable?.definitionRevision ??
 				"0") as LookupRevision,
 			columns: source.columns,
-			...(restricted
-				? {
-						hq: {
-							server: data.gathered.origin.server,
-							domain: data.gathered.origin.domain,
-							remoteId: read.table.id,
-							managedBy: "commcare-hq" as const,
-							source: facts,
-							broughtInAt: data.gathered.tablesReadAt.toISOString(),
-							refreshedAt: data.gathered.tablesReadAt.toISOString(),
-							takenOverAt: null,
-							takenOverBy: null,
-							goneColumnIds: [],
-						},
-					}
-				: {}),
+			// Birth retains the original custodian for every source table. Its native
+			// definition can stay in place even when a portable index was unobserved.
+			hq: {
+				server: data.gathered.origin.server,
+				domain: data.gathered.origin.domain,
+				remoteId: read.table.id,
+				managedBy: "commcare-hq" as const,
+				source: facts,
+				broughtInAt: data.gathered.tablesReadAt.toISOString(),
+				refreshedAt: data.gathered.tablesReadAt.toISOString(),
+				takenOverAt: null,
+				takenOverBy: null,
+				goneColumnIds: [],
+			},
 			...(source.attributes.length ? { attributes: source.attributes } : {}),
 		});
 		if (!restricted) rowsByTable.set(binding.tableId, source.rows);

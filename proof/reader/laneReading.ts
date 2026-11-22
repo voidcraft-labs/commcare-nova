@@ -65,6 +65,7 @@ import {
 	firstPublishChangePlaces,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
+import { boundAsItStands } from "@/lib/deployment/reading/projectData/lookupTables";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
 import {
 	EMPTY_TARGET_IDENTITY,
@@ -372,36 +373,21 @@ function bornRowId(tableId: string, hqRowId: string): LookupRowId {
  * `deployment/managedData.ts`), as it does after a real bring-in.
  */
 function bornLookup(gathered: Gathered): LookupFixtureDataSnapshot {
-	const { origin, tables } = gathered.fetched.data.gathered;
-	const born = new Set<string>();
-	const definitions = gathered.lookup.definitions.map((definition) => {
-		if (definition.hq !== undefined) return definition;
-		born.add(definition.id);
-		const read = tables.find(
-			(table) => table.binding?.tableId === definition.id,
-		)?.read;
-		if (read === undefined)
-			throw new Error(
-				`The reading's lookup data holds a table (${definition.id}) that no table CommCare HQ listed is bound to, which readingLookupSnapshot never gives. Look at lib/deployment/reading/projectData/lookupTables.ts.`,
-			);
-		return {
-			...definition,
-			hq: {
-				server: origin.server,
-				domain: origin.domain,
-				remoteId: read.table.id,
-				managedBy: "commcare-hq" as const,
-				broughtInAt: LANE_BROUGHT_IN_AT,
-				takenOverAt: null,
-				takenOverBy: null,
-				refreshedAt: LANE_BROUGHT_IN_AT,
-				goneColumnIds: [],
-			},
-		};
-	});
+	// The production birth projection already carries custody, including for
+	// ordinary global data. Only rows materialized from the reading acquire
+	// Nova row identities. Reused Project rows keep theirs.
+	const born = new Set(
+		gathered.fetched.data.gathered.tables.flatMap((table) =>
+			table.binding &&
+			table.standing &&
+			!boundAsItStands(table.standing, table.choice)
+				? [table.binding.tableId]
+				: [],
+		),
+	);
+
 	return {
 		...gathered.lookup,
-		definitions,
 		rowsByTable: new Map(
 			[...gathered.lookup.rowsByTable].map(([tableId, rows]) => [
 				tableId,
