@@ -250,11 +250,14 @@ Nova prepares each table for the place your app will run.
   can have several workbooks. Each contains complete tables. A reusable file
   includes setup instructions for worker assignments. An editor can choose a
   named project space in Publish to include that destination’s verified
-  assignments. Tables managed in
-  CommCare HQ come in a file for each project space that manages them, named
-  after it, such as `lookup-tables-managed-in-acme-health.xlsx`. That project
-  space already has them, so you leave its file out there; every other project
-  space takes it the same way as the first.
+  assignments. Complete tables with verified column settings come in one workbook
+  per source project space, such as `lookup-tables-managed-in-acme-health.xlsx`.
+  The README names any table whose settings or assignments still need verification.
+  In its original project space, the app uses that existing table. In another space,
+  an admin can use CommCare HQ’s current export of the selected table to prepare its
+  tag, indexes, rows and worker assignments, then verify the intended workers’ rows.
+  If you want a different design, create a table in Project data and connect the
+  app’s fields to it before downloading a new app file.
 
 If a cell contains a character CommCare cannot preserve, Nova stops the export
 and names the table and column. You can remove the character or retype the

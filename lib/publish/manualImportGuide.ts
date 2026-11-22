@@ -99,7 +99,7 @@ export interface ManualImportGuideInput {
 	 * Nova's copy was last refreshed. Empty for none.
 	 */
 	readonly managedLookupFiles: readonly ManagedLookupGuideFile[];
-	readonly needsDataBinding?: boolean;
+	readonly referencedTables?: readonly { tag: string; projectSpace?: string }[];
 	readonly hasMedia: boolean;
 	/** The floor as text, "2.57". The caller formats it; the guide imports no constant. */
 	readonly versionFloor: string;
@@ -462,13 +462,19 @@ export function manualImportGuide(
 			input.managedLookupFiles,
 			input.lookupTags.length > 0,
 		),
-		...(input.needsDataBinding
+		...(input.referencedTables?.length
 			? [
 					{
 						kind: "bind-project-data" as const,
 						title: "Connect your project space’s data",
 						lines: [
-							"This app uses data supplied by its project space. In Project data, check the destination’s tables and worker assignments before installing the app. Each worker receives their own rows when they sync.",
+							...input.referencedTables.map(({ tag, projectSpace }) =>
+								projectSpace
+									? `“${tag}” uses the existing table in ${projectSpace}. When importing there, keep that table in place.`
+									: `“${tag}” needs a table in the destination project space.`,
+							),
+							"Before importing into another space, its admin can prepare each table from a current selected-table export in CommCare HQ. Check its tag, columns, indexes, row values and order. For assigned rows, match users, groups and places to the intended recipients in that space and verify which rows they receive when they sync.",
+							"To use different data, you can create a table in Project data, choose its lookup and sharing settings, and connect your app’s fields to that table before downloading a new app file.",
 						],
 					},
 				]

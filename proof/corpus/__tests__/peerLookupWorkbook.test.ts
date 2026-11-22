@@ -1,3 +1,9 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import AdmZip from "adm-zip";
+import { isTag } from "domhandler";
+import { findAll, textContent } from "domutils";
 import { describe, expect, it } from "vitest";
 import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
 import {
@@ -6,9 +12,13 @@ import {
 } from "@/lib/commcare/hq/lookupTables";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { buildLookupWorkbook } from "@/lib/commcare/lookup/workbook";
+import { parseXml } from "@/lib/commcare/xmlParse";
 import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import { qualifiedLookupValues } from "@/proof/targeted/documents/qualifiedLookupValues";
+import { DEFAULT_CORPUS_SEED } from "../defaults";
+import { emitCorpus } from "../emitCorpus";
 import { hqAuthoredDocument, loadRetainedHqApp } from "../hqAuthored";
+import { exportFindings } from "../publish";
 import { type TargetState, withTargetPeer } from "../targetPeer";
 
 const credentials = {
@@ -129,6 +139,98 @@ it.each(["hq-expressions", "hq-lookups", "hq-search"])(
 				expect(lookupRowIdSchema.safeParse(row.id).success).toBe(true);
 			expect(table.hq?.source?.distribution).toBe("global");
 			expect(table.columns.every((c) => c.index === "unobserved")).toBe(true);
+		}
+	},
+);
+
+it.each(["hq-expressions", "hq-lookups", "hq-search"])(
+	"emits %s's actual republish, local worker fixture and source-bound manual package",
+	{ timeout: 45_000 },
+	async (id) => {
+		const retained = loadRetainedHqApp(id);
+		const app = await hqAuthoredDocument(retained);
+		const out = await mkdtemp(join(tmpdir(), "nova-lookup-source-emission-"));
+		try {
+			const { index } = await emitCorpus({
+				out,
+				seed: DEFAULT_CORPUS_SEED,
+				sample: 0,
+				fixed: [app],
+				sampled: [],
+				jobs: 1,
+			});
+			expect(index.census.fixed.refused).toEqual([]);
+			expect(index.documents.map(({ id }) => id)).toEqual([id]);
+			const root = join(out, id);
+			const manual = new AdmZip(await readFile(join(root, "import-file.zip")));
+			const guide = manual.readAsText("README.txt");
+			expect(
+				manual.getEntries().some((entry) => entry.entryName.endsWith(".xlsx")),
+			).toBe(false);
+			const archivePath = join(root, "local.ccz");
+			const webOnly = app.doc.appSettings?.runsOnlyOn === "web-apps";
+			expect(webOnly).toBe(id === "hq-search");
+			if (webOnly)
+				await expect(readFile(archivePath)).rejects.toMatchObject({
+					code: "ENOENT",
+				});
+			const fixtures = webOnly
+				? []
+				: new AdmZip(await readFile(archivePath))
+						.getEntries()
+						.filter((entry) => entry.entryName.endsWith("suite.xml"))
+						.flatMap((entry) =>
+							findAll(
+								(element) => element.name === "fixture",
+								parseXml(entry.getData().toString("utf8")).children,
+							),
+						);
+			const foreign = await exportFindings(
+				{ ...app, compiledAtSeq: 1 },
+				"hq-upload",
+				"another-proof-space",
+			);
+			expect(foreign.length).toBeGreaterThan(0);
+			for (const finding of foreign) {
+				expect(finding).toMatchObject({
+					code: "LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+					details: { delivery: "source-reference" },
+				});
+				const table = app.lookup?.definitions.find(
+					(table) => table.id === finding.details?.tableId,
+				);
+				if (!table) throw Error("The held table has no source definition.");
+				expect(guide).toContain(
+					`“${table.tag}” uses the existing table in nova-proof`,
+				);
+				if (webOnly) continue;
+				const xml = fixtures.filter(
+					(fixture) => fixture.attribs.id === `item-list:${table.tag}`,
+				);
+				expect(xml).toHaveLength(1);
+				const list = xml[0].children.filter(isTag);
+				expect(list.map((node) => node.name)).toEqual([`${table.tag}_list`]);
+				const rows = list[0].children
+					.filter(isTag)
+					.map((row) =>
+						Object.fromEntries(
+							row.children
+								.filter(isTag)
+								.map((field) => [field.name, textContent(field)]),
+						),
+					);
+				const receipt = retained.fixtureRows?.[table.tag];
+				if (!receipt?.body)
+					throw Error("The retained source inventory is missing.");
+				const { objects } = JSON.parse(receipt.body) as {
+					objects: { fields: Record<string, string> }[];
+				};
+				expect(rows).toEqual(objects.map((row) => row.fields));
+			}
+			expect(guide).toContain("selected-table export");
+			expect(guide).toContain("different data");
+		} finally {
+			await rm(out, { recursive: true, force: true });
 		}
 	},
 );

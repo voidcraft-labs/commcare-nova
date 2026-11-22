@@ -87,12 +87,14 @@ it. `hq-upload` takes the project space it writes to as `lookupTarget` and
 leaves out of its workbook every table managed in exactly that server and
 domain; CommCare HQ's upload leaves a table it is not sent alone, and a managed
 table of another project space goes in and is made there from Nova's copy.
-`hq-json` is made for no project space, so it puts every managed table in a
-workbook of the project space that manages it (`managedLookupWorkbooks`, one
-per project space, which the HQ app file names
-`lookup-tables-managed-in-<domain>.xlsx` and its guide tells a person to leave
-out only when importing into that space) and the rest in the first. `ccz`
-embeds every table. `managedLookupTables` lists every table the mode left out
+`hq-json` names tables whose source-managed index settings or audience Nova
+cannot reproduce. Its guide identifies the original server and project space and
+how to prepare the same table or choose different data for another destination.
+Portable managed tables go in one workbook per source project space
+(`lookup-tables-managed-in-<domain>.xlsx`). The guide lists each table in its
+actual file. A device can install verified global rows even when source index
+settings are unavailable. Assigned rows need that worker's authorized restore.
+`managedLookupTables` lists every table the mode left out
 of `lookupWorkbook`, in the definitions' order, and `lookupWorkbook` is absent
 where no table goes. The HQ cell-text check, the reserved tag and the workbook
 row ceiling judge only the tables a workbook carries, each workbook over its

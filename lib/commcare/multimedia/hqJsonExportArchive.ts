@@ -161,6 +161,7 @@ interface ManagedWorkbookMember {
 	/** The domain, with its server's label where another member has the same domain. */
 	readonly projectSpace: string;
 	readonly bytes: LookupWorkbook["bytes"];
+	readonly tags: ReadonlySet<string>;
 }
 
 /** A project space's name as a ZIP member carries it: every character but a letter, digit, dot, underscore or hyphen becomes a hyphen. */
@@ -221,6 +222,7 @@ function managedWorkbookMembers(
 			? `${workbook.domain} (${serverLabel(workbook.server)})`
 			: workbook.domain,
 		bytes: workbook.workbook.bytes,
+		tags: new Set(workbook.workbook.tables.map((table) => table.tag)),
 	}));
 }
 
@@ -261,18 +263,32 @@ export function hqImportFileGuide(input: {
 			path: file.path,
 			tags: file.tables.map((table) => table.tag),
 		})),
-		needsDataBinding: input.lookupNaming?.tables.some(
-			(table) =>
-				!input.lookupWorkbook?.tables.some(
-					(sent) => sent.tableId === table.tableId,
-				) &&
-				!input.managedLookupWorkbooks.some((group) =>
-					group.workbook.tables.some((sent) => sent.tableId === table.tableId),
-				) &&
-				!input.extraWorkbooks?.some((file) =>
-					file.tables.some((t) => t.tableId === table.tableId),
-				),
-		),
+		referencedTables: input.lookupNaming?.tables
+			.filter(
+				(table) =>
+					!input.lookupWorkbook?.tables.some(
+						(sent) => sent.tableId === table.tableId,
+					) &&
+					!input.managedLookupWorkbooks.some((group) =>
+						group.workbook.tables.some(
+							(sent) => sent.tableId === table.tableId,
+						),
+					) &&
+					!input.extraWorkbooks?.some((file) =>
+						file.tables.some((sent) => sent.tableId === table.tableId),
+					),
+			)
+			.map((table) => {
+				const source = input.managedLookupTables.find(
+					(managed) => managed.tag === table.tag,
+				);
+				return {
+					tag: table.tag,
+					...(source && {
+						projectSpace: `${source.domain} (${serverLabel(source.server)})`,
+					}),
+				};
+			}),
 		/* The guide is made on the server for whoever opens the ZIP, so it has
 		 * no reader's locale: the day is the UTC day, spelled as every drift
 		 * sentence's default spells one. */
@@ -284,7 +300,9 @@ export function hqImportFileGuide(input: {
 			tables: input.managedLookupTables
 				.filter(
 					(table) =>
-						table.server === member.server && table.domain === member.domain,
+						table.server === member.server &&
+						table.domain === member.domain &&
+						member.tags.has(table.tag),
 				)
 				.map((table) => ({
 					tag: table.tag,

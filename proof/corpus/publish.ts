@@ -987,8 +987,15 @@ function exportBoundary(
 export async function exportFindings(
 	source: PublishDocument,
 	mode: CaptureExportMode,
+	domain = PROOF_DOMAIN,
 ): Promise<readonly ValidationError[]> {
-	const result = await exportBoundary(source, mode, null);
+	const target = { server: PROOF_SERVER, domain };
+	const result = await exportBoundary(
+		source,
+		mode,
+		mode === "hq-upload" ? attachmentUrlTarget(target) : null,
+		mode === "hq-upload" ? target : undefined,
+	);
 	return result.ok ? [] : result.violations;
 }
 
@@ -4547,6 +4554,7 @@ export async function preparedMediaPaths(
 		source,
 		"hq-upload",
 		attachmentUrlTarget({ server: PROOF_SERVER, domain }),
+		{ server: PROOF_SERVER, domain },
 	);
 	return [
 		...new Set(

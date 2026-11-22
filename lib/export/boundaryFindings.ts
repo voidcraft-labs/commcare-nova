@@ -172,8 +172,16 @@ export function exportCarrierFindings(
 		const assigned =
 			table.workerAccess === "assigned" ||
 			table.hq?.source?.distribution === "assigned";
+		if (mode !== "hq-json") return true;
+		// A portable workbook would change the source's definition if its indexes
+		// were guessed. The import file names the live source and destination setup.
+		if (
+			table.hq?.managedBy === "commcare-hq" &&
+			(table.hq.source?.indexEvidence === "unobserved" ||
+				table.columns.some((column) => column.index === "unobserved"))
+		)
+			return false;
 		return !(
-			mode === "hq-json" &&
 			(assigned || requiresLookupProjection(table.hq)) &&
 			!input.assignments?.has(table.id)
 		);
@@ -331,7 +339,12 @@ export function exportCarrierFindings(
 		naming,
 		lookupWire,
 		lookupWorkbook,
-		managedLookupTables: leftOut.map(managedLookupTable),
+		managedLookupTables: (mode === "hq-json"
+			? fixtureData.definitions.filter((table) =>
+					leftOutOfMainWorkbook(table, mode, undefined),
+				)
+			: leftOut
+		).map(managedLookupTable),
 		managedLookupWorkbooks,
 		rowFindings,
 		get selectionFindings() {

@@ -713,18 +713,26 @@ export async function writePublishCaptures(
 ): Promise<string[]> {
 	/* A document Nova does not export stops the run before anything is
 	 * written: D is published and downloaded, D′ is published. */
+	const domains = new Set([
+		PROOF_DOMAIN,
+		...configurations.map((config) => config.domain),
+	]);
 	for (const entry of entries) {
-		const exports = [
-			[entry.document, "hq-upload"],
-			[entry.document, "ccz"],
-			...(entry.edited !== undefined
-				? [[entry.edited, "hq-upload"] as const]
-				: []),
-		] as const;
-		for (const [document, mode] of exports) {
-			const findings = await exportFindings(document, mode);
-			if (findings.length > 0) {
-				throw new UnexportableDocumentError(document.id, mode, findings);
+		const downloads = await exportFindings(entry.document, "ccz");
+		if (downloads.length)
+			throw new UnexportableDocumentError(entry.document.id, "ccz", downloads);
+		for (const document of [
+			entry.document,
+			...(entry.edited ? [entry.edited] : []),
+		]) {
+			for (const domain of domains) {
+				const findings = await exportFindings(document, "hq-upload", domain);
+				if (findings.length)
+					throw new UnexportableDocumentError(
+						document.id,
+						"hq-upload",
+						findings,
+					);
 			}
 		}
 	}
