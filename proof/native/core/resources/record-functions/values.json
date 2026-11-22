@@ -1,0 +1,220 @@
+[
+	{
+		"fn": "int",
+		"args": [
+			{
+				"read": " -4.9 "
+			}
+		],
+		"expected": "-4"
+	},
+	{
+		"fn": "int",
+		"args": [
+			{
+				"read": "1e3"
+			}
+		],
+		"expected": "NaN"
+	},
+	{
+		"fn": "int",
+		"args": [
+			{
+				"read": ""
+			}
+		],
+		"expected": "NaN"
+	},
+	{
+		"fn": "int",
+		"args": [
+			{
+				"read": "2024-02-29"
+			}
+		],
+		"expected": "19782"
+	},
+	{
+		"fn": "int",
+		"args": [
+			{
+				"read": "2023-02-29"
+			}
+		],
+		"expected": "NaN"
+	},
+	{
+		"fn": "round",
+		"args": [-2.5],
+		"expected": "-2"
+	},
+	{
+		"fn": "round",
+		"args": [2.5],
+		"expected": "3"
+	},
+	{
+		"fn": "floor",
+		"args": [-1.2],
+		"expected": "-2"
+	},
+	{
+		"fn": "ceiling",
+		"args": [-1.2],
+		"expected": "-1"
+	},
+	{
+		"fn": "sqrt",
+		"args": [-1],
+		"expected": "NaN"
+	},
+	{
+		"fn": "log",
+		"args": [0],
+		"expected": "-Infinity"
+	},
+	{
+		"fn": "pow",
+		"args": [-2, 3],
+		"expected": "-8"
+	},
+	{
+		"fn": "min",
+		"args": [-1, 4],
+		"expected": "-1"
+	},
+	{
+		"fn": "max",
+		"args": [-3, -5],
+		"expected": "-3"
+	},
+	{
+		"fn": "string-length",
+		"args": [
+			{
+				"read": "A😀B"
+			}
+		],
+		"expected": "4"
+	},
+	{
+		"fn": "substring-before",
+		"args": ["North clinic", " clinic"],
+		"expected": "North"
+	},
+	{
+		"fn": "substring-after",
+		"args": ["no delimiter", "@"],
+		"expected": "no delimiter"
+	},
+	{
+		"fn": "boolean-from-string",
+		"args": ["TrUe"],
+		"expected": "true"
+	},
+	{
+		"fn": "count-selected",
+		"args": [
+			{
+				"read": " a  b "
+			}
+		],
+		"expected": "3"
+	},
+	{
+		"fn": "selected-at",
+		"args": ["red blue", 1],
+		"expected": "blue"
+	},
+	{
+		"fn": "join",
+		"args": ["/", "east", "west"],
+		"expected": "east/west"
+	},
+	{
+		"fn": "sort",
+		"args": [
+			{
+				"read": " 😀 z a"
+			}
+		],
+		"expected": "a z 😀 "
+	},
+	{
+		"fn": "sort-by",
+		"args": ["west east north", "2 2 1"],
+		"expected": "north east west"
+	},
+	{
+		"fn": "sort-by",
+		"args": ["west east north", "2 2 1", 0],
+		"expected": "west east north"
+	},
+	{
+		"fn": "replace",
+		"args": [
+			{
+				"read": "a12b3"
+			},
+			"[0-9]+",
+			"$1"
+		],
+		"expected": "a$1b$1"
+	},
+	{
+		"fn": "replace",
+		"args": [
+			{
+				"read": "X1-X2"
+			},
+			"X",
+			"\\"
+		],
+		"expected": "\\1-\\2"
+	},
+	{
+		"fn": "translate",
+		"args": [
+			{
+				"read": "ab😀b"
+			},
+			"aba",
+			"xy"
+		],
+		"expected": "y😀y"
+	},
+	{
+		"fn": "checklist",
+		"args": [1, 1, "", "true", 0],
+		"expected": "true"
+	},
+	{
+		"fn": "weighted-checklist",
+		"args": [3, 3, "yes", 3, "", 100],
+		"expected": "true"
+	},
+	{
+		"fn": "checklist",
+		"args": [-1, 0],
+		"expected": "true"
+	},
+	{
+		"fn": "int",
+		"args": [
+			{
+				"read": "2024-03-10"
+			}
+		],
+		"expected": "19792"
+	},
+	{
+		"fn": "int",
+		"args": [
+			{
+				"read": "2024-03-11"
+			}
+		],
+		"expected": "19793"
+	}
+]

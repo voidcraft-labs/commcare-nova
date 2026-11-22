@@ -173,6 +173,7 @@ CORE_CLASSES = {
     "ListFilterMatchRuntimeTest": "expression",
     # Reads only its checked-in control (/numeric-coercion/comparisons.json), which Nova's case store is held to too.
     "NumericCoercionRuntimeTest": "expression",
+    "RecordFunctionRuntimeTest": "expression",
     "LocalizationRuntimeTest": "localization",
     "LocationOwnerRuntimeTest": "location",
     "LookupRuntimeTest": "lookup",
