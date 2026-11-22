@@ -1,8 +1,7 @@
-import { decodeHTML } from "entities";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import { isPortableName } from "@/lib/domain/portableName";
 import { hasInterpolatedNamePeriod } from "@/lib/lookup/pathNames";
-import { instanceScanCuts } from "../../hqInstanceScan";
+import { hqHtmlUnescape, instanceScanCuts } from "../../hqInstanceScan";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { chargeWork } from "../../workMeter";
 import { w } from "./builders";
@@ -19,34 +18,6 @@ import type {
 
 // These examine literal VALUES, never XPath structure.
 const INTERPOLATION_LITERAL = /#(?:user|session\/|case|parent|host)/gu;
-/** Python html.unescape has the HTML5 named table but drops certain numeric
- * references that browser decoders retain. Read each original reference once,
- * as Python does: a decoded ampersand never begins another decoding pass. */
-function hqHtmlUnescape(value: string): string {
-	return value.replace(
-		/&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)/gu,
-		(reference: string) => {
-			if (reference.startsWith("&#")) {
-				const hex = reference[2] === "x" || reference[2] === "X";
-				const codepoint = Number.parseInt(
-					reference.slice(hex ? 3 : 2),
-					hex ? 16 : 10,
-				);
-				if (
-					(codepoint >= 1 && codepoint <= 8) ||
-					codepoint === 11 ||
-					(codepoint >= 14 && codepoint <= 31) ||
-					codepoint === 127 ||
-					(codepoint >= 0xfdd0 && codepoint <= 0xfdef) ||
-					(codepoint <= 0x10ffff && (codepoint & 0xffff) >= 0xfffe)
-				)
-					return "";
-			}
-			return decodeHTML(reference);
-		},
-	);
-}
-
 function hashtagInterpolationRuns(mode: WireMode): boolean {
 	return (
 		mode.target === "hq-json" &&

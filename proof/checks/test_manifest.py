@@ -1778,6 +1778,8 @@ def test_only_deliverable_form_instances_request_lookup_resources(manifest):
         <bind relevant="instance('item-list:from_elsewhere')"/>
         </model></h:head><h:body/></h:html>""")
     form = manifest_usage.Form(root, "form")
+    form.app_form = (manifest_usage.App({"langs": ["en"]}, "app"), {})
+    form.scans = {'["en"]': {"names": ["item-list:from_elsewhere", "item-list:inline"]}}
     at = manifest_usage.XmlAt(form, root)
     names = ["alias", "selected", "item-list:missing.1", "item-list:inline", "item-list:from_elsewhere"]
     parsed = {"instancePaths": [{"instance": name} for name in names]}

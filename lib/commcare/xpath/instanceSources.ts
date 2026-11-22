@@ -1,3 +1,5 @@
+import { hqHtmlUnescape } from "../hqInstanceScan";
+
 // HQ derives missing instance declarations by scanning the entire rendered XForm
 // (xform.py::add_missing_instances, suite_xml/post_process/instances.py::get_instance_names).
 // A local ID and the source it names are separate namespaces.
@@ -78,15 +80,23 @@ function factorySource(id: string): string | undefined {
 	return undefined;
 }
 
+// Python \s also includes four information separators in JSON XPath.
+const pythonWhitespace = String.raw`[\p{White_Space}\u001c-\u001f]*`;
+const instancePattern = new RegExp(
+	String.raw`instance\(${pythonWhitespace}['"]([\p{L}\p{N}_:-]+)['"]${pythonWhitespace}\)`,
+	"gu",
+);
+
 /** The factories HQ's scanner reaches in one rendered form or suite XPath.
  * Suite entries union scans of individual expressions, not concatenated text. */
-export function* scannedInstances(
-	text: string,
-): Generator<readonly [string, string]> {
-	// Python also admits U+001C..U+001F as whitespace. XML 1.0 cannot contain them.
-	for (const match of text.matchAll(
-		/instance\(\p{White_Space}*['"]([\p{L}\p{N}_:-]+)['"]\p{White_Space}*\)/gu,
-	)) {
+export function scannedInstances(
+	rendered: string,
+): Iterable<readonly [string, string]> {
+	return matchedFactories(hqHtmlUnescape(rendered));
+}
+
+function* matchedFactories(text: string): Generator<readonly [string, string]> {
+	for (const match of text.matchAll(instancePattern)) {
 		const id = match[1];
 		const source = factorySource(id);
 		if (source !== undefined) yield [id, source];
@@ -95,13 +105,19 @@ export function* scannedInstances(
 
 /** The secondary instances available to reads after HQ has built the form.
  * Declared IDs, even those with an inline root, always win over a factory. */
-export function formInstanceSources(
+export function instanceSourcesAfterScan(
 	declared: ReadonlyMap<string, string>,
-	rendered: string,
+	input: { rendered: string } | { xmlValue: string },
 	declaredIds: ReadonlySet<string> = new Set(declared.keys()),
 ): ReadonlyMap<string, string> {
 	const sources = new Map(declared);
-	for (const [id, source] of scannedInstances(rendered)) {
+	// In an XML value already decoded by its parser, the single unescape of
+	// lxml's re-escaped value restores that exact value.
+	const factories =
+		"rendered" in input
+			? scannedInstances(input.rendered)
+			: matchedFactories(input.xmlValue);
+	for (const [id, source] of factories) {
 		if (!declaredIds.has(id)) sources.set(id, source);
 	}
 	return sources;

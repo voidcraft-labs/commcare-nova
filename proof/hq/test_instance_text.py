@@ -254,3 +254,55 @@ def test_plain_text_in_a_forms_source_reads_as_an_instance_and_a_space_before_th
     else:
         assert next(tree.iter(f"{{{XHTML}}}title")).text == OFFERED
         assert _data_root(tree).get("name") == OFFERED
+
+
+def test_missing_instances_follow_hqs_rendered_form_for_each_build_profile(hq):
+    from types import SimpleNamespace
+
+    from corehq.apps.app_manager.models.forms import FormBase
+    from corehq.apps.app_manager.xform import XForm
+
+    def text(tag):
+        return f"instance('item-list:{tag}')"
+
+    xml = f"""<!-- {text("outside")} --><h:html xmlns:h="{XHTML}" xmlns="{XFORMS}"
+        xmlns:v="http://commcarehq.org/xforms/vellum"><h:head><model>
+        <instance><data xmlns="urn:nova:test" version="{text("version")}"><age/></data></instance>
+        <instance id="item-list:stable" src="jr://fixture/item-list:explicit"/>
+        <bind nodeset="/data/other" relevant="count({text("executable")}/executable_list/executable) > 0"/>
+        <!-- {text("inside")} --><bind nodeset="/data/age" v:calculate="{text("vellum")}"
+            calculate="count(instance((('item-list:missing')))/missing_list/missing)"/>
+        <itext><translation lang="en" default="{text("old-default")}">
+            <text id="a"><value>First</value></text>
+            <text id="z" custom="{text("normalized")}"><value>First</value></text>
+            <text id="common"><value>{text("shared")} {text("nested").replace("'", "&amp;apos;")}</value></text>
+        </translation><translation lang="fr"><text id="fr">
+            <value>instan<!-- removed -->ce('item-list:french')</value></text></translation>
+        </itext></model></h:head><h:body/></h:html>"""
+    profiles = {None: ["en", "fr"], "english": ["en"]}
+    app = SimpleNamespace(get_build_langs=lambda profile_id: profiles[profile_id])
+    form = SimpleNamespace(get_app=lambda: app, get_version=lambda: 7)
+    for profile, expected in ((None, {"shared", "executable", "french"}), ("english", {"shared", "executable"})):
+        xform = XForm(xml.encode())
+        FormBase.add_stuff_to_xform(form, xform, profile)
+        declarations = {node.get("id"): node.get("src") for node in xform.xml.iter(f"{{{XFORMS}}}instance")
+                        if node.get("id")}
+        assert declarations == {"item-list:stable": "jr://fixture/item-list:explicit",
+                                **{f"item-list:{tag}": f"jr://fixture/item-list:{tag}" for tag in expected}}
+
+
+def test_remote_request_factory_scans_a_siblings_xpath_after_one_html_unescape(hq, core_runner):
+    from corehq.apps.app_manager.suite_xml.post_process.instances import get_all_instances_referenced_in_xpaths
+
+    grouped = "instance((('item-list:zones')))/zones_list/zones"
+    for spelling, available in (("instance('item-list:zones')", True),
+                                ("instan&#99;e(&apos;item-list:zones&apos;)", True),
+                                ("instance(&amp;apos;item-list:zones&amp;apos;)", False)):
+        rule = f'"{spelling}" = "plain"'
+        worker, sibling = core_runner.request("xpathParse", deadline=30, expressions=[grouped, rule])["results"]
+        assert [path["instance"] for path in worker["instancePaths"]] == ["item-list:zones"]
+        assert sibling["instancePaths"] == []  # its literal supplies no executable data read
+        instances, unknown = get_all_instances_referenced_in_xpaths(None, [grouped, rule])
+        assert not unknown
+        assert {(item.id, item.src) for item in instances} == (
+            {("item-list:zones", "jr://fixture/item-list:zones")} if available else set())

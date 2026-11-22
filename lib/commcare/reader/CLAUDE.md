@@ -213,7 +213,10 @@ Four rules hold everywhere here:
   `unlessClaimed`). Such a text is read in the logic of its form's first field, since a path's
   uses are classed by its form's rules alone.
   A form reads each local instance ID through the source it declares. HQ fills a missing ID
-  only when its factory and its whole-form scanner can supply it. A dotted lookup ID, for
+  only when its factory and its whole-form scanner can supply it on the default build and every retained
+  language profile. The scanner sees HQ’s rendered XForm: it normalizes itext, rewrites the default
+  language and version, and omits comments, excluded translations and Vellum attributes. A suite
+  expression gets one HTML-unescape pass for the scanner; Core executes its original XPath. A dotted lookup ID, for
   example, needs an explicit declaration in the XForm. A selected-entities datum, remote
   search and lookup fixture can have identical suffixes and still supply different data.
   Binding, lookup row discovery and source accounting follow those source families.

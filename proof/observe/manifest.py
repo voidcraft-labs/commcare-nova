@@ -225,6 +225,41 @@ def app_forms(app):
     return found
 
 
+def form_language_profiles(app):
+    """ApplicationBase.get_build_langs for the default build and each configured profile."""
+    profiles = app.get("build_profiles")
+    sets = [app.get("langs")]
+    if isinstance(profiles, dict):
+        sets.extend(p.get("langs") for p in profiles.values() if isinstance(p, dict))
+    sets = [langs if isinstance(langs, list) and all(isinstance(lang, str) for lang in langs) else []
+            for langs in sets]
+    return {json.dumps(langs, ensure_ascii=False): langs for langs in sets}
+
+
+def built_form_instance_names(xml, langs):
+    """Run HQ's FormBase pre-scan pipeline. Capture the rendered input at add_missing_instances;
+    the projection needs the names the scanner sees, independently of the domain's fixture resources."""
+    from types import SimpleNamespace
+
+    from corehq.apps.app_manager.exceptions import XFormException
+    from corehq.apps.app_manager.models.forms import FormBase
+    from corehq.apps.app_manager.suite_xml.post_process.instances import get_instance_names
+    from corehq.apps.app_manager.xform import XForm
+
+    if not langs:
+        return {"unreadable": "no build languages"}
+    try:
+        form = SimpleNamespace(get_app=lambda: SimpleNamespace(get_build_langs=lambda profile_id: langs),
+                               get_version=lambda: 1)
+        source = XForm(xml)
+        observed = set()
+        source.add_missing_instances = lambda form, app: observed.update(get_instance_names(source.render().decode()))
+        FormBase.add_stuff_to_xform(form, source)
+        return {"names": sorted(observed)}
+    except (XFormException, etree.Error, KeyError, ValueError, AttributeError, IndexError) as refused:
+        return {"unreadable": type(refused).__name__}
+
+
 def question_types(xml: bytes):
     """HQ's reading of a form's questions (``XForm.get_questions`` with groups and triggers, each typed by
     ``_infer_vellum_type``): ``{"questions": [[type, path], ...]}``, or ``{"unreadable": <HQ's refusal>}``."""
@@ -827,6 +862,14 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
     for app in apps:
         app_queries(app, queries)
         app_expressions(app, texts)
+        for xml in app_forms(app):
+            digest = hashlib.sha256(xml).hexdigest()
+            if digest not in questions:
+                continue
+            scans = questions[digest].setdefault("instanceScans", {})
+            for profile, langs in form_language_profiles(app).items():
+                if profile not in scans:
+                    scans[profile] = built_form_instance_names(xml, langs)
     strings = _runner_reading(core_runner, "xpathStrings", sorted(queries), hole=CSQL_HOLE, dateHole=CSQL_DATE_HOLE)
     sent = sorted({string for result in strings.values() for string in result.get("strings", ())})
     expressions = _runner_reading(core_runner, "xpathParse", sorted(texts))

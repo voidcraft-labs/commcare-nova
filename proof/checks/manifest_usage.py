@@ -2032,6 +2032,12 @@ def read_observed(found: Uses, manifest: Manifest, readings: Readings):
     string, as HQ's parser read it, and every form's questions, as HQ's reader read them; each added as uses."""
     for document in found.documents:
         document.readings = readings
+    # Built archives already carry their final declarations. For HQ app source the
+    # observation caught what FormBase actually scanned on every build profile.
+    for artifact, digest, form in found.questions:
+        if form is not None and form.app_form is not None:
+            observation = readings.read("questions", digest, artifact)
+            form.scans = observation.get("instanceScans", {})
     # Core's parser accepts dynamic form names. A protected message's recorded expression and technical
     # label prove which group owns these particular names; its generic @form use already exists. Other
     # custom forms, including identical names on an unrelated group, retain their unknown-form use.
@@ -2100,7 +2106,8 @@ def _expression_uses(expression, parsed, manifest, found):
         declared = dict(expression.instances)
         referenced = {path["instance"] for path in parsed["instancePaths"] if path["instance"]}
         if isinstance(at, XmlAt) and isinstance(at.document, Form):
-            referenced &= set(declared) | at.document.scanned_instance_ids
+            if referenced - set(declared):
+                referenced &= set(declared) | at.document.scanned_instance_ids
         for instance_id in referenced:
             src = declared.get(instance_id)
             scheme = read_scheme(manifest, instance_id, declared)

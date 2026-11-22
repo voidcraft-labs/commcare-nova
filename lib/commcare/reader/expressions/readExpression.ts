@@ -116,8 +116,8 @@ import {
 } from "../../xpath/formSyntax";
 import { JAVAROSA_NATIVE_FUNCTIONS } from "../../xpath/functionCapabilities";
 import {
-	formInstanceSources,
 	instanceForRead,
+	instanceSourcesAfterScan,
 } from "../../xpath/instanceSources";
 import { w } from "../../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
@@ -426,10 +426,9 @@ function suiteReadSources(
 		slot === undefined
 			? { ok: true as const, text }
 			: interpolateHqXPath(text, slot);
-	const sources = formInstanceSources(
-		pending.suiteSources ?? new Map(),
-		runtime.ok ? runtime.text : "",
-	);
+	const sources = instanceSourcesAfterScan(pending.suiteSources ?? new Map(), {
+		rendered: runtime.ok ? runtime.text : "",
+	});
 	const missing = [...ids].find(
 		(id) => id.startsWith("item-list:") && !sources.has(id),
 	);
@@ -454,10 +453,10 @@ export function instanceSourcesOf(
 	const sources =
 		form === undefined ? undefined : env.formReadSources?.get(form);
 	if (sources !== undefined) return sources;
-	return formInstanceSources(
+	return instanceSourcesAfterScan(
 		(form === undefined ? undefined : env.instanceSources.get(form)) ??
 			new Map(),
-		pending.text,
+		{ xmlValue: pending.text },
 	);
 }
 

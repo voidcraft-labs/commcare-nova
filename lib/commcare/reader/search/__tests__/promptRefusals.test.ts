@@ -694,6 +694,45 @@ describe("a Search field Nova cannot hold", () => {
 			},
 		);
 
+		it.each([
+			["instance(&apos;item-list:t&apos;)", true],
+			["instan&#99;e(&#x27;item-list:t&#x27;)", true],
+			["instance(&amp;apos;item-list:t&amp;apos;)", false],
+		] as const)(
+			"scans one HTML unescape of a sibling's literal %s while the worker executes its original text",
+			async (hint, found) => {
+				const body = exportedBody(PROMPTS);
+				first(body).input_ = "select1";
+				first(body).itemset = {
+					...itemset(
+						"item-list:t",
+						"instance((('item-list:t')))/t_list/t",
+						"code",
+					),
+					sort: "code",
+				};
+				const rule = promptsOf(body)[1].required as JsonObject;
+				rule.test = `${rule.test} or "${hint}" = "plain"`;
+				const input = withTable(await inputFor(body));
+				const outcome = readHqApp({
+					...input,
+					lookup: {
+						...input.lookup,
+						definitions: new Map([[TABLE_T.id, TABLE_T]]),
+					},
+				});
+				expect(outcome.defects).toEqual([]);
+				expect(outcome.kind).toBe("account");
+				if (outcome.kind !== "account")
+					throw new Error("missing source rule refusal");
+				expect(outcome.findings.map((x) => x.code)).toEqual([
+					found
+						? "case-search/required-or-validation-test-outside-what-nova-types"
+						: "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+				]);
+			},
+		);
+
 		// A filter row's value a device reads from a table, as from the cases on the device, is the
 		// one entry for values that query device data, at the search.
 		it.each([
