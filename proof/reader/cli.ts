@@ -49,10 +49,12 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { expandDoc } from "@/lib/commcare/expander";
 import { canonDocument } from "@/lib/commcare/reader/canon";
 import { externalKeyText } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { planFromDocuments } from "@/lib/deployment/hqChanges/plan";
 import {
 	type ReadBackDifference,
 	readBackDifferences,
@@ -87,6 +89,8 @@ interface Request {
 	/** A stored document (`document.json`'s `doc`). */
 	readonly expected?: unknown;
 	readonly canon?: boolean;
+	/** Review the changed reading over the previously adopted, unchanged app supplied as expected. */
+	readonly reviewChanges?: boolean;
 	readonly holds?: readonly Hold[];
 }
 
@@ -98,6 +102,7 @@ interface Answer {
 	readonly claims: string;
 	readonly declaration?: LaneDeclaration;
 	readonly offered?: readonly LaneDeclaration[];
+	readonly review?: ReturnType<typeof reviewChanges>;
 	readonly firstPublish?: readonly string[];
 	readonly held?: readonly {
 		readonly key: string;
@@ -225,6 +230,31 @@ function heldOf(
 	});
 }
 
+/** Apply the production HQ change planner to an adoption with no unpublished edits, then emit
+ * the resulting app under its adopted IDs so HQ can read back the actual wire. */
+function reviewChanges(
+	previous: BlueprintDoc | undefined,
+	reading: Extract<LaneReading, { kind: "read" }>,
+) {
+	if (previous === undefined)
+		throw new Error("A change review needs the previous adopted document.");
+	const plan = planFromDocuments({
+		ref: previous,
+		now: previous,
+		base: previous,
+		theirs: reading.doc,
+		renamesSince: [],
+	});
+	if (plan.kind !== "changes") return plan;
+	return {
+		kind: plan.kind,
+		target: toPersistableDoc(plan.target),
+		application: expandDoc(plan.target, {
+			identity: targetWireIdentity(reading.identity),
+		}),
+	};
+}
+
 async function answer(request: Request): Promise<Answer> {
 	const identity = MODE_OF_IDENTITY[request.mode];
 	if (identity === undefined)
@@ -289,6 +319,9 @@ async function answer(request: Request): Promise<Answer> {
 	return {
 		...base,
 		...(differences !== undefined && { differences }),
+		...(request.reviewChanges && {
+			review: reviewChanges(expectedDoc, reading),
+		}),
 		...(request.mode === "first-read" && {
 			declaration: reading.declaration,
 			firstPublish: reading.firstPublish,

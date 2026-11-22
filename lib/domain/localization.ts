@@ -137,6 +137,15 @@ export type TranslationReview = (typeof translationReviews)[number];
 export const translationEntrySchema = z.strictObject({
 	value: localizedValueSchema,
 	sourceFingerprint: z.string().min(1),
+	/** The former source's effective wording retained for workers across a genuine
+	 * source change. It expires on the next change to this unit's source. The
+	 * saved translation, its original fingerprint and its authorship stay intact. */
+	workerFallback: z
+		.strictObject({
+			value: localizedValueSchema,
+			sourceFingerprint: z.string().min(1),
+		})
+		.optional(),
 	origin: z.enum(translationOrigins),
 	review: z.enum(translationReviews),
 	/** Historical provenance may name a language later removed from the app. */
@@ -415,4 +424,26 @@ export function makeTranslationUnitId(
 	return translationUnitIdSchema.parse(
 		`tu1:${segments.map((segment) => `${segment.length}:${segment}`).join("")}`,
 	);
+}
+
+/** A renamed code or exchange of codes keeps the corresponding language tags and
+ * their text. Verify every previous binding before changing any of them. */
+export function reboundLanguageCodes(
+	codes: ReadonlyMap<string, string>,
+	changes: readonly { language: LanguageTag; from: string; to: string }[],
+): Map<string, string> | undefined {
+	const result = new Map(codes);
+	const changed = new Set<string>();
+	for (const { language, from, to } of changes) {
+		if (
+			language.startsWith("project:") ||
+			changed.has(language) ||
+			from === to ||
+			codes.get(language) !== from
+		)
+			return undefined;
+		changed.add(language);
+		result.set(language, to);
+	}
+	return new Set(result.values()).size === result.size ? result : undefined;
 }

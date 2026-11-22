@@ -1324,6 +1324,18 @@ function createMutationSchema({
 		}),
 		z.object({ kind: z.literal("removeLanguage"), code: languageTagSchema }),
 		z.object({
+			kind: z.literal("rebindLanguageCodes"),
+			changes: z
+				.array(
+					z.strictObject({
+						language: languageTagSchema,
+						from: languageWireCodeSchema,
+						to: languageWireCodeSchema,
+					}),
+				)
+				.min(1),
+		}),
+		z.object({
 			kind: z.literal("rebaseSourceLanguage"),
 			from: languageTagSchema,
 			to: languageTagSchema,
@@ -1347,6 +1359,14 @@ function createMutationSchema({
 			language: languageTagSchema,
 			unitId: translationUnitIdSchema,
 			entry: translationEntrySchema.nullable(),
+			// Historical replay may restore a formerly stale draft. Both the current
+			// source and previous entry must match what the diff inspected.
+			restoreAgainst: z
+				.strictObject({
+					sourceFingerprint: z.string().min(1),
+					previous: translationEntrySchema.nullable(),
+				})
+				.optional(),
 		}),
 		z.object({
 			kind: z.literal("reviewTranslation"),

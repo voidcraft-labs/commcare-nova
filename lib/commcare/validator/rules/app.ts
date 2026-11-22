@@ -293,6 +293,40 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 				);
 				continue;
 			}
+			const fallback = entry.workerFallback;
+			if (
+				fallback &&
+				translationSourceFingerprintsEqual(
+					fallback.sourceFingerprint,
+					unit.sourceFingerprint,
+				)
+			) {
+				const problem = translationValueIntegrityIssue(unit, fallback.value);
+				if (problem)
+					errors.push(
+						validationError(
+							problem === "value-kind"
+								? "TRANSLATION_VALUE_KIND_MISMATCH"
+								: problem === "blank-content"
+									? "TRANSLATION_REQUIRED_CONTENT_BLANK"
+									: "TRANSLATION_PROTECTED_CONTENT_CHANGED",
+							"app",
+							`The worker text for ${unit.breadcrumb.join(" → ")} needs updating in Languages.`,
+							{},
+							{ language, unitId, role: unit.role },
+						),
+					);
+				else if (translationUnitUsesLocaleFile(unit.role))
+					flagLocaleValue(
+						language,
+						unitId,
+						unit.role,
+						unit.breadcrumb,
+						typeof fallback.value === "string"
+							? fallback.value
+							: projectProseTemplate(fallback.value, doc).text,
+					);
+			}
 			const issue = translationValueIntegrityIssue(unit, entry.value);
 			if (issue === "value-kind") {
 				errors.push(
@@ -337,6 +371,7 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 			}
 			if (
 				issue === undefined &&
+				!fallback &&
 				translationSourceFingerprintsEqual(
 					entry.sourceFingerprint,
 					unit.sourceFingerprint,

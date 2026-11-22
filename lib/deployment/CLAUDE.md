@@ -1191,7 +1191,7 @@ formatting was off, a registration form's place) takes the reader's spelling
 where it no longer fits.
 
 **What is held, and what is unavailable.** A version that cannot run on every
-platform the app selects is held for review (`runs-elsewhere`). The language
+platform the app selects is held for review (`runs-elsewhere`). When a stale saved translation would become canonical, `stale-source-translation` returns the language, unit and breadcrumb. The review links to that phrase. Marking it as reviewed, replacing it, or using the original text allows a fresh review; other stale drafts retain their authorship and exact effective worker text through the rebase. The language
 that opens first can move independently of the language holding the app’s
 original wording. A source change supported by HQ’s stored wording rebases
 each translation unit in the accepted edit. A reading now that holds something Nova

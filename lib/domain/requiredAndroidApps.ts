@@ -23,6 +23,24 @@ export const ANDROID_APP_NAMES: Record<RequiredAndroidApp, string> = {
 	"simprints-id": "Simprints ID",
 };
 
+/** Only the destination's wording for known apps enters the worker Preview. */
+export type AndroidAppLabels = Record<
+	string,
+	Partial<Record<RequiredAndroidApp, string>>
+>;
+
+export function androidAppName(
+	app: RequiredAndroidApp,
+	languageCode: string,
+	labels?: AndroidAppLabels,
+): string {
+	const table =
+		labels !== undefined && Object.hasOwn(labels, languageCode)
+			? labels[languageCode]
+			: undefined;
+	return table?.[app] ?? ANDROID_APP_NAMES[app];
+}
+
 export const requiredAndroidAppsSchema = z
 	.array(z.enum(REQUIRED_ANDROID_APPS))
 	.max(REQUIRED_ANDROID_APPS.length)

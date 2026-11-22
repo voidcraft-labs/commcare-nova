@@ -228,6 +228,9 @@ export const updateAppTool = {
 				settings.showSavedForms !== undefined ||
 				settings.showIncompleteForms !== undefined;
 			const summary: ToolCallSummary = {
+				...(settings.requiredAndroidApps !== undefined && {
+					requiredAndroidApps: settings.requiredAndroidApps,
+				}),
 				...(input.name !== undefined && { subject: input.name, nameChange }),
 				...(platforms !== undefined && { platforms }),
 				...(formListsChanged && {

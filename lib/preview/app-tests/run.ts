@@ -19,8 +19,9 @@ import {
 } from "@/lib/domain/localizedBlueprintProjection";
 import { PLATFORM_LABELS } from "@/lib/domain/platforms";
 import {
-	ANDROID_APP_NAMES,
+	androidAppName,
 	missingAndroidApps,
+	type RequiredAndroidApp,
 } from "@/lib/domain/requiredAndroidApps";
 import { locationFixtureRows } from "@/lib/organization/footprint";
 import type {
@@ -509,6 +510,16 @@ export async function observeAppTest(
 	}
 }
 
+function requiredAppName(
+	context: AppTestContext,
+	app: RequiredAndroidApp,
+): string {
+	const code = effectiveAppLocalization(context.doc.localization).wireCodes[
+		context.language
+	];
+	return androidAppName(app, code, context.androidAppLabels);
+}
+
 async function observeAppTestWithEvaluation(
 	context: AppTestContext,
 	scope: AppTestScope,
@@ -527,7 +538,7 @@ async function observeAppTestWithEvaluation(
 				screen: "required-android-apps",
 				missingApps: missing.map((app) => ({
 					app,
-					name: ANDROID_APP_NAMES[app],
+					name: requiredAppName(context, app),
 				})),
 				actions: ["observe", "back", "finish"],
 				platform: {
@@ -758,7 +769,7 @@ export async function advanceAppTest(
 				});
 			if (action.kind !== "observe")
 				throw new AppTestActionError(
-					`This Android phone needs ${missing.map((app) => ANDROID_APP_NAMES[app]).join(", ")} before the worker can open the app.`,
+					`This Android phone needs ${missing.map((app) => requiredAppName(context, app)).join(", ")} before the worker can open the app.`,
 				);
 		}
 		return await advanceAppTestOnScreen(context, scope, state, action);

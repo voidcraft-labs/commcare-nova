@@ -1202,7 +1202,10 @@ function TranslationUnitRow({
 	};
 
 	return (
-		<article className="rounded-xl border border-nova-border bg-white/[0.025] p-4">
+		<article
+			id={unit.id}
+			className="rounded-xl border border-nova-border bg-white/[0.025] p-4"
+		>
 			<div className="flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">
 					<p className="break-words text-sm font-medium text-nova-text">
@@ -1263,6 +1266,12 @@ function TranslationUnitRow({
 								onValidityChange={setDraftValid}
 								placeholder={filledText}
 							/>
+						)}
+						{unit.status === "out-of-date" && (
+							<p className="mt-1.5 text-xs text-nova-text-muted">
+								Workers currently see “{projectValue(unit.effective)}”. Your
+								earlier translation is here to review.
+							</p>
 						)}
 						{filledText !== undefined && filledFromName !== undefined && (
 							<p className="mt-1.5 text-xs text-nova-text-muted">

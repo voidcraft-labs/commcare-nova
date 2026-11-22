@@ -710,6 +710,10 @@ export type PanelBodyView =
 	 */
 	| {
 			readonly kind: "line";
+			readonly translation?: Extract<
+				HqChangesReview,
+				{ kind: "held" }
+			>["translation"];
 			readonly line: string;
 			readonly role: "alert" | "status";
 			readonly checkAgain: boolean;
@@ -965,7 +969,8 @@ function answeredBody(
 		case "held":
 			return {
 				kind: "line",
-				line: hqChangesHeldLine(review.reason, review.runs),
+				line: hqChangesHeldLine(review.reason, review.runs, review.translation),
+				...(review.translation && { translation: review.translation }),
 				role: "status",
 				checkAgain: true,
 			};

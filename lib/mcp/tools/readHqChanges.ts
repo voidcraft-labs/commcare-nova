@@ -274,6 +274,10 @@ export type HqChangesReviewProjection = ReviewHead &
 		| {
 				readonly kind: "held";
 				readonly reason: Extract<HqChangesReview, { kind: "held" }>["reason"];
+				readonly translation?: Extract<
+					HqChangesReview,
+					{ kind: "held" }
+				>["translation"];
 				readonly runs: {
 					readonly app: readonly Platform[];
 					readonly hq: readonly Platform[];
@@ -780,8 +784,13 @@ export function describeHqChangesReview(
 				...head,
 				kind: "held",
 				reason: review.reason,
+				...(review.translation && { translation: review.translation }),
 				runs: review.runs,
-				message: hqChangesHeldLine(review.reason, review.runs),
+				message: hqChangesHeldLine(
+					review.reason,
+					review.runs,
+					review.translation,
+				),
 			};
 		case "unavailable":
 			return {

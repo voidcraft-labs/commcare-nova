@@ -53,6 +53,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { DeclarationChoice } from "@/lib/doc/platformDeclaration";
+import { staleSourceTranslation } from "@/lib/doc/sourceLanguage";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -62,7 +63,19 @@ import type {
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { entryPointByUuid } from "@/lib/domain/entryPoints";
+import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
+import {
+	effectiveAppLocalization,
+	languageTag,
+	parseLanguageTag,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
+import {
+	snapshotTranslationUnits,
+	storedTranslationValue,
+	translationIsOutOfDate,
+} from "@/lib/domain/translationUnits";
 import { log } from "@/lib/logger";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import type {
@@ -135,7 +148,11 @@ export type HqChangePlan =
 	/** CommCare HQ's app now holds something Nova cannot hold. */
 	| { readonly kind: "account"; readonly findings: readonly Finding[] }
 	/** A change Nova names and cannot take as a change. */
-	| { readonly kind: "held"; readonly reason: HqChangeHeld }
+	| {
+			readonly kind: "held";
+			readonly reason: HqChangeHeld;
+			readonly translation?: import("@/lib/publish/hqChangesKinds").HqSourceTranslationRecovery;
+	  }
 	/** A defect of Nova's: the change did not fit, and nothing is taken. */
 	| {
 			readonly kind: "differs";
@@ -435,6 +452,40 @@ function narrowed(
 					mutation.unitId,
 				);
 				if (
+					effectiveAppLocalization(B.localization).sourceLanguage !==
+						effectiveAppLocalization(T.localization).sourceLanguage &&
+					held
+				) {
+					const original = snapshotTranslationUnits(D).get(mutation.unitId);
+					const incoming = snapshotTranslationUnits(T).get(mutation.unitId);
+					if (original && incoming && translationIsOutOfDate(held, original)) {
+						const fallback = storedTranslationValue(
+							T,
+							mutation.language,
+							incoming,
+						);
+						const { workerFallback: _prior, ...saved } = held;
+						out.push({
+							...mutation,
+							entry:
+								deepEqual(fallback, incoming.source) &&
+								!translationSourceFingerprintsEqual(
+									saved.sourceFingerprint,
+									incoming.sourceFingerprint,
+								)
+									? saved
+									: {
+											...saved,
+											workerFallback: {
+												value: fallback,
+												sourceFingerprint: incoming.sourceFingerprint,
+											},
+										},
+						});
+						break;
+					}
+				}
+				if (
 					before !== undefined &&
 					after !== null &&
 					held !== undefined &&
@@ -689,6 +740,7 @@ export function touchedBy(
 			case "relabelSourceLanguage":
 			case "addLanguage":
 			case "removeLanguage":
+			case "rebindLanguageCodes":
 			case "rebaseSourceLanguage":
 			case "setProjectLanguageDirection":
 			case "moveLanguage":
@@ -1116,6 +1168,28 @@ function* plannedFromDocuments(
 
 	/* 5. The change, between readings that agree on every menu's and form's own id. */
 	const theirs = withIdsOf(B, T);
+	const newSource = effectiveAppLocalization(
+		theirs.localization,
+	).sourceLanguage;
+	const sourceChanged =
+		effectiveAppLocalization(B.localization).sourceLanguage !== newSource;
+	if (sourceChanged) {
+		const stale = staleSourceTranslation(now, newSource);
+		if (stale) {
+			const language = parseLanguageTag(newSource);
+			return {
+				kind: "held",
+				reason: "stale-source-translation",
+				translation: {
+					language,
+					languageName:
+						resolvedLanguageDisplayLabel(language) ?? languageTag(language),
+					unitId: stale.id,
+					breadcrumb: stale.breadcrumb,
+				},
+			};
+		}
+	}
 	let H: Mutation[];
 	try {
 		H = yield* diffDocsToMutationsSteps(B, theirs, HQ_READING_DELTA);
@@ -1140,7 +1214,31 @@ function* plannedFromDocuments(
 		(nowK !== refK && documentDifferences(refK, nowK).length > 0) ||
 		slugRenamed(ref, now);
 	const appliedTo = unpublished ? "published" : "head";
-	const D = unpublished ? ref : now;
+	let D = unpublished ? ref : now;
+	// Recovery is performed on the current draft. The older published
+	// reference may still contain its stale copy. Only its wire reading,
+	// already checked above, can become the new canonical source.
+	if (unpublished && sourceChanged && staleSourceTranslation(ref, newSource)) {
+		D = UNFROZEN.produce(ref, (draft) => {
+			for (const [id, entry] of Object.entries(
+				ref.localization?.translations[newSource] ?? {},
+			)) {
+				const unit = snapshotTranslationUnits(ref).get(id);
+				const into = draft.localization?.translations[newSource];
+				if (!unit || !into || !translationIsOutOfDate(entry, unit)) continue;
+				const text = storedTranslationValue(ref, newSource, unit);
+				if (deepEqual(text, unit.source)) delete into[id];
+				else
+					into[id] = {
+						value: structuredClone(text),
+						origin: "copied",
+						review: "needs-review",
+						sourceFingerprint: unit.sourceFingerprint,
+						translatedFrom: ref.localization?.sourceLanguage ?? "eng",
+					};
+			}
+		});
+	}
 	const head = unpublished ? now : null;
 	yield;
 

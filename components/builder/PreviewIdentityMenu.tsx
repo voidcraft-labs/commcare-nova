@@ -32,6 +32,7 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
 import { useRef, useState } from "react";
 import { AppTestHistory } from "@/components/builder/AppTestHistory";
+import { useAndroidAppName } from "@/components/builder/localization/useAndroidAppName";
 import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -58,7 +59,6 @@ import {
 	type Platform,
 	platformDeclarationPhrase,
 } from "@/lib/domain/platforms";
-import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 import {
 	countClaimedCasesAction,
 	releaseClaimedCasesAction,
@@ -146,6 +146,7 @@ function PreviewIdentityMenuBody() {
 	const appSettings = useAppSettings();
 	const declared = declaredPlatforms({ appSettings });
 	const platform = usePreviewPlatform();
+	const appName = useAndroidAppName();
 	const setPlatform = useSetPreviewPlatform();
 	const installedApps = usePreviewInstalledAndroidApps();
 	const setInstalled = useSetPreviewAndroidAppInstalled();
@@ -287,7 +288,7 @@ function PreviewIdentityMenuBody() {
 										checked={installedApps.includes(app)}
 										onCheckedChange={(checked) => setInstalled(app, checked)}
 									>
-										{ANDROID_APP_NAMES[app]}
+										{appName(app)}
 									</DropdownMenuCheckboxItem>
 								))}
 								<DropdownMenuSeparator />

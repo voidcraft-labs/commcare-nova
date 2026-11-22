@@ -66,7 +66,7 @@ parent removal and child removals before their parent.
 The public `Mutation` union has one strict `mutationSchema`, used identically by builder, SA/MCP, commit, accepted rows, events, streams, diffs, undo, and replay from the canonical baseline. Mutation rows before that baseline are archived audit data and never parse through the current schema. There is no `replaceForm`: a whole-form result decomposes into `updateForm` plus granular field changes. There are no `notify*` mutations or reducer metadata channels.
 
 Localization uses that same replayable dialect: `relabelSourceLanguage`,
-`addLanguage`, `removeLanguage`, `setProjectLanguageDirection`,
+`addLanguage`, `removeLanguage`, `rebindLanguageCodes`, `setProjectLanguageDirection`,
 `rebaseSourceLanguage`, `moveLanguage`, `setDefaultLanguage`, `setTranslation`, and
 compare-and-set `reviewTranslation`. `relabelSourceLanguage` and `addLanguage`
 carry an `AppLanguageIdentity` object; the other kinds reference an existing
@@ -79,7 +79,7 @@ gesture or tool that offers “copy from” composes it with explicit
 `setTranslation` mutations in ONE admitted batch, so provenance and exact
 per-unit values are durable rather than reducer-minted. A translation write must
 name an existing current unit and carry its exact source fingerprint; prose
-writes preserve protected references. `reviewTranslation` additionally fences
+writes preserve protected references. An undo or restore of an older stale draft also fences the current source and prior entry in `restoreAgainst`. An active `workerFallback` carries the distinct worker text across a source change while the saved draft waits for review. `reviewTranslation` additionally fences
 the prior value and fingerprint so a reviewer cannot silently bless a source or
 peer edit they did not inspect. The shared tool fence separately echoes the
 current source fingerprint for both set and review, while review also compares

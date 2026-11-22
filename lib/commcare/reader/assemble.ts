@@ -45,6 +45,7 @@ import {
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	snapshotTranslationUnits,
+	storedTranslationValue,
 	type TranslationUnit,
 } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
@@ -298,6 +299,47 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 			}),
 	},
 	{
+		/** HQ sees each language's effective worker text. A stale draft may
+		 * carry a distinct fallback retained across a source-language change. */
+		id: "out-of-date-translation-is-absent",
+		kind: "one-wire",
+		apply: (doc) => {
+			const units = snapshotTranslationUnits(doc);
+			return withCandidate(doc, (draft) => {
+				const loc = draft.localization;
+				if (!loc) return;
+				eachEntry(doc, (language, id) => {
+					const unit = units.get(id);
+					const entry = loc.translations[language]?.[id];
+					if (!entry) return;
+					if (!unit) {
+						delete loc.translations[language][id];
+						return;
+					}
+					if (entry.workerFallback) {
+						const effective = storedTranslationValue(doc, language, unit);
+						if (sameJson(effective, unit.source))
+							delete loc.translations[language][id];
+						else
+							loc.translations[language][id] = {
+								value: structuredClone(effective),
+								sourceFingerprint: unit.sourceFingerprint,
+								origin: "human",
+								review: "reviewed",
+								translatedFrom: loc.sourceLanguage,
+							};
+					} else if (
+						!translationSourceFingerprintsEqual(
+							entry.sourceFingerprint,
+							unit.sourceFingerprint,
+						)
+					)
+						delete loc.translations[language][id];
+				});
+			});
+		},
+	},
+	{
 		/** A form's text blank in one language beside another language's text, and the text a
 		 *  worker reads there in its place: the export writes every language's filled text, so the
 		 *  reader returns the second (`xform/prose.ts::blankItextFilled`). It runs before every
@@ -460,31 +502,6 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 					entry.review = "reviewed";
 					entry.translatedFrom = source;
 				}
-			});
-		},
-	},
-	{
-		/** A translation entry whose source fingerprint is not the current source's, and none: the
-		 *  reader returns none, since Nova writes the source text for it. */
-		id: "out-of-date-translation-is-absent",
-		kind: "one-wire",
-		apply: (doc) => {
-			const stale: [LanguageTag, TranslationUnitId][] = [];
-			eachEntry(doc, (language, unit, now) => {
-				const entry = doc.localization?.translations[language]?.[unit];
-				if (
-					now === undefined ||
-					entry === undefined ||
-					!translationSourceFingerprintsEqual(
-						entry.sourceFingerprint,
-						now.fingerprint,
-					)
-				)
-					stale.push([language, unit]);
-			});
-			return withCandidate(doc, (draft) => {
-				for (const [language, unit] of stale)
-					delete draft.localization?.translations[language]?.[unit];
 			});
 		},
 	},

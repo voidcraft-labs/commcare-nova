@@ -410,7 +410,10 @@ describe("the stops", () => {
 		).toBe(
 			"CommCare HQ's version doesn't run everywhere this app does. This app runs in Web Apps and on Android, and what changed in CommCare HQ runs only on Android. You can change where this app runs in App settings and check again, or publish over the change.",
 		);
-		expect(HQ_CHANGE_HELD).toEqual(["runs-elsewhere"]);
+		expect(HQ_CHANGE_HELD).toEqual([
+			"runs-elsewhere",
+			"stale-source-translation",
+		]);
 	});
 
 	it("says the gate's refusal and the review that moved", () => {

@@ -413,8 +413,15 @@ export function hqChangesHeldLine(
 		readonly app: readonly Platform[];
 		readonly hq: readonly Platform[];
 	} | null,
+	translation?: import("./hqChangesKinds").HqSourceTranslationRecovery,
 ): string {
 	switch (reason) {
+		case "stale-source-translation": {
+			const phrase = translation
+				? `“${translation.breadcrumb.join(" › ")}” in ${translation.languageName}`
+				: "a phrase in the new source language";
+			return `CommCare HQ now uses ${translation?.languageName ?? "another language"} for the original wording. In Languages, you can keep, replace or clear the out-of-date translation of ${phrase}, then check again.`;
+		}
 		case "runs-elsewhere": {
 			const where =
 				runs === null

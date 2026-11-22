@@ -46,16 +46,14 @@ import {
 import type { CaseListWorkspaceTab } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useAndroidAppName } from "@/components/builder/localization/useAndroidAppName";
 import { Button } from "@/components/shadcn/button";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
-import {
-	ANDROID_APP_NAMES,
-	missingAndroidApps,
-} from "@/lib/domain/requiredAndroidApps";
+import { missingAndroidApps } from "@/lib/domain/requiredAndroidApps";
 import { caseListRegistrationEntryContinues } from "@/lib/preview/caseListRegistrationEntry";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -189,6 +187,7 @@ const CaseListScreen = dynamic(
 export function PreviewShell() {
 	const mode = useEditMode();
 	const platform = usePreviewPlatform();
+	const appName = useAndroidAppName();
 	const { requiredAndroidApps } = useAppSettings();
 	const atDeviceHome = usePreviewAtDeviceHome();
 	const setAtDeviceHome = useSetPreviewAtDeviceHome();
@@ -215,10 +214,10 @@ export function PreviewShell() {
 							className="flex items-center justify-between gap-3 text-sm"
 							key={app}
 						>
-							{ANDROID_APP_NAMES[app]}
+							{appName(app)}
 							<Button
 								variant="outline"
-								aria-label={`Install ${ANDROID_APP_NAMES[app]} on the Preview phone`}
+								aria-label={`Install ${appName(app)} on the Preview phone`}
 								onClick={() => setInstalled(app, true)}
 							>
 								Install in Preview

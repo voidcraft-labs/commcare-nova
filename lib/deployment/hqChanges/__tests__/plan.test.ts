@@ -57,6 +57,10 @@ import {
 	translationSourceFingerprint,
 } from "@/lib/domain/localization";
 import { proseText } from "@/lib/domain/prose";
+import {
+	localizeTranslationUnit,
+	snapshotTranslationUnits,
+} from "@/lib/domain/translationUnits";
 import { normalizeHqAppSource } from "../../hqSourceBaseline";
 import {
 	acceptanceInput,
@@ -763,6 +767,207 @@ describe("a translation whose own text CommCare HQ changed", () => {
 	});
 });
 
+describe("HQ language renames and saved translations", () => {
+	const name = makeTranslationUnitId("app", "name");
+	const fp = (value: string) => translationSourceFingerprint("text", value);
+	function source() {
+		return produce(visits(), (draft) => {
+			draft.appName = "Community clinic";
+			draft.localization = {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "fra", "project:qaa"],
+				wireCodes: { eng: "en", fra: "fr", "project:qaa": "qaa" },
+				translations: {
+					fra: {
+						[name]: {
+							value: "Clinique",
+							sourceFingerprint: fp("Community clinic"),
+							origin: "human",
+							review: "reviewed",
+							translatedFrom: "eng",
+						},
+					},
+					"project:qaa": {
+						[name]: {
+							value: "Klinik",
+							sourceFingerprint: fp("Clinic"),
+							origin: "ai",
+							review: "needs-review",
+							translatedFrom: "eng",
+						},
+					},
+				},
+			};
+		});
+	}
+	it.each([
+		["eng", "eng"],
+		["fra", "fra"],
+	])(
+		"brings an HQ change of the %s resource code into the same language",
+		async (tag, to) => {
+			const ref = source();
+			const changed = produce(ref, (draft) => {
+				if (draft.localization) draft.localization.wireCodes[tag] = to;
+			});
+			const B = await readingOf(ref, ref);
+			const T = await readingOf(changed, ref);
+			const plan = changesOf(
+				planFromDocuments({
+					ref,
+					now: ref,
+					base: B,
+					theirs: T,
+					renamesSince: [],
+				}),
+			);
+			expect(plan.target.localization).toEqual(changed.localization);
+			expect(plan.batch).toContainEqual({
+				kind: "rebindLanguageCodes",
+				changes: [
+					{ language: tag, from: ref.localization?.wireCodes[tag], to },
+				],
+			});
+			expect(admitted(ref, plan.batch).ok).toBe(true);
+		},
+	);
+	it.each(["keep", "replace", "clear"] as const)(
+		"opens the stale phrase becoming source for a decision and accepts the new review after %s",
+		async (action) => {
+			const ref = produce(source(), (draft) => {
+				const entry = draft.localization?.translations.fra[name];
+				if (!entry) throw Error("Missing French");
+				entry.sourceFingerprint = fp("Clinic");
+				entry.origin = "ai";
+				entry.review = "needs-review";
+			});
+			const B = await readingOf(ref, ref);
+			const T = await readingOf(ref, ref, undefined, (body) => {
+				body.name = "Clinique";
+				body.langs = ["fr", "en", "qaa"];
+				const strings = body.translations as Record<
+					string,
+					Record<string, string>
+				>;
+				for (const lang of ["en", "qaa", "fr"])
+					strings[lang] = {
+						...strings[lang],
+						"app.display.name": lang === "fr" ? "Clinique" : "Community clinic",
+						"homescreen.title": lang === "fr" ? "Clinique" : "Community clinic",
+					};
+			});
+			const input = { ref, base: B, theirs: T, renamesSince: [] };
+			expect(planFromDocuments({ ...input, now: ref })).toMatchObject({
+				kind: "held",
+				reason: "stale-source-translation",
+				translation: { language: { language: "fra" }, unitId: name },
+			});
+			const now = committed(
+				ref,
+				action === "keep"
+					? [
+							{
+								kind: "reviewTranslation",
+								language: "fra",
+								unitId: name,
+								expectedSourceFingerprint: fp("Clinic"),
+								sourceFingerprint: fp("Community clinic"),
+								value: "Clinique",
+							},
+						]
+					: [
+							{
+								kind: "setTranslation",
+								language: "fra",
+								unitId: name,
+								entry:
+									action === "clear"
+										? null
+										: {
+												value: "Clinique locale",
+												origin: "human",
+												review: "reviewed",
+												translatedFrom: "eng",
+												sourceFingerprint: fp("Community clinic"),
+											},
+							},
+						],
+			);
+			const next = changesOf(planFromDocuments({ ...input, now }));
+			expect(next.target.localization?.sourceLanguage).toBe("fra");
+			expect(admitted(now, next.batch).ok).toBe(true);
+		},
+	);
+	it.each([true, false])(
+		"preserves the stale editable translation and the actual HQ worker fallback (old wording explicitly kept %s)",
+		async (keepOld) => {
+			const ref = source();
+			const B = await readingOf(ref, ref);
+			const T = await readingOf(ref, ref, undefined, (body) => {
+				body.name = "Clinique";
+				body.langs = ["fr", "en", "qaa"];
+				const strings = body.translations as Record<
+					string,
+					Record<string, string>
+				>;
+				for (const lang of ["en", "qaa", "fr"])
+					strings[lang] = {
+						...strings[lang],
+						"app.display.name":
+							lang === "fr" || (lang === "qaa" && !keepOld)
+								? "Clinique"
+								: "Community clinic",
+						"homescreen.title":
+							lang === "fr" || (lang === "qaa" && !keepOld)
+								? "Clinique"
+								: "Community clinic",
+					};
+			});
+			const plan = changesOf(
+				planFromDocuments({
+					ref,
+					now: ref,
+					base: B,
+					theirs: T,
+					renamesSince: [],
+				}),
+			);
+			const unit = snapshotTranslationUnits(plan.target).get(name);
+			if (!unit) throw Error("Missing app name");
+			expect(
+				localizeTranslationUnit(plan.target, "project:qaa", unit),
+			).toMatchObject({
+				status: "out-of-date",
+				explicit: ref.localization?.translations["project:qaa"][name],
+				effective: keepOld ? "Community clinic" : "Clinique",
+			});
+			expect(admitted(ref, plan.batch).ok).toBe(true);
+			const read = await readingOf(plan.target, plan.target);
+			expect(
+				read.localization?.translations["project:qaa"][name]?.value ??
+					read.appName,
+			).toBe(keepOld ? "Community clinic" : "Clinique");
+			const reviewed = committed(plan.target, [
+				{
+					kind: "reviewTranslation",
+					language: "project:qaa",
+					unitId: name,
+					expectedSourceFingerprint: fp("Clinic"),
+					sourceFingerprint: unit.sourceFingerprint,
+					value: "Klinik",
+				},
+			]);
+			const restored = localizeTranslationUnit(reviewed, "project:qaa", unit);
+			expect(restored).toMatchObject({
+				status: "ready",
+				effective: "Klinik",
+				explicit: { origin: "ai", review: "reviewed" },
+			});
+			expect(restored.explicit?.workerFallback).toBeUndefined();
+		},
+	);
+});
 describe("a new first language in an app with several", () => {
 	it("keeps the incumbent source through a reorder and rebases a change to the app's original wording", async () => {
 		const ref = produce(visits(), (draft) => {

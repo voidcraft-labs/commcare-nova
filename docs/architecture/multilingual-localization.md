@@ -217,9 +217,11 @@ interface TranslationEntry {
 }
 ```
 
+A stale translation retains its original text, provenance and fingerprint. If a source-language change leaves that language with different wording on the device, its optional `workerFallback` carries the effective value and the fingerprint against which it was carried. A later source edit expires that fallback. Languages shows the worker wording beside the editable draft. Reviewing, replacing or clearing the draft retires its fallback. A stale translation becoming the source is reviewed first, with the exact phrase reachable from the HQ change review.
+
 The optional `rtlProjectLanguages` record names project languages whose local text direction is right to left. Other project languages open left to right. Registered languages derive direction from the registry.
 
-`wireCodes` holds each language's immutable CommCare spelling. Nova mints it for a registered language. A project language keeps the exact code entered by its author or read from CommCare HQ. The schema requires a code for
+`wireCodes` holds each language's stored CommCare spelling. Nova mints it for a registered language. A project language keeps the exact code entered by its author or read from CommCare HQ. The schema requires a code for
 every tag of `languageOrder` and none for any other tag, and refuses two
 languages that hold one code. The mutation that adds a language carries its
 code (`addLanguage` and `relabelSourceLanguage` carry a required `wireCode`,
@@ -761,8 +763,7 @@ cloning `BlueprintDoc` into a second app model.
   an exact project code also occupies the suffixed spelling, Nova appends
   lowercase letters until it finds a free code and stores that binding.
 - `planLanguageWire` reads `localization.wireCodes` and computes no code; the
-  map is total and injective because the schema holds it so. A stored code
-  never changes while its language stays in the app, so adding or removing a
+  map is total and injective because the schema holds it so. A project code is immutable. When a registered language is renamed in HQ, `rebindLanguageCodes` checks all previous bindings then records the new spellings together, carrying every translation on the existing tag. Adding or removing a
   language never renames another's; removing a language frees its code. The
   English-only state with no stored root still emits `en`.
 - The device picker identifies a project language by its verbatim code. Registered name rows come from the registry's baked display labels at

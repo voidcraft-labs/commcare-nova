@@ -1,3 +1,7 @@
+import {
+	androidRequirementsComparisonSource,
+	changesUnownedAndroidApps,
+} from "@/lib/commcare/androidAppDependencies";
 import "server-only";
 
 /**
@@ -244,6 +248,7 @@ export interface HqChangesBasis {
 
 /** Everything the synchronous check reads. */
 export interface FetchedHqChanges extends HqChangesBasis {
+	readonly comparisonSource?: unknown;
 	readonly saveOnlyEditedApplied?: boolean;
 	/** The Project's data, bound with no answer of the person's. */
 	readonly data: ReadingProjectData;
@@ -898,6 +903,12 @@ async function computeWith(
 		.run(() => normalizeHqAppSource(source.raw));
 	if ("malformed" in normalized)
 		return answer({ kind: "stop", finding: atApp("app-unreadable-in-hq") });
+	const unownedAndroidSelection =
+		!baseline.ownership.profileFeatures?.includes("dependencies") &&
+		changesUnownedAndroidApps(
+			source.profile.features,
+			head.doc.appSettings.requiredAndroidApps,
+		);
 	const languageNames = live.ownership === "adopted" ? "target" : "nova";
 
 	/* 5. The reference document, whose files the publish sends. */
@@ -923,7 +934,11 @@ async function computeWith(
 				),
 			}),
 		);
-		if (parts.length === 0 && formIdsAgree(head.doc, targetIdentity, modules))
+		if (
+			!unownedAndroidSelection &&
+			parts.length === 0 &&
+			formIdsAgree(head.doc, targetIdentity, modules)
+		)
 			return answer(unchanged(since));
 		logUnavailable(scope, operation, reference.kind);
 		return answer(unavailable(reference.kind, since));
@@ -998,6 +1013,7 @@ async function computeWith(
 	 * source, so the application resource's ids are what tell it from no
 	 * save: such a save is read, and its review names the new id. */
 	if (
+		!unownedAndroidSelection &&
 		parts.length === 0 &&
 		formIdsAgree(reference.doc, targetIdentity, modules)
 	) {
@@ -1037,9 +1053,15 @@ async function computeWith(
 	}
 
 	/* 8. The flag a write saved only if changed needs, where either source holds one. */
+	const comparisonSource = unownedAndroidSelection
+		? androidRequirementsComparisonSource(
+				baseline.source,
+				reference.doc.appSettings.requiredAndroidApps,
+			)
+		: baseline.source;
 	const baseSource = await pieces
 		.at("the base source")
-		.run(() => sourceFromBaseline(baseline.source));
+		.run(() => sourceFromBaseline(comparisonSource));
 	/* Each source's forms, parsed once each before anything reads them, held
 	 * to what one reading parses as each source's bytes are to the cap. */
 	if (!(await formsWithinReading(pieces, source)))
@@ -1092,6 +1114,7 @@ async function computeWith(
 		return answer(failedRead(projectData.failure));
 	let fetched: FetchedHqChanges = {
 		...basis,
+		comparisonSource,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		data: projectData.data,
 	};
@@ -1271,7 +1294,7 @@ function readingsWith(
 			origin: COMMCARE_SERVERS[fetched.target.server].baseUrl,
 			domain: fetched.target.domain,
 		},
-		baselineSource: fetched.baseline.source,
+		baselineSource: fetched.comparisonSource ?? fetched.baseline.source,
 		now: { source: fetched.source, modules: fetched.modules },
 		data,
 		...(fetched.saveOnlyEditedApplied !== undefined && {
@@ -1514,6 +1537,7 @@ export async function checkHqChanges(
 				review: {
 					kind: "held",
 					reason: plan.reason,
+					...(plan.translation && { translation: plan.translation }),
 					runs: plan.reason === "runs-elsewhere" ? runs : null,
 				},
 			};

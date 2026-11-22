@@ -2,6 +2,8 @@ import type {
 	EntryPointTarget,
 	FormEntryPoint,
 } from "@/lib/domain/entryPoints";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 /**
  * Diff two `BlueprintDoc`s into the minimal-enough `Mutation[]` whose
  * replay on the FIRST doc reproduces the SECOND. It supports endpoint-only
@@ -626,12 +628,34 @@ function* diffGranularSteps(
 	) {
 		const target = afterLanguages.sourceLanguage;
 		const prefix: Mutation[] = [];
-		if (!beforeLanguages.languageOrder.includes(target))
+		if (!beforeLanguages.languageOrder.includes(target)) {
+			let wireCode = storedWireCode(afterLanguages, target);
+			const holder = beforeLanguages.languageOrder.find(
+				(tag) => beforeLanguages.wireCodes[tag] === wireCode,
+			);
+			if (holder) {
+				// The source cannot leave before its successor arrives. A registered
+				// binding can use a free spelling inside this atomic batch, then take
+				// its final code after the old source leaves. Project codes never move.
+				const held = new Set([
+					...Object.values(beforeLanguages.wireCodes),
+					...Object.values(afterLanguages.wireCodes),
+				]);
+				let temporary = "qa-nova";
+				while (held.has(temporary)) temporary += "a";
+				if (target.startsWith("project:"))
+					prefix.push({
+						kind: "rebindLanguageCodes",
+						changes: [{ language: holder, from: wireCode, to: temporary }],
+					});
+				else wireCode = temporary;
+			}
 			prefix.push({
 				kind: "addLanguage",
 				language: parseLanguageTag(target),
-				wireCode: storedWireCode(afterLanguages, target),
+				wireCode,
 			});
+		}
 		prefix.push({
 			kind: "rebaseSourceLanguage",
 			from: beforeLanguages.sourceLanguage,
@@ -1257,31 +1281,10 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	const before = effectiveAppLocalization(prev.localization);
 	const after = effectiveAppLocalization(next.localization);
 
-	// The restored source can have the same registered identity as the empty
-	// document's English, with a different historical code. Relabel the sole
-	// language before adding others, or after retiring them on the inverse.
-	if (
-		before.sourceLanguage !== after.sourceLanguage ||
-		storedWireCode(before, before.sourceLanguage) !==
-			storedWireCode(after, after.sourceLanguage)
-	) {
-		if (before.languageOrder.length > 1) {
-			if (
-				after.languageOrder.length !== 1 ||
-				before.sourceLanguage !== after.sourceLanguage
-			)
-				throw new LocalizationEndpointNotRepresentableError();
-			if (before.defaultLanguage !== before.sourceLanguage)
-				out.push({
-					kind: "moveLanguage",
-					code: before.sourceLanguage,
-					after: null,
-				});
-			for (const code of before.languageOrder) {
-				if (code !== before.sourceLanguage)
-					out.push({ kind: "removeLanguage", code });
-			}
-		}
+	// A one-language app can take another identity for its canonical text.
+	if (before.sourceLanguage !== after.sourceLanguage) {
+		if (before.languageOrder.length !== 1)
+			throw new LocalizationEndpointNotRepresentableError();
 		out.push({
 			kind: "relabelSourceLanguage",
 			language: parseLanguageTag(after.sourceLanguage),
@@ -1299,16 +1302,16 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 	// default hands the default on before it leaves: to the target's default
 	// when the app already holds it, else to the source language, which every
 	// endpoint here keeps.
-	const addedCodes = new Set(
+	const incomingCodes = new Set(
 		after.languageOrder
-			.filter((tag) => !current.languageOrder.includes(tag))
+			.filter((tag) => current.wireCodes[tag] !== after.wireCodes[tag])
 			.map((tag) => storedWireCode(after, tag)),
 	);
 	for (const tag of current.languageOrder) {
 		if (
 			!after.languageOrder.includes(tag) &&
 			tag !== current.sourceLanguage &&
-			addedCodes.has(storedWireCode(current, tag))
+			incomingCodes.has(storedWireCode(current, tag))
 		) {
 			if (tag === current.defaultLanguage) {
 				out.push({
@@ -1325,6 +1328,12 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		applyMutations(draft, out);
 	});
 	current = effectiveAppLocalization(working.localization);
+	const changes = current.languageOrder.flatMap((language) => {
+		const from = storedWireCode(current, language);
+		const to = after.wireCodes[language];
+		return to !== undefined && from !== to ? [{ language, from, to }] : [];
+	});
+	if (changes.length) out.push({ kind: "rebindLanguageCodes", changes });
 	for (const tag of after.languageOrder) {
 		if (!current.languageOrder.includes(tag)) {
 			out.push({
@@ -1385,11 +1394,25 @@ function diffLocalization(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
 		const nextEntries = after.translations[code] ?? {};
 		for (const [unitId, entry] of Object.entries(nextEntries)) {
 			if (!deepEqual(currentEntries[unitId], entry)) {
+				const unit = snapshotTranslationUnits(next).get(unitId);
+				const restoring =
+					unit &&
+					(entry.workerFallback !== undefined ||
+						!translationSourceFingerprintsEqual(
+							entry.sourceFingerprint,
+							unit.sourceFingerprint,
+						));
 				out.push({
 					kind: "setTranslation",
 					language: code,
 					unitId,
 					entry: cloneEntity(entry),
+					...(restoring && {
+						restoreAgainst: {
+							sourceFingerprint: unit.sourceFingerprint,
+							previous: cloneEntity(currentEntries[unitId] ?? null),
+						},
+					}),
 				});
 			}
 		}

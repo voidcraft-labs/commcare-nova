@@ -247,7 +247,13 @@ export function projectProfileForTarget(
 	const packages = application.profile?.features?.dependencies;
 	if (Array.isArray(packages) && packages.length > 0) {
 		projected.features = { ...currentFeatures, dependencies: packages };
-	} else if (Object.hasOwn(currentFeatures, "dependencies")) {
+	} else if (
+		Object.hasOwn(currentFeatures, "dependencies") &&
+		!(
+			Array.isArray(currentFeatures.dependencies) &&
+			currentFeatures.dependencies.length === 0
+		)
+	) {
 		const features = { ...currentFeatures };
 		delete features.dependencies;
 		projected.features = features;

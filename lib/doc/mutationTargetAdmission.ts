@@ -19,7 +19,10 @@ import {
 	type TranslationEntry,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
-import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import {
+	reboundLanguageCodes,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
 
@@ -1156,6 +1159,12 @@ export function mutationTargetsInvalid(
 				if (!m.code.startsWith("project:") || !languages.includes(m.code))
 					return true;
 				break;
+			case "rebindLanguageCodes": {
+				const rebound = reboundLanguageCodes(wireCodes, m.changes);
+				if (!rebound) return true;
+				for (const { language, to } of m.changes) wireCodes.set(language, to);
+				break;
+			}
 			case "rebaseSourceLanguage": {
 				if (
 					sourceLanguage !== m.from ||
@@ -1167,6 +1176,7 @@ export function mutationTargetsInvalid(
 					applyMutations(draft, [...admittedPrefix, m]);
 				});
 				const localization = effectiveAppLocalization(projected.localization);
+				if (localization.sourceLanguage !== m.to) return true;
 				sourceLanguage = localization.sourceLanguage;
 				translations.clear();
 				for (const [tag, entries] of Object.entries(localization.translations))
@@ -1188,27 +1198,49 @@ export function mutationTargetsInvalid(
 			case "setTranslation": {
 				refreshTranslationUnits();
 				const unit = translationUnits.get(m.unitId);
-				if (
-					m.language === sourceLanguage ||
-					unit === undefined ||
-					(m.entry !== null &&
-						(!translationSourceFingerprintsEqual(
-							m.entry.sourceFingerprint,
+				const target = translations.get(m.language);
+				if (m.language === sourceLanguage || !unit || !target) return true;
+				if (m.entry === null) {
+					if (!target.delete(m.unitId)) return true;
+					break;
+				}
+				const { workerFallback, ...saved } = m.entry;
+				const existing = target.get(m.unitId);
+				if (m.restoreAgainst) {
+					if (
+						!translationSourceFingerprintsEqual(
+							m.restoreAgainst.sourceFingerprint,
 							unit.sourceFingerprint,
 						) ||
-							translationValueIntegrityIssue(unit, m.entry.value) !==
-								undefined))
-				) {
-					return true;
-				}
-				const target = translations.get(m.language);
-				if (target === undefined) return true;
-				if (m.entry === null) {
-					if (!target.has(m.unitId)) return true;
-					target.delete(m.unitId);
+						!deepEqual(m.restoreAgainst.previous, existing ?? null)
+					)
+						return true;
 				} else {
-					target.set(m.unitId, m.entry);
+					const prior = existing && { ...existing };
+					if (prior) delete prior.workerFallback;
+					const preservesExistingDraft = !!prior && deepEqual(prior, saved);
+					if (
+						!preservesExistingDraft &&
+						(workerFallback ||
+							!translationSourceFingerprintsEqual(
+								saved.sourceFingerprint,
+								unit.sourceFingerprint,
+							) ||
+							translationValueIntegrityIssue(unit, saved.value) !== undefined)
+					)
+						return true;
 				}
+				if (
+					workerFallback &&
+					translationSourceFingerprintsEqual(
+						workerFallback.sourceFingerprint,
+						unit.sourceFingerprint,
+					) &&
+					translationValueIntegrityIssue(unit, workerFallback.value) !==
+						undefined
+				)
+					return true;
+				target.set(m.unitId, m.entry);
 				break;
 			}
 			case "reviewTranslation": {
@@ -1237,8 +1269,9 @@ export function mutationTargetsInvalid(
 				) {
 					return true;
 				}
+				const { workerFallback: _fallback, ...saved } = entry;
 				target.set(m.unitId, {
-					...entry,
+					...saved,
 					sourceFingerprint: m.sourceFingerprint,
 					review: "reviewed",
 				});
@@ -1297,6 +1330,7 @@ export function mutationTargetsInvalid(
 			m.kind !== "removeLanguage" &&
 			m.kind !== "moveLanguage" &&
 			m.kind !== "setProjectLanguageDirection" &&
+			m.kind !== "rebindLanguageCodes" &&
 			m.kind !== "setDefaultLanguage" &&
 			m.kind !== "setTranslation" &&
 			m.kind !== "reviewTranslation"

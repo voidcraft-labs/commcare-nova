@@ -1132,6 +1132,26 @@ interface StoredTranslation {
 	readonly status: TranslationStatus;
 }
 
+/** Whether the stored draft can serve as current worker text for this source.
+ * A still-active fallback deliberately keeps its saved draft separate. */
+export function translationIsOutOfDate(
+	entry: TranslationEntry,
+	unit: TranslationUnit,
+): boolean {
+	return (
+		(entry.workerFallback !== undefined &&
+			translationSourceFingerprintsEqual(
+				entry.workerFallback.sourceFingerprint,
+				unit.sourceFingerprint,
+			)) ||
+		!translationSourceFingerprintsEqual(
+			entry.sourceFingerprint,
+			unit.sourceFingerprint,
+		) ||
+		translationValueIntegrityIssue(unit, entry.value) !== undefined
+	);
+}
+
 function storedTranslation(
 	doc: BlueprintDoc,
 	language: LanguageTag,
@@ -1147,6 +1167,17 @@ function storedTranslation(
 	const explicit = localization.translations[language]?.[unitValue.id];
 	if (explicit === undefined) {
 		return { effective: unitValue.source, status: "missing" };
+	}
+	const fallback = explicit.workerFallback;
+	if (
+		fallback !== undefined &&
+		translationSourceFingerprintsEqual(
+			fallback.sourceFingerprint,
+			unitValue.sourceFingerprint,
+		) &&
+		translationValueIntegrityIssue(unitValue, fallback.value) === undefined
+	) {
+		return { explicit, effective: fallback.value, status: "out-of-date" };
 	}
 	const current =
 		translationSourceFingerprintsEqual(

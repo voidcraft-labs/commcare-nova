@@ -517,6 +517,7 @@ function affectsCaseWriteProjection(
 		case "moveSearchInput":
 		case "addLanguage":
 		case "removeLanguage":
+		case "rebindLanguageCodes":
 		case "rebaseSourceLanguage":
 		case "setProjectLanguageDirection":
 		case "moveLanguage":

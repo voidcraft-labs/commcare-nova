@@ -298,6 +298,7 @@ export interface AppTestSnapshot {
 	blueprint: PersistableDoc;
 	user: PreviewSessionUser;
 	projectSpace: string | null;
+	androidAppLabels?: import("@/lib/domain/requiredAndroidApps").AndroidAppLabels;
 	lookup: {
 		projectRevision: string;
 		definitions: readonly LookupTableDefinition[];

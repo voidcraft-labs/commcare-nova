@@ -42,7 +42,10 @@ export type HqChangesUnavailable = (typeof HQ_CHANGES_UNAVAILABLE)[number];
 /**
  * An HQ change whose version runs on fewer platforms than the app requires.
  */
-export const HQ_CHANGE_HELD = ["runs-elsewhere"] as const;
+export const HQ_CHANGE_HELD = [
+	"runs-elsewhere",
+	"stale-source-translation",
+] as const;
 export type HqChangeHeld = (typeof HQ_CHANGE_HELD)[number];
 
 /** A case property renamed in Nova: on `caseType`, from `from` to `to`. */
@@ -66,3 +69,11 @@ export const HQ_CHANGES_STAGES = [
 	"bringing-in",
 ] as const;
 export type HqChangesStage = (typeof HQ_CHANGES_STAGES)[number];
+
+/** The phrase whose saved translation needs a decision before it becomes source. */
+export interface HqSourceTranslationRecovery {
+	readonly language: import("@/lib/domain").AppLanguageIdentity;
+	readonly languageName: string;
+	readonly unitId: string;
+	readonly breadcrumb: readonly string[];
+}

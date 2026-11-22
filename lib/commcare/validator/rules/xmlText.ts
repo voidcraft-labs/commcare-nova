@@ -41,6 +41,12 @@ export function authoredXmlText(doc: BlueprintDoc): ValidationError[] {
 		doc.localization?.translations ?? {},
 	)) {
 		for (const [unit, entry] of Object.entries(entries)) {
+			if (entry.workerFallback)
+				visit(
+					entry.workerFallback.value,
+					`localization.translations.${language}.${unit}.workerFallback.value`,
+					"The worker-facing text",
+				);
 			visit(
 				entry.value,
 				`localization.translations.${language}.${unit}.value`,

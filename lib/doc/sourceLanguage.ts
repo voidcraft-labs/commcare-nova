@@ -9,12 +9,14 @@ import type {
 import {
 	makeTranslationUnitId,
 	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
 } from "@/lib/domain/localization";
 import { recordFromEntries } from "@/lib/domain/records";
 import {
 	snapshotTranslationUnits,
 	storedTranslationValue,
 	type TranslationUnit,
+	translationIsOutOfDate,
 } from "@/lib/domain/translationUnits";
 import { deepEqual } from "./deepEqual";
 
@@ -191,6 +193,22 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 	}
 }
 
+/** A stale translation becoming the canonical source has no target map to
+ * keep its saved draft. The change review offers that exact phrase for repair. */
+export function staleSourceTranslation(
+	doc: BlueprintDoc,
+	target: LanguageTag,
+): TranslationUnit | undefined {
+	const entries = doc.localization?.translations[target];
+	if (!entries) return undefined;
+	const units = snapshotTranslationUnits(doc);
+	for (const [id, entry] of Object.entries(entries)) {
+		const unit = units.get(id);
+		if (unit && translationIsOutOfDate(entry, unit)) return unit;
+	}
+	return undefined;
+}
+
 /** The unit of the message every required Search field with none of its own prints. */
 const REQUIRED_DEFAULT = makeTranslationUnitId(
 	"system",
@@ -222,7 +240,9 @@ export function rebaseSourceLanguage(
 	if (
 		localization === undefined ||
 		localization.sourceLanguage === target ||
-		!localization.languageOrder.includes(target)
+		!localization.languageOrder.includes(target) ||
+		(mode === "saved-document" &&
+			staleSourceTranslation(doc, target) !== undefined)
 	)
 		return;
 	const order = localization.languageOrder;
@@ -264,6 +284,20 @@ export function rebaseSourceLanguage(
 			if (into === undefined) continue;
 			const held = localization.translations[language]?.[unit.id];
 			if (mode === "saved-document" && held !== undefined) {
+				if (translationIsOutOfDate(held, unit)) {
+					const { workerFallback: _oldFallback, ...saved } = held;
+					// A matching old fingerprint must not silently promote the
+					// previously stale wording when a different language becomes source.
+					into[unit.id] =
+						deepEqual(value, next) &&
+						!translationSourceFingerprintsEqual(
+							held.sourceFingerprint,
+							sourceFingerprint,
+						)
+							? saved
+							: { ...saved, workerFallback: { value, sourceFingerprint } };
+					continue;
+				}
 				if (deepEqual(unit.source, next)) {
 					// Copied, reviewed and historical stale entries still refer
 					// to exactly the same source text.

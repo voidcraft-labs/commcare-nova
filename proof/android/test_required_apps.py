@@ -19,12 +19,14 @@ pytestmark = pytest.mark.reader("android")
 
 def test_android_start_lists_the_missing_apps_then_opens_after_install(hq, editor_driver, lane_services):
     packages = ["com.simprints.id", "org.rdtoolkit", "org.commcare.respiratory"]
-    names = ["Simprints ID", "CommCare Toolkit", "Breath Counter"]
+    names = ["Field identity reader", "CommCare Toolkit", "Breath Counter"]
     with hq_check(Configuration(privileges=frozenset({"APP_DEPENDENCIES"}))) as (state, _):
         app_id = _case_list_app(state, editor_driver)
         hqside.profile_features(state, app_id, {"dependencies": packages})
+        language = operations.held_app(state, app_id).langs[0]
+        hqside.ui_translations(state, app_id, {language: {f"android.package.name.{packages[0]}": names[0]}})
         assert operations.held_app(state, app_id).profile["features"]["dependencies"] == packages
-        database = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), (), ())
+        database = casedata.CaseDatabase(user_id=casedata.USER_ID, username=casedata.USERNAME, user_data=(), cases=())
         with formplayer.serve(state, None, app_id, database=database, label="required-companion-apps") as served:
             archive = observe.release_archive(served)
             with ZipFile(io.BytesIO(archive)) as contents:

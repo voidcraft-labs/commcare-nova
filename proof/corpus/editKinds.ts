@@ -179,6 +179,7 @@ import {
 	sessionUser,
 	term,
 } from "@/lib/domain/expression";
+import { parseLanguageTag } from "@/lib/domain/localization";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	docAfter,
@@ -792,6 +793,28 @@ const setDefaultLanguage: KindGenerator = (ctx) => {
 				{ kind: "setDefaultLanguage", code: languageTag(language) },
 			]),
 		);
+};
+
+const rebindLanguageCodes: KindGenerator = (ctx) => {
+	const loc = effectiveAppLocalization(ctx.doc.localization);
+	const registered = loc.languageOrder.find(
+		(tag) => !tag.startsWith("project:"),
+	);
+	if (!registered) return [];
+	const to = addLanguageMutation(
+		heldLanguageWireCodes(ctx.doc),
+		parseLanguageTag(registered),
+	).wireCode;
+	return [
+		batch([
+			{
+				kind: "rebindLanguageCodes",
+				changes: [
+					{ language: registered, from: loc.wireCodes[registered], to },
+				],
+			},
+		]),
+	];
 };
 
 const rebaseSourceLanguage: KindGenerator = (ctx) => {
@@ -3073,6 +3096,7 @@ export const EDIT_KIND_GENERATORS = {
 	removeLanguage,
 	setDefaultLanguage,
 	moveLanguage,
+	rebindLanguageCodes,
 	rebaseSourceLanguage,
 	setProjectLanguageDirection,
 	setTranslation,

@@ -433,6 +433,118 @@ describe("diffDocsToMutations localization", () => {
 		).toEqual({ eng: "en", "cmn-Hant": "cmn-hant" });
 	});
 
+	it("restores a historical stale draft and the independent wording read by workers, fenced against a changed source or prior draft", () => {
+		const original = doc();
+		const unit = collectTranslationUnits(original).find(
+			(candidate) => candidate.role === "app-name",
+		);
+		if (!unit) throw Error("Missing name");
+		const without = produce(original, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addLanguage",
+					language: { kind: "project", language: "qaa" },
+					wireCode: "qaa",
+				},
+			]);
+		});
+		const withDraft = produce(without, (draft) => {
+			const entries = draft.localization?.translations["project:qaa"];
+			if (!entries) throw Error("Missing project language");
+			entries[unit.id] = {
+				value: "Klinik",
+				origin: "ai",
+				review: "needs-review",
+				translatedFrom: "eng",
+				sourceFingerprint: translationSourceFingerprint(
+					"text",
+					"Earlier source",
+				),
+				workerFallback: {
+					sourceFingerprint: unit.sourceFingerprint,
+					value: "Earlier worker wording",
+				},
+			};
+		});
+		expect(toPersistableDoc(wireReplay(without, withDraft))).toEqual(
+			toPersistableDoc(withDraft),
+		);
+		expect(toPersistableDoc(wireReplay(withDraft, without))).toEqual(
+			toPersistableDoc(without),
+		);
+		const restore = diffDocsToMutations(without, withDraft);
+		const changed = produce(without, (draft) => {
+			draft.appName = "Changed again";
+		});
+		expect(mutationTargetsInvalid(changed, restore)).toBe(true);
+		expect(mutationTargetsInvalid(withDraft, restore)).toBe(true);
+	});
+	it("restores a source change in both directions when the incoming source needs the outgoing language's code", () => {
+		const before = produce(doc(), (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fr" },
+			]);
+		});
+		const after = produce(before, (draft) => {
+			draft.localization = {
+				sourceLanguage: "project:en",
+				defaultLanguage: "project:en",
+				languageOrder: ["project:en", "fra"],
+				wireCodes: { "project:en": "en", fra: "fr" },
+				translations: { fra: {} },
+			};
+		});
+		expect(toPersistableDoc(wireReplay(before, after))).toEqual(
+			toPersistableDoc(after),
+		);
+		expect(toPersistableDoc(wireReplay(after, before))).toEqual(
+			toPersistableDoc(before),
+		);
+	});
+	it("exchanges occupied spellings without moving source text, translations or project codes", () => {
+		const before = produce(doc(), (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fr" },
+				{
+					kind: "addLanguage",
+					language: { kind: "project", language: "qaa" },
+					wireCode: "qaa",
+				},
+			]);
+		});
+		const after = produce(before, (draft) => {
+			if (draft.localization) {
+				draft.localization.wireCodes.eng = "fr";
+				draft.localization.wireCodes.fra = "en";
+			}
+		});
+		expect(diffDocsToMutations(before, after)).toEqual([
+			{
+				kind: "rebindLanguageCodes",
+				changes: [
+					{ language: "eng", from: "en", to: "fr" },
+					{ language: "fra", from: "fr", to: "en" },
+				],
+			},
+		]);
+		expect(toPersistableDoc(wireReplay(before, after))).toEqual(
+			toPersistableDoc(after),
+		);
+		expect(toPersistableDoc(wireReplay(after, before))).toEqual(
+			toPersistableDoc(before),
+		);
+		for (const changes of [
+			[{ language: "eng", from: "en", to: "fr" }],
+			[{ language: "eng", from: "eng", to: "eng-" }],
+			[{ language: "project:qaa", from: "qaa", to: "qq" }],
+		]) {
+			expect(
+				mutationTargetsInvalid(before, [
+					{ kind: "rebindLanguageCodes", changes },
+				]),
+			).toBe(true);
+		}
+	});
 	it("removes a language before adding the one that takes its code", () => {
 		const simplifiedOnly = produce(doc(), (draft) => {
 			applyMutations(draft, [

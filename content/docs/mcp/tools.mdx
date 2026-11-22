@@ -401,6 +401,8 @@ would actually see. Missing and out-of-date target entries also fall back to the
 current canonical source at runtime, so incomplete translation work never
 creates an invalid app.
 
+When `read_hq_changes` reports `stale-source-translation`, its `translation` gives the language identity, unit ID and breadcrumb. Read that phrase with `get_translatable_content`, compare the saved and effective wording, then use `update_translations` to review, replace or clear it. A fresh HQ review uses that decision.
+
 ## Checking project-space compatibility
 
 `check_project_space_compatibility` is a read-only destination check. It needs

@@ -9,7 +9,10 @@ import {
 	effectiveAppLocalization,
 	languageTag,
 } from "@/lib/domain";
-import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import {
+	reboundLanguageCodes,
+	translationSourceFingerprintsEqual,
+} from "@/lib/domain/localization";
 
 /**
  * App-level mutations: name, connect mode, case-type catalog, logo, app
@@ -39,6 +42,7 @@ export function applyAppMutation(
 				| "addLanguage"
 				| "removeLanguage"
 				| "moveLanguage"
+				| "rebindLanguageCodes"
 				| "rebaseSourceLanguage"
 				| "setProjectLanguageDirection"
 				| "setDefaultLanguage"
@@ -139,6 +143,16 @@ export function applyAppMutation(
 				if (!Object.keys(localization.rtlProjectLanguages).length)
 					delete localization.rtlProjectLanguages;
 			}
+			return;
+		}
+		case "rebindLanguageCodes": {
+			const codes = effectiveAppLocalization(draft.localization).wireCodes;
+			const rebound = reboundLanguageCodes(
+				new Map(Object.entries(codes)),
+				mut.changes,
+			);
+			if (rebound)
+				materializeLocalization(draft).wireCodes = Object.fromEntries(rebound);
 			return;
 		}
 		case "rebaseSourceLanguage": {
