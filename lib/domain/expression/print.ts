@@ -7,6 +7,7 @@ import type { FormNodeGraph, FormNodeStep } from "./formNodes";
 import { formatNumeric } from "./numberLiteral";
 import { relativePath } from "./relativePath";
 import { type ExpressionSpans, spanKey } from "./spans";
+import { quoteXPathLiteral } from "./stringLiteral";
 import {
 	type CheckPath,
 	type DatumRef,
@@ -176,14 +177,11 @@ function printWith(
 			emit(formatNumeric(value));
 			return;
 		}
-		if (
-			typeof value !== "string" ||
-			(value.includes("'") && value.includes('"'))
-		) {
+		if (typeof value !== "string") {
 			missing(path, "literal");
 			return;
 		}
-		emit(value.includes("'") ? `"${value}"` : `'${value}'`);
+		emit(quoteXPathLiteral(value));
 	}
 	function child(
 		parent: Expression | Term,

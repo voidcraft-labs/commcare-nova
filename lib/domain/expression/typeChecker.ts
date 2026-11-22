@@ -1375,10 +1375,7 @@ function termAdmission(
 		term.kind === "literal" &&
 		(typeof term.value === "boolean" ||
 			term.value === null ||
-			term.data_type !== undefined ||
-			(typeof term.value === "string" &&
-				term.value.includes("'") &&
-				term.value.includes('"')))
+			term.data_type !== undefined)
 	)
 		return refusal(
 			"arm-unavailable",

@@ -822,10 +822,9 @@
 		"item": "choice value containing both `'` and `\"`",
 		"surfaceKeys": ["xform:select1/item/value", "xform:select/item/value"],
 		"valueClass": "both-quote-marks",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a value no XPath string literal spells, so a rule naming the choice has no form text",
-		"subject": "question-choices",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the stored choice value and its identity in rules and starting answers",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

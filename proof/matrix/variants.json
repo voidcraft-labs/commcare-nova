@@ -29789,19 +29789,17 @@
 		"id": "hq-questions/choice-value-both-quotes",
 		"base": "hq-questions",
 		"entry": "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "choice_value_both_quotes"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["colour"]],
+				"pointer": "/optionsSource/options/1/value",
+				"value": "blue'\"s"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/choice-value-instance",

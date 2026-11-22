@@ -168,7 +168,7 @@ export function OptionsEditorWidget({
 	// The value box admits only what the wire can carry: a typed space
 	// becomes an underscore as it is typed, so the row never holds a value
 	// the commit gate would bounce for whitespace
-	// (`SELECT_OPTION_VALUE_INVALID`); a value holding both quote marks is
+	// (`SELECT_OPTION_VALUE_INVALID`); other problems are
 	// refused beneath its row (`optionValueRefusal`). The same grammar the
 	// SA's schema teaches and the validator enforces, applied at the
 	// keystroke; the

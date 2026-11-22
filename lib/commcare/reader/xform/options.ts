@@ -146,24 +146,27 @@ function readItems(
 		// whose value is refused is refused whole: its label, and the text the label names,
 		// stand under the value's refusal.
 		const refusal =
-			problem === "both-quotes"
-				? { claim: X.choiceValueBothQuotes, detail: undefined }
-				: problem === "instance-read"
-					? {
-							claim: X.choiceValueInstance,
-							detail: { name: instanceScanRead(text) ?? text },
-						}
-					: problem !== undefined
-						? { claim: X.choiceValueRefused, detail: undefined }
-						: undefined;
+			problem === "instance-read"
+				? {
+						claim: X.choiceValueInstance,
+						detail: { name: instanceScanRead(text) ?? text },
+					}
+				: problem !== undefined
+					? { claim: X.choiceValueRefused, detail: undefined }
+					: undefined;
 		if (refusal !== undefined) {
 			cursor.refuseSubtree(value, refusal.claim, place, refusal.detail);
 			cursor.refuseSubtree(label, refusal.claim, place, refusal.detail);
 		} else {
-			const quoted = text.includes("'") || text.includes('"');
+			const apostrophe = text.includes("'");
+			const doubleQuote = text.includes('"');
 			const taken = cursor.take(
 				{ element: value },
-				quoted ? X.choiceValueQuote[select] : sites.value,
+				apostrophe && doubleQuote
+					? X.choiceValueBothQuotes[select]
+					: apostrophe || doubleQuote
+						? X.choiceValueQuote[select]
+						: sites.value,
 			).value;
 			options.push({ value: taken });
 			optionItems.push(item);

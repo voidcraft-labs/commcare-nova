@@ -12,6 +12,7 @@ import {
 	type ExpressionChildRole,
 	expressionChildren,
 } from "@/lib/domain/expression/children";
+import { fixedChoiceText } from "@/lib/domain/expression/choiceValue";
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import {
 	activeRowScope,
@@ -180,33 +181,20 @@ function choiceOf(
 	opposite: Expression,
 	context: ExpressionContext,
 ): Expression | undefined {
-	const literal = termOf(value);
+	const text = fixedChoiceText(value);
 	const other = termOf(opposite);
-	if (
-		literal?.kind !== "literal" ||
-		typeof literal.value !== "string" ||
-		literal.data_type !== undefined ||
-		other?.kind !== "field" ||
-		other.role !== undefined
-	)
+	if (text === undefined || other?.kind !== "field" || other.role !== undefined)
 		return undefined;
 	const field = context.form?.fields.get(other.uuid);
 	const choices = field?.choices;
 	if (field === undefined || choices?.kind !== "inline") return undefined;
-	const values =
-		field.kind === "multi_select"
-			? literal.value.split(/\s+/u).filter(Boolean)
-			: [literal.value];
+	const values = field.kind === "multi_select" ? text.split(" ") : [text];
 	const options = values.map(
 		(selected) =>
 			choices.options.find((option) => option.value === selected)?.uuid,
 	);
 	const [first, ...rest] = options;
-	if (
-		first === undefined ||
-		rest.some((uuid) => uuid === undefined) ||
-		values.join(" ") !== literal.value
-	)
+	if (first === undefined || rest.some((uuid) => uuid === undefined))
 		return undefined;
 	return {
 		kind: "term",

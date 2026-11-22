@@ -72,9 +72,6 @@ export function optionValueRefusal(
 	if (value === undefined || value.length === 0) return undefined;
 	const earlier = new Set(draft.slice(0, index).map((option) => option.value));
 	const problem = selectOptionValueProblemAmong(value, earlier);
-	if (problem === "both-quotes") {
-		return "This value holds both an apostrophe and a double quote. Keeping one kind works.";
-	}
 	if (problem === "instance-read") {
 		const option = draft[index];
 		const repaired = repairSelectOptionValue(

@@ -748,10 +748,10 @@ export const X = {
 		Q("choice-value-with-whitespace-empty-or-duplicated"),
 		"xform:select1/item/value",
 	),
-	choiceValueBothQuotes: one(
-		"refuse",
+	choiceValueBothQuotes: under(
+		"take",
 		Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
-		"xform:select1/item/value",
+		{ select1: "xform:select1/item/value", select: "xform:select/item/value" },
 	),
 	choiceValueInstance: one(
 		"refuse",
