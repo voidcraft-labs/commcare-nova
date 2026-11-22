@@ -34,13 +34,13 @@ def test_icon_submits_the_eligible_form_for_its_row(hq, formplayer_runner, evide
         column.update(field="case_name", header={"en": "Name"})
         detail["columns"] = [column]
     module["case_details"]["short"]["columns"].append({
-        "doc_type": "DetailColumn", "model": "case", "field": "status",
+        "doc_type": "DetailColumn", "model": "case", "field": "visit_state",
         "header": {"en": "Record visit"}, "format": "clickable-icon", "endpoint_action_id": "record-visit",
         "enum": [{"key": "ready", "value": {"en": "jr://icons/tick.png"}, "alt_text": {"en": "Record visit"}}],
     })
-    stamp = "2026-04-01T00:00:00Z"
+    stamp = "2026-04-01T00:00:00.000Z"
     cases = casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), tuple(
-        casedata.CaseRecord(key, module["case_type"], key, casedata.USER_ID, stamp, stamp, None, (("status", "ready"),))
+        casedata.CaseRecord(key, module["case_type"], key, casedata.USER_ID, stamp, stamp, None, (("visit_state", "ready"),))
         for key in ("first-visit", "second-visit")
     ))
     settings = Configuration(flags={"CASE_LIST_CLICKABLE_ICON", "SESSION_ENDPOINTS"}, privileges={"CLOUDCARE"})
