@@ -24,6 +24,8 @@ def test_icon_submits_the_eligible_form_for_its_row(hq, formplayer_runner, evide
     form = module["forms"][1]
     module["forms"] = [form]
     form["session_endpoint_id"] = "record-visit"
+    # The suite-test form preloads its name over any starting answer. Here the action records a new name.
+    form["actions"]["case_preload"]["preload"] = {}
     file = form["unique_id"] + ".xml"
     xml = app["_attachments"][file].replace("rename-label", "Pragma-Submit-Automatically")
     app["_attachments"] = {file: xml.replace("<rename/>", "<rename>Visited</rename>")}
