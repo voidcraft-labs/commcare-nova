@@ -344,7 +344,6 @@ export const FINDING_COPY: Readonly<
 	"mirror-menus": {
 		never:
 			"This uses the older kind of mirror menu, which Nova doesn't bring in.",
-		"not-yet": "This uses a mirror menu, which Nova can't hold yet.",
 	},
 	"missing-media-files": {},
 	"mobile-reports": {
@@ -470,7 +469,6 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"lookup-tables": "A lookup table is",
 	"menu-settings": "A menu setting is",
 	"menu-structure": "How this menu is nested is",
-	"mirror-menus": "A mirror menu is",
 	"parent-selection": "Choosing a parent case first is",
 	"question-appearance": "A question's display style is",
 	"question-choices": "A question's choices are",
