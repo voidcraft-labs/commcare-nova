@@ -858,5 +858,77 @@
 			}
 		],
 		"exports": ["B", "local"]
+	},
+	{
+		"id": "validation-messages-composed:before",
+		"entry": "questions/validation-message-text",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"constraintChecks": [
+				{
+					"path": "/data/children",
+					"value": "-2"
+				},
+				{
+					"path": "/data/children",
+					"value": "0"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/0/constraintText",
+				"value": "You entered , and a count starts at zero"
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["A"]
+	},
+	{
+		"id": "validation-messages-composed:after",
+		"entry": "questions/validation-message-text",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"constraintChecks": [
+				{
+					"path": "/data/children",
+					"value": "-2"
+				},
+				{
+					"path": "/data/children",
+					"value": "0"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/constraints/0/result",
+				"value": "constraint"
+			},
+			{
+				"pointer": "/constraints/0/constraintText",
+				"value": "You entered -2, and a count starts at zero"
+			},
+			{
+				"pointer": "/constraints/1/result",
+				"value": "ok"
+			}
+		],
+		"exports": ["B", "local"]
 	}
 ]

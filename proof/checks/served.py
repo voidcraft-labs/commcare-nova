@@ -110,6 +110,7 @@ XML_KEYS = frozenset({"instance", "output"})
 # (``forms.m1f0.submit_label``), on a response and on the screen after a submit.
 TRACE_DATA_MAPS = frozenset(
     {
+        "/runs/*/reviewedDateTime",
         "/runs/*/steps/*/response/entities",
         "/runs/*/steps/*/response/translations",
         "/runs/*/steps/*/request/query_data",
@@ -118,7 +119,7 @@ TRACE_DATA_MAPS = frozenset(
         "/runs/*/steps/*/submit/nextScreen/translations",
     }
 )
-SCREEN_DATA_MAPS = frozenset({"/runs/*/screens/*/list/rows", "/home/list/rows"})
+SCREEN_DATA_MAPS = frozenset({"/runs/*/screens/*/list/rows", "/home/list/rows", "/runs/*/reviewedDateTime"})
 # The home screen's tile for an app, as the client classes it; every other tile is the client's own, one of a kind.
 APP_TILE = "default"
 # Fields that name a build or the runner, never what a worker reads.
@@ -596,7 +597,8 @@ def empty_meta_location_class(difference):
 
 
 def formplayer_differences(
-    before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None, rules=(), media=(None, None)
+    before, after, *, check, document, artifact, xmlns=None, versions=None, text_ids=None, rules=(), media=(None, None),
+    splits=None, reviewed_sites=None,
 ):
     """Every difference between two of Formplayer's traces, as ``artifact``: ``before`` the baseline state's.
 
@@ -615,6 +617,12 @@ def formplayer_differences(
         normalized(FORMPLAYER, _addressed(comparable_trace(before, media=media[0], rules=rules), rules), rules),
         normalized(FORMPLAYER, _addressed(map_strings(comparable_trace(after, media=media[1], rules=rules), xmlns), rules), rules),
     )
+    if splits:
+        from proof.checks import formplayer_question_split
+
+        sites = formplayer_question_split.align(shown_before, shown_after, splits=splits, raw=(before, after))
+        if reviewed_sites is not None:
+            reviewed_sites.update({(artifact, at): place for at, place in sites.items()})
     documents_before, documents_after = {}, {}
     shown_before = _pull_xml(shown_before, "", "", documents_before)
     shown_after = _pull_xml(shown_after, "", "", documents_after)
@@ -729,11 +737,19 @@ def _newly_listed(before, after, a, b, traces, published):
     a["runs"] = workers + a["runs"]
 
 
-def webapps_differences(before, after, *, check, document, artifact, traces=None, published=None):
+def webapps_differences(
+    before, after, *, check, document, artifact, traces=None, published=None, splits=None, reviewed_sites=None,
+):
     """Every difference between the client's screens on two states, as ``artifact``: ``before`` the baseline's."""
     shown_before, shown_after = comparable_screens(before), comparable_screens(after)
     if traces is not None:
         _newly_listed(before, after, shown_before, shown_after, traces, published)
+    if splits and traces:
+        from proof.checks import native_question_web
+
+        sites = native_question_web.align_screens(shown_before, shown_after, traces=traces, splits=splits)
+        if reviewed_sites is not None:
+            reviewed_sites.update({(artifact, at): place for at, place in sites.items()})
     one_screen(shown_before, shown_after)
     return compare_json(
         shown_before, shown_after, check=check, document=document, artifact=artifact, data_maps=SCREEN_DATA_MAPS

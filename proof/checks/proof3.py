@@ -1190,7 +1190,7 @@ def _archive_forms(path) -> dict:
 
 def served_equivalence(
     document, records, name, observed, sessions, *, has_local, local_ccz=None, always_b=False, menus=None,
-    catalog_advisory=None, local_files=None,
+    catalog_advisory=None, local_files=None, splits=None, reviewed_sites=None, declared=None,
 ):
     """Proof 3's differences in what Formplayer and the Web Apps client make of one configuration's states.
 
@@ -1214,6 +1214,7 @@ def served_equivalence(
 
     blobs = records.blobs
     menus = menus or {}
+    splits = splits or {}
     a = _served_a(records, name)
     if a is None:
         return []
@@ -1229,6 +1230,22 @@ def served_equivalence(
             " (proof.observe.unit._Unit.observe_b_aligned) records them wherever the served hook ran at A."
         )
     trace_a = blobs.get_json(a["formplayer"]["trace"])
+
+    def classify_helpers(rows, trace, files, state):
+        from proof.checks import native_constraint_helpers
+
+        if not declared or not {native_constraint_helpers.COUNT, native_constraint_helpers.MESSAGE}.intersection(declared):
+            return rows
+        sites, classified = native_constraint_helpers.helper_sites(
+            rows, before_files=observed.a.build.files or {}, after_files=files or {},
+            before_trace=trace_a, after_trace=trace, declared=declared,
+            before_differing=(a.get("releaseDiffers") or {}).get("differing") or (),
+            after_differing=(state.get("releaseDiffers") or {}).get("differing") or (),
+        )
+        if reviewed_sites is not None:
+            reviewed_sites.update(sites)
+        return classified
+
     # A Connect app: what Connect made of A's submissions that stands on its own, and below what it made of the
     # local archive's and of B's against A's (``proof.checks.connect``).
     opportunity = (((records.configurations[name].a or {}).get("hooks") or {}).get("served") or {}).get("connect")
@@ -1274,6 +1291,7 @@ def served_equivalence(
             check=CHECK,
             document=document,
             artifact=f"{FORMPLAYER}@local.ccz",
+            splits=splits.get("local"), reviewed_sites=reviewed_sites,
             rules=RULES,
             media=(menus.get("A"), menus.get("local")),
             xmlns=xmlns,
@@ -1296,7 +1314,7 @@ def served_equivalence(
                 local=trace_local,
                 release_differs=a.get("releaseDiffers"),
             )
-        found += local_rows
+        found += classify_helpers(local_rows, trace_local, local_files, local)
         if opportunity is not None:
             # Formplayer, both local phones (as installed and with the lane's worker and receiver input)
             # and the tablet are each compared with the same reader on HQ's release.
@@ -1316,16 +1334,18 @@ def served_equivalence(
             from proof.checks.proof4 import content_versions
 
             trace_b = blobs.get_json(b["formplayer"]["trace"])
-            found += served.formplayer_differences(
+            published_rows = served.formplayer_differences(
                 trace_a,
                 trace_b,
                 check=CHECK,
                 document=document,
                 artifact=f"{FORMPLAYER}@B",
+                splits=splits.get("B"), reviewed_sites=reviewed_sites,
                 rules=RULES,
                 media=(menus.get("A"), menus.get("B")),
                 versions=content_versions(observed.a.build, observed.b_aligned),
             )
+            found += classify_helpers(published_rows, trace_b, observed.b_aligned.files, b)
             if a.get("webapps") is not None and b.get("webapps") is not None:
                 before, after = blobs.get_json(a["webapps"]), blobs.get_json(b["webapps"])
                 published = None
@@ -1341,6 +1361,7 @@ def served_equivalence(
                     artifact=f"{WEBAPPS}@B",
                     traces=(trace_a, trace_b),
                     published=published,
+                    splits=splits.get("B"), reviewed_sites=reviewed_sites,
                 )
             if opportunity is not None:
                 found += connect.differences(
@@ -1437,12 +1458,13 @@ def advised_picker_names(app, hq_files, local_files, labels):
 def document_behavior(document, records, *, native_sites=None):
     """Proof 3's differences on one document: each configuration it is exported under, judged from its records,
     each against the local archive Nova compiles for that configuration's project space."""
-    from proof.checks import android, observations, repeated_case_names, served_places
+    from proof.checks import android, changes, native_question_split, observations, repeated_case_names, served_places
 
     found = []
     compared = set()
     reports = observations.local_reports(records)
     platforms = document.platforms()
+    declared = dict(document.first_publish_places)
     for name in sorted(document.exports):
         observed = observations.republish_view(records, name)
         sessions = observations.sessions_record(records, name)
@@ -1488,6 +1510,18 @@ def document_behavior(document, records, *, native_sites=None):
             compared.add("trace@local.ccz")
         served_b = ((records.configurations[name].b_aligned or {}).get("served") or {}).get("B")
         menus = native_menu_media(observed, sessions, _served_a(records, name), served_b, local_files)
+        reviewed_sites = {}
+        splits = {}
+        before = _served_a(records, name)
+        if before and native_question_split.CHANGE in declared and observed.a:
+            states = (records.configurations[name].b_aligned or {}).get("served") or {}
+            for side, files in (("B", observed.b_aligned.files if observed.b_aligned else None), ("local", local_files)):
+                if files and side in states:
+                    splits[side] = native_question_split.installed(
+                        document, observed.a.build.files or {}, files,
+                        (before.get("releaseDiffers") or {}).get("differing") or (),
+                        (states[side].get("releaseDiffers") or {}).get("differing") or (),
+                    )
         served = served_equivalence(
             document.id,
             records,
@@ -1500,6 +1534,9 @@ def document_behavior(document, records, *, native_sites=None):
             always_b=document.authored is not None,
             catalog_advisory=catalog_advisory,
             local_files=local_files,
+            splits=splits,
+            reviewed_sites=reviewed_sites,
+            declared=declared,
         )
         native = verified_caption_renames(document, name, records, local_files, served)
         if _served_a(records, name) is not None and (
@@ -1508,10 +1545,10 @@ def document_behavior(document, records, *, native_sites=None):
             compared.add(f"{FORMPLAYER}@local.ccz")
         parts = records.configurations[name]
         phone_record = android.walks_record(parts, records.blobs)
-        phone = android.configuration_behavior(document.id, phone_record, rules=RULES, menus=menus, picker_names=picker_names)
+        phone = android.configuration_behavior(document.id, phone_record, rules=RULES, menus=menus, picker_names=picker_names, splits=splits)
         tablet = android.configuration_behavior(
             document.id, android.walks_record(parts, records.blobs, tablet=True), device=android.TABLET,
-            rules=RULES, menus=menus, picker_names=picker_names,
+            rules=RULES, menus=menus, picker_names=picker_names, splits=splits,
         )
         if "A" in phone_record and (phone_record.get("local") or {}).get("app") is not None:
             compared.add(android.LOCAL)
@@ -1529,7 +1566,11 @@ def document_behavior(document, records, *, native_sites=None):
             # A place and the text at that place belong to the configuration that actually reported the
             # difference. The same walk index in another configuration can lead to a different form.
             needed = native if native_sites is not None else [d for d in native if served_places.needs_classification(d)]
-            needed = [d for d in needed if (d.artifact, d.at) not in media_sites.served]
+            needed = [
+                d for d in needed if (d.artifact, d.at) not in media_sites.served and (d.artifact, d.at) not in reviewed_sites
+            ]
+            if native_sites is not None and reviewed_sites:
+                native_sites.append(changes.Sites(served=reviewed_sites))
             places = served_places.sites(records, name, needed, observed, local_files, document=document)
             native = served_places.classify(document, records, name, native, places)
             if native_sites is not None:

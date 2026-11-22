@@ -5,7 +5,7 @@ Each question widget reports its prompt's own TreeReference on both the first an
 (Forms.questions); the form supplies its actual language, including on a walk in the default language.
 """
 
-from proof.checks import android_titles, changes, served_datetimes, xform_parts
+from proof.checks import android_titles, changes, native_question_android, served_datetimes, xform_parts
 
 
 def _at(values, index):
@@ -31,6 +31,9 @@ def locations(differences, trace, form_namespaces=None, *, writes_at=None, title
     found = {}
     for difference in differences:
         if not difference.artifact.startswith(("android@", "android-tablet@")):
+            continue
+        if difference.path == native_question_android.PLACE_PATH:
+            found[(difference.artifact, difference.at)] = native_question_android.location(difference, trace, before=before)
             continue
         path = changes.unescaped(difference.at)
         if len(path) < 6 or path[0] != "walks" or path[2] != "steps" or path[4] != "form":
@@ -79,7 +82,7 @@ def locations(differences, trace, form_namespaces=None, *, writes_at=None, title
         if gps:
             found[key] = (*owner, "xform", "data", "meta", "location")
             continue
-        screen = _at(form.get("screens"), rest[1])
+        screen = native_question_android.screen_at(form.get("screens"), rest[1])
         widget = _at(screen.get(rest[2]), rest[3]) if isinstance(screen, dict) else None
         node = _question_node(widget.get("reference")) if isinstance(widget, dict) else None
         language = form.get("language")
