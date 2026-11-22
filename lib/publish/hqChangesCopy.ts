@@ -1,3 +1,8 @@
+import type {
+	InstallationReviewChange,
+	InstallationReviewState,
+} from "@/lib/deployment/targetIdentity";
+import { languageEnglishName } from "@/lib/domain/languageRegistry";
 /**
  * What a person reads about changes made in CommCare HQ that Nova can bring
  * in to the app: the panel's headings, leads, buttons and the sentence under
@@ -192,6 +197,17 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
 	return `The app no longer has the case types ${quotedNames(caseTypes)}. Their cases saved in Nova are kept, and no list in this app shows them.`;
 }
 
+export function installationDescription(p: InstallationReviewState): string {
+	const names = p.languages.map((tag) => languageEnglishName(tag) ?? tag);
+	const languages = names.join(" → ");
+	const worker = p.worker
+		? `practice worker ${p.worker}`
+		: p.requiresPracticeWorker
+			? "a practice worker still needs to be selected here"
+			: "no practice worker";
+	return `“${p.name || "Unnamed profile"}”${p.key ? ` (ID ${p.key})` : ""}, starting in ${names[0]}, with languages ${languages} and ${worker}`;
+}
+
 /**
  * The lines a review says for where CommCare HQ now keeps what the document
  * doesn't hold: a form's id, the case id a create keyed by an answer files its
@@ -200,7 +216,7 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
  * `formIds` and `keyedPrefixes` are form names, `columnFields` menu names.
  */
 export function whereHqKeepsLines(changes: {
-	readonly installationProfiles?: readonly string[];
+	readonly installationProfiles?: readonly InstallationReviewChange[];
 	readonly formIds: readonly string[];
 	readonly keyedPrefixes: readonly string[];
 	readonly mediaPaths: number;
@@ -215,10 +231,35 @@ export function whereHqKeepsLines(changes: {
 			`In CommCare HQ, ${quoted(changes.keyedPrefixes)} now ${one ? "files the cases it makes" : "file the cases they make"} from an answer under a new case id. Nova follows it, so a key a worker enters again reaches the case CommCare HQ holds for it.`,
 		);
 	}
-	for (const name of changes.installationProfiles ?? [])
-		lines.push(
-			`CommCare HQ changed the installation key or the practice worker for “${name}” in this project space. Bringing in the change will use that binding here.`,
-		);
+
+	for (const {
+		before,
+		after,
+		localBefore,
+		remainsRemoved,
+	} of changes.installationProfiles ?? []) {
+		if (before && after)
+			lines.push(
+				`Change this project space’s installation from ${installationDescription(before)} to ${installationDescription(after)}.`,
+			);
+		else if (after)
+			lines.push(
+				`Bring in this project space’s installation ${installationDescription(after)}.`,
+			);
+		else if (before)
+			lines.push(
+				`Remove this project space’s installation ${installationDescription(before)} from Nova.`,
+			);
+		if (remainsRemoved)
+			lines.push(
+				"This installation stays removed in Nova. Accepting records the HQ binding that Nova will use if you restore it.",
+			);
+		else if (localBefore)
+			lines.push(
+				`Your current Nova installation is ${installationDescription(localBefore)}.`,
+			);
+	}
+
 	if (changes.formIds.length > 0) {
 		const one = changes.formIds.length === 1;
 		lines.push(

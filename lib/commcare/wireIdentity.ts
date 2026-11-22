@@ -97,6 +97,13 @@ export interface InstallationProfileBinding {
 	readonly uuid: Uuid;
 	readonly key: string;
 	readonly practiceWorkerId?: string;
+	/** Evidence of this definition on one prepared build of this destination app. */
+	readonly practiceWitness?: {
+		readonly appId: string;
+		readonly buildId: string;
+		readonly version: number;
+		readonly definitionDigest: string;
+	};
 }
 
 /** One id a target holds that is not the derivation. */

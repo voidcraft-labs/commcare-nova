@@ -1,5 +1,6 @@
 import { isTag } from "domhandler";
 import { textContent } from "domutils";
+import { nativeInstallationKey } from "./hq/installationKey";
 import { COMMCARE_SERVERS, type CommCareServer } from "./servers";
 import { tryParseXml } from "./xmlParse";
 
@@ -13,6 +14,11 @@ export function profileReferencesBuildSuite(
 		profileKey?: string;
 	},
 ): boolean {
+	if (
+		target.profileKey !== undefined &&
+		!nativeInstallationKey(target.profileKey)
+	)
+		return false;
 	const parsed = tryParseXml(xml);
 	if ("issue" in parsed) return false;
 	const roots = parsed.doc.children.filter(isTag);
@@ -47,6 +53,7 @@ export function selectedSuiteAgrees(
 		readonly practiceWorkerId?: string;
 	},
 ): boolean {
+	if (!nativeInstallationKey(profile.id)) return false;
 	const parsed = tryParseXml(xml);
 	if ("issue" in parsed) return false;
 	const roots = parsed.doc.children.filter(isTag);

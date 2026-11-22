@@ -280,15 +280,25 @@ async function bringInInRoom(
 	}
 
 	/* Each arm writes; the room stops nothing from here on. */
+	if (checked?.installationReviewDigest)
+		scope.requireInstallationManagement?.();
 	room.beginWrites();
 	try {
-		if (review.kind === "nothing" && review.reason === "reads-the-same")
+		if (
+			(review.kind === "nothing" && review.reason === "reads-the-same") ||
+			checked?.plan.kind === "nothing"
+		)
 			return answered(await recordReadsTheSame(scope, target, basis, checked));
 		if (checked === null)
 			throw new Error(
 				"A review that lists changes or finds them already here came back with no check. computeHqChanges answers both only after the readings.",
 			);
-		if (review.kind === "nothing")
+		if (
+			review.kind === "nothing" ||
+			(checked.plan.kind === "changes" &&
+				!checked.plan.batch.length &&
+				!checked.plan.renamedInNova.length)
+		)
 			return answered(
 				await recordAlreadyHere(
 					scope,
@@ -367,6 +377,13 @@ async function recordReadsTheSame(
 		settled: basis.published,
 	});
 	const written = await recordRefreshedAppBaseline(scope, target, {
+		...(checked?.installationReviewDigest && {
+			installationReview: {
+				digest: checked.installationReviewDigest,
+				headSeq: basis.head.seq,
+				mapping: basis.live.pushToken,
+			},
+		}),
 		expectedEndings: basis.deployment.endings,
 		remoteAppId: basis.live.remoteId,
 		comparedDigest: basis.baseline.sourceDigest,
@@ -816,6 +833,13 @@ async function takenFor(
 			ownership,
 			mediaFiles,
 			targetIdentity: checked.targetIdentity,
+			...(checked.installationReviewDigest && {
+				installationReview: {
+					digest: checked.installationReviewDigest,
+					headSeq: basis.head.seq,
+					mapping: basis.live.pushToken,
+				},
+			}),
 			firstPublish: {
 				accepted: firstPublishListToStore(
 					checked.declaration.firstPublish,

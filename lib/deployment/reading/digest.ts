@@ -20,10 +20,17 @@
 
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { TargetIdentity } from "../targetIdentity";
-import type { ReadingReview } from "./types";
+import type { ReadingKey, ReadingReview } from "./types";
 
 export interface ReviewDigestInput {
 	readonly v: 2;
+	/** Exact source and authority for adopting the management of named installations. */
+	readonly installationSource?: ReadingKey & {
+		readonly appId: string;
+		readonly actorUserId: string | null;
+		readonly version: number;
+		readonly digest: string;
+	};
 	/** The review without `readAt`. */
 	readonly review: Omit<ReadingReview, "readAt">;
 	/** `canonicalJsonDigest` of the persistable document with every media asset id replaced. */
@@ -46,6 +53,9 @@ export function reviewDigestOf(input: ReviewDigestInput): string {
 	const { readAt: _readAt, ...review } = input.review as ReadingReview;
 	return canonicalJsonDigest({
 		v: input.v,
+		...(input.installationSource && {
+			installationSource: input.installationSource,
+		}),
 		review,
 		document: input.document,
 		targetIdentity: input.targetIdentity,

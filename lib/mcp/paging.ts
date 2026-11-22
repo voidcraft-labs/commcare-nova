@@ -1,3 +1,4 @@
+import { lineParts as boundedJsonTextParts } from "@/lib/utils/jsonTextParts";
 /**
  * The one pager and the one serialiser of the tools that answer a reading of
  * an app in CommCare HQ: `read_hq_app`, `bring_in_hq_app`, `read_hq_changes`
@@ -14,6 +15,7 @@
  */
 
 import { cutShown } from "@/lib/publish/shownText";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 /**
  * The most characters of JSON one answer holds, under the result size the
@@ -127,4 +129,20 @@ export function toolText(body: unknown): string {
 			`An answer came to ${text.length} characters, more than the ${PAGE_LIMIT_CHARS} one answer holds, so Nova sent none of it. Every list in an answer is paged by lib/mcp/paging.ts::cutPage; look at what this one held outside its pages.`,
 		);
 	return text;
+}
+
+export function reviewedPageDigest(
+	operation: "birth" | "changes",
+	reviewDigest: string,
+	from: number,
+): string {
+	return canonicalJsonDigest([operation, "page", from, reviewDigest]);
+}
+
+export const LINE_PART_MAX_CHARS = PIECE_MAX_CHARS - 1;
+export function lineParts(
+	line: string,
+	limit = LINE_PART_MAX_CHARS,
+): readonly string[] {
+	return boundedJsonTextParts(line, limit);
 }

@@ -2935,7 +2935,7 @@ async function reviewOverPeer(input: {
 		data: projectData.data,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		reference,
-		overrides: input.targetIdentity.entities,
+		targetIdentity: input.targetIdentity,
 		media: { published, base: null, now: null },
 	});
 	if (first.kind === "no-base") {

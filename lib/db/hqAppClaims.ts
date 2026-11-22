@@ -278,7 +278,7 @@ export async function claimHqAppInTransaction(
 	}
 	await tx
 		.updateTable("app_deployment_resources")
-		.set({ released_at: sql<Date>`now()` })
+		.set({ released_at: sql<Date>`now()`, push_token: sql<string>`uuidv7()` })
 		.where("id", "=", claim.mapping_id)
 		.where("superseded_at", "is", null)
 		.where("released_at", "is", null)
@@ -512,7 +512,7 @@ export async function settleReleasedClaimsInTransaction(
 		if (holder !== null) {
 			await tx
 				.updateTable("app_deployment_resources")
-				.set({ released_at: input.at })
+				.set({ released_at: input.at, push_token: sql<string>`uuidv7()` })
 				.where("id", "=", holder.mappingId)
 				.where("superseded_at", "is", null)
 				.where("released_at", "is", null)
@@ -521,7 +521,7 @@ export async function settleReleasedClaimsInTransaction(
 		}
 		await tx
 			.updateTable("app_deployment_resources")
-			.set({ released_at: null })
+			.set({ released_at: null, push_token: sql<string>`uuidv7()` })
 			.where("deployment_id", "=", entry.deploymentId)
 			.where("kind", "=", "app")
 			.where("superseded_at", "is", null)

@@ -122,6 +122,9 @@ import {
  * same way they share its case rows.
  */
 export interface DeploymentScope {
+	/** The bearer’s additional grants for a management decision. Browser sessions
+	 * use the authenticated Project editor gate instead. Pure reads never call it. */
+	readonly requireInstallationManagement?: () => void;
 	readonly appId: string;
 	readonly projectId: string;
 	readonly role: string;
@@ -873,11 +876,37 @@ export async function readInstallationReview(
 
 /** Check both revisions under the app/deployment locks before recording a review or
  * promoting its verified bindings. A replay cannot supersede another tab's newer review. */
+async function installationReviewMatches(
+	tx: Kysely<AppDatabase>,
+	deploymentId: string,
+	scope: DeploymentScope,
+	sequence: number,
+	previous: InstallationProfileCheckpoint | undefined,
+): Promise<boolean> {
+	const app = await tx
+		.selectFrom("apps")
+		.select("mutation_seq")
+		.where("id", "=", scope.appId)
+		.executeTakeFirst();
+	if (!app || Number(app.mutation_seq) !== sequence) return false;
+	const held = await tx
+		.selectFrom("app_deployment_installation_reviews")
+		.select("checkpoint")
+		.where("deployment_id", "=", deploymentId)
+		.where("actor_id", "=", scope.actorUserId)
+		.executeTakeFirst();
+	return (
+		canonicalJsonText(held?.checkpoint ?? null) ===
+		canonicalJsonText(previous ?? null)
+	);
+}
+
 export async function writeInstallationReview(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	input: {
 		readonly sequence: number;
+		readonly claim: InstallationProfileCheckpoint["claim"];
 		readonly remoteAppId: string;
 		readonly previous: InstallationProfileCheckpoint | undefined;
 		readonly next?: InstallationProfileCheckpoint;
@@ -892,30 +921,27 @@ export async function writeInstallationReview(
 		{ ensure: false },
 		async (tx, row) => {
 			input.requireHqImport?.();
-			const app = await tx
-				.selectFrom("apps")
-				.select("mutation_seq")
-				.where("id", "=", scope.appId)
-				.executeTakeFirstOrThrow();
-			if (Number(app.mutation_seq) !== input.sequence) return false;
+			if (row.endings !== input.claim.endings) return false;
 			const mapping = await tx
 				.selectFrom("app_deployment_resources")
 				.select("id")
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
+				.where("nova_resource_id", "=", scope.appId)
+				.where("push_token", "=", input.claim.mapping)
 				.where("remote_id", "=", input.remoteAppId)
+				.where("superseded_at", "is", null)
 				.where("released_at", "is", null)
 				.executeTakeFirst();
 			if (!mapping) return false;
-			const stored = await tx
-				.selectFrom("app_deployment_installation_reviews")
-				.select("checkpoint")
-				.where("deployment_id", "=", row.id)
-				.where("actor_id", "=", scope.actorUserId)
-				.executeTakeFirst();
 			if (
-				canonicalJsonText(stored?.checkpoint ?? null) !==
-				canonicalJsonText(input.previous ?? null)
+				!(await installationReviewMatches(
+					tx,
+					row.id,
+					scope,
+					input.sequence,
+					input.previous,
+				))
 			)
 				return false;
 			await tx
@@ -957,7 +983,12 @@ async function readTargetIdentityRows(
 		await Promise.all([
 			db
 				.selectFrom("app_deployment_installation_profiles")
-				.select(["nova_profile_uuid", "profile_key", "practice_worker_id"])
+				.select([
+					"nova_profile_uuid",
+					"profile_key",
+					"practice_worker_id",
+					"practice_witness",
+				])
 				.where("deployment_id", "=", deploymentId)
 				.execute(),
 			db
@@ -1027,6 +1058,7 @@ async function readTargetIdentityRows(
 			key: row.profile_key,
 			...(row.practice_worker_id && {
 				practiceWorkerId: row.practice_worker_id,
+				...(row.practice_witness && { practiceWitness: row.practice_witness }),
 			}),
 		})),
 		columnWords: wordRows.map((row): ColumnFieldWordRow => {
@@ -1145,7 +1177,13 @@ export async function writeTargetIdentityInTransaction(
 
 	const profileKey = (
 		row: NonNullable<TargetIdentity["installationProfiles"]>[number],
-	) => JSON.stringify([row.uuid, row.key, row.practiceWorkerId]);
+	) =>
+		canonicalJsonText([
+			row.uuid,
+			row.key,
+			row.practiceWorkerId ?? null,
+			row.practiceWitness ?? null,
+		]);
 	const goneProfiles = without(
 		stored.installationProfiles ?? [],
 		next.installationProfiles ?? [],
@@ -1175,6 +1213,9 @@ export async function writeTargetIdentityInTransaction(
 					nova_profile_uuid: row.uuid,
 					profile_key: row.key,
 					practice_worker_id: row.practiceWorkerId ?? null,
+					practice_witness: row.practiceWitness
+						? JSON.stringify(row.practiceWitness)
+						: null,
 				})),
 			)
 			.execute();
@@ -2295,6 +2336,17 @@ export interface RecordRemoteAppInput
 	extends RecordRemoteResourceInput,
 		DeploymentFence {
 	readonly uploadedAt: string;
+	readonly expectedInstallationMapping?: string;
+	readonly practicePublication?: {
+		readonly expected: InstallationProfileCheckpoint;
+		readonly promotesPreparedContent?: true;
+		readonly next?: InstallationProfileCheckpoint;
+		readonly requireHqImport: (() => void) | null;
+		readonly failure?: NonNullable<
+			Extract<DeploymentPhaseOutcome, { status: "failed" }>["failure"]
+		>;
+	};
+
 	/**
 	 * The target's `USH_EMPTY_CASE_LIST_TEXT` as this publish read it, written
 	 * with the upload's fold. Left out where the read failed, so the column
@@ -2359,12 +2411,67 @@ export async function recordRemoteResource(
 			});
 			const live = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["remote_id", "pushed_remote_revision"])
+				.select([
+					"remote_id",
+					"pushed_revision",
+					"push_token",
+					"pushed_remote_revision",
+					"released_at",
+				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", input.kind)
 				.where("nova_resource_id", "=", input.novaResourceId)
 				.where("superseded_at", "is", null)
 				.executeTakeFirst();
+			if (
+				input.expectedInstallationMapping &&
+				(live?.push_token !== input.expectedInstallationMapping ||
+					live.remote_id !== input.remoteId ||
+					live.released_at !== null)
+			)
+				throw new DeploymentError(
+					"invalid",
+					"The installation’s app mapping changed during the upload. Publish again to review this project space.",
+				);
+			const practice = input.practicePublication;
+			if (practice) {
+				practice.requireHqImport?.();
+				await lockAppForDeploymentWrite(tx, scope, "edit");
+				const saved = await tx
+					.selectFrom("app_deployment_baselines")
+					.select("source_digest")
+					.where("deployment_id", "=", row.id)
+					.executeTakeFirst();
+				if (
+					(practice.promotesPreparedContent &&
+						(saved?.source_digest !==
+							practice.expected.preparedContent?.baselineDigest ||
+							live?.pushed_revision !== null)) ||
+					!practice.expected.claim ||
+					row.endings !== practice.expected.claim.endings ||
+					live?.push_token !== practice.expected.claim.mapping ||
+					live?.remote_id !== input.remoteId ||
+					live.released_at !== null ||
+					!(await installationReviewMatches(
+						tx,
+						row.id,
+						scope,
+						practice.expected.sequence,
+						practice.expected,
+					))
+				)
+					throw new DeploymentError(
+						"invalid",
+						"The app or its installation review changed. Publish again to review the current project space.",
+					);
+				if (!practice.next) {
+					await tx
+						.deleteFrom("app_deployment_installation_reviews")
+						.where("deployment_id", "=", row.id)
+						.where("actor_id", "=", scope.actorUserId)
+						.execute();
+				}
+			}
 			const recorded =
 				live === undefined ? null : numberOrNull(live.pushed_remote_revision);
 			if (
@@ -2373,6 +2480,11 @@ export async function recordRemoteResource(
 				input.remoteRevision !== null &&
 				input.remoteRevision < recorded
 			) {
+				if (practice)
+					throw new DeploymentError(
+						"invalid",
+						"Another publish reached CommCare HQ first. Publish again to review the current installation.",
+					);
 				log.info("[deployment] a later publish recorded first", {
 					appId: scope.appId,
 					domain: target.domain,
@@ -2384,13 +2496,36 @@ export async function recordRemoteResource(
 			}
 			const now = new Date();
 			const pushToken = await writeResourceMapping(tx, row.id, input, now);
+			if (practice?.next) {
+				await tx
+					.updateTable("app_deployment_installation_reviews")
+					.set({
+						checkpoint: JSON.stringify({
+							...practice.next,
+							claim: { mapping: pushToken, endings: row.endings },
+						}),
+					})
+					.where("deployment_id", "=", row.id)
+					.where("actor_id", "=", scope.actorUserId)
+					.execute();
+			}
 			await writeAppBaseline(tx, row.id, scope.actorUserId, input.baseline);
 
 			const record = toDeploymentRecord(row);
-			const progress = applyPhaseOutcome(record, "upload", {
-				status: "succeeded",
-				at: input.uploadedAt,
-			});
+			const progress = applyPhaseOutcome(
+				record,
+				"upload",
+				practice?.failure
+					? {
+							status: "failed",
+							at: input.uploadedAt,
+							failure: practice.failure,
+						}
+					: {
+							status: "succeeded",
+							at: input.uploadedAt,
+						},
+			);
 			await tx
 				.updateTable("app_deployments")
 				.set({
@@ -2573,6 +2708,9 @@ export async function admitAppWrite(
 	input: DeploymentFence & {
 		readonly remoteAppId: string;
 		readonly writeKind: "import" | "media";
+		readonly installationReview?: InstallationProfileCheckpoint;
+		readonly expectedInstallationMapping?: string;
+		readonly requireHqImport?: (() => void) | null;
 	},
 ): Promise<AppWriteAdmission> {
 	return withAppTx(async (tx) => {
@@ -2582,6 +2720,7 @@ export async function admitAppWrite(
 			remoteAppId: input.remoteAppId,
 		});
 		await lockAppForDeploymentWrite(tx, scope, "edit");
+		input.requireHqImport?.();
 		const row = await lockDeploymentRow(tx, scope, target);
 		if (row.endings !== input.expectedEndings) {
 			throw new DeploymentEndedError(
@@ -2590,9 +2729,20 @@ export async function admitAppWrite(
 				row.endings,
 			);
 		}
+		if (
+			input.installationReview &&
+			!(await installationReviewMatches(
+				tx,
+				row.id,
+				scope,
+				input.installationReview.sequence,
+				input.installationReview,
+			))
+		)
+			return { kind: "mapping-moved" };
 		const live = await tx
 			.selectFrom("app_deployment_resources")
-			.select(["remote_id", "released_at"])
+			.select(["remote_id", "released_at", "push_token"])
 			.where("deployment_id", "=", row.id)
 			.where("kind", "=", "app")
 			.where("superseded_at", "is", null)
@@ -2600,6 +2750,11 @@ export async function admitAppWrite(
 		if (
 			live === undefined ||
 			live.remote_id !== input.remoteAppId ||
+			(input.expectedInstallationMapping !== undefined &&
+				live.push_token !== input.expectedInstallationMapping) ||
+			(input.installationReview &&
+				(input.installationReview.claim?.mapping !== live.push_token ||
+					input.installationReview.claim.endings !== row.endings)) ||
 			live.released_at !== null
 		) {
 			return { kind: "mapping-moved" };
@@ -2636,12 +2791,14 @@ export async function admitAppCreate(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	fence: DeploymentFence,
+	requireHqImport?: (() => void) | null,
 ): Promise<string> {
 	return withDeploymentRow(
 		scope,
 		target,
 		{ ensure: false, expectedEndings: fence.expectedEndings },
 		async (tx, row) => {
+			requireHqImport?.();
 			const [writeId] = await admitRemoteWritesInTransaction(tx, [
 				{
 					deploymentId: row.id,
@@ -2877,10 +3034,37 @@ export async function readOpenMediaJobs(key: {
  * that keeps a stored list of that kind by `hqChangesFirstPublishList`, and
  * never touches the list of an app brought in and not yet published.
  */
+/** A review a person accepted for this specific working-app mapping and head. */
+interface InstallationReviewReceipt {
+	readonly digest: string;
+	readonly headSeq: number;
+	readonly mapping: string;
+}
+async function recordInstallationConsent(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	scope: DeploymentScope,
+	remoteAppId: string,
+	receipt: InstallationReviewReceipt,
+) {
+	scope.requireInstallationManagement?.();
+	await tx
+		.updateTable("app_deployment_baselines")
+		.set({
+			installation_review: JSON.stringify({
+				...receipt,
+				actor: scope.actorUserId,
+				remoteAppId,
+			}),
+		})
+		.where("deployment_id", "=", deploymentId)
+		.executeTakeFirstOrThrow();
+}
 export async function recordRefreshedAppBaseline(
 	scope: DeploymentScope,
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
+		readonly installationReview?: InstallationReviewReceipt;
 		readonly remoteAppId: string;
 		/** The `sourceDigest` of the baseline the read was compared with. */
 		readonly comparedDigest: string;
@@ -2932,7 +3116,7 @@ export async function recordRefreshedAppBaseline(
 				.executeTakeFirst();
 			const liveMapping = await tx
 				.selectFrom("app_deployment_resources")
-				.select("remote_id")
+				.select(["remote_id", "push_token"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
@@ -2959,11 +3143,30 @@ export async function recordRefreshedAppBaseline(
 			) {
 				return superseded();
 			}
+			if (input.installationReview) {
+				const app = await tx
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", scope.appId)
+					.executeTakeFirstOrThrow();
+				if (
+					Number(app.mutation_seq) !== input.installationReview.headSeq ||
+					stored.source_digest !== input.comparedDigest ||
+					liveMapping.push_token !== input.installationReview.mapping
+				)
+					return superseded();
+			}
 			const readAt = Date.parse(input.read.observedAt);
 			const storedList = storedFirstPublish(
 				row.id,
 				stored.first_publish_changes,
 			);
+			if (
+				stored.source_digest !== input.read.sourceDigest &&
+				(stored.source_digest !== input.comparedDigest ||
+					stored.observed_at.getTime() > readAt)
+			)
+				return superseded();
 			/* Where CommCare HQ keeps things is no part of the source's digest
 			 * (a form's id normalizes out), so the record goes where the fences
 			 * pass, whether or not the source does. */
@@ -2980,6 +3183,14 @@ export async function recordRefreshedAppBaseline(
 					throw error;
 				}
 			}
+			if (input.installationReview)
+				await recordInstallationConsent(
+					tx,
+					row.id,
+					scope,
+					input.remoteAppId,
+					input.installationReview,
+				);
 			/* The stored baseline already holds what this read saw: another
 			 * refresh that read the same landed first, or a publish whose
 			 * read-back is byte for byte this read. The row is current either
@@ -2999,11 +3210,6 @@ export async function recordRefreshedAppBaseline(
 						deployment: await loadWithinTransaction(tx, row.id),
 					};
 				}
-			} else if (
-				stored.source_digest !== input.comparedDigest ||
-				stored.observed_at.getTime() > readAt
-			) {
-				return superseded();
 			}
 			await writeAppBaseline(tx, row.id, scope.actorUserId, {
 				origin,
@@ -3233,6 +3439,7 @@ export interface HqChangesTaken extends DeploymentFence {
 	 * `targetIdentity.ts::resolveTargetIdentity`), the record the take's export
 	 * and ownership were computed over.
 	 */
+	readonly installationReview?: InstallationReviewReceipt;
 	readonly targetIdentity: {
 		readonly read: TargetIdentity;
 		readonly next: TargetIdentity;
@@ -3318,13 +3525,30 @@ async function recordHqChangesInTransaction(
 		.executeTakeFirst();
 	const liveMapping = await tx
 		.selectFrom("app_deployment_resources")
-		.select("remote_id")
+		.select(["remote_id", "push_token"])
 		.where("deployment_id", "=", deploymentId)
 		.where("kind", "=", "app")
 		.where("nova_resource_id", "=", scope.appId)
 		.where("superseded_at", "is", null)
 		.where("released_at", "is", null)
 		.executeTakeFirst();
+	if (input.installationReview) {
+		const head = await tx
+			.selectFrom("apps")
+			.select("mutation_seq")
+			.where("id", "=", scope.appId)
+			.executeTakeFirstOrThrow();
+		if (
+			Number(head.mutation_seq) !== input.installationReview.headSeq ||
+			liveMapping?.push_token !== input.installationReview.mapping
+		)
+			throw new HqChangesBaselineMovedError(
+				"target-identity",
+				"the reviewed head and app mapping",
+				null,
+			);
+	}
+
 	if (liveMapping?.remote_id !== input.remoteAppId) {
 		throw new HqChangesBaselineMovedError(
 			"remote-app",
@@ -3383,6 +3607,14 @@ async function recordHqChangesInTransaction(
 
 	// 3. Where CommCare HQ keeps the app's menus, forms, keyed creates and files.
 	await writeTakenTargetIdentity(tx, deploymentId, input);
+	if (input.installationReview)
+		await recordInstallationConsent(
+			tx,
+			deploymentId,
+			scope,
+			input.remoteAppId,
+			input.installationReview,
+		);
 
 	await notifyAppDeployments(tx, scope.appId);
 	return loadWithinTransaction(tx, deploymentId);

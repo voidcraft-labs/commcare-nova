@@ -174,9 +174,10 @@ async function broughtIn(): Promise<string> {
 function withTools<T>(
 	run: (client: Client) => Promise<T>,
 	userId = MEMBER,
+	scopes = SCOPES,
 ): Promise<T> {
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes: SCOPES, authKind: "api-key" as const };
+		const ctx = { userId, scopes, authKind: "api-key" as const };
 		registerReadHqChanges(server, ctx);
 		registerBringInHqChanges(server, ctx);
 		registerGetDeployment(server, ctx);
@@ -271,6 +272,60 @@ async function readChanges(client: Client, appId: string) {
 }
 
 describe("read_hq_changes and bring_in_hq_changes", () => {
+	it("requires both grants to accept an installation review and keeps read access with import alone", async () => {
+		const appId = await broughtIn();
+		const source = changedAnswer(fixtureSource(), (body) => ({
+			...body,
+			build_profiles: {
+				visits: {
+					name: "Visits",
+					langs: ["en"],
+					practice_mobile_worker_id: "training-user",
+				},
+			},
+		}));
+		await withHttpPeer(async (peer) => {
+			serveRead(peer, source, { tables: true, times: 3 });
+			const onlyImport = SCOPES.filter((s) => s !== "nova.hq.write");
+			const listed = await withTools(
+				(client) => readChanges(client, appId),
+				MEMBER,
+				onlyImport,
+			);
+			const accept = (scopes: string[]) =>
+				withTools(
+					(client) =>
+						call(client, "bring_in_hq_changes", {
+							app_id: appId,
+							reading_id: listed.reading_id,
+							review_digest: listed.review_digest,
+							discard_nova_changes: false,
+							table_choices: {},
+						}),
+					MEMBER,
+					scopes,
+				);
+			for (const missing of ["nova.hq.import", "nova.hq.write"]) {
+				expect(await accept(SCOPES.filter((s) => s !== missing))).toMatchObject(
+					{
+						isError: true,
+						body: { error_type: "scope_missing", required_scope: missing },
+					},
+				);
+			}
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_profiles")
+					.select("profile_key")
+					.execute(),
+			).toHaveLength(0);
+			expect(await accept(SCOPES)).toMatchObject({
+				isError: false,
+				body: { kind: "brought-in" },
+			});
+		});
+	});
 	it("lists every line of what changed, brings it in, and a second read finds nothing", async () => {
 		const appId = await broughtIn();
 		const before = await head(appId);

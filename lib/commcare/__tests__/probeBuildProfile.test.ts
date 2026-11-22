@@ -4,6 +4,7 @@ import type { MockAgent } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
 import { withHttpPeer, withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { probeBuildProfile, readBuildXml } from "../client";
+import { readInstallationBuild } from "../hq/installationBuild";
 
 const CREDS = {
 	username: "account",
@@ -217,4 +218,174 @@ it("owns the deadline through an unfinished native XML body and closes its socke
 	} finally {
 		await pending;
 	}
+});
+
+it("reads an exact cold build without requesting files, and rejects one rename or a different practice worker on the same key", async () => {
+	const expected = {
+		id: "visits",
+		name: "Visits",
+		langs: ["fra"],
+		practiceWorkerId: "worker-a",
+	};
+	const build = { id: "released-build", version: 7, isReleased: true };
+	const cold = {
+		"files/profile.ccpr": { content_length: 5 },
+		"files/suite.xml": { content_length: 8 },
+	};
+	const ready = Object.fromEntries(
+		[
+			"profile.ccpr",
+			"suite.xml",
+			"default/app_strings.txt",
+			"fra/app_strings.txt",
+			"practice_user_restore.xml",
+		].map((path) => ["files/visits/" + path, { content_length: 24 }]),
+	);
+	await withHttpPeer(async (peer) => {
+		for (const [name, worker, files, verdict] of [
+			["Visits", "worker-a", cold, "cold"],
+			["Visits", "worker-a", { ...cold, ...ready }, "prepared"],
+			["Visits", "worker-b", { ...cold, ...ready }, "different"],
+			["Renamed", "worker-a", { ...cold, ...ready }, "different"],
+			[
+				"Visits",
+				"worker-a",
+				{
+					...cold,
+					...ready,
+					"files/visits/practice_user_restore.xml": { content_length: 0 },
+				},
+				"incomplete",
+			],
+		] as const) {
+			peer
+				.get(HOST)
+				.intercept({
+					method: "GET",
+					path: "/a/clinic/api/application/v1/released-build/?extras=true",
+					headers: { authorization: "ApiKey account:fixture-key" },
+				})
+				.reply(200, {
+					id: build.id,
+					_id: build.id,
+					domain: "clinic",
+					doc_type: "Application",
+					copy_of: "working",
+					built_from_app_id: "working",
+					version: 7,
+					is_released: true,
+					build_profiles: {
+						visits: { name, langs: ["fra"], practice_mobile_worker_id: worker },
+					},
+					external_blobs: files,
+				});
+			expect(
+				(
+					await readInstallationBuild(CREDS, "clinic", "working", build, [
+						expected,
+					])
+				)?.get("visits"),
+			).toBe(verdict);
+		}
+	});
+});
+
+it("checks a multi-team build including nested, incomplete and separate installation folders", async () => {
+	const expected: {
+		id: string;
+		name: string;
+		langs: string[];
+		practiceWorkerId?: string;
+	}[] = Array.from({ length: 128 }, (_, i) => ({
+		id: `district-${i}`,
+		name: `District ${i}`,
+		langs: ["en", "fra"],
+	}));
+	expected.push(
+		...[
+			"home",
+			"home/north",
+			"homecoming",
+			"empty",
+			"empty/ready",
+			"partial",
+			"stale",
+		].map((id) => ({
+			id,
+			name: id,
+			...(id === "home/north" && { practiceWorkerId: "northern-worker" }),
+			langs: ["en", "fra"],
+		})),
+	);
+	const profileFiles = [
+		"profile.ccpr",
+		"suite.xml",
+		"default/app_strings.txt",
+		"en/app_strings.txt",
+		"fra/app_strings.txt",
+	];
+	const files = new Map([
+		["files/profile.ccpr", { content_length: 10 }],
+		["files/suite.xml", { content_length: 11 }],
+	]);
+	for (const profile of expected) {
+		if (profile.id === "empty") continue;
+		for (const filename of profile.id === "partial"
+			? ["suite.xml"]
+			: profileFiles)
+			files.set(`files/${profile.id}/${filename}`, { content_length: 12 });
+	}
+	files.set("files/home/north/practice_user_restore.xml", {
+		content_length: 13,
+	});
+	files.set("files/stale/spa/app_strings.txt", { content_length: 13 });
+	await withHttpPeer(async (peer) => {
+		const id = "regional-release";
+		peer
+			.get(HOST)
+			.intercept({
+				method: "GET",
+				path: `/a/clinic/api/application/v1/${id}/?extras=true`,
+			})
+			.reply(200, {
+				_id: id,
+				id,
+				domain: "clinic",
+				doc_type: "Application",
+				copy_of: "working",
+				built_from_app_id: "working",
+				version: 9,
+				is_released: true,
+				build_profiles: Object.fromEntries(
+					expected.map((profile) => [
+						profile.id,
+						{
+							name: profile.name,
+							langs: profile.langs,
+							practice_mobile_worker_id: profile.practiceWorkerId ?? null,
+						},
+					]),
+				),
+				external_blobs: Object.fromEntries(files),
+			});
+		const read = await readInstallationBuild(
+			CREDS,
+			"clinic",
+			"working",
+			{ id, version: 9, isReleased: true },
+			expected,
+		);
+		expect(read?.size).toBe(expected.length);
+		for (const profile of expected) {
+			const verdict =
+				profile.id === "stale"
+					? "different"
+					: profile.id === "empty"
+						? "cold"
+						: profile.id === "partial"
+							? "incomplete"
+							: "prepared";
+			expect(read?.get(profile.id)).toBe(verdict);
+		}
+	});
 });

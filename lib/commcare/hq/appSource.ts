@@ -1,3 +1,4 @@
+import { nativeInstallationKey } from "./installationKey";
 import "server-only";
 
 /**
@@ -274,6 +275,8 @@ export async function readHqAppSource(
 		},
 	});
 	if (parsed.kind === "source") return parsed;
+	if (parsed.key === "build_profiles.unusable-key")
+		return { ...HQ_MALFORMED_ANSWER, installationProfileKeyUnusable: true };
 	if (parsed.key === "build_profiles") {
 		log.error("[commcare] build profiles are malformed", undefined, {
 			domain,
@@ -359,7 +362,15 @@ export function parseHqAppSource(
 		return refuse("logo_refs");
 	}
 	const buildProfiles = readBuildProfiles(body.build_profiles);
-	if (buildProfiles === null) return refuse("build_profiles");
+	if (buildProfiles === null)
+		return refuse(
+			isRecord(body.build_profiles) &&
+				Object.keys(body.build_profiles).some(
+					(key) => !nativeInstallationKey(key),
+				)
+				? "build_profiles.unusable-key"
+				: "build_profiles",
+		);
 
 	const parsedModules: HqAppSourceModule[] = [];
 	for (const module of modules) {
@@ -471,6 +482,7 @@ export function readBuildProfiles(
 	const profiles: HqBuildProfile[] = [];
 	for (const [id, profile] of Object.entries(value)) {
 		if (
+			!nativeInstallationKey(id) ||
 			!isRecord(profile) ||
 			(profile.practice_mobile_worker_id != null &&
 				typeof profile.practice_mobile_worker_id !== "string") ||

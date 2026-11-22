@@ -1,3 +1,4 @@
+import { reviewedPageDigest } from "../paging";
 /**
  * What `read_hq_changes` and `bring_in_hq_changes` serve of one review and
  * of a bring-in's answers that read nothing more, as data: every line of
@@ -216,7 +217,8 @@ describe("a review of changes made in CommCare HQ", () => {
 				made_by_line:
 					review.madeBy.length > 0 ? madeByLine(review.madeBy) : null,
 				reading_id: READING_ID,
-				review_digest: DIGEST,
+				review_digest: served.next_page ? null : DIGEST,
+				observed_digest: served.next_page ? null : review.observedDigest,
 			});
 			/* The sentence over the renames names this page's. */
 			expect(served.renamed_in_nova_line).toBe(
@@ -425,7 +427,12 @@ describe("a review of changes made in CommCare HQ", () => {
 			restarted: true,
 			restarted_message: expect.stringContaining("from the start"),
 		});
-		expect(changesPageFor(before, { from: 3001, digest: DIGEST })).toBeNull();
+		expect(
+			changesPageFor(before, {
+				from: 3001,
+				digest: reviewedPageDigest("changes", DIGEST, 3001),
+			}),
+		).toBeNull();
 	});
 
 	it("says nothing would be removed where Nova's list is empty, and names no one", () => {

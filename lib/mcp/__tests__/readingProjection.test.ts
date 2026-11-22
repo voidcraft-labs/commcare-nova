@@ -1,3 +1,4 @@
+import { reviewedPageDigest } from "../paging";
 /**
  * What `read_hq_app` and `bring_in_hq_app` serve of one read, as data: the
  * three answers, every sentence the screen's copy export, the account and a
@@ -735,6 +736,97 @@ describe("a review's lookup tables a page at a time", () => {
 		};
 	}
 
+	it("pages every named installation together with the lookup tables before initial adoption", () => {
+		const installations = Array.from({ length: 450 }, (_, i) => ({
+			key: `site-${i}`,
+			name: `Installation ${i} ${"Team ".repeat(50)}`,
+			languages: ["eng", "fra"],
+			requiresPracticeWorker: true,
+			worker: `practice-${i}`,
+		}));
+		const answer = reviewAnswer({ ...review(), installations });
+		const ids: string[] = [];
+		const tables: string[] = [];
+		let cursor: string | null = null;
+		let pages = 0;
+		do {
+			const parsed = cursor === null ? null : parseAccountPage(cursor);
+			const start = pageFor(answer, parsed);
+			if (!start || start.restarted)
+				throw new Error("The reviewed installation changed across pages");
+			const body = describeReading(answer, KEY, { ...start, project: PROJECT });
+			expect(JSON.stringify(body).length).toBeLessThanOrEqual(PAGE_LIMIT_CHARS);
+			if (!body.review) throw new Error("Missing adoption review");
+			expect(body.review.installations_total).toBe(installations.length);
+			for (const row of body.review.installations ?? [])
+				ids.push(row.profile_id);
+			for (const row of body.review.tables) tables.push(row.tag);
+			cursor = body.review.next_page;
+			pages++;
+		} while (cursor !== null);
+		expect(pages).toBeGreaterThan(1);
+		expect(ids).toEqual(installations.map((p) => p.key));
+		expect(tables).toEqual(review().tables.map((t) => t.tag));
+	});
+	it("discloses long destination identities completely before returning an adoption digest", () => {
+		const answer = reviewAnswer();
+		if (answer.kind !== "review") throw new Error("Expected a review");
+		const file = "/jr/media/" + "Door visits ".repeat(19000);
+		const files: string[] = [];
+		const tables: string[] = [];
+		const key = "⌂".repeat(90_000);
+		const input = {
+			...answer,
+			review: {
+				...answer.review,
+				runsOn: answer.review.runsOn.map((choice, i) => ({
+					...choice,
+					...(i === 0 && { removesFiles: [file] }),
+				})),
+				installations: [
+					{
+						key,
+						name: "Long installation",
+						languages: ["en"],
+						worker: "worker",
+						requiresPracticeWorker: true,
+					},
+				],
+			},
+		};
+		let from = 0;
+		const chunks: string[] = [];
+		for (;;) {
+			const next = describeReading(input, KEY, { ...FIRST_PAGE, from }).review;
+			if (!next) throw new Error("Missing review");
+			for (const detail of next.publish_details ?? []) {
+				expect(detail.runs_only_on).toEqual(
+					answer.review.runsOn[0]?.runsOnlyOn,
+				);
+				files.push(detail.text);
+			}
+			tables.push(...next.tables.map((t) => t.tag));
+			for (const piece of next.installation_parts ?? [])
+				chunks.push(piece.text);
+			if (!next.next_page) {
+				expect(next.review_digest).toBe(DIGEST);
+				break;
+			}
+			expect(next.review_digest).toBeNull();
+			const page = pageFor(input, parseAccountPage(next.next_page));
+			if (!page || page.restarted) throw new Error("Expected a stable cursor");
+			from = page.from;
+		}
+		expect(files.join("")).toBe(file);
+		expect(tables).toEqual(answer.review.tables.map((t) => t.tag));
+		expect(JSON.parse(chunks.join(""))).toEqual({
+			profile_id: key,
+			name: "Long installation",
+			languages: ["en"],
+			practice_worker_id: "worker",
+		});
+	});
+
 	it("cuts 2,000 tables at their longest into pages under the limit that give every table once", () => {
 		const answer = manyTables(2000);
 		const seen: string[] = [];
@@ -793,9 +885,14 @@ describe("a review's lookup tables a page at a time", () => {
 		).toEqual({ from: 0, restarted: true });
 	});
 
-	it("reads no cursor past the review's last table", () => {
-		expect(pageFor(reviewAnswer(), { from: 3, digest: DIGEST })).toBeNull();
-		expect(pageFor(reviewAnswer(), { from: 2, digest: DIGEST })).toEqual({
+	it("allows a correctly bound review cursor within its rows and rejects one past its end", () => {
+		const cursor = (from: number) => ({
+			from,
+			readingId: READING_ID,
+			digest: reviewedPageDigest("birth", DIGEST, from),
+		});
+		expect(pageFor(reviewAnswer(), cursor(3))).toBeNull();
+		expect(pageFor(reviewAnswer(), cursor(2))).toEqual({
 			from: 2,
 			restarted: false,
 		});

@@ -1,3 +1,4 @@
+import { INSTALLATION_REVIEW_TOKEN } from "@/lib/publish/installationReviewToken";
 // lib/deployment/types.ts
 //
 // The public shapes of a deployment: one app, published to one CommCare HQ
@@ -307,6 +308,10 @@ export type DeploymentFailureCode = (typeof DEPLOYMENT_FAILURE_CODES)[number];
 export interface DeploymentFailure {
 	readonly code: DeploymentFailureCode;
 	readonly installationProfileConfirmation?: string;
+	readonly installationProfileChoices?: readonly {
+		readonly label: string;
+		readonly confirmation: string;
+	}[];
 	readonly installationProfileReviewUrl?: string;
 	readonly message: string;
 	readonly details: readonly string[];
@@ -922,6 +927,15 @@ export const deploymentFailureSchema = z.strictObject({
 		.regex(/^[a-f0-9]{64}$/)
 		.optional(),
 	installationProfileReviewUrl: z.url().optional(),
+	installationProfileChoices: z
+		.array(
+			z.strictObject({
+				label: z.string(),
+				confirmation: z.string().regex(INSTALLATION_REVIEW_TOKEN),
+			}),
+		)
+		.readonly()
+		.optional(),
 	message: z.string().min(1),
 	details: z.array(z.string()).readonly(),
 });

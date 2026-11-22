@@ -244,6 +244,11 @@ export function hqImportFileGuide(input: {
 }): readonly ManualImportStep[] {
 	const logo = logoMember(input.doc, input.assets);
 	return manualImportGuide({
+		practiceInstallations: Object.values(
+			input.doc.appSettings.installationProfiles ?? {},
+		)
+			.filter((profile) => profile.requiresPracticeWorker)
+			.map(({ name, languages }) => ({ name, languages })),
 		appFileName: appFileName(input.appName),
 		lookupTags: input.lookupWorkbook?.tables.map((table) => table.tag) ?? [],
 		/* The guide is made on the server for whoever opens the ZIP, so it has

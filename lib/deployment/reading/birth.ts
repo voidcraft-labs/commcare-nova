@@ -115,6 +115,7 @@ export function adoptedDeploymentWrite(input: {
 // ---------------------------------------------------------------------------
 
 export interface AdoptionBirth {
+	readonly requireInstallationManagement?: () => void;
 	readonly actorUserId: string;
 	/** Attribution only: an adoption holds no run. Minted outside the transaction. */
 	readonly runId: string;
@@ -165,6 +166,8 @@ export async function adoptHqAppInTransaction(
 		runId: birth.runId,
 		status: "complete",
 		afterAppInsert: async (inner) => {
+			if (birth.deployment.targetIdentity.installationProfiles?.length)
+				birth.requireInstallationManagement?.();
 			await writeBroughtInLookupTablesInTransaction(
 				inner,
 				{ projectId, actorUserId, appId },

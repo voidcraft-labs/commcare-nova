@@ -200,7 +200,10 @@ function heldFileCount(gathered: Gathered): number {
 export function createFromReview(
 	actor: BringInActor,
 	input: BringInInput,
-	options: { readonly onEvent: (event: ReadingEvent) => void },
+	options: {
+		readonly onEvent: (event: ReadingEvent) => void;
+		readonly requireInstallationManagement?: () => void;
+	},
 ): Promise<CreateAnswer> {
 	return withBringInRoom(
 		"create",
@@ -212,7 +215,10 @@ export function createFromReview(
 async function createInRoom(
 	actor: BringInActor,
 	input: BringInInput,
-	options: { readonly onEvent: (event: ReadingEvent) => void },
+	options: {
+		readonly onEvent: (event: ReadingEvent) => void;
+		readonly requireInstallationManagement?: () => void;
+	},
 	room: BringInRoom,
 ): Promise<CreateAnswer> {
 	if (input.projectId !== actor.projectId)
@@ -382,6 +388,8 @@ async function createInRoom(
 		return checkFailed("bindings", [], bindingsMoved(appId, moved));
 
 	/* 7. Publish: the first write, so the room stops nothing from here on. */
+	if (gathered.targetIdentity.installationProfiles?.length)
+		options.requireInstallationManagement?.();
 	room.beginWrites();
 	let plan = gathered.media;
 	const held = heldFileCount(gathered);
@@ -492,6 +500,7 @@ async function createInRoom(
 	try {
 		outcome = await withAppTx((tx) =>
 			adoptHqAppInTransaction(tx, {
+				requireInstallationManagement: options.requireInstallationManagement,
 				actorUserId: actor.userId,
 				runId,
 				candidate,

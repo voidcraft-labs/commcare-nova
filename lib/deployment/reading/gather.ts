@@ -56,10 +56,7 @@ import {
 } from "@/lib/commcare/surface/inventory";
 import { isDeclaredSurfaceKey } from "@/lib/commcare/surface/revision";
 import { targetFactsFromSource } from "@/lib/commcare/targetFacts";
-import {
-	targetWireIdentity,
-	type WireIdentity,
-} from "@/lib/commcare/wireIdentity";
+import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import {
 	rethrowWorkStop,
 	underMeter,
@@ -117,6 +114,7 @@ import { readHqAppClaims } from "../store";
 import { keptListFor } from "../targetFacts";
 import {
 	canonicalTargetIdentity,
+	deploymentWireIdentity,
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
 	resolveTargetIdentity,
@@ -1869,8 +1867,12 @@ async function checkWith(
 		observed.observed,
 		draft.doc,
 	);
+	const normalized = await pieces
+		.at("the source of the review")
+		.run(() => adoptedSourceTree(key.remoteAppId, fetched.source));
 	const review = await pieces.at("the review").steps(
 		reviewOf({
+			normalized,
 			appId,
 			key,
 			fetched,
@@ -1883,10 +1885,7 @@ async function checkWith(
 			accepted,
 			lookup,
 			mediaFiles,
-			identity: targetWireIdentity(
-				targetIdentity.entities,
-				targetIdentity.columnWords,
-			),
+			identity: deploymentWireIdentity(targetIdentity),
 		}),
 	);
 	const reviewDigest = await pieces.at("the review digest").run(() => {
@@ -1912,6 +1911,15 @@ async function checkWith(
 				`The reading ${appId} observed its menus and forms once and then found a form with no real CommCare HQ id. The two observations read one draft, so look at targetIdentity.ts::observedTargetIdentity.`,
 			);
 		return reviewDigestOf({
+			...(fetched.source.buildProfiles.length && {
+				installationSource: {
+					...key,
+					appId,
+					actorUserId: scope.userId,
+					version: fetched.hqVersion,
+					digest: canonicalJsonDigest(normalized),
+				},
+			}),
 			v: 2,
 			review,
 			document: canonicalJsonDigest(
@@ -1953,6 +1961,7 @@ async function checkWith(
 /** The review, a piece at a time: each declaration's plan features, the
  *  baseline the birth will write, and the Project data each its own. */
 function* reviewOf(input: {
+	readonly normalized: unknown;
 	readonly appId: string;
 	readonly key: ReadingKey;
 	readonly fetched: Fetched;
@@ -1987,6 +1996,13 @@ function* reviewOf(input: {
 			runsOnlyOn: declaration.runsOnlyOn,
 			splitDatetime: declaration.splitDatetime,
 			preselected: declaration.preselected,
+			...(source.buildProfiles.length && {
+				installationPlanChecks: source.buildProfiles.some(
+					(p) => p.practiceWorkerId,
+				)
+					? (["installation-profiles", "practice-workers"] as const)
+					: (["installation-profiles"] as const),
+			}),
 			recordedFeatures: adoptionPlanFeatureConfirmations({
 				doc: declaration.doc,
 				target,
@@ -2040,7 +2056,7 @@ function* reviewOf(input: {
 	 * and the ownership of its first import, which is all the review reads of
 	 * it. */
 	yield;
-	const normalized = adoptedSourceTree(key.remoteAppId, source);
+	const normalized = input.normalized;
 	yield;
 	const prepared = adoptionExportBoundary(
 		preselected.doc,
@@ -2075,6 +2091,26 @@ function* reviewOf(input: {
 	return {
 		appName: source.name ?? "",
 		readAt: fetched.readAt,
+		...(draft.identities.installationProfiles?.length && {
+			installations: draft.identities.installationProfiles
+				.map((binding) => {
+					const profile = doc.appSettings.installationProfiles?.[binding.uuid];
+					if (!profile)
+						throw new Error(
+							"The accepted installation binding has no profile in its document.",
+						);
+					return {
+						key: binding.key,
+						name: profile.name,
+						languages: profile.languages,
+						requiresPracticeWorker: profile.requiresPracticeWorker,
+						...(binding.practiceWorkerId && {
+							worker: binding.practiceWorkerId,
+						}),
+					};
+				})
+				.sort((left, right) => compareText(left.key, right.key)),
+		}),
 		creates: {
 			menus: doc.moduleOrder.length,
 			forms: Object.keys(doc.forms).length,

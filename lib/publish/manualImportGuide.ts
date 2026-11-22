@@ -32,6 +32,7 @@ import {
 export type ManualImportStepKind =
 	| "lookup-tables"
 	| "managed-lookup-tables"
+	| "practice-installations"
 	| "import-app"
 	| "commcare-version"
 	| "media"
@@ -49,6 +50,7 @@ export type ManualImportStepKind =
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"lookup-tables",
 	"managed-lookup-tables",
+	"practice-installations",
 	"import-app",
 	"commcare-version",
 	"media",
@@ -84,6 +86,10 @@ export function manualImportStepKey(step: ManualImportStep): string {
 export interface ManualImportGuideInput {
 	/** The app JSON's member name in the ZIP, without its extension. */
 	readonly appFileName: string;
+	readonly practiceInstallations?: readonly {
+		readonly name: string;
+		readonly languages: readonly string[];
+	}[];
 	/** The tag of each lookup table the workbook carries; empty for none. */
 	readonly lookupTags: readonly string[];
 	/**
@@ -448,6 +454,22 @@ export function manualImportGuide(
 		),
 		importAppStep(input.appFileName),
 		commCareVersionStep(input.versionFloor),
+		...(input.practiceInstallations?.length
+			? [
+					{
+						kind: "practice-installations" as const,
+						title: "Choose the practice workers for these installations",
+						lines: [
+							"After importing the app, open Releases → Application Profiles in this project space. Select an active practice worker for each installation and save.",
+							...input.practiceInstallations.map(
+								({ name, languages }) =>
+									`• ${name || "Unnamed profile"} (${languages.join(" → ")}).`,
+							),
+							"Choose Make new version. Under Deploy → Download to Android → Offline Installation, select each named Application Profile and download its CommCare_vN.ccz. Open it on a device and check the expected language and practice data before sending it to workers.",
+						],
+					},
+				]
+			: []),
 		...(input.hasMedia ? [mediaStep()] : []),
 		...(input.capabilities.length > 0
 			? [capabilitiesStep(input.capabilities)]

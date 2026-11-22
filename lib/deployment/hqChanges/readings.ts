@@ -37,10 +37,6 @@ import {
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
-import {
-	targetWireIdentity,
-	type WireIdentityOverride,
-} from "@/lib/commcare/wireIdentity";
 import type { FormParseIssueCode } from "@/lib/commcare/xpath/formParseIssues";
 import type { CheckErrorCode } from "@/lib/domain/expression/typeChecker";
 import { isMediaKind } from "@/lib/domain/multimedia";
@@ -62,6 +58,7 @@ import {
 	type ReadingMediaPlan,
 	readingMediaIndex,
 } from "../reading/projectData/media";
+import { deploymentWireIdentity, type TargetIdentity } from "../targetIdentity";
 import {
 	alignedFromSource,
 	inStoredKeyOrder,
@@ -114,7 +111,7 @@ export interface HqChangeReadingsInput {
 	readonly saveOnlyEditedApplied?: boolean;
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The entities of the deployment's target-identity record (`store.ts::readTargetIdentity`). */
-	readonly overrides: readonly WireIdentityOverride[];
+	readonly targetIdentity: TargetIdentity;
 	readonly media: {
 		/** Every file the reference publishes to the deployment, settled against the source now
 		 *  (`hqMediaStandings`, then `settleHqMedia`): no path `moved` or `unrecorded`. */
@@ -307,7 +304,7 @@ export function* makeHqChangeReadingsSteps(
 		appId,
 		externalIdentityMap(
 			reference.identityDoc,
-			targetWireIdentity(input.overrides),
+			deploymentWireIdentity(input.targetIdentity),
 		),
 	);
 	const shared = {

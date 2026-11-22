@@ -2583,3 +2583,5 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+The named installation reader uses `ApplicationResource.dehydrate(extras=true)` against a specific build ID. Validate the envelope and stored domain, working app, build, version, released state and complete selected profile. Inspect lengths at exact `external_blobs["files/<key>/…"]` paths. Keep only the verdict; the raw application and blob identifiers are private. A cold named download, including HEAD, calls `create_build_files` and saves the build. The working suite validates the chosen account, while preparation of an actual nonempty named restore depends separately on the build’s effective practice privilege.

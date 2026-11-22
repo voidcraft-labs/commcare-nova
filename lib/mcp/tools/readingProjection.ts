@@ -23,6 +23,7 @@ import type {
 	ReadingReview,
 	ReviewTable,
 } from "@/lib/deployment/reading/types";
+import { READING_ID_PATTERN } from "@/lib/deployment/reading/types";
 import {
 	PLATFORM_DECLARATION_LABELS,
 	PLATFORM_DECLARATION_LINES,
@@ -86,7 +87,14 @@ import {
 import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { BringInToolError } from "../errors";
-import { arrayItemChars, cutPage, fitPiece } from "../paging";
+import {
+	arrayItemChars,
+	cutPage,
+	fitPiece,
+	lineParts,
+	PIECE_MAX_CHARS,
+	reviewedPageDigest,
+} from "../paging";
 import {
 	describeFirstPublish,
 	type FirstPublishProjection,
@@ -129,8 +137,36 @@ export interface TableAnswerProjection {
 	readonly reason: string | null;
 }
 
+/** Every physical file a declaration would remove, split losslessly when its name is long. */
+export interface ReviewPublishDetail {
+	readonly kind: "file-removal";
+	readonly runs_only_on: ReadingReview["runsOn"][number]["runsOnlyOn"];
+	readonly split_datetime: boolean;
+	readonly item: number;
+	readonly part: number;
+	readonly parts: number;
+	readonly text: string;
+}
+function reviewPublishDetails(review: ReadingReview): ReviewPublishDetail[] {
+	return review.runsOn.flatMap((choice) =>
+		(choice.removesFiles ?? []).flatMap((line, item) => {
+			const parts = lineParts(line, PIECE_MAX_CHARS - 256);
+			return parts.map((text, i) => ({
+				kind: "file-removal" as const,
+				runs_only_on: choice.runsOnlyOn,
+				split_datetime: choice.splitDatetime,
+				item: item + 1,
+				part: i + 1,
+				parts: parts.length,
+				text,
+			}));
+		}),
+	);
+}
+
 export interface ReviewProjection {
-	readonly review_digest: string;
+	readonly publish_details?: readonly ReviewPublishDetail[];
+	readonly review_digest: string | null;
 	readonly app_name: string;
 	readonly read_at: string;
 	readonly creates: {
@@ -150,6 +186,7 @@ export interface ReviewProjection {
 		readonly split_line: string | null;
 		/** Labels of the plan features Nova records as already in use under this choice. */
 		readonly recorded_features: readonly string[];
+		readonly confirm_before_first_upload?: readonly string[];
 		/** What the first upload from Nova changes in CommCare HQ under this choice. */
 		readonly first_publish: FirstPublishProjection;
 	}[];
@@ -181,6 +218,20 @@ export interface ReviewProjection {
 	}[];
 	/** How many lookup tables the app reads, over every page. */
 	readonly tables_total: number;
+	readonly installations?: readonly {
+		readonly profile_id: string;
+		readonly name: string;
+		readonly languages: readonly string[];
+		readonly practice_worker_id: string | null;
+	}[];
+	readonly installations_total?: number;
+	/** Reassemble all parts of an exceptionally long installation, then parse its JSON. */
+	readonly installation_parts?: readonly {
+		item: number;
+		part: number;
+		parts: number;
+		text: string;
+	}[];
 	/** The cursor of the page that holds the tables after this page's, or null on the last. */
 	readonly next_page: string | null;
 	readonly places: { readonly count: number; readonly sentence: string } | null;
@@ -316,25 +367,39 @@ export function accountDigest(
 function pageCursor(from: number, digest: string): string {
 	return `${from}:${digest}`;
 }
-
-/** A cursor at its longest, so a page measured with it fits whatever cursor it ends up holding. */
-const LONGEST_CURSOR = pageCursor(99_999, "0".repeat(64));
-
+function reviewCursor(from: number, digest: string, readingId: string): string {
+	return `${from}:${reviewedPageDigest("birth", digest, from)}:${readingId}`;
+}
+const LONGEST_CURSOR = reviewCursor(
+	Number.MAX_SAFE_INTEGER,
+	"0".repeat(64),
+	"00000000-0000-7000-8000-000000000000",
+);
 const HEX_DIGEST = /^[0-9a-f]{64}$/;
 
 /** The cursor's two halves, or null for text the schema let through and no account could give. */
-export function parseAccountPage(
-	page: string,
-): { readonly from: number; readonly digest: string } | null {
-	const colon = page.indexOf(":");
-	if (colon < 1) return null;
-	const index = page.slice(0, colon);
-	const digest = page.slice(colon + 1);
+export function parseAccountPage(page: string): {
+	readonly from: number;
+	readonly digest: string;
+	readonly readingId?: string;
+} | null {
+	const [index, digest, readingId, ...extra] = page.split(":");
+	if (
+		!index ||
+		!digest ||
+		extra.length ||
+		(readingId !== undefined && !READING_ID_PATTERN.test(readingId))
+	)
+		return null;
 	const from = Number(index);
-	/* An index another cursor could spell differently ("007") is none Nova gave. */
-	if (!Number.isSafeInteger(from) || String(from) !== index) return null;
-	if (from < 1 || !HEX_DIGEST.test(digest)) return null;
-	return { from, digest };
+	if (
+		!Number.isSafeInteger(from) ||
+		String(from) !== index ||
+		from < 1 ||
+		!HEX_DIGEST.test(digest)
+	)
+		return null;
+	return { from, digest, ...(readingId && { readingId }) };
 }
 
 /**
@@ -342,6 +407,29 @@ export function parseAccountPage(
  * carries: an account's findings under `accountDigest`, or a review's lookup
  * tables under its review digest. Null for a stop, which no page is cut from.
  */
+function installationRowsOf(review: ReadingReview) {
+	type Row = NonNullable<ReviewProjection["installations"]>[number];
+	type Part = NonNullable<ReviewProjection["installation_parts"]>[number];
+	const rows: ({ row: Row } | { part: Part })[] = [];
+	for (const [item, entry] of (review.installations ?? []).entries()) {
+		const row = {
+			profile_id: entry.key,
+			name: entry.name,
+			languages: entry.languages,
+			practice_worker_id: entry.worker ?? null,
+		};
+		const text = JSON.stringify(row);
+		if (text.length < PIECE_MAX_CHARS) {
+			rows.push({ row });
+			continue;
+		}
+		const pieces = lineParts(text, PIECE_MAX_CHARS - 256);
+		for (const [n, text] of pieces.entries())
+			rows.push({ part: { item, part: n + 1, parts: pieces.length, text } });
+	}
+	return rows;
+}
+
 function pagedOf(
 	answer: ReadingAnswer,
 ): { readonly length: number; readonly digest: string } | null {
@@ -352,7 +440,10 @@ function pagedOf(
 			return { length: answer.findings.length, digest: accountDigest(answer) };
 		case "review":
 			return {
-				length: answer.review.tables.length,
+				length:
+					reviewPublishDetails(answer.review).length +
+					answer.review.tables.length +
+					installationRowsOf(answer.review).length,
 				digest: answer.reviewDigest,
 			};
 	}
@@ -370,11 +461,19 @@ function pagedOf(
  */
 export function pageFor(
 	answer: ReadingAnswer,
-	cursor: { readonly from: number; readonly digest: string } | null,
+	cursor: ReturnType<typeof parseAccountPage>,
 ): { readonly from: number; readonly restarted: boolean } | null {
 	const paged = pagedOf(answer);
 	if (cursor === null || paged === null) return { from: 0, restarted: false };
-	if (paged.digest !== cursor.digest) return { from: 0, restarted: true };
+	const proof =
+		answer.kind === "review"
+			? reviewedPageDigest("birth", paged.digest, cursor.from)
+			: paged.digest;
+	if (
+		proof !== cursor.digest ||
+		(answer.kind === "review" && answer.readingId !== cursor.readingId)
+	)
+		return { from: 0, restarted: true };
 	if (cursor.from >= paged.length) return null;
 	return { from: cursor.from, restarted: false };
 }
@@ -606,6 +705,7 @@ export function tableProjection(
 function reviewProjection(
 	review: ReadingReview,
 	reviewDigest: string,
+	readingId: string,
 	project: string,
 	domain: string,
 	from: number,
@@ -617,7 +717,9 @@ function reviewProjection(
 			"A review answered with no preselected way to run. A review offers at least one, exactly one of them preselected. Look at lib/deployment/reading/gather.ts::gatherReading.",
 		);
 	const asks = firstUploadAsks(review, preselected);
+	const files = reviewPublishDetails(review);
 	const shell: ReviewProjection = {
+		...(files.length && { publish_details: [] }),
 		review_digest: reviewDigest,
 		app_name: cutFindingName(review.appName),
 		read_at: review.readAt,
@@ -639,6 +741,11 @@ function reviewProjection(
 				? splitDatetimeLine(review.datetimeQuestions)
 				: null,
 			recorded_features: recordedFeatureLabels(choice),
+			...(choice.installationPlanChecks?.length && {
+				confirm_before_first_upload: choice.installationPlanChecks.map(
+					(id) => PLAN_FEATURES[id].label,
+				),
+			}),
 			first_publish: describeFirstPublish(
 				firstPublishLines(choice.firstPublish, "review"),
 			),
@@ -670,6 +777,11 @@ function reviewProjection(
 		},
 		tables: [],
 		tables_total: review.tables.length,
+		...(review.installations?.length && {
+			installations: [],
+			installation_parts: [],
+			installations_total: review.installations.length,
+		}),
 		next_page: LONGEST_CURSOR,
 		places:
 			review.places === null
@@ -705,19 +817,47 @@ function reviewProjection(
 		}
 		return one;
 	};
+	const profileRows = installationRowsOf(review);
+	const installations: NonNullable<
+		ReviewProjection["installations"]
+	>[number][] = [];
+	const parts: NonNullable<ReviewProjection["installation_parts"]>[number][] =
+		[];
 	const tables: ReviewProjection["tables"][number][] = [];
+	const shown: ReviewPublishDetail[] = [];
+	const profileStart = files.length + review.tables.length;
+	const valueAt = (index: number) => {
+		if (index < files.length) return files[index];
+		if (index < profileStart) return projectedAt(index - files.length);
+		const row = profileRows[index - profileStart];
+		return "row" in row ? row.row : row.part;
+	};
+	const count = profileStart + profileRows.length;
 	const end = cutPage({
-		count: review.tables.length,
+		count,
 		from,
 		shellChars: measure(shell),
-		pieceChars: (index, taken) => arrayItemChars(projectedAt(index), taken),
-		take: (index) => tables.push(projectedAt(index)),
+		pieceChars: (index) => arrayItemChars(valueAt(index), 1),
+		take: (index) => {
+			if (index < files.length) shown.push(files[index]);
+			else if (index < profileStart)
+				tables.push(projectedAt(index - files.length));
+			else {
+				const row = profileRows[index - profileStart];
+				if ("row" in row) installations.push(row.row);
+				else parts.push(row.part);
+			}
+		},
 	});
+
 	return {
 		...shell,
 		tables,
-		next_page:
-			end < review.tables.length ? pageCursor(end, reviewDigest) : null,
+		...(files.length && { publish_details: shown }),
+		...(profileRows.length && { installations }),
+		...(parts.length && { installation_parts: parts }),
+		review_digest: end < count ? null : reviewDigest,
+		next_page: end < count ? reviewCursor(end, reviewDigest, readingId) : null,
 	};
 }
 
@@ -779,6 +919,7 @@ export function describeReading(
 				review: reviewProjection(
 					answer.review,
 					answer.reviewDigest,
+					answer.readingId,
 					project,
 					key.domain,
 					options.from,

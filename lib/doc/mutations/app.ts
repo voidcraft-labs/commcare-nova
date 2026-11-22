@@ -102,6 +102,13 @@ export function applyAppMutation(
 			const current = effectiveAppLocalization(draft.localization);
 			if (current.languageOrder.length !== 1) return;
 			const tag = languageTag(mut.language);
+			for (const profile of Object.values(
+				draft.appSettings.installationProfiles ?? {},
+			)) {
+				profile.languages = profile.languages.map((language) =>
+					language === current.sourceLanguage ? tag : language,
+				);
+			}
 			draft.localization = {
 				sourceLanguage: tag,
 				defaultLanguage: tag,

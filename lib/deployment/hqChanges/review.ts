@@ -1,4 +1,5 @@
 import "server-only";
+import { installationDefinitionsChanged } from "../installationProfileReview";
 
 /**
  * A review of the changes made in CommCare HQ to an app Nova publishes
@@ -41,7 +42,6 @@ import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { placeOrder } from "@/lib/commcare/reader/place";
 import { readWorkLimit, sourceCharacters } from "@/lib/commcare/reader/work";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { WorkCancelled, WorkLimitReached } from "@/lib/commcare/workMeter";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
@@ -142,12 +142,14 @@ import {
 	withDeploymentReadSnapshot,
 } from "../store";
 import {
+	deploymentWireIdentity,
 	exportIdentityOf,
 	formIdsAgree,
 	observedTargetIdentity,
 	resolveTargetIdentity,
 	type TargetIdentity,
 	targetIdentityChanges,
+	unboundInstallationKeys,
 } from "../targetIdentity";
 import type { AppBaseline, DeploymentResource } from "../types";
 import { sourceFromBaseline } from "./baselineSource";
@@ -227,6 +229,7 @@ export interface HqChangesBasis {
 	/** Taken before CommCare HQ was asked. */
 	readonly observedAt: string;
 	readonly source: HqAppSource;
+	readonly workingVersion: number;
 	readonly modules: readonly HqAlignedModule[];
 	readonly normalized: {
 		readonly normalized: unknown;
@@ -251,6 +254,7 @@ export interface FetchedHqChanges extends HqChangesBasis {
 
 /** What the check decided, for a bring-in to act on. */
 export interface CheckedHqChanges {
+	readonly installationReviewDigest?: string;
 	readonly fetched: FetchedHqChanges;
 	readonly plan: Extract<
 		HqChangePlan,
@@ -907,6 +911,9 @@ async function computeWith(
 		head,
 	});
 	const targetIdentity = await readTargetIdentity(scope, target);
+	const profilesNeedReview =
+		installationDefinitionsChanged(baseline.source, source.buildProfiles) ||
+		unboundInstallationKeys(source.buildProfiles, targetIdentity).length > 0;
 	if (reference.kind !== "ok") {
 		/* With no reference there are no files to settle: only a recorded id
 		 * that moved says a file changed, as Refresh reads it. */
@@ -923,7 +930,11 @@ async function computeWith(
 				),
 			}),
 		);
-		if (parts.length === 0 && formIdsAgree(head.doc, targetIdentity, modules))
+		if (
+			parts.length === 0 &&
+			!profilesNeedReview &&
+			formIdsAgree(head.doc, targetIdentity, modules)
+		)
 			return answer(unchanged(since));
 		logUnavailable(scope, operation, reference.kind);
 		return answer(unavailable(reference.kind, since));
@@ -988,6 +999,7 @@ async function computeWith(
 		targetIdentity,
 		observedAt,
 		source,
+		workingVersion: reading.version,
 		modules,
 		normalized,
 		published,
@@ -999,6 +1011,7 @@ async function computeWith(
 	 * save: such a save is read, and its review names the new id. */
 	if (
 		parts.length === 0 &&
+		!profilesNeedReview &&
 		formIdsAgree(reference.doc, targetIdentity, modules)
 	) {
 		const nextRecord = nextHqMediaRecord({
@@ -1235,7 +1248,7 @@ function resolverOf(fetched: HqChangesBasis) {
 		fetched.scope.appId,
 		externalIdentityMap(
 			fetched.reference.identityDoc,
-			targetWireIdentity(fetched.targetIdentity.entities),
+			deploymentWireIdentity(fetched.targetIdentity),
 		),
 	);
 }
@@ -1278,7 +1291,7 @@ function readingsWith(
 			saveOnlyEditedApplied: fetched.saveOnlyEditedApplied,
 		}),
 		reference: fetched.reference,
-		overrides: fetched.targetIdentity.entities,
+		targetIdentity: fetched.targetIdentity,
 		media: { published: fetched.published, base, now },
 		heldExpansions: pieces.expansions,
 	});
@@ -1488,6 +1501,10 @@ export async function checkHqChanges(
 	try {
 		plan = await pieces.at("the plan").steps(
 			planHqChangesSteps({
+				legacyProfileKeys: unboundInstallationKeys(
+					readings.inputs.base.source.buildProfiles,
+					fetched.targetIdentity,
+				),
 				reference,
 				now: fetched.head.doc,
 				readings,
@@ -1540,6 +1557,29 @@ export async function checkHqChanges(
 		plan.kind === "changes"
 			? await ownAssetContent(plan.target, targetFiles, scope.projectId)
 			: new Map<MediaAssetId, string>();
+	/* The record a take writes, and the lines naming where it moved, each its
+	 * own piece: a document at the cap walks its media references. */
+	const recorded = await pieces.at("the target identity").run(() =>
+		takenTargetIdentity({
+			fetched,
+			draft,
+			mediaNow: media.now,
+			doc: plan.kind === "changes" ? plan.target : fetched.head.doc,
+		}),
+	);
+	if (recorded === null) return identityRowsDefect(fetched);
+	const identityChanges = await pieces
+		.at("where HQ keeps")
+		.run(() =>
+			targetIdentityChanges(
+				recorded.read,
+				recorded.next,
+				plan.kind === "changes" ? plan.target : fetched.head.doc,
+				fetched.head.doc,
+				{ base: readings.base.draft, now: draft },
+			),
+		);
+	const installations = identityChanges.installationProfiles;
 	const built = await pieces.at("the next publish's body").run(() => {
 		const baseTags = new Set(
 			Object.keys(projectDataReadsOf(data, readings.base).lookupFields),
@@ -1559,6 +1599,21 @@ export async function checkHqChanges(
 					).tables.filter((table) => newTagSet.has(table.tag));
 		const reviewDigest = hqChangesReviewDigest({
 			v: 1,
+			...(installations?.length && {
+				installationReview: {
+					app: scope.appId,
+					actor: scope.actorUserId,
+					project: scope.projectId,
+					server: fetched.target.server,
+					domain: fetched.target.domain,
+					remoteApp: fetched.live.remoteId,
+					workingVersion: fetched.workingVersion,
+					mapping: fetched.live.pushToken,
+					deployment: fetched.deployment.id,
+					endings: fetched.deployment.endings,
+					changes: installations,
+				},
+			}),
 			baselineDigest: fetched.baseline.sourceDigest,
 			sourceDigest: fetched.normalized.digest,
 			headSeq: fetched.head.seq,
@@ -1571,18 +1626,10 @@ export async function checkHqChanges(
 		});
 		return { newTags, tables, reviewDigest };
 	});
-	/* The record a take writes, and the lines naming where it moved, each its
-	 * own piece: a document at the cap walks its media references. */
-	const recorded = await pieces.at("the target identity").run(() =>
-		takenTargetIdentity({
-			fetched,
-			draft,
-			mediaNow: media.now,
-			doc: plan.kind === "changes" ? plan.target : fetched.head.doc,
-		}),
-	);
-	if (recorded === null) return identityRowsDefect(fetched);
 	const checked: CheckedHqChanges = {
+		...(installations?.length && {
+			installationReviewDigest: built.reviewDigest,
+		}),
 		fetched,
 		plan,
 		declaration,
@@ -1595,21 +1642,11 @@ export async function checkHqChanges(
 		targetIdentity: recorded,
 	};
 	const publishChanges = publishChangeSentences(plan.publishChanges);
-	const whereHqKeeps = await pieces
-		.at("where HQ keeps")
-		.run(() =>
-			whereHqKeepsLines(
-				targetIdentityChanges(
-					recorded.read,
-					recorded.next,
-					plan.kind === "changes" ? plan.target : fetched.head.doc,
-					fetched.head.doc,
-				),
-			),
-		);
+	const whereHqKeeps = whereHqKeepsLines(identityChanges);
 	if (
-		plan.kind === "nothing" ||
-		(plan.batch.length === 0 && plan.renamedInNova.length === 0)
+		!installations?.length &&
+		(plan.kind === "nothing" ||
+			(plan.batch.length === 0 && plan.renamedInNova.length === 0))
 	)
 		return {
 			kind: "checked",
@@ -1628,24 +1665,33 @@ export async function checkHqChanges(
 		kind: "checked",
 		review: {
 			kind: "changes",
+			...(installations?.length && { requiresReview: true as const }),
 			since: fetched.since,
 			hqChanges: [
-				...documentChangeLines(plan.hqChanges, "hq"),
+				...(plan.kind === "changes"
+					? documentChangeLines(plan.hqChanges, "hq")
+					: []),
 				...whereHqKeeps,
 			],
-			novaChanges: documentChangeLines(plan.novaChanges, "nova"),
+			novaChanges:
+				plan.kind === "changes"
+					? documentChangeLines(plan.novaChanges, "nova")
+					: [],
 			madeBy: [],
-			caseData: [
-				...(plan.removedCaseProperties.length > 0
-					? [caseDataLine(plan.removedCaseProperties)]
-					: []),
-				...(plan.removedCaseTypes.length > 0
-					? [caseTypesLine(plan.removedCaseTypes)]
-					: []),
-			],
+			caseData:
+				plan.kind === "nothing"
+					? []
+					: [
+							...(plan.removedCaseProperties.length > 0
+								? [caseDataLine(plan.removedCaseProperties)]
+								: []),
+							...(plan.removedCaseTypes.length > 0
+								? [caseTypesLine(plan.removedCaseTypes)]
+								: []),
+						],
 			publishChanges,
 			observedDigest: fetched.normalized.digest,
-			renamedInNova: plan.renamedInNova,
+			renamedInNova: plan.kind === "changes" ? plan.renamedInNova : [],
 			tables: built.tables,
 			projectName: fetched.projectName,
 			readingId: fetched.readingId,

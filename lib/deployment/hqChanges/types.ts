@@ -63,6 +63,7 @@ export type HqChangesReview =
 	  }
 	| {
 			readonly kind: "changes";
+			readonly requiresReview?: true;
 			readonly since: DriftReference;
 			/**
 			 * Every line of what changed in CommCare HQ, then where CommCare HQ

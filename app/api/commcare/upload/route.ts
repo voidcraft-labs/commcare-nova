@@ -1,3 +1,4 @@
+import { INSTALLATION_REVIEW_TOKEN } from "@/lib/publish/installationReviewToken";
 /**
  * Publish an app to CommCare HQ: POST /api/commcare/upload.
  *
@@ -337,7 +338,7 @@ export async function POST(req: NextRequest) {
 			confirm,
 			...(confirmWebApps !== undefined && { confirmWebApps }),
 			...(typeof body.confirmInstallationProfiles === "string" &&
-				/^[a-f0-9]{64}$/.test(body.confirmInstallationProfiles) && {
+				INSTALLATION_REVIEW_TOKEN.test(body.confirmInstallationProfiles) && {
 					confirmInstallationProfiles: body.confirmInstallationProfiles,
 				}),
 			...(driftDate !== undefined && { driftDate }),

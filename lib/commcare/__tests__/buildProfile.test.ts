@@ -89,3 +89,27 @@ it("checks the selected profile key, every ordered locale and the private restor
 		false,
 	);
 });
+
+it.each([
+	["clinic&west", false],
+	["a+b", false],
+	["a%2Fb", false],
+	["plain%", true],
+	["plain=", true],
+	["a/b", true],
+	["district#north", false],
+] as const)(
+	"matches only a native link that selects its physical profile %s",
+	(key, expected) => {
+		const xmlKey = key.replaceAll("&", "&amp;");
+		const xml = `<profile buildProfileID="${xmlKey}"><suite><resource id="suite"><location authority="remote">https://www.commcarehq.org/a/clinic/apps/download/build/suite.xml?profile=${xmlKey}</location></resource></suite></profile>`;
+		expect(
+			profileReferencesBuildSuite(xml, {
+				server: "production",
+				domain: "clinic",
+				buildId: "build",
+				profileKey: key,
+			}),
+		).toBe(expected);
+	},
+);

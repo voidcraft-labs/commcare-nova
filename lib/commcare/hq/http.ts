@@ -44,6 +44,8 @@ export interface CommCareApiError {
 	 * slug.
 	 */
 	edgeRefusal?: boolean;
+	/** The app has a named installation with no addressable HQ key. */
+	installationProfileKeyUnusable?: boolean;
 	/**
 	 * Why a read synthesized its status: no answer reached Nova (`network`,
 	 * 503), the deadline ran out (`timeout`, 503), the body was longer than
@@ -317,7 +319,7 @@ export interface HqAnswer {
 
 /** What a request to CommCare HQ carries beyond its URL and credentials. */
 export interface HqRequest {
-	readonly method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH";
+	readonly method?: "GET" | "POST" | "PUT" | "PATCH";
 	/** The `Accept` header, where the request names one. */
 	readonly accept?: string;
 	/** The `Content-Type` of a JSON body; a `FormData` body sets its own. */

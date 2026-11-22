@@ -8,9 +8,9 @@ import "server-only";
  * through `LoginAndDomainAuthentication`.
  *
  * It answers the app's real form ids, each form's `xmlns`, HQ's summary of
- * every question, and the app's builds. `extras=true` is never sent: it adds
- * the raw stored document, which doubles the largest read for nothing the
- * source read does not give.
+ * every question, and the app's builds. This summary omits the raw document.
+ * The named installation reader separately requests an exact build with
+ * extras=true to inspect its already stored file metadata.
  *
  * `readHqApplication` checks the envelope and the builds and keeps the
  * modules unread, so a question summary Nova cannot read never stops a

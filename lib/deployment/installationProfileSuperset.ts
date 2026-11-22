@@ -1,8 +1,10 @@
 import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
+	filledProse,
 	snapshotTranslationUnits,
 	storedTranslationValue,
+	TRANSLATION_FILL_ROLES,
 	type TranslationEntry,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
@@ -38,7 +40,11 @@ export function intermediateInstallationDoc(
 		const entries: Record<string, TranslationEntry> = {};
 		for (const unit of snapshotTranslationUnits(desired).values()) {
 			const old = oldUnits.get(unit.id);
-			const value = old ? storedTranslationValue(prior, tag, old) : unit.source;
+			const value = !old
+				? unit.source
+				: TRANSLATION_FILL_ROLES.has(old.role)
+					? filledProse(prior, old, tag)
+					: storedTranslationValue(prior, tag, old);
 			if (translationValueIntegrityIssue(unit, value))
 				return {
 					issue: `The previous “${code}” translation for “${unit.breadcrumb.join(" / ")}” needs an edit before workers can switch installations. Keep the language in the app, update its text, then publish again.`,

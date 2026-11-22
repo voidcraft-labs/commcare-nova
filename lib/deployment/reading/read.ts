@@ -53,6 +53,7 @@ export function readHqAppForReview(
 	options: {
 		readonly onEvent: (event: ReadingEvent) => void;
 		readonly cancel?: AbortSignal;
+		readonly continuationReadingId?: string;
 	},
 ): Promise<ReadingAnswer> {
 	return withBringInRoom(
@@ -60,6 +61,7 @@ export function readHqAppForReview(
 		(room) =>
 			readInRoom(actor, key, {
 				onEvent: options.onEvent,
+				continuationReadingId: options.continuationReadingId,
 				cancel:
 					options.cancel === undefined
 						? room.signal
@@ -75,10 +77,11 @@ async function readInRoom(
 	options: {
 		readonly onEvent: (event: ReadingEvent) => void;
 		readonly cancel?: AbortSignal;
+		readonly continuationReadingId?: string;
 	},
 ): Promise<ReadingAnswer> {
 	const started = performance.now();
-	const readingId = uuidv7();
+	const readingId = options.continuationReadingId ?? uuidv7();
 	const appId = broughtInAppId(actor.userId, key, readingId);
 	const { result, facts } = await gatherReading({
 		actor,

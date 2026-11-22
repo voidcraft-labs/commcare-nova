@@ -503,6 +503,15 @@ export const FIX_CAUSE_CLAUSES: Readonly<
 export const FIX_IN_HQ_SENTENCES: Readonly<
 	Partial<Record<Subject, Partial<Record<FixCause, string>>>>
 > = {
+	"build-profiles": {
+		either:
+			"An installation needs a default language and a set of languages available in the app. Check its selection in Releases under Application Profiles.",
+		"hq-refuses":
+			"An installation needs a default language. On the app’s Releases page, open Application Profiles and choose each language once from the app’s languages.",
+		"breaks-when-run":
+			"An installation needs a default language and a set of languages available in the app. Check its selection in Releases under Application Profiles.",
+	},
+
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
@@ -817,6 +826,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		title: "CommCare HQ can't summarize this menu",
 		body: "CommCare HQ returned an error where its own summary of this menu's forms should be, so Nova has nothing sure to check its reading against.",
 		next: "Opening each of the menu's forms in CommCare HQ's form builder usually shows which one is broken. Once it saves cleanly, you can check again.",
+	},
+	"installation-profile-key-unusable": {
+		title: "An installation profile needs a new ID",
+		body: "A worker following this installation link in CommCare HQ would miss the intended profile. Its ID is missing or changes when the link is opened.",
+		next: "On the app’s Releases page in CommCare HQ, open Application Profiles. Recreate the affected profile with the same languages and practice worker, remove the old entry, then check again.",
 	},
 	"app-unreadable-in-hq": {
 		title: "CommCare HQ can't summarize this app",

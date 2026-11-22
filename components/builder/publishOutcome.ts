@@ -33,6 +33,7 @@ import type {
 	DeploymentAttemptRefusal,
 	DeploymentConfirmationKey,
 	DeploymentConfirmationNeeded,
+	DeploymentFailure,
 	DeploymentFailureCode,
 	DeploymentRecord,
 	DeploymentRemoteChange,
@@ -363,6 +364,7 @@ export type PublishOutcome =
 			 */
 			readonly placementMoves: PlacementMoveOfferView | null;
 			readonly installationProfileConfirmation?: string;
+			installationProfileChoices?: DeploymentFailure["installationProfileChoices"];
 			readonly installationProfileReviewUrl?: string;
 			/**
 			 * What the attempt recorded before it stopped. A refusal after an
@@ -484,6 +486,8 @@ export function publishOutcome(
 			confirmationsNeeded: body.refusal.confirmationsNeeded ?? [],
 			webAppsChange: webAppsChangeOf(body.refusal.webAppsChange ?? null),
 			placementMoves: body.refusal.placementMoves ?? null,
+			installationProfileChoices:
+				body.refusal.failure.installationProfileChoices,
 			installationProfileConfirmation:
 				body.refusal.failure.installationProfileConfirmation,
 			installationProfileReviewUrl:

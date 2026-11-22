@@ -1795,9 +1795,13 @@ export function recordedFeaturesLine(
 	const labels = choice.recordedFeatures.flatMap((key) =>
 		key.kind === "plan-feature" ? [PLAN_FEATURES[key.subject].label] : [],
 	);
-	return labels.length === 0
-		? null
-		: adoptionRecordedFeaturesLine(labels, domain);
+	const lines = [];
+	if (labels.length) lines.push(adoptionRecordedFeaturesLine(labels, domain));
+	if (choice.installationPlanChecks?.length)
+		lines.push(
+			`Before the first publish, Nova will ask you to confirm that “${domain}” has ${choice.installationPlanChecks.map((id) => PLAN_FEATURES[id].label).join(" and ")}. CommCare HQ can retain these profiles when its plan does not support their use.`,
+		);
+	return lines.length ? lines.join(" ") : null;
 }
 
 /** Where the review shows a create's refusal: under the name, above the footer, or not at all. */

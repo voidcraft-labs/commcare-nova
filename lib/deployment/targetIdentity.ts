@@ -388,7 +388,17 @@ export function resolveTargetIdentity(
 		entities,
 		keyedCaseIds,
 		mediaPaths,
-		installationProfiles: observed.installationProfiles,
+		installationProfiles: observed.installationProfiles?.map((binding) => {
+			const prior = stored.installationProfiles?.find(
+				(held) =>
+					held.uuid === binding.uuid &&
+					held.key === binding.key &&
+					held.practiceWorkerId === binding.practiceWorkerId,
+			);
+			return prior?.practiceWitness
+				? { ...binding, practiceWitness: prior.practiceWitness }
+				: binding;
+		}),
 		columnWords,
 	});
 }
@@ -406,6 +416,27 @@ export interface ExportIdentity {
 	readonly heldMediaPaths: ReadonlyMap<MediaAssetId, string>;
 }
 
+/** A baseline written before Nova modeled profiles can hold a key the ledger never adopted. */
+export function unboundInstallationKeys(
+	profiles: readonly { readonly id: string }[],
+	record: TargetIdentity,
+): string[] {
+	const held = new Set(
+		(record.installationProfiles ?? []).map((profile) => profile.key),
+	);
+	return profiles
+		.filter((profile) => !held.has(profile.id))
+		.map((profile) => profile.id);
+}
+
+export function deploymentWireIdentity(record: TargetIdentity): WireIdentity {
+	return targetWireIdentity(
+		record.entities,
+		record.columnWords,
+		record.installationProfiles,
+	);
+}
+
 /**
  * THE ONE PROJECTION: what a publish, a `.ccz`, the HQ import file, preflight's
  * export boundary and a take's ownership print `doc` under for a deployment
@@ -417,11 +448,7 @@ export function exportIdentityOf(
 	record: TargetIdentity,
 ): ExportIdentity {
 	return {
-		identity: targetWireIdentity(
-			record.entities,
-			record.columnWords,
-			record.installationProfiles,
-		),
+		identity: deploymentWireIdentity(record),
 		keyedCaseIdPrefixes: keyedCaseIdPrefixesFor(doc, record.keyedCaseIds),
 		heldMediaPaths: new Map(
 			record.mediaPaths.map((row) => [row.assetId, row.wirePath]),
@@ -430,8 +457,40 @@ export function exportIdentityOf(
 }
 
 /** What changed between two records, as a review names it to a person. */
+export interface InstallationReviewState {
+	readonly name: string;
+	readonly languages: readonly string[];
+	readonly requiresPracticeWorker: boolean;
+	readonly key?: string;
+	readonly worker?: string;
+}
+export interface InstallationReviewChange {
+	readonly uuid: string;
+	readonly before: InstallationReviewState | null;
+	readonly after: InstallationReviewState | null;
+	/** A separate local edit, when it differs from HQ’s previous definition. */
+	readonly localBefore?: InstallationReviewState | null;
+	readonly remainsRemoved?: boolean;
+}
+
+function installationReviewState(
+	doc: BlueprintDoc,
+	bindings: Map<string, InstallationProfileBinding>,
+	uuid: string,
+): InstallationReviewState | null {
+	const profile = doc.appSettings.installationProfiles?.[uuid];
+	if (!profile) return null;
+	const binding = bindings.get(uuid);
+	return {
+		name: profile.name,
+		languages: profile.languages,
+		requiresPracticeWorker: profile.requiresPracticeWorker,
+		...(binding && { key: binding.key }),
+		...(binding?.practiceWorkerId && { worker: binding.practiceWorkerId }),
+	};
+}
 export interface TargetIdentityChanges {
-	readonly installationProfiles?: readonly string[];
+	readonly installationProfiles?: readonly InstallationReviewChange[];
 	/** The forms `doc` holds whose id in CommCare HQ moved, by name. */
 	readonly formIds: readonly string[];
 	/** The forms whose keyed creates moved to another case id prefix, by name. */
@@ -455,6 +514,20 @@ export function targetIdentityChanges(
 	next: TargetIdentity,
 	doc: BlueprintDoc,
 	held: BlueprintDoc,
+	sourceReadings?: {
+		readonly base: {
+			readonly doc: BlueprintDoc;
+			readonly identities: {
+				readonly installationProfiles?: readonly InstallationProfileBinding[];
+			};
+		};
+		readonly now: {
+			readonly doc: BlueprintDoc;
+			readonly identities: {
+				readonly installationProfiles?: readonly InstallationProfileBinding[];
+			};
+		};
+	},
 ): TargetIdentityChanges {
 	const before = exportIdentityOf(doc, stored);
 	const after = exportIdentityOf(doc, next);
@@ -515,25 +588,82 @@ export function targetIdentityChanges(
 					columnFields.add(module.name);
 		}
 	}
-	const oldBindings = new Map(
-		(stored.installationProfiles ?? []).map((b) => [b.uuid, b]),
+	const bindings = (items: readonly InstallationProfileBinding[] | undefined) =>
+		new Map<string, InstallationProfileBinding>(
+			(items ?? []).map((binding) => [binding.uuid, binding]),
+		);
+	const previous = bindings(stored.installationProfiles);
+	const following = bindings(next.installationProfiles);
+	const hqBefore = bindings(
+		sourceReadings?.base.identities.installationProfiles,
 	);
-	const changedProfiles = (next.installationProfiles ?? [])
-		.filter((b) => {
-			const previous = oldBindings.get(b.uuid);
-			return (
-				held.appSettings.installationProfiles?.[b.uuid] &&
-				previous &&
-				(previous.key !== b.key ||
-					previous.practiceWorkerId !== b.practiceWorkerId)
-			);
-		})
-		.map(
-			(b) =>
-				doc.appSettings.installationProfiles?.[b.uuid]?.name ??
-				"Unnamed profile",
-		)
-		.sort(codeUnitOrder);
+	const hqAfter = bindings(sourceReadings?.now.identities.installationProfiles);
+	const ids = new Set([
+		...previous.keys(),
+		...following.keys(),
+		...hqBefore.keys(),
+		...hqAfter.keys(),
+		...Object.keys(held.appSettings.installationProfiles ?? {}),
+		...Object.keys(doc.appSettings.installationProfiles ?? {}),
+	]);
+	const changedProfiles: InstallationReviewChange[] = [];
+	for (const uuid of [...ids].sort(codeUnitOrder)) {
+		const localBefore = installationReviewState(held, previous, uuid);
+		const localAfter = installationReviewState(doc, following, uuid);
+		const sourceBefore = sourceReadings
+			? installationReviewState(sourceReadings.base.doc, hqBefore, uuid)
+			: null;
+		const sourceAfter = sourceReadings
+			? installationReviewState(sourceReadings.now.doc, hqAfter, uuid)
+			: null;
+		// Compare the two actual HQ reads even when a local edit independently
+		// converged, diverged, or removed the document occurrence entirely.
+		if (JSON.stringify(sourceBefore) !== JSON.stringify(sourceAfter)) {
+			changedProfiles.push({
+				uuid,
+				before: sourceBefore,
+				after: sourceAfter,
+				...(JSON.stringify(localBefore) !== JSON.stringify(sourceBefore) && {
+					localBefore,
+				}),
+				...(sourceAfter && !localAfter && { remainsRemoved: true }),
+			});
+		} else if (JSON.stringify(localBefore) !== JSON.stringify(localAfter)) {
+			// A historical baseline may predate installation support in Nova.
+			changedProfiles.push({ uuid, before: localBefore, after: localAfter });
+		} else {
+			const old = previous.get(uuid),
+				current = following.get(uuid);
+			if (
+				(old?.key !== current?.key ||
+					old?.practiceWorkerId !== current?.practiceWorkerId) &&
+				(sourceAfter || sourceBefore)
+			) {
+				const definition = sourceAfter ?? sourceBefore;
+				if (!definition) continue;
+				const state = (
+					binding: InstallationProfileBinding | undefined,
+				): InstallationReviewState | null =>
+					binding
+						? {
+								name: definition.name,
+								languages: definition.languages,
+								requiresPracticeWorker: !!binding.practiceWorkerId,
+								key: binding.key,
+								...(binding.practiceWorkerId && {
+									worker: binding.practiceWorkerId,
+								}),
+							}
+						: null;
+				changedProfiles.push({
+					uuid,
+					before: state(old),
+					after: state(current),
+					...(!localAfter && { remainsRemoved: true }),
+				});
+			}
+		}
+	}
 
 	return {
 		formIds: [...formIds].sort(codeUnitOrder),

@@ -782,6 +782,12 @@ export async function runDeploymentPreflight(
 	// emits the one that results. It only reads CommCare HQ, and what it
 	// writes is Nova's own copy, which a publish refused later keeps: it is
 	// CommCare HQ's current state, what Refresh would have written.
+	const targetIdentity = await readTargetIdentity(input.access, target);
+	const managedProfiles = Boolean(
+		targetIdentity.installationProfiles?.length ||
+			Object.keys(input.doc.appSettings.installationProfiles ?? {}).length,
+	);
+	if (managedProfiles) input.requireHqImport?.();
 	const managedHere = await managedDataEdge(input, creds, domain);
 	if (managedHere !== null) {
 		checks.push(managedHere.check);
@@ -807,11 +813,6 @@ export async function runDeploymentPreflight(
 	// Lookup tables and an owner beneath the current case owner both pass
 	// now, the first because this publish pushes them and the second
 	// because it never carried a Nova identity to begin with.
-	const targetIdentity = await readTargetIdentity(input.access, target);
-	const managedProfiles = Boolean(
-		targetIdentity.installationProfiles?.length ||
-			Object.keys(input.doc.appSettings.installationProfiles ?? {}).length,
-	);
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
 		access: input.access,
@@ -1653,6 +1654,7 @@ export async function runDeploymentPreflight(
 			novaAppId: input.access.appId,
 			remoteAppId: appId,
 			current: normalized,
+			managedProfiles,
 			baseline: appBaseline,
 			since: driftReferenceOf(appBaseline, input.inPlaceUpdate),
 			languageNames: input.languageNames,
@@ -1674,6 +1676,7 @@ export async function runDeploymentPreflight(
 					(change.parts.length === 1 &&
 						change.parts[0] === "Installation profiles")) &&
 				reviewed.appId === appId &&
+				reviewed.claim?.mapping === input.inPlaceUpdate?.pushToken &&
 				reviewed.sequence === input.compiledAtSeq &&
 				targetApp &&
 				reviewed.unrelatedDigest ===
@@ -1786,6 +1789,28 @@ export async function runDeploymentPreflight(
 			items: [],
 		});
 	}
+
+	const witnessedProfiles = (targetIdentity.installationProfiles ?? []).flatMap(
+		(binding) => {
+			const witness = binding.practiceWitness;
+			const profile =
+				input.doc.appSettings.installationProfiles?.[binding.uuid];
+			return witness &&
+				witness.appId === targetApp?.appId &&
+				profile?.requiresPracticeWorker
+				? [`“${profile.name}” · version ${witness.version}`]
+				: [];
+		},
+	);
+	if (witnessedProfiles.length)
+		checks.push({
+			id: "build-profiles",
+			title: "Practice installations",
+			status: "passed",
+			detail:
+				"CommCare HQ prepared these workers’ restores on the versions shown. The current practice-worker subscription is unverified.",
+			items: witnessedProfiles,
+		});
 
 	// ── 8b. Does the app's Web App setting on HQ match where it runs? ──
 	// Blocking, after `hq-changes` because a person decides a drift discard
@@ -2060,6 +2085,7 @@ function appRemoteChange(input: {
 	readonly novaAppId: string;
 	readonly remoteAppId: string;
 	readonly current: { readonly normalized: unknown; readonly digest: string };
+	readonly managedProfiles: boolean;
 	readonly baseline: AppBaseline | null;
 	/** What the baseline is: a publish's read, or the read Nova brought the app in from. */
 	readonly since: DriftReference;
@@ -2099,9 +2125,12 @@ function appRemoteChange(input: {
 	const descriptions = parts.map(describeAppChange);
 	const held = baseline.source as { build_profiles?: unknown };
 	const now = input.current.normalized as { build_profiles?: unknown };
+	// A profile Nova has never managed gets its own missing-language or adoption
+	// review. Unrelated changes to the app still go through ordinary drift first.
 	if (
+		input.managedProfiles &&
 		canonicalJsonText(held.build_profiles ?? {}) !==
-		canonicalJsonText(now.build_profiles ?? {})
+			canonicalJsonText(now.build_profiles ?? {})
 	)
 		descriptions.push("Installation profiles");
 	return descriptions.length === 0
@@ -2342,6 +2371,13 @@ export function hqAppSourceReadFailure(
 	readonly message: string;
 	readonly details: readonly string[];
 } {
+	if ("success" in read && read.installationProfileKeyUnusable)
+		return {
+			code: "hq_app_state_unknown",
+			message:
+				"A CommCare HQ installation link cannot select its profile. On this app’s Releases page, open Application Profiles, recreate the affected profile with its languages and practice worker, and remove the old entry. Then publish again.",
+			details: [],
+		};
 	if (!("success" in read) && read.kind === "unsupported") {
 		return {
 			code: "hq_app_state_unknown",

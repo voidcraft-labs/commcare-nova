@@ -31,6 +31,20 @@ export interface HqChangesDigestInput {
 	readonly sourceDigest: string;
 	/** The app's head sequence the plan was computed at. */
 	readonly headSeq: number;
+	/** The exact destination, principal and profile changes the explicit review will record. */
+	readonly installationReview?: {
+		readonly app: string;
+		readonly actor: string;
+		readonly project: string;
+		readonly server: string;
+		readonly domain: string;
+		readonly remoteApp: string;
+		readonly workingVersion: number;
+		readonly mapping: string;
+		readonly deployment: string;
+		readonly endings: number;
+		readonly changes: readonly import("../targetIdentity").InstallationReviewChange[];
+	};
 	/** Every path the reference publishes, settled against the source now. */
 	readonly media: readonly HqMediaPath[];
 	/** `contentNamedDocument` of the document the app takes, where the review lists changes. */
@@ -55,6 +69,9 @@ export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 		baselineDigest: input.baselineDigest,
 		sourceDigest: input.sourceDigest,
 		headSeq: input.headSeq,
+		...(input.installationReview && {
+			installationReview: input.installationReview,
+		}),
 		media: input.media.map((path) => ({
 			wirePath: path.wirePath,
 			contentHash: path.contentHash,

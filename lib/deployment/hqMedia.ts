@@ -159,7 +159,7 @@ export interface HqMediaPath extends PublishedMediaFile {
 }
 
 /** The map's entries by wire path. A key outside `jr://file/` is no path an app publishes to. */
-function entriesByWirePath(
+export function entriesByWirePath(
 	map: readonly HqMediaMapItem[],
 ): ReadonlyMap<string, HqMediaMapItem> {
 	const byPath = new Map<string, HqMediaMapItem>();

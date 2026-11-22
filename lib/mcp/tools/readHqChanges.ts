@@ -1,3 +1,4 @@
+import { reviewedPageDigest } from "../paging";
 /**
  * `nova.read_hq_changes`: what changed in CommCare HQ to an app Nova
  * publishes there, since Nova last published it, brought it in, or last
@@ -217,6 +218,7 @@ export type HqChangesReviewProjection = ReviewHead &
 		  }
 		| {
 				readonly kind: "changes";
+				readonly requires_review?: true;
 				readonly since: DriftReference;
 				/** The lead over `hq_changes`. */
 				readonly message: string;
@@ -252,7 +254,7 @@ export type HqChangesReviewProjection = ReviewHead &
 				readonly publish_changes: readonly string[];
 				readonly publish_changes_lead: string | null;
 				/** The digest a publish over this change names in `discard_hq_changes`. */
-				readonly observed_digest: string;
+				readonly observed_digest: string | null;
 				/** This page's case properties renamed in Nova since: while any is listed, the changes can't come in. */
 				readonly renamed_in_nova: readonly RenameProjection[];
 				/** The sentence that names this page's, where it holds any. */
@@ -260,7 +262,7 @@ export type HqChangesReviewProjection = ReviewHead &
 				/** This page's lookup tables the changed app newly reads, as `read_hq_app` lists a review's. */
 				readonly tables: readonly TableProjection[];
 				readonly reading_id: string;
-				readonly review_digest: string;
+				readonly review_digest: string | null;
 		  }
 		| {
 				readonly kind: "account";
@@ -364,7 +366,12 @@ export function changesPageFor(
 ): { readonly from: number; readonly restarted: boolean } | null {
 	if (cursor === null) return { from: 0, restarted: false };
 	const paged = pagedOf(review);
-	if (paged === null || paged.digest !== cursor.digest)
+	if (
+		paged === null ||
+		(review.kind === "changes"
+			? reviewedPageDigest("changes", paged.digest, cursor.from)
+			: paged.digest) !== cursor.digest
+	)
 		return { from: 0, restarted: true };
 	if (cursor.from >= paged.length) return null;
 	return { from: cursor.from, restarted: false };
@@ -639,7 +646,10 @@ function changesPage(
 		renamed_in_nova_line: renamesLine(renames),
 		tables,
 		made_by: names,
-		next_page: end < pieces.length ? `${end}:${digest}` : null,
+		next_page:
+			end < pieces.length
+				? `${end}:${reviewedPageDigest("changes", digest, end)}`
+				: null,
 		cut_line: cutLine,
 	};
 }
@@ -693,6 +703,7 @@ export function describeHqChangesReview(
 			const shell = {
 				...head,
 				kind: "changes" as const,
+				...(review.requiresReview && { requires_review: true as const }),
 				since: review.since,
 				message: hqChangesLead(
 					since(review.since),
@@ -718,19 +729,25 @@ export function describeHqChangesReview(
 				reading_id: review.readingId,
 				review_digest: review.reviewDigest,
 			};
+			const page = changesPage(
+				changePieces(review, (table) =>
+					tableProjection(table, project, head.domain),
+				),
+				options.page.from,
+				review.reviewDigest,
+				(page) =>
+					JSON.stringify(
+						wrap({ ...shell, ...page } as HqChangesReviewProjection),
+					).length,
+			);
 			return {
 				...shell,
-				...changesPage(
-					changePieces(review, (table) =>
-						tableProjection(table, project, head.domain),
-					),
-					options.page.from,
-					review.reviewDigest,
-					(page) =>
-						JSON.stringify(
-							wrap({ ...shell, ...page } as HqChangesReviewProjection),
-						).length,
-				),
+				...page,
+				review_digest: page.next_page ? null : review.reviewDigest,
+				observed_digest:
+					page.next_page || review.requiresReview
+						? null
+						: review.observedDigest,
 			};
 		}
 		case "account": {
@@ -841,7 +858,7 @@ export function registerReadHqChanges(
 		"read_hq_changes",
 		{
 			description:
-				"Read what changed in CommCare HQ since Nova last published this app to a project space, or brought it in or last brought in changes from it. Changes nothing. Call it when `upload_app_to_hq` answers `hq_changed` with `can_bring_in` true on the app's change, or when the user asks what changed there. `hq_changes` lists what bringing the changes in changes in this app. `nova_changes` lists what that would remove of changes made in Nova since then: it is empty when nothing would be removed. Where a review is longer than one answer, `next_page` is not null: call again with `page` set to it until it is, and if an answer says `restarted`, the lists changed and start again. Each answer holds its share of `hq_changes`, then `nova_changes`, then `renamed_in_nova` (with `renamed_in_nova_line` over the renames it holds), then `tables`, then `made_by`, and `hq_changes_total`, `nova_changes_total`, `renamed_in_nova_total`, `tables_total` and `made_by_total` say how many each holds in all. Where `cut_line` is not null, the answer's one line is part `part` of `parts` of a line too long for one answer: the next answers hold the rest, and the parts joined in order are that line. Show the user every line of both lists, every rename, every table and `made_by` before calling `bring_in_hq_changes` with the last answer's `reading_id` and `review_digest`. A `kind` of `nothing` with a `review_digest` means CommCare HQ saved the app and there is nothing to bring in: send that `reading_id` and `review_digest` to `bring_in_hq_changes` to record it, which changes nothing in the app, and the next upload no longer stops for this app's change in CommCare HQ. A `nothing` answer's `hq_changes` says where CommCare HQ now keeps something the app follows (a form's id, the case id a create files under, a file's path): show the user each line. A `kind` of `account`, `held`, `unavailable` or `stop` means Nova can't bring the changes in: relay its sentences, which say what the user can do instead. An `unavailable` answer whose `reason` is `not-published`, `publishing-stopped`, `app-deleted` or `hq-app-taken` means nothing in that project space is this app's.",
+				"Read what changed in CommCare HQ since Nova last published this app to a project space, or brought it in or last brought in changes from it. Changes nothing. Call it when `upload_app_to_hq` answers `hq_changed` with `can_bring_in` true on the app's change, or when the user asks what changed there. `hq_changes` lists what bringing the changes in changes in this app. `nova_changes` lists what that would remove of changes made in Nova since then: it is empty when nothing would be removed. Where a review is longer than one answer, `next_page` is not null: call again with `page` set to it until it is, and if an answer says `restarted`, the lists changed and start again. Each answer holds its share of `hq_changes`, then `nova_changes`, then `renamed_in_nova` (with `renamed_in_nova_line` over the renames it holds), then `tables`, then `made_by`, and `hq_changes_total`, `nova_changes_total`, `renamed_in_nova_total`, `tables_total` and `made_by_total` say how many each holds in all. Where `cut_line` is not null, the answer's one line is part `part` of `parts` of a line too long for one answer: the next answers hold the rest, and the parts joined in order are that line. Only the final page provides the review_digest. Each reviewed installation change needs explicit consent. Show the user every line of both lists, every rename, every table and `made_by` before calling `bring_in_hq_changes` with the last answer's `reading_id` and `review_digest`. A `kind` of `nothing` with a `review_digest` means CommCare HQ saved the app and there is nothing to bring in: send that `reading_id` and `review_digest` to `bring_in_hq_changes` to record it, which changes nothing in the app, and the next upload no longer stops for this app's change in CommCare HQ. A `nothing` answer's `hq_changes` says where CommCare HQ now keeps something the app follows (a form's id, the case id a create files under, a file's path): show the user each line. A `kind` of `account`, `held`, `unavailable` or `stop` means Nova can't bring the changes in: relay its sentences, which say what the user can do instead. An `unavailable` answer whose `reason` is `not-published`, `publishing-stopped`, `app-deleted` or `hq-app-taken` means nothing in that project space is this app's.",
 			inputSchema: z.strictObject({
 				app_id: deploymentAppIdSchema.describe(
 					"The Nova app whose changes in CommCare HQ to read. Must be an app the user can edit.",

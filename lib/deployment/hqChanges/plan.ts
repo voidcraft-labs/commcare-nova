@@ -1309,6 +1309,7 @@ function formsOf(draft: ReadDraft): readonly { readonly uuid: Uuid }[] {
 }
 
 interface PlanInput {
+	readonly legacyProfileKeys?: readonly string[];
 	readonly reference: Extract<ReferenceDocument, { readonly kind: "ok" }>;
 	/** The app at the head. */
 	readonly now: BlueprintDoc;
@@ -1410,10 +1411,37 @@ export function* planHqChangesSteps(input: PlanInput): Steps<HqChangePlan> {
 	yield;
 
 	/* 4 to 12. */
+	// A pre-feature baseline could acknowledge HQ profiles without ever reading those
+	// entities into Nova. Review them against the reference as newly adopted rows.
+	const unadopted = new Set(input.legacyProfileKeys);
+	const omitted = new Set(
+		(baseDraft.identities.installationProfiles ?? [])
+			.filter(
+				({ key, uuid }) =>
+					unadopted.has(key) && !ref.appSettings.installationProfiles?.[uuid],
+			)
+			.map(({ uuid }) => uuid),
+	);
+	let claimedBase = B;
+	if (omitted.size) {
+		const { installationProfiles, ...settings } = B.appSettings;
+		const retained = Object.entries(installationProfiles ?? {}).filter(
+			([, profile]) => !omitted.has(profile.uuid),
+		);
+		claimedBase = {
+			...B,
+			appSettings: {
+				...settings,
+				...(retained.length && {
+					installationProfiles: recordFromEntries(retained),
+				}),
+			},
+		};
+	}
 	const plan = yield* planFromDocumentsSteps({
 		ref,
 		now: input.now,
-		base: B,
+		base: claimedBase,
 		theirs: T,
 		renamesSince: reference.renamesSince,
 	});

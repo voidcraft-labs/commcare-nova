@@ -833,6 +833,12 @@ export interface AppDeploymentInstallationProfileTable {
 	nova_profile_uuid: string;
 	profile_key: string;
 	practice_worker_id: string | null;
+	practice_witness: JSONColumnType<
+		| import("@/lib/deployment/installationProfileReview").InstallationPracticeWitness
+		| null,
+		string | null | undefined,
+		string | null
+	>;
 }
 
 export interface AppDeploymentColumnFieldWordsTable {
@@ -921,6 +927,11 @@ export interface AppDeploymentConfirmationsTable {
  * Upserted only, serialized by the deployment row's lock.
  */
 export interface AppDeploymentBaselinesTable {
+	installation_review: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null | undefined,
+		string | null
+	>;
 	deployment_id: string;
 	remote_app_id: string;
 	/** 'create' | 'push' | 'cutover' | 'read' | 'changes' | 'unread'. */

@@ -225,3 +225,73 @@ it("classifies malformed version and build-list JSON as unavailable instead of t
 		]);
 	});
 });
+
+it.each([
+	{ status: 302, body: "", expected: "pending" },
+	{ status: 404, body: "", expected: "failed" },
+	{ status: 200, body: "<profile><suite></profile>", expected: "pending" },
+	{
+		status: 200,
+		body: '<profile><suite><resource id="suite" version="2"><location authority="remote">https://eu.commcarehq.org/a/clinic/apps/download/other/suite.xml</location></resource></suite></profile>',
+		expected: "pending",
+	},
+	{
+		status: 200,
+		body: '<profile><suite><resource id="suite" version="2"><location authority="remote">https://eu.commcarehq.org/a/clinic/apps/download/released/suite.xml</location></resource></suite></profile>',
+		expected: "succeeded",
+	},
+])(
+	"independently probes the ordinary installation when a named build is prepared ($status, $expected)",
+	async ({ status, body, expected }) => {
+		await withHttpPeer(async (peer) => {
+			const detail = "/a/clinic/api/application/v1/released/?extras=true";
+			reply(peer, VERSION, {
+				currentVersion: 2,
+				latestBuild: 2,
+				latestReleasedBuild: 2,
+			});
+			reply(
+				peer,
+				BUILDS,
+				applicationAnswer("working", [
+					{ id: "released", version: 2, is_released: true },
+				]).body,
+			);
+			const blobs = Object.fromEntries(
+				[
+					"profile.ccpr",
+					"suite.xml",
+					"visits/profile.ccpr",
+					"visits/suite.xml",
+					"visits/en/app_strings.txt",
+					"visits/default/app_strings.txt",
+				].map((p) => ["files/" + p, { content_length: 12 }]),
+			);
+			reply(peer, detail, {
+				id: "released",
+				_id: "released",
+				doc_type: "Application",
+				domain: "clinic",
+				copy_of: "working",
+				built_from_app_id: "working",
+				version: 2,
+				is_released: true,
+				build_profiles: { visits: { name: "Visits", langs: ["en"] } },
+				external_blobs: blobs,
+			});
+			reply(peer, PROFILE, body, status);
+			const result = await observeDeployment({
+				...INPUT,
+				namedProfiles: [{ id: "visits", name: "Visits", langs: ["en"] }],
+			});
+			if (result.kind !== "checked") throw new Error(result.message);
+			expect(result.outcomes.at(-1)).toMatchObject([
+				"probe",
+				{ status: expected },
+			]);
+			expect(calls(peer)).toEqual(
+				[VERSION, BUILDS, detail, PROFILE].map((p) => HOST + p),
+			);
+		});
+	},
+);

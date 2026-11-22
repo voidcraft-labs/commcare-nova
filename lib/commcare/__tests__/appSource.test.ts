@@ -562,6 +562,35 @@ describe("readHqAppSource", () => {
 		}
 	});
 
+	it.each(["", "clinic&west", "a+b", "clinic%2Fwest", "north#visits"])(
+		"identifies an installation key its native link cannot select (%s)",
+		async (key) => {
+			const reads = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), (body) => {
+					body.build_profiles = { [key]: { name: "Team", langs: ["en"] } };
+				}),
+			);
+			for (const read of [reads.plain, reads.any])
+				expect(read).toEqual({
+					...MALFORMED,
+					installationProfileKeyUnusable: true,
+				});
+		},
+	);
+
+	it.each(["north/south", "a=b", "district%", "a%zz"])(
+		"retains the physical key its native link selects (%s)",
+		async (key) => {
+			const reads = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), (body) => {
+					body.build_profiles = { [key]: { name: "Team", langs: ["en"] } };
+				}),
+			);
+			for (const read of [reads.plain, reads.any])
+				expect(sourceOf(read).buildProfiles[0]?.id).toBe(key);
+		},
+	);
+
 	it("reads an app with no build profile as none", async () => {
 		const { plain } = await readUnderBoth(
 			changed(retainedPublishRead("source-live"), (body) => {

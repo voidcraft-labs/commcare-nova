@@ -23,6 +23,7 @@ import { LOOKUP_UUID_V7_PATTERN } from "@/lib/domain/lookupIds";
 import type { FirstPublishView } from "@/lib/publish/firstPublishChangeIds";
 import type { CircumstanceFinding, Finding } from "@/lib/publish/hqFindings";
 import type { KeptLabelId } from "@/lib/publish/keptValues";
+import type { InstallationReviewState } from "../targetIdentity";
 import {
 	LOOKUP_TABLE_CHOICES,
 	type ReviewPlaces,
@@ -91,6 +92,7 @@ export const READING_MAX_LISTED_FINDINGS = 2000;
 
 /** One way the app may declare where it runs, as the review offers it. */
 export interface ReadingDeclarationChoice {
+	readonly removesFiles?: readonly string[];
 	/** Null is Web Apps and Android. */
 	readonly runsOnlyOn: Platform | null;
 	/** True where choosing this splits the app's date-and-time questions. */
@@ -98,12 +100,21 @@ export interface ReadingDeclarationChoice {
 	readonly preselected: boolean;
 	/** The plan features Nova records as already in use under this choice. */
 	readonly recordedFeatures: readonly DeploymentConfirmationKey[];
+	/** Features retained in the app that HQ source cannot establish for its plan. */
+	readonly installationPlanChecks?: readonly (
+		| "installation-profiles"
+		| "practice-workers"
+	)[];
 	/** What a first publish changes where this choice is made. */
 	readonly firstPublish: FirstPublishView;
 }
 
 /** What creating will make. Everything here is shown to the person or is a count of what is. */
 export interface ReadingReview {
+	/** The named installations and destination-scoped accounts accepted at birth. */
+	readonly installations?: readonly (InstallationReviewState & {
+		readonly key: string;
+	})[];
 	/** CommCare HQ's name for the app: the default of the name choice. */
 	readonly appName: string;
 	/** ISO 8601: when the read ended. The kept list's date. Not in the digest. */

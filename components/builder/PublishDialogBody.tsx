@@ -137,6 +137,7 @@ import {
 import type {
 	DeploymentConfirmationKey,
 	DeploymentConfirmationNeeded,
+	DeploymentFailure,
 	DeploymentFailureCode,
 	DeploymentRemoteChange,
 	DeploymentResourceConflict,
@@ -331,6 +332,7 @@ type PublishStatus =
 			/** The case changes Nova offers to move; null where it offers none. */
 			placementMoves: PlacementMoveOfferView | null;
 			installationProfileConfirmation?: string;
+			installationProfileChoices?: DeploymentFailure["installationProfileChoices"];
 			installationProfileReviewUrl?: string;
 			warnings: string[];
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
@@ -1373,6 +1375,7 @@ export function PublishDialogBody({
 				remoteChanges: outcome.remoteChanges,
 				webAppsChange: outcome.webAppsChange,
 				placementMoves: outcome.placementMoves,
+				installationProfileChoices: outcome.installationProfileChoices,
 				installationProfileConfirmation:
 					outcome.installationProfileConfirmation,
 				installationProfileReviewUrl: outcome.installationProfileReviewUrl,
@@ -2044,6 +2047,25 @@ export function PublishDialogBody({
 												Open application profiles in CommCare HQ
 											</a>
 										) : null}
+										{canEdit && status.installationProfileChoices && (
+											<RadioGroup<string>
+												aria-label="Installation choices"
+												value={confirmInstallationProfiles ?? ""}
+												disabled={isWorking}
+												onValueChange={(value) =>
+													setConfirmInstallationProfiles(value)
+												}
+											>
+												{status.installationProfileChoices.map((choice) => (
+													<RadioGroupItem<string>
+														key={choice.confirmation}
+														value={choice.confirmation}
+													>
+														{choice.label}
+													</RadioGroupItem>
+												))}
+											</RadioGroup>
+										)}
 										{status.installationProfileConfirmation && canEdit ? (
 											<label
 												htmlFor="installation-worker-confirmation"

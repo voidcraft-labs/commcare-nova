@@ -43,6 +43,7 @@ import {
 import { toolText } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
 import { registerScopedTool } from "../scopedTool";
+import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { bringInProgress, openBringInCall } from "./readHqApp";
 import {
@@ -240,6 +241,10 @@ export function registerBringInHqApp(
 					tableChoices: args.table_choices,
 				};
 				const answer = await createFromReview(call.actor, input, {
+					requireInstallationManagement: () => {
+						assertScope(ctx, SCOPES.hqImport, "bring_in_hq_app");
+						assertScope(ctx, SCOPES.hqWrite, "bring_in_hq_app");
+					},
 					onEvent: bringInProgress(extra),
 				});
 				if (answer.kind === "refused")

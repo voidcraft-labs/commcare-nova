@@ -122,7 +122,11 @@ export async function readingWithIds(
 		doc: produce(outcome.draft.doc, (draft) => {
 			applyMutations(draft, choice.mutations);
 		}),
-		identity: targetWireIdentity(overrides),
+		identity: targetWireIdentity(
+			overrides,
+			[],
+			outcome.draft.identities.installationProfiles,
+		),
 	};
 }
 

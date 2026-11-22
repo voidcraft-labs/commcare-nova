@@ -61,6 +61,7 @@ import {
 } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
 import { registerScopedTool } from "../scopedTool";
+import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import {
 	type DeploymentProjection,
@@ -354,7 +355,13 @@ export function registerBringInHqChanges(
 				let outcome: HqChangesOutcome;
 				try {
 					outcome = await bringInHqChanges(
-						call.scope,
+						{
+							...call.scope,
+							requireInstallationManagement: () => {
+								assertScope(ctx, SCOPES.hqImport, "bring_in_hq_changes");
+								assertScope(ctx, SCOPES.hqWrite, "bring_in_hq_changes");
+							},
+						},
 						call.target,
 						{
 							readingId: args.reading_id,

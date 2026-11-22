@@ -202,6 +202,93 @@ it.each(["parent-multiple", "same-smaller"] as const)(
 		});
 	},
 );
+it("discloses the complete installation review across bounded SDK responses before offering a worker confirmation", async () => {
+	const doc = document();
+	const labels = [
+		`Long "${"Doorway \u{1f4cd}".repeat(12000)}" patrol`,
+		...Array.from(
+			{ length: 65 },
+			(_, n) => `Visits ${n} ${"Community ".repeat(35)}`,
+		),
+	];
+	const named = labels.map((name, n) => ({
+		uuid: testUuid(`install-${n}`),
+		name,
+		languages: ["eng"],
+		requiresPracticeWorker: true,
+	}));
+	doc.appSettings.installationProfiles = Object.fromEntries(
+		named.map((p) => [p.uuid, p]),
+	);
+	await seed(doc);
+	const keys = named.map((p) => p.uuid.replaceAll("-", ""));
+	const physical = Object.fromEntries(
+		named.map((p, n) => [
+			keys[n],
+			{ name: p.name, langs: ["en"], practice_mobile_worker_id: `worker-${n}` },
+		]),
+	);
+	await withManagedPeer(async (peer) => {
+		const id = "working-app";
+		request(peer, IMPORT, "POST").reply(() => {
+			hqSaves.create(id);
+			return {
+				statusCode: 201,
+				data: JSON.stringify({ success: true, app_id: id }),
+			};
+		});
+		const shell = {
+			...retainedBodyJson(retainedPublishRead("source-shell")),
+			build_profiles: physical,
+		};
+		request(peer, sourcePath(id)).reply(200, shell).persist();
+		await asUser(
+			async (client) => {
+				let cursor: string | undefined;
+				let pages = 0;
+				const disclosed: string[] = [];
+				for (;;) {
+					const response = await call(
+						client,
+						cursor ? { confirm_installation_profiles: cursor } : {},
+					);
+					const value = body(response, true);
+					expect(
+						resultText({ ...response, isError: undefined }).length,
+					).toBeLessThan(80_000);
+					expect(value.error_type).toBe("hq_installation_profile_review");
+					expect(value.message).toContain("Installation review");
+					disclosed.push(value.message);
+					pages++;
+					if (value.confirmation) {
+						expect(value.replacement_choices).toBeUndefined();
+						break;
+					}
+					const next = value.replacement_choices?.[0];
+					expect(next).toMatchObject({
+						label: "Read the next part",
+						confirmation: expect.stringMatching(/^page:/),
+					});
+					cursor = next.confirmation;
+					expect(pages).toBeLessThan(100);
+				}
+				const shown = disclosed.join("\n");
+				expect(shown).toContain("patrol");
+				for (const [n, key] of keys.entries()) {
+					expect(shown).toContain(key);
+					expect(shown).toContain(`worker-${n}`);
+				}
+				expect(pages).toBeGreaterThan(2);
+			},
+			ACTOR,
+			["nova.read", "nova.hq.write", "nova.hq.import"],
+		);
+		expect(
+			requests(peer).filter((line) => line.startsWith("POST ")),
+		).toHaveLength(1);
+	});
+}, 60_000);
+
 async function seed(doc: BlueprintDoc = document()) {
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,

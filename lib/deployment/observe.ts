@@ -1,13 +1,10 @@
 import "server-only";
 
 import type { CommCareCredentials } from "@/lib/commcare/client";
-import {
-	probeBuildProfile,
-	probeNamedInstallation,
-	readAppVersions,
-} from "@/lib/commcare/client";
+import { probeBuildProfile, readAppVersions } from "@/lib/commcare/client";
 import { readHqApplication } from "@/lib/commcare/hq/application";
 import type { HqBuildProfile } from "@/lib/commcare/hq/appSource";
+import { readInstallationBuild } from "@/lib/commcare/hq/installationBuild";
 import type {
 	DeploymentFailureCode,
 	DeploymentPhase,
@@ -239,6 +236,36 @@ export async function observeDeployment(input: {
 		};
 	}
 
+	if (input.namedProfiles?.length) {
+		const files = await readInstallationBuild(
+			creds,
+			domain,
+			hqAppId,
+			released,
+			input.namedProfiles,
+		);
+		const missing = input.namedProfiles.find(
+			(p) => files?.get(p.id) !== "prepared",
+		);
+		const detail = !files
+			? "Nova could not read the released build’s installation details. Check your CommCare HQ API access and check status again."
+			: missing && files.get(missing.id) === "different"
+				? `The “${missing.name}” installation on this released build differs from the profile Nova published. Check its name, languages and practice worker on the Releases page in CommCare HQ.`
+				: missing && files.get(missing.id) === "incomplete"
+					? `CommCare HQ prepared “${missing.name}” without all its required files. Check its languages, its practice worker and your plan there, then make and prepare a new version.`
+					: missing
+						? `The “${missing.name}” installation is waiting for its files. On version ${released.version} in CommCare HQ, choose Deploy, Download to Android, then Offline Installation. Under Application Profile choose “${missing.name}” and download CommCare_v${released.version}.ccz, then check status again.`
+						: undefined;
+		if (detail) {
+			outcomes.push(["probe", pending(now, detail)]);
+			return {
+				kind: "checked",
+				outcomes,
+				remoteRevision: versions.currentVersion,
+				releasedBuildId: released.id,
+			};
+		}
+	}
 	const profile = await probeBuildProfile(creds, domain, released.id);
 	if (!profile.ok) {
 		// A redirecting project space, or CommCare HQ being unwell, is not
@@ -279,23 +306,6 @@ export async function observeDeployment(input: {
 		};
 	}
 
-	for (const expected of input.namedProfiles ?? []) {
-		if (!(await probeNamedInstallation(creds, domain, released.id, expected))) {
-			outcomes.push([
-				"probe",
-				pending(
-					now,
-					`Nova could not verify the “${expected.name}” installation on the released build. Check its selected languages, plan features and practice worker on the app’s Releases page, then check status again.`,
-				),
-			]);
-			return {
-				kind: "checked",
-				outcomes,
-				remoteRevision: versions.currentVersion,
-				releasedBuildId: released.id,
-			};
-		}
-	}
 	outcomes.push(["probe", { status: "succeeded", at: now }]);
 	return {
 		kind: "checked",
