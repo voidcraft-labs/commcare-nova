@@ -570,7 +570,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 					if (claim.entryId === UNSERVED_MAYBE) droppedFixture = true;
 					continue;
 				}
-				const scheme = classifiedInstanceId(id, src).split(":")[0];
+				const scheme = classifiedInstanceId(id, src)?.split(":")[0];
 				// Several fixtures can appear in one expression. Each declaration takes
 				// the claim of its own read, including which kind of fixture supplied it.
 				const relevant = (readsById.get(id) ?? [])

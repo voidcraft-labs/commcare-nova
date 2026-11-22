@@ -36,8 +36,8 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { declaredInstance, instanceForRead } from "../../xpath/instanceSources";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
 import { sameJson } from "../jsonCursor";
@@ -1920,8 +1920,6 @@ function instanceEntry(
 	);
 }
 
-const TABLE_ID = "item-list:";
-
 /** The tag of the table an `instance-unknown` issue's read names: by the
  *  source the slot's form declares for the id read
  *  (`jr://fixture/item-list:<tag>`), or, for an id the form does not declare,
@@ -1936,11 +1934,11 @@ export function tableReadTag(
 	if (issue.code !== "instance-unknown") return undefined;
 	const id = namesIn(spannedSyntax(pending, issue)).strings[0];
 	if (id === undefined) return undefined;
-	const src = form.instanceSources.get(id);
-	const read = src === undefined ? id : canonicalInstanceId(src);
-	return read?.startsWith(TABLE_ID) && read.length > TABLE_ID.length
-		? read.slice(TABLE_ID.length)
-		: undefined;
+	const source = instanceForRead(
+		id,
+		pending.mode.target === "xform" ? form.instanceSources : undefined,
+	);
+	return source?.kind === "table" ? source.tag : undefined;
 }
 
 /** The id a declared source names an instance by, as CommCare HQ's build
@@ -1949,13 +1947,17 @@ export function tableReadTag(
  *  `jr://instance/remote/<id>`, `ledgerdb` for the ledger's source, and the
  *  legacy `search-input` for `jr://instance/search-input`. */
 function sourceSchemeId(src: string): string | undefined {
-	if (src === "jr://fixture/commcare:reports") return "reports";
-	if (src === "jr://instance/ledgerdb") return "ledgerdb";
-	if (src === LEGACY_SEARCH_INPUT_SOURCE) return "search-input";
-	for (const prefix of ["jr://fixture/", "jr://instance/remote/"])
-		if (src.startsWith(prefix) && src.length > prefix.length)
-			return src.slice(prefix.length);
-	return undefined;
+	const bound = declaredInstance(src);
+	switch (bound?.kind) {
+		case "table":
+			return `item-list:${bound.tag}`;
+		case "selected":
+			return "selected_cases";
+		case "native":
+			return bound.id;
+		default:
+			return undefined;
+	}
 }
 
 /** The identity for the account of a form's declared source, including
@@ -1964,14 +1966,11 @@ function sourceSchemeId(src: string): string | undefined {
 export function classifiedInstanceId(
 	id: string,
 	src: string | undefined,
-): string {
+): string | undefined {
 	if (src === undefined) return id;
 	if (id === "locations" && src === "jr://fixture/commtrack:locations")
 		return id;
-	const bound = canonicalInstanceId(src);
-	if (bound !== undefined) return bound;
-	const named = sourceSchemeId(src);
-	return named !== undefined && schemeEntry(named) !== undefined ? named : id;
+	return sourceSchemeId(src);
 }
 
 /** The entry an instance id's scheme claims, the text before its first colon;
@@ -2016,8 +2015,7 @@ function schemeEntry(id: string | undefined): string | undefined {
 	}
 }
 
-/** The source HQ's build declares the legacy `search-input` instance from. */
-const LEGACY_SEARCH_INPUT_SOURCE = "jr://instance/search-input";
+/** A read of the legacy search input after the search has ended. */
 const LEGACY_SEARCH_INPUT =
 	C["legacy-search-input-read-after-the-query-in-the-results-detail"].entry;
 

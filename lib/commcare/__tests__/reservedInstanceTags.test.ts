@@ -16,6 +16,8 @@ import { runValidation } from "../validator/runner";
 import { lookupInstance } from "../xpath/wire/instances";
 
 const runtimeIds = [
+	"__proto__",
+	"hasOwnProperty",
 	"CaseDB",
 	"LedgerDB",
 	"groups",

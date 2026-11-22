@@ -26,6 +26,7 @@ import {
 	wireTable,
 } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { proseText } from "@/lib/domain";
+import { count } from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
@@ -53,6 +54,24 @@ export function lookupReservedTags() {
 		wireRow(stock, "soap", { code: "soap", name: "Soap" }),
 		wireRow(stock, "salt", { code: "salt", name: "Salt" }),
 	];
+	// Vellum keeps an ordinary JavaScript object for its form-local instance IDs.
+	// Each hidden calculation must survive both of its saves and read its own fixture.
+	const editorTables = [
+		{ tag: "hasOwnProperty", field: "meeting_count", values: ["school"] },
+		{
+			tag: "__proto__",
+			field: "supply_count",
+			values: ["soap", "salt", "milk"],
+		},
+	].map(({ tag, field, values }) => {
+		const definition = wireTable(tag, [{ name: "code", type: "text" }]);
+		return {
+			definition,
+			field,
+			values,
+			rows: values.map((code) => wireRow(definition, code, { code })),
+		};
+	});
 	const form = uuid("form");
 	const source = (table: typeof clinics) => {
 		const [code, name] = table.columns;
@@ -93,6 +112,18 @@ export function lookupReservedTags() {
 								label: proseText("Item"),
 								optionsSource: source(stock),
 							}),
+							...editorTables.map(({ definition, field }) =>
+								f({
+									kind: "hidden",
+									uuid: uuid(field),
+									id: field,
+									calculate: count({
+										kind: "table-rows",
+										tableId: definition.id,
+										where: [],
+									}),
+								}),
+							),
 						],
 					},
 				],
@@ -102,14 +133,26 @@ export function lookupReservedTags() {
 	const lookup = {
 		projectId: "project-targeted-lookup",
 		projectRevision: parseLookupRevision("1"),
-		definitions: [clinics, stock],
+		definitions: [
+			clinics,
+			stock,
+			...editorTables.map(({ definition }) => definition),
+		],
 		rowsByTable: new Map([
 			[clinics.id, clinicRows],
 			[stock.id, stockRows],
+			...editorTables.map(
+				({ definition, rows }) => [definition.id, rows] as const,
+			),
 		]),
 	};
 	const restore = restoreXml({
 		tables: [
+			...editorTables.map(({ definition, values }) => ({
+				tag: definition.tag,
+				fields: ["code"],
+				rows: values.map((code) => [code]),
+			})),
 			{
 				tag: CLINICS,
 				fields: ["code", "name"],
@@ -132,6 +175,7 @@ export function lookupReservedTags() {
 	const counts = [
 		`count(instance('${CLINICS}')/${CLINICS}_list/${CLINICS})`,
 		`count(instance('${STOCK}')/${STOCK}_list/${STOCK})`,
+		...editorTables.map(({ field }) => `/data/${field}`),
 	];
 	const expectation = (exportName: "local" | "A") => ({
 		id: `table-rows-${exportName === "local" ? "local" : "a"}`,
@@ -142,6 +186,8 @@ export function lookupReservedTags() {
 		expect: [
 			{ pointer: "/values/0/value", value: "2" },
 			{ pointer: "/values/1/value", value: "2" },
+			{ pointer: "/values/2/value", value: "1" },
+			{ pointer: "/values/3/value", value: "3" },
 		],
 	});
 	return targetedDocument({

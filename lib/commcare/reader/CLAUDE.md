@@ -212,6 +212,11 @@ Four rules hold everywhere here:
   use no other claim at the node names (`xform/attributeUses.ts`, `Accounting.claimEntry`'s
   `unlessClaimed`). Such a text is read in the logic of its form's first field, since a path's
   uses are classed by its form's rules alone.
+  A form reads each local instance ID through the source it declares. HQ fills a missing ID
+  only when its factory and its whole-form scanner can supply it. A dotted lookup ID, for
+  example, needs an explicit declaration in the XForm. A selected-entities datum, remote
+  search and lookup fixture can have identical suffixes and still supply different data.
+  Binding, lookup row discovery and source accounting follow those source families.
   A secondary instance's source is recorded at its `src`, and its id under
   `xform:model/instance@id` (`provisional.ts::claimDeclarations`). A search row's key is
   recorded at its `property`, and the class its Search field's presence test chooses it in at

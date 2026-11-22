@@ -199,6 +199,55 @@ describe("a form slot's text read through the reading hook", () => {
 		);
 	});
 
+	it.each([
+		[
+			"casedb",
+			"jr://instance/selected-entities/casedb",
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/age > 5",
+		],
+		[
+			"worker",
+			"jr://instance/selected-entities/commcaresession",
+			"instance('worker')/session/context/userid = 'visitor'",
+		],
+		[
+			"locations",
+			"jr://instance/selected-entities/locations",
+			"count(instance('locations')/locations/location) > 0",
+		],
+		[
+			"item-list:locations",
+			"jr://instance/selected-entities/item-list:locations",
+			"count(instance('item-list:locations')/locations_list/locations) > 0",
+		],
+		[
+			"results",
+			"jr://fixture/results",
+			"count(instance('results')/results/case) > 0",
+		],
+	])(
+		"refuses %s reading another instance family on a native path",
+		(id, source, expression) => {
+			const doc = visitDoc();
+			const ref = {
+				entity: "field",
+				uuid: fieldNamed(doc, "q1"),
+				slot: "relevant",
+			} as const;
+			const outcome = readExpression(
+				doc,
+				registration(doc, ref, expression),
+				readEnv({
+					instanceSources: new Map([[onlyForm(doc), new Map([[id, source]])]]),
+				}),
+			);
+			expect(outcome).toMatchObject({
+				kind: "refused",
+				cause: { kind: "parse", issues: [{ code: "instance-unknown" }] },
+			});
+		},
+	);
+
 	it("reads a question named like a generated node as the question", () => {
 		const doc = visitDoc();
 		const trimmed = fieldNamed(doc, "nova_trimmed_x");

@@ -1,3 +1,5 @@
+import { decodeHTML } from "entities";
+import { formInstanceSources } from "../../xpath/instanceSources";
 /**
  * The form reader: each form's source read into the draft's fields (stage 3),
  * then each field minted in document order and its expressions registered for
@@ -261,6 +263,7 @@ export interface ReadXForm {
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly readSources: ReadonlyMap<string, string>;
 	/** The instance ids a choice list's lookup itemset reads. */
 	readonly carrierInstances: ReadonlySet<string>;
 	/** Set by `mintFields`. */
@@ -406,6 +409,11 @@ function readForm(
 	);
 	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
+	const readSources = formInstanceSources(
+		instanceSources,
+		decodeHTML(source),
+		new Set(parsed.instances.map(({ id }) => id)),
+	);
 	const carrierInstances = new Set<string>();
 	const controls = readControls({
 		parsed,
@@ -453,7 +461,7 @@ function readForm(
 		accounting,
 		formPlace,
 		lookup: ctx.input.lookup,
-		instanceSources,
+		instanceSources: readSources,
 		intents,
 		unreadTable: (table) => ctx.facts.unreadTables.push(table),
 		carrierRead: (id) => carrierInstances.add(id),
@@ -752,6 +760,7 @@ function readForm(
 		connect: connect.connect,
 		itext: itext ?? EMPTY_ITEXT_TABLE,
 		instanceSources,
+		readSources,
 		carrierInstances,
 		sourceNames: undefined,
 		inertAppearances,
@@ -1072,6 +1081,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 	const sourceNames = new Map<Uuid, ReadSourceNames>();
 	const itextUnits = new Map<Uuid, ReadonlyMap<string, ItextUnit>>();
 	const instanceSources = new Map<Uuid, ReadonlyMap<string, string>>();
+	const formReadSources = new Map<Uuid, ReadonlyMap<string, string>>();
 	const generatedValues = new Map<Uuid, ReadonlyMap<string, GeneratedValue>>();
 	const operationIdPaths = new Map<Uuid, ReadonlyMap<string, Uuid>>();
 	const formPlaces = new Map<Uuid, HqPlace>();
@@ -1087,6 +1097,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 			if (xform.sourceNames !== undefined)
 				sourceNames.set(form.uuid, xform.sourceNames);
 			instanceSources.set(form.uuid, xform.instanceSources);
+			formReadSources.set(form.uuid, xform.readSources);
 			generatedValues.set(form.uuid, xform.generatedValues);
 			const units = new Map<string, ItextUnit>();
 			for (const id of xform.itext.ids()) {
@@ -1101,6 +1112,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		sourceNames,
 		itextUnits,
 		instanceSources,
+		formReadSources,
 		generatedValues,
 		operationIdPaths,
 		recordDialect: ctx.input.recordDialect,

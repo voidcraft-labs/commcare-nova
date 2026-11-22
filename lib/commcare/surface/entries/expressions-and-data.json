@@ -4928,7 +4928,7 @@
 		],
 		"valueClass": "reserved-instance-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance.",
+		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance or with Vellum’s dictionary keys `hasOwnProperty` and `__proto__` (form.js::parseInstanceRefs, updateKnownInstances).",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

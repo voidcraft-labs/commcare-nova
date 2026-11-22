@@ -65,7 +65,7 @@ def test_lookup_resource_claims_compare_referenced_sources_to_hq_definitions():
     field = {"field_name": "code", "properties": []}
     rows = {"status": 200, "body": json.dumps({"objects": [{"fields": {"code": "west"}}]})}
     tags = ["locations", "search_selected_cases", "casedb", "selected_cases_casedb", "ledgerdb", "regions",
-            "input", "LedgerDB", "groups", "results", "registry"]
+            "input", "LedgerDB", "groups", "results", "registry", "__proto__", "hasOwnProperty", "HasOwnProperty"]
     tables = {tag: {"tag": tag, "fields": [field], "is_global": True} for tag in tags}
     tables["groups"]["is_global"] = False
     tables["results"]["fields"] = []
@@ -78,8 +78,8 @@ def test_lookup_resource_claims_compare_referenced_sources_to_hq_definitions():
     def claim(tag):
         return parity.Record("lookup-tables", f"/{tag}/tag", None, lookup_parity.ALIAS_ENTRY, "held")
 
-    assert lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations")]) == []
-    drift = lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "groups", "search_selected_cases")])
+    assert lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations", "__proto__", "hasOwnProperty")]) == []
+    drift = lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "groups", "search_selected_cases", "__proto__", "hasOwnProperty")])
     assert [one.at for one in drift] == [
         "/lookup-model:LookupTable.tag/unseen@lookup-tables/groups/tag",
         "/lookup-model:LookupTable.tag/unclaimed@lookup-tables/locations/tag",

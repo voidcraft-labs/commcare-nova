@@ -355,7 +355,25 @@ function instancePath(
 			whole,
 			"instance() needs the name of what it reads in quotes, such as instance('casedb').",
 		);
-	const id = readInstanceId(binder, root.args[0].value, whole);
+	const reading = binder.scope.reading;
+	const binding = reading?.instanceSource(
+		root.args[0].value,
+		root.args[0].from,
+	);
+	const localId = binding?.localId ?? root.args[0].value;
+	const source = binding?.source;
+	if (reading !== undefined && source === undefined)
+		refuse(
+			"instance-unknown",
+			whole,
+			`This form reads instance('${localId}'), whose source Nova can't resolve. You can read records, the session, data tables, places and search answers.`,
+		);
+	const id =
+		source?.kind === "native"
+			? source.id
+			: source?.kind === "table"
+				? `item-list:${source.tag}`
+				: localId;
 	const steps = path.steps;
 	const form = context.form;
 	const entryDatums = (): readonly EntryDatumId[] => {
@@ -388,6 +406,30 @@ function instancePath(
 		);
 		return own === -1 ? rows : rows.slice(0, own);
 	};
+	if (
+		(source?.kind === "selected" || reading === undefined) &&
+		plain(steps[0], "results") &&
+		plain(steps[1], "value") &&
+		steps.length === 2
+	) {
+		const chosen = entryDatums().find(
+			(row) =>
+				!row.scalar &&
+				row.id === (source?.kind === "selected" ? source.datum : localId),
+		);
+		const ref = chosen?.refs.find((ref) => ref.kind === "selected-case");
+		if (ref !== undefined && ref.kind === "selected-case")
+			return binder.remember(
+				{ kind: "selected-cases", module: ref.module },
+				whole,
+			);
+	}
+	if (source?.kind === "selected")
+		refuse(
+			"instance-unknown",
+			whole,
+			`This form has no matching list of chosen records at instance('${localId}') on this path.`,
+		);
 	if (id === "commcaresession") {
 		if (
 			!plain(steps[0], "session") ||
@@ -539,19 +581,7 @@ function instancePath(
 			);
 		return binder.term({ kind: "input", searchInputUuid: input.uuid }, whole);
 	}
-	if (
-		plain(steps[0], "results") &&
-		plain(steps[1], "value") &&
-		steps.length === 2
-	) {
-		const chosen = entryDatums().find((row) => !row.scalar && row.id === id);
-		const ref = chosen?.refs.find((ref) => ref.kind === "selected-case");
-		if (ref !== undefined && ref.kind === "selected-case")
-			return binder.remember(
-				{ kind: "selected-cases", module: ref.module },
-				whole,
-			);
-	}
+
 	let base: Extract<Expression, { kind: "cases" | "table-rows" | "locations" }>;
 	let row: RowScope;
 	let predicates: readonly FormSyntax[];
@@ -904,53 +934,6 @@ export function refuseReadHashtag(node: FormSyntax): never {
 		node,
 		"CommCare can't run a # reference written into an expression. It needs the path the reference stands for, such as /data/question.",
 	);
-}
-
-/** The instance id a reading binds: the canonical id of the source the form
- *  declares under `id`, or `id` as written where the form declares none (a
- *  suite slot's ids name their sources). */
-function readInstanceId(
-	binder: FormPathBinder,
-	id: string,
-	whole: FormSyntax,
-): string {
-	const reading = binder.scope.reading;
-	if (reading === undefined) return id;
-	const source = reading.instanceSource(id);
-	if (source === undefined) return id;
-	const canonical = canonicalInstanceId(source);
-	if (canonical === undefined)
-		refuse(
-			"instance-unknown",
-			whole,
-			`This form reads instance('${id}'), whose source Nova doesn't read. A form can read records, the session, data tables, places and search answers.`,
-		);
-	return canonical;
-}
-
-const INSTANCE_SOURCE_IDS: Readonly<Record<string, string>> = {
-	"jr://instance/casedb": "casedb",
-	"jr://instance/session": "commcaresession",
-	"jr://fixture/locations": "locations",
-	"jr://fixture/user-groups": "groups",
-	"jr://instance/search-input/results": "search-input:results",
-	"jr://instance/search-input/results:inline": "search-input:results:inline",
-	"jr://instance/remote/results": "results",
-	"jr://instance/remote/results:inline": "results:inline",
-};
-
-/** The id the binder knows for a declared source
- *  (`suite_xml/post_process/instances.py`'s factories, inverted). */
-export function canonicalInstanceId(source: string): string | undefined {
-	if (Object.hasOwn(INSTANCE_SOURCE_IDS, source))
-		return INSTANCE_SOURCE_IDS[source];
-	const table = "jr://fixture/item-list:";
-	if (source.startsWith(table) && source.length > table.length)
-		return `item-list:${source.slice(table.length)}`;
-	const selected = "jr://instance/selected-entities/";
-	if (source.startsWith(selected) && source.length > selected.length)
-		return source.slice(selected.length);
-	return undefined;
 }
 
 function bindFormNodePath(

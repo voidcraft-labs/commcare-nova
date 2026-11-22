@@ -11,8 +11,8 @@ import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { instanceForRead } from "../../xpath/instanceSources";
 import { w } from "../../xpath/wire/builders";
 import { casePropertyStep } from "../../xpath/wire/rowScope";
 import type { Accounting } from "../accounting";
@@ -277,8 +277,6 @@ function readItemset(
 		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
 	const labelRef = plain(label, "ref") ?? "";
 	const valueRef = value === undefined ? "" : (plain(value, "ref") ?? "");
-	const source =
-		chain === undefined ? undefined : input.instanceSources.get(chain.id);
 	const other = () => {
 		cursor.refuseSubtree(itemset, X.otherItemset, place);
 		return undefined;
@@ -287,11 +285,11 @@ function readItemset(
 
 	// A lookup table: instance(id)/<tag>_list/<tag>, with at most one predicate.
 	const tag = chain.steps[1];
-	const lookupId =
-		source === undefined ? chain.id : canonicalInstanceId(source);
+	const bound = instanceForRead(chain.id, input.instanceSources);
 	if (
 		tag !== undefined &&
-		lookupId === `item-list:${tag}` &&
+		bound?.kind === "table" &&
+		bound.tag === tag &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === `${tag}_list` &&
 		chain.predicates.length <= 1
@@ -401,7 +399,8 @@ function readItemset(
 	// The worker's cases, in the shape Nova writes (`caseOptions.ts::caseOptionsNodeset`).
 	if (
 		runtime.ok &&
-		source === "jr://instance/casedb" &&
+		bound?.kind === "native" &&
+		bound.id === "casedb" &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&
 		chain.steps[1] === "case" &&

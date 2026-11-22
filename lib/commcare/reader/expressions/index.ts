@@ -10,6 +10,7 @@
  * typing fact is cached per document, and documents are replaced, never
  * changed in place. Pure; it never throws for an app's content.
  */
+
 import { freeze, produce } from "immer";
 import {
 	hydratePersistedBlueprint,
@@ -66,6 +67,11 @@ import {
 	EMISSION_REWRITES,
 	type EmissionRewriteId,
 } from "../../emissionRewrites";
+import {
+	lookupFixtureId,
+	lookupFixtureSrc,
+	lookupXformInstanceId,
+} from "../../lookup/naming";
 import { inventoryIndex } from "../../surface/inventory";
 import {
 	formDisplayCondition,
@@ -73,6 +79,7 @@ import {
 } from "../../validator/rules/displayConditions";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { formInstanceSources } from "../../xpath/instanceSources";
 import { noteProperty } from "../caseManagement/catalog";
 import { type HandOffKind, sameJson } from "../jsonCursor";
 import {
@@ -139,6 +146,8 @@ export interface ExpressionReadEnv {
 	readonly itextUnits: ReadonlyMap<Uuid, ReadonlyMap<string, ItextUnit>>;
 	/** Per form: each declared instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<Uuid, ReadonlyMap<string, string>>;
+	/** Declarations and scanned factory instances in each rendered XForm. */
+	readonly formReadSources?: ReadonlyMap<Uuid, ReadonlyMap<string, string>>;
 	/** Per form: a generated sibling the form reader set aside, by absolute path, with its calculate. */
 	readonly generatedValues: ReadonlyMap<
 		Uuid,
@@ -1983,6 +1992,7 @@ function surfaceUseFactsOf(
 					? "child-of-inline"
 					: "other",
 		instanceSources: instanceSourcesOf(doc, registration, env) ?? new Map(),
+		formInstancesOnly: registration.mode.target === "xform",
 		shorthand:
 			registration.mode.target === "hq-json" &&
 			registration.mode.interpolation !== "none" &&
@@ -2156,13 +2166,37 @@ function readBack(
 	}
 	if (!readFormSyntax(text).ok) return candidate;
 	const print: PendingExpression = { ...pending, text };
+	// This second read is of Nova’s own print. Its form declares Nova’s
+	// local IDs, even when the adopted source used an entirely different alias.
+	let printEnv = env;
+	if (form !== undefined && pending.mode.target === "xform") {
+		const declarations = new Map<string, string>();
+		walkExpression(candidate, {
+			visitExpression(node) {
+				if (node.kind === "table-rows" || node.kind === "table-lookup") {
+					const table = env.lookup.get(node.tableId);
+					if (table !== undefined)
+						declarations.set(
+							lookupXformInstanceId(table.tag),
+							lookupFixtureSrc(lookupFixtureId(table.tag)),
+						);
+				}
+			},
+		});
+		printEnv = {
+			...env,
+			formReadSources: new Map([
+				[form, formInstanceSources(declarations, text)],
+			]),
+		};
+	}
 	const withdrawn = new Set<string>();
 	// Each turn withdraws a site not withdrawn before, and a binding uses
 	// finitely many, so the loop ends.
 	for (;;) {
-		const again = bindSlot(doc, print, env, withdrawn);
+		const again = bindSlot(doc, print, printEnv, withdrawn);
 		if (again.kind === "refused") return candidate;
-		const judged = judgeSlot(doc, print, env, again.bound);
+		const judged = judgeSlot(doc, print, printEnv, again.bound);
 		if (judged.kind !== "bound") return candidate;
 		if (judged.equal) return judged.candidate;
 		if (judged.withdraw === undefined || withdrawn.has(judged.withdraw))

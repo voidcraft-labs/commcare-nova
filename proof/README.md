@@ -7137,9 +7137,11 @@ minimum Android and JVM runs require exact agreement. Later Android versions mus
 minimum-version name. Each known fingerprint must reproduce its full recorded digest.
 
 The HQ-authored `hq-lookup-names` app selects original values from both a dotted and a Unicode
-table. Its form condition reads a dotted column next to a digit. The two variants change that
+table. Its form condition reads the first matching zone’s dotted column next to a digit. Two variants change that
 single condition to a column where HQ interpolates the period or a table whose quoted instance
-id the suite omits. The native HQ checks in `test_hq_interpolation.py` and
+id the suite omits. A third keeps the full column projection over every matching row, the form-condition capability
+tracked by `forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads`. A comparison over
+all matching rows can succeed when the first row fails. The native HQ checks in `test_hq_interpolation.py` and
 `test_lookup_workbook.py` exercise the suite declaration builder, actual case-filter interpolation
 and HQ’s table-name validator on Unicode range boundaries. Retained row filenames use lowercase
 ASCII where possible. Every other tag is recorded as its exact sequence of Unicode scalars, so
