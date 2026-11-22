@@ -64,7 +64,24 @@ export function applyAppMutation(
 			if (mut.logo === null) delete draft.logo;
 			else draft.logo = mut.logo;
 			return;
-		case "setAppSettings":
+		case "setAppSettings": {
+			const change = mut.settings.installationProfile;
+			if (change?.operation === "remove") {
+				const profiles = draft.appSettings.installationProfiles;
+				if (profiles) {
+					delete profiles[change.uuid];
+					if (Object.keys(profiles).length === 0)
+						delete draft.appSettings.installationProfiles;
+				}
+			} else if (change?.operation === "add") {
+				draft.appSettings.installationProfiles ??= {};
+				const profiles = draft.appSettings.installationProfiles;
+				if (!Object.hasOwn(profiles, change.profile.uuid))
+					profiles[change.profile.uuid] = structuredClone(change.profile);
+			} else if (change) {
+				const profile = draft.appSettings.installationProfiles?.[change.uuid];
+				if (profile) Object.assign(profile, structuredClone(change.patch));
+			}
 			// Each named key replaces its value; a key the patch leaves out
 			// keeps the document's.
 			if (mut.settings.showSavedForms !== undefined) {
@@ -80,6 +97,7 @@ export function applyAppMutation(
 			else if (mut.settings.runsOnlyOn !== undefined)
 				draft.appSettings.runsOnlyOn = mut.settings.runsOnlyOn;
 			return;
+		}
 		case "relabelSourceLanguage": {
 			const current = effectiveAppLocalization(draft.localization);
 			if (current.languageOrder.length !== 1) return;

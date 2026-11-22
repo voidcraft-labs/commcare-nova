@@ -35,7 +35,10 @@ import {
 	projectSpaceCompatibilityForNonMember,
 	projectSpaceCompatibilityForTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
-import { profileReferencesBuildSuite } from "./buildProfile";
+import {
+	profileReferencesBuildSuite,
+	selectedSuiteAgrees,
+} from "./buildProfile";
 import { readHqAppListEnvelope } from "./hq/apps";
 import {
 	HQ_APP_VERSIONS_MAX_BYTES,
@@ -1403,11 +1406,34 @@ export async function probeBuildProfile(
 }
 
 /** Read an exact BUILD resource. Never resolves working apps or follows redirects. */
-export async function readBuildXml(
+export function readBuildXml(
 	creds: CommCareCredentials,
 	domain: string,
 	buildId: string,
 	resource: "profile.ccpr" | "suite.xml",
+	profileKey?: string,
+) {
+	return readInstallationXml(creds, domain, buildId, resource, profileKey);
+}
+
+/** The working app's named suite reaches download_suite, whose form-version
+ * calculation only updates the request's in-memory form objects. A working
+ * profile or restore URL can create a new build and is never requested. */
+export function readWorkingInstallationSuite(
+	creds: CommCareCredentials,
+	domain: string,
+	appId: string,
+	profileKey: string,
+) {
+	return readInstallationXml(creds, domain, appId, "suite.xml", profileKey);
+}
+
+async function readInstallationXml(
+	creds: CommCareCredentials,
+	domain: string,
+	buildId: string,
+	resource: "profile.ccpr" | "suite.xml",
+	profileKey?: string,
 ): Promise<{ readonly xml: string } | CommCareApiError> {
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(buildId))
 		return { success: false, status: 400 };
@@ -1416,7 +1442,7 @@ export async function readBuildXml(
 	const send = () =>
 		sendHq(
 			creds,
-			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
+			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}${profileKey ? `?profile=${encodeURIComponent(profileKey)}` : ""}`,
 			{ accept: "application/xml", noStore: true, signal: controller.signal },
 		);
 	try {
@@ -1442,5 +1468,61 @@ export async function readBuildXml(
 		return { success: false, status: 503 };
 	} finally {
 		clearTimeout(timer);
+	}
+}
+
+/** Validate a named version's profile, language resources and (if promised)
+ * nonempty private restore. The final HEAD reads only HQ's attachment length. */
+export async function probeNamedInstallation(
+	creds: CommCareCredentials,
+	domain: string,
+	buildId: string,
+	profile: {
+		readonly id: string;
+		readonly langs: readonly string[];
+		readonly practiceWorkerId?: string;
+	},
+) {
+	const selected = await readBuildXml(
+		creds,
+		domain,
+		buildId,
+		"profile.ccpr",
+		profile.id,
+	);
+	if (
+		"success" in selected ||
+		!profileReferencesBuildSuite(selected.xml, {
+			server: creds.server,
+			domain,
+			buildId,
+			profileKey: profile.id,
+		})
+	)
+		return false;
+	const suite = await readBuildXml(
+		creds,
+		domain,
+		buildId,
+		"suite.xml",
+		profile.id,
+	);
+	if ("success" in suite || !selectedSuiteAgrees(suite.xml, profile))
+		return false;
+	if (!profile.practiceWorkerId) return true;
+	const signal = AbortSignal.timeout(30000);
+	try {
+		const response = await sendHq(
+			creds,
+			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/practice_user_restore.xml?profile=${encodeURIComponent(profile.id)}`,
+			{ method: "HEAD", noStore: true, signal },
+		);
+		const present =
+			response.ok &&
+			/^[1-9][0-9]*$/.test(response.header("content-length") ?? "");
+		await response.discard();
+		return present;
+	} catch {
+		return false;
 	}
 }

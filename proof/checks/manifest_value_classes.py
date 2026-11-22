@@ -9589,17 +9589,20 @@ def column_field_outside_nova_s_grammar(use, manifest):
     )
 
 
-def build_profiles_held(use, manifest):
-    """``application-and-settings/build-profiles-non-empty``: an app's ``build_profiles`` holding a profile, and each
-    part of a profile it holds (``lib/commcare/reader/appShell.ts``: anything but an empty map). An empty map is
-    HQ's default and no use."""
+def invalid_profile_languages(use, manifest):
+    """A selected profile needs a first language and an ordered subset of the app's own codes."""
     at = _json(use)
     if at is None:
         return None
-    if at.nearest("BuildProfile") is not None:
-        return True
-    if at.key == "build_profiles" and at.scope[-1][0] in ("Application", "LinkedApplication"):
-        return not (isinstance(at.value, dict) and not at.value)
+    app_languages = at.app.doc.get("langs") or []
+    def invalid(profile):
+        languages = profile.get("langs") or []
+        return not languages or any(code not in app_languages for code in languages) or len(set(languages)) != len(languages)
+    profile = at.nearest("BuildProfile")
+    if profile is not None:
+        return invalid(profile)
+    if at.key == "build_profiles" and isinstance(at.value, dict):
+        return any(invalid(profile) for profile in at.value.values())
     return None
 
 
@@ -9969,6 +9972,6 @@ VALUE_CLASSES = {
         tile_group_identifier_outside_an_xml_name
     ),
     "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
-    "application-and-settings/build-profiles-non-empty": build_profiles_held,
+    "application-and-settings/build-profiles-invalid-language-subset": invalid_profile_languages,
     "questions/question-id-case-registration-script": reserved_question_id,
 }

@@ -286,6 +286,7 @@ export function projectApplicationForTarget(
 	 * upload bytes rather than ordinary app source, and Nova's stable JSON
 	 * tests pin that order. */
 	const {
+		build_profiles: _buildProfiles,
 		translations: _translations,
 		add_ons: _addOns,
 		profile: _profile,

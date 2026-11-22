@@ -909,3 +909,10 @@ The capability holds only while all of the following remain true:
   names and behavior;
 - provider schema validation and live translation-quality evaluation run only
   after fresh approval because they spend money.
+
+
+## Installation profiles
+
+Each named installation in `appSettings.installationProfiles` has a UUID, a display name, an ordered nonempty subset of the app’s language identities and a practice-worker requirement. The first selected language opens on installation. An app language can be removed once every profile that uses it has been edited. Adding a language to the app leaves existing installations as authored. The installation with all app languages follows the app’s language order.
+
+Builder Languages, the Solutions Architect and MCP commit granular profile changes through the same document mutation. Preview uses the selected profile as a language lens. Device export chooses the same locale list for the suite, app strings and XForm translations. A portable device archive uses the existing translation fallback for the full source document. A profile requiring a private restore directs the user to the released installation in its own project space. The deployment identity ledger holds that space’s profile key and practice-worker account.

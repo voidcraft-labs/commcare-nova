@@ -78,6 +78,31 @@ export function LanguageSelector() {
 				sideOffset={6}
 				preferredMinWidth="14rem"
 			>
+				{state.profiles?.length > 0 && (
+					<>
+						<DropdownMenuGroup>
+							<DropdownMenuLabel>Installation profile</DropdownMenuLabel>
+						</DropdownMenuGroup>
+						<DropdownMenuRadioGroup
+							value={state.profileUuid ?? ""}
+							onValueChange={state.selectProfile}
+						>
+							<DropdownMenuRadioItem value="" closeOnClick>
+								All app languages
+							</DropdownMenuRadioItem>
+							{state.profiles.map((profile) => (
+								<DropdownMenuRadioItem
+									key={profile.uuid}
+									value={profile.uuid}
+									closeOnClick
+								>
+									{profile.name || "Unnamed profile"}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+						<DropdownMenuSeparator />
+					</>
+				)}
 				<DropdownMenuGroup>
 					<DropdownMenuLabel>Language workers see</DropdownMenuLabel>
 				</DropdownMenuGroup>

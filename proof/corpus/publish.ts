@@ -1,3 +1,4 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 /**
  * What Nova's publish sends CommCare HQ for one corpus document, captured
  * from Nova's own client.
@@ -3502,6 +3503,7 @@ export interface HqAuthoredA {
 	readonly mediaPaths: ReadonlyMap<string, string>;
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 }
 
 /** The held paths an export boundary takes for `mediaPaths`: each without `jr://file/`. */
@@ -3845,7 +3847,11 @@ async function adoptedA(
 			},
 		),
 		target: { server: PROOF_SERVER, domain: peer.state.domain },
-		identity: targetWireIdentity(adopted.identity, adopted.columnWords),
+		identity: targetWireIdentity(
+			adopted.identity,
+			adopted.columnWords,
+			adopted.installationProfiles,
+		),
 		novaRevision: prepared.source.compiledAtSeq,
 		mediaFiles,
 		observedAt: CAPTURE_OBSERVED_AT,
@@ -3944,7 +3950,11 @@ export async function capturePublish(
 	const adoptedIdentity: WireIdentity =
 		adopted === undefined
 			? DERIVED_WIRE_IDENTITY
-			: targetWireIdentity(adopted.identity, adopted.columnWords);
+			: targetWireIdentity(
+					adopted.identity,
+					adopted.columnWords,
+					adopted.installationProfiles,
+				);
 	const heldMediaPaths =
 		adopted === undefined ? undefined : heldMediaPathsOf(adopted.mediaPaths);
 	const keyedCaseIds = adopted?.keyedCaseIds ?? [];
@@ -3960,6 +3970,7 @@ export async function capturePublish(
 						([assetId, wirePath]) => ({ assetId, wirePath }),
 					),
 					columnWords: adopted.columnWords,
+					installationProfiles: adopted.installationProfiles,
 				});
 	const languageNames: LanguageNames =
 		adopted === undefined ? "nova" : "target";
@@ -4391,7 +4402,11 @@ export async function localCcz(
 		readonly targetIdentity?: TargetIdentity;
 		readonly adopted?: Pick<
 			HqAuthoredA,
-			"identity" | "mediaPaths" | "keyedCaseIds" | "columnWords"
+			| "identity"
+			| "mediaPaths"
+			| "keyedCaseIds"
+			| "columnWords"
+			| "installationProfiles"
 		>;
 	} = {},
 ): Promise<Buffer | LocalCczRefused | null> {
@@ -4447,7 +4462,11 @@ export async function localCcz(
 				{ server: target.server, domain: target.domain, appId: target.hqAppId },
 				adopted === undefined
 					? exported.identity
-					: targetWireIdentity(adopted.identity, adopted.columnWords),
+					: targetWireIdentity(
+							adopted.identity,
+							adopted.columnWords,
+							adopted.installationProfiles,
+						),
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,

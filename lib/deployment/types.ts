@@ -269,6 +269,7 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * publish's content was sent.
 	 */
 	"hq_build_profile_language_missing",
+	"hq_installation_profile_review",
 	/**
 	 * CommCare HQ made the new app with Web Apps off, which it does where the
 	 * plan has no Web Apps, for an app that runs in Web Apps. Only the empty
@@ -305,6 +306,8 @@ export type DeploymentFailureCode = (typeof DEPLOYMENT_FAILURE_CODES)[number];
  */
 export interface DeploymentFailure {
 	readonly code: DeploymentFailureCode;
+	readonly installationProfileConfirmation?: string;
+	readonly installationProfileReviewUrl?: string;
 	readonly message: string;
 	readonly details: readonly string[];
 }
@@ -914,6 +917,11 @@ export const deploymentResourceOwnershipSchema = z.enum(
 
 export const deploymentFailureSchema = z.strictObject({
 	code: z.enum(DEPLOYMENT_FAILURE_CODES),
+	installationProfileConfirmation: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.optional(),
+	installationProfileReviewUrl: z.url().optional(),
 	message: z.string().min(1),
 	details: z.array(z.string()).readonly(),
 });

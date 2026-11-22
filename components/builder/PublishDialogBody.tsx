@@ -143,6 +143,7 @@ import type {
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import {
 	CONNECTION_CHECK_FAILED,
 	DRIFT_STOP_EDITOR_LINE,
@@ -277,6 +278,7 @@ export interface PublishDialogProps {
 	onDownloadJson: (server?: CommCareServer) => Promise<PublishDownloadOutcome>;
 	/** A CCZ is made for one project space this app is published to. */
 	onDownloadCcz: (target: {
+		readonly installationProfileUuid?: string;
 		readonly server: CommCareServer;
 		readonly domain: string;
 	}) => Promise<PublishDownloadOutcome>;
@@ -328,6 +330,8 @@ type PublishStatus =
 			webAppsChange: WebAppsChange | null;
 			/** The case changes Nova offers to move; null where it offers none. */
 			placementMoves: PlacementMoveOfferView | null;
+			installationProfileConfirmation?: string;
+			installationProfileReviewUrl?: string;
 			warnings: string[];
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 	  }
@@ -439,6 +443,11 @@ export function PublishDialogBody({
 	});
 	/** The CCZ's project space, as `downloadTargetKey` spells it; "" for none chosen. */
 	const [cczTargetKey, setCczTargetKey] = useState("");
+	const profiles = Object.values(useAppSettings().installationProfiles ?? {});
+	const [selectedProfileUuid, setSelectedProfileUuid] = useState("");
+	const selectedProfile = profiles.find(
+		(profile) => profile.uuid === selectedProfileUuid,
+	);
 	/**
 	 * Counts what changed where a CCZ can be made while this is open, a
 	 * publish that landed, a stop and a CCZ download that was refused, so
@@ -486,6 +495,8 @@ export function PublishDialogBody({
 	 * write, or null until they tick it. Cleared wherever `confirmations` is,
 	 * so an answer never outlives the question it answered.
 	 */
+	const [confirmInstallationProfiles, setConfirmInstallationProfiles] =
+		useState<string | null>(null);
 	const [confirmWebApps, setConfirmWebApps] = useState<boolean | null>(null);
 	/**
 	 * The move offer the person accepted, named back by its reason and the
@@ -537,6 +548,7 @@ export function PublishDialogBody({
 		setAdoptResourceIds([]);
 		setDiscardRemoteChanges([]);
 		setConfirmations([]);
+		setConfirmInstallationProfiles(null);
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
 		setStoppedDomain(null);
@@ -647,6 +659,7 @@ export function PublishDialogBody({
 			requestedDiscard !== undefined ? [requestedDiscard] : [],
 		);
 		setConfirmations([]);
+		setConfirmInstallationProfiles(null);
 		setConfirmWebApps(null);
 		setAcceptMoves(null);
 		setStoppedDomain(null);
@@ -816,6 +829,7 @@ export function PublishDialogBody({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmInstallationProfiles(null);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(target.domain);
@@ -999,6 +1013,7 @@ export function PublishDialogBody({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmInstallationProfiles(null);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(null);
@@ -1025,6 +1040,7 @@ export function PublishDialogBody({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmInstallationProfiles(null);
 			setConfirmWebApps(null);
 			setAcceptMoves(null);
 			setStoppedDomain(null);
@@ -1184,6 +1200,7 @@ export function PublishDialogBody({
 					discard_remote_changes: discardRemoteChanges,
 					confirm: confirmations,
 					...(confirmWebApps !== null && { confirmWebApps }),
+					...(confirmInstallationProfiles && { confirmInstallationProfiles }),
 					...(acceptMoves !== null && { acceptPlacementMoves: acceptMoves }),
 					/* The reader's own day for a sentence that names when the app
 					 * was brought in, the same values this dialog's own sentences
@@ -1290,6 +1307,7 @@ export function PublishDialogBody({
 				setDiscardRemoteChanges([]);
 				/* The deployment holds what was confirmed from now on. */
 				setConfirmations([]);
+				setConfirmInstallationProfiles(null);
 				setConfirmWebApps(null);
 				setTargetChanges((count) => count + 1);
 				const record = outcome.deployment?.deployment.deployment;
@@ -1355,6 +1373,9 @@ export function PublishDialogBody({
 				remoteChanges: outcome.remoteChanges,
 				webAppsChange: outcome.webAppsChange,
 				placementMoves: outcome.placementMoves,
+				installationProfileConfirmation:
+					outcome.installationProfileConfirmation,
+				installationProfileReviewUrl: outcome.installationProfileReviewUrl,
 				warnings: outcome.warnings,
 				projectSpaceCompatibility: serverCompatibility,
 			});
@@ -1381,6 +1402,7 @@ export function PublishDialogBody({
 		adoptResourceIds,
 		discardRemoteChanges,
 		confirmations,
+		confirmInstallationProfiles,
 		confirmWebApps,
 		acceptMoves,
 		compatibilityState,
@@ -1464,7 +1486,12 @@ export function PublishDialogBody({
 			const generation = ++operationGenerationRef.current;
 			setStatus({ type: "downloading", target: downloadTarget });
 			const outcome = await (cczTarget !== null && downloadTarget === "mobile"
-				? onDownloadCcz(cczTarget)
+				? onDownloadCcz({
+						...cczTarget,
+						...(selectedProfile && {
+							installationProfileUuid: selectedProfile.uuid,
+						}),
+					})
 				: onDownloadJson(downloadServer || undefined));
 			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
@@ -1488,7 +1515,7 @@ export function PublishDialogBody({
 				manualImportGuide: outcome.manualImportGuide,
 			});
 		},
-		[onDownloadCcz, onDownloadJson, downloadServer, cczTarget],
+		[onDownloadCcz, onDownloadJson, downloadServer, cczTarget, selectedProfile],
 	);
 
 	const isWorking =
@@ -1700,6 +1727,51 @@ export function PublishDialogBody({
 								</FieldDescription>
 							</Field>
 						)}
+						{(target === "hq" || target === "mobile") &&
+							!downloadComplete &&
+							profiles.length > 0 && (
+								<Field>
+									<FieldLabel htmlFor="install-profile">
+										Installation profile
+									</FieldLabel>
+									<Select
+										value={selectedProfile?.uuid ?? ""}
+										onValueChange={(value) => {
+											setSelectedProfileUuid(value ?? "");
+											setStatus({ type: "idle" });
+										}}
+									>
+										<SelectTrigger id="install-profile">
+											<SelectValue>
+												{selectedProfile?.name || "All app languages"}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="">All app languages</SelectItem>
+											{profiles.map((profile) => (
+												<SelectItem key={profile.uuid} value={profile.uuid}>
+													{profile.name || "Unnamed profile"}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									{selectedProfile?.requiresPracticeWorker ? (
+										<FieldDescription>
+											CommCare HQ builds this profile with the practice worker
+											from its project space. On the app’s Releases page, choose
+											this profile to download it.
+										</FieldDescription>
+									) : (
+										target === "hq" &&
+										selectedProfile && (
+											<FieldDescription>
+												On the app’s Releases page in CommCare HQ, choose “
+												{selectedProfile.name}” when you download the build.
+											</FieldDescription>
+										)
+									)}
+								</Field>
+							)}
 						{target === "mobile" && !downloadComplete && (
 							<CczTargetField
 								state={downloadTargets}
@@ -1962,6 +2034,40 @@ export function PublishDialogBody({
 										{/* The Web Apps question: the app's Web App setting
 												    on CommCare HQ differs from where it runs, and
 												    the next publish changes it once ticked. */}
+										{status.installationProfileReviewUrl ? (
+											<a
+												className="underline"
+												href={status.installationProfileReviewUrl}
+												target="_blank"
+												rel="noreferrer"
+											>
+												Open application profiles in CommCare HQ
+											</a>
+										) : null}
+										{status.installationProfileConfirmation && canEdit ? (
+											<label
+												htmlFor="installation-worker-confirmation"
+												className="flex items-center gap-2"
+											>
+												<Checkbox
+													id="installation-worker-confirmation"
+													checked={
+														confirmInstallationProfiles ===
+														status.installationProfileConfirmation
+													}
+													onCheckedChange={(checked) =>
+														setConfirmInstallationProfiles(
+															checked === true
+																? (status.installationProfileConfirmation ??
+																		null)
+																: null,
+														)
+													}
+													disabled={isWorking}
+												/>
+												Use these practice workers in this project space
+											</label>
+										) : null}
 										{status.webAppsChange !== null && canEdit ? (
 											<WebAppsChangeChoice
 												change={status.webAppsChange}
@@ -2192,7 +2298,10 @@ export function PublishDialogBody({
 							type="button"
 							onClick={() => handleDownload(downloadTarget)}
 							disabled={
-								isWorking || (downloadTarget === "mobile" && cczTarget === null)
+								isWorking ||
+								(downloadTarget === "mobile" &&
+									(cczTarget === null ||
+										selectedProfile?.requiresPracticeWorker === true))
 							}
 						>
 							{status.type === "downloading" ? (

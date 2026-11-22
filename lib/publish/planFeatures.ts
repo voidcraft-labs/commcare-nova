@@ -26,7 +26,9 @@ export type PlanFeatureId =
 	| "form-links"
 	| "advanced-case-actions"
 	| "organization"
-	| "data-forwarding";
+	| "data-forwarding"
+	| "installation-profiles"
+	| "practice-workers";
 
 export interface PlanFeatureDefinition {
 	readonly id: PlanFeatureId;
@@ -42,6 +44,20 @@ export interface PlanFeatureDefinition {
 export const PLAN_FEATURES: Readonly<
 	Record<PlanFeatureId, PlanFeatureDefinition>
 > = {
+	"installation-profiles": {
+		id: "installation-profiles",
+		label: "Build Profiles",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"This project space needs application profiles to offer named installations and keep their language selections.",
+	},
+	"practice-workers": {
+		id: "practice-workers",
+		label: "Practice mode for mobile workers",
+		plans: "Standard, Pro, Advanced and Enterprise",
+		consequence:
+			"CommCare HQ needs practice workers on this project space to include the practice worker’s data in a profile build.",
+	},
 	"web-apps": {
 		id: "web-apps",
 		label: "Web-Based Apps (CloudCare)",

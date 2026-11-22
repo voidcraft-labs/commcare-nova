@@ -564,6 +564,8 @@ export function buildConnectBlocks(
  * unset or the form carries no Connect block.
  */
 export interface BuildXFormOptions {
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	xmlns: string;
 	connect?: ResolvedConnectConfig;
 	/**
@@ -836,7 +838,7 @@ export function buildXFormSource(
 	formUuid: Uuid,
 	opts: BuildXFormOptions,
 ): XFormSource {
-	const localization = commCareLocalization(doc);
+	const localization = commCareLocalization(doc, opts.installationProfileUuid);
 
 	// The case types this form can READ, name → the index walk from its own
 	// case (own = no hop, parent = one, …). Built from the owning module's case

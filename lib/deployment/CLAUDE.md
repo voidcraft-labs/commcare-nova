@@ -333,21 +333,9 @@ table or a place reads it again before the import. Each of the three compares
 what it read with its baseline and collects what changed, and preflight gives
 one verdict over all of it, `hq_changed`, before any write. `target-app` also
 holds the CommCare version that read carries to the floor
-(`hq_app_version_below_floor`). The `build-profiles` edge holds that read's
-build profiles to the languages this publish writes
-(`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`, the refusal
-`hq_build_profile_language_missing`): no API key can change a profile, so a
-publish that would leave one naming a language the app lacks stops before any
-write, and the same check runs on the second read, where it stops at `upload`.
-It comes after the `hq-changes` verdict, because a language a profile names
-may have been added in CommCare HQ since Nova's last push: that is asked about
-as the change it is, and a publish over it takes the language out. It stops
-whatever the plan, since no API key reads whether the plan still includes
-application profiles and HQ keeps a profile on a plan without them; so the
-refusal names HQ's Languages tab, which takes a language out of every profile
-on any plan, wherever the app there still lists every missing language
-(`views/apps.py::edit_app_langs`), beside the Application Profiles tab, which
-HQ shows only under the `build_profiles` privilege.
+(`hq_app_version_below_floor`). The installation review compares every observed key, name, ordered language list and practice worker. The initial shell carries the complete installation map. In-place imports leave the map to Application Profiles on HQ's Releases page. A mismatch records the actor, Project, target app, source and Nova revision and shows the complete required edit. A new key allocated there can identify one uniquely matching new profile. A person confirms the exact worker chosen in this project space and HQ's working suite verifies the account. A change to the surrounding app brings back the ordinary drift review.
+
+A profile that adds an unavailable language requires an intermediate content import. Existing profile languages stay present until the authorized edit removes them. When a language is being replaced, its effective translations come from the previous published revision by stable unit identity. The intermediate read is bound to the acknowledged save counter and the deployment stays incomplete. Only a complete final read advances the uploaded revision. The profile key and practice worker are stored per deployment. An older deployment whose profile metadata was unavailable needs a fresh HQ read. The pre-DDL scan in `scripts/scan-installation-profiles.ts` reports those separately. A legacy unmanaged profile that depends on a removed language still raises `hq_build_profile_language_missing` before any content is sent.
 
 The floor is `lib/commcare/versionFloor.ts::compareToVersionFloor`, 2.57: the
 refusal below it carries the app's address in `hqAppUrl`, and an unreadable
@@ -1222,7 +1210,7 @@ one-screen groups reads as groups where the base reads sections; no mutation
 converts between the two, so the diff removes each page by name and adds it
 again under its own UUID (`lib/doc/diffDocsToMutations.ts::rebornFields`), and
 the change is taken. Something a publish never
-sends and its comparison does not read (the logo, a build profile) stops no
+sends and its comparison does not read (the logo) stops no
 publish and is not looked for, and something the reader reads as what Nova
 writes (`FIRST_PUBLISH_CHANGES`' register) changes nothing in the document and
 is listed as what the next publish changes there.

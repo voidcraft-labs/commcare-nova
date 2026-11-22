@@ -1249,6 +1249,7 @@ export async function writeEntry(
 					mediaPaths: authored.mediaPaths,
 					keyedCaseIds: authored.keyedCaseIds,
 					columnWords: authored.columnWords,
+					installationProfiles: authored.installationProfiles,
 				};
 	const captures = new Map<string, PublishCapture | RepublishCapture>();
 	for (const [name, configuration] of named) {
@@ -1275,6 +1276,7 @@ export async function writeEntry(
 							mediaPaths: authored.mediaPaths,
 							keyedCaseIds: authored.keyedCaseIds,
 							columnWords: authored.columnWords,
+							installationProfiles: authored.installationProfiles,
 						},
 						...(hqTables !== undefined && hqTables.length > 0 && { hqTables }),
 					})

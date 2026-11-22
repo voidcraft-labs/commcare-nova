@@ -14,6 +14,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
+import { installationArchiveIssue } from "@/lib/domain/installationProfiles";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { PreparedExportBoundary } from "./boundaryValidation";
 
@@ -50,6 +51,7 @@ export function compileLocalArchive(
 	runtimeTarget: RuntimeTarget,
 	identity: WireIdentity,
 	deployment: {
+		readonly installationProfileUuid?: Uuid;
 		readonly emptyCaseListText: boolean;
 		readonly earlierHqApps: number;
 		/** The deployment's live app mapping is one Nova brought in. */
@@ -64,7 +66,13 @@ export function compileLocalArchive(
 		);
 	}
 	const { doc, assets, attachmentTarget, compiledAtSeq } = prepared;
+	const profileIssue = installationArchiveIssue(
+		doc,
+		deployment.installationProfileUuid,
+	);
+	if (profileIssue) throw new Error(profileIssue);
 	const hqJson = expandDoc(doc, {
+		installationProfileUuid: deployment.installationProfileUuid,
 		runtimeTarget,
 		identity,
 		assets,
@@ -75,6 +83,7 @@ export function compileLocalArchive(
 		keyedCaseIdPrefixes: deployment.keyedCaseIdPrefixes,
 	});
 	return compileCcz(hqJson, doc.appName, doc, {
+		installationProfileUuid: deployment.installationProfileUuid,
 		runtimeTarget,
 		identity,
 		assets,

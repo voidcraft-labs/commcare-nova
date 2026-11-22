@@ -1,3 +1,4 @@
+import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import "server-only";
 
 import { createHash } from "node:crypto";
@@ -61,6 +62,7 @@ import {
 	deploymentNotFound,
 } from "./errors";
 import { type HqMediaRecord, hqMediaRecordSchema } from "./hqMedia";
+import type { InstallationProfileCheckpoint } from "./installationProfileReview";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
 import {
 	applyAttemptOutcome,
@@ -848,34 +850,137 @@ export async function readTargetIdentity(
 	});
 }
 
+/** A review is private to the person who saw the target, including when another
+ * editor works on the same installation profiles at the same time. */
+export async function readInstallationReview(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+) {
+	return withDeploymentReadSnapshot(scope, "edit", async ({ db }) => {
+		const row = await db
+			.selectFrom("app_deployment_installation_reviews as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select("r.checkpoint")
+			.where("d.app_id", "=", scope.appId)
+			.where("d.project_id", "=", scope.projectId)
+			.where("d.server", "=", target.server)
+			.where("d.domain", "=", target.domain)
+			.where("r.actor_id", "=", scope.actorUserId)
+			.executeTakeFirst();
+		return row?.checkpoint;
+	});
+}
+
+/** Check both revisions under the app/deployment locks before recording a review or
+ * promoting its verified bindings. A replay cannot supersede another tab's newer review. */
+export async function writeInstallationReview(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: {
+		readonly sequence: number;
+		readonly remoteAppId: string;
+		readonly previous: InstallationProfileCheckpoint | undefined;
+		readonly next?: InstallationProfileCheckpoint;
+		readonly bindings?: NonNullable<TargetIdentity["installationProfiles"]>;
+		readonly identity: TargetIdentity;
+		readonly requireHqImport: (() => void) | null;
+	},
+): Promise<boolean> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			input.requireHqImport?.();
+			const app = await tx
+				.selectFrom("apps")
+				.select("mutation_seq")
+				.where("id", "=", scope.appId)
+				.executeTakeFirstOrThrow();
+			if (Number(app.mutation_seq) !== input.sequence) return false;
+			const mapping = await tx
+				.selectFrom("app_deployment_resources")
+				.select("id")
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", "app")
+				.where("remote_id", "=", input.remoteAppId)
+				.where("released_at", "is", null)
+				.executeTakeFirst();
+			if (!mapping) return false;
+			const stored = await tx
+				.selectFrom("app_deployment_installation_reviews")
+				.select("checkpoint")
+				.where("deployment_id", "=", row.id)
+				.where("actor_id", "=", scope.actorUserId)
+				.executeTakeFirst();
+			if (
+				canonicalJsonText(stored?.checkpoint ?? null) !==
+				canonicalJsonText(input.previous ?? null)
+			)
+				return false;
+			await tx
+				.deleteFrom("app_deployment_installation_reviews")
+				.where("deployment_id", "=", row.id)
+				.where("actor_id", "=", scope.actorUserId)
+				.execute();
+			if (input.next)
+				await tx
+					.insertInto("app_deployment_installation_reviews")
+					.values({
+						deployment_id: row.id,
+						actor_id: scope.actorUserId,
+						checkpoint: JSON.stringify(input.next),
+					})
+					.execute();
+			if (input.bindings)
+				await writeTargetIdentityInTransaction(
+					tx,
+					row.id,
+					{ appId: scope.appId, server: target.server },
+					{
+						read: input.identity,
+						next: { ...input.identity, installationProfiles: input.bindings },
+					},
+				);
+			return true;
+		},
+	);
+}
+
 /** The record's rows of one deployment, through `db` or a caller's transaction. */
 async function readTargetIdentityRows(
 	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
 	deploymentId: string,
 	context: { readonly appId: string; readonly server: string },
 ): Promise<TargetIdentity> {
-	const [entityRows, keyedRows, pathRows, wordRows] = await Promise.all([
-		db
-			.selectFrom("app_deployment_identities")
-			.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_keyed_case_ids")
-			.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_media_paths")
-			.select(["media_asset_id", "wire_path"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-		db
-			.selectFrom("app_deployment_column_field_words")
-			.select(["nova_column_uuid", "screen", "field_word"])
-			.where("deployment_id", "=", deploymentId)
-			.execute(),
-	]);
+	const [profileRows, entityRows, keyedRows, pathRows, wordRows] =
+		await Promise.all([
+			db
+				.selectFrom("app_deployment_installation_profiles")
+				.select(["nova_profile_uuid", "profile_key", "practice_worker_id"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_identities")
+				.select(["entity_kind", "nova_entity_uuid", "unique_id", "xmlns"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_keyed_case_ids")
+				.select(["nova_operation_uuid", "case_type", "case_id_prefix"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_media_paths")
+				.select(["media_asset_id", "wire_path"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+			db
+				.selectFrom("app_deployment_column_field_words")
+				.select(["nova_column_uuid", "screen", "field_word"])
+				.where("deployment_id", "=", deploymentId)
+				.execute(),
+		]);
 	const entities = entityRows.map((row): DeploymentIdentityOverride => {
 		if (row.entity_kind !== "module" && row.entity_kind !== "form") {
 			throw new Error(
@@ -916,6 +1021,13 @@ async function readTargetIdentityRows(
 		mediaPaths: [...held].map(([assetId, wirePath]) => ({
 			assetId,
 			wirePath,
+		})),
+		installationProfiles: profileRows.map((row) => ({
+			uuid: asUuid(row.nova_profile_uuid),
+			key: row.profile_key,
+			...(row.practice_worker_id && {
+				practiceWorkerId: row.practice_worker_id,
+			}),
 		})),
 		columnWords: wordRows.map((row): ColumnFieldWordRow => {
 			if (row.screen !== "short" && row.screen !== "long")
@@ -1031,6 +1143,41 @@ export async function writeTargetIdentityInTransaction(
 			)
 			.execute();
 
+	const profileKey = (
+		row: NonNullable<TargetIdentity["installationProfiles"]>[number],
+	) => JSON.stringify([row.uuid, row.key, row.practiceWorkerId]);
+	const goneProfiles = without(
+		stored.installationProfiles ?? [],
+		next.installationProfiles ?? [],
+		profileKey,
+	);
+	if (goneProfiles.length)
+		await tx
+			.deleteFrom("app_deployment_installation_profiles")
+			.where("deployment_id", "=", deploymentId)
+			.where(
+				"nova_profile_uuid",
+				"in",
+				goneProfiles.map((row) => row.uuid),
+			)
+			.execute();
+	const newProfiles = without(
+		next.installationProfiles ?? [],
+		stored.installationProfiles ?? [],
+		profileKey,
+	);
+	if (newProfiles.length)
+		await tx
+			.insertInto("app_deployment_installation_profiles")
+			.values(
+				newProfiles.map((row) => ({
+					deployment_id: deploymentId,
+					nova_profile_uuid: row.uuid,
+					profile_key: row.key,
+					practice_worker_id: row.practiceWorkerId ?? null,
+				})),
+			)
+			.execute();
 	const goneWords = without(stored.columnWords, next.columnWords, wordKey);
 	for (const row of goneWords)
 		await tx

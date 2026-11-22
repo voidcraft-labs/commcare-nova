@@ -183,7 +183,10 @@ function withValues(
 
 /** The record of the entity `uuid` names, from whichever of the document's maps holds it. */
 function entityOf(doc: BlueprintDoc, uuid: string): unknown {
-	for (const value of Object.values(doc)) {
+	for (const value of [
+		...Object.values(doc),
+		doc.appSettings.installationProfiles,
+	]) {
 		if (
 			typeof value === "object" &&
 			value !== null &&
@@ -200,12 +203,17 @@ function heldOf(
 	holds: readonly Hold[],
 ): Answer["held"] {
 	const uuidOfKey = new Map(
-		externalIdentityMap(reading.doc, targetWireIdentity(reading.identity)).map(
-			(entry) => [
-				externalKeyText({ kind: entry.kind, parts: entry.parts }),
-				entry.uuid,
-			],
-		),
+		externalIdentityMap(
+			reading.doc,
+			targetWireIdentity(
+				reading.identity,
+				reading.columnWords,
+				reading.installationProfiles,
+			),
+		).map((entry) => [
+			externalKeyText({ kind: entry.kind, parts: entry.parts }),
+			entry.uuid,
+		]),
 	);
 	return holds.map(({ key, pointer }) => {
 		const uuid = uuidOfKey.get(key);

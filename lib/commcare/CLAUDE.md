@@ -2338,8 +2338,7 @@ which keeps its directory; the media suite writes each file's own
 `./<dir>/<name>`, HQ's `media_resources` rule, which CommCare Android installs
 at `<dir>/<name>` where `jr://file/<dir>/<name>` reads it), and the `.ccz` and
 the bulk upload name the file at that path.
-`readHqAppSource` reads `build_profiles` so that a publish can refuse to leave
-a profile naming a language the app no longer has (`targetBuildProfiles.ts`).
+`readHqAppSource` preserves the name, key, ordered languages and target worker for each installation profile. The reader refuses a selected profile without a usable first language. The emitter includes the full destination-bound map on create, including the initial shell. HQ ignores the map on update. The Releases page owns the browser save. A named device package carries the profile ID and exactly its selected locales, including each form’s itext. A private practice installation is built by its project space. The released-build probe checks the selected ID, suite, locales and restore length. The separate working-app probe asks only for the selected suite, whose generator validates a practice worker. The working app’s profile and restore URLs would start a build.
 Which of the two a publish does, and what happens to it
 afterwards, lives in `lib/deployment`:
 this package owns the HTTP calls, that one owns the lifecycle, the ownership

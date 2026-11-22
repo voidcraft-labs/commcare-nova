@@ -82,6 +82,8 @@ export interface HqBuildProfile {
 	readonly name: string;
 	/** `langs`: the profile's language codes, its default first. */
 	readonly langs: readonly string[];
+	/** Only present when this destination binds a practice worker. */
+	readonly practiceWorkerId?: string;
 }
 
 export interface HqAppSourceModule {
@@ -462,12 +464,16 @@ function docTypeOf(value: unknown, admitAny: boolean): string | null {
  * a `SchemaDictProperty(BuildProfile)` HQ serializes on every app: an object
  * whose every value holds a `langs` list of strings. Null where it is not.
  */
-function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
+export function readBuildProfiles(
+	value: unknown,
+): readonly HqBuildProfile[] | null {
 	if (!isRecord(value)) return null;
 	const profiles: HqBuildProfile[] = [];
 	for (const [id, profile] of Object.entries(value)) {
 		if (
 			!isRecord(profile) ||
+			(profile.practice_mobile_worker_id != null &&
+				typeof profile.practice_mobile_worker_id !== "string") ||
 			!Array.isArray(profile.langs) ||
 			!profile.langs.every((lang) => typeof lang === "string")
 		)
@@ -476,6 +482,10 @@ function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
 			id,
 			name: typeof profile.name === "string" ? profile.name : "",
 			langs: profile.langs as string[],
+			...(typeof profile.practice_mobile_worker_id === "string" &&
+				profile.practice_mobile_worker_id !== "" && {
+					practiceWorkerId: profile.practice_mobile_worker_id,
+				}),
 		});
 	}
 	return profiles;

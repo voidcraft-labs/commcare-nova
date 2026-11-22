@@ -200,6 +200,7 @@ export function caseTypesLine(caseTypes: readonly string[]): string {
  * `formIds` and `keyedPrefixes` are form names, `columnFields` menu names.
  */
 export function whereHqKeepsLines(changes: {
+	readonly installationProfiles?: readonly string[];
 	readonly formIds: readonly string[];
 	readonly keyedPrefixes: readonly string[];
 	readonly mediaPaths: number;
@@ -214,6 +215,10 @@ export function whereHqKeepsLines(changes: {
 			`In CommCare HQ, ${quoted(changes.keyedPrefixes)} now ${one ? "files the cases it makes" : "file the cases they make"} from an answer under a new case id. Nova follows it, so a key a worker enters again reaches the case CommCare HQ holds for it.`,
 		);
 	}
+	for (const name of changes.installationProfiles ?? [])
+		lines.push(
+			`CommCare HQ changed the installation key or the practice worker for “${name}” in this project space. Bringing in the change will use that binding here.`,
+		);
 	if (changes.formIds.length > 0) {
 		const one = changes.formIds.length === 1;
 		lines.push(

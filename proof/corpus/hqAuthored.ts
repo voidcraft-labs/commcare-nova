@@ -558,6 +558,7 @@ export async function hqAuthoredDocument(
 		mediaPaths,
 		keyedCaseIds: reading.keyedCaseIds,
 		columnWords: reading.columnWords,
+		installationProfiles: reading.installationProfiles,
 		retained: app.directory,
 		hand,
 	};

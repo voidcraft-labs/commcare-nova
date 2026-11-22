@@ -15,7 +15,12 @@ import {
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { PersistableDoc } from "@/lib/domain";
+import {
+	installationArchiveIssue,
+	type PersistableDoc,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import {
 	type ExportMode,
 	type PreparedExportBoundary,
@@ -46,6 +51,7 @@ export type PreparedCompileRequest<M extends "ccz" | "hq-json"> =
 			{ format: M extends "ccz" ? "ccz" : "json" }
 		>;
 		readonly attachmentTargetState: AttachmentTargetState;
+		readonly installationProfileUuid?: Uuid;
 	};
 
 /**
@@ -165,8 +171,28 @@ export async function prepareCompileRequest<
 		);
 	}
 
+	const rawProfile = (body as { installationProfileUuid?: unknown })
+		.installationProfileUuid;
+	let installationProfileUuid: Uuid | undefined;
+	if (rawProfile !== undefined) {
+		if (mode !== "ccz")
+			throw new ApiError(
+				"An import file includes the entire app. A profile can be selected for the mobile app file.",
+				400,
+			);
+		const parsed = uuidSchema.safeParse(rawProfile);
+		if (!parsed.success)
+			throw new ApiError("Choose an installation profile from the app.", 400);
+		installationProfileUuid = parsed.data;
+		const issue = installationArchiveIssue(
+			boundary.prepared.doc,
+			installationProfileUuid,
+		);
+		if (issue) throw new ApiError(issue, 422);
+	}
 	return {
 		...boundary.prepared,
+		installationProfileUuid,
 		download: download as PreparedCompileRequest<M>["download"],
 		attachmentTargetState: downloadAttachmentState(download),
 	};

@@ -17,7 +17,14 @@ import {
 } from "./casePropertyTypes";
 import { fieldSchema, isContainer } from "./fields";
 import { formSchema } from "./forms";
-import { appLocalizationSchema } from "./localization";
+import {
+	installationProfileChangeSchema,
+	installationProfileSchema,
+} from "./installationProfiles";
+import {
+	appLocalizationSchema,
+	effectiveAppLocalization,
+} from "./localization";
 import { projectedModulePreorder } from "./moduleHierarchy";
 import { isOwnerOnlyCaseSearchConfig, moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
@@ -98,6 +105,10 @@ export const APP_GENESIS_FALLBACK_NAME = "Untitled";
  * `setAppSettings` patches the object.
  */
 export const appSettingsSchema = z.strictObject({
+	installationProfiles: ownRecordSchema(
+		uuidSchema,
+		installationProfileSchema,
+	).optional(),
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
 	runsOnlyOn: z.enum(PLATFORMS).optional(),
@@ -112,6 +123,7 @@ export type AppSettings = z.infer<typeof appSettingsSchema>;
  */
 export const appSettingsPatchSchema = z
 	.strictObject({
+		installationProfile: installationProfileChangeSchema.optional(),
 		showSavedForms: z.boolean().optional(),
 		showIncompleteForms: z.boolean().optional(),
 		runsOnlyOn: z.enum(PLATFORMS).nullable().optional(),
@@ -265,6 +277,29 @@ export function blueprintTopologyIssues(
 		}
 	};
 
+	const languages = new Set(
+		effectiveAppLocalization(doc.localization).languageOrder,
+	);
+	for (const [key, profile] of Object.entries(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		const path = ["appSettings", "installationProfiles", key];
+		registerIdentity(profile.uuid, "installation profile", path);
+		if (profile.uuid !== key)
+			topologyIssue(
+				issues,
+				path,
+				"The installation profile must keep its identity.",
+			);
+		for (const language of profile.languages) {
+			if (!languages.has(language))
+				topologyIssue(
+					issues,
+					[...path, "languages"],
+					`“${profile.name || "Unnamed profile"}” uses ${language}. You can choose a different language in the installation profile before removing it from the app.`,
+				);
+		}
+	}
 	registerRecord("modules", doc.modules);
 	registerRecord("forms", doc.forms);
 	registerRecord("fields", doc.fields);

@@ -752,6 +752,10 @@ export interface HqApplicationProfile {
  * result equals what HQ holds.
  */
 export interface HqApplication<XPath = string, LinkXPath = XPath> {
+	build_profiles?: Record<
+		string,
+		import("./installationProfiles").WireBuildProfile
+	>;
 	doc_type: "Application";
 	application_version: string;
 	name: string;

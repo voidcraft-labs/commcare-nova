@@ -64,6 +64,8 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"save_to_case",
 	"locations",
 	"data_forwarding",
+	"build_profiles",
+	"practice_mobile_workers",
 ] as const;
 export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 
@@ -88,6 +90,8 @@ export interface PlanPrivilegePushes {
 	readonly lookupTables: boolean;
 	/** The publish sends at least one place. */
 	readonly places: boolean;
+	/** Existing installation profiles that need an authorized edit on this target. */
+	readonly hasTargetProfiles?: boolean;
 }
 
 /**
@@ -113,6 +117,8 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	save_to_case: "advanced-case-actions",
 	locations: "organization",
 	data_forwarding: "data-forwarding",
+	build_profiles: "installation-profiles",
+	practice_mobile_workers: "practice-workers",
 } as const satisfies Record<HqPlanPrivilegeId, PlanFeatureId>;
 
 /** A form named as every reason names it: its name, trimmed, or its id. */
@@ -374,6 +380,24 @@ export function requiredPlanPrivileges(
 	 * receiver takes each form and nothing reaches CommCare Connect. */
 	add("data_forwarding", connectFormReasons(doc, connect));
 
+	const profiles = Object.values(doc.appSettings.installationProfiles ?? {});
+	add(
+		"build_profiles",
+		profiles.length
+			? profiles.map((profile) => `Workers can install “${profile.name}”.`)
+			: pushes.hasTargetProfiles
+				? ["Update the named installations already on this project space."]
+				: [],
+	);
+	add(
+		"practice_mobile_workers",
+		profiles
+			.filter((profile) => profile.requiresPracticeWorker)
+			.map(
+				(profile) =>
+					`“${profile.name}” uses a practice worker from this project space.`,
+			),
+	);
 	return uses;
 }
 

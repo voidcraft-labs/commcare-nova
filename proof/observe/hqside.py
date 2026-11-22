@@ -201,7 +201,16 @@ def app_attributes(unit, app_id, attributes):
 def build_profiles(unit, app_id, profiles):
     """The build profiles saved as the language profiles page saves them."""
     body, content_type = _json_body(
-        {"profiles": [{"id": p["id"], "name": p["name"], "langs": list(p["langs"])} for p in profiles]}
+        {
+            "profiles": [
+                {
+                    "name": p["name"], "langs": list(p["langs"]),
+                    **({"id": p["id"]} if p.get("id") else {}),
+                    **({"practice_user_id": p["practice_worker_id"]} if p.get("practice_worker_id") else {}),
+                }
+                for p in profiles
+            ]
+        }
     )
     return [_answer(unit, "POST", "build_profiles", [unit.domain, app_id], body, content_type, "build profiles")]
 

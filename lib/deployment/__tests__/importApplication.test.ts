@@ -71,7 +71,9 @@ describe("hqImportApplication", () => {
 		const doc = buildDoc({ appName: "Visits" });
 		const { application, ownership } = hqImportApplication(shell(doc));
 		expect(Object.keys(application)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
+			APP_SHELL_KEYS.filter(
+				(key) => key !== "auto_gps_capture" && key !== "build_profiles",
+			),
 		);
 		expect(ownership).toEqual({
 			addOns: [],
@@ -81,7 +83,9 @@ describe("hqImportApplication", () => {
 		});
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
 		const connectShell = hqImportApplication(shell(connect));
-		expect(Object.keys(connectShell.application)).toEqual([...APP_SHELL_KEYS]);
+		expect(Object.keys(connectShell.application)).toEqual(
+			APP_SHELL_KEYS.filter((key) => key !== "build_profiles"),
+		);
 		expect(connectShell.ownership.autoGpsCapture).toBe(true);
 	});
 

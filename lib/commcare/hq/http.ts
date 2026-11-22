@@ -317,7 +317,7 @@ export interface HqAnswer {
 
 /** What a request to CommCare HQ carries beyond its URL and credentials. */
 export interface HqRequest {
-	readonly method?: "GET" | "POST" | "PUT" | "PATCH";
+	readonly method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH";
 	/** The `Accept` header, where the request names one. */
 	readonly accept?: string;
 	/** The `Content-Type` of a JSON body; a `FormData` body sets its own. */

@@ -820,6 +820,21 @@ export interface AppDeploymentMediaPathsTable {
  * deleted with the deployment's identity rows, never changed and never
  * row-locked.
  */
+export interface AppDeploymentInstallationReviewTable {
+	deployment_id: string;
+	actor_id: string;
+	checkpoint: JSONColumnType<
+		import("@/lib/deployment/installationProfileReview").InstallationProfileCheckpoint
+	>;
+}
+
+export interface AppDeploymentInstallationProfileTable {
+	deployment_id: string;
+	nova_profile_uuid: string;
+	profile_key: string;
+	practice_worker_id: string | null;
+}
+
 export interface AppDeploymentColumnFieldWordsTable {
 	deployment_id: string;
 	nova_column_uuid: string;
@@ -1900,6 +1915,8 @@ export interface AppDatabase {
 	app_deployment_media_paths: AppDeploymentMediaPathsTable;
 	app_deployment_keyed_case_ids: AppDeploymentKeyedCaseIdsTable;
 	app_deployment_column_field_words: AppDeploymentColumnFieldWordsTable;
+	app_deployment_installation_profiles: AppDeploymentInstallationProfileTable;
+	app_deployment_installation_reviews: AppDeploymentInstallationReviewTable;
 	hq_remote_writes: HqRemoteWritesTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;

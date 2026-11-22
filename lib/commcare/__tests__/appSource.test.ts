@@ -538,6 +538,30 @@ describe("readHqAppSource", () => {
 		expect(sourceOf(any).buildProfiles).toEqual(expected);
 	});
 
+	it("reads the active profile binding from the target source", async () => {
+		const { plain, any } = await readUnderBoth(
+			changed(retainedPublishRead("source-live"), (body) => {
+				body.build_profiles = {
+					field: {
+						name: "Field team",
+						langs: ["fra", "en"],
+						practice_mobile_worker_id: "practice-a",
+					},
+				};
+			}),
+		);
+		for (const response of [plain, any]) {
+			expect(sourceOf(response).buildProfiles).toEqual([
+				{
+					id: "field",
+					name: "Field team",
+					langs: ["fra", "en"],
+					practiceWorkerId: "practice-a",
+				},
+			]);
+		}
+	});
+
 	it("reads an app with no build profile as none", async () => {
 		const { plain } = await readUnderBoth(
 			changed(retainedPublishRead("source-live"), (body) => {
@@ -552,6 +576,18 @@ describe("readHqAppSource", () => {
 			"no build_profiles",
 			(body: Record<string, unknown>) => {
 				delete body.build_profiles;
+			},
+		],
+		[
+			"a malformed practice binding",
+			(body: Record<string, unknown>) => {
+				body.build_profiles = {
+					field: {
+						name: "Field team",
+						langs: ["en"],
+						practice_mobile_worker_id: 42,
+					},
+				};
 			},
 		],
 		[

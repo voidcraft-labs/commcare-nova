@@ -124,22 +124,13 @@ more slowly, or a persona may be missing worker information that CommCare HQ
 will ask for later. Read [Project-space compatibility](/docs/project-space-compatibility)
 for the complete check.
 
-#### Application profiles
+#### Installation profiles
 
-In CommCare HQ, an app can have application profiles, each a set of the app's languages for one
-group of phones. Nova keeps them as they are and can't change them. If you remove a language in
-Nova that a profile there still includes, the next publish to that project space stops before
-it sends anything and names the profile and the language. You can take the language out of the
-profile, or remove the profile, on the Application Profiles tab of the app's Releases page in
-CommCare HQ, then publish again. That tab shows only where the project space's plan includes
-application profiles. On any plan, removing the language on the Languages tab of the app's
-settings in CommCare HQ takes it out of every profile too, and the next publish may show you that
-change before it sends anything. A language you add in Nova joins no profile until you add it
-there.
+An installation profile gives one team a particular set of app languages. You can create it in **App setup → Languages** and choose it in Preview or when downloading the mobile app file. [Working with languages](/docs/languages#choose-the-languages-a-team-installs)
 
-If someone added the language in CommCare HQ since Nova's last publish, the publish first shows
-you that as a [change made in CommCare HQ](#changes-made-in-commcare-hq). Publishing over it takes
-the language out of the app there, so the profile is then held to the app's languages too.
+A new installation profile belongs to your app. Its practice worker, if you choose to use one, belongs to the project space. When publishing to another space you can choose a practice worker who is active there.
+
+CommCare HQ keeps the existing profiles on an app when Nova updates its content. If the names, language orders or worker bindings need to change, Nova shows the profiles to keep on the destination. Open the app’s **Releases → Application Profiles** tab in CommCare HQ, make those changes and publish again in Nova. Nova checks what the project space now holds before continuing.
 
 ### Data in place
 

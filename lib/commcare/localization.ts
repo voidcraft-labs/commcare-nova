@@ -12,6 +12,7 @@ import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
 	filledProse,
+	installationLanguages,
 	type LanguageTag,
 	localizeTranslationUnit,
 	type ProseTemplate,
@@ -19,6 +20,7 @@ import {
 	snapshotTranslationUnits,
 	TRANSLATION_FILL_ROLES,
 	type TranslationUnitId,
+	type Uuid,
 	type WireStringSource,
 } from "@/lib/domain";
 import { planLanguageWire } from "./languageWire";
@@ -56,9 +58,17 @@ export interface CommCareLocalization {
  * (`lib/domain/translationFill.ts::filledProse`), so a save changes no value
  * Nova wrote; every method reads one unit the same way.
  */
-export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
+export function commCareLocalization(
+	doc: BlueprintDoc,
+	profileUuid?: Uuid,
+): CommCareLocalization {
 	const effective = effectiveAppLocalization(doc.localization);
-	const plan = planLanguageWire(effective);
+	const order = installationLanguages(doc, profileUuid);
+	const plan = planLanguageWire({
+		...effective,
+		languageOrder: order,
+		defaultLanguage: order[0],
+	});
 	const tagByWireCode = new Map<string, LanguageTag>(
 		[...plan.wireCodeByTag].map(([tag, code]) => [code, tag]),
 	);

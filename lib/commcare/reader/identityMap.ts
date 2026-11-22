@@ -25,7 +25,7 @@ import {
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
 import { planPlacements } from "../placement";
-import type { WireIdentity } from "../wireIdentity";
+import { installationProfileKey, type WireIdentity } from "../wireIdentity";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
 import {
 	type CaseOperationPlaceKey,
@@ -81,6 +81,16 @@ export function externalIdentityMap(
 		entries.push({ kind: key.kind, parts: key.parts, uuid });
 	};
 
+	for (const profile of Object.values(
+		doc.appSettings.installationProfiles ?? {},
+	)) {
+		add(
+			externalKey.installationProfile(
+				installationProfileKey(profile.uuid, identity),
+			),
+			profile.uuid,
+		);
+	}
 	for (const module of Object.values(doc.modules)) {
 		const uniqueId = identity.moduleUniqueId(module.uuid);
 		add(externalKey.module(uniqueId), module.uuid);

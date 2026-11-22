@@ -645,6 +645,47 @@ function* diffGranularSteps(
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
 	}
+	const previousProfiles = prev.appSettings.installationProfiles ?? {};
+	const nextProfiles = next.appSettings.installationProfiles ?? {};
+	for (const profile of Object.values(previousProfiles)) {
+		if (!Object.hasOwn(nextProfiles, profile.uuid))
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: { operation: "remove", uuid: profile.uuid },
+				},
+			});
+	}
+	for (const profile of Object.values(nextProfiles)) {
+		const previous = previousProfiles[profile.uuid];
+		if (!previous) {
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: { installationProfile: { operation: "add", profile } },
+			});
+		} else if (!deepEqual(previous, profile)) {
+			const patch = {
+				...(previous.name !== profile.name && { name: profile.name }),
+				...(!deepEqual(previous.languages, profile.languages) && {
+					languages: profile.languages,
+				}),
+				...(previous.requiresPracticeWorker !==
+					profile.requiresPracticeWorker && {
+					requiresPracticeWorker: profile.requiresPracticeWorker,
+				}),
+			};
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: {
+						operation: "update",
+						uuid: profile.uuid,
+						patch,
+					},
+				},
+			});
+		}
+	}
 	const settingsPatch = appSettingsPatch(prev.appSettings, next.appSettings);
 	if (settingsPatch !== undefined) {
 		appLevel.push({ kind: "setAppSettings", settings: settingsPatch });

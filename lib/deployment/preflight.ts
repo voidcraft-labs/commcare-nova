@@ -1,3 +1,4 @@
+import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import "server-only";
 
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
@@ -115,6 +116,7 @@ import {
 	placeChange,
 } from "./hqResourceBaseline";
 import { diffHqAppSource, normalizeHqAppSource } from "./hqSourceBaseline";
+import { profileSourceDigests } from "./installationProfilePublish";
 import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
@@ -159,6 +161,7 @@ import {
 import {
 	type DeploymentTargetKey,
 	readAppBaseline,
+	readInstallationReview,
 	readResourceBaselines,
 	readSiblingLookupMappings,
 	readTargetIdentity,
@@ -504,6 +507,7 @@ export async function publishConfirmationNeeds(
 	target: DeploymentTargetKey,
 	lookupNaming: LookupWireNaming | undefined,
 	managedTableIds: ReadonlySet<string>,
+	hasTargetProfiles?: boolean,
 ): Promise<{
 	readonly organization: SetupArtifactOrganization;
 	readonly places: readonly PlannedPlace[];
@@ -531,6 +535,12 @@ export async function publishConfirmationNeeds(
 					(tableId) => !managedTableIds.has(tableId),
 				),
 				places: places.length > 0,
+				hasTargetProfiles:
+					hasTargetProfiles ??
+					Boolean(
+						(await readTargetIdentity(access, target)).installationProfiles
+							?.length,
+					),
 			},
 			attachmentUrlTarget(target),
 			lookupNaming,
@@ -797,6 +807,11 @@ export async function runDeploymentPreflight(
 	// Lookup tables and an owner beneath the current case owner both pass
 	// now, the first because this publish pushes them and the second
 	// because it never carried a Nova identity to begin with.
+	const targetIdentity = await readTargetIdentity(input.access, target);
+	const managedProfiles = Boolean(
+		targetIdentity.installationProfiles?.length ||
+			Object.keys(input.doc.appSettings.installationProfiles ?? {}).length,
+	);
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
 		access: input.access,
@@ -805,10 +820,7 @@ export async function runDeploymentPreflight(
 		/* The paths CommCare HQ keeps this target's files under, for an app
 		 * brought in from it: the bulk upload's entries and every reference
 		 * of the body name them. Empty everywhere else. */
-		heldMediaPaths: exportIdentityOf(
-			input.doc,
-			await readTargetIdentity(input.access, target),
-		).heldMediaPaths,
+		heldMediaPaths: exportIdentityOf(input.doc, targetIdentity).heldMediaPaths,
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the
 		// download paths fall back on — the record describes where the app
@@ -860,6 +872,7 @@ export async function runDeploymentPreflight(
 			new Set(
 				boundary.prepared.managedLookupTables.map((table) => table.tableId),
 			),
+			Boolean(targetIdentity.installationProfiles?.length),
 		);
 	if (placesManagedHere) input.requireHqImport?.();
 	const settled = settleConfirmations({
@@ -1651,7 +1664,23 @@ export async function runDeploymentPreflight(
 				await greatestFoldBaselineSeq(await getAppDb(), input.access.appId),
 			),
 		});
-		if (change !== null) observed.push(change);
+		if (change !== null) {
+			const reviewed = managedProfiles
+				? await readInstallationReview(input.access, target)
+				: undefined;
+			const exactIntermediate =
+				reviewed &&
+				(reviewed.verifiedIntermediate ||
+					(change.parts.length === 1 &&
+						change.parts[0] === "Installation profiles")) &&
+				reviewed.appId === appId &&
+				reviewed.sequence === input.compiledAtSeq &&
+				targetApp &&
+				reviewed.unrelatedDigest ===
+					profileSourceDigests(targetApp.source.raw).unrelatedDigest &&
+				!media?.paths.some((p) => p.standing === "replaced");
+			if (!exactIntermediate) observed.push(change);
+		}
 		checks.push({
 			id: "target-app",
 			title: "App on CommCare HQ",
@@ -1719,7 +1748,7 @@ export async function runDeploymentPreflight(
 	// without them and builds it again the day the plan includes them. So
 	// the refusal names the way out that works on any plan, where there is
 	// one.
-	if (targetApp !== null) {
+	if (targetApp !== null && !managedProfiles) {
 		const gaps = buildProfileLanguageGaps(
 			publishedLanguageCodes(input.doc),
 			targetApp.source.buildProfiles,
@@ -2067,9 +2096,17 @@ function appRemoteChange(input: {
 		languageNames: input.languageNames,
 		mediaChanged: input.mediaChanged,
 	});
-	return parts.length === 0
+	const descriptions = parts.map(describeAppChange);
+	const held = baseline.source as { build_profiles?: unknown };
+	const now = input.current.normalized as { build_profiles?: unknown };
+	if (
+		canonicalJsonText(held.build_profiles ?? {}) !==
+		canonicalJsonText(now.build_profiles ?? {})
+	)
+		descriptions.push("Installation profiles");
+	return descriptions.length === 0
 		? null
-		: change(boundedParts(parts.map(describeAppChange)), true);
+		: change(boundedParts(descriptions), true);
 }
 
 /**
@@ -2432,6 +2469,18 @@ export function buildProfileLanguageFailure(
 	const stopped = read.duringPush
 		? "which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content"
 		: "so Nova stopped before sending anything";
+	if (gaps.some((gap) => gap.missing.length === 0)) {
+		return {
+			code: "hq_build_profile_language_missing",
+			message: `An application profile on “${domain}” has no default language, ${stopped}. On the Application Profiles tab of the app’s Releases page in CommCare HQ, you can choose its installation languages or remove the profile, then publish again.`,
+			details: gaps.map((gap) => {
+				const name = gap.name || gap.id;
+				return gap.missing.length === 0
+					? `“${name}” has no installation languages.`
+					: `“${name}” includes ${gap.missing.map(buildProfileLanguageLabel).join(", ")}.`;
+			}),
+		};
+	}
 	const one = gaps.length === 1 && gaps[0].missing.length === 1;
 	const held = new Set(read.hqLangs);
 	const onLanguagesTab = gaps.every((gap) =>

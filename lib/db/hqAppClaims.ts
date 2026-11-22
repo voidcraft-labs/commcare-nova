@@ -579,6 +579,14 @@ export async function endDeploymentInTransaction(
 		.where("deployment_id", "=", input.deploymentId)
 		.execute();
 	await tx
+		.deleteFrom("app_deployment_installation_reviews")
+		.where("deployment_id", "=", input.deploymentId)
+		.execute();
+	await tx
+		.deleteFrom("app_deployment_installation_profiles")
+		.where("deployment_id", "=", input.deploymentId)
+		.execute();
+	await tx
 		.deleteFrom("app_deployment_column_field_words")
 		.where("deployment_id", "=", input.deploymentId)
 		.execute();

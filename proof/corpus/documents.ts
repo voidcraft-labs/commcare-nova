@@ -1,3 +1,4 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
 /**
  * The corpus's documents and where each comes from.
  *
@@ -131,6 +132,7 @@ export interface HqAuthoredFacts {
 	 * its local archive print the column under. Empty where A holds none.
 	 */
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	/**
 	 * Absolute path of the base's retained directory (`proof/hq-apps/<base>/`),
 	 * whose files the entry writer copies into the document's `authored/` and
@@ -337,6 +339,7 @@ export interface HqSideSaveKinds extends HqSideContentSaves {
 	>;
 	readonly appAttributes?: Readonly<Record<string, boolean | string>>;
 	readonly buildProfiles?: readonly {
+		readonly practice_worker_id?: string;
 		readonly id: string;
 		readonly name: string;
 		readonly langs: readonly string[];

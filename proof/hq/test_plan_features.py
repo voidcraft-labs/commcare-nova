@@ -67,6 +67,8 @@ NOVA_LABELS = {
     "save_to_case": "Save to Case",
     "locations": "Locations",
     "data_forwarding": "Data Forwarding",
+    "build_profiles": "Build Profiles",
+    "practice_mobile_workers": "Practice mode for mobile workers",
 }
 
 

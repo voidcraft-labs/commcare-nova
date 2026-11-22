@@ -34,7 +34,10 @@ import {
 	retainedBodyText,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import {
+	testUuid as installationUuid,
+	testMediaAssetId,
+} from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixture";
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
@@ -543,7 +546,9 @@ describe("a first publish", () => {
 		// `add_ons` and `profile` arrive with the update over the shell's read.
 		// HQ keeps its own `build_spec`, so no body names one.
 		expect(Object.keys(shell.app)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
+			APP_SHELL_KEYS.filter(
+				(key) => key !== "auto_gps_capture" && key !== "build_profiles",
+			),
 		);
 		expect(shell.app).toMatchObject({ modules: [], _attachments: {} });
 		for (const key of [
@@ -3356,3 +3361,110 @@ describe("the save counter a publish's reads are bound to", () => {
 function fail(): never {
 	throw new Error("Expected a value");
 }
+
+describe("named installations on a destination", () => {
+	it("creates a profile on the shell, verifies its assigned key, and only records the final app after the complete map is read back", async () => {
+		const uuid = installationUuid("night-team");
+		const key = uuid.replaceAll("-", "");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Night team",
+				languages: ["eng"],
+				requiresPracticeWorker: false,
+			},
+		};
+		await seed(doc);
+		const profiles = {
+			[key]: {
+				name: "Night team",
+				langs: ["en"],
+				practice_mobile_worker_id: "",
+				doc_type: "BuildProfile",
+			},
+		};
+		const read = (
+			name: "source-shell" | "source-after-create-then-update",
+		) => ({
+			...retainedBodyJson(retainedPublishRead(name)),
+			build_profiles: profiles,
+		});
+		await withPeer(async (peer) => {
+			const bodies: unknown[] = [];
+			accepted(peer, 201, HQ_APP, bodies);
+			request(peer, SOURCE).reply(200, read("source-shell"));
+			request(peer, SOURCE).reply(200, read("source-shell"));
+			accepted(peer, 200, HQ_APP, bodies);
+			request(peer, SOURCE).reply(200, read("source-after-create-then-update"));
+			const result = await publish(doc);
+			expect(result).toMatchObject({ landed: true });
+			expect(bodies[0]).toMatchObject({
+				app: {
+					build_profiles: { [key]: { name: "Night team", langs: ["en"] } },
+				},
+			});
+			expect(bodies[1]).not.toHaveProperty("app.build_profiles");
+			const rows = await h
+				.db()
+				.selectFrom("app_deployment_installation_profiles")
+				.select(["nova_profile_uuid", "profile_key", "practice_worker_id"])
+				.execute();
+			expect(rows).toEqual([
+				{ nova_profile_uuid: uuid, profile_key: key, practice_worker_id: null },
+			]);
+		});
+	});
+	it("keeps a shell incomplete when the destination must supply an active practice worker", async () => {
+		const uuid = installationUuid("training");
+		const key = uuid.replaceAll("-", "");
+		const doc = clinicVisitsDocument();
+		doc.appSettings.installationProfiles = {
+			[uuid]: {
+				uuid,
+				name: "Practice",
+				languages: ["eng"],
+				requiresPracticeWorker: true,
+			},
+		};
+		await seed(doc);
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			request(peer, SOURCE).reply(200, {
+				...retainedBodyJson(retainedPublishRead("source-shell")),
+				build_profiles: {
+					[key]: {
+						name: "Practice",
+						langs: ["en"],
+						practice_mobile_worker_id: null,
+						doc_type: "BuildProfile",
+					},
+				},
+			});
+			const stopped = refusal(await publish(doc));
+			expect(stopped.failure).toMatchObject({
+				code: "hq_installation_profile_review",
+				installationProfileReviewUrl: `${HOST}/a/clinic/apps/view/${HQ_APP}/releases/`,
+			});
+			expect(requests(peer).filter((s) => s === `POST ${IMPORT}`)).toHaveLength(
+				1,
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_reviews")
+					.select("checkpoint")
+					.executeTakeFirstOrThrow(),
+			).toMatchObject({
+				checkpoint: { phase: "edit-profiles", appId: HQ_APP },
+			});
+			expect(
+				await h
+					.db()
+					.selectFrom("app_deployment_installation_profiles")
+					.select("practice_worker_id")
+					.execute(),
+			).toEqual([]);
+		});
+	});
+});

@@ -1,8 +1,13 @@
 import "server-only";
 
 import type { CommCareCredentials } from "@/lib/commcare/client";
-import { probeBuildProfile, readAppVersions } from "@/lib/commcare/client";
+import {
+	probeBuildProfile,
+	probeNamedInstallation,
+	readAppVersions,
+} from "@/lib/commcare/client";
 import { readHqApplication } from "@/lib/commcare/hq/application";
+import type { HqBuildProfile } from "@/lib/commcare/hq/appSource";
 import type {
 	DeploymentFailureCode,
 	DeploymentPhase,
@@ -71,6 +76,7 @@ export async function observeDeployment(input: {
 	readonly creds: CommCareCredentials;
 	readonly domain: string;
 	readonly hqAppId: string;
+	readonly namedProfiles?: readonly HqBuildProfile[];
 	readonly now: string;
 }): Promise<ObservationResult> {
 	const { creds, domain, hqAppId, now } = input;
@@ -273,6 +279,23 @@ export async function observeDeployment(input: {
 		};
 	}
 
+	for (const expected of input.namedProfiles ?? []) {
+		if (!(await probeNamedInstallation(creds, domain, released.id, expected))) {
+			outcomes.push([
+				"probe",
+				pending(
+					now,
+					`Nova could not verify the “${expected.name}” installation on the released build. Check its selected languages, plan features and practice worker on the app’s Releases page, then check status again.`,
+				),
+			]);
+			return {
+				kind: "checked",
+				outcomes,
+				remoteRevision: versions.currentVersion,
+				releasedBuildId: released.id,
+			};
+		}
+	}
 	outcomes.push(["probe", { status: "succeeded", at: now }]);
 	return {
 		kind: "checked",

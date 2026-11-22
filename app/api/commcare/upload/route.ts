@@ -243,6 +243,7 @@ export async function POST(req: NextRequest) {
 			discard_remote_changes?: unknown;
 			confirm?: unknown;
 			confirmWebApps?: unknown;
+			confirmInstallationProfiles?: unknown;
 			acceptPlacementMoves?: unknown;
 			viewer?: unknown;
 		} | null;
@@ -335,6 +336,10 @@ export async function POST(req: NextRequest) {
 			discardRemoteChanges,
 			confirm,
 			...(confirmWebApps !== undefined && { confirmWebApps }),
+			...(typeof body.confirmInstallationProfiles === "string" &&
+				/^[a-f0-9]{64}$/.test(body.confirmInstallationProfiles) && {
+					confirmInstallationProfiles: body.confirmInstallationProfiles,
+				}),
 			...(driftDate !== undefined && { driftDate }),
 		});
 

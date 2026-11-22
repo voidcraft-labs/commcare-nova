@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { profileReferencesBuildSuite } from "../buildProfile";
+import {
+	profileReferencesBuildSuite,
+	selectedSuiteAgrees,
+} from "../buildProfile";
 
 const target = {
 	server: "india" as const,
@@ -46,5 +49,43 @@ describe("released profile suite identity", () => {
 		(xml) => {
 			expect(profileReferencesBuildSuite(xml, target)).toBe(false);
 		},
+	);
+});
+
+it("checks the selected profile key, every ordered locale and the private restore reference instead of accepting the default suite", () => {
+	const named = { ...target, profileKey: "visits" };
+	expect(profileReferencesBuildSuite(profile(url), named)).toBe(false);
+	expect(
+		profileReferencesBuildSuite(
+			profile(`${url}?profile=visits`).replace(
+				"<profile>",
+				'<profile buildProfileID="visits">',
+			),
+			named,
+		),
+	).toBe(true);
+	const resource = (path: string, id: string) =>
+		`<resource id="${id}" version="2"><location authority="remote">./${path}?profile=visits</location></resource>`;
+	const suite = `<suite>${["default", "fra"].map((lang) => `<locale language="${lang}">${resource(`${lang}/app_strings.txt`, lang)}</locale>`).join("")}<user-restore>${resource("practice_user_restore.xml", "practice-user-restore")}</user-restore></suite>`;
+	const expected = {
+		id: "visits",
+		langs: ["fra"],
+		practiceWorkerId: "synthetic",
+	};
+	expect(selectedSuiteAgrees(suite, expected)).toBe(true);
+	expect(
+		selectedSuiteAgrees(
+			suite.replace(
+				"practice_user_restore.xml?profile=visits",
+				"practice_user_restore.xml",
+			),
+			expected,
+		),
+	).toBe(false);
+	expect(
+		selectedSuiteAgrees(suite, { ...expected, langs: ["fra", "en"] }),
+	).toBe(false);
+	expect(selectedSuiteAgrees(suite, { id: "visits", langs: ["fra"] })).toBe(
+		false,
 	);
 });

@@ -8,6 +8,7 @@ import {
 	useMemo,
 } from "react";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	useAppLocalization,
@@ -36,12 +37,16 @@ import {
 	pushBuilderLensHistory,
 	useBuilderSearch,
 } from "@/lib/routing/useClientPath";
+import { usePreviewing } from "@/lib/session/hooks";
 
 const LANGUAGE_QUERY_KEY = "lang";
 
 export interface BuilderLanguageState {
 	readonly language: LanguageTag;
 	readonly identity: AppLanguageIdentity;
+	readonly profiles: readonly { uuid: Uuid; name: string }[];
+	readonly profileUuid?: Uuid;
+	selectProfile(uuid: string): void;
 	readonly sourceLanguage: LanguageTag;
 	readonly defaultLanguage: LanguageTag;
 	readonly languages: readonly {
@@ -63,13 +68,36 @@ export function BuilderLocalizationProvider({
 	children: ReactNode;
 }) {
 	const persisted = useAppLocalization();
+	const previewing = usePreviewing();
+	const settings = useAppSettings();
 	const search = useBuilderSearch();
 	const effective = useMemo(
 		() => effectiveAppLocalization(persisted),
 		[persisted],
 	);
-	const requested = new URLSearchParams(search).get(LANGUAGE_QUERY_KEY);
-	const language = resolveAppLanguage(persisted, requested);
+	const query = new URLSearchParams(search);
+	const requested = query.get(LANGUAGE_QUERY_KEY);
+	const profiles = useMemo(
+		() =>
+			previewing ? Object.values(settings.installationProfiles ?? {}) : [],
+		[previewing, settings.installationProfiles],
+	);
+	const profile = profiles.find(
+		(entry) => entry.uuid === query.get("installation"),
+	);
+	const order = profile?.languages ?? effective.languageOrder;
+	const language = profile
+		? requested && order.includes(requested)
+			? requested
+			: order[0]
+		: resolveAppLanguage(persisted, requested);
+	const selectProfile = useCallback((uuid: string) => {
+		const url = new URL(window.location.href);
+		if (uuid) url.searchParams.set("installation", uuid);
+		else url.searchParams.delete("installation");
+		url.searchParams.delete(LANGUAGE_QUERY_KEY);
+		pushBuilderLensHistory(`${url.pathname}${url.search}`);
+	}, []);
 	const selectLanguage = useCallback((next: LanguageTag) => {
 		const url = new URL(window.location.href);
 		url.searchParams.set(LANGUAGE_QUERY_KEY, next);
@@ -83,8 +111,11 @@ export function BuilderLocalizationProvider({
 			language,
 			identity,
 			sourceLanguage: effective.sourceLanguage,
-			defaultLanguage: effective.defaultLanguage,
-			languages: effective.languageOrder.map((tag) => ({
+			defaultLanguage: order[0],
+			profiles,
+			profileUuid: profile?.uuid,
+			selectProfile,
+			languages: order.map((tag) => ({
 				tag,
 				identity: parseLanguageTag(tag),
 			})),
@@ -92,7 +123,15 @@ export function BuilderLocalizationProvider({
 			direction: languageDirection(identity),
 			selectLanguage,
 		};
-	}, [effective, language, selectLanguage]);
+	}, [
+		effective,
+		language,
+		order,
+		profiles,
+		profile,
+		selectProfile,
+		selectLanguage,
+	]);
 
 	return (
 		<BlueprintAuthoringLanguageContext value={language}>

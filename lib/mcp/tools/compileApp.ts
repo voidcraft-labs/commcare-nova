@@ -46,6 +46,7 @@ import {
 	resolveDownloadTarget,
 } from "@/lib/deployment/downloadTarget";
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
+import { installationArchiveIssue, uuidSchema } from "@/lib/domain";
 import {
 	type ExportMode,
 	prepareExportBoundary,
@@ -94,6 +95,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 			description:
 				'Compile an app you can view. `format: "json"` returns the CommCare HQ import file, a base64-encoded zip holding the app JSON, its media and Project data when it has them, and a README with the manual import steps; the steps also come first as a `nova_manual_import_guide` text block. The import file works in any project space, so it takes no `domain`. `format: "ccz"` returns the mobile app file base64-encoded, made for one project space the app is already published to: it signs workers in there and sends their forms there. Pass `domain` (and `server` when two servers hold that name) to choose among several; an app published nowhere has no CCZ yet. An app that runs in Web Apps only has no CCZ. `_meta["nova/target"]` names the project space and HQ app a CCZ is made for. A download checks no project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile; when the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact. Check one actual destination with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
 			inputSchema: z.object({
+				installation_profile_uuid: uuidSchema
+					.optional()
+					.describe(
+						"Installation profile to use for a mobile app file. Leave it out for all app languages. A profile that uses a practice worker is built on CommCare HQ.",
+					),
 				server: z
 					.enum(COMMCARE_SERVER_IDS)
 					.optional()
@@ -142,6 +148,17 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * manifest resolves only the ids the app's own blueprint references,
 				 * filtered to the project. */
 				const mode = COMPILE_EXPORT_MODE_BY_FORMAT[args.format];
+				if (args.installation_profile_uuid !== undefined) {
+					if (mode !== "ccz")
+						throw new McpInvalidInputError(
+							"An import file includes the entire app. A profile can be selected for a mobile app file.",
+						);
+					const issue = installationArchiveIssue(
+						doc,
+						args.installation_profile_uuid,
+					);
+					if (issue) throw new McpInvalidInputError(issue);
+				}
 				/* A CCZ is made for one project space this app is published
 				 * to, and the import file for none: a reached deployment only
 				 * scopes its attachment links. The same choice the browser
@@ -309,6 +326,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							download.runtimeTarget,
 							download.identity,
 							{
+								installationProfileUuid: args.installation_profile_uuid,
 								emptyCaseListText: download.target.emptyCaseListText,
 								earlierHqApps: download.target.earlierHqApps,
 								adopted: download.target.adopted,

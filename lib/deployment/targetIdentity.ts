@@ -33,6 +33,7 @@ import {
 	type ColumnScreen,
 	derivedFormXmlns,
 	derivedUniqueId,
+	type InstallationProfileBinding,
 	targetWireIdentity,
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
@@ -70,6 +71,7 @@ export interface HeldMediaPath {
  * column then screen).
  */
 export interface TargetIdentity {
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	readonly entities: readonly DeploymentIdentityOverride[];
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly mediaPaths: readonly HeldMediaPath[];
@@ -93,6 +95,7 @@ export const EMPTY_TARGET_IDENTITY: TargetIdentity = {
  * derivation is known.
  */
 export interface ObservedTargetIdentity {
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 	readonly entities: readonly DeploymentIdentityOverride[];
 	readonly keyedCreates: ReadMenuAndFormIdentities["keyedCreates"];
 	readonly mediaPaths: readonly (HeldMediaPath & {
@@ -127,6 +130,11 @@ export function canonicalTargetIdentity(
 	record: TargetIdentity,
 ): TargetIdentity {
 	return {
+		...(record.installationProfiles?.length && {
+			installationProfiles: [...record.installationProfiles].sort((a, b) =>
+				codeUnitOrder(a.uuid, b.uuid),
+			),
+		}),
 		entities: [...record.entities].sort(
 			(a, b) =>
 				codeUnitOrder(a.entityKind, b.entityKind) ||
@@ -213,6 +221,7 @@ export function observedTargetIdentity(input: {
 			hqPaths: input.mediaMap.flatMap((item) =>
 				item.path.startsWith(JR_FILE) ? [item.path.slice(JR_FILE.length)] : [],
 			),
+			installationProfiles: input.read.installationProfiles,
 			columnWords: input.read.columnFieldWords.filter((row) =>
 				columns.has(row.columnUuid),
 			),
@@ -379,6 +388,7 @@ export function resolveTargetIdentity(
 		entities,
 		keyedCaseIds,
 		mediaPaths,
+		installationProfiles: observed.installationProfiles,
 		columnWords,
 	});
 }
@@ -407,7 +417,11 @@ export function exportIdentityOf(
 	record: TargetIdentity,
 ): ExportIdentity {
 	return {
-		identity: targetWireIdentity(record.entities, record.columnWords),
+		identity: targetWireIdentity(
+			record.entities,
+			record.columnWords,
+			record.installationProfiles,
+		),
 		keyedCaseIdPrefixes: keyedCaseIdPrefixesFor(doc, record.keyedCaseIds),
 		heldMediaPaths: new Map(
 			record.mediaPaths.map((row) => [row.assetId, row.wirePath]),
@@ -417,6 +431,7 @@ export function exportIdentityOf(
 
 /** What changed between two records, as a review names it to a person. */
 export interface TargetIdentityChanges {
+	readonly installationProfiles?: readonly string[];
 	/** The forms `doc` holds whose id in CommCare HQ moved, by name. */
 	readonly formIds: readonly string[];
 	/** The forms whose keyed creates moved to another case id prefix, by name. */
@@ -500,8 +515,29 @@ export function targetIdentityChanges(
 					columnFields.add(module.name);
 		}
 	}
+	const oldBindings = new Map(
+		(stored.installationProfiles ?? []).map((b) => [b.uuid, b]),
+	);
+	const changedProfiles = (next.installationProfiles ?? [])
+		.filter((b) => {
+			const previous = oldBindings.get(b.uuid);
+			return (
+				held.appSettings.installationProfiles?.[b.uuid] &&
+				previous &&
+				(previous.key !== b.key ||
+					previous.practiceWorkerId !== b.practiceWorkerId)
+			);
+		})
+		.map(
+			(b) =>
+				doc.appSettings.installationProfiles?.[b.uuid]?.name ??
+				"Unnamed profile",
+		)
+		.sort(codeUnitOrder);
+
 	return {
 		formIds: [...formIds].sort(codeUnitOrder),
+		...(changedProfiles.length && { installationProfiles: changedProfiles }),
 		keyedPrefixes: [...keyedPrefixes].sort(codeUnitOrder),
 		mediaPaths,
 		columnFields: [...columnFields].sort(codeUnitOrder),

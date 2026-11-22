@@ -29,6 +29,11 @@ export function appOverview(doc: BlueprintDoc) {
 		name: doc.appName,
 		...(doc.connectType && { connect: doc.connectType }),
 		settings: {
+			...(doc.appSettings.installationProfiles && {
+				installationProfiles: Object.values(
+					doc.appSettings.installationProfiles,
+				),
+			}),
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,
 		},

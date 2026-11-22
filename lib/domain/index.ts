@@ -42,6 +42,7 @@ export * from "./formLinkTargets";
 export * from "./forms";
 export * from "./hashtagSegments";
 export * from "./idSlug";
+export * from "./installationProfiles";
 export * from "./jsonNumber";
 export * from "./kinds";
 export * from "./localization";

@@ -6,12 +6,19 @@ import { tryParseXml } from "./xmlParse";
 /** HQ profile.xml always carries a remote resource named suite; local is optional. */
 export function profileReferencesBuildSuite(
 	xml: string,
-	target: { server: CommCareServer; domain: string; buildId: string },
+	target: {
+		server: CommCareServer;
+		domain: string;
+		buildId: string;
+		profileKey?: string;
+	},
 ): boolean {
 	const parsed = tryParseXml(xml);
 	if ("issue" in parsed) return false;
 	const roots = parsed.doc.children.filter(isTag);
 	if (roots.length !== 1 || roots[0].name !== "profile") return false;
+	if ((roots[0].attribs.buildProfileID || undefined) !== target.profileKey)
+		return false;
 	const resources = roots[0].children
 		.filter(isTag)
 		.filter((e) => e.name === "suite")
@@ -24,5 +31,76 @@ export function profileReferencesBuildSuite(
 	if (remotes.length !== 1) return false;
 	const expected = `${COMMCARE_SERVERS[target.server].baseUrl}/a/${encodeURIComponent(target.domain)}/apps/download/${encodeURIComponent(target.buildId)}/suite.xml`;
 	// No resource fetch follows this untrusted location. It must name our fixed read.
-	return textContent(remotes[0]).trim() === expected;
+	return (
+		textContent(remotes[0]).trim() ===
+		expected + (target.profileKey ? `?profile=${target.profileKey}` : "")
+	);
+}
+
+/** HQ's native suite generator reads the target worker by ID and refuses an
+ * inactive, deleted, foreign or non-practice account before emitting its restore. */
+export function selectedSuiteAgrees(
+	xml: string,
+	profile: {
+		readonly id: string;
+		readonly langs: readonly string[];
+		readonly practiceWorkerId?: string;
+	},
+): boolean {
+	const parsed = tryParseXml(xml);
+	if ("issue" in parsed) return false;
+	const roots = parsed.doc.children.filter(isTag);
+	if (roots.length !== 1 || roots[0].name !== "suite") return false;
+	const children = roots[0].children.filter(isTag);
+	const locales = children.filter((element) => element.name === "locale");
+	const languages = ["default", ...profile.langs];
+	const namesResource = (
+		element: (typeof roots)[number],
+		expectedRemote: string,
+		options?: { id: string; versionRequired: boolean },
+	) => {
+		const resources = element.children
+			.filter(isTag)
+			.filter((child) => child.name === "resource");
+		if (resources.length !== 1) return false;
+		const resource = resources[0];
+		if (
+			options &&
+			(resource.attribs.id !== options.id ||
+				(options.versionRequired && !resource.attribs.version))
+		)
+			return false;
+		const remotes = resource.children
+			.filter(isTag)
+			.filter(
+				(child) =>
+					child.name === "location" && child.attribs.authority === "remote",
+			);
+		return (
+			remotes.length === 1 && textContent(remotes[0]).trim() === expectedRemote
+		);
+	};
+	if (
+		locales.length !== languages.length ||
+		!locales.every(
+			(element, index) =>
+				element.attribs.language === languages[index] &&
+				namesResource(
+					element,
+					`./${languages[index]}/app_strings.txt?profile=${profile.id}`,
+				),
+		)
+	)
+		return false;
+	const restores = children.filter(
+		(element) => element.name === "user-restore",
+	);
+	return profile.practiceWorkerId
+		? restores.length === 1 &&
+				namesResource(
+					restores[0],
+					`./practice_user_restore.xml?profile=${profile.id}`,
+					{ id: "practice-user-restore", versionRequired: true },
+				)
+		: restores.length === 0;
 }

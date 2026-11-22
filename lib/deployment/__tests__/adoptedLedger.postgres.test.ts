@@ -1,3 +1,7 @@
+import { createHash as installationDigest } from "node:crypto";
+import * as installationMigration from "@/lib/case-store/migrations/20261203040000_hq_installation_profiles";
+import { scanInstallationProfileBaselines } from "@/scripts/lib/installationProfileBaselines";
+import { readInstallationReview, writeInstallationReview } from "../store";
 /**
  * The adopted ledger in real Postgres: what one birth from CommCare HQ
  * records, in the transaction that births the app, and what every reader
@@ -596,5 +600,159 @@ describe("readHqAppClaims", () => {
 				contact: { role: "person", names: [ACTOR] },
 			},
 		]);
+	});
+});
+
+describe("existing adoptions and installation reviews", () => {
+	it("counts a verified empty map, an unobserved baseline and a real binding separately before DDL and after restore", async () => {
+		const birth = await born();
+		const database = h.db();
+		const baseline = await database
+			.selectFrom("app_deployment_baselines")
+			.selectAll()
+			.executeTakeFirstOrThrow();
+		// This isolated database has an authentic adoption and its immutable source.
+		// Down/up simulates the exact previous schema and the operator's DDL recovery.
+		await installationMigration.down(database);
+		try {
+			for (const [kind, shape] of [
+				["empty", { langs: ["en"], build_profiles: {} }],
+				["unobserved", { langs: ["en"] }],
+				[
+					"named",
+					{
+						langs: ["en"],
+						build_profiles: {
+							field: {
+								name: "Field",
+								langs: ["en"],
+								practice_mobile_worker_id: "local-worker",
+							},
+						},
+					},
+				],
+			] as const) {
+				const text = JSON.stringify(shape);
+				await database
+					.updateTable("app_deployment_baselines")
+					.set({
+						source_gzip: gzipSync(text),
+						source_bytes: Buffer.byteLength(text),
+						source_digest: installationDigest("sha256")
+							.update(text)
+							.digest("hex"),
+					})
+					.where("deployment_id", "=", baseline.deployment_id)
+					.execute();
+				expect(await scanInstallationProfileBaselines(database)).toMatchObject({
+					[kind]: 1,
+					privateWorkers: kind === "named" ? 1 : 0,
+				});
+			}
+			await database
+				.updateTable("app_deployment_baselines")
+				.set({
+					source_gzip: baseline.source_gzip,
+					source_digest: baseline.source_digest,
+					source_bytes: baseline.source_bytes,
+				})
+				.where("deployment_id", "=", baseline.deployment_id)
+				.execute();
+		} finally {
+			await installationMigration.up(database);
+		}
+		expect(
+			await database
+				.selectFrom("app_deployment_baselines")
+				.selectAll()
+				.executeTakeFirstOrThrow(),
+		).toEqual(baseline);
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toBeUndefined();
+	});
+	it("rechecks Project membership and the caller’s HQ grants before promoting any destination key and worker", async () => {
+		const birth = await born();
+		const identity = await readTargetIdentity(birth.scope, TARGET);
+		const sequence = Number(
+			(
+				await h
+					.db()
+					.selectFrom("apps")
+					.select("mutation_seq")
+					.where("id", "=", APP)
+					.executeTakeFirstOrThrow()
+			).mutation_seq,
+		);
+		const checkpoint = {
+			phase: "confirm-workers" as const,
+			sequence,
+			appId: HQ_APP,
+			sourceDigest: "read",
+			unrelatedDigest: "rest",
+			review: { requested: [], previousKeys: ["field"] },
+		};
+		const input = {
+			sequence,
+			remoteAppId: HQ_APP,
+			identity,
+			previous: undefined,
+			next: checkpoint,
+			requireHqImport: null,
+		};
+		expect(await writeInstallationReview(birth.scope, TARGET, input)).toBe(
+			true,
+		);
+		const binding = {
+			uuid: testUuid("field-team"),
+			key: "field",
+			practiceWorkerId: "worker-here",
+		};
+		const promote = {
+			...input,
+			next: undefined,
+			previous: checkpoint,
+			bindings: [binding],
+		};
+		await expect(
+			writeInstallationReview(birth.scope, TARGET, {
+				...promote,
+				requireHqImport: () => {
+					throw new Error("Missing HQ Import");
+				},
+			}),
+		).rejects.toThrow("Missing HQ Import");
+		expect(await readInstallationReview(birth.scope, TARGET)).toEqual(
+			checkpoint,
+		);
+		expect(
+			await writeInstallationReview(birth.scope, TARGET, {
+				...promote,
+				remoteAppId: "other-app",
+			}),
+		).toBe(false);
+		await sql`UPDATE auth_member SET role = ${"viewer"} WHERE "userId" = ${ACTOR} AND "organizationId" = ${PROJECT}`.execute(
+			h.db(),
+		);
+		await expect(
+			writeInstallationReview(birth.scope, TARGET, promote),
+		).rejects.toThrow();
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toBeUndefined();
+		await sql`UPDATE auth_member SET role = ${"editor"} WHERE "userId" = ${ACTOR} AND "organizationId" = ${PROJECT}`.execute(
+			h.db(),
+		);
+		expect(await writeInstallationReview(birth.scope, TARGET, promote)).toBe(
+			true,
+		);
+		expect(
+			(await readTargetIdentity(birth.scope, TARGET)).installationProfiles,
+		).toEqual([binding]);
+		expect(
+			(await readTargetIdentity(birth.scope, { ...TARGET, domain: "another" }))
+				.installationProfiles,
+		).toBeUndefined();
+		expect(await readInstallationReview(birth.scope, TARGET)).toBeUndefined();
 	});
 });
