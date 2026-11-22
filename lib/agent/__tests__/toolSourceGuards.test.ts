@@ -92,6 +92,11 @@ interface ForbiddenImportRule {
 
 const RULES: readonly ForbiddenImportRule[] = [
 	{
+		what: "the Preview search settings writer",
+		matches: (s) => s.includes("deployment/previewSearchSettings"),
+		allowedFiles: ["previewSearchSettings.ts"],
+	},
+	{
 		what: "the canonical commit kernel",
 		matches: (s) => s.includes("db/canonicalCommitKernel"),
 		allowedFiles: [],

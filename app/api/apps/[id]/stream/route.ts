@@ -646,6 +646,7 @@ function openStream(args: {
 					 * failed read is no answer, and `null` is one. */
 					let announcedProjectSpace: string | null | undefined;
 					let announcedTargetFacts: string | undefined;
+					let announcedSearchCatalog: string | undefined;
 					deploymentPump = createCoalescedStreamPump({
 						async run() {
 							if (closed) return;
@@ -657,12 +658,25 @@ function openStream(args: {
 								role: fresh.role,
 								actorUserId: userId,
 							};
-							const { projectSpace, targetFacts: facts } =
-								await readPreviewDeploymentAnswer(scope);
+							const {
+								projectSpace,
+								targetFacts: facts,
+								searchCatalog,
+							} = await readPreviewDeploymentAnswer(scope, true);
 							if (closed) return;
 							if (projectSpace !== announcedProjectSpace) {
 								announcedProjectSpace = projectSpace;
 								send("preview-project-space", { projectSpace });
+							}
+							if (searchCatalog !== undefined) {
+								const stamp = JSON.stringify([
+									searchCatalog.projectId,
+									searchCatalog.profiles.map((p) => [p.target, p.revision]),
+								]);
+								if (announcedSearchCatalog !== stamp) {
+									announcedSearchCatalog = stamp;
+									send("preview-search-settings", searchCatalog);
+								}
 							}
 							const frame: PreviewTargetFactsFrame = { facts };
 							const factsText = canonicalJsonText(frame);

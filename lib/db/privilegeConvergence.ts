@@ -194,6 +194,7 @@ const RUNTIME_READ_WRITE_TABLES = [
  * may row-lock or update a request, step, stage, change-set handle, or
  * receipt row — retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
+	"preview_search_setting_receipts",
 	"thread_source_contents",
 	"thread_source_links",
 	"app_test_steps",
@@ -241,6 +242,7 @@ const RUNTIME_APPEND_ONLY_TABLES = [
  * under its admission's locks and updated once when HQ answers. None of them
  * is ever deleted or locked. */
 const RUNTIME_INSERT_UPDATE_TABLES = [
+	"preview_search_settings",
 	"design_identity_handles",
 	"authoring_session_requests",
 	"app_deployment_confirmations",

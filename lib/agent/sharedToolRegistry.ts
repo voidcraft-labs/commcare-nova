@@ -130,6 +130,10 @@ import {
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
 import type { SHARED_TOOL_PRESENTATION } from "./toolPresentation";
+import {
+	getPreviewSearchSettingsTool,
+	setPreviewSearchSettingsTool,
+} from "./tools/previewSearchSettings";
 
 /**
  * Runtime capabilities a tool's execution requires. The policy test keeps
@@ -147,7 +151,8 @@ export type ToolRuntimeCapability =
 	| "lookup-write"
 	| "case-read"
 	| "case-store-migration"
-	| "deployment-write";
+	| "deployment-write"
+	| "preview-search-write";
 
 /**
  * Execution policy for one shared tool — the reviewed classification the
@@ -488,6 +493,24 @@ export const SHARED_TOOL_REGISTRY = [
 			effect: "read-blueprint",
 			staging: "allowed",
 			capabilities: ["case-read", "lookup-read", "organization-read"],
+		},
+	},
+	{
+		saName: "getPreviewSearchSettings",
+		mcpName: "get_preview_search_settings",
+		tool: getPreviewSearchSettingsTool,
+		requires: "view",
+		policy: READ_POLICY,
+	},
+	{
+		saName: "setPreviewSearchSettings",
+		mcpName: "set_preview_search_settings",
+		tool: setPreviewSearchSettingsTool,
+		requires: "edit",
+		policy: {
+			effect: "mutate-external",
+			staging: "forbidden",
+			capabilities: ["preview-search-write"],
 		},
 	},
 	{

@@ -278,3 +278,31 @@ def test_a_request_key_hq_reads_never_searches_the_case_property_it_names(hq, co
                 queried(state, name)
         else:
             assert not queried(state, name)
+
+
+@pytest.mark.parametrize("increased,limit", [(False, 500), (True, 1500)])
+def test_project_space_search_limit_and_literal_matchers(hq, increased, limit):
+    """The cap and optional native matching come from the selected project space,
+    with overrides scoped to the requested types and property. A literal period
+    is removed as text; a rule on another type does not remove the letter B."""
+    from corehq.apps.case_search.models import CaseSearchConfig
+    from corehq.apps.es.case_search import case_property_query
+
+    def includes(node, expected):
+        if node == expected:
+            return True
+        children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else []
+        return any(includes(child, expected) for child in children)
+
+    flags = frozenset(["INCREASED_MAX_SEARCH_RESULTS"]) if increased else frozenset()
+    with hq_check(Configuration(case_search_enabled=True, flags=flags)) as (state, _):
+        config = CaseSearchConfig.objects.get(domain=state.domain)
+        config.fuzzy_properties.create(domain=state.domain, case_type="patient", properties=["badge_code"])
+        config.ignore_patterns.create(domain=state.domain, case_type="patient", case_property="badge_code", regex=".")
+        config.ignore_patterns.create(domain=state.domain, case_type="doctor", case_property="badge_code", regex="B")
+        config.ignore_patterns.create(domain=state.domain, case_type="patient", case_property="other", regex="A")
+        query = _built_search(state, [("badge_code", "A.B")]).raw_query
+        assert query["size"] == limit
+        assert includes(query["query"], case_property_query("badge_code", "AB", fuzzy=True))
+        exact = _built_search(state, [("patient_number", "A.B")]).raw_query
+        assert includes(exact["query"], case_property_query("patient_number", "A.B", fuzzy=False))

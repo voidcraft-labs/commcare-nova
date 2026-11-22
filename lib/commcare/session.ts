@@ -416,7 +416,7 @@ export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
  * `INCREASED_MAX_SEARCH_RESULTS` toggle raises it to 1,500 in a project space
  * that has it. Preview reads at most this many cases of a completed search.
  */
-export const SEARCH_RESULTS_CAP = 500;
+export { DEFAULT_SEARCH_RESULT_LIMIT as SEARCH_RESULTS_CAP } from "@/lib/domain/searchLimits";
 export const EXCLUDE_RELATED_CASES_FILTER = w.not(
 	w.eq(w.context([w.step("commcare_is_related_case")]), w.call("true")),
 );

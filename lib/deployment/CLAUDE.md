@@ -2315,3 +2315,23 @@ emitter defaults to the worker's username. HQ requires the USERCASE privilege,
 which the person confirms, and a restored record, which Nova cannot verify.
 Read-only forms can silently get blank values; writers have a native entry
 assertion. Record-scope session expressions are not worker-record reads.
+
+### Project space settings for a record search in Preview
+
+A project space's calendar, maximum server results, fuzzy properties and literal
+text ignored by its record search belong to the project space. The app API and
+a source digest cannot report those facts. A Project member with edit access
+can record each fact independently in Preview. The settings apply to every app
+in that Project that has reached that server and domain. Bringing in another app
+or another HQ edit leaves them in place. A local profile is a separate choice
+for an app with no reached destination. Its initial settings are UTC, exact
+matching and 500 results. A viewer can choose a destination and run the app.
+
+`previewSearchSettings.ts` reads the app's reached targets and Project-qualified
+settings on the calling transaction. `previewRecords.ts` also supplies the
+existing deployment resolution, including the exclusion for a released live app
+mapping. A claimed destination outside this app contributes no facts. The
+browser and shared tools reauthorize writes and compare the selected profile's
+revision. Tool retries reauthorize before returning the durable receipt. The
+deployment stream sends the catalog to authorized tabs when a profile changes.
+A Project move, changed target or new revision changes the search observation.

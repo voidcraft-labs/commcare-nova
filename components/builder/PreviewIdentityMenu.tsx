@@ -73,6 +73,7 @@ import {
 	useSetPreviewPlatform,
 } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
+import { PreviewSearchSettingsDialog } from "./PreviewSearchSettingsDialog";
 
 const AS_ME = "Preview as me";
 
@@ -132,6 +133,7 @@ export function PreviewIdentityMenu() {
 function PreviewIdentityMenuBody() {
 	const appId = useAppId();
 	const [showTests, setShowTests] = useState(false);
+	const [searchSettingsOpen, setSearchSettingsOpen] = useState(false);
 	const readiness = useWorkerReadiness();
 	const personas = readiness.personas;
 	const selected = usePreviewPersonaUuid();
@@ -325,9 +327,14 @@ function PreviewIdentityMenuBody() {
 							</DropdownMenuItem>
 						)}
 						{appId ? (
-							<DropdownMenuItem onClick={() => setShowTests(true)}>
-								Test journeys
-							</DropdownMenuItem>
+							<>
+								<DropdownMenuItem onClick={() => setSearchSettingsOpen(true)}>
+									Preview search settings
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={() => setShowTests(true)}>
+									Test journeys
+								</DropdownMenuItem>
+							</>
 						) : null}
 						{personas.length === 0 && (
 							<DropdownMenuItem
@@ -348,11 +355,19 @@ function PreviewIdentityMenuBody() {
 				</DropdownMenuContent>
 			</DropdownMenu>
 			{appId ? (
-				<AppTestHistory
-					appId={appId}
-					open={showTests}
-					onOpenChange={setShowTests}
-				/>
+				<>
+					{searchSettingsOpen && (
+						<PreviewSearchSettingsDialog
+							open={searchSettingsOpen}
+							onOpenChange={setSearchSettingsOpen}
+						/>
+					)}
+					<AppTestHistory
+						appId={appId}
+						open={showTests}
+						onOpenChange={setShowTests}
+					/>
+				</>
 			) : null}
 		</>
 	);

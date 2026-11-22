@@ -2583,3 +2583,12 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+**Server search settings.** `searchSettings.ts` distinguishes an unconfirmed
+limit, calendar or matcher list from a confirmed 500-result limit, UTC, or exact
+matching. The chosen local profile starts with those three defaults. A newly
+reached project space starts with all three unknown. With several project spaces,
+Preview can use a fact that agrees across the destinations. The revision includes
+the Nova Project, qualified destination selection and contributing revisions. A
+worker read resolves the facts inside its authorized database snapshot. A
+changed revision invalidates the result a worker completed under the old one.
