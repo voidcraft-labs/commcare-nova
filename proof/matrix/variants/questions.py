@@ -209,7 +209,7 @@ def hidden_calculate_and_default(authoring, app_id):
     """A default of ``1`` on the hidden value ``double_age``, which is calculated, as the form builder places a
     default: a setvalue at the question's place in data-tree order; and a default of ``details/nickname``, which
     the form builder runs after it and which reads ``double_age``, so the form opens with the default in the
-    nickname before the calculate replaces it. With no such later read the calculate alone is held."""
+    nickname before the calculate replaces it."""
     _change(
         authoring,
         app_id,

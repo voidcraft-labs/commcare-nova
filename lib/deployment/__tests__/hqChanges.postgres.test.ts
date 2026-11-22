@@ -697,6 +697,62 @@ describe("recordHqChangesTaken", () => {
 	});
 
 	describe("keeps the next publish's list by one rule", () => {
+		it.each(["first-publish", "next-publish"] as const)(
+			"keeps an older %s notice through an unrelated save and clears it after recovery",
+			async (of) => {
+				const birth = await born();
+				const original: StoredFirstPublish = {
+					ids: [
+						"forms-and-settings-rewritten",
+						"hidden-value-defaults-dropped",
+					],
+					of,
+					webAppsOnInHq: true,
+				};
+				await h
+					.db()
+					.updateTable("app_deployment_baselines")
+					.set({ first_publish_changes: JSON.stringify(original) })
+					.where("deployment_id", "=", birth.deployment.deployment.id)
+					.executeTakeFirstOrThrow();
+				const firstPublish = {
+					accepted: {
+						ids: ["forms-and-settings-rewritten"],
+						touchesWorkers: false,
+						of,
+					},
+					publishChanges: [],
+					webAppsOnInHq: true,
+				} as const;
+				await recordHqChangesTaken(
+					AT_HEAD,
+					taken(birth, {
+						firstPublish: {
+							...firstPublish,
+							stillOmitsHiddenStartingAnswer: true,
+						},
+					}),
+				);
+				expect((await baselineRow()).first_publish_changes).toEqual(original);
+				await recordRefreshedAppBaseline(birth.scope, TARGET, {
+					expectedEndings: 0,
+					remoteAppId: HQ_APP,
+					comparedDigest: digestOf(CHANGED_SOURCE),
+					read: stored(
+						{ ...CHANGED_SOURCE, name: "Changed again" },
+						CHANGED_AT,
+					),
+					nextPublish: {
+						...firstPublish,
+						stillOmitsHiddenStartingAnswer: false,
+					},
+				});
+				expect((await baselineRow()).first_publish_changes).toEqual({
+					...original,
+					ids: ["forms-and-settings-rewritten"],
+				});
+			},
+		);
 		it("takes this reading's list for an app not yet published, less the two Web App lines", async () => {
 			const birth = await born();
 			expect((await baselineRow()).first_publish_changes).toEqual(BORN_LIST);

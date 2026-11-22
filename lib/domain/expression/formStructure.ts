@@ -36,9 +36,7 @@ export interface FormStructureField {
 	/** A query repeat's held placement (its stored `placement`), absent where
 	 * it holds none. */
 	readonly heldQueryPlacement?: QueryRepeatPlacement;
-	/** A Hidden Value's value slot, absent where it holds neither. A field
-	 * holding both (`HIDDEN_VALUE_BOTH_SOURCES` refuses it) reads `calculate`,
-	 * the value it ends with. */
+	/** A Hidden Value's value slot, absent where it holds neither. Where both slots are present, the calculation supplies the final answer. */
 	readonly hiddenValueSource?: "calculate" | "default_value";
 	readonly choices?: FormStructureChoices;
 	readonly proseSlots?: readonly ("label" | "hint" | "help" | "validate_msg")[];

@@ -550,7 +550,7 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 	});
 });
 
-/* --- Hidden value sources: exactly one of calculate / default_value ---- */
+/* --- Independent hidden value sources ---- */
 
 const HIDDEN = testUuid("77777777-7777-7777-7777-777777777777");
 
@@ -603,7 +603,7 @@ function valueSlotsOf(doc: BlueprintDoc): {
 
 const HIDDEN_ADDRESS = { moduleUuid: MOD, formUuid: FORM, fieldUuid: HIDDEN };
 
-describe("editField — a hidden field carries one value source", () => {
+describe("editField — a hidden field keeps independent value sources", () => {
 	it("setting calculate on a default-only hidden field clears the default in the same patch and says so", async () => {
 		const h = makeToolWorkspaceHarness(
 			makeValueSourceDoc({
@@ -624,17 +624,15 @@ describe("editField — a hidden field carries one value source", () => {
 		expect(valueSlotsOf(h.currentDoc())).toEqual({
 			kind: "hidden",
 			calculate: true,
-			default_value: false,
+			default_value: true,
 		});
 		expect(result.result).toMatchObject({
 			ok: true,
-			valueSource: { set: "calculate", cleared: "default_value" },
 		});
-		// ONE staged commit: the clear rides the same updateField patch.
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
 
-	it("setting default_value on a calculate-only hidden field clears the calculate and says so", async () => {
+	it("setting default_value on a calculate-only hidden field keeps the calculation", async () => {
 		const h = makeToolWorkspaceHarness(
 			makeValueSourceDoc({
 				id: "stamp",
@@ -650,18 +648,15 @@ describe("editField — a hidden field carries one value source", () => {
 		expectAdmittedDoc(h.currentDoc());
 		expect(valueSlotsOf(h.currentDoc())).toEqual({
 			kind: "hidden",
-			calculate: false,
+			calculate: true,
 			default_value: true,
 		});
 		expect(result.result).toMatchObject({
 			ok: true,
-			valueSource: { set: "default_value", cleared: "calculate" },
 		});
 	});
 
-	it("converting text with a default to hidden while setting calculate lands calculate alone", async () => {
-		// The conversion carries the source's `default_value` across; without
-		// the normalization this one call would leave both slots on the field.
+	it("converting text with a default to hidden while setting calculate keeps both slots", async () => {
 		const h = makeToolWorkspaceHarness(
 			makeValueSourceDoc({
 				id: "stage",
@@ -682,11 +677,10 @@ describe("editField — a hidden field carries one value source", () => {
 		expect(valueSlotsOf(h.currentDoc())).toEqual({
 			kind: "hidden",
 			calculate: true,
-			default_value: false,
+			default_value: true,
 		});
 		expect(result.result).toMatchObject({
 			ok: true,
-			valueSource: { set: "calculate", cleared: "default_value" },
 		});
 	});
 

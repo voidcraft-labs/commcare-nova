@@ -151,7 +151,7 @@ function WarmXPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 }
 const XPathEditor = WarmXPathEditor as typeof XPathEditorComponent;
 
-/* The hidden field's single Value control renders CodeMirror, so it rides
+/* The hidden field's calculation editor renders CodeMirror, so it rides
  * the same lazy boundary the XPath editor does rather than joining Builder
  * startup. */
 const HiddenValueEditor = dynamic(
@@ -572,21 +572,13 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	],
 };
 
-// Hidden's value comes from at most ONE of `calculate` (keep in step) or
-// `default_value` (set once), so the rail shows one Value control with a
-// mode switch rather than two slots. The entry is keyed on `calculate` for
-// its mount and `data-field-id` plumbing, but `HiddenValueEditor` writes
-// both slots on every gesture; it is always visible and never a pill (a
-// hidden field with no value still has a mode to choose and, when it writes
-// a case property, a sentence saying what it saves). No separate `default_value` entry. No
-// `required` entry: a hidden field is never shown, so it can't be required
-// (the `requiredOnHidden` validator enforces this, mirroring Vellum's
-// DataBindOnly). No `ui` section (hidden fields have no label, no label
-// media, and never render to the user).
+// Both value slots are visible together so an author can see what the form
+// starts with and what later updates the answer. Each editor writes only its slot.
 const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	data: [caseWriteEntry<HiddenField>()],
 	logic: [
-		{ key: "calculate", component: HiddenValueEditor, label: "Value" },
+		{ key: "default_value", component: XPathEditor, label: "Starting value" },
+		{ key: "calculate", component: HiddenValueEditor, label: "Calculation" },
 		xpathEntry<HiddenField, "relevant">("relevant", "Show when"),
 	],
 	ui: [],

@@ -76,8 +76,6 @@ import {
 	fieldKinds,
 	fieldRegistry,
 	formLogicSchema,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
@@ -448,35 +446,6 @@ function gateRepeatSlot(
 }
 
 /**
- * A hidden field carries at most ONE value source: Nova doesn't yet write a
- * Hidden Value's default beside its calculate
- * (`HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). Refuse the pair at the tool boundary, on the `default_value` path,
- * so the model learns the fix in the rejection: keep the one that matches
- * what the value should do and leave the other out (or, on an edit, pass
- * it as null). `editField` normalizes the cross-call case, where the field
- * already holds one slot and the patch sets the other.
- */
-function gateHiddenValueSources(
-	ctx: z.RefinementCtx,
-	kind: FieldKind,
-	calculate: unknown,
-	default_value: unknown,
-): void {
-	if (!hiddenFieldCarriesBothValueSources({ kind, calculate, default_value })) {
-		return;
-	}
-	ctx.addIssue({
-		code: "custom",
-		path: ["default_value"],
-		message:
-			`${HIDDEN_VALUE_ONE_SOURCE_SENTENCE} ` +
-			"Keep `calculate` for a value that tracks other fields, or " +
-			"`default_value` for a value fixed when the form opens, and leave " +
-			"the other out.",
-	});
-}
-
-/**
  * The `addFields` item shape. Each item carries an optional stable `fieldUuid`
  * plus a `parentUuid`, so same-call construction uses the final identity
  * vocabulary. The kind policy enforces per-kind requiredness the
@@ -572,12 +541,6 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 				});
 			}
 			gateRepeatSlot(ctx, item.kind, item.repeat);
-			gateHiddenValueSources(
-				ctx,
-				item.kind,
-				item.calculate,
-				item.default_value,
-			);
 		});
 }
 
@@ -653,12 +616,6 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				plainHelp: patch.plain_help !== undefined,
 			});
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
-			gateHiddenValueSources(
-				ctx,
-				patch.kind,
-				patch.calculate,
-				patch.default_value,
-			);
 		});
 }
 

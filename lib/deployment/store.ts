@@ -3670,6 +3670,8 @@ export interface HqChangesFirstPublish {
 	readonly publishChanges: readonly FirstPublishChangeId[];
 	/** The Web App setting the source CommCare HQ served holds (`HqAppSource.cloudcareEnabled`). */
 	readonly webAppsOnInHq: boolean;
+	/** A previously recorded hidden starting answer is still absent from the taken app. */
+	readonly stillOmitsHiddenStartingAnswer?: boolean;
 }
 
 /** A later review can accept a different set even at the same source digest. */
@@ -3708,6 +3710,13 @@ function hqChangesFirstPublishList(
 	stored: StoredFirstPublish | null,
 	input: HqChangesFirstPublish,
 ): StoredFirstPublish | null {
+	const given = new Set(input.accepted.ids);
+	if (
+		input.stillOmitsHiddenStartingAnswer &&
+		stored?.ids.includes("hidden-value-defaults-dropped")
+	) {
+		given.add("hidden-value-defaults-dropped");
+	}
 	const removed =
 		input.removedFiles?.accepted ??
 		(stored?.reviewed === 1 ? stored.removedFiles : undefined) ??
@@ -3726,13 +3735,12 @@ function hqChangesFirstPublishList(
 				hasRegisteredPublishInputs(input.accepted.ids) && {
 					reviewedInputs: 1 as const,
 				}),
-			ids: storedIds(input.accepted.ids),
+			ids: storedIds([...given]),
 			reviewed: 1,
 			webAppsOnInHq: input.webAppsOnInHq,
 			of: "first-publish",
 		};
 	}
-	const given = new Set(input.accepted.ids);
 	const carried =
 		stored?.of === "next-publish"
 			? stored.ids.filter((id) => given.has(id))

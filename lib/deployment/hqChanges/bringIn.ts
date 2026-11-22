@@ -103,6 +103,7 @@ import {
 import { exportIdentityOf } from "../targetIdentity";
 import { hqChangesBatchId } from "./batchId";
 import { hqChangesGateRefusal } from "./gate";
+import { stillOmitsHiddenStartingAnswer } from "./plan";
 import {
 	type CheckedHqChanges,
 	checkHqChanges,
@@ -358,6 +359,17 @@ async function storedSource(
 	};
 }
 
+function pendingHiddenStartingAnswer(checked: CheckedHqChanges): boolean {
+	return stillOmitsHiddenStartingAnswer(
+		checked.readings.base.draft.doc,
+		checked.fetched.reference.doc,
+		checked.draft.doc,
+		checked.plan.kind === "changes"
+			? checked.plan.target
+			: checked.fetched.head.doc,
+	);
+}
+
 /**
  * A save in CommCare HQ that reads as the same app: the source recorded, the
  * media record where it moves, an id learned by content or one whose file
@@ -401,6 +413,7 @@ async function recordReadsTheSame(
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
 				},
+				stillOmitsHiddenStartingAnswer: pendingHiddenStartingAnswer(checked),
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		}),
@@ -864,6 +877,7 @@ async function takenFor(
 					compared: basis.baseline.approvedFileRemovals ?? [],
 					accepted: checked.removedFiles,
 				},
+				stillOmitsHiddenStartingAnswer: pendingHiddenStartingAnswer(checked),
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		},

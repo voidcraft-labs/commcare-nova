@@ -660,39 +660,6 @@ export const editFieldTool = {
 						id: newId,
 					}),
 			};
-			// A hidden field carries at most ONE value source: Nova doesn't yet
-			// write a Hidden Value's default beside its calculate
-			// (`HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). The schema
-			// refuses both in one call; this is the cross-call case, where the
-			// field already holds one slot and the patch sets the other without
-			// mentioning it. Clear the held slot in the SAME patch (one gate
-			// evaluation, one undo entry) and say so in the result. A patch
-			// that names the other slot itself (`Object.hasOwn`, null included)
-			// already states its intent and is left alone. This is also what
-			// keeps a same-call text-to-hidden conversion plus `calculate` from
-			// landing both: the conversion carries the source's `default_value`
-			// across, and `currentField` is the post-convert field.
-			let valueSourceSwap:
-				| { readonly set: "calculate"; readonly cleared: "default_value" }
-				| { readonly set: "default_value"; readonly cleared: "calculate" }
-				| undefined;
-			if (currentField.kind === "hidden") {
-				if (
-					propertyUpdates.calculate != null &&
-					!Object.hasOwn(propertyUpdates, "default_value") &&
-					currentField.default_value !== undefined
-				) {
-					propertyUpdates.default_value = null;
-					valueSourceSwap = { set: "calculate", cleared: "default_value" };
-				} else if (
-					propertyUpdates.default_value != null &&
-					!Object.hasOwn(propertyUpdates, "calculate") &&
-					currentField.calculate !== undefined
-				) {
-					propertyUpdates.calculate = null;
-					valueSourceSwap = { set: "default_value", cleared: "calculate" };
-				}
-			}
 			if (Object.keys(propertyUpdates).length > 0) {
 				const patch = editPatchToFieldPatch(
 					propertyUpdates,
@@ -775,7 +742,6 @@ export const editFieldTool = {
 					...(preservation.preservedChoiceCount > 0 && {
 						preservedChoiceCount: preservation.preservedChoiceCount,
 					}),
-					...(valueSourceSwap && { valueSource: valueSourceSwap }),
 					...(note !== undefined && { note }),
 					...(writeNotes.length > 0 && { notes: writeNotes }),
 					...(preparedOptionsSource?.kind === "inline" && {

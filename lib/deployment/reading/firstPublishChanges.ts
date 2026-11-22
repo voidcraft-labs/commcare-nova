@@ -51,7 +51,8 @@ import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import {
-	FIRST_PUBLISH_CHANGE_IDS,
+	CURRENT_FIRST_PUBLISH_CHANGE_IDS,
+	type CurrentFirstPublishChangeId,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
 	type FirstPublishChangeId,
@@ -1128,11 +1129,11 @@ function datetimeNodePlaces(
 }
 
 /**
- * The register, in the order of `FIRST_PUBLISH_CHANGE_IDS`. Each entry's doc
+ * The register, in the order of `CURRENT_FIRST_PUBLISH_CHANGE_IDS`. Each entry's doc
  * comment names where the change comes from.
  */
 export const FIRST_PUBLISH_CHANGES: Readonly<
-	Record<FirstPublishChangeId, FirstPublishChange>
+	Record<CurrentFirstPublishChangeId, FirstPublishChange>
 > = {
 	/**
 	 * Nova writes every form and setting again in its own spelling
@@ -1790,30 +1791,6 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/_attachments/*"],
 	},
 	/**
-	 * A Hidden Value whose source holds both a starting value and a
-	 * calculation, where no runtime can read the starting value before the
-	 * calculation replaces it: the reading holds the calculation alone, so the
-	 * form's load-time setvalue goes, and with it the form builder's case load
-	 * of it that HQ's app summary reads. Recorded by
-	 * `reader/xform/afterBinding.ts`.
-	 */
-	"hidden-value-defaults-dropped": {
-		touchesWorkers: false,
-		scope: "reading",
-		applies: sameStateRecorded("hidden-value-defaults-dropped"),
-		at: {
-			kinds: ["form-part", "form"],
-			places: (facts) =>
-				recordedForms(facts, "hidden-value-defaults-dropped").flatMap(
-					(position) => [
-						partPlace(position, ":setvalue"),
-						placeOf("form", position, "case_references_data", "load"),
-					],
-				),
-		},
-		paths: ["/_attachments/*", "/modules/*/forms/*/case_references_data/load"],
-	},
-	/**
 	 * A case list's `invisible` column whose sort element has display text, under
 	 * a header blank in every language: CommCare HQ's build gives the column a
 	 * header (`detail_screen.py::Invisible.header`) whose app string it writes as
@@ -1963,7 +1940,7 @@ export function firstPublishFactsOf(input: {
 
 /** Whether a stored list keeps `id`: every id but the two Web Apps lines, which it works out again from
  *  the stored Web App setting alone. */
-export function storedInAList(id: FirstPublishChangeId): boolean {
+export function storedInAList(id: CurrentFirstPublishChangeId): boolean {
 	const entry = FIRST_PUBLISH_CHANGES[id];
 	return entry.scope === "reading" || entry.recorded !== undefined;
 }
@@ -1980,7 +1957,7 @@ export function firstPublishListToStore(
 	facts: ReadFacts,
 ): FirstPublishView {
 	const given = new Set(chosen.ids);
-	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) => {
+	const ids = CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) => {
 		const recorded = FIRST_PUBLISH_CHANGES[id].recorded;
 		if (recorded !== undefined) return recorded(facts);
 		return given.has(id) && storedInAList(id);
@@ -1996,7 +1973,7 @@ export function firstPublishListToStore(
 export function firstPublishChangesFor(
 	facts: FirstPublishFacts,
 ): FirstPublishView {
-	const ids = FIRST_PUBLISH_CHANGE_IDS.filter((id) =>
+	const ids = CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) =>
 		FIRST_PUBLISH_CHANGES[id].applies(facts),
 	);
 	return {
@@ -2027,23 +2004,25 @@ export function firstPublishChangePlaces(
 	ids: readonly FirstPublishChangeId[],
 ): readonly FirstPublishChangePlaces[] {
 	const listed = new Set(ids);
-	return FIRST_PUBLISH_CHANGE_IDS.filter((id) => listed.has(id)).map((id) => {
-		const entry = FIRST_PUBLISH_CHANGES[id].at;
-		if ("appWide" in entry) return { id, places: [""] };
-		const places = sortedPlaces(entry.places(facts));
-		if (places.length === 0)
-			throw new Error(
-				`The first-publish change ${id} applies on this reading and its entry names no place it stands at. An entry says where its change stands wherever it applies, from what the reading records of it; look at its at.places in lib/deployment/reading/firstPublishChanges.ts and at what the reading records under the id.`,
-			);
-		for (const place of places) {
-			const kind = firstPublishPlaceKind(place);
-			if (kind === null || kind === "app-wide" || !entry.kinds.includes(kind))
+	return CURRENT_FIRST_PUBLISH_CHANGE_IDS.filter((id) => listed.has(id)).map(
+		(id) => {
+			const entry = FIRST_PUBLISH_CHANGES[id].at;
+			if ("appWide" in entry) return { id, places: [""] };
+			const places = sortedPlaces(entry.places(facts));
+			if (places.length === 0)
 				throw new Error(
-					`The first-publish change ${id} names the place ${JSON.stringify(place)}, which is ${kind === null ? "no place lib/deployment/reading/firstPublishPlaces.ts holds" : `of the kind ${kind}, one its entry does not declare (${entry.kinds.join(", ")})`}. Declare the kind in its at.kinds where the change stands there, or name the place it does stand at.`,
+					`The first-publish change ${id} applies on this reading and its entry names no place it stands at. An entry says where its change stands wherever it applies, from what the reading records of it; look at its at.places in lib/deployment/reading/firstPublishChanges.ts and at what the reading records under the id.`,
 				);
-		}
-		return { id, places };
-	});
+			for (const place of places) {
+				const kind = firstPublishPlaceKind(place);
+				if (kind === null || kind === "app-wide" || !entry.kinds.includes(kind))
+					throw new Error(
+						`The first-publish change ${id} names the place ${JSON.stringify(place)}, which is ${kind === null ? "no place lib/deployment/reading/firstPublishPlaces.ts holds" : `of the kind ${kind}, one its entry does not declare (${entry.kinds.join(", ")})`}. Declare the kind in its at.kinds where the change stands there, or name the place it does stand at.`,
+					);
+			}
+			return { id, places };
+		},
+	);
 }
 
 /** The proof register also names results in the emitted XML, stored cases and
@@ -2632,7 +2611,7 @@ if (REGISTER_REFUSALS.length > 0) throw new Error(REGISTER_REFUSALS.join("\n"));
 /** The kinds of place each entry declares, as the proof lane's copy of the register states them
  *  (`proof/first-publish-changes.json`'s `placeKinds`): `["app-wide"]` for the app-wide entry. */
 export function firstPublishPlaceKindsOf(
-	id: FirstPublishChangeId,
+	id: CurrentFirstPublishChangeId,
 ): readonly FirstPublishPlaceKind[] {
 	const entry = FIRST_PUBLISH_CHANGES[id].at;
 	return "appWide" in entry ? ["app-wide"] : entry.kinds;

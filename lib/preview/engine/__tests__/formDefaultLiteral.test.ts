@@ -11,6 +11,65 @@ const FORM = testUuid("literal-default-form");
 const FIELD = testUuid("literal-default-field");
 
 describe("literal form defaults", () => {
+	it.each([
+		["false()", ""],
+		["#form/switch = 'yes'", "3"],
+		["true()", "3"],
+	])(
+		"captures the starting answer before recalculation under %s",
+		async (relevant, captured) => {
+			const doc = buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								uuid: FORM,
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({ kind: "text", id: "switch", label: "Show details" }),
+									f({
+										kind: "group",
+										id: "details",
+										label: "Details",
+										relevant,
+										children: [
+											f({
+												kind: "hidden",
+												id: "seed",
+												default_value: "'3'",
+												calculate: "'5'",
+											}),
+										],
+									}),
+									f({
+										uuid: FIELD,
+										kind: "text",
+										id: "captured",
+										label: "Starting answer",
+										default_value: "#form/details/seed",
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			assertAdmittedPreviewDoc(doc);
+			const store = createBlueprintDocStore();
+			store.getState().load(doc);
+			const ctrl = new EngineController();
+			try {
+				ctrl.setDocStore(store);
+				await ctrl.activateFormAsync(FORM);
+				expect(ctrl.store.getState()[FIELD]?.value).toBe(captured);
+			} finally {
+				ctrl.dispose();
+				await ctrl.awaitSettled();
+			}
+		},
+	);
 	it.each([false, true])(
 		"applies the authored text without interpreting it as absence (worker=%s)",
 		async (worker) => {

@@ -30573,19 +30573,17 @@
 		"id": "hq-questions/hidden-calculate-and-default",
 		"base": "hq-questions",
 		"entry": "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "double_age"
-		},
 		"change": {
 			"op": "named",
 			"name": "hidden_calculate_and_default"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["double_age"]],
+				"pointer": "/default_value",
+				"value": { "kind": "term", "term": { "kind": "literal", "value": 1 } }
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-int-type",

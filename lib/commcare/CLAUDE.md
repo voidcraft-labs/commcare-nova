@@ -858,27 +858,17 @@ controller answer admission, zero/one/multiple selections, and direct candidate
 validation through local and HQ-regenerated forms. This is a bounded correction,
 not general native parity for every possible predicate.
 
-### Hidden fields carry one value source
+### Starting answers and calculations on a hidden value
 
-`validator/rules/field.ts::hiddenValueBothSources` (`HIDDEN_VALUE_BOTH_SOURCES`,
-soundness, located at the field) refuses a hidden field
-holding both a `calculate` and a `default_value`. JavaRosa runs the
-`xforms-ready` seeds first and then re-evaluates every calculate
-(`commcare-core` `FormDef::initialize`), so the calculate's value is the one
-the field ends with; a later load-time setvalue can still read the default
-before that (run on Core: a hidden value with the default `'D'` and the
-calculate `'C'` ends as `C`, and a second value whose own default reads the
-first holds `D`). Nova does not yet write a Hidden Value's default beside its
-calculate (`lib/domain/fields/hidden.ts::HIDDEN_VALUE_ONE_SOURCE_SENTENCE`). The
-reader of CommCare HQ's apps holds such a Hidden Value as its calculate alone
-where no runtime can read the default: outside every repeat, with no later
-`xforms-ready` setvalue reading the node, directly or through the calculates of
-what it reads (`reader/xform/afterBinding.ts::settleBothSources`, which records
-the form under the first-publish register's `hidden-value-defaults-dropped`);
-it refuses one in a repeat, or one a later setvalue reads. A
-hidden field with neither slot is admitted and opens blank; the shared
-recognizer is `lib/domain/fields/hidden.ts`. The same
-ordering is why a `calculate` on a hidden writer beats its default.
+A hidden value can carry a starting answer, a calculation, both, or neither.
+A later starting answer can see an earlier value before the calculation reaches
+its final result. JavaRosa's `FormDef.initialize` executes ready actions in
+source order. A write triggers dependent calculations and relevance before
+the next assignment. The final evaluation settles the remaining calculations.
+A hidden value with neither expression opens blank. The reader keeps both
+expressions in a repeat and at the root, even where the starting answer is
+never read. A deployment adopted by an earlier version can still carry the
+historical notice for a starting answer it omitted.
 
 A Hidden Value that saves to a case property is a typed writer
 (`validator/rules/hiddenValueWriterAgreement.ts`, reading

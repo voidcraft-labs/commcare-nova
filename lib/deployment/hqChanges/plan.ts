@@ -1056,6 +1056,36 @@ function drained<T>(steps: Steps<T>): T {
 	}
 }
 
+/** An older reading kept the calculation and omitted an unobserved starting
+ * answer. Compare the same field identities across the paired HQ sources,
+ * the document that reading stored and the document the take will publish.
+ * A new reading, an unrelated author edit or a completed publish cannot
+ * create the historical notice: the transaction must already hold it. */
+export function stillOmitsHiddenStartingAnswer(
+	base: BlueprintDoc,
+	reference: BlueprintDoc,
+	now: BlueprintDoc,
+	candidate: BlueprintDoc,
+): boolean {
+	return Object.values(base.fields).some((field) => {
+		if (field.kind !== "hidden" || !field.default_value || !field.calculate)
+			return false;
+		const previous = ownRecordValue(reference.fields, field.uuid);
+		const inHq = ownRecordValue(now.fields, field.uuid);
+		const taken = ownRecordValue(candidate.fields, field.uuid);
+		return (
+			previous?.kind === "hidden" &&
+			!previous.default_value &&
+			inHq?.kind === "hidden" &&
+			!!inHq.default_value &&
+			!!inHq.calculate &&
+			taken?.kind === "hidden" &&
+			!taken.default_value &&
+			!!taken.calculate
+		);
+	});
+}
+
 /** Steps 4 to 12, over four documents. What the fuzz test drives. */
 export function planFromDocuments(
 	input: DocumentsInput,

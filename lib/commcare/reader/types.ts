@@ -343,9 +343,7 @@ export const SAME_STATE_REGISTERS = [
  * map read as the file HQ's build shows in each language where Nova prints
  * another map (`menus/navMedia.ts::shownNavMedia`), a form's text whose
  * source spells, in a text node, a character Nova writes as a literal output
- * (`xform/prose.ts::recordTextOutputs`), a Hidden Value whose starting
- * value no runtime reads before its calculation replaces it, held as the
- * calculation alone (`xform/afterBinding.ts`), and a sort element whose
+ * (`xform/prose.ts::recordTextOutputs`), a sort element whose
  * display names an `invisible` column in Android's Sort by under a header
  * blank in every language, an entry the first publish drops
  * (`caseList/order.ts::readSortElements`), a form whose `<h:title>` holds
@@ -361,7 +359,6 @@ export const FIRST_PUBLISH_READING_RECORDS = [
 	"text-spaces-dropped",
 	"media-maps-respelled",
 	"form-text-characters-written-as-outputs",
-	"hidden-value-defaults-dropped",
 	"sort-by-entry-with-a-blank-name-dropped",
 	"form-titles-written",
 	"unread-fixture-declarations-dropped",

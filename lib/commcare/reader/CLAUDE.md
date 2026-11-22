@@ -795,17 +795,10 @@ A change that holds one removes its line.
 - **A `required` on a Hidden Value's bind**: `unrecognized` at the question,
   `xform:bind@required` (`xform/logic.ts::readBindLogic`, which claims a `required` only on a kind
   that holds one and refuses it only on a label), wherever no other reader claims it.
-- **A Hidden Value holding both a calculate and a default where a runtime may read the
-  default**: one finding at the question under
-  `questions/hidden-value-with-both-calculate-and-a-default-by-any-expression`. The form stage
-  refuses one in a repeat whole, where a row's default can outlast its calculate; outside every
-  repeat it leaves the node and its bind's type unclaimed, and the bound document decides
-  (`xform/afterBinding.ts::settleBothSources`): where no later `xforms-ready` setvalue reads the
-  node, directly or through the calculates of what it reads, the calculate replaces the default
-  before anything reads it, so the reading holds the calculate alone under
-  `questions/hidden-value-with-both-calculate-and-a-default-no-runtime-reads` and records the form
-  under `hidden-value-defaults-dropped`; any doubt (a slot the expression stage did not hold,
-  another setvalue on the node, a later setvalue no bound tree gives the reads of) is the refusal.
+- **A hidden value with a starting answer and a calculation** holds both expressions.
+  The bound reader records whether a later opening assignment can observe the
+  starting answer in the coverage ledger. A repeat can observe the starting
+  answer when its row is inserted. Neither observation changes the document.
 - **An index on the first chosen load of an advanced form naming the worker's record loaded
   before it**: one finding at the form under
   `forms-and-case-writes/an-index-on-the-first-chosen-load-naming-the-worker-s-record-loaded-before-it`

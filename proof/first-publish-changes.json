@@ -2493,22 +2493,6 @@
 		]
 	},
 	{
-		"change": "hidden-value-defaults-dropped",
-		"placeKinds": ["form-part", "form"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/_attachments/*"
-			},
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/forms/*/case_references_data/load"
-			}
-		]
-	},
-	{
 		"change": "sort-by-entry-with-a-blank-name-dropped",
 		"placeKinds": ["menu"],
 		"rows": [

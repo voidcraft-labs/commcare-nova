@@ -4688,7 +4688,14 @@ export class FormEngine {
 				if (this.initializationStates)
 					this.initializationStates[path] = {
 						...DEFAULT_ENGINE_STATE,
-						visible: true,
+						// XFormParser applies a literal false relevance before ready
+						// actions. Other conditions start relevant until triggered.
+						visible:
+							this.expressions.expression({
+								entity: "field",
+								uuid: node.field.uuid,
+								slot: "relevant",
+							})?.kind !== "match-none",
 					};
 				if (node.field.kind === "repeat") {
 					if (!healing) this.instance.setRepeatCount(path, 0);

@@ -21,8 +21,6 @@ import {
 	fieldKindCarriesValidation,
 	filledProse,
 	formConnectIds,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
 	makeTranslationUnitId,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
@@ -157,39 +155,6 @@ function selectOptionValueInvalid(
 		);
 	});
 	return errors;
-}
-
-/**
- * A hidden field holding both a `calculate` and a `default_value`:
- * schema-legal, and a pair Nova doesn't yet write. JavaRosa runs the
- * `xforms-ready` seeds first and then re-evaluates every calculate
- * (`FormDef::initialize`), so the calculate's value is the one the field
- * ends with, while a later load-time setvalue can still read the default
- * before that. A field with neither is valid: it stays blank. The recognizer
- * is shared with the tool-boundary refinement so the two cannot drift. The
- * finding lands on the field, not on one slot, because the message leaves
- * the choice of which slot to keep with the author.
- */
-function hiddenValueBothSources(
-	field: Field,
-	ctx: FieldContext,
-): ValidationError[] {
-	if (!hiddenFieldCarriesBothValueSources(field)) return [];
-	return [
-		validationError(
-			"HIDDEN_VALUE_BOTH_SOURCES",
-			"field",
-			`Field "${field.id}" in "${ctx.formName}" is a hidden field with both a calculate and a default_value. ${HIDDEN_VALUE_ONE_SOURCE_SENTENCE} Keep the one that matches what the value should do: a calculate for a value that tracks other fields, a default_value for a value fixed at form load. Clear the other.`,
-			{
-				moduleUuid: ctx.moduleUuid,
-				moduleName: ctx.moduleName,
-				formUuid: ctx.formUuid,
-				formName: ctx.formName,
-				fieldUuid: field.uuid,
-				fieldId: field.id,
-			},
-		),
-	];
 }
 
 /**
@@ -607,7 +572,6 @@ const FIELD_RULES = [
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,
 	selectOptionLabelEmpty,
-	hiddenValueBothSources,
 	requiredOnHidden,
 	calculateOnVisibleInput,
 	invalidFieldId,

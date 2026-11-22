@@ -161,6 +161,7 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
+import { startingAndCalculatedAnswers } from "./documents/startingAndCalculatedAnswers";
 import { styledValue } from "./documents/styledValue";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
@@ -218,6 +219,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	hiddenCalculatedColumn,
 	tileHiddenOrder,
 	hiddenFromMenu,
+	startingAndCalculatedAnswers,
 	listFirstPlaces,
 	sessionReads,
 	expressionRenames,

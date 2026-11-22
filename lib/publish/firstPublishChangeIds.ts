@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { AppSettings, BlueprintDoc } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 
-/** Every change a first publish can make, in registry order. */
+/** Every change a current or historically adopted app can still publish, in display order. */
 export const FIRST_PUBLISH_CHANGE_IDS = [
 	"forms-and-settings-rewritten",
 	"hidden-values-added",
@@ -59,6 +59,15 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"unread-fixture-declarations-dropped",
 ] as const;
 export type FirstPublishChangeId = (typeof FIRST_PUBLISH_CHANGE_IDS)[number];
+
+/** Earlier Nova reads omitted an unobserved hidden starting answer. Its
+ * notice survives on their deployment until content is published or the
+ * difference is resolved. New readings keep both expressions. */
+export const CURRENT_FIRST_PUBLISH_CHANGE_IDS = FIRST_PUBLISH_CHANGE_IDS.filter(
+	(id) => id !== "hidden-value-defaults-dropped",
+);
+export type CurrentFirstPublishChangeId =
+	(typeof CURRENT_FIRST_PUBLISH_CHANGE_IDS)[number];
 
 /** A list of what a publish changes, as every surface shows it. */
 export interface FirstPublishView {

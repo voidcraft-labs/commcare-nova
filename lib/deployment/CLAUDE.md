@@ -2548,3 +2548,12 @@ Every live source read for bring-in, passive refresh or publishing must include 
 The MCP tools page HQ birth and change reviews against 80,000 characters of the complete serialized SDK result, including the outer write response around a fresh reading. Size the opaque continuation and every escaped piece before adding it. Move a large case catalog, a lookup choice with many column consequences, or a contributor list onto those same pages. Preserve their complete identities and offer the review digest only when every decision-bearing item has been returned. An oversized upload refusal sends the user to this review before it offers any discard receipt.
 
 A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.
+
+A starting answer that an earlier reader left behind in CommCare HQ remains
+visible in an adopted deployment's historical publish review. A fresh reading
+keeps both a hidden value's starting answer and its calculation. A later HQ
+change retains the old notice only when the same bound field had both in the
+previous and current HQ sources, and the reference and taken app still omit
+the starting answer. A successful content push clears the pending review.
+`scripts/scan-hidden-starting-values.ts` counts such stored notices by
+deployment state and first or next publish, without reading form contents.

@@ -51,9 +51,7 @@ import {
 	groupFieldSchema,
 } from "./group";
 import {
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	type HiddenField,
-	hiddenFieldCarriesBothValueSources,
 	hiddenFieldMetadata,
 	hiddenFieldSchema,
 } from "./hidden";
@@ -814,9 +812,4 @@ export type {
 	UserControlledRepeatField,
 	VideoField,
 };
-export {
-	groupBornFieldList,
-	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
-	hiddenFieldCarriesBothValueSources,
-	TEXT_KEYPADS,
-};
+export { groupBornFieldList, TEXT_KEYPADS };

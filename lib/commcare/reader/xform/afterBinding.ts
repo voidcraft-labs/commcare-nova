@@ -57,13 +57,12 @@ import { formNodeProjection } from "../../xpath/formNodeProjection";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
-import { type Claim, claimRegistry } from "../claims";
+import { claimRegistry } from "../claims";
 import type { DraftForm, ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
-import { pointerToken, sameJson } from "../jsonCursor";
-import { manifestFindingOf } from "../languages";
+import { sameJson } from "../jsonCursor";
 import { builtScopes, sameElementWhole } from "../sameElement";
-import { sameSyntax, sourceFormExpression } from "../syntaxCompare";
+import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { ownText } from "../xmlCursor";
 import { X } from "./claims";
@@ -338,88 +337,40 @@ function defaultUnread(
 	return true;
 }
 
-/** The surface key a Hidden Value's node is claimed at. */
-const BOTH_KEY = "mug:DataBindOnly";
-
-/**
- * Each Hidden Value of a form holding both a calculate and a default outside every repeat,
- * claimed at its node and its bind's type: where no runtime reads the default
- * (`defaultUnread`), under the held entry, the document keeping the calculate alone and the
- * first publish saying so (`hidden-value-defaults-dropped`, once per form); otherwise refused
- * whole at the question.
- */
+/** Account for a root hidden question under the observed or overwritten
+ * seed class once later assignments are bound. The worker's initialization
+ * order matters to that classification. The saved question keeps both slots. */
 function settleBothSources(ctx: ReadContext, form: DraftForm): void {
 	const xform = form.xform;
 	if (xform === null) return;
-	const removedInputs: [string, string][] = [];
 	for (const field of fieldsOf(xform)) {
-		const both = field.bothSources;
-		if (both === undefined) continue;
+		if (field.bothSources === undefined) continue;
 		const doc = ctx.doc;
 		const unread =
 			doc !== undefined &&
 			doc.forms[form.uuid] !== undefined &&
 			defaultUnread(ctx, doc, xform, field);
+		const sites = unread ? X.kind.hiddenBothUnread : X.kind.hiddenBothObserved;
+		ctx.accounting.claimEntry(
+			{ element: field.node.element },
+			sites.node.entry,
+			"mug:DataBindOnly",
+			field.place,
+		);
 		const bind = xform.binds.get(field.node);
-		const claimNode = (node: Claim) =>
-			ctx.accounting.claimEntry(
-				{ element: field.node.element },
-				node.entry,
-				node.key ?? BOTH_KEY,
-				field.place,
-			);
-		const typeSite =
-			both.typeDeferred && bind !== undefined
-				? { element: bind.element, attribute: "type" }
-				: undefined;
-		if (!unread || doc === undefined || field.uuid === undefined) {
-			// The bind's type belongs to the refused question: covered by its one finding.
-			const refusal = X.refusedKind.hiddenBoth;
-			claimNode(refusal);
-			if (typeSite !== undefined)
-				ctx.accounting.cover(
-					typeSite,
-					manifestFindingOf(refusal, field.place, {}),
-				);
-			continue;
-		}
-		const sites = X.kind.hiddenBothUnread;
-		claimNode(sites.node);
 		if (
-			typeSite !== undefined &&
+			field.bothSources.typeDeferred &&
+			bind !== undefined &&
 			sites.type !== undefined &&
 			sites.type.key !== null
 		)
 			ctx.accounting.claimEntry(
-				typeSite,
+				{ element: bind.element, attribute: "type" },
 				sites.type.entry,
 				sites.type.key,
 				field.place,
 			);
-		const uuid = field.uuid;
-		ctx.doc = withCandidate(doc, (draft) => {
-			delete (draft.fields[uuid] as { default_value?: unknown }).default_value;
-		});
-		delete field.field.default_value;
-		const source = field.expressions.find(
-			(expr) => expr.slot === "default_value",
-		);
-		if (!source)
-			throw new Error("An accepted default lost its source expression.");
-		removedInputs.push([
-			field.node.path.join("/"),
-			sourceFormExpression(source.text),
-		]);
 	}
-	if (!removedInputs.length) return;
-	const readId =
-		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
-	ctx.facts.sameStateRewrites.push({
-		entry: X.kind.hiddenBothUnread.node.entry,
-		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
-		register: "hidden-value-defaults-dropped",
-		removedInputs,
-	});
 }
 
 /** `caseStageEntryIds` as last derived, with the registry's size then: names

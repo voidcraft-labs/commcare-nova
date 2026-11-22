@@ -75,7 +75,12 @@ import {
 	inStoredKeyOrder,
 	sourceFromBaseline,
 } from "../baselineSource";
-import { planFromDocuments, planHqChanges, touchedBy } from "../plan";
+import {
+	planFromDocuments,
+	planHqChanges,
+	stillOmitsHiddenStartingAnswer,
+	touchedBy,
+} from "../plan";
 import type { HqChangeReadings } from "../readings";
 import { withHeadUnsent } from "../reference";
 import { committed, readingOf } from "./hqChangeReadings";
@@ -300,6 +305,71 @@ function admitted(now: BlueprintDoc, batch: readonly Mutation[]) {
 /* Each case reads a retained CommCare HQ source through the production reader
  * twice and judges it with acceptance, seconds of work the first case also
  * pays the reader's warm-up for. */
+it("keeps a starting answer left behind by an earlier adoption pending across an unrelated HQ edit", async () => {
+	const field = testUuid("historical-start");
+	const withStart = buildDoc({
+		appId: APP_ID,
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								uuid: field,
+								id: "stage",
+								kind: "hidden",
+								calculate: "'current'",
+								default_value: "'first'",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const reference = produce(withStart, (draft) => {
+		const stage = draft.fields[field];
+		if (stage?.kind !== "hidden") throw new Error("Missing hidden field");
+		delete stage.default_value;
+	});
+	const renamed = produce(withStart, (draft) => {
+		draft.appName = "Renamed at HQ";
+	});
+	const source = await readingOf(withStart, reference);
+	const now = await readingOf(renamed, reference);
+	const plan = planFromDocuments({
+		ref: reference,
+		now: reference,
+		base: source,
+		theirs: now,
+		renamesSince: [],
+	});
+	const { target } = changesOf(plan);
+	expect(target.appName).toBe(renamed.appName);
+	expect(stillOmitsHiddenStartingAnswer(source, reference, now, target)).toBe(
+		true,
+	);
+	const restored = produce(target, (draft) => {
+		const stage = draft.fields[field];
+		const prior = withStart.fields[field];
+		if (stage?.kind !== "hidden" || prior?.kind !== "hidden")
+			throw new Error("Missing hidden field");
+		stage.default_value = prior.default_value;
+	});
+	expect(stillOmitsHiddenStartingAnswer(source, reference, now, restored)).toBe(
+		false,
+	);
+	expect(
+		stillOmitsHiddenStartingAnswer(source, reference, reference, target),
+	).toBe(false);
+	expect(stillOmitsHiddenStartingAnswer(source, withStart, now, target)).toBe(
+		false,
+	);
+});
+
 describe("planHqChanges", { timeout: 30_000 }, () => {
 	/**
 	 * An app Nova brought in from CommCare HQ's retained source of the corpus

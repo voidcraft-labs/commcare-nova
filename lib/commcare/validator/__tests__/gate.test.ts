@@ -361,11 +361,7 @@ describe("evaluateCommit", () => {
 		).toEqual(["REQUIRED_ON_HIDDEN"]);
 	});
 
-	it("a hidden field carrying both value sources is schema-legal and refused as soundness; clearing one slot is admitted", () => {
-		// Both slots are optional so historical documents hydrate; the gate is
-		// what makes the pair unrepresentable. A commit that introduces it is
-		// refused, and the clearing commit (the shape the one-off repair wrote)
-		// is admitted.
+	it("admits a starting answer alongside a calculation and clearing either independently", () => {
 		const doc = minDoc();
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const hidden: Field = {
@@ -382,12 +378,10 @@ describe("evaluateCommit", () => {
 			true,
 		);
 		expect(
-			codes(
-				gateCommit(doc, [
-					{ kind: "addField", parentUuid: formUuid, field: hidden },
-				]),
-			),
-		).toEqual(["HIDDEN_VALUE_BOTH_SOURCES"]);
+			gateCommit(doc, [
+				{ kind: "addField", parentUuid: formUuid, field: hidden },
+			]),
+		).toEqual({ ok: true });
 		expect(
 			gateCommit(both, [
 				{

@@ -599,9 +599,12 @@ export const X = {
 			node: "mug:DataBindOnly",
 			type: "xform:model/bind@type",
 		}),
-		/** Both a calculate and a default outside every repeat: its node and its type are
-		 *  claimed once the bound document says whether a runtime reads the default
-		 *  (`afterBinding.ts::settleBothSources`), under this or `refusedKind.hiddenBoth`. */
+		// The two accepted classes distinguish a seed a later assignment or a
+		// repeat row may see. Both slots remain in the authored document.
+		hiddenBothObserved: kind(
+			"hidden-value-with-both-calculate-and-a-default-by-any-expression",
+			{ node: "mug:DataBindOnly", type: "xform:model/bind@type" },
+		),
 		hiddenBothUnread: kind(
 			"hidden-value-with-both-calculate-and-a-default-no-runtime-reads",
 			{ node: "mug:DataBindOnly", type: "xform:model/bind@type" },
@@ -693,11 +696,6 @@ export const X = {
 			"refuse",
 			Q("upload-with-any-other-mediatype-or-none"),
 			"jr-control:upload",
-		),
-		hiddenBoth: one(
-			"refuse",
-			Q("hidden-value-with-both-calculate-and-a-default-by-any-expression"),
-			"mug:DataBindOnly",
 		),
 		hiddenOtherType: one(
 			"refuse",

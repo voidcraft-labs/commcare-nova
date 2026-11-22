@@ -93,7 +93,7 @@ import {
 import { type Expression, isExpression } from "./types";
 
 /** Which slot a Hidden Value's value comes from; it has at most one
- * (`HIDDEN_VALUE_BOTH_SOURCES` refuses both). */
+ * (the calculation supplies the eventual answer when both are present). */
 export type HiddenValueSource = "calculate" | "default_value";
 
 /** One value a Hidden Value can end with: a branch of `if`, `switch` or
