@@ -43,6 +43,7 @@ import {
 	type SimpleSearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
+import { takesMultipleSearchChoices } from "@/lib/domain/modules";
 import { type ValidationError, validationError } from "../../errors";
 
 export function searchInputViaModeCompatibility(
@@ -84,7 +85,7 @@ export function searchInputViaModeCompatibility(
 		// faithful wire form. `multiSelectSearchInputRefusal` is the one home
 		// of that decision, so the builder withholds exactly these shapes.
 		if (
-			input.type === "multi-select" &&
+			takesMultipleSearchChoices(input.type) &&
 			multiSelectSearchInputRefusal(input) !== undefined
 		) {
 			errors.push(

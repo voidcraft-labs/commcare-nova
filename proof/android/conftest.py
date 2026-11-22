@@ -24,6 +24,7 @@ DOCUMENTS = (
     "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0",
     "localization-bilingual",
     "navigation-base",
+    "prompt-checkboxes",
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
     "targeted-hidden-from-menu",

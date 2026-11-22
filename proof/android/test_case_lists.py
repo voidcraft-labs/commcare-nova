@@ -120,6 +120,31 @@ RANKS = {"targeted-amina-visit": "zulu", "targeted-baraka-visit": "mike", "targe
 PLACED = [["Chausiku", "Lakeside"], ["Baraka", "Hilltop"], ["Amina", "Riverside"]]
 
 
+def test_checkbox_search_sends_each_checked_value_on_both_archives(android_documents, hq):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["prompt-checkboxes"]
+    database = _restored(document)
+    database = replace(
+        database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
+    )
+    command = "search_command.m0"
+    with _archives(document, database) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, commands=[command])
+            answer = blobs.get_json(result["answer"])
+            assert answer["install"] == "Installed", label
+            walk = answer["walks"][command]
+            [query] = [step["query"] for step in walk["steps"] if "typed" in step.get("query", {})]
+            assert query["items"]["regions"] == ["East", "North & coast"], (label, query)
+            assert query["RemoteQuerySessionManager.getRawQueryParams"]["regions"] == ["north"]
+            typed = query["typed"]
+            assert typed["given"]["regions"] == "East"
+            assert typed["RemoteQuerySessionManager.getRawQueryParams"]["regions"] == ["east", "north"]
+
+
 def _ranked(database):
     return replace(
         database,

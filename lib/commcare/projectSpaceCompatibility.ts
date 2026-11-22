@@ -168,6 +168,12 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 	if (moduleUsesInlineSearch(module)) {
 		reasons.push("The menu's forms read the search.");
 	}
+	if (
+		inputs.some(
+			(input) => input.kind !== "hidden" && input.type === "checkboxes",
+		)
+	)
+		reasons.push("A Search field lets workers tick several choices.");
 	if (inputs.some(searchInputIsSingleDate)) {
 		reasons.push("A Search field takes one date.");
 	}

@@ -1281,26 +1281,39 @@ export const SEARCH_INPUT_TYPES = [
 	"barcode",
 	"select",
 	"multi-select",
+	"checkboxes",
 ] as const;
 export type SearchInputType = (typeof SEARCH_INPUT_TYPES)[number];
 export const SCALAR_SEARCH_INPUT_TYPES = ["text", "date", "barcode"] as const;
 export type ScalarSearchInputType = (typeof SCALAR_SEARCH_INPUT_TYPES)[number];
 /**
- * Choice widgets. Both are lookup-backed: the CommCare query prompt reads
+ * Choice widgets. All are lookup-backed: the CommCare query prompt reads
  * its choices only from an `<itemset>` over a fixture
  * (`commcare-core/.../org/commcare/xml/QueryPromptParser.java` reads no inline
  * items), so a choice input always names a Project lookup table.
  *
  *   - `select` — one choice; wire `input="select1"`.
- *   - `multi-select` — several choices; wire `input="select"`. The runtime
+ *   - `multi-select` — several choices in a Web Apps list; wire `input="select"`.
+ *   - `checkboxes` — several choices on either platform; wire `input="checkbox"`. The runtime
  *     splits the `#,#`-joined answer into repeated query parameters
  *     (`RemoteQuerySessionManager.getRawQueryParams` →
  *     `extractMultipleChoices`), and HQ's exact match over a list is any-of
  *     (`corehq/apps/es/case_search.py::exact_case_property_text_query`), so a
  *     simple multi-select input means "the property equals any chosen value".
  */
-export const SELECT_SEARCH_INPUT_TYPES = ["select", "multi-select"] as const;
+export const SELECT_SEARCH_INPUT_TYPES = [
+	"select",
+	"multi-select",
+	"checkboxes",
+] as const;
 export type SelectSearchInputType = (typeof SELECT_SEARCH_INPUT_TYPES)[number];
+
+/** Several choices in item order, sent as repeated values of the same parameter. */
+export function takesMultipleSearchChoices(
+	type: string,
+): type is "multi-select" | "checkboxes" {
+	return type === "multi-select" || type === "checkboxes";
+}
 
 /** Whether a widget type reads its answers from a lookup-backed choice list. */
 export function isSelectSearchInputType(
@@ -2065,6 +2078,7 @@ export const APPLICABLE_SEARCH_MODES: Readonly<
 	barcode: ["exact"],
 	select: ["exact"],
 	"multi-select": ["exact"],
+	checkboxes: ["exact"],
 };
 
 /**
@@ -2149,6 +2163,7 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 	// multi-select containment is not part of the stored Search union.
 	select: ["text", "single_select"],
 	"multi-select": ["text", "single_select"],
+	checkboxes: ["text", "single_select"],
 };
 
 /**
@@ -2180,6 +2195,7 @@ export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
 	barcode: "text",
 	select: "text",
 	"multi-select": "text",
+	checkboxes: "text",
 };
 
 /**
@@ -2212,6 +2228,7 @@ export const SEARCH_INPUT_RUNTIME_VALUE_TYPES: Readonly<
 	// A choice binds its value token; several choices bind the `#,#`-joined tokens.
 	select: "text",
 	"multi-select": "text",
+	checkboxes: "text",
 };
 
 /**
@@ -2241,6 +2258,7 @@ export const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	barcode: "exact",
 	select: "exact",
 	"multi-select": "exact",
+	checkboxes: "exact",
 };
 
 /** The effective mode for a simple input after applying its widget default. */

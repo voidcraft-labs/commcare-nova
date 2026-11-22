@@ -252,15 +252,6 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a checkbox field",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.input_ = "checkbox";
-			prompt.itemset = TABLE;
-		},
-		findings: [[`${S}input-checkbox-itemset`, "search", "case_name"]],
-	},
-	{
 		title: "a field whose choices come from a mobile report",
 		edit: (body) => {
 			const prompt = first(body);
@@ -390,19 +381,6 @@ const CASES: readonly Case[] = [
 				"case_name",
 			],
 		],
-	},
-	{
-		// HQ's build writes the stored `input_` over the address appearance's `input="address"`,
-		// and its Case List page shows the checkbox: the checkbox's finding alone, the requirement
-		// beside it no address field's.
-		title: "an address appearance beside a checkbox",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.appearance = "address";
-			prompt.input_ = "checkbox";
-			prompt.itemset = TABLE;
-		},
-		findings: [[`${S}input-checkbox-itemset`, "search", "case_name"]],
 	},
 	{
 		title: "an address appearance beside a date matched by HQ's own rule",
@@ -610,6 +588,46 @@ describe("a Search field Nova cannot hold", () => {
 			prompt.input_ = "select1";
 			prompt.itemset = TABLE;
 		};
+
+		it.each(["", "address"])(
+			"reads a lookup checkbox even with a stored %s appearance",
+			async (appearance) => {
+				const body = exportedBody(PROMPTS);
+				const prompt = first(body);
+				prompt.input_ = "checkbox";
+				prompt.appearance = appearance;
+				prompt.itemset = {
+					...TABLE,
+					label: "code",
+					value: "code",
+					sort: "code",
+				};
+				const told = withTable(await inputFor(body));
+				const outcome = readHqApp({
+					...told,
+					lookup: {
+						...told.lookup,
+						definitions: new Map([[TABLE_T.id, TABLE_T]]),
+					},
+				});
+				expect(outcome.defects).toEqual([]);
+				if (outcome.kind !== "read")
+					throw new Error(JSON.stringify(outcome.findings));
+				const doc = outcome.draft.doc;
+				expect(
+					doc.modules[doc.moduleOrder[0]].caseListConfig?.searchInputs[0],
+				).toMatchObject({
+					type: "checkboxes",
+					name: "case_name",
+					options: {
+						kind: "lookup",
+						tableId: TABLE_T.id,
+						valueColumnId: TABLE_T.columns[0].id,
+						labelColumnId: TABLE_T.columns[0].id,
+					},
+				});
+			},
+		);
 
 		// A ref to a column the table lacks reads blank for every choice on a device: a read of what
 		// is not there, the expression entry's own finding, once for the field.

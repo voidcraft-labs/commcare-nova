@@ -152,6 +152,8 @@ export interface PreviewPlatformRules {
 	readonly hiddenSearchFieldWithDefault: "hidden" | "editable";
 	/** A barcode Search field (manifest `case-search/appearance-barcode-scan`:
 	 *  a plain text box in Web Apps). */
+	/** HQ's Web Apps model indexes labels by value; Android enumerates Core's itemset rows. */
+	readonly searchChoiceOrder: "values" | "rows";
 	readonly barcodeSearchField: "text" | "scan-or-text";
 	/** A search with no results. Android
 	 *  `activities/QueryRequestActivity.java::processSuccess` shows a toast and
@@ -408,6 +410,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
 		hiddenSearchFieldWithDefault: "hidden",
+		searchChoiceOrder: "values",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
 		searchClear: true,
@@ -475,6 +478,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
 		hiddenSearchFieldWithDefault: "editable",
+		searchChoiceOrder: "rows",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
 		searchClear: false,

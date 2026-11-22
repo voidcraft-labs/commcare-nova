@@ -70,6 +70,7 @@ DOCUMENTS = (
     "case-extension-multiple-repeat",
     "navigation-base",
     "targeted-label-sort",
+    "prompt-checkboxes",
     "prompt-widgets",
     "case-capture-query",
     "form-link-unconditional",

@@ -49,7 +49,10 @@ import {
 	useState,
 } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { choiceKeysForAnswer } from "@/components/preview/shared/multiSelectChoiceKeys";
+import {
+	choiceKeysForAnswer,
+	webSearchChoices,
+} from "@/components/preview/shared/multiSelectChoiceKeys";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -70,6 +73,7 @@ import {
 	type CaseType,
 	joinMultiSelectSearchAnswer,
 	type SearchInputDef,
+	splitMultiSelectSearchAnswer,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -183,7 +187,10 @@ interface SearchInputFormProps {
 	 *  Defaults to the platform an app that runs on both plays. */
 	readonly platformRules?: Pick<
 		PreviewPlatformRules,
-		"searchFieldChecks" | "searchScreenText" | "barcodeSearchField"
+		| "searchFieldChecks"
+		| "searchScreenText"
+		| "barcodeSearchField"
+		| "searchChoiceOrder"
 	>;
 	/** What the screen shows in place of its fields where a required
 	 *  condition or a check reads data the worker's device lacks (a place key
@@ -603,6 +610,7 @@ export function SearchInputForm({
 								draft={draft}
 								setKey={setKey}
 								showHint={platformRules.searchScreenText}
+								choiceOrder={platformRules.searchChoiceOrder}
 								scanBarcode={
 									platformRules.barcodeSearchField === "scan-or-text"
 								}
@@ -673,6 +681,7 @@ function searchCheckFailureMessage(error: unknown): string {
 }
 
 interface SearchInputRowProps {
+	readonly choiceOrder: PreviewPlatformRules["searchChoiceOrder"];
 	readonly input: VisibleSearchInputDef;
 	readonly draft: SearchInputValues;
 	readonly setKey: (key: string, next: string) => void;
@@ -701,9 +710,14 @@ function SearchInputRow({
 	showHint,
 	scanBarcode,
 	required,
-	choices,
+	choiceOrder,
+	choices: rows,
 	error,
 }: SearchInputRowProps) {
+	const choices = useMemo(
+		() => (rows && choiceOrder === "values" ? webSearchChoices(rows) : rows),
+		[choiceOrder, rows],
+	);
 	const chrome = {
 		label: input.label,
 		hint: showHint ? input.hint : undefined,
@@ -770,6 +784,17 @@ function SearchInputRow({
 				/>
 			);
 		case "multi-select":
+			return (
+				<MultipleChoiceList
+					{...chrome}
+					name={input.name}
+					value={draft.get(input.name) ?? ""}
+					choices={choices}
+					onChange={(next) => setKey(input.name, next)}
+					error={error}
+				/>
+			);
+		case "checkboxes":
 			return (
 				<MultiSelectRow
 					{...chrome}
@@ -1032,21 +1057,65 @@ function SelectRow({
 	);
 }
 
-/**
- * Several-choice row: one checkbox per lookup row, the shape Web Apps
- * renders for a `select` prompt. The value is CommCare's own encoding, the
- * chosen values joined by the delimiter in choice order, so the runtime
- * bindings split it exactly as `RemoteQuerySessionManager` does.
- *
- * Selection is tracked by ROW, not by value: lookup rows guarantee neither
- * unique nor non-blank values (row-level validity is the export boundary's
- * verdict), and Web Apps keeps each checkbox's own state, so two rows that
- * share a value tick and untick independently and the answer carries one
- * token per ticked row. The answer string alone cannot say which of two
- * same-value rows was ticked, which is why the row set is local state,
- * re-derived only when the answer changes from outside (a clear, a default)
- * or the rows arrive.
- */
+/** The Web Apps multiple-selection list sends the selected options in list order. */
+function MultipleChoiceList({
+	name,
+	label,
+	hint,
+	required,
+	value,
+	choices,
+	onChange,
+	error,
+}: ChoiceRowProps) {
+	const id = useId();
+	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
+	return (
+		<Field data-invalid={error !== undefined}>
+			<FieldLabel htmlFor={id}>
+				<PromptLabelText label={label} required={required} />
+			</FieldLabel>
+			<PromptHint id={hintId} hint={hint} />
+			{choices === undefined ? (
+				<LookupChoicesLoading />
+			) : choices.length === 0 ? (
+				<LookupChoicesEmpty />
+			) : (
+				<select
+					multiple
+					id={id}
+					name={name}
+					aria-required={required}
+					aria-invalid={error !== undefined}
+					aria-describedby={describedBy(hintId, hint, errorId, error)}
+					className="rounded-lg border border-pv-input-border bg-pv-input-bg p-2 text-sm text-nova-text focus-visible:outline-pv-input-focus"
+					value={splitMultiSelectSearchAnswer(value)}
+					onChange={(event) =>
+						onChange(
+							joinMultiSelectSearchAnswer(
+								Array.from(
+									event.currentTarget.selectedOptions,
+									(option) => option.value,
+								),
+							),
+						)
+					}
+				>
+					{choices.map((choice) => (
+						<option key={choice.key} value={choice.value}>
+							{choice.label}
+						</option>
+					))}
+				</select>
+			)}
+			<FieldError id={errorId}>{error}</FieldError>
+		</Field>
+	);
+}
+
+/** Checkbox state belongs to the displayed row. When the form restores a saved
+ * answer, Android marks every offered row with a selected value. */
 function MultiSelectRow({
 	name,
 	label,

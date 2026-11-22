@@ -31,6 +31,8 @@ accepting replacement answers. Dynamic itemsets retain their own semantics.
 A leading empty multiple-choice token fails earlier, when Core's setvalue
 uncasts it; `answerCast` reports the existing entry refusal for that case.
 
+Search checkboxes read the offered lookup rows and submit their checked values in displayed order. On Android, restoring an answer checks every row with that value, including repeated rows. Web Apps indexes options by value, so duplicates share a control with the last label. It enumerates integer keys first. The Web Apps multiple-choice list and the checkbox field preserve their distinct controls.
+
 ## Platforms
 
 Preview plays one platform the app runs on at a time, Web Apps or Android.

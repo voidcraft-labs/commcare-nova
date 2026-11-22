@@ -1,4 +1,5 @@
 import type { TermBindings } from "@/lib/case-store";
+import { takesMultipleSearchChoices } from "@/lib/domain/modules";
 import type { PreviewSearchSessionValues } from "./identity";
 // lib/preview/engine/runtimeBindings.ts
 //
@@ -334,7 +335,7 @@ function buildSimpleArmClause(
 					}),
 				});
 			}
-			if (input.type === "multi-select") {
+			if (takesMultipleSearchChoices(input.type)) {
 				// CommCare stores several chosen values as one `#,#`-joined
 				// answer and splits it into repeated query parameters
 				// (`RemoteQuerySessionManager.extractMultipleChoices`), which

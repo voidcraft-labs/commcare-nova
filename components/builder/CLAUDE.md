@@ -1100,8 +1100,7 @@ it by. A visible field's inspector (`SearchInputEditor`) stacks Label, Hint,
 Case information, Field type, Choices (a lookup table plus value and label
 columns, and a **Sort choices by** column that reads "Label column" while
 `options.sortColumnId` is absent, through `SearchChoiceSourceEditor`; a sort
-column equal to the label column is written as absent; the widget is `select` or
-`multi-select`, and Nova never offers an inline choice list here), How it
+column equal to the label column is written as absent; the widget is `select`, `multi-select`, or `checkboxes`, and Nova never offers an inline choice list here), How it
 matches, then **Required** (optional / always / under a condition, with an
 optional message) and **Check on the answer** (one rule plus its message).
 Neither carries a platform hint: where the app also runs on Android, the
