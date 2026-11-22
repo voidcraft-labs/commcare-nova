@@ -110,7 +110,7 @@ export const FIELD_DISPLAY_SETTINGS = [
 		key: "addressLookup",
 		label: "Find an address",
 		input: "flag",
-		kinds: ["text", "barcode"],
+		kinds: ["text", "secret", "barcode"],
 		values: {
 			true: { label: "Look up the address", feature: "address-lookup" },
 		},
@@ -120,7 +120,7 @@ export const FIELD_DISPLAY_SETTINGS = [
 		parameterFeature: "question-sender",
 		label: "Send updates to",
 		input: "channels",
-		kinds: ["text", "barcode", "image", "audio", "video", "file"],
+		kinds: ["text", "secret", "barcode", "image", "audio", "video", "file"],
 		values: {},
 	},
 	{
@@ -128,7 +128,7 @@ export const FIELD_DISPLAY_SETTINGS = [
 		parameterFeature: "question-receiver",
 		label: "Fill from a channel",
 		input: "receiver",
-		kinds: ["text", "barcode", "single_select"],
+		kinds: ["text", "secret", "barcode", "single_select"],
 		values: {},
 	},
 	{

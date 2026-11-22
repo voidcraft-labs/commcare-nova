@@ -7121,6 +7121,34 @@
 		"gates": ["toggle/CASE_SEARCH_ADVANCED", "privilege/geocoder"]
 	},
 	{
+		"id": "questions/secret-address",
+		"area": "questions",
+		"section": "Appearances",
+		"item": "secret `address`",
+		"surfaceKeys": ["appearance:web-apps/address"],
+		"valueClass": "secret-address",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Web Apps displays the address as the worker looks it up. Android keeps a masked password.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (geocoder) with CASE_SEARCH_ADVANCED and the `geocoder` privilege, else UNAVAILABLE (unsupported entry; the literal \"Not Supported by Web Entry\" can be submitted) / IGNORED (text)",
+			"webApps": {
+				"reading": "runs",
+				"note": "(geocoder) with CASE_SEARCH_ADVANCED and the `geocoder` privilege, else UNAVAILABLE (unsupported entry; the literal \"Not Supported by Web Entry\" can be submitted)"
+			},
+			"android": {
+				"reading": "ignored",
+				"note": "text"
+			}
+		},
+		"emission": {
+			"cell": "verbatim; both gates are target preconditions",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_ADVANCED", "privilege/geocoder"]
+	},
+	{
 		"id": "questions/broadcast-topic-an-address-entry-under-the-gates-above-and",
 		"area": "questions",
 		"section": "Appearances",
@@ -7155,6 +7183,32 @@
 		"valueClass": "text-receive",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: the entry and its named channel and returned field",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "the token as HQ spells it",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/secret-receive-topic-field",
+		"area": "questions",
+		"section": "Appearances",
+		"item": "secret `receive-<topic>-<field>`",
+		"surfaceKeys": ["appearance:web-apps/receive-*"],
+		"valueClass": "secret-receive-topic-field",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Web Apps fills a masked password when its channel sends the returned field. Android keeps the ordinary password.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
