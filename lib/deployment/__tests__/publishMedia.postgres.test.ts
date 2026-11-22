@@ -470,6 +470,7 @@ async function observeImport() {
 					...fence,
 					scope: SCOPE,
 					target: TARGET,
+					reviewedVersion: 3,
 					read: {
 						sourceDigest: baseline.sourceDigest,
 						novaRevision: comparedRevision,

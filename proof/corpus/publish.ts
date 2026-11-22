@@ -190,7 +190,6 @@ import {
 import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
 import { requiredConfirmations } from "@/lib/deployment/confirmations";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
-import { hqChangesReviewDigest } from "@/lib/deployment/hqChanges/digest";
 import {
 	makeHqChangeReadings,
 	ownPathsBase,
@@ -206,6 +205,7 @@ import {
 	type PairedBaseline,
 	projectDataFindingsNow,
 	publishChangeSentences,
+	reviewMatchingSource,
 	unionPlan,
 	withJudged,
 } from "@/lib/deployment/hqChanges/review";
@@ -2765,6 +2765,11 @@ async function reviewOverPeer(input: {
 		);
 	}
 	const source = read.source;
+	const remoteRevision = peer.saveCounter();
+	if (remoteRevision === null)
+		throw new Error(
+			"The capture peer returned an app without its working save counter.",
+		);
 	const summary = hqApplicationModules(source);
 	const alignment = alignHqForms(source, summary);
 	if (alignment.kind === "misaligned") {
@@ -2834,6 +2839,7 @@ async function reviewOverPeer(input: {
 		reference,
 		targetIdentity: input.targetIdentity,
 		observedAt,
+		remoteRevision,
 		source,
 		modules: alignment.modules,
 		normalized,
@@ -2842,49 +2848,15 @@ async function reviewOverPeer(input: {
 		ownRows,
 	} satisfies HqChangesBasis;
 	if (parts.length === 0) {
-		if (Object.keys(learned).length === 0) {
+		const review = reviewMatchingSource(basis);
+		if (review)
 			return {
-				review: {
-					kind: "nothing",
-					reason: "unchanged",
-					since,
-					hqChanges: [],
-					publishChanges: [],
-					readingId: null,
-					reviewDigest: null,
-				},
-				basis: null,
+				review,
+				basis: review.readingId === null ? null : basis,
 				fetched: null,
 				checked: null,
 				summary,
 			};
-		}
-		/* Two documents of one content at a path: the id is recorded, and
-		 * nothing Nova publishes moved. */
-		return {
-			review: {
-				kind: "nothing",
-				reason: "reads-the-same",
-				since,
-				hqChanges: [],
-				publishChanges: [],
-				readingId: CAPTURE_READING_ID,
-				reviewDigest: hqChangesReviewDigest({
-					v: 2,
-					mappingToken: basis.live.pushToken,
-					baselineDigest: baseline.sourceDigest,
-					sourceDigest: normalized.digest,
-					headSeq: head.seq,
-					media: published,
-					target: null,
-					tables: [],
-				}),
-			},
-			basis,
-			fetched: null,
-			checked: null,
-			summary,
-		};
 	}
 
 	/* The flag a write saved only if changed needs. */

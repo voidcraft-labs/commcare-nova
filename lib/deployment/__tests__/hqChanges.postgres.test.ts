@@ -256,6 +256,7 @@ function taken(
 		expectedEndings: 0,
 		remoteAppId: HQ_APP,
 		comparedPushToken: appMappingToken(birth.deployment),
+		reviewedVersion: 42,
 		read: { sourceDigest: digestOf(SOURCE), novaRevision: 1 },
 		source: stored(CHANGED_SOURCE, CHANGED_AT),
 		ownership: TAKEN_OWNERSHIP,
@@ -2799,12 +2800,13 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		source: RetainedHqAnswer,
 		accepts: boolean,
 		readBack: RetainedHqAnswer = source,
+		versionBefore = 3,
 	) {
 		const loaded = await loadApp(appId);
 		if (loaded === null) throw new Error(`No app ${appId}.`);
 		const doc = hydratePersistedBlueprint(loaded.blueprint);
 		const saves = new HqSaveCounter();
-		saves.standAt(FIXTURE_REMOTE_APP_ID, 3);
+		saves.standAt(FIXTURE_REMOTE_APP_ID, versionBefore);
 		/** The app JSON each import carried. */
 		const imported: Record<string, unknown>[] = [];
 		return withHqPeer(saves, FIXTURE_HOST, async (peer) => {
@@ -3118,6 +3120,140 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				hook.mockRestore();
 			}
 		},
+	);
+
+	it.each([
+		"newer take",
+		"same save",
+		"unconfirmed publish",
+		"subsequent publish",
+	] as const)(
+		"preserves an accepted HQ take at its own save counter for %s",
+		async (order) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const actor = scope(appId);
+			const base = emission(doc, 2).source;
+			const initial = await publishOver(appId, base, true, base, 2);
+			expect(initial.outcome.landed).toBe(true);
+			const laterDoc = clinic({ appName: "Label the editor took from HQ" });
+			const reviewedHq =
+				order === "same save"
+					? emission(laterDoc, 4)
+					: withLocationList(emission(laterDoc, 5), "both_fixtures");
+			if (order === "same save")
+				await applyBlueprintChangeProposal({
+					appId,
+					userId: MEMBER,
+					expectedProjectId: E2E_PROJECT,
+					batchId: crypto.randomUUID(),
+					kind: "autosave",
+					guard: {
+						mutations: [{ kind: "setAppName", name: laterDoc.appName }],
+					},
+				});
+			const take = async () => {
+				if (order === "same save") {
+					// This is the name Nova just sent. HQ and the local head
+					// agree on it while the publisher still awaits its record.
+					const listed = await withHttpPeer(async (peer) => {
+						serveEmission(peer, reviewedHq);
+						return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+					});
+					if (
+						listed.kind !== "nothing" ||
+						listed.reason !== "already-here" ||
+						!listed.readingId ||
+						!listed.reviewDigest
+					)
+						throw new Error("Expected the local edit to be already here.");
+					const approval = {
+						readingId: listed.readingId,
+						reviewDigest: listed.reviewDigest,
+						tableChoices: {},
+					};
+					const outcome = await withHttpPeer(async (peer) => {
+						serveEmission(peer, reviewedHq);
+						return bringInHqChanges(actor, KEY_TARGET, approval, {
+							onEvent: () => {},
+						});
+					});
+					expect(outcome.kind).toBe("recorded");
+					return baselineOfApp();
+				}
+				const moved = await reviewAndBringIn(appId, laterDoc, reviewedHq);
+				expect(moved.outcome.kind).toBe("brought-in");
+				const row = await baselineOfApp();
+				expect(row).toMatchObject({
+					origin: "changes",
+					first_publish_changes: {
+						of: "next-publish",
+						ids: ["location-list-setting-reset"],
+					},
+				});
+				return row;
+			};
+			if (order === "subsequent publish" || order === "unconfirmed publish") {
+				const taken = await take();
+				const readBack =
+					order === "unconfirmed publish"
+						? { status: 503, headers: {}, body: "busy" }
+						: emission(laterDoc, 6).source;
+				const published = await publishOver(
+					appId,
+					reviewedHq.source,
+					true,
+					readBack,
+					5,
+				);
+				expect(published.outcome.landed).toBe(true);
+				if (order === "unconfirmed publish")
+					expect(await baselineOfApp()).toEqual(taken);
+				else
+					expect(await baselineOfApp()).toMatchObject({
+						origin: "push",
+						first_publish_changes: null,
+					});
+				return;
+			}
+			const original = deploymentStore.recordRemoteResource;
+			let taken: Awaited<ReturnType<typeof take>> | undefined;
+			const hook = vi
+				.spyOn(deploymentStore, "recordRemoteResource")
+				.mockImplementationOnce(async (...args) => {
+					// The peer acknowledged import 4 and Nova read back its version
+					// before the editor saw, took and recorded HQ save 5.
+					expect(args[2].remoteRevision).toBe(4);
+					taken = await take();
+					return original(...args);
+				});
+			try {
+				const published = await publishOver(
+					appId,
+					base,
+					true,
+					order === "same save" ? reviewedHq.source : base,
+				);
+				expect(published.outcome.landed).toBe(true);
+				expect(await baselineOfApp()).toEqual(taken);
+				expect((await headDocOf(appId)).appName).toBe(laterDoc.appName);
+				expect(await certifyFold(h.db(), appId)).toMatchObject({ usable: 1 });
+				const next = await withHttpPeer(async (peer) => {
+					serveEmission(
+						peer,
+						withLocationList(
+							emission(clinic({ appName: "HQ's next edit" }), 6),
+							"both_fixtures",
+						),
+					);
+					return reviewHqChanges(actor, KEY_TARGET, { onEvent: () => {} });
+				});
+				expect(next.kind).toBe("changes");
+			} finally {
+				hook.mockRestore();
+			}
+		},
+		30_000,
 	);
 
 	it("reviews, takes and publishes both targets through their own HQ endpoints after a fold", async () => {

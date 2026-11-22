@@ -31,7 +31,7 @@ export async function deploymentFoldSchema(
 					|| CASE WHEN a.atthasdef THEN ' default' ELSE '' END
 				FROM pg_attribute a
 				WHERE a.attnum > 0 AND NOT a.attisdropped AND
-					(a.attrelid = cert OR (a.attrelid = writes AND a.attname = 'identity_digest') OR (a.attrelid IN (mappings, writes) AND a.attname = 'claim_generation') OR (a.attrelid = baseline AND
+					(a.attrelid = cert OR (a.attrelid = writes AND a.attname IN ('identity_digest','settled_generation')) OR (a.attrelid IN (mappings, baseline) AND a.attname = 'reviewed_remote_revision') OR (a.attrelid IN (mappings, writes) AND a.attname = 'claim_generation') OR (a.attrelid = baseline AND
 						a.attname IN ('reference_fold_seq', 'reference_source_digest', 'readback_push_token', 'readback_source_digest')))) AS columns,
 			ARRAY(SELECT (CASE WHEN c.conrelid = cert THEN 'certificate ' ELSE 'baseline ' END)
 					|| replace(pg_get_constraintdef(c.oid, true), 'public.', '')
@@ -67,6 +67,9 @@ export async function deploymentFoldSchema(
 	const columns = [
 		"admission.claim_generation uuid",
 		"admission.identity_digest text",
+		"admission.settled_generation uuid",
+		"mapping.reviewed_remote_revision bigint",
+		"baseline.reviewed_remote_revision bigint",
 		"mapping.claim_generation uuid",
 		"baseline.readback_push_token uuid",
 		"baseline.readback_source_digest text",
@@ -98,7 +101,7 @@ export async function deploymentFoldSchema(
 		schema.claim_trigger ===
 			"CREATE TRIGGER app_deployment_resources_claim_token BEFORE UPDATE OF released_at ON app_deployment_resources FOR EACH ROW WHEN (old.released_at IS DISTINCT FROM new.released_at) EXECUTE FUNCTION rotate_deployment_push_token('claim') O" &&
 		schema.rotate_body.replace(/\s+/g, " ").trim() ===
-			"BEGIN NEW.push_token := uuidv7(); IF TG_NARGS = 1 AND TG_ARGV[0] = 'claim' THEN NEW.claim_generation := NEW.push_token; UPDATE public.app_deployments SET content_generation = uuidv7(), entry_point_manifest = NULL, entry_point_observation = NULL WHERE id = NEW.deployment_id; END IF; RETURN NEW; END;" &&
+			"BEGIN NEW.push_token := uuidv7(); IF TG_NARGS = 1 AND TG_ARGV[0] = 'claim' THEN NEW.claim_generation := NEW.push_token; NEW.reviewed_remote_revision := NULL; NEW.pushed_remote_revision := NULL; UPDATE public.app_deployments SET content_generation = uuidv7(), entry_point_manifest = NULL, entry_point_observation = NULL WHERE id = NEW.deployment_id; END IF; RETURN NEW; END;" &&
 		schema.immutable === "app_deployment_fold_reference_immutable O 19 t t" &&
 		schema.trigger_body?.trim() ===
 			"BEGIN RAISE EXCEPTION 'A certified deployment reference is immutable'; END"

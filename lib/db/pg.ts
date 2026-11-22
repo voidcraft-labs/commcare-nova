@@ -687,6 +687,12 @@ export interface AppDeploymentsTable {
  * space, kept precisely so the author can be told it is still there.
  */
 export interface AppDeploymentResourcesTable {
+	/** Last save a person took on this continuous HQ claim, until a confirmed newer publish. */
+	reviewed_remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
 	/** Null on the original claim, where id itself identifies that claim. */
 	claim_generation: ColumnType<string | null, never, never>;
 	/** Database-generated on insert, every update of push fields, and every change of claim. */
@@ -852,6 +858,8 @@ export interface AppDeploymentKeyedCaseIdsTable {
  * settles, never deleted and never row-locked.
  */
 export interface HqRemoteWritesTable {
+	/** Current deployment generation when HQ was first known to be finished. */
+	settled_generation: ColumnType<string | null, never, string | null>;
 	/** The continuous mapping claim under which this app import was admitted. */
 	claim_generation: ColumnType<string | null, string | null | undefined, never>;
 	identity_digest: ColumnType<string | null, string | null | undefined, never>;
@@ -911,6 +919,12 @@ export interface AppDeploymentConfirmationsTable {
  * Upserted only, serialized by the deployment row's lock.
  */
 export interface AppDeploymentBaselinesTable {
+	/** The bracketed HQ save of these source bytes. A passive refresh has no counter. */
+	reviewed_remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
 	/** The accepted publish and original digest of its read-back. Old rows
 	 * have neither. An older writer can replace source without updating this
 	 * pair, so acknowledge it only when both token and digest still match. */

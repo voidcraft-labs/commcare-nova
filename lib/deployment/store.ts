@@ -1594,6 +1594,8 @@ export interface RecordedImport extends RecordAnswer {
 	readonly obsoleteFold?: true;
 	/** The app import answered after another claim took over this HQ app. */
 	readonly obsoleteClaim?: true;
+	/** A reviewed save on this claim is at least as recent, or this acknowledgement cannot order itself against it. */
+	readonly retainedTake?: true;
 	/** A later read of this HQ app stood before the accepted import recorded. */
 	readonly laterObservation?: {
 		readonly digest: string | null;
@@ -2325,6 +2327,7 @@ export async function recordRemoteResource(
 					"id",
 					"remote_id",
 					"pushed_remote_revision",
+					"reviewed_remote_revision",
 					"released_at",
 					"claim_generation",
 				])
@@ -2366,6 +2369,27 @@ export async function recordRemoteResource(
 					input.pushedRevision
 			)
 				return { ...(await answer(null)), obsoleteFold: true };
+			// The reviewed counter belongs only to this working app and claim.
+			// An older/equal or unconfirmed import cannot replace a verified
+			// take, including its ownership and pending first-publish changes.
+			const reviewed =
+				live?.remote_id === input.remoteId
+					? numberOrNull(live.reviewed_remote_revision)
+					: null;
+			if (
+				reviewed !== null &&
+				(input.remoteRevision === null ||
+					input.remoteRevision <= reviewed ||
+					input.baseline.origin !== "push" ||
+					!verifiedBaselineSource({
+						deployment_id: row.id,
+						source_digest: input.baseline.sourceDigest,
+						source_gzip: input.baseline.sourceGzip,
+						source_bytes: input.baseline.sourceBytes,
+						ownership: input.baseline.ownership,
+					}))
+			)
+				return { ...(await answer(null)), retainedTake: true };
 			const now = new Date();
 			const pushToken = await writeResourceMapping(tx, row.id, input, now);
 			const wrote = await writeAppBaseline(
@@ -2374,6 +2398,7 @@ export async function recordRemoteResource(
 				scope.actorUserId,
 				input.baseline,
 				{
+					supersedesReviewedVersion: reviewed,
 					readbackPushToken:
 						input.baseline.origin === "push" ? pushToken : null,
 				},
@@ -2837,7 +2862,16 @@ async function settleRemoteWritesIn(
 		.updateTable("hq_remote_writes")
 		.set({
 			...(how.kind === "settled"
-				? { settled_at: sql<Date>`now()` }
+				? {
+						settled_at: sql<Date>`COALESCE(settled_at, now())`,
+						// The peer has already finished this write. A later generation
+						// is ordered after it, including after transfer to a new claim.
+						settled_generation: sql<
+							string | null
+						>`CASE WHEN settled_at IS NULL THEN (
+						SELECT content_generation FROM app_deployments WHERE id = hq_remote_writes.deployment_id
+					) ELSE settled_generation END`,
+					}
 				: {
 						held_until: sql<Date>`greatest(opened_at, now() + make_interval(secs => ${holdSeconds}))`,
 					}),
@@ -2927,6 +2961,8 @@ export async function recordRefreshedAppBaseline(
 		readonly comparedFold?: number;
 		/** The reviewed Nova head, when recording an HQ changes decision. */
 		readonly comparedHead?: number;
+		/** A changes review bracketed the reading with HQ’s working-app save counter. */
+		readonly reviewedVersion?: number;
 		/** The fresh read: gzip, bytes, digest and `observedAt`. */
 		readonly read: Pick<
 			AppBaselineWrite,
@@ -2979,7 +3015,13 @@ export async function recordRefreshedAppBaseline(
 				.executeTakeFirst();
 			const liveMapping = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["remote_id", "push_token", "pushed_at", "remote_missing_at"])
+				.select([
+					"remote_id",
+					"push_token",
+					"pushed_at",
+					"remote_missing_at",
+					"reviewed_remote_revision",
+				])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
@@ -3007,6 +3049,12 @@ export async function recordRefreshedAppBaseline(
 			) {
 				return superseded();
 			}
+			if (
+				input.reviewedVersion !== undefined &&
+				liveMapping.reviewed_remote_revision !== null &&
+				input.reviewedVersion < Number(liveMapping.reviewed_remote_revision)
+			)
+				return superseded();
 			if (input.comparedHead !== undefined) {
 				const head = await tx
 					.selectFrom("apps")
@@ -3182,6 +3230,7 @@ export async function recordRefreshedAppBaseline(
 								},
 				},
 				{
+					reviewedVersion: input.reviewedVersion,
 					rebindFold: input.comparedFold !== undefined,
 					// Another identical refresh can advance the date without
 					// changing which still-held publish returned these bytes.
@@ -3190,6 +3239,13 @@ export async function recordRefreshedAppBaseline(
 						: null,
 				},
 			);
+			if (input.reviewedVersion !== undefined)
+				await markReviewedSave(
+					tx,
+					row.id,
+					input.remoteAppId,
+					input.reviewedVersion,
+				);
 			await notifyAppDeployments(tx, scope.appId);
 			return {
 				outcome: "current" as const,
@@ -3312,6 +3368,7 @@ export async function recordDeploymentMediaFiles(
 /** Which of the baseline's facts a bring-in of changes found moved under its lock. */
 export type HqChangesBaselineFence =
 	| "app-head"
+	| "remote-version"
 	| "source-digest"
 	| "media-files"
 	| "mapping-token"
@@ -3419,6 +3476,7 @@ function hqChangesFirstPublishList(
 /** What a bring-in of changes made in CommCare HQ records beside its commit. */
 export interface HqChangesTaken extends DeploymentFence {
 	readonly comparedPushToken: string;
+	readonly reviewedVersion: number;
 	readonly scope: DeploymentScope;
 	readonly target: DeploymentTargetKey;
 	/** The CommCare HQ app the review read: the live app mapping must still name it. */
@@ -3526,6 +3584,25 @@ export async function recordHqChangesTaken(
 	return recordHqChangesInTransaction(tx, row.id, at.seq, input);
 }
 
+/** The mapping owns the highest taken save on this continuous claim. A later
+ * passive refresh changes its source row, without changing this fact. */
+async function markReviewedSave(
+	tx: Transaction<AppDatabase>,
+	deploymentId: string,
+	remoteAppId: string,
+	version: number,
+) {
+	await tx
+		.updateTable("app_deployment_resources")
+		.set({ reviewed_remote_revision: version })
+		.where("deployment_id", "=", deploymentId)
+		.where("kind", "=", "app")
+		.where("remote_id", "=", remoteAppId)
+		.where("superseded_at", "is", null)
+		.where("released_at", "is", null)
+		.executeTakeFirstOrThrow();
+}
+
 async function recordHqChangesInTransaction(
 	tx: Transaction<AppDatabase>,
 	deploymentId: string,
@@ -3548,7 +3625,7 @@ async function recordHqChangesInTransaction(
 		.executeTakeFirst();
 	const liveMapping = await tx
 		.selectFrom("app_deployment_resources")
-		.select(["remote_id", "push_token"])
+		.select(["remote_id", "push_token", "reviewed_remote_revision"])
 		.where("deployment_id", "=", deploymentId)
 		.where("kind", "=", "app")
 		.where("nova_resource_id", "=", scope.appId)
@@ -3562,6 +3639,15 @@ async function recordHqChangesInTransaction(
 			liveMapping?.remote_id ?? null,
 		);
 	}
+	if (
+		liveMapping.reviewed_remote_revision !== null &&
+		input.reviewedVersion < Number(liveMapping.reviewed_remote_revision)
+	)
+		throw new HqChangesBaselineMovedError(
+			"remote-version",
+			String(input.reviewedVersion),
+			String(liveMapping.reviewed_remote_revision),
+		);
 	if (liveMapping.push_token !== input.comparedPushToken)
 		throw new HqChangesBaselineMovedError(
 			"mapping-token",
@@ -3605,25 +3691,37 @@ async function recordHqChangesInTransaction(
 			"a newer observation",
 		);
 	// 2. The pair, and 4. the next publish's list.
-	await writeAppBaseline(tx, deploymentId, scope.actorUserId, {
-		origin: "changes",
-		remoteAppId: input.remoteAppId,
-		sourceGzip: input.source.sourceGzip,
-		sourceBytes: input.source.sourceBytes,
-		sourceDigest: input.source.sourceDigest,
-		ownership: input.ownership,
-		observedAt: input.source.observedAt,
-		discard: null,
-		novaRevision,
-		mediaFiles: { kind: "set", files: media.files },
-		firstPublish: {
-			kind: "set",
-			list: hqChangesFirstPublishList(
-				storedFirstPublish(deploymentId, stored.first_publish_changes),
-				input.firstPublish,
-			),
+	await writeAppBaseline(
+		tx,
+		deploymentId,
+		scope.actorUserId,
+		{
+			origin: "changes",
+			remoteAppId: input.remoteAppId,
+			sourceGzip: input.source.sourceGzip,
+			sourceBytes: input.source.sourceBytes,
+			sourceDigest: input.source.sourceDigest,
+			ownership: input.ownership,
+			observedAt: input.source.observedAt,
+			discard: null,
+			novaRevision,
+			mediaFiles: { kind: "set", files: media.files },
+			firstPublish: {
+				kind: "set",
+				list: hqChangesFirstPublishList(
+					storedFirstPublish(deploymentId, stored.first_publish_changes),
+					input.firstPublish,
+				),
+			},
 		},
-	});
+		{ reviewedVersion: input.reviewedVersion },
+	);
+	await markReviewedSave(
+		tx,
+		deploymentId,
+		input.remoteAppId,
+		input.reviewedVersion,
+	);
 
 	// 3. Where CommCare HQ keeps the app's menus, forms, keyed creates and files.
 	await writeTakenTargetIdentity(tx, deploymentId, input);
@@ -3760,6 +3858,8 @@ async function writeAppBaseline(
 	baseline: AppBaselineWrite,
 	options: {
 		readonly rebindFold?: boolean;
+		readonly reviewedVersion?: number;
+		readonly supersedesReviewedVersion?: number | null;
 		readonly readbackPushToken?: string | null;
 	} = {},
 ): Promise<boolean> {
@@ -3779,7 +3879,7 @@ async function writeAppBaseline(
 			deployment_id, remote_app_id, origin, source_gzip, source_bytes,
 			source_digest, ownership, observed_at, observed_by,
 			discarded_digest, discarded_by, discarded_at,
-			nova_revision, media_files, first_publish_changes, readback_push_token, readback_source_digest
+			nova_revision, media_files, first_publish_changes, readback_push_token, readback_source_digest, reviewed_remote_revision
 		) VALUES (
 			${deploymentId}, ${baseline.remoteAppId}, ${baseline.origin},
 			${baseline.sourceGzip}, ${baseline.sourceBytes},
@@ -3792,7 +3892,7 @@ async function writeAppBaseline(
 			${baseline.novaRevision}::bigint,
 			${mediaFiles}::jsonb,
 			${firstPublish}::jsonb, ${options.readbackPushToken ?? null}::uuid,
-			${options.readbackPushToken ? baseline.sourceDigest : null}
+			${options.readbackPushToken ? baseline.sourceDigest : null}, ${options.reviewedVersion ?? null}::bigint
 		)
 		ON CONFLICT (deployment_id) DO UPDATE SET
 			remote_app_id = EXCLUDED.remote_app_id,
@@ -3815,6 +3915,7 @@ async function writeAppBaseline(
 			nova_revision = EXCLUDED.nova_revision,
 			readback_push_token = EXCLUDED.readback_push_token,
 			readback_source_digest = EXCLUDED.readback_source_digest,
+			reviewed_remote_revision = EXCLUDED.reviewed_remote_revision,
 			reference_fold_seq = CASE WHEN ${options.rebindFold ?? false} THEN existing.reference_fold_seq END,
 			reference_source_digest = CASE WHEN ${options.rebindFold ?? false} THEN EXCLUDED.source_digest END,
 			media_files = CASE
@@ -3827,6 +3928,7 @@ async function writeAppBaseline(
 				ELSE EXCLUDED.first_publish_changes END
 		WHERE existing.remote_app_id <> EXCLUDED.remote_app_id
 			OR existing.observed_at <= EXCLUDED.observed_at
+			OR existing.reviewed_remote_revision = ${options.supersedesReviewedVersion ?? null}::bigint
 		RETURNING deployment_id
 	`.execute(tx);
 	return result.rows.length === 1;
@@ -4715,6 +4817,7 @@ async function writeResourceMapping(
 				.doUpdateSet({
 					remote_id: input.remoteId,
 					...conflictAttribution,
+					reviewed_remote_revision: null,
 					pushed_revision: input.pushedRevision,
 					pushed_at: input.pushedRevision === null ? null : now,
 					pushed_remote_revision: pushedRemoteRevision,
@@ -5223,6 +5326,8 @@ export async function beginDeploymentContentWrite(
 /**
  * Superseded completion proves the remote write order uncertain. Fail closed.
  *
+ * When every admission was already settled under an earlier generation, the
+ * current generation began after everything the publisher sent. Its evidence stands.
  * A deployment ended since the publish read it answers false and writes
  * nothing: the ending already cleared the manifest and rotated the
  * generation.
@@ -5249,6 +5354,24 @@ export async function finishDeploymentContentWrite(
 		async (tx, row) => {
 			if (row.endings !== fence.expectedEndings) return false;
 			if (row.content_generation !== generation) {
+				const ids = admitted?.writeIds ?? [];
+				const currentGeneration = row.content_generation;
+				if (currentGeneration && ids.length) {
+					// Admission ownership was checked by withRecordRow. Only a
+					// positive receipt for every write orders this whole attempt.
+					const unknown = await tx
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("id", "in", ids)
+						.where((eb) =>
+							eb.or([
+								eb("settled_generation", "is", null),
+								eb("settled_generation", "=", currentGeneration),
+							]),
+						)
+						.executeTakeFirst();
+					if (!unknown) return false;
+				}
 				await tx
 					.updateTable("app_deployments")
 					.set({

@@ -376,6 +376,7 @@ async function recordReadsTheSame(
 		comparedRevision: basis.baseline.novaRevision,
 		comparedFold: basis.baseline.foldBinding?.foldSeq,
 		comparedHead: basis.head.seq,
+		reviewedVersion: basis.remoteRevision,
 		read: await storedSource(basis),
 		/* A review that answered before the readings read nothing that moves
 		 * the list, which then stays. */
@@ -818,6 +819,7 @@ async function takenFor(
 			expectedEndings: basis.deployment.endings,
 			remoteAppId: basis.live.remoteId,
 			comparedPushToken: basis.live.pushToken,
+			reviewedVersion: basis.remoteRevision,
 			read: {
 				sourceDigest: basis.baseline.sourceDigest,
 				novaRevision: basis.baseline.novaRevision,

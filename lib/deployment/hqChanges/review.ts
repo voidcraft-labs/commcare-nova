@@ -180,6 +180,51 @@ import type {
 // Types
 // ---------------------------------------------------------------------------
 
+/** A normalized match can still move a real form id or the file at a
+ * published path. Both the live reader and the capture peer use this decision. */
+export function reviewMatchingSource(
+	basis: HqChangesBasis,
+): Extract<HqChangesReview, { kind: "nothing" }> | null {
+	const {
+		reference,
+		targetIdentity,
+		modules,
+		published,
+		baseline,
+		learned,
+		since,
+	} = basis;
+	if (!formIdsAgree(reference.doc, targetIdentity, modules)) return null;
+	const next = nextHqMediaRecord({
+		published,
+		previous: baseline.mediaFiles,
+		learned,
+		reported: NO_ENTRIES,
+		settled: published,
+	});
+	if (!hqMediaRecordMoves(baseline.mediaFiles, next)) return unchanged(since);
+	return {
+		kind: "nothing",
+		reason: "reads-the-same",
+		since,
+		hqChanges: [],
+		publishChanges: [],
+		readingId: basis.readingId,
+		reviewDigest: hqChangesReviewDigest({
+			identity: { read: targetIdentity, next: targetIdentity },
+			mappingToken: basis.live.pushToken,
+			baselineDigest: baseline.sourceDigest,
+			sourceDigest: basis.normalized.digest,
+			headSeq: basis.head.seq,
+			media: published,
+			recordedFiles: baseline.mediaFiles,
+			incomingPaths: [],
+			target: null,
+			tables: [],
+		}),
+	};
+}
+
 /** A stage or file line, as both requests stream them. */
 export type HqChangesProgress =
 	| { readonly type: "stage"; readonly stage: HqChangesStage }
@@ -231,6 +276,7 @@ export interface HqChangesBasis {
 	readonly targetIdentity: TargetIdentity;
 	/** Taken before CommCare HQ was asked. */
 	readonly observedAt: string;
+	readonly remoteRevision: number;
 	readonly source: HqAppSource;
 	readonly modules: readonly HqAlignedModule[];
 	readonly normalized: {
@@ -431,7 +477,9 @@ function unavailable(
 	return { kind: "unavailable", reason, since };
 }
 
-function unchanged(since: DriftReference): HqChangesReview {
+function unchanged(
+	since: DriftReference,
+): Extract<HqChangesReview, { kind: "nothing" }> {
 	return {
 		kind: "nothing",
 		reason: "unchanged",
@@ -1019,6 +1067,7 @@ async function computeWith(
 		reference,
 		targetIdentity,
 		observedAt,
+		remoteRevision: reading.version,
 		source,
 		modules,
 		normalized,
@@ -1026,49 +1075,9 @@ async function computeWith(
 		learned,
 		ownRows: await ownAssetRows(published, scope.projectId),
 	};
-	/* A save that moves nothing but a form's id normalizes to the same
-	 * source, so the application resource's ids are what tell it from no
-	 * save: such a save is read, and its review names the new id. */
-	if (
-		parts.length === 0 &&
-		formIdsAgree(reference.doc, targetIdentity, modules)
-	) {
-		const nextRecord = nextHqMediaRecord({
-			published,
-			previous: baseline.mediaFiles,
-			learned,
-			reported: NO_ENTRIES,
-			settled: published,
-		});
-		if (!hqMediaRecordMoves(baseline.mediaFiles, nextRecord))
-			return answer(unchanged(since));
-		/* The record moves, and nothing Nova publishes did: two documents of one
-		 * content at a path, whose id is recorded, or an id whose file CommCare
-		 * HQ no longer serves, which is forgotten, so Refresh counts neither
-		 * again. */
-		return answer(
-			{
-				kind: "nothing",
-				reason: "reads-the-same",
-				since,
-				hqChanges: [],
-				publishChanges: [],
-				readingId: options.readingId,
-				reviewDigest: hqChangesReviewDigest({
-					identity: { read: targetIdentity, next: targetIdentity },
-					mappingToken: basis.live.pushToken,
-					baselineDigest: baseline.sourceDigest,
-					sourceDigest: normalized.digest,
-					headSeq: head.seq,
-					media: published,
-					recordedFiles: baseline.mediaFiles,
-					incomingPaths: [],
-					target: null,
-					tables: [],
-				}),
-			},
-			basis,
-		);
+	if (parts.length === 0) {
+		const same = reviewMatchingSource(basis);
+		if (same) return answer(same, same.readingId === null ? null : basis);
 	}
 
 	/* 8. The flag a write saved only if changed needs, where either source holds one. */

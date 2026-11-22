@@ -1821,9 +1821,7 @@ export async function publishAppToHq(
 			});
 
 			entryPointManifest =
-				imported.obsoleteFold ||
-				imported.obsoleteClaim ||
-				imported.laterObservation?.compatible === false
+				imported.pushToken === null
 					? null
 					: {
 							generation: contentGeneration,
@@ -1870,6 +1868,10 @@ export async function publishAppToHq(
 			if (imported.laterObservation?.compatible === false) {
 				warnings.push(
 					"CommCare HQ changed after accepting the app. You can review what it holds before publishing again.",
+				);
+			} else if (imported.retainedTake) {
+				warnings.push(
+					"CommCare HQ accepted the upload. Nova kept the changes you reviewed there. You can check for further changes before publishing again.",
 				);
 			} else if (imported.obsoleteClaim) {
 				warnings.push(
@@ -1958,6 +1960,7 @@ export async function publishAppToHq(
 				},
 			);
 			if (
+				!imported.retainedTake &&
 				!imported.obsoleteFold &&
 				!imported.obsoleteClaim &&
 				imported.laterObservation?.compatible !== false &&

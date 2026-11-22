@@ -12,14 +12,22 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
 import { expandDoc } from "@/lib/commcare/expander";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { commitGuardedBatch } from "@/lib/db/apps";
+import { commitGuardedBatch, restoreApp, softDeleteApp } from "@/lib/db/apps";
+import {
+	appMappingToken,
+	birthAdoptedApp,
+} from "@/lib/deployment/__tests__/adoptedBirth";
 import { publishedEntryPoints } from "@/lib/deployment/entryPointManifest";
 import {
+	admitAppWrite,
 	beginDeploymentContentWrite,
 	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
+	readDeployment,
 	readEntryPointEvidence,
+	readTargetIdentity,
 	recordRemoteResource,
+	settleRemoteWrites,
 } from "@/lib/deployment/store";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
@@ -327,6 +335,119 @@ it("returns the working-app URL only after exact released resources match and th
 	});
 	expect(vi.mocked(decrypt).mock.calls).toEqual([["ciphertext"]]);
 });
+
+it("keeps the released link observed after a settled publisher's claim was retired", async () => {
+	const { suite } = await seed();
+	const fence = { expectedEndings: 0 };
+	const original = (await readEntryPointEvidence(SCOPE, TARGET)).manifest;
+	if (!original) throw new Error("Expected the published entry point.");
+	const publish = async (counter: number) => {
+		const generation = await beginDeploymentContentWrite(SCOPE, TARGET, fence);
+		const write = await admitAppWrite(SCOPE, TARGET, {
+			...fence,
+			remoteAppId: original.remoteAppId,
+			observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+			compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+			writeKind: "import",
+			compiledAtSeq: original.sourceSequence,
+		});
+		if (write.kind !== "admitted")
+			throw new Error("Expected the import to be admitted.");
+		const writeIds = [write.writeId];
+		const result = await recordRemoteResource(
+			SCOPE,
+			TARGET,
+			{
+				...fence,
+				kind: "app",
+				novaResourceId: APP,
+				remoteId: original.remoteAppId,
+				ownership: "nova-created",
+				pushedRevision: original.sourceSequence,
+				remoteRevision: counter,
+				uploadedAt: new Date().toISOString(),
+				baseline: {
+					origin: "unread",
+					remoteAppId: original.remoteAppId,
+					sourceGzip: null,
+					sourceBytes: null,
+					sourceDigest: null,
+					ownership: null,
+					observedAt: new Date().toISOString(),
+					discard: null,
+					novaRevision: null,
+					mediaFiles: { kind: "keep" },
+					firstPublish: { kind: "set", list: null },
+				},
+			},
+			{ writeIds, settle: [{ writeIds, how: { kind: "settled" } }] },
+		);
+		expect(result.pushToken).toEqual(expect.any(String));
+		return () =>
+			finishDeploymentContentWrite(
+				SCOPE,
+				TARGET,
+				generation,
+				{ ...original, generation },
+				fence,
+				{ writeIds, settle: [] },
+			);
+	};
+	const finishRetired = await publish(4);
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	await softDeleteApp(APP, ACTOR);
+	const taker = testUuid("temporary-claim");
+	await birthAdoptedApp(h, {
+		appId: taker,
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		target: TARGET,
+		remoteAppId: original.remoteAppId,
+	});
+	await softDeleteApp(taker, ACTOR);
+	await restoreApp(APP, ACTOR);
+	// A new claim is its own ordering domain, even on the same remote ID.
+	const finishCurrent = await publish(3);
+	expect(await finishCurrent()).toBe(true);
+	await withHttpPeer(async (peer) => {
+		released(peer, suite);
+		confirm(peer);
+		await asUser(async (client) => {
+			const link = JSON.parse(resultText(await call(client)));
+			expect(link.released_build_id).toBe("released-build");
+			const before = await readEntryPointEvidence(SCOPE, TARGET);
+			expect(before.observation?.remoteAppId).toBe(original.remoteAppId);
+			expect(await finishRetired()).toBe(false);
+			expect(await readEntryPointEvidence(SCOPE, TARGET)).toEqual(before);
+			released(peer, suite);
+			confirm(peer);
+			expect(JSON.parse(resultText(await call(client))).url).toBe(link.url);
+		});
+	});
+	// A real media job on the current claim remained open into the
+	// next generation. A settled response alone cannot order that job
+	// before the later publisher, so this completion invalidates the link.
+	const earlier = await beginDeploymentContentWrite(SCOPE, TARGET, fence);
+	const media = await admitAppWrite(SCOPE, TARGET, {
+		...fence,
+		observedPushToken: appMappingToken(await readDeployment(SCOPE, TARGET)),
+		remoteAppId: original.remoteAppId,
+		compiledIdentity: await readTargetIdentity(SCOPE, TARGET),
+		writeKind: "media",
+	});
+	if (media.kind !== "admitted")
+		throw new Error("Expected the media job to be admitted.");
+	const finishLater = await publish(6);
+	expect(await finishLater()).toBe(true);
+	await settleRemoteWrites([media.writeId], { kind: "settled" });
+	expect(
+		await finishDeploymentContentWrite(SCOPE, TARGET, earlier, null, fence, {
+			writeIds: [media.writeId],
+			settle: [],
+		}),
+	).toBe(false);
+	expect((await readEntryPointEvidence(SCOPE, TARGET)).manifest).toBeNull();
+}, 30_000);
 
 it.each([
 	{

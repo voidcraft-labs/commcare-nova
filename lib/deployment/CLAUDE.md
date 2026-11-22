@@ -1673,7 +1673,21 @@ when the same HQ app returns to the same Nova app. An expired process may
 record an acknowledgement only on its original uninterrupted claim. If HQ
 accepted it after the transfer, the publish reports what was sent and offers
 a new check, retaining the existing baseline and sending no more media.
-Other imports on the same claim still record in HQ save order.
+Other imports on the same claim still record in HQ save order. The changes
+reader brackets the source between the working app's application resource
+and `currentVersion`. A take keeps that save counter on the mapping and the
+baseline. An import whose counter is missing, equal or lower keeps the
+accepted take, as does an import with an unconfirmed read-back. The next
+preview, comparison, and publish retain the take's ownership and list.
+A confirmed higher counter supersedes the exact bracketed source even when
+the recorder transactions or clocks were ordered differently. A passive
+refresh retains the mapping counter and writes its source without a counter,
+so its newer observation is still compared before the publish records.
+Release and reclaim start a fresh counter order. HQ's `current_app_version`
+reports the working-app counter separately from both build counters.
+`app_import_api._handle_import_app` updates by app ID and returns that
+working app's `version`; `overwrite_app_from_source` saves its attachments
+through `ApplicationBase.save`, which advances the working app's counter.
 The admission also retains a digest of the target bindings used for
 compilation, including the file paths used at preflight. App and media
 admissions compare the complete record under the deployment lock. A take
@@ -2377,8 +2391,11 @@ that the move merely succeeded.
 its entry-point UUID, destination UUIDs, external ID, required selections and
 suite navigation signature. `content_generation` is invalidated before the
 first remote dependency/app write. Completion binds a manifest only to the
-same generation and active remote app; an obsolete completion invalidates
-newer evidence because remote write order is then uncertain. These remain
+same generation and active remote app. Each admission records the deployment's
+current generation when HQ first reports it finished. When all of an earlier
+attempt's writes settled before the current generation, a delayed completion
+leaves its released link and observation intact. An overlapping or unknown
+settlement invalidates the newer manifest because HQ's order is uncertain. These remain
 short transactions, without locks across HQ requests.
 
 `getEntryPointLink` is the shared Builder/MCP service. It authorizes a selected

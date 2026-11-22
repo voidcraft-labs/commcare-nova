@@ -101,6 +101,7 @@ function taken(
 		expectedEndings: 0,
 		remoteAppId: HQ_APP,
 		comparedPushToken: appMappingToken(birth.deployment),
+		reviewedVersion: 42,
 		read,
 		source: stored(source, observedAt),
 		ownership: OWNERSHIP,
