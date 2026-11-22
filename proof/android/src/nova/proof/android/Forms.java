@@ -490,8 +490,8 @@ final class Forms {
     private static final int UNANSWERED = 0;
     private static final int ANSWERED = 1;
     private static final int ADVANCED = 2;
-    /** A refused value typed into its box, which the worker's next step asks the form to take. */
-    private static final int TYPED = 3;
+    /** An edit in the live widget that the worker's own Next or Finish must save. */
+    private static final int EDITED_WIDGET = 3;
     /** Set by the reader where a request asks the walk to type a value the form refused (``typeRefused``). */
     static boolean typeRefused;
     /**
@@ -576,7 +576,7 @@ final class Forms {
 
     /** Selects a date through the calendar shown by the native widget. The
      * input contains the year, month and day printed by that calendar. */
-    private static boolean pickDay(QuestionWidget widget, FormEntryPrompt prompt,
+    private static void pickDay(QuestionWidget widget, FormEntryPrompt prompt,
                                    String visible, JSONObject entry) throws Exception {
         String[] date = visible.split("-");
         if (date.length != 3) throw new IllegalArgumentException("Expected calendar year-month-day: " + visible);
@@ -611,8 +611,8 @@ final class Forms {
         if (selected == null) throw new AssertionError("Calendar selection gave no answer on " + prompt.getIndex());
         entry.put("calendarSelection", visible);
         entry.put("given", selected.getDisplayText());
-        return FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), selected) ==
-                FormEntryController.ANSWER_OK;
+        // The worker leaves this live picker with Next or Finish. That action asks
+        // the widget for its answer and performs the native save and validation.
     }
 
     private static void selectNumber(QuestionWidget widget, int labelId, int previousId, int nextId,
@@ -636,7 +636,7 @@ final class Forms {
             return UNANSWERED;
         }
         boolean answered = false;
-        boolean typed = false;
+        boolean editedWidget = false;
         JSONArray given = new JSONArray();
         for (QuestionWidget widget : view.getWidgets()) {
             FormEntryPrompt prompt = widget.getPrompt();
@@ -715,14 +715,16 @@ final class Forms {
                 ShadowLooper.idleMainLooper();
                 if (widget.getAnswer() != null) throw new AssertionError("Clear retained a calendar answer");
                 entry.put("given", JSONObject.NULL);
-                answered |= FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), null) ==
-                        FormEntryController.ANSWER_OK;
+                // A newly rendered Gregorian picker with an empty answer shows today.
+                // Let Next save this live, cleared picker before any widget is rebuilt.
+                editedWidget = true;
                 continue;
             }
             if (!values.isEmpty() && values.get(0).startsWith("calendar:") &&
                     (widget instanceof org.commcare.views.widgets.DateWidget ||
                      widget instanceof org.commcare.views.widgets.AbstractUniversalDateWidget)) {
-                answered |= pickDay(widget, prompt, values.get(0).substring("calendar:".length()), entry);
+                pickDay(widget, prompt, values.get(0).substring("calendar:".length()), entry);
+                editedWidget = true;
                 continue;
             }
             for (String value : values) {
@@ -751,7 +753,7 @@ final class Forms {
                     // Android itself checks it and shows the form's message for it.
                     ((org.commcare.views.widgets.StringWidget)widget).setAnswer(values.get(0));
                     entry.put("typed", values.get(0));
-                    typed = true;
+                    editedWidget = true;
                 } else if (!typeRefused && !prompt.isRequired()) {
                     // The worker's Clear action, then the controller saving the widget's actual value. A refused
                     // attempt left the old value in the widget, including any value the form loaded from a case.
@@ -769,7 +771,7 @@ final class Forms {
             entry.put("given", taken);
         }
         screen.put("answered", given);
-        return typed ? TYPED : answered ? ANSWERED : UNANSWERED;
+        return editedWidget ? EDITED_WIDGET : answered ? ANSWERED : UNANSWERED;
     }
 
     private static String answerResult(int status) {
