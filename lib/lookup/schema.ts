@@ -149,10 +149,8 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 		)
 		.superRefine((value, ctx) => {
 			if (kind !== "tag") return;
-			// A tag is the fixture's instance id on the device, and the runtime
-			// registers instances into one map by that id and picks an instance's
-			// data by the words its reference contains — so a reserved tag would
-			// be read as CommCare's own data instead of the table.
+			// Core chooses storage from the fixture source, which contains the
+			// table's tag even when a form assigns the instance another name.
 			const cause = reservedInstanceTagCause(value);
 			if (cause === null) return;
 			ctx.addIssue({

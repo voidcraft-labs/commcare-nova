@@ -28,6 +28,7 @@ import {
 } from "@/lib/commcare/__tests__/caseOperationFixture";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import type { Expression, SlotContextRef } from "@/lib/domain/expression/types";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { simpleSearchInputDef } from "@/lib/domain/modules";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { expressionSlotKey } from "@/lib/domain/referenceSlots";
@@ -285,6 +286,80 @@ describe("a form slot's text read through the reading hook", () => {
 		// reading of it, the text is not held.
 		const unmapped = readExpression(doc, pending, readEnv());
 		expect(unmapped.kind === "bound" && unmapped.equal).toBe(false);
+	});
+
+	it("binds each table to its declared source in the form and to its suite id outside the form", () => {
+		const doc = visitDoc();
+		const form = onlyForm(doc);
+		const locations = {
+			id: lookupTableIdSchema.parse("11111111-1111-7111-8111-111111111111"),
+			tag: "locations",
+			name: "Location codes",
+			columns: [],
+		};
+		const results = {
+			id: lookupTableIdSchema.parse("22222222-2222-7222-8222-222222222222"),
+			tag: "results",
+			name: "Result codes",
+			columns: [],
+		};
+		const env = readEnv({
+			lookup: new Map([
+				[locations.id, locations],
+				[results.id, results],
+			]),
+			instanceSources: new Map([
+				[
+					form,
+					new Map([
+						["item-list:results", "jr://fixture/item-list:locations"],
+						["results-1", "jr://fixture/item-list:results"],
+						["locations", "jr://fixture/locations"],
+					]),
+				],
+			]),
+		});
+		const field = {
+			entity: "field",
+			uuid: fieldNamed(doc, "q1"),
+			slot: "relevant",
+		} as const;
+		const tree = held(
+			readExpression(
+				doc,
+				registration(
+					doc,
+					field,
+					"count(instance('item-list:results')/locations_list/locations) > count(instance('results-1')/results_list/results)",
+				),
+				env,
+			),
+		);
+		expect(tree).toMatchObject({
+			kind: "gt",
+			left: {
+				kind: "count",
+				via: { kind: "table-rows", tableId: locations.id },
+			},
+			right: {
+				kind: "count",
+				via: { kind: "table-rows", tableId: results.id },
+			},
+		});
+		const list = held(
+			readExpression(
+				doc,
+				registration(
+					doc,
+					{ entity: "form", uuid: form, slot: "form_display_condition" },
+					"count(instance('item-list:results')/results_list/results) > 0",
+				),
+				env,
+			),
+		);
+		expect(list).toMatchObject({
+			left: { via: { kind: "table-rows", tableId: results.id } },
+		});
 	});
 
 	it("reads an instance declared from jr://fixture/user-groups as the groups read Nova holds later", () => {

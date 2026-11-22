@@ -59,7 +59,12 @@ import {
 	type HqXPath,
 	hqXPathText,
 } from "../../hqJson/xpath";
-import { type LookupWireNaming, lookupWireNaming } from "../../lookup/naming";
+import {
+	LOOKUP_FIXTURE_ID_PREFIX,
+	type LookupWireNaming,
+	lookupWireNaming,
+	lookupXformInstanceId,
+} from "../../lookup/naming";
 import { lookupOptionsNodeset } from "../../lookupOptions";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../../suite/case-list/nodesetFilter";
 import { hqExpressionField } from "../../suite/case-list/orderPlanOptions";
@@ -364,6 +369,18 @@ interface FoldSites {
 	listedCaseInQuery?: true;
 }
 
+/** Only an expression evaluated inside the XForm shares its local declarations.
+ * A form's menu condition and return links run under the suite entry. */
+export function instanceSourcesOf(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+): ReadonlyMap<string, string> | undefined {
+	if (pending.mode.target !== "xform") return undefined;
+	const form = slotForm(doc, pending.ref);
+	return form === undefined ? undefined : env.instanceSources.get(form);
+}
+
 /** The scope a registration's text binds in: the slot of the real
  *  document, the lookup catalog, the source's own names and the reading
  *  hook. `withdrawn` holds the fold sites withdrawn so far in this slot,
@@ -392,8 +409,7 @@ function scopeWith(
 	const form = slotForm(doc, pending.ref);
 	const names = form === undefined ? undefined : env.sourceNames.get(form);
 	const itextUnits = form === undefined ? undefined : env.itextUnits.get(form);
-	const instanceSources =
-		form === undefined ? undefined : env.instanceSources.get(form);
+	const instanceSources = instanceSourcesOf(doc, pending, env);
 	const generated =
 		form === undefined ? undefined : env.generatedValues.get(form);
 	const operationIdPaths =
@@ -1468,7 +1484,7 @@ export function compareOptionsFor(
 	const form = slotForm(doc, pending.ref);
 	const xform = slotReadMode(doc, pending.ref).target === "xform";
 	if (form === undefined || !xform) return { ruleSet };
-	const sources = env.instanceSources.get(form);
+	const sources = instanceSourcesOf(doc, pending, env);
 	const units = env.itextUnits.get(form);
 	const structure = formStructure(doc, form);
 	return {
@@ -1478,8 +1494,10 @@ export function compareOptionsFor(
 			if (source === undefined) return id;
 			const canonical = canonicalInstanceId(source);
 			if (canonical === undefined) return id;
-			return canonical.startsWith("item-list:")
-				? canonical.slice("item-list:".length)
+			return canonical.startsWith(LOOKUP_FIXTURE_ID_PREFIX)
+				? lookupXformInstanceId(
+						canonical.slice(LOOKUP_FIXTURE_ID_PREFIX.length),
+					)
 				: canonical;
 		},
 		itextId: (id) => {

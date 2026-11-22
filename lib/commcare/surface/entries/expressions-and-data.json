@@ -4928,10 +4928,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "reserved-instance-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table whose instance id in a form differs from its tag, as the form builder makes it (`form.js::addInstanceIfNotExists`)",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4943,7 +4942,7 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook, the fixture and every read",
+			"cell": "the table tag in the workbook and fixture source, the allocated id at each form read",
 			"markers": []
 		},
 		"gates": []

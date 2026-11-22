@@ -111,6 +111,7 @@ import { levelControl, type PrintLevel } from "./printLevel";
 import {
 	type BoundSlot,
 	bindSlot,
+	instanceSourcesOf,
 	judgeSlot,
 	lookupTypes,
 	printSlot,
@@ -560,14 +561,12 @@ function slotDefault(
 /** What the slot's form declares beside its expressions. */
 function declarationsOf(
 	doc: BlueprintDoc,
-	ref: SlotContextRef,
+	pending: PendingExpression,
 	env: ExpressionReadEnv,
 ): FormDeclarations {
-	const form = slotForm(doc, ref);
+	const form = slotForm(doc, pending.ref);
 	return {
-		instanceSources:
-			(form === undefined ? undefined : env.instanceSources.get(form)) ??
-			new Map(),
+		instanceSources: instanceSourcesOf(doc, pending, env) ?? new Map(),
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),
@@ -601,7 +600,7 @@ function refusalOf(
 						to: pending.text.length,
 						message: "",
 					};
-	const declarations = declarationsOf(doc, pending.ref, env);
+	const declarations = declarationsOf(doc, pending, env);
 	// A read of a table the catalog lacks is project data's to judge: the
 	// table is one finding however many slots read it.
 	const table =
@@ -1971,9 +1970,7 @@ function surfaceUseFactsOf(
 				: form !== undefined && childOfInlineSearchMenu(doc, form)
 					? "child-of-inline"
 					: "other",
-		instanceSources:
-			(form === undefined ? undefined : env.instanceSources.get(form)) ??
-			new Map(),
+		instanceSources: instanceSourcesOf(doc, registration, env) ?? new Map(),
 		shorthand:
 			registration.mode.target === "hq-json" &&
 			registration.mode.interpolation !== "none" &&
@@ -1996,7 +1993,7 @@ function declarationClaims(
 	 * form rather than found again per form. */
 	const readByForm = new Map<string, Set<string>>();
 	pending.forEach((registration, index) => {
-		if (!held.has(index)) return;
+		if (!held.has(index) || registration.mode.target !== "xform") return;
 		const form = slotForm(doc, registration.ref);
 		if (form === undefined) return;
 		const read = readByForm.get(form) ?? new Set<string>();

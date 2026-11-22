@@ -34,6 +34,7 @@ import {
 	publishedCaseBlocks,
 	sourceHoldsEditMode,
 } from "@/lib/commcare/hq/publishedCaseBlocks";
+import { lookupXformInstanceId } from "@/lib/commcare/lookup/naming";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	type ReadDraft,
@@ -819,6 +820,8 @@ const SETTLED = {
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 	/** A table's tag in Nova's grammar, for each table the document reads. */
 	tableTag: "expressions-and-data/table-tag-in-nova-s-grammar",
+	aliasedTableTag:
+		"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
 	/** CommCare HQ's ids of a table and its rows, for each table the document reads. */
 	tableIds:
 		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
@@ -956,7 +959,13 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 			continue;
 		const at = `/${pointerToken(tag)}`;
 		records.push(
-			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/tag`, SETTLED.tableTag),
+			settledRecord(
+				LOOKUP_TABLES_ARTIFACT,
+				`${at}/tag`,
+				lookupXformInstanceId(tag) === tag
+					? SETTLED.tableTag
+					: SETTLED.aliasedTableTag,
+			),
 			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/id`, SETTLED.tableIds),
 		);
 	}

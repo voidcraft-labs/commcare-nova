@@ -476,6 +476,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 	const heldByForm = new Map<string, number[]>();
 	const refusedByForm = new Map<string, number[]>();
 	pending.forEach((registration, at) => {
+		if (registration.mode.target !== "xform") return;
 		const owner = slotForm(reading.doc, registration.ref);
 		if (owner === undefined) return;
 		const byForm = reading.bound[at] === undefined ? refusedByForm : heldByForm;

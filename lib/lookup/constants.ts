@@ -46,48 +46,6 @@ export const LOOKUP_WIRE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 export const LOOKUP_XML_PREFIX_PATTERN = /^xml/;
 
 /**
- * Instance ids the CommCare runtime owns, which a table tag may therefore never
- * take.
- *
- * A form's fixture is registered under the table's bare tag, and
- * `FormDef::addNonMainInstance` is an unconditional map put — so a table tagged
- * `casedb` REPLACES the case database for every form that uses it. The failure
- * is silent and total: case preloads, case-block `relevant` expressions, and the
- * `case_id` calculation all resolve against the fixture, evaluate to an empty
- * node-set, and the worker completes a form that writes nothing at all. That is
- * data loss with no signal, so the collision has to be unconstructible rather
- * than caught downstream.
- *
- * Verified in the runtime source rather than recalled:
- *   `casedb`   — commcare-core `CaseInstanceTreeElement::MODEL_NAME`
- *   `ledgerdb` — commcare-core `LedgerInstanceTreeElement::MODEL_NAME`
- *   `results`  — commcare-core `VirtualInstances::SELCTED_CASES_INSTANCE_ROOT_NAME`
- *   `input`    — commcare-core `VirtualInstances::SEARCH_INSTANCE_ROOT_NAME`
- *   `commcaresession`, `locations`
- *              — formplayer `InstanceAutocompletableItem` (`SESSION_INSTANCE`,
- *                `LOCATION_INSTANCE`)
- *
- * Nova also emits selected-case virtual instances: selected_cases, optionally
- * followed by a case type and prefixed by parent_ for each ancestor, plus
- * search_selected_cases. Table tags share their instance namespace.
- *
- * `CaseInstanceTreeElement` compares its own name case-insensitively, so the
- * whole-name check below is case-insensitive too. The reserved-instance corpus
- * covers fixed names and the dynamic selected-case family. Native Core proof
- * shows that a colliding lookup instance is silently replaced during form
- * setup; shared reference validation refuses historical collisions before
- * emission.
- */
-export const RESERVED_INSTANCE_TAGS = [
-	"casedb",
-	"commcaresession",
-	"ledgerdb",
-	"locations",
-	"results",
-	"input",
-] as const;
-
-/**
  * The two words a tag may not contain anywhere, in the order the runtime
  * tests them.
  *
@@ -116,13 +74,7 @@ export type ReservedInstanceTagCause =
 export function reservedInstanceTagCause(
 	tag: string,
 ): ReservedInstanceTagCause | null {
-	const lowered = tag.toLowerCase();
-	if (
-		RESERVED_INSTANCE_TAGS.some((reserved) => reserved === lowered) ||
-		lowered === "search_selected_cases" ||
-		/^(?:parent_)*selected_cases(?:_[a-z0-9_-]+)?$/.test(lowered)
-	)
-		return { kind: "name" };
+	if (tag === "casedb" || tag === "ledgerdb") return { kind: "name" };
 	const word = RESERVED_INSTANCE_TAG_WORDS.find((reserved) =>
 		tag.includes(reserved),
 	);

@@ -34,13 +34,13 @@ import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import {
+	isReservedInstanceTag,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TAG_LENGTH,
 	LOOKUP_MAX_WIRE_NAME_LENGTH,
 	LOOKUP_WIRE_IDENTIFIER_PATTERN,
 	LOOKUP_XML_PREFIX_PATTERN,
-	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes } from "@/lib/lookup/format";
 import {
@@ -224,9 +224,6 @@ const NON_ASCII_NAME_ENTRY =
 	"expressions-and-data/tag-or-field-name-with-non-ascii-letters";
 const PERIOD_NAME_ENTRY =
 	"expressions-and-data/tag-or-field-name-holding-a-period";
-const INSTANCE_NAME_ENTRY =
-	"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns";
-
 const NON_ASCII_LETTER = /\p{L}/gu;
 
 /** Whether `name` is in Nova's name grammar, reserved instance names aside. */
@@ -239,23 +236,12 @@ function inNameGrammar(name: string, maxLength: number): boolean {
 	);
 }
 
-/** Whether a reserved tag is the one the REFUSED `casedb` entry covers: one
- *  holding `casedb` or `ledgerdb`, or either name in any case. */
-function reservedWordTag(tag: string): boolean {
-	const cause = reservedInstanceTagCause(tag);
-	if (cause === null) return false;
-	if (cause.kind === "contains") return true;
-	const lowered = tag.toLowerCase();
-	return lowered === "casedb" || lowered === "ledgerdb";
-}
-
 /**
  * The finding for a tag or a field name Nova's grammar refuses, or null where
  * it takes it (or where the refusal is the `casedb` row's, raised beside it).
  * A name that is in the grammar once its non-ASCII letters are read as
  * letters is the HELD-NEW non-ASCII entry; one that is in it once each period
- * is read as an underscore is the period entry; a tag in it that equals an
- * instance name CommCare owns is that entry; anything else is `unrecognized`.
+ * is read as an underscore is the period entry; anything else is `unrecognized`.
  */
 function nameFinding(
 	kind: "tag" | "field",
@@ -266,13 +252,12 @@ function nameFinding(
 	if (schema.safeParse(name).success) return null;
 	const maxLength =
 		kind === "tag" ? LOOKUP_MAX_TAG_LENGTH : LOOKUP_MAX_WIRE_NAME_LENGTH;
-	if (inNameGrammar(name, maxLength)) {
-		// In the grammar, so a tag's reserved instance name is the refusal.
-		if (kind === "tag" && !reservedWordTag(name)) {
-			return manifestFinding(INSTANCE_NAME_ENTRY, place, name);
-		}
+	if (
+		kind === "tag" &&
+		inNameGrammar(name, maxLength) &&
+		isReservedInstanceTag(name)
+	)
 		return null;
-	}
 	const hasNonAscii = [...name.matchAll(NON_ASCII_LETTER)].some(
 		([letter]) => (letter.codePointAt(0) ?? 0) > 0x7f,
 	);
@@ -376,7 +361,7 @@ export function lookupTableFindings(
 	if (tag.toLowerCase() === TYPES_SHEET) {
 		findings.push(manifestFinding(TAG_TYPES_ENTRY, place, TYPES_SHEET));
 	}
-	if (reservedWordTag(tag)) {
+	if (isReservedInstanceTag(tag)) {
 		findings.push(manifestFinding(RESERVED_WORD_ENTRY, place, tag));
 	}
 	const tagFinding = nameFinding("tag", tag, place);

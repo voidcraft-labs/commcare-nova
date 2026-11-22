@@ -127,10 +127,6 @@
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},
-	"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
 	"expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any": {
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."

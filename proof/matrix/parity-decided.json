@@ -159,6 +159,7 @@
 		"hq-kept-settings/translation-key-with-a-leading-space"
 	],
 	"hq-languages": [],
+	"hq-lookup-aliases": [],
 	"hq-lookups": ["hq-lookups/itemset-copy"],
 	"hq-media": [
 		"hq-media/form-media-for-every-language",

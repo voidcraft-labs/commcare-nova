@@ -57,7 +57,7 @@ import functools
 import json
 from dataclasses import dataclass
 
-from proof.checks import changes, manifest_usage, observations, proof6, readerbundle
+from proof.checks import changes, lookup_parity, manifest_usage, observations, proof6, readerbundle
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "parity"
@@ -401,8 +401,7 @@ def claim_places_of(document, records) -> changes.ClaimPlaces:
     )
 
 
-def _lane_uses(document, records, name, readings):
-    reads = _authored_reads(document, records, name)
+def _lane_uses(document, records, name, readings, reads):
     if reads is None:
         return None
     source = observations.answer_json(reads["source"])
@@ -424,12 +423,14 @@ def differences(document, records, *, claims=None) -> list[Difference]:
     readings = _readings(document, records)
     found = []
     for name in sorted(claims):
-        uses = _lane_uses(document, records, name, readings)
+        reads = _authored_reads(document, records, name)
+        uses = _lane_uses(document, records, name, readings, reads)
         if uses is None:
             continue
         decided, _ = decided_uses(uses)
         found += join(decided, claims[name], document=document.id)
         found += unseen(uses.uses, claims[name], document=document.id)
+        found += lookup_parity.differences(document.id, manifest(), uses.lookup_tags, reads, records_of(claims[name]))
     return found
 
 
@@ -438,7 +439,8 @@ def undecided(document, records) -> dict[str, int]:
     readings = _readings(document, records)
     counts = {}
     for name in sorted(document.exports):
-        uses = _lane_uses(document, records, name, readings)
+        reads = _authored_reads(document, records, name)
+        uses = _lane_uses(document, records, name, readings, reads)
         if uses is None:
             continue
         _, unjudged = decided_uses(uses)

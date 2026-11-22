@@ -31,7 +31,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from proof.checks import manifest_usage, parity
+from proof.checks import lookup_parity, manifest_usage, parity
 from proof.checks.manifest_usage import HELD, REFUSED, Entry, Manifest, Use
 
 KEY = "schema:Module.case_type"
@@ -56,6 +56,43 @@ MANIFEST = Manifest(
     readers={},
 )
 WHERE = "/modules/0/case_type"
+
+
+def test_lookup_resource_claims_compare_referenced_sources_to_hq_definitions():
+    manifest = parity.manifest()
+    reads = {
+        "projectData": {
+            "lookupTables": {
+                "status": 200,
+                "body": json.dumps(
+                    {
+                        "objects": [
+                            {"tag": "locations", "fields": []},
+                            {"tag": "search_selected_cases", "fields": []},
+                            {"tag": "regions", "fields": []},
+                        ]
+                    }
+                ),
+            }
+        }
+    }
+    asked = {"locations", "regions"}
+    claim = parity.Record(
+        "lookup-tables", "/locations/tag", None, lookup_parity.ALIAS_ENTRY, "held"
+    )
+    unread = parity.Record(
+        "lookup-tables",
+        "/search_selected_cases/tag",
+        None,
+        lookup_parity.ALIAS_ENTRY,
+        "held",
+    )
+    assert lookup_parity.differences("sample", manifest, asked, reads, [claim]) == []
+    drift = lookup_parity.differences("sample", manifest, asked, reads, [unread])
+    assert [one.at for one in drift] == [
+        "/lookup-model:LookupTable.tag/unclaimed@lookup-tables/locations/tag",
+        "/lookup-model:LookupTable.tag/unseen@lookup-tables/search_selected_cases/tag",
+    ]
 
 
 def _use(standing=HELD, entries=()):

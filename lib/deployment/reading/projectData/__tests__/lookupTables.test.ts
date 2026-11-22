@@ -525,13 +525,12 @@ describe("lookupTableFindings", () => {
 		expect(tagged("my_casedb")).toEqual([
 			["expressions-and-data/tag-containing-casedb-or-ledgerdb", "my_casedb"],
 		]);
-		expect(tagged("LedgerDB")).toEqual([
-			["expressions-and-data/tag-containing-casedb-or-ledgerdb", "LedgerDB"],
-		]);
-		expect(tagged("locations")).toEqual([
+		expect(tagged("LedgerDB")).toEqual([]);
+		expect(tagged("locations")).toEqual([]);
+		expect(tagged("locations_ledgerdb")).toEqual([
 			[
-				"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
-				"locations",
+				"expressions-and-data/tag-containing-casedb-or-ledgerdb",
+				"locations_ledgerdb",
 			],
 		]);
 		expect(tagged("clínicas")).toEqual([
