@@ -3,7 +3,13 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { type BlueprintDoc, plainColumn } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Column,
+	idMappingColumn,
+	plainColumn,
+} from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -28,7 +34,77 @@ function fixtureWithColumn(): BlueprintDoc {
 	};
 }
 
+const ROW = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
+/** A label table with one row that has an identity and one saved before rows
+ *  carried identities. */
+function fixtureWithMapping(): BlueprintDoc {
+	const doc = fixtureWithColumn();
+	const config = doc.modules[MOD_A]?.caseListConfig;
+	if (config === undefined) throw new Error("The fixture has a list.");
+	const mapping = idMappingColumn(SIBLING_UUID, "phone", "Phone", [
+		{ uuid: ROW, value: "home", label: "Home" },
+		{ value: "work", label: "Work" },
+	]);
+	return {
+		...doc,
+		modules: {
+			[MOD_A]: {
+				...doc.modules[MOD_A],
+				caseListConfig: {
+					...config,
+					columns: config.columns.map((column) =>
+						column.uuid === SIBLING_UUID ? mapping : column,
+					),
+				},
+			},
+		},
+	};
+}
+
+function mappingOf(doc: BlueprintDoc): Extract<Column, { kind: "id-mapping" }> {
+	const column = doc.modules[MOD_A]?.caseListConfig?.columns.find(
+		(one) => one.uuid === SIBLING_UUID,
+	);
+	if (column?.kind !== "id-mapping") throw new Error("Expected a mapping.");
+	return column;
+}
+
 describe("updateCaseListColumn", () => {
+	it("keeps each mapping row's identity, and so its translations, when the update omits it", async () => {
+		const before = fixtureWithMapping();
+		const units = mappingOf(before).mapping.map((row) =>
+			caseMappingTextUnit(SIBLING_UUID, row, "mapping"),
+		);
+		const h = makeCaseListFixture(before);
+		const result = await h.runTool(updateCaseListColumnTool, {
+			moduleUuid: MOD_A,
+			columnUuid: SIBLING_UUID,
+			column: {
+				kind: "id-mapping",
+				field: "phone",
+				header: "Phone",
+				mapping: [
+					{ value: "home", label: "Home" },
+					{ value: "work", label: "Work" },
+					{ value: "cell", label: "Cell" },
+				],
+			},
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		const rows = mappingOf(h.currentDoc()).mapping;
+		expect(rows[0]?.uuid).toBe(ROW);
+		expect(rows[1]?.uuid).toBeUndefined();
+		expect(
+			rows
+				.slice(0, 2)
+				.map((row) => caseMappingTextUnit(SIBLING_UUID, row, "mapping")),
+		).toEqual(units);
+		// A row with a new comparison is a new row with its own identity.
+		expect(rows[2]?.uuid).toBeDefined();
+		expect(rows[2]?.uuid).not.toBe(ROW);
+	});
+
 	it("replaces the column body in place and preserves the existing uuid", async () => {
 		const h = makeCaseListFixture(fixtureWithColumn());
 
