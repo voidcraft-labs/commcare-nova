@@ -593,12 +593,11 @@ Workers use question IDs when they submit the form. `case` belongs to case chang
 
 **Lock this question in CommCare HQ**, under **Field ID**, limits who can change that question in the HQ form designer. Your Nova Project’s editors can still change the question or remove its lock. The destination project space needs the Locked Admin Questions feature.
 
-A hidden value has one expression and a choice of when it runs, or no
-expression at all. **Keep in
-step** recalculates whenever a value it uses changes, and every time the form
-opens, including when a worker resumes a saved form. **Set once** runs when the
-form first opens and never again, which suits a timestamp or a fixed value.
-Switching between them keeps your expression. A hidden value that saves to the
+A hidden value's two settings run at different times, and a change to one
+leaves the other as it was. Its **Starting value** runs once, when the form
+opens or its repeat row is added, which suits a timestamp or a fixed value. Its
+**Calculation** works itself out again whenever a value it uses changes, and
+when a worker resumes a saved form. A hidden value that saves to the
 case the form opened is set by its calculation, so the case's stored value
 never overrides it. When a hidden calculation saves to a date-and-time property,
 Nova preserves its clock time in Preview and export. Choose a date property when
