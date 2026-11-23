@@ -49,9 +49,17 @@ import {
 	type ProseSlotRef,
 	type SlotContextRef,
 } from "./expression/types";
+import type { Field } from "./fields";
 import { captureFieldKinds, type FieldKind, type RepeatMode } from "./fields";
 import { FORM_TYPES, type FormType } from "./forms";
+import {
+	makeTranslationUnitId,
+	type TranslationEntry,
+	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
+} from "./localization";
 import type { ColumnKind, SearchInputDef } from "./modules";
+import type { ProseTemplate } from "./prose";
 import { ownRecordValue } from "./records";
 import { isDeeplySettled } from "./settled";
 import type { Uuid } from "./uuid";
@@ -861,7 +869,7 @@ export function fieldReferenceSlotsFor(
 /** The stored entities needed to resolve an expression address. */
 export type ExpressionReadableDoc = Pick<
 	BlueprintDoc,
-	"fields" | "forms" | "modules"
+	"fields" | "forms" | "modules" | "localization"
 >;
 
 export interface ExpressionCarrierRef {
@@ -1232,9 +1240,137 @@ function concreteSlotPath(
 	return path;
 }
 
+interface TranslatedFieldProse {
+	ref: ProseSlotRef;
+	template: ProseTemplate;
+	language: string;
+	unitId: string;
+	indices: number[];
+}
+
+type Translations = NonNullable<BlueprintDoc["localization"]>["translations"];
+type IndependentEntries = Map<
+	string,
+	{ language: string; entry: TranslationEntry }[]
+>;
+const independentByOverlay = new WeakMap<Translations, IndependentEntries>();
+
+function independentEntries(translations: Translations): IndependentEntries {
+	const cached = independentByOverlay.get(translations);
+	if (cached !== undefined) return cached;
+	const byUnit: IndependentEntries = new Map();
+	for (const [language, entries] of Object.entries(translations)) {
+		for (const [unitId, entry] of Object.entries(entries)) {
+			if (entry.valueMode !== "independent-values") continue;
+			const held = byUnit.get(unitId);
+			if (held === undefined) byUnit.set(unitId, [{ language, entry }]);
+			else held.push({ language, entry });
+		}
+	}
+	if (isDeeplySettled(translations))
+		independentByOverlay.set(translations, byUnit);
+	return byUnit;
+}
+
+/** Translations with their own live references. The field supplies the
+ * expression site even though the target text lives in the app overlay. */
+export function translatedFieldProse(
+	localization: BlueprintDoc["localization"],
+	field: Field,
+): TranslatedFieldProse[] {
+	const result: TranslatedFieldProse[] = [];
+	if (localization === undefined) return result;
+	const byUnit = independentEntries(localization.translations);
+	if (!byUnit.size) return result;
+	for (const entry of FIELD_REFERENCE_SLOTS) {
+		if (entry.kind !== "prose") continue;
+		if (
+			!fieldSlotApplies(
+				entry,
+				field.kind,
+				field.kind === "repeat" ? field.repeat_mode : undefined,
+			)
+		)
+			continue;
+		for (const { value: source, indices } of readSlotValues(
+			field,
+			entry.path,
+		)) {
+			const ref = proseRefForEntry(field, field.uuid, entry.slot, indices);
+			if (source === undefined || ref === undefined) continue;
+			const unitId =
+				ref.slot === "option_label"
+					? makeTranslationUnitId(
+							"field",
+							field.uuid,
+							"option",
+							ref.member.optionUuid,
+						)
+					: makeTranslationUnitId("field", field.uuid, ref.slot);
+			const targets = byUnit.get(unitId);
+			if (targets === undefined) continue;
+			const fingerprint = translationSourceFingerprint(
+				"prose",
+				source as ProseTemplate,
+			);
+			for (const { language, entry: translated } of targets) {
+				if (typeof translated.value === "string") continue;
+				if (
+					translationSourceFingerprintsEqual(
+						fingerprint,
+						translated.sourceFingerprint,
+					)
+				)
+					result.push({
+						ref,
+						template: translated.value,
+						language,
+						unitId,
+						indices: [...indices],
+					});
+			}
+		}
+	}
+	return result;
+}
+
 /** Present expressions on one owner, in registry and collection order, then a
  *  field's calculated values in prose under their prose slots. */
 export function expressionSlotValues(
+	doc: ExpressionReadableDoc,
+	owner: ExpressionCarrierRef,
+): readonly ExpressionSlotValue[] {
+	const source = ownerExpressionSlotValues(doc, owner);
+	if (owner.entity !== "field" || doc.localization === undefined) return source;
+	const field = ownRecordValue(doc.fields, owner.uuid);
+	if (field === undefined) return source;
+	const additional: ExpressionSlotValue[] = [];
+	for (const { ref, template, language, unitId } of translatedFieldProse(
+		doc.localization,
+		field,
+	)) {
+		template.parts.forEach((part, index) => {
+			if (part.kind === "value")
+				additional.push({
+					ref,
+					expression: part.expression,
+					path: [
+						"localization",
+						"translations",
+						language,
+						unitId,
+						"value",
+						"parts",
+						index,
+						"expression",
+					],
+				});
+		});
+	}
+	return additional.length === 0 ? source : [...source, ...additional];
+}
+
+function ownerExpressionSlotValues(
 	doc: ExpressionReadableDoc,
 	owner: ExpressionCarrierRef,
 ): readonly ExpressionSlotValue[] {

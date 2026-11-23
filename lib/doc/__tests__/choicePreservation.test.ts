@@ -234,6 +234,72 @@ function expectTextChoicesKept(doc: BlueprintDoc, unitId: TranslationUnitId) {
 }
 
 describe("choice preservation during field edits", () => {
+	it("admits a target-only choice read at its own field, protects the option, and refuses a different form's answer", () => {
+		const doc = produce(fixture(), (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+			]);
+		});
+		const unit = collectTranslationUnits(doc).find(
+			(unit) =>
+				unit.owner.kind === "field" &&
+				unit.owner.fieldUuid === READER &&
+				unit.role === "field-label",
+		);
+		if (!unit) throw new Error("Missing reader label");
+		const target = (value: ProseTemplate): Mutation => ({
+			kind: "setTranslation",
+			language: "spa",
+			unitId: unit.id,
+			entry: {
+				value,
+				valueMode: "independent-values",
+				translatedFrom: "eng",
+				review: "reviewed",
+				origin: "human",
+				sourceFingerprint: unit.sourceFingerprint,
+			},
+		});
+		const remove: Mutation = {
+			kind: "removeOption",
+			fieldUuid: SELECT,
+			uuid: NO,
+		};
+		expect(
+			mutationCommitVerdict(doc, [remove], LOOKUP_CONTEXT_UNAVAILABLE).ok,
+		).toBe(true);
+		const value: ProseTemplate = {
+			parts: [
+				{
+					kind: "value",
+					expression: term({ kind: "choice", field: SELECT, options: [NO] }),
+				},
+			],
+		};
+		const admitted = mutationCommitVerdict(
+			doc,
+			[target(value)],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(admitted.ok ? [] : admitted.findings).toEqual([]);
+		const protectedOption = mutationCommitVerdict(
+			admitted.nextDoc,
+			[remove],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(protectedOption.ok).toBe(false);
+		const details = Object.values(doc.fields).find(
+			(field) => field.id === "details",
+		);
+		if (!details) throw new Error("Missing other form question");
+		const invalid = mutationCommitVerdict(
+			doc,
+			[target({ parts: [{ kind: "field-ref", uuid: details.uuid }] })],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(invalid.ok).toBe(false);
+	});
+
 	it("keeps surviving values when an inline select becomes text, through the real commit gate", () => {
 		const doc = fixture();
 		assertAdmittedDoc(doc);

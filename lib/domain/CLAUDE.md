@@ -88,8 +88,7 @@ prose order remain significant. This leaves stored translations and review state
 intact without relaxing request, revision or receipt digests.
 Missing and out-of-date entries fall back to the canonical source; an out-of-date explicit
 value remains stored for review but is never emitted as current. Prose
-translations may reorder literal text and reference parts, but must preserve the
-exact multiset and identity of every protected reference part. A source edit
+translations preserve reference identity and multiplicity by default. A question or choice translation can deliberately change its referenced values with `valueMode: "independent-values"`. The target expressions resolve at the original field or option. A source edit
 therefore makes overlays stale rather than rewriting them, while removal of the
 owning slot prunes its now-orphaned entries.
 

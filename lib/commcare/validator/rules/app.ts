@@ -38,6 +38,7 @@ import {
 	SELECT_OPTION_VALUE_BOTH_QUOTES,
 	selectOptionValueProblem,
 	type TranslationUnitRole,
+	translationEntryIntegrityIssue,
 	translationIsOutOfDate,
 	translationValueIntegrityIssue,
 	type Uuid,
@@ -345,7 +346,7 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 							: projectProseTemplate(fallback.value, doc).text,
 					);
 			}
-			const issue = translationValueIntegrityIssue(unit, entry.value);
+			const issue = translationEntryIntegrityIssue(unit, entry);
 			if (issue === "value-kind") {
 				errors.push(
 					validationError(

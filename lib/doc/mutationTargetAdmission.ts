@@ -16,7 +16,9 @@ import {
 	isRepresentableConversion,
 	languageTag,
 	ownRecordValue,
+	reviewedTranslationValueMode,
 	type TranslationEntry,
+	translationEntryIntegrityIssue,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import {
@@ -1313,7 +1315,7 @@ export function mutationTargetsInvalid(
 								saved.sourceFingerprint,
 								unit.sourceFingerprint,
 							) ||
-							translationValueIntegrityIssue(unit, saved.value) !== undefined)
+							translationEntryIntegrityIssue(unit, saved) !== undefined)
 					)
 						return true;
 				}
@@ -1340,8 +1342,7 @@ export function mutationTargetsInvalid(
 					!translationSourceFingerprintsEqual(
 						m.sourceFingerprint,
 						unit.sourceFingerprint,
-					) ||
-					translationValueIntegrityIssue(unit, m.value) !== undefined
+					)
 				) {
 					return true;
 				}
@@ -1350,6 +1351,10 @@ export function mutationTargetsInvalid(
 				if (
 					target === undefined ||
 					entry === undefined ||
+					translationEntryIntegrityIssue(unit, {
+						value: entry.value,
+						...reviewedTranslationValueMode(unit, entry),
+					}) !== undefined ||
 					!translationSourceFingerprintsEqual(
 						entry.sourceFingerprint,
 						m.expectedSourceFingerprint,

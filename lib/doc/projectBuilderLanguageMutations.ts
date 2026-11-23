@@ -5,6 +5,7 @@
 
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	authoredTranslationValueMode,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
@@ -16,8 +17,8 @@ import {
 	searchScreenTitleSchema,
 	type TranslationEntry,
 	type TranslationUnitId,
+	translationEntryIntegrityIssue,
 	translationUnitsById,
-	translationValueIntegrityIssue,
 	type Uuid,
 } from "@/lib/domain";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
@@ -75,7 +76,11 @@ export function projectBuilderLanguageMutations(
 	): LocalizedValue | undefined => {
 		const unit = units.get(id);
 		if (unit === undefined) return undefined;
-		const issue = translationValueIntegrityIssue(unit, presented);
+		const mode = authoredTranslationValueMode(unit, presented);
+		const issue = translationEntryIntegrityIssue(unit, {
+			value: presented,
+			...mode,
+		});
 		if (issue !== undefined) {
 			refusal =
 				issue === "protected-content"
@@ -91,6 +96,7 @@ export function projectBuilderLanguageMutations(
 		if (!sameValue(current, presented)) {
 			targetWrites.set(id, {
 				value: structuredClone(presented),
+				...mode,
 				sourceFingerprint: unit.sourceFingerprint,
 				origin: "human",
 				review: "reviewed",

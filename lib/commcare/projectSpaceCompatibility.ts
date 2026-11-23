@@ -295,9 +295,8 @@ export function linkWriteDestinations(
  * - A question's prose (every slot `proseSurfaceReads` lists) holds a
  *   `case-ref` to the destination, or a `field-ref` to a question whose
  *   `calculate` or `default_value` reads it, or a calculated value one of
- *   whose terms is such a read. A translation keeps its source's
- *   references (`translationValueIntegrityIssue`), so the source prose is
- *   every language's. Prose is not parsed as markdown: a markdown link is
+ *   whose terms is such a read. The prose walk includes the current
+ *   translations with independently chosen values. Prose is not parsed as markdown: a markdown link is
  *   what a worker taps (Web Apps' `markdown.js::initMd`, Android's
  *   `QuestionWidget.setQuestionText`), and a printed address the worker
  *   copies reaches the same view, so every printed reference counts.

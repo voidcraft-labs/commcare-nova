@@ -18,6 +18,10 @@ import {
 	reboundLanguageCodes,
 	translationSourceFingerprintsEqual,
 } from "@/lib/domain/localization";
+import {
+	reviewedTranslationValueMode,
+	translationUnitsById,
+} from "@/lib/domain/translationUnits";
 
 /**
  * App-level mutations: name, connect mode, case-type catalog, logo, app
@@ -260,7 +264,14 @@ export function applyAppMutation(
 			// entry may remain a frozen shared value until this exact key is
 			// replaced, so never mutate its nested fields in place.
 			if (translations === undefined) return;
+			const unit =
+				entry.valueMode === undefined
+					? undefined
+					: translationUnitsById(draft).get(mut.unitId);
 			translations[mut.unitId] = {
+				...(unit === undefined
+					? {}
+					: reviewedTranslationValueMode(unit, entry)),
 				value: structuredClone(mut.value),
 				sourceFingerprint: mut.sourceFingerprint,
 				origin: entry.origin,
