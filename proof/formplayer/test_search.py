@@ -367,4 +367,8 @@ def test_a_list_button_updates_the_selected_household_and_a_second_button_create
                         types = {row.findtext(f"{case_ns}create/{case_ns}case_type"):row.attrib["case_id"] for row in cases}
                         assert set(types) == {"household","person"}, types
                         assert types["person"] in result["nextScreen"]["selections"], result
+                        # The return opens the members of the household the form created, not the one chosen
+                        # before the list (``workflow.py::_find_best_match`` keys the household datum to it).
+                        assert types["household"] in result["nextScreen"]["selections"], result
+                        assert "household-2" not in result["nextScreen"]["selections"], result
             evidence("list-action-records", records)
