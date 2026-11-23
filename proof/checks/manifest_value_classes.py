@@ -5222,7 +5222,10 @@ def custom_assertions_non_empty(use, manifest):
     return None if module is None else bool(module.get("custom_assertions"))
 
 
-def _parent_select_reader(test):
+def _parent_select_reader(test, *, missing=False):
+    """A reader of an active parent selection's target; ``missing`` is its answer for a ``module_id`` that names no
+    menu of the app."""
+
     def reader(use, manifest):
         at, module = _module_of_detail(use)
         if module is None:
@@ -5232,13 +5235,15 @@ def _parent_select_reader(test):
             return False
         target = at.app.modules_by_id.get(parent.get("module_id"))
         if target is None:
-            return False  # an invalid candidate is HQ's build's (``invalid parent select id``), which the bar reports
+            return missing
         return test(at, module, target)
 
     return reader
 
 
-names_a_multi_select_module = _parent_select_reader(lambda at, module, target: _multi_select(target))
+# A module_id naming no menu is an invalid candidate, which the entry names beside a multi-select one (and HQ's build
+# refuses as ``invalid parent select id``, which the bar reports as well).
+names_a_multi_select_module = _parent_select_reader(lambda at, module, target: _multi_select(target), missing=True)
 names_a_multi_select_module.__doc__ = """
 ``menus-and-case-lists/parent-select-module-id-naming-a-multi-select-module-or-an``: an active parent selection
 naming a multi-select module, which the editor never offers (an invalid candidate and a cycle are HQ's build's:
