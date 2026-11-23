@@ -22,6 +22,7 @@ import {
 	plainColumn,
 	proseText,
 	tileCell,
+	type Uuid,
 } from "@/lib/domain";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
@@ -58,7 +59,7 @@ const HOUSEHOLD_LINK = testUuid("icon-household-link");
  * visit for the tapped visit, beside two deep links an icon on that list
  * may not name: a registration, and a household's follow-up. */
 function visits(
-	icon: { readonly entryPointUuid?: string; readonly action?: false } = {},
+	icon: { readonly entryPointUuid?: Uuid; readonly action?: false } = {},
 ): BlueprintDoc {
 	const columns: Column[] = [
 		plainColumn(testUuid("icon-name"), "case_name", "Visit"),
