@@ -4,8 +4,8 @@ import "server-only";
  * The one function both bring-in requests call: read one app of CommCare HQ
  * under the bracketed read, read the Project's data it may read, run the
  * reader, judge every file it references and accept what it read. A create
- * passes one argument a read does not, `keepMedia`, which keeps the bytes of
- * each held file for the publish that follows. So an equal digest at the
+ * passes one argument a read does not, `stageMedia`, which stages the bytes of
+ * each held content under the receiving Project for the publish that follows. So an equal digest at the
  * create means every check that passed at the review passed again, on the
  * same content.
  *
@@ -13,7 +13,8 @@ import "server-only";
  * is never answered before every file is judged: where the app can run
  * depends on where its files play.
  *
- * Nothing here writes. What one request reads stays in memory until the
+ * Nothing here writes but a create's staging, which no surface lists until the
+ * create publishes it. What one request reads stays in memory until the
  * request answers. No log line holds a word of the app: a finding's name, a
  * difference's detail and CommCare HQ's own text reach no line.
  */
@@ -152,7 +153,7 @@ import {
 	readingMediaIndex,
 	readingMediaRows,
 } from "./projectData/media";
-import { judgeReadingMedia } from "./projectData/mediaStore";
+import { judgeReadingMedia, type MediaStaging } from "./projectData/mediaStore";
 import {
 	postgresProjectSide,
 	type ReadingProjectSide,
@@ -181,8 +182,10 @@ export interface GatherInput {
 	readonly readingId: string;
 	/** `broughtInAppId(actor.userId, key, readingId)`. */
 	readonly appId: string;
-	/** False in a read. True in a create: the plan keeps the bytes of each held file. */
-	readonly keepMedia: boolean;
+	/** Null in a read. In a create: where the bytes of each held content are staged until the
+	 *  create publishes them (`mediaStore.ts::projectMediaStaging`), which the create discards
+	 *  when it ends. */
+	readonly stageMedia: MediaStaging | null;
 	/** Stage and file-count events. `gatherReading` never emits `done` or `failed`. */
 	readonly onEvent: (event: ReadingEvent) => void;
 	readonly cancel?: AbortSignal;
@@ -216,8 +219,8 @@ export interface Gathered {
 	/** The tables the document reads, as the birth will hold them. Acceptance's `lookup`, and
 	 *  what the adoption's export boundary names its tables from. */
 	readonly lookup: LookupFixtureDataSnapshot;
-	/** Every referenced file with its verdict; in a create, the kept bytes of each held file and
-	 *  then its published asset. */
+	/** Every referenced file with its verdict; in a create, the staged object of each held
+	 *  content and then its published asset. */
 	readonly media: ReadingMediaPlan;
 	/** One entry per referenced path of every held file. */
 	readonly mediaFiles: readonly AdoptedMediaFile[];
@@ -1134,7 +1137,7 @@ export async function gatherReading(
 		key,
 		readingId: input.readingId,
 		appId: input.appId,
-		keepMedia: input.keepMedia,
+		stageMedia: input.stageMedia,
 		onEvent,
 		...(input.cancel !== undefined && { cancel: input.cancel }),
 		creds: credentials.creds,
@@ -1204,7 +1207,7 @@ async function gatherFromHqWith(
 		appId,
 		projectId: key.projectId,
 		userId: input.actorUserId ?? null,
-		operation: input.keepMedia ? "create" : "read",
+		operation: input.stageMedia === null ? "read" : "create",
 	};
 	const tally: Tally = {
 		sourceBytes: null,
@@ -1453,7 +1456,7 @@ async function gatherFromHqWith(
 		const judged = await judgeReadingMedia({
 			creds,
 			plan,
-			keep: input.keepMedia,
+			...(input.stageMedia !== null && { stage: input.stageMedia.stage }),
 			onProgress: (done, total) => onEvent({ type: "files", done, total }),
 			...(cancel !== undefined && { cancel }),
 		});

@@ -366,7 +366,7 @@ function review() {
 	return computeHqChanges(
 		SCOPE,
 		TARGET,
-		{ readingId: READING_ID, keepMedia: false, onEvent: () => {} },
+		{ readingId: READING_ID, stageMedia: null, onEvent: () => {} },
 		"review",
 	);
 }

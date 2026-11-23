@@ -307,7 +307,7 @@ describe("planHqMedia", () => {
 		expect(out.files[1]?.references).toHaveLength(3);
 	});
 
-	it("lists every one of 501 files and raises the budget finding before any is fetched", () => {
+	it("lists every one of 501 files, past what one in-memory export takes, with no finding", () => {
 		const count = MAX_MEDIA_EXPORT_ASSETS + 1;
 		const paths = Array.from({ length: count }, (_, i) => `jr://file/${i}.png`);
 		const out = plan(
@@ -315,15 +315,7 @@ describe("planHqMedia", () => {
 			paths.map((path, i) => entry(path, "CommCareImage", `id${i}`)),
 		);
 		expect(out.files).toHaveLength(count);
-		expect(out.findings).toEqual([
-			{
-				code: `${E}an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
-				standing: "not-yet",
-				place: { kind: "app" },
-				subject: "media-files",
-				detail: { name: "501 media files (Nova takes 500 in one app)" },
-			},
-		]);
+		expect(out.findings).toEqual([]);
 	});
 
 	it("leaves out what nothing the app runs on draws, and files it under the INERT entry", () => {

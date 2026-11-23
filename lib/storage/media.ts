@@ -536,6 +536,52 @@ export async function uploadAssetBytes(args: {
 		});
 }
 
+/** One object a server wrote under `pending/` for a later promotion: its key,
+ *  the generation written, and that generation's CRC32C. */
+export interface StagedObject {
+	readonly gcsObjectKey: string;
+	readonly generation: string;
+	readonly checksum: string;
+}
+
+/**
+ * Write bytes the server has already judged to a temporary key under
+ * `pending/`, create-only, so no other writer's bytes can stand there, and
+ * answer the generation written with its checksum. A promotion copies exactly
+ * that generation to its content key (`copyAssetObjectIfAbsent`); the caller
+ * deletes it after, and the bucket's `pending/` lifecycle rule reaps one a
+ * request never promoted or deleted.
+ */
+export async function stageAssetBytes(args: {
+	gcsObjectKey: string;
+	bytes: Buffer;
+	contentType: string;
+}): Promise<StagedObject> {
+	const file = getBucket().file(args.gcsObjectKey);
+	await file.save(args.bytes, {
+		resumable: false,
+		contentType: args.contentType,
+		preconditionOpts: { ifGenerationMatch: 0 },
+	});
+	const [metadata] = await file.getMetadata();
+	if (
+		metadata.generation === undefined ||
+		metadata.generation === null ||
+		String(metadata.generation).length === 0 ||
+		metadata.crc32c === undefined ||
+		Number(metadata.size) !== args.bytes.byteLength
+	) {
+		throw new Error(
+			`The staged media object ${args.gcsObjectKey} did not read back as the ${args.bytes.byteLength} bytes just written. Look at the bucket's answer to the create-only write.`,
+		);
+	}
+	return {
+		gcsObjectKey: args.gcsObjectKey,
+		generation: String(metadata.generation),
+		checksum: metadata.crc32c,
+	};
+}
+
 /**
  * Copy an already-validated immutable object to another storage key.
  *
@@ -557,8 +603,11 @@ export async function copyAssetObject(
  * Copy one immutable source generation to a create-only destination.
  *
  * A verified existing destination is success for an idempotent retry:
- * attachment ids make the destination unique, so a pre-existing object is
- * the prior copy whose metadata update may have failed. That same independent
+ * attachment ids make a capture's destination unique, so a pre-existing
+ * object is the prior copy whose metadata update may have failed; a media
+ * file's content key names its bytes, so one already there with the same
+ * size, checksum and type holds them (a publication whose metadata never
+ * committed). That same independent
  * verification also recovers after the staging lifecycle has reaped the named
  * source generation. A missing or mismatched destination still fails closed.
  */
@@ -585,7 +634,7 @@ export async function copyAssetObjectIfAbsent(args: {
 			metadata.contentType !== args.expectedContentType
 		) {
 			throw new Error(
-				"An existing capture destination does not match the staged source generation.",
+				"An existing object at the destination does not match the staged source generation.",
 			);
 		}
 		return {

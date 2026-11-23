@@ -268,7 +268,6 @@ import { Pieces } from "@/lib/deployment/reading/gather";
 import { projectDataReadsOf } from "@/lib/deployment/reading/projectData";
 import {
 	adoptedMediaFiles,
-	mediaReadLimit,
 	type ReadingMediaPlan,
 } from "@/lib/deployment/reading/projectData/media";
 import { judgeReadingMedia } from "@/lib/deployment/reading/projectData/mediaStore";
@@ -2867,8 +2866,9 @@ function captureProjectSide(source: PublishDocument): ReadingProjectSide {
  * publish's own comparison, the flag a write saved only if changed needs,
  * the Project's data, both readings and the files they name, each fetched
  * from the peer and judged (`judgeReadingMedia`), then `checkHqChanges`
- * itself. `keepMedia` is the review's own option: a bring-in keeps the bytes
- * of each file it may take, to publish it to the Project.
+ * itself. No review stages a file's bytes: the capture holds no library to
+ * publish one to, and a bring-in names each file it takes by the asset of
+ * the Project that holds its bytes (`projectAssetOf`).
  */
 async function reviewOverPeer(input: {
 	readonly peer: TargetPeer;
@@ -2877,7 +2877,6 @@ async function reviewOverPeer(input: {
 	readonly pushedRevision: number;
 	/** The target-identity record the deployment holds (`store.ts::readTargetIdentity`). */
 	readonly targetIdentity: TargetIdentity;
-	readonly keepMedia: boolean;
 }): Promise<{
 	readonly review: HqChangesReview;
 	/** What the review read, from the publish's own comparison on; null where it found the app unchanged. */
@@ -3159,21 +3158,12 @@ async function reviewOverPeer(input: {
 	/* The files both sources name, each fetched once from the peer and judged:
 	 * a file settling a published path read is not asked for again. */
 	const union = unionPlan(base.plan, now.plan);
-	const readLimit = mediaReadLimit(union.files);
-	if (readLimit)
-		return {
-			review: accountReview([readLimit]),
-			basis,
-			fetched,
-			checked: null,
-			summary,
-		};
-	let judged: Pick<ReadingMediaPlan, "verdicts" | "kept" | "published"> = union;
+	let judged: Pick<ReadingMediaPlan, "verdicts" | "staged" | "published"> =
+		union;
 	if (union.files.length > 0) {
 		const read = await judgeReadingMedia({
 			creds: CREDENTIALS,
 			plan: union,
-			keep: input.keepMedia,
 			fetched: settledReads,
 			onProgress: () => {},
 		});
@@ -3313,8 +3303,6 @@ async function bringInOverPeer(input: {
 		ledger,
 		pushedRevision: input.pushedRevision,
 		targetIdentity: input.targetIdentity,
-		/* A bring-in keeps the bytes of each file it may take, to publish it. */
-		keepMedia: statement === "brings-in",
 	});
 	const { review, basis, fetched } = reviewed;
 	let { checked } = reviewed;
@@ -3558,7 +3546,6 @@ async function bringInOverPeer(input: {
 		ledger: recorded,
 		pushedRevision: input.pushedRevision,
 		targetIdentity,
-		keepMedia: false,
 	});
 	if (again.review.kind !== "nothing" || again.review.reason !== "unchanged") {
 		throw new Error(

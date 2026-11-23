@@ -112,7 +112,7 @@ async function gather(): Promise<{
 		key: KEY,
 		readingId: READING_ID,
 		appId: APP_ID,
-		keepMedia: false,
+		stageMedia: null,
 		onEvent: (event) => events.push(event),
 		creds: CREDS,
 		project: NOTHING,

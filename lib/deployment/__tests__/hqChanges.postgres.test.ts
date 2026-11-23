@@ -202,6 +202,18 @@ vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(async () => undefined),
 	deleteAsset: vi.fn(),
 	downloadAssetBytes: vi.fn(),
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
 }));
 beforeEach(() => {
 	seam.beforeCommit = null;

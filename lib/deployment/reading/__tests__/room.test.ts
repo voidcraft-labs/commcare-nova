@@ -31,6 +31,7 @@ import {
 } from "@/lib/commcare/hq/memoryMeter";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { type GatherResult, gatherFromHq } from "../gather";
+import type { MediaStaging } from "../projectData/mediaStore";
 import type { ReadingProjectSide } from "../projectData/read";
 import {
 	holdChangesReadings,
@@ -38,6 +39,16 @@ import {
 	noRoomFinding,
 	withBringInRoom,
 } from "../room";
+
+/** A create's staging held in this test: each content is named, never written. */
+const TEST_STAGING: MediaStaging = {
+	stage: async (file) => ({
+		gcsObjectKey: `pending/test/${file.contentHash}`,
+		generation: "1",
+		checksum: "test",
+	}),
+	discard: async () => {},
+};
 
 const HOSTNAME = "india.commcarehq.org";
 const DOMAIN = "clinic";
@@ -158,7 +169,7 @@ function readInRoom(
 					key: KEY,
 					readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
 					appId: "5b0c8d6e-2f1a-4c3b-9e7d-6a5b4c3d2e1f",
-					keepMedia: work === "create",
+					stageMedia: work === "create" ? TEST_STAGING : null,
 					onEvent: () => {},
 					cancel:
 						options.cancel === undefined
@@ -205,7 +216,7 @@ describe("withBringInRoom", () => {
 								key: KEY,
 								readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
 								appId: "5b0c8d6e-2f1a-4c3b-9e7d-6a5b4c3d2e1f",
-								keepMedia: work === "create",
+								stageMedia: work === "create" ? TEST_STAGING : null,
 								onEvent: () => {},
 								cancel: room.signal,
 								creds: CREDS,

@@ -144,7 +144,7 @@ const MEDIA: ReadingMediaPlan = {
 		},
 		gone: { kind: "missing" },
 	},
-	kept: new Map(),
+	staged: new Map(),
 	published: {},
 };
 

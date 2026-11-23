@@ -516,7 +516,7 @@ async function firstReading(
 		},
 		readingId: LANE_READING_ID,
 		appId: input.appId,
-		keepMedia: false,
+		stageMedia: null,
 		onEvent: () => {},
 		creds,
 		project: EMPTY_PROJECT,

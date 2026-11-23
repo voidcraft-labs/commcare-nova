@@ -89,7 +89,7 @@ async function readInRoom(
 		key,
 		readingId,
 		appId,
-		keepMedia: false,
+		stageMedia: null,
 		onEvent: options.onEvent,
 		...(options.cancel !== undefined && { cancel: options.cancel }),
 	});

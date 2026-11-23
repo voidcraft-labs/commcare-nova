@@ -744,8 +744,8 @@ form media lists even though neither client draws it. A mapped file used only
 there takes an availability check at the same bounded HQ transport, with a
 one-byte limit. A successful file response requires no asset validation,
 storage, or Project media budget. A held slot naming the same file makes the
-one read a full file check. At most 500 distinct media files are read across
-both sides of a changes review. The first publish removes these unshown form
+one read a full file check. Every distinct media file either side of a changes
+review names is read, however many there are. The first publish removes these unshown form
 references (`unshown-form-media-removed`); a path another slot keeps remains
 in its media list. `unused-media-entries-removed` counts only map entries
 already unused in the source app.
@@ -777,18 +777,24 @@ request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read at most as far a
 what remains). Neither is a limit on what Nova holds: a table past either comes
 in as its confirmed definition with no row snapshot, and a Project data refresh
 reads it in pages (`managedInventory.ts`). No size of lookup data stops a
-reading. A create keeps one buffer per distinct content of the
-files it holds, the very entry the media budget counts, and the read's own bytes
-rather than a copy (`projectData/mediaStore.ts`); it publishes each content
-once and records the asset under every file key that holds it. The process
+reading, and no count or total of media files does either: the only bound is
+the per-kind cap on one file. A create (and a bring-in of HQ changes) stages
+each distinct held content once, as it judges it, in a create-only object under
+`pending/<projectId>/` (`projectData/mediaStore.ts::projectMediaStaging`), and
+lets its bytes go, so what it holds at once is the files in flight. It publishes
+each content once by copying exactly the staged generation to its content key
+(`lib/media/publishReadyMedia.ts`), records the asset under every file key that
+holds it and deletes the staged object; whatever it staged and did not publish is
+deleted when it ends, and the bucket's `pending/` lifecycle rule reaps what a
+crash leaves. No surface lists a staged object. The process
 meters what bring-ins hold at once (`reading/room.ts` over
 `lib/commcare/hq/memoryMeter.ts`): each read, create, changes review and
 changes bring-in runs under a lease, charged for what it keeps as it keeps it
 (every body CommCare HQ sends as it is read, by what it is kept as; a source
 taken into a reading, `room.ts::holdReading`, at the measured rate of what the
 reading builds, and a changes review's two readings once per request, one reading of the
-larger source and a measured second rate over the smaller, `room.ts::holdChangesReadings`), and given back what it lets go (a media file judged and not
-kept, `mediaStore.ts`, `hqMediaSettle.ts`) and the rest when it settles,
+larger source and a measured second rate over the smaller, `room.ts::holdChangesReadings`), and given back what it lets go (a media file judged and staged
+or dropped, `mediaStore.ts`, `hqMediaSettle.ts`) and the rest when it settles,
 however it settles. A charge that would take the process past its bound stops
 that request partway: its signal aborts, its reads stop and no further request
 goes out, it writes nothing, and it answers `nova-busy`. Every write comes after
