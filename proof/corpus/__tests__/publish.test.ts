@@ -531,7 +531,12 @@ async function keyedAppOnHq() {
 	return { app, document, configuration, source };
 }
 
-it("stops the capture before importing over an adopted app's unapproved file, even with no outgoing media", async () => {
+/* A file an HQ-authored app holds when it is brought in is one its birth
+ * accepted removing, as `adoptedAppBaselineWrite` records it, so the publish
+ * over it goes through. Without that acceptance the capture stops, as Nova
+ * stops over a file it was never shown (the Postgres suites hold that stop
+ * for a file that arrives after the birth). */
+it("republishes over an adopted app's unused file its birth accepted removing, even with no outgoing media", async () => {
 	const { document, configuration, source } = await keyedAppOnHq();
 	const path = "jr://file/commcare/image/retained-by-a-worker.jpg";
 	const stored = {
@@ -561,7 +566,7 @@ it("stops the capture before importing over an adopted app's unapproved file, ev
 		(result) => result.status,
 		(error: unknown) => String(error),
 	);
-	expect(outcome).toContain("retained-by-a-worker");
+	expect(outcome).toBe("republished");
 });
 
 it("prints each keyed create of an app brought in from CommCare HQ under the prefix its cases stand under there, in the republish and the local archive", async () => {
