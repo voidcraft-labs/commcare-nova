@@ -2,6 +2,7 @@
 	"id": "hq-menus",
 	"configuration": {
 		"flags": [
+			"FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
 			"SESSION_ENDPOINTS"
 		],
 		"namedPrivileges": [

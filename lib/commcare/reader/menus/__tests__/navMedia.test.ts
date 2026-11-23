@@ -264,6 +264,20 @@ describe("a menu's and a form's media read as HQ shows them", () => {
 		});
 	});
 
+	it("refuses a badge that holds no text in any language and no calculation, as HQ's build writes no text for it", async () => {
+		// An empty text map sits at its default, so the refusal is of the icon.
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0] as AppJson["modules"][number];
+			menu.custom_icons = [
+				{ doc_type: "CustomIcon", form: "badge", xpath: null, text: {} },
+			];
+		});
+		expect(outcome.kind).toBe("account");
+		expect(JSON.stringify(outcome)).toContain(
+			"menus-and-case-lists/badge-missing-localized-text",
+		);
+	});
+
 	it("reads a list item and its action when their inherited badge fields contain text and an expression", async () => {
 		const outcome = await readWithMedia(caseListApp(), (json) => {
 			const { item, register } = listBlocks(json);

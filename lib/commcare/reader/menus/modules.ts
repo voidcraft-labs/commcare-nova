@@ -1211,7 +1211,9 @@ function readBadge(ctx: ReadContext, owner: DraftModule | DraftForm): void {
 	// catalog; Core loads that catalog before the worker's selected language.
 	const fallback = langs.map((lang) => emitted[lang]).find(Boolean);
 	if (!fallback) {
-		first.refuse("text", BADGE.missingLabel);
+		// Refused whole: an empty text map sits at its default, where a
+		// refusal of the key alone would record nothing.
+		first.refuseWhole(BADGE.missingLabel);
 		return;
 	}
 	const built = recordFromEntries(
