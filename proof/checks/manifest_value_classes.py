@@ -8991,7 +8991,160 @@ def appearance_token_no_runtime_reads(use, manifest):
     unread = appearance_words(manifest, form, element, value)[1]
     if not unread:
         return False
-    return True if _dropping_changes_reading(manifest, form, element, value, unread) else None
+    if _dropping_changes_reading(manifest, form, element, value, unread):
+        return True
+    rest = " ".join(word for word in value.split() if word not in unread)
+    return False if _rest_read_as_written(manifest, form, element, rest) else None
+
+
+def unread_words_dropped(manifest, document, element, value):
+    """Whether an element's appearance is in the HELD class beside ``appearance_token_no_runtime_reads``'s
+    (``questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that``): several words, some no runtime's
+    read takes, whose dropping leaves every runtime's reading the same. Its unread words are that class's, as Nova's
+    reader drops them (``xform/appearances.ts::droppingKeepsReading``), so none is a use of its own."""
+    if not isinstance(document, Form) or element not in document.body_elements or len(value.split()) < 2:
+        return False
+    if _local(element) == "trigger" and value.startswith("floating-"):
+        return False
+    unread = appearance_words(manifest, document, element, value)[1]
+    if not unread or _dropping_changes_reading(manifest, document, element, value, unread):
+        return False
+    return _rest_read_as_written(manifest, document, element, " ".join(w for w in value.split() if w not in unread))
+
+
+def _rest_read_as_written(manifest, document, element, rest):
+    """Whether what is left of an appearance once its unread words are dropped is a value the runtimes read as it is
+    written, no refused class taking it (``xform/appearances.ts::droppingKeepsReading``: the rest's own class is no
+    refusal): every word a read takes alone by its exact token, no single word holding a value Android matches inside
+    it, and no per-row token the per-row refusals take. True, or None where the rest needs a reading this check does
+    not make (a case variant, an ``intent:`` id, one word holding a value Android matches inside it)."""
+    facts = element_facts(manifest, document, element)
+    rules = [rule for rule in appearance_rules(manifest) if rule.reads(facts)]
+    words = rest.split(" ")
+    if rest != rest.lower() or rest.startswith("intent:"):
+        return None
+    # A single word holding a value Android matches inside it is a reading of its own
+    # (``android_inside_match_other``); in a string of several words Android reads only the values the rows name.
+    if len(words) == 1 and any(
+        rule.reader == "android" and rule.match in INSIDE_MATCHES and appearance_matches(rest, rule) for rule in rules
+    ):
+        return None
+    control = _row_control(document, element)
+    if _per_row_without_leading_digits(rest, control) or _per_row_holding_read(
+        manifest, document, element, rest, control
+    ):
+        return None
+    read = all(
+        any(rule.match not in INSIDE_MATCHES and appearance_matches(word, rule) for rule in rules) for word in words
+    )
+    return True if read else None
+
+
+# Web Apps' per-row patterns (``const.js::PER_ROW_PATTERN``, ``PER_ROW_REPEAT_PATTERN``), as ``form_ui.js`` tests
+# each space-separated token of a question's or group's appearance.
+PER_ROW = re.compile(r"\d+-per-row(\s|$)")
+PER_ROW_REPEAT = re.compile(r"\d+-per-row-repeat(\s|$)")
+# The controls whose ``receive-`` and ``broadcast-`` words Web Apps reads (``entries.js::getEntry``,
+# ``buildBroadcastTopics``, ``enableReceiver``), by the control their element is.
+RECEIVE_CONTROLS = frozenset({"select1", "text", "barcode"})
+BROADCAST_CONTROLS = frozenset({"text", "image", "audio", "video", "document"})
+UPLOAD_ROW_CONTROLS = {"image/*": "image", "audio/*": "audio", "video/*": "video", "application/*,text/*": "document"}
+
+
+def _row_control(document, element):
+    """The control an appearance sits on as the per-row and channel rows name it: a Vellum repeat, a group wrapping a
+    repeat as a direct child (``repeat-wrapper``), another group, a text input (an input typed ``xsd:string`` or
+    untyped), a barcode input, an upload by its media type, or the element's own name."""
+    local = _local(element)
+    if local == "group":
+        return "repeat-wrapper" if any(_local(child) == "repeat" for child in _children(element)) else "group"
+    if local == "input":
+        bind = document.control_bind(element) if isinstance(document, Form) else None
+        kind = (bind.get("type") if bind is not None else None) or ""
+        kind = kind.removeprefix("xsd:")
+        return {"": "text", "string": "text", "barcode": "barcode"}.get(kind, "input-other")
+    if local == "upload":
+        return UPLOAD_ROW_CONTROLS.get(element.get("mediatype"), "upload-other")
+    return local
+
+
+def _per_row_token(value, wrapper):
+    """The first token Web Apps' per-row pattern matches; on a group wrapping a repeat, the first its per-row-repeat
+    pattern matches whose text before its first ``-`` ends in a digit."""
+    for token in value.split(" "):
+        if wrapper:
+            if PER_ROW_REPEAT.search(token) and re.search(r"\d$", token[: token.index("-")]):
+                return token
+        elif PER_ROW.search(token):
+            return token
+    return None
+
+
+def _per_row_without_leading_digits(value, control):
+    if control == "repeat":
+        return False
+    token = _per_row_token(value, control == "repeat-wrapper")
+    if token is None:
+        return False
+    return re.match(r"\+?\d", token[: token.index("-")]) is None
+
+
+def _android_inside(manifest, facts, value):
+    return {
+        rule.token
+        for rule in appearance_rules(manifest)
+        if rule.reader == "android"
+        and rule.match in INSIDE_MATCHES
+        and rule.reads(facts)
+        and appearance_matches(value, rule)
+    }
+
+
+def _per_row_holding_read(manifest, document, element, value, control):
+    if control == "repeat":
+        return False
+    wrapper = control == "repeat-wrapper"
+    token = _per_row_token(value, wrapper)
+    if token is None:
+        return False
+    digits = re.match(r"\+?(\d+)", token[: token.index("-")])
+    if digits is None:
+        return False
+    held = digits.group(1) + ("-per-row-repeat" if wrapper else "-per-row")
+    if token == held:
+        return False
+    if control in RECEIVE_CONTROLS and "receive" in token:
+        return True
+    if control in BROADCAST_CONTROLS and "broadcast" in token:
+        return True
+    facts = element_facts(manifest, document, element)
+    return bool(_android_inside(manifest, facts, token) - _android_inside(manifest, facts, held))
+
+
+def per_row_without_leading_digits(use, manifest):
+    """``questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does``: the per-row token
+    (``_per_row_token``: on a question or a group, the first token ``const.js::PER_ROW_PATTERN`` matches; on a group
+    wrapping a repeat, the first ``PER_ROW_REPEAT_PATTERN`` matches whose text before its first ``-`` ends in a
+    digit) whose text before its first ``-`` does not start, after at most one ``+``, with a digit
+    (``x2-per-row``): ``form_ui.js`` reads the row count with ``parseInt`` of that text, which is no number. A
+    Vellum repeat's own appearance is no runtime's (Core moves the wrapper's label to it, never an appearance)."""
+    form, element, value = _control_appearance(use)
+    if element is None:
+        return None if form is None else False
+    return _per_row_without_leading_digits(value, _row_control(form, element))
+
+
+def per_row_holding_another_read_value(use, manifest):
+    """``questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts``: a per-row token with
+    leading digits that itself holds another value a runtime reads there: ``receive`` on a control whose receiver
+    Web Apps reads, ``broadcast`` on one whose sender it reads, or a value Android matches inside the string that
+    ``<k>-per-row`` (``<k>-per-row-repeat`` on a group wrapping a repeat) does not hold, so writing the count alone
+    would drop that read. A token already spelled ``<k>-per-row``, and a ``receive-``, ``broadcast-`` or Android
+    word of its own beside it, stay their own rows'."""
+    form, element, value = _control_appearance(use)
+    if element is None:
+        return None if form is None else False
+    return _per_row_holding_read(manifest, form, element, value, _row_control(form, element))
 
 
 def _dropping_changes_reading(manifest, document, element, value, unread):
@@ -9764,6 +9917,10 @@ VALUE_CLASSES = {
     "questions/itext-pragma-entries-pragma-form-descriptor-pragma-skip-full": unreferenced_pragma,
     "questions/an-appearance-holding-such-whitespace-that-some-runtime-reads": appearance_whitespace_read_otherwise,
     "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": appearance_token_no_runtime_reads,
+    "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does": per_row_without_leading_digits,
+    "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts": (
+        per_row_holding_another_read_value
+    ),
     "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": case_variant_read_differently,
     "questions/data-parent-crossing-a-repeat": data_parent_crossing_a_repeat,
     "questions/any-other-bind-id-named-by-a-control-s-bind": other_bind_id,
