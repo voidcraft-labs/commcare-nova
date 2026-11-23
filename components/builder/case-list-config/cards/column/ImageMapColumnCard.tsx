@@ -19,7 +19,7 @@
 // reason id-mapping uses them: tables are short and authored once.
 
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { v4 } from "uuid";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
@@ -28,10 +28,19 @@ import { useStableListIdentity } from "@/components/builder/shared/useStableList
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import { useListIconChoices } from "@/lib/doc/hooks/useListIconChoices";
+import {
 	type Column,
 	type ImageMapEntry,
 	imageMapEntry,
 	type MediaAssetId,
+	type Uuid,
 } from "@/lib/domain";
 import { asUuid } from "@/lib/domain/uuid";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
@@ -46,6 +55,70 @@ import {
 	MappingSectionLabel,
 	useMappingRemovalFocus,
 } from "./mappingChrome";
+
+const SHOW_THE_IMAGE = "show-the-image";
+
+/** What a worker's tap on the image does on Results: nothing, or submit one
+ * of the forms `useListIconChoices` offers for the tapped case. Shown only
+ * where a form qualifies or the image already has an action. */
+function IconActionRow({
+	moduleUuid,
+	value,
+	onChange,
+}: {
+	readonly moduleUuid: Uuid;
+	readonly value: Extract<Column, { kind: "image-map" }>;
+	readonly onChange: (next: Column) => void;
+}) {
+	const choices = useListIconChoices(moduleUuid, value);
+	const id = useId();
+	if (choices.length === 0 && value.entryPointUuid === undefined) return null;
+	const chosen = choices.find(
+		(choice) => choice.entryPointUuid === value.entryPointUuid,
+	);
+	return (
+		<div className="space-y-2">
+			<label htmlFor={id} className={INSPECTOR_LABEL_CLS}>
+				When a worker taps the image
+			</label>
+			<Select
+				value={value.entryPointUuid ?? SHOW_THE_IMAGE}
+				onValueChange={(next) => {
+					const { entryPointUuid: _previous, ...rest } = value;
+					const choice = choices.find((item) => item.entryPointUuid === next);
+					onChange(
+						choice === undefined
+							? rest
+							: { ...rest, entryPointUuid: choice.entryPointUuid },
+					);
+				}}
+			>
+				<SelectTrigger id={id} className="h-11 w-full">
+					<SelectValue>
+						{value.entryPointUuid === undefined
+							? "Nothing happens"
+							: (chosen?.label ?? "Choose a form")}
+					</SelectValue>
+				</SelectTrigger>
+				<SelectContent align="start">
+					<SelectItem value={SHOW_THE_IMAGE}>Nothing happens</SelectItem>
+					{choices.map((choice) => (
+						<SelectItem
+							key={choice.entryPointUuid}
+							value={choice.entryPointUuid}
+						>
+							Submit {choice.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			<p className="text-xs text-nova-text-muted">
+				In Web Apps, a tap on Results submits the form for that case and the
+				worker stays on the list.
+			</p>
+		</div>
+	);
+}
 
 interface ImageMapColumnCardProps {
 	readonly value: Extract<Column, { kind: "image-map" }>;
@@ -155,6 +228,13 @@ export function ImageMapColumnCard({
 				onHeaderChange={setHeader}
 				errors={errors}
 			/>
+			{ctx.moduleUuid !== undefined && (
+				<IconActionRow
+					moduleUuid={ctx.moduleUuid}
+					value={value}
+					onChange={onChange}
+				/>
+			)}
 			<div ref={rootRef} className="space-y-3 [&_input]:!text-[14px]">
 				<MappingSectionLabel />
 				{value.mapping.length === 0 && (

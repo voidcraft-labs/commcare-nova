@@ -2312,7 +2312,7 @@ After submit a frame lands where `engine/frameLanding.ts::screenOfFrame` says:
 the screen of its last menu command (the first menu where it holds none),
 with its selections applied to the menus that supply them, then the form its
 form command names. An entry point refuses a form whose entries are off the
-menu (`entryPointLaunch.ts::moduleEntriesOffTheMenu`). App Tests list and admit
+menu (`lib/domain/menuScreens.ts::moduleEntriesOffTheMenu`). App Tests list and admit
 choices by the same projection.
 
 ## Case-data Server Action wire shape (edge-WAF constraint)

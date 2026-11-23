@@ -9,6 +9,10 @@ import {
 import { declaredCaseRelations } from "@/lib/domain/caseRelations";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
+import {
+	listIconActionIssue,
+	listIconActionSentence,
+} from "../../listIconAction";
 /**
  * App-level validation rules.
  *
@@ -604,10 +608,45 @@ function validCaseRelations(doc: BlueprintDoc): ValidationError[] {
 	return errors;
 }
 
+/** Every case list icon that submits a form names a destination a worker's
+ * tap can run (`listIconAction.ts`). An app rule, since the destination may
+ * be another menu's form, which an edit there can change or remove. */
+function validListIconActions(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
+		if (module === undefined) continue;
+		for (const column of module.caseListConfig?.columns ?? []) {
+			if (column.kind !== "image-map" || column.entryPointUuid === undefined)
+				continue;
+			const issue = listIconActionIssue(doc, module, column);
+			if (issue === undefined) continue;
+			const label = column.header || column.field;
+			errors.push(
+				validationError(
+					"CASE_LIST_ICON_ACTION_INVALID",
+					"module",
+					listIconActionSentence(issue.reason, label, issue.caseType),
+					{ moduleUuid, moduleName: module.name },
+					{
+						reason: issue.reason,
+						columnUuid: column.uuid,
+						columnLabel: label,
+						entryPointUuid: column.entryPointUuid,
+						...(issue.caseType !== undefined && { caseType: issue.caseType }),
+					},
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 export const APP_RULES = [
 	validCaseRelations,
 	authoredXmlText,
 	validEntryPoints,
+	validListIconActions,
 	// A link or a built-in `module` destination that opens through the first
 	// menu with the case every form listed there from a menu above opens.
 	firstMenuSharedCaseFrames,

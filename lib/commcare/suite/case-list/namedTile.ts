@@ -100,13 +100,16 @@ export function buildNamedTileFields(
 				]),
 			]),
 		];
+		// HQ's template follows a cell's template with its column's
+		// `endpoint_action` (`case_tile_templates/icon_text_grid.xml`), and
+		// the sort it adds after comes last (`xml_models.py::Field.ORDER`).
+		const endpoint = child(source.element, "endpoint_action");
+		if (endpoint) children.push(endpoint.cloneNode(true));
 		const sort = sorted.get(value.attribs.function);
 		if (sort) {
 			children.push(sort.sort.cloneNode(true));
 			sorted.delete(value.attribs.function);
 		}
-		const endpoint = child(source.element, "endpoint-action");
-		if (endpoint) children.push(endpoint.cloneNode(true));
 		result.push(el("field", {}, children));
 	}
 	result.push(...[...sorted.values()].map(({ field }) => field));

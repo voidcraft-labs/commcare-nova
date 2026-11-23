@@ -10,6 +10,7 @@
 /** All validation error codes — one per distinct check. */
 export type ValidationErrorCode =
 	| "ENTRY_POINT_INVALID"
+	| "CASE_LIST_ICON_ACTION_INVALID"
 	| "SUITE_ENDPOINT_INVALID"
 	// App-level
 	| "EMPTY_APP_NAME"

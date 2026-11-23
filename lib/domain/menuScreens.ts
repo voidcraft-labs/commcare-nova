@@ -28,7 +28,7 @@ import {
 } from "./entryDatumSupplies";
 import { CASE_LOADING_FORM_TYPES } from "./forms";
 import { menuFormUuidsOf, type PreparedMenuForm } from "./menuForms";
-import { projectedModulePreorder } from "./moduleHierarchy";
+import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
 import {
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
@@ -517,4 +517,29 @@ export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
 		}
 	}
 	return shared !== undefined;
+}
+
+/** Whether a module's form and case list entries are off the menu: a module
+ * whose condition they carry (`menuScreens.ts::conditionModulesOf`, the module
+ * and, where it shows its forms above, its parent) is off the menu, or the
+ * module keeps its screen under a parent that keeps its screen and is off the
+ * menu, so no menu reaches the module's own screen. */
+export function moduleEntriesOffTheMenu(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): boolean {
+	if (
+		conditionModulesOf(doc, moduleUuid).some(
+			(uuid) => doc.modules[uuid]?.hiddenFromMenu === true,
+		)
+	)
+		return true;
+	const parentUuid = moduleParent(doc, moduleUuid);
+	return (
+		moduleHasOwnScreen(doc, moduleUuid) &&
+		parentUuid !== undefined &&
+		parentUuid !== null &&
+		moduleHasOwnScreen(doc, parentUuid) &&
+		doc.modules[parentUuid]?.hiddenFromMenu === true
+	);
 }

@@ -897,6 +897,11 @@ const imageMapEntrySchema = z
 	});
 const imageMapColumnSchema = columnBase.extend({
 	kind: z.literal("image-map"),
+	/** On Results, the deep link of the form a worker's tap on the image
+	 * submits for the tapped case (CommCare's clickable icon). The image stays
+	 * an image on the case detail. `lib/commcare/listIconAction.ts` decides
+	 * which entry points qualify. */
+	entryPointUuid: uuidSchema.optional(),
 	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped images"
@@ -1457,10 +1462,17 @@ export function imageMapColumn(
 	field: string,
 	header: string,
 	mapping: readonly ImageMapEntry[],
-	slots: PropertyColumnSlots = {},
+	slots: PropertyColumnSlots & { readonly entryPointUuid?: Uuid } = {},
 ): Extract<Column, { kind: "image-map" }> {
 	return withPropertySlots(
-		{ uuid, kind: "image-map" as const, field, header, mapping: [...mapping] },
+		{
+			uuid,
+			kind: "image-map" as const,
+			...(slots.entryPointUuid && { entryPointUuid: slots.entryPointUuid }),
+			field,
+			header,
+			mapping: [...mapping],
+		},
 		slots,
 	);
 }

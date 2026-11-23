@@ -1,13 +1,12 @@
 import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	type BlueprintDoc,
-	conditionModulesOf,
+	moduleEntriesOffTheMenu,
 	moduleFormsReadSearch,
 	moduleHasOwnScreen,
 	type Uuid,
 } from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
-import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
@@ -45,31 +44,6 @@ export const ENTRY_POINT_DATA_REFUSAL =
 
 export const FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL =
 	"This form is off the menu, and in Web Apps an entry point opens it only when the entry point ignores display conditions. You can set it to ignore them.";
-
-/** Whether a module's form and case list entries are off the menu: a module
- * whose condition they carry (`menuScreens.ts::conditionModulesOf`, the module
- * and, where it shows its forms above, its parent) is off the menu, or the
- * module keeps its screen under a parent that keeps its screen and is off the
- * menu, so no menu reaches the module's own screen. */
-export function moduleEntriesOffTheMenu(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-): boolean {
-	if (
-		conditionModulesOf(doc, moduleUuid).some(
-			(uuid) => doc.modules[uuid]?.hiddenFromMenu === true,
-		)
-	)
-		return true;
-	const parentUuid = moduleParent(doc, moduleUuid);
-	return (
-		moduleHasOwnScreen(doc, moduleUuid) &&
-		parentUuid !== undefined &&
-		parentUuid !== null &&
-		moduleHasOwnScreen(doc, parentUuid) &&
-		doc.modules[parentUuid]?.hiddenFromMenu === true
-	);
-}
 
 /** Pure admission over one authorized device snapshot. No selection can fall
  * through to ordinary Preview's first-case convenience behavior. */

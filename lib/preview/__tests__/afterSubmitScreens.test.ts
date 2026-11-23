@@ -15,6 +15,7 @@ import {
 	moduleFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
 import type { BlueprintDoc, ResolvedFormLinkTarget } from "@/lib/domain";
+import { moduleEntriesOffTheMenu } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import {
 	afterSubmitRoute,
@@ -27,7 +28,6 @@ import {
 	previousTaskDestination,
 	resolvePreviousTask,
 } from "../engine/previousTask";
-import { moduleEntriesOffTheMenu } from "../entryPointLaunch";
 import { previewCaseFirstModuleUuids } from "../menuProjection";
 
 const PARENT = testUuid("parent");

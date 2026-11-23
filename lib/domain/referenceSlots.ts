@@ -669,6 +669,13 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_icon_action",
+		path: "caseListConfig.columns[].entryPointUuid",
+		kind: "entity-uuid",
+		columnKinds: ["image-map"],
+	},
+	{
+		entity: "module",
 		slot: "case_list_column_field",
 		path: "caseListConfig.columns[].field",
 		kind: "case-property-ref",

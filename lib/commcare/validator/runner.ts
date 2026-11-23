@@ -108,6 +108,9 @@ export interface RunValidationOptions {
  */
 const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"ENTRY_POINT_INVALID",
+	// A case list icon names a form that may sit in another menu, so an edit
+	// there can strand it.
+	"CASE_LIST_ICON_ACTION_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
 	// A child form's entry reads its root menu's first form, so a batch in

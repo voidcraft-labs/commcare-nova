@@ -24,6 +24,7 @@ export type ProjectSpaceCapabilityId =
 	| "calculated-case-order"
 	| "detail-tab-rows"
 	| "case-form-context"
+	| "case-list-icon-actions"
 	| "save-only-edited-answers"
 	| "same-type-child-links";
 
@@ -97,6 +98,13 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		description:
 			"Shows a one-line value from the case while workers fill out a form.",
 	},
+	"case-list-icon-actions": {
+		id: "case-list-icon-actions",
+		label: "Case list icons that submit a form",
+		description:
+			"Lets a worker tap an icon on a case list to submit a form for that case.",
+	},
+
 	"case-tiles": {
 		id: "case-tiles",
 		label: "Case tiles",
@@ -442,6 +450,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"calculated-case-order",
 	"detail-tab-rows",
 	"case-form-context",
+	"case-list-icon-actions",
 	"save-only-edited-answers",
 	"same-type-child-links",
 ]);

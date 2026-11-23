@@ -115,6 +115,7 @@ import {
 	moduleExpressionContexts,
 } from "../../expressionContext";
 import { projectColumnToDetail } from "../../hqJson/caseList";
+import { listIconEndpointId } from "../../listIconAction";
 import { commCareLocalization } from "../../localization";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
@@ -384,6 +385,7 @@ export function buildShortDetail(args: {
 		caseType: mod.caseType,
 		caseTypes,
 		proseDoc: doc,
+		listIconEndpointId: (uuid) => listIconEndpointId(doc, uuid),
 		expressions,
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),

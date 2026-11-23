@@ -716,6 +716,11 @@ function collectModuleConfigReferences(
 				// Entity parentage and the registration form's identity are
 				// unrelated to the case-type catalog.
 				break;
+			case "case_list_icon_action":
+				// An icon names a form's deep link by identity; whether that form
+				// takes the list's cases is the gate's question
+				// (`CASE_LIST_ICON_ACTION_INVALID`), not the catalog's.
+				break;
 			case "module_display_condition": {
 				if (
 					mod.displayCondition &&

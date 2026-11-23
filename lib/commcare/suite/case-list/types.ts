@@ -185,6 +185,9 @@ export interface CaseListEmitContext {
 	/** Owning document used to resolve UUID-backed option-label prose. Wire
 	 * emission fails closed if an authored label identity does not resolve. */
 	readonly proseDoc: ReferenceNamesDoc;
+	/** The entry point id a case list icon's action prints
+	 *  (`listIconAction.ts::listIconEndpointId`). The short detail supplies it. */
+	readonly listIconEndpointId?: (entryPointUuid: Uuid) => string;
 	/**
 	 * The case list's tile layout, when it has one. Present only on the
 	 * SHORT detail, where a placed column emits its

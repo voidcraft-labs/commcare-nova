@@ -1423,13 +1423,44 @@ function templateFormFor(
 		column.kind === "image-map" &&
 		imageMapShowsImages(column, assets !== undefined)
 	) {
-		return "image";
+		// Only the case list runs an icon's action; the case detail keeps the
+		// image (`detail_screen.py::ClickableIcon`).
+		return detailKind === "short" && column.entryPointUuid !== undefined
+			? "clickable-icon"
+			: "image";
 	}
 	if (column.kind === "map-location") return "address";
 	if (column.kind === "map-layer") return CASE_MAP_FORMATS[column.layer].suite;
 	if (column.kind === "link" || column.kind === "formatted-text")
 		return "markdown";
 	return undefined;
+}
+
+/**
+ * The `<endpoint_action>` of a case list icon that submits a form, in the
+ * field after the template as HQ orders it (`xml_models.py::Field.ORDER`).
+ * Web Apps runs it in the background, the form submitting for the tapped case
+ * without the worker leaving the list (`detail_screen.py::EnumImage.action`).
+ */
+function listIconActionElement(
+	column: Column,
+	ctx: CaseListEmitContext,
+): Element | undefined {
+	if (
+		ctx.detailKind !== "short" ||
+		column.kind !== "image-map" ||
+		column.entryPointUuid === undefined ||
+		!imageMapShowsImages(column, ctx.assets !== undefined)
+	)
+		return undefined;
+	if (ctx.listIconEndpointId === undefined)
+		throw new Error(
+			"A case list icon reached a case list emitted without its deep link ids. This is a bug in Nova.",
+		);
+	return el("endpoint_action", {
+		endpoint_id: ctx.listIconEndpointId(column.entryPointUuid),
+		background: "true",
+	});
 }
 
 /**
@@ -1638,6 +1669,8 @@ export function buildColumnField(args: {
 			display.variables,
 		),
 	];
+	const action = listIconActionElement(column, ctx);
+	if (action !== undefined) fieldChildren.push(action);
 	const sortEl = resolveSortElement(column, ctx, () => {
 		// A fresh projection: the sort's variables are elements of their own,
 		// never the template's.

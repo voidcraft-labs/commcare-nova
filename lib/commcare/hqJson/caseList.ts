@@ -113,6 +113,7 @@ import {
 } from "../expressionContext";
 import { caseListStepDatumId } from "../formLinkProjection";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
+import { listIconEndpointId } from "../listIconAction";
 import {
 	type CommCareLocalization,
 	commCareLocalization,
@@ -232,7 +233,8 @@ interface ColumnProjectionContext {
  *     local suite writes and sorts by the mapping position
  *     (`detail_screen.py::Enum`).
  *   - `image-map`: `enum-image` wherever `imageMapShowsImages` holds, the
- *     plain column otherwise.
+ *     plain column otherwise; on Results, an icon that submits a form is
+ *     `clickable-icon` naming that form's entry point.
  *   - `link`: `markdown` over the link expression.
  *   - `interval`: `translatable-enum` over the same expression the suite
  *     writes; CCHQ's stock `time-ago` cannot store Nova's threshold text and
@@ -430,9 +432,21 @@ function projectColumnToDetail(
 			// image column with a manifest and without one.
 			if (!imageMapShowsImages(column, ctx.mediaOn)) return base;
 			const keys = mappingKeys(column.mapping);
+			// Only the case list runs an icon's action, so the case detail
+			// keeps the image (`menus-and-case-lists/16pp-…`).
+			const action =
+				screen === "results" && column.entryPointUuid !== undefined
+					? {
+							format: "clickable-icon" as const,
+							endpoint_action_id: listIconEndpointId(
+								ctx.doc,
+								column.entryPointUuid,
+							),
+						}
+					: { format: "enum-image" as const };
 			return {
 				...base,
-				format: "enum-image",
+				...action,
 				enum: column.mapping.map((entry, index) => ({
 					key: keys[index],
 					...(entry.altText !== undefined && {

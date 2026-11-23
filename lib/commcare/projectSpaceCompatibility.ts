@@ -64,6 +64,7 @@ export type HqPrivateFeatureFlagId =
 	| "case-tiles"
 	| "detail-tab-rows"
 	| "case-form-context"
+	| "case-list-icon-actions"
 	| "custom-case-tiles"
 	| "calculated-case-order"
 	| "save-only-edited-answers"
@@ -94,6 +95,7 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"case-tiles": "CASE_LIST_TILE",
 	"detail-tab-rows": "DETAIL_LIST_TAB_NODESETS",
 	"case-form-context": "SHOW_PERSIST_CASE_CONTEXT_SETTING",
+	"case-list-icon-actions": "CASE_LIST_CLICKABLE_ICON",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
 	"calculated-case-order": "SORT_CALCULATION_IN_CASE_LIST",
 	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
@@ -493,6 +495,16 @@ export function projectSpaceCompatibilityProbePlan(
 				"case-form-context",
 				"A form shows a one-line value from its selected case.",
 			);
+		if (
+			module.caseListConfig?.columns.some(
+				(column) =>
+					column.kind === "image-map" && column.entryPointUuid !== undefined,
+			)
+		)
+			addReason(
+				"case-list-icon-actions",
+				`An icon on the ${module.name} case list submits a form for the tapped case.`,
+			);
 		if (moduleHasCaseTiles(module) || module.caseListConfig?.detailTile) {
 			customTile ||=
 				module.caseListConfig?.detailTile !== undefined ||
@@ -582,6 +594,7 @@ export function projectSpaceCompatibilityProbePlan(
 		["related-case-search", ["related-case-lookups"]],
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
 		["case-form-context", ["case-form-context"]],
+		["case-list-icon-actions", ["case-list-icon-actions"]],
 		["detail-tab-rows", ["detail-tab-rows"]],
 		["commcare-connect", ["commcare-connect"]],
 		["attachment-links", ["attachment-links"]],

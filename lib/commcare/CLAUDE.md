@@ -2480,7 +2480,7 @@ every emitted field stomps the target's value on every republish.
 HQ features the pipeline does not cover yet — the validator's `app`/`module`/`form`/`field` rules gate additions as they land:
 
 - Shadow modules, parent-select cycles
-- Smart links, case list field actions
+- Smart links; a case list icon's destination (see "Case list icon actions" below)
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
@@ -2516,6 +2516,34 @@ compares known XPath slots through the Lezer tree, ignoring only spelling whites
 and quote delimiters while preserving operands, grouping and literal contents.
 Canonical wire formatting therefore does not invalidate an already published endpoint;
 ordinary values and URLs remain exact, and malformed or unknown shapes fail closed.
+
+### Case list icon actions
+
+An image column on Results may name a form's deep link by identity
+(`Column.entryPointUuid`, image-map only): CommCare's clickable icon, which a
+worker taps in Web Apps to submit that form for the tapped case without leaving
+the list. `listIconAction.ts` is the one place that decides it. A destination
+is a form's entry point on a form that requires a chosen case
+(`Form.requires_case`), is reached from the menu or ignores display conditions,
+and takes exactly one argument, a single case of the type the tap passes. The
+tap passes the row's case, a grouped tile's header passes the group's index
+target, and a grouped tile's body is refused, since Web Apps keeps only each
+group's first case and passes it for every body icon (`menus/views.js::iconClick`,
+`CaseTileGroupedListView.initialize`). Android shows the image's path and runs
+nothing, so an app that runs on Android holds none. HQ's Case List editor offers
+only forms whose XForm makes `Pragma-Submit-Automatically` a question's label
+(`views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`);
+that answer comes from `lib/domain/automaticSubmission.ts`, and while Nova has no
+automatic submission no form qualifies and the gate refuses every icon action
+(`CASE_LIST_ICON_ACTION_INVALID`, an app rule, since an edit to another menu's
+form can strand it). The HQ JSON writes the short detail's column as
+`clickable-icon` with the destination's current `endpoint_action_id`; the suite
+writes `template form="clickable-icon"` and `<endpoint_action endpoint_id=…
+background="true"/>` after the template (`xml_models.py::Field.ORDER`), and in a
+named tile after the cell's template as `icon_text_grid.xml` does. The case
+detail keeps the image. The project space needs `CASE_LIST_CLICKABLE_ICON`
+beside the deep links' `SESSION_ENDPOINTS`. The reader still refuses an HQ
+clickable icon as HELD-NEW (`menus-and-case-lists/16-clickable-icon-…`).
 
 ### Manual links into Search
 

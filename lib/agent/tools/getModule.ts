@@ -51,6 +51,7 @@ import { detailTabSpans } from "@/lib/domain/detailTabs";
  */
 
 import type { z } from "zod";
+import { listIconDestinations } from "@/lib/commcare/listIconAction";
 import { advancedKindReasons } from "@/lib/commcare/moduleKind";
 import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
@@ -62,6 +63,7 @@ import type {
 	FormType,
 	MediaAssetId,
 	MenuScreen,
+	Module,
 	ModuleIconRef,
 	SearchWorkflow,
 	Uuid,
@@ -71,6 +73,7 @@ import {
 	caseListRegistrationReturnOf,
 	caseListsOffering,
 	childModuleUuids,
+	entryPointTargetLabel,
 	menuScreenOf,
 	moduleDestination,
 	moduleFormsReadSearch,
@@ -145,6 +148,13 @@ export type GetModuleResult =
 			 *  menu; `kept` when a published app holds it advanced. */
 			advanced: { kept: boolean } | null;
 			case_list_config: CaseListConfig | null;
+			/** For each image column, the deep links (by external ID) of the
+			 *  forms a tap on its icon on Results may submit; present only when
+			 *  some image column has one. */
+			listIconDestinations?: {
+				columnUuid: Uuid;
+				deepLinks: { id: string; form: string }[];
+			}[];
 			/** Visible case-list COLUMN uuids, in the order each screen renders them.
 			 *  A column's `field` is its case property and is a different identity. */
 			results_column_order: Uuid[];
@@ -273,6 +283,7 @@ export const getModuleTool = {
 				hidden_from_menu: mod.hiddenFromMenu === true,
 				advanced: moduleAdvancedRead(doc, moduleUuid),
 				case_list_config: caseListConfig ?? null,
+				...listIconDestinationsRead(doc, mod),
 				...(caseListConfig?.detailTabs && {
 					detail_tabs: (
 						detailTabSpans(caseListConfig.detailTabs, shownDetails) ?? []
@@ -319,3 +330,28 @@ export const getModuleTool = {
 		};
 	},
 };
+
+/** The deep links each image column's icon may name
+ * (`listIconAction.ts::listIconDestinations`), or nothing when no image
+ * column has one. */
+function listIconDestinationsRead(
+	doc: BlueprintDoc,
+	mod: Module,
+): {
+	listIconDestinations?: {
+		columnUuid: Uuid;
+		deepLinks: { id: string; form: string }[];
+	}[];
+} {
+	const read = (mod.caseListConfig?.columns ?? []).flatMap((column) => {
+		if (column.kind !== "image-map") return [];
+		const deepLinks = listIconDestinations(doc, mod, column).map(
+			(destination) => ({
+				id: destination.entryPointId,
+				form: entryPointTargetLabel(doc, destination.target),
+			}),
+		);
+		return deepLinks.length > 0 ? [{ columnUuid: column.uuid, deepLinks }] : [];
+	});
+	return read.length > 0 ? { listIconDestinations: read } : {};
+}

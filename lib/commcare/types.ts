@@ -173,6 +173,10 @@ export type DetailColumnFormat =
 	// (`detail_screen.py::ConditionalEnum`).
 	| "conditional-enum"
 	| "enum-image"
+	// An `enum-image` a worker's tap on a case list runs: it submits the form
+	// whose entry point `endpoint_action_id` names
+	// (`detail_screen.py::ClickableIcon`).
+	| "clickable-icon"
 	| "time-ago"
 	| "late-flag"
 	| "translatable-enum"
@@ -256,9 +260,15 @@ export type DetailColumn<
 		| { useXpathExpression: false; field: string }
 		| { useXpathExpression: true; field: XPath }
 	) &
-	(Format extends "enum-image" | "conditional-enum"
-		? { format: Format; enum: MappingItem<XPath | string>[] }
-		: { format: Format; enum: MappingItem[] });
+	(Format extends "clickable-icon"
+		? {
+				format: Format;
+				enum: MappingItem<XPath | string>[];
+				endpoint_action_id: string;
+			}
+		: Format extends "enum-image" | "conditional-enum"
+			? { format: Format; enum: MappingItem<XPath | string>[] }
+			: { format: Format; enum: MappingItem[] });
 
 /**
  * One sort row of a case-list short detail, CCHQ's `SortElement`

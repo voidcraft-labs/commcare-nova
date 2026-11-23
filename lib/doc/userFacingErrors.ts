@@ -49,6 +49,7 @@
  */
 
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
+import { listIconActionSentence } from "@/lib/commcare/listIconAction";
 import { changedByHqManagedRemedy } from "@/lib/commcare/lookup/hqCellText";
 import { selectSourceManagedRemedy } from "@/lib/commcare/lookup/selectSourceRows";
 import { unrepresentableManagedRemedy } from "@/lib/commcare/lookup/xmlText";
@@ -1005,6 +1006,18 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
 		`${q(formName(e))} assigns new cases to one particular place, and the exported rule names that place by Nova's own id, which CommCare HQ doesn't recognize, so the rule would match nobody. Assign to a place beneath the current case owner instead, or remove this owner rule.`,
+	CASE_LIST_ICON_ACTION_INVALID: (e) => {
+		const reason = e.details?.reason;
+		return listIconActionSentence(
+			reason === "android" ||
+				reason === "not-on-results" ||
+				reason === "grouped-body"
+				? reason
+				: "no-destination",
+			e.details?.columnLabel,
+			e.details?.caseType,
+		);
+	},
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
 			case "duplicate-id":
