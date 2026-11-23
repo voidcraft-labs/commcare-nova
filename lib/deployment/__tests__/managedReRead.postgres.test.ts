@@ -12,10 +12,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { decrypt } from "@/lib/commcare/encryption";
+import { toHqFixtureRow } from "@/lib/commcare/hq/lookupTables";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { getLookupTable } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
-import { canonicalLookupTable } from "../hqResourceBaseline";
+import {
+	canonicalLookupObservation,
+	canonicalLookupTable,
+	streamingLookupRowsDigest,
+} from "../hqResourceBaseline";
 import {
 	isAccountRefusal,
 	type ManagedTablesReRead,
@@ -83,14 +88,123 @@ async function seed(): Promise<void> {
 	await connect(h, ACTOR, "india", ["clinic", "district"]);
 }
 
-function reRead(copies: readonly ManagedCopy[]) {
+function reRead(
+	copies: readonly ManagedCopy[],
+	checkAccess?: () => Promise<void>,
+) {
 	return reReadManagedTablesForPublish({
 		requireHqImport: null,
 		access: ACCESS,
 		doc: readerOf(copies),
 		target: TARGET,
 		creds: CREDS,
+		...(checkAccess === undefined ? {} : { checkAccess }),
 	});
+}
+
+/** More rows than one inline read takes, so only a paged read compares them. */
+const PAGED_ROWS = 5_001;
+const PAGE = 1_000;
+
+/** `facilities`' rows past one inline read, as `FixtureResource` lists them, `changed` naming one row's name differently. */
+function pagedRows(changed?: number) {
+	return Array.from({ length: PAGED_ROWS }, (_, index) => ({
+		id: index.toString(16).padStart(32, "0"),
+		fixture_type: facilities.tag,
+		fields: {
+			code: String(index),
+			name: index === changed ? "Moved" : `Clinic ${index}`,
+		},
+	}));
+}
+
+/**
+ * Serve `objects` in pages of `PAGE`, and the table's definition, as CommCare
+ * HQ answers a paged read of a table; each fixture page read is counted.
+ */
+function servePaged(
+	peer: Parameters<Parameters<typeof withHttpPeer>[0]>[0],
+	objects: readonly object[],
+): { readonly pages: () => number } {
+	const host = peer.get("https://india.commcarehq.org");
+	const headers = { authorization: "ApiKey account:fixture-key" };
+	host
+		.intercept({
+			path: `/a/clinic/api/lookup_table/v1/${facilities.id}/`,
+			method: "GET",
+			headers,
+		})
+		.reply(200, {
+			id: facilities.id,
+			tag: facilities.tag,
+			is_global: true,
+			fields: facilities.fields.map((field) => ({
+				field_name: field,
+				properties: [],
+			})),
+		})
+		.persist();
+	let pages = 0;
+	for (let offset = 0; offset < objects.length; offset += PAGE) {
+		const end = Math.min(offset + PAGE, objects.length);
+		host
+			.intercept({
+				path: `/a/clinic/api/fixture/v1/?fixture_type_id=${facilities.id}${offset === 0 ? "" : `&offset=${offset}`}`,
+				method: "GET",
+				headers,
+			})
+			.reply(() => {
+				pages += 1;
+				return {
+					statusCode: 200,
+					data: JSON.stringify({
+						meta: {
+							offset,
+							total_count: objects.length,
+							next: end < objects.length ? "more" : null,
+						},
+						objects: objects.slice(offset, end),
+					}),
+				};
+			})
+			.persist();
+	}
+	return { pages: () => pages };
+}
+
+/**
+ * Store as the copy's digest what a paged refresh stores for `objects`
+ * (`managedInventory.ts`: `canonicalLookupObservation` over the streamed rows).
+ */
+async function storePagedDigest(
+	copy: ManagedCopy,
+	objects: readonly unknown[],
+) {
+	const rows = streamingLookupRowsDigest();
+	for (const raw of objects) {
+		const row = toHqFixtureRow(raw, facilities.tag);
+		if (row === null) throw new Error("A served row must read as a row.");
+		rows.row(row);
+	}
+	const { count, digest } = rows.finish();
+	const stored = await h
+		.db()
+		.selectFrom("lookup_tables")
+		.select("hq_canonical")
+		.where("id", "=", copy.tableId)
+		.executeTakeFirstOrThrow();
+	await h
+		.db()
+		.updateTable("lookup_tables")
+		.set({
+			hq_canonical: JSON.stringify({
+				...(stored.hq_canonical as object),
+				digest: canonicalLookupObservation(hqTableOf(facilities), count, digest)
+					.digest,
+			}),
+		})
+		.where("id", "=", copy.tableId)
+		.execute();
 }
 
 function readOf(
@@ -298,6 +412,53 @@ describe("a table managed in the target", () => {
 					meta: { next: "more", offset: 0, total_count: 5_001 },
 				});
 			return readOf(await reRead([copy]));
+		});
+		expect(result.blocking).toEqual([
+			{
+				tag: "facilities",
+				name: "facilities",
+				changes: [{ kind: "past-inline-read" }],
+			},
+		]);
+	});
+
+	it("passes a table past one inline read that is still the copy's table, compared page by page under the publisher's check", async () => {
+		/* The plausible failure: the paged compare is never reached (the check
+		 * not handed in, or the paged arm broken), or its digest differs from
+		 * what a paged refresh stores, and every publish stops as if the
+		 * table changed. */
+		await seed();
+		const copy = await makeManagedCopy(h, LOOKUP, facilities, TARGET);
+		const served = pagedRows();
+		await storePagedDigest(copy, served);
+		const before = await rowsOf(copy);
+		let checks = 0;
+		const { result, pages } = await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [facilities]);
+			const paged = servePaged(peer, served);
+			const answer = readOf(
+				await reRead([copy], async () => {
+					checks += 1;
+				}),
+			);
+			return { result: answer, pages: paged.pages() };
+		});
+		expect(result).toMatchObject({ blocking: [], refreshed: [], stale: [] });
+		expect(await rowsOf(copy)).toEqual(before);
+		/* One inline look at the first page, then each paged page read only
+		 * after the publisher's check passed. */
+		expect(checks).toBeGreaterThan(0);
+		expect(checks).toBe(pages - 1);
+	});
+
+	it("stops on a table past one inline read whose rows changed since the copy took it", async () => {
+		await seed();
+		const copy = await makeManagedCopy(h, LOOKUP, facilities, TARGET);
+		await storePagedDigest(copy, pagedRows());
+		const result = await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [facilities]);
+			servePaged(peer, pagedRows(4_321));
+			return readOf(await reRead([copy], async () => {}));
 		});
 		expect(result.blocking).toEqual([
 			{
