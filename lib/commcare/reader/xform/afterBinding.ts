@@ -1200,10 +1200,13 @@ function recordHiddenAnswerSpellings(
 			emittedHiddenBind(doc, stored) === spelling
 		)
 			continue;
+		// Inside a form's source a place names its data root `data`, whatever
+		// the form calls it (`firstPublishPlaces.ts::FIRST_PUBLISH_PLACE_KINDS`,
+		// `proof/checks/xform_parts.py::DATA`).
 		const steps = [
 			"_attachments",
 			`${readId ?? form.xmlns}.xml`,
-			xform.parsed.dataRoot.name,
+			"data",
 			...field.node.path,
 			":bind",
 			"@type",
