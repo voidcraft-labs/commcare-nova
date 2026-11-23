@@ -86,12 +86,11 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
         app_id = _created(unit, export)
         held = hqside.save(unit, _ops(unit), app_id, saves)
         assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
-        assert saves["republish"] == "discards"
+        assert saves["republish"] == "proceeds"
 
         def kept(app):
             return {
                 "home.start": app.translations["en"].get("home.start"),
-                "auto_gps_capture": app.auto_gps_capture,
                 "add_ons": {slug: app.add_ons.get(slug) for slug in saves["addOns"]},
                 "properties": {key: app.profile["properties"].get(key) for key in saves["profileProperties"]},
                 "build_profiles": {key: list(profile.langs) for key, profile in app.build_profiles.items()},
@@ -99,7 +98,6 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
 
         saved = {
             "home.start": saves["uiTranslations"]["en"]["home.start"],
-            "auto_gps_capture": True,
             "add_ons": saves["addOns"],
             "properties": saves["profileProperties"],
             "build_profiles": {"mandarin-only": ["zho"]},
@@ -108,7 +106,7 @@ def test_a_persons_saves_land_in_hq_and_novas_next_publish_keeps_them(hq, core_r
 
         refusal, lookups = publish.update(unit, app_id, export.republish, "B")
         assert _landed(refusal, lookups), (refusal, lookups)
-        assert kept(operations.held_app(unit, app_id)) == {**saved, "auto_gps_capture": False}
+        assert kept(operations.held_app(unit, app_id)) == saved
 
 
 def test_a_form_keeps_its_independent_location_choice_after_the_app_switch_is_cleared(hq, core_runner):

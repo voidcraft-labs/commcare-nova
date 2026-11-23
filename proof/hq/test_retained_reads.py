@@ -463,7 +463,7 @@ def test_the_drift_reads_nova_is_served_are_hqs_own(hq, core_runner, documents):
 
     made = {group.group: group.made for group in groups}
     assert set(made["case-list-inline"]) >= {"app-source-after-media"}
-    assert {"app-source-after-uiTranslations", "app-source-after-appAttributes"} <= set(made["targeted-hq-side-state"])
+    assert {"app-source-after-uiTranslations", "app-source-after-addOns"} <= set(made["targeted-hq-side-state"])
     assert {"lookup-tables", "app-source-after-lookupTable"} <= set(made["targeted-hq-side-lookup"])
     for group in (*groups, hq_built, shell):
         group.hold(READS / group.group, others=_editors_file)
