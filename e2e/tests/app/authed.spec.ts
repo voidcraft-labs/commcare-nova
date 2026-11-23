@@ -1294,10 +1294,12 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 
 		// Results reads in the worker-facing order: how many cases move into a
-		// form, which registration form the list offers, what each row says,
-		// which cases may appear, then how the matching rows are ordered.
+		// form and the list's own words beside it, which registration form the
+		// list offers, what each row says, which cases may appear, then how the
+		// matching rows are ordered.
 		await expect(page.locator("[data-case-list-layout] h2")).toHaveText([
 			"Case selection",
+			"List wording",
 			"Register from this list",
 			"Information shown",
 			"Cases available",
