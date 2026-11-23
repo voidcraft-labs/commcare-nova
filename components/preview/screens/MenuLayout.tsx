@@ -14,6 +14,7 @@ import {
 	type MenuScreen,
 	menuScreenLayout,
 } from "@/lib/domain";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import { usePreviewPlatform } from "@/lib/session/hooks";
 
 const MenuAudio = createContext<"hidden" | "control" | "hold">("hidden");
@@ -35,7 +36,7 @@ export function PreviewMenuChoices({
 			value={
 				layout === "list"
 					? "control"
-					: platform === "android"
+					: previewPlatformRules(platform).gridMenuAudio === "hold"
 						? "hold"
 						: "hidden"
 			}

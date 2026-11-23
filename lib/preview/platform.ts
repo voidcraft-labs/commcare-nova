@@ -388,6 +388,12 @@ export interface PreviewPlatformRules {
 	 *  UTF-16 units (`shortened`): `999+` where `Integer.parseInt` reads it,
 	 *  else its first three units and `..`. */
 	readonly menuBadge: "whole" | "shortened";
+	/** A grid tile's spoken label. Web Apps draws a grid with its own
+	 *  template, which has no audio control (`menus/views.js` chooses the grid
+	 *  template before the audio one); Android plays it when the worker holds
+	 *  the tile (`MenuGrid.onItemLongClick` prepares and starts a
+	 *  `MediaPlayer`). A list row offers its audio on both. */
+	readonly gridMenuAudio: "none" | "hold";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -460,6 +466,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		}),
 		caseListReturn: Object.freeze({ back: "address", search: "keeps-sort" }),
 		menuBadge: "whole",
+		gridMenuAudio: "none",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -528,6 +535,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		}),
 		caseListReturn: Object.freeze({ back: "new-list", search: "new-list" }),
 		menuBadge: "shortened",
+		gridMenuAudio: "hold",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 

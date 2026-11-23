@@ -1287,8 +1287,13 @@ function readMenuSettings(
 	if (module.docType === "Module") {
 		if (stored.lazy_load_case_list_fields === true)
 			json.refuse("lazy_load_case_list_fields", MENU.lazyLoad);
-		const style = sourceModuleMenuLayout(json.peek("display_style"));
-		if (style === "unreadable") {
+		/* HQ stores `list` on every basic menu: only another value is a use. */
+		const style = json.used("display_style")
+			? sourceModuleMenuLayout(json.peek("display_style"))
+			: "list";
+		if (style === "list") {
+			// Nothing to hold: the menu contributes a list, as the document's default does.
+		} else if (style === "unreadable") {
 			json.refuse("display_style", MENU.invalidDisplayStyle);
 		} else {
 			const grid = json.take(
