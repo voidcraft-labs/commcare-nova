@@ -15,6 +15,7 @@ import { rootSelectionAlignment } from "./entryDatumSupplies";
 import { effectiveFilterForEmission } from "./expression/simplify";
 import { substituteUnansweredSearchInputs } from "./expression/walk";
 import { operationCaseType } from "./forms";
+import { menuWithInheritedCaseSettings } from "./listedForms";
 import {
 	caseSelectionCardinality,
 	moduleFormsReadSearch,
@@ -444,8 +445,11 @@ export function advancedKindBlockers(
 	if (module.parentCaseModuleUuid !== undefined) {
 		const chain = parentSelectionChain(doc, moduleUuid);
 		for (let i = 1; i < chain.length; i++) {
-			const parentType = doc.modules[chain[i - 1]]?.caseType;
-			const childType = doc.modules[chain[i]]?.caseType;
+			const parentType = menuWithInheritedCaseSettings(
+				doc,
+				chain[i - 1],
+			)?.caseType;
+			const childType = menuWithInheritedCaseSettings(doc, chain[i])?.caseType;
 			if (parentType === undefined || childType === undefined) continue;
 			const index = advancedChainIndex(doc, childType, parentType);
 			if (index.kind === "several") {

@@ -710,8 +710,10 @@ export function previewMenuCaseContext(
 		};
 	}
 	const caseParentModuleUuid = mod.parentCaseModuleUuid;
+	// The menu a selection names may list another menu's forms, and so hold
+	// its case type only through that source (`menuWithInheritedCaseSettings`).
 	const parentCaseType = caseParentModuleUuid
-		? doc.modules[caseParentModuleUuid]?.caseType
+		? menuWithInheritedCaseSettings(doc, caseParentModuleUuid)?.caseType
 		: undefined;
 	if (!parentCaseType) {
 		return {
