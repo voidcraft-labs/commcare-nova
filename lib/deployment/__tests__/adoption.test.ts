@@ -765,9 +765,12 @@ describe("adoptedAppBaselineWrite", () => {
 	});
 
 	it("owns the needed add-ons and the two settings Nova always writes, and no custom profile property", () => {
+		/* The Android apps workers need are authored in Nova, which writes
+		 * or removes `profile.features.dependencies` on every publish. */
 		expect(baselineFor(PLAIN).ownership).toEqual({
 			addOns: ["display_conditions"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: false,
 		});
@@ -781,6 +784,7 @@ describe("adoptedAppBaselineWrite", () => {
 		expect(baselineFor(connect).ownership).toEqual({
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
 		});
