@@ -751,9 +751,9 @@ describe("HQ's reads after its own saves", () => {
 
 	/* Each save a document's `hq-side.json` names, made over Nova's first
 	 * publish in a fork of its own: a UI translation is the target's own key,
-	 * which the next publish carries back; the location capture on an app that
-	 * is not a Connect app, two add-ons the app does not need and a profile
-	 * setting Nova does not own are HQ's, which the publish leaves as they are;
+	 * which the next publish carries back; two add-ons the app does not need
+	 * and a profile setting Nova does not own are HQ's, which the publish
+	 * leaves as they are;
 	 * and a build profile and a lookup table's upload touch nothing of the app
 	 * Nova compares. */
 	const HQ_SIDE_SAVES: readonly [
@@ -762,7 +762,6 @@ describe("HQ's reads after its own saves", () => {
 		readonly AppChangePart["kind"][],
 	][] = [
 		["targeted-hq-side-state", "uiTranslations", []],
-		["targeted-hq-side-state", "appAttributes", []],
 		["targeted-hq-side-state", "buildProfiles", []],
 		["targeted-hq-side-state", "addOns", []],
 		["targeted-hq-side-state", "profileProperties", []],
