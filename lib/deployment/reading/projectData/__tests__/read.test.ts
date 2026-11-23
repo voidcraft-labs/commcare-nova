@@ -175,7 +175,7 @@ describe("readReadingProjectData", () => {
 		).toHaveLength(2);
 		expect(proto.findings).toEqual([]);
 		expect(proto.read.rows).toEqual([]);
-		expect(proto.read.canonical.source.inventory).toBe("unavailable");
+		expect(proto.read.canonical.source?.inventory).toBe("unavailable");
 	});
 
 	it("reads only the rows reached by the form's local alias, even when prose, a declaration, or a longer tag mentions another table", async () => {
@@ -222,7 +222,7 @@ describe("readReadingProjectData", () => {
 			 * its source (section 1B), never as rows every worker gets. */
 			expect(remote.findings).toEqual([]);
 			if (remote.read.kind !== "read") throw new Error("not read");
-			expect(remote.read.canonical.source.distribution).toBe("assigned");
+			expect(remote.read.canonical.source?.distribution).toBe("assigned");
 			expect(
 				peer
 					.getCallHistory()
