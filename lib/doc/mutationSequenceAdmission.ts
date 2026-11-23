@@ -1096,7 +1096,23 @@ export function mutationSequenceAdmissionIssue(
 				}
 				break;
 			}
-			case "setCaseProperty":
+			case "moveCaseProperty": {
+				const order = state.casePropertyOrder.get(mutation.caseType);
+				if (!order || !place(order, mutation.property, mutation.after, true))
+					return issue(
+						mutation,
+						mutationIndex,
+						`case type ${mutation.caseType} properties`,
+						mutation.after,
+					);
+				break;
+			}
+			case "setCaseProperty": {
+				const order = state.casePropertyOrder.get(mutation.caseType);
+				if (order && !order.includes(mutation.property.name))
+					order.push(mutation.property.name);
+				break;
+			}
 			case "setCaseTypeMeta":
 				break;
 			case "removeCaseProperty":

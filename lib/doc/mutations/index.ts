@@ -89,6 +89,7 @@ function dispatchMutation(
 		case "retireCaseType":
 		case "addCaseProperty":
 		case "setCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
 			applyAppMutation(draft, mut);

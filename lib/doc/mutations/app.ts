@@ -7,6 +7,7 @@ import {
 	effectiveAppLocalization,
 	languageTag,
 } from "@/lib/domain";
+import { compareCaseRelations } from "@/lib/domain/caseRelations";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 
 /**
@@ -43,6 +44,7 @@ export function applyAppMutation(
 				| "retireCaseType"
 				| "addCaseProperty"
 				| "setCaseProperty"
+				| "moveCaseProperty"
 				| "removeCaseProperty"
 				| "setCaseTypeMeta";
 		}
@@ -224,6 +226,20 @@ export function applyAppMutation(
 			else ct.properties[idx] = property;
 			return;
 		}
+		case "moveCaseProperty": {
+			const ct = findCaseType(draft, mut.caseType);
+			if (!ct || mut.property === mut.after) return;
+			const from = ct.properties.findIndex((p) => p.name === mut.property);
+			const anchor =
+				mut.after === null
+					? -1
+					: ct.properties.findIndex((p) => p.name === mut.after);
+			if (from < 0 || (mut.after !== null && anchor < 0)) return;
+			const [property] = ct.properties.splice(from, 1);
+			if (property)
+				ct.properties.splice(anchor < from ? anchor + 1 : anchor, 0, property);
+			return;
+		}
 		case "removeCaseProperty": {
 			const ct = findCaseType(draft, mut.caseType);
 			if (!ct) return;
@@ -244,6 +260,25 @@ export function applyAppMutation(
 			if (mut.relationship !== undefined) {
 				if (mut.relationship === null) delete ct.relationship;
 				else ct.relationship = mut.relationship;
+			}
+			if (mut.relationChange !== undefined) {
+				const { action, edge } = mut.relationChange;
+				const defaultMatches =
+					edge.identifier === "parent" &&
+					ct.parent_type === edge.targetType &&
+					(ct.relationship ?? "child") === edge.relationship;
+				if (defaultMatches && action === "remove") {
+					delete ct.parent_type;
+					delete ct.relationship;
+				}
+				if (defaultMatches && action === "add") return;
+				const relations = (ct.relations ?? []).filter(
+					(one) => compareCaseRelations(one, edge) !== 0,
+				);
+				if (action === "add") relations.push({ ...edge });
+				if (relations.length)
+					ct.relations = relations.sort(compareCaseRelations);
+				else delete ct.relations;
 			}
 			return;
 		}

@@ -265,19 +265,19 @@ deletion, and Project moves. Schemas, admission, and editor
 projections retain and validate the complete definition; no validator,
 `lib/doc`, or component reads either.
 
-A property column (every kind but `calculated`) may hold `via`, the walk to
-the case whose property it shows (`modules.ts::columnViaSchema`): `parent`
-reaches the catalog's parent type and names none, any other index names the
-type it reaches. `columnRelation.ts::columnPropertyCaseType` is the one reader
-of the type a column's `field` belongs to, so the validator, the reference
-index, renames, the emitters, the order plan and Preview all read a related
-column's property on that type; `modules.ts::columnFieldText` is its field as
-CommCare HQ stores it, the indices and the property joined by `/`. The gate
-refuses a walk that reaches no single type, a `parent` step that names a type,
-a first step `user`, a step whose name does not start with a letter (HQ's
-field grammar, `lib/commcare/suite/wire.ts::isHqDetailField`, which its build
-holds a sort element to and its Case List page a column to) and a related
-column in a list that offers Search (`CASE_LIST_COLUMN_RELATION_INVALID`).
+A property column may hold `via`, the ordered names of the case indices it
+follows. The native detail follows each ID without applying a case-type
+predicate. `appCaseRelationCatalog` collects stored case links, form writers,
+typed reads and parent menus. `columnPropertyScope` returns every known
+destination and whether a hop can reach an unknown case. A unique destination
+supplies its property labels and options. An open link can read an existing
+property by its stored name. A missing row or property reads blank.
+`columnPropertyBindings` supplies dependencies for simultaneous renames,
+including declared owners of the same name in an open scope. A rename needs
+one spelling over all destinations, including the original spelling for
+unknown rows. The first link cannot be `user`, which HQ gives a different
+meaning. The Search result detail and the device case detail each follow
+links in their own instance.
 
 Default order can use a column's own value or an independent calculation in
 `caseListConfig.calculatedSorts`. Each calculation has its own UUID, checked

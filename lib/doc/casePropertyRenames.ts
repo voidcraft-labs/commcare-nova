@@ -1,5 +1,6 @@
 import type { Draft } from "immer";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import type { PropertyColumn, Uuid } from "@/lib/domain";
 import {
 	type Automation,
 	type AutomationContent,
@@ -12,8 +13,15 @@ import {
 	mapCasePropertiesInProse,
 	materializableCaseTypes,
 } from "@/lib/domain";
+import { caseTypesWithRelations } from "@/lib/domain/appCaseRelations";
+import {
+	columnPropertyBindings,
+	reachedPropertyRename,
+} from "@/lib/domain/columnRelation";
 import { mapCasePropertiesInExpression } from "@/lib/domain/expression/rewrite";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import {
 	rewriteFieldReferenceSlots,
 	rewriteFormReferenceSlots,
@@ -29,7 +37,8 @@ export type CasePropertyRenamePlanIssueReason =
 	| "duplicate-destination"
 	| "standard-scalar-property"
 	| "source-missing"
-	| "occupied-destination";
+	| "occupied-destination"
+	| "related-read-changes-meaning";
 
 export interface CasePropertyRenamePlanIssue {
 	readonly mutationIndex: 0;
@@ -38,12 +47,15 @@ export interface CasePropertyRenamePlanIssue {
 	readonly from: string;
 	readonly to: string;
 	readonly reason: CasePropertyRenamePlanIssueReason;
+	readonly dependent?: string;
 }
 
 export class CasePropertyRenamePlanError extends Error {
 	constructor(readonly issue: CasePropertyRenamePlanIssue) {
 		super(
-			`The case-property rename does not define one lossless partial bijection (${issue.reason}).`,
+			issue.dependent
+				? `Renaming ${issue.from} would change ${issue.dependent}. Choose which linked cases it should read before renaming the property.`
+				: `The case-property rename does not define one lossless partial bijection (${issue.reason}).`,
 		);
 		this.name = "CasePropertyRenamePlanError";
 	}
@@ -144,6 +156,74 @@ export function planCasePropertyRenames(
 		}
 	}
 
+	const relations = caseTypesWithRelations(doc);
+	const newName = (type: string, field: string) => {
+		const index = sources.get(pairKey(type, field));
+		return index === undefined ? undefined : mutation.renames[index]?.to;
+	};
+	const affected = (
+		column: Pick<PropertyColumn, "via" | "field">,
+		origin: string,
+		dependent: string,
+	): CasePropertyRenamePlanIssue | undefined => {
+		if (!reachedPropertyRename(column, origin, relations, newName).conflict)
+			return undefined;
+		for (const type of columnPropertyBindings(column, origin, relations)) {
+			const index = sources.get(pairKey(type, column.field));
+			if (index !== undefined)
+				return {
+					...issue(
+						mutation.renames[index],
+						index,
+						"related-read-changes-meaning",
+					).issue,
+					dependent,
+				};
+		}
+		return undefined;
+	};
+	for (const module of Object.values(doc.modules)) {
+		if (module.caseType === undefined) continue;
+		for (const col of module.caseListConfig?.columns ?? []) {
+			if (col.kind === "calculated" || col.via === undefined) continue;
+			const conflict = affected(
+				col,
+				module.caseType,
+				`the ${col.via.map((step) => step.identifier).join(" → ")} → ${col.field} column in ${module.name}`,
+			);
+			if (conflict !== undefined) return { ok: false, issue: conflict };
+		}
+	}
+	for (const [entity, owners] of [
+		["field", doc.fields],
+		["form", doc.forms],
+		["module", doc.modules],
+	] as const) {
+		for (const [id, owner] of Object.entries(owners)) {
+			for (const slot of expressionSlotValues(doc, {
+				entity,
+				uuid: id as Uuid,
+			})) {
+				let conflict: CasePropertyRenamePlanIssue | undefined;
+				walkExpressionTerms(slot.expression, (term) => {
+					if (
+						!conflict &&
+						term.kind === "prop" &&
+						term.readReached &&
+						term.caseType !== undefined &&
+						term.via?.kind === "ancestor"
+					)
+						conflict = affected(
+							{ field: term.property, via: term.via.via },
+							term.caseType,
+							`the ${term.property} read in ${"name" in owner ? owner.name : owner.id}`,
+						);
+				});
+				if (conflict !== undefined) return { ok: false, issue: conflict };
+			}
+		}
+	}
+
 	return {
 		ok: true,
 		plan: {
@@ -200,13 +280,14 @@ export function rewriteCasePropertyCarriers(
 	doc: BlueprintDoc,
 	resolve: (caseType: string, property: string) => string | undefined,
 ): void {
+	const relationTypes = caseTypesWithRelations(doc);
 	const translationUnitsBefore = new Map(
 		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 	);
 	for (const field of Object.values(doc.fields)) {
 		rewriteFieldReferenceSlots(field, {
 			resolveCaseProperty: resolve,
-			caseTypes: doc.caseTypes ?? [],
+			caseTypes: relationTypes,
 		});
 	}
 	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
@@ -216,13 +297,13 @@ export function rewriteCasePropertyCarriers(
 			if (form === undefined) continue;
 			rewriteFormReferenceSlots(form, {
 				resolveCaseProperty: resolve,
-				caseTypes: doc.caseTypes ?? [],
+				caseTypes: relationTypes,
 				...(moduleCaseType !== undefined && { moduleCaseType }),
 			});
 		}
 	}
 	for (const module of Object.values(doc.modules)) {
-		rewriteModuleCaseRefs(module, resolve, doc.caseTypes ?? []);
+		rewriteModuleCaseRefs(module, resolve, relationTypes);
 	}
 	for (const automation of Object.values(doc.automations ?? {})) {
 		rewriteAutomationCaseProperties(doc, automation, resolve);

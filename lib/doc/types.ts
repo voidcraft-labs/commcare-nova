@@ -71,6 +71,7 @@ import {
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseRelationSchema } from "@/lib/domain/caseRelations";
 import {
 	entryPointIdSchema,
 	entryPointTargetSchema,
@@ -1381,12 +1382,24 @@ function createMutationSchema({
 			property: casePropertySchema,
 		}),
 		z.object({
+			kind: z.literal("moveCaseProperty"),
+			caseType: z.string(),
+			property: authoredCasePropertyNameSchema,
+			after: authoredCasePropertyNameSchema.nullable(),
+		}),
+		z.object({
 			kind: z.literal("removeCaseProperty"),
 			caseType: z.string(),
 			property: authoredCasePropertyNameSchema,
 		}),
 		z.object({
 			kind: z.literal("setCaseTypeMeta"),
+			relationChange: z
+				.strictObject({
+					action: z.enum(["add", "remove"]),
+					edge: caseRelationSchema,
+				})
+				.optional(),
 			caseType: z.string(),
 			parent_type: z.string().nullable().optional(),
 			relationship: z.enum(["child", "extension"]).nullable().optional(),

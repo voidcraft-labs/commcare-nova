@@ -34,7 +34,10 @@
 
 import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
-import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import {
+	authoredCasePropertyNameSchema,
+	readCasePropertyNameSchema,
+} from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
 import { entryPointSchema } from "./entryPoints";
@@ -630,7 +633,7 @@ export type ColumnVia = [RelationStep, ...RelationStep[]];
 
 /** The slot every property-backed column kind carries beside its `field`. */
 const propertyColumnSlots = {
-	field: authoredCasePropertyNameSchema,
+	field: readCasePropertyNameSchema,
 	/** Shows `field` of the case these indices reach rather than the list's own. */
 	via: columnViaSchema.optional(),
 };

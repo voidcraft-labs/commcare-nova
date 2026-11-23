@@ -3,8 +3,10 @@ import { z } from "zod";
 import {
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
 	authoredCasePropertyNameSchema,
+	readCasePropertyNameSchema,
 } from "../casePropertyName";
 import { casePropertyDataTypeSchema } from "../casePropertyTypes";
+import { caseIndexNameSchema } from "../caseRelations";
 import { externalUserPropertyNameSchema } from "../externalUserProperty";
 import {
 	persistableJsonNumberSchema,
@@ -33,9 +35,8 @@ export const CASE_TYPE_PATTERN = /^[A-Za-z0-9_-]+$/;
 export const CASE_PROPERTY_PATTERN = AUTHORED_CASE_PROPERTY_NAME_PATTERN;
 export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 export const caseTypeNameSchema = z.string().regex(CASE_TYPE_PATTERN);
-const xmlNameSchema = z.string().regex(XML_ELEMENT_NAME_PATTERN);
 export const relationStepSchema = z.strictObject({
-	identifier: xmlNameSchema,
+	identifier: caseIndexNameSchema,
 	throughCaseType: caseTypeNameSchema.optional(),
 });
 export type RelationStep = z.infer<typeof relationStepSchema>;
@@ -47,12 +48,12 @@ export const relationPathSchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({
 		kind: z.literal("subcase"),
-		identifier: xmlNameSchema,
+		identifier: caseIndexNameSchema,
 		ofCaseType: caseTypeNameSchema.optional(),
 	}),
 	z.strictObject({
 		kind: z.literal("any-relation"),
-		identifier: xmlNameSchema,
+		identifier: caseIndexNameSchema,
 		ofCaseType: caseTypeNameSchema.optional(),
 	}),
 ]);
@@ -61,14 +62,27 @@ export const propertyRefSchema = z
 	.strictObject({
 		kind: z.literal("prop"),
 		caseType: caseTypeNameSchema.optional(),
-		property: authoredCasePropertyNameSchema,
+		property: readCasePropertyNameSchema,
 		via: relationPathSchema.optional(),
+		/** A native property column reads the actual reached row, including an
+		 * existing case of a type no writer in the app declares. */
+		readReached: z.literal(true).optional(),
 	})
 	.refine(
 		(v) => v.caseType !== undefined || isStandardCaseListProperty(v.property),
 		{
 			message: "A custom property read needs its record type.",
 			path: ["caseType"],
+		},
+	)
+	.refine(
+		(value) =>
+			value.readReached !== true ||
+			(value.caseType !== undefined && value.via?.kind === "ancestor"),
+		{
+			message:
+				"A reached property needs its starting record type and a link path.",
+			path: ["via"],
 		},
 	);
 export type PropertyRef = z.infer<typeof propertyRefSchema>;
@@ -372,7 +386,7 @@ export type CaseRowTypeTerm = z.infer<typeof caseRowTypeTermSchema>;
 export const caseIndexTermSchema = z.strictObject({
 	kind: z.literal("case-index"),
 	caseType: caseTypeNameSchema.optional(),
-	identifier: xmlNameSchema,
+	identifier: caseIndexNameSchema,
 });
 export type CaseIndexTerm = z.infer<typeof caseIndexTermSchema>;
 export const sessionDatumTermSchema = z.strictObject({

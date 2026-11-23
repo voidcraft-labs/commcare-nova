@@ -1028,6 +1028,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} needs a compatible parent list. Choose a module for its parent record type, or turn off parent selection.`,
 	CASE_PARENT_SELECTION_CONFLICT: (e) =>
 		`${q(modName(e))} would reuse a different parent selected in its containing menu. Choose that containing module as the parent selector, or move this module out of the submenu.`,
+	CASE_RELATION_INVALID: (e) => {
+		const link = det(e, "identifier", "related case");
+		return e.details?.reason === "duplicate"
+			? `The ${q(link)} link appears twice with the same case type and relationship. You can keep one copy.`
+			: `The ${q(link)} link needs a case type in this app. You can choose a related case type or remove the link.`;
+	},
 	NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,
 	CASE_LIST_MENU_ITEM_NO_CASE_TYPE: (e) =>

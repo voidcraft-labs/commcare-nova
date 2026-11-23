@@ -296,6 +296,13 @@ function findCaseTypeReferences(
 	const references: RetirementReference[] = [];
 
 	for (const ct of doc.caseTypes ?? []) {
+		for (const edge of ct.relations ?? [])
+			if (ct.name !== caseType && edge.targetType === caseType)
+				references.push(
+					sameRef(
+						`case type "${ct.name}" uses the "${edge.identifier}" link to "${caseType}"`,
+					),
+				);
 		if (ct.name !== caseType && ct.parent_type === caseType) {
 			references.push(
 				sameRef(`case type "${ct.name}" declares "${caseType}" as its parent`),

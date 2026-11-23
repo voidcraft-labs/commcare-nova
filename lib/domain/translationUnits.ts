@@ -6,6 +6,7 @@
 // none independently walks display slots.
 
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
+import { caseTypesWithRelations } from "./appCaseRelations";
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
 import { columnPropertyCaseType } from "./columnRelation";
 import { effectiveCaseTypes } from "./effectiveCaseTypes";
@@ -538,6 +539,7 @@ export function collectTranslationUnits(
 		}),
 	];
 	const seenCaseOptions = new Set<TranslationUnitId>();
+	let relationTypes: ReturnType<typeof caseTypesWithRelations> | undefined;
 	let hasSearchInputs = false;
 	let needsDefaultRequiredMessage = false;
 
@@ -752,10 +754,12 @@ export function collectTranslationUnits(
 			if (column.kind === "plain") {
 				// A column read through a relation shows the options of the case
 				// its walk reaches.
+				if (column.via !== undefined)
+					relationTypes ??= caseTypesWithRelations(doc);
 				const caseType = columnPropertyCaseType(
 					column,
 					module.caseType,
-					doc.caseTypes ?? [],
+					relationTypes ?? doc.caseTypes ?? [],
 				);
 				const property = caseProperty(doc, caseType, column.field);
 				if (property !== undefined && caseType !== undefined) {

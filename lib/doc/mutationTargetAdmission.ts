@@ -813,6 +813,9 @@ export function mutationTargetsInvalid(
 				if (!caseProperties.has(m.caseType)) return true;
 				caseProperties.get(m.caseType)?.add(m.property.name);
 				break;
+			case "moveCaseProperty":
+				if (!caseProperties.get(m.caseType)?.has(m.property)) return true;
+				break;
 			case "removeCaseProperty":
 				if (!caseProperties.get(m.caseType)?.has(m.property)) return true;
 				caseProperties.get(m.caseType)?.delete(m.property);

@@ -445,6 +445,7 @@ function affectsCaseWriteProjection(
 		case "declareCaseType":
 		case "retireCaseType":
 		case "addCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseProperty":
 		case "setCaseTypeMeta":

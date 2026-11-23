@@ -506,6 +506,7 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "retireCaseType":
 		case "addCaseProperty":
 		case "setCaseProperty":
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
 		case "setCaseListMeta":

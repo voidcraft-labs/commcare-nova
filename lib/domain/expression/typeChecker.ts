@@ -1,6 +1,8 @@
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
+
 import type { CasePropertyDataType } from "../casePropertyTypes";
+import { reachedPropertyType } from "../columnRelation";
 import { COMMCARE_DATE_PATTERN_REGEX } from "../commCareDatePattern";
 import {
 	FUNCTION_REGISTRY,
@@ -3031,6 +3033,20 @@ function inferTerm(
 					`Property reference originating scope '${term.caseType}' must equal the current scope '${row.caseType}'.`,
 				);
 			const origin = term.caseType ?? row?.caseType;
+			if (
+				term.readReached &&
+				origin !== undefined &&
+				term.via?.kind === "ancestor"
+			)
+				return nodes(
+					reachedPropertyType(
+						{ field: term.property, via: term.via.via },
+						origin,
+						ctx.facts.caseTypes,
+					),
+					"string",
+					"one",
+				);
 			const destination = resolveRelationDestination(
 				term.via,
 				origin,

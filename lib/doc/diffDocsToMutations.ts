@@ -1,3 +1,4 @@
+import { compareCaseRelations } from "@/lib/domain/caseRelations";
 import type {
 	EntryPointTarget,
 	FormEntryPoint,
@@ -64,7 +65,7 @@ import type {
  *      `updateModule{caseListConfig:null}`.
  *  10. Module order — predecessor-based moves for changed sibling positions.
  *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
- *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
+ *      `addCaseProperty` / `setCaseProperty` / `moveCaseProperty` / `removeCaseProperty` /
  *      `retireCaseType`, diffed against the catalog the field reducers'
  *      `ensureCatalogProperty` side effect leaves after the structural replay
  *      (so a property a writer add reproduces is never re-emitted, merging a
@@ -2839,10 +2840,30 @@ function diffCatalog(
 			metaChanged = true;
 		}
 		if (metaChanged) out.push(meta);
+		const previous = fromCt?.relations ?? [];
+		const wanted = toCt.relations ?? [];
+		for (const edge of previous)
+			if (!wanted.some((one) => compareCaseRelations(one, edge) === 0))
+				out.push({
+					kind: "setCaseTypeMeta",
+					caseType: toCt.name,
+					relationChange: { action: "remove", edge },
+				});
+		for (const edge of wanted)
+			if (!previous.some((one) => compareCaseRelations(one, edge) === 0))
+				out.push({
+					kind: "setCaseTypeMeta",
+					caseType: toCt.name,
+					relationChange: { action: "add", edge },
+				});
 		const fromProps = new Map(
 			(fromCt?.properties ?? []).map((p) => [p.name, p]),
 		);
-		const toPropNames = new Set(toCt.properties.map((p) => p.name));
+		const targetOrder = toCt.properties.map((p) => p.name);
+		const toPropNames = new Set(targetOrder);
+		let projectedOrder = [...fromProps.keys()].filter((name) =>
+			toPropNames.has(name),
+		);
 		for (const [propertyIndex, prop] of toCt.properties.entries()) {
 			const fp = fromProps.get(prop.name);
 			if (!fp) {
@@ -2852,6 +2873,7 @@ function diffCatalog(
 						: propertyIndex === 0
 							? null
 							: toCt.properties[propertyIndex - 1]?.name;
+				projectedOrder = spliceAfter(projectedOrder, prop.name, after);
 				out.push({
 					kind: "addCaseProperty",
 					caseType: toCt.name,
@@ -2874,6 +2896,14 @@ function diffCatalog(
 					property: prop.name,
 				});
 			}
+		}
+		for (const move of sequenceMovesTo(projectedOrder, targetOrder)) {
+			out.push({
+				kind: "moveCaseProperty",
+				caseType: toCt.name,
+				property: move.uuid,
+				after: move.after,
+			});
 		}
 	}
 	for (const ct of fromArr) {
