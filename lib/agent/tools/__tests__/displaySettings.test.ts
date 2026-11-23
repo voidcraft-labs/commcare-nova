@@ -211,6 +211,16 @@ describe("display settings through addFields and editField", () => {
 describe("display combinations the tools refuse", () => {
 	it.each([
 		{
+			name: "updates sent from a text question with no address search",
+			item: { ...itemOf("text"), sendTopics: ["home"] },
+			says: "You can clear Send updates to",
+		},
+		{
+			name: "a placeholder hint on a question with no entry box for it",
+			item: { ...itemOf("date"), hintPlacement: "placeholder" },
+			says: "You can choose Hide in Web Apps",
+		},
+		{
 			name: "Web Apps signing alone on a picture question",
 			item: { ...itemOf("image"), webSignature: true },
 			says: "change this picture to a signature on Android",

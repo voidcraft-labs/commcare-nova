@@ -545,7 +545,7 @@ function questionDisplayFields() {
 			.nullable()
 			.optional()
 			.describe(
-				"An empty supported entry box can show the hint as a placeholder. On questions without a placeholder, hide the Web Apps hint. Android keeps its ordinary hint.",
+				"Placeholder shows the hint inside an empty entry box: on a text, barcode, integer or decimal question, a password with the number keypad, or a dropdown or search-box choice. On any other question, hidden-on-web hides the Web Apps hint. Android keeps its ordinary hint.",
 			),
 		scanOnOpen: displaySchemas.scanOnOpen
 			.nullable()

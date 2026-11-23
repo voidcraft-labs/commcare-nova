@@ -401,6 +401,21 @@ export function fieldDisplayProblem(field: Field): string | undefined {
 	if (channelLaysOutRow(emitted))
 		return "A channel name here ends in a number followed by -per-row, so Web Apps would read it as this question's row layout and break the row. You can choose a channel name that ends some other way.";
 	if (deepEqual(read, held)) return undefined;
+	/* The two refusals a lone setting meets, each named with the step that
+	 * works, since keeping the setting on its own changes nothing. */
+	if (
+		held.hintPlacement === "placeholder" &&
+		read?.hintPlacement === "hidden-on-web"
+	)
+		return "This question has no entry box that can show the hint in Web Apps. You can choose Hide in Web Apps for its hint placement instead.";
+	if (
+		held.sendTopics !== undefined &&
+		read?.sendTopics === undefined &&
+		(field.kind === "text" ||
+			field.kind === "secret" ||
+			field.kind === "barcode")
+	)
+		return "Web Apps sends updates only from an address search or an attachment question, and this question has no address search. You can clear Send updates to on this question.";
 	const missing = active
 		.filter(
 			(option) =>
@@ -410,5 +425,7 @@ export function fieldDisplayProblem(field: Field): string | undefined {
 				),
 		)
 		.map((option) => option.label);
-	return `Workers would see a different result for ${missing.join(", ") || "this combination"}. You can keep this setting on its own or use the question's ordinary display.`;
+	return active.length > 1
+		? `Workers would see a different result for ${missing.join(", ") || "this combination"}. You can keep one of these settings on its own or use the question's ordinary display.`
+		: `Workers would see a different result for ${missing.join(", ") || "this setting"} on this question. You can use the question's ordinary display.`;
 }
