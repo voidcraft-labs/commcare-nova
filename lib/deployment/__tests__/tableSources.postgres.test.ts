@@ -565,6 +565,146 @@ describe("Create a separate table", () => {
 		).toEqual([copy.tableId]);
 	});
 
+	it("carries row details, repeated values and their details into the new table exactly", async () => {
+		await members();
+		const receipt = await h.withTransaction(async (tx) =>
+			applyLookupAuthoringBatchInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, EDITOR_LOOKUP, "edit"),
+				{
+					createTables: [
+						{
+							key: "table",
+							name: "districts",
+							tag: "districts",
+							attributes: [{ wireName: "zone", label: "Zone" }],
+							columns: [
+								{
+									key: "code",
+									wireName: "code",
+									label: "code",
+									dataType: "text",
+								},
+								{
+									key: "name",
+									wireName: "name",
+									label: "name",
+									dataType: "text",
+								},
+								{
+									key: "alias",
+									wireName: "alias",
+									label: "alias",
+									dataType: "text",
+									repeated: true,
+									properties: [{ wireName: "lang", label: "Language" }],
+								},
+							],
+							rows: [
+								{
+									key: "north",
+									cells: [
+										{ columnKey: "code", value: "007" },
+										{ columnKey: "name", value: " North " },
+									],
+									content: {
+										attributes: { zone: "" },
+										occurrences: {
+											alias: [
+												{ text: "Nord", properties: { lang: "fra" } },
+												{ text: "Nord", properties: { lang: "deu" } },
+												{ text: "", properties: {} },
+											],
+										},
+									},
+								},
+								{
+									key: "south",
+									cells: [
+										{ columnKey: "code", value: "1.50" },
+										{ columnKey: "name", value: "South" },
+									],
+									content: {
+										attributes: { zone: "b" },
+										occurrences: { alias: [] },
+									},
+								},
+							],
+						},
+					],
+				},
+			),
+		);
+		const [created] = receipt.tables;
+		if (created === undefined) throw new Error("The batch made no table.");
+		const tableId = lookupTableIdSchema.parse(created.tableId);
+		const columns = Object.fromEntries(
+			created.columnIds.map(({ key, id }) => [
+				key,
+				lookupColumnIdSchema.parse(id),
+			]),
+		) as Record<string, LookupColumnId>;
+		await seedReader(readerOf([{ tableId, columns }]), APP);
+		const review = await reviewSeparateTable(EDITOR_LOOKUP, tableId);
+		if (!review.ok) throw new Error(review.message);
+		expect(review.review.lines).not.toContain(SEPARATE_TABLE_INDEXES);
+		const outcome = await separateLookupTable(EDITOR_LOOKUP, tableId, {
+			...review.review.suggested,
+			appIds: [APP],
+			reviewDigest: review.review.reviewDigest,
+		});
+		if (!outcome.ok) throw new Error(outcome.message);
+		/* The same content by name: each row's values, its detail, and every
+		 * value of the repeated column in order with its own detail. */
+		const named = async (id: string) => {
+			const table = await getLookupTable(
+				EDITOR_LOOKUP,
+				lookupTableIdSchema.parse(id),
+			);
+			const wire = new Map(table.columns.map((c) => [c.id, c.wireName]));
+			const members = new Map<string, string>([
+				...(table.attributes ?? []).map((m) => [m.id, m.wireName] as const),
+				...table.columns.flatMap((c) =>
+					(c.properties ?? []).map((m) => [m.id, m.wireName] as const),
+				),
+			]);
+			const rename = (record: Record<string, unknown> | undefined) =>
+				Object.fromEntries(
+					Object.entries(record ?? {}).map(([k, v]) => [
+						wire.get(k as never) ?? members.get(k) ?? k,
+						Array.isArray(v)
+							? v.map(
+									(o: {
+										text: string;
+										properties: Record<string, string>;
+									}) => ({
+										text: o.text,
+										properties: rename(o.properties),
+									}),
+								)
+							: v,
+					]),
+				);
+			return table.rows.map((row) => ({
+				values: rename(row.values),
+				attributes: rename(row.attributes),
+				occurrences: rename(row.occurrences as never),
+			}));
+		};
+		expect(await named(outcome.table.id)).toEqual(await named(tableId));
+		expect((await named(outcome.table.id))[0]).toEqual({
+			values: { code: "007", name: " North " },
+			attributes: { zone: "" },
+			occurrences: {
+				alias: [
+					{ text: "Nord", properties: { lang: "fra" } },
+					{ text: "Nord", properties: { lang: "deu" } },
+					{ text: "", properties: {} },
+				],
+			},
+		});
+	});
+
 	it("refuses a table whose rows go to certain workers", async () => {
 		await members();
 		const copy = await makeManagedCopy(
