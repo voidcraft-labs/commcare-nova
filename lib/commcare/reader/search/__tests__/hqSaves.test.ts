@@ -319,7 +319,7 @@ describe("a search on a menu that shows its forms above", () => {
 		);
 	});
 
-	it("retains inline search as the precise HQ build refusal", async () => {
+	it("leaves inline search on such a menu to the menu's own HQ build refusal", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, { searchInputs: [NOTES] }),
 			{
@@ -334,9 +334,13 @@ describe("a search on a menu that shows its forms above", () => {
 				firstPassOnly: true,
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/inline-search-on-a-menu-showing-forms-above",
-		);
+		expect(
+			reading.findings
+				.filter((finding) => finding.place.kind === "menu")
+				.map((finding) => finding.code),
+		).toEqual([
+			"menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of",
+		]);
 	});
 });
 

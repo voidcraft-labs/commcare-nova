@@ -635,32 +635,6 @@
 		"slotChanges": []
 	},
 	{
-		"id": "case-search/inline-search-on-a-menu-showing-forms-above",
-		"area": "case-search",
-		"section": "Case search",
-		"item": "an effective inline search on a menu whose `put_in_root` is true",
-		"surfaceKeys": ["schema:CaseSearch.inline_search"],
-		"valueClass": "inline-on-a-put-in-root-module",
-		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-buildable: `inline search to display only forms`",
-		"subject": "search-setup",
-		"reasons": [
-			{
-				"kind": "not-hq-buildable",
-				"named": "`inline search to display only forms`"
-			}
-		],
-		"platforms": {
-			"kind": "none",
-			"cell": "—"
-		},
-		"emission": {
-			"cell": "—",
-			"markers": []
-		},
-		"gates": []
-	},
-	{
 		"id": "case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 		"area": "case-search",
 		"section": "Case search",

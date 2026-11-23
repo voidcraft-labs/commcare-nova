@@ -201,7 +201,10 @@
 		"hq-menus/training-menu",
 		"hq-menus/undeclared-menu-key"
 	],
-	"hq-names": [],
+	"hq-names": [
+		"hq-names/inline-search-on-a-list-first-menu",
+		"hq-names/list-first-with-default-results"
+	],
 	"hq-new-app": [
 		"hq-new-app/admin-password",
 		"hq-new-app/build-profile",

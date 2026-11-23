@@ -545,6 +545,7 @@ test("clearing a completed desktop search requests all matches and keeps the cle
 		.click();
 	expect((await saved).ok()).toBe(true);
 	await openBuilder(page, searchStanding.route);
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
 	const menuItem = (name: string) =>
 		main.getByRole("button", { name: new RegExp(`^${name}\\b`) });

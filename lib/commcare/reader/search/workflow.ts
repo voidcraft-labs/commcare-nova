@@ -81,10 +81,6 @@ export const WORKFLOW_CLAIMS = {
 			`${S}search-on-a-put-in-root-module`,
 			"schema:CaseSearch.auto_launch",
 		),
-		inlinePutInRoot: refuse(
-			`${S}inline-search-on-a-menu-showing-forms-above`,
-			"schema:CaseSearch.inline_search",
-		),
 	}),
 };
 
@@ -147,11 +143,10 @@ export function readSearchWorkflow(
 	const autoLaunch = config.peek("auto_launch") === true;
 	const defaultSearch = config.peek("default_search") === true;
 	const inline = config.peek("inline_search") === true;
+	// An inline search on such a menu is the menu's refusal
+	// (`menus/modules.ts::readFormsInMenuAbove`, HQ's `inline search to display
+	// only forms`), which stands before any search is read.
 	const formsAbove = module.json.peek("put_in_root") === true;
-	if (formsAbove && inline && autoLaunch) {
-		config.refuse("inline_search", W.other.inlinePutInRoot);
-		return undefined;
-	}
 	let workflow: SearchWorkflow;
 	if (autoLaunch) {
 		const visible = hasVisiblePrompt(config);

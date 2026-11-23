@@ -26291,9 +26291,9 @@
 	{
 		"id": "hq-menus/inline-search-on-display-only-menu",
 		"base": "hq-menus",
-		"entry": "case-search/inline-search-on-a-menu-showing-forms-above",
+		"entry": "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of",
 		"standing": "fix-in-hq",
-		"place": { "kind": "search", "menu": 0, "name": "Household registration" },
+		"place": { "kind": "menu", "menu": 0, "name": "Household registration" },
 		"change": { "op": "named", "name": "inline_search_on_display_only_menu" }
 	},
 	{
