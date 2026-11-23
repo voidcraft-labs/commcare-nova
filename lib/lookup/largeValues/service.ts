@@ -40,6 +40,11 @@ import {
 	valueMetadata,
 } from "./value";
 
+/** A large-value edit holds one of the Project's work slots for this long
+ * after its last step, so an edit nobody finishes frees its slot. */
+const CELL_WORK_LEASE_MS = 10 * 60 * 1000;
+const cellWorkLease = () => new Date(Date.now() + CELL_WORK_LEASE_MS);
+
 function conflict(): never {
 	throw new LookupError(
 		"conflict",
