@@ -580,14 +580,26 @@ const searchInputUuidSlot = {
  * exact seven final arms to both the SA and MCP surfaces.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
+/** The spelling a date range's calculated starting value must produce. The
+ * runtimes read a starting range only as two dates joined by " to "
+ * (`searchRangeAnswer.ts::startingSearchRange`); the gate checks only that the
+ * slot is text, so the model learns the spelling here. */
+export const STARTING_RANGE_EXAMPLE =
+	"concat(format-date(date-add(today(), -30, 'days'), '%Y-%m-%d'), ' to ', format-date(today(), '%Y-%m-%d'))";
+export const STARTING_RANGE_DESCRIPTION = `Where the range starts: {from, to} with ISO calendar dates, or a text calculation that gives the two dates as YYYY-MM-DD joined by ' to ', such as ${STARTING_RANGE_EXAMPLE} for the last 30 days.`;
+
 /** An author can give the two dates directly. A computed or brought-in
- * starting value keeps its full device expression. Both write one slot. */
-const startingRangeSchema = z.union([
-	valueExpressionInputSchema,
-	searchStartingDatesSchema.transform((dates) =>
-		fixedSearchRangeExpression(dates.from, dates.to),
-	),
-]);
+ * starting value keeps its full device expression. Both write one slot. The
+ * description sits on the union, never on the expression node, so the wire
+ * projection keeps that node a `$ref`. */
+const startingRangeSchema = z
+	.union([
+		valueExpressionInputSchema,
+		searchStartingDatesSchema.transform((dates) =>
+			fixedSearchRangeExpression(dates.from, dates.to),
+		),
+	])
+	.describe(STARTING_RANGE_DESCRIPTION);
 
 export const searchInputDefInputSchema = z
 	.union([
