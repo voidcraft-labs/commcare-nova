@@ -60,9 +60,13 @@ def test_hq_menus_frames_and_endpoints_equal_novas(native):
     )
     for record, local, native_suite in suites:
         for selector in SELECTORS:
-            assert [shape(e, parsed) for e in local.findall(selector)] == [
-                shape(e, parsed) for e in native_suite.findall(selector)
-            ], (record["scenario"], selector)
+            local_shapes = [shape(e, parsed) for e in local.findall(selector)]
+            hq_shapes = [shape(e, parsed) for e in native_suite.findall(selector)]
+            if local_shapes != hq_shapes:
+                # Both are printed whole, since pytest cuts a long comparison short.
+                print(record["scenario"], selector, "local", repr(local_shapes))
+                print(record["scenario"], selector, "hq", repr(hq_shapes))
+            assert local_shapes == hq_shapes, (record["scenario"], selector)
         # Every document of the family is one HQ's build admits: no case list offers a form HQ refuses.
         assert record["caseListFormErrors"] == [], record["scenario"]
     write_evidence(
