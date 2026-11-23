@@ -1791,11 +1791,15 @@ function readSlotText(
 		? readLabelTexts(input, owner, place, id, first, forms, defaultLanguage)
 		: [];
 
-	// A text blank everywhere is an entry Nova writes only where its slot carries media, and
-	// there its markdown copy is the flag's to decide; anywhere else the flag prints nothing.
+	// A text blank everywhere is an entry Nova writes only where its slot carries media or a
+	// question's label holds one of its other texts (`builder.ts::addItext`), and there its
+	// markdown copy is the flag's to decide: a blank markdown copy the source lacks would show
+	// in place of the extended text on Android (`QuestionWidget.setTextFromPrompt` reads the
+	// markdown text first, and Core reads a present blank form as ""). Anywhere else the flag
+	// prints nothing.
 	if (
 		plain &&
-		(!blankEverywhere || writesMedia(owner, forms)) &&
+		(!blankEverywhere || writesMedia(owner, forms) || labelTexts.length > 0) &&
 		!input.plainText
 	)
 		setPlain(owner);

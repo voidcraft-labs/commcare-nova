@@ -148,6 +148,54 @@ describe("a question label's other texts", () => {
 		).toBeUndefined();
 	});
 
+	it("reads a blank label beside its extended text as shown as typed, so its export adds no markdown form", async () => {
+		// Android shows a present markdown form in place of the extended text, a blank one too
+		// (`QuestionWidget.setTextFromPrompt`): a blank label holding a `long` form and no
+		// `markdown` form must come back without one.
+		const doc = buildDoc({
+			appName: "Blank label",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "label",
+									id: "card",
+									uuid: CARD,
+									label: proseText(""),
+									plainLabel: true,
+									extended_text: proseText("Foo"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const cardEntry = (xml: string) =>
+			/<text id="card-label">[\s\S]*?<\/text>/u.exec(xml)?.[0] ?? "";
+		const exported = Object.values(
+			exportedBody(doc)._attachments as Record<string, string>,
+		).join("");
+		expect(cardEntry(exported)).toContain('<value form="long">Foo</value>');
+		expect(cardEntry(exported)).not.toContain('form="markdown"');
+
+		const outcome = await read(doc);
+		expect(outcome.defects).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const card = fieldById(outcome.draft.doc, "card");
+		expect(card.plainLabel).toBe(true);
+		const again = Object.values(
+			exportedBody(outcome.draft.doc)._attachments as Record<string, string>,
+		).join("");
+		expect(cardEntry(again)).toContain('<value form="long">Foo</value>');
+		expect(cardEntry(again)).not.toContain('form="markdown"');
+	});
+
 	it("refuses a form the form's default language lacks", async () => {
 		// The English translation comes first: drop its QR code alone.
 		const outcome = await read(labelTexts(), (xml) =>
