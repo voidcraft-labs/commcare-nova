@@ -155,6 +155,8 @@ function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
 // ── MediaSlot: the image/audio/video bundle ─────────────────────
 
 export interface MediaSlotProps {
+	/** A translated attachment may be replaced yet have no override to clear. */
+	removalLabel?: (kind: MediaKind) => string | null | undefined;
 	value: Media | undefined;
 	onChange: (next: Media | undefined) => void;
 	/** Which kinds this carrier can hold. Menu carriers omit "video". */
@@ -187,7 +189,14 @@ interface PickerState {
 	kinds: readonly MediaKind[];
 }
 
-export function MediaSlot({
+export function MediaSlot(props: MediaSlotProps) {
+	return <MediaSlotAtAddress key={props.slotKey} {...props} />;
+}
+
+// An upload can finish after navigation or a language switch. The originating
+// slot keeps its callbacks, while later renders of the same slot supply current values.
+function MediaSlotAtAddress({
+	removalLabel,
 	value,
 	onChange,
 	kinds,
@@ -237,6 +246,7 @@ export function MediaSlot({
 					kind={kind}
 					assetId={assetId}
 					editable={canEdit}
+					removalLabel={removalLabel?.(kind)}
 					onReplace={() => {
 						if (session.getState().canEdit)
 							setPicker({ open: true, kinds: [kind] });
@@ -330,6 +340,8 @@ export function MediaSlot({
 // ── SingleAssetSlot: one fixed-kind id ──────────────────────────
 
 interface SingleAssetSlotBase {
+	reading?: string;
+	removalLabel?: string | null;
 	kind: MediaKind;
 	/** Stable identity of this carrier slot: see `MediaSlotProps.slotKey`.
 	 *  Single slots stage directly under it (the kind is fixed). */
@@ -398,6 +410,10 @@ function commitSingleAssetValue(
 }
 
 export function SingleAssetSlot(props: SingleAssetSlotProps) {
+	return <SingleAssetAtAddress key={props.slotKey} {...props} />;
+}
+
+function SingleAssetAtAddress(props: SingleAssetSlotProps) {
 	const { value, kind, slotKey, ariaLabel } = props;
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const staged = useStagedUpload(slotKey);
@@ -428,6 +444,7 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 					kind={kind}
 					assetId={value}
 					editable={canEdit}
+					removalLabel={props.removalLabel}
 					onReplace={() => {
 						if (session.getState().canEdit) setPickerOpen(true);
 					}}
@@ -437,6 +454,9 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 						}
 					}}
 				/>
+			)}
+			{value && props.reading && (
+				<span className="text-xs text-nova-text-muted">{props.reading}</span>
 			)}
 			{staged && (
 				<StagedUploadChip
@@ -609,12 +629,14 @@ function AssetChip({
 	editable,
 	onReplace,
 	onRemove,
+	removalLabel,
 }: {
 	kind: MediaKind;
 	assetId: IconRef;
 	editable: boolean;
 	onReplace: () => void;
 	onRemove: () => void;
+	removalLabel?: string | null;
 }) {
 	const meta = ASSET_KIND_META[kind];
 	// Controls name themselves by kind; the enclosing group's aria-label
@@ -652,17 +674,19 @@ function AssetChip({
 							<Icon icon={tablerReplace} className="size-4" />
 						</Button>
 					</SimpleTooltip>
-					<SimpleTooltip content={`Remove ${noun}`}>
-						<Button
-							type="button"
-							variant="ghost-destructive"
-							size="icon"
-							onClick={onRemove}
-							aria-label={`Remove ${noun}`}
-						>
-							<Icon icon={tablerTrash} className="size-4" />
-						</Button>
-					</SimpleTooltip>
+					{removalLabel !== null && (
+						<SimpleTooltip content={removalLabel ?? `Remove ${noun}`}>
+							<Button
+								type="button"
+								variant="ghost-destructive"
+								size="icon"
+								onClick={onRemove}
+								aria-label={removalLabel ?? `Remove ${noun}`}
+							>
+								<Icon icon={tablerTrash} className="size-4" />
+							</Button>
+						</SimpleTooltip>
+					)}
 				</>
 			)}
 		</div>

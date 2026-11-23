@@ -158,6 +158,7 @@ export interface DraftExpression {
 	readonly event?: DefaultEvent;
 	/** A text whose uses alone the expression stage claims (`PendingExpression.usesOnly`). */
 	readonly usesOnly?: true;
+	readonly translatedOutput?: true;
 }
 
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
@@ -925,6 +926,9 @@ export function mintFields(ctx: ReadContext): void {
 								place: field.place,
 								key: expression.key,
 								...(expression.usesOnly === true && { usesOnly: true }),
+								...(expression.translatedOutput === true && {
+									translatedOutput: true,
+								}),
 							},
 							expression.at,
 							expression.event === undefined

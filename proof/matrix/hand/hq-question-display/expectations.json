@@ -1,0 +1,1368 @@
+[
+	{
+		"id": "visit-code-answer",
+		"entry": "questions/secret-numeric",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visit_code",
+					"value": "5018"
+				}
+			],
+			"expressions": ["/data/visit_code"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "5018"
+			}
+		]
+	},
+	{
+		"id": "arrival-answer",
+		"entry": "questions/date-ethiopian",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/arrival",
+					"value": "2023-09-12"
+				}
+			],
+			"expressions": ["/data/arrival"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2023-09-12"
+			}
+		]
+	},
+	{
+		"id": "return-day-answer",
+		"entry": "questions/date-nepali",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/return_day",
+					"value": "2024-10-02"
+				}
+			],
+			"expressions": ["/data/return_day"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2024-10-02"
+			}
+		]
+	},
+	{
+		"id": "place-answer",
+		"entry": "questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/place",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/place"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "weather-answer",
+		"entry": "questions/select1-quick-compact-n",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/weather",
+					"value": "3"
+				}
+			],
+			"expressions": ["/data/weather"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "south"
+			}
+		]
+	},
+	{
+		"id": "city-answer",
+		"entry": "questions/text-receive-topic-field",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/city",
+					"value": "Mtoni"
+				}
+			],
+			"expressions": ["/data/city"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Mtoni"
+			}
+		]
+	},
+	{
+		"id": "follow-up-day",
+		"entry": "questions/date-ethiopian",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string(/data/follow_up)"],
+			"answers": [
+				{
+					"path": "/data/follow_up",
+					"value": "2023-09-12"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2023-09-12"
+			}
+		]
+	},
+	{
+		"id": "start-time",
+		"entry": "questions/time-12-hour",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["string-length(/data/start_time) > 0"],
+			"answers": [
+				{
+					"path": "/data/start_time",
+					"value": "10:30"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			}
+		]
+	},
+	{
+		"id": "address-typed",
+		"entry": "questions/broadcast-topic-an-address-entry-under-the-gates-above-and",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/address"],
+			"answers": [
+				{
+					"path": "/data/address",
+					"value": "East station"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "East station"
+			}
+		]
+	},
+	{
+		"id": "tag-code",
+		"entry": "questions/barcode-editable",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/code"],
+			"answers": [
+				{
+					"path": "/data/code",
+					"value": "K15"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "K15"
+			}
+		]
+	},
+	{
+		"id": "review-village",
+		"entry": "questions/n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["/data/review/village"],
+			"answers": [
+				{
+					"path": "/data/review/village",
+					"value": "Upper valley"
+				}
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Upper valley"
+			}
+		]
+	},
+	{
+		"id": "banner-shown",
+		"entry": "questions/floating-good-floating-caution-floating-bad",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/saved)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "initially-open-review",
+		"entry": "questions/group-collapse-open",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/review/ward",
+					"value": "North"
+				}
+			],
+			"expressions": ["string(/data/review/ward)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "repeated-stop",
+		"entry": "questions/n-per-row-repeat-group-with-a-repeat-as-a-direct-child-n-one-or",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/stop_count",
+					"value": "2"
+				},
+				{
+					"path": "/data/stops/places[2]/landmark",
+					"value": "Tree"
+				}
+			],
+			"expressions": ["string(/data/stops/places[2]/landmark)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Tree"
+			}
+		]
+	},
+	{
+		"id": "unrepeated-directions",
+		"entry": "questions/group-repeat-row-without-a-repeat",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/directions/entrance",
+					"value": "West"
+				}
+			],
+			"expressions": ["string(/data/directions/entrance)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "West"
+			}
+		]
+	},
+	{
+		"id": "door-colour-worker-value",
+		"entry": "questions/select1-minimal",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/door_colour",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/door_colour)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "visit-rating-worker-value",
+		"entry": "questions/select1-compact-compact-n",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/visit_rating",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/visit_rating)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "arrival-status-worker-value",
+		"entry": "questions/select1-quick",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/arrival_status",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/arrival_status)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "district-worker-value",
+		"entry": "questions/select1-combobox",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/district",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/district)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "route-name-worker-value",
+		"entry": "questions/select1-combobox-multiword",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/route_name",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/route_name)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "market-worker-value",
+		"entry": "questions/select1-combobox-fuzzy",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/market",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/market)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "travel-mode-worker-value",
+		"entry": "questions/select1-list",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/travel_mode",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/travel_mode)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "road-surface-worker-value",
+		"entry": "questions/select1-list-nolabel",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/road_surface",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/road_surface)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "stop-headings-worker-value",
+		"entry": "questions/select1-label",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/stop_headings",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/stop_headings)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "travel-stage-worker-value",
+		"entry": "questions/select1-button-select",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/travel_stage",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/travel_stage)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "received-district-worker-value",
+		"entry": "questions/select1-receive-topic-field",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/received_district",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/received_district)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "supplies-worker-value",
+		"entry": "questions/select-minimal",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/supplies",
+					"value": "1 3"
+				}
+			],
+			"expressions": ["string(/data/supplies)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "north south"
+			}
+		]
+	},
+	{
+		"id": "packed-items-worker-value",
+		"entry": "questions/select-compact-compact-n",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/packed_items",
+					"value": "1 3"
+				}
+			],
+			"expressions": ["string(/data/packed_items)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "north south"
+			}
+		]
+	},
+	{
+		"id": "comfort-items-worker-value",
+		"entry": "questions/select-list",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/comfort_items",
+					"value": "1 3"
+				}
+			],
+			"expressions": ["string(/data/comfort_items)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "north south"
+			}
+		]
+	},
+	{
+		"id": "health-items-worker-value",
+		"entry": "questions/select-list-nolabel",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/health_items",
+					"value": "1 3"
+				}
+			],
+			"expressions": ["string(/data/health_items)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "north south"
+			}
+		]
+	},
+	{
+		"id": "supply-headings-worker-value",
+		"entry": "questions/select-label",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/supply_headings",
+					"value": "1 3"
+				}
+			],
+			"expressions": ["string(/data/supply_headings)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "north south"
+			}
+		]
+	},
+	{
+		"id": "house-number-worker-value",
+		"entry": "questions/text-secret-numbers",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/house_number",
+					"value": "7205"
+				}
+			],
+			"expressions": ["string(/data/house_number)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "7205"
+			}
+		]
+	},
+	{
+		"id": "zone-code-worker-value",
+		"entry": "questions/short",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/zone_code",
+					"value": "North"
+				}
+			],
+			"expressions": ["string(/data/zone_code)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "neighbourhood-worker-value",
+		"entry": "questions/medium",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/neighbourhood",
+					"value": "North"
+				}
+			],
+			"expressions": ["string(/data/neighbourhood)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "followup-location-worker-value",
+		"entry": "questions/text-address",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/followup_location",
+					"value": "North"
+				}
+			],
+			"expressions": ["string(/data/followup_location)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "parcel-number-worker-value",
+		"entry": "questions/barcode-numeric-address-or-receive-topic-field",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/parcel_number",
+					"value": "7205"
+				}
+			],
+			"expressions": ["string(/data/parcel_number)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "7205"
+			}
+		]
+	},
+	{
+		"id": "arrival-gate-worker-value",
+		"entry": "questions/hint-as-placeholder-on-text-other-than-a-secret-without-numeric",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/arrival_gate",
+					"value": "North"
+				}
+			],
+			"expressions": ["string(/data/arrival_gate)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "arrival-date-worker-value",
+		"entry": "questions/hint-as-placeholder-on-any-other-entry",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/arrival_date",
+					"value": "2023-09-12"
+				}
+			],
+			"expressions": ["string(/data/arrival_date)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2023-09-12"
+			}
+		]
+	},
+	{
+		"id": "quick-scan-worker-value",
+		"entry": "questions/barcode-quick",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/quick_scan",
+					"value": "7205"
+				}
+			],
+			"expressions": ["string(/data/quick_scan)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "7205"
+			}
+		]
+	},
+	{
+		"id": "planned-date-worker-value",
+		"entry": "questions/date-gregorian-gregorian-cancel",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/planned_date",
+					"value": "2023-09-12"
+				}
+			],
+			"expressions": ["string(/data/planned_date)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2023-09-12"
+			}
+		]
+	},
+	{
+		"id": "map-point-worker-value",
+		"entry": "questions/geopoint-maps",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/map_point",
+					"value": "0.2 35.4 0 8"
+				}
+			],
+			"expressions": ["string-length(/data/map_point) > 0"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "true"
+			}
+		]
+	},
+	{
+		"id": "door-photo-worker-value",
+		"entry": "questions/image-acquire",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/door_photo)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "sign-photo-worker-value",
+		"entry": "questions/image-overlay-small",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/sign_photo)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "earlier-recording-worker-value",
+		"entry": "questions/audio-legacy",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/earlier_recording)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "spoken-note-worker-value",
+		"entry": "questions/audio-acquire-or-upload",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/spoken_note)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "interview-worker-value",
+		"entry": "questions/audio-long",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/interview)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "access-video-worker-value",
+		"entry": "questions/video-acquire",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/access_video)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "copyable-note-worker-value",
+		"entry": "questions/trigger-selectable",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/copyable_note)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "mobile-note-worker-value",
+		"entry": "questions/a-label-whose-appearance-string-starts-with-floating-other-than",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"expressions": ["count(/data/mobile_note)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "1"
+			}
+		]
+	},
+	{
+		"id": "quick-summary-worker-value",
+		"entry": "questions/group-compact",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/quick_summary/remark",
+					"value": "West"
+				}
+			],
+			"expressions": ["string(/data/quick_summary/remark)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "West"
+			}
+		]
+	},
+	{
+		"id": "optional-details-worker-value",
+		"entry": "questions/group-group-collapse",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/optional_details/remark",
+					"value": "West"
+				}
+			],
+			"expressions": ["string(/data/optional_details/remark)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "West"
+			}
+		]
+	},
+	{
+		"id": "final-details-worker-value",
+		"entry": "questions/group-group-border",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/final_details/remark",
+					"value": "West"
+				}
+			],
+			"expressions": ["string(/data/final_details/remark)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "West"
+			}
+		]
+	},
+	{
+		"id": "tray-size-worker-value",
+		"entry": "questions/any-other-per-row-token-the-first-token-web-apps-per-row-pattern",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/tray_size",
+					"value": "North"
+				}
+			],
+			"expressions": ["string(/data/tray_size)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "collection-site-worker-value",
+		"entry": "questions/text-align-center-text-align-right",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/collection_site",
+					"value": "North"
+				}
+			],
+			"expressions": ["string(/data/collection_site)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "North"
+			}
+		]
+	},
+	{
+		"id": "display-place-worker-value",
+		"entry": "questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/display_place",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/display_place)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "display-season-worker-value",
+		"entry": "questions/a-single-string-no-row-names-that-holds-values-android-matches",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/display_season",
+					"value": "2"
+				}
+			],
+			"expressions": ["string(/data/display_season)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "upper"
+			}
+		]
+	},
+	{
+		"id": "house-suffix-worker-value",
+		"entry": "questions/a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/house_suffix",
+					"value": "7205"
+				}
+			],
+			"expressions": ["string(/data/house_suffix)"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "7205"
+			}
+		]
+	},
+	{
+		"id": "private-location-answer",
+		"entry": "questions/secret-address",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/private_location",
+					"value": "Market square"
+				}
+			],
+			"expressions": ["/data/private_location"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "Market square"
+			}
+		]
+	},
+	{
+		"id": "private-postcode-answer",
+		"entry": "questions/secret-receive-topic-field",
+		"form": {
+			"menu": 1,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/private_postcode",
+					"value": "00300"
+				}
+			],
+			"expressions": ["/data/private_postcode"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "00300"
+			}
+		]
+	}
+]

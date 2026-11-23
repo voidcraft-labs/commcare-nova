@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type Automation,
 	automationMessageText,
@@ -929,5 +929,75 @@ describe("Links between cases of the same type", () => {
 		expect(
 			requiredProjectSpaceCapabilities(doc).map((use) => use.id),
 		).not.toContain("same-type-child-links");
+	});
+});
+
+describe("Address search", () => {
+	const addressDoc = (runsOnlyOn?: "web-apps" | "android") =>
+		buildDoc({
+			appName: "Visits",
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn },
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "home",
+									label: "Home",
+									addressLookup: true,
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("checks advanced case search for an app that runs in Web Apps, and nothing for Android alone", () => {
+		const gate = domainFeatureFlag("CASE_SEARCH_ADVANCED");
+		for (const runsOnlyOn of [undefined, "web-apps"] as const) {
+			const [capability, ...rest] = projectSpaceCompatibilityProbePlan(
+				addressDoc(runsOnlyOn),
+			).capabilities;
+			expect(rest).toEqual([]);
+			expect(capability).toEqual({
+				capability: {
+					id: "address-search",
+					label: "Address search",
+					description: expect.stringContaining("Geocoder"),
+					reasons: [
+						"Visit has a question that searches for an address in Web Apps.",
+					],
+				},
+				featureFlags: [
+					{
+						id: "advanced-case-search",
+						slug: gate.slug,
+						namespace: gate.namespace,
+					},
+				],
+				featureFlagsOff: [],
+				runtimeProbes: [],
+			});
+		}
+		expect(requiredProjectSpaceCapabilities(addressDoc("android"))).toEqual([]);
+	});
+
+	it("lists the requirement, not checked, beside a download", () => {
+		const report = projectSpaceCompatibilityForDownload(addressDoc());
+		expect(report.status).toBe("not_checked");
+		expect(report.required_capabilities.map((item) => item.id)).toEqual([
+			"address-search",
+		]);
+		expect(
+			decodeProjectSpaceCompatibilityReport(
+				encodeProjectSpaceCompatibilityReport(report),
+			),
+		).toEqual(report);
 	});
 });

@@ -1,4 +1,6 @@
+import { singleChoiceLayoutSchema } from "@/lib/domain/choicePresentation";
 import { caseOptionsSourceSchema as storedCaseOptionsSourceSchema } from "@/lib/domain/fields/selectOptionsSource";
+import { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
 
 const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
 	labelProperty:
@@ -72,8 +74,10 @@ import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
 import {
 	authoredCasePropertyNameSchema,
+	fieldDisplaySettingsFor,
 	fieldKindDeclaresKey,
 	fieldKinds,
+	fieldPatchSchemaByKind,
 	fieldRegistry,
 	formLogicSchema,
 	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
@@ -132,7 +136,7 @@ const FIELD_DOCS = {
 	plain_help:
 		"true shows the help text exactly as typed on Android. Web Apps formats every help text either way. false or null returns it to Markdown.",
 	keypad:
-		'Text questions only. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
+		'Text, password and barcode questions. "android-numbers" limits the keypad to Android on text or password questions. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
 	repeat_mode:
 		"Worker-added rows, a number of rows from a whole-number question or expression, or one row per case a query finds. Counts grow live during entry; lowering a count keeps created rows, answers and case operations. A query's rows are set when the form opens where the repeat has no condition of its own, its query reads no answer, it sits in no other repeat and no group around it shows on a condition that can change during entry; otherwise its rows follow the query as answers change, each row keeping its place. Once published, a query repeat keeps that choice, and an edit that would change it says so in identityMoves.",
 	repeat_count:
@@ -406,6 +410,30 @@ function repeatConfigDiscriminated() {
  * no single declared key to ask the registry about.
  */
 const ADD_GATED_KEYS = [
+	"inputWidth",
+	"addressLookup",
+	"sendTopics",
+	"receiveFrom",
+	"hintPlacement",
+	"scanOnOpen",
+	"canEditScan",
+	"calendar",
+	"clock",
+	"locationPicker",
+	"captureSource",
+	"overlaySize",
+	"recorder",
+	"pauseRecording",
+	"selectableText",
+	"banner",
+	"compact",
+	"collapse",
+	"border",
+	"itemsPerRow",
+	"repeatsPerRow",
+	"textAlignment",
+	"webSignature",
+	"choiceLayout",
 	"label",
 	"hint",
 	"help",
@@ -486,6 +514,166 @@ function gateHiddenValueSources(
  * config on `repeat` —
  * and rejects any slot the kind doesn't declare.
  */
+/** Shared add and edit surface for Worker display. A null on an edit clears the setting. */
+function questionDisplayFields() {
+	return {
+		inputWidth: displaySchemas.inputWidth
+			.nullable()
+			.optional()
+			.describe(
+				"Width of a Web Apps entry box. Short also changes the keyboard action for a text or number question on Android.",
+			),
+		addressLookup: displaySchemas.addressLookup
+			.nullable()
+			.optional()
+			.describe(
+				"Search for an address in Web Apps and save the one the worker chooses. Web Apps runs it only where the project space has advanced case search and the Geocoder plan feature, which publishing checks and asks to confirm; elsewhere the question saves Not Supported by Web Entry. Android workers type the answer.",
+			),
+		sendTopics: displaySchemas.sendTopics
+			.nullable()
+			.optional()
+			.describe(
+				"Names of channels that receive updates from the Web Apps address or attachment question, in delivery order.",
+			),
+		receiveFrom: displaySchemas.receiveFrom
+			.nullable()
+			.optional()
+			.describe(
+				"Fill this answer when an address or attachment on the same Web Apps form sends that channel and returned field. For attachments use filename.",
+			),
+		hintPlacement: displaySchemas.hintPlacement
+			.nullable()
+			.optional()
+			.describe(
+				"Placeholder shows the hint inside an empty entry box: on a text, barcode, integer or decimal question, a password with the number keypad, or a dropdown or search-box choice. On any other question, hidden-on-web hides the Web Apps hint. Android keeps its ordinary hint.",
+			),
+		scanOnOpen: displaySchemas.scanOnOpen
+			.nullable()
+			.optional()
+			.describe(
+				"Open the Android scanner when the worker reaches an unanswered barcode question.",
+			),
+		canEditScan: displaySchemas.canEditScan
+			.nullable()
+			.optional()
+			.describe("Allow the worker to change a scanned barcode on Android."),
+		calendar: displaySchemas.calendar
+			.nullable()
+			.optional()
+			.describe(
+				"Calendar workers use to choose a date. Each choice stores a civil date. The Nepali and alternate Gregorian calendars apply on Android.",
+			),
+		clock: displaySchemas.clock
+			.nullable()
+			.optional()
+			.describe(
+				"Use a 12-hour clock in Web Apps. Android uses the phone setting.",
+			),
+		locationPicker: displaySchemas.locationPicker
+			.nullable()
+			.optional()
+			.describe("Open the map to choose a location on Android."),
+		captureSource: displaySchemas.captureSource
+			.nullable()
+			.optional()
+			.describe(
+				"On Android, camera captures a picture or video. Record-or-choose lets a worker record or attach audio.",
+			),
+		overlaySize: displaySchemas.overlaySize
+			.nullable()
+			.optional()
+			.describe("Show a small overlay when taking a picture on Android."),
+		recorder: displaySchemas.recorder
+			.nullable()
+			.optional()
+			.describe("Use the classic Android audio recorder."),
+		pauseRecording: displaySchemas.pauseRecording
+			.nullable()
+			.optional()
+			.describe(
+				"Allow the worker to pause and resume a recording on supported Android phones.",
+			),
+		selectableText: displaySchemas.selectableText
+			.nullable()
+			.optional()
+			.describe("Let Android workers select and copy text from this label."),
+		banner: displaySchemas.banner
+			.nullable()
+			.optional()
+			.describe(
+				"Show question text in a colored Android banner. Hidden applies only to a label.",
+			),
+		compact: displaySchemas.compact
+			.nullable()
+			.optional()
+			.describe(
+				"On Android, show each question in this group with its label beside its answer. Android still shows one question per screen.",
+			),
+		collapse: displaySchemas.collapse
+			.nullable()
+			.optional()
+			.describe(
+				"Let workers open and close this named group in Web Apps, starting in the chosen state.",
+			),
+		border: displaySchemas.border
+			.nullable()
+			.optional()
+			.describe("Draw a border around the group in Web Apps."),
+		itemsPerRow: displaySchemas.itemsPerRow
+			.nullable()
+			.optional()
+			.describe(
+				"Desired number of questions across a Web Apps row, as whole decimal digits.",
+			),
+		repeatsPerRow: displaySchemas.repeatsPerRow
+			.nullable()
+			.optional()
+			.describe(
+				"Desired number of immediate repeat entries per Web Apps row, as whole decimal digits.",
+			),
+		textAlignment: displaySchemas.textAlignment
+			.nullable()
+			.optional()
+			.describe("Align question text in Web Apps."),
+		webSignature: displaySchemas.webSignature
+			.nullable()
+			.optional()
+			.describe(
+				"Collect a drawn signature on a Web Apps picture question while keeping the picture control on Android. Requires another compatible display setting.",
+			),
+		keypad: keypadField(),
+		choiceLayout: singleChoiceLayoutSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Choice layout. Choose a grid with optional columns, a searchable list, a table row or a dropdown. Single choices may advance on selection. Null restores the ordinary choices.",
+			),
+	};
+}
+
+/** The flat schema sent to tools carries the union of the options. The
+ * chosen kind narrows each non-null setting to the same schema Builder uses. */
+function checkQuestionDisplay(
+	kind: FieldKind,
+	values: Readonly<Record<string, unknown>>,
+	ctx: z.RefinementCtx,
+) {
+	if (kind === "repeat") return;
+	const shape: Readonly<Record<string, z.ZodType>> =
+		fieldPatchSchemaByKind[kind].shape;
+	for (const { key, label } of fieldDisplaySettingsFor(kind)) {
+		const value = values[key];
+		if (value == null) continue;
+		const parsed = shape[key].safeParse(value);
+		if (!parsed.success)
+			ctx.addIssue({
+				code: "custom",
+				path: [key],
+				message: `${label} does not offer this option on a ${fieldRegistry[kind].label} question. Choose a compatible option or clear the setting.`,
+			});
+	}
+}
+
 function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 	// Strict, so a key outside the shape is REJECTED at the boundary — the SA
 	// is told and retries, rather than the stray key being silently stripped.
@@ -497,7 +685,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			parentUuid: parentUuidField(),
 			label: labelField(),
 			plain_label: plainLabelField(),
-			keypad: keypadField(),
+			...questionDisplayFields(),
 			hint: hintField(),
 			help: helpField(),
 			plain_help: plainHelpField(),
@@ -512,6 +700,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			repeat: repeatConfigDiscriminated().nullable().optional(),
 		})
 		.superRefine((item, ctx) => {
+			checkQuestionDisplay(item.kind, item, ctx);
 			for (const key of ADD_GATED_KEYS) {
 				if (item[key] != null && !fieldKindDeclaresKey(item.kind, key)) {
 					undeclaredSlotIssue(ctx, item.kind, key);
@@ -616,7 +805,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				.describe("New id to rename to; leave it out to keep the current id."),
 			label: labelField(),
 			plain_label: plainLabelField(),
-			keypad: keypadField(),
+			...questionDisplayFields(),
 			hint: hintField(),
 			help: helpField(),
 			plain_help: plainHelpField(),
@@ -633,6 +822,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			repeat: repeatConfigDiscriminated().optional(),
 		})
 		.superRefine((patch, ctx) => {
+			checkQuestionDisplay(patch.kind, patch, ctx);
 			for (const key of EDIT_GATED_KEYS) {
 				// Any PRESENT value — null included — on a slot the kind
 				// doesn't declare rejects: there's nothing there to set OR

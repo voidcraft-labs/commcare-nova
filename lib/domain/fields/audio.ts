@@ -17,10 +17,15 @@
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const audioFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("audio"),
+	sendTopics: displaySchemas.sendTopics.optional(),
+	captureSource: z.literal("record-or-choose").optional(),
+	recorder: displaySchemas.recorder.optional(),
+	pauseRecording: displaySchemas.pauseRecording.optional(),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),

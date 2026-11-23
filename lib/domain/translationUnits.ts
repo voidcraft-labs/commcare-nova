@@ -1184,6 +1184,55 @@ export function translationValueIntegrityIssue(
 		: "protected-content";
 }
 
+/** A deliberate change to the values shown by one worker language. Plain
+ * locale strings and prose outside a form have no expression context. */
+export function authoredTranslationValueMode(
+	unit: TranslationUnit,
+	value: LocalizedValue,
+): Pick<TranslationEntry, "valueMode"> {
+	return translationUnitProseSlot(unit) !== undefined &&
+		typeof unit.source !== "string" &&
+		typeof value !== "string"
+		? translatedProseValueMode(unit.source, value)
+		: {};
+}
+
+export function translatedProseValueMode(
+	source: ProseTemplate,
+	target: ProseTemplate,
+): Pick<TranslationEntry, "valueMode"> {
+	return JSON.stringify(proseReferenceSignature(source)) ===
+		JSON.stringify(proseReferenceSignature(target))
+		? {}
+		: { valueMode: "independent-values" };
+}
+
+/** Reviewing an independent translation against a new source can bring the
+ * two sets of references back into agreement. */
+export function reviewedTranslationValueMode(
+	unit: TranslationUnit,
+	entry: TranslationEntry,
+): Pick<TranslationEntry, "valueMode"> {
+	return entry.valueMode === undefined
+		? {}
+		: authoredTranslationValueMode(unit, entry.value);
+}
+
+/** The stricter two-argument check above is also the automatic translator's contract. */
+export function translationEntryIntegrityIssue(
+	unit: TranslationUnit,
+	entry: Pick<TranslationEntry, "value" | "valueMode">,
+): TranslationValueIntegrityIssue | undefined {
+	const issue = translationValueIntegrityIssue(unit, entry.value);
+	if (entry.valueMode === undefined) return issue;
+	if (
+		issue === "protected-content" &&
+		translationUnitProseSlot(unit) !== undefined
+	)
+		return undefined;
+	return issue ?? "protected-content";
+}
+
 interface StoredTranslation {
 	readonly explicit?: TranslationEntry;
 	readonly effective: LocalizedValue;
@@ -1219,7 +1268,7 @@ export function translationIsOutOfDate(
 				entry.sourceFingerprint,
 				unit.sourceFingerprint,
 			)) ||
-		translationValueIntegrityIssue(unit, entry.value) !== undefined
+		translationEntryIntegrityIssue(unit, entry) !== undefined
 	);
 }
 

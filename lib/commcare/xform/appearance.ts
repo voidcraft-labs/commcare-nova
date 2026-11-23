@@ -1,80 +1,116 @@
-// lib/commcare/xform/appearance.ts
-//
-// The one writer of an XForm control's `appearance` attribute. CommCare holds
-// how a control is drawn in one attribute, a string of space-separated
-// tokens; Nova holds each choice as its own typed fact: a kind (`label`,
-// `signature`), a container's shape (a section, a group holding `fieldList`)
-// and the display settings of `lib/domain/fieldDisplay.ts`. This file turns
-// those facts into the string, total over `Field`, and `builder.ts` writes
-// whatever it returns and holds no token of its own.
-//
-// The suite's `<prompt appearance>` is a Search field's widget, which the
-// Search input's own kind decides, and is written by
-// `suite/case-search/searchPrompts.ts`.
+/** Form control display projection. The receiving editors and workers distinguish
+ * exact strings, substrings and positional words. Settings do not sort their
+ * words globally; each widget builds the order the receiving controls need. */
 
-import {
-	type FIELD_DISPLAY_SETTINGS,
-	type Field,
-	type FieldDisplaySettingKey,
-	type FieldKind,
-	fieldDisplayValues,
-	isCaptureFieldKind,
-} from "@/lib/domain";
+import type { z } from "zod";
+import type { Field, FieldKind } from "@/lib/domain";
+import { isCaptureFieldKind } from "@/lib/domain";
+import type { ChoiceLayout } from "@/lib/domain/choicePresentation";
+import type { displaySchemas } from "@/lib/domain/questionDisplaySchemas";
 import { UPLOAD_APPEARANCE_BY_CAPTURE_KIND } from "./captureUpload";
+import { writeChoiceLayout } from "./choiceAppearance";
 
-/** The token each value of each display setting writes. */
-export const FIELD_DISPLAY_SETTING_TOKENS: {
-	readonly [K in FieldDisplaySettingKey]: Readonly<
-		Record<
-			keyof Extract<
-				(typeof FIELD_DISPLAY_SETTINGS)[number],
-				{ key: K }
-			>["values"],
-			string
-		>
+export const FIELD_DISPLAY_SETTING_TOKENS = {
+	keypad: { numbers: "numeric", "android-numbers": "numbers" },
+	inputWidth: { short: "short", medium: "medium" },
+	calendar: {
+		ethiopian: "ethiopian",
+		nepali: "nepali",
+		gregorian: "gregorian",
+		"gregorian-with-clear": "gregorian cancel",
+	},
+	clock: { "twelve-hour": "12-hour" },
+	locationPicker: { map: "maps" },
+	captureSource: { camera: "acquire", "record-or-choose": "acquire-or-upload" },
+	overlaySize: { small: "overlay-small" },
+	recorder: { legacy: "legacy" },
+	banner: {
+		good: "floating-good",
+		caution: "floating-caution",
+		bad: "floating-bad",
+		hidden: "floating-hidden",
+	},
+	collapse: { closed: "group-collapse", open: "group-collapse collapse-open" },
+	textAlignment: { center: "text-align-center", right: "text-align-right" },
+} as const;
+
+export type DisplaySettings = {
+	[K in Exclude<keyof typeof displaySchemas, "choiceLayout">]?: z.infer<
+		(typeof displaySchemas)[K]
 	>;
-} = {
-	/* Vellum's Phone Number or Numeric ID question (`src/mugs/types/text.js::PhoneNumber`)
-	 * is a Text mug whose appearance is the whole string `numeric`; Web Apps
-	 * draws `PhoneEntry` for the token and Android `StringNumberWidget`. */
-	keypad: { numbers: "numeric" },
-};
+} & { choiceLayout?: ChoiceLayout; fieldList?: true };
 
-/** The token a kind or a container's shape carries, before any setting: what
- *  `fieldAppearance` writes first, and what the reader of an HQ form reads
- *  back as the kind's own token. */
 export function kindAppearanceToken(
 	kind: FieldKind,
 	shape: { readonly fieldList?: true } = {},
 ): string | undefined {
 	if (kind === "label") return "minimal";
-	if (kind === "section") return "field-list";
-	if (kind === "group" && shape.fieldList === true) return "field-list";
+	if (kind === "section" || (kind === "group" && shape.fieldList))
+		return "field-list";
 	if (isCaptureFieldKind(kind)) return UPLOAD_APPEARANCE_BY_CAPTURE_KIND[kind];
 	return undefined;
 }
 
-/** The token a field's own kind or shape carries, before any setting. */
-function kindToken(field: Field): string | undefined {
-	return kindAppearanceToken(
-		field.kind,
-		field.kind === "group" && field.fieldList === true
-			? { fieldList: true }
-			: {},
-	);
+/** This also takes a reader's proposed settings so its spelling can be
+ * re-classified before accepting a non-canonical source. */
+export function writeFieldAppearance(
+	kind: FieldKind,
+	settings: DisplaySettings,
+): string | undefined {
+	const words: string[] = [];
+	const kindToken = kindAppearanceToken(kind, settings);
+	if (
+		kindToken &&
+		!(kind === "label" && (settings.selectableText || settings.banner))
+	)
+		words.push(kindToken);
+	// The first word of a floating label determines Android visibility; the
+	// complete value decides whether a colored banner is actually shown.
+	if (settings.banner)
+		words.push(FIELD_DISPLAY_SETTING_TOKENS.banner[settings.banner]);
+	if (settings.selectableText) words.push("selectable");
+	if (settings.webSignature) words.push("signature");
+	if (settings.choiceLayout)
+		words.push(writeChoiceLayout(settings.choiceLayout));
+	if (settings.keypad)
+		words.push(FIELD_DISPLAY_SETTING_TOKENS.keypad[settings.keypad]);
+	if (settings.addressLookup) words.push("address");
+	if (settings.scanOnOpen) words.push("quick");
+	if (settings.canEditScan) words.push("editable");
+	if (settings.calendar)
+		words.push(FIELD_DISPLAY_SETTING_TOKENS.calendar[settings.calendar]);
+	if (settings.clock) words.push("12-hour");
+	if (settings.locationPicker) words.push("maps");
+	if (settings.captureSource)
+		words.push(
+			FIELD_DISPLAY_SETTING_TOKENS.captureSource[settings.captureSource],
+		);
+	if (settings.overlaySize) words.push("overlay-small");
+	if (settings.recorder) words.push("legacy");
+	if (settings.pauseRecording) words.push("long");
+	if (settings.compact) words.push("compact");
+	if (settings.collapse)
+		words.push(FIELD_DISPLAY_SETTING_TOKENS.collapse[settings.collapse]);
+	if (settings.border) words.push("group-border");
+	if (settings.inputWidth) words.push(settings.inputWidth);
+	if (settings.hintPlacement) words.push("hint-as-placeholder");
+	if (settings.textAlignment)
+		words.push(
+			FIELD_DISPLAY_SETTING_TOKENS.textAlignment[settings.textAlignment],
+		);
+	if (settings.itemsPerRow !== undefined)
+		words.push(`${settings.itemsPerRow}-per-row`);
+	if (settings.repeatsPerRow !== undefined)
+		words.push(`${settings.repeatsPerRow}-per-row-repeat`);
+	for (const topic of settings.sendTopics ?? [])
+		words.push(`broadcast-${topic}`);
+	if (settings.receiveFrom)
+		words.push(
+			`receive-${settings.receiveFrom.channel}-${settings.receiveFrom.field}`,
+		);
+	return words.length ? words.join(" ") : undefined;
 }
 
-/** The `appearance` a field's control carries, or undefined for none. The kind's own token first,
- *  then each display setting's token in `FIELD_DISPLAY_SETTINGS` order, joined by one space. */
 export function fieldAppearance(field: Field): string | undefined {
-	const tokens: string[] = [];
-	const own = kindToken(field);
-	if (own !== undefined) tokens.push(own);
-	for (const { key, value } of fieldDisplayValues(field)) {
-		const byValue: Readonly<Record<string, string>> =
-			FIELD_DISPLAY_SETTING_TOKENS[key];
-		const token = Object.hasOwn(byValue, value) ? byValue[value] : undefined;
-		if (token !== undefined) tokens.push(token);
-	}
-	return tokens.length === 0 ? undefined : tokens.join(" ");
+	return writeFieldAppearance(field.kind, field as DisplaySettings);
 }

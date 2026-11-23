@@ -34,7 +34,10 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
-import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import {
+	expressionSlotValues,
+	translatedFieldProse,
+} from "@/lib/domain/referenceSlots";
 import type { ValidationError } from "../errors";
 import { validationError } from "../errors";
 
@@ -279,6 +282,14 @@ export function multiSelectFormSemantics(
 					)
 				)
 					surfaces.push(slot.slot);
+			}
+			/* A translation that shows values of its own reads them in its
+			 * language, where the source may read no case. */
+			for (const { ref, template } of translatedFieldProse(
+				doc.localization,
+				field,
+			)) {
+				if (referencePartsReadCase(template)) surfaces.push(ref.slot);
 			}
 			for (const { ref, expression } of expressionSlotValues(doc, {
 				entity: "field",

@@ -9,6 +9,7 @@ import {
 	type Field,
 	type LanguageTag,
 	projectLocalizedFields,
+	proseTemplateText,
 	type RepeatField,
 	resolveAppLanguage,
 	type Uuid,
@@ -153,5 +154,63 @@ export function useVisibleRepeatInstances(
 				presentationSource(state),
 			),
 		),
+	);
+}
+
+/** Android's current QuestionsView owns its floating labels. Use the same
+ * localized fields and concrete display state as the worker form itself. */
+export interface QuestionBanner {
+	readonly path: string;
+	readonly uuid: Uuid;
+	readonly tone: "good" | "caution" | "bad";
+	readonly text: string;
+}
+export function useScreenBanners(uuid: Uuid, path: string): QuestionBanner[] {
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	const controller = useEngineController();
+	return usePresentationSelector(
+		(doc) => {
+			const field = presentationFields(doc, language)[uuid];
+			const source = presentationSource(controller.store.getState());
+			const found: QuestionBanner[] = [];
+			function visit(node: FieldTreeNode, concrete: string) {
+				const { field, children = [] } = node;
+				const state = source.stateAt(field, concrete);
+				if (!state.visible) return;
+				if (
+					"banner" in field &&
+					field.banner &&
+					field.banner !== "hidden" &&
+					field.label
+				)
+					found.push({
+						path: concrete,
+						uuid: field.uuid,
+						tone: field.banner,
+						text: state.resolvedLabel ?? proseTemplateText(field.label),
+					});
+				const containers =
+					field.kind === "repeat"
+						? visibleRepeatInstances(node, concrete, source).map(
+								(index) => `${concrete}[${index}]`,
+							)
+						: [concrete];
+				for (const parent of containers)
+					for (const child of children)
+						visit(child, `${parent}/${child.field.id}`);
+			}
+			if (field)
+				visit({ field, children: presentationTree(doc, language, uuid) }, path);
+			return found;
+		},
+		(a, b) =>
+			a.length === b.length &&
+			a.every(
+				(one, i) =>
+					one.path === b[i].path &&
+					one.uuid === b[i].uuid &&
+					one.tone === b[i].tone &&
+					one.text === b[i].text,
+			),
 	);
 }

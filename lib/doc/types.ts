@@ -1,3 +1,6 @@
+import { translatedMediaSchema } from "@/lib/domain/multimedia";
+import { navigationLanguageEntrySchema } from "@/lib/domain/navigationMedia";
+
 // lib/doc/types.ts
 //
 // Defines the doc-layer `Mutation` union and re-exports the handful of
@@ -496,6 +499,7 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: true,
 		icon: true,
 		audioLabel: true,
+		mediaByLanguage: true,
 		// The case list menu item is set whole by `setCaseListMenuItem`.
 		caseListMenuItem: true,
 		// Whether CommCare HQ holds the menu as an advanced module is held by
@@ -520,6 +524,7 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	otherwise: true,
 	icon: true,
 	audioLabel: true,
+	mediaByLanguage: true,
 	// Where a published app keeps the own close is held by `holdPlacements`
 	// alone; no form patch writes it.
 	ownClosePlacement: true,
@@ -1764,18 +1769,32 @@ function createMutationSchema({
 		// a patch reducer and never gets the null-as-delete treatment.
 		z.object({
 			kind: z.literal("setFieldMedia"),
+			sharedOnly: z.literal(true).optional(),
 			fieldUuid: uuidSchema,
 			slot: z.enum(FIELD_MEDIA_SLOTS),
+			language: languageTagSchema.optional(),
+			optionUuid: uuidSchema.optional(),
+			languageEntry: translatedMediaSchema.nullable().optional(),
 			media: mediaSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("setModuleMedia"),
+			language: languageTagSchema.optional(),
+			caseListItem: z.literal(true).optional(),
+			languageEntry: navigationLanguageEntrySchema(moduleIconRefSchema)
+				.nullable()
+				.optional(),
 			uuid: uuidSchema,
 			icon: moduleIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("setFormMedia"),
+			language: languageTagSchema.optional(),
+			registrationOf: uuidSchema.optional(),
+			languageEntry: navigationLanguageEntrySchema(formIconRefSchema)
+				.nullable()
+				.optional(),
 			uuid: uuidSchema,
 			icon: formIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),

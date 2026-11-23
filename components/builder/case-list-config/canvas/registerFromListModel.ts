@@ -91,6 +91,8 @@ export function slotWith(
 	const merged = {
 		label: stored?.label,
 		icon: stored?.icon,
+		mediaByLanguage: stored?.mediaByLanguage,
+		mediaByFormerCode: stored?.mediaByFormerCode,
 		audioLabel: stored?.audioLabel,
 		afterSubmit: stored?.afterSubmit ?? ("case-list" as const),
 		...change,
@@ -104,6 +106,10 @@ export function slotWith(
 		formUuid,
 		...(label !== undefined && { label }),
 		...(merged.icon !== undefined && { icon: merged.icon }),
+		...(merged.mediaByLanguage && { mediaByLanguage: merged.mediaByLanguage }),
+		...(merged.mediaByFormerCode && {
+			mediaByFormerCode: merged.mediaByFormerCode,
+		}),
 		...(merged.audioLabel !== undefined && { audioLabel: merged.audioLabel }),
 		afterSubmit: merged.afterSubmit,
 	};

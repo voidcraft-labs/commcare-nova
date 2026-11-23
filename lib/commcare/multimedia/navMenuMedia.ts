@@ -71,6 +71,55 @@ export function buildNavMediaDicts(
 	return { media_image, media_audio };
 }
 
+/** Sparse menu files keep a language absent when its installation's default table
+ * supplies the file. A stored empty key can itself affect the fallback order. */
+export function localizedNavMediaDicts(
+	carrier: import("@/lib/domain/navigationMedia").NavigationMedia | undefined,
+	manifest: AssetManifest | undefined,
+	where: string,
+	localization: import("../localization").CommCareLocalization,
+): NavMediaDicts {
+	if (!carrier?.mediaByLanguage && !carrier?.mediaByFormerCode)
+		return buildNavMediaDicts(
+			carrier?.icon,
+			carrier?.audioLabel,
+			manifest,
+			where,
+			localization.languages,
+		);
+	const media_image: Record<string, string> = {};
+	const media_audio: Record<string, string> = {};
+	if (manifest)
+		for (const code of localization.languages) {
+			const stored = localization.storedMenuMedia(code, carrier);
+			for (const [role, dictionary] of [
+				["icon", media_image],
+				["audioLabel", media_audio],
+			] as const) {
+				const asset = stored[role];
+				if (asset != null)
+					dictionary[code] =
+						asset === "blank" ? "" : requireAssetRef(asset, manifest, where);
+			}
+		}
+	if (manifest)
+		for (const [code, slots] of Object.entries(
+			carrier.mediaByFormerCode ?? {},
+		)) {
+			if (localization.languages.includes(code)) continue;
+			for (const [role, dictionary] of [
+				["icon", media_image],
+				["audioLabel", media_audio],
+			] as const) {
+				const asset = slots[role];
+				if (asset != null)
+					dictionary[code] =
+						asset === "blank" ? "" : requireAssetRef(asset, manifest, where);
+			}
+		}
+	return { media_image, media_audio };
+}
+
 /** The local-suite nav node + the app_strings entries its media locales
  *  resolve against. `strings` is empty when the carrier has no media. */
 export interface NavMenuNode {

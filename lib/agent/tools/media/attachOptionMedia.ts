@@ -26,7 +26,12 @@
  */
 
 import { z } from "zod";
-import { type SelectOption, uuidSchema } from "@/lib/domain";
+import { uuidSchema } from "@/lib/domain";
+import {
+	appLanguageIdentitySchema,
+	effectiveAppLocalization,
+	languageTag,
+} from "@/lib/domain/localization";
 import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
@@ -46,10 +51,19 @@ const optionMediaAttachmentSchema = fieldAddressSchema
 		optionUuid: uuidSchema.describe(
 			"The stable UUID of the option to attach media to.",
 		),
+		language: appLanguageIdentitySchema
+			.optional()
+			.describe(
+				"The app language whose files to change. Leave this out to edit the " +
+					"shared files. In another language, a role left out of `media`, or " +
+					"an empty `{}`, goes back to the shared file: a language can't hide " +
+					"a shared file.",
+			),
 		media: mediaBundleInput(
 			"The image/audio/video to attach to this option. Supply any subset " +
 				"of `image`, `audio`, `video` as asset ids (discover them with " +
-				"list_media_assets). Pass an empty object `{}` to clear the option's media.",
+				"list_media_assets). Pass an empty object `{}` to clear the option's " +
+				"media; in another language it goes back to the shared files.",
 		),
 	})
 	.strict();
@@ -75,13 +89,14 @@ export type AttachOptionMediaResult = MutationSuccess | { error: string };
 
 export const attachOptionMediaTool = {
 	description:
-		"Set or clear image/audio/video on select-field options — attachments may span fields and forms. An empty media object clears.",
+		"Set or clear image/audio/video on select-field options — attachments may span fields and forms. An empty media object clears the shared files, and in another language goes back to them.",
 	inputSchema: attachOptionMediaInputSchema,
 	async execute(
 		input: AttachOptionMediaInput,
 		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AttachOptionMediaResult>> {
 		const doc = ctx.snapshot.doc;
+		const languages = effectiveAppLocalization(doc.localization);
 		const { attachments } = input;
 		try {
 			// Resolve every attachment before writing anything, collecting
@@ -100,6 +115,15 @@ export const attachOptionMediaTool = {
 				}
 
 				const { field } = found;
+				const language = attachment.language
+					? languageTag(attachment.language)
+					: languages.sourceLanguage;
+				if (!languages.languageOrder.includes(language)) {
+					failures.push(
+						`attachments[${i}]: This language is not in the app. Choose one of the app’s languages or add it first.`,
+					);
+					continue;
+				}
 				if (field.kind !== "single_select" && field.kind !== "multi_select") {
 					failures.push(
 						`attachments[${i}]: field "${field.id}" is a ${field.kind} field, which has no options to attach media to. Option media is only for single_select and multi_select fields.`,
@@ -131,22 +155,15 @@ export const attachOptionMediaTool = {
 					.filter(([, v]) => v !== undefined)
 					.map(([k]) => k);
 
-				// Swap the one option's media via a granular `updateOption` keyed by
-				// the option's UUID, so a concurrent edit to a DIFFERENT option of the
-				// same field merges. The reducer preserves the option's current
-				// `order`; canonical docs always carry the option UUID.
-				const targetOption = field.optionsSource.options[index];
-				const updated = withMedia(
-					targetOption,
-					setKinds.length > 0 ? media : undefined,
-				);
 				resolved.push({
 					mutations: [
 						{
-							kind: "updateOption",
+							kind: "setFieldMedia",
 							fieldUuid: field.uuid,
-							uuid: optionUuid,
-							option: updated,
+							slot: "label",
+							optionUuid,
+							language,
+							media: setKinds.length ? media : null,
 						},
 					],
 					expectations: bundleExpectations(
@@ -187,16 +204,3 @@ export const attachOptionMediaTool = {
 		}
 	},
 };
-
-/**
- * Return a copy of the option with its `media` set to the supplied bundle
- * (or with the `media` key dropped when `media` is `undefined`). Keeps the
- * value/label intact and only the media reference changes.
- */
-function withMedia(
-	option: SelectOption,
-	media: SelectOption["media"] | undefined,
-): SelectOption {
-	const { media: _prev, ...rest } = option;
-	return media === undefined ? rest : { ...rest, media };
-}

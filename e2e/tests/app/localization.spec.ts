@@ -68,18 +68,23 @@ test(
 		await expect(page).toHaveURL(`${setupPath}?lang=spa`);
 
 		const hint = page.getByRole("article").filter({ hasText: "Field hint" });
+		// A question's translation is edited with the question's own chips.
 		const draft = hint.getByRole("textbox", {
-			name: "Reference-safe translation",
+			name: "Translation",
+			exact: true,
 		});
-		await expect(draft).toHaveValue("Worker [[NOVA_REF_1]]");
-		await draft.fill("Trabajador");
-		await expect(hint.getByRole("alert")).toHaveText(
-			"Keep [[NOVA_REF_1]] exactly once.",
-		);
-		await expect(
-			hint.getByRole("button", { name: "Save translation" }),
-		).toBeDisabled();
-		await draft.fill("Trabajador [[NOVA_REF_1]]");
+		const chip = '[data-ref-raw="#user/username"]';
+		await expect(draft).toContainText("Worker");
+		await expect(draft.locator(chip)).toBeVisible();
+		// Replace the word before the chip, keeping the chip itself.
+		await draft.click();
+		await draft.press("ControlOrMeta+Home");
+		for (let step = 0; step < "Worker".length; step++)
+			await draft.press("Shift+ArrowRight");
+		await draft.pressSequentially("Trabajador");
+		await expect(draft).toContainText("Trabajador");
+		await expect(draft).not.toContainText("Worker");
+		await expect(draft.locator(chip)).toBeVisible();
 		const hintSaved = nextSave(page, appId);
 		await hint.getByRole("button", { name: "Save translation" }).click();
 		expect((await hintSaved).status()).toBe(200);
@@ -180,7 +185,8 @@ test(
 			await expect(
 				spanishCard.getByText("Default", { exact: true }),
 			).toBeVisible();
-			await expect(draft).toHaveValue("Trabajador [[NOVA_REF_1]]");
+			await expect(draft).toContainText("Trabajador");
+			await expect(draft.locator(chip)).toBeVisible();
 			const restoreDefault = nextSave(peer, appId);
 			await peer
 				.getByRole("button", { name: "Make default", exact: true })
@@ -189,17 +195,33 @@ test(
 			await expect(
 				spanishCard.getByText("Default", { exact: true }),
 			).toHaveCount(0);
-			await draft.fill("Borrador [[NOVA_REF_1]]");
+			await draft.click();
+			await replaceRichText(draft, "Borrador");
+			// The peer deliberately leaves the worker's username out of the
+			// Spanish hint: the translation shows values of its own.
 			const peerHint = peer
 				.getByRole("article")
 				.filter({ hasText: "Field hint" });
-			await peerHint
-				.getByRole("textbox", { name: "Reference-safe translation" })
-				.fill("Colaborador [[NOVA_REF_1]]");
+			const peerDraft = peerHint.getByRole("textbox", {
+				name: "Translation",
+				exact: true,
+			});
+			await peerDraft.click();
+			await replaceRichText(peerDraft, "Colaborador");
 			const peerSaved = nextSave(peer, appId);
 			await peerHint.getByRole("button", { name: "Save translation" }).click();
 			expect((await peerSaved).status()).toBe(200);
-			await expect(draft).toHaveValue("Colaborador [[NOVA_REF_1]]");
+			await expect(draft).toHaveText("Colaborador");
+			await expect(draft.locator(chip)).toHaveCount(0);
+			const own = snapshotSchema.parse(
+				await (await page.request.get(`/api/apps/${appId}`)).json(),
+			).blueprint.localization?.translations.spa?.[
+				makeTranslationUnitId("field", LOCALIZATION_SEED.fieldUuid, "hint")
+			];
+			expect(own).toMatchObject({
+				value: proseText("Colaborador"),
+				valueMode: "independent-values",
+			});
 
 			// The other tab removes the language while it is selected as a copy
 			// source in an open dialog. Both the language lens and copy source must
@@ -264,17 +286,19 @@ test(
 
 		const label = page.getByRole("article").filter({ hasText: "Field label" });
 		const draft = label.getByRole("textbox", {
-			name: "Reference-safe translation",
+			name: "Translation",
+			exact: true,
 		});
-		await expect(draft).toHaveValue("Client name");
-		await draft.fill("");
+		await expect(draft).toHaveText("Client name");
+		await draft.click();
+		await replaceRichText(draft, "");
 		const cleared = nextSave(page, appId);
 		await label.getByRole("button", { name: "Save translation" }).click();
 		expect((await cleared).status()).toBe(200);
 
 		await expect(label.getByText("Missing", { exact: true })).toBeVisible();
-		await expect(draft).toHaveValue("");
-		await expect(draft).toHaveAttribute("placeholder", "Client name");
+		await expect(draft).toHaveText("");
+		await expect(label.locator("[data-placeholder]")).toHaveText("Client name");
 		await expect(
 			label.getByText(
 				"Workers see the English text here until this is translated.",
@@ -341,15 +365,17 @@ test("a project language keeps its code, manual text and writing direction throu
 	expect((await flipped).status()).toBe(200);
 	const label = page.getByRole("article").filter({ hasText: "Field label" });
 	const draft = label.getByRole("textbox", {
-		name: "Reference-safe translation",
+		name: "Translation",
+		exact: true,
 	});
 	await expect(draft).toHaveCSS("direction", "rtl");
-	await draft.fill("اسم العميل");
+	await draft.click();
+	await replaceRichText(draft, "اسم العميل");
 	const translated = nextSave(page, appId);
 	await label.getByRole("button", { name: "Save translation" }).click();
 	expect((await translated).status()).toBe(200);
 	await reloadBuilder(page);
-	await expect(draft).toHaveValue("اسم العميل");
+	await expect(draft).toHaveText("اسم العميل");
 	await expect(draft).toHaveCSS("direction", "rtl");
 	const response = await page.request.get(`/api/apps/${appId}`);
 	expect(response.status()).toBe(200);

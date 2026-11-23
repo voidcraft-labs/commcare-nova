@@ -121,6 +121,8 @@ final class Forms {
         Sensors.allow(activity, form);
 
         Object controller = Screens.field(activity, "uiController");
+        org.commcare.utils.BlockingActionsManager navigation =
+                (org.commcare.utils.BlockingActionsManager)Screens.field(controller, "blockingActionsManager");
         Method next = controller.getClass().getDeclaredMethod("showNextView");
         next.setAccessible(true);
         Method refresh = controller.getClass().getDeclaredMethod("refreshCurrentView", boolean.class);
@@ -213,6 +215,16 @@ final class Forms {
                 refresh.invoke(controller, false);
                 ShadowLooper.idleMainLooper();
                 screen.put("shown", questions(activity));
+            }
+            // DateWidget and other live controls debounce their edit. Android
+            // ignores Next until its own blocking-action queue has completed.
+            // Run only the queued work until the worker can actually go on.
+            ShadowLooper main = ShadowLooper.getShadowMainLooper();
+            for (int pending = 0; navigation.isBlocked(); pending++) {
+                if (main.getNextScheduledTaskTime().isZero() || pending == 1024) {
+                    throw new AssertionError("Android navigation remains blocked after editing " + now);
+                }
+                main.runToNextTask();
             }
             if (done(activity)) {
                 // The form's last screen: Android shows the worker its finish button there, and never a screen
@@ -441,6 +453,10 @@ final class Forms {
         found.put("event", event(FormEntryActivity.mFormController.getEvent()));
         found.put("index", String.valueOf(FormEntryActivity.mFormController.getFormIndex().getReference()));
         found.put("questions", questions(activity));
+        if (controls) {
+            View banners = activity.findViewById(R.id.form_entry_label_layout);
+            if (banners != null) found.put("banners", Views.describe(banners));
+        }
         if (views && activity.getODKView() != null) {
             // The whole screen as Android built it: each question's widget with its label, hint and media, and
             // a group's header above them.
@@ -460,6 +476,9 @@ final class Forms {
                 question.put("text", String.valueOf(widget.getPrompt().getLongText()));
                 question.put("reference", String.valueOf(widget.getPrompt().getIndex().getReference()));
                 question.put("required", widget.getPrompt().isRequired());
+                if (controls) {
+                    question.put("control", control(widget));
+                }
                 // The widget's own reading of the answer the form holds. Where the form holds none, a date or
                 // time widget shows the device's present moment, which no record may hold.
                 if (widget.getPrompt().getAnswerValue() == null) {
@@ -483,8 +502,8 @@ final class Forms {
     private static final int UNANSWERED = 0;
     private static final int ANSWERED = 1;
     private static final int ADVANCED = 2;
-    /** A refused value typed into its box, which the worker's next step asks the form to take. */
-    private static final int TYPED = 3;
+    /** An edit in the live widget that the worker's own Next or Finish must save. */
+    private static final int EDITED_WIDGET = 3;
     /** Set by the reader where a request asks the walk to type a value the form refused (``typeRefused``). */
     static boolean typeRefused;
     /**
@@ -493,6 +512,51 @@ final class Forms {
      * own filters decide what it keeps, and the form is given the answer the widget then holds.
      */
     static boolean keys;
+    static boolean controls;
+
+    /** Observe the native control the factory constructed, including affordances that
+     * widgets of the same class show differently. Never infer these from appearance. */
+    private static JSONObject control(QuestionWidget widget) throws Exception {
+        JSONObject shown = new JSONObject();
+        shown.put("visible", widget.getVisibility() == View.VISIBLE);
+        if (widget instanceof org.commcare.views.widgets.StringWidget) {
+            android.widget.EditText input = box((org.commcare.views.widgets.StringWidget)widget);
+            shown.put("masked", input.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod);
+            shown.put("imeAction", input.getImeOptions() & android.view.inputmethod.EditorInfo.IME_MASK_ACTION);
+        }
+        if (widget instanceof org.commcare.views.widgets.GridWidget ||
+                widget instanceof org.commcare.views.widgets.GridMultiWidget) {
+            android.widget.GridView grid = (android.widget.GridView)Screens.field(widget, "gridview");
+            int width = widget.getResources().getDisplayMetrics().widthPixels;
+            grid.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            shown.put("columns", grid.getNumColumns());
+            if (grid.getAdapter().getCount() > 0) {
+                View tile = grid.getAdapter().getView(0, null, grid);
+                shown.put("firstTile", tile.getClass().getSimpleName());
+                if (tile instanceof android.widget.ImageView) {
+                    shown.put("firstTileHasImage", ((android.widget.ImageView)tile).getDrawable() != null);
+                }
+            }
+        }
+        if (widget instanceof org.commcare.views.widgets.AbstractUniversalDateWidget ||
+                widget instanceof org.commcare.views.widgets.DateWidget) {
+            IAnswerData day = widget.getAnswer();
+            shown.put("civilDay", day == null ? JSONObject.NULL : day.uncast().getString());
+        }
+        if (widget instanceof org.commcare.views.widgets.GregorianDateWidget) {
+            shown.put("canClearDay", widget.findViewById(R.id.clear_all).getVisibility() == View.VISIBLE);
+        }
+        if (widget instanceof org.commcare.views.widgets.TriggerWidget) {
+            android.widget.TextView label = (android.widget.TextView)Screens.field(widget, "mQuestionText");
+            shown.put("canCopy", label.isTextSelectable());
+        }
+        if (Captures.kind(widget) != null && !(widget instanceof org.commcare.views.widgets.SignatureWidget)) {
+            View choose = Captures.chooser(widget);
+            shown.put("canChooseFile", choose != null && choose.getVisibility() == View.VISIBLE);
+        }
+        return shown;
+    }
 
     /** The box a text widget types into, the widget's own (``StringWidget.mAnswer``). */
     private static android.widget.EditText box(org.commcare.views.widgets.StringWidget widget) throws Exception {
@@ -527,6 +591,58 @@ final class Forms {
         return taken;
     }
 
+    /** Selects a date through the calendar shown by the native widget. The
+     * input contains the year, month and day printed by that calendar. */
+    private static void pickDay(QuestionWidget widget, FormEntryPrompt prompt,
+                                   String visible, JSONObject entry) throws Exception {
+        String[] date = visible.split("-");
+        if (date.length != 3) throw new IllegalArgumentException("Expected calendar year-month-day: " + visible);
+        int year = Integer.parseInt(date[0]);
+        int month = Integer.parseInt(date[1]);
+        int day = Integer.parseInt(date[2]);
+        if (widget instanceof org.commcare.views.widgets.EthiopianDateWidget) {
+            String[] months = org.javarosa.xform.util.CalendarUtils.getMonthsArray("ethiopian_months");
+            // Move to day one so changing month or year cannot overflow a shorter month.
+            selectNumber(widget, R.id.daytxt, R.id.daydownbtn, R.id.dayupbtn, 1, 31);
+            android.widget.TextView monthLabel = widget.findViewById(R.id.monthtxt);
+            for (int n = 0; !months[month - 1].contentEquals(monthLabel.getText()); n++) {
+                if (n >= months.length) throw new AssertionError("Calendar did not reach " + months[month - 1]);
+                widget.findViewById(R.id.monthupbtn).performClick();
+            }
+            selectNumber(widget, R.id.yeartxt, R.id.yeardownbtn, R.id.yearupbtn, year, 150);
+            selectNumber(widget, R.id.daytxt, R.id.daydownbtn, R.id.dayupbtn, day, 31);
+        } else if (widget instanceof org.commcare.views.widgets.DateWidget) {
+            android.widget.DatePicker picker = null;
+            for (int i = 0; i < widget.getChildCount(); i++) {
+                if (widget.getChildAt(i) instanceof android.widget.DatePicker) {
+                    picker = (android.widget.DatePicker)widget.getChildAt(i);
+                    break;
+                }
+            }
+            if (picker == null) throw new AssertionError("No DatePicker on " + prompt.getIndex());
+            picker.updateDate(year, month - 1, day);
+        } else {
+            throw new AssertionError("No supported calendar widget on " + prompt.getIndex());
+        }
+        IAnswerData selected = widget.getAnswer();
+        if (selected == null) throw new AssertionError("Calendar selection gave no answer on " + prompt.getIndex());
+        entry.put("calendarSelection", visible);
+        entry.put("given", selected.getDisplayText());
+        // The worker leaves this live picker with Next or Finish. That action asks
+        // the widget for its answer and performs the native save and validation.
+    }
+
+    private static void selectNumber(QuestionWidget widget, int labelId, int previousId, int nextId,
+                                     int target, int bound) {
+        android.widget.TextView label = widget.findViewById(labelId);
+        for (int n = 0; n <= bound; n++) {
+            int current = Integer.parseInt(label.getText().toString());
+            if (current == target) return;
+            widget.findViewById(current < target ? nextId : previousId).performClick();
+        }
+        throw new AssertionError("Calendar did not reach " + target + " from " + label.getText());
+    }
+
     /**
      * Gives each question on the screen its answer from the table, through the form's own controller: the first
      * value the form takes; a capture question its file, through its own screen (Captures).
@@ -537,7 +653,7 @@ final class Forms {
             return UNANSWERED;
         }
         boolean answered = false;
-        boolean typed = false;
+        boolean editedWidget = false;
         JSONArray given = new JSONArray();
         for (QuestionWidget widget : view.getWidgets()) {
             FormEntryPrompt prompt = widget.getPrompt();
@@ -567,10 +683,67 @@ final class Forms {
                         Answers.valuesFor(prompt).get(0), entry);
                 continue;
             }
+            List<String> instructions = Answers.valuesFor(prompt);
+            if (widget instanceof org.commcare.views.widgets.BarcodeWidget &&
+                    !instructions.isEmpty() && instructions.get(0).startsWith("scan:")) {
+                String before = String.valueOf(FormEntryActivity.mFormController.getFormIndex());
+                ShadowActivity form = Shadows.shadowOf((Activity)activity);
+                ShadowActivity.IntentForResult scanner = form.getNextStartedActivityForResult();
+                entry.put("openedOnArrival", scanner != null);
+                if (scanner == null) {
+                    ((View)Screens.field(widget, "launchIntentButton")).performClick();
+                    scanner = form.getNextStartedActivityForResult();
+                }
+                if (scanner == null) throw new AssertionError("Scan button opened no scanner");
+                form.receiveResult(scanner.intent, Activity.RESULT_CANCELED, new android.content.Intent());
+                ShadowLooper.idleMainLooper();
+                entry.put("cancelledWithoutAnswer", prompt.getAnswerValue() == null);
+                org.commcare.views.widgets.QuestionWidget current = activity.getODKView().getWidgets().stream()
+                        .filter(q -> q.getPrompt().getIndex().equals(prompt.getIndex())).findFirst()
+                        .orElseThrow(() -> new AssertionError("Cancellation left the scan question"));
+                ((View)Screens.field(current, "launchIntentButton")).performClick();
+                ShadowActivity.IntentForResult retried = form.getNextStartedActivityForResult();
+                if (retried == null) throw new AssertionError("Retry opened no scanner");
+                String scanned = instructions.get(0).substring("scan:".length());
+                form.receiveResult(retried.intent, Activity.RESULT_OK,
+                        new android.content.Intent().putExtra("SCAN_RESULT", scanned));
+                ShadowLooper.idleMainLooper();
+                entry.put("given", scanned);
+                answered = true;
+                if (!before.equals(String.valueOf(FormEntryActivity.mFormController.getFormIndex()))) {
+                    entry.put("advanced", true);
+                    screen.put("answered", given);
+                    return ADVANCED;
+                }
+                continue;
+            }
             Object taken = JSONObject.NULL;
             JSONArray refused = new JSONArray();
             boolean constraintRefused = false;
             List<String> values = Answers.valuesFor(prompt);
+            if (widget instanceof org.commcare.views.widgets.GregorianDateWidget &&
+                    values.size() == 1 && "clear-calendar".equals(values.get(0))) {
+                View clear = widget.findViewById(R.id.clear_all);
+                if (clear.getVisibility() != View.VISIBLE || widget.getAnswer() == null) {
+                    throw new AssertionError("Expected an answered Gregorian question with a clear button");
+                }
+                entry.put("beforeClear", widget.getAnswer().getDisplayText());
+                clear.performClick();
+                ShadowLooper.idleMainLooper();
+                if (widget.getAnswer() != null) throw new AssertionError("Clear retained a calendar answer");
+                entry.put("given", JSONObject.NULL);
+                // A newly rendered Gregorian picker with an empty answer shows today.
+                // Let Next save this live, cleared picker before any widget is rebuilt.
+                editedWidget = true;
+                continue;
+            }
+            if (!values.isEmpty() && values.get(0).startsWith("calendar:") &&
+                    (widget instanceof org.commcare.views.widgets.DateWidget ||
+                     widget instanceof org.commcare.views.widgets.AbstractUniversalDateWidget)) {
+                pickDay(widget, prompt, values.get(0).substring("calendar:".length()), entry);
+                editedWidget = true;
+                continue;
+            }
             for (String value : values) {
                 int status;
                 try {
@@ -597,7 +770,7 @@ final class Forms {
                     // Android itself checks it and shows the form's message for it.
                     ((org.commcare.views.widgets.StringWidget)widget).setAnswer(values.get(0));
                     entry.put("typed", values.get(0));
-                    typed = true;
+                    editedWidget = true;
                 } else if (!typeRefused && !prompt.isRequired()) {
                     // The worker's Clear action, then the controller saving the widget's actual value. A refused
                     // attempt left the old value in the widget, including any value the form loaded from a case.
@@ -615,7 +788,7 @@ final class Forms {
             entry.put("given", taken);
         }
         screen.put("answered", given);
-        return typed ? TYPED : answered ? ANSWERED : UNANSWERED;
+        return editedWidget ? EDITED_WIDGET : answered ? ANSWERED : UNANSWERED;
     }
 
     private static String answerResult(int status) {

@@ -15,6 +15,8 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "hq-question-display",
+    "targeted-question-calendar",
     "case-capture-multiple",
     "case-capture-repeat",
     "case-list-browse",
@@ -23,6 +25,7 @@ DOCUMENTS = (
     "case-operation-key",
     "case-operation-query",
     "localization-bilingual",
+    "media-language-files",
     "media-only",
     "navigation-base",
     "prompt-widgets",

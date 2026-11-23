@@ -1010,3 +1010,7 @@ export function describeCommitFindings(
 		findings.length === 1 ? "this problem" : "these problems"
 	}, then try again.`;
 }
+
+/** The inspector filters display choices against the same per-question rule
+ * the commit gate runs. The document boundary owns the platform projection. */
+export { fieldDisplayProblem as proposedDisplayProblem } from "@/lib/commcare/xform/readDisplaySettings";

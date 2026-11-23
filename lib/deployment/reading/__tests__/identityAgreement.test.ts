@@ -81,7 +81,7 @@ import {
 
 const TARGET = { origin: HOST, domain: DOMAIN };
 
-/** One form holding each control whose appearance Nova writes, and two it does not. */
+/** A mix of ordinary controls and independently observable worker presentations. */
 const APPEARANCES = buildDoc({
 	appName: "Appearances",
 	modules: [
@@ -103,6 +103,18 @@ const APPEARANCES = buildDoc({
 						f({ kind: "text", id: "phone", keypad: "numbers" }),
 						f({ kind: "decimal", id: "weight" }),
 						f({ kind: "text", id: "plain" }),
+						f({ kind: "secret", id: "masked", keypad: "numbers" }),
+						f({
+							kind: "date",
+							id: "local_day",
+							calendar: "ethiopian",
+							itemsPerRow: "2",
+						}),
+						f({
+							kind: "group",
+							id: "directions",
+							children: [f({ kind: "text", id: "turn" })],
+						}),
 					],
 				},
 			],
@@ -160,7 +172,7 @@ describe("identityDifferences", () => {
 		expect(await signatures(edit)).toEqual(["identity/leaf/appearance"]);
 	});
 
-	it("never takes one of Nova's four appearances as inert", async () => {
+	it("keeps authored presentations even where a reading calls one inert", async () => {
 		expect(
 			await signatures(undefined, ["note", "sig", "grp", "phone"]),
 		).toEqual([
@@ -169,6 +181,24 @@ describe("identityDifferences", () => {
 			"identity/appearance/inert-held",
 			"identity/appearance/inert-held",
 		]);
+	});
+
+	it("protects the active widget on each platform while accepting an equivalent spelling or an inert repeat style", async () => {
+		const changedWidget = await signatures(
+			appearanceAt("/data/local_day", "ethiopian"),
+		);
+		expect(changedWidget).toContain("identity/leaf/appearance");
+		expect(
+			await signatures(appearanceAt("/data/local_day", "2-per-row ethiopian")),
+		).toEqual([]);
+		expect(await signatures(undefined, ["masked"])).toContain(
+			"identity/appearance/inert-held",
+		);
+		expect(
+			await signatures(appearanceAt("/data/directions", "2-per-row-repeat"), [
+				"directions",
+			]),
+		).toEqual([]);
 	});
 
 	it("takes numeric on a decimal input as inert", async () => {
@@ -598,7 +628,7 @@ describe("identityDifferences", () => {
 	});
 });
 
-describe("Nova's four appearances", () => {
+describe("protected worker presentations", () => {
 	it("are exactly what the emitter writes", {
 		timeout: 120_000,
 	}, async () => {

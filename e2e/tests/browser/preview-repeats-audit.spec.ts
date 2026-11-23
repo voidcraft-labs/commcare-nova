@@ -187,15 +187,21 @@ test.describe("on Android, in a zone the stored offset matches", () => {
 			await expect(
 				page.getByRole("button", { name: "Ir al mes siguiente" }),
 			).toBeVisible();
-			await page.getByRole("button", { name: "Borrar", exact: true }).click();
-			await expect(date).toHaveText("Elegir una fecha");
+			// Android's date widget can't be emptied: its clear puts the picker
+			// back on today (`DateWidget.java::clearAnswer`), so the calendar
+			// offers no Clear and closing it keeps the day.
+			await expect(
+				page.getByRole("button", { name: "Borrar", exact: true }),
+			).toHaveCount(0);
+			await page.keyboard.press("Escape");
+			await expect(date).toHaveText("9 de enero de 2024");
 			await expect
 				.poll(() =>
 					page.evaluate(
 						() => window.previewRepeatsAudit.answerValues()["/data/visit/date"],
 					),
 				)
-				.toBe("");
+				.toBe("2024-01-09");
 			// The repeat after the group is another screen on a phone, so this
 			// screen draws none of it.
 			await expect(
@@ -342,16 +348,12 @@ test("Repeated Preview questions keep native accessible names and retained DOM i
 	);
 	try {
 		await page.goto(peer.origin);
-		const groupToggles = page.getByRole("button", {
-			name: /Collapse.*Section [12].*Visit/,
-		});
-		await expect(groupToggles).toHaveCount(2);
-		for (const toggle of await groupToggles.all()) {
-			await expect(toggle).toHaveAttribute("aria-expanded", "true");
-			const controlled = await toggle.getAttribute("aria-controls");
-			expect(controlled).toBeTruthy();
-			await expect(page.locator(`[id="${controlled}"]`)).toBeVisible();
-		}
+		// A group collapses in Web Apps only where it asks to (`form_ui.js`,
+		// `collapsible`), and these do not, so each shows its questions with
+		// no toggle.
+		await expect(
+			page.getByRole("button", { name: /Collapse.*Section [12].*Visit/ }),
+		).toHaveCount(0);
 		await expect(
 			page.getByRole("button", {
 				name: /Section 1.*Visit.*Photo.*Attach file/,

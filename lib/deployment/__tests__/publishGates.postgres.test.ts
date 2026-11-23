@@ -73,6 +73,7 @@ import { confirmationKeyOf } from "../confirmations";
 import { DeploymentError } from "../errors";
 import { placementMoveOffer, placementMoveOfferView } from "../placementMoves";
 import { narrowingTo } from "../platformNarrowing";
+import { readPreviewDeploymentAnswer } from "../previewSpace";
 import { HQ_CHANGED_DURING_PUSH_MESSAGE } from "../remoteChanges";
 import {
 	type PublishOutcome,
@@ -1429,6 +1430,164 @@ describe("the flat location list", () => {
 		expect((await confirmationRows()).map((row) => row.kind)).not.toContain(
 			"flat-location-fixture",
 		);
+	});
+});
+
+// ── Q1. Address search in Web Apps ─────────────────────────────────────
+
+/** A survey whose one text question searches for an address. */
+function addressDocument(): BlueprintDoc {
+	return buildDoc({
+		appName: "Home visits",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						uuid: "visit",
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								id: "home",
+								label: "Home address",
+								addressLookup: true,
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+const GEOCODER: DeploymentConfirmationKey = {
+	kind: "plan-feature",
+	subject: "geocoder",
+};
+
+/** The slug HQ's feature-flag filter matches for advanced case search. */
+const ADVANCED_SEARCH_FLAG = domainFeatureFlag(
+	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS["advanced-case-search"],
+).slug;
+
+/** The compatibility reads of the address app's publish: the target, then advanced case search answered `flag`. */
+function advancedSearchFlag(
+	peer: MockAgent,
+	flag: "on" | "off" | "unreadable",
+) {
+	request(peer, PROJECT_SPACES).reply(200, VISIBLE);
+	const filtered = request(
+		peer,
+		`${PROJECT_SPACES}&feature_flag=${ADVANCED_SEARCH_FLAG}`,
+	);
+	if (flag === "unreadable") filtered.reply(500, "Server error");
+	else
+		filtered.reply(
+			200,
+			flag === "on" ? VISIBLE : { meta: { total_count: 0 }, objects: [] },
+		);
+}
+
+function addressSearchCapability(outcome: PublishOutcome) {
+	return outcome.projectSpaceCompatibility?.required_capabilities.find(
+		(capability) => capability.id === "address-search",
+	);
+}
+
+describe("address search in Web Apps", () => {
+	it("asks for the Geocoder plan feature before any request, whatever advanced case search reads", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			const needed = refusal(await publish(doc)).confirmationsNeeded;
+			expect(needed).toContainEqual({
+				kind: "plan-feature",
+				subject: "geocoder",
+				label: PLAN_FEATURES.geocoder.label,
+				plans: PLAN_FEATURES.geocoder.plans,
+				consequence: PLAN_FEATURES.geocoder.consequence,
+				reasons: [
+					"Visit has a question that searches for an address in Web Apps.",
+				],
+				/* The question can take typed text, and the app can run on
+				 * Android alone, where publishing asks nothing of the plan. */
+				whereMissing:
+					"Where the plan doesn't include it, you can turn off Find an address on these questions, and workers type the address as ordinary text. If this app's workers use Android alone, you can instead set it to run on Android only, in App settings, and publishing no longer asks about Geocoder.",
+			});
+			expect(allRequests(peer)).toEqual([]);
+		});
+		expect(await confirmationRows()).toEqual([]);
+	});
+
+	it("stops before any write where the project space lacks advanced case search, with Geocoder confirmed", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			advancedSearchFlag(peer, "off");
+			const outcome = await publish(doc, [GEOCODER]);
+			expect(refusal(outcome)).toMatchObject({
+				phase: "preflight",
+				failure: { code: "project_space_incompatible" },
+			});
+			expect(addressSearchCapability(outcome)).toMatchObject({
+				state: "missing",
+				reasons: [
+					"Visit has a question that searches for an address in Web Apps.",
+				],
+			});
+			expect(outcome.deployment).toBeNull();
+			expect(requests(peer)).toEqual([]);
+		});
+		expect(await confirmationRows()).toEqual([]);
+	});
+
+	it("stops where advanced case search can't be read", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			advancedSearchFlag(peer, "unreadable");
+			const outcome = await publish(doc, [GEOCODER]);
+			expect(refusal(outcome).failure.code).toBe("project_space_incompatible");
+			expect(addressSearchCapability(outcome)?.state).toBe("unverified");
+			expect(requests(peer)).toEqual([]);
+		});
+	});
+
+	it("lands with both, and keeps the Geocoder confirmation", async () => {
+		const doc = await seed(addressDocument());
+		await withPeer(async (peer) => {
+			advancedSearchFlag(peer, "on");
+			const outcome = await firstPublishConfirming(peer, doc, [GEOCODER]);
+			expect(addressSearchCapability(outcome)?.state).toBe("available");
+		});
+		expect(await confirmationRows()).toContainEqual({
+			kind: "plan-feature",
+			subject: "geocoder",
+			confirmed_by: ACTOR,
+		});
+		/* A Preview bound to the project space reads the confirmation. */
+		expect(await readPreviewDeploymentAnswer(SCOPE)).toMatchObject({
+			projectSpace: "clinic",
+			targetFacts: { geocoderConfirmed: true },
+		});
+	});
+
+	it("asks nothing of an app that runs only on Android, where the question takes typed text", async () => {
+		const doc = await seed(androidOnly(addressDocument()));
+		await withPeer(async (peer) => {
+			const outcome = await firstPublishConfirming(peer, doc, []);
+			expect(addressSearchCapability(outcome)).toBeUndefined();
+			expect(
+				allRequests(peer).some((line) =>
+					line.includes(`feature_flag=${ADVANCED_SEARCH_FLAG}`),
+				),
+			).toBe(false);
+		});
+		expect((await confirmationRows()).map((row) => row.subject)).not.toContain(
+			"geocoder",
+		);
+		expect(
+			(await readPreviewDeploymentAnswer(SCOPE)).targetFacts,
+		).not.toHaveProperty("geocoderConfirmed");
 	});
 });
 

@@ -1,3 +1,13 @@
+import { printAuthoringIcon } from "@/lib/agent/authoring/icons";
+import {
+	type AppLanguageIdentity,
+	effectiveAppLocalization,
+	parseLanguageTag,
+} from "@/lib/domain/localization";
+import {
+	type NavigationMedia,
+	navigationFilesInLanguage,
+} from "@/lib/domain/navigationMedia";
 /**
  * SA tool: `getModule` — read one module's metadata + menu media + case
  * list config + case search config + form summary by stable UUID.
@@ -95,6 +105,30 @@ export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
  * (a form with three groups of five fields reads as 15, not 3).
  * `icon` is the stored ref; `audio_label` is an uploaded-media UUID.
  */
+interface LanguageFiles {
+	language: AppLanguageIdentity;
+	icon: ReturnType<typeof printAuthoringIcon> | null;
+	audio_label: MediaAssetId | null;
+}
+
+function languageFiles(
+	doc: BlueprintDoc,
+	carrier: NavigationMedia | undefined,
+): { files_by_language?: LanguageFiles[] } {
+	if (!carrier?.mediaByLanguage) return {};
+	const app = effectiveAppLocalization(doc.localization);
+	return {
+		files_by_language: app.languageOrder.map((tag) => {
+			const files = navigationFilesInLanguage(carrier, tag, app);
+			return {
+				language: parseLanguageTag(tag),
+				icon: files.icon ? printAuthoringIcon(files.icon) : null,
+				audio_label: files.audioLabel ?? null,
+			};
+		}),
+	};
+}
+
 export interface GetModuleFormSummary {
 	uuid: Uuid;
 	name: string;
@@ -102,6 +136,7 @@ export interface GetModuleFormSummary {
 	fieldCount: number;
 	icon: FormIconRef | null;
 	audio_label: MediaAssetId | null;
+	files_by_language?: LanguageFiles[];
 	/**
 	 * True when the form is its menu's registration from the case list
 	 * after an empty search (`caseListRegistrationForm`, the
@@ -137,6 +172,7 @@ export type GetModuleResult =
 			case_type: string | null;
 			icon: ModuleIconRef | null;
 			audio_label: MediaAssetId | null;
+			files_by_language?: LanguageFiles[];
 			display_condition: Expression | null;
 			/** True when the module is off the menu, with every form in it. */
 			hidden_from_menu: boolean;
@@ -163,6 +199,7 @@ export type GetModuleResult =
 				label: string | null;
 				icon: ModuleIconRef | null;
 				audio_label: MediaAssetId | null;
+				files_by_language?: LanguageFiles[];
 			} | null;
 			/** The registration the case list offers; `label` null uses the
 			 *  form's name. */
@@ -184,6 +221,7 @@ export type CaseListRegistrationRead =
 			followsFormAfterSubmit: boolean;
 			icon: FormIconRef | null;
 			audio_label: MediaAssetId | null;
+			files_by_language?: LanguageFiles[];
 	  };
 
 function caseListRegistrationRead(
@@ -205,6 +243,7 @@ function caseListRegistrationRead(
 		afterSubmit: slot.afterSubmit,
 		followsFormAfterSubmit:
 			caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "own",
+		...languageFiles(doc, slot),
 		icon: slot.icon ?? null,
 		audio_label: slot.audioLabel ?? null,
 	};
@@ -262,6 +301,7 @@ export const getModuleTool = {
 				parentCaseModuleUuid: mod.parentCaseModuleUuid ?? null,
 				child_module_uuids: childModuleUuids(doc, moduleUuid),
 				case_type: mod.caseType ?? null,
+				...languageFiles(doc, mod),
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				display_condition: mod.displayCondition ?? null,
@@ -284,6 +324,7 @@ export const getModuleTool = {
 						? null
 						: {
 								label: mod.caseListMenuItem.label ?? null,
+								...languageFiles(doc, mod.caseListMenuItem),
 								icon: mod.caseListMenuItem.icon ?? null,
 								audio_label: mod.caseListMenuItem.audioLabel ?? null,
 							},
@@ -295,6 +336,7 @@ export const getModuleTool = {
 						name: f?.name ?? "",
 						type: f?.type ?? "survey",
 						fieldCount: countFieldsUnder(doc, fUuid),
+						...languageFiles(doc, f),
 						icon: f?.icon ?? null,
 						audio_label: f?.audioLabel ?? null,
 						opensFromCaseList:

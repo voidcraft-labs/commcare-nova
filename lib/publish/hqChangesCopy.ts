@@ -259,6 +259,15 @@ export function whereHqKeepsLines(changes: {
 export const ANDROID_APPS_PRIVILEGE_LOST_LINE =
 	"CommCare HQ no longer lists the Android apps workers need, as it does when a project space loses App Dependencies. Nova keeps them in the app, since no one chose to remove them.";
 
+/**
+ * The line for changes that give the app its first question searching for
+ * an address in Web Apps, which works only on a project space with advanced
+ * case search and the Geocoder plan feature.
+ */
+export function hqChangesAddressSearchLine(domain: string): string {
+	return `A question changed in CommCare HQ now searches for an address in Web Apps, which works only where “${domain}” has advanced case search and the Geocoder plan feature. Your next publish checks advanced case search and asks you to confirm Geocoder unless someone already has.`;
+}
+
 /** The panel's lead over what the next publish changes, each line the register's own sentence. */
 export const NEXT_PUBLISH_LEAD =
 	"Nova writes a few things its own way, so your next publish changes these in CommCare HQ:";

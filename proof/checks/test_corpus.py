@@ -197,6 +197,7 @@ PLAN_PRIVILEGES = frozenset(
         "LOCATIONS",
         "DATA_FORWARDING",
         "APP_DEPENDENCIES",
+        "GEOCODER",
     }
 )
 

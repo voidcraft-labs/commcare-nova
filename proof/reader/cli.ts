@@ -64,7 +64,11 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	makeTranslationUnitId,
+} from "@/lib/domain";
 import { remapAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -77,6 +81,8 @@ import {
 type Mode = "read-back" | "first-read" | "claims";
 
 interface Hold {
+	/** A field translation addressed by the same external field key as its source. */
+	readonly translation?: { readonly language: string; readonly slot: string };
 	readonly key: string;
 	readonly pointer: string;
 	readonly value: unknown;
@@ -213,14 +219,18 @@ function heldOf(
 			],
 		),
 	);
-	return holds.map(({ key, pointer }) => {
+	return holds.map(({ key, pointer, translation }) => {
 		const uuid = uuidOfKey.get(key);
 		const entity =
 			key === "app"
 				? reading.doc
 				: uuid === undefined
 					? undefined
-					: entityOf(reading.doc, uuid);
+					: translation === undefined
+						? entityOf(reading.doc, uuid)
+						: reading.doc.localization?.translations[translation.language]?.[
+								makeTranslationUnitId("field", uuid, translation.slot)
+							];
 		return {
 			key,
 			pointer,

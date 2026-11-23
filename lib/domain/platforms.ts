@@ -21,6 +21,10 @@
 import type { BlueprintDoc } from "./blueprint";
 import type { Expression } from "./expression/types";
 import type { FieldKind } from "./fields";
+import {
+	questionDisplayPlatformIds,
+	questionDisplayPlatforms,
+} from "./questionDisplayPlatforms";
 
 const connectFormLocation =
 	"every form a worker submits includes the device's location if CommCare has location permission and the device gets a GPS fix";
@@ -159,6 +163,35 @@ export interface PlatformRefusalCopy {
 	readonly pickerLine?: string;
 }
 
+/**
+ * What a project space must have for one platform's reading to hold. The
+ * platform's own reading in the row is the satisfied one; `unavailable` is
+ * what the worker meets where the project space lacks a requirement. The
+ * document gate never reads it: an app is valid whatever project space it
+ * is published to. Publishing checks `capability` and asks a person to
+ * confirm `planFeature` (their public names are in
+ * `lib/publish/projectSpaceCompatibility.ts` and `lib/publish/planFeatures.ts`,
+ * which `lib/commcare/__tests__/targetConditions.test.ts` holds these ids
+ * to), and Preview reads a confirmation on record where it is bound to a
+ * project space.
+ */
+export interface PlatformTargetCondition {
+	/** The platform whose reading depends on the project space. */
+	readonly platform: Platform;
+	/** Why, as a whole sentence a person reads. */
+	readonly reason: string;
+	/** The project-space capability a publish checks before it writes. */
+	readonly capability: "address-search";
+	/** The plan feature a publish asks a person to confirm, since no API key reads a plan. */
+	readonly planFeature: "geocoder";
+	/** What the worker meets where the project space lacks a requirement. */
+	readonly unavailable: {
+		readonly reading: "unavailable";
+		/** A clause that starts lower case and has no final period. */
+		readonly note: string;
+	};
+}
+
 export interface PlatformFeature {
 	readonly label: string;
 	/** Who refuses it: the platform rule (`structure`) or the checker (`expression`). */
@@ -168,6 +201,8 @@ export interface PlatformFeature {
 	readonly refusal?: PlatformRefusalCopy;
 	/** The question kind this feature is, where it is one. */
 	readonly fieldKind?: FieldKind;
+	/** Where one platform's reading holds only on a project space that has what it needs. */
+	readonly targetCondition?: PlatformTargetCondition;
 }
 
 /**
@@ -199,6 +234,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"video-question",
 	"question-pages",
 	"number-keypad",
+	...questionDisplayPlatformIds,
 	"plain-text",
 	"choice-media",
 	"help-media",
@@ -496,6 +532,7 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "the whole form shows on one page" },
 		android: { reading: "runs", note: "each page shows on its own screen" },
 	},
+	...questionDisplayPlatforms,
 	"number-keypad": {
 		label: "Number keypad",
 		channel: "structure",
@@ -953,9 +990,27 @@ export function platformSentence(
 			if (behavior.remedy !== undefined) pieces.push(behavior.remedy);
 		} else if (behavior.note !== undefined)
 			pieces.push(`${capitalized(inPlatform(platform))}, ${behavior.note}.`);
+		const condition = PLATFORM_FEATURES[feature].targetCondition;
+		if (condition?.platform === platform)
+			pieces.push(
+				`${condition.reason} Where it doesn't, ${condition.unavailable.note}.`,
+			);
 	}
 	return pieces.join(" ");
 }
+
+/** A feature whose reading on one platform depends on the project space, with its uses' condition. */
+export function targetConditionOf(
+	feature: PlatformFeatureId,
+): PlatformTargetCondition | undefined {
+	return PLATFORM_FEATURES[feature].targetCondition;
+}
+
+/** Every feature with a target condition, in table order. */
+export const TARGET_CONDITIONED_FEATURES: readonly PlatformFeatureId[] =
+	PLATFORM_FEATURE_IDS.filter(
+		(id) => PLATFORM_FEATURES[id].targetCondition !== undefined,
+	);
 
 /** The line a picker or menu shows beside a choice it withholds: what
  * withholds it, then the way forward. */

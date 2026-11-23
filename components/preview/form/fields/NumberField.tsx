@@ -1,7 +1,10 @@
 "use client";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { DecimalField, IntField } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
+import { workerKeyboard } from "./WorkerKeyboard";
 
 interface NumberFieldProps {
 	/** The answer type also selects the mobile keyboard. */
@@ -20,11 +23,14 @@ export function NumberField({
 	onChange,
 	onBlur,
 }: NumberFieldProps) {
+	const rules = usePreviewPlatformRules();
+	const project = useProseProjection();
 	const showError = state.touched && !state.valid;
 
 	return (
 		<div>
 			<input
+				{...workerKeyboard(field, rules.keyboardAction)}
 				type="text"
 				inputMode={field.kind === "int" ? "numeric" : "decimal"}
 				aria-labelledby={labelledBy}
@@ -34,7 +40,13 @@ export function NumberField({
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}
-				placeholder=""
+				placeholder={
+					rules.hintPlacement === "as-authored" &&
+					field.hintPlacement === "placeholder" &&
+					field.hint
+						? (state.resolvedHint ?? project(field.hint))
+						: undefined
+				}
 				autoComplete="off"
 				data-1p-ignore
 				className={`nova-focusable w-full h-11 px-3 rounded-lg bg-pv-input-bg border text-sm text-nova-text placeholder:text-nova-text-muted outline-none transition-colors ${

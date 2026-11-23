@@ -21131,14 +21131,6 @@
 		"id": "hq-kept-settings/form-icon-by-language",
 		"base": "hq-kept-settings",
 		"entry": "forms-and-case-writes/media-image-media-audio-differing-by-language",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Rounds",
-			"name": "Survey"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/0/media_image",
@@ -21146,7 +21138,33 @@
 				"en": "jr://file/commcare/logo/data/hq_logo_android_home.png",
 				"fra": "jr://file/commcare/logo/data/hq_logo_android_login.png"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_home.png"
+				}
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/mediaByLanguage/fra/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_login.png"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-kept-settings/homescreen-title",
@@ -21201,6 +21219,43 @@
 		}
 	},
 	{
+		"id": "hq-kept-settings/localized-label-images",
+		"base": "hq-kept-settings",
+		"entry": "questions/label-or-option-media-differing-by-language",
+		"change": {
+			"op": "named",
+			"name": "localized_label_images"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["note"]
+				],
+				"pointer": "/label_media/image",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_home.png"
+				}
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["note"]
+				],
+				"pointer": "/label_media/mediaByLanguage/fra/image",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_login.png"
+				}
+			}
+		]
+	},
+	{
 		"id": "hq-kept-settings/markdown-default-language-only",
 		"base": "hq-kept-settings",
 		"entry": "questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s",
@@ -21241,10 +21296,28 @@
 		}
 	},
 	{
+		"id": "hq-kept-settings/media-empty-translation",
+		"base": "hq-kept-settings",
+		"entry": "questions/empty-media-form-beside-a-translated-file",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Rounds",
+			"formName": "Survey",
+			"path": "note"
+		},
+		"change": {
+			"op": "named",
+			"name": "media_empty_translation"
+		}
+	},
+	{
 		"id": "hq-kept-settings/media-one-language",
 		"base": "hq-kept-settings",
-		"entry": "questions/label-or-option-media-differing-by-language",
-		"standing": "not-yet",
+		"entry": "questions/media-form-missing-in-default-language",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -21262,12 +21335,6 @@
 		"id": "hq-kept-settings/menu-icon-by-language",
 		"base": "hq-kept-settings",
 		"entry": "menus-and-case-lists/media-image-media-audio-differing-by-language",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 0,
-			"name": "Rounds"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/media_image",
@@ -21275,7 +21342,33 @@
 				"en": "jr://file/commcare/logo/data/hq_logo_android_home.png",
 				"fra": "jr://file/commcare/logo/data/hq_logo_android_login.png"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_home.png"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/mediaByLanguage/fra/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_login.png"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-kept-settings/note-image-without-map-entry",
@@ -21299,15 +21392,20 @@
 		"id": "hq-kept-settings/outputs-differ",
 		"base": "hq-kept-settings",
 		"entry": "questions/a-text-whose-languages-show-different-values",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Rounds",
-			"formName": "Survey",
-			"path": "note"
-		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["note"]],
+				"translation": { "language": "fra", "slot": "label" },
+				"pointer": "/valueMode",
+				"value": "independent-values"
+			},
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["note"]],
+				"translation": { "language": "fra", "slot": "label" },
+				"pointer": "/value/parts/1/kind",
+				"value": "field-ref"
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "outputs_differ"
@@ -29348,6 +29446,158 @@
 		}
 	},
 	{
+		"id": "hq-question-display/fix-grid-columns",
+		"base": "hq-question-display",
+		"entry": "questions/select1-quick-compact-n",
+		"change": {
+			"op": "named",
+			"name": "display_fix_grid_columns"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["auto_weather"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "grid",
+					"columns": 2,
+					"advanceOnChoice": true
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/remove-date-row",
+		"base": "hq-question-display",
+		"entry": "questions/date-ethiopian",
+		"change": {
+			"op": "named",
+			"name": "display_remove_date_row"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["follow_up"]
+				],
+				"pointer": "/calendar",
+				"value": "ethiopian"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["follow_up"]
+				],
+				"pointer": "/itemsPerRow",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/restore-dropdown",
+		"base": "hq-question-display",
+		"entry": "questions/select1-minimal",
+		"change": {
+			"op": "named",
+			"name": "display_restore_dropdown"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["place"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "dropdown"
+				}
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["place"]
+				],
+				"pointer": "/hintPlacement",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/restore-signature",
+		"base": "hq-question-display",
+		"entry": "questions/signature-image-signature",
+		"change": {
+			"op": "named",
+			"name": "display_restore_signature"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["web_agreement"]
+				],
+				"pointer": "/kind",
+				"value": "signature"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["web_agreement"]
+				],
+				"pointer": "/itemsPerRow",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-question-display/search-android-only",
+		"base": "hq-question-display",
+		"entry": "questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
+		"change": {
+			"op": "named",
+			"name": "display_search_android_only"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["ranked_route"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "search",
+					"matchWords": "android-fuzzy"
+				}
+			}
+		]
+	},
+	{
 		"id": "hq-questions/acknowledge-label",
 		"base": "hq-questions",
 		"entry": "questions/acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
@@ -29387,19 +29637,25 @@
 		"id": "hq-questions/appearance-android-inside-held",
 		"base": "hq-questions",
 		"entry": "questions/a-single-string-no-row-names-that-holds-values-android-matches",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "appearance_android_inside_held"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "grid"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/appearance-android-inside-refused",
@@ -29423,19 +29679,23 @@
 		"id": "hq-questions/appearance-case-variant-held",
 		"base": "hq-questions",
 		"entry": "questions/a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "appearance_case_variant_held"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/keypad",
+				"value": "android-numbers"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/appearance-case-variant-refused",
@@ -29459,19 +29719,36 @@
 		"id": "hq-questions/appearance-several-tokens",
 		"base": "hq-questions",
 		"entry": "questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "appearance_several_tokens"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "dropdown"
+				}
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/hintPlacement",
+				"value": "placeholder"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/appearance-trailing-space",
@@ -29495,19 +29772,36 @@
 		"id": "hq-questions/appearance-unread-token-dropped",
 		"base": "hq-questions",
 		"entry": "questions/a-multi-token-string-holding-tokens-no-runtime-reads-on-that",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "appearance_unread_token_dropped"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "dropdown"
+				}
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/hintPlacement",
+				"value": "placeholder"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/appearance-unread-token-refused",
@@ -29541,55 +29835,67 @@
 		"id": "hq-questions/audio-acquire-or-upload",
 		"base": "hq-questions",
 		"entry": "questions/audio-acquire-or-upload",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "voice"
-		},
 		"change": {
 			"op": "named",
 			"name": "audio_acquire_or_upload"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["voice"]
+				],
+				"pointer": "/captureSource",
+				"value": "record-or-choose"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/audio-legacy",
 		"base": "hq-questions",
 		"entry": "questions/audio-legacy",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "voice"
-		},
 		"change": {
 			"op": "named",
 			"name": "audio_legacy"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["voice"]
+				],
+				"pointer": "/recorder",
+				"value": "legacy"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/audio-long",
 		"base": "hq-questions",
 		"entry": "questions/audio-long",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "voice"
-		},
 		"change": {
 			"op": "named",
 			"name": "audio_long"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["voice"]
+				],
+				"pointer": "/pauseRecording",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/authored-meta",
@@ -29612,55 +29918,67 @@
 		"id": "hq-questions/barcode-editable",
 		"base": "hq-questions",
 		"entry": "questions/barcode-editable",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "tag_code"
-		},
 		"change": {
 			"op": "named",
 			"name": "barcode_editable"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/canEditScan",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/barcode-numeric",
 		"base": "hq-questions",
 		"entry": "questions/barcode-numeric-address-or-receive-topic-field",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "tag_code"
-		},
 		"change": {
 			"op": "named",
 			"name": "barcode_numeric"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/keypad",
+				"value": "numbers"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/barcode-quick",
 		"base": "hq-questions",
 		"entry": "questions/barcode-quick",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "tag_code"
-		},
 		"change": {
 			"op": "named",
 			"name": "barcode_quick"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["tag_code"]
+				],
+				"pointer": "/scanOnOpen",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/bare-repeat",
@@ -30204,73 +30522,89 @@
 		"id": "hq-questions/date-ethiopian",
 		"base": "hq-questions",
 		"entry": "questions/date-ethiopian",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "visit_date"
-		},
 		"change": {
 			"op": "named",
 			"name": "date_ethiopian"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_date"]
+				],
+				"pointer": "/calendar",
+				"value": "ethiopian"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/date-gregorian",
 		"base": "hq-questions",
 		"entry": "questions/date-gregorian-gregorian-cancel",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "visit_date"
-		},
 		"change": {
 			"op": "named",
 			"name": "date_gregorian"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_date"]
+				],
+				"pointer": "/calendar",
+				"value": "gregorian"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/date-hint-as-placeholder",
 		"base": "hq-questions",
 		"entry": "questions/hint-as-placeholder-on-any-other-entry",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "visit_date"
-		},
 		"change": {
 			"op": "named",
 			"name": "date_hint_as_placeholder"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_date"]
+				],
+				"pointer": "/hintPlacement",
+				"value": "hidden-on-web"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/date-nepali",
 		"base": "hq-questions",
 		"entry": "questions/date-nepali",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "visit_date"
-		},
 		"change": {
 			"op": "named",
 			"name": "date_nepali"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_date"]
+				],
+				"pointer": "/calendar",
+				"value": "nepali"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/datetime-appearance",
@@ -30542,55 +30876,67 @@
 		"id": "hq-questions/geopoint-maps",
 		"base": "hq-questions",
 		"entry": "questions/geopoint-maps",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "location"
-		},
 		"change": {
 			"op": "named",
 			"name": "geopoint_maps"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["location"]
+				],
+				"pointer": "/locationPicker",
+				"value": "map"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/group-border",
 		"base": "hq-questions",
 		"entry": "questions/group-group-border",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "details"
-		},
 		"change": {
 			"op": "named",
 			"name": "group_border"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["details"]
+				],
+				"pointer": "/border",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/group-collapse",
 		"base": "hq-questions",
 		"entry": "questions/group-group-collapse",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "details"
-		},
 		"change": {
 			"op": "named",
 			"name": "group_collapse"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["details"]
+				],
+				"pointer": "/collapse",
+				"value": "closed"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/group-collapse-closed",
@@ -30605,38 +30951,46 @@
 	{
 		"id": "hq-questions/group-collapse-open",
 		"base": "hq-questions",
-		"entry": "questions/group-collapse-open",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "details"
-		},
+		"entry": "questions/group-collapse-open-without-collapsing",
 		"change": {
 			"op": "named",
 			"name": "group_collapse_open"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["details"]
+				],
+				"pointer": "/kind",
+				"value": "group"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/group-compact",
 		"base": "hq-questions",
 		"entry": "questions/group-compact",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "details"
-		},
 		"change": {
 			"op": "named",
 			"name": "group_compact"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["details"]
+				],
+				"pointer": "/compact",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/group-in-question-list",
@@ -30816,19 +31170,23 @@
 		"id": "hq-questions/image-acquire",
 		"base": "hq-questions",
 		"entry": "questions/image-acquire",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "image_acquire"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/captureSource",
+				"value": "camera"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/image-max-dimension",
@@ -30870,19 +31228,23 @@
 		"id": "hq-questions/image-overlay-small",
 		"base": "hq-questions",
 		"entry": "questions/image-overlay-small",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "image_overlay_small"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/overlaySize",
+				"value": "small"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/input-decimal-type",
@@ -31012,37 +31374,45 @@
 		"id": "hq-questions/label-floating-good",
 		"base": "hq-questions",
 		"entry": "questions/floating-good-floating-caution-floating-bad",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "label_floating_good"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/banner",
+				"value": "good"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/label-floating-other",
 		"base": "hq-questions",
 		"entry": "questions/a-label-whose-appearance-string-starts-with-floating-other-than",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "label_floating_other"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/banner",
+				"value": "hidden"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/label-qrcode",
@@ -31066,19 +31436,23 @@
 		"id": "hq-questions/label-selectable",
 		"base": "hq-questions",
 		"entry": "questions/trigger-selectable",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "label_selectable"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/selectableText",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/label-tts",
@@ -31879,20 +32253,24 @@
 	{
 		"id": "hq-questions/repeat-group-two-per-row",
 		"base": "hq-questions",
-		"entry": "questions/n-per-row-repeat-group-with-a-repeat-as-a-direct-child-n-one-or",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "members"
-		},
+		"entry": "questions/any-value-on-a-vellum-repeat-written-on-its-wrapping-group-or-on",
 		"change": {
 			"op": "named",
 			"name": "repeat_group_two_per_row"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["members"]
+				],
+				"pointer": "/kind",
+				"value": "repeat"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/required-condition-alone",
@@ -32502,19 +32880,23 @@
 		"id": "hq-questions/secret-numeric",
 		"base": "hq-questions",
 		"entry": "questions/secret-numeric",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "pin"
-		},
 		"change": {
 			"op": "named",
 			"name": "secret_numeric"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["pin"]
+				],
+				"pointer": "/keypad",
+				"value": "numbers"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/secret-numeric-type",
@@ -32578,19 +32960,25 @@
 		"id": "hq-questions/select-compact",
 		"base": "hq-questions",
 		"entry": "questions/select-compact-compact-n",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "crops"
-		},
 		"change": {
 			"op": "named",
 			"name": "select_compact"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["crops"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "grid"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select-int-type",
@@ -32614,73 +33002,97 @@
 		"id": "hq-questions/select-label",
 		"base": "hq-questions",
 		"entry": "questions/select-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "crops"
-		},
 		"change": {
 			"op": "named",
 			"name": "select_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["crops"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "headings"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select-list",
 		"base": "hq-questions",
 		"entry": "questions/select-list",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "crops"
-		},
 		"change": {
 			"op": "named",
 			"name": "select_list"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["crops"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "row"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select-list-nolabel",
 		"base": "hq-questions",
 		"entry": "questions/select-list-nolabel",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "crops"
-		},
 		"change": {
 			"op": "named",
 			"name": "select_list_nolabel"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["crops"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "row-without-label"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select-minimal",
 		"base": "hq-questions",
 		"entry": "questions/select-minimal",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "crops"
-		},
 		"change": {
 			"op": "named",
 			"name": "select_minimal"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["crops"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "dropdown"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select-multi-combobox",
@@ -32736,217 +33148,295 @@
 		"id": "hq-questions/select1-button-select",
 		"base": "hq-questions",
 		"entry": "questions/select1-button-select",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_button_select"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "buttons"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-combobox",
 		"base": "hq-questions",
 		"entry": "questions/select1-combobox",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_combobox"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "search"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-combobox-fuzzy",
 		"base": "hq-questions",
 		"entry": "questions/select1-combobox-fuzzy",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_combobox_fuzzy"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "search",
+					"matchWords": "fuzzy"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-combobox-multiword",
 		"base": "hq-questions",
 		"entry": "questions/select1-combobox-multiword",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_combobox_multiword"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "search",
+					"matchWords": "multiword"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-compact",
 		"base": "hq-questions",
 		"entry": "questions/select1-compact-compact-n",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_compact"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "grid",
+					"columns": 2
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-label",
 		"base": "hq-questions",
 		"entry": "questions/select1-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "headings"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-list",
 		"base": "hq-questions",
 		"entry": "questions/select1-list",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_list"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "row"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-list-nolabel",
 		"base": "hq-questions",
 		"entry": "questions/select1-list-nolabel",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_list_nolabel"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "row-without-label"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-minimal",
 		"base": "hq-questions",
 		"entry": "questions/select1-minimal",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_minimal"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "dropdown"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-quick",
 		"base": "hq-questions",
 		"entry": "questions/select1-quick",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_quick"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "advance-on-choice"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-quick-compact",
 		"base": "hq-questions",
 		"entry": "questions/select1-quick-compact-n",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_quick_compact"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/choiceLayout",
+				"value": {
+					"kind": "grid",
+					"columns": 2,
+					"advanceOnChoice": true
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/select1-receive",
 		"base": "hq-questions",
 		"entry": "questions/select1-receive-topic-field",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "colour"
-		},
 		"change": {
 			"op": "named",
 			"name": "select1_receive"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["colour"]
+				],
+				"pointer": "/receiveFrom",
+				"value": {
+					"channel": "household",
+					"field": "colour"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/send-submission",
@@ -33016,37 +33506,45 @@
 		"id": "hq-questions/text-address",
 		"base": "hq-questions",
 		"entry": "questions/text-address",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_address"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/addressLookup",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-align-center",
 		"base": "hq-questions",
 		"entry": "questions/text-align-center-text-align-right",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_align_center"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/textAlignment",
+				"value": "center"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-appearance-read-by-no-runtime",
@@ -33062,55 +33560,67 @@
 		"id": "hq-questions/text-hint-as-placeholder",
 		"base": "hq-questions",
 		"entry": "questions/hint-as-placeholder-on-text-other-than-a-secret-without-numeric",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_hint_as_placeholder"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/hintPlacement",
+				"value": "placeholder"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-medium",
 		"base": "hq-questions",
 		"entry": "questions/medium",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_medium"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/inputWidth",
+				"value": "medium"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-numbers",
 		"base": "hq-questions",
 		"entry": "questions/text-secret-numbers",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_numbers"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/keypad",
+				"value": "android-numbers"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-per-row-holding-receive",
@@ -33134,19 +33644,23 @@
 		"id": "hq-questions/text-per-row-other",
 		"base": "hq-questions",
 		"entry": "questions/any-other-per-row-token-the-first-token-web-apps-per-row-pattern",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_per_row_other"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/itemsPerRow",
+				"value": "1"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-per-row-without-digits",
@@ -33170,55 +33684,70 @@
 		"id": "hq-questions/text-receive",
 		"base": "hq-questions",
 		"entry": "questions/text-receive-topic-field",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_receive"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/receiveFrom",
+				"value": {
+					"channel": "household",
+					"field": "name"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-short",
 		"base": "hq-questions",
 		"entry": "questions/short",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_short"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/inputWidth",
+				"value": "short"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-two-per-row",
 		"base": "hq-questions",
 		"entry": "questions/n-per-row-any-question-or-group-other-than-a-vellum-repeat-n-one",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
 		"change": {
 			"op": "named",
 			"name": "text_two_per_row"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/itemsPerRow",
+				"value": "2"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/text-without-type",
@@ -33246,19 +33775,23 @@
 		"id": "hq-questions/time-12-hour",
 		"base": "hq-questions",
 		"entry": "questions/time-12-hour",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "visit_time"
-		},
 		"change": {
 			"op": "named",
 			"name": "time_12_hour"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["visit_time"]
+				],
+				"pointer": "/clock",
+				"value": "twelve-hour"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/two-siblings-one-name",
@@ -33357,19 +33890,23 @@
 		"id": "hq-questions/upload-broadcast",
 		"base": "hq-questions",
 		"entry": "questions/broadcast-topic-an-address-entry-under-the-gates-above-and",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "upload_broadcast"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/sendTopics",
+				"value": ["photos"]
+			}
+		]
 	},
 	{
 		"id": "hq-questions/upload-other-mediatype",
@@ -33411,19 +33948,23 @@
 		"id": "hq-questions/video-acquire",
 		"base": "hq-questions",
 		"entry": "questions/video-acquire",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "clip"
-		},
 		"change": {
 			"op": "named",
 			"name": "video_acquire"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["clip"]
+				],
+				"pointer": "/captureSource",
+				"value": "camera"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/weight-label-inline",

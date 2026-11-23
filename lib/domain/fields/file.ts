@@ -21,10 +21,12 @@
 import tablerFileUpload from "@iconify-icons/tabler/file-upload";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { displaySchemas } from "../questionDisplaySchemas";
 import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const fileFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("file"),
+	sendTopics: displaySchemas.sendTopics.optional(),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),

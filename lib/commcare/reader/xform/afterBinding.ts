@@ -798,6 +798,23 @@ function settleProtectedMessage(
 	const wireCodes = planLanguageWire(
 		effectiveAppLocalization(doc.localization),
 	).wireCodeByTag;
+	for (const [language, value] of slot.values) {
+		const code = wireCodes.get(language);
+		if (code === undefined) continue;
+		const translated = localization.prose(code, unitId);
+		const shown = translated.parts.filter((part) => part.kind !== "text");
+		const outputs = value.parts.flatMap((part) =>
+			part.kind === "output" ? [part.output] : [],
+		);
+		if (!outputs.length) continue;
+		if (outputs.length !== shown.length) return;
+		shown.forEach((atom, index) => {
+			const output = outputs[index];
+			if (output === undefined) return;
+			atoms.push(atom);
+			outputOf.set(JSON.stringify(atom), output.text);
+		});
+	}
 	const owned = [...text.itext.allValues(message.textId)].map(
 		([language, values]) => ({
 			code: wireCodes.get(language),

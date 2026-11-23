@@ -2048,6 +2048,38 @@ calculated by the clock-keeping date, which Core holds as the same
 `DateTimeData` (`lib/doc/datetimeSplit.ts`). A CommCare Connect app runs on
 Android only, because no Connect worker can sign in to Web Apps.
 
+### Question display and worker input
+
+Question settings are properties of the question in the blueprint. The field
+kind declares its available keyboards, choice layout, capture behavior and
+other settings. The mutation and export gates check the combination against
+the writer and both workers. For example, West African phone numbers can
+keep their leading zero in a text answer, and a civil date picked with the
+Ethiopian calendar saves as the same ISO date as an ordinary date question.
+An unanswered Android date widget shows the device's local civil day. The
+instance takes that day when the worker leaves the displayed screen or
+submits it. Gregorian with a clear button can send an empty answer. A new
+visit constructs its picker from the stored answer again. Web Apps sends a
+date only after the worker chooses one.
+
+CommCare's form editor determines the question type from the complete
+appearance of a control. Web Apps matches individual words and sometimes
+their position, while Android uses several whole-string and substring
+comparisons. The adapter in `lib/commcare/xform/readDisplaySettings.ts`
+compares a candidate spelling with the source on the same control, including
+both choice widgets, keyboard and editor type. A picture may collect a
+signature in Web Apps and a photograph on Android. A searchable single-choice
+question can use a different match rule on each platform. Their blueprint
+values describe those behaviors, so moving the question or changing the text
+keeps its display and saved answers.
+
+Web Apps displays an ordinary group's collapsible header, border and row
+width. A group with a directly nested repeat can distribute its repeated
+rows across a line. Core's wrapping group around the repeat transfers its
+label only. An ordered channel stores a name and a returned property. Web
+Apps delivers a selected address or filename within the current form and
+nearest concrete repeat, using each receiver's own choice labels.
+
 ### Media
 
 Assets are Project-scoped: bytes in GCS, a metadata row in Postgres, and

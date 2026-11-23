@@ -18,6 +18,7 @@ import {
 	operationCaseType,
 	proseSurfaceReads,
 	searchInputDefault,
+	targetConditionUses,
 	tileCellFor,
 	type Uuid,
 } from "@/lib/domain";
@@ -39,6 +40,7 @@ import {
 	moduleCaseTypeForActions,
 	parentSelectModuleUuid,
 } from "./formLinkProjection";
+import { addressSearchFormReasons } from "./planPrivileges";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
@@ -293,9 +295,8 @@ export function linkWriteDestinations(
  * - A question's prose (every slot `proseSurfaceReads` lists) holds a
  *   `case-ref` to the destination, or a `field-ref` to a question whose
  *   `calculate` or `default_value` reads it, or a calculated value one of
- *   whose terms is such a read. A translation keeps its source's
- *   references (`translationValueIntegrityIssue`), so the source prose is
- *   every language's. Prose is not parsed as markdown: a markdown link is
+ *   whose terms is such a read. The prose walk includes the current
+ *   translations with independently chosen values. Prose is not parsed as markdown: a markdown link is
  *   what a worker taps (Web Apps' `markdown.js::initMd`, Android's
  *   `QuestionWidget.setQuestionText`), and a printed address the worker
  *   copies reaches the same view, so every printed reference counts.
@@ -577,6 +578,24 @@ export function projectSpaceCompatibilityProbePlan(
 				...noMatchesReasons,
 			]),
 			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["no-matches-registration"]],
+			featureFlagsOff: [],
+			runtimeProbes: [],
+		});
+	}
+	/* Web Apps searches for an address only where the project space has
+	 * `CASE_SEARCH_ADVANCED` and the `geocoder` privilege
+	 * (`cloudcare/views.py::has_geocoder_privs`). The flag is checked here;
+	 * the privilege, which no API key reads, is the `geocoder` plan feature a
+	 * person confirms (`planPrivileges.ts::requiredPlanPrivileges`). An app
+	 * that runs only on Android meets no condition. */
+	for (const { condition, uses } of targetConditionUses(doc)) {
+		if (condition.capability !== "address-search") continue;
+		capabilities.push({
+			capability: projectSpaceCapabilityUse(
+				"address-search",
+				addressSearchFormReasons(doc, uses),
+			),
+			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]],
 			featureFlagsOff: [],
 			runtimeProbes: [],
 		});

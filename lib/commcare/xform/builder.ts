@@ -1011,7 +1011,11 @@ export function buildXFormSource(
 								),
 							]
 						: []),
-					...itextMediaValues(media, opts.assets, "buildXForm"),
+					...itextMediaValues(
+						localization.media(language, media),
+						opts.assets,
+						"buildXForm",
+					),
 					...(protectedMessage?.forms.get(language) ?? []),
 				]),
 			);

@@ -251,6 +251,16 @@ function markers(hq: HqApplication): {
 					privileges.add("data_forwarding");
 				}
 				if (node.name === "itemset") itemset = true;
+				/* Web Apps builds an address search for a text, password or
+				 * barcode control whose appearance holds the token, in an app
+				 * it lists (`entries.js::getEntry`, `stylesContains`). */
+				if (
+					hq.cloudcare_enabled === true &&
+					(node.name === "input" || node.name === "secret") &&
+					(node.attributes.appearance ?? "").split(" ").includes("address")
+				) {
+					privileges.add("geocoder");
+				}
 				for (const attribute of EXPRESSION_ATTRIBUTES[node.name] ?? []) {
 					const value = node.attributes[attribute];
 					if (value !== undefined && readsWorkerRecord(value)) {
@@ -482,6 +492,51 @@ describe("plan features", () => {
 		expect(markers(app).privileges.has("app_dependencies")).toBe(true);
 		expect(derived(doc, TARGET).has("app_dependencies")).toBe(true);
 	});
+	it("asks for Geocoder exactly where Web Apps reads an address search", () => {
+		const addressDoc = (runsOnlyOn?: "web-apps" | "android") =>
+			buildDoc({
+				appName: "Visits",
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn },
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind: "barcode",
+										id: "home",
+										label: "Home",
+										addressLookup: true,
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+		for (const runsOnlyOn of [undefined, "web-apps", "android"] as const) {
+			const doc = addressDoc(runsOnlyOn);
+			holdsWire(doc);
+			expect({
+				runsOnlyOn,
+				asks: derived(doc, TARGET).has("geocoder"),
+			}).toEqual({ runsOnlyOn, asks: runsOnlyOn !== "android" });
+		}
+		expect(
+			requiredPlanFeatures(addressDoc(), NO_PUSHES, TARGET).find(
+				(use) => use.id === "geocoder",
+			)?.reasons,
+		).toEqual([
+			"Visit has a question that searches for an address in Web Apps.",
+		]);
+		expect(
+			derived(buildDoc({ appName: "Visits" }), TARGET).has("geocoder"),
+		).toBe(false);
+	});
+
 	it("maps each publish privilege to its own plan feature", () => {
 		const features = HQ_PLAN_PRIVILEGE_IDS.map(
 			(id) => PLAN_FEATURE_FOR_PRIVILEGE[id],

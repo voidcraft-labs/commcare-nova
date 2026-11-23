@@ -17,6 +17,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
 	appLanguageIdentitySchema,
+	authoredTranslationValueMode,
 	collectLocalizedTranslationUnits,
 	collectTranslationCoverageDiagnostics,
 	collectTranslationUnits,
@@ -30,14 +31,16 @@ import {
 	localizeTranslationUnit,
 	parseLanguageTag,
 	projectLanguageIdentitySchema,
+	reviewedTranslationValueMode,
 	type TranslationStatus,
 	type TranslationUnit,
 	type TranslationUnitOwner,
 	type TranslationUnitOwnerKind,
+	translationEntryIntegrityIssue,
 	translationUnitOwnerKinds,
+	translationUnitProseSlot,
 	translationUnitRoles,
 	translationUnitsById,
-	translationValueIntegrityIssue,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -258,6 +261,13 @@ const translationUpdateSchema = z.discriminatedUnion("operation", [
 				"Current sourceFingerprint returned by getTranslatableContent for the source text that was translated.",
 			),
 		value: localizedValueSchema,
+		changeShownValues: z
+			.boolean()
+			.nullable()
+			.optional()
+			.describe(
+				"Set to true only when the author wants this language to show different answers or calculations. An ordinary translation keeps its source values. Where the current entry shows values of its own (showsOwnValues in getTranslatableContent), say true to keep or change them, or false to show the source's values again.",
+			),
 		translatedFrom: languageIdentityInputSchema
 			.nullable()
 			.optional()
@@ -578,7 +588,7 @@ export const getLanguagesTool = {
 
 export const getTranslatableContentTool = {
 	description:
-		"Read a page of translatable app content with its source, target text, context and review state. Continue with nextCursor; restart if the source changed.",
+		"Read a page of translatable app content with its source, target text, context and review state. An entry with showsOwnValues shows answers or calculations of its own, as the author chose. Continue with nextCursor; restart if the source changed.",
 	inputSchema: getTranslatableContentInputSchema,
 	async execute(
 		input: z.infer<typeof getTranslatableContentInputSchema>,
@@ -714,6 +724,7 @@ export const addLanguageTool = {
 					unitId: unit.id,
 					entry: {
 						value: structuredClone(unit.effective),
+						...authoredTranslationValueMode(unit, unit.effective),
 						sourceFingerprint: unit.sourceFingerprint,
 						origin: "copied",
 						review: "needs-review",
@@ -936,8 +947,9 @@ export const removeLanguageTool = {
 function integrityMessage(
 	unit: TranslationUnit,
 	value: LocalizedValue,
+	valueMode?: "independent-values",
 ): string | undefined {
-	switch (translationValueIntegrityIssue(unit, value)) {
+	switch (translationEntryIntegrityIssue(unit, { value, valueMode })) {
 		case undefined:
 			return undefined;
 		case "value-kind":
@@ -945,13 +957,13 @@ function integrityMessage(
 		case "blank-content":
 			return `Translation unit ${unit.id} (${unit.breadcrumb.join(" → ")}) cannot be blank.`;
 		case "protected-content":
-			return `Translation unit ${unit.id} must preserve every answer and record insertion and every {{= formula}} exactly once. Read the current entry and keep its references and calculated values.`;
+			return `Translation unit ${unit.id} must preserve every answer and record insertion and every {{= formula}} exactly once. Read the current entry and keep its references and calculated values${translationUnitProseSlot(unit) === undefined ? "." : ", or set changeShownValues to true if the author asked for this language to show different answers or calculations."}`;
 	}
 }
 
 export const updateTranslationsTool = {
 	description:
-		"Set, clear or review translations and generated worker wording, including generated wording in the source language. Clear an override to use the default wording. Use fingerprints from the current read so edits cannot overwrite a changed source or translation. Keep answer and record insertions and every {{= formula}} intact.",
+		"Set, clear or review translations and generated worker wording, including generated wording in the source language. Clear an override to use the default wording. Use fingerprints from the current read so edits cannot overwrite a changed source or translation. Keep answer and record insertions and every {{= formula}} intact, unless the author wants one language to show different answers or calculations: then set changeShownValues on that edit.",
 	inputSchema: updateTranslationsInputSchema,
 	async execute(
 		input: z.infer<typeof updateTranslationsInputSchema>,
@@ -995,7 +1007,20 @@ export const updateTranslationsTool = {
 								`Translation unit ${unit.id} source content changed after it was read. Re-read getTranslatableContent before translating it.`,
 							);
 						}
-						const issue = integrityMessage(unit, update.value);
+						/* A translation the author gave values of its own changes
+						 * them only when the edit says what to do with them. */
+						if (
+							entries[unit.id]?.valueMode === "independent-values" &&
+							update.changeShownValues == null
+						)
+							return mutationError(
+								`Translation unit ${unit.id} shows answers or calculations of its own in ${descriptor}, as the author chose. Set changeShownValues to true to keep or change them, or to false to show the source's values again.`,
+							);
+						const mode =
+							update.changeShownValues === true
+								? authoredTranslationValueMode(unit, update.value)
+								: {};
+						const issue = integrityMessage(unit, update.value, mode.valueMode);
 						if (issue !== undefined) return mutationError(issue);
 						const translatedFromTag =
 							update.translatedFrom == null
@@ -1020,6 +1045,7 @@ export const updateTranslationsTool = {
 							unitId: unit.id,
 							entry: {
 								value: structuredClone(update.value),
+								...mode,
 								sourceFingerprint: unit.sourceFingerprint,
 								origin: "ai",
 								review: "needs-review",
@@ -1059,7 +1085,11 @@ export const updateTranslationsTool = {
 								`Translation unit ${unit.id} or its source content changed after it was read. Re-read getTranslatableContent before reviewing it.`,
 							);
 						}
-						const issue = integrityMessage(unit, update.expectedValue);
+						const issue = integrityMessage(
+							unit,
+							update.expectedValue,
+							reviewedTranslationValueMode(unit, entry).valueMode,
+						);
 						if (issue !== undefined) return mutationError(issue);
 						mutations.push({
 							kind: "reviewTranslation",

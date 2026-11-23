@@ -721,9 +721,12 @@ export function touchedBy(
 				menuOf(mutation.uuid);
 				menu(mutation.toModuleUuid);
 				break;
+			case "setFormMedia":
+				if (mutation.registrationOf) menu(mutation.registrationOf);
+				else form(mutation.uuid);
+				break;
 			case "renameForm":
 			case "updateForm":
-			case "setFormMedia":
 				form(mutation.uuid);
 				break;
 			case "addFormLink":

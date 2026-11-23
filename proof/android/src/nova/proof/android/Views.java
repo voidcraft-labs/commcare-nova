@@ -1,5 +1,7 @@
 package nova.proof.android;
 
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
@@ -46,7 +48,15 @@ final class Views {
         }
         if (view instanceof ImageView) {
             found.put("scaleType", String.valueOf(((ImageView)view).getScaleType()));
-            found.put("drawable", drawable((ImageView)view));
+            ImageView image = (ImageView)view;
+            found.put("drawable", drawable(image));
+            if (image.getVisibility() == View.VISIBLE && image.getDrawable() instanceof BitmapDrawable) {
+                Bitmap bitmap = ((BitmapDrawable)image.getDrawable()).getBitmap();
+                if (bitmap != null && !bitmap.isRecycled() && bitmap.getConfig() != Bitmap.Config.HARDWARE) {
+                    found.put("centerPixel", String.format("#%08x",
+                            bitmap.getPixel(bitmap.getWidth() / 2, bitmap.getHeight() / 2)));
+                }
+            }
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup)view;

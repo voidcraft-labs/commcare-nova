@@ -6,8 +6,8 @@
  * with no file is handed off with its node and listed, never claimed and never
  * `unrecognized`; a language whose text holds no media form shows the form's
  * default language's (Core loads the default locale's keys under every
- * locale), so a path the default holds alone is held, and a file that differs
- * by language, or one only another language holds, is refused. A hint's or a
+ * locale), so a path the default holds alone is held, and distinct files in valid translations are held. A media key that
+ * exists only outside the default language is refused. A hint's or a
  * group label's media, which no slot holds, is inert where the file is there
  * and handed off as `unheld_itext` where it is not. Each question that
  * references one text reads its media as its own. A map of paths by language
@@ -113,6 +113,22 @@ function unclaimedMedia(reading: FormReading): string[] {
 }
 
 describe("media on a text", () => {
+	it("distinguishes a blank media value from an inherited or missing file", async () => {
+		const reading = await readForm(
+			source({
+				en: texts({ label: "jr://file/commcare/q.png" }),
+				fr: texts({ label: "" }),
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		expect(codes(reading)).toEqual([
+			Q("empty-media-form-beside-a-translated-file"),
+		]);
+		expect(field(reading, "q").label_media).toBeUndefined();
+		expect(reading.ctx.facts.pendingMedia).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+	});
+
 	it("puts the one path of every language in a held slot and lists it", async () => {
 		const reading = await readForm(
 			source({
@@ -283,10 +299,13 @@ describe("media on a text", () => {
 		);
 		expect(codes(reading)).toEqual([]);
 		expect(unclaimedMedia(reading)).toEqual([]);
-		expect(field(reading, "q").label_media).toEqual({ image: "asset-q.png" });
+		expect(field(reading, "q").label_media).toEqual({
+			image: "asset-q.png",
+			mediaByLanguage: { fra: { image: null } },
+		});
 	});
 
-	it("refuses a path that differs by language, and one only a language other than the default holds", async () => {
+	it("holds distinct translated files and refuses a key missing from the form’s default language", async () => {
 		const differing = await readForm(
 			source({
 				en: texts({ label: "jr://file/commcare/q.png" }),
@@ -294,9 +313,11 @@ describe("media on a text", () => {
 			}),
 			{ langs: ["en", "fr"], media: index },
 		);
-		expect(codes(differing)).toEqual([
-			Q("label-or-option-media-differing-by-language"),
-		]);
+		expect(codes(differing)).toEqual([]);
+		expect(field(differing, "q").label_media).toEqual({
+			image: "asset-q.png",
+			mediaByLanguage: { fra: { image: "asset-q-fr.png" } },
+		});
 		const oneOnly = await readForm(
 			source({
 				en: texts({}),
@@ -305,7 +326,7 @@ describe("media on a text", () => {
 			{ langs: ["en", "fr"], media: index },
 		);
 		expect(codes(oneOnly)).toEqual([
-			Q("label-or-option-media-differing-by-language"),
+			Q("media-form-missing-in-default-language"),
 		]);
 		expect(field(oneOnly, "q").label_media).toBeUndefined();
 	});

@@ -9,11 +9,13 @@ import {
 	profileUniqueId,
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
+import type { NavigationMedia } from "@/lib/domain/navigationMedia";
 import { buildEntryPointSuite } from "./entryPointSuite";
 import {
 	generatedWordingKeys,
 	generatedWordingOverrides,
 } from "./generatedWording";
+import { requireAssetRef } from "./multimedia/assetWirePath";
 import { basicActionsWriteWorker } from "./session";
 import type { TargetFacts } from "./targetFacts";
 import type { TargetFill } from "./targetOverlay";
@@ -104,7 +106,10 @@ import {
 	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
 import { localeFileText } from "@/lib/commcare/localeFile";
-import { commCareLocalization } from "@/lib/commcare/localization";
+import {
+	type CommCareLocalization,
+	commCareLocalization,
+} from "@/lib/commcare/localization";
 import type {
 	CompiledLookupFixtureSet,
 	PreparedLookupWire,
@@ -284,6 +289,7 @@ function registerActionFor(
 	linkContext: FormLinkProjectionContext,
 	hostModuleUuid: Uuid,
 	target: { readonly moduleUuid: Uuid; readonly formUuid: Uuid },
+	localization: CommCareLocalization,
 ): RegisterActionContext {
 	const targetDatums = entryFrameDatums(
 		doc,
@@ -297,6 +303,8 @@ function registerActionFor(
 			? []
 			: entryFrameDatums(doc, linkContext, hostModuleUuid, firstMenuForm);
 	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
+	const media =
+		slot && localization.navigationMedia(localization.defaultLanguage, slot);
 	return {
 		commandId: formCommandId(linkContext, target.moduleUuid, target.formUuid),
 		datums: targetDatums.flatMap((datum) => {
@@ -315,8 +323,7 @@ function registerActionFor(
 		}),
 		...(slot === undefined && { relevant: NO_MATCHES_RELEVANCY }),
 		labelLocaleId: `case_list_form.m${moduleIndexOf(linkContext, hostModuleUuid)}`,
-		...(slot?.icon !== undefined && { icon: slot.icon }),
-		...(slot?.audioLabel !== undefined && { audioLabel: slot.audioLabel }),
+		...media,
 	};
 }
 
@@ -470,6 +477,41 @@ export function compileCczParts(
 		"app.display.name": makeTranslationUnitId("app", "name"),
 	};
 	const columnWordings: Record<string, TranslationUnitId> = {};
+	const menuMediaLocales = new Map<
+		string,
+		{ carrier: NavigationMedia; role: "icon" | "audioLabel" }
+	>();
+	function collectMenuFiles(
+		base: string,
+		carrier: NavigationMedia | undefined,
+	) {
+		if (!carrier?.mediaByLanguage && !carrier?.mediaByFormerCode) return;
+		if (carrier.icon)
+			menuMediaLocales.set(`${base}.icon`, { carrier, role: "icon" });
+		if (carrier.audioLabel)
+			menuMediaLocales.set(`${base}.audio`, { carrier, role: "audioLabel" });
+	}
+
+	function navigationNode(
+		label: string,
+		base: string,
+		carrier: NavigationMedia | undefined,
+		where: string,
+	) {
+		const media =
+			carrier &&
+			localization.navigationMedia(localization.defaultLanguage, carrier);
+		collectMenuFiles(base, carrier);
+		return buildNavMenuNode(
+			label,
+			base,
+			media?.icon,
+			media?.audioLabel,
+			assets,
+			where,
+		);
+	}
+
 	const mergeLocalizedStrings = (emission: {
 		readonly strings: Record<string, string>;
 		readonly translationUnits: Record<string, WireStringSource>;
@@ -695,8 +737,18 @@ export function compileCczParts(
 		const registerAction =
 			registerTarget === undefined
 				? undefined
-				: registerActionFor(doc, linkContext, moduleUuid, registerTarget);
+				: registerActionFor(
+						doc,
+						linkContext,
+						moduleUuid,
+						registerTarget,
+						localization,
+					);
 		if (registerTarget !== undefined) {
+			collectMenuFiles(
+				`case_list_form.m${mIdx}`,
+				alwaysOfferedRegistrationOf(doc, moduleUuid),
+			);
 			appStrings[`case_list_form.m${mIdx}`] =
 				authoredDoc.modules[moduleUuid]?.caseListRegistrationForm?.label ??
 				doc.forms[registerTarget.formUuid]?.name ??
@@ -1121,12 +1173,10 @@ export function compileCczParts(
 			// it doesn't, so the no-media shape is unchanged. Its app_strings
 			// (the jr:// path locales) merge into the table the suite oracle
 			// resolves `<locale id>` against.
-			const formNav = buildNavMenuNode(
+			const formNav = navigationNode(
 				`forms.m${mIdx}f${fIdx}`,
 				`forms.m${mIdx}f${fIdx}`,
-				form.icon,
-				form.audioLabel,
-				assets,
+				form,
 				"compileCcz form command",
 			);
 			Object.assign(appStrings, formNav.strings);
@@ -1169,12 +1219,10 @@ export function compileCczParts(
 			// same builder the form / module nav nodes use, here fed the
 			// entry's `icon` / `audioLabel`, the media the expander stamps
 			// as `case_list.media_*`.
-			const caseListNav = buildNavMenuNode(
+			const caseListNav = navigationNode(
 				`case_lists.m${mIdx}`,
 				`case_lists.m${mIdx}`,
-				mod.caseListMenuItem?.icon,
-				mod.caseListMenuItem?.audioLabel,
-				assets,
+				mod.caseListMenuItem,
 				"compileCcz case-list command",
 			);
 			// The command's label is the entry's own label, else the module
@@ -1233,12 +1281,10 @@ export function compileCczParts(
 			above && parentUuid !== undefined && parentKeepsScreen
 				? sortedModuleUuids.indexOf(parentUuid)
 				: mIdx;
-		const moduleNav = buildNavMenuNode(
+		const moduleNav = navigationNode(
 			`modules.m${textLocaleModuleIndex}`,
 			`modules.m${mIdx}`,
-			mod.icon,
-			mod.audioLabel,
-			assets,
+			mod,
 			"compileCcz module menu",
 		);
 		Object.assign(appStrings, moduleNav.strings);
@@ -1467,6 +1513,23 @@ export function compileCczParts(
 	for (const [language, dir] of langDirs) {
 		const table = new Map<string, string>();
 		for (const [localeId, source] of Object.entries(appStrings)) {
+			const menuFile = menuMediaLocales.get(localeId);
+			if (menuFile && assets) {
+				const value =
+					dir === "default"
+						? localization.navigationMedia(language, menuFile.carrier)[
+								menuFile.role
+							]
+						: localization.storedMenuMedia(language, menuFile.carrier)[
+								menuFile.role
+							];
+				if (value && value !== "blank")
+					table.set(
+						localeId,
+						requireAssetRef(value, assets, "local menu translation"),
+					);
+				continue;
+			}
 			let value = generatedText(language, localeId) ?? source;
 			if (dir === "default" && defaultTableText(value) === "") {
 				for (const code of localization.languages) {

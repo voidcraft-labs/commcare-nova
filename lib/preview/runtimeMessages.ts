@@ -113,6 +113,7 @@ const english = {
 	noCasesYet: "No cases yet",
 	createCase: "Create a case or add sample cases in Case data",
 	askCreateCase: "Ask an app editor to create a case or add sample cases",
+	noChoicesMatch: "No choices match your search",
 	noSearchMatches: "No cases match your search",
 	retrySearch: "Check your spelling, clear a field, or try a broader search",
 	retrySearchOrRegister:
@@ -177,6 +178,9 @@ const english = {
 	submit: "Submit",
 	submitting: "Submitting",
 	clear: "Clear",
+	cancel: "Cancel",
+	previousMonth: "Previous month",
+	nextMonth: "Next month",
 	clearAnswers: "Clear answers",
 	clearForm: "Clear form",
 	startingFresh: "Starting fresh",
@@ -215,6 +219,8 @@ const english = {
 	addressSearchMinimum:
 		"You can type at least {count} characters to see places",
 	addressNoResults: "No matching places",
+	addressChooseFromList: "Choose an address from the list",
+	clearAddress: "Clear the address",
 	locationGuidance:
 		"You can search for an address or click the map to drop a pin",
 	hereColumnsWaiting:
@@ -311,9 +317,16 @@ const english = {
 	// Android's barcode question.
 	scanBarcode: "Scan",
 	// Android's capture widgets (`R.string.capture_image` and its siblings).
+	photoFrameGuide:
+		"Line up the subject inside the rectangle. The photo includes the whole frame.",
+	cameraUnavailable:
+		"The camera could not open. Check camera access and try again.",
 	takePicture: "Take picture",
 	chooseImage: "Choose image",
 	removeImage: "Remove image",
+	chooseAudio: "Choose audio",
+	pauseRecording: "Pause recording",
+	resumeRecording: "Resume recording",
 	recordSound: "Record sound",
 	startRecording: "Start recording",
 	stopRecording: "Stop recording",
@@ -442,6 +455,7 @@ const spanish: Record<RuntimeMessage, string> = {
 		"Puede crear un registro o añadir registros de ejemplo en los datos de registros",
 	askCreateCase:
 		"Puede pedir a un editor de la aplicación que cree un registro o añada registros de ejemplo",
+	noChoicesMatch: "Ninguna opción coincide con su búsqueda",
 	noSearchMatches: "Ningún registro coincide con la búsqueda",
 	retrySearch:
 		"Puede revisar la ortografía, borrar un campo o ampliar la búsqueda",
@@ -509,6 +523,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	submit: "Enviar",
 	submitting: "Enviando",
 	clear: "Borrar",
+	cancel: "Cancelar",
+	previousMonth: "Mes anterior",
+	nextMonth: "Mes siguiente",
 	clearAnswers: "Borrar respuestas",
 	clearForm: "Borrar formulario",
 	startingFresh: "Empezando de nuevo",
@@ -546,6 +563,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	addressSearching: "Buscando",
 	addressSearchMinimum: "Puedes buscar con al menos {count} caracteres",
 	addressNoResults: "No hay lugares que coincidan",
+	addressChooseFromList: "Elige una dirección de la lista",
+	clearAddress: "Borrar la dirección",
 	locationGuidance:
 		"Puedes buscar una dirección o tocar el mapa para marcar un punto",
 	hereColumnsWaiting:
@@ -636,9 +655,16 @@ const spanish: Record<RuntimeMessage, string> = {
 	altitudeLine: "Altitud: {m}m",
 	accuracyLine: "Precisión: {m}m",
 	scanBarcode: "Escanear",
+	photoFrameGuide:
+		"Coloque el motivo dentro del rectángulo. La foto incluye todo el encuadre.",
+	cameraUnavailable:
+		"No se pudo abrir la cámara. Compruebe el acceso y vuelva a intentarlo.",
 	takePicture: "Tomar foto",
 	chooseImage: "Elegir imagen",
 	removeImage: "Quitar imagen",
+	chooseAudio: "Elegir audio",
+	pauseRecording: "Pausar grabación",
+	resumeRecording: "Continuar grabación",
 	recordSound: "Grabar sonido",
 	startRecording: "Empezar a grabar",
 	stopRecording: "Detener la grabación",

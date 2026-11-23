@@ -1,6 +1,7 @@
 // Stored expressions are read as trees. Human text is a projection with the
 // actual form context; prose has its own projection over current names.
 
+import type { BlueprintDoc } from "./blueprint";
 import { type FormPrintContext, printFormExpression } from "./expression/print";
 import type {
 	Expression,
@@ -24,6 +25,7 @@ import {
 	fieldSlotApplies,
 	readSlotValues,
 	type SlotStringEntry,
+	translatedFieldProse,
 } from "./referenceSlots";
 
 /** The actual stored tree behind one registered, identity-bearing slot. */
@@ -86,6 +88,7 @@ export function proseSourceEntries(
 }
 
 export interface ProseRead {
+	readonly language?: string;
 	readonly slot: FieldProseSlotId;
 	readonly text: string;
 	readonly indices: readonly number[];
@@ -95,7 +98,7 @@ export interface ProseRead {
 /** Registered prose carriers applicable to this field kind, in member order. */
 export function proseSurfaceReads(
 	field: Field,
-	doc: ReferenceNamesDoc,
+	doc: ReferenceNamesDoc & Pick<BlueprintDoc, "localization">,
 ): ProseRead[] {
 	const reads: ProseRead[] = [];
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
@@ -111,6 +114,17 @@ export function proseSurfaceReads(
 			});
 		}
 	}
+	for (const { ref, indices, template, language } of translatedFieldProse(
+		doc.localization,
+		field,
+	))
+		reads.push({
+			slot: ref.slot,
+			language,
+			indices,
+			template,
+			text: projectProseTemplate(template, doc).text,
+		});
 	return reads;
 }
 

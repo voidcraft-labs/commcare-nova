@@ -39,6 +39,8 @@ export interface PendingExpression {
 	 *  nothing of it and claims each use its syntax makes, at the node it was read from, under the
 	 *  slot `ref` names for the form it stands in. */
 	readonly usesOnly?: true;
+	/** A translated output has its own value and the same checking site as the source. */
+	readonly translatedOutput?: true;
 	/** HQ's build names a fixture where it interpolates the text, so `$fixture_value` is one of the
 	 *  patterns it replaces there: a form's display condition in a menu whose lookup table
 	 *  selection is active (`menus.py`, `fixture_xpath`). */

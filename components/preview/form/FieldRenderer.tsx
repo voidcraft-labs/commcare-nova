@@ -1,8 +1,11 @@
 "use client";
 import { type Field, isCaptureField } from "@/lib/domain";
+import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { assertNever } from "@/lib/utils/assertNever";
+import { AddressEntryField } from "./fields/AddressEntryField";
 import { AttachmentField } from "./fields/attachment/AttachmentField";
 import { BarcodeField } from "./fields/BarcodeField";
 import { DateField } from "./fields/DateField";
@@ -46,6 +49,8 @@ interface FieldRendererProps {
 	onChangeAt?: ((path: string, value: string) => void) | undefined;
 	onBlurAt?: ((path: string) => void) | undefined;
 	onCommitCapture?: CaptureAnswerCommit;
+	/** Sends a Web Apps address choice, or its clearing, to the question's channels. */
+	onDisplayMessage?: (message: QuestionMessage) => Promise<void>;
 }
 
 /**
@@ -77,7 +82,9 @@ export function FieldRenderer({
 	onChangeAt,
 	onBlurAt,
 	onCommitCapture,
+	onDisplayMessage,
 }: FieldRendererProps) {
+	const rules = usePreviewPlatformRules();
 	// Capture kinds route to the real attachment control. Narrowed through
 	// the domain predicate rather than a case list so the two cannot drift:
 	// a new capture kind is a capture here the moment it is one there.
@@ -97,6 +104,28 @@ export function FieldRenderer({
 				onChangeAt={onChangeAt}
 				onBlurAt={onBlurAt}
 				onCommitCapture={onCommitCapture}
+			/>
+		);
+	}
+	/* Web Apps builds its address search for a text, password or barcode
+	 * question whose appearance asks for it (`entries.js::getEntry`); Android
+	 * reads the question as ordinary text. */
+	if (
+		rules.addressQuestion === "search" &&
+		onDisplayMessage !== undefined &&
+		(field.kind === "text" ||
+			field.kind === "secret" ||
+			field.kind === "barcode") &&
+		field.addressLookup === true
+	) {
+		return (
+			<AddressEntryField
+				field={field}
+				state={state}
+				labelledBy={labelledBy}
+				onChange={onChange}
+				onBlur={onBlur}
+				onDisplayMessage={onDisplayMessage}
 			/>
 		);
 	}

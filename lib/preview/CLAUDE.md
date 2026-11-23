@@ -2597,3 +2597,21 @@ guard. A generated wording override replaces that complete message.
 ### Android location at form entry
 
 The Preview phone supplies a simulated fix when a form opens. The committed form and platform decide whether the submission may carry it. `SubmissionEnvelopeResult.submissionLocation` records the point, null for a requested fix the platform did not provide, and no property for a form that requested none. The same receipt replays on retry. The geopoint question’s answer stays independent. A worker test session’s optional `locationFix` supplies the same evidence. An Android session takes its own fix or the test’s; a Web Apps session takes none, and a fix it names itself, or a test fix no Android session takes, is refused.
+
+### Worker question presentation
+
+`choiceMatch.ts` selects the match rule of the active platform. `workerCalendar.ts` maps calendar days to civil ISO dates, including the Nepali year lengths at the Core pin. `questionRows.ts` uses the Web Apps twelve-column rule. A Web Apps address or attachment publishes only to the concrete form or repeat instance that owns its question. Capture publishes the original filename after successful acceptance. Receivers use the ordinary answer queue, including validation and calculation. A quick Android choice advances through the pager's ordinary validated Next action.
+
+Web Apps' address search (`components/preview/form/fields/AddressEntryField.tsx`) searches with Google's Places API and saves what `addressMessage.ts` builds: the JSON of Web Apps' `getAddressBroadcastObject` keys, in its order, from the address part of the same rank, sent to the question's channels through `applyDisplayMessage`. Typing over a choice lets the answer go and sends nothing; clearing sends `null`. With no Maps key nothing searches and no answer is made up. Below the question a line names the target condition (`lib/domain/platforms.ts`, `PlatformTargetCondition`) unless the reached project space's facts carry `geocoderConfirmed`, which `previewSpace.ts` reads from the deployment's live confirmations in the facts' snapshot. Android draws a text, password, whole-number or decimal question under a compact group (`androidCompact.ts`) as its label's one shortened line beside a fixed-width answer box, with no media, hint or help; every other kind draws as anywhere, and the screen still pages as before.
+
+An Android Date question has a widget value and an instance answer. An empty answer opens the picker on the device's civil day. The engine keeps this proposed day on the live visible widget until Next, Back, a jump or Finish saves it. A cleared Gregorian picker stays empty for this visit. Opening that unanswered question again constructs a fresh widget. Hidden questions, skipped screens and a retained App Test inspection contribute no day. Web Apps date questions stay empty until answered. `questionCalendar.ts` is read by both native submissions, with a preloaded retained date, a deliberately cleared sibling and the five untouched picker types.
+
+Question display uses the effective widget for the current platform. Android
+screens put colored banners above their questions, pair short labels after their values and formatting are resolved,
+and keep the first label's color. A Web Apps group can start collapsed and
+keep its children in the running form. Android's usual screen ignores that
+collapse. Android's last text question on a screen gets Done on an applicable
+keyboard, with Next moving between the screen's other text questions.
+Search uses the platform's own matching rule. A choice, date or attachment
+still goes through the existing answer or staging path. A Web Apps message is
+delivered within the current form session and nearest repeat instance only.

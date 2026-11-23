@@ -224,6 +224,7 @@ export function readContainers(input: ReadContainersInput): void {
 						input.intents,
 					),
 					place,
+					field,
 				).inert
 			)
 				input.inertAppearance(field.node.path.join("/"));

@@ -60,6 +60,12 @@ import {
 import { slotContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import { datumRefKey } from "@/lib/domain/expression/types";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import {
+	menuMediaProblemDetails,
+	navigationMediaProblem,
+	navigationMediaProblemText,
+} from "@/lib/domain/navigationMedia";
 import { freeQuestionId } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { type ValidationError, validationError } from "../errors";
@@ -1375,6 +1381,20 @@ export function runFormRules(
 	};
 
 	const errors: ValidationError[] = [];
+	const mediaProblem = navigationMediaProblem(
+		form,
+		effectiveAppLocalization(doc.localization),
+	);
+	if (mediaProblem)
+		errors.push(
+			validationError(
+				"MENU_MEDIA_LANGUAGE",
+				"form",
+				navigationMediaProblemText(mediaProblem),
+				baseLocation(ctx),
+				menuMediaProblemDetails(mediaProblem),
+			),
+		);
 	errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...formSections(doc, ctx));
 	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid, lookupTables));

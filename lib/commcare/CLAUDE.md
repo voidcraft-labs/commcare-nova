@@ -643,7 +643,14 @@ HQ omits `<prompt default>` without it and its editors offer none of the others
 without it. A search's own filter (`_xpath_query`), the zero-input `match-all()`
 included, does not add it: HQ's Case List page offers and keeps a default
 filter for every project space. Both export paths send the zero-input filter.
-Missing or
+An app that runs in Web Apps and holds a question searching for an
+address meets the address-search target condition
+(`lib/domain/platformUses.ts::targetConditionUses`): the `address-search`
+capability probes `CASE_SEARCH_ADVANCED`, and the `geocoder` plan feature
+(Enterprise) is confirmed by a person, both with one reason per form
+(`planPrivileges.ts::addressSearchFormReasons`). A bring-in never records
+Geocoder as confirmed, since HQ's form builder offers the appearance on
+every plan. Missing or
 unverified required capabilities block before writes.
 
 `planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
@@ -651,7 +658,7 @@ the publish pushes, and the attachment target the emitter is handed (a capture
 saved as a link is a case write only where there is a link to write), the plan
 features the content needs (`cloudcare` for an app that declares Web Apps,
 `user_case`, `lookup_tables`, `child_cases`, `form_link_workflow`,
-`save_to_case`, `locations`, `data_forwarding`), each
+`save_to_case`, `locations`, `data_forwarding`, `app_dependencies`, `geocoder`), each
 with the sentences that say why this app needs it. The `locations` feature
 and the flat location list's confirmation name each form whose source or
 links read places (`locations/readsLocationsFixture.ts::formsReadingLocationsFixture`):
@@ -2592,3 +2599,7 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+### Question control presentation
+
+The importer classifies a source appearance on its actual control and bind in `reader/xform/appearances.ts`. `xform/readDisplaySettings.ts` projects its worker and editor effects onto typed settings. `xform/appearance.ts` writes a canonical recipe. Reading the recipe must preserve the editor kind, precedence, Android whole-control behavior, Web Apps word positions, parameter values and returned answer. The validator checks this at authoring and export. `hq/appearanceIdentity.ts` compares the actual source and published controls, and protects every effective setting from a reading claiming it was inert. An image that collects a signature only in Web Apps keeps its native picture identity.

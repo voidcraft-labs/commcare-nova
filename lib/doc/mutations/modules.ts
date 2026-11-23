@@ -23,6 +23,9 @@ import {
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import { replaceMediaLanguageEntry } from "@/lib/domain/multimedia";
+import { editNavigationInLanguage } from "@/lib/domain/navigationMedia";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 
 type ModuleParent = Uuid | null;
@@ -431,19 +434,26 @@ export function applyModuleMutation(
 			return;
 		}
 		case "setModuleMedia": {
-			// Set or clear the module's menu media (home-screen tile `icon` +
-			// `audioLabel`). The mutation carries explicit `MediaAssetId | null`
-			// slots so a clear survives JSON over the SSE wire — a generic
-			// `updateModule` patch would encode the clear as `{ key: undefined }`,
-			// which `JSON.stringify` drops, leaving the stale ref on the client.
-			// A `null` clear deletes the optional property; canonical documents
-			// never retain own `undefined` values.
 			const mod = draft.modules[mut.uuid];
-			if (!mod) return;
-			if (mut.icon === null) delete mod.icon;
-			else mod.icon = mut.icon;
-			if (mut.audioLabel === null) delete mod.audioLabel;
-			else mod.audioLabel = mut.audioLabel;
+			const carrier = mut.caseListItem ? mod?.caseListMenuItem : mod;
+			if (!carrier) return;
+			if (mut.languageEntry !== undefined && mut.language) {
+				replaceMediaLanguageEntry(carrier, mut.language, mut.languageEntry);
+				return;
+			}
+			if (mut.language !== undefined)
+				editNavigationInLanguage(
+					carrier,
+					mut,
+					mut.language,
+					effectiveAppLocalization(draft.localization),
+				);
+			else {
+				if (mut.icon === null) delete carrier.icon;
+				else carrier.icon = mut.icon;
+				if (mut.audioLabel === null) delete carrier.audioLabel;
+				else carrier.audioLabel = mut.audioLabel;
+			}
 			return;
 		}
 		case "addColumn": {

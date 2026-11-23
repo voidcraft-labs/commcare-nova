@@ -36,7 +36,13 @@
  */
 
 "use client";
-import { memo, useId } from "react";
+import {
+	type CSSProperties,
+	createContext,
+	memo,
+	useContext,
+	useId,
+} from "react";
 import { useDeploymentTargetFacts } from "@/components/builder/DeploymentTargetProvider";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
@@ -50,20 +56,32 @@ import {
 	labelShowsAsTyped,
 	type Uuid,
 } from "@/lib/domain";
+import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
+import { androidDrawsCompact } from "@/lib/preview/androidCompact";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { usePresentationSelector } from "@/lib/preview/hooks/usePresentationDocument";
 import {
 	usePresentationField,
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { requiredMarkShown } from "@/lib/preview/platform";
+import { questionRows } from "@/lib/preview/questionRows";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { useAppId, usePreviewPlatformRules } from "@/lib/session/hooks";
+import {
+	useAppId,
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
-import { onFormScreen, useFormScreenScope } from "./FormScreenScope";
+import {
+	onFormScreen,
+	useAdvanceOnChoice,
+	useFormScreenScope,
+} from "./FormScreenScope";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
 import { LabelField } from "./fields/LabelField";
@@ -102,6 +120,10 @@ interface InteractiveFormRendererProps {
 
 const NO_REPEAT_INSTANCES: readonly RepeatInstanceIdentity[] = [];
 
+/** Whether the questions below sit under an Android compact group, at any
+ *  depth (`FormController.indexIsInCompact`). */
+const AndroidCompactGroup = createContext(false);
+
 // ── Component ─────────────────────────────────────────────────────────
 
 /**
@@ -126,25 +148,60 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	// out through the bottom edge into the surrounding rail / close cap.
 	const containerClass = `flow-root pointer-events-auto${leadingGap ? " pt-6" : ""}`;
 
+	const { questionsPerRow } = usePreviewPlatformRules();
+	const counts = usePresentationSelector(
+		(doc) =>
+			fieldUuids.map((uuid) => {
+				const field = doc.fields[asUuid(uuid)];
+				return field && "itemsPerRow" in field
+					? (field.itemsPerRow ?? null)
+					: null;
+			}),
+		(a, b) => a.length === b.length && a.every((count, i) => count === b[i]),
+	);
+	const parentRepeatCount = usePresentationSelector((doc) => {
+		const parent = doc.fields[asUuid(parentEntityId)];
+		return parent?.kind === "group" ? parent.repeatsPerRow : undefined;
+	});
+	const render = (rawUuid: string, index: number) => {
+		const uuid = asUuid(rawUuid);
+		return (
+			<InteractiveField
+				key={uuid}
+				uuid={uuid}
+				prefix={prefix}
+				parentPath={parentPath}
+				depth={depth}
+				instanceScopeKey={instanceScopeKey}
+				repeatInstances={repeatInstances}
+				accessibleContext={accessibleContext}
+				position={index + 1}
+				siblingCount={fieldUuids.length}
+				repeatsPerRow={questionsPerRow ? parentRepeatCount : undefined}
+			/>
+		);
+	};
+	if (!questionsPerRow || !counts.some((count) => count !== null))
+		return <div className={containerClass}>{fieldUuids.map(render)}</div>;
+	const rows = questionRows(
+		fieldUuids.map((uuid, index) => ({ uuid, index })),
+		({ index }) => counts[index] ?? undefined,
+	);
 	return (
 		<div className={containerClass}>
-			{fieldUuids.map((rawUuid, index) => {
-				const uuid = asUuid(rawUuid);
-				return (
-					<InteractiveField
-						key={uuid}
-						uuid={uuid}
-						prefix={prefix}
-						parentPath={parentPath}
-						depth={depth}
-						instanceScopeKey={instanceScopeKey}
-						repeatInstances={repeatInstances}
-						accessibleContext={accessibleContext}
-						position={index + 1}
-						siblingCount={fieldUuids.length}
-					/>
-				);
-			})}
+			{rows.map((row) => (
+				<div key={row[0].item.uuid} className="md:grid md:grid-cols-12">
+					{row.map(({ item, columns }) => (
+						<div
+							key={item.uuid}
+							style={{ "--question-columns": columns } as CSSProperties}
+							className="min-w-0 md:col-span-(--question-columns)"
+						>
+							{render(item.uuid, item.index)}
+						</div>
+					))}
+				</div>
+			))}
 		</div>
 	);
 });
@@ -152,6 +209,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 // ── InteractiveField ───────────────────────────────────────────────
 
 interface InteractiveFieldProps {
+	readonly repeatsPerRow?: string;
 	readonly uuid: Uuid;
 	readonly prefix: string;
 	readonly parentPath?: FieldPath;
@@ -186,10 +244,17 @@ const InteractiveField = memo(function InteractiveField({
 	accessibleContext,
 	position,
 	siblingCount,
+	repeatsPerRow,
 }: InteractiveFieldProps) {
 	const { language } = useBuilderLanguage();
 	const rules = usePreviewPlatformRules();
+	const platform = usePreviewPlatform();
+	/* Web Apps places or hides a hint by its setting; Android keeps it below
+	 * the question (`lib/preview/platform.ts`, `hintPlacement`). */
+	const readsHintPlacement = rules.hintPlacement === "as-authored";
+	const inCompactGroup = useContext(AndroidCompactGroup);
 	const screen = useFormScreenScope();
+	const advance = useAdvanceOnChoice();
 	const field = usePresentationField(uuid);
 	// The form's text formatting switch, read beside each text's own setting.
 	const textForm = useFieldTextForm(uuid);
@@ -258,26 +323,43 @@ const InteractiveField = memo(function InteractiveField({
 	// above it (`groupLabel: "screen-header"`), which the pager draws.
 	if (
 		field.kind === "group" &&
-		(!field.label || rules.groupLabel === "screen-header")
+		((!field.label && !field.border) || rules.groupLabel === "screen-header")
 	) {
 		const childContext = [accessibleContext, transparentSectionId]
 			.filter(Boolean)
 			.join(" ");
+		const children = (
+			<InteractiveFormRenderer
+				parentEntityId={field.uuid}
+				prefix={path}
+				parentPath={fieldPath}
+				depth={depth}
+				leadingGap={false}
+				instanceScopeKey={instanceScopeKey}
+				repeatInstances={repeatInstances}
+				accessibleContext={childContext}
+			/>
+		);
 		return (
 			<>
 				<span id={transparentSectionId} className="sr-only">
 					{runtimeMessage(language, "sectionPosition", { position })}
 				</span>
-				<InteractiveFormRenderer
-					parentEntityId={field.uuid}
-					prefix={path}
-					parentPath={fieldPath}
-					depth={depth}
-					leadingGap={false}
-					instanceScopeKey={instanceScopeKey}
-					repeatInstances={repeatInstances}
-					accessibleContext={childContext}
-				/>
+				{/* Android draws every question under a compact group, at any
+				 *  depth, as a compact widget (`FormController.indexIsInCompact`),
+				 *  still one question per screen: the context lays a text or
+				 *  number question out beside its label (`androidCompact.ts`),
+				 *  and the marker gives its keyboard the compact action
+				 *  (`WorkerKeyboard.ts`). */}
+				{rules.compactGroup === "beside-label" && field.compact ? (
+					<AndroidCompactGroup value={true}>
+						<div className="contents" data-compact-entries="">
+							{children}
+						</div>
+					</AndroidCompactGroup>
+				) : (
+					children
+				)}
 			</>
 		);
 	}
@@ -402,6 +484,7 @@ const InteractiveField = memo(function InteractiveField({
 	} else if (field.kind === "repeat") {
 		content = (
 			<RepeatField
+				repeatsPerRow={repeatsPerRow}
 				field={field}
 				path={path}
 				fieldPath={fieldPath}
@@ -426,103 +509,231 @@ const InteractiveField = memo(function InteractiveField({
 			</div>
 		);
 	} else {
-		content = (
-			<div
-				className="block space-y-1.5"
-				style={{
-					paddingLeft: depthPadding(depth),
-					paddingRight: depthPadding(depth),
+		const control = (
+			<FieldRenderer
+				field={field}
+				state={state}
+				labelledBy={labelId}
+				path={path}
+				appId={appId}
+				entryKey={entryKey}
+				attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
+				questionLabelId={labelId}
+				questionLabelledBy={questionLabelledBy}
+				questionDescriptionIds={
+					field.hint && !(readsHintPlacement && field.hintPlacement)
+						? hintId
+						: ""
+				}
+				questionLabel={questionLabelText}
+				onCommitCapture={async (value, gate, onAccepted, originalFilename) => {
+					if (entryKey === undefined || !isCaptureFieldKind(field.kind))
+						return false;
+					return controller.commitCaptureAnswer(
+						entryKey,
+						{ fieldUuid: field.uuid, kind: field.kind, repeatInstances },
+						value,
+						gate,
+						onAccepted,
+						originalFilename,
+					);
 				}}
-			>
-				{/* Label media: image above the prompt / audio / video, the way
+				onChange={async (value) => {
+					const applied = await controller.setValueAtAsync(path, value);
+					if (
+						applied &&
+						field.kind === "single_select" &&
+						advance &&
+						controller.entryKey === entryKey
+					) {
+						const layout = choiceLayoutForPlatform(field, platform);
+						if (
+							layout?.kind === "advance-on-choice" ||
+							(layout?.kind === "grid" && layout.advanceOnChoice)
+						)
+							await advance();
+					}
+					return applied;
+				}}
+				onBlur={() => controller.touchAtAsync(path)}
+				onDisplayMessage={(message) =>
+					controller.applyDisplayMessage(path, message)
+				}
+				onChangeAt={(targetPath, value) =>
+					controller.setValueAtAsync(targetPath, value)
+				}
+				onBlurAt={(targetPath) => controller.touchAtAsync(targetPath)}
+			/>
+		);
+		/* Android draws a text or number question under a compact group as
+		 * its label's one line beside a fixed-width answer box, with no
+		 * media, hint or help (`androidCompact.ts`). */
+		if (
+			rules.compactGroup === "beside-label" &&
+			inCompactGroup &&
+			androidDrawsCompact(field)
+		) {
+			content = (
+				<div
+					className="flex items-center gap-3"
+					data-android-compact=""
+					style={{
+						paddingLeft: depthPadding(depth),
+						paddingRight: depthPadding(depth),
+					}}
+				>
+					<div
+						id={questionLabelId}
+						className="flex min-w-0 flex-1 items-center gap-1 px-[5px] py-[5px]"
+					>
+						<span className="sr-only">
+							{runtimeMessage(language, "questionPosition", { position })}{" "}
+						</span>
+						<span className={`truncate ${FIELD_STYLES.label}`}>
+							{questionLabelText ?? ""}
+						</span>
+						{requiredMarked ? (
+							<>
+								<span
+									aria-hidden="true"
+									className="shrink-0 text-xs text-nova-rose"
+								>
+									*
+								</span>
+								<span className="sr-only">
+									{" "}
+									{runtimeMessage(language, "requiredLabel")}
+								</span>
+							</>
+						) : null}
+					</div>
+					<div className="w-40 shrink-0">{control}</div>
+				</div>
+			);
+		} else
+			content = (
+				<div
+					className="block space-y-1.5"
+					style={{
+						paddingLeft: depthPadding(depth),
+						paddingRight: depthPadding(depth),
+					}}
+				>
+					{/* Label media: image above the prompt / audio / video, the way
 				    CommCare renders a question's `<value form="image">`. Live
 				    controls in preview mode; mounted at the same position as the
 				    edit-mode `FieldRow` so the flipbook doesn't drift. */}
-				<MediaDisplay media={field.label_media} interactive />
-				{field.label ? (
-					<div className="min-w-0">
-						{/* `px-[5px] py-[5px]` matches TextEditable's idle
-						 *  wrapper in edit mode for flipbook parity. Without
-						 *  this, every leaf field is 10px shorter in live
-						 *  mode than in edit mode: see the matching note
-						 *  in `GroupField`. */}
-						<div
-							id={questionLabelId}
-							className="flex items-center gap-1 px-[5px] py-[5px]"
-						>
-							<span className="sr-only">
-								{runtimeMessage(language, "questionPosition", {
-									position,
-								})}{" "}
-							</span>
-							<LabelContent
-								label={field.label}
-								resolvedLabel={state.resolvedLabel}
-								isEditMode={false}
-								rendering={rules.labelMarkdown}
-								plainLabel={labelShowsAsTyped(textForm, field)}
-								className={FIELD_STYLES.label}
-							/>
-							{requiredMarked ? (
-								<>
-									<span
-										aria-hidden="true"
-										className="shrink-0 text-xs text-nova-rose"
-									>
-										*
-									</span>
-									<span className="sr-only">
-										{" "}
-										{runtimeMessage(language, "requiredLabel")}
-									</span>
-								</>
-							) : null}
-							<FieldHelp
-								help={"help" in field ? field.help : undefined}
-								resolvedHelp={state.resolvedHelp}
-								helpMedia={"help_media" in field ? field.help_media : undefined}
-								asTyped={helpAsTyped}
-								interactive
-								questionLabel={questionLabelText}
-								placement="label"
-							/>
-						</div>
-					</div>
-				) : (
-					<span id={questionLabelId} className="sr-only">
-						{runtimeMessage(language, "questionPosition", { position })}
-						{requiredMarked
-							? ` ${runtimeMessage(language, "requiredLabel")}`
-							: ""}
-					</span>
-				)}
-				{field.hint &&
-					(rules.hint === "markdown" ? (
-						<div id={hintId} className="px-[5px] py-[5px]">
-							<LabelContent
-								label={field.hint}
-								resolvedLabel={state.resolvedHint}
-								isEditMode={false}
-								rendering={rules.labelMarkdown}
-								className={FIELD_STYLES.hint}
-							/>
+					<MediaDisplay media={field.label_media} interactive />
+					{field.label ? (
+						<div className="min-w-0">
+							{/* `px-[5px] py-[5px]` matches TextEditable's idle
+							 *  wrapper in edit mode for flipbook parity. Without
+							 *  this, every leaf field is 10px shorter in live
+							 *  mode than in edit mode: see the matching note
+							 *  in `GroupField`. */}
+							<div
+								id={questionLabelId}
+								className={`flex items-center gap-1 px-[5px] py-[5px] ${rules.questionAlignment && field.textAlignment === "center" ? "justify-center text-center" : rules.questionAlignment && field.textAlignment === "right" ? "justify-end text-right" : ""}`}
+							>
+								<span className="sr-only">
+									{runtimeMessage(language, "questionPosition", {
+										position,
+									})}{" "}
+								</span>
+								<LabelContent
+									label={field.label}
+									resolvedLabel={state.resolvedLabel}
+									isEditMode={false}
+									rendering={rules.labelMarkdown}
+									plainLabel={labelShowsAsTyped(textForm, field)}
+									className={FIELD_STYLES.label}
+								/>
+								{requiredMarked ? (
+									<>
+										<span
+											aria-hidden="true"
+											className="shrink-0 text-xs text-nova-rose"
+										>
+											*
+										</span>
+										<span className="sr-only">
+											{" "}
+											{runtimeMessage(language, "requiredLabel")}
+										</span>
+									</>
+								) : null}
+								<FieldHelp
+									help={"help" in field ? field.help : undefined}
+									resolvedHelp={state.resolvedHelp}
+									helpMedia={
+										"help_media" in field ? field.help_media : undefined
+									}
+									asTyped={helpAsTyped}
+									interactive
+									questionLabel={questionLabelText}
+									placement="label"
+								/>
+							</div>
 						</div>
 					) : (
-						/* Android draws the hint as plain text
-						 * (`QuestionWidget::addHintText`): markdown shows as
-						 * written. */
-						<p
-							id={hintId}
-							className="px-[5px] py-[5px] text-xs italic whitespace-pre-wrap text-nova-text-muted"
-						>
-							{state.resolvedHint ?? projectProse(field.hint)}
-						</p>
-					))}
-				{/* Help plays each runtime's button and dialog: Web Apps' sits on
+						<span id={questionLabelId} className="sr-only">
+							{runtimeMessage(language, "questionPosition", { position })}
+							{requiredMarked
+								? ` ${runtimeMessage(language, "requiredLabel")}`
+								: ""}
+						</span>
+					)}
+					{field.hint &&
+						!(readsHintPlacement && field.hintPlacement) &&
+						(rules.hint === "markdown" ? (
+							<div id={hintId} className="px-[5px] py-[5px]">
+								<LabelContent
+									label={field.hint}
+									resolvedLabel={state.resolvedHint}
+									isEditMode={false}
+									rendering={rules.labelMarkdown}
+									className={FIELD_STYLES.hint}
+								/>
+							</div>
+						) : (
+							/* Android draws the hint as plain text
+							 * (`QuestionWidget::addHintText`): markdown shows as
+							 * written. */
+							<p
+								id={hintId}
+								className="px-[5px] py-[5px] text-xs italic whitespace-pre-wrap text-nova-text-muted"
+							>
+								{state.resolvedHint ?? projectProse(field.hint)}
+							</p>
+						))}
+					{/* Help plays each runtime's button and dialog: Web Apps' sits on
 				    the label line above (or here, for an unlabeled question),
 				    Android's right-aligned under the question below. Both slots
 				    are input-kind only, so guard the access. */}
-				{field.label ? null : (
+					{field.label ? null : (
+						<FieldHelp
+							help={"help" in field ? field.help : undefined}
+							resolvedHelp={state.resolvedHelp}
+							helpMedia={"help_media" in field ? field.help_media : undefined}
+							asTyped={helpAsTyped}
+							interactive
+							questionLabel={questionLabelText}
+							placement="label"
+						/>
+					)}
+					<div
+						className={
+							rules.inputWidth && "inputWidth" in field
+								? field.inputWidth === "short"
+									? "md:w-1/6"
+									: field.inputWidth === "medium"
+										? "md:w-1/3"
+										: undefined
+								: undefined
+						}
+					>
+						{control}
+					</div>
 					<FieldHelp
 						help={"help" in field ? field.help : undefined}
 						resolvedHelp={state.resolvedHelp}
@@ -530,51 +741,14 @@ const InteractiveField = memo(function InteractiveField({
 						asTyped={helpAsTyped}
 						interactive
 						questionLabel={questionLabelText}
-						placement="label"
+						placement="below"
 					/>
-				)}
-				<FieldRenderer
-					field={field}
-					state={state}
-					labelledBy={labelId}
-					path={path}
-					appId={appId}
-					entryKey={entryKey}
-					attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
-					questionLabelId={labelId}
-					questionLabelledBy={questionLabelledBy}
-					questionDescriptionIds={field.hint ? hintId : ""}
-					questionLabel={questionLabelText}
-					onCommitCapture={async (value, gate, onAccepted) => {
-						if (entryKey === undefined || !isCaptureFieldKind(field.kind))
-							return false;
-						return controller.commitCaptureAnswer(
-							entryKey,
-							{ fieldUuid: field.uuid, kind: field.kind, repeatInstances },
-							value,
-							gate,
-							onAccepted,
-						);
-					}}
-					onChange={(value) => controller.setValueAtAsync(path, value)}
-					onBlur={() => controller.touchAtAsync(path)}
-					onChangeAt={(targetPath, value) =>
-						controller.setValueAtAsync(targetPath, value)
-					}
-					onBlurAt={(targetPath) => controller.touchAtAsync(targetPath)}
-				/>
-				<FieldHelp
-					help={"help" in field ? field.help : undefined}
-					resolvedHelp={state.resolvedHelp}
-					helpMedia={"help_media" in field ? field.help_media : undefined}
-					asTyped={helpAsTyped}
-					interactive
-					questionLabel={questionLabelText}
-					placement="below"
-				/>
-			</div>
-		);
+				</div>
+			);
 	}
+
+	if (rules.questionBanner && field.kind === "label" && field.banner)
+		return null;
 
 	return (
 		<div

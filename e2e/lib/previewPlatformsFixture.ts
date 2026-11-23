@@ -11,6 +11,8 @@ export const PLATFORM_IDS = {
 	module: testUuid("platforms-module"),
 	form: testUuid("platforms-form"),
 	place: testUuid("platforms-place"),
+	changeDay: testUuid("platforms-change-day"),
+	returnDay: testUuid("platforms-return-day"),
 	code: testUuid("platforms-code"),
 	phone: testUuid("platforms-phone"),
 	phoneHeld: testUuid("platforms-phone-held"),

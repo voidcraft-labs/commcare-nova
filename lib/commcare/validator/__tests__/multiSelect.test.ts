@@ -1,3 +1,4 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -5,7 +6,8 @@ import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { CaseOperation } from "@/lib/domain";
+import { applyMutations } from "@/lib/doc/mutations";
+import { type CaseOperation, collectTranslationUnits } from "@/lib/domain";
 import {
 	eq,
 	formField,
@@ -859,5 +861,73 @@ describe("multi-select absolute validation", () => {
 		});
 
 		expectAdmittedDoc({ ...doc });
+	});
+});
+
+describe("a translation that shows values of its own in a form over a set of cases", () => {
+	const GREET = testUuid("greet-over-a-set");
+	function withSpanishLabel(readsCase: boolean) {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: multipleConfig(),
+					forms: [
+						{
+							name: "Review",
+							type: "followup",
+							fields: [
+								f({ uuid: GREET, kind: "label", id: "greet", label: "Hello" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		return produce(doc, (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+			]);
+			const unit = collectTranslationUnits(draft).find(
+				(one) =>
+					one.owner.kind === "field" &&
+					one.owner.fieldUuid === GREET &&
+					one.role === "field-label",
+			);
+			if (unit === undefined || draft.localization === undefined)
+				throw new Error("Missing the label's translation unit.");
+			draft.localization.translations.spa[unit.id] = {
+				value: {
+					parts: [
+						{ kind: "text", text: "Hola " },
+						...(readsCase
+							? [
+									{
+										kind: "case-ref" as const,
+										caseType: "patient",
+										property: "case_name",
+									},
+								]
+							: []),
+					],
+				},
+				valueMode: "independent-values",
+				sourceFingerprint: unit.sourceFingerprint,
+				origin: "human",
+				review: "reviewed",
+				translatedFrom: "eng",
+			};
+		});
+	}
+
+	it("refuses a case read only the translation holds, as it refuses one in the source", () => {
+		expect(codes(withSpanishLabel(false))).not.toContain(
+			"MULTI_SELECT_SHARED_CASE_EXPRESSION",
+		);
+		expect(codes(withSpanishLabel(true))).toContain(
+			"MULTI_SELECT_SHARED_CASE_EXPRESSION",
+		);
 	});
 });

@@ -18,6 +18,7 @@ import {
 	languageEntries,
 } from "@/lib/domain/localization";
 import {
+	authoredTranslationValueMode,
 	defaultWording,
 	hasGeneratedWording,
 	snapshotTranslationUnits,
@@ -102,6 +103,7 @@ function writeReadTexts(
 			);
 			const entry = read && {
 				...read,
+				...authoredTranslationValueMode(current, read.value),
 				sourceFingerprint: current.sourceFingerprint,
 			};
 			const held = languageEntries(localization, language);

@@ -650,6 +650,23 @@ def hold_key(key, base_source) -> str:
     return json.dumps(resolve_references(key, ids_at(base_source)), separators=(",", ":"), ensure_ascii=False)
 
 
+def hold_value(value, app_id, files):
+    """Resolve a held Project file against the response used by this reading.
+    Reauthoring a registered source mints new HQ media IDs for the same files.
+    The first-read planner keys its temporary file by (app, class, HQ media ID).
+    """
+    from proof.matrix.ops import project_file_of
+
+    path = project_file_of(value)
+    if path is None:
+        return value
+    from uuid import UUID, uuid5
+
+    (row,) = [item for item, _ in files if item["path"] == path and item["status"] == 200]
+    identity = json.dumps([app_id, row["mediaType"], row["multimediaId"]], separators=(",", ":"), ensure_ascii=False)
+    return str(uuid5(UUID("4374916f-4ced-42c6-b00d-f7fb7b45aaaf"), identity))
+
+
 def make_change(authoring, app_id, change):
     """One change of a row, made in HQ: a ``set-json`` through ``ops.set_json``, a ``named`` change through its
     function of ``proof/matrix/variants/``, which is handed the ``Authoring`` and the app's id."""
@@ -702,7 +719,10 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
         "mode": "first-read",
         "input": reading_input(answers, kept.project_answers, media, base, claims="full"),
     }
-    held = [{**hold, "key": hold_key(hold["key"], base_source)} for hold in variant.holds]
+    held = [
+        {**hold, "key": hold_key(hold["key"], base_source), "value": hold_value(hold["value"], base.id, media)}
+        for hold in variant.holds
+    ]
     if held:
         request["holds"] = held
     (answer,) = run_bundle([request])

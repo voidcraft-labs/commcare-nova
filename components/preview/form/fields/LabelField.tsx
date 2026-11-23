@@ -36,7 +36,9 @@ export function LabelField({
 	const isEditMode = mode === "edit";
 	/* The running preview renders the label as the runtime it plays does
 	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
-	const labelRendering = usePreviewPlatformRules().labelMarkdown;
+	const rules = usePreviewPlatformRules();
+	const labelRendering = rules.labelMarkdown;
+	const selectionBySetting = rules.labelTextSelection === "by-setting";
 	const { updateField } = useBlueprintMutations();
 	const labelFormatText = useLabelFormatText(field);
 	/* Inline save callback: null in preview mode so the TextEditable
@@ -59,7 +61,9 @@ export function LabelField({
 	}, [isEditMode, field.uuid, updateField]);
 
 	return (
-		<div className="py-1">
+		<div
+			className={`py-1 ${selectionBySetting && !isEditMode ? (field.selectableText ? "select-text" : "select-none") : ""}`}
+		>
 			{/* Label media above the text: same `MediaDisplay` the input fields
 			    use, so a display-only label shows its image/audio/video too. */}
 			<MediaDisplay media={field.label_media} interactive={!isEditMode} />

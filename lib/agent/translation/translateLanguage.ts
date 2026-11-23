@@ -50,6 +50,10 @@ type TranslationResult =
 			language: AppLanguageIdentity;
 			translated: number;
 			review: "needs-review";
+			/** Out-of-date translations that show their own answers or
+			 * calculations, left for a person to review rather than replaced by
+			 * a translation that shows the source's. */
+			keptWithOwnValues?: number;
 	  }
 	| { error: string };
 
@@ -89,6 +93,7 @@ export async function translateLanguage(
 		};
 	const tag = languageTag(target);
 	const exists = localization.languageOrder.includes(tag);
+	let keptWithOwnValues = 0;
 	const units = collectTranslationUnits(doc).flatMap((raw) => {
 		if (raw.generated?.dormant) return [];
 		const unit = wordingSourceUnit(doc, raw);
@@ -112,6 +117,12 @@ export async function translateLanguage(
 			!(targetRow.explicit?.origin === "copied" && targetRow.status !== "ready")
 		)
 			return [];
+		// A person chose the values this language shows; a machine translation
+		// of the source would silently replace them.
+		if (targetRow?.explicit?.valueMode === "independent-values") {
+			keptWithOwnValues += 1;
+			return [];
+		}
 		const value = hasGeneratedWording(sourceRow)
 			? presentedSearchWording(doc, sourceRow).effective
 			: sourceRow.source;
@@ -129,6 +140,7 @@ export async function translateLanguage(
 				language: target,
 				translated: 0,
 				review: "needs-review",
+				...(keptWithOwnValues > 0 && { keptWithOwnValues }),
 			},
 		};
 	const memory = new TranslationMemory(
@@ -246,6 +258,7 @@ export async function translateLanguage(
 					language: target,
 					translated: units.length,
 					review: "needs-review",
+					...(keptWithOwnValues > 0 && { keptWithOwnValues }),
 				},
 			}
 		: { kind: "mutate", mutations: [], result: { error: outcome.error } };

@@ -132,6 +132,10 @@ JVM_OPTIONS = (
     "-Duser.country=US",
     "-Dfile.encoding=UTF-8",
     "-Drobolectric.offline=true",
+    # Android delivers changed spinner selections during layout. The legacy
+    # Robolectric callback also fires for unchanged selections and recurses in
+    # CommCare's Gregorian picker when it redraws the selected month.
+    "-Drobolectric.useRealSpinnerSelection=true",
 )
 # What HotSpot writes when its code cache is full (one heap of it, or a segment by its name).
 CODE_CACHE_FULL = b"is full. Compiler has been disabled."

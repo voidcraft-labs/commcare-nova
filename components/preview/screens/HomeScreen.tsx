@@ -24,7 +24,6 @@ import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import {
 	useCaseFirstModuleUuids,
 	useMenuFormCounts,
-	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
@@ -103,8 +102,7 @@ function ModuleListHome() {
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const hasData = useDocHasData();
-	const orderedModules = useOrderedModules();
-	const menuSource = usePreviewMenuSource();
+	const menuSource = usePreviewMenuSource(language.language);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
@@ -118,10 +116,7 @@ function ModuleListHome() {
 				: previewScreenEntries(menuSource.doc, FIRST_MENU),
 		[menuSource.doc, mode],
 	);
-	const modulesByUuid = useMemo(
-		() => new Map(orderedModules.map((mod) => [mod.uuid, mod] as const)),
-		[orderedModules],
-	);
+
 	/* Case-first modules (every form case-loading) land on the case list,
 	 * not a form menu: the running app hoists the shared case selection. */
 	const caseFirstModules = useCaseFirstModuleUuids();
@@ -350,7 +345,7 @@ function ModuleListHome() {
 							/>
 						);
 					}
-					const mod = modulesByUuid.get(entry.moduleUuid);
+					const mod = menuSource.modules[entry.moduleUuid];
 					if (mod === undefined) return null;
 					const localizedModuleName =
 						(localizedValues.get(generatedWordingId(mod.uuid, "menuTitle")) as

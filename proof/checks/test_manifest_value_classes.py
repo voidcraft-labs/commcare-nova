@@ -5938,6 +5938,41 @@ def _data_binds_and_itext():
     }
 
 
+def _localized_media():
+    """The two refused shapes of a question's media by language, each beside a translated file a worker can be
+    shown. ``q1``'s French image the default English lacks; ``q2``'s English image beside a blank French one;
+    ``q3``'s two distinct files, and ``q4``'s English file French inherits, both held."""
+    media = _form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q1"><value>A</value></text>
+            <text id="q2"><value>B</value><value form="image">jr://file/commcare/b.png</value></text>
+            <text id="q3"><value>C</value><value form="image">jr://file/commcare/c.png</value></text>
+            <text id="q4"><value>D</value><value form="image">jr://file/commcare/d.png</value></text></translation>
+          <translation lang="fr">
+            <text id="q1"><value>A</value><value form="image">jr://file/commcare/a.png</value></text>
+            <text id="q2"><value>B</value><value form="image"/></text>
+            <text id="q3"><value>C</value><value form="image">jr://file/commcare/e.png</value></text>
+            <text id="q4"><value>D</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
+    )
+    image = "itext-form:core/image"
+    return {
+        "questions/media-form-missing-in-default-language": (
+            refused("form", media, image, "translation[2]/text[1]/value[2]/@form"),
+            refused("form", media, VALUE_FORM, "translation[2]/text[1]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[3]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[4]/value[2]/@form"),
+        ),
+        "questions/empty-media-form-beside-a-translated-file": (
+            refused("form", media, image, "translation[1]/text[2]/value[2]/@form"),
+            refused("form", media, image, "translation[2]/text[2]/value[2]/@form"),
+            accepted("form", media, image, "translation[2]/text[3]/value[2]/@form"),
+            accepted("form", media, image, "translation[1]/text[4]/value[2]/@form"),
+        ),
+    }
+
+
 def _held_new():
     """The shapes of the HELD-NEW classes beside an allowing class of their key: a use the class takes (``refused``:
     its reader says True, and the use stands held-new) and one beside it that the allowing class holds."""
@@ -6276,6 +6311,7 @@ SHAPES = {
     **_advanced_actions(),
     **_search_and_menus(),
     **_data_binds_and_itext(),
+    **_localized_media(),
     **_held_new(),
 }
 

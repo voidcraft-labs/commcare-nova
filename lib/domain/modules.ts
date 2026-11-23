@@ -57,6 +57,10 @@ import {
 import { lookupOptionsSourceSchema } from "./lookupCarriers";
 import { lookupColumnIdSchema } from "./lookupIds";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
+import {
+	formerNavigationMediaSchema,
+	navigationMediaSchema,
+} from "./navigationMedia";
 import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
 
@@ -2975,6 +2979,9 @@ export const caseListMenuItemSchema = z.strictObject({
 	label: z.string().min(1).optional(),
 	/** The entry's image in the menu. */
 	icon: moduleIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(moduleIconRefSchema).optional(),
+	mediaByFormerCode:
+		formerNavigationMediaSchema(moduleIconRefSchema).optional(),
 	/** The entry's spoken label, played in audio-prompt mode. */
 	audioLabel: mediaAssetIdSchema.optional(),
 });
@@ -3005,6 +3012,8 @@ const alwaysOfferedRegistrationSchema = z.strictObject({
 	label: z.string().min(1).optional(),
 	/** The action's image. Web Apps shows the label alone. */
 	icon: formIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(formIconRefSchema).optional(),
+	mediaByFormerCode: formerNavigationMediaSchema(formIconRefSchema).optional(),
 	/** The action's spoken label, played in audio-prompt mode. */
 	audioLabel: mediaAssetIdSchema.optional(),
 	/** Back to the list, or on to this menu with the new case chosen. Applies
@@ -3081,6 +3090,9 @@ export const moduleSchema = z.strictObject({
 	caseSearchConfig: caseSearchConfigSchema.optional(),
 	/** Image shown on the module's home-screen tile. */
 	icon: moduleIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(moduleIconRefSchema).optional(),
+	mediaByFormerCode:
+		formerNavigationMediaSchema(moduleIconRefSchema).optional(),
 	/**
 	 * Audio version of the module's home-screen label, played by
 	 * audio-prompt mode — an accessibility affordance for

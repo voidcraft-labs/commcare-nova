@@ -63,11 +63,14 @@ import type {
 	TimeField,
 	VideoField,
 } from "@/lib/domain";
+import { fieldDisplaySettingsFor } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
 	FieldEditorSchema,
 	FormExpressionKeys,
 } from "@/lib/domain/kinds";
+import { ChoiceLayoutEditor } from "./fields/ChoiceLayoutEditor";
+import { QuestionDisplayEditor } from "./fields/QuestionDisplayEditor";
 import { requiredEntry } from "./requiredEntry";
 
 function EditorLoading() {
@@ -479,6 +482,11 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 		defaultValueEntry<SingleSelectField>(),
 	],
 	ui: [
+		{
+			key: "choiceLayout",
+			component: ChoiceLayoutEditor,
+			label: "Choice layout",
+		},
 		mediaEntry<SingleSelectField, "label_media">("label_media", "Label media"),
 		hintEntry<SingleSelectField>(),
 		textEntry<SingleSelectField, "help">("help", "Help"),
@@ -502,6 +510,11 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 		defaultValueEntry<MultiSelectField>(),
 	],
 	ui: [
+		{
+			key: "choiceLayout",
+			component: ChoiceLayoutEditor,
+			label: "Choice layout",
+		},
 		mediaEntry<MultiSelectField, "label_media">("label_media", "Label media"),
 		hintEntry<MultiSelectField>(),
 		textEntry<MultiSelectField, "help">("help", "Help"),
@@ -643,7 +656,7 @@ const sectionFieldEditorSchema: FieldEditorSchema<SectionField> = {
  * (FieldEditorPanel) read this record to dispatch the correct schema
  * per selected field.
  */
-export const fieldEditorSchemas: {
+const coreSchemas: {
 	[K in FieldKind]: FieldEditorSchema<Extract<Field, { kind: K }>>;
 } = {
 	text: textFieldEditorSchema,
@@ -668,3 +681,34 @@ export const fieldEditorSchemas: {
 	section: sectionFieldEditorSchema,
 	repeat: repeatFieldEditorSchema,
 };
+
+/** Each widget uses the registered kind's patch schema for the actual edit.
+ * TypeScript cannot express a runtime registry lookup as a dependent key. */
+function withDisplay<K extends FieldKind>(kind: K) {
+	type F = Extract<Field, { kind: K }>;
+	const base = coreSchemas[kind];
+	const entries = fieldDisplaySettingsFor(kind)
+		.filter(
+			(setting) =>
+				setting.key !== "choiceLayout" &&
+				!(kind === "text" && setting.key === "keypad"),
+		)
+		.map((setting) => ({
+			key: setting.key,
+			label: setting.label,
+			component: QuestionDisplayEditor,
+			addable: true,
+			...(setting.input === "flag" && { valueOnAdd: true }),
+			visible: (field: F) => Object.hasOwn(field, setting.key),
+		}));
+	return {
+		...base,
+		ui: [...base.ui, ...entries],
+	} as unknown as FieldEditorSchema<F>;
+}
+export const fieldEditorSchemas = Object.fromEntries(
+	(Object.keys(coreSchemas) as FieldKind[]).map((kind) => [
+		kind,
+		withDisplay(kind),
+	]),
+) as typeof coreSchemas;

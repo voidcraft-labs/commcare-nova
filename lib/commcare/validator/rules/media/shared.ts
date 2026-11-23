@@ -60,6 +60,11 @@ export function bundleKeyLabel(bundleKey: FieldMediaBundleKey): string {
  * embeds it.
  */
 export function describeLocation(location: MediaRefLocation): string {
+	const carrier = locationName(location);
+	return location.language ? `${carrier} (${location.language})` : carrier;
+}
+
+function locationName(location: MediaRefLocation): string {
 	switch (location.kind) {
 		case "app_logo":
 			return "the app logo";

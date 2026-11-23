@@ -28,6 +28,7 @@ import {
 	HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED,
 	hqChangedBringInMessage,
 	hqChangedFoundLine,
+	hqChangesAddressSearchLine,
 	hqChangesBroughtInToast,
 	hqChangesHeldLine,
 	hqChangesLead,
@@ -545,6 +546,7 @@ const SAMPLED: Readonly<Record<string, () => readonly string[]>> = {
 	sincePhrase: () => REFERENCES.map((since) => sincePhrase(since, "alpha")),
 	hqChangesLead: () => [hqChangesLead("x", true), hqChangesLead("x", false)],
 	showAllAction: () => [showAllAction(12)],
+	hqChangesAddressSearchLine: () => [hqChangesAddressSearchLine("clinic")],
 	novaLimitLead: () => [
 		novaLimitLead("too-large"),
 		novaLimitLead("too-intricate"),

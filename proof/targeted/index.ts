@@ -121,6 +121,7 @@ import { plainHelp } from "./documents/plainHelp";
 import { platformDeclaration } from "./documents/platformDeclaration";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { proseValue } from "./documents/proseValue";
+import { questionCalendar } from "./documents/questionCalendar";
 import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
@@ -276,6 +277,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectDeliverHyphenIds,
 	connectLearnHyphenIds,
 	numberKeypad,
+	questionCalendar,
 	detailOnlyColumn,
 	relatedColumns,
 	proseValue,

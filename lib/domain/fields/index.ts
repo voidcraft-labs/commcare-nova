@@ -19,8 +19,11 @@
 // module graph acyclic with the XPathField/reference provider chain.
 
 import { z } from "zod";
+import { multiChoiceLayoutSchema } from "../choicePresentation";
+import { fieldDisplaySettingsFor } from "../fieldDisplay";
 import type { FieldKindMetadata } from "../kinds";
 import type { ProseTemplate } from "../prose";
+import { hasOtherDisplay, webShowsHintInEntry } from "../questionDisplay";
 import { type AudioField, audioFieldMetadata, audioFieldSchema } from "./audio";
 import {
 	type BarcodeField,
@@ -584,6 +587,27 @@ export function reconcileFieldForKind(
 	seed?: { optionsSource?: SelectOptionsSource; label?: ProseTemplate },
 ): Field | undefined {
 	const candidate: Record<string, unknown> = { ...source, kind: toKind };
+	if (
+		source.kind === "single_select" &&
+		toKind === "multi_select" &&
+		source.choiceLayout
+	) {
+		// Both grids share a column count. Only a single answer can finish a page.
+		const layout = source.choiceLayout;
+		if (layout.kind === "grid")
+			candidate.choiceLayout =
+				layout.columns === undefined
+					? { kind: "grid" }
+					: { kind: "grid", columns: layout.columns };
+		else if (
+			layout.kind === "search" ||
+			layout.kind === "advance-on-choice" ||
+			layout.kind === "buttons" ||
+			(layout.kind === "platforms" &&
+				!multiChoiceLayoutSchema.safeParse(layout).success)
+		)
+			delete candidate.choiceLayout;
+	}
 	// A label seed fills only a label the source lacks: it exists for a
 	// conversion out of a kind with no label (a Hidden Value back to a
 	// question), whose destination requires one.
@@ -608,12 +632,41 @@ export function reconcileFieldForKind(
 	if (toKind === "repeat" && candidate.repeat_mode === undefined) {
 		candidate.repeat_mode = "user_controlled";
 	}
+	if (toKind === "barcode" && candidate.keypad === "android-numbers")
+		delete candidate.keypad;
+	if (
+		candidate.captureSource !== undefined &&
+		(toKind === "audio") !== (candidate.captureSource === "record-or-choose")
+	)
+		delete candidate.captureSource;
 	const filtered = pickFieldKeysForKind(candidate, toKind);
 	const result = fieldSchema.safeParse(filtered);
-	if (!result.success) {
-		return undefined;
+	if (!result.success) return undefined;
+	const target = result.data;
+	// A signature needs its whole control to remain a signing pad. Shared
+	// presentation slots from the old photo or recording cannot follow it.
+	if (target.kind === "signature") {
+		for (const { key } of fieldDisplaySettingsFor(target.kind))
+			Reflect.deleteProperty(target, key);
+	} else {
+		// Choosing a different kind can remove the widget that showed the
+		// placeholder, or give the new widget a placeholder the old one hid.
+		if (
+			"hintPlacement" in target &&
+			target.hintPlacement &&
+			(target.hintPlacement === "placeholder") !== webShowsHintInEntry(target)
+		)
+			delete target.hintPlacement;
+		// A video can keep a picture's camera-only setting only if its
+		// other settings leave that exact native capture mode intact.
+		if (
+			target.kind === "video" &&
+			target.captureSource &&
+			hasOtherDisplay(target, "captureSource")
+		)
+			delete target.captureSource;
 	}
-	return result.data;
+	return target;
 }
 
 /**

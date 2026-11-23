@@ -16,8 +16,10 @@ import {
 	isRepresentableConversion,
 	languageTag,
 	ownRecordValue,
+	reviewedTranslationValueMode,
 	type TranslationEntry,
 	type TranslationUnitId,
+	translationEntryIntegrityIssue,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import {
@@ -52,6 +54,8 @@ export function mutationTargetsInvalid(
 	if (
 		mutations.some(
 			(m) =>
+				(m.kind === "setModuleMedia" && m.caseListItem === true) ||
+				(m.kind === "setFormMedia" && m.registrationOf !== undefined) ||
 				m.kind === "addEntryPoint" ||
 				m.kind === "updateEntryPoint" ||
 				m.kind === "removeEntryPoint",
@@ -63,7 +67,26 @@ export function mutationTargetsInvalid(
 			return true;
 		let current = doc;
 		for (const mutation of mutations) {
-			if (mutation.kind === "addEntryPoint") {
+			if (mutation.kind === "setModuleMedia" && mutation.caseListItem) {
+				if (
+					!current.modules[mutation.uuid]?.caseListMenuItem ||
+					mutationTargetsInvalid(current, [
+						{ ...mutation, caseListItem: undefined },
+					])
+				)
+					return true;
+			} else if (mutation.kind === "setFormMedia" && mutation.registrationOf) {
+				const registration =
+					current.modules[mutation.registrationOf]?.caseListRegistrationForm;
+				if (
+					registration?.kind !== "always" ||
+					registration.formUuid !== mutation.uuid ||
+					mutationTargetsInvalid(current, [
+						{ ...mutation, registrationOf: undefined },
+					])
+				)
+					return true;
+			} else if (mutation.kind === "addEntryPoint") {
 				const target = mutation.target;
 				if (
 					!ownRecordValue(current.modules, target.moduleUuid) ||
@@ -536,8 +559,19 @@ export function mutationTargetsInvalid(
 				moduleParents.set(m.uuid, destinationParent);
 				break;
 			}
-			case "renameModule":
 			case "setModuleMedia":
+				if (
+					m.languageEntry !== undefined &&
+					(!m.language || m.icon !== null || m.audioLabel !== null)
+				)
+					return true;
+				if (
+					!modules.has(m.uuid) ||
+					(m.language !== undefined && !languages.includes(m.language))
+				)
+					return true;
+				break;
+			case "renameModule":
 			case "setCaseListMenuItem":
 				if (!modules.has(m.uuid)) return true;
 				break;
@@ -584,8 +618,19 @@ export function mutationTargetsInvalid(
 				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
 				formOwners.set(m.uuid, m.toModuleUuid);
 				break;
-			case "renameForm":
 			case "setFormMedia":
+				if (
+					m.languageEntry !== undefined &&
+					(!m.language || m.icon !== null || m.audioLabel !== null)
+				)
+					return true;
+				if (
+					!forms.has(m.uuid) ||
+					(m.language !== undefined && !languages.includes(m.language))
+				)
+					return true;
+				break;
+			case "renameForm":
 				if (!forms.has(m.uuid)) return true;
 				break;
 			case "updateForm": {
@@ -811,7 +856,33 @@ export function mutationTargetsInvalid(
 				break;
 			}
 			case "setFieldMedia": {
+				if (
+					m.sharedOnly &&
+					(m.language !== undefined ||
+						m.languageEntry !== undefined ||
+						m.media?.mediaByLanguage !== undefined)
+				)
+					return true;
+				if (m.languageEntry !== undefined && (!m.language || m.media !== null))
+					return true;
 				if (!fields.has(m.fieldUuid)) return true;
+				if (
+					m.language !== undefined &&
+					(!languages.includes(m.language) ||
+						m.media?.mediaByLanguage ||
+						m.media?.formDefaultLanguage)
+				)
+					return true;
+				/* A choice's files are set through a language, or, for the
+				 * shared files alone, `sharedOnly` (what a document diff
+				 * emits when only a choice's shared files changed). */
+				if (
+					m.optionUuid !== undefined &&
+					((m.language === undefined && m.sharedOnly !== true) ||
+						m.slot !== "label" ||
+						optionOwners.get(m.optionUuid) !== m.fieldUuid)
+				)
+					return true;
 				const currentKind = fieldKinds.get(m.fieldUuid);
 				if (
 					currentKind === undefined ||
@@ -1269,7 +1340,7 @@ export function mutationTargetsInvalid(
 								saved.sourceFingerprint,
 								unit.sourceFingerprint,
 							) ||
-							translationValueIntegrityIssue(unit, saved.value) !== undefined)
+							translationEntryIntegrityIssue(unit, saved) !== undefined)
 					)
 						return true;
 				}
@@ -1294,8 +1365,7 @@ export function mutationTargetsInvalid(
 					!translationSourceFingerprintsEqual(
 						m.sourceFingerprint,
 						unit.sourceFingerprint,
-					) ||
-					translationValueIntegrityIssue(unit, m.value) !== undefined
+					)
 				) {
 					return true;
 				}
@@ -1304,6 +1374,10 @@ export function mutationTargetsInvalid(
 				if (
 					target === undefined ||
 					entry === undefined ||
+					translationEntryIntegrityIssue(unit, {
+						value: entry.value,
+						...reviewedTranslationValueMode(unit, entry),
+					}) !== undefined ||
 					!translationSourceFingerprintsEqual(
 						entry.sourceFingerprint,
 						m.expectedSourceFingerprint,

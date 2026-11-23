@@ -752,10 +752,7 @@ function readAlways(
 				kind: "always",
 				formUuid: form.uuid,
 				...(label === undefined ? {} : { label }),
-				...(media.icon === undefined ? {} : { icon: media.icon }),
-				...(media.audioLabel === undefined
-					? {}
-					: { audioLabel: media.audioLabel }),
+				...media,
 				afterSubmit,
 			},
 		});

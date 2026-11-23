@@ -126,7 +126,8 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewParentCaseRequest = useSetPreviewParentCaseRequest();
 	const previewParentCaseRequest = usePreviewParentCaseRequest();
-	const menuSource = usePreviewMenuSource();
+	const language = useBuilderLanguage();
+	const menuSource = usePreviewMenuSource(language.language);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const taskContinuation = usePreviewTaskContinuation();
 	const setTaskContinuation = useSetPreviewTaskContinuation();
@@ -139,7 +140,6 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 	const moduleUuid = screen.moduleUuid;
 
 	const mod = useModuleEntity(moduleUuid);
-	const language = useBuilderLanguage();
 	const localizedValues = useLocalizedValues();
 	const moduleNameUnitId = makeTranslationUnitId(
 		"module",

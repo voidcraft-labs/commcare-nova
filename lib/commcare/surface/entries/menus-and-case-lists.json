@@ -1708,10 +1708,9 @@
 			"schema:ShadowModule.media_image"
 		],
 		"valueClass": "differs-by-language",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `localizedMedia` on the menu slots",
-		"subject": "media-by-language",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the shared file and language-specific menu media with the installation’s fallback",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

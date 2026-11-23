@@ -1721,9 +1721,11 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		],
 	},
 	/**
-	 * A navigation media map read as the file HQ's build shows in each language
-	 * and written under every language with the switches off
-	 * (`multimedia/navMenuMedia.ts::buildNavMediaDicts`), recorded by
+	 * A navigation media map Nova writes with other paths than HQ stores:
+	 * one read under a "use for all" switch, written as each language's file
+	 * with the switches off (`multimedia/navMenuMedia.ts::buildNavMediaDicts`).
+	 * A sparse map, a blank entry and a former language's file are held as
+	 * stored, so they predict no change. Recorded by
 	 * `menus/navMedia.ts::recordRespelling`.
 	 */
 	"media-maps-respelled": {
