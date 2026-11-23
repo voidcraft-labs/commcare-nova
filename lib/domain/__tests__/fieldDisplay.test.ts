@@ -47,6 +47,12 @@ const NOT_DISPLAY_SETTINGS: Readonly<Record<string, string>> = {
 		"when a query repeat takes its rows, which the form's events carry",
 	answerType:
 		"the data class a hidden value's bind declares, which no control draws",
+	askForConfirmation:
+		"whether a message asks for its confirmation, a switch its own editor writes rather than an appearance",
+	lockedInHq:
+		"whether CommCare HQ's form designer locks the question, which no worker sees",
+	answerNamespace:
+		"the namespace a receiving service reads a hidden value by, which no control draws",
 };
 
 /** Every string an enum or constant inside a JSON Schema admits. */
