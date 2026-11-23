@@ -233,6 +233,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"after-submit-home",
 	"after-submit-several-destinations",
 	"app-logo",
+	"required-android-apps",
 	"saved-forms",
 	"incomplete-forms",
 	"connect-location-capture",
@@ -825,6 +826,18 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: { reading: "runs" },
 		android: { reading: "ignored", note: "the app shows no logo" },
+	},
+	"required-android-apps": {
+		label: "Required Android apps",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "workers can open the app in a browser",
+		},
+		android: {
+			reading: "runs",
+			note: "workers need every selected app installed",
+		},
 	},
 	"saved-forms": {
 		label: "Saved forms",

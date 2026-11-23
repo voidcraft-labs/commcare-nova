@@ -227,6 +227,10 @@ def localizations(family):
                 # UI translation catalog (those strings are not Nova's).
                 for lang in app.langs if family == "localization" else []:
                     (exports / f"{source.stem}.hq.{lang}.strings.txt").write_text(known_app_strings(app, lang))
+                if source.stem == "locale-image-wording":
+                    from corehq.apps.app_manager.app_strings import SelectKnownAppStrings
+                    catalog = SelectKnownAppStrings(lambda *_args, **_kwargs: {})
+                    (exports / f"{source.stem}.hq.default.strings.txt").write_text(catalog.create_default_app_strings(app))
                 records.append({"scenario": source.stem, "languages": list(app.langs), "sourceSha256": sha256(raw)})
         return records
 

@@ -282,6 +282,30 @@ describe("add-ons", () => {
 });
 
 describe("profile", () => {
+	it("sets, reorders and clears the required apps beside the target's other features", () => {
+		const current = {
+			features: {
+				credentials: "L1",
+				dependencies: ["org.rdtoolkit", "com.simprints.id"],
+			},
+		};
+		const changed = application({
+			profile: {
+				features: { dependencies: ["com.simprints.id", "org.rdtoolkit"] },
+			},
+		});
+		expect(
+			projectProfileForTarget(changed, current, "unverified", NOVA_SEEDS)
+				?.features,
+		).toEqual({
+			credentials: "L1",
+			dependencies: ["com.simprints.id", "org.rdtoolkit"],
+		});
+		expect(
+			projectProfileForTarget(application(), current, "missing", NOVA_SEEDS)
+				?.features,
+		).toEqual({ credentials: "L1" });
+	});
 	it("keeps a seeded setting the target holds, seeds one HQ's build writes nothing for, and always writes Nova's two", () => {
 		const current: HqApplicationProfile = {
 			properties: {
@@ -526,6 +550,7 @@ describe("the whole body and its ownership", () => {
 			addOns: ["display_conditions", "subcases"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
 			profileCustomProperties: ["cc-index-case-search-results"],
+			profileFeatures: ["dependencies"],
 			autoGpsCapture: false,
 		});
 		for (const state of ["missing", "not-needed", "unverified"] as const)

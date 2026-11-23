@@ -439,13 +439,18 @@ export function hqChangesHeldLine(
 		readonly hq: readonly Platform[];
 	} | null,
 	requiresReview = false,
+	translation?: import("./hqChangesKinds").HqSourceTranslationRecovery,
 ): string {
 	const next = requiresReview
 		? " and check again."
 		: " and check again, or publish over the change.";
 	switch (reason) {
-		case "languages-reordered":
-			return `The language this app's own text is written in changed in CommCare HQ, and Nova can't bring that in. You can put the app's languages and its name in each language back as they were in CommCare HQ${next}`;
+		case "stale-source-translation": {
+			const phrase = translation
+				? `“${translation.breadcrumb.join(" › ")}” in ${translation.languageName}`
+				: "a phrase in the new source language";
+			return `CommCare HQ now uses ${translation?.languageName ?? "another language"} for the original wording. In Languages, you can keep, replace or clear the out-of-date translation of ${phrase}, then check again.`;
+		}
 		case "runs-elsewhere": {
 			const where =
 				runs === null

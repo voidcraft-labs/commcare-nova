@@ -100,6 +100,34 @@ describe("readApplication over CommCare HQ's own apps", () => {
 		expect(ctx.draft.appName?.value).toBe("Patients & visits <Café>");
 	});
 
+	it("keeps required Android apps in the order workers see and locates malformed selections", async () => {
+		const body = retainedSourceBody("shell/app-source-after-app-settings-save");
+		const withApps = (dependencies: unknown) =>
+			readShell({
+				...body,
+				profile: { ...(body.profile as object), features: { dependencies } },
+			});
+		const path = "/profile/features/dependencies";
+		const accepted = await withApps(["com.simprints.id", "org.rdtoolkit"]);
+		expect(accepted.ctx.draft.appSettings.requiredAndroidApps).toEqual([
+			"simprints-id",
+			"commcare-toolkit",
+		]);
+		expect(entriesAt(accepted.closed, path)).toEqual([
+			`${A}/31-features-dependencies`,
+		]);
+		const repeated = await withApps(["com.simprints.id", "com.simprints.id"]);
+		expect(entriesAt(repeated.closed, path)).toEqual([
+			`${A}/repeated-android-app-dependency`,
+		]);
+		for (const invalid of ["com.simprints.id", ["org.example.unlisted"]]) {
+			const { closed } = await withApps(invalid);
+			expect(entriesAt(closed, path)).toEqual([
+				`${A}/profile-properties-or-features-dependencies-value-outside-its`,
+			]);
+		}
+	});
+
 	it("reads a setting outside its choices as that setting's refusal, at the app", async () => {
 		const body = retainedSourceBody("shell/app-source-after-app-settings-save");
 		const profile = body.profile as {
@@ -680,15 +708,15 @@ describe("readApplication's app name and the source language it tells", () => {
 	);
 });
 
-describe("readApplication's strings of a language it could not name", () => {
+describe("readApplication's strings of an invalid language code", () => {
 	it("covers every key of the language's strings by the code's finding, and holds none", async () => {
-		const cannotName = `${A}/langs-code-nova-s-language-registry-cannot-name`;
+		const cannotName = `${A}/a-non-empty-langs-code-outside-that-grammar-or-repeated`;
 		const { ctx, closed } = await readShell({
 			...retainedSourceBody("shell/app-source"),
-			langs: ["en", "xx"],
+			langs: ["en", "x x"],
 			translations: {
 				en: { en: resolvedLanguageDisplayLabel({ language: "eng" }) ?? "" },
-				xx: {
+				"x x": {
 					"app.display.name": "Clinique",
 					"homescreen.title": "Clinique",
 					"nova.unread": "OK",
@@ -702,7 +730,7 @@ describe("readApplication's strings of a language it could not name", () => {
 			"nova.unread",
 			"en",
 		])
-			expect(entriesAt(closed, `/translations/xx/${key}`)).toEqual([
+			expect(entriesAt(closed, `/translations/x x/${key}`)).toEqual([
 				cannotName,
 			]);
 		expect(
@@ -711,7 +739,7 @@ describe("readApplication's strings of a language it could not name", () => {
 			{
 				code: cannotName,
 				place: { kind: "languages" },
-				detail: { name: "xx" },
+				detail: { name: "x x" },
 			},
 		]);
 		expect(ctx.translations.units()).toEqual([]);

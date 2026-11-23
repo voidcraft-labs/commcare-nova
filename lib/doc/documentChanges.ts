@@ -26,6 +26,7 @@ import {
 	type PersistableDoc,
 	type Uuid,
 } from "@/lib/domain";
+import { languageEntries } from "@/lib/domain/localization";
 import { type AssetRef, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	type DocumentDifference,
@@ -837,7 +838,7 @@ function translationEntries(
 	doc: BlueprintDoc,
 	language: string,
 ): readonly string[] {
-	const map = doc.localization?.translations[language];
+	const map = languageEntries(doc.localization, language);
 	return map === undefined ? [] : Object.keys(map);
 }
 
@@ -859,9 +860,24 @@ function fileLocalizationDifference(
 	if (path.length === 1) {
 		collector.app.add("languages");
 		for (const doc of [before.doc, after.doc]) {
-			for (const language of Object.keys(doc.localization?.translations ?? {}))
+			for (const language of doc.localization?.languageOrder ?? [])
 				for (const unit of translationEntries(doc, language))
 					noteUnit(language, unit, "text");
+		}
+		return;
+	}
+	if (path[1] === "generatedSourceWording") {
+		for (const { doc } of [before, after]) {
+			const loc = doc.localization;
+			if (!loc) continue;
+			for (const unit of path[2]
+				? [path[2]]
+				: Object.keys(loc.generatedSourceWording ?? {}))
+				noteUnit(
+					loc.sourceLanguage,
+					unit,
+					path.length <= 3 || path[3] === "value" ? "text" : "review",
+				);
 		}
 		return;
 	}

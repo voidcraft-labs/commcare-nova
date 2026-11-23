@@ -78,6 +78,7 @@ import type { Uuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
 import { readManagedTableReview } from "@/lib/lookup/managed";
 import { getLookupTable, updateLookupTableTag } from "@/lib/lookup/service";
+import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import { hqChangesPublishingStoppedLine } from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
@@ -90,6 +91,7 @@ import type { HqChangesReview } from "../hqChanges/types";
 import type { HqMediaRecord } from "../hqMedia";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { manageLookupTableInNova } from "../managedData";
+import { readPreviewDeploymentAnswer } from "../previewSpace";
 import {
 	adoptFixtureApp,
 	changedAnswer,
@@ -2822,6 +2824,117 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		if (loaded === null) throw new Error(`No app ${appId}.`);
 		return hydratePersistedBlueprint(loaded.blueprint);
 	}
+
+	it("uses the adopted Android app names in the Builder target and the worker App Test", async () => {
+		const doc = clinic({});
+		doc.appSettings.requiredAndroidApps = ["commcare-toolkit", "simprints-id"];
+		const served = emission(doc, 2);
+		const source = changedAnswer(served.source, (body) => {
+			const translations = body.translations as
+				| Record<string, Record<string, string>>
+				| undefined;
+			return {
+				...body,
+				translations: {
+					...translations,
+					en: {
+						...translations?.en,
+						"android.package.name.org.rdtoolkit": "Field tools",
+					},
+				},
+			};
+		});
+		const appId = await broughtIn(doc, { ...served, source });
+		const appScope = scope(appId);
+		const destination = await readPreviewDeploymentAnswer(appScope);
+		expect(destination.targetFacts?.androidAppLabels?.en).toEqual({
+			"commcare-toolkit": "Field tools",
+		});
+		const run = await startAppTest(appScope, {
+			requestId: "phone",
+			expectedBlueprintSeq: await headOf(appId),
+			input: { purpose: "Open the app on a worker phone", platform: "android" },
+		});
+		const next = await continueAppTest(appScope, {
+			testId: run.testId,
+			requestId: "start",
+			expectedStep: run.step,
+			action: { kind: "continue" },
+		});
+		expect(next.observation).toMatchObject({
+			screen: "required-android-apps",
+			missingApps: [
+				{ app: "commcare-toolkit", name: "Field tools" },
+				{ app: "simprints-id", name: "Simprints ID" },
+			],
+		});
+		const refused = await continueAppTest(appScope, {
+			testId: run.testId,
+			requestId: "blocked",
+			expectedStep: next.step,
+			action: { kind: "continue" },
+		});
+		expect(refused.observation).toMatchObject({
+			completed: false,
+			error: expect.stringContaining("Field tools, Simprints ID"),
+		});
+		await continueAppTest(appScope, {
+			testId: run.testId,
+			requestId: "finish",
+			expectedStep: refused.step,
+			action: { kind: "finish" },
+		});
+	});
+
+	it.each([false, true])(
+		"takes the legacy Android selection through a fresh review when already present on HQ at the prior publish is %s",
+		async (presentInOldSource) => {
+			const doc = clinic({});
+			const appId = await broughtIn(doc);
+			const withApps = clinic({});
+			withApps.appSettings.requiredAndroidApps = [
+				"commcare-toolkit",
+				"simprints-id",
+			];
+			const old = emission(presentInOldSource ? withApps : doc, 2);
+			const source = normalizeHqAppSource(
+				JSON.parse(retainedBodyText(old.source)),
+			);
+			if ("malformed" in source) throw new Error(source.malformed);
+			// A pre-Step-7 publish observed the complete HQ source but owned no
+			// dependencies. Its published Nova document genuinely held no list.
+			await h
+				.db()
+				.updateTable("app_deployment_baselines")
+				.set({
+					ownership: sql`ownership - 'profileFeatures'`,
+					source_gzip: gzipSync(source.text),
+					source_bytes: source.bytes,
+					source_digest: source.digest,
+				})
+				.where(
+					"deployment_id",
+					"in",
+					h
+						.db()
+						.selectFrom("app_deployments")
+						.select("id")
+						.where("app_id", "=", appId),
+				)
+				.execute();
+			const { outcome } = await reviewAndBringIn(appId, withApps);
+			expect(outcome.kind).toBe("brought-in");
+			expect((await headDocOf(appId)).appSettings.requiredAndroidApps).toEqual(
+				withApps.appSettings.requiredAndroidApps,
+			);
+			const baseline = await h
+				.db()
+				.selectFrom("app_deployment_baselines")
+				.select("ownership")
+				.executeTakeFirstOrThrow();
+			expect(baseline.ownership?.profileFeatures).toContain("dependencies");
+		},
+	);
 
 	it("brings in a case type CommCare HQ added, and leaves its schema synced at the commit", async () => {
 		const appId = await broughtIn(clinic({}));

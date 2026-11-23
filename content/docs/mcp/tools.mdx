@@ -349,6 +349,9 @@ For app listing, keep the same sort when following `next_cursor`. An invalid or 
 
 ## Languages and translations
 
+`get_translatable_content` lists generated search messages and worker wording for individual controls. Each worker wording item identifies its owner, output and default text. Use `update_translations` to set their wording in any language, including the source, or clear a saved message to use the default wording.
+
+
 App languages use the same source/default/target overlay as the visual Builder.
 The language catalog is not an AI allowlist: an agent may add, copy, read, and
 manually translate any individual living language whether or not Nova offers
@@ -377,9 +380,14 @@ automatic-translation action.
 | `get_languages` | Read the ordered language catalog, source and default languages, per-target coverage, and diagnostics for content the static app-language catalog cannot translate. Each language's `commcareCode` is the code CommCare knows it by, set when the language was added and never changed while it stays in the app. |
 | `get_translatable_content` | Page through the snapshot-bound translation inventory for one language, including source/effective values, status, breadcrumb context, and authored wording with its insertions. |
 | `add_language` | Add one target and atomically seed every current unit from an existing `copyFrom` language. |
-| `update_language` | Set the runtime default, or replace the sole source language's identity. |
+| `update_language` | Move a language after another app language, put it first to make it the runtime default, or change its identity. The source identity can be replaced while it is the app's only language. |
 | `remove_language` | Remove a target language and its overlay. The source language and the final remaining language cannot be removed. |
 | `update_translations` | Atomically set, clear, or review at most 50 distinct target units using stable unit IDs and exact review fences. |
+
+A project language uses `{"kind":"project","language":"qaa"}`. Its code stays
+with its translations and can be used wherever a tool asks for a language.
+For a project language, `update_language` accepts `action: "set-direction"`
+and `direction: "rtl"` or `"ltr"` for local writing direction.
 
 Read `get_languages`, then call `get_translatable_content` for the target before
 writing. A `set` operation must repeat the unit's current `sourceFingerprint`
@@ -395,6 +403,8 @@ source itself falls back for one unit, the new target receives the value workers
 would actually see. Missing and out-of-date target entries also fall back to the
 current canonical source at runtime, so incomplete translation work never
 creates an invalid app.
+
+When `read_hq_changes` reports `stale-source-translation`, its `translation` gives the language identity, unit ID and breadcrumb. Read that phrase with `get_translatable_content`, compare the saved and effective wording, then use `update_translations` to review, replace or clear it. A fresh HQ review uses that decision.
 
 ## Checking project-space compatibility
 

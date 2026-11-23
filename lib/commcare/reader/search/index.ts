@@ -9,6 +9,7 @@ import { type Draft, produce } from "immer";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	makeTranslationUnitId,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type Uuid,
 } from "@/lib/domain";
@@ -23,7 +24,7 @@ import { recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
 import { withCandidate } from "../candidate";
-import { appCodes } from "../caseList/columns";
+import { appCodes, sourceCode, translatedTexts } from "../caseList/columns";
 import { caseListReadings, sameState } from "../caseList/details";
 import { dateSortDeclarations } from "../caseList/order";
 import { noteProperty } from "../caseManagement/catalog";
@@ -54,13 +55,19 @@ import {
 	applyExpressionClaim,
 	provisionalDocument,
 	refusalDeferred,
+	replaceDeferredRefusal,
 	settleDeferredRefusal,
 	settleDeferredRefusals,
 } from "../provisional";
 import { readFormSyntax } from "../syntaxRead";
 import { expressionEnvOf } from "../xform";
 import { guessKey, noteDateRangeGuesses } from "./dateRangeGuesses";
-import { type PromptReading, readSearchPrompts } from "./prompts";
+import { readGuardText } from "./guardSplit";
+import {
+	PROMPT_CLAIMS,
+	type PromptReading,
+	readSearchPrompts,
+} from "./prompts";
 import {
 	classifySearchRows,
 	dateFieldDeclarations,
@@ -958,6 +965,7 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
 	const readings = READINGS.get(ctx);
 	if (readings === undefined) return;
 	ctx.doc = takeBackWriterTypedDeclarations(ctx, ctx.doc);
+	const placed: SearchReading[] = [];
 	for (const module of app.modules) {
 		const reading = readings.get(module.uuid);
 		if (reading === undefined) continue;
@@ -976,54 +984,139 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
 			markersOnly: reading.markersOnly,
 		});
 		fieldOverAnotherType(ctx, reading);
-		settleUntoldChecks(ctx, reading);
-		settleSearchSettings(ctx, module, reading.cursor, reading.prompts);
+		placed.push(reading);
 	}
+	settleUntoldChecks(ctx, placed);
+	for (const reading of placed)
+		settleSearchSettings(ctx, reading.module, reading.cursor, reading.prompts);
 }
 
-/**
- * Each Search field's check whose message told nothing of Nova's runtime guard and whose rule the
- * expression stage refused (`prompts.ts::ValidationReading.untold`, `PendingExpression.deferRefusal`),
- * settled over the menu's placed rows. Where the stored test ends with the guard Nova's projection
- * joins to the field's check (`settings.ts::runtimeGuardEndings`), the guard is Nova's and what
- * keeps the field out is its message: Nova prints the guard's sentence after the field's own in
- * the source language and no language's message ends with it, so the field is `unrecognized` at
- * `schema:Assertion.text` and the expression stage's refusal of the guard's reads is dropped. The
- * field's own rule, the conjuncts before the guard, is then read on its own
- * (`untoldRuleRefusal`), and where Nova cannot hold it either, its refusal stands beside the
- * message's, so the reading names both. Elsewhere the rule is the whole test, and its refusal
- * stands.
- */
-function settleUntoldChecks(ctx: ReadContext, reading: SearchReading): void {
+/** Match a customized guard by its actual generated test after all search rows are placed.
+ * A guard carried alone supplies its text in every language. Where only joins were printed,
+ * all occurrences of the same guard must agree on a split that leaves every authored rule
+ * its own message. The full-menu projection checks the recovered rule and wording. */
+function settleUntoldChecks(
+	ctx: ReadContext,
+	readings: readonly SearchReading[],
+): void {
 	const doc = ctx.doc;
-	const mod = doc?.modules[reading.module.uuid];
-	const untold = reading.prompts.filter((prompt) => {
-		const index = prompt.validationRule;
-		return index !== undefined && refusalDeferred(ctx, index);
-	});
-	// One projection of the menu for every untold field, never one a field.
-	const endings =
-		doc === undefined || mod === undefined || untold.length === 0
-			? new Map<PromptReading, { readonly rule?: string } | undefined>()
-			: runtimeGuardEndings(ctx, doc, mod, untold);
-	for (const prompt of untold) {
-		const index = prompt.validationRule;
-		if (index === undefined) continue;
-		const ending = endings.get(prompt);
-		if (doc === undefined || ending === undefined) {
-			settleDeferredRefusal(ctx, index);
-			continue;
-		}
-		const place = searchPlace(reading.module);
-		const detail = { name: "schema:Assertion.text" };
-		ctx.accounting.circumstance("unrecognized", place, detail);
-		settleDeferredRefusal(
-			ctx,
-			index,
-			circumstanceFinding("unrecognized", place, detail),
+	if (!doc) return;
+	const fields = readings.flatMap((reading) => {
+		const mod = doc.modules[reading.module.uuid];
+		const asked = reading.prompts.filter(
+			(prompt) =>
+				prompt.validationRule !== undefined &&
+				refusalDeferred(ctx, prompt.validationRule),
 		);
-		if (ending.rule !== undefined)
-			untoldRuleRefusal(ctx, doc, index, ending.rule);
+		if (!mod || !asked.length) return [];
+		const endings = runtimeGuardEndings(ctx, doc, mod, asked);
+		return asked.flatMap((prompt) => {
+			const index = prompt.validationRule;
+			if (index === undefined) return [];
+			const ending = endings.get(prompt);
+			if (!ending || !prompt.validationText) {
+				settleDeferredRefusal(ctx, index);
+				return [];
+			}
+			return [
+				{
+					prompt,
+					index,
+					ending,
+					texts: prompt.validationText,
+					module: reading.module,
+				},
+			];
+		});
+	});
+	const groups = Map.groupBy(fields, (field) => field.ending.message.key);
+	const codes = appCodes(ctx);
+	const source = sourceCode(ctx);
+	if (!source) return;
+	for (const [key, group] of groups) {
+		const sentence = group[0].ending.message.message;
+		const texts = recordFromEntries(
+			codes.flatMap((code) => {
+				const alone = group.find((field) => field.ending.whole)?.texts[code];
+				const joined = group
+					.filter((field) => !field.ending.whole)
+					.map((field) => field.texts[code] ?? "");
+				const text = readGuardText(sentence, alone, joined);
+				return text ? [[code, text] as const] : [];
+			}),
+		);
+		ctx.translations.set(
+			makeTranslationUnitId("system", "search-validation", key),
+			"text",
+			translatedTexts(ctx, texts, true),
+		);
+		for (const { prompt, index, ending, module, texts: stored } of group) {
+			const point = ctx.pending.site(index).at;
+			const held = ctx.doc;
+			if (!held || !("json" in point)) continue;
+			const rule = ending.rule;
+			const ownMessages = recordFromEntries(
+				codes.flatMap((code) => {
+					const suffix = ` ${texts[code]}`;
+					const whole = stored[code] ?? "";
+					return whole.endsWith(suffix)
+						? [[code, whole.slice(0, -suffix.length)] as const]
+						: [];
+				}),
+			);
+			let kept = ending.whole
+				? codes.every((code) => stored[code] === texts[code])
+				: !!rule && codes.every((code) => ownMessages[code]?.trim());
+			if (kept && rule) {
+				const registration = ctx.pending.list()[index];
+				const { deferRefusal: _defer, ...own } = registration;
+				const result = readExpressions(
+					held,
+					[{ ...own, text: rule }],
+					expressionEnvOf(ctx),
+				);
+				if (!result.bound[0]) kept = false;
+				else {
+					ctx.doc = result.doc;
+					for (const claim of result.claims)
+						if (claim.source === 0) applyExpressionClaim(ctx, claim, point);
+				}
+			}
+			if (!kept) {
+				const place = searchPlace(module);
+				const detail = { name: "schema:Assertion.text" };
+				ctx.accounting.circumstance("unrecognized", place, detail);
+				settleDeferredRefusal(
+					ctx,
+					index,
+					circumstanceFinding("unrecognized", place, detail),
+				);
+				if (rule) untoldRuleRefusal(ctx, held, index, rule);
+				continue;
+			}
+			ctx.doc = withCandidate(ctx.doc ?? held, (draft) => {
+				const input = draft.modules[
+					module.uuid
+				]?.caseListConfig?.searchInputs.find((one) => one.uuid === prompt.uuid);
+				if (!input || input.kind === "hidden") return;
+				if (ending.whole) delete input.validation;
+				else if (input.validation)
+					input.validation.message = ownMessages[source];
+			});
+			if (!ending.whole)
+				ctx.translations.set(
+					makeTranslationUnitId(
+						"search-input",
+						prompt.uuid,
+						"validation-message",
+					),
+					"text",
+					translatedTexts(ctx, ownMessages),
+				);
+			replaceDeferredRefusal(ctx, index);
+			if (ending.whole)
+				point.json.derived(point.key, PROMPT_CLAIMS.validationGuard);
+		}
 	}
 }
 

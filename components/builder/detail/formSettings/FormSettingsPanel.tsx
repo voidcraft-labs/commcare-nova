@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { Button } from "@/components/shadcn/button";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { AfterSubmitSection } from "./AfterSubmitSection";
@@ -88,6 +89,7 @@ export function FormSettingsPanel({
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<ControlWording owner={formUuid} />
 
 				{!noMatches && (
 					<DisplayConditionSection

@@ -105,6 +105,52 @@ it("refuses a platform the saved app does not run on, naming the one it does", a
 	);
 });
 
+it("lists missing apps on the phone in order, admits a prepared phone and opens the browser", async () => {
+	const doc = sectionEntryDoc();
+	doc.appSettings = {
+		...doc.appSettings,
+		requiredAndroidApps: ["simprints-id", "commcare-toolkit", "breath-counter"],
+	};
+	await seed(doc);
+	const run = await begin({
+		sessions: [
+			{
+				id: "missing",
+				platform: "android",
+				installedAndroidApps: ["commcare-toolkit"],
+			},
+			{
+				id: "ready",
+				platform: "android",
+				installedAndroidApps: doc.appSettings.requiredAndroidApps,
+			},
+			{ id: "web", platform: "web-apps" },
+		],
+	});
+	expect(run.started.screen).toBe("device-home");
+	expect(await run.step({ kind: "continue" }, "missing")).toMatchObject({
+		screen: "required-android-apps",
+		missingApps: [
+			{ app: "simprints-id", name: "Simprints ID" },
+			{ app: "breath-counter", name: "Breath Counter" },
+		],
+		actions: ["observe", "back", "finish"],
+	});
+	expect(await run.step({ kind: "back" }, "missing")).toMatchObject({
+		screen: "device-home",
+	});
+	expect(await run.step({ kind: "observe" }, "ready")).toMatchObject({
+		screen: "device-home",
+	});
+	expect(await run.step({ kind: "continue" }, "ready")).toMatchObject({
+		screen: "home",
+	});
+	expect(await run.step({ kind: "observe" }, "web")).toMatchObject({
+		screen: "home",
+	});
+	await run.step({ kind: "finish" });
+});
+
 it("starts an Android session on the phone's home screen and returns there", async () => {
 	await seed(sectionEntryDoc());
 	const run = await begin({ platform: "android" });

@@ -101,10 +101,13 @@ it(
 		expect(outcome.defects).toEqual([]);
 		const { declaration } = outcome.draft;
 		expect(
-			readBackDifferences(canonDocument(doc), {
-				doc: outcome.draft.doc,
-				choices: declaration.kind === "choices" ? declaration.choices : [],
-			}),
+			readBackDifferences(
+				canonDocument(doc, undefined, doc.localization?.sourceLanguage),
+				{
+					doc: outcome.draft.doc,
+					choices: declaration.kind === "choices" ? declaration.choices : [],
+				},
+			),
 		).toEqual([]);
 	},
 	BUDGET_MS,

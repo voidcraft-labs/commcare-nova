@@ -14,6 +14,10 @@ import {
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import {
+	SEARCH_RUNTIME_VALIDATION_MESSAGES,
+	type SearchRuntimeValidationMessage,
+} from "@/lib/domain/searchRuntimeValidationMessages";
 import type { TranslationUnitRole } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -1600,10 +1604,23 @@ export function runtimeGuardEndings(
 	doc: BlueprintDoc,
 	mod: Module,
 	prompts: readonly PromptReading[],
-): ReadonlyMap<PromptReading, { readonly rule?: string } | undefined> {
+): ReadonlyMap<
+	PromptReading,
+	| {
+			readonly rule?: string;
+			readonly whole: boolean;
+			readonly message: SearchRuntimeValidationMessage;
+	  }
+	| undefined
+> {
 	const endings = new Map<
 		PromptReading,
-		{ readonly rule?: string } | undefined
+		| {
+				readonly rule?: string;
+				readonly whole: boolean;
+				readonly message: SearchRuntimeValidationMessage;
+		  }
+		| undefined
 	>();
 	const asked = prompts.flatMap((prompt) => {
 		const validations = prompt.cursor.peek("validations");
@@ -1626,7 +1643,7 @@ export function runtimeGuardEndings(
 		const ours = printed(
 			projectCaseListForHq(
 				without,
-				withReadTexts(unchecked, ctx.translations),
+				{ ...unchecked, localization: undefined },
 				inputs.assets,
 				inputs.lookupNaming,
 			).searchConfig,
@@ -1645,10 +1662,14 @@ export function runtimeGuardEndings(
 			: undefined;
 		const check = Array.isArray(printedChecks) ? printedChecks[0] : undefined;
 		const guard = isJsonObject(check) ? check.test : undefined;
-		endings.set(
-			prompt,
-			typeof guard === "string" ? guardEnding(stored, guard) : undefined,
+		const texts =
+			isJsonObject(check) && isJsonObject(check.text) ? check.text : undefined;
+		const message = SEARCH_RUNTIME_VALIDATION_MESSAGES.find(
+			(one) => one.message === texts?.en,
 		);
+		const ending =
+			typeof guard === "string" ? guardEnding(stored, guard) : undefined;
+		if (ending && message) endings.set(prompt, { ...ending, message });
 	}
 	return endings;
 }
@@ -1658,7 +1679,7 @@ export function runtimeGuardEndings(
 function guardEnding(
 	stored: string,
 	guard: string,
-): { readonly rule?: string } | undefined {
+): { readonly rule?: string; readonly whole: boolean } | undefined {
 	const storedSyntax = readFormSyntax(stored);
 	const guardSyntax = readFormSyntax(guard);
 	if (
@@ -1678,9 +1699,11 @@ function guardEnding(
 			return one !== undefined && sameSyntax(one, clause);
 		});
 	if (!ends) return undefined;
-	if (offset === 0) return {};
+	if (offset === 0) return { whole: true };
 	const rule = leadingClauses(storedSyntax.node, guardClauses.length);
-	return rule === undefined ? {} : { rule: stored.slice(rule.from, rule.to) };
+	return rule === undefined
+		? { whole: false }
+		: { whole: false, rule: stored.slice(rule.from, rule.to) };
 }
 
 /** The node of `node`'s `and` chain that holds every conjunct but the last `count`, where one

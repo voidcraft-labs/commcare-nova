@@ -12,10 +12,13 @@ import {
 	makeToolWorkspaceHarness as makeRawHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
+import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { expandDoc } from "@/lib/commcare/expander";
 import {
 	mutationCommitVerdict,
 	type PreparedMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
+import { workerWording } from "@/lib/doc/localizationWorkspace";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutation } from "@/lib/doc/mutations";
 import {
@@ -64,6 +67,39 @@ function schemaIssues(
 }
 
 describe("shared localization tools", () => {
+	it("creates a project language, edits its writing direction and keeps its own translations", async () => {
+		const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		const language = { kind: "project", language: "qaa" } as const;
+		await harness.runTool(addLanguageTool, { language });
+		const units = readData(
+			await harness.runTool(getTranslatableContentTool, { language }),
+		);
+		expect(units).toMatchObject({
+			items: expect.arrayContaining([
+				expect.objectContaining({ effective: "Clinic" }),
+			]),
+		});
+		await harness.runTool(updateLanguageTool, {
+			action: "set-direction",
+			language,
+			direction: "rtl",
+		});
+		const languages = readData(await harness.runTool(getLanguagesTool, {}));
+		expect(languages).toMatchObject({
+			languages: expect.arrayContaining([
+				expect.objectContaining({
+					language,
+					commcareCode: "qaa",
+					endonym: "qaa",
+					direction: "rtl",
+					automaticTranslation: expect.objectContaining({
+						status: "not-evaluated",
+					}),
+				}),
+			]),
+		});
+	});
+
 	it("reads the effective sentinel identity without materializing it", async () => {
 		const doc = makeCanonicalGenesisDoc("Clinic");
 		const harness = makeToolWorkspaceHarness(doc);
@@ -132,9 +168,11 @@ describe("shared localization tools", () => {
 		});
 	});
 
-	it("adds a target atomically with an explicit copied entry for every unit", async () => {
+	it("adds a target atomically with explicit copies of the authored text and inherited control wording", async () => {
 		const doc = makeCanonicalGenesisDoc("Clinic");
-		const unitCount = collectTranslationUnits(doc).length;
+		const unitCount = collectTranslationUnits(doc).filter(
+			(unit) => !unit.generated,
+		).length;
 		const harness = makeToolWorkspaceHarness(doc);
 		const outcome = mutateResult(
 			await harness.runTool(addLanguageTool, {
@@ -229,7 +267,7 @@ describe("shared localization tools", () => {
 		expect(stalePage.error).toContain("changed");
 	});
 
-	it("traverses a 126-unit inventory to completion without duplicates or omissions", async () => {
+	it("traverses a multipage inventory to completion without duplicates or omissions", async () => {
 		const doc = buildDoc({
 			appName: "Large clinic",
 			modules: [
@@ -253,10 +291,10 @@ describe("shared localization tools", () => {
 		});
 		const h = makeToolWorkspaceHarness(doc);
 		await h.runTool(addLanguageTool, { language: { language: "spa" } });
-		const expected = collectTranslationUnits(h.currentDoc()).map(
-			(unit) => unit.id,
-		);
-		expect(expected).toHaveLength(126);
+		const expected = collectTranslationUnits(h.currentDoc())
+			.filter((unit) => !unit.generated?.dormant)
+			.map((unit) => unit.id);
+		expect(expected.length).toBeGreaterThan(123);
 		const ids: string[] = [];
 		const seen = new Set<string>();
 		let cursor: string | null = null;
@@ -408,6 +446,215 @@ describe("shared localization tools", () => {
 			}),
 		);
 		expect(stalePage.error).toContain("changed");
+	});
+
+	it("writes, reviews and restores default wording for a generated source-language message", async () => {
+		const harness = makeToolWorkspaceHarness(
+			localizationWireFixture("prompts"),
+		);
+		const row = collectTranslationUnits(harness.currentDoc()).find(
+			(unit) =>
+				unit.context.systemMessageDescription === "Search whole-number format",
+		);
+		if (!row) throw Error("Missing generated search message");
+		const language = { language: "eng" };
+		const wording = "Enter an integer.";
+		const run = (
+			update: z.infer<typeof updateTranslationsInputSchema>["updates"][number],
+		) =>
+			harness.runTool(updateTranslationsTool, { language, updates: [update] });
+		expect(
+			mutateResult(
+				await run({
+					operation: "set",
+					unitId: row.id,
+					expectedSourceFingerprint: row.sourceFingerprint,
+					value: wording,
+				}),
+			).result,
+		).not.toHaveProperty("error");
+		const current = () =>
+			collectLocalizedTranslationUnits(harness.currentDoc(), "eng").find(
+				(unit) => unit.id === row.id,
+			);
+		expect(current()).toMatchObject({
+			effective: wording,
+			explicit: { origin: "ai", review: "needs-review" },
+		});
+		expect(
+			mutateResult(
+				await run({
+					operation: "review",
+					unitId: row.id,
+					expectedSourceFingerprint: row.sourceFingerprint,
+					expectedCurrentSourceFingerprint: current()?.sourceFingerprint ?? "",
+					expectedValue: wording,
+				}),
+			).result,
+		).not.toHaveProperty("error");
+		expect(current()).toMatchObject({
+			effective: wording,
+			explicit: { origin: "ai", review: "reviewed" },
+		});
+		expect(
+			mutateResult(await run({ operation: "clear", unitId: row.id })).result,
+		).not.toHaveProperty("error");
+		expect(current()?.effective).toBe(row.source);
+		expect(current()?.explicit).toBeUndefined();
+	});
+	it("fences a reviewed generated translation against edited original wording through the shared tools, Preview and publish", async () => {
+		const harness = makeToolWorkspaceHarness(
+			localizationWireFixture("prompts"),
+		);
+		const lang = { language: "spa" };
+		const read = () =>
+			harness.runTool(getTranslatableContentTool, {
+				language: lang,
+				role: "generated-wording",
+				ownerKind: "form",
+				limit: 20,
+			});
+		const rowSchema = z.object({
+			id: z.string(),
+			source: z.string(),
+			status: z.string(),
+			explicit: z
+				.object({
+					sourceFingerprint: z.string(),
+					value: z.string(),
+					review: z.string(),
+				})
+				.optional(),
+			sourceFingerprint: z.string(),
+			defaultText: z.string(),
+			effective: z.string(),
+			output: z.object({ role: z.string() }),
+		});
+		const row = async () => {
+			const response = await read();
+			const entries = z
+				.object({ items: z.array(rowSchema) })
+				.parse(readData(response));
+			const button = entries.items.find(
+				(item) => item.output.role === "submitButton",
+			);
+			if (!button) throw Error("The form needs a submit button");
+			return button;
+		};
+		const original = { language: "eng" };
+		const set = (
+			language: { language: string },
+			text: string,
+			expected: string,
+			id: string,
+		) =>
+			harness
+				.runTool(updateTranslationsTool, {
+					language,
+					updates: [
+						{
+							operation: "set",
+							unitId: id,
+							value: text,
+							expectedSourceFingerprint: expected,
+						},
+					],
+				})
+				.then(mutateResult);
+		const before = await row();
+		expect(before.defaultText).toBe("Submit");
+		expect(
+			(
+				await set(
+					original,
+					"Complete this visit",
+					before.sourceFingerprint,
+					before.id,
+				)
+			).result,
+		).not.toHaveProperty("error");
+		const first = await row();
+		expect(first).toMatchObject({
+			source: "Complete this visit",
+			effective: "Submit",
+		});
+		expect(first.sourceFingerprint).not.toBe(before.sourceFingerprint);
+		expect(
+			(await set(lang, "Guardar visita", first.sourceFingerprint, first.id))
+				.result,
+		).not.toHaveProperty("error");
+		const review = (
+			expectedSourceFingerprint: string,
+			expectedCurrentSourceFingerprint: string,
+		) =>
+			harness
+				.runTool(updateTranslationsTool, {
+					language: lang,
+					updates: [
+						{
+							operation: "review",
+							unitId: first.id,
+							expectedValue: "Guardar visita",
+							expectedSourceFingerprint,
+							expectedCurrentSourceFingerprint,
+						},
+					],
+				})
+				.then(mutateResult);
+		expect(
+			(await review(first.sourceFingerprint, first.sourceFingerprint)).result,
+		).not.toHaveProperty("error");
+		expect((await row()).status).toBe("ready");
+		const wire = () =>
+			expandDoc(harness.currentDoc()).translations?.es[
+				"forms.m0f0.submit_label"
+			];
+		const preview = () => workerWording(harness.currentDoc(), "spa", first.id);
+		expect(preview()).toBe("Guardar visita");
+		expect(wire()).toBe("Guardar visita");
+		expect(
+			(
+				await set(
+					original,
+					"Send the completed visit",
+					first.sourceFingerprint,
+					first.id,
+				)
+			).result,
+		).not.toHaveProperty("error");
+		const revised = await row();
+		expect(revised).toMatchObject({
+			source: "Send the completed visit",
+			effective: "Submit",
+			status: "out-of-date",
+			explicit: {
+				value: "Guardar visita",
+				review: "reviewed",
+				sourceFingerprint: first.sourceFingerprint,
+			},
+		});
+		expect(revised.sourceFingerprint).not.toBe(first.sourceFingerprint);
+		expect(
+			(await set(lang, "old write", first.sourceFingerprint, first.id)).result
+				.error,
+		).toContain("changed");
+		expect(
+			(await review(first.sourceFingerprint, first.sourceFingerprint)).result
+				.error,
+		).toContain("changed");
+		expect(preview()).toBe("Submit");
+		expect(wire()).toBeUndefined();
+		expect(
+			(await review(first.sourceFingerprint, revised.sourceFingerprint)).result,
+		).not.toHaveProperty("error");
+		expect((await row()).status).toBe("ready");
+		expect(preview()).toBe("Guardar visita");
+		expect(wire()).toBe("Guardar visita");
+		await harness.runTool(updateTranslationsTool, {
+			language: lang,
+			updates: [{ operation: "clear", unitId: first.id }],
+		});
+		expect((await row()).effective).toBe("Submit");
 	});
 
 	it("writes machine-authored values as Needs review and reviews with an exact stale-value fence", async () => {
@@ -613,6 +860,29 @@ describe("shared localization tools", () => {
 		expect(
 			effectiveAppLocalization(h.currentDoc().localization).translations.spa,
 		).toBeUndefined();
+	});
+
+	it("moves an existing language and keeps its reviewed and copied text attached", async () => {
+		const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		for (const language of ["spa", "fra"])
+			await harness.runTool(addLanguageTool, { language: { language } });
+		const before = effectiveAppLocalization(harness.currentDoc().localization);
+		const response = await harness.runTool(updateLanguageTool, {
+			action: "move",
+			language: { language: "eng" },
+			after: { language: "spa" },
+		});
+		expect(mutateResult(response).result).toMatchObject({
+			ok: true,
+			default: false,
+		});
+		expect(effectiveAppLocalization(harness.currentDoc().localization)).toEqual(
+			{
+				...before,
+				defaultLanguage: "spa",
+				languageOrder: ["spa", "eng", "fra"],
+			},
+		);
 	});
 
 	it("changes the runtime default before allowing target removal", async () => {

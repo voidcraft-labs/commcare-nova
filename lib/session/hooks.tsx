@@ -128,6 +128,14 @@ export function usePreviewAtDeviceHome(): boolean {
 	return useBuilderSession((s) => s.previewAtDeviceHome);
 }
 
+export function usePreviewInstalledAndroidApps() {
+	return useBuilderSession((s) => s.previewInstalledAndroidApps);
+}
+
+export function useSetPreviewAndroidAppInstalled() {
+	return useBuilderSession((s) => s.setPreviewAndroidAppInstalled);
+}
+
 export function useSetPreviewPlatform(): (platform: Platform) => void {
 	return useBuilderSession((s) => s.setPreviewPlatform);
 }

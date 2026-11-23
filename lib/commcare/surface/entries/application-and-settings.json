@@ -529,10 +529,9 @@
 		"item": "a `langs` code in HQ's grammar that names no living language of ISO 639-3, or two codes that name one language (`en` beside `eng`)",
 		"surfaceKeys": ["schema:Application.langs"],
 		"valueClass": "code-outside-nova-s-registry",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a language held by a code alone, with no identity in Nova's registry (`languageRegistry/index.ts::languageCodeVerdict`)",
-		"subject": "language-codes",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a project language retains its own code and translations, including a code that shares a registered language with another app language",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1917,14 +1916,40 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/translations-generated-wording",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a generated text whose language overrides a constant or one of several outputs of a shared authored slot",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-output-wording",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the wording is held for this language and the stable control that generates the output",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the override under the key the current control position generates",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
 		"id": "application-and-settings/translations-generated-key-anything-else",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "any other key matching a generated pattern: an override of a string Nova writes from a constant or derives, or of one string of a text that feeds several",
+		"item": "one navigation icon or audio label with a different file in one language",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "generated-key-other",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a per-language override of one generated string, which no slot of Nova's document holds; a publish removes the key (`appStringKeys.ts::translationKeyOwner`, `generated`) and the worker would see the field's own text again",
+		"dispositionCell": "**HELD-NEW**: the menu, form, case list entry or registration button needs a distinct Project media asset in that language",
 		"subject": "translation-overrides",
 		"owner": "settings-nova-comes-to-own",
 		"platforms": {
@@ -3210,10 +3235,9 @@
 			"parser:ProfileParser/android_package@id"
 		],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.androidAppDependencies`",
-		"subject": "android-app-dependencies",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android apps workers need before opening this app",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -3229,6 +3253,32 @@
 			"markers": []
 		},
 		"gates": ["privilege/app_dependencies"]
+	},
+	{
+		"id": "application-and-settings/repeated-android-app-dependency",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "One Android app more than once in the required apps",
+		"surfaceKeys": ["setting:features.dependencies"],
+		"valueClass": "duplicate-package",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the Android app picker in CommCare HQ offers one selection for each app. Selecting the apps again replaces repeated entries.",
+		"subject": "android-app-dependencies",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the multiselect widget offers each package once and writes its selected options"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "application-and-settings/32-features-credentials",

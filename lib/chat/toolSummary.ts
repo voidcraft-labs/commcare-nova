@@ -19,6 +19,7 @@ import {
 } from "@/lib/agent/toolPresentation";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
 import { isDesignProtocolToolPartType } from "@/lib/chat/internalToolParts";
+import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 
 /** The two tenses a row can read in: `doing` while the call is in flight (or
  *  failed — the act never completed, so the past tense would claim a change
@@ -415,7 +416,15 @@ const UPDATE_APP_PLATFORM_PHRASES = {
  *  changed, then where the app runs when it changed that, joined by " · "
  *  ("Village Health · Incomplete forms off · Runs only on Android"). */
 const updateAppLocation = (summary: ToolCallSummary): string | null => {
+	const apps = summary.requiredAndroidApps;
 	const parts = [
+		...(apps === undefined
+			? []
+			: [
+					apps.length
+						? `Android requires ${apps.map((app) => ANDROID_APP_NAMES[app]).join(", ")}`
+						: "Android app requirements cleared",
+				]),
 		...(summary.subject !== undefined ? [summary.subject] : []),
 		...(summary.formLists?.saved !== undefined
 			? [`Saved forms ${summary.formLists.saved ? "on" : "off"}`]

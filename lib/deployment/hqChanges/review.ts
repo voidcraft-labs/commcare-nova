@@ -1,3 +1,7 @@
+import {
+	androidRequirementsComparisonSource,
+	changesUnownedAndroidApps,
+} from "@/lib/commcare/androidAppDependencies";
 import "server-only";
 
 /**
@@ -405,6 +409,7 @@ export interface FetchedHqChanges extends HqChangesBasis {
 			hashes: readonly string[],
 		): Promise<readonly Pick<MediaAssetRecord, "id" | "contentHash">[]>;
 	};
+	readonly comparisonSource?: unknown;
 	readonly saveOnlyEditedApplied?: boolean;
 	/** The Project's data, bound with no answer of the person's. */
 	readonly data: ReadingProjectData;
@@ -1153,6 +1158,12 @@ async function computeWith(
 		.run(() => normalizeHqAppSource(source.raw));
 	if ("malformed" in normalized)
 		return answer({ kind: "stop", finding: atApp("app-unreadable-in-hq") });
+	const unownedAndroidSelection =
+		!baseline.ownership.profileFeatures?.includes("dependencies") &&
+		changesUnownedAndroidApps(
+			source.profile.features,
+			head.doc.appSettings.requiredAndroidApps,
+		);
 	const languageNames = live.ownership === "adopted" ? "target" : "nova";
 
 	/* 5. The reference document, whose files the publish sends. */
@@ -1191,6 +1202,7 @@ async function computeWith(
 			}),
 		);
 		if (
+			!unownedAndroidSelection &&
 			baseline.firstPublishReview !== "required" &&
 			!fileReviewMoved(
 				removedHqFiles(normalized.normalized, {
@@ -1288,15 +1300,21 @@ async function computeWith(
 			parts.length,
 		);
 	mayOfferDiscard = !hiddenFiles;
-	if (parts.length === 0) {
+	if (!unownedAndroidSelection && parts.length === 0) {
 		const same = reviewMatchingSource(basis);
 		if (same) return answer(same, same.readingId === null ? null : basis);
 	}
 
 	/* 8. The flag a write saved only if changed needs, where either source holds one. */
+	const comparisonSource = unownedAndroidSelection
+		? androidRequirementsComparisonSource(
+				baseline.source,
+				reference.doc.appSettings.requiredAndroidApps,
+			)
+		: baseline.source;
 	const baseSource = await pieces
 		.at("the base source")
-		.run(() => sourceFromBaseline(baseline.source));
+		.run(() => sourceFromBaseline(comparisonSource));
 	/* Each source's forms, parsed once each before anything reads them, held
 	 * to what one reading parses as each source's bytes are to the cap. */
 	if (!(await formsWithinReading(pieces, source)))
@@ -1354,6 +1372,7 @@ async function computeWith(
 			byContent: (hashes) =>
 				findReadyAssetIdsByProjectAndHashes(scope.projectId, hashes),
 		},
+		comparisonSource,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		data: projectData.data,
 	};
@@ -1533,7 +1552,7 @@ function readingsWith(
 			origin: COMMCARE_SERVERS[fetched.target.server].baseUrl,
 			domain: fetched.target.domain,
 		},
-		baselineSource: fetched.baseline.source,
+		baselineSource: fetched.comparisonSource ?? fetched.baseline.source,
 		now: { source: fetched.source, modules: fetched.modules },
 		data,
 		...(fetched.saveOnlyEditedApplied !== undefined && {
@@ -1794,6 +1813,7 @@ export async function checkHqChanges(
 				review: {
 					kind: "held",
 					reason: plan.reason,
+					...(plan.translation && { translation: plan.translation }),
 					runs: plan.reason === "runs-elsewhere" ? runs : null,
 				},
 			};

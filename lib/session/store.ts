@@ -56,6 +56,7 @@ import {
 	declaresWebApps,
 	type Platform,
 } from "@/lib/domain/platforms";
+import type { RequiredAndroidApp } from "@/lib/domain/requiredAndroidApps";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
@@ -355,6 +356,8 @@ export interface BuilderSessionState {
 	 *  is derived (`effectivePreviewPlatform` over the app's declaration), so a
 	 *  choice the app no longer declares derives away with no write here. */
 	previewPlatform: Platform | undefined;
+	/** Apps installed on the simulated phone, independently of the app being authored. */
+	previewInstalledAndroidApps: RequiredAndroidApp[];
 	/** Preview on Android is showing the device's home screen. A running
 	 *  fact, not a route: the URL's `home` is shared with edit mode and gains
 	 *  no Preview-only kind. */
@@ -756,6 +759,10 @@ export interface BuilderSessionState {
 	 *  reach) and opens Android on its home screen. The caller navigates
 	 *  home. */
 	setPreviewPlatform: (platform: Platform) => void;
+	setPreviewAndroidAppInstalled: (
+		app: RequiredAndroidApp,
+		installed: boolean,
+	) => void;
 	/** Show or leave Android's home screen. */
 	setPreviewAtDeviceHome: (atHome: boolean) => void;
 	/** Record Sync with server's time. */
@@ -1032,6 +1039,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewSearchInputs: NO_SEARCH_INPUTS_GIVEN,
 				previewPersonaUuid: undefined as string | undefined,
 				previewPlatform: undefined as Platform | undefined,
+				previewInstalledAndroidApps: [] as RequiredAndroidApp[],
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
 				/* `uuid` rather than `crypto.randomUUID`, for the reason
@@ -1566,6 +1574,18 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewDeviceSyncedAt: android
 							? Date.now()
 							: get().previewDeviceSyncedAt,
+					});
+				},
+
+				setPreviewAndroidAppInstalled(app, installed) {
+					set((state) => {
+						const apps = state.previewInstalledAndroidApps;
+						if (apps.includes(app) === installed) return state;
+						return {
+							previewInstalledAndroidApps: installed
+								? [...apps, app]
+								: apps.filter((item) => item !== app),
+						};
 					});
 				},
 

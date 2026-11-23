@@ -43,6 +43,34 @@ public class LocalizationRuntimeTest {
   LocalizerManager.init(true);Localizer localizer=LocalizerManager.getGlobalLocalizer();
   localizer.addAvailableLocale(lang);localizer.registerLocaleResource(lang,new TableLocaleSource(values));localizer.setLocale(lang);
  }
+ @Test public void frenchOnlyImageDescriptionLoadsFromBothDefaultLocales() throws Exception {
+  for (boolean hq : new boolean[]{false, true}) {
+   Hashtable<String,String> defaults = strings("image-wording", "default", hq);
+   String key = null;
+   for (Map.Entry<String,String> entry : defaults.entrySet()) {
+    if (entry.getKey().contains(".alt_text.") && "Dossier visible".equals(entry.getValue())) {
+     assertNull("Only the Results image was translated", key);
+     key = entry.getKey();
+    }
+   }
+   assertNotNull(key);
+   LocalizerManager.init(true);
+   Localizer localizer = LocalizerManager.getGlobalLocalizer();
+   localizer.addAvailableLocale("default");
+   localizer.registerLocaleResource("default", new TableLocaleSource(defaults));
+   localizer.setDefaultLocale("default");
+   for (String language : new String[]{"en", "fr", "es"}) {
+    Hashtable<String,String> named = strings("image-wording", language, hq);
+    assertEquals("fr".equals(language), named.containsKey(key));
+    localizer.addAvailableLocale(language);
+    localizer.registerLocaleResource(language, new TableLocaleSource(named));
+    localizer.setLocale(language);
+    assertEquals("Dossier visible", localizer.getText(key));
+    assertEquals("\u00a0", localizer.getText(key.replace("case_short", "case_long")));
+   }
+   LocalizerManager.clearInstance();
+  }
+ }
  @After public void cleanup(){LocalizerManager.clearInstance();}
  private static final class Parser extends SuiteParser {
   Parser(InputStream input)throws IOException{super(input,null,"nova-localization",MockDataUtils.getStaticStorage().getAppFixtureStorage(),true,false,false);}

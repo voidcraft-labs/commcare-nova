@@ -69,6 +69,7 @@ import type { StoppedPublishingView } from "@/lib/deployment/actions";
 import { hqChangesBatchId } from "@/lib/deployment/hqChanges/batchId";
 import type { HqChangesOutcome } from "@/lib/deployment/hqChanges/types";
 import type { RemoteChangeDiscard } from "@/lib/deployment/types";
+import { languageTag } from "@/lib/domain/localization";
 import { DRIFT_STOP_EDITOR_LINE } from "@/lib/publish/bringInCopy";
 import { madeByLine } from "@/lib/publish/documentChangeCopy";
 import {
@@ -613,6 +614,16 @@ function PanelBody(props: BodyProps): ReactNode {
 					>
 						{body.line}
 					</p>
+					{body.translation && (
+						<a
+							href={`/build/${encodeURIComponent(props.target.appId)}/setup/languages?lang=${encodeURIComponent(languageTag(body.translation.language))}#${encodeURIComponent(body.translation.unitId)}`}
+							className="nova-focusable inline-flex min-h-11 w-fit items-center rounded-lg text-sm font-medium text-nova-text underline underline-offset-4"
+							target="_blank"
+							rel="noreferrer"
+						>
+							Review translation
+						</a>
+					)}
 					{body.checkAgain ? <CheckAgain onPress={onCheckAgain} /> : null}
 				</div>
 			);

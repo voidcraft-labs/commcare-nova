@@ -5,8 +5,18 @@
  * language as the source holds it. The sink's entries reach the reading's
  * document itself only at the assembly; the settles compare before it.
  */
-import type { BlueprintDoc } from "@/lib/domain";
-import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
+import {
+	type BlueprintDoc,
+	effectiveAppLocalization,
+	isEnglishOnlyLocalization,
+} from "@/lib/domain";
+import { editableLanguageEntries } from "@/lib/domain/localization";
+import {
+	defaultWording,
+	hasGeneratedWording,
+	snapshotTranslationUnits,
+} from "@/lib/domain/translationUnits";
+import { wordingSourceUnit } from "../../generatedSearchWording";
 import { withCandidate } from "../candidate";
 import { type TranslationSink, translationEntryFor } from "../translations";
 
@@ -16,30 +26,67 @@ export function withReadTexts(
 	doc: BlueprintDoc,
 	sink: TranslationSink,
 ): BlueprintDoc {
-	const localization = doc.localization;
 	const given = sink.units();
-	if (localization === undefined || given.length === 0) return doc;
+	if (!given.length) return doc;
+	const inventory = snapshotTranslationUnits(doc);
+	const generated = given.filter(
+		(entry) => inventory.get(entry.unit)?.generated !== undefined,
+	);
+	if (!generated.length) return writeReadTexts(doc, given);
+	const withBase = writeReadTexts(
+		doc,
+		given.filter((entry) => !inventory.get(entry.unit)?.generated),
+	);
+	return writeReadTexts(withBase, generated);
+}
+
+function writeReadTexts(
+	doc: BlueprintDoc,
+	given: ReturnType<TranslationSink["units"]>,
+): BlueprintDoc {
+	const localization = effectiveAppLocalization(doc.localization);
+	if (given.length === 0) return doc;
 	const units = snapshotTranslationUnits(doc);
 	const source = localization.sourceLanguage;
 	return withCandidate(doc, (draft) => {
-		const translations = draft.localization?.translations;
-		if (translations === undefined) return;
+		draft.localization ??= {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng"],
+			wireCodes: { eng: "en" },
+			translations: {},
+		};
+		const loc = draft.localization;
 		for (const { unit, byLanguage } of given) {
-			const current = units.get(unit);
+			const raw = units.get(unit);
+			const current = raw && wordingSourceUnit(doc, raw);
 			if (current === undefined) continue;
 			for (const [language, value] of byLanguage) {
-				if (language === source) continue;
-				const targets = translations[language];
-				if (targets === undefined) continue;
+				if (language === source && !hasGeneratedWording(current)) continue;
 				const entry = translationEntryFor(
 					current.valueKind,
-					current.source,
+					current.generated
+						? defaultWording(doc, language, current)
+						: current.source,
 					value,
 					source,
 				);
+				const targets = editableLanguageEntries(
+					loc,
+					language,
+					entry !== undefined,
+				);
+				if (!targets) continue;
 				if (entry === undefined) delete targets[unit];
-				else targets[unit] = entry;
+				else
+					targets[unit] = {
+						...entry,
+						sourceFingerprint: current.sourceFingerprint,
+					};
 			}
 		}
+		if (!Object.keys(loc.generatedSourceWording ?? {}).length)
+			delete loc.generatedSourceWording;
+		if (isEnglishOnlyLocalization(loc)) delete draft.localization;
 	});
 }

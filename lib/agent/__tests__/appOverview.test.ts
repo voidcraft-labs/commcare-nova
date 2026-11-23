@@ -62,13 +62,21 @@ it("orients an edit without sending every question's content", () => {
 	);
 });
 
-it("holds the document's form-list settings", () => {
+it("holds the form lists and ordered Android apps a settings edit can replace", () => {
 	const doc = buildDoc({
-		appSettings: { showSavedForms: true, showIncompleteForms: false },
+		appSettings: {
+			showSavedForms: true,
+			showIncompleteForms: false,
+			requiredAndroidApps: ["simprints-id", "commcare-toolkit"],
+		},
 	});
 	expect(appOverview(doc).settings).toEqual({
 		showSavedForms: true,
 		showIncompleteForms: false,
+		requiredAndroidApps: [
+			{ app: "simprints-id", name: "Simprints ID" },
+			{ app: "commcare-toolkit", name: "CommCare Toolkit" },
+		],
 	});
 });
 

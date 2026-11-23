@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
+import { manifestFor } from "../../../lib/commcare/__tests__/fixtureMediaManifest";
 import {
 	bilingualSurveyDoc,
 	SMUGGLING_READ,
@@ -13,9 +14,21 @@ import {
 import { compileCcz, compileCczParts } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import {
+	patients,
+	uuid,
+} from "../../../lib/commcare/reader/caseList/__tests__/fixtures";
+import {
 	type TargetFacts,
 	targetFactsFromSource,
 } from "../../../lib/commcare/targetFacts";
+import { generatedWordingId } from "../../../lib/domain/generatedWording";
+import {
+	imageMapColumn,
+	imageMapEntry,
+	plainColumn,
+} from "../../../lib/domain/modules";
+import type { MediaAssetId } from "../../../lib/domain/multimedia";
+import { snapshotTranslationUnits } from "../../../lib/domain/translationUnits";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
@@ -24,12 +37,51 @@ if (!output)
 		"Usage: node --conditions=react-server --import tsx proof/native/producers/emit-localization-evidence.ts OUTPUT_DIRECTORY",
 	);
 mkdirSync(output, { recursive: true });
-for (const scenario of localizationScenarios) {
-	const doc = localizationWireFixture(scenario),
-		hq = expandDoc(doc),
+function imageWordingDoc() {
+	const asset = uuid(19) as unknown as MediaAssetId;
+	const column = imageMapColumn(uuid(2), "notes", "Icon", [
+		imageMapEntry("a", asset),
+	]);
+	const doc = patients([plainColumn(uuid(1), "case_name", "Name"), column]);
+	const id = generatedWordingId(
+		column.uuid,
+		"caseRows",
+		"image-description",
+		"a",
+	);
+	const unit = snapshotTranslationUnits(doc).get(id);
+	if (!unit) throw Error("Expected an image description for the Results cell");
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra", "spa"],
+		wireCodes: { eng: "en", fra: "fr", spa: "es" },
+		translations: {
+			fra: {
+				[id]: {
+					value: "Dossier visible",
+					sourceFingerprint: unit.sourceFingerprint,
+					translatedFrom: "eng",
+					origin: "human",
+					review: "reviewed",
+				},
+			},
+			spa: {},
+		},
+	};
+	return doc;
+}
+for (const scenario of [...localizationScenarios, "image-wording"] as const) {
+	const doc =
+			scenario === "image-wording"
+				? imageWordingDoc()
+				: localizationWireFixture(scenario),
+		assets = scenario === "image-wording" ? manifestFor(doc) : undefined,
+		hq = expandDoc(doc, { assets }),
 		zip = new AdmZip(
 			compileCcz(hq, doc.appName, doc, {
 				runtimeTarget: NATIVE_RUNTIME_TARGET,
+				assets,
 			}),
 		);
 	const prefix = `locale-${scenario}`;

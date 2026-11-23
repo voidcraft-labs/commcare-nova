@@ -792,12 +792,14 @@ export function createReconcilerRuntime(
 			 * simply wins; there is no cursor and no ordering to reconcile. */
 			publishPreviewProjectSpace(frame.projectSpace);
 		});
-		es.addEventListener("preview-target-facts", (ev) => {
+		const receiveTargetFacts = (ev: Event) => {
 			if (es !== eventSource) return;
 			const frame = parsePreviewTargetFactsFrame((ev as MessageEvent).data);
 			if (frame === null) return; // malformed: leave the retained value alone
 			publishPreviewTargetFacts(frame.facts);
-		});
+		};
+		es.addEventListener("preview-target-facts", receiveTargetFacts);
+		es.addEventListener("preview-target-wording", receiveTargetFacts);
 		es.addEventListener("lookup-revision", (ev) => {
 			if (es !== eventSource) return;
 			if (!lookupManifestBroker.dispatch((ev as MessageEvent).data)) {
