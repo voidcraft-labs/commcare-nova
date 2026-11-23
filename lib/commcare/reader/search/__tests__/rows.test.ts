@@ -997,6 +997,39 @@ describe("a menu whose forms do not read the search", () => {
 		expect(registers(reading)).toContain("search-filter-rows-recut");
 	});
 
+	it("claims a text property ordered against a date or a number as a comparison HQ's search converts, and an equality of text as none", async () => {
+		const claimedAt = (reading: Awaited<ReturnType<typeof readLists>>) =>
+			new Set(
+				[...reading.ctx.close().claims.records()].flatMap((record) =>
+					record.key === "schema:DefaultCaseSearchProperty.defaultValue"
+						? [`${record.where} ${record.entry}`]
+						: [],
+				),
+			);
+		const converted =
+			"case-search/xpath-query-condition-outside-what-nova-types";
+		for (const [row, holds] of [
+			[`"notes > '2020-01-01'"`, true],
+			[`"notes > 5"`, true],
+			[`"notes = 'other'"`, false],
+		] as const) {
+			const reading = await readLists(typed(doc(), { notes: "text" }), {
+				edit: (app) => {
+					rowsOf(app).push({
+						property: "_xpath_query",
+						doc_type: "DefaultCaseSearchProperty",
+						defaultValue: row,
+					});
+				},
+			});
+			expect(closedCodes(reading), row).toEqual([]);
+			expect(
+				[...claimedAt(reading)].some((one) => one.endsWith(converted)),
+				row,
+			).toBe(holds);
+		}
+	});
+
 	it("reads an independent request condition beside existing shared clauses", async () => {
 		const reading = await readLists(doc(), {
 			edit: (app) => {
