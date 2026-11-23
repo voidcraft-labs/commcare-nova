@@ -1080,6 +1080,11 @@ export const X = {
 		Q("model-iteration-repeat-outside-nova-s-model-iteration-rule"),
 		"vellum-markup:model/instance//*@vellum:role",
 	),
+	modelIterationContainerCondition: one(
+		"refuse",
+		Q("relevance-bound-on-a-model-iteration-repeat-s-container"),
+		"xform:model/bind@relevant",
+	),
 
 	// ── Logic slots and load-time values (11) ────────────────────────────
 	/** A constraint that is Nova's scalar check alone, held by the field's record of it. */

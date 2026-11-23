@@ -8401,6 +8401,17 @@ def relevance_on_save_to_case(use, manifest):
     return node is not None and not isinstance(node, tuple) and node.get(f"{{{VELLUM}}}role") == "SaveToCase"
 
 
+def relevance_on_model_iteration_container(use, manifest):
+    """``questions/relevance-bound-on-a-model-iteration-repeat-s-container``: a bind ``relevant`` on a model
+    iteration's container (the node whose ``vellum:role`` is ``Repeat``), which Vellum discards: the model
+    iteration's question is its rows (``modeliteration.js::getPathName``), so ``parser.js::parseBindElement`` finds
+    no question at the container."""
+    form, bind, node = _bind(use)
+    if bind is None:
+        return None if form is None else False
+    return node is not None and not isinstance(node, tuple) and node.get(f"{{{VELLUM}}}role") == "Repeat"
+
+
 def constraint_in_save_to_case(use, manifest):
     """``questions/constraint-on-savetocase-case-leaves``: a bind ``constraint`` on a node inside a SaveToCase node's
     case block, which Vellum drops (its SaveToCase writes no constraint)."""
@@ -9776,6 +9787,7 @@ VALUE_CLASSES = {
     "questions/model-iteration-repeat-under-an-ancestor-that-core-s-load-can": model_iteration_under_late_relevance,
     "questions/model-iteration-repeat-whose-query-reads-a-form-answer-that-is": model_iteration_reading_blank_answer,
     "questions/relevance-bound-on-the-savetocase-node-itself": relevance_on_save_to_case,
+    "questions/relevance-bound-on-a-model-iteration-repeat-s-container": relevance_on_model_iteration_container,
     "questions/constraint-on-savetocase-case-leaves": constraint_in_save_to_case,
     "questions/create-case-id-live-calculate-outside-a-repeat": live_create_id,
     "questions/savetocase-create-close-or-link-of-commcare-user-or-type-user": reserved_save_to_case_type,

@@ -31310,6 +31310,24 @@
 		}
 	},
 	{
+		"id": "hq-questions/model-iteration-container-condition",
+		"base": "hq-questions",
+		"entry": "questions/relevance-bound-on-a-model-iteration-repeat-s-container",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "rounds"
+		},
+		"change": {
+			"op": "named",
+			"name": "model_iteration_container_condition"
+		}
+	},
+	{
 		"id": "hq-questions/model-iteration-nested",
 		"base": "hq-questions",
 		"entry": "questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind",

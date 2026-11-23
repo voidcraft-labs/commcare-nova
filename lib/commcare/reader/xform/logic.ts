@@ -101,7 +101,13 @@ export function pendingLogic(input: PendingLogicInput): void {
 			role.owner !== null
 		)
 			checkedOwners.add(role.owner);
-	for (const field of input.fields) readBindLogic(input, field, checkedOwners);
+	// A model iteration's field stands at its container; its rows are a
+	// `query-row` role naming it (`join.ts`).
+	const modelIterationContainers = new Set<DraftField>();
+	for (const role of input.roles.values())
+		if (role.kind === "query-row") modelIterationContainers.add(role.repeat);
+	for (const field of input.fields)
+		readBindLogic(input, field, checkedOwners, modelIterationContainers);
 	readDefaults(input);
 }
 
@@ -220,6 +226,7 @@ function readBindLogic(
 	input: PendingLogicInput,
 	field: DraftField,
 	checkedOwners: ReadonlySet<DataNode>,
+	modelIterationContainers: ReadonlySet<DraftField>,
 ): void {
 	const { cursor } = input;
 	const bind = input.binds.get(field.node);
@@ -247,7 +254,20 @@ function readBindLogic(
 			key: `xform:model/bind@${attribute}`,
 			mode,
 		});
-	if (logic.relevant !== undefined && fieldKindDeclaresKey(kind, "relevant"))
+	if (logic.relevant !== undefined && modelIterationContainers.has(field))
+		// The form builder's model iteration is its rows: it writes the
+		// condition on `…/item` and discards a bind on the container, whose
+		// condition would leave `@ids` and its rows out of the submission
+		// together (`parser.js::parseBindElement`).
+		cursor.refuse(
+			{ element, attribute: "relevant" },
+			X.modelIterationContainerCondition,
+			place,
+		);
+	else if (
+		logic.relevant !== undefined &&
+		fieldKindDeclaresKey(kind, "relevant")
+	)
 		push("relevant", logic.relevant, "relevant", XFORM);
 	if (logic.required !== undefined && fieldKindDeclaresKey(kind, "required"))
 		push("required", logic.required, "required", XFORM);

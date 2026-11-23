@@ -2263,6 +2263,32 @@
 		"gates": []
 	},
 	{
+		"id": "questions/relevance-bound-on-a-model-iteration-repeat-s-container",
+		"area": "questions",
+		"section": "Question types",
+		"item": "relevance bound on a model-iteration repeat’s container node (the node holding `@ids`, `@count` and `@current_index`) rather than on its rows (`…/item`)",
+		"surfaceKeys": ["xform:model/bind@relevant"],
+		"valueClass": "on-a-model-iteration-container",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum discards it (`parser.js::parseBindElement`: the model iteration's question is its rows, `modeliteration.js::getPathName`, so no question stands at the container)",
+		"subject": "repeats",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum discards it (`parser.js::parseBindElement`: the model iteration's question is its rows, `modeliteration.js::getPathName`, so no question stands at the container)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "— (in-envelope: a model iteration's condition is written on its rows, `…/item`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/user-controlled-repeat-inside-a-question-list-a-group-whose",
 		"area": "questions",
 		"section": "Question types",

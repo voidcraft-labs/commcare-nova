@@ -445,6 +445,31 @@ describe("a model-iteration repeat Nova writes", () => {
 		).toEqual([]);
 	});
 
+	it("refuses a condition on the container's own bind, which the form builder discards", async () => {
+		const doc = queryDoc({ rowTiming: "on-open" });
+		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+			xmlns: XMLNS,
+		});
+		expect(source).toContain("<bind ");
+		// The condition stands on the container, where the publish could not
+		// keep it: it would move to the rows and keep `@ids` in the submission.
+		const reading = await readForm(
+			source.replace(
+				"<bind ",
+				`<bind nodeset="/data/visits" relevant="/data/asked = 'yes'"/><bind `,
+			),
+		);
+		expect(codesAt(reading, "visits")).toContain(
+			Q("relevance-bound-on-a-model-iteration-repeat-s-container"),
+		);
+		const visits = readFields(reading.xform ?? ({} as never)).find(
+			(field) => field.id === "visits",
+		);
+		expect(visits?.expressions.map((one) => one.slot)).not.toContain(
+			"relevant",
+		);
+	});
+
 	it("leaves a wrapper missing a setvalue unclaimed", async () => {
 		const doc = queryDoc();
 		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {

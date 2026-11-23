@@ -980,15 +980,11 @@ export function joinForm(input: JoinInput): JoinedForm {
 				// The repeat's condition stands on its row's bind, where the
 				// form builder writes a model-iteration repeat's display
 				// condition and Nova's export writes it (`buildQueryRepeat`).
-				// One beside a condition on the wrapper's own bind is left
-				// unclaimed: the repeat holds one condition.
+				// One on the container's own bind is refused where the logic
+				// stage reads the container's bind (`logic.ts::readBindLogic`).
 				const rowRelevant = input.binds.get(read.row);
 				const condition = rowRelevant?.logic.relevant;
-				if (
-					rowRelevant !== undefined &&
-					condition !== undefined &&
-					input.binds.get(at)?.logic.relevant === undefined
-				)
+				if (rowRelevant !== undefined && condition !== undefined)
 					field.expressions.push({
 						slot: "relevant",
 						text: condition,

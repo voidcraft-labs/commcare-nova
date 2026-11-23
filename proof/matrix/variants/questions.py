@@ -399,12 +399,31 @@ def no_add_remove_without_count(authoring, app_id):
     _change(authoring, app_id, "no-add-remove-without-count", (MEMBERS_COUNT + " ", "", 1))
 
 
+ROUNDS_ROW_BIND = '<bind vellum:nodeset="#form/rounds/item" nodeset="/data/rounds/item" />'
+
+
 def model_iteration_outside_rule(authoring, app_id):
-    """A display condition (``true()``) on the model-iteration repeat ``rounds``, a bind of its wrapper node."""
-    _model(
+    """A display condition (``true()``) on the model-iteration repeat ``rounds``, on its rows' bind, where the form
+    builder writes it."""
+    _change(
         authoring,
         app_id,
         "model-iteration-outside-rule",
+        (
+            ROUNDS_ROW_BIND,
+            '<bind vellum:nodeset="#form/rounds/item" nodeset="/data/rounds/item" relevant="true()" />',
+            1,
+        ),
+    )
+
+
+def model_iteration_container_condition(authoring, app_id):
+    """A display condition (``true()``) on the model-iteration repeat ``rounds``' container node, a bind the form
+    builder discards (its question is the rows)."""
+    _model(
+        authoring,
+        app_id,
+        "model-iteration-container-condition",
         '<bind vellum:nodeset="#form/rounds" nodeset="/data/rounds" relevant="true()" />',
     )
 
