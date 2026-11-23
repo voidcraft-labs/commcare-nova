@@ -1136,8 +1136,11 @@ const BROADCAST_CONTROLS: ReadonlySet<RowControl> = new Set([
 	"document",
 ]);
 
-/** `a-per-row-token-…-starts`: a per-row token with leading digits in a string that also holds
- *  `receive` or `broadcast` where its row is read, or a value Android matches inside it. */
+/** `a-per-row-token-…-starts`: a per-row token with leading digits that itself holds `receive`
+ *  or `broadcast` where its row is read, or a value Android matches inside it, so holding it as
+ *  `<k>-per-row` (or `<k>-per-row-repeat`) would drop that read. The row speaks of the token: a
+ *  separate `receive-…` or `broadcast-…` word, or a value Android matches in another word, stays
+ *  its own row's, and a token already spelled `<k>-per-row` drops nothing. */
 function perRowHoldingAnotherReadValue(
 	value: string,
 	control: RowControl,
@@ -1145,12 +1148,16 @@ function perRowHoldingAnotherReadValue(
 ): boolean {
 	if (control === "repeat") return false;
 	const token = perRowToken(value, control === "repeat-wrapper");
-	if (token === undefined || !/^\+?\d/.test(token.slice(0, token.indexOf("-"))))
-		return false;
-	if (RECEIVE_CONTROLS.has(control) && value.includes("receive")) return true;
-	if (BROADCAST_CONTROLS.has(control) && value.includes("broadcast"))
+	if (token === undefined) return false;
+	const digits = /^\+?(\d+)/.exec(token.slice(0, token.indexOf("-")))?.[1];
+	if (digits === undefined) return false;
+	const held = `${digits}${control === "repeat-wrapper" ? "-per-row-repeat" : "-per-row"}`;
+	if (token === held) return false;
+	if (RECEIVE_CONTROLS.has(control) && token.includes("receive")) return true;
+	if (BROADCAST_CONTROLS.has(control) && token.includes("broadcast"))
 		return true;
-	return androidInside(value, facts).size > 0;
+	const kept = androidInside(held, facts);
+	return [...androidInside(token, facts)].some((one) => !kept.has(one));
 }
 
 /** The lowercase values whose case variant two runtimes read differently, with the controls whose
