@@ -19,6 +19,7 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
+	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
@@ -151,7 +152,38 @@ export function withSearchInputExpressionValues(
 			expressionValues.set(input.name, starting);
 		}
 	}
+	for (const input of searchInputs) {
+		if (input.kind === "hidden" || !searchesForBlank(input, inputValues))
+			continue;
+		// Web Apps sends a ticked "search for blank" as a blank value before the
+		// answer (`query.js::encodeValue`), and the Search screen's value of the
+		// field holds that request value as it is.
+		const answer = expressionValues.get(input.name);
+		expressionValues.set(
+			input.name,
+			answer === undefined || answer === ""
+				? ""
+				: `${MULTI_SELECT_SEARCH_ANSWER_DELIMITER}${answer}`,
+		);
+	}
 	return expressionValues;
+}
+
+/** The key Preview holds a ticked "search for blank" under: `<name>:blank`. */
+export function searchForBlankKey(name: string): string {
+	return `${name}:blank`;
+}
+
+/** Whether the worker asked for cases where this field's property is blank. */
+export function searchesForBlank(
+	input: SearchInputDef,
+	inputValues: SearchInputValues,
+): boolean {
+	return (
+		input.kind !== "hidden" &&
+		input.allowBlank === true &&
+		inputValues.get(searchForBlankKey(input.name)) === "true"
+	);
 }
 
 /**
@@ -168,7 +200,9 @@ export function searchInputInstanceValues(
 		withSearchInputExpressionValues(searchInputs, inputValues),
 	);
 	for (const input of searchInputs) {
-		if (input.kind === "hidden" || input.type !== "date-range") continue;
+		if (input.kind === "hidden") continue;
+		values.delete(searchForBlankKey(input.name));
+		if (input.type !== "date-range") continue;
 		values.delete(`${input.name}:from`);
 		values.delete(`${input.name}:to`);
 		values.delete(`${input.name}:starting`);
@@ -252,6 +286,7 @@ export function composeRuntimeFilter(
 	for (const input of searchInputs) {
 		const clause = clauseForInput(
 			input,
+			inputValues,
 			expressionValues,
 			caseType,
 			knownInputUuids,
@@ -268,6 +303,7 @@ export function composeRuntimeFilter(
 function clauseForInput(
 	input: SearchInputDef,
 	inputValues: SearchInputValues,
+	expressionValues: SearchInputValues,
 	caseType: string,
 	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
@@ -288,7 +324,7 @@ function clauseForInput(
 		case "advanced":
 			return buildAdvancedArmClause(
 				input,
-				inputValues,
+				expressionValues,
 				knownInputUuids,
 				searchInputs,
 			);
@@ -312,6 +348,25 @@ function clauseForInput(
  * `<input.name>` key.
  */
 function buildSimpleArmClause(
+	input: Extract<SearchInputDef, { kind: "simple" }>,
+	inputValues: SearchInputValues,
+	caseType: string,
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
+): Expression | undefined {
+	const clause = buildAnsweredSimpleClause(
+		input,
+		inputValues,
+		caseType,
+		caseTypeSchemas,
+	);
+	if (!searchesForBlank(input, inputValues)) return clause;
+	// CommCare HQ reads the blank beside an answer as "blank, or matches", and a
+	// blank alone as "blank" (`case_search/utils.py::_get_case_property_query`).
+	const blank = isBlank(prop(caseType, input.property, input.via));
+	return clause === undefined ? blank : or(blank, clause);
+}
+
+function buildAnsweredSimpleClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
 	inputValues: SearchInputValues,
 	caseType: string,

@@ -226,6 +226,8 @@ export interface SearchPromptWire {
 	/** On-device XPath for `@default`: a visible seed or a hidden value. */
 	readonly defaultValue?: WireExpr;
 	readonly exclude: boolean;
+	/** `allow_blank_value`: Web Apps offers to search for blank too. */
+	readonly allowBlank: boolean;
 	readonly itemset?: SearchPromptItemset;
 	readonly required?: SearchPromptAssertion;
 	/** Core keeps only the last `<validation>`, so there is at most one. */
@@ -297,6 +299,7 @@ export function searchPromptWire(
 		...(mapping.input === undefined ? {} : { input: mapping.input }),
 		...(defaultValue === undefined ? {} : { defaultValue }),
 		exclude: searchInputSuppressesAutoMatch(input),
+		allowBlank: input.kind !== "hidden" && input.allowBlank === true,
 		...(itemset === undefined ? {} : { itemset }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
@@ -751,6 +754,7 @@ function composePromptAttributes(
 	if (wire.appearance !== undefined) attribs.appearance = wire.appearance;
 	if (wire.hidden) attribs.hidden = "true";
 	if (wire.input !== undefined) attribs.input = wire.input;
+	if (wire.allowBlank) attribs.allow_blank_value = "true";
 	return attribs;
 }
 

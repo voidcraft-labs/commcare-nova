@@ -136,7 +136,10 @@ import {
 	type RelationPath,
 	relationStep,
 } from "@/lib/domain/expression";
-import { takesMultipleSearchChoices } from "@/lib/domain/modules";
+import {
+	searchForBlankRefusal,
+	takesMultipleSearchChoices,
+} from "@/lib/domain/modules";
 import {
 	type Platform,
 	type PlatformFeatureId,
@@ -235,6 +238,7 @@ const SEARCH_INPUT_NOTE_FEATURES: readonly PlatformFeatureId[] = [
 	"search-field-checks",
 	"search-starting-dates",
 	"barcode-search-field",
+	"search-for-blank",
 	"hidden-search-field",
 	...EXPRESSION_PLATFORM_FEATURES,
 ];
@@ -1017,6 +1021,23 @@ function VisibleSearchInputEditor({
 							}
 						/>
 					)}
+
+				{(value.allowBlank === true ||
+					(value.kind === "simple" &&
+						searchForBlankRefusal(value) === undefined)) && (
+					<ToggleRow
+						label="Also find blank"
+						description="In Web Apps, people can include cases where this is blank."
+						checked={value.allowBlank === true}
+						onChange={(enabled) =>
+							onChange(
+								rebuildRow(value, {
+									allowBlank: enabled ? true : undefined,
+								}),
+							)
+						}
+					/>
+				)}
 
 				{value.kind === "advanced" && (
 					<FieldRow
@@ -1864,6 +1885,7 @@ interface RowPatch {
 	readonly required?: SearchInputRequired | undefined;
 	readonly validation?: SearchInputValidation | undefined;
 	readonly options?: LookupOptionsSource;
+	readonly allowBlank?: true | undefined;
 }
 
 /** The slots every visible prompt carries beside its widget. */
@@ -1876,6 +1898,7 @@ function visibleSlotsOf(value: VisibleSearchInputDef): {
 		...(value.hint === undefined ? {} : { hint: value.hint }),
 		...(value.required === undefined ? {} : { required: value.required }),
 		...(value.validation === undefined ? {} : { validation: value.validation }),
+		...(value.allowBlank === true && { allowBlank: true as const }),
 	};
 }
 
@@ -1898,10 +1921,13 @@ function rebuildRow(
 	const required = "required" in patch ? patch.required : value.required;
 	const validation =
 		"validation" in patch ? patch.validation : value.validation;
+	const allowBlank =
+		"allowBlank" in patch ? patch.allowBlank : value.allowBlank;
 	const visible = {
 		...(hint === undefined ? {} : { hint }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
+		...(allowBlank === true && { allowBlank }),
 	};
 	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
 	// A choice widget's list rides along whenever the target is still a choice
@@ -1927,6 +1953,21 @@ function rebuildRow(
 			(!mode || mode.kind === "exact" || mode.kind === "range")
 				? { matching }
 				: {};
+		// A change that leaves the field no way to search for blank (a linked
+		// case, another name, a matching option) turns the search for blank off
+		// in the same edit, so the edit never makes the field refused.
+		if (
+			visible.allowBlank === true &&
+			searchForBlankRefusal({
+				name,
+				property,
+				via,
+				type,
+				mode: type === "date-range" ? { kind: "range" } : mode,
+				...native,
+			}) !== undefined
+		)
+			delete (visible as { allowBlank?: true }).allowBlank;
 		if (type === "date-range") {
 			return simpleSearchInputDef(value.uuid, name, label, type, property, {
 				...visible,

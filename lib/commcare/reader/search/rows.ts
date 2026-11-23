@@ -364,6 +364,11 @@ function derivedField(
 	)
 		return undefined;
 	if (input.kind === "hidden") return undefined;
+	// A field that lets the worker search for blank sends the blank beside its answer, which a
+	// derived condition reads as part of the answer: Nova's gate holds no simple field matched
+	// through a condition that searches for blank (`searchForBlankRefusal`), so the field keeps its
+	// condition as it reads.
+	if (input.allowBlank === true) return undefined;
 	const context = moduleExpressionContexts(
 		doc,
 		moduleUuid,

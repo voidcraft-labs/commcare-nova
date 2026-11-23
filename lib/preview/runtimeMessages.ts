@@ -191,6 +191,9 @@ const english = {
 	questionPosition: "Question {position}.",
 	sectionPosition: "Section {position}.",
 	requiredLabel: "Required.",
+	// Web Apps' box under a Search field that allows a search for blank
+	// (`cloudcare/partials/query/item.html`, HQ's `es` catalog for Spanish).
+	searchForBlank: "Include results where '{label}' is blank",
 	expand: "Expand",
 	collapse: "Collapse",
 	untitledGroup: "Untitled group",
@@ -526,6 +529,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	questionPosition: "Pregunta {position}.",
 	sectionPosition: "Sección {position}.",
 	requiredLabel: "Obligatoria.",
+	searchForBlank: "Incluir resultados donde '{label}' está en blanco",
 	expand: "Expandir",
 	collapse: "Contraer",
 	untitledGroup: "Grupo sin título",

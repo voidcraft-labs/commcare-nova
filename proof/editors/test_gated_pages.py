@@ -117,7 +117,7 @@ def test_the_case_list_page_offers_the_advanced_search_controls_only_under_the_f
     }, found
 
 
-def test_case_list_save_preserves_checkbox_options_and_starting_value(hq, core_runner, editor_driver):
+def test_case_list_save_preserves_checkbox_options_starting_value_and_search_for_blank(hq, core_runner, editor_driver):
     document = corpus_document("prompt-checkboxes")
     minimum = document.exports["minimum"].configuration.hq()
     assert ADVANCED in minimum.flags
@@ -125,9 +125,10 @@ def test_case_list_save_preserves_checkbox_options_and_starting_value(hq, core_r
         module = _searching_module(state, app_id)
         def definition(current):
             field = next(item for item in current.search_config.properties if item.name == "regions")
-            return field.input_, field.default_value, field.itemset.to_json()
+            name = next(item for item in current.search_config.properties if item.name == "first_name")
+            return field.input_, field.default_value, field.itemset.to_json(), name.allow_blank_value
         before = definition(module)
-        assert before[0] == "checkbox" and before[1] and before[2]["nodeset"]
+        assert before[0] == "checkbox" and before[1] and before[2]["nodeset"] and before[3] is True
         saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
         assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
         after = definition(operations.held_app(state, app_id).get_module_by_unique_id(module.unique_id))

@@ -2973,15 +2973,15 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`allow_blank_value`",
+		"item": "`allow_blank_value` on a shown prompt",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.allow_blank_value",
 			"parser:QueryPromptParser/prompt@allow_blank_value"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `searchInputs[].allowBlank`",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"valueClass": "on-a-shown-prompt",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `searchInputs[].allowBlank`, Web Apps' search for blank; a simple field carries it only where CommCare HQ matches it by its own key",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED (a plain prompt; no search for blank)",
@@ -2995,6 +2995,33 @@
 		},
 		"emission": {
 			"cell": "`allow_blank_value: true`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/allow-blank-value-on-a-hidden-prompt",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`allow_blank_value` on a `hidden` prompt",
+		"surfaceKeys": ["schema:CaseSearchProperty.allow_blank_value"],
+		"valueClass": "on-a-hidden-prompt",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: what Web Apps sends turns on the computed value: it reads a starting value that begins with a blank as the hidden box ticked, and sends that blank only where the prompt allows blank",
+		"subject": "search-default-filters",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "whether Web Apps sends the hidden value's leading blank turns on what the value computes, which only the run decides (`query.js::decodeValue`, `encodeValue`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

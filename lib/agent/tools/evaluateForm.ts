@@ -60,7 +60,7 @@ export const evaluateFormInputSchema = formAddressSchema
 			.max(100)
 			.optional()
 			.describe(
-				"Values from the preceding Search. Date ranges use name:from and name:to.",
+				"Values from the preceding Search. Date ranges use name:from and name:to. A field the worker also searched for blank adds name:blank, set to true.",
 			),
 		language: languageTagSchema.optional(),
 		platform: z

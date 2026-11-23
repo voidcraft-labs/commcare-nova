@@ -14,7 +14,10 @@ import {
 	lookupOptionsSourceCovered,
 	predicateLookupsCovered,
 } from "@/lib/preview/engine/lookupEvaluation";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	type SearchInputValues,
+	searchForBlankKey,
+} from "@/lib/preview/engine/runtimeBindings";
 import {
 	type PreviewSearchEnvironment,
 	resolveSearchHiddenValues,
@@ -126,6 +129,8 @@ export function buildSearchRunState(
 		} else {
 			keyShapes.set(input.name, shape);
 		}
+		if (input.allowBlank === true)
+			keyShapes.set(searchForBlankKey(input.name), shape);
 	}
 	const allowedKeys = new Set(keyShapes.keys());
 	const defaults =
@@ -174,6 +179,7 @@ export function searchInputAnswerKeys(
 			keys.add(`${input.name}:from`);
 			keys.add(`${input.name}:to`);
 		} else keys.add(input.name);
+		if (input.allowBlank === true) keys.add(searchForBlankKey(input.name));
 	}
 	return keys;
 }

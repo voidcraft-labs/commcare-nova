@@ -765,6 +765,7 @@ function projectSearchInput(
 	// semantics, so a `true` value persists and an absent key reads false.
 	if (wire.hidden) property.hidden = true;
 	if (wire.exclude) property.exclude = true;
+	if (wire.allowBlank) property.allow_blank_value = true;
 	if (wire.itemset !== undefined) {
 		property.itemset = {
 			instance_id: wire.itemset.instanceId,

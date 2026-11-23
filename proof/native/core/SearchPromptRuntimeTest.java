@@ -219,6 +219,20 @@ public class SearchPromptRuntimeTest {
             }
         }
     }
+    // Nova's Name field allows a search for blank: Core reads the attribute, and the blank Web Apps sends before
+    // the answer, or alone, is one more value of the field's own key (`getRawQueryParams`).
+    @Test public void aSearchForBlankSendsTheBlankAsItsOwnValueOnBothWorkers() throws Exception {
+        for (boolean hq : new boolean[]{false, true}) {
+            RemoteQuerySessionManager manager = manager("prompt-checkboxes", hq, new Data(), "search_command.m0",
+                    Arrays.asList("checkbox", "daterange", "select1"));
+            assertTrue(manager.getNeededUserInputDisplays().get("first_name").isAllowBlankValue());
+            assertFalse(manager.getNeededUserInputDisplays().get("regions").isAllowBlankValue());
+            answer(manager, "first_name", "#,#Amina");
+            assertEquals(Arrays.asList("", "Amina"), new ArrayList<>(manager.getRawQueryParams(false).get("first_name")));
+            answer(manager, "first_name", "");
+            assertEquals(Collections.singletonList(""), new ArrayList<>(manager.getRawQueryParams(false).get("first_name")));
+        }
+    }
     @Test public void lookupChoicesFollowTheirLabelsByCodeUnitKeepingTiesInRowOrder() throws Exception {
         List<String> expected = Arrays.asList("row_6:10", "row_7:9", "row_1:B", "row_4:Z", "row_2:a", "row_5:a", "row_8:a", "row_0:b", "row_3:\u00e9");
         for (boolean hq : new boolean[]{false, true}) {

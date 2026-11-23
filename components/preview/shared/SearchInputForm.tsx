@@ -57,6 +57,7 @@ import {
 } from "@/components/preview/shared/multiSelectChoiceKeys";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import {
 	Field,
 	FieldDescription,
@@ -91,7 +92,10 @@ import {
 	type PreviewSearchSessionValues,
 } from "@/lib/preview/engine/identity";
 import type { LookupChoice } from "@/lib/preview/engine/lookupEvaluation";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	type SearchInputValues,
+	searchForBlankKey,
+} from "@/lib/preview/engine/runtimeBindings";
 import {
 	type HeldCheckRefusal,
 	heldCheckRefusal,
@@ -203,6 +207,7 @@ interface SearchInputFormProps {
 		| "searchScreenText"
 		| "barcodeSearchField"
 		| "searchChoiceOrder"
+		| "searchForBlank"
 		| "searchRangeStartingValue"
 		| "searchRangeChosenDay"
 	>;
@@ -673,6 +678,7 @@ export function SearchInputForm({
 								}
 								showHint={platformRules.searchScreenText}
 								choiceOrder={platformRules.searchChoiceOrder}
+								offerBlank={platformRules.searchForBlank}
 								scanBarcode={
 									platformRules.barcodeSearchField === "scan-or-text"
 								}
@@ -755,11 +761,48 @@ interface SearchInputRowProps {
 	readonly utcMidnightDays: boolean;
 	/** Android scans a barcode Search field; Web Apps draws a text box. */
 	readonly scanBarcode: boolean;
+	/** Web Apps offers to search for blank under a field that allows it;
+	 *  Android shows the field alone (`searchForBlank`). */
+	readonly offerBlank: boolean;
 	/** Required right now; the label carries the mark. */
 	readonly required: boolean;
 	/** A choice prompt's live rows; `undefined` while they load. */
 	readonly choices: readonly LookupChoice[] | undefined;
 	readonly error: string | undefined;
+}
+
+/**
+ * One Search field: its widget, and under it, where the field allows it and
+ * the platform draws it, Web Apps' "Include results where … is blank" box
+ * (`query/item.html`). The box is its own answer (`searchForBlankKey`), so a
+ * worker can tick it with the field empty, as Web Apps sends a blank alone.
+ */
+function SearchInputRow(props: SearchInputRowProps) {
+	const { input, draft, setKey, offerBlank } = props;
+	const { language } = useBuilderLanguage();
+	const blankId = useId();
+	const widget = <SearchInputWidget {...props} />;
+	if (!offerBlank || input.allowBlank !== true) return widget;
+	const blankKey = searchForBlankKey(input.name);
+	return (
+		<div className="flex flex-col gap-2">
+			{widget}
+			<label
+				htmlFor={blankId}
+				className="flex cursor-pointer items-center gap-2 text-sm text-nova-text"
+			>
+				<Checkbox
+					id={blankId}
+					data-search-for-blank={input.name}
+					checked={draft.get(blankKey) === "true"}
+					onCheckedChange={(next) => setKey(blankKey, next ? "true" : "")}
+				/>
+				{runtimeMessage(language, "searchForBlank", {
+					label: input.label || input.name,
+				})}
+			</label>
+		</div>
+	);
 }
 
 /**
@@ -769,7 +812,7 @@ interface SearchInputRowProps {
  * the value flows into the predicate, which the runtime-bindings
  * layer owns.
  */
-function SearchInputRow({
+function SearchInputWidget({
 	input,
 	draft,
 	startingLabel,

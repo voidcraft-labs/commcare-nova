@@ -387,3 +387,39 @@ it("uses readable label and required-message fallbacks without inventing a hint"
 		).children.map((child) => child.name),
 	).toEqual(["text"]);
 });
+
+// A field that lets workers search for blank carries HQ's `allow_blank_value`
+// on both wires: the suite prompt's attribute Core and Formplayer read
+// (`QueryPromptParser`), and the Case List page's stored flag HQ's build reads
+// (`remote_requests.py::build_query_prompts`).
+it("marks a field that searches for blank on both wires", () => {
+	const doc = searchPromptFixture("prompt-widgets");
+	const moduleUuid = doc.moduleOrder[0];
+	const expressions = moduleExpressionContexts(
+		doc,
+		moduleUuid,
+		promptLookupNaming,
+	);
+	const village = {
+		uuid: testUuid("village"),
+		name: "village",
+		label: "Village",
+		kind: "simple",
+		type: "text",
+		property: "village",
+		allowBlank: true,
+	} as const;
+	expect(searchPromptWire(village, undefined, expressions).allowBlank).toBe(
+		true,
+	);
+	const { allowBlank: _allowBlank, ...plain } = village;
+	expect(searchPromptWire(plain, undefined, expressions).allowBlank).toBe(
+		false,
+	);
+	const prompts = buildSearchPrompts([village], "m0", new Map(), expressions);
+	expect(serializeXml(prompts.elements[0])).toContain(
+		'allow_blank_value="true"',
+	);
+	const bare = buildSearchPrompts([plain], "m0", new Map(), expressions);
+	expect(serializeXml(bare.elements[0])).not.toContain("allow_blank_value");
+});

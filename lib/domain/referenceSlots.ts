@@ -1716,6 +1716,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].uuid": "identity",
 	"caseListConfig.searchInputs[].kind": "discriminator",
 	"caseListConfig.searchInputs[].matching": "config",
+	"caseListConfig.searchInputs[].allowBlank": "config",
 	"caseListConfig.searchFilters[].uuid": "identity",
 	"caseListConfig.searchFilters[].target.kind": "discriminator",
 	"caseListConfig.searchFilters[].target.attribute": "config",

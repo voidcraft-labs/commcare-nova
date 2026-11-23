@@ -559,6 +559,12 @@ const visibleSearchInputSlots = {
 	validation: searchInputValidationSchema
 		.optional()
 		.describe("One rule a nonblank answer must pass, with its message."),
+	allowBlank: z
+		.literal(true)
+		.optional()
+		.describe(
+			"Web Apps also lets people find cases where this is blank. A simple field needs exact or range matching (or matching project-space) on its own property under the same name.",
+		),
 };
 
 const searchInputUuidSlot = {

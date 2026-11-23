@@ -41,6 +41,7 @@ import {
 	type Module,
 	multiSelectSearchInputRefusal,
 	type SimpleSearchInputDef,
+	searchForBlankRefusal,
 	type Uuid,
 } from "@/lib/domain";
 import { takesMultipleSearchChoices } from "@/lib/domain/modules";
@@ -75,6 +76,27 @@ export function searchInputViaModeCompatibility(
 		const via = input.via;
 		const viaIsCrossWalk = via !== undefined && via.kind !== "self";
 		const nameDiverges = input.name !== input.property;
+		// Searching for blank sends a blank value beside the answer under the
+		// prompt's own key, which only CommCare HQ's match of that key reads
+		// as "the property is blank". `searchForBlankRefusal` is the one home of
+		// which shapes ride the bare prompt that match runs on.
+		const blankRefusal =
+			input.allowBlank === true ? searchForBlankRefusal(input) : undefined;
+		if (blankRefusal !== undefined)
+			errors.push(
+				validationError(
+					"CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY",
+					"module",
+					`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" lets workers search for blank, but ${blankRefusal.charAt(0).toLowerCase()}${blankRefusal.slice(1)} The blank rides beside the answer under the prompt's own key, and only CommCare HQ's match of that key against the property it names reads it as "the property is blank"; a field matched through \`_xpath_query\` reads the blank as part of its answer and finds nothing. Turn off \`allowBlank\`, or make the field search its own property by its own name with exact matching or a date range.`,
+					{ moduleUuid, moduleName: mod.name },
+					{
+						slot: `caseListConfig.searchInputs[${i}].allowBlank`,
+						inputName: input.name,
+						inputUuid: input.uuid,
+						reason: blankRefusal,
+					},
+				),
+			);
 		// A `multi-select` prompt stores every chosen value in one
 		// `#,#`-joined answer. Only CCHQ's bare-prompt route splits
 		// that answer into repeated query parameters (an any-of match on

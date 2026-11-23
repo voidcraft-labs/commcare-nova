@@ -19,6 +19,7 @@ import {
 	type Module,
 	moduleFormsReadSearch,
 	splitMultiSelectSearchAnswer,
+	takesMultipleSearchChoices,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -28,6 +29,7 @@ import {
 	expressionReferencesAnySearchInput,
 	walkPropertyRefs,
 } from "@/lib/domain/expression/walk";
+import { searchesForBlank } from "./runtimeBindings";
 
 /** A completed request has its own source order and cap. A search action's
  * Results use its primary matches; an inline datum applies its local detail
@@ -71,17 +73,26 @@ export function completedSearchRequest(
 			input.type === "date-range"
 				? start && end && `__range__${start}__${end}`
 				: answers?.get(input.name);
-		if (answer === undefined || answer === "") continue;
+		// A ticked "search for blank" is a blank value before the answer, which Core
+		// sends as one more value of the key (`query.js::encodeValue`,
+		// `RemoteQuerySessionManager.getRawQueryParams`).
+		const blank =
+			answers !== undefined && searchesForBlank(input, answers) ? [""] : [];
+		if ((answer === undefined || answer === "") && blank.length === 0) continue;
 		const target = readSearchFilterTarget(input.name);
 		if (target === undefined)
 			throw new CaseSearchUnavailableError({
 				kind: "indexed-value-unavailable",
 				field: input.label,
 			});
-		const values =
-			input.type === "multi-select"
-				? splitMultiSelectSearchAnswer(answer)
-				: [answer];
+		const values = [
+			...blank,
+			...(answer === undefined || answer === ""
+				? []
+				: takesMultipleSearchChoices(input.type)
+					? splitMultiSelectSearchAnswer(answer)
+					: [answer]),
+		];
 		parameters.set(input.name, {
 			key: input.name,
 			field: input.label || input.name,

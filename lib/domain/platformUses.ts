@@ -623,6 +623,8 @@ function searchInputUses(
 		uses.push(slotUse("search-starting-dates", owner, `${path}.default`));
 	if (type === "barcode" && wanted("barcode-search-field"))
 		uses.push(slotUse("barcode-search-field", owner, `${path}.type`));
+	if (input.allowBlank === true && wanted("search-for-blank"))
+		uses.push(slotUse("search-for-blank", owner, `${path}.allowBlank`));
 	return uses;
 }
 

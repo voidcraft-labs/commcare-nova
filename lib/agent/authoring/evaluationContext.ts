@@ -239,10 +239,14 @@ function checkSuppliedSearchAnswers(
 			"For a date range, supply each endpoint once as name:from and name:to.",
 		);
 	const allowed = searchInputAnswerKeys(fields);
-	for (const key of values.keys()) {
+	for (const [key, value] of values) {
 		if (!allowed.has(key))
 			throw new FormEvaluationInputError(
 				`Search answer ${key} is unavailable. Use a visible Search field name or its two date endpoints.`,
+			);
+		if (key.endsWith(":blank") && value !== "true")
+			throw new FormEvaluationInputError(
+				`Search answer ${key} says the worker also searched for blank, so its value is true. Leave it out where they did not.`,
 			);
 	}
 	for (const name of rangeNames) {

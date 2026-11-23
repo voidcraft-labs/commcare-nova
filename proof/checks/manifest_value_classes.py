@@ -4394,6 +4394,13 @@ hidden_with_required_or_validations = _prompt_reader(
 )
 hidden_with_required_or_validations.__doc__ = """``case-search/hidden-together-with-required-or-validations``."""
 
+allow_blank_on_a_hidden_prompt = _prompt_reader(
+    lambda prompt: bool(prompt.get("hidden")) and bool(prompt.get("allow_blank_value"))
+)
+allow_blank_on_a_hidden_prompt.__doc__ = """``case-search/allow-blank-value-on-a-hidden-prompt``: ``allow_blank_value`` on a
+``hidden`` prompt, whose row Web Apps hides whole (``query.js``, ``d-none``) while it still reads a starting value
+that begins with a blank as the box ticked (``query.js::decodeValue``)."""
+
 later_validations = _prompt_reader(
     lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and not _address_field(prompt)
 )
@@ -9855,6 +9862,7 @@ VALUE_CLASSES = {
     "case-search/a-default-filter-and-a-search-property-sharing-one-name": shared_by_filter_and_prompt,
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
+    "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,

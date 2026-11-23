@@ -339,6 +339,7 @@ export function searchPromptFixture(scenario: PromptScenario) {
 				"Name",
 				"text",
 				"first_name",
+				{ allowBlank: true },
 			),
 		];
 	} else if (scenario === "prompt-dataflow") {

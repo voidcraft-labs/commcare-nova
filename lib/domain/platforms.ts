@@ -228,6 +228,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-field-checks",
 	"search-starting-dates",
 	"barcode-search-field",
+	"search-for-blank",
 	"hidden-search-field",
 	"search-first",
 	"search",
@@ -788,6 +789,18 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: { reading: "ignored", note: "it's a plain text box" },
 		android: { reading: "runs", note: "the camera can scan a code into it" },
+	},
+	"search-for-blank": {
+		label: "Searching for blank",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "a box under the field also finds cases where it's blank",
+		},
+		android: {
+			reading: "ignored",
+			note: "the Search screen shows the field alone",
+		},
 	},
 	"hidden-search-field": {
 		label: "Hidden Search values",

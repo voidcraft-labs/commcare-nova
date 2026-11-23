@@ -256,8 +256,14 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		"schema:CaseSearchProperty.hidden",
 	),
 	exclude: take(`${S}exclude`, "schema:CaseSearchProperty.exclude"),
-	allowBlank: refuse(
+	allowBlank: take(
 		`${S}allow-blank-value`,
+		"schema:CaseSearchProperty.allow_blank_value",
+	),
+	/** `allow_blank_value` on a hidden prompt: what Web Apps sends then turns on whether the
+	 *  computed value begins with a blank (`readPrompt`). */
+	allowBlankHidden: refuse(
+		`${S}allow-blank-value-on-a-hidden-prompt`,
 		"schema:CaseSearchProperty.allow_blank_value",
 	),
 	receiver: refuse(
@@ -627,8 +633,6 @@ function readPrompt(
 			});
 		else refuseWith("group_key", P.groupMissing);
 	}
-	if (prompt.used("allow_blank_value"))
-		refuseWith("allow_blank_value", P.allowBlank);
 	if (holds("receiver_expression"))
 		refuseWith(
 			"receiver_expression",
@@ -652,6 +656,15 @@ function readPrompt(
 	// refusal names (its checks, its widget, `exclude`) stands under the refusal's finding.
 	let hiddenRefused = false;
 	let addressRefused: Finding | undefined;
+	// Web Apps draws "Include results where … is blank" under a shown prompt whose
+	// `allow_blank_value` is on (`query/item.html`) and sends its blank before the answer
+	// (`query.js::encodeValue`); Android draws none. A hidden prompt's row is hidden whole, so the
+	// box is never ticked, but Web Apps reads a starting value that begins with a blank as ticked
+	// (`query.js::decodeValue`) and sends that blank only where the prompt allows blank: what a
+	// hidden prompt sends then turns on what it computes, which only the run decides.
+	const allowsBlank = prompt.used("allow_blank_value");
+	if (allowsBlank && hidden)
+		refuseWith("allow_blank_value", P.allowBlankHidden);
 	if (hidden) {
 		const claim = checked
 			? P.hiddenChecked
@@ -970,6 +983,11 @@ function readPrompt(
 		else if (exclude) prompt.take("exclude", P.exclude, Boolean).value;
 		if (hidden) prompt.take("hidden", P.hiddenValue, Boolean).value;
 	}
+	const allowBlank =
+		!hidden &&
+		allowsBlank &&
+		!refusedHere("allow_blank_value") &&
+		prompt.take("allow_blank_value", P.allowBlank, Boolean).value === true;
 
 	// A text map spelled other than as the build shows it prints the same text, and the first
 	// publish writes it as shown.
@@ -1207,6 +1225,7 @@ function readPrompt(
 			...(defaultIndex !== undefined && {
 				default: pendingPlaceholder("value"),
 			}),
+			...(allowBlank && { allowBlank: true as const }),
 		};
 		// A refused field reads no property: it stands in the provisional document only so the
 		// expressions that read it bind.

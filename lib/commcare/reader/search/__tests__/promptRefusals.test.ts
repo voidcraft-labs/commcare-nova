@@ -105,11 +105,20 @@ const CASES: readonly Case[] = [
 		findings: [[`${S}prompt-key-outside-nova-s-name-grammar`, "search", "_x"]],
 	},
 	{
-		title: "a blank answer searched for",
+		title: "a blank answer searched for on a hidden value",
 		edit: (body) => {
-			first(body).allow_blank_value = true;
+			Object.assign(first(body), {
+				hidden: true,
+				exclude: true,
+				default_value: "'north'",
+				allow_blank_value: true,
+				required: { doc_type: "Assertion", test: null, text: {} },
+				validations: [],
+			});
 		},
-		findings: [[`${S}allow-blank-value`, "search", "case_name"]],
+		findings: [
+			[`${S}allow-blank-value-on-a-hidden-prompt`, "search", "case_name"],
+		],
 	},
 	{
 		title: "a value received from another screen",
@@ -714,12 +723,15 @@ describe("a Search field Nova cannot hold", () => {
 	it("for two causes in one prompt is a finding for each", async () => {
 		const found = await account((body) => {
 			const prompt = first(body);
-			prompt.allow_blank_value = true;
 			prompt.receiver_expression = "instance('casedb')/casedb/case/@case_id";
+			prompt.validations = [
+				{ doc_type: "Assertion", test: "true()", text: { en: "One" } },
+				{ doc_type: "Assertion", test: "true()", text: { en: "Two" } },
+			];
 		});
 		expect(new Set(found)).toEqual(
 			new Set([
-				[`${S}allow-blank-value`, "search", "case_name"],
+				[`${S}validations-1`, "search", "case_name"],
 				[`${S}receiver-expression`, "search", "case_name"],
 			]),
 		);

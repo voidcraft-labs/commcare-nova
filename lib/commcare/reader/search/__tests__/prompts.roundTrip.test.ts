@@ -137,6 +137,37 @@ describe("Search fields Nova emits", () => {
 			inputs.map(({ uuid: _uuid, ...rest }) => rest),
 		);
 	});
+
+	// A field that searches for blank on its own property rides the bare prompt; one whose
+	// condition reads it keeps the condition, which reads the blank with the answer.
+	it("reads a search for blank on a simple and on an advanced field", async () => {
+		const inputs: SearchInputDef[] = [
+			{
+				uuid: uuid(9),
+				name: "notes",
+				label: "Notes",
+				allowBlank: true,
+				kind: "simple",
+				type: "text",
+				property: "notes",
+			},
+			{
+				uuid: uuid(10),
+				name: "words",
+				label: "Words",
+				allowBlank: true,
+				kind: "advanced",
+				type: "text",
+				predicate: whenInput(
+					input(uuid(10)),
+					eq(prop("patient", "notes"), input(uuid(10))),
+				),
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+	});
 });
 
 describe("each Search field's slots and arm", () => {

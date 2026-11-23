@@ -1421,6 +1421,19 @@ const visibleSearchInputBase = searchInputBase
 		hint: z.string().min(1).optional(),
 		required: searchInputRequiredSchema.optional(),
 		validation: searchInputValidationSchema.optional(),
+		/**
+		 * The worker may also ask for cases whose property is blank. Web Apps
+		 * draws a checkbox under the field and, where it is ticked, sends a
+		 * blank value before the answer (`query.js::encodeValue` joins them with
+		 * `#,#`), so the Search screen's own value of the field holds both.
+		 * CommCare HQ's match of the field's own key reads that blank as "the
+		 * property is blank, or matches" (`case_search/utils.py`,
+		 * `_get_case_property_query`); a condition reading the field reads the
+		 * value as it stands. Android shows the field alone. A simple field
+		 * carries it only where CommCare HQ matches it by its own key
+		 * (`searchForBlankRefusal`). Absent is no.
+		 */
+		allowBlank: z.literal(true).optional(),
 	})
 	.strict();
 
@@ -1846,6 +1859,7 @@ interface SearchInputVisibleSlots {
 	readonly hint?: string;
 	readonly required?: SearchInputRequired;
 	readonly validation?: SearchInputValidation;
+	readonly allowBlank?: true;
 }
 
 /** The slot that seeds a visible input's initial state. */
@@ -1894,11 +1908,13 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 		hint?: string;
 		required?: SearchInputRequired;
 		validation?: SearchInputValidation;
+		allowBlank?: true;
 	} = { ...base };
 	if (slots.default !== undefined) out.default = slots.default;
 	if (slots.hint !== undefined) out.hint = slots.hint;
 	if (slots.required !== undefined) out.required = slots.required;
 	if (slots.validation !== undefined) out.validation = slots.validation;
+	if (slots.allowBlank === true) out.allowBlank = true;
 	return out;
 }
 
@@ -1975,6 +1991,7 @@ export function simpleSearchInputDef(
 	if (slots.hint !== undefined) candidate.hint = slots.hint;
 	if (slots.required !== undefined) candidate.required = slots.required;
 	if (slots.validation !== undefined) candidate.validation = slots.validation;
+	if (slots.allowBlank === true) candidate.allowBlank = true;
 	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
 		candidate.via = slots.via;
@@ -2298,6 +2315,42 @@ export function simpleSearchInputHasCoherentRangeWidget(
 		(effectiveSimpleSearchModeKind(input) === "range") ===
 		(input.type === "date-range")
 	);
+}
+
+/**
+ * Whether a simple field can let the worker search for blank. The blank rides
+ * beside the answer as one more value of the prompt's own request key
+ * (`query.js::encodeValue` joins `#,#` before the answer), and only CommCare
+ * HQ's match of that key against the property it names reads a blank value
+ * as "the property is blank" (`case_search/utils.py::_get_case_property_query`).
+ * So the field rides the bare prompt: it searches this case's own property,
+ * under the property's own name, with exact matching or a date range, or with
+ * the project space's matching. A field Nova matches through a condition reads
+ * the blank as part of its answer and finds nothing.
+ *
+ * Returns the reason a shape is refused, or `undefined` when it can. Shared
+ * by the commit gate and the builder so the builder never offers a choice the
+ * gate refuses.
+ */
+export function searchForBlankRefusal(
+	input: Pick<
+		SimpleSearchInputDef,
+		"name" | "property" | "via" | "type" | "mode" | "matching"
+	>,
+): string | undefined {
+	if (input.via !== undefined && input.via.kind !== "self")
+		return "Searching for blank works on this case's own properties, not a linked case's.";
+	if (input.name !== input.property)
+		return "Searching for blank needs the field's name to be the property it searches.";
+	if (CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property))
+		return "Searching for blank works on ordinary properties, not on case information the device stores differently.";
+	if (input.matching === "project-space") return undefined;
+	const mode = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+	if (mode === "exact" && input.type === "date")
+		return "A single date searches a whole day, so searching for blank needs the project space's own date matching.";
+	if (mode !== "exact" && mode !== "range")
+		return "Searching for blank works with exact matching or a date range.";
+	return undefined;
 }
 
 /**

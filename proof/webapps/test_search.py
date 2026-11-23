@@ -348,6 +348,43 @@ def test_web_apps_submits_a_workers_range_with_midnight_rollover_and_hour_offset
     assert submitted == ["__range__2024-01-03__2024-01-04"]
 
 
+BLANK_BOX = """() => [...document.querySelectorAll("input.search-for-blank")].map(box =>
+    [box.id, box.labels[0].textContent.trim(), box.checked])"""
+
+
+def test_web_apps_sends_a_ticked_search_for_blank_before_the_answer(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    """Nova's Name field allows a search for blank: Web Apps draws HQ's box under it and sends the blank before the
+    answer (``query.js::encodeValue``), the value Nova's Preview sends for the same answers
+    (``completedSearchRequest.test.ts``)."""
+    document = webapps_documents["prompt-checkboxes"]
+    database = casedata.document_case_database(document)
+    database = dataclasses.replace(
+        database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
+    )
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    naming = steps.type_prompt(1, "Amina")
+    ticking = steps.click("input.search-for-blank")
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *opening, {"eval": BLANK_BOX}, *naming, *ticking, {"eval": BLANK_BOX},
+                *steps.run_search(), steps.SCREEN,
+            ])
+    boxes = [run.value(len(opening)), run.value(len(opening) + 1 + len(naming) + len(ticking))]
+    requests = _menu_requests(run)
+    submitted = [entry["inputs"].get("first_name") for request in requests if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("search-for-blank", {"boxes": boxes, "submitted": submitted})
+    assert run.page_errors == []
+    assert [[label for _, label, _ in shown] for shown in boxes] == [
+        ["Include results where 'Name' is blank"]
+    ] * 2
+    assert [[checked for _, _, checked in shown] for shown in boxes] == [[False], [True]]
+    assert submitted == ["#,#Amina"], requests
+
+
 DEFAULT_SEARCH = "targeted-search-workflow"
 TO_RECENT = steps.path(steps.open_app("Search workflows"), steps.choose("Recent patients"))
 TYPED = "Amina"

@@ -937,6 +937,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.searchInputs[0].type",
 		),
 	},
+	"search-for-blank": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Date of birth",
+						"date-range",
+						"dob",
+						{ allowBlank: true },
+					),
+				],
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						FIXTURE_INPUT,
+						"dob",
+						"Date of birth",
+						"date-range",
+						"dob",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-for-blank",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].allowBlank",
+		),
+	},
 	"hidden-search-field": {
 		with: () =>
 			caseApp({
