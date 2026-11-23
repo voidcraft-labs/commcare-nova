@@ -63,6 +63,11 @@ export interface BulkObject {
 	kind: "cell" | "media" | "export" | "import" | "download";
 }
 
+/** A work slot is held only by a job that is running: a staging generation
+ * whose runner holds its lease, an export whose artifact holds its build
+ * lease, and any other working reservation until it lapses. A failed,
+ * abandoned or cancelled job therefore stops holding its slot when its lease
+ * ends, whatever its retained bytes' lifetime. */
 export async function availableBulkSlot(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
@@ -72,7 +77,11 @@ export async function availableBulkSlot(
 		count: number;
 	}>`SELECT ((SELECT count(*) FROM lookup_generations WHERE project_id=${projectId}
 		AND state='staging' AND lease_until>clock_timestamp() AND expires_at>clock_timestamp())+
-		(SELECT count(*) FROM lookup_bulk_reservations WHERE project_id=${projectId} AND state='working' AND expires_at>clock_timestamp()))::integer AS count`.execute(
+		(SELECT count(*) FROM lookup_bulk_reservations r WHERE r.project_id=${projectId} AND r.state='working'
+			AND r.expires_at>clock_timestamp()
+			AND (r.kind<>'export' OR EXISTS (SELECT 1 FROM export_artifacts a
+				WHERE a.project_id=r.project_id AND a.id=r.object_id AND a.state='building'
+					AND a.lease_until>clock_timestamp()))))::integer AS count`.execute(
 		tx,
 	);
 	if (jobs.rows[0].count >= slots)
@@ -80,6 +89,48 @@ export async function availableBulkSlot(
 			"storage_limit",
 			"This Project already has bulk work in progress. You can retry after a job finishes.",
 		);
+}
+
+/** Hold or renew a work slot for a job that stores no bytes outside SQL, such
+ * as a large-value edit, until `leaseUntil`. Each step of the job renews it;
+ * a job whose lease lapsed takes a free slot again before it continues. */
+export async function holdBulkWork(
+	tx: Transaction<AppDatabase>,
+	object: BulkObject,
+	leaseUntil: Date,
+) {
+	const { projectId, id, actorId, binding, kind } = object;
+	const budget = await lockLookupBudget(tx, projectId);
+	const previous = await sql<{
+		actor_id: string;
+		binding: string;
+		kind: string;
+		bytes: string;
+		state: string;
+		active: boolean;
+	}>`
+		SELECT actor_id,binding,kind,bytes,state,expires_at>clock_timestamp() AS active FROM lookup_bulk_reservations WHERE project_id=${projectId} AND object_id=${id} FOR UPDATE`.execute(
+		tx,
+	);
+	const row = previous.rows[0];
+	if (
+		row &&
+		(row.actor_id !== actorId ||
+			row.binding !== binding ||
+			row.kind !== kind ||
+			row.state !== "working" ||
+			Number(row.bytes) !== 0)
+	)
+		throw new LookupError(
+			"conflict",
+			"This storage reservation changed. You can restart the operation.",
+		);
+	if (!row?.active) await availableBulkSlot(tx, projectId, budget.bulk_slots);
+	await sql`INSERT INTO lookup_bulk_reservations(project_id,object_id,actor_id,binding,kind,state,bytes,expires_at)
+		VALUES(${projectId},${id},${actorId},${binding},${kind},'working',0,${leaseUntil})
+		ON CONFLICT(project_id,object_id) DO UPDATE SET expires_at=excluded.expires_at`.execute(
+		tx,
+	);
 }
 
 /** External bytes are admitted before upload/copy and retained through confirmed

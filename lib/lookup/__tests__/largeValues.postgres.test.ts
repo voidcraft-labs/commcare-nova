@@ -210,3 +210,50 @@ it("leaves actual row bytes and revisions intact after invalid input, digest dis
 	);
 	expect(piece).toMatchObject({ text: "A🌱Z", valueDigest: sha("A🌱Z") });
 });
+
+it("frees an abandoned edit's work slot when its lease lapses, and takes a slot again before it continues", async () => {
+	const target = await seed();
+	const begin = (operationId: string) =>
+		run({
+			kind: "begin",
+			...target,
+			operationId,
+			baseDigest: sha("A🌱Z"),
+			startByte: 1,
+			endByte: 5,
+			replacementBytes: 2,
+			replacementDigest: sha("BC"),
+		});
+	const [first, second, third] = [randomUUID(), randomUUID(), randomUUID()];
+	await begin(first);
+	await begin(second);
+	/* The Project's two work slots are held while both edits run. */
+	await expect(begin(third)).rejects.toMatchObject({
+		code: "storage_limit",
+	});
+	/* Nobody finishes or cancels them: eleven minutes after their last step,
+	 * well inside the staged input's own lifetime, they hold no slot. */
+	await sql`UPDATE lookup_bulk_reservations SET expires_at=expires_at-interval '11 minutes'
+		WHERE project_id=${scope.projectId} AND kind='cell'`.execute(h.db());
+	expect(await begin(third)).toMatchObject({ nextOffset: 0 });
+	/* A lapsed edit that resumes takes a free slot again, and one that finds
+	 * none waits for a job to finish. */
+	expect(
+		await run({
+			kind: "append",
+			tableId: target.tableId,
+			operationId: first,
+			offset: 0,
+			base64: "Qg==",
+		}),
+	).toMatchObject({ nextOffset: 1 });
+	await expect(
+		run({
+			kind: "append",
+			tableId: target.tableId,
+			operationId: second,
+			offset: 0,
+			base64: "Qg==",
+		}),
+	).rejects.toMatchObject({ code: "storage_limit" });
+});

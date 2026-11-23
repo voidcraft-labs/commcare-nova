@@ -320,7 +320,11 @@ blobs. Retyping, occurrence edits, schema deletion and row replacement update
 or remove the matching references in their own transaction.
 
 The default storage budget is 32 GiB and two concurrent bulk jobs per Project.
-The budget row controls both. SQL triggers settle payload and metadata with
+The budget row controls both. A job holds a work slot only while it runs: a generation
+while its runner holds its lease, an export while its artifact holds its build
+lease, and a large-value edit for ten minutes after its last step, so a
+failed, cancelled or abandoned job frees its slot while its bytes wait for
+recovery. SQL triggers settle payload and metadata with
 a conservative per-row allowance for indexes and tuple overhead. Bulk objects
 reserve before writes, transfer their charge to retained storage after
 confirmation, and refund on confirmed physical deletion. Replaced generations

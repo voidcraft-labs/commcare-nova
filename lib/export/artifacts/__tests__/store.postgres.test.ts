@@ -217,6 +217,31 @@ it("retains an unacknowledged PUT and its charge until generation-specific recov
 	).toEqual([]);
 });
 
+it("frees a failed preparation's work slot while its charge waits for recovery", async () => {
+	for (const filename of ["first.zip", "second.zip"]) {
+		vi.mocked(storeExportPart).mockImplementationOnce(async () => {
+			throw new Error("Closed tab.");
+		});
+		spec = { ...spec, filename };
+		await expect(retained()).rejects.toThrow("Closed tab.");
+	}
+	const held = await sql<{
+		bytes: string;
+		state: string;
+	}>`SELECT bytes,state FROM lookup_bulk_reservations WHERE project_id=${projectId} AND kind='export'`.execute(
+		h.db(),
+	);
+	expect(held.rows).toEqual([
+		{ bytes: String(EXPORT_PART_BYTES), state: "working" },
+		{ bytes: String(EXPORT_PART_BYTES), state: "working" },
+	]);
+	/* Neither failed build runs any more, so the Project's two work slots are
+	 * free for the next download. */
+	spec = { ...spec, filename: "third.zip" };
+	const file = await retained();
+	expect(file.id).toEqual(expect.any(String));
+});
+
 it("keeps a small assignment package private and cuts off its exact key when consent is narrowed", async () => {
 	await connect(h, actor.userId, "india", ["clinic"]);
 	const scoped: ExportActor = {

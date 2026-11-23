@@ -6,8 +6,8 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { LookupError } from "../errors";
 import {
 	type BulkObject,
+	holdBulkWork,
 	refundDeletedBulkObject,
-	reserveBulkObject,
 } from "../generations/budget";
 import { lookupManifestHqOriginOf } from "../managedRules";
 import { requiresLookupProjection } from "../source";
@@ -205,7 +205,7 @@ export async function applyLookupValueEditInTransaction(
 				tx,
 			);
 		const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-		await reserveBulkObject(tx, object, 0, expires);
+		await holdBulkWork(tx, object, cellWorkLease());
 		const inserted = await sql<CellEdit>`INSERT INTO lookup_cell_edits
 			(project_id,table_id,id,actor_id,binding,review_digest,row_id,slot,expected_revision,base_digest,base_bytes,start_byte,end_byte,replacement_bytes,replacement_digest,state,expires_at)
 			VALUES(${projectId},${tableId},${operationId},${actorId},${binding},${review},${request.rowId},${valueSlotPath(request.slot)}::text[],
@@ -264,6 +264,7 @@ export async function applyLookupValueEditInTransaction(
 			return invalidValue(
 				"This chunk doesn't continue the reviewed replacement. You can resume at its next byte.",
 			);
+		await holdBulkWork(tx, object, cellWorkLease());
 		await sql`INSERT INTO lookup_cell_inputs(project_id,operation_id,byte_offset,body) VALUES(${projectId},${operationId},${next},${body})`.execute(
 			tx,
 		);
