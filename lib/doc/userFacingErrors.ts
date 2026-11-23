@@ -1374,7 +1374,32 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 
 	// ── Case-search config ───────────────────────────────────────────
-	CASE_SEARCH_FILTER_INVALID: (e) => e.message,
+	CASE_SEARCH_FILTER_INVALID: (e) => {
+		const menu = q(modName(e));
+		const position = e.details?.index;
+		const filter =
+			position === undefined || Number.isNaN(Number(position))
+				? `A search filter on ${menu}`
+				: `Search filter ${Number(position) + 1} on ${menu}`;
+		switch (e.details?.reason) {
+			case "key-taken":
+				return `${filter} sends ${q(det(e, "key", "its information"))}, which a search field there already sends. You can choose different information for the filter, or rename the field.`;
+			case "target":
+				return `${filter} names record information CommCare can't send under that name. You can choose the information again.`;
+			case "value":
+				return (
+					recordFindingCopy(
+						e,
+						`The value of ${filter.charAt(0).toLowerCase()}${filter.slice(1)}`,
+					) ??
+					`${filter} has a value the search screen can't work out before a record is chosen. You can use a worker, search answer, table or fixed value instead.`
+				);
+			case "project-space-matching":
+				return `${q(det(e, "field", "A search field"))} on ${menu} uses the project space's matching, which works only on the field's own information with no matching rule of its own. You can remove its rule, or turn off project space matching for it.`;
+			default:
+				return `${filter} can't be sent as it stands. You can check its information and value.`;
+		}
+	},
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
 		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>

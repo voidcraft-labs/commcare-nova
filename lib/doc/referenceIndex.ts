@@ -88,6 +88,7 @@ import {
 	readSlotStrings,
 	readSlotValues,
 	recordFromEntries,
+	type SearchFilter,
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
@@ -912,10 +913,36 @@ function extractModuleEdges(
 				}
 				break;
 			case "case-type-ref":
-				if (mod.caseType) sink.edge(caseTypeTargetKey(mod.caseType), slot.slot);
+				// A search filter's walk names the case types it passes through;
+				// the menu's own case type is the other slot of this kind.
+				if (slot.slot === "search_filter_ancestor_type") {
+					for (const filter of mod.caseListConfig?.searchFilters ?? [])
+						relationHintEdges(sink, slot.slot, searchFilterWalk(filter));
+				} else if (mod.caseType)
+					sink.edge(caseTypeTargetKey(mod.caseType), slot.slot);
 				break;
 			case "case-property-ref":
-				if (slot.slot === "case_list_column_field") {
+				if (slot.slot === "search_filter_property") {
+					for (const filter of mod.caseListConfig?.searchFilters ?? []) {
+						if (filter.target.kind !== "property") continue;
+						const walk = searchFilterWalk(filter);
+						const destination = resolveRelationDestination(
+							walk,
+							mod.caseType,
+							doc.caseTypes ?? [],
+						);
+						if (!destination.ok) continue;
+						sink.edge(
+							casePropertyTargetKey(
+								destination.caseType,
+								filter.target.property,
+							),
+							slot.slot,
+						);
+						if (walk !== undefined)
+							sink.edge(caseTypeTargetKey(destination.caseType), slot.slot);
+					}
+				} else if (slot.slot === "case_list_column_field") {
 					if (mod.caseType === undefined) break;
 					for (const column of mod.caseListConfig?.columns ?? []) {
 						if (column.kind === "calculated") continue;
@@ -1119,6 +1146,14 @@ function termEdges(
 			break;
 		}
 	}
+}
+
+/** The walk a search filter's target takes to the record it matches, if any. */
+function searchFilterWalk(filter: SearchFilter): RelationPath | undefined {
+	const target = filter.target;
+	return "ancestors" in target && target.ancestors !== undefined
+		? { kind: "ancestor", via: target.ancestors }
+		: undefined;
 }
 
 function relationHintEdges(

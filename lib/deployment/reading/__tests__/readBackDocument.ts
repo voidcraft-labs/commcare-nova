@@ -68,6 +68,7 @@ export function everyKindDocument(): BlueprintDoc {
 	const module = modules[moduleUuid] as Record<string, unknown>;
 	const config = module.caseListConfig as Record<string, unknown>;
 	config.searchInputs = [{ uuid: U("search"), name: "name" }];
+	config.searchFilters = [{ uuid: U("search-filter") }];
 	module.entryPoint = { uuid: U("menu-entry") };
 	const form = forms[formUuid] as Record<string, unknown>;
 	form.caseOperations = [{ uuid: U("operation"), id: "patient" }];

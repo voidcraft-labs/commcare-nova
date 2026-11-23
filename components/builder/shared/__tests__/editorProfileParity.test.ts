@@ -97,6 +97,7 @@ const TEXT_INPUT = testUuid("parity-text-input");
 const ADVANCED_INPUT = testUuid("parity-advanced-input");
 const HIDDEN_INPUT = testUuid("parity-hidden-input");
 const SELECT_INPUT = testUuid("parity-select-input");
+const SEARCH_FILTER = testUuid("parity-search-filter");
 const UPDATE = testUuid("parity-update");
 const RUNTIME = testUuid("parity-runtime");
 const CREATE = testUuid("parity-create");
@@ -187,6 +188,13 @@ function fixture(): BlueprintDoc {
 							"visit_note",
 							{ options: LOOKUP_OPTIONS },
 						),
+					],
+					searchFilters: [
+						{
+							uuid: SEARCH_FILTER,
+							target: { kind: "property", property: "visit_note" },
+							value: term(literal("seen")),
+						},
 					],
 				},
 				forms: [
@@ -308,6 +316,13 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		slot: "search_button_display_condition",
 	},
 	{ entity: "module", uuid: CASE_FIRST, slot: "excluded_owner_ids" },
+	{ entity: "module", uuid: CASE_FIRST, slot: "case_search_filter" },
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "search_filter_value",
+		member: { filterUuid: SEARCH_FILTER },
+	},
 	...(
 		[
 			["search_input_default", TEXT_INPUT],
@@ -467,6 +482,15 @@ describe("the editor's axes are the slot's profile", () => {
 			}),
 		).toBe("case-search");
 		expect(target(module("module_display_condition"))).toBe("on-device");
+		expect(target(module("case_search_filter"))).toBe("case-search");
+		expect(
+			target({
+				entity: "module",
+				uuid: CASE_FIRST,
+				slot: "search_filter_value",
+				member: { filterUuid: SEARCH_FILTER },
+			}),
+		).toBe("on-device");
 	});
 
 	it("covers every record slot the reference tables declare", () => {

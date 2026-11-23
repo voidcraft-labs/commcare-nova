@@ -384,6 +384,21 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 							},
 						],
 						search: {},
+						// Two filters on one request key, which count apart.
+						list: {
+							searchFilters: [
+								{
+									uuid: uuid(11),
+									target: { kind: "owner" },
+									value: term(literal("worker-a")),
+								},
+								{
+									uuid: uuid(12),
+									target: { kind: "owner" },
+									value: term(literal("worker-b")),
+								},
+							],
+						},
 					},
 				),
 		},

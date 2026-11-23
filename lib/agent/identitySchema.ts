@@ -27,6 +27,7 @@ export type AuthorableIdentityFamily =
 	| "automation-recipient"
 	| "automation-event"
 	| "automation-user-data-filter"
+	| "search-filter"
 	| "media-asset"
 	| "lookup-table"
 	| "lookup-column"
@@ -274,6 +275,14 @@ export function classifyIdentity(
 		return "media-asset";
 	}
 
+	/* `edit_search_filter` names one filter of a menu's online search, and
+	 * anchors a move or an add on the filter it follows. */
+	if (
+		tool === "edit_search_filter" &&
+		(property === "uuid" || property === "after") &&
+		pointer.startsWith("/change/")
+	)
+		return "search-filter";
 	if (property === "uuid") {
 		if (tool === "add_automations" || tool === "update_automation") {
 			if (pointer.includes("/criteria/")) return "automation-criterion";

@@ -6,6 +6,7 @@ import {
 } from "../../../suite/case-search/nativeFilters";
 import { type ValidationError, validationError } from "../../errors";
 import {
+	checkErrorDetails,
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
@@ -24,22 +25,26 @@ export function nativeSearchFilters(
 	for (const [index, filter] of filters.entries()) {
 		const key = searchFilterKey(filter.target);
 		const parsed = readSearchFilterTarget(key);
-		const reject = (message: string) =>
+		const reject = (message: string, details: Record<string, string>) =>
 			errors.push(
 				validationError(
 					"CASE_SEARCH_FILTER_INVALID",
 					"module",
 					message,
 					{ moduleUuid, moduleName: mod.name },
-					{ index: String(index), filterUuid: filter.uuid },
+					{ index: String(index), filterUuid: filter.uuid, ...details },
 				),
 			);
 		if (names.has(key))
 			reject(
-				`A search field already uses “${key}”. Choose different information for this filter.`,
+				`Search filter ${index + 1} on "${mod.name}" sends "${key}", which a search field there already sends.`,
+				{ reason: "key-taken", key },
 			);
 		if (parsed?.kind !== filter.target.kind)
-			reject("Choose the matching record information for this search filter.");
+			reject(
+				`Search filter ${index + 1} on "${mod.name}" names record information its key "${key}" does not read back as.`,
+				{ reason: "target", key },
+			);
 		const scope = slotContext(
 			doc,
 			{
@@ -54,7 +59,10 @@ export function nativeSearchFilters(
 			for (const issue of semanticCheckErrors(
 				checkExpression(filter.value, scope),
 			))
-				reject(issue.message);
+				reject(
+					`Search filter ${index + 1} on "${mod.name}" has a value the search screen can't work out: ${issue.message}`,
+					{ reason: "value", ...checkErrorDetails(issue, scope) },
+				);
 		}
 	}
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
@@ -71,9 +79,13 @@ export function nativeSearchFilters(
 			validationError(
 				"CASE_SEARCH_FILTER_INVALID",
 				"module",
-				"To use project space matching, use the field’s own record information and remove its separate matching rule.",
+				`Search field "${input.name}" on "${mod.name}" uses the project space's matching rule, which matches only the field's own property with no separate matching rule.`,
 				{ moduleUuid, moduleName: mod.name },
-				{ inputUuid: input.uuid },
+				{
+					inputUuid: input.uuid,
+					reason: "project-space-matching",
+					field: input.name,
+				},
 			),
 		);
 	}
