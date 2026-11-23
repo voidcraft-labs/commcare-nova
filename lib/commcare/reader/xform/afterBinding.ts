@@ -58,7 +58,7 @@ import { w } from "../../xpath/wire/builders";
 import { withCandidate } from "../candidate";
 import type { DraftForm, ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
-import { sameJson } from "../jsonCursor";
+import { pointerToken, sameJson } from "../jsonCursor";
 import { builtScopes, sameElementWhole } from "../sameElement";
 import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";

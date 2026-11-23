@@ -737,6 +737,9 @@ describe("recordHqChangesTaken", () => {
 				await recordRefreshedAppBaseline(birth.scope, TARGET, {
 					expectedEndings: 0,
 					remoteAppId: HQ_APP,
+					comparedPushToken: appMappingToken(
+						await readDeployment(birth.scope, TARGET),
+					),
 					comparedDigest: digestOf(CHANGED_SOURCE),
 					read: stored(
 						{ ...CHANGED_SOURCE, name: "Changed again" },

@@ -522,7 +522,7 @@ function inactiveAutoLaunchRespelled(facts: FirstPublishFacts): boolean {
  * on the platform that shows it (`firstPublishViewFromStored` uses the same rule).
  */
 function platformOnlyRecorded(
-	id: FirstPublishChangeId,
+	id: CurrentFirstPublishChangeId,
 	entry: Pick<FirstPublishChange, "touchesWorkers" | "paths" | "at">,
 ): FirstPublishChange {
 	const recorded = recordedIn(id);
@@ -1791,6 +1791,11 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		paths: ["/_attachments/*"],
 	},
 	/**
+	 * A Hidden Value whose bind `type` the source spells another way than the
+	 * one Nova writes for the same answer class (`xsd:integer` for `xsd:int`):
+	 * Core reads both spellings as one data class, and the publish writes
+	 * Nova's. Recorded by `reader/xform/afterBinding.ts::recordHiddenAnswerSpellings`.
+	 */
 	"hidden-answer-types-respelled": {
 		touchesWorkers: false,
 		scope: "reading",
@@ -2538,7 +2543,9 @@ export function publishChangeSubjects(
 			blanks.set(canonicalJsonDigest([reviewPlace(place), slot]), place);
 	}
 	for (const rewrite of facts.facts.rewrites) {
-		const id = FIRST_PUBLISH_CHANGE_IDS.find((item) => item === rewrite.id);
+		const id = CURRENT_FIRST_PUBLISH_CHANGE_IDS.find(
+			(item) => item === rewrite.id,
+		);
 		const set = id && result.get(id);
 		if (!set || !rewrite.formExpression) continue;
 		for (const place of placesOfSlot(facts.positions, rewrite))

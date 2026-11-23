@@ -7545,7 +7545,7 @@
 		],
 		"valueClass": "preload-target-holds-no-default",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a load into a question that takes no default: Nova holds a preload as the question's default value, and a Hidden Value holds one value source (`HIDDEN_VALUE_BOTH_SOURCES`)",
+		"dispositionCell": "**HELD-NEW**: a load into a question that takes no default: Nova holds a preload as the question's default value",
 		"subject": "case-preloads",
 		"owner": "forms-and-case-management",
 		"platforms": {

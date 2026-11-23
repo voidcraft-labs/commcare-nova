@@ -130,6 +130,7 @@ import {
 	type CurrentFirstPublishChangeId,
 	FIRST_PUBLISH_PLATFORM,
 	FIRST_PUBLISH_TOUCHES_WORKERS,
+	type FirstPublishChangeId,
 	firstPublishViewFromStored,
 } from "@/lib/publish/firstPublishChangeIds";
 import { connectDeliverRename } from "@/proof/targeted/documents/connectApps";
@@ -635,10 +636,10 @@ describe("the register", () => {
 			),
 		).toEqual([...FIRST_PUBLISH_PLATFORM.keys()]);
 		for (const id of FIRST_PUBLISH_PLATFORM.keys())
-			expect([id, FIRST_PUBLISH_CHANGES[id].scope]).toEqual([
+			expect([
 				id,
-				"declaration",
-			]);
+				FIRST_PUBLISH_CHANGES[id as CurrentFirstPublishChangeId].scope,
+			]).toEqual([id, "declaration"]);
 	});
 
 	it("maps every generated node's purpose to the entry that declares it, a guard to none", () => {
@@ -1772,13 +1773,15 @@ describe("over CommCare HQ's retained sources", () => {
 				const stored = written.firstPublish.list;
 				expect(stored.of).toBe("first-publish");
 				expect(firstPublishViewFromStored(stored, facts.doc)).toEqual(view);
-				const moving = new Set<CurrentFirstPublishChangeId>([
+				const moving = new Set<FirstPublishChangeId>([
 					"web-apps-turned-off",
 					"web-apps-turned-on",
 					...FIRST_PUBLISH_PLATFORM.keys(),
 				]);
 				const recorded = [...FIRST_PUBLISH_PLATFORM.keys()].filter((id) =>
-					FIRST_PUBLISH_CHANGES[id].recorded?.(reading.draft.facts),
+					FIRST_PUBLISH_CHANGES[id as CurrentFirstPublishChangeId].recorded?.(
+						reading.draft.facts,
+					),
 				);
 				for (const runsOnlyOn of ["android", "web-apps", undefined] as const) {
 					const other = firstPublishViewFromStored(stored, {

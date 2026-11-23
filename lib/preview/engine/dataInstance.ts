@@ -1,5 +1,5 @@
 import {
-	type fieldBindType,
+	fieldBindType,
 	fieldKindBindType,
 } from "@/lib/commcare/xform/bindType";
 import type { XFormDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
