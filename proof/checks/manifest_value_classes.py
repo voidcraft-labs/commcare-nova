@@ -1267,6 +1267,32 @@ def label_text_missing_in_default(use, manifest):
     return form.default_translation is not None and form.default_translation not in values
 
 
+def long_on_container_label(use, manifest):
+    """``questions/long-form-on-a-group-or-repeat-label``: a ``long`` value of a text a group's or repeat's label
+    names, which both runtimes show as the group's header (Android ``QuestionsView.java`` reads the group's
+    ``getLongText()``; Formplayer sends it as the caption, ``PromptToJson``) and which Nova holds no slot for yet. A
+    label names the text Vellum's ``getITextID`` reads in its ``ref`` (``_itext_id``), over the structure HQ's XPath
+    grammar reads; a label whose ``ref`` the records hold no structure of leaves the use unplaced: None."""
+    form, value = _itext_value(use)
+    if form is None:
+        return None
+    if value is None or value.get("form") != "long":
+        return False
+    text_id = value.getparent().get("id")
+    unplaced = False
+    for element in form.body.iter() if form.body is not None else ():
+        if not isinstance(element.tag, str) or _local(element) != "label":
+            continue
+        if _local(element.getparent()) not in ("group", "repeat") or element.get("ref") is None:
+            continue
+        tree = form.tree(element.get("ref"))
+        if tree is None:
+            unplaced = True
+        elif _itext_id(tree) == text_id:
+            return True
+    return None if unplaced else False
+
+
 def media_blank_beside_file(use, manifest):
     """``questions/empty-media-form-beside-a-translated-file``: an image, audio or video value of a text one
     translation holds blank and another holds a file of. Vellum's save fills the blank one from the file
@@ -9725,6 +9751,7 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
     "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
+    "questions/long-form-on-a-group-or-repeat-label": long_on_container_label,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
