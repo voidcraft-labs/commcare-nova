@@ -39,7 +39,7 @@ from lxml import etree
 
 from proof.checks.compare.app_strings import is_locale_file_key
 from proof.checks.compare.names import nova_name
-from proof.observe.manifest import CSQL_HOLES
+from proof.observe.manifest import CSQL_HOLES, form_language_profiles
 from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -144,6 +144,7 @@ class Form:
         self.artifact = artifact
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
+        self.scans = {}  # per-language-profile readings from HQ's pre-factory pipeline
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
         # The suites (their roots) whose entries open the form, where the check reads any: HQ's builds of an app
         # JSON's upload, or a local archive's own suite (``manifest_usage.link_entry_suites``).
@@ -151,9 +152,18 @@ class Form:
 
     @cached_property
     def scanned_instance_ids(self):
-        """Names visible to HQ's get_instance_names over XForm.render(), including text outside the slot."""
-        names = scanned_instance_names(etree.tostring(self.root, encoding="unicode"))
-        # A declared inline instance blocks a same-named missing-instance factory, too.
+        """The names HQ actually scanned on every installed language profile of this source."""
+        if self.app_form is None:
+            return set()
+        from proof.checks.manifest_usage import ObservationMissing
+
+        app, _ = self.app_form
+        sets = []
+        for key in form_language_profiles(app.doc):
+            if key not in self.scans:
+                raise ObservationMissing(f"The manifest observation lacks the built form instance scan for {self.artifact}, languages {key}")
+            sets.append(set(self.scans[key].get("names", [])))
+        names = set.intersection(*sets) if sets else set()
         if self.model is not None:
             names -= {element.get("id") for element in self.model if element.tag in ("instance", f"{{{XFORMS}}}instance")}
         return names

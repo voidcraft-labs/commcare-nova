@@ -1,5 +1,4 @@
-import { decodeHTML } from "entities";
-import { formInstanceSources } from "../../xpath/instanceSources";
+import { builtFormInstanceSources } from "./buildInstances";
 /**
  * The form reader: each form's source read into the draft's fields (stage 3),
  * then each field minted in document order and its expressions registered for
@@ -409,10 +408,10 @@ function readForm(
 	);
 	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
-	const readSources = formInstanceSources(
+	const readSources = builtFormInstanceSources(
+		parsed,
+		ctx.input.source,
 		instanceSources,
-		decodeHTML(source),
-		new Set(parsed.instances.map(({ id }) => id)),
 	);
 	const carrierInstances = new Set<string>();
 	const controls = readControls({

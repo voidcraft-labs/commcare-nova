@@ -79,7 +79,7 @@ import {
 } from "../../validator/rules/displayConditions";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
-import { formInstanceSources } from "../../xpath/instanceSources";
+import { instanceSourcesAfterScan } from "../../xpath/instanceSources";
 import { noteProperty } from "../caseManagement/catalog";
 import { type HandOffKind, sameJson } from "../jsonCursor";
 import {
@@ -2186,7 +2186,7 @@ function readBack(
 		printEnv = {
 			...env,
 			formReadSources: new Map([
-				[form, formInstanceSources(declarations, text)],
+				[form, instanceSourcesAfterScan(declarations, { xmlValue: text })],
 			]),
 		};
 	}

@@ -75,6 +75,35 @@ describe("reading an HQ form with named table data", () => {
 		}
 	});
 
+	it.each(["label", "editor", "comment"] as const)(
+		"uses only the delivered XForm to resolve lookup choices at %s",
+		async (site) => {
+			const canonical = "instance('item-list:zones')";
+			const grouped = "instance((('item-list:zones')))";
+			const result = await reading("zones", "label", {
+				xml(source) {
+					const form = source
+						.replace(
+							/<instance[^>]*src="jr:\/\/fixture\/item-list:zones"[^>]*\/>/,
+							"",
+						)
+						.replace(/instance\((?:&apos;|')zones(?:&apos;|')\)/g, grouped);
+					if (site === "comment")
+						return form.replace("<model>", `<model><!-- ${canonical} -->`);
+					if (site === "editor")
+						return form.replace(
+							/nodeset="([^"]*item-list:zones[^"]*)"/,
+							(_, value: string) =>
+								`nodeset="${value}" vellum:nodeset="${value.replace(grouped, canonical)}"`,
+						);
+					return form.replaceAll(">Site<", `>Look up ${canonical}<`);
+				},
+			});
+			expect(result.defects).toEqual([]);
+			expect(result.kind).toBe(site === "label" ? "read" : "account");
+		},
+	);
+
 	it("keeps grouped fixture references scoped to the form’s suite entry", async () => {
 		const rows = "instance((('item-list:zones')))/zones_list/zones";
 		const ordinary = "instance('item-list:zones')/zones_list/zones";
