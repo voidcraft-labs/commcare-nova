@@ -15241,6 +15241,14 @@
 					{
 						"value": "south",
 						"label": "South"
+					},
+					{
+						"value": "",
+						"label": "Unspecified"
+					},
+					{
+						"value": "east bank",
+						"label": "East Bank"
 					}
 				]
 			}
@@ -38125,7 +38133,7 @@
 		"id": "hq-case-lists/unavailable-case-context-line",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/form-context-expression-outside-its-case-scope",
-		"standing": "fix-in-hq",
+		"standing": "never",
 		"place": {
 			"kind": "case-list",
 			"menu": 0,
@@ -38140,7 +38148,7 @@
 		"id": "hq-case-lists/tab-predicate-outside-its-menu",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/tab-display-condition-outside-its-case-scope",
-		"standing": "fix-in-hq",
+		"standing": "never",
 		"place": {
 			"kind": "case-detail",
 			"menu": 0,
@@ -38199,7 +38207,7 @@
 		"id": "hq-case-lists/scalar-in-place-of-tab-records",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
-		"standing": "fix-in-hq",
+		"standing": "never",
 		"place": {
 			"kind": "case-detail",
 			"menu": 0,

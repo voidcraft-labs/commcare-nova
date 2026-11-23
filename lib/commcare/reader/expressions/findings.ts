@@ -1958,6 +1958,29 @@ function namesIn(node: FormSyntax | undefined): {
  *  form declares it from where it declares one, then by the scheme of its id.
  *  A declared source outside every scheme is the unrecognized-source entry;
  *  an undeclared id outside every scheme the undeclared-id entry. */
+/** The entry an instance id no scheme names, declared by no source, reads under. */
+const UNKNOWN_SCHEME_INSTANCE =
+	C[
+		"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
+	].entry;
+
+/** The REFUSED class of a case detail's or a form context's expression that cannot be bound to
+ *  the selected case, by its slot; undefined for any other slot. */
+function caseScopedSlotEntry(slot: string): string | undefined {
+	switch (slot) {
+		case "case_detail_tab_condition":
+			return C["tab-condition-outside-scope"].entry;
+		case "case_detail_tab_rows":
+			return C["tab-custom-rows-outside"].entry;
+		case "case_detail_tab_filter":
+			return C["tab-child-filter-outside"].entry;
+		case "case_form_context_line":
+			return C["form-context-value-outside"].entry;
+		default:
+			return undefined;
+	}
+}
+
 function instanceEntry(
 	id: string | undefined,
 	sources: ReadonlyMap<string, string> | undefined,
@@ -1968,12 +1991,7 @@ function instanceEntry(
 			schemeEntry(sourceSchemeId(src)) ??
 			C["declared-and-referenced-instance-with-an-unrecognized-src"].entry
 		);
-	return (
-		schemeEntry(id) ??
-		C[
-			"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
-		].entry
-	);
+	return schemeEntry(id) ?? UNKNOWN_SCHEME_INSTANCE;
 }
 
 const TABLE_ID = "item-list:";
@@ -2269,15 +2287,7 @@ export function parseIssueEntry(
 				return answer(C["mapping-condition-untyped"].entry);
 			// So is a case detail's or a form context's expression: no condition, rows or
 			// value of the selected case (`manifest_value_classes.py::_scoped_verdict`).
-			if (ref.slot === "case_detail_tab_condition")
-				return answer(C["tab-condition-outside-scope"].entry);
-			if (ref.slot === "case_detail_tab_rows")
-				return answer(C["tab-custom-rows-outside"].entry);
-			if (ref.slot === "case_detail_tab_filter")
-				return answer(C["tab-child-filter-outside"].entry);
-			if (ref.slot === "case_form_context_line")
-				return answer(C["form-context-value-outside"].entry);
-			return answer("unrecognized");
+			return answer(caseScopedSlotEntry(ref.slot) ?? "unrecognized");
 		case "unknown-hashtag":
 			return bindAscii
 				? answer(C["an-invalid-xpath-in-a-bind-attribute"].entry)
@@ -2372,6 +2382,12 @@ export function parseIssueEntry(
 		case "instance-unknown": {
 			const { strings } = namesIn(spanned());
 			const entry = instanceEntry(strings[0], form.instanceSources);
+			// An instance no scheme names, read by a case detail's or a form context's
+			// expression, leaves it unbound to the selected case: the slot's own class, whose
+			// entry names an unresolved instance among its causes.
+			const scoped = caseScopedSlotEntry(ref.slot);
+			if (scoped !== undefined && entry === UNKNOWN_SCHEME_INSTANCE)
+				return answer(scoped);
 			// A Search field's own slots run while the query is built, where
 			// the legacy id reads: Nova holds no such read, for a reason of its
 			// own.

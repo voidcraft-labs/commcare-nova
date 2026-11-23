@@ -1205,6 +1205,55 @@ describe("a detail's callout and tabs", () => {
 			`${M}tab-display-condition-outside-its-case-scope`,
 		);
 	});
+	// The variants `hq-case-lists/tab-predicate-outside-its-menu`, `unavailable-case-context-line`
+	// and `scalar-in-place-of-tab-records` exhibit these: the refusal is the slot's own class, and
+	// the list the menu's details hold back is no second, unrecognized difference.
+	it.each([
+		[
+			"a tab condition reading an instance no scheme names",
+			{ relevant: "instance('unknown-roster')/rows/row" },
+			`${M}tab-display-condition-outside-its-case-scope`,
+		],
+		[
+			"records rows that are no collection",
+			{ has_nodeset: true, nodeset: "'a scalar'" },
+			`${M}detail-tab-without-a-resolvable-row-source`,
+		],
+	] as const)(
+		"refuses %s as the tab's own class and nothing else",
+		async (_name, extra, entry) => {
+			const result = await readDetails((_short, long) => {
+				long.tabs = [
+					{
+						doc_type: "DetailTab",
+						header: { en: "Main" },
+						starting_index: 0,
+						...extra,
+					},
+				];
+			}, false);
+			expect(closedCodes(result)).toEqual([entry]);
+		},
+	);
+	it("refuses a form context line reading an instance no scheme names as the line's own class", async () => {
+		const result = await readDetails((short) => {
+			Object.assign(short, {
+				persist_case_context: true,
+				persistent_case_context_xml: "instance('unknown-roster')/rows/row",
+			});
+		}, false);
+		expect(closedCodes(result)).toEqual([
+			`${M}form-context-expression-outside-its-case-scope`,
+		]);
+	});
+	it("reads a form context source menu that holds no tile as the setting no build reads", async () => {
+		// `hq-case-lists/form-context-menu-without-a-tile`: the list names itself, which has no tile.
+		const result = await readDetails((short, _long, app) => {
+			short.persistent_case_tile_from_module = app.modules[0]?.unique_id;
+		}, false);
+		expect(closedCodes(result)).toEqual([]);
+		expect(listOf(result).contextAboveForm).toBeUndefined();
+	});
 	it("refuses columns above the first tab without reporting supported child tabs", async () => {
 		const reading = await readDetails((_short, long) => {
 			long.tabs = [

@@ -62,6 +62,7 @@ import {
 	type CaseListReading,
 	caseListReadings,
 	displayNames,
+	dormantFormContextSource,
 	readCaseDetails,
 	readColumnVia,
 	sameState,
@@ -933,7 +934,13 @@ function listDifference(
 		"persistent_case_tile_from_module",
 		"pull_down_tile",
 	] as const) {
-		const a = reading.short.peek(key);
+		const stored = reading.short.peek(key);
+		// A source menu with no tile is a setting no build reads, dropped as inert.
+		const a =
+			key === "persistent_case_tile_from_module" &&
+			dormantFormContextSource(ctx, stored)
+				? null
+				: stored;
 		const b = pair.short[key];
 		if ((a ?? null) !== (b ?? null) && !(off(a) && off(b)))
 			return `schema:Detail.${key}`;
@@ -1172,7 +1179,13 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 			);
 			continue;
 		}
-		if (difference !== undefined && !ctx.accounting.hasFindingAt(place))
+		// A finding at the menu's list or case detail is the difference's cause: what it refused
+		// the document does not hold, so the projection writes it back otherwise.
+		if (
+			difference !== undefined &&
+			!ctx.accounting.hasFindingAt(place) &&
+			!ctx.accounting.hasFindingAt({ ...place, kind: "case-detail" })
+		)
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
 	}
 }

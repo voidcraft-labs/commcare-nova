@@ -787,6 +787,28 @@ export interface CaseListReading {
 
 const READINGS = new WeakMap<ReadContext, Map<Uuid, CaseListReading>>();
 
+/** Whether a short detail's `persistent_case_tile_from_module` names a menu whose list holds no
+ *  tile: Core's `EntriesHelper` finds that menu, then uses the selecting menu's own tile or line,
+ *  so the setting changes no build (`existing-form-context-source-with-no-tile`, INERT). A menu
+ *  that is missing is no such source: HQ raises on it. */
+export function dormantFormContextSource(
+	ctx: ReadContext,
+	sourceId: unknown,
+): boolean {
+	if (typeof sourceId !== "string" || !sourceId) return false;
+	const source = ctx.draft.modules.find((menu) => menu.uniqueId === sourceId);
+	const details = source?.json.peek("case_details");
+	const sourceShort =
+		isJsonObject(details) && isJsonObject(details.short)
+			? details.short
+			: undefined;
+	return (
+		source !== undefined &&
+		!sourceShort?.case_tile_template &&
+		!sourceShort?.custom_xml
+	);
+}
+
 /** The case list each menu's first pass read, by the menu's uuid. */
 export function caseListReadings(
 	ctx: ReadContext,
@@ -1741,11 +1763,7 @@ export function readCaseDetails(
 			isJsonObject(details) && isJsonObject(details.short)
 				? details.short
 				: undefined;
-		if (
-			source &&
-			!sourceShort?.case_tile_template &&
-			!sourceShort?.custom_xml
-		) {
+		if (dormantFormContextSource(ctx, sourceId)) {
 			// EntriesHelper finds the named menu, then uses this menu's own
 			// tile or line. A missing menu is a different outcome: HQ raises.
 			short.drop("persistent_case_tile_from_module", D.dormantMenu);
