@@ -1154,6 +1154,10 @@ const USER_MESSAGE_BY_CODE: Record<
 			`The records on ${q(String(e.details?.tabTitle ?? "this tab"))}`,
 		) ??
 		`The records on ${q(String(e.details?.tabTitle ?? "a Details tab"))} in ${q(modName(e))} can't be shown here. You can choose them again in Details.`,
+	CASE_DETAIL_TABS_INVALID: (e) =>
+		det(e, "reason", "") === "order-fields"
+			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab orders its rows by a field it can't use. You can open Edit tabs and choose its ordering fields again.`
+			: `The Details tabs of ${q(modName(e))} no longer match the fields shown in Details. You can open Edit tabs and save the tabs again.`,
 	CASE_DETAIL_TAB_CONDITION_INVALID: (e) =>
 		recordFindingCopy(
 			e,

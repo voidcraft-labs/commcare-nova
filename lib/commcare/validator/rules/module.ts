@@ -32,6 +32,7 @@ import { columnRelation } from "./case-list/columnRelation";
 import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { dateColumnPattern } from "./case-list/dateColumnPattern";
+import { detailTabPartition } from "./case-list/detailTabPartition";
 import { detailTabTypeCheck } from "./case-list/detailTabTypeCheck";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { idMappingKeyCharacters } from "./case-list/idMappingKeyCharacters";
@@ -320,6 +321,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
 	detailTabTypeCheck,
+	detailTabPartition,
 	caseFormContext,
 	imageMapValueUnique,
 	idMappingKeyCharacters,

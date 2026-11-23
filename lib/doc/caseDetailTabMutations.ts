@@ -108,6 +108,12 @@ export function planDetailTabGroups(
 			tab.displayCondition = group.displayCondition;
 		if (group.rowSource === null) delete tab.rowSource;
 		else if (group.rowSource !== undefined) tab.rowSource = group.rowSource;
+		const orderable = (uuid: Uuid) =>
+			config.columns.some(
+				(column) =>
+					column.uuid === uuid &&
+					(column.kind === "plain" || column.kind === "calculated"),
+			);
 		if (
 			group.orderFields &&
 			(new Set(group.orderFields).size !== group.orderFields.length ||
@@ -118,16 +124,22 @@ export function planDetailTabGroups(
 				error:
 					"Ordering fields must each belong to this tab and have a list of records to order.",
 			};
-		if (
-			group.orderFields === null ||
-			group.orderFields?.length === 0 ||
-			!tab.rowSource
-		)
-			delete tab.orderFields;
-		else if (group.orderFields !== undefined)
-			tab.orderFields = group.fields.filter((uuid) =>
-				group.orderFields?.includes(uuid),
-			);
+		if (group.orderFields?.some((uuid) => !orderable(uuid)))
+			return {
+				error:
+					"A tab of records orders its rows by text or calculated fields. Choose those fields to order by.",
+			};
+		// Left out, a tab keeps its ordering fields that are still its own
+		// and can still order, in its new Details order.
+		const wanted =
+			group.orderFields === undefined
+				? (tab.orderFields ?? [])
+				: (group.orderFields ?? []);
+		const orderFields = group.fields.filter(
+			(uuid) => wanted.includes(uuid) && orderable(uuid),
+		);
+		if (orderFields.length === 0 || !tab.rowSource) delete tab.orderFields;
+		else tab.orderFields = orderFields;
 		tabs.push(tab);
 	}
 	let index = 0;
