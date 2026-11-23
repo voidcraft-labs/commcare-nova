@@ -796,11 +796,6 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "Nova is reading other apps from CommCare HQ right now and ran out of room to read {app} as well, so it stopped. Nothing was changed, in Nova or in CommCare HQ.",
 		next: "You can check again in a minute or two.",
 	},
-	"lookup-data-too-large": {
-		title: "This app reads more lookup data than Nova brings in",
-		body: "{app} reads more lookup data than Nova brings in. That limit is Nova's, not the app's.",
-		next: "There is nothing for you to change in the app. If you'd like Nova to bring in an app with this much lookup data, you can tell the team through Give feedback in Nova's account menu.",
-	},
 	"too-large": {
 		title: "This app is larger than Nova brings in",
 		body: "{app} is larger than the apps Nova brings in. That limit is Nova's, not the app's.",

@@ -23,12 +23,12 @@ import {
 } from "@/lib/commcare/reader/caseList/__tests__/fixtures";
 import { plainColumn } from "@/lib/domain";
 import {
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_ROW_BYTES,
-	LOOKUP_MAX_TABLE_BYTES,
 } from "@/lib/lookup/constants";
 import {
 	type LookupRowsMeasure,
-	lookupCapExcess,
+	lookupInlineCopyExcess,
 } from "@/lib/lookup/managedRules";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { managedLookupContentOf } from "../lookupTables";
@@ -125,9 +125,9 @@ function read(
 }
 
 describe("readReadingProjectData", () => {
-	it("holds a table tagged __proto__ to both byte caps", async () => {
+	it("holds a table tagged __proto__ to both bounds of one inline copy", async () => {
 		const measure = {
-			dataBytes: LOOKUP_MAX_TABLE_BYTES + 1,
+			dataBytes: LOOKUP_MAX_CHANGE_BYTES + 1,
 			largestRowBytes: LOOKUP_MAX_ROW_BYTES + 1,
 		};
 		const table = {
@@ -167,11 +167,14 @@ describe("readReadingProjectData", () => {
 		const [proto] = answer.data.gathered.tables;
 		if (proto?.read.kind !== "read") throw new Error("__proto__ was not read");
 		/* Postgres's measure of `__proto__` is found under its own tag, never
-		 * the prototype's: both of its caps pass, so the table comes in as a
+		 * the prototype's: it is past both bounds of one inline copy, so the table comes in as a
 		 * reference to its source with no rows held inline (section 1C),
 		 * rather than as the one row the list served. */
 		expect(
-			lookupCapExcess(managedLookupContentOf(proto.read.table, [row]), measure),
+			lookupInlineCopyExcess(
+				managedLookupContentOf(proto.read.table, [row]),
+				measure,
+			),
 		).toHaveLength(2);
 		expect(proto.findings).toEqual([]);
 		expect(proto.read.rows).toEqual([]);

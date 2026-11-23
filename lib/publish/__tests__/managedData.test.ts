@@ -82,15 +82,9 @@ const READINGS: Record<
 			copy.managedTableUnsupported(copy.holdsColumnNamed("2nd name")),
 		],
 	},
-	managedTableOverCap: {
+	managedTablePastInlineRead: {
 		kind: "sentence",
-		texts: [
-			copy.managedTableOverCap(["6,000 rows (Nova takes 5,000)"]),
-			copy.managedTableOverCap([
-				"6,000 rows (Nova takes 5,000)",
-				"300 columns (Nova takes 250)",
-			]),
-		],
+		texts: [copy.managedTablePastInlineRead],
 	},
 	managedLookupTableRefusal: {
 		kind: "sentence",
@@ -470,17 +464,9 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.managedTableManyValuesItem("districts")],
 	},
-	managedTableOverCapItem: {
+	managedTablePastInlineItem: {
 		kind: "sentence",
-		texts: [
-			copy.managedTableOverCapItem("districts", [
-				"6,000 rows (Nova takes 5,000)",
-			]),
-			copy.managedTableOverCapItem("districts", [
-				"6,000 rows (Nova takes 5,000)",
-				"9 MB of rows (Nova takes 8 MB in one table)",
-			]),
-		],
+		texts: [copy.managedTablePastInlineItem("districts")],
 	},
 	MANAGED_TABLE_NO_COLUMNS: {
 		kind: "sentence",
@@ -838,14 +824,9 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 	});
 
-	it("joins the caps' phrases with and", () => {
-		expect(
-			copy.managedTableOverCap([
-				"6,000 rows (Nova takes 5,000)",
-				"300 columns (Nova takes 250)",
-			]),
-		).toBe(
-			"This table now has 6,000 rows (Nova takes 5,000) and 300 columns (Nova takes 250) in CommCare HQ. Nova kept its copy as it was.",
+	it("offers a large table's refresh, never a shorter table", () => {
+		expect(copy.managedTablePastInlineItem("districts")).toBe(
+			"districts may have changed in CommCare HQ since Nova last refreshed it, and it's larger than a publish reads at once. You can refresh it from its Project data page, then publish again.",
 		);
 	});
 

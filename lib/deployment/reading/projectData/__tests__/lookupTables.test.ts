@@ -203,8 +203,6 @@ function withCell(
 	});
 }
 
-const NO_MEASURE = null;
-
 /** A character XML 1.0 cannot carry. */
 const NOT_A_CHARACTER = String.fromCharCode(0xffff);
 
@@ -361,10 +359,8 @@ describe("columnLabelFor", () => {
 });
 
 describe("lookupTableFindings", () => {
-	it("finds nothing in a plain table within every cap", () => {
-		expect(
-			lookupTableFindings(plain(), { dataBytes: 100, largestRowBytes: 60 }),
-		).toEqual([]);
+	it("finds nothing in a plain table", () => {
+		expect(lookupTableFindings(plain())).toEqual([]);
 	});
 
 	it("keeps verified rich fields and row details", () => {
@@ -374,110 +370,46 @@ describe("lookupTableFindings", () => {
 			itemAttributes: { zone: index === 0 ? "upland" : "coastal" },
 		}));
 		expect(
-			lookupTableFindings(
-				readOf({ ...richTable, isGlobal: true }, rows),
-				NO_MEASURE,
-			),
+			lookupTableFindings(readOf({ ...richTable, isGlobal: true }, rows)),
 		).toEqual([]);
 		expect(
-			lookupTableFindings(
-				readOf({ ...richTable, isGlobal: true }, richRows),
-				NO_MEASURE,
-			),
+			lookupTableFindings(readOf({ ...richTable, isGlobal: true }, richRows)),
 		).toHaveLength(1);
 	});
 
-	const CAPS =
-		"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64";
-	const within = { dataBytes: 0, largestRowBytes: 0 };
-
-	it("judges each cap exactly at it and one over it", () => {
+	it("finds no size of a table: one past every bound of an inline copy comes in as its definition", () => {
 		const row = plainRows[0];
 		const rows = (n: number) => Array.from({ length: n }, () => row);
-		expect(lookupTableFindings(plain({ rows: rows(5_000) }), within)).toEqual(
-			[],
-		);
-		expect(
-			names(lookupTableFindings(plain({ rows: rows(5_001) }), within)),
-		).toEqual([[CAPS, "plain: 5,001 rows (Nova takes 5,000)"]]);
-
 		const fields = (n: number) =>
 			Array.from({ length: n }, (_, index) => `f${index}`);
+		expect(lookupTableFindings(plain({ rows: rows(5_001) }))).toEqual([]);
+		expect(
+			lookupTableFindings(plain({ table: { fields: fields(251) }, rows: [] })),
+		).toEqual([]);
 		expect(
 			lookupTableFindings(
-				plain({ table: { fields: fields(250) }, rows: [] }),
-				within,
+				plain({
+					rows: withCell(plainRows, 0, "name", "x".repeat(64 * 1024 + 1)),
+				}),
 			),
 		).toEqual([]);
 		expect(
-			names(
-				lookupTableFindings(
-					plain({ table: { fields: fields(251) }, rows: [] }),
-					within,
-				),
-			),
-		).toEqual([[CAPS, "plain: 251 columns (Nova takes 250)"]]);
-
-		const cell = (bytes: number) =>
-			withCell(plainRows, 0, "name", "x".repeat(bytes));
-		expect(
-			lookupTableFindings(plain({ rows: cell(64 * 1024) }), within),
-		).toEqual([]);
-		expect(
-			names(lookupTableFindings(plain({ rows: cell(64 * 1024 + 1) }), within)),
-		).toEqual([
-			[CAPS, "plain: a value of 64.1 KB (Nova takes 64 KB in one cell)"],
-		]);
-
-		expect(
-			lookupTableFindings(plain(), {
-				dataBytes: 0,
-				largestRowBytes: 256 * 1024,
+			lookupTableFindings({
+				kind: "over-row-limit",
+				table: plainTable,
+				totalCount: 12_400,
 			}),
 		).toEqual([]);
 		expect(
-			names(
-				lookupTableFindings(plain(), {
-					dataBytes: 0,
-					largestRowBytes: 256 * 1024 + 1,
-				}),
-			),
-		).toEqual([
-			[CAPS, "plain: a row of 256.1 KB (Nova takes 256 KB in one row)"],
-		]);
-
-		expect(
-			lookupTableFindings(plain(), {
-				dataBytes: 8 * 1024 * 1024,
-				largestRowBytes: 0,
-			}),
+			lookupTableFindings({ kind: "over-byte-limit", table: plainTable }),
 		).toEqual([]);
-		expect(
-			names(
-				lookupTableFindings(plain(), {
-					dataBytes: 8 * 1024 * 1024 + 1,
-					largestRowBytes: 0,
-				}),
-			),
-		).toEqual([[CAPS, "plain: 8.1 MB of rows (Nova takes 8 MB in one table)"]]);
-	});
-
-	it("gives a table over the row limit the rows cap alone, with CommCare HQ's total", () => {
-		expect(
-			names(
-				lookupTableFindings(
-					{ kind: "over-row-limit", table: plainTable, totalCount: 12_400 },
-					NO_MEASURE,
-				),
-			),
-		).toEqual([[CAPS, "plain: 12,400 rows (Nova takes 5,000)"]]);
 	});
 
 	it("says rows CommCare HQ could not send are a fact of the project space", () => {
-		const findings = lookupTableFindings(
-			{ kind: "rows-unreadable", table: plainTable },
-			NO_MEASURE,
-		);
+		const findings = lookupTableFindings({
+			kind: "rows-unreadable",
+			table: plainTable,
+		});
 		expect(findings).toEqual([
 			{
 				code: "table-rows-unreadable",
@@ -491,7 +423,7 @@ describe("lookupTableFindings", () => {
 
 	it("judges the tag", () => {
 		const tagged = (tag: string) =>
-			names(lookupTableFindings(plain({ table: { tag } }), within));
+			names(lookupTableFindings(plain({ table: { tag } })));
 		expect(tagged("Types")).toEqual([
 			["expressions-and-data/tag-types", "types"],
 		]);
@@ -514,9 +446,7 @@ describe("lookupTableFindings", () => {
 
 	it("judges each field name, and two fields of one name", () => {
 		const fielded = (fields: readonly string[]) =>
-			names(
-				lookupTableFindings(plain({ table: { fields }, rows: [] }), within),
-			);
+			names(lookupTableFindings(plain({ table: { fields }, rows: [] })));
 		expect(fielded(["code", "first.name", "nombre_ñ", "名前"])).toEqual([]);
 		expect(fielded(["code", "has space"])).toEqual([
 			["unrecognized", "has space"],
@@ -539,7 +469,7 @@ describe("lookupTableFindings", () => {
 		const table = crafted.find((one) => one.tag === "plain");
 		if (table === undefined) throw new Error("the crafted list lost plain");
 		expect(table.fields).toEqual(["code", "name", "code", "name", "name"]);
-		const findings = lookupTableFindings(readOf(table, plainRows), within);
+		const findings = lookupTableFindings(readOf(table, plainRows));
 		expect(names(findings)).toEqual([
 			["table-field-repeated", "plain (the field code)"],
 			["table-field-repeated", "plain (the field name)"],
@@ -556,7 +486,6 @@ describe("lookupTableFindings", () => {
 		);
 		const findings = lookupTableFindings(
 			plain({ table: { tag: "Types" }, rows }),
-			NO_MEASURE,
 		);
 		expect(names(findings)).toEqual([
 			["expressions-and-data/tag-types", "types"],
@@ -570,7 +499,6 @@ describe("lookupTableFindings", () => {
 		for (const rows of [[], plainRows]) {
 			const findings = lookupTableFindings(
 				plain({ table: { fields: [] }, rows }),
-				within,
 			);
 			expect(names(findings)).toEqual([["table-has-no-fields", "plain"]]);
 			expect(findings[0]).toMatchObject({ standing: "fix-in-hq" });
@@ -1542,7 +1470,7 @@ describe("readingProjectDataFindingsFor, a table's rows as a question's choices"
 				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 				"gone",
 			],
-			...names(lookupTableFindings(readOf(richTable, richRows), NO_MEASURE)),
+			...names(lookupTableFindings(readOf(richTable, richRows))),
 		]);
 	});
 

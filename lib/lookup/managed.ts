@@ -21,14 +21,10 @@ import {
 	type ManagedLookupMemberIds,
 } from "./authoringBatch";
 import { validateLookupRowValues } from "./coercion";
-import {
-	LOOKUP_MAX_COLUMNS,
-	LOOKUP_MAX_ROW_BYTES,
-	LOOKUP_MAX_TABLE_BYTES,
-} from "./constants";
+import { LOOKUP_MAX_CHANGE_BYTES, LOOKUP_MAX_COLUMNS } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
-import { formatLookupBytes, formatLookupBytesOverCap } from "./format";
+import { formatLookupBytesOverCap } from "./format";
 import { availableBulkSlot, lockLookupBudget } from "./generations/budget";
 import { materializeGeneration } from "./generations/materialize";
 import type { InventoryAccess } from "./generations/scope";
@@ -40,10 +36,10 @@ import { bindManagedMembers } from "./managedMembers";
 import {
 	columnLabelFor,
 	type LookupRowsMeasure,
-	lookupCapExcess,
+	lookupInlineCopyExcess,
 	type ManagedLookupContent,
 	managedCanonicalSchema,
-	managedLookupCapRefusal,
+	managedLookupInlineCopyRefusal,
 } from "./managedRules";
 import { readTableMembers, updateLookupMembers } from "./members";
 import { balancedKeysBetween } from "./orderKeys";
@@ -467,7 +463,7 @@ export async function measureLookupRows(
 	return measureWith(await getAppDb(), rows, contents);
 }
 
-/** The caps, judged before anything is written; `storage_limit` names each one the table is over. */
+/** One inline copy's bounds, judged before anything is written; `storage_limit` names each one the copy is past. */
 async function holdCaps(
 	tx: Transaction<AppDatabase>,
 	tag: string,
@@ -475,43 +471,27 @@ async function holdCaps(
 	rows: readonly LookupRowValues[],
 	contents?: readonly LookupRowContent[],
 ): Promise<void> {
-	const excess = lookupCapExcess(
+	const excess = lookupInlineCopyExcess(
 		content,
 		await measureWith(tx, rows, contents),
 	);
 	if (excess.length > 0) {
 		throw new LookupError(
 			"storage_limit",
-			managedLookupCapRefusal(tag, excess),
+			managedLookupInlineCopyRefusal(tag, excess),
 		);
 	}
 }
 
-function storageFloor(tag: string, dataBytes: number): never {
+/** The copy Postgres measured once written is more than one inline copy
+ * writes: the transaction rolls back, and a paged refresh takes the table. */
+function pastInlineCopy(tag: string, dataBytes: number): never {
 	throw new LookupError(
 		"storage_limit",
-		managedLookupCapRefusal(tag, [
-			`${formatLookupBytesOverCap(dataBytes)} of rows (Nova takes ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)} in one table)`,
+		managedLookupInlineCopyRefusal(tag, [
+			`${formatLookupBytesOverCap(dataBytes)} of rows`,
 		]),
 	);
-}
-
-/** A row over the stored-row CHECK is the same cap the measure judged, met at the insert. */
-function translateRowCheck(tag: string, error: unknown): never {
-	const shape = error as { code?: unknown; constraint?: unknown };
-	if (
-		shape.code === "23514" &&
-		shape.constraint === "lookup_rows_value_bytes_check"
-	) {
-		throw new LookupError(
-			"storage_limit",
-			managedLookupCapRefusal(tag, [
-				`a row over ${formatLookupBytes(LOOKUP_MAX_ROW_BYTES)} (Nova takes ${formatLookupBytes(LOOKUP_MAX_ROW_BYTES)} in one row)`,
-			]),
-			{ cause: error },
-		);
-	}
-	throw error;
 }
 
 function originColumns(
@@ -666,55 +646,49 @@ export async function createManagedLookupTablesInTransaction(
 	);
 	const receipts = [];
 	for (const table of prepared) {
-		try {
-			receipts.push(
-				await createTable(
-					tx,
-					scope,
-					nextRevision,
-					{
-						key: table.tag,
-						name: table.name,
-						tag: table.tag,
-						attributes: table.attributes,
-						columns: table.columns.map((column) => ({
-							key: column.wireName,
-							wireName: column.wireName,
-							label: column.label,
-							dataType: column.dataType,
-							repeated: column.repeated,
-							properties: column.properties
-								? [...column.properties]
-								: undefined,
-						})),
-						rows: table.content.rows.map((row, index) => ({
-							key: `row-${index}`,
-							content: table.content.rowDetails?.[index],
-							cells: table.content.fields.flatMap((field) =>
-								Object.hasOwn(row, field)
-									? [{ columnKey: field, value: row[field] }]
-									: [],
-							),
-						})),
-					},
-					{
-						tableId: table.tableId,
-						columnIds: table.columns.map((column) => column.id),
-						memberIds: table.memberIds,
-						sourceRows: table.content.rowDetails,
-						fieldIndexes: Object.fromEntries(
-							table.columns.map((column) => [
-								column.wireName,
-								column.index ?? "off",
-							]),
+		receipts.push(
+			await createTable(
+				tx,
+				scope,
+				nextRevision,
+				{
+					key: table.tag,
+					name: table.name,
+					tag: table.tag,
+					attributes: table.attributes,
+					columns: table.columns.map((column) => ({
+						key: column.wireName,
+						wireName: column.wireName,
+						label: column.label,
+						dataType: column.dataType,
+						repeated: column.repeated,
+						properties: column.properties ? [...column.properties] : undefined,
+					})),
+					rows: table.content.rows.map((row, index) => ({
+						key: `row-${index}`,
+						content: table.content.rowDetails?.[index],
+						cells: table.content.fields.flatMap((field) =>
+							Object.hasOwn(row, field)
+								? [{ columnKey: field, value: row[field] }]
+								: [],
 						),
-					},
-					originColumns(scope, table.origin, at),
-				),
-			);
-		} catch (error) {
-			translateRowCheck(table.tag, error);
-		}
+					})),
+				},
+				{
+					tableId: table.tableId,
+					columnIds: table.columns.map((column) => column.id),
+					memberIds: table.memberIds,
+					sourceRows: table.content.rowDetails,
+					fieldIndexes: Object.fromEntries(
+						table.columns.map((column) => [
+							column.wireName,
+							column.index ?? "off",
+						]),
+					),
+				},
+				originColumns(scope, table.origin, at),
+			),
+		);
 	}
 	const projectRevision = await advanceLookupProjectRevision(
 		tx,
@@ -1097,8 +1071,8 @@ export async function refreshManagedLookupTableInTransaction(
 	if (!generation && columnCount > LOOKUP_MAX_COLUMNS) {
 		throw new LookupError(
 			"storage_limit",
-			managedLookupCapRefusal(table.tag, [
-				`${columnCount.toLocaleString("en-US")} columns with the ones apps still read (Nova takes ${LOOKUP_MAX_COLUMNS.toLocaleString("en-US")})`,
+			managedLookupInlineCopyRefusal(table.tag, [
+				`${columnCount.toLocaleString("en-US")} columns with the ones apps still read`,
 			]),
 		);
 	}
@@ -1383,7 +1357,7 @@ export async function refreshManagedLookupTableInTransaction(
 	const inlineComparable =
 		table.active_generation_id === null &&
 		table.row_count === rows.length &&
-		Number(table.data_bytes) <= LOOKUP_MAX_TABLE_BYTES;
+		Number(table.data_bytes) <= LOOKUP_MAX_CHANGE_BYTES;
 	const incoming = (content.rowDetails ?? []).map((row) => row.remoteId);
 	// A table can already exceed the inline request budget. Keep the join on
 	// its incoming source IDs and never bring its old rows or large leaves
@@ -1461,64 +1435,58 @@ export async function refreshManagedLookupTableInTransaction(
 			generatedRows?.rows.map((row) => [row.source_id, row.row_id]),
 		);
 		const orderKeys = balancedKeysBetween(null, null, rows.length);
-		try {
-			// Keep stored source identities in place so a refresh cannot cascade
-			// through their assignments or erase an unchanged row's audit stamp.
-			for (let offset = 0; offset < rows.length; offset += 500) {
-				const writes = rows.slice(offset, offset + 500).flatMap((values, i) => {
-					const index = i + offset;
-					const source = content.rowDetails?.[index];
-					const previous = source && byRemote.get(source.remoteId);
-					const heldId =
-						previous?.id ?? (source && generatedIds.get(source.remoteId));
-					if (
-						previous &&
-						inlineComparable &&
-						Number(previous.external_bytes) === 0 &&
-						previous.order_key === orderKeys[index] &&
-						previous.hq_sort_key === (source?.sortKey ?? null) &&
-						sameValues(
-							storedLookupRowValuesSchema.parse(previous.values),
-							values,
-						) &&
-						deepEqual(previous.content, contents[index])
-					)
-						return [];
-					return [
-						{
-							project_id: scope.projectId,
-							table_id: tableId,
-							order_key: orderKeys[index],
-							values: JSON.stringify(values),
-							content: JSON.stringify(contents[index]),
-							hq_row_id: source?.remoteId,
-							hq_sort_key: source?.sortKey,
-							created_by: scope.actorId,
+		// Keep stored source identities in place so a refresh cannot cascade
+		// through their assignments or erase an unchanged row's audit stamp.
+		for (let offset = 0; offset < rows.length; offset += 500) {
+			const writes = rows.slice(offset, offset + 500).flatMap((values, i) => {
+				const index = i + offset;
+				const source = content.rowDetails?.[index];
+				const previous = source && byRemote.get(source.remoteId);
+				const heldId =
+					previous?.id ?? (source && generatedIds.get(source.remoteId));
+				if (
+					previous &&
+					inlineComparable &&
+					Number(previous.external_bytes) === 0 &&
+					previous.order_key === orderKeys[index] &&
+					previous.hq_sort_key === (source?.sortKey ?? null) &&
+					sameValues(
+						storedLookupRowValuesSchema.parse(previous.values),
+						values,
+					) &&
+					deepEqual(previous.content, contents[index])
+				)
+					return [];
+				return [
+					{
+						project_id: scope.projectId,
+						table_id: tableId,
+						order_key: orderKeys[index],
+						values: JSON.stringify(values),
+						content: JSON.stringify(contents[index]),
+						hq_row_id: source?.remoteId,
+						hq_sort_key: source?.sortKey,
+						created_by: scope.actorId,
+						updated_by: scope.actorId,
+						...(heldId ? { id: heldId } : {}),
+					},
+				];
+			});
+			if (writes.length)
+				await tx
+					.insertInto("lookup_rows")
+					.values(writes)
+					.onConflict((oc) =>
+						oc.columns(["project_id", "table_id", "id"]).doUpdateSet((eb) => ({
+							order_key: eb.ref("excluded.order_key"),
+							values: eb.ref("excluded.values"),
+							content: eb.ref("excluded.content"),
+							hq_sort_key: eb.ref("excluded.hq_sort_key"),
 							updated_by: scope.actorId,
-							...(heldId ? { id: heldId } : {}),
-						},
-					];
-				});
-				if (writes.length)
-					await tx
-						.insertInto("lookup_rows")
-						.values(writes)
-						.onConflict((oc) =>
-							oc
-								.columns(["project_id", "table_id", "id"])
-								.doUpdateSet((eb) => ({
-									order_key: eb.ref("excluded.order_key"),
-									values: eb.ref("excluded.values"),
-									content: eb.ref("excluded.content"),
-									hq_sort_key: eb.ref("excluded.hq_sort_key"),
-									updated_by: scope.actorId,
-									updated_at: at,
-								})),
-						)
-						.execute();
-			}
-		} catch (error) {
-			translateRowCheck(table.tag, error);
+							updated_at: at,
+						})),
+					)
+					.execute();
 		}
 		const measured = await tx
 			.selectFrom("lookup_rows")
@@ -1531,7 +1499,8 @@ export async function refreshManagedLookupTableInTransaction(
 			.where("table_id", "=", tableId)
 			.executeTakeFirstOrThrow();
 		dataBytes = Number(measured.bytes);
-		if (dataBytes > LOOKUP_MAX_TABLE_BYTES) storageFloor(table.tag, dataBytes);
+		if (dataBytes > LOOKUP_MAX_CHANGE_BYTES)
+			pastInlineCopy(table.tag, dataBytes);
 	}
 
 	if (table.active_generation_id)

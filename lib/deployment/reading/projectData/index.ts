@@ -40,7 +40,7 @@ import {
 } from "@/lib/domain/records";
 import {
 	type LookupRowsMeasure,
-	lookupCapExcess,
+	lookupInlineCopyExcess,
 } from "@/lib/lookup/managedRules";
 
 import type {
@@ -322,7 +322,7 @@ export function assembleReadingProjectData(input: {
 		const measured = input.measured.get(tag) ?? null;
 		const inline =
 			observed.kind === "read" &&
-			!lookupCapExcess(
+			!lookupInlineCopyExcess(
 				managedLookupContentOf(observed.table, observed.rows),
 				measured ?? { dataBytes: 0, largestRowBytes: 0 },
 			).length;
@@ -342,7 +342,7 @@ export function assembleReadingProjectData(input: {
 			observed.kind === "rows-unreadable"
 				? { rowsUnreadable: true as const }
 				: {};
-		const findings = lookupTableFindings(read, measured);
+		const findings = lookupTableFindings(read);
 		if (findings.length > 0) {
 			return {
 				read,

@@ -15,9 +15,9 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 } from "../constants";
 import { LookupError } from "../errors";
 import type { LookupValueEditRequest } from "../largeValues/input";
@@ -1002,7 +1002,7 @@ describe("lookup persistence service", () => {
 			expectedTableRevision: probe.tableRevision,
 		});
 		const fittingRowCount = Math.floor(
-			LOOKUP_MAX_TABLE_BYTES / measuredRowBytes,
+			LOOKUP_MAX_CHANGE_BYTES / measuredRowBytes,
 		);
 		const nearlyFilled = await replaceLookupRows(OWNER_A, {
 			tableId: storageTable.id,
@@ -1033,7 +1033,7 @@ describe("lookup persistence service", () => {
 		).toMatchObject({ reason: { code: "conflict" } });
 		const fullSnapshot = await getLookupTable(OWNER_A, storageTable.id);
 		expect(fullSnapshot.dataBytes).toBe(measuredRowBytes * fittingRowCount);
-		expect(fullSnapshot.dataBytes).toBeLessThanOrEqual(LOOKUP_MAX_TABLE_BYTES);
+		expect(fullSnapshot.dataBytes).toBeLessThanOrEqual(LOOKUP_MAX_CHANGE_BYTES);
 		const above = await createLookupRow(OWNER_A, {
 			tableId: storageTable.id,
 			expectedTableRevision: fullSnapshot.tableRevision,
@@ -1043,7 +1043,7 @@ describe("lookup persistence service", () => {
 		const beforeShrink = await getLookupTableWindow(OWNER_A, storageTable.id);
 		if (beforeShrink.dataBytes === null)
 			throw new Error("The public table's byte count is unavailable.");
-		expect(beforeShrink.dataBytes).toBeGreaterThan(LOOKUP_MAX_TABLE_BYTES);
+		expect(beforeShrink.dataBytes).toBeGreaterThan(LOOKUP_MAX_CHANGE_BYTES);
 		expect(beforeShrink.rows[0].fragmented).toBe(true);
 		const shrunk = await updateLookupRow(OWNER_A, {
 			tableId: storageTable.id,

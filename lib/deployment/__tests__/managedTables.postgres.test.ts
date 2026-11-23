@@ -35,7 +35,7 @@ import {
 	managedDataPassed,
 	managedDataUnreadablePermission,
 	managedTableGone,
-	managedTableOverCap,
+	managedTablePastInlineRead,
 	managedTableUnrepresentable,
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
@@ -639,7 +639,7 @@ describe("Refresh from CommCare HQ, through its service", () => {
 		expect((await copyOf(copy)).rows).toHaveLength(3);
 	});
 
-	it("answers a table CommCare HQ grew past Nova's row cap as over a cap after one page, the copy as it was", async () => {
+	it("answers a table CommCare HQ grew past one inline read after one page with the paged refresh it needs, the copy as it was", async () => {
 		const { copy } = await seedApp();
 		const before = await copyOf(copy);
 		const outcome = await withManagedPeer(async (peer) => {
@@ -666,10 +666,12 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			).toHaveLength(1);
 			return answered;
 		});
+		/* No sign-in grant rode the request, so the paged refresh that reads
+		 * a table this size cannot start; nothing names a size as too large. */
 		expect(outcome).toEqual({
 			ok: false,
-			reason: "over-cap",
-			message: managedTableOverCap(["5,001 rows (Nova takes 5,000)"]),
+			reason: "needs-paged-refresh",
+			message: managedTablePastInlineRead,
 		});
 		expect(await copyOf(copy)).toEqual(before);
 	});
@@ -736,9 +738,9 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			{ reason: "table-gone", message: managedTableGone("facilities", DOMAIN) },
 		],
 		[
-			"a table over a cap",
+			"a value past one inline copy, with no grant for the paged refresh",
 			{ ...facilities, rows: [{ code: "001", name: "n".repeat(70_000) }] },
-			{ reason: "over-cap", message: expect.stringContaining("in one cell") },
+			{ reason: "needs-paged-refresh", message: managedTablePastInlineRead },
 		],
 		[
 			"a table with no columns",

@@ -142,10 +142,13 @@ export const HQ_LOOKUP_TABLE_LIST_MAX_BYTES = 16 * MiB;
 export const HQ_LOOKUP_TABLE_LIST_MAX_ROWS = 20_000;
 
 /**
- * `FixtureResource` filtered to one table: its rows, each repeating its
- * fields' names. A table past it is a table past Nova's caps, whatever its
- * rows hold.
+ * `FixtureResource` filtered to one table: the rows one interactive read
+ * takes inline (a bring-in, a refresh from a table's page, a publish's
+ * re-read). A table whose first page names more is no larger than Nova
+ * holds: the read stops there, and a Project data refresh reads it in pages
+ * into a staged generation (`lib/deployment/managedInventory.ts`).
  */
+export const HQ_LOOKUP_INLINE_READ_MAX_ROWS = 5_000;
 /** The selected definition, an individual streamed page and one rich row detail.
  * A job may read many pages. None can use more than its remaining job budget. */
 export const HQ_LOOKUP_DEFINITION_MAX_BYTES = 2 * MiB;

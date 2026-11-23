@@ -40,14 +40,11 @@ import {
 import {
 	isReservedInstanceTag,
 	LOOKUP_MAX_COLUMNS,
-	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TAG_LENGTH,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes } from "@/lib/lookup/format";
 import {
 	columnLabelFor,
-	type LookupRowsMeasure,
-	lookupCapExcess,
 	type ManagedLookupContent,
 } from "@/lib/lookup/managedRules";
 import { lookupTagSchema, lookupWireNameSchema } from "@/lib/lookup/schema";
@@ -96,15 +93,16 @@ export type HqLookupTableRead =
 			readonly rows: readonly HqFixtureRow[];
 			readonly canonical: CanonicalLookupTable;
 	  }
-	/** CommCare HQ's first page named more rows than `LOOKUP_MAX_ROWS`: no further page was read. */
+	/** CommCare HQ's first page named more rows than `HQ_LOOKUP_INLINE_READ_MAX_ROWS`: no further page was read. */
 	| {
 			readonly kind: "over-row-limit";
 			readonly table: HqLookupTable;
 			readonly totalCount: number;
 	  }
 	/**
-	 * The table's rows passed `bounds.ts::HQ_LOOKUP_TABLE_ROWS_MAX_BYTES` on
-	 * CommCare HQ's wire, which no table within Nova's caps does: the read
+	 * The table's rows passed what remained of the request's inline bound
+	 * (`bounds.ts::HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`, then
+	 * `HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`) on CommCare HQ's wire: the read
 	 * stopped there and kept nothing.
 	 */
 	| { readonly kind: "over-byte-limit"; readonly table: HqLookupTable }
@@ -262,15 +260,13 @@ function count(value: number): string {
 
 /**
  * What Nova cannot hold of one candidate table, every finding at
- * `{ kind: "lookup-table", tag }`. `measured` is Postgres's measure of the
- * table's rows, null for a read with no rows Nova can store (rows that could
- * not be read, a table over the row cap, a field holding several values, a
- * cell XML cannot carry), when the two byte caps are not judged. A field name
- * is judged whether or not the app reads it. Pure.
+ * `{ kind: "lookup-table", tag }`. No size of a table is among them: a table
+ * past one inline read comes in as its confirmed definition, and a Project
+ * data refresh reads its rows in pages (`index.ts::assembleReadingProjectData`).
+ * A field name is judged whether or not the app reads it. Pure.
  */
 export function lookupTableFindings(
 	read: HqLookupTableRead,
-	measured: LookupRowsMeasure | null,
 ): readonly Finding[] {
 	const { table } = read;
 	const tag = table.tag;
@@ -290,35 +286,6 @@ export function lookupTableFindings(
 				);
 				break;
 			}
-		}
-	}
-
-	if (read.kind === "over-row-limit") {
-		findings.push(
-			manifestFinding(
-				CAPS_ENTRY,
-				place,
-				`${tag}: ${count(read.totalCount)} rows (Nova takes ${count(LOOKUP_MAX_ROWS)})`,
-			),
-		);
-	} else if (read.kind === "over-byte-limit") {
-		findings.push(
-			manifestFinding(
-				CAPS_ENTRY,
-				place,
-				`${tag}: more data than Nova reads for one table`,
-			),
-		);
-	} else if (
-		read.kind === "read" &&
-		read.canonical.source?.inventory !== "unavailable"
-	) {
-		const phrases = lookupCapExcess(
-			managedLookupContentOf(table, read.rows),
-			measured ?? { dataBytes: 0, largestRowBytes: 0 },
-		);
-		for (const phrase of phrases) {
-			findings.push(manifestFinding(CAPS_ENTRY, place, `${tag}: ${phrase}`));
 		}
 	}
 

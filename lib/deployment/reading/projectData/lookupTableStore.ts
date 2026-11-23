@@ -9,6 +9,7 @@ import "server-only";
 import type { Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
+	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 	HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES,
 	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 } from "@/lib/commcare/hq/bounds";
@@ -24,7 +25,6 @@ import {
 import type { AppDatabase } from "@/lib/db/pg";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
-import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
 import {
 	createManagedLookupTablesInTransaction,
@@ -150,7 +150,7 @@ export async function readHqLookupTablesForReading(input: {
 		const readRows = () =>
 			readSelectedHqLookupRows(creds, domain, table, {
 				cancel,
-				maxRows: LOOKUP_MAX_ROWS,
+				maxRows: HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 				maxBytes: bound,
 			});
 		let answer = await readRows();

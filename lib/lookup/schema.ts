@@ -8,11 +8,11 @@ import {
 import {
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_COLUMN_LABEL_LENGTH,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 	LOOKUP_MAX_TABLE_NAME_LENGTH,
 	LOOKUP_MAX_TAG_LENGTH,
 	LOOKUP_MAX_WIRE_NAME_LENGTH,
@@ -485,7 +485,7 @@ export const lookupStorageMeasurementSchema = z
 		rowValueBytes: z
 			.array(z.number().int().nonnegative().max(LOOKUP_MAX_ROW_BYTES))
 			.max(LOOKUP_MAX_ROWS),
-		dataBytes: z.number().int().nonnegative().max(LOOKUP_MAX_TABLE_BYTES),
+		dataBytes: z.number().int().nonnegative().max(LOOKUP_MAX_CHANGE_BYTES),
 	})
 	.superRefine((measurement, ctx) => {
 		const sum = measurement.rowValueBytes.reduce(

@@ -108,10 +108,13 @@ export function managedTableUnsupported(holds: string): string {
 	return `This table now holds ${holds} in CommCare HQ, which Nova can't hold yet. Nova kept its copy as it was.`;
 }
 
-/** A refresh over a cap. `phrases` are the caps' phrases without the tag, joined with " and ". */
-export function managedTableOverCap(phrases: readonly string[]): string {
-	return `This table now has ${phrases.join(" and ")} in CommCare HQ. Nova kept its copy as it was.`;
-}
+/**
+ * A refresh from a table's page of a table larger than one inline read, where
+ * the paged refresh that reads it cannot start: the request carried no
+ * sign-in grant to check each page against.
+ */
+export const managedTablePastInlineRead =
+	"This table is larger than Nova copies in one read, so Nova reads it in pages, and that needs your current sign-in. Nova kept its copy as it was. You can sign in again and refresh it.";
 
 /** A refresh that finds the table holds no column in CommCare HQ. */
 export const MANAGED_TABLE_NO_COLUMNS =
@@ -737,12 +740,12 @@ export function managedTableManyValuesItem(tag: string): string {
 	return `${tag} now has a field with more than one value in CommCare HQ, which Nova can't hold yet. You can give each field one value there, then publish again.`;
 }
 
-/** An item, over a cap. `phrases` are the caps' phrases without the tag, joined with " and ". */
-export function managedTableOverCapItem(
-	tag: string,
-	phrases: readonly string[],
-): string {
-	return `${tag} now has ${phrases.join(" and ")} in CommCare HQ. You can shorten it there, then publish again.`;
+/**
+ * An item, a table larger than one inline read that changed in CommCare HQ
+ * since Nova's copy, or that this publish could not compare page by page.
+ */
+export function managedTablePastInlineItem(tag: string): string {
+	return `${tag} may have changed in CommCare HQ since Nova last refreshed it, and it's larger than a publish reads at once. You can refresh it from its Project data page, then publish again.`;
 }
 
 /** An item, a table that holds no column. */

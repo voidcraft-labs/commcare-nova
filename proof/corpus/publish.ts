@@ -121,7 +121,10 @@ import {
 	importReplacedReadApp,
 	readHqAppSourceAtVersion,
 } from "@/lib/commcare/hq/appSourceAtVersion";
-import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import {
+	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
+	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+} from "@/lib/commcare/hq/bounds";
 import { readSelectedHqLookupRows } from "@/lib/commcare/hq/lookupSource";
 import {
 	type HqFixtureRow,
@@ -331,7 +334,6 @@ import {
 	prepareExportBoundaryWithReads,
 } from "@/lib/export/boundaryValidation";
 import { compileLocalArchive } from "@/lib/export/localArchive";
-import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { requiresLookupProjection } from "@/lib/lookup/source";
 import type {
@@ -1667,7 +1669,10 @@ async function readRows(
 		CREDENTIALS,
 		peer.state.domain,
 		table,
-		{ maxRows: LOOKUP_MAX_ROWS, maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES },
+		{
+			maxRows: HQ_LOOKUP_INLINE_READ_MAX_ROWS,
+			maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+		},
 	);
 	if ("success" in rows) {
 		throw new Error(

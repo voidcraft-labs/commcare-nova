@@ -1,4 +1,7 @@
-import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import {
+	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
+	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
+} from "@/lib/commcare/hq/bounds";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
 import {
 	readSelectedHqLookupRows,
@@ -6,7 +9,6 @@ import {
 } from "@/lib/commcare/hq/lookupSource";
 import type { HqLookupTable } from "@/lib/commcare/hq/lookupTables";
 import type { ExpectedLookupData } from "@/lib/commcare/lookup/workbookReceipt";
-import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	canonicalLookupObservation,
@@ -68,7 +70,7 @@ export async function readLookupReceipt(
 			: unknown;
 	}
 	const read = await readSelectedHqLookupRows(creds, domain, table, {
-		maxRows: LOOKUP_MAX_ROWS,
+		maxRows: HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 		maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 	});
 	if ("success" in read || "kind" in read) return read;

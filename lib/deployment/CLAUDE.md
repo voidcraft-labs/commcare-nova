@@ -771,11 +771,13 @@ can request rows or enter the local Project read. An unreferenced declaration st
 checks against the definition list because a worker loads it on opening the form.
 A review of changes uses the union of the baseline and current source's reads.
 
-A reading's lookup rows are bounded per table (`HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`,
-past which the table is a caps finding, "more data than Nova reads for one
-table") and per request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read
-at most as far as what remains, and a request its tables pass answers
-`lookup-data-too-large`). A create keeps one buffer per distinct content of the
+A reading's inline lookup rows are bounded per table
+(`HQ_LOOKUP_INLINE_READ_MAX_ROWS`, `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`) and per
+request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read at most as far as
+what remains). Neither is a limit on what Nova holds: a table past either comes
+in as its confirmed definition with no row snapshot, and a Project data refresh
+reads it in pages (`managedInventory.ts`). No size of lookup data stops a
+reading. A create keeps one buffer per distinct content of the
 files it holds, the very entry the media budget counts, and the read's own bytes
 rather than a copy (`projectData/mediaStore.ts`); it publishes each content
 once and records the asset under every file key that holds it. The process

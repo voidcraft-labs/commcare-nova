@@ -973,8 +973,7 @@ describe("readHqAppForReview", () => {
 			/* These codes are driven where their source is built: a source one byte over the
 			 * bound in cap.test.ts, a reading past its work limit in the reader's
 			 * readWorkMeter.test.ts, a process with no room for one more bring-in in
-			 * room.test.ts, tables whose rows together pass the request's bound in
-			 * lookupTableBudget.test.ts, and below, an app saved twice during the read and a menu
+			 * room.test.ts, and below, an app saved twice during the read and a menu
 			 * CommCare HQ could not summarize beside the form's own finding. The ordinary
 			 * form reader in instanceSources.test.ts drives both data-source conflicts. A place field
 			 * the app cannot carry and one whose worker text HQ's answer sorted are driven where the
@@ -984,7 +983,6 @@ describe("readHqAppForReview", () => {
 				"too-large",
 				"too-intricate",
 				"nova-busy",
-				"lookup-data-too-large",
 				"changed-while-reading",
 				"menu-unreadable-in-hq",
 				"form-data-source-conflict",

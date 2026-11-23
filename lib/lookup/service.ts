@@ -23,10 +23,10 @@ import { balancedKeysBetween, deriveKeyAtIndex } from "@/lib/lookup/orderKeys";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateLookupRowValues } from "./coercion";
 import {
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 	LOOKUP_MAX_VALIDATION_DETAILS,
 } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
@@ -372,7 +372,7 @@ function rejectInlineRowLimit(): never {
 function rejectStorageLimit(dataBytes: number): never {
 	throw new LookupError(
 		"storage_limit",
-		`This inline replacement uses ${formatLookupBytes(dataBytes)}. You can import it in parts to stay within ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)} per request.`,
+		`This inline replacement uses ${formatLookupBytes(dataBytes)}. You can import it in parts to stay within ${formatLookupBytes(LOOKUP_MAX_CHANGE_BYTES)} per request.`,
 	);
 }
 
@@ -718,7 +718,7 @@ export async function getLookupTable(
 			const columns = await orderedColumns(tx, scope.projectId, tableId);
 			if (
 				table.row_count > LOOKUP_MAX_ROWS ||
-				Number(table.data_bytes) > LOOKUP_MAX_TABLE_BYTES ||
+				Number(table.data_bytes) > LOOKUP_MAX_CHANGE_BYTES ||
 				(await tx
 					.selectFrom("lookup_rows")
 					.select("id")
@@ -2140,7 +2140,8 @@ export async function replaceLookupRows(
 							0,
 						);
 					}
-					if (dataBytes > LOOKUP_MAX_TABLE_BYTES) rejectStorageLimit(dataBytes);
+					if (dataBytes > LOOKUP_MAX_CHANGE_BYTES)
+						rejectStorageLimit(dataBytes);
 					const projectRevision = await advanceProjectRevision(
 						tx,
 						scope.projectId,

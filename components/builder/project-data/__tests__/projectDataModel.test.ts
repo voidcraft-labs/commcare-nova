@@ -5,7 +5,7 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { LOOKUP_MAX_TABLE_BYTES } from "@/lib/lookup/constants";
+import { LOOKUP_MAX_CHANGE_BYTES } from "@/lib/lookup/constants";
 import {
 	lookupRevisionSchema,
 	lookupTagSchema,
@@ -162,7 +162,7 @@ describe("formatLookupBytes", () => {
 
 	it("prints the table byte cap as the round number the copy promises", () => {
 		// A refusal that says "8.4 MB is over the 8 MB limit" reads as a bug.
-		expect(formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)).toBe("8 MB");
+		expect(formatLookupBytes(LOOKUP_MAX_CHANGE_BYTES)).toBe("8 MB");
 	});
 });
 

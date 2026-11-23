@@ -7,6 +7,7 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareCredentials } from "@/lib/commcare/client";
 import {
 	HQ_LOCATION_INVENTORY_MAX_ROWS,
+	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 } from "@/lib/commcare/hq/bounds";
 import {
@@ -56,7 +57,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { LOOKUP_MAX_COLUMNS, LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
+import { LOOKUP_MAX_COLUMNS } from "@/lib/lookup/constants";
 import { LookupError } from "@/lib/lookup/errors";
 import {
 	type InventoryAccess,
@@ -73,7 +74,7 @@ import {
 	takeOverManagedLookupTableInTransaction,
 } from "@/lib/lookup/managed";
 import {
-	lookupCapExcess,
+	lookupInlineCopyExcess,
 	managedCanonicalSchema,
 } from "@/lib/lookup/managedRules";
 import { lookupWireNameSchema } from "@/lib/lookup/schema";
@@ -119,8 +120,8 @@ import {
 	managedTableManyValuesItem,
 	managedTableNameItem,
 	managedTableNoColumnsItem,
-	managedTableOverCap,
-	managedTableOverCapItem,
+	managedTablePastInlineItem,
+	managedTablePastInlineRead,
 	managedTableUnrepresentable,
 	managedTableUnrepresentableItem,
 	managedTableUnsupported,
@@ -133,6 +134,7 @@ import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { transferAssignedSource } from "./assignedSourceTransfer";
 import { deploymentNotFound } from "./errors";
 import { canonicalLookupTable } from "./hqResourceBaseline";
+import { observeLargeLookup } from "./largeLookupReceipt";
 import {
 	describeUnsupportedLookupContent,
 	type UnsupportedLookupContent,
@@ -184,7 +186,15 @@ export type ManagedTableChange =
 	  }
 	| { readonly kind: "no-columns" }
 	| { readonly kind: "more-than-one-value" }
-	| { readonly kind: "over-cap"; readonly phrase: string }
+	/**
+	 * CommCare HQ's table holds more than one inline read copies (more rows than
+	 * `HQ_LOOKUP_INLINE_READ_MAX_ROWS`, more bytes than
+	 * `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`, or content past what one inline copy
+	 * writes, `managedRules.ts::lookupInlineCopyExcess`), and has changed since
+	 * Nova's copy or could not be compared with it. A Project data refresh reads
+	 * such a table in pages; no size of a table is past what Nova holds.
+	 */
+	| { readonly kind: "past-inline-read" }
 	| { readonly kind: "name"; readonly name: string }
 	| { readonly kind: "unrepresentable-text"; readonly column: string };
 
@@ -225,15 +235,14 @@ type TableRead =
 			readonly rows: readonly HqFixtureRow[];
 	  }
 	/**
-	 * CommCare HQ's table holds more than a copy takes: more rows than
-	 * `LOOKUP_MAX_ROWS` by its first page's total, or more bytes than
-	 * `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`. Nothing past that was read. `phrase`
-	 * says which, as a cap's phrase does.
+	 * CommCare HQ's table holds more than one inline read takes: more rows than
+	 * `HQ_LOOKUP_INLINE_READ_MAX_ROWS` by its first page's total, or more bytes
+	 * than `HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`. Nothing past that was read; a
+	 * Project data refresh reads it in pages.
 	 */
 	| {
 			readonly kind: "past-limit";
 			readonly table: HqLookupTable;
-			readonly phrase: string;
 	  }
 	| { readonly kind: "failed"; readonly failure: HqFailure };
 
@@ -273,7 +282,7 @@ async function managedTableChanges(
 		changes.push({ kind: "no-columns" });
 	}
 	if (read.kind === "past-limit") {
-		changes.push({ kind: "over-cap", phrase: read.phrase });
+		changes.push({ kind: "past-inline-read" });
 		return changes;
 	}
 	const { rows } = read;
@@ -291,9 +300,9 @@ async function managedTableChanges(
 		}),
 	);
 
-	/* The caps are judged only over content a copy could hold: a row with a
-	 * field of several values, a name the grammar refuses or a character no
-	 * stored row can carry is already a stop. */
+	/* What one inline copy writes is judged only over content a copy could
+	 * hold: a row with a field of several values, a name the grammar refuses or
+	 * a character no stored row can carry is already a stop. */
 	if (badNames.length === 0 && unrepresentable === undefined) {
 		const content = managedLookupContentOf(table, rows);
 		const projected = boundSourceFixture(
@@ -314,15 +323,12 @@ async function managedTableChanges(
 		const keptGone = stored.columns.filter(
 			(column) => column.kept && !fields.has(column.wireName),
 		).length;
-		const phrases = [...lookupCapExcess(content, measured)];
 		const columnCount = table.fields.length + keptGone;
-		if (keptGone > 0 && columnCount > LOOKUP_MAX_COLUMNS) {
-			phrases.push(
-				`${columnCount.toLocaleString("en-US")} columns with the ones apps still read (Nova takes ${LOOKUP_MAX_COLUMNS.toLocaleString("en-US")})`,
-			);
-		}
-		if (phrases.length > 0)
-			changes.push({ kind: "over-cap", phrase: phrases.join(" and ") });
+		if (
+			lookupInlineCopyExcess(content, measured).length > 0 ||
+			(keptGone > 0 && columnCount > LOOKUP_MAX_COLUMNS)
+		)
+			changes.push({ kind: "past-inline-read" });
 	}
 	for (const name of badNames) changes.push({ kind: "name", name });
 	if (unrepresentable !== undefined) {
@@ -350,8 +356,8 @@ export function managedTableChangeItem(
 			);
 		case "more-than-one-value":
 			return managedTableManyValuesItem(tag);
-		case "over-cap":
-			return managedTableOverCapItem(tag, [change.phrase]);
+		case "past-inline-read":
+			return managedTablePastInlineItem(tag);
 		case "name":
 			return managedTableNameItem(tag, change.name);
 		case "unrepresentable-text":
@@ -512,10 +518,10 @@ async function readTable(
 	const [table] = peers;
 	if (peers.length !== 1 || table === undefined || table.id !== stored.remoteId)
 		return { kind: "gone" };
-	/* A table past Nova's caps is over a cap whatever its rows hold, so the
-	 * read stops after the first page that says so. */
+	/* A table past one inline read is read in pages by a Project data refresh,
+	 * so this read stops after the first page that says so. */
 	let rows = await readSelectedHqLookupRows(creds, domain, table, {
-		maxRows: LOOKUP_MAX_ROWS,
+		maxRows: HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 		maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 	});
 	// A zero-occurrence field fails inside HQ's own filtered list serializer.
@@ -541,10 +547,10 @@ async function readTable(
 			.where("lookup_tables.hq_remote_id", "=", table.id)
 			.where("lookup_tables.hq_domain", "=", domain)
 			.where("lookup_tables.hq_server", "=", creds.server)
-			.limit(LOOKUP_MAX_ROWS + 1)
+			.limit(HQ_LOOKUP_INLINE_READ_MAX_ROWS + 1)
 			.execute();
 		if (
-			candidates.length <= LOOKUP_MAX_ROWS &&
+			candidates.length <= HQ_LOOKUP_INLINE_READ_MAX_ROWS &&
 			candidates.every((row) => row.hq_row_id !== null)
 		) {
 			rows = await readVerifiedGlobalLookupRows(creds, domain, table, {
@@ -567,16 +573,7 @@ async function readTable(
 			failure: classifyHqFailure(rows, "lookup-rows", { member: true }),
 		};
 	}
-	if ("kind" in rows) {
-		return {
-			kind: "past-limit",
-			table,
-			phrase:
-				rows.by === "rows"
-					? `${rows.totalCount.toLocaleString("en-US")} rows (Nova takes ${LOOKUP_MAX_ROWS.toLocaleString("en-US")})`
-					: "more data than Nova reads for one table",
-		};
-	}
+	if ("kind" in rows) return { kind: "past-limit", table };
 	return { kind: "read", table, rows: rows.rows };
 }
 
@@ -710,6 +707,13 @@ export async function reReadManagedTablesForPublish(input: {
 	readonly doc: BlueprintDoc;
 	readonly target: DeploymentTargetKey;
 	readonly creds: CommCareCredentials;
+	/**
+	 * Checks, before each page, that the publisher may still publish: a table
+	 * larger than one inline read is compared with Nova's copy by reading it
+	 * in pages, and a page is read only while this resolves. Absent, such a
+	 * table cannot be compared, and stops the publish with the refresh it needs.
+	 */
+	readonly checkAccess?: () => Promise<void>;
 }): Promise<
 	| ManagedTablesReRead
 	/** `rows` is the name of the table whose rows could not be read, or null for the list. */
@@ -794,6 +798,22 @@ export async function reReadManagedTablesForPublish(input: {
 				read,
 				readColumnsOf(stored),
 			);
+			/* A table past one inline read is no stop where it is still the
+			 * table Nova's copy holds: the publish leaves it in CommCare HQ, and
+			 * only a change since the copy's refresh needs that refresh. */
+			if (
+				changes.length === 1 &&
+				changes[0]?.kind === "past-inline-read" &&
+				read.kind !== "gone" &&
+				(await copyStillCurrent(
+					creds,
+					target.domain,
+					stored,
+					read,
+					input.checkAccess,
+				))
+			)
+				continue;
 			if (changes.length > 0) {
 				blocking.push({ tag: stored.tag, name: stored.name, changes });
 			} else if (read.kind === "read") {
@@ -874,6 +894,28 @@ export async function reReadManagedTablesForPublish(input: {
 		}
 	}
 	return { blocking: [], refreshed, stale, hqTables };
+}
+
+/**
+ * Whether CommCare HQ's table is the one Nova's copy last took: its canonical
+ * digest, over the definition, the row count and every row in order, equals
+ * the stored one. Rows already read inline are digested as they are; a table
+ * past one inline read is read in pages, each page only while `checkAccess`
+ * resolves, and nothing is kept. Without `checkAccess`, or where the paged
+ * read does not finish, it is not established, so false.
+ */
+async function copyStillCurrent(
+	creds: CommCareCredentials,
+	domain: string,
+	stored: StoredManagedTable,
+	read: Exclude<TableRead, { readonly kind: "gone" | "failed" }>,
+	checkAccess: (() => Promise<void>) | undefined,
+): Promise<boolean> {
+	if (read.kind === "read")
+		return canonicalLookupTable(read.table, read.rows).digest === stored.digest;
+	if (checkAccess === undefined) return false;
+	const seen = await observeLargeLookup(creds, domain, read.table, checkAccess);
+	return "canonical" in seen && seen.canonical.digest === stored.digest;
 }
 
 /** Tables grouped by the project space they came from, in their order. */
@@ -1029,7 +1071,8 @@ export type ManagedTableOutcome =
 				| "unavailable"
 				| "table-gone"
 				| "unsupported"
-				| "over-cap"
+				/** The table is larger than one inline read, and its paged refresh needs a sign-in grant. */
+				| "needs-paged-refresh"
 				| "name"
 				| "unrepresentable-text"
 				| "state-changed"
@@ -1131,8 +1174,8 @@ function changeRefusal(
 				"unsupported",
 				managedTableUnsupported(HOLDS_MORE_THAN_ONE_VALUE),
 			);
-		case "over-cap":
-			return refusedTable("over-cap", managedTableOverCap([change.phrase]));
+		case "past-inline-read":
+			return refusedTable("needs-paged-refresh", managedTablePastInlineRead);
 		case "name":
 			return refusedTable(
 				"name",
@@ -1309,15 +1352,30 @@ export async function refreshManagedLookupTable(
 		if (stored.sourceInventory) return await stream();
 		const read = await readForCopy(scope, stored);
 		if (!read.ok)
-			return read.reason === "over-cap" && grant ? await stream() : read;
-		const receipt = await refreshTable(
-			scope,
-			stored,
-			read.table,
-			read.rows,
-			{ mode: "refresh" },
-			at,
-		);
+			return read.reason === "needs-paged-refresh" && grant
+				? await stream()
+				: read;
+		let receipt: ManagedRefreshReceipt;
+		try {
+			receipt = await refreshTable(
+				scope,
+				stored,
+				read.table,
+				read.rows,
+				{ mode: "refresh" },
+				at,
+			);
+		} catch (error) {
+			/* Postgres measured more than one inline copy writes: the same table
+			 * is read again in pages, where no size is past what Nova holds. */
+			if (
+				error instanceof LookupError &&
+				error.code === "storage_limit" &&
+				grant
+			)
+				return await stream();
+			throw error;
+		}
 		return landed(scope, stored.id, receipt);
 	} catch (error) {
 		const refused = refusedWrite(error, TABLE_TAKEN_OVER_MEANWHILE);
@@ -1355,7 +1413,7 @@ function refusedWrite(error: unknown, conflictMessage: string): Refused | null {
 		case "not_found":
 			return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
 		case "storage_limit":
-			return refusedTable("over-cap", error.message);
+			return refusedTable("needs-paged-refresh", error.message);
 		case "managed_in_hq":
 		case "referenced":
 		case "accepted_design":

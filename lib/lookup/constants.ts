@@ -1,10 +1,22 @@
-/** Stable lookup-table limits shared by parsing, persistence, and routes. */
+/**
+ * Stable lookup-table limits shared by parsing, persistence, and routes.
+ *
+ * None of them bounds a table. The rows, columns and bytes below bound ONE
+ * inline change: a request, a batch, an import, or a copy of CommCare HQ's
+ * table taken in one transaction. A table grows past every one of them by
+ * later changes, and a copy too large for one transaction is read in pages
+ * into a staged generation (`lib/lookup/generations`). The cell and row
+ * sizes bound a value and a row stored inline; a larger value is stored
+ * outside the row (`lib/lookup/largeValues`). The Project's physical storage
+ * budget (`lookup_storage_budgets`) is the only total.
+ */
 
 export const LOOKUP_MAX_ROWS = 5_000;
 export const LOOKUP_MAX_COLUMNS = 250;
 export const LOOKUP_MAX_CELL_BYTES = 64 * 1_024;
 export const LOOKUP_MAX_ROW_BYTES = 256 * 1_024;
-export const LOOKUP_MAX_TABLE_BYTES = 8 * 1_024 * 1_024;
+/** The bytes one inline change writes: a request body, a batch, or one inline copy. */
+export const LOOKUP_MAX_CHANGE_BYTES = 8 * 1_024 * 1_024;
 export const LOOKUP_MAX_CSV_BYTES = 8 * 1_024 * 1_024;
 export const LOOKUP_MAX_VALIDATION_DETAILS = 100;
 

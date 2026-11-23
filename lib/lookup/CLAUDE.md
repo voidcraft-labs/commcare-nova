@@ -376,12 +376,18 @@ of a managed table is text. Taking CommCare HQ's table over a Project table
 rows that follow are CommCare HQ's strings, clears a takeover, and stamps
 `definition_revision`. Both arms fix every column id first (the refresh arm
 takes a new field's id from `newColumnIds` under its own key, or mints one with
-Postgres's `uuidv7()`), then judge the caps before their first write and before
-the cells' own check (`managedRules.ts::lookupCapExcess`, over Postgres's own
-measure of the rows, `measureLookupRows`), so a cell, row or table over a cap
-is refused with `storage_limit` and that cap's phrase. A measured size in a
-phrase is rounded up (`format.ts::formatLookupBytesOverCap`), so it never
-reads as the cap it is over.
+Postgres's `uuidv7()`), then judge the bounds of one inline copy before their
+first write and before the cells' own check
+(`managedRules.ts::lookupInlineCopyExcess`, over Postgres's own measure of the
+rows, `measureLookupRows`), so a copy one transaction cannot carry is refused
+with `storage_limit`, its phrase and the paged refresh as its next step. None
+of those bounds limits a table: a refresh from a table's page that meets one
+reads the same table again in pages into a staged generation
+(`lib/deployment/managedInventory.ts`), and a publish compares a table past one
+inline read with the copy's digest page by page rather than stopping on its
+size. A measured size in a phrase is rounded up
+(`format.ts::formatLookupBytesOverCap`), so it never reads as the bound it is
+past.
 
 `hq_canonical` is `lib/deployment`'s value for CommCare HQ's table at the last
 refresh; `lib/lookup` reads its `digest` and `fields[].name`

@@ -18,10 +18,10 @@ import {
 import { rowAssigneesSchema } from "./assignmentVocabulary";
 import { validateLookupRowValues } from "./coercion";
 import {
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 } from "./constants";
 import { hasLookupDesignProtection } from "./designProtection";
 import { LookupError } from "./errors";
@@ -1548,7 +1548,7 @@ export async function createTable(
 		};
 	});
 	const dataBytes = await insertRows(tx, scope, tableId, rows);
-	if (dataBytes > LOOKUP_MAX_TABLE_BYTES)
+	if (dataBytes > LOOKUP_MAX_CHANGE_BYTES)
 		invalid(
 			"This inline table is too large for one request. You can import it in parts.",
 		);
@@ -1587,7 +1587,7 @@ export async function applyLookupAuthoringBatchInTransaction(
 ): Promise<LookupAuthoringBatchReceipt> {
 	if (
 		Buffer.byteLength(JSON.stringify(inputValue), "utf8") >
-		LOOKUP_MAX_TABLE_BYTES
+		LOOKUP_MAX_CHANGE_BYTES
 	)
 		throw new LookupError(
 			"storage_limit",

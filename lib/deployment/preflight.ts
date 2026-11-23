@@ -21,6 +21,7 @@ import {
 import { readHqAppSaveCounter } from "@/lib/commcare/hq/appSourceAtVersion";
 import {
 	HQ_LOCATION_INVENTORY_MAX_ROWS,
+	HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 	HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 } from "@/lib/commcare/hq/bounds";
 import {
@@ -78,7 +79,6 @@ import {
 } from "@/lib/domain";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
-import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { getLookupDefinitions } from "@/lib/lookup/service";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganization } from "@/lib/organization/service";
@@ -814,13 +814,37 @@ export async function runDeploymentPreflight(
 		items: [],
 	});
 
+	// The publisher's grant, checked again before each page of a paged read.
+	const grant = input.dataGrant;
+	let archiveBinding: string | undefined;
+	const checkPublishAccess = grant
+		? async (tx: Transaction<AppDatabase>) => {
+				const binding = await authorizeAssignmentExport(
+					tx,
+					input.access,
+					grant,
+					target,
+					"publish",
+					credResult.connectionDigest,
+				);
+				if (archiveBinding !== undefined && archiveBinding !== binding)
+					return dataAccessLost();
+				archiveBinding = binding;
+			}
+		: undefined;
+
 	// ── 1a. Does the data CommCare HQ manages still hold what the app reads?
 	// Blocking, and before the export boundary: refreshing Nova's copy of a
 	// table changes the lookup generation, and the boundary validates and
 	// emits the one that results. It only reads CommCare HQ, and what it
 	// writes is Nova's own copy, which a publish refused later keeps: it is
 	// CommCare HQ's current state, what Refresh would have written.
-	const managedHere = await managedDataEdge(input, creds, domain);
+	const managedHere = await managedDataEdge(
+		input,
+		creds,
+		domain,
+		checkPublishAccess && (() => withAppTx(checkPublishAccess)),
+	);
 	if (managedHere !== null) {
 		checks.push(managedHere.check);
 		if (managedHere.failure !== null) {
@@ -845,23 +869,6 @@ export async function runDeploymentPreflight(
 	// Lookup tables and an owner beneath the current case owner both pass
 	// now, the first because this publish pushes them and the second
 	// because it never carried a Nova identity to begin with.
-	const grant = input.dataGrant;
-	let archiveBinding: string | undefined;
-	const checkPublishAccess = grant
-		? async (tx: Transaction<AppDatabase>) => {
-				const binding = await authorizeAssignmentExport(
-					tx,
-					input.access,
-					grant,
-					target,
-					"publish",
-					credResult.connectionDigest,
-				);
-				if (archiveBinding !== undefined && archiveBinding !== binding)
-					return dataAccessLost();
-				archiveBinding = binding;
-			}
-		: undefined;
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
 		streamMedia: true,
@@ -2238,6 +2245,7 @@ async function managedDataEdge(
 	input: PreflightInput,
 	creds: CommCareCredentials,
 	domain: string,
+	checkAccess: (() => Promise<void>) | undefined,
 ): Promise<{
 	readonly check: PreflightCheck;
 	readonly failure: DeploymentFailure | null;
@@ -2265,6 +2273,7 @@ async function managedDataEdge(
 		doc: input.doc,
 		target: { server: input.server, domain: input.domain },
 		creds,
+		...(checkAccess && { checkAccess }),
 	});
 	const blocked = (
 		failure: DeploymentFailure,
@@ -2476,7 +2485,7 @@ async function lookupRemoteChange(input: {
 		input.domain,
 		current,
 		{
-			maxRows: LOOKUP_MAX_ROWS,
+			maxRows: HQ_LOOKUP_INLINE_READ_MAX_ROWS,
 			maxBytes: HQ_LOOKUP_TABLE_ROWS_MAX_BYTES,
 		},
 	);

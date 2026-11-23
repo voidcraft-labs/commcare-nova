@@ -2,7 +2,7 @@ import { type RawBuilder, sql, type Transaction } from "kysely";
 import type { AppDatabase } from "@/lib/db/pg";
 import type { LookupRowId, LookupTableId } from "@/lib/domain/lookupIds";
 import { validateLookupRowValues } from "./coercion";
-import { LOOKUP_MAX_ROW_BYTES, LOOKUP_MAX_TABLE_BYTES } from "./constants";
+import { LOOKUP_MAX_CHANGE_BYTES, LOOKUP_MAX_ROW_BYTES } from "./constants";
 import { LookupError } from "./errors";
 import {
 	applyPatchToExternalRefs,
@@ -30,7 +30,7 @@ export async function patchLookupRowInTransaction(
 	changes: readonly LookupRowPatch[],
 ): Promise<{ changed: boolean; delta: number }> {
 	if (
-		Buffer.byteLength(JSON.stringify(changes), "utf8") > LOOKUP_MAX_TABLE_BYTES
+		Buffer.byteLength(JSON.stringify(changes), "utf8") > LOOKUP_MAX_CHANGE_BYTES
 	)
 		throw new LookupError(
 			"storage_limit",

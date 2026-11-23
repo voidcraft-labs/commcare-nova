@@ -14,10 +14,6 @@ import path from "node:path";
 import type { MockAgent } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
-import {
-	classifyHqFailure,
-	hqReadCircumstance,
-} from "@/lib/commcare/hq/failure";
 import { readHqLookupTablesForReading } from "../lookupTableStore";
 import { lookupTableFindings } from "../lookupTables";
 
@@ -78,7 +74,7 @@ afterEach(() => {
 });
 
 describe("a bring-in's lookup rows", () => {
-	it("hold a table past one table's bound as that table's finding, and still read the others", async () => {
+	it("hold a table past one table's bound as that table's own, with no finding of its size, and still read the others", async () => {
 		/* `plain` fits; `rich` passes one table's bound with room in the request. */
 		limits.table = bytesOf(RICH) - 1;
 		limits.request = 10 * bytesOf(RICH);
@@ -101,11 +97,10 @@ describe("a bring-in's lookup rows", () => {
 		);
 		const [, rich] = answer.tables;
 		if (rich === undefined) throw new Error("rich was not answered");
-		expect(
-			lookupTableFindings(rich, null).map((finding) =>
-				"detail" in finding ? finding.detail : null,
-			),
-		).toContainEqual({ name: "rich: more data than Nova reads for one table" });
+		/* No size of a table is past what Nova holds: the table comes in as
+		 * its confirmed definition, and a Project data refresh reads its rows
+		 * in pages. */
+		expect(lookupTableFindings(rich)).toEqual([]);
 	});
 
 	it("hold the table that passes what is left of the request's bound as that table's own, and still read the first", async () => {
@@ -131,16 +126,5 @@ describe("a bring-in's lookup rows", () => {
 				["over-byte-limit", "rich"],
 			],
 		);
-	});
-
-	it("names a rows read HQ answered past its byte bound as more lookup data than Nova brings in", () => {
-		expect(
-			hqReadCircumstance(
-				classifyHqFailure(
-					{ success: false, status: 502, cause: "too-large" },
-					"lookup-rows",
-				),
-			),
-		).toBe("lookup-data-too-large");
 	});
 });

@@ -15,6 +15,7 @@ import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { getLookupTable } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { canonicalLookupTable } from "../hqResourceBaseline";
 import {
 	isAccountRefusal,
 	type ManagedTablesReRead,
@@ -22,6 +23,8 @@ import {
 } from "../managedData";
 import {
 	connect,
+	hqRowsOf,
+	hqTableOf,
 	type ManagedCopy,
 	makeManagedCopy,
 	readerOf,
@@ -191,15 +194,12 @@ describe("a table managed in the target", () => {
 			{ kind: "column-gone", column: "name", uses: 1 },
 		],
 		[
-			"a cell over a cap",
+			"a cell past one inline copy that changed since the copy",
 			(table) => ({
 				...table,
 				rows: [{ code: "001", name: "n".repeat(70_000) }],
 			}),
-			{
-				kind: "over-cap",
-				phrase: expect.stringContaining("Nova takes 64 KB in one cell"),
-			},
+			{ kind: "past-inline-read" },
 		],
 		[
 			"a field name outside the grammar",
@@ -238,6 +238,71 @@ describe("a table managed in the target", () => {
 			expect(await rowsOf(copy)).toEqual(before);
 		},
 	);
+
+	it("passes a table past one inline copy that is still the table Nova's copy took, and refreshes nothing", async () => {
+		/* The plausible failure: a table no inline copy can carry stops every
+		 * publish as if it changed, though the copy a paged refresh took is
+		 * current. The stored digest is set to CommCare HQ's table as served,
+		 * the state a paged refresh leaves. */
+		await seed();
+		const copy = await makeManagedCopy(h, LOOKUP, facilities, TARGET);
+		const large: ServedTable = {
+			...facilities,
+			rows: [{ code: "001", name: "n".repeat(70_000) }],
+		};
+		const stored = await h
+			.db()
+			.selectFrom("lookup_tables")
+			.select("hq_canonical")
+			.where("id", "=", copy.tableId)
+			.executeTakeFirstOrThrow();
+		await h
+			.db()
+			.updateTable("lookup_tables")
+			.set({
+				hq_canonical: JSON.stringify({
+					...(stored.hq_canonical as object),
+					digest: canonicalLookupTable(hqTableOf(large), hqRowsOf(large))
+						.digest,
+				}),
+			})
+			.where("id", "=", copy.tableId)
+			.execute();
+		const before = await rowsOf(copy);
+		const result = await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [large]);
+			serveRows(peer, "clinic", large);
+			return readOf(await reRead([copy]));
+		});
+		expect(result).toMatchObject({ blocking: [], refreshed: [], stale: [] });
+		expect(await rowsOf(copy)).toEqual(before);
+	});
+
+	it("stops on a table past one inline read it cannot compare page by page, with the refresh it needs", async () => {
+		await seed();
+		const copy = await makeManagedCopy(h, LOOKUP, facilities, TARGET);
+		const result = await withHttpPeer(async (peer) => {
+			serveTableList(peer, "clinic", [facilities]);
+			peer
+				.get("https://india.commcarehq.org")
+				.intercept({
+					path: `/a/clinic/api/fixture/v1/?fixture_type_id=${facilities.id}`,
+					method: "GET",
+				})
+				.reply(200, {
+					objects: [],
+					meta: { next: "more", offset: 0, total_count: 5_001 },
+				});
+			return readOf(await reRead([copy]));
+		});
+		expect(result.blocking).toEqual([
+			{
+				tag: "facilities",
+				name: "facilities",
+				changes: [{ kind: "past-inline-read" }],
+			},
+		]);
+	});
 
 	it("answers every stop of every table at once and refreshes none, a table that only changed rows included", async () => {
 		await seed();
