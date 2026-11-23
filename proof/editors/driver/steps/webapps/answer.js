@@ -109,6 +109,47 @@
 		return refusedHere() ? "refused" : true;
 	}
 
+	// An Ethiopian calendar (entries.js::EthiopianDateEntry, entry_ethiopian_date.html): the calendars picker's
+	// own text box, which shows the Ethiopian day as dd/mm/yyyy (jquery.calendars.ethiopian.js, regional '')
+	// and takes a typed day when the box loses focus (its blur handler parses it and sets the picker's date,
+	// whose onSelect answers the Gregorian day). The Gregorian day converts through the Julian day number as
+	// the picker's calendars do (jquery.calendars.js::GregorianCalendar.toJD, EthiopianCalendar.fromJD).
+	const ethiopian = widget.querySelector(
+		".input-group:not([data-td-target-input]) > input.form-control",
+	);
+	if (
+		ethiopian &&
+		!clearing &&
+		widget.querySelector(".input-group-text .fa-calendar-days")
+	) {
+		const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+		const [y, m] = month < 3 ? [year - 1, month + 12] : [year, month];
+		const century = Math.floor(y / 100);
+		const julian =
+			Math.floor(365.25 * (y + 4716)) +
+			Math.floor(30.6001 * (m + 1)) +
+			day +
+			(2 - century + Math.floor(century / 4)) -
+			1524.5;
+		const epoch = 1724220.5;
+		const sinceEpoch = Math.floor(julian) + 0.5 - epoch;
+		const ethiopianYear =
+			Math.floor((sinceEpoch - Math.floor((sinceEpoch + 366) / 1461)) / 365) +
+			1;
+		const newYear =
+			(ethiopianYear - 1) * 365 + Math.floor(ethiopianYear / 4) + epoch;
+		const intoYear = Math.floor(julian) + 0.5 - newYear;
+		const ethiopianMonth = Math.floor(intoYear / 30) + 1;
+		const ethiopianDay = intoYear - (ethiopianMonth - 1) * 30 + 1;
+		const typed = `${pad(ethiopianDay)}/${pad(ethiopianMonth)}/${ethiopianYear}`;
+		if (ethiopian.value === typed) return "unchanged";
+		ethiopian.focus();
+		ethiopian.value = typed;
+		ethiopian.dispatchEvent(new Event("input", { bubbles: true }));
+		ethiopian.blur();
+		return refusedHere() ? "refused" : true;
+	}
+
 	const options = [
 		...widget.querySelectorAll(
 			"input.form-check-input[type=radio], input.form-check-input[type=checkbox]",
