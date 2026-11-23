@@ -59,6 +59,7 @@
 		"hq-case-lists/column-over-an-unknown-hash-property",
 		"hq-case-lists/columns-above-the-first-tab",
 		"hq-case-lists/conditional-id-mapping",
+		"hq-case-lists/conditional-id-mapping-unparsed-key",
 		"hq-case-lists/date-format-with-an-unknown-escape",
 		"hq-case-lists/detail-tab-over-an-expression",
 		"hq-case-lists/detail-tab-over-child-cases",

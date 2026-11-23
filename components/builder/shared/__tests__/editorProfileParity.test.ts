@@ -26,6 +26,7 @@ import {
 	type CaseOperation,
 	calculatedColumn,
 	hiddenSearchInputDef,
+	idMappingColumn,
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
@@ -94,6 +95,8 @@ const CASE_PICK = testUuid("parity-case-pick");
 const TABLE_PICK = testUuid("parity-table-pick");
 const COLUMN_UUID = testUuid("parity-column");
 const SORT_UUID = testUuid("parity-sort");
+const MAPPING_UUID = testUuid("parity-mapping");
+const MAPPING_ROW = testUuid("parity-mapping-row");
 const TEXT_INPUT = testUuid("parity-text-input");
 const ADVANCED_INPUT = testUuid("parity-advanced-input");
 const HIDDEN_INPUT = testUuid("parity-hidden-input");
@@ -156,9 +159,21 @@ function fixture(): BlueprintDoc {
 				caseType: "patient",
 				caseSearchConfig: {},
 				caseListConfig: {
-					columns: [calculatedColumn(COLUMN_UUID, "Value", term(literal("")))],
-					listColumnOrder: [COLUMN_UUID],
-					detailColumnOrder: [COLUMN_UUID],
+					columns: [
+						calculatedColumn(COLUMN_UUID, "Value", term(literal(""))),
+						{
+							...idMappingColumn(MAPPING_UUID, "status", "Status", [
+								{
+									uuid: MAPPING_ROW,
+									when: eq(term(prop("patient", "status")), term(literal("x"))),
+									label: "Seen",
+								},
+							]),
+							behavior: "first-match" as const,
+						},
+					],
+					listColumnOrder: [COLUMN_UUID, MAPPING_UUID],
+					detailColumnOrder: [COLUMN_UUID, MAPPING_UUID],
 					calculatedSorts: [
 						{
 							uuid: SORT_UUID,
@@ -316,6 +331,12 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		uuid: CASE_FIRST,
 		slot: "case_list_sort_expression",
 		member: { sortUuid: SORT_UUID },
+	},
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "case_list_mapping_condition",
+		member: { columnUuid: MAPPING_UUID, rowUuid: MAPPING_ROW },
 	},
 	{
 		entity: "module",

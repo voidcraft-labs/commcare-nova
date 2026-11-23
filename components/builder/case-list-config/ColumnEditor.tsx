@@ -38,6 +38,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContextBuilder } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
 	EXPRESSION_PLATFORM_FEATURES,
@@ -53,7 +54,11 @@ import type {
 } from "@/lib/domain";
 import { columnKindPropertyRequirement } from "@/lib/domain";
 import { bindWorkerColumn } from "@/lib/domain/columnRelation";
-import type { PlatformFeatureId } from "@/lib/domain/platforms";
+import {
+	type PlatformFeatureId,
+	platformPickerLine,
+	platformRefusal,
+} from "@/lib/domain/platforms";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { PlatformNoteRow } from "../shared/PlatformNoteRow";
 import {
@@ -112,10 +117,16 @@ interface ColumnEditorProps {
 }
 
 /** What a column's platform note can state: a link's text, a column left off
- *  Results, and the expression-leaf features of its value. */
+ *  Results, formatted text, an image's description, the map's locations and
+ *  layers, and the expression-leaf features of its value. */
 const COLUMN_NOTE_FEATURES: readonly PlatformFeatureId[] = [
 	"link-column",
 	"column-hidden-from-results",
+	"formatted-case-text",
+	"case-image-descriptions",
+	"case-map-location",
+	"case-map-fallback-locations",
+	"case-map-layers",
 	...EXPRESSION_PLATFORM_FEATURES,
 ];
 
@@ -320,6 +331,13 @@ function KindPicker({
 				);
 	const currentKind = currentValue.kind;
 	const currentSchema = columnCardSchemas[currentKind];
+	/* A worker's distance needs their location, which only Android knows:
+	 * where the app runs elsewhere too, the choice stays visible with the
+	 * platform's reason, as the gate refuses it. */
+	const distanceRefusal = platformRefusal(
+		"worker-distance",
+		useDeclaredPlatforms(),
+	);
 
 	const nextFor = (targetKind: ColumnKind): Column | undefined =>
 		nextColumnDisplay(currentValue, targetKind, ctx, draftsByKindRef.current);
@@ -374,6 +392,8 @@ function KindPicker({
 				>
 					{columnCardSchemaList.map((s) => {
 						const isCurrent = s.kind === currentKind;
+						const refusal =
+							s.kind === "worker-distance" ? distanceRefusal : undefined;
 						const isApplicable =
 							currentValue.kind === "calculated"
 								? canSeedColumnKind(ctx, s.kind)
@@ -382,7 +402,7 @@ function KindPicker({
 							<DropdownMenuItem
 								key={s.kind}
 								onClick={() => replaceWith(s)}
-								disabled={isCurrent || !isApplicable}
+								disabled={isCurrent || !isApplicable || refusal !== undefined}
 								className={`${CONSOLE_MENU_ITEM_CLS} ${
 									isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
 								}`}
@@ -406,9 +426,11 @@ function KindPicker({
 												: "text-nova-text-muted"
 										}`}
 									>
-										{isApplicable
-											? s.description
-											: `Choose ${s.applicabilityRequirement ?? "different information"}`}
+										{refusal !== undefined && !isCurrent
+											? platformPickerLine(refusal)
+											: isApplicable
+												? s.description
+												: `Choose ${s.applicabilityRequirement ?? "different information"}`}
 									</div>
 								</span>
 								{isCurrent && (

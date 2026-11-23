@@ -34,6 +34,7 @@ import {
 	plainColumn,
 	proseText,
 	simpleSearchInputDef,
+	workerDistanceColumn,
 } from "@/lib/domain";
 import {
 	declaredPlatforms,
@@ -274,6 +275,19 @@ const SITES: readonly OfferingSite[] = [
 		],
 	},
 	{
+		name: "a column's Display as Distance from worker",
+		feature: "worker-distance",
+		batch: () => [
+			{
+				kind: "addColumn",
+				moduleUuid: MODULE,
+				column: workerDistanceColumn(NEW_COLUMN, "home", "Distance"),
+				afterInList: null,
+				afterInDetail: null,
+			},
+		],
+	},
+	{
 		name: "the case list menu item switch beside forms",
 		feature: "case-list-menu-item",
 		batch: () => [{ kind: "setCaseListMenuItem", uuid: MODULE, item: {} }],
@@ -295,6 +309,8 @@ const PICKER_LINES: Partial<Record<PlatformFeatureId, string>> = {
 	"search-field-multiple-choice":
 		"Not available on Android. You can change where this app runs in App settings.",
 	"sort-by-distance":
+		"Not available in Web Apps. You can change where this app runs in App settings.",
+	"worker-distance":
 		"Not available in Web Apps. You can change where this app runs in App settings.",
 	"connect-app":
 		"Not available for a Connect app. You can turn off Connect, then choose this.",

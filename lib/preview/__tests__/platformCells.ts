@@ -78,6 +78,7 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/date-and-time-xsd-datetime@web-apps":
 		structural("datetime-question"),
 	"menus-and-case-lists/type-distance@web-apps": structural("sort-by-distance"),
+	"menus-and-case-lists/9-distance@web-apps": structural("worker-distance"),
 	"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible@android":
 		structural("forms-read-search"),
 	"case-search/inline-search-default-search-on-a-module-without-visible-inputs@android":
@@ -295,6 +296,22 @@ export const PLATFORM_CELLS: Readonly<
 	// ── Stated ─────────────────────────────────────────────────────────
 	"questions/plain-label-containing-html-text@web-apps": stated("plain-text"),
 	"expressions-and-data/json-property@web-apps": stated("json-property"),
+	"menus-and-case-lists/8-address@web-apps": stated("case-map-location"),
+	"menus-and-case-lists/11-geo-boundary@web-apps": stated("case-map-layers"),
+	"menus-and-case-lists/12-geo-boundary-color-on-the-case-list-only-needs-an-address@web-apps":
+		stated("case-map-layers"),
+	"menus-and-case-lists/13-geo-points-on-the-case-list-only@web-apps":
+		stated("case-map-layers"),
+	"menus-and-case-lists/14-geo-points-colors-on-the-case-list-only-needs-an-address@web-apps":
+		stated("case-map-layers"),
+	"menus-and-case-lists/10-markdown-outside-the-link-shape@android": stated(
+		"formatted-case-text",
+	),
+	"menus-and-case-lists/enum-mappingitem-alt-text-non-blank@android": model(
+		"case-image-description-android",
+	),
+	"menus-and-case-lists/more-than-one-address-column-in-a-detail-of-an-advanced-module@android":
+		model("case-map-fallback-android"),
 	"expressions-and-data/json-property@android": stated("json-property"),
 	"expressions-and-data/lower-case@web-apps": stated("case-conversion"),
 	"expressions-and-data/lower-case@android": stated("case-conversion"),
@@ -337,8 +354,16 @@ export const PLATFORM_CELLS: Readonly<
 		outside(
 			"It differs only in an icon-text-grid tile, which Nova never writes.",
 		),
-	"menus-and-case-lists/enum-mappingitem-alt-text-lang@android": outside(
-		"Nova writes blank alt text, which no runtime shows.",
+	"menus-and-case-lists/19-enum-image-whose-keys-are-plain-values@android":
+		outside(
+			"It differs only in an icon-text-grid tile, which Nova never writes.",
+		),
+	"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot@android":
+		outside(
+			"It differs only in an icon-text-grid tile, which Nova never writes.",
+		),
+	"menus-and-case-lists/enum-mappingitem-alt-text-lang@android": model(
+		"case-image-description-android",
 	),
 	"questions/hq-generated-pollsensor@web-apps": outside(
 		"The location poll fills the submission's meta location, which Preview does not write; a Connect app's use of it is refused in Web Apps.",

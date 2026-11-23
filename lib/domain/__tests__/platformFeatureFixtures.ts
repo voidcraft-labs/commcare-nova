@@ -28,6 +28,7 @@ import {
 	calculatedColumn,
 	columnSort,
 	hiddenSearchInputDef,
+	imageMapColumn,
 	linkColumn,
 	type Module,
 	NEW_APP_SETTINGS,
@@ -961,6 +962,82 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"case-map-location",
 			COLUMN_OWNER,
 			"caseListConfig.columns[1].kind",
+		),
+	},
+	"case-image-descriptions": {
+		with: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "priority", "Priority", [
+						{ value: "urgent", assetId: ASSET, altText: "Urgent case" },
+					]),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "priority", "Priority", [
+						{ value: "urgent", assetId: ASSET },
+					]),
+				],
+			}),
+		use: slotUse(
+			"case-image-descriptions",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].mapping[0].altText",
+		),
+	},
+	"case-map-fallback-locations": {
+		with: () => {
+			const doc = caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Home",
+					},
+					{
+						kind: "map-location",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Clinic",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			});
+			const module = doc.modules[FIXTURE_MODULE];
+			if (module) module.heldKind = "advanced";
+			return doc;
+		},
+		without: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Home",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"case-map-fallback-locations",
+			COLUMN_OWNER,
+			"caseListConfig.columns[2].kind",
 		),
 	},
 	"case-map-layers": {

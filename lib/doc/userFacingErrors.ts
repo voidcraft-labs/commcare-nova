@@ -1179,7 +1179,26 @@ const USER_MESSAGE_BY_CODE: Record<
 			: det(e, "reason", "") === "lands-on-shown"
 				? `A column hidden from Results in ${q(modName(e))} has a name in Sort by, but its sort rule lands on ${q(det(e, "landingColumnLabel", "an earlier column"))}, which shows on Results, so workers never see that name. You can remove the name, or hide that column on Results.`
 				: `${q(det(e, "columnLabel", "A column"))} in ${q(modName(e))} shows on Results, so workers already find it under its header in Sort by. You can remove its name in Sort by, or hide the column on Results.`,
-	CASE_MAP_SOURCE_INVALID: (e) => e.message,
+	CASE_MAP_SOURCE_INVALID: (e) => {
+		const item = q(det(e, "columnLabel", "A map item"));
+		const where = q(modName(e));
+		switch (det(e, "reason", "")) {
+			case "several-locations":
+				return `${item} is a second map location on one screen of ${where}, which can use one. You can keep one location or move the other to a separate screen.`;
+			case "layer-off-results":
+				return `${item} in ${where} is a map layer outside Results. You can keep the layer on Results and show its saved value as a separate item in Details.`;
+			case "layer-without-location":
+				return `${item} in ${where} is a map layer, and Results has no map location for it. You can add a location or remove the layer.`;
+			case "several-layers":
+				return `${item} in ${where} is a second map layer of its kind, and a map can use one of each. You can choose which layer to keep.`;
+			case "color-without-boundary":
+				return `${item} in ${where} colors a boundary the map doesn't have. You can add a boundary or remove its color.`;
+			case "colors-without-points":
+				return `${item} in ${where} colors points the map doesn't have. You can add points or remove their colors.`;
+			default:
+				return `The map in ${where} needs its locations and layers set up together. Open the map items in Results and check each one.`;
+		}
+	},
 	CASE_LIST_COLUMN_NOT_ON_LIST_INVALID: (e) =>
 		det(e, "reason", "") === "sorted"
 			? "This isn't on the list, so the list can't sort by it. You can turn on List search matches this to sort by it."

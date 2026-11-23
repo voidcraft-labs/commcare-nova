@@ -1,4 +1,10 @@
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseListConfig,
+	Column,
+	Module,
+	Uuid,
+} from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
 import {
 	caseMapSources,
@@ -16,48 +22,70 @@ export function caseMapLayers(
 	const map = caseMapSources(config, "list");
 	const errors: ValidationError[] = [];
 	for (const column of config.columns) {
-		let message: string | undefined;
-		if (
-			column.kind === "map-location" &&
-			hasSeveralCaseMapLocations(config) &&
-			!menuEmittedAdvanced(doc, moduleUuid)
-		)
-			message =
-				"This menu can use one map location per screen. You can keep one location or move the other to a separate screen.";
-		if (column.kind === "map-layer") {
-			if (
-				column.visibleInDetail !== false ||
-				column.visibleInList === false ||
-				column.notOnList
-			)
-				message =
-					"A map layer belongs on Results. You can show its saved value as a separate item in Details.";
-			else if (map.locations.length === 0)
-				message =
-					"This map layer needs a map location in Results. You can add a location or remove the layer.";
-			else if ((map.layers[column.layer]?.length ?? 0) > 1)
-				message =
-					"A map can use one layer of each kind. You can choose which layer to keep.";
-			else if (
-				column.layer === "boundary-color" &&
-				!map.layers.boundary?.length
-			)
-				message =
-					"This color needs a boundary on the map. You can add a boundary or remove its color.";
-			else if (column.layer === "point-colors" && !map.layers.points?.length)
-				message =
-					"These colors need points on the map. You can add points or remove their colors.";
-		}
-		if (message)
+		const reason = mapSourceReason(column, config, map, doc, moduleUuid);
+		if (reason)
 			errors.push(
 				validationError(
 					"CASE_MAP_SOURCE_INVALID",
 					"module",
-					message,
+					`In the case list of "${mod.name}", ${REASON_SENTENCE[reason](column.header)}`,
 					{ moduleUuid, moduleName: mod.name },
-					{ columnUuid: column.uuid, columnLabel: column.header },
+					{ columnUuid: column.uuid, columnLabel: column.header, reason },
 				),
 			);
 	}
 	return errors;
 }
+
+export type CaseMapSourceReason =
+	| "several-locations"
+	| "layer-off-results"
+	| "layer-without-location"
+	| "several-layers"
+	| "color-without-boundary"
+	| "colors-without-points";
+
+function mapSourceReason(
+	column: Column,
+	config: CaseListConfig,
+	map: ReturnType<typeof caseMapSources>,
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): CaseMapSourceReason | undefined {
+	if (column.kind === "map-location")
+		return hasSeveralCaseMapLocations(config) &&
+			!menuEmittedAdvanced(doc, moduleUuid)
+			? "several-locations"
+			: undefined;
+	if (column.kind !== "map-layer") return undefined;
+	if (
+		column.visibleInDetail !== false ||
+		column.visibleInList === false ||
+		column.notOnList
+	)
+		return "layer-off-results";
+	if (map.locations.length === 0) return "layer-without-location";
+	if ((map.layers[column.layer]?.length ?? 0) > 1) return "several-layers";
+	if (column.layer === "boundary-color" && !map.layers.boundary?.length)
+		return "color-without-boundary";
+	if (column.layer === "point-colors" && !map.layers.points?.length)
+		return "colors-without-points";
+	return undefined;
+}
+
+/** The finding's sentence, the column named by its header. */
+const REASON_SENTENCE: Record<CaseMapSourceReason, (column: string) => string> =
+	{
+		"several-locations": (column) =>
+			`"${column}" is a second map location on one screen, and this menu can use one. You can keep one location or move the other to a separate screen.`,
+		"layer-off-results": (column) =>
+			`"${column}" is a map layer outside Results. You can keep the layer on Results and show its saved value as a separate item in Details.`,
+		"layer-without-location": (column) =>
+			`"${column}" is a map layer, and Results holds no map location for it. You can add a location or remove the layer.`,
+		"several-layers": (column) =>
+			`"${column}" is a second map layer of its kind, and a map can use one of each. You can choose which layer to keep.`,
+		"color-without-boundary": (column) =>
+			`"${column}" colors a boundary the map doesn't have. You can add a boundary or remove its color.`,
+		"colors-without-points": (column) =>
+			`"${column}" colors points the map doesn't have. You can add points or remove their colors.`,
+	};

@@ -383,6 +383,18 @@ export interface PreviewPlatformRules {
 		readonly back: "address" | "new-list";
 		readonly search: "keeps-sort" | "new-list";
 	};
+	/**
+	 * The case list's map. Web Apps offers it only where the project's
+	 * CASE_LIST_MAP switch is on and the list has an address, and marks each
+	 * case at the first address column's value alone
+	 * (`cloudcare/js/formplayer/menus/views.js`, `mapAvailable` and
+	 * `addressIndex`). Android offers it whenever the list has an address,
+	 * marks each case at its first address that parses, and draws the
+	 * boundary and point layers with their colors
+	 * (`gis/EntityMapUtils.kt::getEntityLocation`, `getEntityBoundary`,
+	 * `getEntityPoints`).
+	 */
+	readonly caseMap: "switched-first-address" | "address-and-layers";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -456,6 +468,7 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "pick-only",
 		}),
 		caseListReturn: Object.freeze({ back: "address", search: "keeps-sort" }),
+		caseMap: "switched-first-address",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -525,6 +538,7 @@ export const PREVIEW_PLATFORM_RULES = {
 			marks: "list-order-and-pick",
 		}),
 		caseListReturn: Object.freeze({ back: "new-list", search: "new-list" }),
+		caseMap: "address-and-layers",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 

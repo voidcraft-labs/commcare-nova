@@ -18,6 +18,7 @@ import {
 	caseListOrderPlan,
 	columnSort,
 	hiddenSearchInputDef,
+	imageMapColumn,
 	linkColumn,
 	plainColumn,
 	proseText,
@@ -36,6 +37,7 @@ import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { previewRegisterAction } from "../caseListRegistration";
 import { caseListSortOptions, LIST_ORDER } from "../caseListSortMenu";
+import { projectCaseMap } from "../caseMap";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import { projectTileGrid } from "../caseTileLayout";
 import { planTileCell } from "../caseTileRendering";
@@ -595,6 +597,46 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toBe("[View photo](https://example.org/x)");
 		expect(projectColumnDisplay(column, linked, DISPLAY).text).not.toBe(
 			"[View photo](https://example.org/x)",
+		);
+	},
+
+	/* An image rule's description is what Web Apps reads for its picture;
+	 * Android shows the picture alone. */
+	"case-image-description-android": (platform) => {
+		const column = imageMapColumn(LINK, "priority", "Priority", [
+			{
+				value: "urgent",
+				assetId: asMediaAssetId(testUuid("cell-model-urgent")),
+				altText: "Urgent case",
+			},
+		]);
+		const shown = projectColumnDisplay(column, row({ priority: "urgent" }), {
+			...DISPLAY,
+			readsCaseImageDescriptions:
+				previewPlatformRules(platform).readsCaseImageDescriptions,
+		});
+		expect(shown.kind).toBe("image");
+		expect("altText" in shown ? shown.altText : undefined).toBe(
+			platform === "android" ? undefined : "Urgent case",
+		);
+	},
+
+	/* Android marks a case at its first location that holds one; Web Apps
+	 * reads the first location alone. */
+	"case-map-fallback-android": (platform) => {
+		const home = testUuid("cell-model-home");
+		const clinic = testUuid("cell-model-clinic");
+		const values = new Map([
+			[home, ""],
+			[clinic, "12.5 3.25"],
+		]);
+		const geometry = projectCaseMap(
+			platform,
+			{ locations: [home, clinic], layers: {} },
+			(id) => values.get(id) ?? "",
+		);
+		expect(geometry.location).toEqual(
+			platform === "android" ? { lat: 12.5, lng: 3.25 } : undefined,
 		);
 	},
 

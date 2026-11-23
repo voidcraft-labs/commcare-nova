@@ -226,7 +226,9 @@ export const PLATFORM_FEATURE_IDS = [
 	"case-list-sort-label",
 	"link-column",
 	"formatted-case-text",
+	"case-image-descriptions",
 	"case-map-location",
+	"case-map-fallback-locations",
 	"case-map-layers",
 	"search-screen-text",
 	"search-field-checks",
@@ -768,9 +770,27 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: {
 			reading: "different",
-			note: "Results hides the location. A project space with the case list map can show its first location on a map, and Details shows the coordinates.",
+			note: "the location is hidden in Results and shown as coordinates in Details, and a project space with the case list map can show each case's first location on a map",
 		},
 		android: { reading: "runs" },
+	},
+	"case-image-descriptions": {
+		label: "Case image descriptions",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "a case list image shows without its description",
+		},
+	},
+	"case-map-fallback-locations": {
+		label: "Several case map locations",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "a case whose first location is blank is marked at the next location that holds one",
+		},
 	},
 	"case-map-layers": {
 		label: "Case map boundaries and points",

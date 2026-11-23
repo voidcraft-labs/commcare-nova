@@ -117,8 +117,12 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
 		"menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
 	],
-	"case-map-location": [
-		"menus-and-case-lists/8-address",
+	"case-image-descriptions": [
+		"menus-and-case-lists/enum-mappingitem-alt-text-lang",
+		"menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
+	],
+	"case-map-location": ["menus-and-case-lists/8-address"],
+	"case-map-fallback-locations": [
 		"menus-and-case-lists/more-than-one-address-column-in-a-detail-of-an-advanced-module",
 	],
 	"case-map-layers": [
@@ -194,8 +198,10 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The missing worker-record notice; no author chooses its screen.",
 	"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a":
 		"Differs only in an icon-text-grid tile, which Nova never writes.",
-	"menus-and-case-lists/enum-mappingitem-alt-text-lang":
-		"Nova writes blank alt text; no author sets it yet.",
+	"menus-and-case-lists/19-enum-image-whose-keys-are-plain-values":
+		"Differs only in an icon-text-grid tile, which Nova never writes.",
+	"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot":
+		"Differs only in an icon-text-grid tile, which Nova never writes.",
 	"questions/hq-generated-meta-deviceid-timestart-timeend-username-userid":
 		"The submission's meta block; authored reads go through the session context features.",
 	"questions/h-title-and-data-name-whatever-their-text":

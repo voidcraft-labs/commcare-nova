@@ -8,6 +8,7 @@ import type {
 import { caseMapSources } from "@/lib/domain/caseMap";
 import { type ColumnDisplayContext, columnRawText } from "./columnDisplay";
 import type { CaseRowWithCalculated } from "./engine/caseDataBindingTypes";
+import { previewPlatformRules } from "./platform";
 import { parsePoint, parsePointList, parsePolygon } from "./xpath/javaRosaGeo";
 
 /** Both native table views use these inputs for their map rather than drawing
@@ -30,8 +31,9 @@ interface CaseMapGeometry {
 	invalid: boolean;
 }
 
-/** CASE_LIST_MAP is the exact project's Web Apps switch. EntitySelectActivity
- * offers the Android map whenever its short detail carries an address. */
+/** Whether the list offers its map (`PreviewPlatformRules.caseMap`):
+ * `confirmed` is the project's CASE_LIST_MAP switch, which only Web Apps
+ * reads. */
 export function workerMapOffered(
 	platform: Platform,
 	hasLocation: boolean,
@@ -39,7 +41,10 @@ export function workerMapOffered(
 	confirmed: boolean | null | undefined,
 ) {
 	return (
-		hasLocation && hasCases && (platform === "android" || confirmed === true)
+		hasLocation &&
+		hasCases &&
+		(previewPlatformRules(platform).caseMap === "address-and-layers" ||
+			confirmed === true)
 	);
 }
 
@@ -120,7 +125,7 @@ export function projectCaseMap(
 		pointColors: [],
 		invalid: false,
 	};
-	if (platform === "web-apps") {
+	if (previewPlatformRules(platform).caseMap === "switched-first-address") {
 		const first = sources.locations[0];
 		if (!first) return result;
 		const value = read(first);

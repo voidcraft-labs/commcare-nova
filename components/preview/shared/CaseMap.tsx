@@ -52,7 +52,7 @@ export function CaseMap({
 		let disposed = false;
 		const cleanup: Array<() => void> = [];
 		setFailed(false);
-		async function mount(element: HTMLDivElement) {
+		async function mount(element: HTMLElement) {
 			const [maps, markers] = await Promise.all([loadMaps(), loadMarker()]);
 			if (disposed) return;
 			const map = new maps.Map(element, {

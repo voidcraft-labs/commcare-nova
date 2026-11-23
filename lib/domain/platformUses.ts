@@ -560,8 +560,32 @@ function moduleUses(
 			);
 		if (columnSortLabelShows(column) && wanted("case-list-sort-label"))
 			uses.push(slotUse("case-list-sort-label", target, slot("sort.label")));
+		if (column.kind === "image-map" && wanted("case-image-descriptions")) {
+			const described = column.mapping.findIndex(
+				(row) => row.altText !== undefined && row.altText.trim() !== "",
+			);
+			if (described >= 0)
+				uses.push(
+					slotUse(
+						"case-image-descriptions",
+						target,
+						slot(`mapping[${described}].altText`),
+					),
+				);
+		}
 		if (column.kind === "map-location" && wanted("case-map-location"))
 			uses.push(slotUse("case-map-location", target, slot("kind")));
+		/* A later location of an advanced menu's detail is where Android, which
+		 * marks a case at its first location that holds one, reads past a
+		 * blank earlier one. */
+		if (
+			column.kind === "map-location" &&
+			wanted("case-map-fallback-locations") &&
+			(list?.columns ?? [])
+				.slice(0, index)
+				.some((earlier) => earlier.kind === "map-location")
+		)
+			uses.push(slotUse("case-map-fallback-locations", target, slot("kind")));
 		if (column.kind === "map-layer" && wanted("case-map-layers"))
 			uses.push(slotUse("case-map-layers", target, slot("layer")));
 		if (
