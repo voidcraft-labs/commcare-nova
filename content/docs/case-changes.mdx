@@ -255,8 +255,8 @@ Two property names save somewhere CommCare keeps apart. A value saved to
 `location_id` becomes the case's own location ID: text another system gives
 the case, up to 255 characters. It isn't one of your Project's places and gives
 no one access to the case. Forms, case lists and details read it like any
-other property, while a Search field can't, because CommCare's server search
-doesn't keep it. A value saved to `hq_user_id` is kept as that property and also
+other property, while a Search field, its condition, and the filter of a list
+that offers Search can't, because CommCare's server search doesn't keep it. A value saved to `hq_user_id` is kept as that property and also
 becomes the case's external ID once the device next syncs. The worker's own
 record keeps its `hq_user_id` in step with the worker, so a form can't save it
 there.

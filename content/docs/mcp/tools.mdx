@@ -1188,7 +1188,7 @@ Reads return the same editable expressions; subsequent calls keep targeting the
 operation by `operationUuid`.
 
 Operation `writes` may save custom case properties or the standard
-`external_id` scalar. They may not write `case_name`; create, rename, and
+`external_id` and `location_id` scalars. They may not write `case_name`; create, rename, and
 retype operations expose their dedicated naming fields instead. Commcare Nova keeps
 standard scalars out of custom case-property data.
 
@@ -1284,8 +1284,8 @@ to its file, with the same `caseWrite` as any other field. In a case change,
 the value `capture-link(#form/<question>)` saves a capture's file as a link.
 The link is built from the CommCare project space the app is published to; an
 artifact compiled before the app reaches one omits the property and
-`compile_app` says so in its advisories. A capture may not write `case_name` or
-`external_id`.
+`compile_app` says so in its advisories. A capture may not write `case_name`,
+`external_id` or `location_id`.
 
 A field can also save to **the worker's own record** instead of a case, by
 passing `caseType: "commcare-user"` and a `property` that is one of the app's
@@ -1308,13 +1308,22 @@ Commcare Nova keeps in step with the worker's profile, and any field inside a
 repeat, since one form writes one worker record. Adding a worker property is
 `add_user_properties`.
 
-Custom property names remain open. The two standard scalar destinations a
-field may use are `case_name` and `external_id`; other reserved system names
-are refused. These scalars store text: use a text field for an entered answer
+Custom property names remain open. The three standard scalar destinations a
+field may use are `case_name`, `external_id` and `location_id`; other reserved
+system names are refused. These scalars store text: use a text field for an entered answer
 or a hidden calculated field for a computed value. Commcare Nova trims only boundary
 characters U+0000 through U+0020 and limits the result to 255 UTF-16 units. A
 blank case name is invalid. An active blank external ID clears it, while an
 omitted or irrelevant writer leaves the existing external ID unchanged.
+
+`location_id` is the case's own location ID: text another system gives the
+case. It is not one of the Project's places and grants no access. Forms, case
+lists and details read it, while CommCare HQ's case search doesn't hold it: a
+Search field, a Search field's condition, and the filter of a list that offers
+Search can't read it. A value saved to `hq_user_id` is kept as that property
+and also becomes the case's external ID once the device next syncs, so it is
+held to the same text and 255-unit bound; the worker's own record keeps its
+`hq_user_id` in step with the worker, so a form can't save it there.
 
 ### Renaming case properties
 
