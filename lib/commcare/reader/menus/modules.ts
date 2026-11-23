@@ -67,6 +67,7 @@ const MENU_CLASSES: readonly MenuClass[] = [
 	"AdvancedModule",
 	"ShadowModule",
 ];
+const OWN_CASE_TYPE_CLASSES = ["Module", "AdvancedModule"] as const;
 const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
 
 /** One claim per class, its key the class's own spelling of the field. */
@@ -82,8 +83,10 @@ function perClass<C extends string, U extends Claim["use"]>(
 }
 
 const MENU = {
+	// A menu listing another menu's forms takes its case type from that menu
+	// (`readCaseType`), so only the other two classes claim their own.
 	caseType: perClass(
-		MENU_CLASSES,
+		OWN_CASE_TYPE_CLASSES,
 		take,
 		`${M}/modulebase-case-type`,
 		"case_type",
@@ -93,7 +96,7 @@ const MENU = {
 		"schema:Module.case_type",
 	),
 	caseTypeGrammar: perClass(
-		MENU_CLASSES,
+		OWN_CASE_TYPE_CLASSES,
 		refuse,
 		`${M}/case-type-outside-the-menu-page-s-grammar`,
 		"case_type",
@@ -780,7 +783,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 		// for itself, are each their entry; the menu keeps the name it stores, so
 		// the stages after this one read its forms as written.
 		const refused = !CASE_TYPE_PATTERN.test(caseType)
-			? MENU.caseTypeGrammar[menuClass(module)]
+			? MENU.caseTypeGrammar[module.docType]
 			: module.docType === "Module" &&
 					(caseType === "commcare-user" ||
 						caseType === "user-owner-mapping-case")
@@ -797,7 +800,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 		}
 		const value = json.take(
 			"case_type",
-			MENU.caseType[menuClass(module)],
+			MENU.caseType[module.docType],
 			textOf,
 		).value;
 		ctx.writeDraft(() => {
@@ -808,7 +811,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 	if (caseType === "" && module.docType === "Module")
 		json.take("case_type", MENU.survey, textOf).value;
 	else if (caseType === "")
-		json.take("case_type", MENU.caseType[menuClass(module)], textOf).value;
+		json.take("case_type", MENU.caseType[module.docType], textOf).value;
 }
 
 /** Whether following `root_module_id` from `start` returns to `start`: HQ's `root cycle`. */

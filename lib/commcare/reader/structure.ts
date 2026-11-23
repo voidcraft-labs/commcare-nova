@@ -85,7 +85,15 @@ const MENU = defineClaims("structure.menu", {
 		"unique_id",
 	),
 	...perClass("name", MENU_CLASSES, take, `${M}/modulebase-name`, "name"),
-	...perClass("forms", MENU_CLASSES, take, `${M}/module-forms`, "forms"),
+	// A menu listing another menu's forms owns none; its `forms` is read
+	// as the mirror (`MENU_TYPE.mirror`), never as forms.
+	...perClass(
+		"forms",
+		["Module", "AdvancedModule"],
+		take,
+		`${M}/module-forms`,
+		"forms",
+	),
 	...perClass(
 		"comment",
 		MENU_CLASSES,
