@@ -138,10 +138,10 @@ import {
 	type ColumnVia,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
-	casePropertyShowsOptionLabels,
 	columnFieldText,
 	columnPropertyCaseType,
 	DATE_COUNT_DAYS,
+	hqStoresColumnAsExpression,
 	imageMapShowsImages,
 	makeTranslationUnitId,
 	printProseTemplate,
@@ -1106,31 +1106,18 @@ function hqStoresAsExpression(
 	column: Exclude<Column, { kind: "calculated" }>,
 	ctx: CaseListEmitContext,
 ): boolean {
-	switch (column.kind) {
-		case "link":
-		case "interval":
-			return true;
-		case "plain": {
-			const caseType = columnPropertyCaseType(
-				column,
-				ctx.caseType,
-				ctx.caseTypes,
-			);
-			const properties =
-				column.via === undefined && column.readFrom === undefined
-					? ctx.caseProperties
-					: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
-						[]);
-			return (
-				column.showChoice !== "saved-value" &&
-				casePropertyShowsOptionLabels(
-					properties.find((candidate) => candidate.name === column.field),
-				)
-			);
-		}
-		default:
-			return false;
-	}
+	if (column.kind !== "plain")
+		return hqStoresColumnAsExpression(column, undefined);
+	const caseType = columnPropertyCaseType(column, ctx.caseType, ctx.caseTypes);
+	const properties =
+		column.via === undefined && column.readFrom === undefined
+			? ctx.caseProperties
+			: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
+				[]);
+	return hqStoresColumnAsExpression(
+		column,
+		properties.find((candidate) => candidate.name === column.field),
+	);
 }
 
 /**

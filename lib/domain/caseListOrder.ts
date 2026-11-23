@@ -410,6 +410,33 @@ export function casePropertyShowsOptionLabels(
 	return false;
 }
 
+/**
+ * Whether HQ JSON stores a shown property column as an expression
+ * (`useXpathExpression`) rather than as a property field: a link, an
+ * interval, and a plain column over a property that shows its options'
+ * labels. `property` is the catalog entry of the case the column's walk
+ * reaches. HQ copies an expression field verbatim into every detail, so its
+ * walk stays rooted at the local case database even in Search results,
+ * where a property field is re-rooted at the results roster.
+ */
+export function hqStoresColumnAsExpression(
+	column: Column,
+	property: CaseListOrderProperty | undefined,
+): boolean {
+	switch (column.kind) {
+		case "link":
+		case "interval":
+			return true;
+		case "plain":
+			return (
+				column.showChoice !== "saved-value" &&
+				casePropertyShowsOptionLabels(property)
+			);
+		default:
+			return false;
+	}
+}
+
 /** The key over a property column's own value, its walk included. */
 function propertyKey<
 	K extends "property" | "option-label" | "distance-property",

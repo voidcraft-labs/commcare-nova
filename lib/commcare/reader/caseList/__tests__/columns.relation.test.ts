@@ -264,6 +264,29 @@ describe("the gate over a column read through a relation", () => {
 		).toContain("parent/address");
 	});
 
+	it("refuses in a Search menu a related column HQ stores as an expression", () => {
+		// HQ copies an expression field verbatim into the Search results
+		// detail, so its walk would read the local case database there.
+		for (const column of [
+			linkColumn(uuid(1), "address", "Map", "Open", { via: PARENT }),
+			intervalColumn(uuid(1), "visit_date", "Due", 7, "days", "flag", "Late", {
+				via: PARENT,
+			}),
+		]) {
+			expect(relationFindings(app([column], { search: true }))).toEqual([
+				["CASE_LIST_COLUMN_RELATION_INVALID", "search"],
+			]);
+			expect(relationFindings(app([column]))).toEqual([]);
+		}
+		expect(
+			relationFindings(
+				app([plainColumn(uuid(1), "address", "Address", { via: PARENT })], {
+					search: true,
+				}),
+			),
+		).toEqual([]);
+	});
+
 	it("checks the property against the type the walk reaches", () => {
 		const doc = app([
 			plainColumn(uuid(1), "address", "Ours", {}),

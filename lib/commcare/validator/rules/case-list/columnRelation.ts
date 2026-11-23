@@ -9,10 +9,15 @@ import {
 	type Column,
 	type ColumnVia,
 	columnFieldText,
+	effectiveCaseSearchConfig,
+	hqStoresColumnAsExpression,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
-import { namedWorkerColumnProperty } from "@/lib/domain/columnRelation";
+import {
+	columnPropertyCaseType,
+	namedWorkerColumnProperty,
+} from "@/lib/domain/columnRelation";
 import { hqColumnFieldText, isHqDetailField } from "../../../suite/wire";
 import { type ValidationError, validationError } from "../../errors";
 
@@ -23,7 +28,8 @@ type RelationReason =
 	| "unresolved"
 	| "parent-type"
 	| "worker"
-	| "index-name";
+	| "index-name"
+	| "search";
 
 export function columnRelation(
 	mod: Module,
@@ -58,7 +64,13 @@ export function columnRelation(
 		const origins = columnCaseScopes(doc, mod, column);
 		const reasons = new Set(
 			(origins.length > 0 ? origins : [undefined]).map((origin) =>
-				relationReason(column, column.via as ColumnVia, origin, doc),
+				relationReason(
+					column,
+					column.via as ColumnVia,
+					origin,
+					doc,
+					effectiveCaseSearchConfig(mod) !== undefined,
+				),
 			),
 		);
 		for (const reason of reasons)
@@ -73,6 +85,7 @@ function relationReason(
 	via: ColumnVia,
 	origin: string | undefined,
 	doc: BlueprintDoc,
+	offersSearch: boolean,
 ): RelationReason | undefined {
 	if (via[0].identifier === "user") return "worker";
 	if (!isHqDetailField(hqColumnFieldText(columnFieldText(column))))
@@ -85,7 +98,8 @@ function relationReason(
 	)
 		return "parent-type";
 	// HQ builds a native case-property path without a type filter. The
-	// stored case index determines the reached row, including in Search.
+	// stored case index determines the reached row, including in Search
+	// for a column HQ keeps as a property field.
 	if (
 		origin === undefined ||
 		!doc.caseTypes?.some((one) => one.name === origin)
@@ -99,6 +113,18 @@ function relationReason(
 		)
 	)
 		return "unresolved";
+	// HQ stores a link, an interval and a plain column showing option labels
+	// as an expression it copies verbatim into the Search results detail,
+	// where its walk still starts in the local case database: a related case
+	// the worker doesn't hold reads blank for every case Search finds. A
+	// property field is re-rooted at the results roster and reads correctly.
+	if (offersSearch) {
+		const reached = columnPropertyCaseType(column, origin, doc.caseTypes ?? []);
+		const property = doc.caseTypes
+			?.find((type) => type.name === reached)
+			?.properties.find((one) => one.name === column.field);
+		if (hqStoresColumnAsExpression(column, property)) return "search";
+	}
 	return undefined;
 }
 
@@ -115,6 +141,8 @@ const REASON_SENTENCE: Record<RelationReason, (column: string) => string> = {
 		`"${column}" reads through a parent link that names its case type, but the parent's case type comes from this case type's own parent, and CommCare HQ keeps no type on the column. You can leave the type off the parent step.`,
 	worker: (column) =>
 		`"${column}" reads through a link called user, but CommCare HQ reads a column starting with user as the worker's own information, not a case above this one. You can rename the link, or show the worker's information another way.`,
+	search: (column) =>
+		`"${column}" shows a related case's value as a link, a time since or an option label, and this case list offers Search. CommCare HQ reads such a value from the cases on the worker's device, so it would show blank for the cases Search finds. You can show the related value's saved text instead.`,
 	"index-name": (column) =>
 		`"${column}" reads through a link whose name doesn't start with a letter, and CommCare HQ keeps a case list column's links only where each name starts with one. You can rename the link so it starts with a letter.`,
 };

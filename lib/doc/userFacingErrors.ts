@@ -264,7 +264,7 @@ function columnRelationSentence(e: ValidationError): string {
 		case "index-name":
 			return `An item in ${module} reads ${item} through a link whose name doesn't start with a letter, which CommCare HQ can't keep in a case list. You can rename the link so it starts with a letter.`;
 		case "search":
-			return `An item in ${module} shows ${item} from the case above, and this case list offers Search, where such an item shows only as a calculated value. You can add a calculated value that reads the case above instead.`;
+			return `An item in ${module} shows ${item} from a related case as a link, a time since or an option label, and this case list offers Search, where CommCare HQ would show it blank for the cases Search finds. You can show the related value's saved text instead.`;
 		default:
 			return `An item in ${module} shows ${item} through a link that doesn't lead to one case type. You can choose the case above again.`;
 	}
