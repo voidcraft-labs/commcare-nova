@@ -8,7 +8,11 @@ import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
 } from "@/lib/lookup/constants";
-import { lookupRevisionSchema } from "@/lib/lookup/schema";
+import {
+	lookupRevisionSchema,
+	lookupTagSchema,
+	lookupWireNameSchema,
+} from "@/lib/lookup/schema";
 import type {
 	LookupColumn,
 	LookupHqOrigin,
@@ -389,6 +393,17 @@ describe("suggestWireName", () => {
 		expect(suggestWireName("E\u0301tablissement")).toBe("établissement");
 		expect(suggestWireName("Περιοχή ٢")).toBe("περιοχή_٢");
 		expect(suggestWireName("地区")).toBe("u5730_u533a");
+	});
+
+	it("offers a usable table and column name for a dose entered in micrograms", () => {
+		for (const [label, name] of [
+			["Dose (µg)", "dose_μg"],
+			["Müller", "müller"],
+		]) {
+			expect(suggestWireName(label)).toBe(name);
+			expect(lookupWireNameSchema.parse(suggestWireName(label))).toBe(name);
+			expect(lookupTagSchema.parse(suggestWireName(label, "tag"))).toBe(name);
+		}
 	});
 
 	it("prefixes numeric and reserved xml names with a valid identifier start", () => {

@@ -109,11 +109,10 @@ export function managedLookupCapRefusal(
 /**
  * A column's label for a field of CommCare HQ's: the name's first 120
  * characters. The wire name carries the whole name; a label longer than 120
- * would fail `lookup_columns`' label check. A field name is ASCII, so a
- * character is a code unit.
+ * would fail `lookup_columns`' label check. PostgreSQL counts Unicode scalars.
  */
 export function columnLabelFor(name: string): string {
-	return name.slice(0, LOOKUP_MAX_COLUMN_LABEL_LENGTH);
+	return [...name].slice(0, LOOKUP_MAX_COLUMN_LABEL_LENGTH).join("");
 }
 
 /** The origin columns of a stored table, as every reader selects them. */

@@ -28,6 +28,10 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import { columnLabelFor } from "@/lib/lookup/managedRules";
+import {
+	lookupColumnLabelSchema,
+	lookupWireNameSchema,
+} from "@/lib/lookup/schema";
 import type {
 	LookupColumn,
 	LookupFixtureRow,
@@ -908,6 +912,26 @@ describe("resolveLookupBindings", () => {
 });
 
 describe("readerLookupCatalog", () => {
+	it("keeps complete Unicode characters in labels offered for newly adopted columns", () => {
+		for (const field of ["a".repeat(119) + "𐐀", "𐐀".repeat(121)]) {
+			const table = plain({ table: { fields: [field] }, rows: [] });
+			const [binding] = resolveLookupBindings(
+				[table],
+				{ plain: { kind: "new" } },
+				null,
+				IDS,
+			);
+			const catalog = readerLookupCatalog([
+				{ binding, name: "plain", fields: [field] },
+			]);
+			const [column] = catalog.definitions.get(binding.tableId)?.columns ?? [];
+			expect(lookupWireNameSchema.parse(column?.wireName)).toBe(field);
+			expect(lookupColumnLabelSchema.parse(column?.label)).toBe(
+				[...field].slice(0, 120).join(""),
+			);
+		}
+	});
+
 	it("holds a text column per field in CommCare HQ's order, and a table as it stands with its own", () => {
 		const binding = resolveLookupBindings(
 			[plain()],

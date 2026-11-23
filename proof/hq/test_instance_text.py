@@ -269,7 +269,8 @@ def test_missing_instances_follow_hqs_rendered_form_for_each_build_profile(hq):
         xmlns:v="http://commcarehq.org/xforms/vellum"><h:head><model>
         <instance><data xmlns="urn:nova:test" version="{text("version")}"><age/></data></instance>
         <instance id="item-list:stable" src="jr://fixture/item-list:explicit"/>
-        <bind nodeset="/data/other" relevant="count({text("executable")}/executable_list/executable) > 0"/>
+        <bind nodeset="/data/other" relevant="count({text("executable")}/executable_list/executable) > 0
+            and count({text("stable")}/explicit_list/explicit) > 0"/>
         <!-- {text("inside")} --><bind nodeset="/data/age" v:calculate="{text("vellum")}"
             calculate="count(instance((('item-list:missing')))/missing_list/missing)"/>
         <itext><translation lang="en" default="{text("old-default")}">
@@ -285,10 +286,35 @@ def test_missing_instances_follow_hqs_rendered_form_for_each_build_profile(hq):
     for profile, expected in ((None, {"shared", "executable", "french"}), ("english", {"shared", "executable"})):
         xform = XForm(xml.encode())
         FormBase.add_stuff_to_xform(form, xform, profile)
-        declarations = {node.get("id"): node.get("src") for node in xform.xml.iter(f"{{{XFORMS}}}instance")
+        # add_instance creates an unqualified etree node under the default namespace.
+        # The worker receives that namespace when parsing the rendered resource.
+        built_form = etree.fromstring(xform.render())
+        declarations = {node.get("id"): node.get("src") for node in built_form.iter(f"{{{XFORMS}}}instance")
                         if node.get("id")}
         assert declarations == {"item-list:stable": "jr://fixture/item-list:explicit",
                                 **{f"item-list:{tag}": f"jr://fixture/item-list:{tag}" for tag in expected}}
+
+
+@pytest.mark.parametrize(("earlier", "later", "survives"), [
+    ("<value/>", "<value><![CDATA[]]></value>", True),
+    ("<value><![CDATA[]]></value>", "<value><![CDATA[]]></value>", False),
+    ("<value><![CDATA[note]]></value>", "<value>note</value>", False),
+    ("<value><![CDATA[]]><output/></value>", "<value><output/></value>", False),
+    ("<value><?p?></value>", "<value><?p ?></value>", True),
+    ("<value>no<!-- lost -->te</value>", "<value>note</value>", False),
+    ('<value xmlns:s="urn:first">note</value>', '<value xmlns:s="urn:second">note</value>', True),
+    ('<value xmlns:xml="http://www.w3.org/XML/1998/namespace" xml:lang="en">note</value>',
+     '<value xml:lang="en">note</value>', False),
+])
+def test_normalizing_itext_retains_only_the_sources_present_in_the_rendered_values(hq, earlier, later, survives):
+    from proof.observe.manifest import built_form_instance_names
+
+    form = f"""<h:html xmlns:h="{XHTML}" xmlns="{XFORMS}"><h:head><model>
+        <instance><data xmlns="urn:nova:itext"/></instance><itext><translation lang="en">
+        <text id="a-control">{earlier}</text>
+        <text id="z-control" note="instance('item-list:zones')">{later}</text>
+        </translation></itext></model></h:head><h:body/></h:html>"""
+    assert built_form_instance_names(form.encode(), ["en"]) == {"names": ["item-list:zones"] if survives else []}
 
 
 def test_remote_request_factory_scans_a_siblings_xpath_after_one_html_unescape(hq, core_runner):

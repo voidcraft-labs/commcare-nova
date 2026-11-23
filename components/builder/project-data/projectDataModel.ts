@@ -21,6 +21,7 @@ import {
 	LOOKUP_MAX_TABLE_BYTES,
 	LOOKUP_MAX_TAG_LENGTH,
 	LOOKUP_MAX_WIRE_NAME_LENGTH,
+	LOOKUP_WIRE_IDENTIFIER_PATTERN,
 	RESERVED_INSTANCE_TAG_WORD_SPELLING,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes, formatLookupCount } from "@/lib/lookup/format";
@@ -108,8 +109,15 @@ export function suggestWireName(
 	label: string,
 	kind: "tag" | "column" = "column",
 ): string {
-	const words = Array.from(label.toLowerCase().normalize("NFC"), (char) => {
+	const words = Array.from(label.toLowerCase().normalize("NFC"), (source) => {
+		// Core recognizes the micro sign as a letter. XML allows its Greek
+		// compatibility equivalent in a name. Keep every already legal spelling.
+		const char = LOOKUP_WIRE_IDENTIFIER_PATTERN.test(`_${source}`)
+			? source
+			: source.normalize("NFKC");
 		if (
+			char.length === 1 &&
+			LOOKUP_WIRE_IDENTIFIER_PATTERN.test(`_${char}`) &&
 			isPortableNameContinuation(char.charCodeAt(0)) &&
 			char !== "-" &&
 			char !== "."
@@ -117,8 +125,8 @@ export function suggestWireName(
 			return char;
 		// Keep distinct letters in scripts without case distinguishable when
 		// workers cannot read those letters directly in an expression.
-		return /\p{L}/u.test(char)
-			? `_u${char.codePointAt(0)?.toString(16)}_`
+		return /\p{L}/u.test(source)
+			? `_u${source.codePointAt(0)?.toString(16)}_`
 			: "_";
 	})
 		.join("")

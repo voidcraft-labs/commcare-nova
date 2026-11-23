@@ -2,7 +2,7 @@
  * (FormBase.add_stuff_to_xform, XForm.normalize_itext, WrappedNode.render).
  * Work on a projection. The original DOM still supplies the editor and the
  * executable expressions, neither of which goes through html.unescape. */
-import { type ChildNode, type Element, isTag, isText } from "domhandler";
+import { type Element, isTag, isText } from "domhandler";
 import type { HqAppSource } from "../../hq/appSource";
 import { chargeWork } from "../../workMeter";
 import {
@@ -11,117 +11,42 @@ import {
 	VELLUM_NS,
 	XFORMS_NS,
 } from "../../xmlNamespaces";
-import { instanceSourcesAfterScan } from "../../xpath/instanceSources";
+import { scannedInstances } from "../../xpath/instanceSources";
+import { scanAfterRenames } from "./itextReferences";
+import { ItextValues } from "./itextValues";
 import type { ParsedXForm } from "./parse";
 
-function xmlText(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll("\r", "&#13;");
-}
-
-function xmlAttribute(value: string): string {
-	return xmlText(value)
-		.replaceAll('"', "&quot;")
-		.replaceAll("\t", "&#9;")
-		.replaceAll("\n", "&#10;");
-}
-
-/** lxml removes a discarded element's tail too. Parsing with remove_comments
- * joins text on both sides of a comment; an instruction inside the root stays. */
-function tail(node: ChildNode): string {
-	let text = "";
-	for (
-		let next = node.next;
-		next && (isText(next) || next.type === "comment");
-		next = next.next
-	)
-		if (isText(next)) text += next.data;
-	return text;
-}
-
-function childXml(
-	element: Element,
-	render: (child: Element) => string,
-	removed: ReadonlySet<Element>,
-): string {
-	const result: string[] = [];
-	let omitTail = false;
-	for (const child of element.children) {
-		if (child.type === "comment") continue;
-		if (isText(child)) {
-			if (!omitTail) result.push(xmlText(child.data));
-		} else if (isTag(child)) {
-			omitTail = removed.has(child);
-			if (!omitTail) result.push(render(child));
-		} else if (child.type === "directive") {
-			omitTail = false;
-			result.push(`<${child.data}>`);
-		}
+function scalarOrder(left: string, right: string): number {
+	// Python orders Unicode scalars; JS orders UTF-16 code units.
+	let i = 0;
+	while (i < left.length && i < right.length) {
+		chargeWork("compare", 1);
+		const a = left.codePointAt(i) ?? 0;
+		const b = right.codePointAt(i) ?? 0;
+		if (a !== b) return a - b;
+		i += a > 0xffff ? 2 : 1;
 	}
-	return result.join("");
+	return left.length - right.length;
 }
 
-function elementXml(
-	element: Element,
-	attributes: string,
-	children: string,
-): string {
-	return children
-		? `<${element.name}${attributes}>${children}</${element.name}>`
-		: `<${element.name}${attributes}/>`;
-}
-
-const noneRemoved = new Set<Element>();
-function namespaceAttributes(element: Element): [string, string][] {
-	return Object.entries(element.attribs).filter(
-		([name]) => name === "xmlns" || name.startsWith("xmlns:"),
-	);
-}
-
-/** etree.tostring(value) copies the value node's own namespace declarations,
- * then the prefixes used by its name and attributes, then the remaining
- * inherited declarations from its nearest ancestor outward. */
-function valueXml(
-	element: Element,
-	form: ParsedXForm,
-	standalone: boolean,
-): string {
-	chargeWork("visit", 1);
-	const namespaces = new Map(namespaceAttributes(element));
-	if (standalone) {
-		const addPrefix = (prefix: string) => {
-			const name = prefix ? `xmlns:${prefix}` : "xmlns";
-			const uri = form.scope(element).get(prefix);
-			if (uri && prefix !== "xml" && !namespaces.has(name))
-				namespaces.set(name, uri);
-		};
-		addPrefix(splitName(element.name).prefix);
-		for (const name of Object.keys(element.attribs)) {
-			const prefix = splitName(name).prefix;
-			if (prefix && prefix !== "xmlns") addPrefix(prefix);
-		}
-		for (
-			let parent = element.parent;
-			parent && isTag(parent);
-			parent = parent.parent
-		)
-			for (const [name, value] of namespaceAttributes(parent))
-				if (!namespaces.has(name)) namespaces.set(name, value);
-	}
-	const regular = Object.entries(element.attribs).filter(
-		([name]) => name !== "xmlns" && !name.startsWith("xmlns:"),
-	);
-	const attributes = [...namespaces, ...regular]
-		.map(([key, value]) => ` ${key}="${xmlAttribute(value)}"`)
-		.join("");
-	return elementXml(
-		element,
-		attributes,
-		childXml(element, (child) => valueXml(child, form, false), noneRemoved),
-	);
+const escapes = new Map(
+	Object.entries({
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		'"': "&quot;",
+		"\r": "&#13;",
+		"\t": "&#9;",
+		"\n": "&#10;",
+	}),
+);
+function xmlValue(text: string, attribute: boolean): string {
+	chargeWork("print", text.length);
+	return text.replace(attribute ? /[&<>"\r\t\n]/gu : /[&<>\r]/gu, (ch) => {
+		const escaped = escapes.get(ch) ?? ch;
+		chargeWork("print", escaped.length - 1);
+		return escaped;
+	});
 }
 
 function xformChildren(
@@ -129,6 +54,7 @@ function xformChildren(
 	element: Element,
 	name: string,
 ): Element[] {
+	chargeWork("visit", element.children.length);
 	return element.children.filter(
 		(child): child is Element =>
 			isTag(child) && isElement(child, form.scope(child), XFORMS_NS, name),
@@ -138,19 +64,23 @@ function xformChildren(
 /** HQ groups one text ID's rendered <value>s across the retained languages.
  * Its comparison includes the inherited namespace bindings and the tail of
  * each value. It sorts the value forms and keeps the lexically first text ID. */
-function renderBuild(form: ParsedXForm, langs: readonly string[]): string {
-	if (!langs.length) return "";
+function* renderBuild(
+	form: ParsedXForm,
+	langs: readonly string[],
+	values: ItextValues,
+): Generator<string> {
+	if (!langs.length) return;
 	const languages = new Set(langs);
 	const removed = new Set<Element>();
 	const translations = new Set<Element>();
-	const groups = new Map<string, unknown[]>();
+	const groups = new Map<string, number[]>();
 	const textNodes = new Map<string, Element[]>();
 	const renames = new Map<string, string>();
 	if (form.itext !== undefined) {
 		const all = xformChildren(form, form.itext, "translation");
 		const byLanguage = new Map<string, Element>();
 		for (const trans of all) {
-			if (trans.attribs.lang === undefined) return "";
+			if (trans.attribs.lang === undefined) return;
 			byLanguage.set(trans.attribs.lang, trans);
 		}
 		// XForm.translations() retains the last node for a repeated language.
@@ -163,53 +93,58 @@ function renderBuild(form: ParsedXForm, langs: readonly string[]): string {
 					child.type === "directive" || (isTag(child) && !removed.has(child)),
 			)
 		)
-			return "";
+			return;
 		byLanguage.clear();
 		for (const trans of all)
 			if (!removed.has(trans)) byLanguage.set(trans.attribs.lang, trans);
 		for (const [lang, trans] of byLanguage) {
 			translations.add(trans);
+			const language = values.language(lang);
 			const ids = new Set<string>();
 			for (const text of xformChildren(form, trans, "text")) {
 				const id = text.attribs.id;
-				if (id === undefined || ids.has(id)) return "";
+				if (id === undefined || ids.has(id)) return;
 				ids.add(id);
-				const byForm = new Map<string | undefined, string>();
-				for (const value of xformChildren(form, text, "value")) {
-					const trailing = xmlText(tail(value)).replace(/[\t\n\v\f\r ]+$/u, "");
-					byForm.set(
-						value.attribs.form,
-						valueXml(value, form, true) + trailing,
-					);
-				}
+				const byForm = new Map<string | undefined, number>();
+				for (const value of xformChildren(form, text, "value"))
+					byForm.set(value.attribs.form, values.value(value));
 				const group = groups.get(id) ?? [];
-				group.push([lang, [...byForm.values()].sort()]);
+				group.push(values.translation(language, byForm));
 				groups.set(id, group);
 				const nodes = textNodes.get(id) ?? [];
 				nodes.push(text);
 				textNodes.set(id, nodes);
 			}
 		}
-		const first = new Map<string, string>();
-		// Python compares Unicode scalars; bytewise UTF-8 has the same order.
-		for (const id of [...groups.keys()].sort((a, b) =>
-			Buffer.compare(Buffer.from(a), Buffer.from(b)),
-		)) {
-			const key = JSON.stringify(groups.get(id));
-			const kept = first.get(key);
-			if (kept === undefined) first.set(key, id);
-			else {
+		const equivalent = new Map<string, string[]>();
+		for (const [id, group] of groups) {
+			chargeWork("compare", group.length);
+			const key = group.join(",");
+			const members = equivalent.get(key) ?? [];
+			members.push(id);
+			equivalent.set(key, members);
+		}
+		for (const members of equivalent.values()) {
+			if (members.length < 2) continue;
+			// Use HQ's duplicate group order as well when reference text embeds another ID.
+			members.sort(scalarOrder);
+			const [kept] = members;
+			for (const id of members.slice(1)) {
 				for (const text of textNodes.get(id) ?? []) removed.add(text);
-				// Only a reference containing this word can change the instance scan.
-				if (id.includes("instance") || kept.includes("instance"))
-					renames.set(id, kept);
+				// A nested itext reference can affect a later rename's instance scan.
+				renames.set(id, kept);
 			}
 		}
 	}
 
-	const render = (element: Element): string => {
+	const parts: string[] = [];
+	const markup = (text: string) => {
+		chargeWork("print", text.length);
+		parts.push(text);
+	};
+	const render = (element: Element): void => {
 		chargeWork("visit", 1);
-		const attributes: string[] = [];
+		markup(`<${element.name}`);
 		for (const [name, value] of Object.entries(element.attribs)) {
 			const { prefix } = splitName(name);
 			if (
@@ -220,23 +155,67 @@ function renderBuild(form: ParsedXForm, langs: readonly string[]): string {
 				(translations.has(element) && name === "default")
 			)
 				continue;
-			attributes.push(` ${name}="${xmlAttribute(value)}"`);
+			markup(` ${name}="`);
+			parts.push(xmlValue(value, true));
+			markup('"');
 		}
-		return elementXml(
-			element,
-			attributes.join(""),
-			childXml(element, render, removed),
-		);
+		const tagEnd = parts.length;
+		markup(">");
+		let paired = false;
+		let omitTail = false;
+		for (const child of element.children) {
+			chargeWork("visit", 1);
+			if (isText(child)) {
+				if (!omitTail) {
+					paired = true;
+					parts.push(xmlValue(child.data, false));
+				}
+			} else if (isTag(child)) {
+				omitTail = removed.has(child);
+				if (!omitTail) {
+					paired = true;
+					render(child);
+				}
+			} else if (child.type === "directive") {
+				omitTail = false;
+				paired = true;
+				markup(`<${child.data}>`);
+			}
+		}
+		if (paired) markup(`</${element.name}>`);
+		else {
+			chargeWork("print", 1);
+			parts[tagEnd] = "/>";
+		}
 	};
-	let rendered = render(form.html);
+	render(form.html);
+	// A plain itext ID cannot add or remove an instance pattern, unless
+	// another ID embeds the reference whose replacement changes that pattern.
+	const spellings = new Map<string, { nested: boolean; scanner: boolean }>();
+	const spelling = (id: string) => {
+		let facts = spellings.get(id);
+		if (facts === undefined) {
+			chargeWork("visit", id.length + 1);
+			facts = {
+				nested: id.includes("jr:itext('") || id.includes("&"),
+				scanner: id.includes("instance"),
+			};
+			spellings.set(id, facts);
+		}
+		return facts;
+	};
+	let nested = false;
 	for (const [old, kept] of renames) {
-		chargeWork("visit", rendered.length);
-		rendered = rendered.replaceAll(
-			`jr:itext('${old}')`,
-			() => `jr:itext('${kept}')`,
-		);
+		if (spelling(old).nested || spelling(kept).nested) {
+			nested = true;
+			break;
+		}
 	}
-	return rendered;
+	if (!nested)
+		for (const [old, kept] of renames)
+			if (!spelling(old).scanner && !spelling(kept).scanner)
+				renames.delete(old);
+	yield* scanAfterRenames(parts.join(""), renames);
 }
 
 export function builtFormInstanceSources(
@@ -250,18 +229,17 @@ export function builtFormInstanceSources(
 		...source.buildProfiles.map((profile) => profile.langs),
 	];
 	const seen = new Set<string>();
+	const values = new ItextValues();
 	let common: Map<string, string> | undefined;
 	for (const langs of profiles) {
 		const key = JSON.stringify([...new Set(langs)].sort());
 		if (seen.has(key)) continue;
 		seen.add(key);
-		const rendered = renderBuild(form, langs);
-		chargeWork("visit", rendered.length);
-		const actual = instanceSourcesAfterScan(
-			declared,
-			{ rendered },
-			declaredIds,
-		);
+		const actual = new Map(declared);
+		for (const rendered of renderBuild(form, langs, values)) {
+			for (const [id, src] of scannedInstances(rendered))
+				if (!declaredIds.has(id)) actual.set(id, src);
+		}
 		if (common === undefined) common = new Map(actual);
 		else for (const id of common.keys()) if (!actual.has(id)) common.delete(id);
 		if (common.size === declared.size) break;

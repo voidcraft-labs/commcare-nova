@@ -209,6 +209,136 @@ describe("reading a grouped instance ID in an HQ form", () => {
 		},
 	);
 
+	it.each([
+		[
+			"absent versus empty CDATA",
+			"<value/>",
+			"<value><![CDATA[]]></value>",
+			false,
+		],
+		[
+			"two empty CDATA bodies",
+			"<value><![CDATA[]]></value>",
+			"<value><![CDATA[]]></value>",
+			true,
+		],
+		[
+			"CDATA and the same text",
+			"<value><![CDATA[note]]></value>",
+			"<value>note</value>",
+			true,
+		],
+		[
+			"empty CDATA beside an element",
+			"<value><![CDATA[]]><output/></value>",
+			"<value><output/></value>",
+			true,
+		],
+		["comment alone", "<value><!-- lost --></value>", "<value/>", true],
+		[
+			"joined comment tail",
+			"<value>no<!-- lost -->te</value>",
+			"<value>note</value>",
+			true,
+		],
+		[
+			"empty PI and separated empty PI",
+			"<value><?p?></value>",
+			"<value><?p ?></value>",
+			false,
+		],
+		[
+			"normalized PI separator",
+			"<value><?p  data?></value>",
+			"<value><?p data?></value>",
+			true,
+		],
+	] as const)(
+		"uses HQ’s rendered value identity for %s",
+		async (_what, earlier, later, duplicate) => {
+			const change = (source: string) =>
+				source.replace(
+					/(<translation\b[^>]*>)/,
+					(_, start: string) =>
+						`${start}<text id="a-control">${earlier}</text><text id="z-control" note="instance('casedb')">${later}</text>`,
+				);
+			const result = await readAge("", "(('casedb'))", change);
+			expect(
+				result.kind === "account" &&
+					result.findings.some(
+						(finding) =>
+							finding.code ===
+							"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
+					),
+			).toBe(duplicate);
+		},
+	);
+
+	it.each([true, false])(
+		"compares rendered inherited namespace bindings when a text redeclares the same binding: %s",
+		async (same) => {
+			const uri = `urn:nova:${"district-".repeat(180)}`;
+			const change = (source: string) =>
+				source.replace(
+					/(<translation\b[^>]*)(>)/,
+					(_, start: string) =>
+						`${start} xmlns:area="${uri}"><text id="a-control"><value>one</value></text>` +
+						`<text id="z-control" xmlns:area="${same ? uri : "urn:another"}" note="instance('casedb')"><value>one</value></text>` +
+						Array.from(
+							{ length: 24 },
+							(_, i) =>
+								`<text id="district-${i}"><value>Group ${i}</value></text>`,
+						).join(""),
+				);
+			const result = await readAge("", "(('casedb'))", change);
+			expect(
+				result.kind === "account" &&
+					result.findings.some(
+						(finding) =>
+							finding.code ===
+							"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
+					),
+			).toBe(same);
+		},
+	);
+
+	it.each([true, false])(
+		"follows repeated normalized references when a kept id supplies the factory: %s",
+		async (pointsToDuplicate) => {
+			const kept = `a-${"district".repeat(60)}-instance('casedb`;
+			const ref = pointsToDuplicate ? "z-reader-ref" : "absent";
+			const change = (source: string) =>
+				source
+					.replace(
+						/(<translation\b[^>]*>)/,
+						(_, start: string) =>
+							`${start}<text id="${kept}"><value>same</value></text><text id="z-reader-ref"><value>same</value></text>`,
+					)
+					.replace(
+						"<model>",
+						`<model><?survey ${`jr:itext('${ref}') `.repeat(36)}?>`,
+					);
+			const result = await readAge("", "(('casedb'))", change);
+			expect(
+				result.kind === "account" &&
+					result.findings.some(
+						(finding) =>
+							finding.code ===
+							"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
+					),
+			).toBe(!pointsToDuplicate);
+		},
+	);
+
+	it("keeps an explicit non-case source even when a retained label asks the factory for its ID", async () => {
+		const result = await readAge(
+			'<instance id="casedb" src="jr://fixture/item-list:clinics"/>',
+			"(('casedb'))",
+			(source) => source.replaceAll(">Note<", ">Guide to instance('casedb')<"),
+		);
+		expect(result.kind).toBe("account");
+		expect(result.defects).toEqual([]);
+	});
 	it("reads a grouped case property when a different question’s executable condition supplies the factory", async () => {
 		const change = (source: string) => {
 			const age = source.match(/calculate="([^"]*casedb[^"]*)"/)?.[1];
