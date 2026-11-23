@@ -1998,7 +1998,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		return `The question ${q(fieldName(e))}${form} gets its choices from ${table}, which has no rows, so a phone won't open it. ${next}`;
 	},
 	LOOKUP_WORKER_SOURCE_UNAVAILABLE: (e) =>
-		`“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.`,
+		det(e, "separable", "") === "yes"
+			? `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space, or create a separate table on its page in Project data.`
+			: `“${det(e, "tableName", "This table")}” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.`,
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 	LOOKUP_HQ_PUSH_TOO_LARGE: () =>

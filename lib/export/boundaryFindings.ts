@@ -297,6 +297,10 @@ export function exportCarrierFindings(
 						tableId: table.tableId,
 						tableName: definition.name,
 						delivery: carrier.kind,
+						/* Nova's complete copy of a table another project space manages,
+						 * stopped only by indexes CommCare HQ never showed: a separate
+						 * Nova table made from it travels (`lib/deployment/separateTable.ts`). */
+						...(separableCopy(definition) ? { separable: "yes" } : {}),
 					},
 				),
 			);
@@ -672,6 +676,19 @@ const EXPORT_MODE_LABELS: Readonly<Record<ExportMode, string>> = {
 	"hq-json": "an HQ import file",
 	"hq-upload": "a direct HQ upload",
 };
+
+/** Whether Create a separate table makes a table a workbook can carry from `table`. */
+function separableCopy(table: LookupTableDefinition): boolean {
+	const source = table.hq?.source;
+	return (
+		table.hq?.managedBy === "commcare-hq" &&
+		table.workerAccess !== "assigned" &&
+		source?.distribution !== "assigned" &&
+		source?.storage !== "generation" &&
+		(source === undefined || source.inventory === "complete") &&
+		table.columns.some((column) => column.index === "unobserved")
+	);
+}
 
 /**
  * What CommCare HQ's fixture importer will take in one workbook.

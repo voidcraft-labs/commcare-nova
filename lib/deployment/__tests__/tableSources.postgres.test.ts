@@ -422,6 +422,9 @@ describe("Create a separate table", () => {
 		await withManagedPeer(async (peer) => {
 			const stopped = refusal(await publish(visits));
 			expect(stopped.failure.code).toBe("app_not_ready");
+			expect(stopped.failure.details).toEqual([
+				"“facilities” needs a verified data source for this destination. You can prepare its table in the project space, or create a separate table on its page in Project data.",
+			]);
 			expect(publishRequests(peer)).toEqual([]);
 		});
 

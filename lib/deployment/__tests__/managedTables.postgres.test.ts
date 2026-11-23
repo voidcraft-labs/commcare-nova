@@ -613,7 +613,7 @@ describe("a publish of a table another project space manages", () => {
 				failure: {
 					code: "app_not_ready",
 					details: [
-						"“facilities” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.",
+						"“facilities” needs a verified data source for this destination. You can prepare its table in the project space, or create a separate table on its page in Project data.",
 					],
 				},
 			});

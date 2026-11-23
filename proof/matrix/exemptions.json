@@ -48,8 +48,8 @@
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
 	},
 	"expressions-and-data/absent-field-vs-zero-values-vs-empty-string": {
-		"reason": "stated-by-its-part",
-		"note": "Part 11 decided it (its section 13.1): the row resource raises on a field with no value, so no reading meets one."
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; lib/commcare/__tests__/hqLookupRestore.test.ts reads a zero-occurrence field from CommCare HQ's row details and its absence from the device fixture."
 	},
 	"expressions-and-data/audio-3gp": {
 		"reason": "stated-by-its-part",
@@ -68,8 +68,8 @@
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},
 	"expressions-and-data/fields-is-indexed": {
-		"reason": "stated-by-its-part",
-		"note": "Part 11 decided it (its section 13.1): no read an API key makes shows whether a field is indexed."
+		"reason": "not-in-app-source",
+		"note": "Every key is of a lookup family, which no app's source holds; no API-key read shows whether a field is indexed, and lib/commcare/__tests__/hqLookupRestore.test.ts reads the indexed fields from a verified global restore's schema."
 	},
 	"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name": {
 		"reason": "not-in-app-source",
