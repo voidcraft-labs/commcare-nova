@@ -96,6 +96,7 @@ import {
 	reviewSameEqualTable,
 } from "@/lib/publish/managedData";
 import {
+	addressSearchReviewLine,
 	adoptionRecordedFeaturesLine,
 	PLAN_FEATURES,
 } from "@/lib/publish/planFeatures";
@@ -1798,6 +1799,17 @@ export function recordedFeaturesLine(
 	return labels.length === 0
 		? null
 		: adoptionRecordedFeaturesLine(labels, domain);
+}
+
+/**
+ * The line naming what address search in Web Apps needs of the project
+ * space under the chosen declaration, or null where no question searches.
+ */
+export function addressSearchLine(
+	choice: ReadingDeclarationChoice,
+	domain: string,
+): string | null {
+	return choice.addressSearch?.length ? addressSearchReviewLine(domain) : null;
 }
 
 /** Where the review shows a create's refusal: under the name, above the footer, or not at all. */

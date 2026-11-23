@@ -4826,6 +4826,33 @@ export type HeldTargetFacts =
 	  };
 
 /**
+ * Whether a person's confirmation that the project space's plan has the
+ * plan feature `subject` is in force on the app's deployment to `target`:
+ * what a Preview bound to that project space reads as a confirmed fact.
+ */
+export async function planFeatureConfirmedOn(
+	snapshot: DeploymentReadSnapshot,
+	target: DeploymentTargetKey,
+	subject: string,
+): Promise<boolean> {
+	if (!roleAllowsApp(snapshot.role, "view")) throw deploymentNotFound();
+	const { scope, db } = snapshot;
+	const row = await db
+		.selectFrom("app_deployment_confirmations as c")
+		.innerJoin("app_deployments as d", "d.id", "c.deployment_id")
+		.select("c.id")
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
+		.where("d.server", "=", target.server)
+		.where("d.domain", "=", target.domain)
+		.where("c.kind", "=", "plan-feature")
+		.where("c.subject", "=", subject)
+		.where("c.withdrawn_at", "is", null)
+		.executeTakeFirst();
+	return row !== undefined;
+}
+
+/**
  * Read inside `snapshot` what `targetFactsOf` needs for one target's kept
  * facts. It reads in two steps so a page load does not unzip the source each
  * time: the row without its bytes first, then the bytes only for a

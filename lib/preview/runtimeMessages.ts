@@ -219,6 +219,8 @@ const english = {
 	addressSearchMinimum:
 		"You can type at least {count} characters to see places",
 	addressNoResults: "No matching places",
+	addressChooseFromList: "Choose an address from the list",
+	clearAddress: "Clear the address",
 	locationGuidance:
 		"You can search for an address or click the map to drop a pin",
 	hereColumnsWaiting:
@@ -561,6 +563,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	addressSearching: "Buscando",
 	addressSearchMinimum: "Puedes buscar con al menos {count} caracteres",
 	addressNoResults: "No hay lugares que coincidan",
+	addressChooseFromList: "Elige una dirección de la lista",
+	clearAddress: "Borrar la dirección",
 	locationGuidance:
 		"Puedes buscar una dirección o tocar el mapa para marcar un punto",
 	hereColumnsWaiting:

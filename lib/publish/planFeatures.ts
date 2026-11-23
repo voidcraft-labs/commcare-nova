@@ -373,6 +373,15 @@ export function adoptionRecordedFeaturesLine(
 	return `This app already uses ${namesInWords(labels)} on “${domain}”, and publishing changes nothing about them, so Nova won't ask about them. You can withdraw any of these on the Publishing card.`;
 }
 
+/**
+ * The review's line for an app whose questions search for an address in Web
+ * Apps: what the project space needs for them, which Nova has not confirmed
+ * there, and when it asks. Bringing the app in changes neither.
+ */
+export function addressSearchReviewLine(domain: string): string {
+	return `Some questions in this app search for an address in Web Apps, which works only where “${domain}” has advanced case search and the Geocoder plan feature. Without them, Web Apps saves “Not Supported by Web Entry” in place of an address. Bringing the app in changes neither, and your first publish checks advanced case search and asks you to confirm Geocoder.`;
+}
+
 /** What a person can do where the project space's plan has no Web Apps. */
 export function webAppsWhereMissing(narrowing: PlatformNarrowing): string {
 	if (narrowing.open)

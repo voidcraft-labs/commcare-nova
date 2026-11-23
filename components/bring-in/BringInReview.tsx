@@ -62,6 +62,7 @@ import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { BringInScreenLayout } from "./BringInScreenLayout";
 import {
 	APP_NAME_MAX_LENGTH,
+	addressSearchLine,
 	type BringInEvent,
 	type BringInModel,
 	chosenDeclaration,
@@ -201,6 +202,7 @@ export function BringInReview({
 	const media = reviewMediaLines(review, project.name);
 	const chosen = chosenDeclaration(review, answers);
 	const recorded = recordedFeaturesLine(chosen, domain);
+	const addressSearch = addressSearchLine(chosen, domain);
 	const readOn = keptDateText(review.readAt, new Date());
 
 	/* A create refused for the name sends focus to the field, as a press does. */
@@ -395,6 +397,11 @@ export function BringInReview({
 					{recorded !== null ? (
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
 							{recorded}
+						</p>
+					) : null}
+					{addressSearch !== null ? (
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							{addressSearch}
 						</p>
 					) : null}
 				</ReviewSection>

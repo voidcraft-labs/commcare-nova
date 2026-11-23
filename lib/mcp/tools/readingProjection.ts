@@ -84,7 +84,10 @@ import {
 	reviewMediaLeftOut,
 	reviewSameEqualTable,
 } from "@/lib/publish/managedData";
-import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
+import {
+	addressSearchReviewLine,
+	PLAN_FEATURES,
+} from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { BringInToolError } from "../errors";
 import {
@@ -193,6 +196,8 @@ export interface ReviewProjection {
 		readonly split_line: string | null;
 		/** Labels of the plan features Nova records as already in use under this choice. */
 		readonly recorded_features: readonly string[];
+		/** What address search in Web Apps needs of the project space under this choice, or null where no question searches. */
+		readonly address_search: string | null;
 		/** What the first upload from Nova changes in CommCare HQ under this choice. */
 		readonly first_publish: FirstPublishProjection;
 	}[];
@@ -815,6 +820,9 @@ function reviewProjection(
 				? splitDatetimeLine(review.datetimeQuestions)
 				: null,
 			recorded_features: recordedFeatureLabels(choice),
+			address_search: choice.addressSearch?.length
+				? addressSearchReviewLine(domain)
+				: null,
 			first_publish: describeFirstPublish(
 				firstPublishLines(choice.firstPublish, "review"),
 			),

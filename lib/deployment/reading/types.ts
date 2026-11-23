@@ -98,6 +98,12 @@ export interface ReadingDeclarationChoice {
 	readonly preselected: boolean;
 	/** The plan features Nova records as already in use under this choice. */
 	readonly recordedFeatures: readonly DeploymentConfirmationKey[];
+	/**
+	 * One sentence per form whose questions search for an address in Web
+	 * Apps under this choice, which the project space runs only with advanced
+	 * case search and the Geocoder plan feature; absent where none does.
+	 */
+	readonly addressSearch?: readonly string[];
 	/** What a first publish changes where this choice is made. */
 	readonly firstPublish: FirstPublishView;
 	/** The concrete source references this choice would remove on its first publish. */

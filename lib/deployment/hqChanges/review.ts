@@ -63,7 +63,12 @@ import type {
 	DeclarationChoice,
 	DeclarationChoices,
 } from "@/lib/doc/platformDeclaration";
-import { type BlueprintDoc, PLATFORMS, type Platform } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	PLATFORMS,
+	type Platform,
+	targetConditionUses,
+} from "@/lib/domain";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { bulkUploadAssetIds, collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
@@ -87,6 +92,7 @@ import {
 	ANDROID_APPS_PRIVILEGE_LOST_LINE,
 	caseDataLine,
 	caseTypesLine,
+	hqChangesAddressSearchLine,
 	whereHqKeepsLines,
 } from "@/lib/publish/hqChangesCopy";
 import {
@@ -2052,6 +2058,10 @@ export async function checkHqChanges(
 				...(plan.kind === "changes"
 					? documentChangeLines(plan.hqChanges, "hq")
 					: []),
+				...(plan.kind === "changes" &&
+				startsAddressSearch(fetched.head.doc, plan.target)
+					? [hqChangesAddressSearchLine(fetched.target.domain)]
+					: []),
 				...whereHqKeeps,
 			],
 			novaChanges:
@@ -2178,4 +2188,20 @@ export function logAnswered(
 		longestPieceUnitsAt: facts.longestPieceUnitsAt,
 		sourceBytes: facts.sourceBytes,
 	});
+}
+
+/**
+ * Whether bringing the changes in gives the app its first question that
+ * searches for an address in Web Apps: a fact the next publish newly asks
+ * of the project space (`targetConditionUses`), which the review names.
+ */
+function startsAddressSearch(
+	head: BlueprintDoc,
+	target: BlueprintDoc,
+): boolean {
+	const searches = (doc: BlueprintDoc) =>
+		targetConditionUses(doc).some(
+			(met) => met.condition.capability === "address-search",
+		);
+	return searches(target) && !searches(head);
 }

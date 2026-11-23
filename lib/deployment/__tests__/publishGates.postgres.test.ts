@@ -73,6 +73,7 @@ import { confirmationKeyOf } from "../confirmations";
 import { DeploymentError } from "../errors";
 import { placementMoveOffer, placementMoveOfferView } from "../placementMoves";
 import { narrowingTo } from "../platformNarrowing";
+import { readPreviewDeploymentAnswer } from "../previewSpace";
 import { HQ_CHANGED_DURING_PUSH_MESSAGE } from "../remoteChanges";
 import {
 	type PublishOutcome,
@@ -1560,6 +1561,11 @@ describe("address search in Web Apps", () => {
 			subject: "geocoder",
 			confirmed_by: ACTOR,
 		});
+		/* A Preview bound to the project space reads the confirmation. */
+		expect(await readPreviewDeploymentAnswer(SCOPE)).toMatchObject({
+			projectSpace: "clinic",
+			targetFacts: { geocoderConfirmed: true },
+		});
 	});
 
 	it("asks nothing of an app that runs only on Android, where the question takes typed text", async () => {
@@ -1576,6 +1582,9 @@ describe("address search in Web Apps", () => {
 		expect((await confirmationRows()).map((row) => row.subject)).not.toContain(
 			"geocoder",
 		);
+		expect(
+			(await readPreviewDeploymentAnswer(SCOPE)).targetFacts,
+		).not.toHaveProperty("geocoderConfirmed");
 	});
 });
 

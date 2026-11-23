@@ -10,6 +10,7 @@ import {
 import {
 	type DeploymentScope,
 	holdTargetFacts,
+	planFeatureConfirmedOn,
 	readDeploymentPreviewRecords,
 	targetFactsOf,
 	withDeploymentReadSnapshot,
@@ -59,10 +60,8 @@ export async function readPreviewDeploymentAnswer(
 	/* The records and the facts of one moment, for a caller allowed to see
 	 * them then; the facts' bytes are read in the snapshot and projected once
 	 * it has given its connection back. */
-	const { projectSpace, target, held } = await withDeploymentReadSnapshot(
-		scope,
-		"view",
-		async (snapshot) => {
+	const { projectSpace, target, held, geocoder } =
+		await withDeploymentReadSnapshot(scope, "view", async (snapshot) => {
 			const deployments = await readDeploymentPreviewRecords(snapshot);
 			const target = resolvePreviewFactsTarget(deployments);
 			return {
@@ -71,9 +70,13 @@ export async function readPreviewDeploymentAnswer(
 				),
 				target,
 				held: target === null ? null : await holdTargetFacts(snapshot, target),
+				/* Web Apps' address search rests on the Geocoder plan feature,
+				 * which only a person's confirmation tells Nova about. */
+				geocoder:
+					target !== null &&
+					(await planFeatureConfirmedOn(snapshot, target, "geocoder")),
 			};
-		},
-	);
+		});
 	if (target === null || held === null)
 		return { projectSpace, targetFacts: null };
 	const facts = targetFactsOf(held);
@@ -86,6 +89,7 @@ export async function readPreviewDeploymentAnswer(
 				? null
 				: {
 						...(androidAppLabels !== undefined && { androidAppLabels }),
+						...(geocoder && { geocoderConfirmed: true as const }),
 						fuzzyListSearch:
 							facts.profileProperties["cc-fuzzy-search-enabled"] === "yes",
 						markRequiredQuestions:

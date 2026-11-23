@@ -661,6 +661,9 @@ const InteractiveField = memo(function InteractiveField({
 							return applied;
 						}}
 						onBlur={() => controller.touchAtAsync(path)}
+						onDisplayMessage={(message) =>
+							controller.applyDisplayMessage(path, message)
+						}
 						onChangeAt={(targetPath, value) =>
 							controller.setValueAtAsync(targetPath, value)
 						}
