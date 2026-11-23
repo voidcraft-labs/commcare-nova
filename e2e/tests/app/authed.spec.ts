@@ -5694,8 +5694,10 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "Save replacement" }).click();
 		await expect(current).toHaveCount(0);
 		await reloadBuilder(page);
+		// The long code now reads in parts, so the row is named by its place: the
+		// seed puts "dh" before "chc".
 		await page
-			.getByRole("button", { name: "Open row at position 1", exact: true })
+			.getByRole("button", { name: "Open row at position 2", exact: true })
 			.click();
 		await page
 			.getByRole("button", { name: "Open text editor" })

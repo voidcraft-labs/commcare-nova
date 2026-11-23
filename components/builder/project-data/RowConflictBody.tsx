@@ -20,7 +20,12 @@ import type {
 	ProjectDataRowConflict,
 	ProjectDataWorkspace,
 } from "./ProjectDataWorkspaceProvider";
-import { cellText, type RowDraft, rowDraftToValues } from "./projectDataModel";
+import {
+	cellText,
+	draftCellCopyText,
+	type RowDraft,
+	rowDraftToValues,
+} from "./projectDataModel";
 import { RichRowFields } from "./RichRowFields";
 import { RowValueField } from "./RowValueField";
 
@@ -490,7 +495,7 @@ function DraftValues({
 					</dt>
 					<dd className="mt-1 text-[13px] text-nova-text-secondary">
 						<span className="sr-only">{prefix}: </span>
-						<VisibleValue text={draft[column.id]?.text} />
+						<VisibleValue text={draftCellCopyText(draft[column.id])} />
 					</dd>
 				</div>
 			))}

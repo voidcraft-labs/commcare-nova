@@ -140,6 +140,19 @@ export interface RowDraftCell {
 	readonly originalText?: string;
 }
 
+/** A draft cell as text a person can copy out of a recovered row: an
+ * unedited time or date-time is its exact stored value, timezone and all,
+ * since the editor's clock text leaves the timezone out; anything typed is
+ * shown as typed. */
+export function draftCellCopyText(
+	cell: RowDraftCell | undefined,
+): string | undefined {
+	if (cell === undefined) return undefined;
+	return cell.originalStored !== undefined && cell.text === cell.originalText
+		? cell.originalStored
+		: cell.text;
+}
+
 /** Apply visible editor text without throwing away the immutable projection
  * needed to recognize an eventual exact no-op. */
 export function editRowDraftCellText(

@@ -37,6 +37,7 @@ import {
 	conflictSaveAsNewInput,
 	createRevisionedTextDraft,
 	discardRevisionedTextDraft,
+	draftCellCopyText,
 	editRevisionedTextDraft,
 	editRowDraftCellText,
 	formatLookupBytes,
@@ -576,6 +577,29 @@ describe("rowValuesToDraft", () => {
 		expect(
 			rowDraftToValues(rowValuesToDraft(stored, allColumns), allColumns),
 		).toStrictEqual({ ok: true, values: stored });
+	});
+
+	it("gives a recovered row's unedited date and time to copy with its timezone, and typed text as typed", () => {
+		const datetimeColumn: LookupColumn = {
+			id: codeColumnId,
+			wireName: "seen_at",
+			label: "Seen at",
+			dataType: "datetime",
+		};
+		const draft = rowValuesToDraft(
+			values({ [codeColumnId]: "2026-02-02T11:00:00Z" }),
+			[datetimeColumn],
+		);
+		// The editor's own text leaves the timezone out.
+		expect(draft[codeColumnId]?.text).toBe("2026-02-02T11:00:00");
+		expect(draftCellCopyText(draft[codeColumnId])).toBe("2026-02-02T11:00:00Z");
+		expect(
+			draftCellCopyText({
+				...draft[codeColumnId],
+				text: "not-a-datetimeT3:15 PM",
+			}),
+		).toBe("not-a-datetimeT3:15 PM");
+		expect(draftCellCopyText(undefined)).toBeUndefined();
 	});
 
 	it("keeps a temporal cell's offset when its visible clock changes", () => {
