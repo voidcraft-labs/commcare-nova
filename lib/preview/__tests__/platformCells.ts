@@ -308,6 +308,11 @@ export const PLATFORM_CELLS: Readonly<
 	"forms-and-case-writes/auto-gps-capture-form@web-apps": stated(
 		"connect-location-capture",
 	),
+	/* The apps a worker needs on Android: the builder's note says workers
+	 * can still open the app in a browser. */
+	"application-and-settings/31-features-dependencies@web-apps": stated(
+		"required-android-apps",
+	),
 	"questions/label-image-audio-video-same-asset-every-language@web-apps":
 		statedInDocs,
 	"questions/label-image-audio-video-same-asset-every-language@android":

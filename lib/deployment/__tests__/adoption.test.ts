@@ -764,10 +764,11 @@ describe("adoptedAppBaselineWrite", () => {
 		).toEqual(FIRST_PUBLISH);
 	});
 
-	it("owns the needed add-ons, form lists and app-wide location, and no custom profile property", () => {
+	it("owns the needed add-ons, form lists, Android app selection and app-wide location, and no custom profile property", () => {
 		expect(baselineFor(PLAIN).ownership).toEqual({
 			addOns: ["display_conditions"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
 		});
@@ -781,6 +782,7 @@ describe("adoptedAppBaselineWrite", () => {
 		expect(baselineFor(connect).ownership).toEqual({
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
 		});

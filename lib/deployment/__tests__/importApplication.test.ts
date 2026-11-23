@@ -83,7 +83,7 @@ describe("hqImportApplication", () => {
 		expect(connectShell.ownership.autoGpsCapture).toBe(true);
 	});
 
-	it("fills the shell with the three keys over its source, and owns the two settings", () => {
+	it("fills the shell with the three keys over its source, and owns the form lists, the Android app selection and the location switch", () => {
 		const doc = buildDoc({
 			appName: "Visits",
 			appSettings: { showSavedForms: true, showIncompleteForms: false },
@@ -102,6 +102,7 @@ describe("hqImportApplication", () => {
 		expect(ownership).toEqual({
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileFeatures: ["dependencies"],
 			profileCustomProperties: [],
 			autoGpsCapture: true,
 		});
