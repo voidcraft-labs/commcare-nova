@@ -148,6 +148,7 @@ import { recordAdoptedDeploymentInTransaction } from "@/lib/deployment/store";
 import { canonicalTargetIdentity } from "@/lib/deployment/targetIdentity";
 import type {
 	DeploymentConfirmationKey,
+	DeploymentRemoteChange,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -1574,13 +1575,21 @@ it("captures the stop Nova makes over a person's save of a value Nova owns, and 
 		}),
 	);
 
-	// The capture met the stop Nova makes: the same code, the same change with
-	// the same parts and the digest Nova binds a discard to. The translation
-	// the target owns is no part of it.
-	expect(confirmed.stops).toEqual([
+	// The capture met the stop Nova makes: the same code and the same change
+	// with the same parts. The translation the target owns is no part of it.
+	// A discard's digest binds its publisher's own deployment, claim and
+	// member, so the capture's differs from Nova's, and each confirms its own.
+	const unbound = (changes: readonly DeploymentRemoteChange[]) =>
+		changes.map(({ observedDigest: _, ...change }) => change);
+	expect(
+		confirmed.stops.map((stop) => ({
+			...stop,
+			remoteChanges: unbound(stop.remoteChanges),
+		})),
+	).toEqual([
 		{
 			code: "hq_changed",
-			remoteChanges: refused.refusal.remoteChanges,
+			remoteChanges: unbound(refused.refusal.remoteChanges),
 			conflicts: [],
 			webAppsChange: null,
 		},
@@ -1589,7 +1598,7 @@ it("captures the stop Nova makes over a person's save of a value Nova owns, and 
 		["A setting this app writes"],
 	]);
 	expect(confirmed.discards).toEqual(
-		refused.refusal.remoteChanges.map((change) => ({
+		(confirmed.stops[0]?.remoteChanges ?? []).map((change) => ({
 			kind: change.kind,
 			novaResourceId: change.novaResourceId,
 			observedDigest: change.observedDigest,
