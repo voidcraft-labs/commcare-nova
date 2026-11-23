@@ -181,6 +181,8 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"lookup_generation_chunks",
 	"lookup_generation_blobs",
 	"lookup_tables",
+	"lookup_json_destinations",
+	"lookup_json_destination_rows",
 	"lookup_columns",
 	"lookup_rows",
 	"lookup_table_references",
@@ -260,7 +262,10 @@ const RUNTIME_APPEND_ONLY_TABLES = [
  * the deployment row's lock. A write Nova lets out to CommCare HQ is inserted
  * under its admission's locks and updated once when HQ answers. A worker
  * group's CommCare HQ target is upserted when a person confirms it, under the
- * group row's lock. None of them is ever deleted or locked. */
+ * group row's lock. A lookup table's JSON request is journaled before it is
+ * sent and its state updated once its outcome is known, both under its
+ * destination row's lock (`lookup_json_destinations`, read-write, whose rows
+ * a settle also inserts and deletes). None of them is ever deleted or locked. */
 const RUNTIME_INSERT_UPDATE_TABLES = [
 	"design_identity_handles",
 	"authoring_session_requests",
@@ -268,6 +273,7 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
 	"app_deployment_baselines",
 	"project_space_resource_baselines",
 	"hq_remote_writes",
+	"lookup_json_operations",
 	"worker_group_targets",
 ] as const;
 
