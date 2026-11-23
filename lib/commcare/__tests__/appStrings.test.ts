@@ -180,6 +180,7 @@ function partsTable(
 				.map(([code, table]) => [code, Object.fromEntries(table)]),
 		),
 		units: parts.appStringUnits,
+		wordingUnits: parts.wordingUnits,
 	};
 }
 
