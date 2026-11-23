@@ -208,8 +208,6 @@ export const FINDING_COPY: Readonly<
 	},
 	"case-list-optimizations": {
 		never: "This uses a case list speed setting, which Nova doesn't bring in.",
-		"not-yet":
-			"This uses a case list speed setting, which Nova can't hold yet.",
 	},
 	"case-list-registration": {
 		"not-yet":
