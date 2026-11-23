@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CaseListConfig,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { eq, literal, prop, term } from "@/lib/domain/expression";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 import {
@@ -70,4 +74,29 @@ describe("summarizeBlueprint's case list conditions", () => {
 			`        - ${FILTER}: property region`,
 		]);
 	});
+});
+
+// update_search_input replaces a field's whole body, so the summary marks the
+// search for blank as it marks the field's other prompt slots.
+it("marks a Search field that also finds blank", () => {
+	const lines = summaryWith(
+		{
+			searchInputs: [
+				simpleSearchInputDef(
+					testUuid("summary-blank-region"),
+					"region",
+					"Region",
+					"text",
+					"region",
+					{ allowBlank: true },
+				),
+			],
+		},
+		true,
+	);
+	expect(
+		lines.some(
+			(line) => line.includes("region") && line.endsWith("[finds blank]"),
+		),
+	).toBe(true);
 });

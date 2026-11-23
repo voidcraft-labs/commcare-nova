@@ -421,8 +421,8 @@ function formatColumn(col: Column, place: string): string {
 /**
  * One-line search-input summary — uuid + kind + name + label, then the
  * prompt slots a visible input carries as bare markers, so the SA can see
- * that a hint, a required condition, a check, or lookup choices exist
- * without re-reading the module.
+ * that a hint, a required condition, a check, lookup choices, or a search
+ * for blank exist without re-reading the module.
  */
 function formatSearchInput(input: SearchInputDef): string {
 	if (input.kind === "hidden") {
@@ -447,6 +447,7 @@ function formatSearchInput(input: SearchInputDef): string {
 				: `lookup choices sorted by column ${input.options.sortColumnId}`,
 		);
 	}
+	if (input.allowBlank === true) markers.push("finds blank");
 	const suffix = markers.length === 0 ? "" : ` [${markers.join(", ")}]`;
 	return `${input.uuid}: ${body}${suffix}`;
 }

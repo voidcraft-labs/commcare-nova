@@ -263,7 +263,10 @@ The check runs on one platform the app runs on, chosen with `platform` (Web Apps
 by default when the app runs on both). A form that reads what a search found gets the same
 answers that selected those records. To try a different date range, pass both
 `name:from` and `name:to` in `searchAnswers`, using calendar dates such as
-`2024-06-01` and `2024-06-30`.
+`2024-06-01` and `2024-06-30`. On Web Apps, a field the worker also searched for
+blank adds `name:blank` set to `true`; Android's Search screen has no such box,
+so an Android check refuses it. Hidden values are worked out by the search, so
+leave them out.
 
 For a complete observed journey, `start_app_test` opens the saved app at its
 entry screen with disposable records. `start_app_test` and `continue_app_test`
