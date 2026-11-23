@@ -9,7 +9,11 @@ import {
 	formCaseSelectionSchema,
 	sharedEntryValues,
 } from "@/lib/domain/formEntryCases";
-import { formOpeningAssignmentSchema } from "@/lib/domain/forms";
+import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
+import {
+	type FormOpeningAssignment,
+	formOpeningAssignmentSchema,
+} from "@/lib/domain/forms";
 import { type Uuid, uuidSchema } from "@/lib/domain/uuid";
 import { spliceEntryAfter } from "./mutations/sequence";
 
@@ -134,12 +138,29 @@ export function applyFormEntryChange(
 			return;
 		}
 		case "edit-assignment": {
-			if (form.openingAssignments)
-				form.openingAssignments = form.openingAssignments.map((row) =>
-					row.uuid === change.uuid
-						? { ...structuredClone(change.value), uuid: row.uuid }
-						: row,
+			const rows = form.openingAssignments;
+			const before = rows?.find((row) => row.uuid === change.uuid);
+			if (!rows || !before) return;
+			const edited = { ...structuredClone(change.value), uuid: before.uuid };
+			const snapshot = isDraft(draft) ? current(draft) : draft;
+			const rankOf = (source: FormOpeningAssignment["source"]) =>
+				openingAssignmentSource(snapshot, formUuid, source).rank;
+			const rank = rankOf(edited.source);
+			if (rank === rankOf(before.source)) {
+				form.openingAssignments = rows.map((row) =>
+					row.uuid === change.uuid ? edited : row,
 				);
+				return;
+			}
+			// A value now read from another record joins that record's values, as
+			// a new one does: after the last value whose record comes no later.
+			const others = rows.filter((row) => row.uuid !== change.uuid);
+			const preceding = others.findLast((row) => rankOf(row.source) <= rank);
+			form.openingAssignments = spliceEntryAfter(
+				others,
+				edited,
+				preceding?.uuid ?? null,
+			);
 			return;
 		}
 		case "remove-assignment": {
