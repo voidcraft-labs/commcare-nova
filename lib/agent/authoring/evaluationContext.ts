@@ -48,6 +48,7 @@ import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
 import {
 	openSearchRunState,
 	searchInputAnswerKeys,
+	withHiddenValues,
 } from "@/lib/preview/engine/searchRunState";
 import { serverPreviewDataRefusalOf } from "@/lib/preview/engine/serverDataRefusal";
 import {
@@ -221,16 +222,20 @@ function checkSuppliedSearchAnswers(
 	fields: readonly SearchInputDef[],
 ): void {
 	if (!form.searchAnswers) return;
-	const values = new Map(
-		form.searchAnswers.map(({ name, value }) => [name, value]),
-	);
+	const values = new Map<string, string>();
+	for (const { name, value } of form.searchAnswers) {
+		if (values.has(name))
+			throw new FormEvaluationInputError(
+				`Supply each Search answer once. ${name} appears more than once.`,
+			);
+		values.set(name, value);
+	}
 	const rangeNames = new Set(
 		fields
 			.filter((field) => field.kind !== "hidden" && field.type === "date-range")
 			.map((field) => field.name),
 	);
 	if (
-		values.size !== form.searchAnswers.length ||
 		[...values.keys()].some(
 			(name) => /:(starting|opening)$/.test(name) || rangeNames.has(name),
 		)
@@ -238,8 +243,15 @@ function checkSuppliedSearchAnswers(
 		throw new FormEvaluationInputError(
 			"For a date range, supply each endpoint once as name:from and name:to.",
 		);
+	const hiddenNames = new Set(
+		fields.filter((field) => field.kind === "hidden").map(({ name }) => name),
+	);
 	const allowed = searchInputAnswerKeys(fields);
 	for (const [key, value] of values) {
+		if (hiddenNames.has(key))
+			throw new FormEvaluationInputError(
+				`Search answer ${key} is a hidden value: the search works it out when the worker searches, and the form reads that value. Leave it out of searchAnswers.`,
+			);
 		if (!allowed.has(key))
 			throw new FormEvaluationInputError(
 				`Search answer ${key} is unavailable. Use a visible Search field name or its two date endpoints.`,
@@ -263,12 +275,13 @@ function checkSuppliedSearchAnswers(
 }
 
 /**
- * The Search answers a form of a menu whose forms read the search reads when
- * the check supplies none: each Search field's starting value, as the Search
- * screen fills its prompts and as Web Apps rebuilds a form opened with no
- * search behind it (`RemoteQuerySessionManager.initUserAnswers`). Supplied
- * answers are the evaluated form's own (`FormEvaluationInput.searchAnswers`),
- * and a form of any other module reads none.
+ * The Search answers a form of a menu whose forms read the search reads: the
+ * answers the check supplies (`FormEvaluationInput.searchAnswers`), or, where
+ * it supplies none, each Search field's starting value, as the Search screen
+ * fills its prompts and as Web Apps rebuilds a form opened with no search
+ * behind it (`RemoteQuerySessionManager.initUserAnswers`). Either way each
+ * hidden value is the one the search works out, which no worker answers. A
+ * form of any other module reads none.
  */
 export function formsReadSearchFormAnswers(
 	doc: BlueprintDoc,
@@ -297,8 +310,9 @@ export function formsReadSearchFormAnswers(
 	 * only to the case list filter and an advanced field's condition), so
 	 * the screen opens over no case list step's datums. */
 	let defaults: ReturnType<typeof openSearchRunState>["defaults"];
+	let hidden: ReturnType<typeof openSearchRunState>["defaults"];
 	try {
-		defaults = openSearchRunState(
+		const opened = openSearchRunState(
 			moduleUuid,
 			module.caseListConfig?.searchInputs ?? [],
 			previewSessionValues(world.identity, world.device),
@@ -308,7 +322,12 @@ export function formsReadSearchFormAnswers(
 				lookup: previewLookupData(world.lookup),
 				caseDatabase: world.cases,
 			},
-		).defaults;
+		);
+		defaults = opened.defaults;
+		/* The device seeds each hidden prompt's value as it builds the Search
+		 * screen (`RemoteQuerySessionManager.initUserAnswers`), so the form
+		 * reads it whatever the worker answered. */
+		hidden = opened.resolveHidden();
 	} catch (error) {
 		throw searchRefusalInputError(
 			error,
@@ -319,8 +338,14 @@ export function formsReadSearchFormAnswers(
 			world.lookup,
 		);
 	}
-	if (form.searchAnswers !== undefined) return undefined;
-	return [...defaults].map(([name, value]) => ({ name, value }));
+	const answered =
+		form.searchAnswers === undefined
+			? defaults
+			: new Map(form.searchAnswers.map(({ name, value }) => [name, value]));
+	return [...withHiddenValues(answered, hidden)].map(([name, value]) => ({
+		name,
+		value,
+	}));
 }
 
 /**

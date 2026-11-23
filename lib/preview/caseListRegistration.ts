@@ -30,7 +30,10 @@ import {
 	searchInputInstanceValues,
 } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewSearchEnvironment } from "@/lib/preview/engine/searchExpressionEvaluation";
-import { openSearchRunState } from "@/lib/preview/engine/searchRunState";
+import {
+	openSearchRunState,
+	withHiddenValues,
+} from "@/lib/preview/engine/searchRunState";
 import { searchAttemptOf } from "@/lib/session/previewSearchState";
 import type {
 	PreviewSearchAnswers,
@@ -274,16 +277,20 @@ export function readFormSearchAnswers(args: {
 	let defaults = NO_STARTING_VALUES;
 	if (formOpensSearchScreen(args) && args.world !== undefined) {
 		const { session, environment } = args.world;
-		const opened = readPreviewScreen(() =>
-			openSearchRunState(
+		/* The query step seeds each hidden prompt's value beside the starting
+		 * values (`RemoteQuerySessionManager.initUserAnswers`), and the form
+		 * reads both. */
+		const opened = readPreviewScreen(() => {
+			const state = openSearchRunState(
 				environment.moduleUuid,
 				args.searchInputs,
 				session,
 				environment,
-			),
-		);
+			);
+			return withHiddenValues(state.defaults, state.resolveHidden());
+		});
 		if (opened.kind === "refused") return opened;
-		defaults = opened.value.defaults;
+		defaults = opened.value;
 	}
 	return { kind: "read", value: formSearchAnswers({ ...args, defaults }) };
 }

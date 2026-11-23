@@ -367,3 +367,63 @@ it("refuses a one-field Search screen whose starting choice its list doesn't off
 		/This search doesn't open on a phone\. Search field “Region” starts on a choice its list doesn't offer\./,
 	);
 });
+
+/* The device seeds each hidden prompt's value as it builds the Search screen
+ * (`RemoteQuerySessionManager.initUserAnswers` walks every prompt), so a form
+ * of the menu reads that value beside the starting values or the answers the
+ * worker gave. No worker answers it, so the check works it out rather than
+ * taking it. */
+function searchWithHiddenRegion() {
+	return searchApp([
+		simpleSearchInputDef(
+			testUuid("forms-read-search-answers-input"),
+			"patient_name",
+			"Patient name",
+			"text",
+			"case_name",
+		),
+		hiddenSearchInputDef(
+			testUuid("forms-read-search-answers-hidden"),
+			"region",
+			"Region",
+			term(sessionUser("commcare_first_name")),
+		),
+	]);
+}
+
+it("reads a hidden value beside the starting values, in the form check and Preview's form screen alike", () => {
+	const doc = searchWithHiddenRegion();
+	expect(answers(doc)).toEqual([{ name: "region", value: "Amina" }]);
+	expect(previewFormRead(doc)).toEqual({
+		kind: "read",
+		value: new Map([["region", "Amina"]]),
+	});
+});
+
+it("reads a hidden value beside the answers the check supplies", () => {
+	expect(
+		answers(searchWithHiddenRegion(), [{ name: "patient_name", value: "Ada" }]),
+	).toEqual([
+		{ name: "patient_name", value: "Ada" },
+		{ name: "region", value: "Amina" },
+	]);
+});
+
+it("refuses an answer for a hidden value, which the search works out itself", () => {
+	expect(() =>
+		answers(searchWithHiddenRegion(), [{ name: "region", value: "north" }]),
+	).toThrow(
+		/Search answer region is a hidden value: the search works it out when the worker searches/,
+	);
+});
+
+it("names a Search answer supplied twice as that, not as a date range", () => {
+	expect(() =>
+		answers(searchWithHiddenRegion(), [
+			{ name: "patient_name", value: "Ada" },
+			{ name: "patient_name", value: "Bea" },
+		]),
+	).toThrow(
+		"Supply each Search answer once. patient_name appears more than once.",
+	);
+});
