@@ -98,6 +98,7 @@ export async function startAppTest(
 			id: "default",
 			personaUuid: null,
 			language: input.language,
+			locationFix: input.locationFix,
 			platform: input.platform,
 		},
 	];
@@ -165,12 +166,18 @@ export async function startAppTest(
 					snapshot,
 					sessionInput.platform ?? input.platform,
 				);
+				const locationFix = sessionInput.locationFix ?? input.locationFix;
+				if (locationFix && platform !== "android")
+					throw new AppTestActionError(
+						"Automatic location is available on Android. Choose an Android session or leave out its device location.",
+					);
 				const initial: AppTestSessionState = {
 					language: appTestLanguage(
 						snapshot,
 						sessionInput.language ?? input.language,
 					),
 					platform,
+					...(locationFix !== undefined && { locationFix }),
 					androidDeviceId: randomUUID(),
 					personaUuid: null,
 					screen: appTestEntryScreen(platform),

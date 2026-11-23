@@ -1,3 +1,7 @@
+import {
+	capturesDeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 // lib/preview/engine/caseDataBindingHelpers.ts
 //
 // Server-only I/O helpers the running-app view's data binding wraps
@@ -1567,6 +1571,7 @@ export async function resetSampleCases(
  * own case first), and the selection its session holds.
  */
 export interface BuiltSubmissionOperations {
+	readonly submissionLocation?: ApplySubmissionArgs["submissionLocation"];
 	readonly program?: CaseOperationProgram;
 	/** The selection the committed form type and module admit, with the
 	 * client's selected ids. It carries no case write. */
@@ -1759,6 +1764,21 @@ export async function buildSubmissionOperationProgram(args: {
 		args.lookupTableSchemas,
 	);
 
+	const capture = capturesDeviceLocation(
+		app.blueprint,
+		app.blueprint.forms[args.projection.formUuid],
+	);
+	const fix = args.mutation.locationFix;
+	if (
+		fix !== undefined &&
+		(!capture ||
+			args.device.platform !== "android" ||
+			!deviceLocationSchema.safeParse(fix).success)
+	)
+		throw new CaptureSubmissionRejectedError(
+			"This form could not use the supplied device location. Open it again with the current app and Preview phone settings.",
+		);
+	const metadata = capture ? { submissionLocation: fix ?? null } : {};
 	const validated = args.projection;
 	const allowedAttachments = Object.values(app.blueprint.fields).flatMap(
 		(field) => {
@@ -1789,6 +1809,7 @@ export async function buildSubmissionOperationProgram(args: {
 	) {
 		return {
 			...withLookups,
+			...metadata,
 			submissionReceipt: {
 				...receiptIdentity,
 				expectedAppMutationSeq: app.mutation_seq,
@@ -1806,6 +1827,7 @@ export async function buildSubmissionOperationProgram(args: {
 	};
 	return {
 		...withLookups,
+		...metadata,
 		submissionReceipt: {
 			...receiptIdentity,
 			expectedAppMutationSeq: app.mutation_seq,
@@ -2442,6 +2464,9 @@ export function submissionEnvelopeArgs(
 	if (mutation.kind !== built.ordinaryFormType) rejectFormTypeMismatch();
 	return {
 		appId,
+		...(built.submissionLocation !== undefined && {
+			submissionLocation: built.submissionLocation,
+		}),
 		ordinary: built.ordinaryAction,
 		...operations,
 		...submissionReceipt,

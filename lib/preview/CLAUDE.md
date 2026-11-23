@@ -2583,3 +2583,7 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+### Android location at form entry
+
+The Preview phone supplies a simulated fix when a form opens. The committed form and platform decide whether the submission may carry it. `SubmissionEnvelopeResult.submissionLocation` records the point, null for a requested fix the platform did not provide, and no property for a form that requested none. The same receipt replays on retry. The geopoint question’s answer stays independent. A worker test session’s optional `locationFix` supplies the same evidence.

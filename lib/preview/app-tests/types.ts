@@ -5,6 +5,10 @@ import {
 	appLanguageIdentitySchema,
 	type LanguageTag,
 } from "@/lib/domain/localization";
+import {
+	type DeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import type {
@@ -44,11 +48,19 @@ export const appTestSessionIdSchema = z
 		"A test-local session label, one to forty letters, digits, underscores or hyphens, starting with a letter or digit. This is not an app entity address.",
 	);
 
+const sensorFixInput = deviceLocationSchema
+	.optional()
+	.describe(
+		"Simulated Android location fix for automatic capture. Omit to simulate location permission denied or a device without a fix. A location question still uses its own answer.",
+	);
+
 export const appTestStartSchema = z.strictObject({
+	locationFix: sensorFixInput,
 	sessions: z
 		.array(
 			z.strictObject({
 				id: appTestSessionIdSchema,
+				locationFix: sensorFixInput,
 				personaUuid: z
 					.string()
 					.min(1)
@@ -377,6 +389,7 @@ export interface AppTestSessionState {
 	/** The UUID part of the session's Android `deviceid`, minted when the
 	 *  session starts: one session is one install. */
 	androidDeviceId: string;
+	locationFix?: DeviceLocation;
 	personaUuid: Uuid | null;
 	screen: AppTestScreen;
 	history: readonly AppTestHistoryEntry[];
