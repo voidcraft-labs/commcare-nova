@@ -53,6 +53,7 @@ test.beforeAll(async () => {
 		[],
 		{
 			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/formOpeningAction": boundary,
 			"@/lib/preview/engine/lookupDataBinding": boundary,
 			"@/lib/preview/entryPointLaunchAction": boundary,
 			"@/lib/auth/hooks/useAuth": boundary,
@@ -69,6 +70,7 @@ test.beforeAll(async () => {
 		[],
 		{
 			"@/lib/preview/engine/caseDataBinding": navigation,
+			"@/lib/preview/engine/formOpeningAction": navigation,
 			"@/lib/preview/engine/lookupDataBinding": navigation,
 			"@/lib/preview/entryPointLaunchAction": navigation,
 			"@/lib/auth/hooks/useAuth": navigation,
