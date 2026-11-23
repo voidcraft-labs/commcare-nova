@@ -80,9 +80,6 @@ it("shows shared worker wording for a menu, form, record choice and submit butto
 	});
 	const menu = initial.moduleOrder[0],
 		form = initial.formOrder[menu][0];
-	const units = new Map(
-		collectTranslationUnits(initial).map((unit) => [unit.id, unit]),
-	);
 	const labels = [
 		[generatedWordingId(menu, "menuTitle"), "Worker visits", "Visites"],
 		[generatedWordingId(form, "formTitle"), "Record visit", "Noter la visite"],
@@ -97,31 +94,48 @@ it("shows shared worker wording for a menu, form, record choice and submit butto
 			"Terminer la visite",
 		],
 	] as const;
-	const authored = mutationCommitVerdict(
-		initial,
-		[
+	/* A source-language override changes the source a translation is made
+	 * from, so French is recorded against the English wording it translates. */
+	const translate = (
+		from: import("@/lib/domain").BlueprintDoc,
+		language: "eng" | "fra",
+		head: readonly import("@/lib/doc/types").Mutation[] = [],
+	) => {
+		const units = new Map(
+			collectTranslationUnits(from).map((unit) => [unit.id, unit]),
+		);
+		const verdict = mutationCommitVerdict(
+			from,
+			[
+				...head,
+				...labels.map(([id, english, french]) => {
+					const unit = units.get(id);
+					if (!unit) throw Error(`Missing wording for ${id}`);
+					return {
+						kind: "setTranslation" as const,
+						language,
+						unitId: id,
+						entry: {
+							value: language === "fra" ? french : english,
+							sourceFingerprint: unit.sourceFingerprint,
+							origin: "human" as const,
+							review: "reviewed" as const,
+							translatedFrom: "eng",
+						},
+					};
+				}),
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw Error(JSON.stringify(verdict.findings));
+		return verdict.nextDoc;
+	};
+	const doc = translate(
+		translate(initial, "eng", [
 			{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fra" },
-			...labels.flatMap(([id, english, french]) => {
-				const unit = units.get(id);
-				if (!unit) throw Error(`Missing wording for ${id}`);
-				return (["eng", "fra"] as const).map((language) => ({
-					kind: "setTranslation" as const,
-					language,
-					unitId: id,
-					entry: {
-						value: language === "fra" ? french : english,
-						sourceFingerprint: unit.sourceFingerprint,
-						origin: "human" as const,
-						review: "reviewed" as const,
-						translatedFrom: "eng",
-					},
-				}));
-			}),
-		],
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		]),
+		"fra",
 	);
-	if (!authored.ok) throw Error(JSON.stringify(authored.findings));
-	const doc = authored.nextDoc;
 	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 	await h.seedAppWithBlueprint(doc, {
 		id: scope.appId,
