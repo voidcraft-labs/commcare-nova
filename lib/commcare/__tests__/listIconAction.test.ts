@@ -12,6 +12,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { getModuleTool } from "@/lib/agent/tools/getModule";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	type Column,
@@ -165,9 +166,12 @@ function findings(doc: BlueprintDoc) {
 }
 
 function iconFindings(doc: BlueprintDoc): string[] {
-	return findings(doc)
-		.filter((error) => error.code === "CASE_LIST_ICON_ACTION_INVALID")
-		.map((error) => error.message);
+	const icon = findings(doc).filter(
+		(error) => error.code === "CASE_LIST_ICON_ACTION_INVALID",
+	);
+	// The Builder's copy is built from the finding's details, and reads the same.
+	expect(userFacingErrors(icon)).toEqual(icon.map((error) => error.message));
+	return icon.map((error) => error.message);
 }
 
 const descend = (node: XmlEvidence): XmlEvidence[] =>
@@ -196,7 +200,7 @@ describe("the forms an icon may submit", () => {
 			[],
 		);
 		expect(iconFindings(doc)).toEqual([
-			'"Record" needs a form that opens with one visit case and submits as soon as it opens. You can choose another form for the icon or remove its action.',
+			'"Record" needs a form that opens with one visit case and submits as soon as it opens, and no form in this app does. You can remove the icon\'s action.',
 		]);
 	});
 
@@ -215,8 +219,11 @@ describe("the forms an icon may submit", () => {
 	});
 
 	it("refuses a registration, another type's form and a removed deep link", () => {
+		// Record visit qualifies, so the finding offers it as another form.
 		for (const entryPointUuid of [REGISTER_LINK, HOUSEHOLD_LINK])
-			expect(iconFindings(visits({ entryPointUuid }))).toHaveLength(1);
+			expect(iconFindings(visits({ entryPointUuid }))).toEqual([
+				'"Record" needs a form that opens with one visit case and submits as soon as it opens. You can choose another form for the icon or remove its action.',
+			]);
 		const removed = visits();
 		delete removed.forms[RECORD].entryPoint;
 		expect(iconFindings(removed)).toHaveLength(1);

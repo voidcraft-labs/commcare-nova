@@ -344,7 +344,7 @@ const imageMapColumnInputArm = imageMapColumnArm
 			"This column's order rule. Shown on Results, an image map orders by the order of its mapping entries: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
 		),
 		entryPointUuid: imageMapColumnArm.shape.entryPointUuid.describe(
-			"Makes the image on Results an icon a worker taps to submit a form for that case, in Web Apps only. Name the deep link of a form getModule lists for this column under listIconDestinations. Omit for an image with no action.",
+			"Leave this out unless getModule lists listIconDestinations for this column; no other form can be named. Naming one of those deep links makes the image on Results an icon a worker taps to submit that form for the case, in Web Apps only.",
 		),
 		mapping: imageMapColumnArm.shape.mapping.describe(
 			"Images in match order. By default each value matches one of the saved choices. Set match to exact to match the entire saved value, including an empty value. For a condition, provide when instead of value and match. Omit assetId to show no image for a match. The first match supplies its image and optional description in Web Apps. Keep that row’s uuid through changes.",

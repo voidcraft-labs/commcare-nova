@@ -158,11 +158,15 @@ export type ListIconActionReason =
 
 /** The sentence each reason reads as, about the column `label` names (when
  * known) and the case type its tap passes. Shared by the validator's message
- * and the Builder's copy (`lib/doc/userFacingErrors.ts`). */
+ * and the Builder's copy (`lib/doc/userFacingErrors.ts`). A missing
+ * destination offers another form only where `anotherForm` says the column
+ * has one to choose (`listIconDestinations`); otherwise removing the action
+ * is the one remedy there is. */
 export function listIconActionSentence(
 	reason: ListIconActionReason,
 	label: string | undefined,
 	caseType: string | undefined,
+	anotherForm = false,
 ): string {
 	const subject = label ? `"${label}"` : "An image on Results";
 	switch (reason) {
@@ -173,7 +177,9 @@ export function listIconActionSentence(
 		case "grouped-body":
 			return `${subject} is in the body of a grouped tile, where Web Apps passes the group's first case whichever icon a worker taps. You can move the icon to the group's header, remove the grouping, or remove the icon's action.`;
 		case "no-destination":
-			return `${subject} needs a form that opens with one ${caseType ?? "chosen"} case and submits as soon as it opens. You can choose another form for the icon or remove its action.`;
+			return anotherForm
+				? `${subject} needs a form that opens with one ${caseType ?? "chosen"} case and submits as soon as it opens. You can choose another form for the icon or remove its action.`
+				: `${subject} needs a form that opens with one ${caseType ?? "chosen"} case and submits as soon as it opens, and no form in this app does. You can remove the icon's action.`;
 	}
 }
 
@@ -185,7 +191,12 @@ export function listIconActionIssue(
 	module: Module,
 	column: ImageMapColumn,
 ):
-	| { readonly reason: ListIconActionReason; readonly caseType?: string }
+	| {
+			readonly reason: ListIconActionReason;
+			readonly caseType?: string;
+			/** For `no-destination`: whether the column has a form to choose. */
+			readonly anotherForm?: boolean;
+	  }
 	| undefined {
 	if (column.entryPointUuid === undefined) return undefined;
 	if (declaredPlatforms(doc).includes("android")) return { reason: "android" };
@@ -194,7 +205,11 @@ export function listIconActionIssue(
 	if (caseType === undefined) return { reason: "grouped-body" };
 	const item = entryPointByUuid(doc, column.entryPointUuid);
 	if (item === undefined || !createListIconDestination(doc)(caseType, item))
-		return { reason: "no-destination", caseType };
+		return {
+			reason: "no-destination",
+			caseType,
+			anotherForm: listIconDestinations(doc, module, column).length > 0,
+		};
 	return undefined;
 }
 

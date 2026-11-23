@@ -626,7 +626,12 @@ function validListIconActions(doc: BlueprintDoc): ValidationError[] {
 				validationError(
 					"CASE_LIST_ICON_ACTION_INVALID",
 					"module",
-					listIconActionSentence(issue.reason, label, issue.caseType),
+					listIconActionSentence(
+						issue.reason,
+						label,
+						issue.caseType,
+						issue.anotherForm,
+					),
 					{ moduleUuid, moduleName: module.name },
 					{
 						reason: issue.reason,
@@ -634,6 +639,7 @@ function validListIconActions(doc: BlueprintDoc): ValidationError[] {
 						columnLabel: label,
 						entryPointUuid: column.entryPointUuid,
 						...(issue.caseType !== undefined && { caseType: issue.caseType }),
+						...(issue.anotherForm === true && { anotherForm: "yes" }),
 					},
 				),
 			);

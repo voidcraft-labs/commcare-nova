@@ -1016,6 +1016,7 @@ const USER_MESSAGE_BY_CODE: Record<
 				: "no-destination",
 			e.details?.columnLabel,
 			e.details?.caseType,
+			e.details?.anotherForm === "yes",
 		);
 	},
 	ENTRY_POINT_INVALID: (e) => {
