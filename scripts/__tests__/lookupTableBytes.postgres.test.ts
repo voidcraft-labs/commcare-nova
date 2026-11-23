@@ -49,14 +49,13 @@ async function tableWithRows(scope: LookupScope, tag: string) {
 }
 
 async function storedBytes(scope: LookupScope, tableId: string) {
-	const row = await h
-		.db()
-		.selectFrom("lookup_tables")
-		.select("data_bytes")
-		.where("project_id", "=", scope.projectId)
-		.where("id", "=", tableId)
-		.executeTakeFirstOrThrow();
-	return row.data_bytes;
+	const row = await sql<{
+		data_bytes: string;
+	}>`SELECT data_bytes FROM lookup_tables
+		WHERE project_id = ${scope.projectId} AND id = ${tableId}::uuid`.execute(
+		h.db(),
+	);
+	return row.rows[0]?.data_bytes;
 }
 
 describe("lookup table byte totals", () => {
