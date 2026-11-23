@@ -365,13 +365,6 @@ export function RegisterFromListSetting({
 											}
 										/>
 									)}
-								{!canEdit && stored.showWhen !== undefined && (
-									<p className="text-[13px] text-nova-text-secondary">
-										{stored.showWhen.kind === "empty-search"
-											? "The form button appears when a search finds nothing."
-											: "The form button appears when its condition is met."}
-									</p>
-								)}
 								<div className="flex flex-wrap gap-6">
 									<div>
 										<span className="mb-1 block text-xs text-nova-text-muted">
