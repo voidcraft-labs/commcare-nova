@@ -1097,15 +1097,26 @@ function admission(
 				"case-data-unavailable",
 				"This form is shown before a case is selected. Its visibility condition can read the worker's own record.",
 			);
+		const menuSlot = [
+			"module_display_condition",
+			"form_display_condition",
+			"module_badge",
+			"form_badge",
+		].includes(ctx.slot.slot);
+		// One value read from a query of the device's records or a table's
+		// rows: Core stops at a node-set of two or more where one value is
+		// wanted (`XPathNodeset.unpack`), and a menu that stops loads no
+		// items for that worker (`MenuLoader.getMenuDisplayables`). The case
+		// chosen in an earlier menu is admitted above.
+		if (menuSlot && expression.kind === "project")
+			return refusal(
+				"arm-unavailable",
+				"A menu's condition or badge reads one value here, and these records or table rows can hold several, which stops the whole menu for that worker. You can count them with count(...), read one table row with a table lookup, or read the worker's own record with worker-record(...).",
+				"menu-several-values",
+			);
 		if (
-			[
-				"module_display_condition",
-				"form_display_condition",
-				"module_badge",
-				"form_badge",
-			].includes(ctx.slot.slot) &&
+			menuSlot &&
 			(expression.kind === "table-rows" ||
-				expression.kind === "project" ||
 				(expression.kind === "cases" &&
 					expression.source === "casedb" &&
 					profile.caseData) ||

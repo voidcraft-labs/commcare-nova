@@ -209,6 +209,71 @@ describe("module display-condition validation", () => {
 	});
 });
 
+describe("one value read from a query on a menu", () => {
+	const rows: Expression = { kind: "table-rows", tableId: TABLE, where: [] };
+	const devicePatients: Expression = {
+		kind: "cases",
+		source: "casedb",
+		where: [],
+	};
+	const regionOf = (of: Expression): Expression => ({
+		kind: "project",
+		of,
+		value: tableColumn(TABLE, VALUE),
+	});
+
+	it("refuses a table row's value in a menu condition, and admits the table's count", () => {
+		expect(
+			validateModuleFindings(eq(regionOf(rows), literal("North")))[0]?.message,
+		).toContain("stops the whole menu");
+		expect(validateModule(gt(count(rows), literal(0)))).toEqual([]);
+	});
+
+	it("refuses a device record's value in a form condition once a case is chosen", () => {
+		const statusOf: Expression = {
+			kind: "project",
+			of: devicePatients,
+			value: prop("patient", "status"),
+		};
+		expect(
+			validateFormFindings(eq(statusOf, literal("open")))[0]?.message,
+		).toContain("stops the whole menu");
+		expect(validateForm(gt(count(devicePatients), literal(0)))).toEqual([]);
+	});
+
+	it("refuses a table row's value as a menu badge", () => {
+		const doc = buildDoc({
+			appName: "Display",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [f({ kind: "text", id: "answer" })],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		admitted(doc);
+		doc.modules[moduleUuid].badge = {
+			kind: "calculation",
+			expression: regionOf(rows),
+		};
+		expect(runValidation(doc, lookupContext)[0]?.message).toContain(
+			"stops the whole menu",
+		);
+		doc.modules[moduleUuid].badge = {
+			kind: "calculation",
+			expression: count(rows),
+		};
+		expect(runValidation(doc, lookupContext)).toEqual([]);
+	});
+});
+
 describe("a display condition that spells off the menu", () => {
 	const supervisor = eq(sessionUser("user_type"), literal("supervisor"));
 
