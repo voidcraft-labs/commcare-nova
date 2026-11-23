@@ -410,9 +410,15 @@ describe("a parse issue's entry, by what the text and the form hold", () => {
 		expect(declared(text, {})).toBe(
 			"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
 		);
-		expect(declared("instance('ledgerdb')/ledgerdb", {})).toBe(
-			"expressions-and-data/ledgerdb-vellum-id-ledger",
-		);
+		/* A form's sources are the ones HQ's build leaves it with: an undeclared
+		 * `ledgerdb` is added from its fixed source
+		 * (`suite_xml/post_process/instances.py::INSTANCE_KWARGS_BY_ID`,
+		 * `xform.py::add_missing_instances`), so it reads as the ledger. */
+		expect(
+			declared("instance('ledgerdb')/ledgerdb", {
+				ledgerdb: "jr://instance/ledgerdb",
+			}),
+		).toBe("expressions-and-data/ledgerdb-vellum-id-ledger");
 	});
 
 	it("reads supply_point_id by whether the advanced form computes it", () => {
