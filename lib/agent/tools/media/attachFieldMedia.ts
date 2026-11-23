@@ -73,12 +73,16 @@ const fieldMediaAttachmentSchema = fieldAddressSchema
 		language: appLanguageIdentitySchema
 			.optional()
 			.describe(
-				"The app language whose files to change. Leave this out to edit the shared files.",
+				"The app language whose files to change. Leave this out to edit the " +
+					"shared files. In another language, a role left out of `media`, or " +
+					"an empty `{}`, goes back to the shared file: a language can't hide " +
+					"a shared file.",
 			),
 		media: mediaBundleInput(
 			"The image/audio/video to attach. Supply any subset of `image`, " +
 				"`audio`, `video` as asset ids (discover them with list_media_assets). " +
-				"Pass an empty object `{}` to clear every reference on this slot.",
+				"Pass an empty object `{}` to clear every reference on this slot; " +
+				"in another language it goes back to the shared files.",
 		),
 	})
 	.strict();
@@ -101,7 +105,7 @@ export type AttachFieldMediaResult = MutationSuccess | { error: string };
 
 export const attachFieldMediaTool = {
 	description:
-		"Set or clear image/audio/video on a field's label or help. Fields may span forms. Asset ids come from list_media_assets; an empty media object clears. The slot must exist on the field's kind.",
+		"Set or clear image/audio/video on a field's label or help. Fields may span forms. Asset ids come from list_media_assets; an empty media object clears the shared files, and in another language goes back to them. The slot must exist on the field's kind.",
 	inputSchema: attachFieldMediaInputSchema,
 	async execute(
 		input: AttachFieldMediaInput,

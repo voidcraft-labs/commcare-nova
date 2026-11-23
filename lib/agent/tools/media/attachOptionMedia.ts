@@ -54,12 +54,16 @@ const optionMediaAttachmentSchema = fieldAddressSchema
 		language: appLanguageIdentitySchema
 			.optional()
 			.describe(
-				"The app language whose files to change. Leave this out to edit the shared files.",
+				"The app language whose files to change. Leave this out to edit the " +
+					"shared files. In another language, a role left out of `media`, or " +
+					"an empty `{}`, goes back to the shared file: a language can't hide " +
+					"a shared file.",
 			),
 		media: mediaBundleInput(
 			"The image/audio/video to attach to this option. Supply any subset " +
 				"of `image`, `audio`, `video` as asset ids (discover them with " +
-				"list_media_assets). Pass an empty object `{}` to clear the option's media.",
+				"list_media_assets). Pass an empty object `{}` to clear the option's " +
+				"media; in another language it goes back to the shared files.",
 		),
 	})
 	.strict();
@@ -85,7 +89,7 @@ export type AttachOptionMediaResult = MutationSuccess | { error: string };
 
 export const attachOptionMediaTool = {
 	description:
-		"Set or clear image/audio/video on select-field options — attachments may span fields and forms. An empty media object clears.",
+		"Set or clear image/audio/video on select-field options — attachments may span fields and forms. An empty media object clears the shared files, and in another language goes back to them.",
 	inputSchema: attachOptionMediaInputSchema,
 	async execute(
 		input: AttachOptionMediaInput,
