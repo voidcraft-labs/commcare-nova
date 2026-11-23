@@ -276,6 +276,13 @@ const ANDROID_MENUS: readonly SearchingMenu[] = [
 		search: { workflow: "listFirst" },
 		inputs: "visible",
 	},
+	{
+		key: "follow",
+		name: "Find returning patient",
+		caseType: "patient",
+		search: { workflow: "listFirstWithDefaultResults" },
+		inputs: "visible",
+	},
 ];
 
 export function searchWorkflowAndroid() {

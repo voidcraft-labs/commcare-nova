@@ -774,17 +774,24 @@
 			"parser:SessionDatumParser/query@default_search"
 		],
 		"valueClass": "list-first-default-search",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a case list first whose Search action goes straight to its results: HQ writes `default_search` into the query whatever `auto_launch` says (`remote_requests.py::RemoteRequestsHelper.build_remote_request_queries`), and Nova's `listFirst` writes it false",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseSearchConfig.workflow: listFirstWithDefaultResults` holds the list landing and the Search action's default-results request separately.",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "UNAVAILABLE (a Web Apps menu cannot keep list first on a Case List save) / RUNS (Android opens the case list, then shows the Search fields until submission)",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "a Web Apps menu cannot keep list first on a Case List save"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "Android opens the case list, then shows the Search fields until submission"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "`auto_launch: false` and `default_search: true`",
+			"markers": []
 		},
 		"gates": []
 	},

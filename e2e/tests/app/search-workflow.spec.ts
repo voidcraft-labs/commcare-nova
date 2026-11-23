@@ -96,6 +96,41 @@ test("an app on both platforms offers Search first and Results first, and choosi
 	await expect(choice("Case list first")).toBeDisabled();
 });
 
+test("an Android menu keeps its case-list landing and Search preference after a reload", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const { caseWorkspace } = seedFor(scenario, "workspace");
+	const { setting, choice, choiceRow } = await openWorkflowSetting(
+		page,
+		caseWorkspace.routes.search,
+	);
+	await page.getByRole("button", { name: "App settings", exact: true }).click();
+	await page.locator('[data-platform-choice="android"]').click();
+	await expect(
+		page.getByRole("radio", { name: /^Android only/ }),
+	).toBeChecked();
+	await page.keyboard.press("Escape");
+	await expect(choice("Case list first")).toBeEnabled();
+	await choiceRow("listFirst").click();
+	const preference = setting.getByRole("switch", {
+		name: /^Request default search results/,
+	});
+	await expect(preference).not.toBeChecked();
+	const saved = page.waitForResponse(
+		(response) =>
+			response.request().method() === "PUT" &&
+			new URL(response.url()).pathname === `/api/apps/${caseWorkspace.appId}` &&
+			(response.request().postData() ?? "").includes(
+				'"workflow":"listFirstWithDefaultResults"',
+			),
+	);
+	await preference.click();
+	expect((await saved).ok()).toBe(true);
+	await openWorkflowSetting(page, caseWorkspace.routes.search);
+	await expect(choice("Case list first")).toBeChecked();
+	await expect(preference).toBeChecked();
+});
+
 test("an app on Web Apps alone offers Forms read the search and withholds Case list first", {
 	tag: "@seed:forms-read-search",
 }, async ({ scenario, page }) => {

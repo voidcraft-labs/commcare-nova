@@ -43,6 +43,7 @@ import {
 	moduleHasCaseListMenuItem,
 	moduleSearchWorkflow,
 	type SearchInputDef,
+	searchOpensOnList,
 	tileCellFor,
 } from "./modules";
 import {
@@ -422,7 +423,7 @@ function moduleUses(
 		own.push(
 			slotUse("search-on-clear", owner, "caseSearchConfig.searchOnClear"),
 		);
-	if (workflow === "listFirst" && wanted("list-first"))
+	if (searchOpensOnList(workflow) && wanted("list-first"))
 		own.push(slotUse("list-first", owner, "caseSearchConfig.workflow"));
 	if (
 		caseSelectionCardinality(module) === "multiple" &&

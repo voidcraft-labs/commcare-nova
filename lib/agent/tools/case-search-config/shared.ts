@@ -264,7 +264,7 @@ export const searchWorkflowInputSchema = z.enum(SEARCH_WORKFLOWS);
 const SEARCH_WITH_NOTHING_TO_FILL_IN =
 	"Under searchFirst, a search with nothing to fill in shows a Search screen holding only its button.";
 
-export const SEARCH_WORKFLOW_DESCRIPTION = `What the menu opens on. searchFirst opens on Search in Web Apps, and Results then show what the search finds; Android opens the case list first, with Search from it. skipToResults opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; Android opens the case list first. listFirst opens on the case list with Search from it, and only an app that runs only on Android can use it. ${SEARCH_WITH_NOTHING_TO_FILL_IN}`;
+export const SEARCH_WORKFLOW_DESCRIPTION = `What the menu opens on. searchFirst opens on Search in Web Apps, and Results then show what the search finds; Android opens the case list first, with Search from it. skipToResults opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; Android opens the case list first. listFirst opens on the case list with Search from it, and only an app that runs only on Android can use it. listFirstWithDefaultResults also requests default results for the Search action when published. Android opens its fields and waits for the worker to submit either list-first search. ${SEARCH_WITH_NOTHING_TO_FILL_IN}`;
 
 export const formsReadSearchInputSchema = z.literal(true).nullable();
 

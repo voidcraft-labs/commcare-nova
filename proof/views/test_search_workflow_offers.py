@@ -34,7 +34,7 @@ FLAG = "CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST"
 ALWAYS = "#module-settings-form"
 SELECTOR = "#search-workflow"
 # The selector's options, by the workflow HQ stores: (auto_launch, default_search) to the option's value.
-OPTION = {(True, False): "auto_launch", (True, True): "es_only", (False, False): "classic"}
+OPTION = {(True, False): "auto_launch", (True, True): "es_only", (False, False): "classic", (False, True): "classic"}
 
 
 def _searching_modules(app):
@@ -96,7 +96,7 @@ def test_hqs_case_list_page_draws_no_workflow_selector_for_an_app_that_declares_
     hq, core_runner, editor_driver, view_documents, published
 ):
     document = view_documents["targeted-search-workflow-android"]
-    import corehq.privileges as privileges
+    from corehq import privileges
 
     from proof.hq.seams import also_granted
 
@@ -109,12 +109,30 @@ def test_hqs_case_list_page_draws_no_workflow_selector_for_an_app_that_declares_
         app = operations.held_app(unit, app_id)
         assert app.cloudcare_enabled is False
         modules = _searching_modules(app)
-        assert [stored for _, stored in modules] == ["classic"], modules
-        module, stored = modules[0]
+        assert [stored for _, stored in modules] == ["classic", "classic"], modules
+        assert [module.search_config.default_search for module, _ in modules] == [
+            False,
+            True,
+        ]
         with also_granted(privileges.CLOUDCARE):
-            counted = _read(editor_driver, unit, app_id, module, stored)
-        # No selector, so the save posts the list first the module holds; the settings form says the page loaded.
-        assert (counted["selector"], counted["always"]) == (0, 1), counted
+            for module, stored in modules:
+                counted = _read(editor_driver, unit, app_id, module, stored)
+                assert (counted["selector"], counted["always"]) == (0, 1), counted
+                saved = pages.fresh_section_save(
+                    editor_driver, unit, pages.CASE_LIST, app_id, module.unique_id
+                )
+                assert (
+                    saved.save is not None
+                    and saved.save.status == 200
+                    and not saved.refused
+                ), saved.alerts
+                after = operations.held_app(unit, app_id).get_module_by_unique_id(
+                    module.unique_id
+                )
+                assert (
+                    after.search_config.auto_launch,
+                    after.search_config.default_search,
+                ) == (False, module.search_config.default_search)
 
 
 def test_forms_above_keep_the_remote_search_and_only_the_enabled_form_entry_claim(

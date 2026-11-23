@@ -111,6 +111,7 @@ import {
 	moduleShowsFormsInMenuAbove,
 	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
+	searchOpensOnList,
 	searchScreenTitleText,
 	searchWorkflow,
 	type TileCell,
@@ -3339,6 +3340,6 @@ function opensOnResultsAfterFinalInput(
 	return (
 		next !== undefined &&
 		!isOwnerOnlyCaseSearchConfig(next) &&
-		searchWorkflow(next) !== "listFirst"
+		!searchOpensOnList(searchWorkflow(next))
 	);
 }

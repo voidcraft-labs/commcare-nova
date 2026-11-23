@@ -105,6 +105,7 @@ final class Queries {
             return false;
         }
         query.put("opened", true);
+        query.put("finishingBeforePress", activity.isFinishing());
         query.put("url", address(String.valueOf(manager.getBaseUrl())));
         JSONObject shown = new JSONObject();
         for (Map.Entry<String, View> box : new TreeMap<>(boxes(activity)).entrySet()) {

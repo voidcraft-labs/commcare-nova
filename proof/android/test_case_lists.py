@@ -115,6 +115,37 @@ def test_a_list_search_finds_a_hidden_columns_value_on_both_exports(android_docu
         assert _searched(held, "Riverside") == {setting: ["Amina"] for setting in FUZZY}, name
 
 
+def test_list_first_waits_for_search_on_android_with_either_default_results_preference(
+    android_documents, hq
+):
+    """Both exported apps open the worker's list and draw the prompt before the worker presses Search."""
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-search-workflow-android"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive)
+            answer = blobs.get_json(result["answer"])
+            for menu in ("m0", "m1"):
+                browse = answer["walks"][menu]["steps"]
+                assert browse[-1]["screen"] == LIST, (label, menu, browse)
+                assert all(step["screen"] != "QueryRequestActivity" for step in browse)
+                searched = answer["walks"][f"{menu}/@action:0"]["steps"]
+                query = next(
+                    step["query"]
+                    for step in searched
+                    if step["screen"] == "QueryRequestActivity"
+                )
+                assert query["finishingBeforePress"] is False, (label, menu, query)
+                assert query["opened"] and "patient_name" in query["prompts"], (
+                    label,
+                    menu,
+                    query,
+                )
+
+
 # The first rule's values, set by hand so its order is the reverse of the names'.
 RANKS = {"targeted-amina-visit": "zulu", "targeted-baraka-visit": "mike", "targeted-chausiku-visit": "alpha"}
 PLACED = [["Chausiku", "Lakeside"], ["Baraka", "Hilltop"], ["Amina", "Riverside"]]

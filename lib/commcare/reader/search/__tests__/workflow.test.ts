@@ -1,8 +1,7 @@
 /**
  * Contract: a menu's three search booleans read into Nova's workflow by the rows of the workflow
  * table, and `searchWireShape` gives the stored booleans back for every row that reads; a case
- * list first whose search skips to its results, and a list first in an app with Web Apps on,
- * raise their entries. The failure it catches: Results first read as Search first; a list first
+ * list-first landing keeps its separate default-results preference, and Web Apps refuses that landing. The failure it catches: Results first read as Search first; a list first
  * read from booleans Nova does not write back.
  */
 import { describe, expect, it } from "vitest";
@@ -68,6 +67,11 @@ describe("a search's workflow", () => {
 			{ auto_launch: false, default_search: false, inline_search: false },
 			{ workflow: "listFirst" },
 		],
+		[
+			"list first with a default-results request",
+			{ auto_launch: false, default_search: true, inline_search: false },
+			{ workflow: "listFirstWithDefaultResults" },
+		],
 	];
 	for (const [name, booleans, expected] of rows)
 		it(`reads ${name}, and the wire shape gives the booleans back`, async () => {
@@ -96,25 +100,18 @@ describe("a search's workflow", () => {
 			]);
 		});
 
-	it("raises a list first whose search skips to its results", async () => {
-		const reading = await read(
-			{ auto_launch: false, default_search: true, inline_search: false },
-			false,
-		);
-		expect(codes(reading)).toContain(
-			"case-search/list-first-with-a-search-that-skips-to-results",
-		);
-	});
-
-	it("raises a list first in an app with Web Apps on", async () => {
-		const reading = await read(
-			{ auto_launch: false, default_search: false },
-			true,
-		);
-		expect(codes(reading)).toContain(
-			"case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with",
-		);
-	});
+	it.each([false, true])(
+		"refuses a list first in Web Apps with default search %s",
+		async (defaultSearch) => {
+			const reading = await read(
+				{ auto_launch: false, default_search: defaultSearch },
+				true,
+			);
+			expect(codes(reading)).toContain(
+				"case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with",
+			);
+		},
+	);
 
 	it("drops `inline_search` beside `auto_launch: false`", async () => {
 		const reading = await read(

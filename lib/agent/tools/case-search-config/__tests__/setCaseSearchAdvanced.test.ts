@@ -282,6 +282,7 @@ describe("setCaseSearchAdvanced", () => {
 		const cases = [
 			["skipToResults", "web-apps", "skipToResults"],
 			["listFirst", "android", "listFirst"],
+			["listFirstWithDefaultResults", "android", "listFirstWithDefaultResults"],
 			["searchFirst", "web-apps", undefined],
 		] as const;
 		for (const [searchWorkflow, runsOnlyOn, stored] of cases) {

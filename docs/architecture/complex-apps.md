@@ -1528,6 +1528,7 @@ What a worker sees first when a menu searches is `caseSearchConfig.workflow`,
 read by `lib/domain/modules.ts::searchWorkflow`: absent is search first, the
 Search screen; `skipToResults` runs the search as the menu opens and shows its
 matches; `listFirst` shows the worker's case list with a Search action.
+The Android-only `listFirstWithDefaultResults` also requests default results for the Search action when exported. Android opens the fields and waits for the worker to submit either list-first search.
 Separately, `caseSearchConfig.formsReadSearch: true`
 (`lib/domain/modules.ts::moduleFormsReadSearch`) runs the search as each case
 form of the menu opens, so the forms read what the worker searched for and what
@@ -1536,7 +1537,8 @@ is the one spelling of those two slots on both wire paths:
 
 | Workflow | Forms read the search | `auto_launch` | `default_search` | `inline_search` |
 |---|---|---|---|---|
-| list first | no (the pair is unrepresentable) | false | false | false |
+| list first | no | false | false | false |
+| list first with default results requested (`listFirstWithDefaultResults`) | no | false | true | false |
 | search first | no | true | false | false |
 | search first | yes | true | false | true |
 | skip to results | no | true | true | false |

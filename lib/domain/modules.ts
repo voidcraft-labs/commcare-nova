@@ -2881,9 +2881,13 @@ export const ordinaryCaseSearchConfigSchema = z
 		 * the case list. `skipToResults` runs the search as the menu opens and
 		 * shows its matches; `listFirst` shows the worker's case list with a
 		 * Search action, admitted only where Web Apps is not declared
-		 * (`platforms.ts`, `list-first`). `searchWorkflow` is the one reader.
+		 * (`platforms.ts`, `list-first`). `listFirstWithDefaultResults` also
+		 * requests default results for the Search action. Android opens its
+		 * prompts and waits for submission with either list-first setting.
 		 */
-		workflow: z.enum(["listFirst", "skipToResults"]).optional(),
+		workflow: z
+			.enum(["listFirst", "listFirstWithDefaultResults", "skipToResults"])
+			.optional(),
 		/**
 		 * The search runs as each case form of the menu opens, so the forms read
 		 * what the worker searched for (`#search/`) and what it found
@@ -2897,7 +2901,7 @@ export const ordinaryCaseSearchConfigSchema = z
 	})
 	.refine(
 		(config) =>
-			!(config.workflow === "listFirst" && config.formsReadSearch === true),
+			!(searchOpensOnList(config.workflow) && config.formsReadSearch === true),
 		{
 			path: ["formsReadSearch"],
 			error:
@@ -3173,12 +3177,21 @@ export function effectiveCaseSearchConfig(
 
 export const SEARCH_WORKFLOWS = [
 	"listFirst",
+	"listFirstWithDefaultResults",
 	"searchFirst",
 	"skipToResults",
 ] as const;
 export type SearchWorkflow = (typeof SEARCH_WORKFLOWS)[number];
 
-/** What a worker sees first when this search runs; absent is search first. */
+/** The two workflows that open on the worker's own case list. They differ
+ * in the saved default-results preference for the separate Search action. */
+export function searchOpensOnList(
+	workflow: SearchWorkflow | undefined,
+): workflow is "listFirst" | "listFirstWithDefaultResults" {
+	return workflow === "listFirst" || workflow === "listFirstWithDefaultResults";
+}
+
+/** The authored workflow of this search; absent is search first. */
 export function searchWorkflow(
 	config: OrdinaryCaseSearchConfig,
 ): SearchWorkflow {

@@ -412,7 +412,7 @@ function formatSearchInput(input: SearchInputDef): string {
  *
  * Output shape:
  *
- *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst>[, forms read it]`
+ *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst|listFirstWithDefaultResults>[, forms read it]`
  *
  * Display cluster summary: comma-separated list of the slot names that
  * are non-undefined; `none` when every slot is cleared. Advanced

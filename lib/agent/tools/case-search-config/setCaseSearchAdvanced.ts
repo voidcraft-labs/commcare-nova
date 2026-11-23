@@ -24,6 +24,7 @@ import {
 	type CaseSearchConfig,
 	isOrdinaryCaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
+	searchOpensOnList,
 } from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -91,7 +92,7 @@ export const setCaseSearchAdvancedTool = {
 			const { moduleUuid, module: mod } = address;
 
 			if (
-				input.searchWorkflow === "listFirst" &&
+				searchOpensOnList(input.searchWorkflow) &&
 				input.formsReadSearch === true
 			) {
 				return {

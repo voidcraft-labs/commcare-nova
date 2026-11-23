@@ -26720,6 +26720,28 @@
 		]
 	},
 	{
+		"id": "hq-names/list-first-with-default-results",
+		"base": "hq-names",
+		"entry": "case-search/list-first-with-a-search-that-skips-to-results",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/default_search",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/workflow",
+				"value": "listFirstWithDefaultResults"
+			}
+		]
+	},
+	{
 		"id": "hq-new-app/admin-password",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/admin-password-admin-password-charset",
@@ -35849,22 +35871,6 @@
 		"change": {
 			"op": "named",
 			"name": "list_first_in_web_apps"
-		}
-	},
-	{
-		"id": "hq-search/list-first-skipping-to-results",
-		"base": "hq-search",
-		"entry": "case-search/list-first-with-a-search-that-skips-to-results",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
-		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/search_config/auto_launch",
-			"value": false
 		}
 	},
 	{

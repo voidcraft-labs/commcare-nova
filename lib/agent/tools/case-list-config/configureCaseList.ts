@@ -17,6 +17,7 @@ import {
 	findAuthoredBlueprintIdentity,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	searchOpensOnList,
 	type Uuid,
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
@@ -227,12 +228,11 @@ function searchWorkflowMutations(
 		input.formsReadSearch === undefined
 			? existing?.formsReadSearch === true
 			: input.formsReadSearch === true;
-	if (workflow === "listFirst" && formsReadSearch) {
+	if (searchOpensOnList(workflow) && formsReadSearch) {
 		return {
-			error:
-				input.searchWorkflow === "listFirst"
-					? `Module "${mod.name}" can't open on its case list while its forms read the search, because the search runs as a form opens only after the worker searched. Set formsReadSearch to null in the same call, or choose searchFirst or skipToResults.`
-					: `Module "${mod.name}" opens on its case list (listFirst), where its forms can't read the search. Set searchWorkflow to searchFirst or skipToResults in the same call, then turn formsReadSearch on.`,
+			error: searchOpensOnList(input.searchWorkflow)
+				? `Module "${mod.name}" can't open on its case list while its forms read the search, because the search runs as a form opens only after the worker searched. Set formsReadSearch to null in the same call, or choose searchFirst or skipToResults.`
+				: `Module "${mod.name}" opens on its case list (listFirst), where its forms can't read the search. Set searchWorkflow to searchFirst or skipToResults in the same call, then turn formsReadSearch on.`,
 		};
 	}
 	if (existing?.formsReadSearch === true && !formsReadSearch) {

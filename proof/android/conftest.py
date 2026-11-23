@@ -34,6 +34,7 @@ DOCUMENTS = (
     "targeted-plain-labels",
     "targeted-preview-android-renders",
     "targeted-search-workflow",
+    "targeted-search-workflow-android",
     "targeted-styled-value",
     "targeted-tile-hidden-order",
 )

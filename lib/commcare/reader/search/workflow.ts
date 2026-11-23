@@ -55,11 +55,20 @@ export const WORKFLOW_CLAIMS = {
 			"schema:CaseSearch.default_search",
 		),
 	}),
+	listFirstWithDefaultResults: defineClaims(
+		"search.workflow.listFirstWithDefaultResults",
+		{
+			autoLaunch: take(
+				`${S}list-first-with-a-search-that-skips-to-results`,
+				"schema:CaseSearch.auto_launch",
+			),
+			defaultSearch: take(
+				`${S}list-first-with-a-search-that-skips-to-results`,
+				"schema:CaseSearch.default_search",
+			),
+		},
+	),
 	other: defineClaims("search.workflow.other", {
-		listFirstSkips: refuse(
-			`${S}list-first-with-a-search-that-skips-to-results`,
-			"schema:CaseSearch.default_search",
-		),
 		classic: refuse(
 			`${S}workflow-legacy-classic-auto-launch-false-in-an-app-with`,
 			"schema:CaseSearch.auto_launch",
@@ -169,13 +178,12 @@ export function readSearchWorkflow(
 			ctx.accounting.finding(W.other.classic, config.place);
 			return undefined;
 		}
-		if (defaultSearch) {
-			config.refuse("default_search", W.other.listFirstSkips);
-			return undefined;
-		}
-		config.take("auto_launch", W.listFirst.autoLaunch, Boolean).value;
-		config.take("default_search", W.listFirst.defaultSearch, Boolean).value;
-		workflow = { workflow: "listFirst" };
+		const claims = defaultSearch ? W.listFirstWithDefaultResults : W.listFirst;
+		config.take("auto_launch", claims.autoLaunch, Boolean).value;
+		config.take("default_search", claims.defaultSearch, Boolean).value;
+		workflow = {
+			workflow: defaultSearch ? "listFirstWithDefaultResults" : "listFirst",
+		};
 	}
 	// The booleans the projection writes for the reading are the stored ones.
 	const shape = searchWireShape(workflow as OrdinaryCaseSearchConfig);
