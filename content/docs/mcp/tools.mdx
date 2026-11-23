@@ -154,7 +154,9 @@ the one record type that declares it, and the edit is refused when none or
 several do. A form expression can read a data table by its export tag, as
 `instance('<tag>')/<tag>_list/<tag>[<column> = <value>]/<column>`;
 `get_lookup_tables` lists each table's tag and its columns' export names, and
-renaming the tag or a column keeps the read. In a form link's condition and
+renaming the tag or a column keeps the read. Use `instance('item-list:<tag>')`
+when the table shares a name with an app data source, such as `locations`.
+In a form link's condition and
 datums, these reads print `instance('item-list:<tag>')`. A form in a menu
 whose forms read the search (`formsReadSearch`) reads what the search found through
 `instance('results:inline')/results/case`, always behind the related-case
@@ -191,7 +193,7 @@ to add as a user field on CommCare HQ, since Nova can't create those fields, and
 a phone stops where it reads a field its project space doesn't define.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
-filter, `#row/column` reads the current row. A case-list filter, an advanced
+filter, `#row/column` reads the current row. A name with punctuation or accents can use the quoted form, such as `table-column('facilities', 'site.name')`. A case-list filter, an advanced
 Search input's rule or a form's display condition that runs after a case is
 chosen in an earlier menu reads that case as `chosen-case('<menu name>')` and
 its properties as `chosen-case-property('<menu name>', '<property>')`.

@@ -52,6 +52,7 @@ import {
 } from "./documents";
 import { hydrateAdmittedDocument } from "./editBatches";
 import { WORKTREE } from "./emissionProcess";
+import { fixtureRowsFiles } from "./fixtureRowsFilename";
 import type { UploadedMedia } from "./publish";
 
 /** Where the retained bases live, from the checkout's root. */
@@ -142,8 +143,6 @@ export interface RetainedHqApp {
 // ---------------------------------------------------------------------------
 // Reading a base's directory
 // ---------------------------------------------------------------------------
-
-const FIXTURE_ROWS_PREFIX = "fixture-rows-";
 
 /** A media file's path under its base, as the retained layout names it (`proof/matrix/retained-layout.json`). */
 const MEDIA_FILE = /^media\/(?:0|[1-9][0-9]*)\.[a-z0-9]+$/;
@@ -252,13 +251,12 @@ export function loadRetainedHqApp(
 		readonly mimeType: string;
 		readonly extension: string;
 	}[];
-	const fixtureRows: Record<string, RetainedHqAnswer> = {};
-	for (const name of readdirSync(directory).sort()) {
-		if (!name.startsWith(FIXTURE_ROWS_PREFIX) || !name.endsWith(".json"))
-			continue;
-		fixtureRows[name.slice(FIXTURE_ROWS_PREFIX.length, -".json".length)] =
-			answer(directory, name);
-	}
+	const fixtureRows = Object.fromEntries(
+		Array.from(
+			fixtureRowsFiles(readdirSync(directory).sort()),
+			([tag, file]) => [tag, answer(directory, file)],
+		),
+	);
 	const locationTypes = optionalAnswer(directory, "location-types.json");
 	const locations = optionalAnswer(directory, "locations.json");
 	const mediaReads = optionalJson(directory, "media-reads.json") as

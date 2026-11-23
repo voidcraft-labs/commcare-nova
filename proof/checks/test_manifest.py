@@ -1712,18 +1712,23 @@ def test_the_observation_reads_each_file_hq_holds_for_the_app_it_made_by_its_map
 
 
 def test_a_form_s_read_takes_its_scheme_from_its_id_or_from_the_source_it_declares(manifest):
-    """Contract: a form's read of an instance takes the scheme of its id where HQ registers one, and else the scheme
-    of the name HQ's factory declares the form's own source under, as Nova's reader classes the read by the declared
-    source (a table Nova declares by its tag reads as ``item-list``). The plausible failure: Nova's own lookup read
-    used under a scheme no item holds, which the check would report unnamed on every export that reads a table."""
+    """HQ keeps a declared source even when the id names another registered factory. Exercise both directions
+    of that collision alongside HQ's conventional hierarchical locations name and its legacy search input."""
     declared = {
         "regions": "jr://fixture/item-list:regions",
+        "groups": "jr://fixture/item-list:groups",
+        "item-list:places": "jr://fixture/locations",
+        "item-list:legacy": "jr://fixture/commtrack:locations",
+        "item-list:query": "jr://instance/search-input",
         "locations": "jr://fixture/commtrack:locations",
         "casedb": "jr://instance/casedb",
         "plain": "jr://example/plain",
     }
     read = {instance_id: manifest_usage.read_scheme(manifest, instance_id, declared) for instance_id in declared}
-    assert read == {"regions": "item-list", "locations": "locations", "casedb": "casedb", "plain": "plain"}
+    assert read == {
+        "regions": "item-list", "groups": "item-list", "locations": "locations", "casedb": "casedb",
+        "item-list:places": "locations", "item-list:legacy": "commtrack", "item-list:query": "search-input", "plain": "plain",
+    }
     assert manifest_usage.read_scheme(manifest, "regions", {}) == "regions"
 
 

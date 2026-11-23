@@ -29,17 +29,17 @@ describe("lookup instance tag admission", () => {
 		"Selected_Cases",
 		"PARENT_SELECTED_CASES_PATIENT",
 		"SEARCH_SELECTED_CASES",
-	])("refuses reserved virtual instance tag %s at create and rename", (tag) => {
+	])("admits a lookup tag %s whose form instance needs its own name", (tag) => {
 		const create = { name: "Labels", tag: "labels", columns };
 		const rename = { tableId, expectedTableRevision: "0", tag: "labels" };
 		expect(createLookupTableInputSchema.parse(create)).toEqual(create);
 		expect(updateLookupTableTagInputSchema.parse(rename)).toEqual(rename);
 		expect(
 			createLookupTableInputSchema.safeParse({ ...create, tag }).success,
-		).toBe(false);
+		).toBe(true);
 		expect(
 			updateLookupTableTagInputSchema.safeParse({ ...rename, tag }).success,
-		).toBe(false);
+		).toBe(true);
 		expect(lookupWireNameSchema.parse(tag)).toBe(tag);
 	});
 	it.each([
@@ -69,15 +69,19 @@ describe("tags that contain a word the runtime reads as its own data", () => {
 			expect(isReservedInstanceTag(tag)).toBe(true);
 		},
 	);
-	it.each(["my_CaseDB", "stock_LedgerDB_codes", "case_db", "ledger_db_x"])(
-		"admits %s, since the runtime's test is case-sensitive",
-		(tag) => {
-			expect(isReservedInstanceTag(tag)).toBe(false);
-			expect(lookupTagSchema.parse(tag)).toBe(tag);
-		},
-	);
-	it.each(["casedb", "CaseDB", "LEDGERDB", "Results"])(
-		"still refuses the whole name %s in any case",
+	it.each([
+		"my_CaseDB",
+		"stock_LedgerDB_codes",
+		"CaseDB",
+		"LEDGERDB",
+		"case_db",
+		"ledger_db_x",
+	])("admits %s, since the runtime's test is case-sensitive", (tag) => {
+		expect(isReservedInstanceTag(tag)).toBe(false);
+		expect(lookupTagSchema.parse(tag)).toBe(tag);
+	});
+	it.each(["casedb", "ledgerdb"])(
+		"refuses the whole name %s when Core dispatches its fixture source",
 		(tag) => {
 			expect(reservedInstanceTagCause(tag)).toEqual({ kind: "name" });
 		},

@@ -1941,6 +1941,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		e.details?.reservedWord !== undefined
 			? `The export tag for ${q(det(e, "tableName", "this data table"))} contains ${e.details.reservedWord}, which CommCare reads as its own data. You can rename the export tag in Project data, then try again.`
 			: `The export tag for ${q(det(e, "tableName", "this data table"))} is reserved by CommCare. You can rename the export tag in Project data, then try again.`,
+	LOOKUP_PATH_NAME_UNAVAILABLE: (e) => e.message,
 	LOOKUP_COLUMN_NOT_AVAILABLE: () =>
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>

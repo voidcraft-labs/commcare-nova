@@ -24,23 +24,16 @@ import {
 	TYPES_SHEET,
 } from "@/lib/commcare/lookup/workbook";
 import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
-import type {
-	ReaderLookupCatalog,
-	ReadOutcome,
-} from "@/lib/commcare/reader/types";
+import type { ReaderLookupCatalog } from "@/lib/commcare/reader/types";
 import { xmlTextIssue } from "@/lib/commcare/xmlText";
-import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { ownRecordValue, recordFromEntries } from "@/lib/domain/records";
 import {
+	isReservedInstanceTag,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TAG_LENGTH,
-	LOOKUP_MAX_WIRE_NAME_LENGTH,
-	LOOKUP_WIRE_IDENTIFIER_PATTERN,
-	LOOKUP_XML_PREFIX_PATTERN,
-	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
 import { formatLookupBytes } from "@/lib/lookup/format";
 import {
@@ -76,59 +69,6 @@ import {
 	type LookupTableChoice,
 	type ReviewTable,
 } from "./reviewTypes";
-
-// ---------------------------------------------------------------------------
-// Which tables the app reads
-// ---------------------------------------------------------------------------
-
-/**
- * The tags of `tables`, in its order, for which `sourceText` (the raw body and
- * every form's attachment) holds the string `item-list:<tag>`. A form declares
- * a table's instance `jr://fixture/item-list:<tag>` whatever id it gave the
- * instance, and a suite expression names `instance('item-list:<tag>')`. A test
- * of names CommCare HQ gave, which reads no expression: it can only name too
- * many (a tag that begins another tag is named with it).
- */
-export function candidateLookupTags(
-	sourceText: string,
-	tables: readonly HqLookupTable[],
-): readonly string[] {
-	const tags: string[] = [];
-	const seen = new Set<string>();
-	for (const table of tables) {
-		if (seen.has(table.tag)) continue;
-		if (!sourceText.includes(`item-list:${table.tag}`)) continue;
-		seen.add(table.tag);
-		tags.push(table.tag);
-	}
-	return tags;
-}
-
-/**
- * The tags the reader read: those of the tables the document references
- * through `catalog`, and each tag of `ReadFacts.unreadTables` an expression or
- * an itemset reads, each once, in code-unit order. A table a form only
- * declares (`declaredOnly`) is read by nothing and comes in with nothing.
- */
-export function lookupTagsRead(
-	read: Extract<ReadOutcome, { kind: "read" }>,
-	catalog: ReaderLookupCatalog,
-): readonly string[] {
-	const tags = new Set<string>();
-	for (const tableId of extractLookupReferenceTargets(read.draft.doc)
-		.tableIds) {
-		const definition = catalog.definitions.get(tableId);
-		if (definition === undefined) {
-			throw new Error(
-				`A reading's document references the lookup table ${tableId}, which its catalog does not hold.`,
-			);
-		}
-		tags.add(definition.tag);
-	}
-	for (const unread of read.draft.facts.unreadTables)
-		if (unread.declaredOnly !== true) tags.add(unread.tag);
-	return [...tags].sort(compareCodeUnits);
-}
 
 function compareCodeUnits(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
@@ -220,43 +160,10 @@ const NOT_GLOBAL_ENTRY =
 const TAG_TYPES_ENTRY = "expressions-and-data/tag-types";
 const RESERVED_WORD_ENTRY =
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb";
-const NON_ASCII_NAME_ENTRY =
-	"expressions-and-data/tag-or-field-name-with-non-ascii-letters";
-const PERIOD_NAME_ENTRY =
-	"expressions-and-data/tag-or-field-name-holding-a-period";
-const INSTANCE_NAME_ENTRY =
-	"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns";
-
-const NON_ASCII_LETTER = /\p{L}/gu;
-
-/** Whether `name` is in Nova's name grammar, reserved instance names aside. */
-function inNameGrammar(name: string, maxLength: number): boolean {
-	return (
-		name.length > 0 &&
-		name.length <= maxLength &&
-		LOOKUP_WIRE_IDENTIFIER_PATTERN.test(name) &&
-		!LOOKUP_XML_PREFIX_PATTERN.test(name)
-	);
-}
-
-/** Whether a reserved tag is the one the REFUSED `casedb` entry covers: one
- *  holding `casedb` or `ledgerdb`, or either name in any case. */
-function reservedWordTag(tag: string): boolean {
-	const cause = reservedInstanceTagCause(tag);
-	if (cause === null) return false;
-	if (cause.kind === "contains") return true;
-	const lowered = tag.toLowerCase();
-	return lowered === "casedb" || lowered === "ledgerdb";
-}
-
-/**
- * The finding for a tag or a field name Nova's grammar refuses, or null where
- * it takes it (or where the refusal is the `casedb` row's, raised beside it).
- * A name that is in the grammar once its non-ASCII letters are read as
- * letters is the HELD-NEW non-ASCII entry; one that is in it once each period
- * is read as an underscore is the period entry; a tag in it that equals an
- * instance name CommCare owns is that entry; anything else is `unrecognized`.
- */
+/** Project data preserves the HQ spelling even when a worker's XPath cannot
+ * address it. Only a path that actually reads that table or column needs the
+ * narrower runtime grammar. Reserved fixture source tags are reported once
+ * by the dedicated source check. */
 function nameFinding(
 	kind: "tag" | "field",
 	name: string,
@@ -264,31 +171,13 @@ function nameFinding(
 ): Finding | null {
 	const schema = kind === "tag" ? lookupTagSchema : lookupWireNameSchema;
 	if (schema.safeParse(name).success) return null;
-	const maxLength =
-		kind === "tag" ? LOOKUP_MAX_TAG_LENGTH : LOOKUP_MAX_WIRE_NAME_LENGTH;
-	if (inNameGrammar(name, maxLength)) {
-		// In the grammar, so a tag's reserved instance name is the refusal.
-		if (kind === "tag" && !reservedWordTag(name)) {
-			return manifestFinding(INSTANCE_NAME_ENTRY, place, name);
-		}
+	if (
+		kind === "tag" &&
+		isReservedInstanceTag(name) &&
+		lookupWireNameSchema.safeParse(name).success &&
+		[...name].length <= LOOKUP_MAX_TAG_LENGTH
+	)
 		return null;
-	}
-	const hasNonAscii = [...name.matchAll(NON_ASCII_LETTER)].some(
-		([letter]) => (letter.codePointAt(0) ?? 0) > 0x7f,
-	);
-	const hasPeriod = name.includes(".");
-	const asAscii = name
-		.replace(NON_ASCII_LETTER, (letter) =>
-			(letter.codePointAt(0) ?? 0) > 0x7f ? "a" : letter,
-		)
-		.replaceAll(".", "_");
-	if ((hasNonAscii || hasPeriod) && inNameGrammar(asAscii, maxLength)) {
-		return manifestFinding(
-			hasNonAscii ? NON_ASCII_NAME_ENTRY : PERIOD_NAME_ENTRY,
-			place,
-			name,
-		);
-	}
 	return circumstanceFinding("unrecognized", place, { name });
 }
 
@@ -376,7 +265,7 @@ export function lookupTableFindings(
 	if (tag.toLowerCase() === TYPES_SHEET) {
 		findings.push(manifestFinding(TAG_TYPES_ENTRY, place, TYPES_SHEET));
 	}
-	if (reservedWordTag(tag)) {
+	if (isReservedInstanceTag(tag)) {
 		findings.push(manifestFinding(RESERVED_WORD_ENTRY, place, tag));
 	}
 	const tagFinding = nameFinding("tag", tag, place);

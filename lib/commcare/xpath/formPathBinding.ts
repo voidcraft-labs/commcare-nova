@@ -659,6 +659,14 @@ function instancePath(
 		row = { kind: "location", root: "locations" };
 		predicates = rowsStep.where;
 	} else {
+		// In HQ source an unregistered bare id has no factory. The authoring
+		// parser may still use the local id Nova will declare for its table.
+		if (binder.scope.reading !== undefined && !id.startsWith("item-list:"))
+			refuse(
+				"instance-unknown",
+				whole,
+				`CommCare can't load instance('${root.args[0].value}') without a matching declaration.`,
+			);
 		const tag = id.startsWith("item-list:")
 			? id.slice("item-list:".length)
 			: id;
@@ -686,7 +694,7 @@ function instancePath(
 			refuse(
 				"table-path-mismatch",
 				whole,
-				`The rows of ${tag} are at instance('${tag}')/${tag}_list/${tag}.`,
+				`The rows of ${tag} are at instance('${root.args[0].value}')/${tag}_list/${tag}.`,
 			);
 		base = { kind: "table-rows", tableId: table.id, where: [] };
 		row = { kind: "table", root: "table", tableId: table.id };

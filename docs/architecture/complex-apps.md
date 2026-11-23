@@ -1001,10 +1001,12 @@ owns at least one fully UUID-identified option, or `lookup`, which owns the
 table UUID, value-column UUID, label-column UUID, and optional row filter.
 Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
-Form logic reads tables too (`instance('<tag>')/<tag>_list/<tag>[…]` in a
-form, `instance('item-list:<tag>')/…` in a form link), stored by table and
-column UUID, so renaming a table or column keeps the read; those reads join the
-reference edges, the publish push and the `.ccz` fixtures like every carrier.
+Form logic stores the table and column UUIDs. The printed expression reads
+`<tag>_list/<tag>` from the instance declared for `jr://fixture/item-list:<tag>`.
+In a form the instance usually has the table's tag. When the tag could name
+another data source, Nova uses `item-list:<tag>`. Form links always use this
+qualified name. These reads contribute reference edges, publish resources and
+device fixtures. Renaming a table or column preserves the read.
 Source switching is a complete atomic replacement — no inactive source survives
 a switch, and there is no precedence, clear, or fallback state. Field
 duplication remints every inline option UUID while lookup table and column

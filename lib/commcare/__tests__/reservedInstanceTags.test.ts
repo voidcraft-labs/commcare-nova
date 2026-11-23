@@ -16,7 +16,10 @@ import { runValidation } from "../validator/runner";
 import { lookupInstance } from "../xpath/wire/instances";
 
 const runtimeIds = [
-	"casedb",
+	"CaseDB",
+	"LedgerDB",
+	"groups",
+	"search-input",
 	"commcaresession",
 	"results",
 	"locations",
@@ -24,7 +27,7 @@ const runtimeIds = [
 	"search_selected_cases",
 	"selected_cases_patient",
 	"parent_selected_cases",
-	"parent_parent_selected_cases_visit",
+	"parent_parent_selected_cases_a",
 ];
 function scenario(tag = "regions") {
 	const table = wireTable("regions", [
@@ -75,22 +78,28 @@ function scenario(tag = "regions") {
 }
 describe("lookup and runtime instance names", () => {
 	it.each(runtimeIds)(
-		"reserves dispatched runtime name %s at authoring and existing-reference gates",
-		(id) => {
-			for (const tag of [id, id.toUpperCase()]) {
-				expect(lookupTagSchema.safeParse(tag).success).toBe(false);
-				const { doc, context } = scenario(tag);
-				const findings = runValidation(doc, context);
-				expect(findings.length).toBeGreaterThan(0);
-				expect(new Set(findings.map((f) => f.code))).toEqual(
-					new Set(["LOOKUP_TAG_RESERVED_BY_RUNTIME"]),
-				);
-				expect(
-					findings.every(
-						(f) => f.details?.tag === tag && f.location.fieldUuid !== undefined,
-					),
-				).toBe(true);
-			}
+		"emits a distinct local alias for the fixture tagged %s",
+		(tag) => {
+			expect(lookupTagSchema.parse(tag)).toBe(tag);
+			const { doc, table, context } = scenario(tag);
+			expect(runValidation(doc, context)).toEqual([]);
+			const [xml] = Object.values(
+				expandDoc(doc, { lookupNaming: lookupWireNaming([table]) })
+					._attachments,
+			);
+			const nodes = parseDocument(xml, { xmlMode: true }).children;
+			const fixture = findAll(
+				(e) =>
+					e.name === "instance" &&
+					e.attribs.src === `jr://fixture/item-list:${tag}`,
+				nodes,
+			);
+			expect(fixture.map((node) => node.attribs.id)).toEqual([
+				`item-list:${tag}`,
+			]);
+			expect(
+				findAll((e) => e.name === "itemset", nodes)[0]?.attribs.nodeset,
+			).toBe(`instance('item-list:${tag}')/${tag}_list/${tag}`);
 		},
 	);
 	it.each([

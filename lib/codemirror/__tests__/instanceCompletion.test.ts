@@ -3,7 +3,7 @@
  * `CompletionContext` over the real editor context of each slot.
  *
  * Contract: inside `instance('…')` the editor offers exactly the ids the
- * slot reads (a data table only by its tag, places only when the app has
+ * slot reads (a data table by its local alias, places only when the app has
  * levels, the chosen cases only in a several-case form's questions, the
  * search's results only where the entry carries the inline query, a
  * no-matches form's search answers only there), and each step and predicate
@@ -91,19 +91,26 @@ const RESULTS_LINK: ExpressionSlotRef = {
 	member: { linkUuid: INSTANCE_READS.resultsLink },
 };
 
-function context(slot: ExpressionSlotRef): ExpressionEditorContext {
-	const built = buildExpressionEditorContext(doc, slot, lookupContext);
+function context(
+	slot: ExpressionSlotRef,
+	catalog = lookupContext,
+): ExpressionEditorContext {
+	const built = buildExpressionEditorContext(doc, slot, catalog);
 	if (built === undefined) throw new Error("The slot has no editor context");
 	return built;
 }
 
 /** The completion at the end of `text`, or at the `|` it holds. */
-function complete(slot: ExpressionSlotRef, written: string) {
+function complete(
+	slot: ExpressionSlotRef,
+	written: string,
+	catalog = lookupContext,
+) {
 	const cursor = written.indexOf("|");
 	const text = cursor < 0 ? written : written.replace("|", "");
 	const pos = cursor < 0 ? text.length : cursor;
 	const state = parsedState(text);
-	const result = instanceSource(() => context(slot).reads)(
+	const result = instanceSource(() => context(slot, catalog).reads)(
 		new CompletionContext(state, pos, false),
 	);
 	return {
@@ -151,6 +158,40 @@ describe("instance ids", () => {
 		);
 	});
 
+	it("offers the Project table and Places by independent identities, including the actual readable columns", () => {
+		const named = {
+			...table,
+			tag: "locations",
+			columns: table.columns.map((column, index) => ({
+				...column,
+				wireName: index === 0 ? "dépt.2" : "地区",
+			})),
+		};
+		const catalog = {
+			...lookupContext,
+			definitions: [named],
+		};
+		const choices = complete(VISIT, "instance('", catalog).result?.options;
+		expect(choices?.map(({ label, detail }) => [label, detail])).toEqual([
+			["casedb", "Cases"],
+			["commcaresession", "Session"],
+			["item-list:locations", table.name],
+			["locations", "Places"],
+		]);
+		const row = "instance('item-list:locations')/locations_list/locations";
+		expect(complete(VISIT, `${row}[`, catalog).labels).toEqual(["dépt.2"]);
+		expect(complete(VISIT, `${row}/`, catalog).labels).toEqual(["dépt.2"]);
+		expect(complete(VISIT, "instance('locations')/", catalog).labels).toEqual([
+			"locations/",
+		]);
+		expect(
+			xpathDiagnostics(
+				`count(${row}[dépt.2 = 'north'])`,
+				context(VISIT, catalog),
+			),
+		).toEqual([]);
+	});
+
 	it("offers the chosen cases only in a several-case form's questions", () => {
 		const batch = complete(BATCH, "instance('").labels;
 		const chosen = batch.filter(
@@ -164,8 +205,8 @@ describe("instance ids", () => {
 
 	it("offers what the search found only where the entry carries the search", () => {
 		expect(complete(CHECK_IN, "instance('").labels).toContain("results:inline");
-		expect(complete(RESULTS_LINK, "instance('").labels).toContain(
-			"results:inline",
+		expect(complete(RESULTS_LINK, "instance('").labels).toEqual(
+			expect.arrayContaining(["results:inline", "item-list:regions"]),
 		);
 		expect(complete(VISIT, "instance('").labels).not.toContain(
 			"results:inline",

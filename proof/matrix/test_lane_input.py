@@ -44,3 +44,19 @@ def test_a_media_row_naming_no_member_is_refused(named):
     with pytest.raises(layout.LayoutRefused) as refused:
         lane_input.input_of(_members(named))
     assert "which is not one of the base's files" in str(refused.value)
+
+
+def test_fixture_row_answers_keep_exact_tags_on_case_and_normalization_insensitive_filesystems():
+    tags = ["a.b", "A.B", "é", "e\N{COMBINING ACUTE ACCENT}", "ζωνες", "名前", "𐐀" * 32]
+    names = [lane_input.fixture_rows_stem(tag) + ".json" for tag in tags]
+    assert names[0] == "fixture-rows-a.b.json"
+    assert len(set(name.lower() for name in names)) == len(tags)
+    assert all(name.isascii() and len(name) <= 255 for name in names)
+    members = {
+        name: json.dumps({"status": 200, "body": tag}).encode()
+        for name, tag in zip(names, tags)
+    }
+    assert {
+        tag: answer["body"]
+        for tag, answer in lane_input.project_data(members)["fixtureRows"].items()
+    } == {tag: tag for tag in tags}

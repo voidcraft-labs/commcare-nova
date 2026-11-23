@@ -1335,6 +1335,8 @@ async function computeWith(
 			readingId: options.readingId,
 			source,
 			alsoSource: baseSource,
+			pieces,
+			modules,
 			project: postgresProjectSide({
 				projectId: scope.projectId,
 				actorUserId: scope.actorUserId,
@@ -1345,6 +1347,8 @@ async function computeWith(
 			...(cancel !== undefined && { cancel }),
 		});
 	const projectData = await readData("when-source-reads");
+	if (projectData.kind === "too-intricate")
+		return answer(unavailable("comparison-too-intricate", since));
 	if (projectData.kind === "failed")
 		return answer(failedRead(projectData.failure));
 	let fetched: FetchedHqChanges = {
@@ -1379,6 +1383,8 @@ async function computeWith(
 			);
 			onEvent({ type: "stage", stage: "reading-project-data" });
 			const again = await readData("always");
+			if (again.kind === "too-intricate")
+				return answer(unavailable("comparison-too-intricate", since));
 			if (again.kind === "failed") return answer(failedRead(again.failure));
 			fetched = { ...fetched, data: again.data };
 			onEvent({ type: "stage", stage: "checking" });

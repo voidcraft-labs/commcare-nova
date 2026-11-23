@@ -469,6 +469,7 @@ class Uses:
     csql: list = field(default_factory=list)  # [(artifact, where, expression text)]
     questions: list = field(default_factory=list)  # [(artifact, the sha256 of the form's bytes, its Form)]
     roots: set = field(default_factory=set)
+    lookup_tags: set = field(default_factory=set)  # table sources read by this app
     documents: list = field(default_factory=list)  # [Form | Runtime]
 
     def add(self, key, artifact, where, at=None, *, holds_non_object=False):
@@ -705,6 +706,8 @@ def _special(cls, key, value, at, manifest, artifact, found, slot):
         # A Search field's choices: HQ's build writes the itemset's nodeset over this instance and declares it by
         # its scheme (``suite_xml/post_process/remote_requests.py``, ``instances.py::get_instance_factory``).
         found.add(f"instance-scheme:{instance_scheme(value)}", artifact, at, slot)
+        if value.startswith("item-list:"):
+            found.lookup_tags.add(value.removeprefix("item-list:"))
     elif cls in ("Application", "LinkedApplication") and key == "translations" and isinstance(value, dict):
         # HQ's build writes the strings of the app's languages alone (``Application._make_language_files``:
         # ``default`` and each of ``get_build_langs``, which ``app_strings.py::create_default_app_strings`` merges
@@ -1485,20 +1488,24 @@ def _preset_sources(manifest):
 
 
 def read_scheme(manifest, instance_id, declared):
-    """The scheme of an instance a form's expression reads: its id's (``instance_scheme``), where HQ registers that
-    scheme; else, where the form declares the id from a source one of HQ's factories writes, the name that factory
-    declares that source under (``SOURCE_NAMES``, a preset's own id), as HQ's build keeps the form's own declaration
-    of an id it has no factory for (``XForm.add_missing_instances``) and Nova's reader classes the read by the
-    declared source; else the id's."""
+    """The declaration kept by XForm.add_missing_instances, or HQ's implicit factory for an undeclared id."""
     scheme = instance_scheme(instance_id)
     src = declared.get(instance_id)
-    if f"instance-scheme:{scheme}" in manifest.items or not src:
+    if not src:
         return scheme
+    # HQ's locations factory and its generic commtrack factory can supply the same hierarchical tree.
+    if instance_id == "locations" and src == "jr://fixture/commtrack:locations":
+        return "locations"
+    if src == "jr://instance/search-input":
+        return "search-input"
     named = _preset_sources(manifest).get(src)
     for prefix, spelled in SOURCE_NAMES:
         if named is None and src.startswith(prefix) and len(src) > len(prefix):
             named = spelled + src[len(prefix) :]
-    return scheme if named is None else instance_scheme(named)
+    if named is not None and f"instance-scheme:{instance_scheme(named)}" in manifest.items:
+        return instance_scheme(named)
+    return scheme
+
 
 
 def _instance_uses(document, manifest, artifact, found, *, schemes):
@@ -2070,9 +2077,14 @@ def _expression_uses(expression, parsed, manifest, found):
     # once an expression. A suite's are its declarations' (``_instance_uses``).
     if not (isinstance(at, XmlAt) and at.document.kind == "runtime"):
         declared = dict(expression.instances)
-        schemes = {
-            read_scheme(manifest, path["instance"], declared) for path in parsed["instancePaths"] if path["instance"]
-        }
+        referenced = {path["instance"] for path in parsed["instancePaths"] if path["instance"]}
+        for instance_id in referenced:
+            src = declared.get(instance_id)
+            if src and src.startswith("jr://fixture/item-list:"):
+                found.lookup_tags.add(src.removeprefix("jr://fixture/item-list:"))
+            elif src is None and instance_id.startswith("item-list:"):
+                found.lookup_tags.add(instance_id.removeprefix("item-list:"))
+        schemes = {read_scheme(manifest, instance_id, declared) for instance_id in referenced}
         for scheme in sorted(schemes):
             if expression.schemes is None or scheme in expression.schemes:
                 found.add(f"instance-scheme:{scheme}", artifact, where, at)

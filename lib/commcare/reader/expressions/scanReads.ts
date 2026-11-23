@@ -17,6 +17,7 @@ import {
 	formLinkProjectionContext,
 } from "../../formLinkProjection";
 import { rethrowWorkStop } from "../../workMeter";
+import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
@@ -38,7 +39,12 @@ import {
 	siblingCaseRow,
 } from "./folds";
 import type { ExpressionReadEnv } from "./index";
-import { lookupTypes, preparedSource, slotForm } from "./readExpression";
+import {
+	instanceSourcesOf,
+	lookupTypes,
+	preparedSource,
+	slotForm,
+} from "./readExpression";
 
 export interface ScannedReads {
 	readonly caseProperties: readonly {
@@ -383,7 +389,13 @@ export function scanReads(
 	const scanner = readsScanner(doc, env);
 	for (const registration of pending) {
 		const prepared = preparedSource(doc, registration);
-		if (prepared.ok) scanner.scan(prepared.syntax, registration.ref, true);
+		if (prepared.ok)
+			scanner.scan(
+				prepared.syntax,
+				registration.ref,
+				true,
+				instanceSourcesOf(doc, registration, env),
+			);
 	}
 	return scanner.finish();
 }
@@ -452,6 +464,7 @@ function readsScanner(
 		syntax: FormSyntax,
 		ref: PendingExpression["ref"],
 		ownRow: boolean,
+		sources?: ReadonlyMap<string, string>,
 	) => void;
 	readonly finish: () => ScannedReads;
 } {
@@ -571,6 +584,7 @@ function readsScanner(
 		syntax: FormSyntax,
 		ref: PendingExpression["ref"],
 		ownRow: boolean,
+		sources?: ReadonlyMap<string, string>,
 	): void => {
 		const context = slotContext(doc, ref, lookupTypes(env));
 		const row =
@@ -596,13 +610,15 @@ function readsScanner(
 			if (at.kind === "call" && at.name === "instance") {
 				const id = at.args[0];
 				if (id?.kind === "string") {
-					if (form !== undefined) {
+					if (form !== undefined && sources !== undefined) {
 						const read = readIds.get(form) ?? new Set<string>();
 						readIds.set(form, read);
 						read.add(id.value);
 					}
-					if (id.value.startsWith(TABLE_ID))
-						tags.add(id.value.slice(TABLE_ID.length));
+					const src = sources?.get(id.value);
+					const bound = src === undefined ? id.value : canonicalInstanceId(src);
+					if (bound?.startsWith(TABLE_ID))
+						tags.add(bound.slice(TABLE_ID.length));
 				}
 			}
 			if (inner) continue;
@@ -620,7 +636,9 @@ function readsScanner(
 					slugs.add(slug.name);
 				continue;
 			}
-			const instance = instanceId(path);
+			const rawId = instanceId(path);
+			const src = rawId === undefined ? undefined : sources?.get(rawId);
+			const instance = src === undefined ? rawId : canonicalInstanceId(src);
 			if (instance === "locations") {
 				const index = path.steps.findIndex(
 					(step) => step.name === "location_data" && !step.attribute,

@@ -235,7 +235,7 @@ describe("the scan of an app's expressions", () => {
 				registration(
 					app,
 					relevant,
-					"count(instance('crops')/crops_list/crops) > 0",
+					"count(instance('item-list:shadow')/crops_list/crops) > 0",
 				),
 				registration(
 					app,
@@ -249,7 +249,7 @@ describe("the scan of an app's expressions", () => {
 					[
 						form,
 						new Map([
-							["crops", "jr://fixture/item-list:crops"],
+							["item-list:shadow", "jr://fixture/item-list:crops"],
 							["item-list:seeds", "jr://fixture/item-list:seeds"],
 						]),
 					],

@@ -14,10 +14,12 @@
  * the production extractor rather than trusting an in-memory doc.
  */
 
+import { sql } from "kysely";
 import { Client } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { setModuleDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
@@ -28,15 +30,28 @@ import {
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { LookupOptionsSource, Uuid } from "@/lib/domain";
 import {
+	eq,
+	literal,
+	matchAll,
+	tableLookup,
+} from "@/lib/domain/expression/builders";
+import {
 	type LookupColumnId,
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { applyLookupSchemaGovernanceInTransaction } from "@/lib/lookup/schemaGovernance";
-import { createLookupTable } from "@/lib/lookup/service";
+import {
+	createLookupTable,
+	getLookupTable,
+	updateLookupColumnWireName,
+	updateLookupTableTag,
+} from "@/lib/lookup/service";
 import type { LookupTableSnapshot } from "@/lib/lookup/types";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import {
 	lockLookupTablesForReferenceWrite,
 	readStoredLookupReferenceTargets,
@@ -671,6 +686,187 @@ describe("lookup materialization versus resource deletion", () => {
 		expect(extractLookupReferenceTargets(repairedDoc)).toBe(
 			EMPTY_LOOKUP_REFERENCE_TARGETS,
 		);
+	});
+
+	it("refuses a Project rename only for the apps and slots it would break, and retries after repair", async () => {
+		const scope = {
+			projectId: PROJECT_A,
+			actorId: ACTOR,
+			role: "owner",
+		} as const;
+		const table = await createTable(PROJECT_A, "Districts");
+		const column = table.columns[0];
+		const choices = await createExplicitBlankApp(
+			ACTOR,
+			PROJECT_A,
+			crypto.randomUUID(),
+			{ name: "District visit", status: "complete" },
+		);
+		const menu = await createExplicitBlankApp(
+			ACTOR,
+			PROJECT_A,
+			crypto.randomUUID(),
+			{ name: "District menu", status: "complete" },
+		);
+		const commit = (
+			appId: string,
+			mutations: Parameters<typeof commitGuardedBatch>[0]["mutations"],
+		) =>
+			commitGuardedBatch({
+				appId,
+				expectedProjectId: PROJECT_A,
+				batchId: crypto.randomUUID(),
+				mutations,
+				actorUserId: ACTOR,
+				kind: "autosave",
+			});
+		await commit(
+			choices.appId,
+			introduceLookupOptions(choices.starter.fieldUuid, table.id, column.id),
+		);
+		const menuCondition = eq(
+			tableLookup(table.id, column.id, matchAll()),
+			literal("open"),
+		);
+		await commit(menu.appId, [
+			setModuleDisplayConditionMutation(menu.starter.moduleUuid, menuCondition),
+		]);
+		const target = {
+			tableId: table.id,
+			expectedTableRevision: table.tableRevision,
+		};
+		const blocked = {
+			code: "referenced",
+			blockingApps: [
+				{ appId: menu.appId, appName: "District menu", deleted: false },
+			],
+		};
+		await expect(
+			updateLookupTableTag(scope, { ...target, tag: "districts.v2" }),
+		).rejects.toMatchObject(blocked);
+		await expect(
+			updateLookupColumnWireName(scope, {
+				...target,
+				columnId: column.id,
+				wireName: "district.code",
+			}),
+		).rejects.toMatchObject(blocked);
+		await expect(
+			h.withTransaction(async (tx) =>
+				applyLookupAuthoringBatchInTransaction(
+					tx,
+					await authorizeLookupWriteInTransaction(tx, scope, "delete"),
+					{
+						updateTables: [
+							{
+								...target,
+								name: "Changed in the same batch",
+								columnOperations: [
+									{
+										kind: "update",
+										columnId: column.id,
+										wireName: "district.code",
+									},
+								],
+							},
+						],
+					},
+				),
+			),
+		).rejects.toMatchObject(blocked);
+		expect(await getLookupTable(scope, table.id)).toEqual(table);
+		// The period beside a decimal digit survives the menu's interpolation.
+		const renamed = await updateLookupColumnWireName(scope, {
+			...target,
+			columnId: column.id,
+			wireName: "district.2",
+		});
+		expect((await loadApp(menu.appId))?.app_name).toBe("District menu");
+		await commit(menu.appId, [
+			setModuleDisplayConditionMutation(menu.starter.moduleUuid, undefined),
+		]);
+		const retried = await updateLookupColumnWireName(scope, {
+			tableId: table.id,
+			expectedTableRevision: renamed.tableRevision,
+			columnId: column.id,
+			wireName: "district.code",
+		});
+		await updateLookupTableTag(scope, {
+			tableId: table.id,
+			expectedTableRevision: retried.tableRevision,
+			tag: "districts.v2",
+		});
+		expect((await loadApp(choices.appId))?.app_name).toBe("District visit");
+	});
+
+	it("checks a waiting app writer against the Project name that committed first", async () => {
+		const scope = {
+			projectId: PROJECT_A,
+			actorId: ACTOR,
+			role: "owner",
+		} as const;
+		const table = await createTable(PROJECT_A, "Rename first");
+		const app = await createExplicitBlankApp(
+			ACTOR,
+			PROJECT_A,
+			crypto.randomUUID(),
+			{ name: "Waiting writer", status: "complete" },
+		);
+		const governance = createPerTestAppDb(h.uri());
+		const observer = new Client({ connectionString: h.uri() });
+		let writer: Promise<unknown> | undefined;
+		try {
+			await observer.connect();
+			await governance.appDb.transaction().execute(async (tx) => {
+				await applyLookupAuthoringBatchInTransaction(
+					tx,
+					await authorizeLookupWriteInTransaction(tx, scope, "delete"),
+					{
+						updateTables: [
+							{
+								tableId: table.id,
+								expectedTableRevision: table.tableRevision,
+								columnOperations: [
+									{
+										kind: "update",
+										columnId: table.columns[0].id,
+										wireName: "district·code",
+									},
+								],
+							},
+						],
+					},
+				);
+				const [{ pid }] = (
+					await sql<{ pid: number }>`select pg_backend_pid() as pid`.execute(tx)
+				).rows;
+				writer = commitGuardedBatch({
+					appId: app.appId,
+					expectedProjectId: PROJECT_A,
+					batchId: crypto.randomUUID(),
+					mutations: introduceLookupOptions(
+						app.starter.fieldUuid,
+						table.id,
+						table.columns[0].id,
+					),
+					actorUserId: ACTOR,
+					kind: "autosave",
+				}).catch((error: unknown) => error);
+				await waitUntilBackendBlockedBy(observer, pid);
+			});
+			expect(await writer).toBeInstanceOf(BlueprintCommitRejectedError);
+			expect(await readSeq(app.appId)).toBe(1);
+			expect(await readTargets(app.appId)).toEqual(
+				EMPTY_LOOKUP_REFERENCE_TARGETS,
+			);
+			expect((await getLookupTable(scope, table.id)).columns[0].wireName).toBe(
+				"district·code",
+			);
+		} finally {
+			await writer;
+			await observer.end();
+			await governance.destroy();
+		}
 	});
 
 	it("holds table admission through commit so a concurrent delete blocks, then loses", async () => {

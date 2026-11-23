@@ -283,11 +283,14 @@ def _base_reads(base="hq-plain"):
             "all": _answer(directory / "project-spaces.json"),
             "flagged": _answer(directory / "project-spaces-flag.json"),
         }
+    from proof.matrix.lane_input import fixture_rows_tag
+
     data = {
         "lookupTables": _answer(directory / "lookup-tables.json"),
         "fixtureRows": {
-            path.stem.removeprefix("fixture-rows-"): _answer(path)
-            for path in sorted(directory.glob("fixture-rows-*.json"))
+            tag: _answer(path)
+            for path in sorted(directory.glob("fixture-rows*.json"))
+            if (tag := fixture_rows_tag(path.name)) is not None
         },
     }
     for key, name in (("locationTypes", "location-types.json"), ("locations", "locations.json")):

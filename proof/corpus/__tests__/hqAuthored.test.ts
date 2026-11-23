@@ -313,6 +313,31 @@ async function writeLookupBase(root: string): Promise<void> {
 	);
 }
 
+it("keeps distinct case and Unicode spellings from their retained fixture answers", async () => {
+	const root = await mkdtemp(join(tmpdir(), "nova-hq-authored-names-"));
+	try {
+		await writeLookupBase(root);
+		const directory = join(root, LOOKUP_BASE);
+		const rows = readFileSync(
+			join(directory, "fixture-rows-district.json"),
+			"utf8",
+		);
+		for (const name of [
+			"fixture-rows~44-69-73-74-72-69-63-74.json",
+			"fixture-rows~e9.json",
+			"fixture-rows~65-301.json",
+		])
+			await writeFile(join(directory, name), rows);
+		expect(
+			Object.keys(
+				loadRetainedHqApp(LOOKUP_BASE, root).fixtureRows ?? {},
+			).sort(),
+		).toEqual(["district", "District", "é", "e\u0301"].sort());
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 it(
 	"gives a base that reads a lookup table its table as the birth leaves it: HQ's rows, managed in CommCare HQ from the base's project space",
 	async () => {

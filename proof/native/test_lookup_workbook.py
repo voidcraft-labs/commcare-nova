@@ -84,3 +84,43 @@ def test_hq_reads_novas_workbooks_as_nova_wrote_them(native):
             "distribution or device runtime.",
         },
     )
+
+
+def test_table_editor_accepts_the_xml_name_ranges_its_own_library_reads(native):
+    from corehq.apps.fixtures.utils import is_identifier_invalid
+
+    results = {}
+    for unit, valid in [
+        (0x370, True),
+        (0x37E, False),
+        (0x200C, True),
+        (0x3001, True),
+        (0x10000, True),
+        (0xEFFFF, True),
+        (0xF0000, False),
+    ]:
+        name = chr(unit)
+        assert (not is_identifier_invalid(name)) == valid, hex(unit)
+        assert (not is_identifier_invalid(f"{name}_list")) == valid, hex(unit)
+        results[hex(unit)] = valid
+    for name in ("", "xmlData", "a:b", "a/b", "1abc", "ⓐ"):
+        assert is_identifier_invalid(name), name
+    for name in (
+        "XmlData",
+        "a.1",
+        "a1.b",
+        "clé",
+        "名前",
+        "a\N{COMBINING ACUTE ACCENT}", "a\N{COMBINING GREEK YPOGEGRAMMENI}",
+    ):
+        assert not is_identifier_invalid(name), name
+    write_evidence(
+        native.family("lookup"),
+        "hq-lookup-xml-names",
+        {
+            "hqCommit": hq_commit(),
+            "lxml": etree.LXML_VERSION,
+            "libxml": etree.LIBXML_VERSION,
+            "initial": results,
+        },
+    )

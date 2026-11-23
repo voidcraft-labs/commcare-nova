@@ -750,6 +750,14 @@ no download verdict supplies no evidence of a failed download. An already
 installed app or a local archive can reach a screen that a fresh install of the
 HQ release cannot.
 
+A bring-in lists the remote lookup definitions first. The reader registers the active
+question and Search choices and parses the expression slots to discover their tables.
+A form joins each local instance id to its declared source. A suite reference or an
+undeclared XForm lookup uses HQ's `item-list:<tag>` factory. Only these exact tags
+can request rows or enter the local Project read. An unreferenced declaration still
+checks against the definition list because a worker loads it on opening the form.
+A review of changes uses the union of the baseline and current source's reads.
+
 A reading's lookup rows are bounded per table (`HQ_LOOKUP_TABLE_ROWS_MAX_BYTES`,
 past which the table is a caps finding, "more data than Nova reads for one
 table") and per request (`HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES`: each table is read

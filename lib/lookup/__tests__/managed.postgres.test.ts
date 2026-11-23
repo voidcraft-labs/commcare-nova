@@ -1123,8 +1123,8 @@ describe("the refresh arm", () => {
 			})
 			.execute();
 		const content: ManagedLookupContent = {
-			fields: ["count", "name"],
-			rows: [{ name: "Alpha", count: "3" }],
+			fields: ["count", "name", "district·code"],
+			rows: [{ name: "Alpha", count: "3", district·code: "new" }],
 		};
 		const receipt = await refresh(table.id, content);
 		expect(receipt.keptGoneColumns).toEqual([
@@ -1138,14 +1138,17 @@ describe("the refresh arm", () => {
 		expect(after.columns.map((column) => column.wireName)).toEqual([
 			"count",
 			"name",
+			"district·code",
 			"code",
 		]);
 		expect(after.rows.map((row) => row.values)).toEqual([
 			values([
 				[columnId(table, "count"), "3"],
 				[columnId(table, "name"), "Alpha"],
+				[columnId(after, "district·code"), "new"],
 			]),
 		]);
+		expect(columnId(after, "code")).toEqual(columnId(table, "code"));
 		expect(after.hq?.goneColumnIds).toEqual([columnId(table, "code")]);
 	});
 

@@ -122,7 +122,7 @@ export function CreateTableDialog({
 	const [working, setWorking] = useState(false);
 	const reveal = useAppendedRowReveal(columns.length);
 
-	const effectiveTag = tagTouched ? tag : suggestWireName(name);
+	const effectiveTag = tagTouched ? tag : suggestWireName(name, "tag");
 	const ready =
 		name.trim() !== "" &&
 		effectiveTag.trim() !== "" &&
@@ -187,8 +187,8 @@ export function CreateTableDialog({
 								className="h-11"
 							/>
 							<FieldDescription>
-								Letters, digits, underscores and hyphens, with a letter or an
-								underscore first. Changing it later needs admin access.
+								This name appears in exports. Changing it later needs admin
+								access.
 							</FieldDescription>
 						</Field>
 

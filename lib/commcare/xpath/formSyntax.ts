@@ -1,4 +1,5 @@
 import type { SyntaxNode } from "@lezer/common";
+import { coreNameTokens, storedNameTokens } from "./coreNameTokens";
 import { parser } from "./parser";
 
 interface Bounds {
@@ -94,9 +95,16 @@ function children(node: SyntaxNode): SyntaxNode[] {
 
 /** One structural reading of the production Lezer grammar. Grouping is kept
  * here for semantic chain boundaries and occurrence matching, never stored. */
-export function readFormSyntax(source: string): FormSyntaxResult {
+const storedNameParser = parser.configure({
+	tokenizers: [{ from: coreNameTokens, to: storedNameTokens }],
+});
+
+export function readFormSyntax(
+	source: string,
+	names: "runtime" | "stored-xml" = "runtime",
+): FormSyntaxResult {
 	if (source.trim().length === 0) return { ok: true, node: undefined };
-	const tree = parser.parse(source);
+	const tree = (names === "runtime" ? parser : storedNameParser).parse(source);
 	const issues: FormSyntaxIssue[] = [];
 	tree.iterate({
 		enter(node) {

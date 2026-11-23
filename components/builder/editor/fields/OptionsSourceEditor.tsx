@@ -13,6 +13,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import { useCallback, useId, useMemo, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
+import { LookupChoiceNameOption } from "@/components/builder/lookup/LookupChoiceNameOption";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
@@ -29,6 +30,7 @@ import {
 } from "@/components/shadcn/select";
 import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
@@ -68,6 +70,7 @@ export function OptionsSourceEditor<
 	const labelColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
+	const platforms = useDeclaredPlatforms();
 	const formContext = useSelectedFormContext();
 	const formUuid = formContext?.form.uuid;
 	const entries = useFormFieldEntries(formUuid ?? field.uuid);
@@ -77,7 +80,7 @@ export function OptionsSourceEditor<
 	const [draft, setDraft] = useState<SourceDraft | null>(null);
 	const [rejection, setRejection] = useState<string | null>(null);
 
-	const tables = catalog.kind === "ready" ? catalog.tables : [];
+	const tables = catalog.kind === "ready" ? catalog.definitions : [];
 	const tablesById =
 		catalog.kind === "ready"
 			? catalog.byId
@@ -218,9 +221,15 @@ export function OptionsSourceEditor<
 							</SelectItem>
 						) : null}
 						{tables.map((candidate) => (
-							<SelectItem key={candidate.id} value={candidate.id} wrap>
-								{candidate.name}
-							</SelectItem>
+							<LookupChoiceNameOption
+								key={candidate.id}
+								value={candidate.id}
+								name={candidate.tag}
+								label={candidate.name}
+								part="tag"
+								slot="lookup_options_source"
+								platforms={platforms}
+							/>
 						))}
 					</SelectContent>
 				</Select>
@@ -368,9 +377,15 @@ export function OptionsSourceEditor<
 							</SelectTrigger>
 							<SelectContent>
 								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
+									<LookupChoiceNameOption
+										key={column.id}
+										value={column.id}
+										name={column.wireName}
+										label={column.label}
+										part="column"
+										slot="lookup_options_source"
+										platforms={platforms}
+									/>
 								))}
 							</SelectContent>
 						</Select>
@@ -419,9 +434,15 @@ export function OptionsSourceEditor<
 							</SelectTrigger>
 							<SelectContent>
 								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id} wrap>
-										{column.label}
-									</SelectItem>
+									<LookupChoiceNameOption
+										key={column.id}
+										value={column.id}
+										name={column.wireName}
+										label={column.label}
+										part="column"
+										slot="lookup_options_source"
+										platforms={platforms}
+									/>
 								))}
 							</SelectContent>
 						</Select>

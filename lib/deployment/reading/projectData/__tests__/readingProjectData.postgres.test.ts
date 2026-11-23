@@ -274,9 +274,11 @@ function calls(peer: MockAgent): readonly string[] {
 
 /**
  * A source CommCare HQ served, its first form declaring the `plain` and
- * `rich` tables as the form builder declares a lookup table.
+ * `rich` tables and reading both in a question condition.
  */
-async function namingSource(): Promise<HqAppSource> {
+async function namingSource(
+	tags: readonly string[] = ["plain", "rich"],
+): Promise<HqAppSource> {
 	const body = retainedSourceBody(
 		"navigation-base/app-source-after-form-settings-save",
 	);
@@ -289,10 +291,21 @@ async function namingSource(): Promise<HqAppSource> {
 		...body,
 		_attachments: {
 			...attachments,
-			[first]: attachments[first].replace(
-				casedb,
-				`${casedb}<instance src="jr://fixture/item-list:plain" id="plain"/><instance src="jr://fixture/item-list:rich" id="rich"/>`,
-			),
+			[first]: attachments[first]
+				.replace(
+					casedb,
+					casedb +
+						tags
+							.map(
+								(tag) =>
+									`<instance src="jr://fixture/item-list:${tag}" id="${tag}"/>`,
+							)
+							.join(""),
+				)
+				.replace(
+					"<bind ",
+					`<bind relevant="${tags.map((tag) => `count(instance('${tag}')/${tag}_list/${tag}) > 0`).join(" and ")}" `,
+				),
 		},
 	});
 }
@@ -332,7 +345,7 @@ async function readData(
 ): Promise<ReadingProjectData> {
 	const answer = await read(source, places, project, ids);
 	if (answer.kind !== "read")
-		throw new Error(`the read failed: ${JSON.stringify(answer.failure)}`);
+		throw new Error(`the read failed: ${JSON.stringify(answer)}`);
 	return answer.data;
 }
 
@@ -1609,18 +1622,13 @@ describe("the columns CommCare HQ's content keeps, and the order the birth locks
 		const high = lookupTableIdSchema.parse(
 			"019a8000-0000-7000-8000-000000000002",
 		);
-		const source = await sourceFromBody({
-			...retainedSourceBody(
-				"navigation-base/app-source-after-form-settings-save",
-			),
-			note: "instance('item-list:zones') instance('item-list:clinics')",
-		});
+		const source = await namingSource(["zones", "clinics"]);
 		const reads = await withHttpPeer(async (peer) => {
 			serveTwoTables(peer);
 			const answer = await readHqLookupTablesForReading({
 				creds: CREDS,
 				domain: DOMAIN,
-				sourceText: JSON.stringify(source.raw),
+				referencedTags: async () => new Set(["zones", "clinics"]),
 			});
 			if ("success" in answer) throw new Error("the tables did not read");
 			return answer.tables;

@@ -138,10 +138,15 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 	return z
 		.string()
 		.min(1, `${label} cannot be blank.`)
-		.max(maxLength, `${label} must be at most ${maxLength} characters.`)
-		.regex(
-			LOOKUP_WIRE_IDENTIFIER_PATTERN,
-			`${label} starts with a letter or an underscore, then holds only unaccented letters, digits, underscores and hyphens.`,
+		.refine(
+			(value) =>
+				value.length <= maxLength ||
+				(value.length <= 2 * maxLength && [...value].length <= maxLength),
+			`${label} must be at most ${maxLength} characters.`,
+		)
+		.refine(
+			(value) => LOOKUP_WIRE_IDENTIFIER_PATTERN.test(value),
+			`${label} needs to be a name CommCare HQ can store. A name such as site_code or site.name works.`,
 		)
 		.refine(
 			(value) => !LOOKUP_XML_PREFIX_PATTERN.test(value),
@@ -149,10 +154,8 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 		)
 		.superRefine((value, ctx) => {
 			if (kind !== "tag") return;
-			// A tag is the fixture's instance id on the device, and the runtime
-			// registers instances into one map by that id and picks an instance's
-			// data by the words its reference contains — so a reserved tag would
-			// be read as CommCare's own data instead of the table.
+			// Core chooses storage from the fixture source, which contains the
+			// table's tag even when a form assigns the instance another name.
 			const cause = reservedInstanceTagCause(value);
 			if (cause === null) return;
 			ctx.addIssue({
@@ -162,7 +165,10 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 						? `${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`
 						: `${label} contains ${cause.word}, and CommCare reads any tag containing ${cause.word} as its own data, so a table can't use it. You can write it as ${RESERVED_INSTANCE_TAG_WORD_SPELLING[cause.word]} instead.`,
 			});
-		});
+		})
+		.describe(
+			`A namespace-free XML name, up to ${maxLength} Unicode characters. Lowercase xml is reserved. Use a name like site_code for a spelling that works in any data path.`,
+		);
 }
 
 export const lookupTagSchema = wireIdentifierSchema("tag");

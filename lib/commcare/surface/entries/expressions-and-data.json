@@ -4894,10 +4894,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "holding-a-period",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name HQ's table page accepts and Core reads, which HQ's build rewrites or refuses where a filter, a display condition or a required condition reads it: an unquoted `.` there is the current case (`xpath.py::dot_interpolate`)",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table and its columns retain their spelling. Forms read dotted names through their declared fixtures. A suite condition may read a dotted column where HQ preserves every period.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4928,10 +4927,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "reserved-instance-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table whose instance id in a form differs from its tag, as the form builder makes it (`form.js::addInstanceIfNotExists`)",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4943,7 +4941,7 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook, the fixture and every read",
+			"cell": "the table tag in the workbook and fixture source, the allocated id at each form read",
 			"markers": []
 		},
 		"gates": []
@@ -4962,10 +4960,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "non-ascii-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: HQ's grammar over every XML name (`fixtures/utils.py::is_identifier_invalid`), which needs a name token proven on each runtime's Unicode tables; the row below refuses a name Core's XPath cannot read where an expression reads it",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4999,6 +4996,58 @@
 			{
 				"kind": "broken-at-runtime",
 				"named": "Core reads a name one UTF-16 unit at a time, only upper- or lowercase letters or `_` first, then those, decimal digits, `.` and `-` (`Lexer.matchNCName`), so an expression reading through that name does not parse, and a form holding one does not load (executed)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a suite expression reads a lookup table whose instance id HQ’s suite builder does not discover",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "suite-omits-lookup-instance",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ’s suite builder omits the fixture declaration for a tag outside its instance scanner’s grammar, including a dotted tag. The worker cannot resolve the instance.",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ’s suite builder omits the fixture declaration for a tag outside its instance scanner’s grammar, including a dotted tag. The worker cannot resolve the instance."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/dotted-column-interpolated-in-suite",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a suite condition reads a lookup column whose unquoted period HQ interprets as the selected case",
+		"surfaceKeys": ["lookup-model:TypeField.name"],
+		"valueClass": "suite-interpolates-column",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ’s interpolation treats an unquoted period between non-digits as the current case. Without a case HQ refuses the condition. With a case it changes the path the worker reads.",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ’s interpolation treats an unquoted period between non-digits as the current case. Without a case HQ refuses the condition. With a case it changes the path the worker reads."
 			}
 		],
 		"platforms": {

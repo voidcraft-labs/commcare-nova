@@ -11,7 +11,7 @@ and the test that holds the committed trees to it (``test_layout.py``).
 The layout is ``proof/matrix/retained-layout.json``:
 
 - ``hq-apps/<base>/``: ``<base>`` an id ``proof/matrix/bases.json`` lists;
-  its files the JSON files the layout names, ``fixture-rows-<tag>.json``, and
+  its files the JSON files the layout names, the row answers named by ``lane_input.fixture_rows_stem``, and
   ``media/<n>.<ext>`` with a decimal ``<n>`` and an extension a stand-in has
   (``proof/matrix/stand-ins.json``); each ``media.json`` row names one of the
   base's own media files.

@@ -158,8 +158,9 @@ export interface LookupReferencingApp {
 /**
  * The apps whose blueprints reference a lookup table, or one of its columns.
  *
- * This is the confirmation surface's read, and it is deliberately ADVISORY:
- * the authority is the transactional edge check inside
+ * At confirmation time this read is advisory. Under the rename writer's
+ * table lock it selects the committed apps whose exact uses must be checked.
+ * For destructive operations the authority is the transactional edge check inside
  * `applyLookupSchemaGovernanceInTransaction`, which re-proves zero edges under
  * the table lock. This read exists so an author is told which apps a
  * destructive change would break BEFORE they ask for it, rather than being

@@ -386,7 +386,9 @@ describe("suggestWireName", () => {
 	});
 
 	it("keeps accented labels legible instead of dropping their letters", () => {
-		expect(suggestWireName("Établissement")).toBe("etablissement");
+		expect(suggestWireName("E\u0301tablissement")).toBe("établissement");
+		expect(suggestWireName("Περιοχή ٢")).toBe("περιοχή_٢");
+		expect(suggestWireName("地区")).toBe("u5730_u533a");
 	});
 
 	it("prefixes numeric and reserved xml names with a valid identifier start", () => {
@@ -394,6 +396,9 @@ describe("suggestWireName", () => {
 		expect(suggestWireName("2024 total")).toBe("c_2024_total");
 		// …and must not start with `xml`, which the wire rejects outright.
 		expect(suggestWireName("XML source")).toBe("c_xml_source");
+		expect(suggestWireName("Our CaseDB", "tag")).toBe("our_case_db");
+		expect(suggestWireName("Our CaseDB")).toBe("our_casedb");
+		expect(suggestWireName("a".repeat(45), "tag")).toBe("a".repeat(32));
 	});
 
 	it("suggests nothing for a label with no usable characters", () => {

@@ -5624,6 +5624,49 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 		await expect(page.getByText("District hospital")).toBeVisible();
 
+		// A refusal keeps the author's spelling and offers a correction. The
+		// ordinary tag "locations" can coexist with the app's Places.
+		await page.setViewportSize({ width: 500, height: 780 });
+		await page.getByRole("button", { name: "Edit export tag" }).click();
+		const exportTag = page.getByRole("textbox", { name: "Export tag" });
+		const saveTag = page.getByRole("button", { name: "Save export tag" });
+		await exportTag.fill("office_casedb");
+		await exportTag.press("Tab");
+		await expect(saveTag).toBeFocused();
+		await saveTag.press("Enter");
+		await expect(
+			page.getByRole("alert").filter({ hasText: "case_db" }),
+		).toBeVisible();
+		await expect(exportTag).toHaveValue("office_casedb");
+		await expect(
+			page.getByText(`Export tag: ${CASE_WORKSPACE_SEED.lookupTableTag}`, {
+				exact: true,
+			}),
+		).toBeVisible();
+		await exportTag.fill("locations");
+		await saveTag.click();
+		await expect(
+			page.getByText("Export tag: locations", { exact: true }),
+		).toBeVisible();
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await page
+			.getByRole("columnheader", {
+				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+				exact: false,
+			})
+			.getByRole("button")
+			.click();
+		await page
+			.getByRole("textbox", { name: "Column name in exports and CSV" })
+			.fill("cód.2");
+		await page.getByRole("button", { name: "Save export name" }).click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Export name saved." }),
+		).toBeVisible();
+		await page
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
+
 		// Ordering is an ordinary, revision-fenced table edit. Exercise both
 		// directions and restore the seed order so retries remain independent.
 		await page
@@ -5922,6 +5965,11 @@ test.describe("authenticated builder", () => {
 		await expect(useTable).toBeDisabled();
 
 		await savedValue.click();
+		const unselectable = page.getByRole("option", {
+			name: /Last verified.*最近确认/,
+		});
+		await expect(unselectable).toBeDisabled();
+
 		await page
 			.getByRole("option", {
 				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
@@ -5951,6 +5999,57 @@ test.describe("authenticated builder", () => {
 		await useTable.click();
 		await expect(useTable).toBeHidden({ timeout: 20_000 });
 		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+
+		// Author a question condition against the same table, save, and open
+		// the question again. Both names are shown as ordinary labels, with
+		// the exact, portable spellings available in the expression.
+		await page.getByRole("button", { name: "Show when", exact: true }).click();
+		const condition = page.locator('[data-field-id="relevant"]').visible();
+		const editor = condition.locator('.cm-content[contenteditable="true"]');
+		await expect(editor).toBeFocused();
+		await page.keyboard.insertText(
+			"count(instance('item-list:locations')/locations_list/locations[cód.2 = 'dh']) > 0",
+		);
+		const [savedCondition] = await Promise.all([
+			page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname ===
+						`/api/apps/${seed.caseWorkspace.appId}` &&
+					(response.request().postData() ?? "").includes('"relevant"'),
+			),
+			editor.press("ControlOrMeta+Enter"),
+		]);
+		expect(savedCondition.ok()).toBe(true);
+		await expect(page.getByText(/^Saved /)).toBeVisible();
+		await reloadBuilder(page);
+		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+		await expect(savedValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+		await expect(shownValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+		);
+		await expect(
+			condition.locator('[data-ref-raw*="item-list:locations"]'),
+		).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+		await expect(condition.locator('[data-ref-raw="cód.2"]')).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+
+		// Reopen by keyboard and change the condition around the identity chips.
+		const savedRule = condition.getByRole("button");
+		await savedRule.focus();
+		await savedRule.press("Enter");
+		await expect(editor).toBeFocused();
+		await editor.press("ControlOrMeta+End");
+		await editor.press("Backspace");
+		await page.keyboard.insertText("1");
+		await editor.press("ControlOrMeta+Enter");
+		await expect(savedRule).toContainText("> 1");
+		await expect(savedRule.locator('[data-ref-raw="cód.2"]')).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
 
 		// 5. Switching back stages a fresh, complete inline source too. There is
 		// no dormant lookup receiver and no retained inline fallback.
