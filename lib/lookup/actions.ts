@@ -460,7 +460,7 @@ export async function getLookupRowProjectionAction(
 			cursor: z.string().max(4096).optional(),
 		}),
 		"view",
-		getLookupTableRowsPage,
+		(scope, request) => getLookupTableRowsPage(scope, request),
 	);
 }
 
@@ -488,7 +488,7 @@ export async function createLookupTableAction(
 		input,
 		createLookupTableInputSchema,
 		"edit",
-		createLookupTable,
+		(scope, request) => createLookupTable(scope, request),
 	);
 }
 
@@ -501,7 +501,7 @@ export async function updateLookupTableNameAction(
 		input,
 		updateLookupTableNameInputSchema,
 		"edit",
-		updateLookupTableName,
+		(scope, request) => updateLookupTableName(scope, request),
 	);
 }
 
@@ -514,7 +514,7 @@ export async function updateLookupTableTagAction(
 		input,
 		updateLookupTableTagInputSchema,
 		"delete",
-		updateLookupTableTag,
+		(scope, request) => updateLookupTableTag(scope, request),
 	);
 }
 
@@ -527,7 +527,7 @@ export async function addLookupColumnAction(
 		input,
 		addLookupColumnInputSchema,
 		"edit",
-		addLookupColumn,
+		(scope, request) => addLookupColumn(scope, request),
 	);
 }
 
@@ -691,7 +691,7 @@ export async function updateLookupColumnLabelAction(
 		input,
 		updateLookupColumnLabelInputSchema,
 		"edit",
-		updateLookupColumnLabel,
+		(scope, request) => updateLookupColumnLabel(scope, request),
 	);
 }
 
@@ -704,7 +704,7 @@ export async function updateLookupColumnWireNameAction(
 		input,
 		updateLookupColumnWireNameInputSchema,
 		"delete",
-		updateLookupColumnWireName,
+		(scope, request) => updateLookupColumnWireName(scope, request),
 	);
 }
 
@@ -717,7 +717,7 @@ export async function moveLookupColumnAction(
 		input,
 		moveLookupColumnInputSchema,
 		"edit",
-		moveLookupColumn,
+		(scope, request) => moveLookupColumn(scope, request),
 	);
 }
 
@@ -730,7 +730,7 @@ export async function createLookupRowAction(
 		input,
 		createLookupRowInputSchema,
 		"edit",
-		createLookupRow,
+		(scope, request) => createLookupRow(scope, request),
 	);
 }
 
@@ -743,7 +743,7 @@ export async function updateLookupRowAction(
 		input,
 		updateLookupRowInputSchema,
 		"edit",
-		updateLookupRow,
+		(scope, request) => updateLookupRow(scope, request),
 	);
 }
 
@@ -756,7 +756,7 @@ export async function deleteLookupRowAction(
 		input,
 		deleteLookupRowInputSchema,
 		"edit",
-		deleteLookupRow,
+		(scope, request) => deleteLookupRow(scope, request),
 	);
 }
 
@@ -769,7 +769,7 @@ export async function moveLookupRowAction(
 		input,
 		moveLookupRowInputSchema,
 		"edit",
-		moveLookupRow,
+		(scope, request) => moveLookupRow(scope, request),
 	);
 }
 

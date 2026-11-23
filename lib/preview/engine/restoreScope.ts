@@ -139,7 +139,20 @@ export async function workerRestoreScope(
 		revisions,
 	};
 }
-export function resolveRestoreScope(args: WorkerGroupRead) {
+/** The restore scope of a preview its caller has just authorized. Previewing
+ * as the signed-in member is a worker assigned nowhere and in no group: their
+ * own id and nothing else, derivable without a query, so the common case-list
+ * render adds none. A persona reads its places and groups in one snapshot. */
+export async function resolveRestoreScope(
+	args: WorkerGroupRead,
+): Promise<WorkerRestoreScope> {
+	const { blueprint, identity } = args;
+	if (
+		identity.personaUuid === undefined ||
+		blueprint === undefined ||
+		!ownRecordValue(personasOf(blueprint), identity.personaUuid)
+	)
+		return { ownerIds: [identity.ownerId], groups: [] };
 	return withAppTx((tx) => workerRestoreScope(tx, args), {
 		isolationLevel: "repeatable read",
 	});

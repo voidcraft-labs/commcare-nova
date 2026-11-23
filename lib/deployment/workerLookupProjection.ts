@@ -82,7 +82,11 @@ async function lockWorkerAccess(
 			a.actorId !== scope.actorUserId
 		)
 			return dataAccessLost();
-		await authorizeAgentScopeInTransaction(tx, a, "edit");
+		/* A worker projection is a read: a Project viewer may read this
+		 * data, and the run's own holder already proves an editing run. The
+		 * build gates (a reviewed plan, an open workspace) guard writes, so
+		 * a build may evaluate its forms before its plan's review ends. */
+		await authorizeAgentScopeInTransaction(tx, a, "view");
 		const bound = a.ordinaryAuthoring
 			? await tx
 					.selectFrom("authoring_sessions")

@@ -1,8 +1,10 @@
-import { expect, it } from "vitest";
+import { sql } from "kysely";
+import { beforeEach, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { evaluateFormTool } from "@/lib/agent/tools/evaluateForm";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { getAuthDb } from "@/lib/auth/db";
 import {
 	buildCaseTypeMap,
@@ -30,6 +32,23 @@ const h = setupAppStateTestDb("authoring_evaluation_", {
 });
 const actor = "evaluator";
 const projectId = "evaluation-project";
+const SESSION_ID = "evaluation-session";
+
+/* An evaluation reads the worker's Project data under the request's own
+ * grant, as the MCP adapter hands it to every shared tool call. The grant
+ * here is the evaluator's live browser session. */
+beforeEach(async () => {
+	await h.seedProjectMember(actor, projectId, "owner");
+	await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+		VALUES (${SESSION_ID},'evaluation-token',${actor},now()+interval '1 hour',now(),now())
+		ON CONFLICT (id) DO NOTHING`.execute(h.db());
+});
+
+function mcpRequest<Context extends object>(
+	ctx: Context,
+): Context & { dataGrant: ProjectDataGrant } {
+	return { ...ctx, dataGrant: { kind: "session", sessionId: SESSION_ID } };
+}
 
 it("uses the authorized worker's records and makes no case or blueprint writes", async () => {
 	const source = await createEvaluationApp(
@@ -139,7 +158,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 					answers: [{ path: "condition", value: "Worn" }],
 					caseIds: [ownCase.caseId],
 				},
-				ctx,
+				mcpRequest(ctx),
 			),
 	});
 	// The form's case changes, its own case's included, run at submission,
@@ -180,7 +199,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 						caseIds: [caseId],
 						scenario,
 					},
-					ctx,
+					mcpRequest(ctx),
 				),
 		});
 	expect((await evaluateScenario("example")).data).toMatchObject({
@@ -221,7 +240,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 		execute: (ctx) =>
 			evaluateFormTool.execute(
 				{ moduleUuid, formUuid, answers: [], caseIds: [otherCase.caseId] },
-				ctx,
+				mcpRequest(ctx),
 			),
 	});
 	expect(refused.data).toHaveProperty("error");
@@ -233,7 +252,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 	await expect(
 		foreign.invoke({
 			toolName: "evaluateForm",
-			execute: (ctx) => loadFormEvaluationContext(ctx),
+			execute: (ctx) => loadFormEvaluationContext(mcpRequest(ctx)),
 		}),
 	).rejects.toThrow();
 	const auth = await getAuthDb();
@@ -245,7 +264,8 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 	await expect(
 		workspace.invoke({
 			toolName: "evaluateForm",
-			execute: (ctx) => loadFormEvaluationContext(ctx, undefined, scenario),
+			execute: (ctx) =>
+				loadFormEvaluationContext(mcpRequest(ctx), undefined, scenario),
 		}),
 	).rejects.toThrow();
 });
@@ -349,7 +369,7 @@ it("runs the module's search for a form that reads what it found", async () => {
 						caseIds: [kofi.caseId],
 						...extra,
 					},
-					ctx,
+					mcpRequest(ctx),
 				),
 		});
 	const found = (data: unknown) =>
@@ -400,7 +420,7 @@ it("runs a check on the platform it names, with that platform's session values a
 			toolName: "evaluateForm",
 			execute: (ctx) =>
 				loadFormEvaluationContext(
-					ctx,
+					mcpRequest(ctx),
 					undefined,
 					undefined,
 					undefined,
@@ -467,7 +487,7 @@ it("refuses a check on a platform the app does not run on", async () => {
 			toolName: "evaluateForm",
 			execute: (ctx) =>
 				loadFormEvaluationContext(
-					ctx,
+					mcpRequest(ctx),
 					undefined,
 					undefined,
 					undefined,
