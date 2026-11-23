@@ -167,6 +167,7 @@
 	],
 	"hq-menus": [
 		"hq-menus/case-list-optimizations",
+		"hq-menus/case-list-optimizations-on-a-menu-with-no-case-list",
 		"hq-menus/child-menu-before-its-parent",
 		"hq-menus/child-mirror-menu",
 		"hq-menus/clickable-icon",
