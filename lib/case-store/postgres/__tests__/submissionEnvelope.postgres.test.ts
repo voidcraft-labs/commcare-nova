@@ -59,6 +59,7 @@ import type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
 	EnvelopeCaseOperation,
+	OpeningReadSet,
 	OwnCaseProgram,
 	SubmissionReceiptClaim,
 } from "../../submission";
@@ -3426,7 +3427,7 @@ describe("the form's own case", () => {
 				sessionCaseIds: [first],
 			},
 		});
-		const visit = (value: string, view: typeof entered) => {
+		const visit = (value: string, view: OpeningReadSet) => {
 			const own = ownOp({
 				writes: [
 					{
