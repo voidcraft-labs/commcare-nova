@@ -163,7 +163,50 @@ function serveJson(peer: MockAgent, requestPath: string, body: unknown): void {
 function serveTables(peer: MockAgent): void {
 	serve(peer, LIST, retained("lookups/lookup-tables.json"));
 	serve(peer, rowsPath(PLAIN_ID), retained("lookups/fixture-rows-plain.json"));
-	serve(peer, rowsPath(RICH_ID), retained("lookups/fixture-rows-rich.json"));
+	serveRich(peer);
+}
+
+/**
+ * The rows of `rich`, whose definition carries a row attribute and a field
+ * property, so Nova reads them as the plan's section 1B says: the ordered
+ * list, the definition, each listed row's detail
+ * (`fixtures/resources/v0_1.py::LookupTableItemResource`) in two passes, and
+ * the definition again. Each detail repeats what the list holds, in the
+ * `field_list` form, with the row's sort key and no attribute value.
+ */
+function serveRich(peer: MockAgent): void {
+	const list = retained("lookups/fixture-rows-rich.json");
+	const rows = (
+		JSON.parse(list.body) as {
+			objects: { id: string; fields: Record<string, unknown> }[];
+		}
+	).objects;
+	const definition = (
+		JSON.parse(retained("lookups/lookup-tables.json").body) as {
+			objects: { id: string }[];
+		}
+	).objects.find((table) => table.id === RICH_ID);
+	for (let pass = 0; pass < 3; pass++) serve(peer, rowsPath(RICH_ID), list);
+	for (let read = 0; read < 2; read++)
+		serveJson(peer, `/a/${DOMAIN}/api/lookup_table/v1/${RICH_ID}/`, definition);
+	for (const [index, row] of rows.entries()) {
+		const fields = Object.fromEntries(
+			Object.entries(row.fields).map(([name, value]) => [
+				name,
+				typeof value === "string"
+					? { field_list: [{ field_value: value, properties: {} }] }
+					: value,
+			]),
+		);
+		for (let pass = 0; pass < 2; pass++)
+			serveJson(peer, `/a/${DOMAIN}/api/lookup_table_item/v1/${row.id}/`, {
+				id: row.id,
+				data_type_id: RICH_ID,
+				sort_key: index,
+				item_attributes: {},
+				fields,
+			});
+	}
 }
 
 /** A row in the shape `FixtureResource` serves. */
@@ -198,7 +241,7 @@ function serveWithRegion(peer: MockAgent): void {
 			}),
 		]),
 	);
-	serve(peer, rowsPath(RICH_ID), retained("lookups/fixture-rows-rich.json"));
+	serveRich(peer);
 }
 
 const ZONES_ID = "3f0a5d2c7b1e4a9c8d6f0e2b4a6c8e01";
@@ -1281,11 +1324,7 @@ describe("the birth's two writers, in a birth's order", () => {
 					}),
 				]),
 			);
-			serve(
-				peer,
-				rowsPath(RICH_ID),
-				retained("lookups/fixture-rows-rich.json"),
-			);
+			serveRich(peer);
 			return readData(source, "when-source-reads", undefined, SECOND);
 		});
 		expect(second.gathered.tables[0].standing?.kind).toBe("same-managed");

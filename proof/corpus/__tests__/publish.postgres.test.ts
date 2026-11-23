@@ -1109,8 +1109,6 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		"source read",
 		"import",
 		"source read",
-		"source read",
-		"file read",
 	]);
 	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
 	// The capture assumed the table list and rows its peer answered, which
@@ -1158,7 +1156,8 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	await expectSameWorkbook(captured.lookup, contentWorkbook);
 	await expectSameWorkbook(capture.update.lookup, updatedWorkbook);
 	// The landed app and its authenticated file confirm the first POST.
-	// An unchanged republish rereads that file and sends no second POST.
+	// An unchanged republish finds the id Nova recorded still at the path,
+	// reuses that file without reading it, and sends no second POST.
 	expect(uploads).toHaveLength(1);
 	expect(captured.mediaUploads).toHaveLength(1);
 	expect(capture.update.mediaUploads).toEqual([]);
