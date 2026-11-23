@@ -165,7 +165,7 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		platform: "android",
 		fixture: "home",
 		describe:
-			"holding a grid choice plays its spoken label and leaves the choice available",
+			"holding a grid choice plays its spoken label, and letting go opens it",
 	},
 	"logo-android": {
 		platform: "android",

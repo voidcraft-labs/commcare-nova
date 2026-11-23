@@ -73,6 +73,11 @@ export function PreviewMenuChoice({
 	const audio = useContext(MenuAudio);
 	const choice = useRef<HTMLDivElement>(null);
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	/* The hold played the label: the release opens the entry. */
+	const held = useRef(false);
+	/* The release opened it, so the browser's own click, where it sends one
+	 * after a long press, is not a second tap. */
+	const opened = useRef(false);
 	const stop = () => {
 		clearTimeout(timer.current);
 		timer.current = undefined;
@@ -85,6 +90,8 @@ export function PreviewMenuChoice({
 			className="min-w-0 flex flex-col"
 			onPointerDown={(event) => {
 				stop();
+				held.current = false;
+				opened.current = false;
 				if (
 					audio !== "hold" ||
 					audioLabel === undefined ||
@@ -97,13 +104,37 @@ export function PreviewMenuChoice({
 					const player = choice.current?.querySelector("audio");
 					const source = player?.currentSrc || player?.src;
 					if (!source) return;
+					held.current = true;
 					// A browser that wants a gesture on the player itself refuses this play; the release still opens the entry.
 					new Audio(source).play().catch(() => undefined);
 				}, 500);
 			}}
-			onPointerUp={stop}
-			onPointerCancel={stop}
-			onPointerLeave={stop}
+			onPointerUp={(event) => {
+				stop();
+				if (!held.current) return;
+				held.current = false;
+				const entry =
+					event.target instanceof Element
+						? event.target.closest("button")
+						: null;
+				if (!entry) return;
+				opened.current = true;
+				entry.click();
+			}}
+			onPointerCancel={() => {
+				stop();
+				held.current = false;
+			}}
+			onPointerLeave={() => {
+				stop();
+				held.current = false;
+			}}
+			onClickCapture={(event) => {
+				if (event.detail === 0 || !opened.current) return;
+				opened.current = false;
+				event.preventDefault();
+				event.stopPropagation();
+			}}
 		>
 			{children}
 			{audio !== "hidden" && audioLabel !== undefined && (
