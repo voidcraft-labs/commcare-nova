@@ -51,6 +51,7 @@ import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import {
+	APP_READ_BACK_FAILED_WARNING,
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
 	MEDIA_NOT_SENT_AFTER_ACCESS_WARNING,
 	MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
@@ -860,6 +861,52 @@ describe("a read with no media map", () => {
 });
 
 describe("the record after an upload", () => {
+	it("sends no file after an import it can't read back, and the next publish a person confirms sends them", async () => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, "source-shell");
+			accepted(peer, 200);
+			/* The read back fails, so nothing verifies where the files would go. */
+			request(peer, SOURCE).reply(500, "");
+			const landed = await publish(doc);
+			expect(landed.landed).toBe(true);
+			expect(landed.warnings).toEqual(
+				expect.arrayContaining([
+					APP_READ_BACK_FAILED_WARNING,
+					"CommCare HQ accepted the app. Nova couldn't verify the files at their destinations. You can review the files in CommCare HQ and publish again.",
+				]),
+			);
+			expect(requests(peer)).not.toContain(`POST ${MEDIA}`);
+			const unread = await h
+				.db()
+				.selectFrom("app_deployment_baselines")
+				.select("origin")
+				.executeTakeFirstOrThrow();
+			expect(unread.origin).toBe("unread");
+			expect(await record()).toBeNull();
+			expect(await openMediaWrites()).toEqual([]);
+
+			/* The next publish asks, since nothing confirmed what the last one left. */
+			serve(peer, "source-live");
+			const asked = refusal(await publish(doc));
+			const discards = asked.remoteChanges.map((change) => ({
+				kind: change.kind,
+				novaResourceId: change.novaResourceId,
+				observedDigest: change.observedDigest,
+			}));
+			expect(discards).toHaveLength(1);
+			const sent = sentCount(peer);
+			serve(peer, "source-live");
+			accepted(peer, 200);
+			serve(peer, "source-live");
+			mediaTaken(peer, "doc-nova");
+			expect((await publish(doc, discards)).landed).toBe(true);
+			expect(requests(peer, sent)).toContain(`POST ${MEDIA}`);
+			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+		});
+	});
+
 	it("keeps the previous record where the upload failed or reported errors", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
 		await withPeer(async (peer) => {
