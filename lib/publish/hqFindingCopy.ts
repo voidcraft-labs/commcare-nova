@@ -236,9 +236,7 @@ export const FINDING_COPY: Readonly<
 			"A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in.",
 		"not-yet": "A case property name here is one Nova can't hold yet.",
 	},
-	"case-sharing": {
-		"not-yet": "This uses case sharing, which Nova can't hold yet.",
-	},
+	"case-sharing": {},
 	"case-tiles": {
 		"not-yet": "This uses a case tile layout, which Nova can't hold yet.",
 	},
@@ -895,7 +893,7 @@ export const CIRCUMSTANCE_COPY: Readonly<
 	},
 	"owner-rule-needs-one-place": {
 		title: "A case owner rule needs one destination",
-		body: "Nova checked the rule against the places in {space}. {name}",
+		body: "{name} Nova checked the rule against the places in {space}.",
 		next: "You can choose a specific owner in the form or change the places in CommCare HQ, then check again.",
 	},
 	unrecognized: {

@@ -8,7 +8,10 @@ import {
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import type { Term } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
-import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
+import {
+	questionChoiceReadProblem,
+	questionChoiceReadSentence,
+} from "@/lib/domain/lookupRead";
 import { type ValidationError, validationError } from "../errors";
 import {
 	checkErrorDetails,
@@ -32,16 +35,22 @@ export function validateLookupOptionsSources(
 			continue;
 		const source = field.optionsSource;
 		for (const slot of ["valueColumnId", "labelColumnId"] as const) {
-			const issue = questionChoiceReadIssue(source[slot]);
-			if (issue)
+			const problem = questionChoiceReadProblem(source[slot]);
+			if (problem)
 				errors.push(
-					validationError("LOOKUP_QUESTION_READ_UNEDITABLE", "field", issue, {
-						moduleUuid,
-						formUuid,
-						fieldUuid: uuid,
-						fieldId: field.id,
-						field: `optionsSource.${slot}`,
-					}),
+					validationError(
+						"LOOKUP_QUESTION_READ_UNEDITABLE",
+						"field",
+						questionChoiceReadSentence(problem),
+						{
+							moduleUuid,
+							formUuid,
+							fieldUuid: uuid,
+							fieldId: field.id,
+							field: `optionsSource.${slot}`,
+						},
+						{ problem },
+					),
 				);
 		}
 		const filter = source.filter;

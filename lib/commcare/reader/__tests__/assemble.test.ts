@@ -1977,6 +1977,9 @@ describe("the reader's canonical choices", () => {
 			uuid: DISTRICT,
 			code: "district",
 			name: "District",
+			// HQ's list gives each level's administrative flag, the inverse
+			// of stock tracking; a level Nova sends is administrative.
+			tracksStock: false,
 			caseFlow: {
 				workers: "assigned",
 				ownsCases: false,

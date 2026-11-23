@@ -45,6 +45,36 @@ export function lookupPathNameExplanation(issue: LookupPathNameIssue): string {
 	}
 }
 
+const LOOKUP_PATH_NAME_ISSUES: readonly LookupPathNameIssue[] = [
+	"unreadable-name",
+	"interpolated-period",
+	"undeclared-instance",
+];
+
+/** The sentence a setting that reads a table or column by a name that
+ * can't work there shows. Each part is optional so the copy renderer can
+ * build it from a finding's details alone; `readableInWebApps` offers the
+ * Web-Apps-only route when that platform alone could read the name. */
+export function lookupPathNameSentence(input: {
+	readonly name?: string;
+	readonly part?: string;
+	readonly issue?: string;
+	readonly readableInWebApps: boolean;
+}): string {
+	const subject = input.part === "tag" ? "table" : "column";
+	const named =
+		input.name === undefined
+			? `This setting uses a ${subject} export name that can't work here.`
+			: `This setting uses the ${subject} export name “${input.name}”.`;
+	const issue = LOOKUP_PATH_NAME_ISSUES.find((one) => one === input.issue);
+	const recovery = input.readableInWebApps
+		? `You can choose another ${subject}, or set the app to run in Web Apps only if that's where your workers use it.`
+		: `You can choose another ${subject} for this setting.`;
+	return issue === undefined
+		? `${named} ${recovery}`
+		: `${named} ${lookupPathNameExplanation(issue)} ${recovery}`;
+}
+
 export function lookupPathNameIssue(
 	name: string,
 	registrySlot: string,

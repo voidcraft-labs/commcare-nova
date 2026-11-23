@@ -66,13 +66,32 @@ export function readMemberIds(read: LookupRead): readonly LookupMemberId[] {
 
 /** A question offers row details and field values. Details of a particular
  * field value can qualify that field or be read by an expression. */
-export function questionChoiceReadIssue(read: LookupRead): string | undefined {
+/** Why a question's choices can't read `read`: a value detail's own value,
+ * or a detail filter holding an opening square bracket. */
+export type QuestionChoiceReadProblem = "value-detail" | "bracket-filter";
+
+export function questionChoiceReadProblem(
+	read: LookupRead,
+): QuestionChoiceReadProblem | undefined {
 	if (typeof read === "string" || "attributeId" in read) return undefined;
-	if (read.propertyId)
-		return "You can use a row detail or a column value for a question’s choices. A value detail can narrow the values in that column.";
-	if (read.where?.equals.includes("["))
-		return "The form editor cannot keep a choice filter containing an opening square bracket. You can choose a different detail value or a position.";
+	if (read.propertyId) return "value-detail";
+	if (read.where?.equals.includes("[")) return "bracket-filter";
 	return undefined;
+}
+
+export function questionChoiceReadSentence(
+	problem: QuestionChoiceReadProblem,
+): string {
+	return problem === "value-detail"
+		? "You can use a row detail or a column value for a question’s choices. A value detail can narrow the values in that column."
+		: "The form editor cannot keep a choice filter containing an opening square bracket. You can choose a different detail value or a position.";
+}
+
+export function questionChoiceReadIssue(read: LookupRead): string | undefined {
+	const problem = questionChoiceReadProblem(read);
+	return problem === undefined
+		? undefined
+		: questionChoiceReadSentence(problem);
 }
 
 export function sameLookupRead(left: LookupRead, right: LookupRead): boolean {

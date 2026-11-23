@@ -341,8 +341,6 @@ export const AUDIT_SELECT_PUBLIC_TABLES = [
 	"form_attachments",
 	"form_submission_intents",
 	"lookup_column_references",
-	"lookup_member_references",
-	"lookup_members",
 	"lookup_columns",
 	"lookup_project_state",
 	"lookup_rows",

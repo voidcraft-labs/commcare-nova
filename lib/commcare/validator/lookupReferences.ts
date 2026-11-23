@@ -11,8 +11,8 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { declaredPlatforms } from "@/lib/domain/platforms";
 import { reservedInstanceTagCause } from "@/lib/lookup/constants";
 import {
-	lookupPathNameExplanation,
 	lookupPathNameIssue,
+	lookupPathNameSentence,
 } from "@/lib/lookup/pathNames";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
@@ -178,20 +178,22 @@ export function validateLookupReferences(
 			platforms,
 		);
 		if (issue === null) return;
-		const subject = part === "tag" ? "table" : "column";
-		const recovery =
+		const readableInWebApps =
 			issue === "unreadable-name" &&
 			lookupPathNameIssue(name, occurrence.registrySlot, part, ["web-apps"]) ===
-				null
-				? `You can choose another ${subject}, or set the app to run in Web Apps only if that's where your workers use it.`
-				: `You can choose another ${subject} for this setting.`;
+				null;
 		errors.push(
 			validationError(
 				"LOOKUP_PATH_NAME_UNAVAILABLE",
 				occurrence.location.scope,
-				`This setting uses the ${subject} export name “${name}”. ${lookupPathNameExplanation(issue)} ${recovery}`,
+				lookupPathNameSentence({ name, part, issue, readableInWebApps }),
 				occurrenceLocation(occurrence),
-				occurrenceDetails(occurrence, { name, part, issue }),
+				occurrenceDetails(occurrence, {
+					name,
+					part,
+					issue,
+					...(readableInWebApps && { readableInWebApps: "yes" }),
+				}),
 			),
 		);
 	}
