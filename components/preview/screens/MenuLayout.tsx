@@ -55,7 +55,12 @@ export function PreviewMenuChoices({
 	);
 }
 
-/** A spoken label is a separate action so playing it never opens the entry. */
+/** A spoken label beside its entry. In a list it is a separate control, so
+ * playing it never opens the entry. On an Android grid a hold plays it, and
+ * releasing then opens the entry as a tap does: `MenuGrid.onItemLongClick`
+ * starts its own `MediaPlayer` and returns false, so the grid still delivers
+ * the item click when the worker lets go. The label therefore plays from an
+ * element outside the screen, which keeps playing once the entry opens. */
 export function PreviewMenuChoice({
 	audioLabel,
 	label,
@@ -68,7 +73,6 @@ export function PreviewMenuChoice({
 	const audio = useContext(MenuAudio);
 	const choice = useRef<HTMLDivElement>(null);
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-	const held = useRef(false);
 	const stop = () => {
 		clearTimeout(timer.current);
 		timer.current = undefined;
@@ -81,7 +85,6 @@ export function PreviewMenuChoice({
 			className="min-w-0 flex flex-col"
 			onPointerDown={(event) => {
 				stop();
-				held.current = false;
 				if (
 					audio !== "hold" ||
 					audioLabel === undefined ||
@@ -92,21 +95,15 @@ export function PreviewMenuChoice({
 					return;
 				timer.current = setTimeout(() => {
 					const player = choice.current?.querySelector("audio");
-					if (!player) return;
-					held.current = true;
-					// The native controls stay available when the browser requires a gesture directly on the player.
-					player.play().catch(() => player.focus());
+					const source = player?.currentSrc || player?.src;
+					if (!source) return;
+					// A browser that wants a gesture on the player itself refuses this play; the release still opens the entry.
+					new Audio(source).play().catch(() => undefined);
 				}, 500);
 			}}
 			onPointerUp={stop}
 			onPointerCancel={stop}
 			onPointerLeave={stop}
-			onClickCapture={(event) => {
-				if (!held.current || event.detail === 0) return;
-				held.current = false;
-				event.preventDefault();
-				event.stopPropagation();
-			}}
 		>
 			{children}
 			{audio !== "hidden" && audioLabel !== undefined && (

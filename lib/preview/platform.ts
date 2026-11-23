@@ -392,7 +392,8 @@ export interface PreviewPlatformRules {
 	 *  template, which has no audio control (`menus/views.js` chooses the grid
 	 *  template before the audio one); Android plays it when the worker holds
 	 *  the tile (`MenuGrid.onItemLongClick` prepares and starts a
-	 *  `MediaPlayer`). A list row offers its audio on both. */
+	 *  `MediaPlayer`) and, returning false, leaves the tap that opens the
+	 *  tile to the release. A list row offers its audio on both. */
 	readonly gridMenuAudio: "none" | "hold";
 }
 

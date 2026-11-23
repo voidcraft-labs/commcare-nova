@@ -481,21 +481,46 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		).toBe(false);
 	},
 	async "menu-grid-android"(page) {
-		await openScenario(page, "menu-grid-android");
+		/* Every element the page plays, kept so the test can read it after the
+		 * screen that started it has gone. */
+		await page.addInitScript(() => {
+			const started: HTMLMediaElement[] = [];
+			Object.assign(window, { __startedMedia: started });
+			const play = HTMLMediaElement.prototype.play;
+			HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+				started.push(this);
+				return play.call(this);
+			};
+		});
+		const run = await openScenario(page, "menu-grid-android");
 		const grid = page.locator('[data-menu-layout="grid"]');
 		const tile = grid.getByRole("button", { name: /^Visits/ });
-		const player = grid.locator("audio");
-		await expect(player).toHaveAccessibleName("Visits");
+		await expect(grid.locator("audio")).toHaveAccessibleName("Visits");
+		const heard = () =>
+			page.evaluate(() =>
+				(
+					(window as unknown as { __startedMedia: HTMLMediaElement[] })
+						.__startedMedia ?? []
+				).some(
+					// A player taken out of the page is paused there; one that
+					// keeps playing is still going or has reached its end.
+					(el) => el.played.length > 0 && (!el.paused || el.ended),
+				),
+			);
 		await tile.hover();
 		await page.mouse.down();
 		try {
-			await expect
-				.poll(() => player.evaluate((el: HTMLAudioElement) => el.played.length))
-				.toBeGreaterThan(0);
+			await expect.poll(heard).toBe(true);
 		} finally {
 			await page.mouse.up();
 		}
-		await expect(tile).toBeVisible();
+		/* Android delivers the tap when the worker lets go of a tile it held,
+		 * so the menu opens while its label keeps playing. */
+		await expect(page.locator('[data-menu-layout="grid"]')).toHaveCount(0);
+		expect(await heard()).toBe(true);
+		expect(
+			run.mediaRequests.some((path) => path.includes(PLATFORM_IDS.menuSound)),
+		).toBe(true);
 	},
 	async "logo-android"(page) {
 		const run = await openScenario(page, "logo-android");
