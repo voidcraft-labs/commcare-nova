@@ -2850,7 +2850,12 @@ function diffCatalog(
 			meta.relationship = toCt.relationship ?? null;
 			metaChanged = true;
 		}
-		if (metaChanged) out.push(meta);
+		// Relation removals go BEFORE the default-parent slots change and
+		// additions after: the reducer reads a `relationChange` against the
+		// type's current default (a removal matching it clears the default,
+		// an addition matching it is a no-op). Run after the slots move, a
+		// removal of a `relations` edge the target promotes to the default
+		// would clear the default this batch just set.
 		const previous = fromCt?.relations ?? [];
 		const wanted = toCt.relations ?? [];
 		for (const edge of previous)
@@ -2860,6 +2865,7 @@ function diffCatalog(
 					caseType: toCt.name,
 					relationChange: { action: "remove", edge },
 				});
+		if (metaChanged) out.push(meta);
 		for (const edge of wanted)
 			if (!previous.some((one) => compareCaseRelations(one, edge) === 0))
 				out.push({
