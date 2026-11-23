@@ -21,7 +21,10 @@ import { answerHeld } from "./echo";
 const id = "targeted-independent-form-choices";
 const uuid = (part: string) => targetedUuid(id, part);
 
-export function independentChoicesBlueprint(appId: string) {
+export function independentChoicesBlueprint(
+	appId: string,
+	withOpeningValues = false,
+) {
 	const menu = uuid("people");
 	const entry = uuid("visit");
 	const choices: FormCaseSelection[] = [
@@ -89,6 +92,9 @@ export function independentChoicesBlueprint(appId: string) {
 	const doc = buildDoc({
 		appId,
 		appName: "Visit two people",
+		...(withOpeningValues && {
+			appSettings: { showSavedForms: false, showIncompleteForms: true },
+		}),
 		caseTypes: [
 			{
 				name: "person",
@@ -124,6 +130,27 @@ export function independentChoicesBlueprint(appId: string) {
 						name: "Visit two people",
 						type: "followup",
 						fields: [
+							...(withOpeningValues
+								? [
+										f({
+											uuid: uuid("opening-name"),
+											kind: "hidden",
+											id: "starting_record",
+											default_value: term(literal("Before")),
+										}),
+										f({
+											uuid: uuid("earlier-name"),
+											kind: "hidden",
+											id: "earlier_value",
+											default_value: term(formField(uuid("opening-name"))),
+										}),
+										f({
+											uuid: uuid("first-name"),
+											kind: "hidden",
+											id: "first_record",
+										}),
+									]
+								: []),
 							f({
 								uuid: uuid("note"),
 								kind: "text",
@@ -195,6 +222,98 @@ export function independentChoicesBlueprint(appId: string) {
 					},
 				],
 			},
+			...(withOpeningValues
+				? [
+						{
+							uuid: uuid("review-menu"),
+							name: "Review visits",
+							caseType: "person",
+							caseListConfig: caseListOf([
+								plainColumn(uuid("review-name-column"), "case_name", "Name"),
+							]),
+							forms: [
+								{
+									uuid: uuid("review-form"),
+									name: "Review a visit",
+									type: "followup" as const,
+									fields: [
+										f({
+											kind: "text",
+											uuid: uuid("review-source"),
+											id: "visitor",
+											label: proseText("Visitor"),
+											default_value: "'Before'",
+										}),
+										f({
+											kind: "hidden",
+											uuid: uuid("review-chain-one"),
+											id: "first_copy",
+											calculate: "concat('Visit ', #form/visitor)",
+										}),
+										f({
+											kind: "hidden",
+											uuid: uuid("review-chain-two"),
+											id: "second_copy",
+											calculate: "concat(#form/first_copy, ' confirmed')",
+										}),
+										f({
+											kind: "hidden",
+											uuid: uuid("review-overwritten"),
+											id: "confirmation",
+											calculate: "concat('Checked: ', #form/second_copy)",
+										}),
+										f({
+											kind: "group",
+											uuid: uuid("review-details"),
+											id: "details",
+											label: proseText("Visit details"),
+											relevant: "#form/visitor != 'Before'",
+											children: [
+												f({
+													kind: "text",
+													uuid: uuid("review-revealed"),
+													id: "description",
+													label: proseText("Description"),
+													default_value: "'Ready'",
+												}),
+											],
+										}),
+										f({
+											kind: "hidden",
+											uuid: uuid("review-early"),
+											id: "earlier_description",
+											default_value:
+												"concat('Seen: ', #form/details/description)",
+										}),
+										...["zero", "one"].map((name, i) =>
+											f({
+												kind: "repeat",
+												uuid: uuid("review-" + name),
+												id: name,
+												label: proseText("Visit entries"),
+												repeat_mode: "count_bound",
+												repeat_count: String(i),
+												children: [
+													f({
+														kind: "hidden",
+														uuid: uuid("review-" + name + "-copy"),
+														id: "copy",
+													}),
+													f({
+														kind: "text",
+														uuid: uuid("review-" + name + "-note"),
+														id: "note",
+														label: proseText("Entry note"),
+													}),
+												],
+											}),
+										),
+									],
+								},
+							],
+						},
+					]
+				: []),
 			{
 				uuid: uuid("assigned-contacts"),
 				name: "Assigned contacts",
@@ -231,6 +350,44 @@ export function independentChoicesBlueprint(appId: string) {
 	];
 	doc.forms[entry].caseSelections = choices;
 	doc.forms[entry].caseOperations = operations;
+	if (withOpeningValues)
+		doc.forms[entry].openingAssignments = [
+			{
+				uuid: uuid("copy-first"),
+				field: uuid("first-name"),
+				source: { kind: "selection", selection: uuid("first") },
+				property: "case_name",
+			},
+			{
+				uuid: uuid("copy-first-to-shared"),
+				field: uuid("opening-name"),
+				source: { kind: "selection", selection: uuid("first") },
+				property: "case_name",
+			},
+			{
+				uuid: uuid("copy-second-to-shared"),
+				field: uuid("opening-name"),
+				source: { kind: "own" },
+				property: "case_name",
+			},
+		];
+	if (withOpeningValues) {
+		// An existing basic form's saved case settings keep their late assignments
+		// even where a destination is calculated or has only a repeat template.
+		const review = doc.forms[uuid("review-form")];
+		review.heldBasicOpening = true;
+		review.openingAssignments = [
+			"review-source",
+			"review-overwritten",
+			"review-zero-copy",
+			"review-one-copy",
+		].map((destination) => ({
+			uuid: uuid(destination + "-assignment"),
+			field: uuid(destination),
+			source: { kind: "own" },
+			property: "case_name",
+		}));
+	}
 	doc.forms[entry].computedDatums = [
 		{
 			uuid: uuid("visit-key"),
@@ -242,7 +399,7 @@ export function independentChoicesBlueprint(appId: string) {
 }
 
 export function independentFormChoices() {
-	const doc = independentChoicesBlueprint(id);
+	const doc = independentChoicesBlueprint(id, true);
 	return targetedDocument({
 		id,
 		rows: [

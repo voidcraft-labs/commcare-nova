@@ -1335,9 +1335,11 @@ it says so. On the wire this populates `usercase_update` and emits the
 `actions_use_usercase`, and the datum rides forms only, so a case list menu
 item's entry carries neither. An advanced form loads the record with an
 `autoload_commcare_user<n>` action, `auto_select.mode: "usercase"`, which
-writes the same datum and assertion. `usercase_preload` stays empty as a stated fence:
-`#user/<prop>` already compiles to the identical `casedb` join, and a preload
-action would be a second representation of one read.
+writes the same datum and assertion. A new starting value from a worker
+record belongs to that advanced load. HQ's basic User Properties page only
+saves worker properties. A historical basic worker preload can keep an
+ordinary worker-property default when the active update supplies the same
+record and moving the read preserves every initialization observation.
 
 **The usercase is behind a paid privilege, and the failure is sharper than it
 looks.** `app_manager/util.py::domain_has_usercase_access` gates it, and on a
@@ -2898,9 +2900,16 @@ The CommCare facts this rests on, read at the pins `proof/pins.json` names
   open action owned by the worker, Nova writes `owner_id` from a generated
   Hidden Value, `nova_owner_<operation id>`
   (`lib/commcare/xform/generatedNodes.ts::advancedOwnerNodeValue`).
-- HQ's build appends a load's preload after every setvalue already in the form,
-  so Nova writes no preload on a load: a preload is the question's default, as
-  in a basic form.
+- HQ's build appends a load's preload after the form's authored ready writes.
+  Nova keeps the question's own starting value and calculation, the UUID of
+  the assignment and its destination, and each named connection to the source
+  property. Different loads can fill one question. The assignment order
+  within each load matters when calculations or relevance read intermediate
+  values. A new form uses the advanced editor's load for these assignments.
+  An imported basic form retains its saved load. A previously adopted field
+  default keeps its equivalent representation while the original source still
+  establishes it. The document, the HQ read-back comparator, the local archive
+  and Preview preserve each of these distinctions.
 - HQ's build checks an advanced module and its forms in
   `helpers/validators.py` (`AdvancedModuleValidator`,
   `AdvancedFormValidator.check_actions`); Nova holds each rule as a kind

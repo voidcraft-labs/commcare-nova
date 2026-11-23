@@ -106,6 +106,9 @@ public class IndependentFormChoicesRuntimeTest {
         String file = NAME + ".m0f0" + (hq ? ".hq.xml" : ".xml");
         SuiteFormRun run = new SuiteFormRun("case", NAME, hq, file, form.getString("xmlns"), record -> {},
             IndependentFormChoicesRuntimeTest::revisit).fill();
+        assertEquals("Before", run.value("/data/earlier_value"));
+        assertEquals(run.record("person-3").getName(), run.value("/data/first_record"));
+        assertEquals(run.record("person-4").getName(), run.value("/data/starting_record"));
         String note = run.value("/data/note");
         assertFalse(note.isEmpty());
         run.apply();
@@ -116,4 +119,22 @@ public class IndependentFormChoicesRuntimeTest {
             assertNull(run.record(id).getProperty("second_note"));
         }
     }
+    @Test public void lateValuesCascadeAndDoNotRunAgainInARepeatsNewRow() throws Exception {
+        JSONObject source = AdvancedFormRuntimeTest.app(NAME).getJSONArray("modules").getJSONObject(2)
+            .getJSONArray("forms").getJSONObject(0);
+        String file = NAME + ".m2f0" + (hq ? ".hq.xml" : ".xml");
+        SuiteFormRun run = new SuiteFormRun("case", NAME, hq, file, source.getString("xmlns"));
+        String visitor = run.record(run.datum("case_id")).getName();
+        assertEquals(visitor, run.value("/data/visitor"));
+        assertEquals("Visit " + visitor + " confirmed", run.value("/data/second_copy"));
+        assertEquals("Checked: Visit " + visitor + " confirmed", run.value("/data/confirmation"));
+        assertEquals("Seen: ", run.value("/data/earlier_description"));
+        assertEquals("Ready", run.value("/data/details/description"));
+        assertEquals(0, run.count("/data/zero"), 0);
+        run.fill();
+        assertEquals(0, run.count("/data/zero"), 0);
+        assertEquals(1, run.count("/data/one"), 0);
+        assertEquals("", run.value("/data/one[1]/copy"));
+    }
+
 }

@@ -3797,7 +3797,7 @@
 		],
 		"valueClass": "load-as-default-same-state",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the question's default value reading `#case/<property>`: HQ appends each load as an `xforms-ready` setvalue after every Vellum setvalue in the form (`XForm.add_case_preloads`), so the load replaces any default of the question's own, and by the condition the move changes nothing",
+		"dispositionCell": "**HELD**: the owning load assigns the selected record's property once when the form opens. A previously adopted equivalent field default stays in its recorded representation while its original source and dependencies agree.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3810,7 +3810,7 @@
 			}
 		},
 		"emission": {
-			"cell": "a Vellum default value: `#case/<prop>` in the XForm (for `name`, `#case/case_name`; for `owner_id`, the expanded casedb path ending in `/@owner_id`, since HQ loads those from `case_name` and the `@owner_id` attribute, `XForm.add_case_preloads`); Nova writes no basic `case_preload`",
+			"cell": "the retained case action or the earlier equivalent field default, with the selected property and question unchanged",
 			"markers": []
 		},
 		"gates": []
@@ -3886,19 +3886,24 @@
 			"schema:PreloadAction.preload"
 		],
 		"valueClass": "load-changes-values",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a preload held with its place at the end of the load: HQ appends it after every setvalue the form holds (`xform.py::XForm.add_case_preloads`), and a default value runs at the question's place. The basic Case Management page draws no load section, and its save keeps a stored `case_preload` (`forms/case_config_ui.js::HQFormActions.from_case_transaction`)",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the ordered starting assignment runs after the form's authored ready values and retains the destination's own initial value and calculation",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the source form's case preload on a retained basic form, or the owning advanced load",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/case-preload-from-parent-paths-into-a-question-outside-any",
@@ -3912,7 +3917,7 @@
 		],
 		"valueClass": "parent-path",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: default value reading the ancestor property (`#case/parent/<prop>`, and `#case/grandparent/<prop>` for `parent/parent/…`), under the same condition",
+		"dispositionCell": "**HELD**: the owning load assigns the selected record's property once when the form opens. A previously adopted equivalent field default stays in its recorded representation while its original source and dependencies agree.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3925,7 +3930,7 @@
 			}
 		},
 		"emission": {
-			"cell": "an XForm setvalue: the Vellum default value, with the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor, and otherwise the expanded casedb path alone, as for a deeper ancestor (the next row; XPath functions and structure, `#case/parent/<prop>`); Nova writes no basic `case_preload`",
+			"cell": "the retained case action or the earlier equivalent field default, with the selected property and question unchanged",
 			"markers": []
 		},
 		"gates": []
@@ -3941,10 +3946,8 @@
 			"schema:PreloadAction.preload"
 		],
 		"valueClass": "other-index-path",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a default value reading that ancestor's property through the expanded casedb path (typed expression model), since Vellum's `#case/` names only `parent` and `grandparent` (`app_schemas/casedb_schema.py`)",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the selected record's property through each named direct connection, in source order, with a missing connection reading blank",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3956,10 +3959,11 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum default value with the expanded path",
+			"cell": "each original index identifier, followed by the property on the owning load",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/case-preload-into-a-question-inside-a-repeat",
@@ -3972,17 +3976,24 @@
 			"schema:PreloadAction.preload"
 		],
 		"valueClass": "inside-repeat",
-		"disposition": "INERT",
-		"dispositionCell": "**INERT**: HQ loads it with an `xforms-ready` setvalue (`XForm.add_case_preloads`; executed), which runs before any row exists and fills none, in a user-added or a counted repeat (executed in Core)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the opening assignment addresses the repeat instances present when the form becomes ready; a template alone supplies no target",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the owning case load retains the repeat question's data path",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/usercase-update-with-condition-always-or-if-read-as-always-xform",
@@ -5471,7 +5482,7 @@
 		"surfaceKeys": ["schema:LoadUpdateAction.preload"],
 		"valueClass": "selection-preload-as-default",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the question's default value reading the selected case's property, the same state (README, \"Load-time values\")",
+		"dispositionCell": "**HELD**: the owning load assigns the selected record's property once when the form opens. A previously adopted equivalent field default stays in its recorded representation while its original source and dependencies agree.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -5484,7 +5495,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`preload`",
+			"cell": "the retained case action or the earlier equivalent field default, with the selected property and question unchanged",
 			"markers": []
 		},
 		"gates": []
@@ -5496,19 +5507,24 @@
 		"item": "`LoadUpdateAction.preload` into a question a later load-time value reads, into a question in a repeat, or from a property path",
 		"surfaceKeys": ["schema:LoadUpdateAction.preload"],
 		"valueClass": "selection-preload-read-later",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a preload held with its place at the end of the load",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the named load's ordered setvalues at their actual position after the form's authored ready values",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the owning load's preload map with paths in execution order",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/loadupdateaction-case-properties",
@@ -7623,17 +7639,51 @@
 			"schema:LoadUpdateAction.preload"
 		],
 		"valueClass": "preload-target-holds-no-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a load into a question that takes no default: Nova holds a preload as the question's default value, and a Hidden Value holds one value source (`HIDDEN_VALUE_BOTH_SOURCES`)",
-		"subject": "case-preloads",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a starting assignment and the question's independent calculation, both at their original execution stages where the owning case action is editable or retained",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the destination is identified by its form data path in the owning load's preload map",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "A historical record load that the source editor cannot create and whose value or timing an ordinary field default cannot reproduce",
+		"surfaceKeys": [
+			"schema:PreloadAction.preload",
+			"schema:LoadUpdateAction.preload"
+		],
+		"valueClass": "source-only-opening-value",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the basic User Properties editor cannot add a load; a source-only reserved property spelling similarly needs an equivalent ordinary field default when the case editor cannot produce its property. A field that cannot take that default, or an intervening read that observes its timing, prevents the conversion.",
+		"subject": "case-preloads",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "HQ's basic User Properties editor only saves worker properties, and its case editor does not offer a reserved property spelling. An equivalent ordinary default can preserve such an app only when its destination and initialization order allow it."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},

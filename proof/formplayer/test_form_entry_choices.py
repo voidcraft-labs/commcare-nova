@@ -2,6 +2,8 @@
 
 from dataclasses import replace
 
+from lxml import etree
+
 from proof.formplayer import apps
 from proof.formplayer.walk import questions, screen_kind
 from proof.observe.casedata import document_case_database
@@ -74,9 +76,20 @@ def test_two_choices_from_one_list_return_to_the_first_and_submit_the_new_pair(
         before = {key: notes(key) for key in available}
         answered = web.answer(form["session_id"], note["ix"], value)
         assert any(q.get("answer") == value for q in questions(answered["tree"])), answered
+        # Retrieve the saved working form through Formplayer's normal current
+        # endpoint. It keeps this session's opening instructions and answers.
+        reopened = apps.web(formplayer_runner, served)
+        current = reopened.form_request("current", form["session_id"])
+        assert any(q.get("answer") == value for q in questions(current["tree"])), current
         sent = len(served.hq.submissions)
-        submitted = web.submit(form["session_id"], {note["ix"]: value})
+        submitted = reopened.submit(form["session_id"], {note["ix"]: value})
         assert submitted.get("status") == "success" and len(served.hq.submissions) == sent + 1, submitted
+        instance = served.hq.submissions[-1].instance
+        submitted_data = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+        names = {row.case_id: row.name for row in database.cases}
+        assert [submitted_data.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
+            "Before", names[third], names[fourth]
+        ]
         after = {key: notes(key) for key in available}
         assert after == {**before, third: (value, before[third][1]), fourth: (before[fourth][0], value)}
         evidence("form-entry-choices", {"offered": available, "before": before, "after": after,

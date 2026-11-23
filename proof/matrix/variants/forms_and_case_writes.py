@@ -257,6 +257,15 @@ def update_from_a_photo(authoring, app_id):
     ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/update_case/update/photo", _update("/data/photo"))
 
 
+def worker_preload_observed_before_its_source_only_write(authoring, app_id):
+    """The basic worker editor preserves historical loads but cannot create them.
+    A form default reading this destination before the late write distinguishes
+    it from the otherwise equivalent ordinary worker-property starting value."""
+    _change(authoring, app_id, "worker-preload-observed", *_default_value("visit_note", "village_seen"), menu=0, form=1)
+    ops.set_json(authoring, app_id, "/modules/0/forms/1/actions/case_preload/preload", {})
+    ops.set_json(authoring, app_id, "/modules/0/forms/1/actions/usercase_preload/preload", {"/data/village_seen": "last_visit_note"})
+
+
 def preload_read_later(authoring, app_id):
     """``hq-case-management``'s first follow-up form's ``visit_note`` given a Default Value reading
     ``village_seen``, which the form's case preload fills."""

@@ -1863,19 +1863,33 @@
 		"id": "hq-advanced/load-preload-read-later",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/loadupdateaction-preload-read-later-in-the-load",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"formName": "Untitled Form",
-			"path": "age_seen"
-		},
 		"change": {
 			"op": "named",
 			"name": "load_preload_read_later"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "age"
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [1, 0]
+					},
+					["notes"]
+				],
+				"pointer": "/default_value/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/load-with-a-blank-product-program",
@@ -17188,20 +17202,43 @@
 		"id": "hq-case-management/preload-from-the-host",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/case-preload-from-any-other-index-path-host-user-a-mixed-path",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"formName": "Followup Form",
-			"path": "village_seen"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/1/actions/case_preload/preload/~1data~1village_seen",
 			"value": "host/village"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/openingAssignments/0/via/0/identifier",
+				"value": "host"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/preload-from-the-parent",
@@ -17227,18 +17264,33 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["status_note"]
+					}
 				],
-				"pointer": "/default_value/term",
-				"value": {
-					"kind": "form-case",
-					"caseType": "household",
-					"property": "village"
-				}
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/openingAssignments/0/via/0/identifier",
+				"value": "parent"
 			}
 		]
 	},
@@ -17253,25 +17305,23 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["status_note"]
+					}
 				],
-				"pointer": "/id",
+				"pointer": "/openingAssignments/0/property",
 				"value": "status_note"
 			},
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["status_note"]
+					}
 				],
-				"pointer": "/default_value",
-				"value": null
+				"pointer": "/heldBasicOpening",
+				"value": true
 			}
 		]
 	},
@@ -17279,15 +17329,6 @@
 		"id": "hq-case-management/preload-into-a-calculated-hidden-value",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 3,
-			"menuName": "Households",
-			"formName": "Followup",
-			"path": "nova_datetime_seen_at"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/3/actions/case_preload",
@@ -17304,7 +17345,40 @@
 					"doc_type": "FormActionCondition"
 				}
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 3]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "seen_at"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 3]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 3]
+					},
+					["nova_datetime_seen_at"]
+				],
+				"pointer": "/kind",
+				"value": "hidden"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/preload-into-a-repeated-question",
@@ -17317,25 +17391,23 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["visits", "visitor"]
+					}
 				],
-				"pointer": "/id",
-				"value": "visitor"
+				"pointer": "/openingAssignments/0/property",
+				"value": "status_note"
 			},
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [1, 0]
-					},
-					["visits", "visitor"]
+					}
 				],
-				"pointer": "/default_value",
-				"value": null
+				"pointer": "/heldBasicOpening",
+				"value": true
 			}
 		]
 	},
@@ -17343,19 +17415,43 @@
 		"id": "hq-case-management/preload-read-later",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"formName": "Followup Form",
-			"path": "village_seen"
-		},
 		"change": {
 			"op": "named",
 			"name": "preload_read_later"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 1]
+					},
+					["visit_note"]
+				],
+				"pointer": "/default_value/term/kind",
+				"value": "field"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/preload-saved-as-always",
@@ -17375,18 +17471,23 @@
 		"holds": [
 			{
 				"key": [
-					"field",
+					"form",
 					{
 						"$xmlns": [0, 1]
-					},
-					["village_seen"]
+					}
 				],
-				"pointer": "/default_value/term",
-				"value": {
-					"kind": "form-case",
-					"caseType": "household",
-					"property": "village"
-				}
+				"pointer": "/openingAssignments/0/property",
+				"value": "village"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/heldBasicOpening",
+				"value": true
 			}
 		]
 	},
@@ -18518,6 +18619,24 @@
 				"update_mode": "always",
 				"doc_type": "ConditionalCaseUpdate"
 			}
+		}
+	},
+	{
+		"id": "hq-case-management/worker-preload-observed-before-its-source-only-write",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 1,
+			"menuName": "Households",
+			"formName": "Followup Form",
+			"path": "village_seen"
+		},
+		"change": {
+			"op": "named",
+			"name": "worker_preload_observed_before_its_source_only_write"
 		}
 	},
 	{
