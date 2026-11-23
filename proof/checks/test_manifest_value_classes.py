@@ -5478,7 +5478,9 @@ def _data_binds_and_itext():
             refused("form", iterations, role, f"{data}page[1]/{data}late[1]/@vellum:role", readings=True),
             accepted("form", iterations, role, f"{data}top[1]/@vellum:role", readings=True),
             accepted("form", iterations, role, f"{data}shown[1]/{data}early[1]/@vellum:role", readings=True),
-            unsettled("form", iterations, role, f"{data}worked[1]/{data}computed[1]/@vellum:role", readings=True),
+            # worked's condition reads a calculation the load cannot settle: a worker-dependent condition is an
+            # ordinary input, and only a suppression the load proves belongs to the class
+            accepted("form", iterations, role, f"{data}worked[1]/{data}computed[1]/@vellum:role", readings=True),
         ),
         "questions/model-iteration-repeat-whose-query-reads-a-form-answer-that-is": (
             refused("form", iterations, role, f"{data}top[1]/@vellum:role", readings=True),  # /data/q, entered later
