@@ -2,11 +2,8 @@ import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
-import {
-	entryPointInventory,
-	moduleUuidOfForm,
-	uuidSchema,
-} from "@/lib/domain";
+import { entryPointInventory, uuidSchema } from "@/lib/domain";
+import { routeContainsForm } from "@/lib/domain/listedForms";
 import {
 	type AuthoringScopeOptions,
 	enclosingAuthoringTable,
@@ -124,10 +121,12 @@ export function bindNamedIdentity(args: {
 				candidates.push(...declarations([input], "moduleUuid", "name"));
 			break;
 		case "form":
+			// A menu listing another menu's forms names the forms it shows; an
+			// ordinary menu, the forms it owns.
 			candidates = named(
 				Object.values(doc.forms).filter(
 					(item) =>
-						!moduleUuid || moduleUuidOfForm(doc, item.uuid) === moduleUuid,
+						!moduleUuid || routeContainsForm(doc, moduleUuid, item.uuid),
 				),
 				(item) => [item.name],
 			);

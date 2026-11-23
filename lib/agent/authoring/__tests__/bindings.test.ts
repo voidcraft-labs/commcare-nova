@@ -4,6 +4,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import {
+	ROUTE,
+	twoMenus,
+	VISIT,
+} from "@/lib/commcare/__tests__/menuFormRoutesFixture";
+import {
 	parseAuthoredFormExpression,
 	parseProseReference,
 } from "@/lib/doc/expressionText";
@@ -475,4 +480,30 @@ it("binds a listed form's name within the menu that owns it, not the menu listin
 		},
 	});
 	expect(input.listed_form.formUuid).toBe(testUuid("listed-binding-visit"));
+});
+
+it("binds a form named through a listing menu to a form that menu shows, and not to one it hides", () => {
+	const doc = twoMenus();
+	const bind = (name: string) => {
+		const input = {
+			target: { kind: "form", moduleUuid: ROUTE, formUuid: name },
+			entryPoint: { id: "clinic-visit-again" },
+		};
+		bindNamedIdentity({
+			toolName: "addEntryPoint",
+			input,
+			scope: { doc },
+			slot: {
+				family: "form",
+				path: ["target", "formUuid"],
+				value: name,
+				replace: (value) => {
+					input.target.formUuid = value;
+				},
+			},
+		});
+		return input.target.formUuid;
+	};
+	expect(bind("Visit")).toBe(VISIT);
+	expect(() => bind("Register")).toThrow(AuthoringInputError);
 });
