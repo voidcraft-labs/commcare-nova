@@ -215,8 +215,6 @@ export const FINDING_COPY: Readonly<
 	"case-list-registration": {
 		never:
 			"The form offered from a case list here returns through the first menu with a case the form doesn't give, or one another form reads as a different kind of case, which Nova doesn't bring in.",
-		"not-yet":
-			"This uses a way of offering a form from the case list, which Nova can't hold yet.",
 	},
 	"case-list-setup": {
 		"not-yet": "This case list is set up in a way Nova can't hold yet.",
