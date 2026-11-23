@@ -10,15 +10,19 @@ failures: a save the harness makes that HQ's view refuses or reads otherwise
 over it would be the harness's), a refusal the harness swallows, a stop the
 capture does not record, and a publish that writes over a value the target
 owns (defect 4): Nova's next publish carries back the UI
-translation, keeps Auto Capture Location, which it leaves out of the body of
-an app that is not a Connect app, and keeps the add-ons and the setting a
-person saved, which Nova's own part of ``add_ons`` and ``profile`` leaves to
-the target.
+translation, and keeps the add-ons and the setting a person saved, which
+Nova's own part of ``add_ons`` and ``profile`` leaves to the target. A
+setting Nova owns and writes on every publish, Auto Capture Location and the
+required Android apps, is the other way round: a person's save of it is a
+change Nova's next publish stops on, and once they confirm the discard it
+writes Nova's value back.
 
 ``targeted-hq-side-state`` and ``targeted-hq-side-lookup`` are each published as Nova's first publish leaves
 them (a workbook where the document has lookup tables, then the create) and their saves made over it: the first
-holds the UI translation, location capture, build profile, add-ons and app settings saves, and its next publish is
-applied over them; the second holds the lookup table a person keeps, over which Nova's next publish stops.
+holds the UI translation, build profile, add-ons and app settings saves, and its next publish is applied over them;
+the second holds the lookup table a person keeps, over which Nova's next publish stops.
+``targeted-hq-side-owned`` holds a person's Auto Capture Location and required Android app, both settings Nova
+owns, and its next publish is the one sent once the person confirmed discarding them.
 ``targeted-kept-values`` holds every value a ``.ccz`` made for the project space mirrors, secure submissions among
 them, which HQ takes only through the app settings page's one save (``views/settings.py::edit_commcare_settings``)
 and answers with 400 at the attribute's own URL (``views/apps.py::edit_app_attr``). A project space without
@@ -42,6 +46,7 @@ from proof.hq.check import hq_check
 STATE = "targeted-hq-side-state"
 LOOKUP = "targeted-hq-side-lookup"
 KEPT = "targeted-kept-values"
+OWNED = "targeted-hq-side-owned"
 RESAVE = "targeted-hq-changes-resave"
 FORMS = "targeted-hq-changes-forms"
 
@@ -178,6 +183,37 @@ def test_every_value_a_local_archive_mirrors_lands_in_hq_and_novas_next_publish_
         refusal, lookups = publish.update(unit, app_id, export.republish, "B")
         assert _landed(refusal, lookups), (refusal, lookups)
         assert kept(operations.held_app(unit, app_id)) == saved
+
+
+def test_novas_confirmed_publish_writes_its_own_value_over_a_setting_a_person_changed_that_nova_owns(hq, core_runner):
+    """Auto Capture Location and a required Android app saved in HQ land there; Nova's next publish, sent once the
+    person confirmed discarding them, leaves HQ holding Nova's values: location off, no required app."""
+    from proof.hq import operations
+    from proof.observe import hqside, publish
+
+    document = _document(OWNED)
+    export = document.exports["minimum"]
+    saves = document.hq_side
+    assert saves["republish"] == "discards"
+    assert export.republish is not None, "The capture holds no republish the person confirmed"
+    with hq_check(export.configuration.hq()) as (unit, _):
+        app_id = _created(unit, export)
+
+        def owned(app):
+            features = (app.profile or {}).get("features") or {}
+            return {"auto_gps_capture": app.auto_gps_capture, "dependencies": features.get("dependencies") or []}
+
+        assert owned(operations.held_app(unit, app_id)) == {"auto_gps_capture": False, "dependencies": []}
+        held = hqside.save(unit, _ops(unit), app_id, saves)
+        assert sorted(held) == sorted(set(saves) - set(hqside.STATEMENTS))
+        assert owned(operations.held_app(unit, app_id)) == {
+            "auto_gps_capture": True,
+            "dependencies": saves["profileFeatures"]["dependencies"],
+        }
+
+        refusal, lookups = publish.update(unit, app_id, export.republish, "B")
+        assert _landed(refusal, lookups), (refusal, lookups)
+        assert owned(operations.held_app(unit, app_id)) == {"auto_gps_capture": False, "dependencies": []}
 
 
 def test_novas_next_publish_stops_over_a_table_a_person_keeps_and_leaves_it_as_it_is(hq, core_runner):

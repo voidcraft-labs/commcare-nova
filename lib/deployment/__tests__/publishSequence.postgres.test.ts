@@ -1556,6 +1556,69 @@ describe("changes made in CommCare HQ", () => {
 		).toEqual({ origin: "push", discarded_by: ACTOR });
 	});
 
+	it("asks before writing its location switch and Android apps over a person's change to either in HQ, and sends its own once confirmed", async () => {
+		/* Nova's push baseline owns both settings, so a person's save of either
+		 * in HQ is a change the next publish names, and only the confirmed
+		 * publish writes Nova's value back. */
+		const doc = await seed();
+		const edits = [
+			(source: Record<string, unknown>) => {
+				source.auto_gps_capture = true;
+			},
+			(source: Record<string, unknown>) => {
+				setDependencies(source, ["org.commcare.dalvik.reminders"]);
+			},
+		];
+		await withPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-live");
+			expect((await publish(doc)).landed).toBe(true);
+			expect((await baselineRow()).ownership).toMatchObject({
+				autoGpsCapture: true,
+				profileFeatures: ["dependencies"],
+			});
+			for (const edit of edits) {
+				const sent = requests(peer).length;
+				serveEdited(peer, SOURCE, "source-live", edit);
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toMatchObject({
+					phase: "preflight",
+					failure: { code: "hq_changed" },
+					remoteChanges: [
+						expect.objectContaining({
+							kind: "app",
+							parts: ["A setting this app writes"],
+							baselineKnown: true,
+						}),
+					],
+				});
+				expect(requests(peer).slice(sent)).toEqual([`GET ${SOURCE}`]);
+				const digest = stopped.remoteChanges[0]?.observedDigest ?? fail();
+				serveEdited(peer, SOURCE, "source-live", edit);
+				const bodies: { app: Record<string, unknown> }[] = [];
+				accepted(peer, 200, HQ_APP, bodies);
+				serve(peer, SOURCE, "source-live");
+				expect(
+					(
+						await publish(doc, [
+							{ kind: "app", novaResourceId: APP, observedDigest: digest },
+						])
+					).landed,
+				).toBe(true);
+				const [body] = bodies;
+				expect(body?.app.auto_gps_capture).toBe(false);
+				expect(
+					(
+						(body?.app.profile as Record<string, unknown> | undefined)
+							?.features as Record<string, unknown> | undefined
+					)?.dependencies,
+				).toBeUndefined();
+			}
+		});
+	});
+
 	it("lands an app whose read back failed, and the next publish asks before writing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
@@ -2520,6 +2583,21 @@ async function publishFresh(
 	accepted(peer, 200);
 	serveEdited(peer, SOURCE, "source-live", readBack);
 	expect((await publish(doc)).landed).toBe(true);
+}
+
+/** `app` with HQ's profile feature `dependencies` set to `apps`, beside its other features. */
+function setDependencies(
+	app: Record<string, unknown>,
+	apps: readonly string[],
+): void {
+	const profile = (app.profile ?? {}) as Record<string, unknown>;
+	app.profile = {
+		...profile,
+		features: {
+			...(profile.features as Record<string, unknown> | undefined),
+			dependencies: [...apps],
+		},
+	};
 }
 
 async function baselineRow() {

@@ -1464,8 +1464,9 @@ async function editInEachKey(): Promise<void> {
  * A person's saves in HQ of values the target owns, one in each key the
  * overlays carry and one beside them: a UI translation, an add-on the app
  * does not need, a setting Nova seeds only where the target holds none, and
- * "Auto Capture Location", which an app that is not a Connect app leaves to
- * the target.
+ * secure submissions, an app setting Nova never writes. (Auto Capture Location
+ * is Nova's own now: a save of it is a change the next publish asks about, which
+ * `targeted-hq-side-owned` holds.)
  */
 const TARGETS_OWN = {
 	uiTranslations: { en: { "home.start": "Begin a visit" } },

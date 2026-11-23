@@ -24,7 +24,7 @@ does (``seams.RedisCounters``) for the answers it refuses with 429.
   update HQ answers for a deleted, a missing and a linked app, and the
   import HQ refuses at its limiter's floor within a second and within a
   minute.
-- the drift groups: for each of the five documents ``DRIFT_DOCUMENTS``
+- the drift groups: for each of the six documents ``DRIFT_DOCUMENTS``
   names, published as Nova's first publish leaves it, two reads of the
   unchanged app (``app-source``, ``app-source-again``), one read after each save its ``hq-side.json``
   names, each made over A in a fork of its own
@@ -248,12 +248,13 @@ def test_the_publish_reads_nova_is_served_are_hqs_own(hq, core_runner, documents
 # The drift groups ---------------------------------------------------------------------------------------------
 
 # The documents whose reads the drift comparison is proven over: a form link (a reference path), media, a person's
-# saves in HQ, and the lookup table.
+# saves in HQ of values Nova keeps and of settings Nova owns, and the lookup table.
 DRIFT_DOCUMENTS = (
     "navigation-base",
     "search-registration-link",
     "case-list-inline",
     "targeted-hq-side-state",
+    "targeted-hq-side-owned",
     "targeted-hq-side-lookup",
 )
 # The privilege HQ's application API requires (``api/resources/__init__.py::HqBaseResource``), which no corpus
