@@ -18,10 +18,8 @@
  */
 
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
-import {
-	type HqAppSource,
-	unreadableMediaIdentity,
-} from "@/lib/commcare/hq/appSource";
+import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { unreadableMediaIdentity } from "@/lib/commcare/hq/mediaMap";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { pythonStrip } from "@/lib/commcare/localeFile";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";

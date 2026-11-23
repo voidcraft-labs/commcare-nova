@@ -17,7 +17,7 @@ import { translationKeyOwner } from "@/lib/commcare/appStringKeys";
 import {
 	readMultimediaMap,
 	unreadableMediaIdentity,
-} from "@/lib/commcare/hq/appSource";
+} from "@/lib/commcare/hq/mediaMap";
 import { servedSchemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { withoutPathOnlyLogoRefs } from "@/lib/commcare/targetLogoRefs";
 import { ownedProfilePart } from "@/lib/commcare/targetOverlay";
