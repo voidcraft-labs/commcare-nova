@@ -27,12 +27,34 @@ import { withCandidate } from "../candidate";
 import { sameJson } from "../jsonCursor";
 import { type TranslationSink, translationEntryFor } from "../translations";
 
+/* The last document each sink's texts were written over, at the sink's
+ * revision then. Every list and search settle projects the same bound
+ * document with the same texts, so they share one written document, and with
+ * it one translation inventory, instead of writing it again for each list. */
+const lastWritten = new WeakMap<
+	TranslationSink,
+	{
+		readonly doc: BlueprintDoc;
+		readonly revision: number;
+		readonly written: BlueprintDoc;
+	}
+>();
+
 /** `doc` with every unit the sink holds written as a translation entry, in each language other
  *  than the source that holds one, against the unit's current source. */
 export function withReadTexts(
 	doc: BlueprintDoc,
 	sink: TranslationSink,
 ): BlueprintDoc {
+	const revision = sink.revision();
+	const last = lastWritten.get(sink);
+	if (last?.doc === doc && last.revision === revision) return last.written;
+	const written = writtenTexts(doc, sink);
+	lastWritten.set(sink, { doc, revision, written });
+	return written;
+}
+
+function writtenTexts(doc: BlueprintDoc, sink: TranslationSink): BlueprintDoc {
 	const given = sink.units();
 	if (!given.length) return doc;
 	const inventory = snapshotTranslationUnits(doc);
