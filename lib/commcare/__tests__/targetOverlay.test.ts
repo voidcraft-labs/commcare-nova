@@ -467,6 +467,34 @@ describe("the whole body and its ownership", () => {
 		expect([translations, add_ons, profile]).not.toContain(undefined);
 	});
 
+	it("turns case sharing off on a target that shares cases where the app shares none, and writes nothing otherwise", () => {
+		const sharing = source({ raw: { case_sharing: true } });
+		const { application: off } = projectApplicationForTarget(
+			application(),
+			sharing,
+			"available",
+			NOVA_FILL,
+		);
+		expect(off.case_sharing).toBe(false);
+		expect(Object.keys(off).at(-1)).toBe("_attachments");
+		const { application: on } = projectApplicationForTarget(
+			application({ case_sharing: true }),
+			sharing,
+			"available",
+			NOVA_FILL,
+		);
+		expect(on.case_sharing).toBe(true);
+		for (const raw of [{}, { case_sharing: false }]) {
+			const { application: body } = projectApplicationForTarget(
+				application(),
+				source({ raw }),
+				"available",
+				NOVA_FILL,
+			);
+			expect(Object.hasOwn(body, "case_sharing")).toBe(false);
+		}
+	});
+
 	it("leaves out each key that equals the target's", () => {
 		const input = application();
 		const { application: first } = projectApplicationForTarget(
