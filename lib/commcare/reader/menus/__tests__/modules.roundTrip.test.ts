@@ -15,6 +15,7 @@ import {
 	type BlueprintDoc,
 	calculatedColumn,
 	caseListWordingUnitId,
+	linkColumn,
 	makeTranslationUnitId,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/expression";
@@ -671,8 +672,13 @@ describe("caseListLabelAsBuilt", () => {
 });
 
 describe("faster loading", () => {
-	/** `caseMenus` with Patients' faster loading on and a calculation kept and deferred. */
-	const optimized = (behavior: "cache" | "defer" | "cache-and-defer") =>
+	const SECOND = asUuid("00000000-0000-4000-8000-0000000c5b01");
+	/** `caseMenus` with Patients' faster loading on and a second column, a calculation unless
+	 *  `link` says a link, holding `behavior`. */
+	const optimized = (
+		behavior: "cache" | "defer" | "cache-and-defer",
+		link = false,
+	) =>
 		produce(caseMenus(), (draft) => {
 			const patients = Object.values(draft.modules).find(
 				(one) => one.name === "Patients",
@@ -681,11 +687,13 @@ describe("faster loading", () => {
 				throw new Error("The fixture holds no Patients menu.");
 			const base = caseListConfig([{ field: "case_name", header: "Name" }]);
 			const visits = {
-				...calculatedColumn(
-					asUuid("00000000-0000-4000-8000-0000000c5b01"),
-					"Visits",
-					term(prop("patient", "case_name")),
-				),
+				...(link
+					? linkColumn(SECOND, "case_name", "Record", "Open")
+					: calculatedColumn(
+							SECOND,
+							"Visits",
+							term(prop("patient", "case_name")),
+						)),
 				loadBehavior: behavior,
 			};
 			patients.caseListConfig = {
@@ -725,6 +733,53 @@ describe("faster loading", () => {
 			).toEqual([undefined, behavior]);
 		},
 	);
+
+	it.each(["cache", "defer", "cache-and-defer"] as const)(
+		"reads a link's %s back as the link's own",
+		async (behavior) => {
+			const reading = await readMenusOf(optimized(behavior, true));
+			expect(codesOf(reading)).toEqual([]);
+			const column = moduleNamed(
+				reading.doc as BlueprintDoc,
+				"Patients",
+			).caseListConfig?.columns.find((one) => one.header === "Record");
+			expect(column?.kind).toBe("link");
+			expect(
+				column !== undefined && "loadBehavior" in column
+					? column.loadBehavior
+					: undefined,
+			).toBe(behavior);
+		},
+	);
+
+	it("reads an attribute column HQ keeps a choice on as the calculation that holds it", async () => {
+		// HQ's Case List page can store an expression column over `@case_id` with a load behavior,
+		// which its build writes; Nova's plain column holds none, so the reading is a calculation.
+		const reading = await readMenusOf(optimized("cache"), (json) => {
+			const module = json.modules[0] as JsonObject;
+			const details = module.case_details as JsonObject;
+			for (const screen of ["short", "long"] as const) {
+				const second = (
+					(details[screen] as JsonObject).columns as JsonObject[]
+				)[1];
+				if (second === undefined) continue;
+				second.field = "@case_id";
+				second.format = "plain";
+				second.useXpathExpression = true;
+			}
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const column = moduleNamed(
+			reading.doc as BlueprintDoc,
+			"Patients",
+		).caseListConfig?.columns.find((one) => one.header === "Visits");
+		expect(column?.kind).toBe("calculated");
+		expect(
+			column !== undefined && "loadBehavior" in column
+				? column.loadBehavior
+				: undefined,
+		).toBe("cache");
+	});
 
 	it("reads past a column's choice where the menu's faster loading is off, which HQ's build never writes", async () => {
 		const reading = await readMenusOf(optimized("cache"), (json) => {

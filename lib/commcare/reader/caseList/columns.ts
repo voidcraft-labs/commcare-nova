@@ -1768,8 +1768,6 @@ function readColumn(
 										kind.texts === undefined && { loadBehavior }),
 								}
 							: ({
-									...(loadBehavior !== undefined &&
-										kind.kind === "link" && { loadBehavior }),
 									...kind,
 									...(via && { via }),
 									...recordSource,
@@ -1841,10 +1839,13 @@ function readColumn(
 						? C.invisibleInTile
 						: C.invisible
 				: C.plain;
+		// A load behavior is a calculated value's, so an attribute column that keeps one reads as
+		// the calculation it is (below), which Nova writes back with the behavior.
 		if (
 			(format === "plain" || hiddenOnList || rowOrder) &&
 			attribute !== undefined &&
-			ATTRIBUTE_PROPERTIES.has(attribute)
+			ATTRIBUTE_PROPERTIES.has(attribute) &&
+			loadBehavior === undefined
 		) {
 			column.take("useXpathExpression", C.fieldAttribute, Boolean).value;
 			column.take("field", C.fieldAttributeField, String).value;
@@ -1896,6 +1897,7 @@ function readColumn(
 				base,
 				others,
 				options,
+				loadBehavior,
 			);
 	}
 
@@ -2778,8 +2780,9 @@ function intervalCandidate(
 }
 
 /** A calculated `markdown` or `translatable-enum` column, read as one of Nova's projections:
- *  a link, an interval, or a plain column over a select property with the choices its label
- *  projection holds (which the comparison of the whole menu holds against the catalog). */
+ *  a link (with the load behavior it keeps), an interval, or a plain column over a select
+ *  property with the choices its label projection holds (which the comparison of the whole menu
+ *  holds against the catalog). */
 function readProjection(
 	ctx: ReadContext,
 	column: JsonCursor,
@@ -2789,6 +2792,7 @@ function readProjection(
 	base: { header: string },
 	others: boolean,
 	options: Pick<ColumnOptions, "relationVia">,
+	loadBehavior: ColumnLoadBehavior | undefined,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
 	const entries = enumEntries(column, codes, sourceCode(ctx));
@@ -2891,7 +2895,14 @@ function readProjection(
 	)
 		return undefined;
 	return {
-		column: { ...candidate, ...base } as ColumnProposal["column"],
+		// A link is the one projection a load behavior is stored on (`storedLoadBehavior`: a
+		// markdown expression column); a translatable-enum's format keeps none.
+		column: {
+			...candidate,
+			...base,
+			...(candidate.kind === "link" &&
+				loadBehavior !== undefined && { loadBehavior }),
+		} as ColumnProposal["column"],
 		header,
 		texts,
 		invisible: false,
