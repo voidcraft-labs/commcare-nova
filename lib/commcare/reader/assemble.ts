@@ -332,6 +332,15 @@ function placementAsRead(doc: BlueprintDoc, form: Uuid): BlueprintDoc {
 	});
 }
 
+/** Every form of `doc` with its controls and submitted answers as the reader
+ *  returns them (`placementAsRead`). */
+export function placementsAsRead(doc: BlueprintDoc): BlueprintDoc {
+	return Object.keys(doc.forms).reduce(
+		(next, form) => placementAsRead(next, form as Uuid),
+		doc,
+	);
+}
+
 export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 	{
 		/** A form whose answers are submitted apart from their screens: a
@@ -340,11 +349,7 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		 *  returns them (`placementAsRead`). */
 		id: "submitted-placement-as-read",
 		kind: "one-wire",
-		apply: (doc) =>
-			Object.keys(doc.forms).reduce(
-				(next, form) => placementAsRead(next, form as Uuid),
-				doc,
-			),
+		apply: (doc) => placementsAsRead(doc),
 	},
 	{
 		/** A Hidden Value whose chosen answer type is the class Nova's automatic

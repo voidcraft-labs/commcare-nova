@@ -702,6 +702,8 @@ def read_variant(authoring, base, app_id, credential, variant, kept) -> VariantO
         "mode": "first-read",
         "input": reading_input(answers, kept.project_answers, media, base, claims="full"),
     }
+    if variant.declaration is not None:
+        request["input"]["declaration"] = variant.declaration.as_json()
     held = [{**hold, "key": hold_key(hold["key"], base_source)} for hold in variant.holds]
     if held:
         request["holds"] = held

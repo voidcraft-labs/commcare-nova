@@ -40,6 +40,7 @@ import {
 	type ReadOutcome,
 	readHqAppSteps,
 } from "@/lib/commcare/reader";
+import { placementsAsRead } from "@/lib/commcare/reader/assemble";
 import type { HeldExpansions } from "@/lib/commcare/reader/heldExpansions";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
@@ -887,7 +888,14 @@ function* fixedPointCheck(
 				}),
 			);
 			const { runsOnlyOn: _declared, ...settings } = under.appSettings;
-			const expected: BlueprintDoc = { ...under, appSettings: settings };
+			// A question the split adds beside answers submitted apart from
+			// their screens prints where the reader slots it
+			// (`assemble.ts::placementsAsRead`), so the split's read is held
+			// to that member of the pair.
+			const expected: BlueprintDoc = placementsAsRead({
+				...under,
+				appSettings: settings,
+			});
 			const printed = underDeclaration(expected, split.choice.runsOnlyOn);
 			const options = calling("readingEmissionOptions", () =>
 				readingEmissionOptions(emitted(printed)),
