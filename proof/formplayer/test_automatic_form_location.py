@@ -28,6 +28,9 @@ def test_web_apps_submits_the_answer_but_no_automatic_device_fix(hq, core_runner
             for sent in submitted:
                 root = etree.fromstring(sent["instance"].encode())
                 [point] = root.xpath("./*[local-name()='place']")
-                assert [float(part) for part in point.text.split()] == [1.5, 2.5, 0.0, 4.0]
+                # The map sends the worker's latitude and longitude alone (``entries.js::GeoPointEntry``,
+                # ``rawAnswer([lat, lng])``), and Core's ``GeoPointData.cast`` holds 0 for the altitude and
+                # accuracy it was not given.
+                assert [float(part) for part in point.text.split()] == [1.5, 2.5, 0.0, 0.0]
                 [location] = root.xpath("./*[local-name()='meta']/*[local-name()='location']")
                 assert location.text is None
