@@ -980,8 +980,14 @@ own three sizes and never follows the rest of the list.
 Use `get_module` to read `detail_tabs`, including each title, tab UUID and ordered field UUIDs. Pass those groups to `set_case_detail_tabs` with each tab’s existing fields in `columnUuids`.
 A tab can show its own records. For example, setting `rowSource` to
 `{"kind":"children","caseType":"visit"}` shows the open visits linked to the
-chosen parent. A `records` source holds a typed collection of cases, table
-rows or places. Use `addFields` to add a header and row expression for each new
+chosen parent, and its `condition`, such as `#row/status = 'due'`, keeps the
+visits it holds. A `records` source's `rows` is `cases('visit')`, the open
+visits on the device, `table-rows('Visits')`, a data table's rows, or
+`places()`, the places the worker can see. Each takes conditions after its
+first argument, as in `cases('visit', #row/status = 'due')`. A field of the
+tab reads one row: `#row/<property>` of a case or table row, and
+`place-field('name')`, `place-level('<level>')` or `place-property('<slug>')`
+of a place. Use `addFields` to add a header and row expression for each new
 field in the same edit. An `orderFields` entry names a field in that tab to use
 as a hidden sort key. The tab’s `displayCondition` reads the selected case.
 

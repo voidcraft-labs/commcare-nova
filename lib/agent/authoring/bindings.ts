@@ -6,6 +6,7 @@ import {
 import {
 	asUuid,
 	type BlueprintDoc,
+	type CaseListConfig,
 	type CaseType,
 	caseDataTypeForFieldKind,
 	caseSelectionCardinality,
@@ -16,6 +17,7 @@ import {
 	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
+import { detailTabForColumn } from "@/lib/domain/detailTabs";
 import {
 	type RecordQueryContext,
 	recordQueryContext,
@@ -41,7 +43,7 @@ import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { AuthoringInputError } from "./errors";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
 import { fieldNameCandidates, fieldPathCandidates } from "./fieldNames";
-import type { QueryPrintContext } from "./printQueryExpression";
+import { type QueryPrintContext, rowCaseType } from "./printQueryExpression";
 import type { QueryBindings } from "./queryExpressions";
 
 export interface NamedAuthoringField {
@@ -69,6 +71,31 @@ export function enclosingAuthoringTable(
 	return tableId;
 }
 
+/** The rows a field of a Details tab reads: a child tab's child cases, a
+ *  records tab's cases of one type or its table's rows. A field of a tab of
+ *  places or of the selected case keeps the menu's scope. */
+function detailTabFieldRows(
+	list: object,
+	index: unknown,
+): { caseType?: string; tableId?: string } | undefined {
+	if (typeof index !== "number" || !("detailTabs" in list)) return undefined;
+	const config = list as CaseListConfig;
+	const column = config.columns?.[index];
+	if (!column || !config.detailTabs || !config.detailColumnOrder)
+		return undefined;
+	const source = detailTabForColumn(config, column.uuid)?.rowSource;
+	if (source?.kind === "children") return { caseType: source.caseType };
+	if (source?.kind !== "records" || typeof source.rows !== "object")
+		return undefined;
+	if (source.rows.kind === "table-rows")
+		return { tableId: source.rows.tableId };
+	if (source.rows.kind === "cases") {
+		const caseType = rowCaseType(source.rows);
+		return caseType === undefined ? undefined : { caseType };
+	}
+	return undefined;
+}
+
 export function authoringValueScope(
 	options: AuthoringScopeOptions,
 	input: unknown,
@@ -77,15 +104,24 @@ export function authoringValueScope(
 ): AuthoringScope {
 	let enclosing = input;
 	let candidateCaseType: string | undefined;
-	for (const segment of path) {
+	let rowTable: string | undefined;
+	for (const [at, segment] of path.entries()) {
 		if (enclosing !== null && typeof enclosing === "object") {
+			// A Details tab over child cases holds its filter beside the child
+			// type, so the filter reads each child as its row.
 			if (
 				"kind" in enclosing &&
-				enclosing.kind === "cases" &&
+				(enclosing.kind === "cases" || enclosing.kind === "children") &&
 				"caseType" in enclosing &&
 				typeof enclosing.caseType === "string"
 			)
 				candidateCaseType = enclosing.caseType;
+			// A field of a Details tab over other records reads one of them.
+			if (segment === "columns") {
+				const rows = detailTabFieldRows(enclosing, path[at + 1]);
+				if (rows?.caseType) candidateCaseType = rows.caseType;
+				if (rows?.tableId) rowTable = rows.tableId;
+			}
 			enclosing = (enclosing as Record<string | number, unknown>)[segment];
 		}
 	}
@@ -96,7 +132,7 @@ export function authoringValueScope(
 			selectedCaseType: options.currentCaseType,
 			currentCaseType: candidateCaseType,
 		}),
-		tableId: enclosingAuthoringTable(input, path, options.tableId),
+		tableId: rowTable ?? enclosingAuthoringTable(input, path, options.tableId),
 		...(searchValidation &&
 			path.some((part) => part === "required" || part === "validation") && {
 				patternMatching: true,
@@ -495,12 +531,25 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		return { module: module.uuid, caseType: module.caseType };
 	}
 	identity(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		name: string,
 		owner?: string,
 	): string {
 		if (kind === "module") return this.module(name).uuid;
 		if (kind === "table") return this.table(name).id;
+		if (kind === "place-property")
+			return one(
+				Object.values(this.options.doc.locationProperties ?? {}),
+				(property) => property.uuid === name || property.slug === name,
+				`Place property ${name}`,
+			).uuid;
 		if (kind === "column") {
 			if (!owner)
 				throw new AuthoringInputError(
@@ -545,12 +594,21 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		});
 	}
 	name(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		id: string,
 		owner?: string,
 	): string {
 		let name: string | undefined;
 		if (kind === "module") name = this.options.doc.modules[id as Uuid]?.name;
+		else if (kind === "place-property")
+			name = this.options.doc.locationProperties?.[id as Uuid]?.slug;
 		else if (kind === "table")
 			name = this.tables.find((table) => table.id === id)?.name;
 		else if (kind === "column")
@@ -574,6 +632,15 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			}
 		}
 		return id;
+	}
+	forRows(caseType: string): AuthoringScope {
+		const { tableId: _table, ...options } = this.options;
+		return new AuthoringScope({
+			...options,
+			candidateCaseType: caseType,
+			selectedCaseType: this.currentCaseType,
+			currentCaseType: caseType,
+		});
 	}
 	forTable(tableId: string): AuthoringScope {
 		return new AuthoringScope({

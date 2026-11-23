@@ -21,13 +21,23 @@ export interface QueryPrintContext {
 	typeContext: RecordQueryContext;
 	forRelation(relation: RelationPath): QueryPrintContext;
 	forTable(tableId: string): QueryPrintContext;
+	/** The scope a condition over the open cases of one type reads them in:
+	 *  `#row/<property>` is the case the condition looks at. */
+	forRows(caseType: string): QueryPrintContext;
 	reference(term: Term): string | undefined;
 	choiceValues(
 		field: Uuid,
 		options: readonly Uuid[],
 	): readonly string[] | undefined;
 	name(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		id: string,
 		owner?: string,
 	): string;
@@ -85,6 +95,23 @@ function relation(value: RelationPath): string {
 	}
 }
 
+/** The one record type a `cases` collection lists, where its first
+ *  condition is `record-type() = '<type>'`, the shape every editor stores. */
+export function rowCaseType(
+	value: Extract<Expression, { kind: "cases" }>,
+): string | undefined {
+	if (value.source !== "casedb") return undefined;
+	const first = value.where[0];
+	if (first?.kind !== "eq") return undefined;
+	const { left, right } = first;
+	return left.kind === "term" &&
+		left.term.kind === "case-row-type" &&
+		right.kind === "term" &&
+		right.term.kind === "case-type"
+		? right.term.caseType
+		: undefined;
+}
+
 export function queryPrinter(context: QueryPrintContext) {
 	const identity = (
 		kind: Parameters<QueryPrintContext["name"]>[0],
@@ -140,6 +167,16 @@ export function queryPrinter(context: QueryPrintContext) {
 				);
 			case "fixed-location":
 				return call("location", identity("location", value.locationUuid));
+			case "location-field":
+				// A field of the place a Details tab of places lists.
+				return typeof value.field === "string"
+					? call("place-field", quote(value.field))
+					: "level" in value.field
+						? call("place-level", identity("level", value.field.level))
+						: call(
+								"place-property",
+								identity("place-property", value.field.property),
+							);
 			case "owner-location-at-level":
 				return call(
 					"owner-location",
@@ -257,13 +294,41 @@ export function queryPrinter(context: QueryPrintContext) {
 			}
 			case "value-list":
 				return call("list", ...value.items.map(expression));
+			case "cases": {
+				// A Details tab's row collection: the device's cases of one type,
+				// each further condition read over a row of that type.
+				const caseType = rowCaseType(value);
+				if (caseType === undefined)
+					throw new Error(
+						"The saved cases tree has no record value spelling: only the device's cases of one record type have one.",
+					);
+				const rows = queryPrinter(context.forRows(caseType));
+				return call(
+					"cases",
+					quote(caseType),
+					...value.where.slice(1).map(rows.predicate),
+				);
+			}
+			case "table-rows": {
+				const rows = queryPrinter(context.forTable(value.tableId));
+				return call(
+					"table-rows",
+					identity("table", value.tableId),
+					...value.where.map(rows.predicate),
+				);
+			}
+			case "locations":
+				if (value.where.length > 0)
+					throw new Error(
+						"The saved places tree has no record value spelling: only every place the worker can see has one.",
+					);
+				return call("places");
 			default:
-				// The device-data reads (`cases`, `table-rows`, `locations`,
-				// `selected-cases`, a `project` that is no chosen case's property)
-				// have no record spelling. No authoring surface stores one and the
-				// reader of CommCare HQ's apps refuses the search values that hold
-				// one (`lib/commcare/reader/expressions/csqlRead.ts`), so none
-				// reaches this printer.
+				// `selected-cases` and a `project` that is no chosen case's
+				// property have no record spelling. No authoring surface stores one
+				// and the reader of CommCare HQ's apps refuses the search values
+				// that hold one (`lib/commcare/reader/expressions/csqlRead.ts`), so
+				// none reaches this printer.
 				throw new Error(
 					`The saved ${value.kind} tree has no record value spelling.`,
 				);

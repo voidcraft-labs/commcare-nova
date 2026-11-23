@@ -120,6 +120,9 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 		forTable(id) {
 			return bindings(caseType, id);
 		},
+		forRows(type) {
+			return bindings(type);
+		},
 	};
 }
 const scope = bindings();
@@ -128,6 +131,7 @@ const printContext: QueryPrintContext = {
 	choiceValues: () => undefined,
 	forRelation: () => printContext,
 	forTable: () => printContext,
+	forRows: () => printContext,
 	name: (_kind, id) => id,
 	reference(term) {
 		if (term.kind === "prop" && !term.via)

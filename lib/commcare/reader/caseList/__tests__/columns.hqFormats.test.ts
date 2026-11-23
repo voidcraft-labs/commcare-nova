@@ -881,19 +881,32 @@ describe("a detail's persistence switches", () => {
 		expect(closedCodes(reading)).toEqual([]);
 	});
 
-	it("raises each switch turned on where no tile persists", async () => {
+	it("reads the case context line HQ defaults to the case's name", async () => {
+		// `models/case_list.py::Detail.persistent_case_context_xml` defaults to
+		// `case_name`, which `EntriesHelper.get_detail_persistent_attr` shows.
+		const reading = await readDetails((short) => {
+			Object.assign(short, { persist_case_context: true });
+		}, false);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).contextAboveForm).toMatchObject({
+			kind: "line",
+			expression: {
+				kind: "term",
+				term: { kind: "prop", property: "case_name" },
+			},
+		});
+	});
+
+	it("raises a pull-down where no tile persists to expand", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {
 				persist_case_context: true,
 				pull_down_tile: true,
 			});
 		});
-		expect(codes(reading)).toEqual(
-			expect.arrayContaining([
-				`${M}detail-persist-case-context-persistent-case-context-xml`,
-				`${M}detail-pull-down-tile`,
-			]),
-		);
+		expect(codes(reading)).toEqual([
+			`${M}form-context-without-a-compatible-case-tile`,
+		]);
 	});
 });
 

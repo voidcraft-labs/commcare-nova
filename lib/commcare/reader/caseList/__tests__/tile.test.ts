@@ -140,11 +140,16 @@ describe("tiles", () => {
 					Object.assign(owner.case_details.short, {
 						case_tile_template: "custom",
 					});
+					// HQ's Case List page writes each placed cell's alignment and
+					// font size with its coordinates.
 					Object.assign(owner.case_details.short.columns[0], {
 						grid_x: 0,
 						grid_y: 0,
 						width: 12,
 						height: 1,
+						horizontal_align: "left",
+						vertical_align: "start",
+						font_size: "medium",
 					});
 					Object.assign(source.case_details.short, {
 						persistent_case_tile_from_module: owner.unique_id,

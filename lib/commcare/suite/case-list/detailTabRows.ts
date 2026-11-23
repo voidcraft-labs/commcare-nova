@@ -4,7 +4,11 @@ import type { Uuid } from "@/lib/domain/uuid";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { LookupWireNaming } from "../../lookup/naming";
 import { w } from "../../xpath/wire/builders";
-import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
+import {
+	toWire,
+	toWireNodes,
+	type WireTermBindings,
+} from "../../xpath/wire/fromExpression";
 import { caseDbInstance, resultsInstance } from "../../xpath/wire/instances";
 
 export type DetailCaseRoot = "casedb" | Parameters<typeof resultsInstance>[0];
@@ -18,7 +22,9 @@ export function detailRowExpressionWire(
 	naming?: LookupWireNaming,
 	bindings?: WireTermBindings,
 ) {
-	return toWire(expression, {
+	// The rows are the detail's nodeset; the filter is a condition.
+	const lower = slot === "case_detail_tab_rows" ? toWireNodes : toWire;
+	return lower(expression, {
 		target,
 		root,
 		types: expressions({ slot, member: { tabUuid } }),

@@ -14,6 +14,7 @@ import {
 	conditionSchema,
 	type Expression,
 	type Literal,
+	locationRowFieldSchema,
 	type RelationPath,
 	relationPathSchema,
 	type Term,
@@ -42,7 +43,14 @@ export interface QueryBindings {
 	 *  property of the scope's record, never a form's record of that type. */
 	recordProperty(caseType: string, property: string): Term;
 	identity(
-		kind: "table" | "column" | "operation" | "location" | "level" | "module",
+		kind:
+			| "table"
+			| "column"
+			| "operation"
+			| "location"
+			| "level"
+			| "module"
+			| "place-property",
 		name: string,
 		owner?: string,
 	): string;
@@ -51,6 +59,8 @@ export interface QueryBindings {
 	chosenCaseMenu(name: string): { module: Uuid; caseType: string };
 	forRelation(relation: RelationPath): QueryBindings;
 	forTable(tableId: string): QueryBindings;
+	/** The scope a condition over the open cases of one type reads them in. */
+	forRows(caseType: string): QueryBindings;
 }
 
 type Node = AuthoredExpression;
@@ -288,6 +298,23 @@ function compiler(bindings: QueryBindings) {
 					ownerCaseType: string(args[1]),
 				};
 			}
+			if (name === "place-field")
+				return {
+					kind: "location-field",
+					field: locationRowFieldSchema.parse(string(args[0])),
+				};
+			if (name === "place-level")
+				return {
+					kind: "location-field",
+					field: { level: bindings.identity("level", string(args[0])) },
+				};
+			if (name === "place-property")
+				return {
+					kind: "location-field",
+					field: {
+						property: bindings.identity("place-property", string(args[0])),
+					},
+				};
 			if (name === "table-column") {
 				const tableId = bindings.identity("table", string(args[0]));
 				return {
@@ -502,6 +529,37 @@ function compiler(bindings: QueryBindings) {
 		if (name === "format-date") {
 			arity(name, args);
 			return { kind: name, date: value(args[0]), pattern: string(args[1]) };
+		}
+		if (name === "cases") {
+			arity(name, args);
+			const caseType = caseTypeNameSchema.parse(string(args[0]));
+			const rows = compiler(bindings.forRows(caseType));
+			return {
+				kind: "cases",
+				source: "casedb",
+				where: [
+					{
+						kind: "eq",
+						left: { kind: "term", term: { kind: "case-row-type" } },
+						right: { kind: "term", term: { kind: "case-type", caseType } },
+					},
+					...args.slice(1).map(rows.predicate),
+				],
+			};
+		}
+		if (name === "table-rows") {
+			arity(name, args);
+			const tableId = bindings.identity("table", string(args[0]));
+			const rows = compiler(bindings.forTable(tableId));
+			return {
+				kind: "table-rows",
+				tableId,
+				where: args.slice(1).map(rows.predicate),
+			};
+		}
+		if (name === "places") {
+			arity(name, args);
+			return { kind: "locations", where: [] };
 		}
 		if (name === "chosen-case") {
 			arity(name, args);

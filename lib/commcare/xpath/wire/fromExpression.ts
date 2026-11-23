@@ -174,6 +174,15 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const { normalized, context } = prepareWire(expr, ctx);
 	return emitExpression(normalized, context);
 }
+/** `toWire` for a consumer that reads the expression as a node-set: a
+ * detail's `nodeset`, which Core evaluates as the rows it lists. A read of an
+ * instance built from its rows alone stays bare there, as it does inside
+ * `count`, since Core counts an empty instance's rows as none and the value
+ * guard's `''` branch is no node-set. */
+export function toWireNodes(expr: Expression, ctx: WireBuildContext): WireExpr {
+	const { normalized, context } = prepareWire(expr, ctx);
+	return emitExpression(normalized, context, "nodes");
+}
 /**
  * A date and time written to a case, as the text CommCare HQ stores
  * (`instant.ts::storedDatetimeValue`): `expr` classified leaf by leaf in its

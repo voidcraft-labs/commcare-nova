@@ -426,6 +426,16 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		// Several values a case value is compared with by `=` or `!=`, in a
 		// slot CommCare's server search alone reads.
 		list: [1, -1],
+		// The records a Details tab lists: the device's cases of one type, a
+		// data table's rows or every place the worker can see.
+		cases: [1, -1],
+		"table-rows": [1, -1],
+		places: [0, 0],
+		// A field of the place a Details tab of places lists: a built-in
+		// field, an organization level's place, or a place property.
+		"place-field": [1, 1],
+		"place-level": [1, 1],
+		"place-property": [1, 1],
 	}).map(([name, [minArgs, maxArgs]]): [string, FunctionArity] => [
 		name,
 		{ minArgs, maxArgs },
