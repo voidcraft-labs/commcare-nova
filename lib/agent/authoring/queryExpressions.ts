@@ -49,6 +49,9 @@ export interface QueryBindings {
 	/** The menu a chosen-case read names, refused unless one case is chosen
 	 *  there: its module and that module's case type. */
 	chosenCaseMenu(name: string): { module: Uuid; caseType: string };
+	/** A record or value the form opens with, by its name or UUID, refused
+	 *  outside a form or where that name is missing or shared. */
+	openingSupply(kind: "form-selection" | "entry-value", name: string): Term;
 	forRelation(relation: RelationPath): QueryBindings;
 	forTable(tableId: string): QueryBindings;
 }
@@ -502,6 +505,16 @@ function compiler(bindings: QueryBindings) {
 		if (name === "chosen-case") {
 			arity(name, args);
 			return chosenCaseId(bindings.chosenCaseMenu(string(args[0])).module);
+		}
+		if (name === "opening-record" || name === "opening-value") {
+			arity(name, args);
+			return {
+				kind: "term",
+				term: bindings.openingSupply(
+					name === "opening-record" ? "form-selection" : "entry-value",
+					string(args[0]),
+				),
+			};
 		}
 		if (name === "chosen-case-property") {
 			arity(name, args);

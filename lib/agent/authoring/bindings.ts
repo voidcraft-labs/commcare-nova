@@ -17,6 +17,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	namedEntrySupplies,
+	namedEntrySupplyRead,
+} from "@/lib/domain/advancedEntryDatums";
+import {
 	type RecordQueryContext,
 	recordQueryContext,
 	type SearchInputDecl,
@@ -501,6 +505,23 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			);
 		return { module: module.uuid, caseType: module.caseType };
 	}
+	openingSupply(kind: "form-selection" | "entry-value", name: string): Term {
+		const { doc, formUuid } = this.options;
+		const supplies = formUuid
+			? namedEntrySupplies(doc, formUuid).filter((row) => row.ref.kind === kind)
+			: [];
+		const identity = supplies.find((row) => row.uuid === name);
+		const matches = identity
+			? [identity]
+			: supplies.filter((row) => row.name === name);
+		if (matches.length !== 1)
+			throw new AuthoringInputError(
+				matches.length
+					? `Several of this form's opening ${kind === "form-selection" ? "records" : "values"} are called ${name}. You can use the stable ID of the one you mean: ${matches.map((row) => row.uuid).join(", ")}.`
+					: `This form has no opening ${kind === "form-selection" ? "record" : "value"} called ${name}. get_form lists the records and values it opens with.`,
+			);
+		return { kind: "session-datum", datum: matches[0].ref };
+	}
 	identity(
 		kind: "table" | "column" | "operation" | "location" | "level" | "module",
 		name: string,
@@ -589,6 +610,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		});
 	}
 	private printReference(term: Term): string | undefined {
+		if (term.kind === "session-datum" && this.options.formUuid)
+			return namedEntrySupplyRead(
+				this.options.doc,
+				this.options.formUuid,
+				term.datum,
+			);
 		if (term.kind === "form-case")
 			return term.caseType === this.options.selectedCaseType
 				? `#case/${term.property}`

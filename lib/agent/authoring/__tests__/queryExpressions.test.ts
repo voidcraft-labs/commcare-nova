@@ -79,6 +79,15 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 		chosenCaseMenu(name) {
 			return { module: asUuid(identity("module", name)), caseType: "Client" };
 		},
+		openingSupply(kind, name) {
+			return {
+				kind: "session-datum",
+				datum:
+					kind === "form-selection"
+						? { kind, selection: asUuid(identity("module", name)) }
+						: { kind, datum: asUuid(identity("module", name)) },
+			};
+		},
 		reference(namespace, path) {
 			const name = path.join("/");
 			if (namespace === "form")
