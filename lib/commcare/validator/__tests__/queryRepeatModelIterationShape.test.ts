@@ -119,6 +119,28 @@ describe("QUERY_REPEAT_MODEL_ITERATION_SHAPE", () => {
 		expect(found && userFacingError(found)).toBe(found?.message);
 	});
 
+	it("words a requested opening over a held count as the unpublished choice it is", () => {
+		const doc = docWith([
+			{
+				kind: "repeat",
+				id: "households",
+				uuid: OUTER,
+				label: "Households",
+				repeat_mode: "user_controlled",
+				children: [queryRepeat({ placement: "count", rowTiming: "on-open" })],
+			},
+		]);
+		const found = finding(doc);
+		expect(found?.details).toMatchObject({
+			reason: "nested",
+			published: "false",
+		});
+		expect(found?.message).toBe(
+			`"Visits to review" takes its rows once, when the form opens, and inside "Households" that would give its rows the wrong records. You can choose As answers change, or keep it outside "Households".`,
+		);
+		expect(found && userFacingError(found)).toBe(found?.message);
+	});
+
 	it("admits one whose query reads an answer, captured as the answer stands at opening", () => {
 		expect(
 			finding(

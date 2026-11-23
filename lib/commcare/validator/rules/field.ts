@@ -675,7 +675,10 @@ function queryRepeatModelIterationShape(
 			: undefined;
 	const words = {
 		repeat: fieldWords(field, ctx),
-		published: field.placement !== undefined,
+		// Only a held model iteration takes its rows at opening in the
+		// published app; a held count already follows its query, and going
+		// back to it moves no record ID.
+		published: field.placement === "model-iteration",
 		outer: fieldWords(outer, ctx),
 		group: fieldWords(group, ctx),
 	};
