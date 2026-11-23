@@ -19,6 +19,10 @@ import {
 	manageInNovaTitle,
 	OPEN_IN_HQ,
 	REFRESH_FROM_HQ,
+	SEPARATE_TABLE,
+	SEPARATE_TABLE_CONFIRM,
+	SEPARATE_TABLE_INDEXES,
+	separateTableTitle,
 } from "@/lib/publish/managedData";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
@@ -330,6 +334,59 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova changes nothi
 			main.getByText(MANAGED_PLACES_NO_PERSONA, { exact: true }),
 		).toBeVisible({ timeout: 20_000 });
 	});
+});
+
+test("Create a separate table points the chosen app at a new Nova table and leaves the copy CommCare HQ manages as it was", {
+	tag: "@seed:managed-data",
+}, async ({ scenario, page }) => {
+	const { managedData } = seedFor(scenario, "managed-data");
+	const { routes } = managedData;
+	test.setTimeout(120_000);
+	const main = page.locator("main");
+	await openBuilder(page, routes.table);
+	await expect(tableBanner(page, MANAGED_TABLE_BADGE)).toBeVisible({
+		timeout: 20_000,
+	});
+	await main.getByRole("button", { name: SEPARATE_TABLE, exact: true }).click();
+	const dialog = page.getByRole("alertdialog", {
+		name: separateTableTitle(seed.table.name),
+	});
+	await expect(dialog).toBeVisible({ timeout: 20_000 });
+	/* CommCare HQ never said which of the copy's columns are indexed, so the
+	 * confirmation says the new table indexes none. */
+	await expect(
+		dialog.getByText(SEPARATE_TABLE_INDEXES, { exact: true }),
+	).toBeVisible();
+	const confirm = dialog.getByRole("button", {
+		name: SEPARATE_TABLE_CONFIRM,
+		exact: true,
+	});
+	await expect(confirm).toBeDisabled();
+	const name = dialog.getByRole("textbox", {
+		name: "New table's name",
+		exact: true,
+	});
+	await expect(name).toHaveValue(`${seed.table.name} 2`);
+	await name.fill(`${seed.table.name} for visits`);
+	await dialog
+		.getByRole("checkbox", { name: seed.appName, exact: true })
+		.click();
+	await expect(confirm).toBeEnabled();
+	await confirm.click();
+	await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+
+	await openBuilder(page, routes.tables);
+	await expect(
+		main.getByRole("button", {
+			name: new RegExp(`${seed.table.name} for visits`),
+		}),
+	).toBeVisible({ timeout: 20_000 });
+	/* The copy is still CommCare HQ's, and offers no edit. */
+	await openBuilder(page, routes.table);
+	await expect(tableBanner(page, MANAGED_TABLE_BADGE)).toBeVisible({
+		timeout: 20_000,
+	});
+	await expectNoTableEdits(page);
 });
 
 test("a disconnected source editor cannot read staged inventory or a mobile worker’s data", {
