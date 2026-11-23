@@ -4357,9 +4357,14 @@ it("uses the parent chosen on this visit for a conditional list action and follo
 		kind: "answer",
 		answers: [{ path: "note", value: "Visited the household" }],
 	});
+	// A follow-up writes no return frame (`CaseListFormWorkflow` skips a form
+	// that registers nothing of the list's type), so its own Previous runs:
+	// HQ's static frame for the form with its final selection popped, which
+	// asks again for the household this form edits.
 	expect(await step({ kind: "submit" })).toMatchObject({
 		savedInTest: true,
-		screen: "home",
+		screen: "browse",
+		name: "Household forms",
 	});
 	await step({ kind: "finish" });
 });

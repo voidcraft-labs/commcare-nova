@@ -1440,7 +1440,12 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} opens on its case list first, so its forms can't read the search. You can open it on Search first or on its results, or turn off Forms read the search.`,
 	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: (e) =>
 		`${q(modName(e))} offers ${q(registrationFormName(e))} when a search finds nothing, but its forms don't read the search. You can turn on Forms read the search, or stop offering the form there.`,
-	CASE_LIST_ACTION_CONDITION_INVALID: (e) => e.message,
+	CASE_LIST_ACTION_CONDITION_INVALID: (e) =>
+		recordFindingCopy(
+			e,
+			`The condition for offering ${q(registrationFormName(e))} on ${q(modName(e))}'s case list`,
+		) ??
+		`The condition for offering ${q(registrationFormName(e))} on ${q(modName(e))}'s case list can't run there. You can change or clear the button condition.`,
 	CASE_LIST_REGISTRATION_NOT_REGISTRATION: (e) =>
 		det(e, "kind", "") === "always"
 			? alwaysNotRegistrationSentence(e)
@@ -1468,9 +1473,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `${q(modName(e))} shows its forms in the menu above, and CommCare offers no Register on the case list of such a menu, so ${q(registrationFormName(e))} would never be offered. You can give ${q(modName(e))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`
 			: `${q(modName(e))} is under ${q(det(e, "aboveModuleName", "its parent"))}, which shows its forms on the app's first menu, where every form listed that way opens one chosen case. CommCare HQ would put that case ahead of ${q(modName(e))} when a worker returns from ${q(registrationFormName(e))}. You can give ${q(det(e, "aboveModuleName", "its parent"))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`,
 	CASE_LIST_REGISTRATION_ADVANCED_MENU: (e) =>
-		det(e, "reason", "") === "host"
-			? `${q(modName(e))} is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering ${q(registrationFormName(e))} there.`
-			: `${q(registrationFormName(e))} is in ${q(det(e, "formModuleName", "its menu"))}, which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
+		`${q(modName(e))} offers ${q(registrationFormName(e))} on its case list, but ${q(det(e, "offendingFormName", "one of its forms"))} chooses its records differently from the menu's other forms. CommCare HQ keeps ${q(modName(e))} as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move ${q(det(e, "offendingFormName", "that form"))} to another menu, or stop offering ${q(registrationFormName(e))} there.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 

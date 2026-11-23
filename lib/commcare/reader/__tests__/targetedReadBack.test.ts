@@ -26,9 +26,11 @@
  * one, and a reader defect raised over Nova's own bytes. The test names every document that
  * does not read back, with its first finding or difference.
  */
+
 import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
@@ -363,6 +365,12 @@ async function readBack(
 		// changed it reaches a project space that applies "save only if
 		// changed", which a bring-in's probe of that project space reads.
 		...(savesOnlyChangedAnswers(doc) && { saveOnlyEditedApplied: true }),
+		// A source whose case-list action reads the case-list action setting
+		// reaches a project space that applies it, which a publish requires
+		// (`registration-after-empty-search`) and a bring-in reads.
+		...(sourceUsesCaseListActionSetting(body) && {
+			caseListActionsApplied: true,
+		}),
 		recordDialect: recordDialectRoundTrip,
 		lookup: catalog,
 		organization: { levelCodes: levels.map((level) => level.code), levels },

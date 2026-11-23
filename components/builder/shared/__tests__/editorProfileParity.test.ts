@@ -308,6 +308,7 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		slot: "search_button_display_condition",
 	},
 	{ entity: "module", uuid: CASE_FIRST, slot: "excluded_owner_ids" },
+	{ entity: "module", uuid: CASE_FIRST, slot: "case_list_action_condition" },
 	...(
 		[
 			["search_input_default", TEXT_INPUT],

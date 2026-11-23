@@ -1444,27 +1444,23 @@ describe("readHqAppForReview", () => {
 	it.each([true, false])(
 		"passes a project’s confirmed case-list action setting through an authenticated read (%s)",
 		async (enabled) => {
+			// A conditional action is what makes the reading ask; the menus stay
+			// as the application resource summarizes them.
 			const withAction = changed(source(), (raw) => {
-				const [menu] = raw.modules as Body[];
-				const [visit, registration] = menu.forms as Body[];
+				const [menu, ...rest] = raw.modules as Body[];
+				const [, registration] = menu.forms as Body[];
 				return {
 					...raw,
 					modules: [
 						{
 							...menu,
-							forms: [visit],
 							case_list_form: {
 								form_id: registration.unique_id,
 								relevancy_expression: "true()",
 								post_form_workflow: "case_list",
 							},
 						},
-						{
-							...menu,
-							unique_id: "b233e2892458427791a72eff2de87ad0",
-							name: { en: "Registration" },
-							forms: [registration],
-						},
+						...rest,
 					],
 				};
 			});

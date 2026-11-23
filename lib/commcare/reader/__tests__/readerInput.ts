@@ -16,6 +16,7 @@ import {
 	retainedBodyJson,
 	retainedGroupRead,
 } from "@/__tests__/helpers/retainedHqReads";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import type { HqAlignedModule } from "../../hq/appReading";
 import { type HqAppSource, readHqAppSource } from "../../hq/appSource";
 import type { HqLocationType } from "../../hq/locations";
@@ -88,6 +89,12 @@ function aligned(source: HqAppSource): HqAlignedModule[] {
 export interface InputOptions {
 	readonly levels?: readonly HqLocationType[];
 	readonly media?: (path: string) => ReaderMediaResolution;
+	/** What the project space answers for the case-list action setting, which
+	 *  a reading asks only of a source that uses it
+	 *  (`hq/caseListActionSetting.ts::sourceUsesCaseListActionSetting`).
+	 *  Absent is a project space that applies it, as a publish of such a
+	 *  source requires. */
+	readonly caseListActionsApplied?: boolean;
 }
 
 export function readerInput(
@@ -107,6 +114,9 @@ export function readerInput(
 		},
 		media: { resolve: options.media ?? (() => ({ kind: "no-entry" })) },
 		appStrings: () => null,
+		...(sourceUsesCaseListActionSetting(source.raw) && {
+			caseListActionsApplied: options.caseListActionsApplied ?? true,
+		}),
 		recordDialect: (() => {
 			throw new Error("These stages never ask the record dialect.");
 		}) as unknown as ReaderInput["recordDialect"],
