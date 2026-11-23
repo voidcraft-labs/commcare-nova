@@ -1809,7 +1809,7 @@ def itemset_property_as_label(authoring, app_id):
     qualify_districts(authoring)
     _change(
         authoring, app_id, "itemset-property-as-label",
-        (DISTRICT_LABEL, '<label ref="name[1]/@lang" />\n<value ref="id" />', 1),
+        (DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL, DISTRICTS + '\n<label ref="name[1]/@lang" />\n<value ref="id" />', 1),
     )
 
 
