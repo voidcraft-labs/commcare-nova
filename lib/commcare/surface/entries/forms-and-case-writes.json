@@ -1579,19 +1579,64 @@
 			"schema:AdvancedModule.case_list_session_endpoint_id"
 		],
 		"valueClass": "through-a-first-menu-that-shares-one-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a link or a deep link through a first menu that keeps one case",
-		"subject": "display-only-forms",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: carry the selected record on the frame through the first menu",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "DIFFERENT (fresh first-menu case choice) / DIFFERENT (first menu retains its shared case)",
+			"webApps": {
+				"reading": "different",
+				"note": "fresh first-menu case choice"
+			},
+			"android": {
+				"reading": "different",
+				"note": "first menu retains its shared case"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "form link or endpoint with its matching selection and command",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "forms-and-case-writes/first-menu-selection-used-for-different-records",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "one selection ID refers to different record types or different collection sizes on a reachable command",
+		"surfaceKeys": [
+			"schema:Form.form_links",
+			"schema:AdvancedForm.form_links",
+			"schema:ShadowForm.form_links",
+			"schema:FormLink.form_id",
+			"schema:Form.session_endpoint_id",
+			"schema:AdvancedForm.session_endpoint_id",
+			"schema:ShadowForm.session_endpoint_id",
+			"schema:Module.session_endpoint_id",
+			"schema:AdvancedModule.session_endpoint_id",
+			"schema:Module.case_list_session_endpoint_id",
+			"schema:AdvancedModule.case_list_session_endpoint_id"
+		],
+		"valueClass": "incompatible-first-menu-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: one selection ID refers to different record types or different collection sizes on a reachable command",
+		"subject": "display-only-forms",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "one selection ID refers to different record types or different collection sizes on a reachable command"
+			}
+		]
 	},
 	{
 		"id": "forms-and-case-writes/form-links-target-the-current-form-or-a-link-cycle",

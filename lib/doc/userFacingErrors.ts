@@ -408,7 +408,7 @@ function alwaysNotRegistrationSentence(e: ValidationError): string {
 }
 
 export function firstMenuSharedCaseSentence(aboveModuleName: string): string {
-	return `Every form listed on the app's first menu from a menu like ${q(aboveModuleName)} opens one chosen case, and CommCare would keep that case on the first menu. You can give ${q(aboveModuleName)} its own screen again to use this.`;
+	return `The first menu could carry a record into a form that needs a different selection. Giving ${q(aboveModuleName)} its own screen lets people choose the record that form needs.`;
 }
 
 const ENTRY_POINT_ID_PROBLEMS: ReadonlySet<string> =

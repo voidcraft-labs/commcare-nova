@@ -226,7 +226,9 @@ export function afterSubmitTargetVisibility(args: {
 	if (form === undefined) return "shown";
 	const chosen = args.caseSelections.filter(
 		(selection) =>
-			selection.moduleUuid === target.moduleUuid && selection.caseId !== "",
+			(selection.moduleUuid === target.moduleUuid ||
+				selection.destinationConsumers?.includes(target.moduleUuid)) &&
+			selection.caseId !== "",
 	);
 	const selectedCase =
 		chosen.length === 1
@@ -642,6 +644,8 @@ export function previewMenuSelectionsAfterTargetCases(
 							},
 						],
 		};
+		for (const recipient of selected.destinationConsumers ?? [])
+			next[recipient] = next[selected.moduleUuid];
 	}
 	for (const collection of collections) {
 		const staleModuleUuids = dependentMenuSelectionUuids(

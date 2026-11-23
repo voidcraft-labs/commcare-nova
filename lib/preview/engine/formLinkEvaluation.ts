@@ -40,6 +40,7 @@
  *     as on a device.
  */
 
+import { homeSelectionConsumers } from "@/lib/commcare";
 import {
 	entryDatumIdResolver,
 	entryFrameDatums,
@@ -360,6 +361,8 @@ export type CarriedCase =
  * visible so the target form's own carried-case datum can be identified
  * without re-running HQ's matching algorithm. */
 export interface TargetCaseSelection {
+	readonly firstMenuConsumers?: readonly Uuid[];
+	readonly destinationConsumers?: readonly Uuid[];
 	readonly datumId: string;
 	readonly moduleUuid: Uuid;
 	readonly caseType: string;
@@ -643,7 +646,27 @@ function targetSelectionPlan(
 					).matched.map((match) => [match.id, match.sourceId]),
 				)
 			: undefined;
-	return { targetDatumId, targetSelections, automaticMatches };
+	return {
+		targetDatumId,
+		targetSelections,
+		automaticMatches,
+		home: homeSelectionConsumers(doc, ctx, targetChildren),
+	};
+}
+
+function firstMenuRecipients(
+	owners:
+		| { modules: ReadonlySet<Uuid>; destinationModules: ReadonlySet<Uuid> }
+		| undefined,
+) {
+	return (
+		owners && {
+			firstMenuConsumers: [...owners.modules],
+			...(owners.destinationModules.size > 0 && {
+				destinationConsumers: [...owners.destinationModules],
+			}),
+		}
+	);
 }
 
 /** The display name the entry's session holds for `value`, when it names a
@@ -671,7 +694,7 @@ export function projectTargetCaseSelections(
 	formUuid: Uuid,
 	entry: FormLinkEntry,
 ): readonly TargetCaseSelection[] {
-	const { targetDatumId, targetSelections, automaticMatches } =
+	const { targetDatumId, targetSelections, automaticMatches, home } =
 		targetSelectionPlan(input.doc, formUuid, entry, input.routeMenuUuid);
 	const { link } = entry;
 	return targetSelections.flatMap((datum) => {
@@ -694,6 +717,7 @@ export function projectTargetCaseSelections(
 		return [
 			{
 				datumId: datum.id,
+				...firstMenuRecipients(home.get(datum)),
 				moduleUuid,
 				caseType: datum.caseType,
 				caseId: held.value,
@@ -710,7 +734,7 @@ export async function projectTargetCaseSelectionsAsync(
 	evaluateAsync: FormLinkAsyncEvaluator,
 	world?: FormLinkWorkerWorld,
 ): Promise<readonly TargetCaseSelection[]> {
-	const { targetDatumId, targetSelections, automaticMatches } =
+	const { targetDatumId, targetSelections, automaticMatches, home } =
 		targetSelectionPlan(input.doc, formUuid, entry, input.routeMenuUuid);
 	const { link } = entry;
 	const projected: TargetCaseSelection[] = [];
@@ -741,6 +765,7 @@ export async function projectTargetCaseSelectionsAsync(
 		}
 		projected.push({
 			datumId: datum.id,
+			...firstMenuRecipients(home.get(datum)),
 			moduleUuid,
 			caseType: datum.caseType,
 			caseId: held.value,

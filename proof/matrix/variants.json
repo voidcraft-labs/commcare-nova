@@ -25062,7 +25062,29 @@
 		"id": "hq-menus/link-through-a-first-menu-sharing-one-case",
 		"base": "hq-menus",
 		"entry": "forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
-		"standing": "not-yet",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/put_in_root",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/formLinks/0/target/type",
+				"value": "form"
+			}
+		]
+	},
+	{
+		"id": "hq-menus/link-through-a-first-menu-with-different-case-types",
+		"base": "hq-menus",
+		"entry": "forms-and-case-writes/first-menu-selection-used-for-different-records",
+		"standing": "never",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -25071,9 +25093,8 @@
 			"name": "Followup Form"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/2/put_in_root",
-			"value": true
+			"op": "named",
+			"name": "link_through_a_first_menu_with_different_case_types"
 		}
 	},
 	{
@@ -26222,7 +26243,28 @@
 		"id": "hq-menus/registration-under-a-display-only-menu-sharing-its-case",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "registration_under_a_display_only_menu_sharing_its_case"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "always"
+			}
+		]
+	},
+	{
+		"id": "hq-menus/registration-under-a-first-menu-with-different-case-types",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case",
+		"standing": "never",
 		"place": {
 			"kind": "case-list",
 			"menu": 2,
@@ -26230,7 +26272,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "registration_under_a_display_only_menu_sharing_its_case"
+			"name": "registration_under_a_first_menu_with_different_case_types"
 		}
 	},
 	{

@@ -9329,25 +9329,58 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "host-under-a-display-only-parent-sharing-one-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Register return whose frame HQ builds through the first menu with that menu's shared case ahead of its first command, which CommCare keeps on the first menu (`firstMenuSharedCase`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the list action can carry its new record through the first menu",
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS / RUNS",
+			"cell": "DIFFERENT (fresh first-menu case choice) / DIFFERENT (first menu retains its shared case)",
 			"webApps": {
-				"reading": "runs"
+				"reading": "different",
+				"note": "fresh first-menu case choice"
 			},
 			"android": {
-				"reading": "runs"
+				"reading": "different",
+				"note": "first menu retains its shared case"
 			}
 		},
 		"emission": {
-			"cell": "`case_list_form.form_id`",
+			"cell": "case list form and its return frame",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/first-menu-registration-return-without-a-compatible-case",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "the return would carry a case the form does not supply or a different kind of case in another command",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "incompatible-first-menu-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the return would carry a case the form does not supply or a different kind of case in another command",
+		"subject": "case-list-registration",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "unrepresentable-identity",
+				"named": "the return would carry a case the form does not supply or a different kind of case in another command"
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/hq-computed-datums-case-id-new-type-n-usercase-id-datum-parent",

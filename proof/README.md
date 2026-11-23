@@ -2022,8 +2022,10 @@ conditions, the previous screen and links into them;
 `targeted-forms-in-menu-above-registration-only` is a first menu whose one form
 registers a case, with a link and an entry point that open with that form's
 computed datum ahead of its command; `targeted-forms-in-menu-above-one-case` is a
-first menu whose every form opens one chosen case, with its default after-submit
-frames; `targeted-register-from-case-list` offers one registration form per case
+first menu whose forms open one chosen case. The Visit deep link opens a specific
+patient. After Previous, Android keeps the patient on the first menu and Formplayer
+rebuilds a fresh choice for Check.
+`targeted-register-from-case-list` offers one registration form per case
 type from every host shape both platforms run (case first, a bare case list, a
 parent chosen first, a tile, a submenu, an ordinary search, a screen that lists
 forms first, two hosts offering one form, a form with its own after-submit), with

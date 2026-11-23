@@ -90,10 +90,14 @@ export function prepareEntryPointLaunch(args: {
 	readonly session: PreviewSearchSessionValues;
 	readonly lookup: PreviewLookupStatus;
 	/** The platform Preview plays: whether display conditions hold, whether
-	 *  the launch claims its cases, and what a case the phone lacks does. */
+	 *  the launch claims its cases, what a case the phone lacks does, and
+	 *  whether a case chosen before the first menu stays in the session. */
 	readonly rules: Pick<
 		PreviewPlatformRules,
-		"entryPointDisplayConditions" | "entryPointClaims" | "entryPointCaseNotHeld"
+		| "entryPointDisplayConditions"
+		| "entryPointClaims"
+		| "entryPointCaseNotHeld"
+		| "poppedEntrySelections"
 	>;
 }): EntryPointLaunchResult {
 	const refuse = (message: string): EntryPointLaunchResult => ({
@@ -140,6 +144,7 @@ export function prepareEntryPointLaunch(args: {
 	const blankCaseIds: string[] = [];
 	// This plan crosses a Server Action boundary; React requires plain objects.
 	const menuSelections: Record<string, PreviewMenuCaseSelection> = {};
+	const firstMenuSelections: Record<string, PreviewMenuCaseSelection> = {};
 	for (const requirement of required) {
 		const selection = args.selections.find(
 			(x) => x.moduleUuid === requirement.moduleUuid,
@@ -182,6 +187,12 @@ export function prepareEntryPointLaunch(args: {
 				};
 			}),
 		};
+		for (const recipient of requirement.destinationConsumers ?? [])
+			menuSelections[recipient] = menuSelections[requirement.moduleUuid];
+		for (const recipient of requirement.firstMenuConsumers ?? []) {
+			if (args.rules.poppedEntrySelections === "session")
+				firstMenuSelections[recipient] = menuSelections[requirement.moduleUuid];
+		}
 	}
 	for (const requirement of required) {
 		if (
@@ -352,6 +363,9 @@ export function prepareEntryPointLaunch(args: {
 			personaUuid: args.personaUuid,
 			ignoreDisplayConditions: bypass,
 			menuSelections,
+			...(required.some(
+				(selection) => selection.firstMenuConsumers !== undefined,
+			) && { firstMenuSelections }),
 			location:
 				target.kind === "form"
 					? {

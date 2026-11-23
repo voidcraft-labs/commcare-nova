@@ -24,6 +24,11 @@ import {
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
 import { submittedEntryPath } from "../engine/formLinkEvaluation";
+import {
+	firstMenuSelections,
+	linkedFirstMenuCases,
+	moduleFirstMenuCases,
+} from "../engine/frameLanding";
 import type { AppTestContext } from "./context";
 import { appTestDataRefusal } from "./dataRefusal";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
@@ -209,6 +214,12 @@ export async function submitAppTest(
 				launch.hostModuleUuid,
 				hostCaseType ?? "",
 				createdCase,
+				context.doc.modules[screen.moduleUuid]?.caseType
+					? {
+							caseType: context.doc.modules[screen.moduleUuid].caseType ?? "",
+							cases: screen.caseIds.map((caseId) => ({ caseId })),
+						}
+					: undefined,
 			);
 			const landingScreen = registrationLanding.screen;
 			const afterSubmitStack = completeAfterSubmitWithOwnFrame(
@@ -260,9 +271,15 @@ export async function submitAppTest(
 					: registrationLanding.newCaseSearchModuleUuids.map((moduleUuid) =>
 							keyedRecords(moduleUuid, registeredCaseId),
 						);
+			const home = firstMenuSelections(
+				registrationLanding.firstMenuCases,
+				selections,
+				context.rules,
+			);
 			const returned: AppTestSessionState = {
 				...state,
-				selections,
+				selections:
+					landingScreen.kind === "first-menu" ? (home ?? {}) : selections,
 				deviceCases,
 				afterSubmitStack,
 				history: [],
@@ -286,9 +303,14 @@ export async function submitAppTest(
 			return {
 				state: {
 					...returned,
-					history: keyed
-						.filter((records) => records !== keyedLanding)
-						.map((records) => appTestHistoryEntry(records, selections)),
+					history: [
+						...(home && landing.kind !== "home"
+							? [appTestHistoryEntry({ kind: "home" }, home)]
+							: []),
+						...keyed
+							.filter((records) => records !== keyedLanding)
+							.map((records) => appTestHistoryEntry(records, selections)),
+					],
 					screen: landing,
 				},
 				identity,
@@ -347,6 +369,27 @@ export async function submitAppTest(
 		/* The back stack records destinations; Back opens a fresh entry,
 		 * which takes its own search results. */
 		const { searchResults: _taken, ...retiredScreen } = screen;
+		const home =
+			next.route.kind === "module" || next.route.kind === "form"
+				? firstMenuSelections(
+						linkedFirstMenuCases(next.route.caseSelections),
+						next.selections,
+						context.rules,
+					)
+				: next.route.kind === "post-submit" &&
+						next.route.destination === "module"
+					? firstMenuSelections(
+							moduleFirstMenuCases(context.doc, screen.moduleUuid),
+							next.selections,
+							context.rules,
+						)
+					: undefined;
+		const linkedHistory = home
+			? [appTestHistoryEntry({ kind: "home" }, home)]
+			: [
+					...state.history,
+					appTestHistoryEntry(retiredScreen, state.selections),
+				];
 		let nextState: AppTestSessionState = {
 			...state,
 			selections: next.selections,
@@ -429,6 +472,7 @@ export async function submitAppTest(
 					case "module":
 						nextState = {
 							...nextState,
+							...(home && { history: linkedHistory }),
 							screen: enterAppTestMenu(
 								{ ...context, identity },
 								nextState,
@@ -446,10 +490,7 @@ export async function submitAppTest(
 						nextState,
 						next.route.moduleUuid,
 					),
-					history: [
-						...state.history,
-						appTestHistoryEntry(retiredScreen, state.selections),
-					],
+					history: linkedHistory,
 				};
 				break;
 			case "form": {
@@ -467,10 +508,7 @@ export async function submitAppTest(
 						caseIds: ids,
 						entryCases: cases,
 					},
-					history: [
-						...state.history,
-						appTestHistoryEntry(retiredScreen, state.selections),
-					],
+					history: linkedHistory,
 				};
 				break;
 			}

@@ -4,6 +4,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import {
 	ENDPOINT_FORM,
+	ENDPOINT_MODULE,
 	endpointWireFixture,
 } from "@/lib/commcare/__tests__/endpointWireFixture";
 import { eq, literal, prop, sessionContext } from "@/lib/domain/expression";
@@ -83,6 +84,35 @@ function args(doc = fixture()) {
 		rules: WEB_APPS_RULES,
 	};
 }
+it.each([
+	["Android", ANDROID_RULES],
+	["Web Apps", WEB_APPS_RULES],
+] as const)(
+	"opens a form listed on the first menu and returns to its platform’s first-menu selection on %s",
+	(_, rules) => {
+		const doc = endpointWireFixture("first-menu");
+		const result = launch({
+			...args(doc),
+			entryPointUuid: testUuid("endpoint-identity"),
+			selections: [{ moduleUuid: ENDPOINT_MODULE, caseIds: ["b"] }],
+			rules,
+		});
+		if (result.kind !== "ready") throw new Error(result.message);
+		expect(result.launch.formTarget?.cases?.map((item) => item.caseId)).toEqual(
+			["b"],
+		);
+		const returned = result.launch.firstMenuSelections;
+		expect(returned).toBeDefined();
+		if (rules === ANDROID_RULES) {
+			expect(Object.keys(returned ?? {}).sort()).toEqual(
+				[ENDPOINT_MODULE, testUuid("endpoint-second-patient-menu")].sort(),
+			);
+			expect(
+				returned?.[testUuid("endpoint-second-patient-menu")].cases[0].caseId,
+			).toBe("b");
+		} else expect(returned).toEqual({});
+	},
+);
 it("installs a supplied registration ID only after validating every argument and a fresh ID in this app", () => {
 	const doc = endpointWireFixture("registration-supplied");
 	const form = doc.forms[ENDPOINT_FORM];

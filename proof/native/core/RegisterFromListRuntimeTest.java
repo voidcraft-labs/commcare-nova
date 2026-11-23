@@ -28,7 +28,7 @@ import static org.junit.Assert.*;
  * return frame then. The new case is written to Core's in-memory case storage to stand for the submitted form's; no
  * form is entered and no submission is processed. */
 public class RegisterFromListRuntimeTest {
- private static final String[] DOCUMENTS={"register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns"};
+ private static final String[] DOCUMENTS={"first-menu-registration","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns"};
  /** The id of the case the form's entry creates: its computed `case_id_new_<type>_0` datum. */
  private static String newCaseDatum(Suite suite,String command){
   for(SessionDatum datum:suite.getEntry(command).getSessionDataReqs())
@@ -105,6 +105,13 @@ public class RegisterFromListRuntimeTest {
     if(offer.getBoolean("hostIsBareCaseList")&&host.equals(expected))assertTrue(label+" landed on "+landed,host.equals(landed)||(host+"-case-list").equals(landed));
     else assertEquals(label,expected,landed);
     if(landing.has("selectsHost"))assertEquals(label,landing.getBoolean("selectsHost"),session.getData().containsValue(newCase));
+    if(document.equals("first-menu-registration")&&created){
+     session.stepBack(session.getEvaluationContext());
+     assertNull(label,session.getCommand());
+     session.setCommand("m0-f0");
+     assertNull(label,session.getNeededData(session.getEvaluationContext()));
+     assertEquals(label,newCase,session.getData().get("case_id"));
+    }
    }
   }
  }

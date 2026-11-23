@@ -9,11 +9,15 @@
 import {
 	type BlueprintDoc,
 	entryPointIdProblem,
+	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
 import { recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { availableEntryCaseCreations } from "../../entryPointProjection";
+import {
+	availableEntryCaseCreations,
+	createEntryPointProjector,
+} from "../../entryPointProjection";
 import { formLinkProjectionContext } from "../../formLinkProjection";
 import { validEntryPoints } from "../../validator/rules/app";
 import { withCandidate } from "../candidate";
@@ -169,18 +173,36 @@ const ENTRY_POINTS = {
 	sharedFirstMenuCase: byClass(
 		FORMS,
 		refuse,
-		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		`${F}/first-menu-selection-used-for-different-records`,
 		"session_endpoint_id",
 	),
 	menuSharedFirstMenuCase: byClass(
 		MENUS,
 		refuse,
-		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		`${F}/first-menu-selection-used-for-different-records`,
 		"session_endpoint_id",
 	),
 	caseListSharedFirstMenuCase: byClass(
 		MENUS,
 		refuse,
+		`${F}/first-menu-selection-used-for-different-records`,
+		"case_list_session_endpoint_id",
+	),
+	firstMenuCase: byClass(
+		FORMS,
+		derived,
+		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		"session_endpoint_id",
+	),
+	menuFirstMenuCase: byClass(
+		MENUS,
+		derived,
+		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		"session_endpoint_id",
+	),
+	caseListFirstMenuCase: byClass(
+		MENUS,
+		derived,
 		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
 		"case_list_session_endpoint_id",
 	),
@@ -495,8 +517,8 @@ export function readEntryPoints(
 /**
  * Pass 2, from `settleMenus`: the gate's deep link rule over the document.
  * An id the gate refuses was refused from the stored ids already; a frame
- * through a first menu that shares one case, a form's, a menu's or a case
- * list's, is that row's finding; any other
+ * that would let a later command read a different record under the same
+ * first-menu argument is placed on the affected route. Any other
  * refusal is a deep link Nova cannot build for a reason no row names.
  */
 export function settleEntryCaseCreations(
@@ -557,7 +579,9 @@ export function settleEntryPoints(ctx: ReadContext): void {
 	const doc = ctx.doc;
 	const read = READ.get(ctx);
 	if (doc === undefined || read === undefined || read.size === 0) return;
-	for (const error of validEntryPoints(doc as BlueprintDoc)) {
+	const errors = validEntryPoints(doc as BlueprintDoc);
+	const invalid = new Set(errors.map((error) => error.details?.entryPointUuid));
+	for (const error of errors) {
 		const details = error.details as
 			| { entryPointUuid?: string; reason?: string }
 			| undefined;
@@ -582,5 +606,40 @@ export function settleEntryPoints(ctx: ReadContext): void {
 			ctx.accounting.circumstance("unrecognized", owner.place, {
 				name: `schema:${owner.docType}.${slot}`,
 			});
+	}
+	if (!doc.moduleOrder.some((menu) => doc.modules[menu]?.formsInMenuAbove))
+		return;
+	const project = createEntryPointProjector(doc);
+	for (const [uuid, { owner, slot }] of read) {
+		if (invalid.has(uuid) || ctx.accounting.hasFindingAt(owner.place)) continue;
+		const moduleUuid =
+			"form" in owner ? moduleUuidOfForm(doc, owner.uuid) : owner.uuid;
+		if (!moduleUuid) continue;
+		const target =
+			"form" in owner
+				? { kind: "form" as const, moduleUuid, formUuid: owner.uuid }
+				: {
+						kind:
+							slot === "session_endpoint_id"
+								? ("module" as const)
+								: ("case-list" as const),
+						moduleUuid,
+					};
+		if (
+			!project(target).requiredSelections.some((row) => row.firstMenuConsumers)
+		)
+			continue;
+		const claim =
+			"form" in owner
+				? ENTRY_POINTS.firstMenuCase[owner.docType]
+				: slot === "session_endpoint_id"
+					? ENTRY_POINTS.menuFirstMenuCase[owner.docType]
+					: ENTRY_POINTS.caseListFirstMenuCase[owner.docType];
+		ctx.accounting.claimEntryClass(
+			{ json: owner.json, key: slot },
+			claim.entry,
+			`schema:${owner.docType}.${slot}`,
+			owner.place,
+		);
 	}
 }

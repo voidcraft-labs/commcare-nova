@@ -10,6 +10,8 @@ export interface EntryPointSelectionRequirement {
 	caseType: string;
 	cardinality: "one" | "multiple";
 	maximum: number;
+	readonly firstMenuConsumers?: readonly Uuid[];
+	readonly destinationConsumers?: readonly Uuid[];
 }
 
 export interface EntryPointCreationRequirement {
@@ -51,11 +53,20 @@ export function createEntryPointRequirements(doc: BlueprintDoc) {
 				availableCreations: projection.availableCreations.map(creation),
 				requiredCreations: projection.requiredCreations.map(creation),
 				requiredSelections: projection.requiredSelections.map(
-					({ moduleUuid, caseType, cardinality, maximum }) => ({
+					({
 						moduleUuid,
 						caseType,
 						cardinality,
 						maximum,
+						firstMenuConsumers,
+						destinationConsumers,
+					}) => ({
+						moduleUuid,
+						caseType,
+						cardinality,
+						maximum,
+						...(firstMenuConsumers && { firstMenuConsumers }),
+						...(destinationConsumers && { destinationConsumers }),
 					}),
 				),
 			};

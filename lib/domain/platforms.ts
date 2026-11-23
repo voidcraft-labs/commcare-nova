@@ -813,7 +813,7 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 	},
 	"first-menu-previous": {
-		label: "Previous screen on the first menu",
+		label: "Selected case on the first menu",
 		channel: "structure",
 		webApps: {
 			reading: "different",

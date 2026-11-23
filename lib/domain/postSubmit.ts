@@ -25,6 +25,7 @@ import { moduleIsBareCaseList } from "./menuForms";
 import {
 	firstMenuCaseOpensAnotherType,
 	firstMenuOpensOneCase,
+	formSuppliesFirstMenuCase,
 } from "./menuScreens";
 import { caseSelectionCardinality, moduleFormsReadSearch } from "./modules";
 import type { Uuid } from "./uuid";
@@ -121,6 +122,7 @@ export function postSubmitModuleFacts(
 	doc: PostSubmitDoc,
 	moduleUuid: Uuid,
 	firstMenuCase: FirstMenuCaseRead = firstMenuCaseRead(doc),
+	formUuid?: Uuid,
 ): PostSubmitModuleFacts | undefined {
 	const mod = doc.modules[moduleUuid];
 	if (mod === undefined) return undefined;
@@ -157,7 +159,11 @@ export function postSubmitModuleFacts(
 		opensWithFirstMenuCase:
 			mod.formsInMenuAbove !== true &&
 			parent?.formsInMenuAbove === true &&
-			firstMenuCase(),
+			firstMenuCase() &&
+			((doc.appSettings?.runsOnlyOn !== "web-apps" &&
+				firstMenuCase.opensAnotherType()) ||
+				!formUuid ||
+				!formSuppliesFirstMenuCase(doc, moduleUuid, formUuid)),
 	};
 }
 
@@ -275,9 +281,12 @@ export function defaultPostSubmitOf(
 ): PostSubmitDestination | undefined {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return undefined;
+	// An absent slot keeps the destination earlier saved apps opened. A form
+	// that supplies the shared root case may explicitly choose its module.
+	const owner = moduleUuidOfForm(doc, formUuid);
 	return defaultPostSubmit(
 		form.type,
-		factsOfForm(doc, formUuid, firstMenuCase) ?? {},
+		(owner && postSubmitModuleFacts(doc, owner, firstMenuCase)) ?? {},
 	);
 }
 
@@ -305,5 +314,5 @@ function factsOfForm(
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	return moduleUuid === undefined
 		? undefined
-		: postSubmitModuleFacts(doc, moduleUuid, firstMenuCase);
+		: postSubmitModuleFacts(doc, moduleUuid, firstMenuCase, formUuid);
 }

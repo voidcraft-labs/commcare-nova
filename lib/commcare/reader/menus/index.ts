@@ -8,13 +8,21 @@
  * that one expansion.
  */
 import type { HqApplication } from "@/lib/commcare";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	formLinkEntries,
+	resolveFormLinkTarget,
+	type Uuid,
+} from "@/lib/domain";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { caseListMenuItemLabelUnit } from "../../emissionPlan";
-import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbove";
+import {
+	firstMenuSharedCaseFrames,
+	linkCarriesFirstMenuCase,
+} from "../../validator/rules/formsInMenuAbove";
 import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection";
 import { rethrowWorkStop } from "../../workMeter";
-import { type Claim, defineClaims, refuse } from "../claims";
+import { type Claim, defineClaims, derived, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl } from "../expressions/printLevel";
@@ -58,10 +66,20 @@ export { registerLinkExpressions } from "./afterSubmit";
 const SHARED_FIRST_MENU_CASE =
 	"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case";
 
+const INCOMPATIBLE_FIRST_MENU_CASE =
+	"forms-and-case-writes/first-menu-selection-used-for-different-records";
 const CLAIMS = defineClaims("menus", {
-	sharedFirstMenuCase: refuse(SHARED_FIRST_MENU_CASE, "schema:Form.form_links"),
-	sharedFirstMenuCaseAdvanced: refuse(
+	heldFirstMenuCase: derived(SHARED_FIRST_MENU_CASE, "schema:Form.form_links"),
+	heldFirstMenuCaseAdvanced: derived(
 		SHARED_FIRST_MENU_CASE,
+		"schema:AdvancedForm.form_links",
+	),
+	sharedFirstMenuCase: refuse(
+		INCOMPATIBLE_FIRST_MENU_CASE,
+		"schema:Form.form_links",
+	),
+	sharedFirstMenuCaseAdvanced: refuse(
+		INCOMPATIBLE_FIRST_MENU_CASE,
 		"schema:AdvancedForm.form_links",
 	),
 	newCaseTakesRootCase: refuse(
@@ -281,6 +299,33 @@ export function* settleMenusSteps(
 	for (const module of app.modules)
 		for (const form of module.forms)
 			acceptAfterSubmit(ctx, form, formOf(form.xmlns));
+	const settledDoc = ctx.doc as BlueprintDoc;
+	for (const module of app.modules)
+		for (const form of module.forms) {
+			const saved = settledDoc.forms[form.uuid];
+			if (!saved || ctx.accounting.hasFindingAt(form.place)) continue;
+			if (
+				formLinkEntries(saved).some((entry) => {
+					const target = resolveFormLinkTarget(
+						settledDoc,
+						form.uuid,
+						entry.link.target,
+					);
+					return target && linkCarriesFirstMenuCase(settledDoc, target);
+				})
+			) {
+				const claim =
+					form.docType === "AdvancedForm"
+						? CLAIMS.heldFirstMenuCaseAdvanced
+						: CLAIMS.heldFirstMenuCase;
+				ctx.accounting.claimEntryClass(
+					{ json: form.json, key: "form_links" },
+					claim.entry,
+					`schema:${form.docType}.form_links`,
+					form.place,
+				);
+			}
+		}
 	settleEntryPoints(ctx);
 	for (const error of firstMenuSharedCaseFrames(ctx.doc as BlueprintDoc)) {
 		if (error.code !== "FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE") continue;

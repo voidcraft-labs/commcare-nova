@@ -598,6 +598,8 @@ property renames, retirement checks and source replacement like other carriers.
 
 A menu may list forms owned by another menu. Its `formsFromMenu.menuUuid` names the source, its exclusions and deep links name source form UUIDs, and its own `formOrder` stays empty. `menuFormUuidsOf` enumerates the visible forms of a particular route. `moduleUuidOfForm` still returns the unique owner. Worker commands address the route menu and source form together. A form read, history entry, case write and translation have one source identity across every route. The route derives the source menu's case type and selection cardinality and owns its list, search, display and media. A source submenu has one child under each route to its parent.
 
-### Previous on the first menu
+### Selections before the first menu command
 
-A form listed on the first menu may explicitly return to the previous screen. Its existing implicit destination stays stable. Where the common first-menu prefix supplies a case, Android can consume that same datum in another command. If a command could load a different type of record under that datum, the planner places a finding and offers First menu for a fresh choice.
+A form listed on the first menu may explicitly return to the previous screen. A form returning to a submenu can carry its existing selection when the submitting entry supplies the first menu’s record. Both use the selection’s identity and cardinality. The default destination on existing forms stays stable when the author gains an additional explicit choice.
+
+On Android, Back to the first menu can leave a case in front of the next command. The projection checks every physical form and case list entry that can reuse that datum. Web Apps starts a fresh first menu and checks the destination it actually opens. A conflicting type or selection maximum places a finding with a route back to a fresh choice. A nested entry can use distinct arguments to ask for a patient and a visit, even though it passes through that same first menu.

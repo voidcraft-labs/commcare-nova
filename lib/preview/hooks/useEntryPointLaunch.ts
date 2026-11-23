@@ -31,6 +31,7 @@ import type {
 	EntryPointSelection,
 } from "../entryPointLaunchTypes";
 import { invalidateCaseData } from "./caseDataInvalidation";
+import { showFrameFirstMenu } from "./showFrameFirstMenu";
 
 export function useEntryPointLaunch() {
 	const session = useBuilderSessionApi();
@@ -115,6 +116,8 @@ export function useEntryPointLaunch() {
 									: {}),
 							};
 				current.installEntryPointLaunch(launch);
+				if (launch.firstMenuSelections !== undefined)
+					showFrameFirstMenu(navigate, session, launch.firstMenuSelections);
 				navigate.push(launch.location);
 			}
 			return result;

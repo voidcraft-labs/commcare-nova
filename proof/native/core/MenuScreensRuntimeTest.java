@@ -47,7 +47,7 @@ import static org.junit.Assert.*;
  * them, and on a list's own details, what Android's details draw. Core's in-memory case storage stands in for a
  * device's; no form is entered and no search or claim reaches a server. */
 public class MenuScreensRuntimeTest {
- private static final String[] DOCUMENTS={"first-menu-previous","forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings","listed-source-forms"};
+ private static final String[] DOCUMENTS={"first-menu-previous","first-menu-link","first-menu-static","first-menu-registration","forms-in-menu-above","forms-in-menu-above-nested","forms-in-menu-above-registration-only","forms-in-menu-above-one-case","register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns","worker-place-read","worker-place-forms","worker-place-menus","undeclared-worker-field-control","menu-landings","listed-source-forms"};
  /** The documents walked for the pinned tile (`<document>.tiles.json`). */
  private static final String[] TILE_DOCUMENTS={"pinned-tile"};
  /** The documents read for a list of workers' data, each refusing some screen for a worker who lacks a field. */
@@ -460,15 +460,37 @@ public class MenuScreensRuntimeTest {
    assertEquals(label,SessionFrame.STATE_DATUM_VAL,fresh.getNeededData(fresh.getEvaluationContext()));
   }
  }
+ /** The submenu's explicit module return copies the patient before its command. After
+  * stepping back, the other form on Home opens on precisely that patient. */
+ @Test public void returningToTheSubmenuKeepsThePatientUnderItsCommand()throws Exception{
+  for(boolean hq:new boolean[]{false,true}){
+   String label="first-menu-static hq="+hq;
+   SessionWrapper session=session(suite("first-menu-static",hq),MockDataUtils.getStaticStorage(),new String[]{"patient-a","patient"});
+   session.setCommand("m1");
+   assertEquals(label,SessionFrame.STATE_DATUM_VAL,session.getNeededData(session.getEvaluationContext()));
+   session.setEntityDatum(session.getNeededDatum().getDataId(),"patient-a");
+   session.setCommand("m1-f0");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertTrue(label,session.finishExecuteAndPop(session.getEvaluationContext()));
+   assertEquals(label,"m1",session.getCommand());
+   assertEquals(label,SessionFrame.STATE_COMMAND_ID,session.getNeededData(session.getEvaluationContext()));
+   session.stepBack(session.getEvaluationContext());
+   assertNull(label,session.getCommand());
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+   session.setCommand("m0-f0");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
+   assertEquals(label,"patient-a",session.getData().get("case_id"));
+  }
+ }
  /** Two top-level menus show their follow-up forms on the first menu, of case types alpha and beta, so every
   * form there opens one chosen case; an ordinary alpha menu's form links to the alpha form above. The link's
   * frame holds the alpha case ahead of the form's command, and once the worker steps back from that form, Core
   * keeps the case: choosing the ordinary beta menu asks for a form and never for a beta case, and the beta form
   * opens on the alpha case. Nova's gate refuses the link (`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`). */
  @Test public void aFrameThroughAFirstMenuThatSharesOneCaseLeavesItsCaseForTheNextForm()throws Exception{
-  for(boolean hq:new boolean[]{false,true}){
-   String label="step-back-control hq="+hq;
-   SessionWrapper session=session(suite("step-back-control",hq),MockDataUtils.getStaticStorage(),new String[]{"alpha-case","alpha"},new String[]{"beta-case","beta"});
+  for(boolean hq:new boolean[]{false,true}) for(String scenario:new String[]{"first-menu-link","step-back-control"}){
+   String label=scenario+" hq="+hq;
+   SessionWrapper session=session(suite(scenario,hq),MockDataUtils.getStaticStorage(),new String[]{"alpha-case","alpha"},new String[]{"beta-case","beta"});
    // The ordinary alpha menu asks for its case first, then for its one form (`CommCareSession.getNeededData`: a menu
    // command names no entry of its own).
    session.setCommand("m2");

@@ -28,6 +28,7 @@ DOCUMENTS = (
     "search-hidden-link",
     "search-remote-defaults",
     "targeted-form-link-hidden-target",
+    "targeted-forms-in-menu-above-one-case",
     "targeted-hidden-from-menu",
     "targeted-listed-forms",
     "targeted-invalid-question-ids",

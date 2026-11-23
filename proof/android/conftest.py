@@ -25,6 +25,7 @@ DOCUMENTS = (
     "localization-bilingual",
     "navigation-base",
     "targeted-form-link-hidden-target",
+    "targeted-forms-in-menu-above-one-case",
     "targeted-hidden-column",
     "targeted-hidden-from-menu",
     "targeted-listed-forms",

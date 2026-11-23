@@ -7,6 +7,7 @@ import {
 	type BlueprintDoc,
 	effectivePostSubmit,
 	materializableCaseTypes,
+	moduleUuidOfForm,
 	proseSurfaceReads,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
@@ -28,6 +29,7 @@ import {
 	appReadsPlaces,
 	expressionReadsCaseDatabase,
 } from "./expressionCaseReads";
+import { moduleFirstMenuCases } from "./frameLanding";
 import { moduleSearchReadsCaseDatabase } from "./searchCsqlRuntime";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
@@ -132,11 +134,19 @@ export function caseDatabaseRequirements(
 	 * device snapshot as its baseline. A form with destinations pushes
 	 * frames that may carry a case, and its otherwise may be Previous; a form
 	 * without them reads its after-submit destination. */
-	const hasAfterSubmitTask = Object.values(doc.forms).some((form) =>
-		form.formLinks !== undefined
-			? true
-			: effectivePostSubmit(doc, form.uuid) === "previous",
-	);
+	const hasAfterSubmitTask = Object.values(doc.forms).some((form) => {
+		if (form.formLinks !== undefined) return true;
+		const destination = effectivePostSubmit(doc, form.uuid);
+		if (destination === "previous") return true;
+		if (destination !== "module" && destination !== "parentMenu") return false;
+		const module = moduleUuidOfForm(doc, form.uuid);
+		const target =
+			module &&
+			(destination === "parentMenu"
+				? doc.modules[module]?.parentModuleUuid
+				: module);
+		return target !== undefined && moduleFirstMenuCases(doc, target).length > 0;
+	});
 	const hasCaseBearingModule = Object.values(doc.modules).some(
 		(module) => module.caseType !== undefined,
 	);

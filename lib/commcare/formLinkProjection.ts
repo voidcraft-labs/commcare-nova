@@ -1995,6 +1995,22 @@ function staticFrameChild(child: FrameChild): PendingChild {
 		: functionChild(datum);
 }
 
+/** A selection a static return reads directly from its submitting entry.
+ * The identifier, case type and multiplicity must all agree. */
+export function sourceOfFrameSelection(
+	source: readonly FrameDatum[],
+	target: FrameDatum,
+): Uuid | undefined {
+	return source.find(
+		(datum) =>
+			datum.id === target.id &&
+			datum.requiresSelection &&
+			!datum.query &&
+			datum.caseType === target.caseType &&
+			datum.maximum === target.maximum,
+	)?.selectionSourceModuleUuid;
+}
+
 /** One return frame of a registration form a case list offers. */
 export interface CaseListFormReturnFrame {
 	readonly ifClause: WireExpr;

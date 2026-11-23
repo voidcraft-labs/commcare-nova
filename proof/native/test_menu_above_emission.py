@@ -18,6 +18,9 @@ FAMILIES = ("menu-screens",)
 
 DOCUMENTS = (
     "first-menu-previous",
+    "first-menu-link",
+    "first-menu-static",
+    "first-menu-registration",
     "forms-in-menu-above",
     "forms-in-menu-above-nested",
     "forms-in-menu-above-one-case",

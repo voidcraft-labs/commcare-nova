@@ -153,7 +153,7 @@ export function OtherwiseChooser({
 	const parentName = useModule(ownModule?.parentModuleUuid)?.name;
 	/* A built-in a menu that shows its forms above withholds stays listed,
 	 * disabled with why. */
-	const previousNotes = useOwnerPlatformFeatures(
+	const firstMenuSelectionNotes = useOwnerPlatformFeatures(
 		{ kind: "form", moduleUuid, formUuid },
 		["first-menu-previous"],
 	);
@@ -475,7 +475,10 @@ export function OtherwiseChooser({
 						{/* App home and First menu open one screen in Web Apps and two
 						 *  on Android: the platform note says so where either is
 						 *  offered, for the platforms the app runs on. */}
-						<PlatformNoteRow features={previousNotes} className="px-2 pt-1" />
+						<PlatformNoteRow
+							features={firstMenuSelectionNotes}
+							className="px-2 pt-1"
+						/>
 						{showsHomeNote && (
 							<PlatformNoteRow
 								features={AFTER_SUBMIT_HOME_NOTE}

@@ -464,6 +464,7 @@ describe("defaultPostSubmit", () => {
 		expect(defaultPostSubmitOf(doc, form)).toBe("firstMenu");
 		expect(postSubmitDestinationsOffered(doc, form)).toEqual([
 			"app_home",
+			"module",
 			"firstMenu",
 		]);
 	});

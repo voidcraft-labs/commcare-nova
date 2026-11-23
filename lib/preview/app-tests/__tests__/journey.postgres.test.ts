@@ -1436,6 +1436,130 @@ it("reports its local clock and uses the same day in list calculations and forms
 	await step({ kind: "finish" });
 });
 
+it.each(["android", "web-apps"] as const)(
+	"returns to the first menu with the submitted patient on %s",
+	async (platform) => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "visit_status", label: proseText("Visit status") },
+					],
+				},
+			],
+			modules: ["Visits", "Checks"].map((name, i) => ({
+				uuid: `first-menu-patient-${i}`,
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: `first-menu-patient-form-${i}`,
+						name: i === 0 ? "Visit" : "Check",
+						type: "followup" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: "status",
+								label: proseText("Visit status"),
+								caseWrite: { caseType: "patient", property: "visit_status" },
+							}),
+						],
+					},
+				],
+			})),
+		});
+		const [visits, checks] = doc.moduleOrder;
+		const visit = doc.formOrder[visits][0],
+			check = doc.formOrder[checks][0];
+		doc.modules[visits].formsInMenuAbove = true;
+		doc.modules[checks].formsInMenuAbove = true;
+		doc.forms[visit].postSubmit = "previous";
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		let current = await startAppTest(scope, {
+			requestId: "first-menu-start",
+			expectedBlueprintSeq: 0,
+			input: {
+				purpose: "Carry the patient from Visit to Check",
+				platform,
+				scenario: {
+					records: [
+						{
+							id: "patient-a",
+							caseType: "patient",
+							name: "Anne",
+							properties: { visit_status: "Planned" },
+						},
+						{
+							id: "patient-b",
+							caseType: "patient",
+							name: "Bao",
+							properties: { visit_status: "Scheduled" },
+						},
+					],
+				},
+			},
+		});
+		let request = 0;
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `first-menu-${++request}`,
+				expectedStep: current.step,
+				action,
+			});
+			expect(current.observation.error).toBeUndefined();
+			return current.observation;
+		};
+		if (platform === "android") await step({ kind: "continue" });
+		expect(await step({ kind: "form", formUuid: visit })).toMatchObject({
+			screen: "browse",
+		});
+		await step({ kind: "select", caseIds: ["patient-b"] });
+		await step({ kind: "continue" });
+		await step({
+			kind: "answer",
+			answers: [{ path: "status", value: "Seen" }],
+		});
+		expect(await step({ kind: "submit" })).toMatchObject({
+			screen: "home",
+			savedInTest: true,
+		});
+		const sibling = await step({ kind: "form", formUuid: check });
+		if (platform === "android") {
+			expect(sibling).toMatchObject({
+				screen: "form",
+				questions: expect.arrayContaining([
+					expect.objectContaining({ path: "status", value: "Seen" }),
+				]),
+			});
+			await step({ kind: "home" });
+			await step({ kind: "continue" });
+			expect(await step({ kind: "form", formUuid: check })).toMatchObject({
+				screen: "browse",
+			});
+		} else {
+			expect(sibling).toMatchObject({ screen: "browse" });
+			await step({ kind: "select", caseIds: ["patient-a"] });
+			expect(await step({ kind: "continue" })).toMatchObject({
+				screen: "form",
+				questions: expect.arrayContaining([
+					expect.objectContaining({ path: "status", value: "Planned" }),
+				]),
+			});
+		}
+		await step({ kind: "finish" });
+	},
+);
+
 it.each([
 	{
 		chooser: false,

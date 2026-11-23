@@ -14,6 +14,7 @@ export const endpointScenarios = [
 	"inline",
 	"registration",
 	"registration-supplied",
+	"first-menu",
 	"child",
 	"module",
 	"case-list",
@@ -89,6 +90,25 @@ export function endpointWireFixture(
 					},
 				],
 			},
+			...(scenario === "first-menu"
+				? [
+						{
+							uuid: testUuid("endpoint-second-patient-menu"),
+							name: "Checks",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									name: "Check",
+									type: "followup" as const,
+									fields: [f({ kind: "text", id: "note" })],
+								},
+							],
+						},
+					]
+				: []),
 		],
 	});
 	const module = doc.modules[ENDPOINT_MODULE],
@@ -101,6 +121,7 @@ export function endpointWireFixture(
 			...entryPoint,
 			...(registration ? { ignoreDisplayConditions: true as const } : {}),
 		};
+	if (scenario === "first-menu") module.formsInMenuAbove = true;
 	if (scenario === "registration-supplied") {
 		const own = form.caseOperations?.find(
 			(operation) => operation.action === "own",

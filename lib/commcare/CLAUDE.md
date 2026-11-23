@@ -1131,12 +1131,10 @@ refuses an otherwise outside the same set less `app_home`
 refuses is unoffered (`previous` where exactly one of the menu and its parent
 selects several cases, `previous` in a menu whose forms read the search, `parentMenu`
 with no parent, `module` in a menu that shows its forms above, `parentMenu`
-under one, and `previous` for a form listed on the first menu, which is Nova's
-own narrowing, as is `module` in a submenu that keeps its screen under a
-top-level menu above while every form of every menu above opens one chosen
-case, `menu-opens-with-first-menu-case`, whose finding is the app rule
-`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`), so the one rule covers the editor
-and the build. The SA only
+under one). A static destination through the shared first menu requires a compatible
+selection in the submitting entry. Android keeps that datum when the worker
+steps back, so another reachable command must consume it with the same type
+and multiplicity. Web Apps rebuilds the chosen command path and starts Home fresh. The SA only
 sets `post_submit` when overriding the default.
 
 ### Ordinary nested menus
@@ -1301,12 +1299,12 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   datums. The module command is the menu id (`menuIdOf`); where it is `root`
   there is none, and the prefix runs over the form entries of every menu that
   shows its forms above (`_root_module_datums`). The parent prepend drops
-  every child whose id, a command's or a datum's, the parent part holds. No
-  frame of an admitted document holds a selection ahead of its first command
-  (`frameLeadsWithSelection`): `previous` is not offered to a form listed on
-  the first menu, `module` is not offered in a submenu whose screen opens with
-  the first menu's shared case, and a link, an entry point or a Register return
-  whose frame would open with that case is refused (`firstMenuSharedCase`). A single-form module's whole datum list is that prefix, so its
+  every child whose id, a command's or a datum's, the parent part holds. `homeSelectionConsumers` reads each physical selection before the first
+  command. A link, deep link, static module return or list action installs
+  the selection for the destination that consumes that ID. On Android, Back
+  to Home also carries the datum to each command requesting it. On Web Apps,
+  Home starts fresh. A conflicting kind or count of records refuses at the
+  authoring slot. A single-form module's whole datum list is that prefix, so its
   selection datum is hoisted AHEAD of the form command. For a child target HQ
   prepends the root module frame and its common user selections; a module target
   carries that root path plus the child command, while a form target carries the

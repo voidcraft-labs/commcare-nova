@@ -126,6 +126,11 @@ import {
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import {
+	firstMenuSelections,
+	linkedFirstMenuCases,
+	moduleFirstMenuCases,
+} from "@/lib/preview/engine/frameLanding";
+import {
 	previewSessionValues,
 	type ResolvedPreviewIdentity,
 } from "@/lib/preview/engine/identity";
@@ -133,6 +138,7 @@ import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import {
 	resolvePreviousTask,
 	selectionsForModuleTask,
+	selectionsForStaticModuleTask,
 } from "@/lib/preview/engine/previousTask";
 import { moduleSearchReadsCaseDatabase } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -153,6 +159,7 @@ import {
 	invalidateCaseData,
 	useCaseDataReplacementRevision,
 } from "@/lib/preview/hooks/caseDataInvalidation";
+import { showFrameFirstMenu } from "@/lib/preview/hooks/showFrameFirstMenu";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
@@ -187,10 +194,7 @@ import {
 } from "@/lib/preview/submitOffer";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import {
-	endPreviewStandingSearches,
-	recordPreviewSelections,
-} from "@/lib/routing/useClientPath";
+import { endPreviewStandingSearches } from "@/lib/routing/useClientPath";
 import {
 	useAccessPhase,
 	useAppId,
@@ -1473,20 +1477,35 @@ export function FormScreen({ screen }: FormScreenProps) {
 		(
 			dest: PostSubmitDestination,
 			submittedModuleUuid: Uuid | undefined,
-			submittedDoc: BlueprintDoc,
+			submitted: SubmittedContextSnapshot,
+			deviceCases: CaseDatabaseSnapshot = submitted.caseDatabase,
 		): void => {
+			const submittedDoc = submitted.doc;
 			/* Open a module with the selections its frame keeps: its own for
 			 * `module`, the parent's for `parentMenu`. */
 			const openModuleTask = (targetModuleUuid: Uuid): void => {
-				const selections = selectionsForModuleTask(
+				const selections = selectionsForStaticModuleTask(
 					submittedDoc,
 					targetModuleUuid,
 					session.getState().previewMenuCaseSelections,
+					submitted.entrySession?.values,
+					deviceCases,
 				);
 				setPreviewMenuCaseSelection(
 					targetModuleUuid,
 					selections[targetModuleUuid],
 				);
+				const prefix = moduleFirstMenuCases(submittedDoc, targetModuleUuid);
+				for (const root of prefix) {
+					setPreviewMenuCaseSelection(
+						root.moduleUuid,
+						selections[root.moduleUuid],
+					);
+					for (const recipient of root.destinationConsumers)
+						setPreviewMenuCaseSelection(recipient, selections[recipient]);
+				}
+				const home = firstMenuSelections(prefix, selections, platformRules);
+				if (home) showFrameFirstMenu(navigate, session, home);
 				navigate.openModule(targetModuleUuid);
 			};
 			switch (dest) {
@@ -1706,7 +1725,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				dispatchPostSubmit(
 					"firstMenu",
 					noMatchesRegistration.moduleUuid,
-					submitted.doc,
+					submitted,
 				);
 				return;
 			}
@@ -1755,6 +1774,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 				hostModuleUuid,
 				submitted.doc.modules[hostModuleUuid]?.caseType ?? "",
 				createdCase,
+				submitted.moduleCaseType && submitted.cases
+					? { caseType: submitted.moduleCaseType, cases: submitted.cases }
+					: undefined,
 			);
 			for (const moduleUuid of Object.keys(current))
 				if (next[moduleUuid] === undefined)
@@ -1809,8 +1831,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 				);
 			settleAttempt({ kind: "idle" });
 			forgetCompletedPages();
-			if (landingScreen.kind === "first-menu") navigate.goHome();
-			else navigate.openModule(landingScreen.moduleUuid);
+			const home = firstMenuSelections(
+				registrationLanding.firstMenuCases,
+				next,
+				platformRules,
+			);
+			if (home) showFrameFirstMenu(navigate, session, home);
+			if (landingScreen.kind !== "first-menu")
+				navigate.openModule(landingScreen.moduleUuid);
+			else if (!home) navigate.goHome();
 			return;
 		}
 		/* A form without destinations, with nothing pending, goes straight to
@@ -1829,7 +1858,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 			dispatchPostSubmit(
 				submitted.destination,
 				submitted.moduleUuid,
-				submitted.doc,
+				submitted,
+				result.caseDatabasePatch
+					? overlayCaseDatabasePatch(
+							submitted.caseDatabase,
+							result.caseDatabasePatch,
+						)
+					: submitted.caseDatabase,
 			);
 			return;
 		}
@@ -2158,7 +2193,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				announceWrite();
 				settleAttempt({ kind: "idle" });
 				forgetCompletedPages();
-				dispatchPostSubmit("app_home", sourceModuleUuid, submitted.doc);
+				dispatchPostSubmit("app_home", sourceModuleUuid, submitted);
 				return;
 			}
 			const { route } = next;
@@ -2251,6 +2286,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 								projectedSelections,
 							)
 						: projectedSelections;
+				const home = firstMenuSelections(
+					linkedFirstMenuCases(route.caseSelections),
+					projectedSelections,
+					platformRules,
+				);
+				if (home) showFrameFirstMenu(navigate, session, home);
 				for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
 					const next = nextSelections[selectedModuleUuid];
@@ -2294,19 +2335,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 					settleAttempt({ kind: "idle" });
 					forgetCompletedPages();
 					if (next.kind === "home") {
-						navigate.goHome();
-						if (Object.keys(route.task.selections).length > 0) {
-							const current = session.getState();
-							recordPreviewSelections(() => ({
-								session: current.previewSessionId,
-								selections: {
-									task: current.previewTaskId,
-									menu: route.task.selections,
-									selected: undefined,
-									target: undefined,
-								},
-							}));
-						}
+						showFrameFirstMenu(navigate, session, route.task.selections);
 					} else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
 					else {
 						setPreviewCaseTarget({
@@ -2341,7 +2370,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 					dispatchPostSubmit(
 						route.destination,
 						submitted.moduleUuid,
-						submitted.doc,
+						submitted,
+						refreshedCaseDatabase,
 					);
 					return;
 				case "module":
@@ -2872,7 +2902,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 							? "module"
 							: submitted.destination,
 					submitted.moduleUuid,
-					submitted.doc,
+					submitted,
 				);
 				return;
 			}

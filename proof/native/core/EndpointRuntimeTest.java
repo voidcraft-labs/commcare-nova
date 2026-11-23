@@ -5,6 +5,7 @@ import java.util.*;
 import org.commcare.core.interfaces.VirtualDataInstanceStorage;
 import org.commcare.data.xml.VirtualInstances;
 import org.commcare.session.CommCareSession;
+import org.commcare.session.SessionFrame;
 import org.commcare.suite.model.*;
 import org.commcare.util.CommCarePlatform;
 import org.commcare.xml.SuiteParser;
@@ -32,7 +33,7 @@ public class EndpointRuntimeTest {
   public boolean contains(String key){return values.containsKey(key);}
  }
  @Test public void argumentsBuildNativeSelectionsAndNavigationFrames()throws Exception{
-  for(boolean hq:new boolean[]{false,true})for(String scenario:new String[]{"single","multiple","inline","registration","registration-supplied","child","module","case-list"}){
+  for(boolean hq:new boolean[]{false,true})for(String scenario:new String[]{"single","multiple","inline","registration","registration-supplied","first-menu","child","module","case-list"}){
    Suite suite=suite(scenario,hq);Endpoint endpoint=suite.getEndpoint("visit");assertNotNull(endpoint);
    assertEquals(!scenario.startsWith("registration"),endpoint.isRespectRelevancy());
    CommCarePlatform platform=new CommCarePlatform(2,53,0);platform.registerSuite(suite);CommCareSession session=new CommCareSession(platform);
@@ -73,6 +74,16 @@ public class EndpointRuntimeTest {
     assertEquals(scenario+" hq="+hq,scenario.equals("registration")||scenario.equals("child")?1:0,computed);
     assertNull(scenario+" hq="+hq,session.getNeededDatum());
     for(var arg:args.entrySet())assertEquals(arg.getValue(),session.getData().get(arg.getKey()));
+    if(scenario.equals("first-menu")){
+     session.stepBack(context);
+     assertNull("Back returns to the first menu",session.getCommand());
+     assertEquals("case-one",session.getData().get("case_id"));
+     session.setCommand("m1");
+     assertEquals(SessionFrame.STATE_COMMAND_ID,session.getNeededData(context));
+     session.setCommand("m1-f0");
+     assertNull(session.getNeededDatum());
+     assertEquals("case-one",session.getData().get("case_id"));
+    }
    }
   }
  }

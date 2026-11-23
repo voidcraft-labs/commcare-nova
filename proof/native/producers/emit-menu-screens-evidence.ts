@@ -1153,9 +1153,10 @@ for (const [name, make] of [
 		);
 }
 
-/** The step-back control: built past the gate, which refuses its link
- *  (`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`). */
-function stepBackControl(): BlueprintDoc {
+/** Both siblings sharing the chosen case type and the otherwise identical
+ * control whose other command would read that ID as a different type. */
+function linkedFirstMenu(distinctTypes: boolean): BlueprintDoc {
+	const secondType = distinctTypes ? "beta" : "alpha";
 	const followUp = (uuid: string, name: string, extra: object = {}) => ({
 		uuid,
 		name,
@@ -1181,7 +1182,7 @@ function stepBackControl(): BlueprintDoc {
 			{
 				uuid: "step-beta-above",
 				name: "Beta above",
-				caseType: "beta",
+				caseType: secondType,
 				caseListConfig: list(),
 				forms: [followUp("step-beta-above-form", "Beta check")],
 			},
@@ -1207,7 +1208,7 @@ function stepBackControl(): BlueprintDoc {
 			{
 				uuid: "step-beta",
 				name: "Beta",
-				caseType: "beta",
+				caseType: secondType,
 				caseListConfig: list(),
 				forms: [followUp("step-beta-form", "Beta visit")],
 			},
@@ -1323,8 +1324,71 @@ function previousOnFirstMenu(): BlueprintDoc {
 	doc.forms[testUuid("first-menu-previous-form-0")].postSubmit = "previous";
 	return doc;
 }
+function submenuOnFirstMenu(registration: boolean): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Patient reviews",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			...["Visits", "Reviews"].map((name, i) => ({
+				uuid: `first-menu-submenu-${i}`,
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: `first-menu-submenu-form-${i}`,
+						name: i === 0 ? "Visit" : "Review",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			})),
+			...(registration
+				? [
+						{
+							uuid: "first-menu-registration",
+							name: "Registration",
+							caseType: "patient",
+							forms: [
+								{
+									uuid: "first-menu-register",
+									name: "Register patient",
+									type: "registration" as const,
+									fields: [
+										f({
+											kind: "text",
+											id: "patient",
+											label: proseText("Patient name"),
+											caseWrite: { caseType: "patient", property: "case_name" },
+										}),
+									],
+								},
+							],
+						},
+					]
+				: []),
+		],
+	});
+	const above = testUuid("first-menu-submenu-0"),
+		host = testUuid("first-menu-submenu-1");
+	doc.modules[above].formsInMenuAbove = true;
+	doc.modules[host].parentModuleUuid = above;
+	if (registration)
+		doc.modules[host].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: testUuid("first-menu-register"),
+			afterSubmit: "new-case",
+		};
+	else doc.forms[testUuid("first-menu-submenu-form-1")].postSubmit = "module";
+	return admitted("first menu patient reviews", doc);
+}
 write("first-menu-previous", previousOnFirstMenu(), ROLES);
-write("step-back-control", stepBackControl(), NONE);
+write("first-menu-static", submenuOnFirstMenu(false), ROLES);
+write("first-menu-registration", submenuOnFirstMenu(true), ROLES);
+write("first-menu-link", linkedFirstMenu(false), ROLES);
+write("step-back-control", linkedFirstMenu(true), NONE);
 write("two-registrations-control", twoRegistrationsControl(), NONE);
 
 /** A survey menu of one form with one question. */

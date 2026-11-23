@@ -496,6 +496,9 @@ final class Screens {
         CommCareSession session = wrapper.getSession();
         JSONObject found = new JSONObject();
         found.put("command", orNull(session.getCommand()));
+        if (session.getData().containsKey("case_id")) {
+            found.put("selectedCase", session.getData().get("case_id"));
+        }
         String needed;
         try {
             needed = session.getNeededData(wrapper.getEvaluationContext());

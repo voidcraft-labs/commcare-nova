@@ -2298,6 +2298,8 @@ form command names. An entry point refuses a form whose entries are off the
 menu (`entryPointLaunch.ts::moduleEntriesOffTheMenu`). App Tests list and admit
 choices by the same projection.
 
+A deep link, form link or list action can supply a case before the frame's first command. `frameLanding.ts::firstMenuCases` records the physical datum ID and the menus whose entries read the same type and cardinality at that ID. The destination receives its selection immediately. On Android, Back to the first menu retains this case for every compatible command. Web Apps opens a fresh first menu. A new worker, app or Preview session starts with fresh selections on both platforms. A static menu return reads the submitting form’s exact session value and transaction-captured case snapshot. Register uses the chosen list action’s return case and preserves any earlier selections the return frame names.
+
 ## Case-data Server Action wire shape (edge-WAF constraint)
 
 Two rules govern the args these `caseDataBinding` Server Actions take. The edge Cloud Armor CRS rules that punish breaking them run in **log-only / preview** mode today (`scripts/infra/setup-cloud-armor-lb.sh` — they record would-be blocks, they don't 403), so this is wire hygiene that keeps the previewed-match logs clean enough to eventually enforce, not a hard gate:

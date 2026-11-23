@@ -128,9 +128,12 @@ such as a registration form on the first screen. The menu keeps its case type
 and case list, so each form still opens the right case. Such a menu has no
 screen of its own, so it can't have a search, a registration from its case list
 or a deep link, and a link or an after-submit destination can't open it; you can
-link and deep link to its forms. A form shown on the first menu returns to the
-first menu after it is sent, since **Previous screen** isn't offered there.
-Where every form shown on the first menu this way opens the same case, Nova asks
-you to give the menu its own screen before you link to one of those forms. On a
+link and deep link to its forms. A form shown on the first menu can return to **Previous screen**. A link to one
+of these forms can carry the selected record. If every form on the first menu
+uses that selection, Android keeps the record when someone presses Back. A
+second form that asks for the same selection then opens on the same record.
+Web Apps opens the first menu with a fresh choice. When the same selection
+could open a different kind of record, Nova shows which menu needs its own
+screen. On a
 screen that lists forms from more than one menu, people choose a case first only
 when every form there opens the same case; otherwise they choose a form first.

@@ -70,7 +70,7 @@ import {
 } from "@/lib/domain/basicCaseSlots";
 import { emittedModuleKind } from "../../../moduleKind";
 import { type ValidationError, validationError } from "../../errors";
-import { caseListReturnSharesFirstMenuCase } from "../formsInMenuAbove";
+import { caseListReturnFirstMenuCase } from "../formsInMenuAbove";
 
 /** The module rule: the `after-empty-search` arm's findings that read the
  *  host alone. The `always` arm and the shared findings are
@@ -403,8 +403,8 @@ function alwaysFindings(
 			),
 		);
 	} else {
-		const shared = caseListReturnSharesFirstMenuCase(doc, hostUuid);
-		if (shared !== undefined) {
+		const shared = caseListReturnFirstMenuCase(doc, hostUuid);
+		if (shared?.conflict) {
 			const parentName = doc.modules[shared.aboveModuleUuid]?.name ?? "";
 			errors.push(
 				validationError(

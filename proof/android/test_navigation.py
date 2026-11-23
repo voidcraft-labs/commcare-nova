@@ -232,3 +232,23 @@ def test_reaching_shared_forms_by_android_intent_keeps_each_routes_command_and_b
         assert opened["screen"] == FORM_ENTRY and opened["session"]["command"] == command, (endpoint, opened)
         assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (endpoint, opened)
         assert opened["form"]["FormEntryActivity.getHeaderString"] == f"Field visits > {menu} > {title}", opened
+
+
+def test_a_deep_link_returns_to_the_first_menu_with_the_patient_still_chosen(android_documents, hq):
+    doc = android_documents["targeted-forms-in-menu-above-one-case"]
+    navs = _navs(
+        doc,
+        "first-menu-patient",
+        endpoints=[{"id": "patient_visit", "arguments": ["patient-2"], "complete": True}],
+        paths=[["m1-f0"]],
+    )
+    endpoint = navs["endpoint:patient_visit"]
+    assert "raised" not in endpoint, endpoint
+    opened, returned = _after_form(endpoint["landed"])
+    assert opened["session"]["command"] == "m0-f0", opened
+    assert opened["session"]["selectedCase"] == "patient-2", opened
+    assert returned["screen"] == MENU and returned["menu"]["id"] is None, returned
+    assert "m1-f0" in _items(returned), returned
+    assert returned["session"]["selectedCase"] == "patient-2", returned
+    fresh = _steps(navs["path:m1-f0"])
+    assert any(step["screen"] == LIST for step in fresh), fresh

@@ -32,8 +32,16 @@ import {
 	caseListRegistrationForm,
 	caseListRegistrationFormInModule,
 } from "../../validator/rules/case-search/caseListRegistration";
+import { caseListReturnFirstMenuCase } from "../../validator/rules/formsInMenuAbove";
 import { serializeWire } from "../../xpath/wire/serialize";
-import { type Claim, defineClaims, drop, refuse, take } from "../claims";
+import {
+	type Claim,
+	defineClaims,
+	derived,
+	drop,
+	refuse,
+	take,
+} from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import {
 	recordTextRewrite,
@@ -120,8 +128,12 @@ const REGISTRATION = {
 		refuse,
 		"case-list-form-naming-a-form-another-list-offers-after-an-empty-search",
 	),
-	sharesFirstMenuCase: refuse(
+	sharedFirstMenuCase: derived(
 		`${M}/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case`,
+		"schema:Module.case_list_form",
+	),
+	sharesFirstMenuCase: refuse(
+		`${M}/first-menu-registration-return-without-a-compatible-case`,
 		"schema:Module.case_list_form",
 	),
 	parentFollowUp: blockClaims(
@@ -907,6 +919,15 @@ export function settleRegistrations(
 				unrecognized(`schema:CaseListForm.${differs}`);
 				continue;
 			}
+		}
+		if (caseListReturnFirstMenuCase(doc, block.host.uuid)?.conflict === false) {
+			const claim = REGISTRATION.sharedFirstMenuCase;
+			ctx.accounting.claimEntryClass(
+				{ json: block.host.json, key: "case_list_form" },
+				claim.entry,
+				`schema:${block.host.docType}.case_list_form`,
+				listPlace,
+			);
 		}
 		if (block.hidden !== undefined) {
 			const menu = stored[block.hidden.index] ?? NO_ENTRIES;

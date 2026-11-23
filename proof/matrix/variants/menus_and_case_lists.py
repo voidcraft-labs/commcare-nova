@@ -709,6 +709,19 @@ def registration_under_a_display_only_menu_sharing_its_case(authoring, app_id):
     )
 
 
+def _second_case_type_on_another_command(authoring, app_id):
+    from proof.matrix.bases import _pages
+
+    _pages.new_case_module(authoring, app_id, name="Clinics", case_type="clinic")
+    _pages.delete_form(authoring, app_id, 5, 0)
+
+
+def registration_under_a_first_menu_with_different_case_types(authoring, app_id):
+    registration_under_a_display_only_menu_sharing_its_case(authoring, app_id)
+    _second_case_type_on_another_command(authoring, app_id)
+
+
+
 def search_only_column_in_a_tile(authoring, app_id):
     """Follow-ups' list laid out as a tile, its search-only village column given a cell."""
     _set_each(

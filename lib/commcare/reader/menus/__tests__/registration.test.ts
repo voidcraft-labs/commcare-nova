@@ -16,6 +16,7 @@ import { registrationFormLast } from "../registration";
 import {
 	type AppJson,
 	codesOf,
+	formNamed,
 	inSpanish,
 	type JsonObject,
 	moduleNamed,
@@ -523,7 +524,7 @@ describe("the rows a block meets after its own registration", () => {
 		});
 	});
 
-	it("refuses a host under a menu that shares the first menu's case", async () => {
+	it("reads a registration whose created patient fills the first menu selection", async () => {
 		const doc = produce(
 			buildDoc({
 				modules: [
@@ -552,14 +553,15 @@ describe("the rows a block meets after its own registration", () => {
 			},
 		);
 		const reading = await readMenusOf(doc);
-		expect(codesOf(reading)).toContain(
-			`${M}/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case`,
-		);
+		expect(codesOf(reading)).toEqual([]);
+		const saved = reading.doc as BlueprintDoc;
 		expect(
-			reading.findings.find((finding) =>
-				finding.code.endsWith("shares-the-first-menu-s-case"),
-			)?.place,
-		).toMatchObject({ kind: "case-list", name: "Follow up" });
+			moduleNamed(saved, "Follow up").caseListRegistrationForm,
+		).toMatchObject({
+			kind: "always",
+			formUuid: formNamed(saved, "Register").uuid,
+			afterSubmit: "new-case",
+		});
 	});
 
 	it("refuses a block naming a form whose menu is advanced, the host basic", async () => {

@@ -981,17 +981,10 @@ describe("caseListRegistrationApp: the always arm", () => {
 		);
 	}
 
-	it("refuses a return whose frame would open with the first menu's shared case", () => {
+	it("returns with the newly registered case when the first menu and host choose the same record type", () => {
 		expect(
 			registrationFindings(underSharedCase({ afterSubmit: "new-case" })),
-		).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE",
-				moduleUuid: CLINIC,
-				reason: "parent-shares-first-menu-case",
-				message: `"Clinic" is under "Households", which shows its forms on the app's first menu, where every form listed that way opens one chosen case. CommCare HQ would put that case ahead of "Clinic" when a worker returns from "Register patient". You can give "Households" its own screen again (forms_in_menu_above null), or stop offering "Register patient" there.`,
-			},
-		]);
+		).toEqual([]);
 	});
 
 	it("admits a return cut before the shared case, and no return where the form's own after-submit is in force", () => {

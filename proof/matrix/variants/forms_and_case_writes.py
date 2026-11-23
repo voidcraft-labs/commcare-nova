@@ -734,3 +734,10 @@ def head_prefixes_naming_the_worker(authoring, app_id):
         menu=0,
         form=1,
     )
+
+
+def link_through_a_first_menu_with_different_case_types(authoring, app_id):
+    from proof.matrix.variants.menus_and_case_lists import _second_case_type_on_another_command
+
+    ops.set_json(authoring, app_id, "/modules/2/put_in_root", True)
+    _second_case_type_on_another_command(authoring, app_id)

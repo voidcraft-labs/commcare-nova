@@ -10,7 +10,8 @@ import { moduleUuidOfForm } from "@/lib/domain";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { previewMenuCaseContext } from "../menuProjection";
 import { caseRowToFormPreload } from "./caseDataBindingClient";
-import { screenOfFrame } from "./frameLanding";
+import type { SessionDatumValue } from "./formLinkEvaluation";
+import { moduleFirstMenuCases, screenOfFrame } from "./frameLanding";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 export interface PreviousTask {
@@ -34,6 +35,53 @@ export function selectionsForModuleTask(
 	const next = { ...selections };
 	delete next[moduleUuid];
 	return next;
+}
+
+/** A static return to this menu takes the shared first-menu datum from the
+ * submitting entry. Root and leaf can be two distinct menus of the same type. */
+export function selectionsForStaticModuleTask(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+	datums: ReadonlyMap<string, SessionDatumValue> | undefined,
+	cases: CaseDatabaseSnapshot,
+): Readonly<Record<string, PreviewMenuCaseSelection>> {
+	const prefix = moduleFirstMenuCases(doc, moduleUuid);
+	if (prefix.length === 0)
+		return selectionsForModuleTask(doc, moduleUuid, selections);
+	const next = { ...selections };
+	for (const binding of prefix) {
+		const held = datums?.get(binding.datumId);
+		if (!held?.value) {
+			delete next[binding.moduleUuid];
+			continue;
+		}
+		const row = cases.rows.find(
+			(item) =>
+				item.case_id === held.value && item.case_type === binding.caseType,
+		);
+		next[binding.moduleUuid] = {
+			caseType: binding.caseType,
+			cases: [
+				{
+					caseId: held.value,
+					caseName: row?.case_name || held.caseName,
+					...(row && {
+						caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+					}),
+				},
+			],
+		};
+	}
+	const landed = { ...selectionsForModuleTask(doc, moduleUuid, next) };
+	for (const binding of prefix) {
+		for (const recipient of binding.destinationConsumers) {
+			if (next[binding.moduleUuid])
+				landed[recipient] = next[binding.moduleUuid];
+			else delete landed[recipient];
+		}
+	}
+	return landed;
 }
 
 /** Selecting a fresh form on a retained menu preserves its device world,

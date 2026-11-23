@@ -17,6 +17,8 @@ import {
 	formLinkProjectionContext,
 	moduleFrameChildren,
 } from "./formLinkProjection";
+import { homeSelectionConsumers } from "./previousTaskProjection";
+import { rethrowWorkStop } from "./workMeter";
 
 export interface EntryPointRequiredSelection {
 	readonly moduleUuid: Uuid;
@@ -24,6 +26,10 @@ export interface EntryPointRequiredSelection {
 	readonly cardinality: "one" | "multiple";
 	readonly maximum: number;
 	readonly argumentId: string;
+	/** Menus consuming this argument after Android Back returns to the first menu. */
+	readonly firstMenuConsumers?: readonly Uuid[];
+	/** Other owners of this same datum in the actual destination entry. */
+	readonly destinationConsumers?: readonly Uuid[];
 }
 export interface EntryPointCaseCreationArgument {
 	readonly operationUuid: Uuid;
@@ -179,6 +185,7 @@ export function projectEntryPoint(
 			frame = frame.slice(0, -1);
 		}
 	}
+	const homeCases = homeSelectionConsumers(doc, context, frame);
 	const requiredSelections = frame.flatMap((child) => {
 		if (
 			child.type !== "datum" ||
@@ -189,9 +196,15 @@ export function projectEntryPoint(
 		const d = child.datum;
 		if (!d.selectionSourceModuleUuid || !d.caseType)
 			throw new Error("The entry point has an unresolved case selection.");
+		const home = homeCases.get(d);
+		const destinationConsumers = home && [...home.destinationModules];
 		return [
 			{
 				moduleUuid: d.selectionSourceModuleUuid,
+				...(home && {
+					firstMenuConsumers: [d.selectionSourceModuleUuid, ...home.modules],
+				}),
+				...(destinationConsumers?.length && { destinationConsumers }),
 				caseType: d.caseType,
 				argumentId: d.id,
 				cardinality:
@@ -264,6 +277,7 @@ export function entryPointProjectionIssue(
 		projectEntryPoint(doc, target);
 		return undefined;
 	} catch (error) {
+		rethrowWorkStop(error);
 		return error instanceof Error
 			? error.message
 			: "This entry point cannot be projected.";

@@ -15,6 +15,7 @@ import {
 	previousTaskFormSelectors,
 	resolvePreviousTask,
 	selectionsForModuleTask,
+	selectionsForStaticModuleTask,
 } from "../previousTask";
 
 const MODULE = testUuid("records");
@@ -400,4 +401,47 @@ describe("the native preceding task", () => {
 			}),
 		).toMatchObject({ kind: "module", moduleUuid: MODULE });
 	});
+});
+
+it("returns a submenu with the submitted record even when another menu last selected a different record of the same type", () => {
+	const root = testUuid("static-root");
+	const leaf = testUuid("static-leaf");
+	const app = buildDoc(
+		{
+			caseTypes: [{ name: "record", properties: [] }],
+			modules: [root, leaf].map((uuid) => ({
+				uuid,
+				name: uuid === root ? "Visits" : "Checks",
+				caseType: "record",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			})),
+		},
+		(draft) => {
+			draft.modules[root].formsInMenuAbove = true;
+			draft.modules[leaf].parentModuleUuid = root;
+		},
+	);
+	const picked = selectionsForStaticModuleTask(
+		app,
+		leaf,
+		{
+			[root]: { caseType: "record", cases: [{ caseId: "earlier" }] },
+			[leaf]: { caseType: "record", cases: [{ caseId: "another" }] },
+		},
+		new Map([["case_id", { value: "submitted" }]]),
+		{ rows: [row("submitted")], indices: [] },
+	);
+	expect(picked[root]?.cases).toMatchObject([
+		{ caseId: "submitted", caseProperties: { note: "Saved" } },
+	]);
+	expect(picked[leaf]?.cases).toMatchObject([{ caseId: "submitted" }]);
 });

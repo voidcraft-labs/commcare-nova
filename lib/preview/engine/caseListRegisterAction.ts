@@ -8,9 +8,11 @@
 import { caseListFormLabelUnit } from "@/lib/commcare/emissionPlan";
 import {
 	caseListFormReturnFrames,
+	entryFrameDatums,
 	entryNewCaseDatumId,
 	entrySessionDatums,
 	formLinkProjectionContext,
+	sourceOfFrameSelection,
 } from "@/lib/commcare/formLinkProjection";
 import {
 	alwaysOfferedRegistrationOf,
@@ -93,6 +95,11 @@ export interface RegistrationReturnLanding extends FrameLanding {
 	 *  Results, and its forms' read of what the search found, hold that one
 	 *  case, or none where the form created no case. */
 	readonly newCaseSearchModuleUuids: readonly Uuid[];
+	readonly earlierSelections?: readonly {
+		target: Uuid;
+		source: Uuid;
+		fromForm: boolean;
+	}[];
 }
 
 /**
@@ -144,12 +151,33 @@ export function alwaysOfferedRegistrationReturn(
 		returnTo.kind === "new-case" && createdCaseId === undefined
 			? frames[1]
 			: frames[0];
-	return frame === undefined
-		? undefined
-		: {
-				...screenOfFrame(ctx, frame.target),
-				newCaseSearchModuleUuids: frame.newCaseSearchModuleUuids,
-			};
+	if (frame === undefined) return undefined;
+	const submitting = entryFrameDatums(doc, ctx, formModuleUuid, formUuid);
+	const earlierSelections = frame.target.flatMap((child) => {
+		if (
+			child.type !== "datum" ||
+			!child.datum.requiresSelection ||
+			child.datum.query ||
+			child.datum.caseType === caseType ||
+			!child.datum.selectionSourceModuleUuid
+		)
+			return [];
+		const source = sourceOfFrameSelection(submitting, child.datum);
+		return source
+			? [
+					{
+						target: child.datum.selectionSourceModuleUuid,
+						source,
+						fromForm: source === formModuleUuid,
+					},
+				]
+			: [];
+	});
+	return {
+		...screenOfFrame(ctx, frame.target),
+		...(earlierSelections.length > 0 && { earlierSelections }),
+		newCaseSearchModuleUuids: frame.newCaseSearchModuleUuids,
+	};
 }
 
 /** The case a registration created, as the device holds it after the
@@ -187,14 +215,21 @@ export function registeredCaseOnDevice(
  */
 export function selectionsAfterRegistrationReturn(
 	current: Readonly<Record<string, PreviewMenuCaseSelection>>,
-	landing: FrameLanding,
+	landing: FrameLanding & Pick<RegistrationReturnLanding, "earlierSelections">,
 	hostModuleUuid: Uuid,
 	hostCaseType: string,
 	created: { readonly caseId: string; readonly caseName: string } | undefined,
+	formSelection?: PreviewMenuCaseSelection,
 ): Record<string, PreviewMenuCaseSelection> {
 	const next: Record<string, PreviewMenuCaseSelection> = {};
 	for (const moduleUuid of landing.selectingModuleUuids) {
-		if (moduleUuid === hostModuleUuid) {
+		if (
+			moduleUuid === hostModuleUuid ||
+			landing.firstMenuCases?.some(
+				(root) =>
+					root.moduleUuid === moduleUuid && root.caseType === hostCaseType,
+			)
+		) {
 			if (created !== undefined)
 				next[moduleUuid] = {
 					caseType: hostCaseType,
@@ -207,8 +242,19 @@ export function selectionsAfterRegistrationReturn(
 				};
 			continue;
 		}
-		const kept = current[moduleUuid];
+		const supplier = landing.earlierSelections?.find(
+			(item) => item.target === moduleUuid,
+		);
+		const kept = supplier?.fromForm
+			? formSelection
+			: current[supplier?.source ?? moduleUuid];
 		if (kept !== undefined) next[moduleUuid] = kept;
+	}
+	for (const root of landing.firstMenuCases ?? []) {
+		const selected = next[root.moduleUuid];
+		if (selected)
+			for (const recipient of root.destinationConsumers)
+				next[recipient] = selected;
 	}
 	return next;
 }

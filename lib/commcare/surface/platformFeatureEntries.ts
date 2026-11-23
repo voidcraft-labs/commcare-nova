@@ -142,6 +142,8 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 	],
 	"first-menu-previous": [
+		"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
+		"menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case",
 		"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
 	],
 	"after-submit-home": ["forms-and-case-writes/post-form-workflow-default"],

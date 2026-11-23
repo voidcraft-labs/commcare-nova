@@ -35,6 +35,8 @@ import { walkExpressionNodes } from "./expression/walk";
 import { fieldDisplayValues } from "./fieldDisplay";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
+import { caseListRegistrationReturnOf } from "./menuForms";
+import { menuScreenOf } from "./menuScreens";
 import {
 	caseSelectionCardinality,
 	columnOnList,
@@ -58,7 +60,7 @@ import {
 	type PlatformFeatureId,
 	unavailablePlatform,
 } from "./platforms";
-import { firstMenuCaseRead, postSubmitModuleFacts } from "./postSubmit";
+import { firstMenuCaseRead } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
 import type { Uuid } from "./uuid";
 
@@ -330,10 +332,31 @@ export function platformFeatureUses(
 	out.push(...inFeatureOrder(appUses));
 
 	const readFirstMenuCase = firstMenuCaseRead(doc);
+	const firstMenuCaseOnRoute = (moduleUuid: Uuid) => {
+		if (!wanted("first-menu-previous") || !readFirstMenuCase()) return false;
+		const parent = doc.modules[moduleUuid]?.parentModuleUuid;
+		return (
+			menuScreenOf(doc, moduleUuid).kind === "first-menu" ||
+			(parent !== undefined && menuScreenOf(doc, parent).kind === "first-menu")
+		);
+	};
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
 		out.push(...moduleUses(moduleUuid, module, wanted, expressionUses));
+		if (
+			module.caseListRegistrationForm?.kind === "always" &&
+			firstMenuCaseOnRoute(moduleUuid) &&
+			caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "new-case"
+		) {
+			out.push(
+				slotUse(
+					"first-menu-previous",
+					{ kind: "module", moduleUuid },
+					"caseListRegistrationForm",
+				),
+			);
+		}
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
@@ -351,22 +374,37 @@ export function platformFeatureUses(
 						form.formLinks === undefined ? "postSubmit" : "otherwise",
 					),
 				);
-			if (
-				wanted("first-menu-previous") &&
-				(form.postSubmit === "previous" ||
-					(form.otherwise?.kind === "destination" &&
-						form.otherwise.destination === "previous")) &&
-				postSubmitModuleFacts(doc, moduleUuid, readFirstMenuCase)
-					?.formsOnFirstMenu &&
-				readFirstMenuCase()
-			)
-				formUses.push(
-					slotUse(
-						"first-menu-previous",
-						formOwner,
-						form.formLinks === undefined ? "postSubmit" : "otherwise",
-					),
-				);
+			if (wanted("first-menu-previous") && readFirstMenuCase()) {
+				const atHome = menuScreenOf(doc, moduleUuid).kind === "first-menu";
+				const staticUsesCase = (destination: string | undefined) =>
+					(destination === "previous" && atHome) ||
+					(destination === "module" &&
+						!atHome &&
+						firstMenuCaseOnRoute(moduleUuid));
+				const linkUsesCase = (
+					link:
+						| NonNullable<typeof form.formLinks>[number]
+						| Extract<NonNullable<typeof form.otherwise>, { kind: "link" }>,
+				) =>
+					firstMenuCaseOnRoute(
+						link.target.type === "this-form"
+							? moduleUuid
+							: link.target.moduleUuid,
+					);
+				if (!form.formLinks && staticUsesCase(form.postSubmit))
+					formUses.push(
+						slotUse("first-menu-previous", formOwner, "postSubmit"),
+					);
+				if (form.formLinks?.some(linkUsesCase))
+					formUses.push(slotUse("first-menu-previous", formOwner, "formLinks"));
+				if (
+					form.otherwise &&
+					(form.otherwise.kind === "link"
+						? linkUsesCase(form.otherwise)
+						: staticUsesCase(form.otherwise.destination))
+				)
+					formUses.push(slotUse("first-menu-previous", formOwner, "otherwise"));
+			}
 			// Two destinations are two frames; an otherwise beside an
 			// every-time destination needs a destination that may not run.
 			if (
@@ -401,17 +439,16 @@ export function platformFeatureUses(
 		}
 	}
 
-	if (wanted("entry-points"))
+	if (wanted("entry-points") || wanted("first-menu-previous")) {
 		for (const item of entryPointInventory(doc)) {
 			if (listedFormLinkPause(doc, item.target)) continue;
-			out.push(
-				slotUse(
-					"entry-points",
-					{ kind: "entry-point", target: item.target },
-					"entryPoint",
-				),
-			);
+			const owner = { kind: "entry-point", target: item.target } as const;
+			if (wanted("entry-points"))
+				out.push(slotUse("entry-points", owner, "entryPoint"));
+			if (firstMenuCaseOnRoute(item.target.moduleUuid))
+				out.push(slotUse("first-menu-previous", owner, "entryPoint"));
 		}
+	}
 	return out;
 }
 

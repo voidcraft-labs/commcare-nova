@@ -16,6 +16,7 @@ import {
 	f,
 	type ModuleSpec,
 } from "@/lib/__tests__/docHelpers";
+import { projectEntryPoint } from "@/lib/commcare/entryPointProjection";
 import {
 	firstMenuSharedCase,
 	formLinkProjectionContext,
@@ -480,34 +481,23 @@ describe("no chosen case ahead of a command", () => {
 		expect(shared([registration(REGISTER, "Register")])).toBeUndefined();
 	});
 
-	it("refuses a link into a form listed there", () => {
+	it("carries the same patient through a link into a form listed there", () => {
 		const doc = sharedCaseDoc({
 			formLinks: [
 				{ target: { type: "form", moduleUuid: CLIENTS, formUuid: VISIT } },
 			],
 		});
-		const found = refusals(doc, [above(CLIENTS)]);
-		expect(found.map((finding) => finding.code)).toEqual([
-			"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
-		]);
-		expect(found[0]?.details).toMatchObject({
-			role: "destination",
-			aboveModuleUuid: CLIENTS,
-			aboveModuleName: "Clients",
-		});
+		expect(refusals(doc, [above(CLIENTS)])).toEqual([]);
 	});
 
-	it("refuses an entry point on a form listed there", () => {
+	it("admits an entry point when all commands that consume the retained datum select the same case type", () => {
 		const doc = sharedCaseDoc({});
 		doc.forms[VISIT].entryPoint = {
 			uuid: testUuid("above-visit-entry"),
 			id: "visit",
 		};
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		const found = refusals(doc, [above(CLIENTS)]);
-		expect(
-			found.map((finding) => [finding.code, finding.details?.reason]),
-		).toEqual([["ENTRY_POINT_INVALID", "first-menu-shared-case"]]);
+		expect(verdictOf(doc, [above(CLIENTS)]).ok).toBe(true);
 	});
 
 	it("admits the link in the starter shape and the registration-only shape", () => {
@@ -553,14 +543,14 @@ describe("no chosen case ahead of a command", () => {
 		target: { type: "form" as const, moduleUuid: REPORTS, formUuid: SUMMARY },
 	};
 
-	it("offers no module destination there, and moves a stored one with the switch", () => {
+	it("keeps an explicitly chosen module when its entry supplies the shared selection", () => {
 		const placed = verdictOf(submenuDoc({ postSubmit: "module" }), [
 			above(CLIENTS),
 		]);
 		expect(placed.ok).toBe(true);
 		if (!placed.ok) return;
-		expect(placed.nextDoc.forms[CHECK]?.postSubmit).toBe("firstMenu");
-		expect(postSubmitDestinationsOffered(placed.nextDoc, CHECK)).not.toContain(
+		expect(placed.nextDoc.forms[CHECK]?.postSubmit).toBe("module");
+		expect(postSubmitDestinationsOffered(placed.nextDoc, CHECK)).toContain(
 			"module",
 		);
 	});
@@ -579,7 +569,7 @@ describe("no chosen case ahead of a command", () => {
 		expect(defaultPostSubmitOf(placed.nextDoc, CHECK)).toBe("firstMenu");
 	});
 
-	it("moves a stored module destination, after submit or as the otherwise, when removing a form makes every form above open one case", () => {
+	it("preserves the submitted patient on either stored module return when the first menu starts choosing a case", () => {
 		// With "Register" listed from Clients, the forms above open no one
 		// case and Check may go to its module; its removal turns that, in a
 		// menu other than Check's.
@@ -603,7 +593,7 @@ describe("no chosen case ahead of a command", () => {
 		};
 
 		const postSubmit = removedRegister({ postSubmit: "module" });
-		expect(postSubmit.forms[CHECK]?.postSubmit).toBe("firstMenu");
+		expect(postSubmit.forms[CHECK]?.postSubmit).toBe("module");
 
 		const otherwise = removedRegister({
 			formLinks: [conditionalLinkToSummary],
@@ -611,64 +601,51 @@ describe("no chosen case ahead of a command", () => {
 		});
 		expect(otherwise.forms[CHECK]?.otherwise).toEqual({
 			kind: "destination",
-			destination: "firstMenu",
+			destination: "module",
 		});
 	});
 
-	it("refuses a module destination set there, after submit or as the otherwise", () => {
-		const postSubmit = refusals(submenuDoc(), [
+	it("accepts both explicit routes to the submenu when the entry supplies its shared case", () => {
+		for (const change of [
+			{ kind: "updateForm", uuid: CHECK, patch: { postSubmit: "module" } },
+			{
+				kind: "setFormOtherwise",
+				formUuid: CHECK,
+				otherwise: { kind: "destination", destination: "module" },
+			},
+		] as const) {
+			const doc = submenuDoc(
+				change.kind === "setFormOtherwise"
+					? { formLinks: [conditionalLinkToSummary] }
+					: {},
+			);
+			expect(refusals(doc, [above(CLIENTS), change])).toEqual([]);
+		}
+	});
+
+	it("keeps a fresh first menu for a form without the shared selection", () => {
+		const doc = docOf({
+			clients: [followup(VISIT, "Visit")],
+			extraUnderClients: true,
+			extra: [registration(CHECK, "Registration")],
+		});
+		const found = refusals(doc, [
 			above(CLIENTS),
 			{ kind: "updateForm", uuid: CHECK, patch: { postSubmit: "module" } },
 		]);
-		expect(postSubmit.map((finding) => finding.code)).toEqual([
+		expect(found.map((finding) => finding.code)).toContain(
 			"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
-		]);
-		expect(postSubmit[0]?.details).toMatchObject({
-			slot: "post-submit",
-			destination: "module",
-			aboveModuleUuid: CLIENTS,
-			aboveModuleName: "Clients",
-		});
-
-		const otherwise = refusals(
-			submenuDoc({ formLinks: [conditionalLinkToSummary] }),
-			[
-				above(CLIENTS),
-				{
-					kind: "setFormOtherwise",
-					formUuid: CHECK,
-					otherwise: { kind: "destination", destination: "module" },
-				},
-			],
-		);
-		expect(otherwise.map((finding) => finding.code)).toEqual([
-			"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
-		]);
-		expect(otherwise[0]?.details).toMatchObject({
-			slot: "otherwise",
-			destination: "module",
-			aboveModuleUuid: CLIENTS,
-		});
-		expect(userFacingError(otherwise[0] as ValidationError)).toContain(
-			'"Check" goes to its module when no destination runs',
 		);
 	});
 
-	it("refuses a link to that submenu's screen", () => {
+	it("carries the matching case into the submenu's screen", () => {
 		const doc = submenuDoc({
 			formLinks: [{ target: { type: "module", moduleUuid: EXTRA } }],
 		});
-		const found = refusals(doc, [above(CLIENTS)]);
-		expect(found.map((finding) => finding.code)).toEqual([
-			"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
-		]);
-		expect(found[0]?.details).toMatchObject({
-			role: "destination",
-			aboveModuleUuid: CLIENTS,
-		});
+		expect(refusals(doc, [above(CLIENTS)])).toEqual([]);
 	});
 
-	it("refuses an entry point on that submenu and on its case list", () => {
+	it("keeps the first-menu patient and the submenu visit under different deep link arguments", () => {
 		// Extra lists visits, so its own case list chooses a case the parent's
 		// frame does not hold, and a case list entry point opens on it.
 		const doc = docOf({
@@ -687,28 +664,16 @@ describe("no chosen case ahead of a command", () => {
 			id: "extra-list",
 		};
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		const found = refusals(doc, [above(CLIENTS)]);
-		expect(
-			found.map((finding) => [
-				finding.code,
-				finding.details?.reason,
-				finding.details?.entryPointUuid,
-				finding.details?.aboveModuleUuid,
-			]),
-		).toEqual([
-			[
-				"ENTRY_POINT_INVALID",
-				"first-menu-shared-case",
-				testUuid("above-extra-entry"),
-				CLIENTS,
-			],
-			[
-				"ENTRY_POINT_INVALID",
-				"first-menu-shared-case",
-				testUuid("above-extra-list-entry"),
-				CLIENTS,
-			],
-		]);
+		const verdict = verdictOf(doc, [above(CLIENTS)]);
+		expect(verdict.ok).toBe(true);
+		if (!verdict.ok) return;
+		const selection = (kind: "module" | "case-list") =>
+			projectEntryPoint(verdict.nextDoc, { kind, moduleUuid: EXTRA })
+				.requiredSelections;
+		const menu = selection("module");
+		expect(menu.map((row) => row.caseType)).toEqual(["patient", "visit"]);
+		expect(new Set(menu.map((row) => row.argumentId)).size).toBe(2);
+		expect(selection("case-list")).toEqual(menu.slice(0, -1));
 	});
 
 	it("admits an entry point in the starter shape and the registration-only shape", () => {
@@ -732,7 +697,7 @@ describe("no chosen case ahead of a command", () => {
 		expect(verdictOf(registrationOnly, [above(CLIENTS)]).ok).toBe(true);
 	});
 
-	it("refuses taking the last registration form off the first menu while a link into a form there stands", () => {
+	it("keeps the link after removing the first menu registration that required no chosen case", () => {
 		const doc = sharedCaseDoc(
 			{
 				formLinks: [
@@ -744,11 +709,8 @@ describe("no chosen case ahead of a command", () => {
 		const placed = verdictOf(doc, [above(CLIENTS)]);
 		expect(placed.ok).toBe(true);
 		if (!placed.ok) return;
-		const found = refusals(placed.nextDoc, [
-			{ kind: "removeForm", uuid: REGISTER },
-		]);
-		expect(found.map((finding) => finding.code)).toEqual([
-			"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
-		]);
+		expect(
+			refusals(placed.nextDoc, [{ kind: "removeForm", uuid: REGISTER }]),
+		).toEqual([]);
 	});
 });

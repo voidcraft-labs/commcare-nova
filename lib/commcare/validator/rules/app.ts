@@ -592,7 +592,7 @@ function firstMenuSharedCaseEntryPointMessage(
 			? (doc.forms[target.formUuid]?.name ?? "")
 			: (doc.modules[target.moduleUuid]?.name ?? "");
 	const above = doc.modules[aboveModuleUuid]?.name ?? "";
-	return `The entry point on "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${above}" its own screen again (forms_in_menu_above null), or remove the entry point.`;
+	return `The entry point on "${name}" uses a first-menu selection that another command asks for with a different kind or number of records. You can give "${above}" its own screen again (forms_in_menu_above null), or use another entry point.`;
 }
 
 export const APP_RULES = [

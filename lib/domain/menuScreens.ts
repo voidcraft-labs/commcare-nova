@@ -35,6 +35,7 @@ import {
 import { menuFormUuidsOf, type PreparedMenuForm } from "./menuForms";
 import { projectedModulePreorder } from "./moduleHierarchy";
 import {
+	caseSelectionMaximum,
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
 } from "./modules";
@@ -556,6 +557,25 @@ function firstMenuSelection(doc: EntrySelectionSource) {
 	return shared && { choice: shared, view };
 }
 
+/** A static module return reads the same datum out of the submitting entry.
+ * A survey or registration which never selected it cannot supply it. */
+export function formSuppliesFirstMenuCase(
+	doc: EntrySelectionSource,
+	module: Uuid,
+	form: Uuid,
+): boolean {
+	const shared = firstMenuSelection(doc);
+	if (!shared) return false;
+	return entrySelections(shared.view, { kind: "form", module, form }).some(
+		(candidate) =>
+			candidate.key === shared.choice.key &&
+			candidate.scalar &&
+			shared.choice.scalar &&
+			shared.view.modules[candidate.module]?.caseType ===
+				shared.view.modules[shared.choice.module]?.caseType,
+	);
+}
+
 export function firstMenuOpensOneCase(doc: EntrySelectionSource): boolean {
 	return firstMenuSelection(doc) !== undefined;
 }
@@ -575,7 +595,9 @@ export function firstMenuCaseOpensAnotherType(
 		entrySelections(view, entry).some(
 			(other) =>
 				other.key === choice.key &&
-				view.modules[other.module]?.caseType !== caseType,
+				(view.modules[other.module]?.caseType !== caseType ||
+					caseSelectionMaximum(view.modules[other.module]) !==
+						caseSelectionMaximum(view.modules[choice.module])),
 		);
 	return view.moduleOrder.some(
 		(module) =>

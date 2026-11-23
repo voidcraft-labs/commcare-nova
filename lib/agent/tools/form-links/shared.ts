@@ -277,7 +277,7 @@ export function linkRefusalMessage(
 			return "A destination that opens a module carries no values, because a module's form list asks for none. Leave datums out, or target a form in that module.";
 		case "first-menu-shared-case": {
 			const above = moduleName(doc, reason.aboveModuleUuid);
-			return `A link from form "${name}" to that target opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of the target in the link, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${above}" its own screen again (forms_in_menu_above null on update_module), or choose another target.`;
+			return `The link from "${name}" would carry a first-menu selection into a command that needs a different kind or number of records. You can give "${above}" its own screen again (forms_in_menu_above null on update_module) or choose another target.`;
 		}
 		case "selection-cardinality":
 			return `Form "${name}" cannot hand its complete case selection directly to that form. Link to the destination module so the person can choose again, or configure both modules with the same selection mode and a destination limit that accepts the complete source selection.`;
