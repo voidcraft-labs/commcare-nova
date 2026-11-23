@@ -16,7 +16,14 @@ def restored_audiences(exports):
     from corehq.apps.users.fixturegenerators import UserGroupsFixtureProvider
     from corehq.apps.users.models import CommCareUser
 
-    with native_check("worker-audiences", privileges={"LOOKUP_TABLES", "LOCATIONS", "CASE_SHARING_GROUPS"}) as (state, _):
+    from proof.hq import redis as hq_redis
+
+    # Placing a worker saves the worker's user case through HQ's receiver, which takes its lock in Redis
+    # (``form_processor/interfaces/processor.py::acquire_lock_for_xform``): HQ's own Redis for the step.
+    with (
+        native_check("worker-audiences", privileges={"LOOKUP_TABLES", "LOCATIONS", "CASE_SHARING_GROUPS"}) as (state, _),
+        hq_redis.shared(None),
+    ):
         workers = {
             name: CommCareUser.wrap(operations.seed_mobile_worker(state, name, "mobile-" + name))
             for name in ("ada", "bea", "cal")
