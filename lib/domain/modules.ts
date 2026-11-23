@@ -3114,6 +3114,8 @@ export const moduleSchema = z.strictObject({
 	 * `menuScreens.ts` is the one reader of what lists where.
 	 */
 	formsInMenuAbove: z.literal(true).optional(),
+	/** The menu contributes a grid when form menus use individual layouts. */
+	menuLayout: z.literal("grid").optional(),
 	caseListConfig: caseListConfigSchema.optional(),
 	caseSearchConfig: caseSearchConfigSchema.optional(),
 	/** Image shown on the module's home-screen tile. */

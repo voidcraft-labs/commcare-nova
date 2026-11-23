@@ -2,9 +2,11 @@ package nova.proof.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.media.MediaPlayer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
+import android.widget.GridView;
 import android.widget.TextView;
 import org.commcare.dalvik.R;
 import io.reactivex.schedulers.Schedulers;
@@ -22,6 +24,8 @@ import org.json.JSONObject;
 import org.robolectric.Shadows;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
+import org.robolectric.shadows.ShadowMediaPlayer;
+import org.robolectric.shadows.util.DataSource;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -34,6 +38,8 @@ import java.util.List;
  * holds them. An item is chosen as a tap chooses it: the screen's own click listener sets the result home reads.
  */
 final class Menus {
+    static String spokenLabelDigest = "";
+
     private Menus() {
     }
 
@@ -99,11 +105,34 @@ final class Menus {
             shown.put("texts", Views.texts(row));
             shown.put("image", media(((MenuDisplayable)item).getImageURI()));
             shown.put("audio", media(((MenuDisplayable)item).getAudioURI()));
+            if (!spokenLabelDigest.isEmpty() && view instanceof GridView) {
+                shown.put("playedOnHold", playedOnHold(view, row, i, (MenuDisplayable)item));
+            }
             items.put(shown);
             offered.add(id(item));
         }
         menu.put("items", items);
         return offered;
+    }
+
+    /** The real GridView listener resolves and starts the installed audio. Robolectric
+     * supplies decoder support only for the exact WAV bytes the witness requested. */
+    private static boolean playedOnHold(AdapterView<?> grid, View row, int index, MenuDisplayable item) throws Exception {
+        String uri = item.getAudioURI();
+        if (uri == null || uri.isEmpty() || grid.getOnItemLongClickListener() == null) return false;
+        String path = ReferenceManager.instance().DeriveReference(uri).getLocalURI();
+        File audio = new File(path);
+        if (!audio.isFile() || !spokenLabelDigest.equals(Captures.digest(audio))) return false;
+        ShadowMediaPlayer.addMediaInfo(DataSource.toDataSource(path), new ShadowMediaPlayer.MediaInfo(1, 0));
+        MediaPlayer[] created = new MediaPlayer[1];
+        ShadowMediaPlayer.setCreateListener((player, shadow) -> created[0] = player);
+        try {
+            grid.getOnItemLongClickListener().onItemLongClick(grid, row, index, grid.getAdapter().getItemId(index));
+            return created[0] != null && created[0].isPlaying();
+        } finally {
+            ShadowMediaPlayer.setCreateListener(null);
+            if (created[0] != null) created[0].release();
+        }
     }
 
     /** A media reference an item names, and whether the device holds a file for it; null where it names none. */

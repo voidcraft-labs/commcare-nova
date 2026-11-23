@@ -246,6 +246,10 @@ import {
 } from "@/lib/deployment/hqSourceBaseline";
 import { hqImportApplication } from "@/lib/deployment/importApplication";
 import {
+	legacyMenuLayoutLines,
+	observedMenuLayoutOwnership,
+} from "@/lib/deployment/legacyMenuLayouts";
+import {
 	type LookupTableConflict,
 	type LookupTableUnsupported,
 	planLookupResourcePush,
@@ -1994,6 +1998,7 @@ function appEdge(
 	current: { readonly normalized: unknown; readonly digest: string },
 	media: SettledMedia | null,
 	languageNames: LanguageNames,
+	layoutReplacements: readonly string[],
 ): DeploymentRemoteChange | null {
 	const remoteRevision = peer.saveCounter();
 	if (remoteRevision === null)
@@ -2032,6 +2037,7 @@ function appEdge(
 			bulkUploadAssets(prepared.export.doc, prepared.export.assets),
 		),
 		canBringIn: ledger.app.origin !== "create",
+		layoutReplacements,
 	});
 }
 
@@ -2323,7 +2329,18 @@ async function sendContent(
 				: {
 						app: {
 							normalized: readBack.normalized,
-							ownership,
+							/* As `service.ts` records it over the read after the import. */
+							ownership:
+								afterImport !== null &&
+								!("success" in afterImport) &&
+								afterImport.kind === "source-at"
+									? observedMenuLayoutOwnership(
+											ownership,
+											prepared.export.doc,
+											identity,
+											afterImport.source,
+										)
+									: ownership,
 							origin: "push",
 							digest: readBack.digest,
 							bytes: readBack.bytes,
@@ -2531,6 +2548,12 @@ async function updateStep(
 		current,
 		media,
 		languageNames,
+		legacyMenuLayoutLines({
+			doc: prepared.export.doc,
+			identity,
+			source: read,
+			ownership: ledger.app.origin === "create" ? null : ledger.app.ownership,
+		}),
 	);
 	const verdict = decideRemoteChanges({
 		observed: [...(app === null ? [] : [app]), ...(edge?.observed ?? [])],

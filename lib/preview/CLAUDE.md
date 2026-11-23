@@ -1156,6 +1156,13 @@ mode never hides. A condition is evaluated as stored
 (`displayConditionForEmission`): nothing inside it is absorbed, so
 `x and never` still waits for `x`'s data.
 
+Menu choices use `menuScreenLayout` on the current screen, including the
+forms offered after a case selection. Grid and list presentations preserve
+command order, button names, keyboard activation and the current case.
+Web Apps grids omit spoken labels. Android grids play a label on hold and
+Preview also offers a keyboard-accessible player. A list offers the player
+beside its choice on either platform.
+
 An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
 read, and a module off the menu takes its forms off with it, and its child
 modules too unless it shows its forms in the menu above, where a child that

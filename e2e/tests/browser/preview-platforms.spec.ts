@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { buildUrl } from "@/lib/routing/location";
@@ -108,8 +109,16 @@ async function openScenario(
 ): Promise<Run> {
 	const mediaRequests: string[] = [];
 	await page.route(`${platformsPeer.origin}/api/media/**`, async (route) => {
-		mediaRequests.push(new URL(route.request().url()).pathname);
-		await route.fulfill({ body: PIXEL, contentType: "image/png" });
+		const path = new URL(route.request().url()).pathname;
+		mediaRequests.push(path);
+		if (path.includes(PLATFORM_IDS.menuSound)) {
+			await route.fulfill({
+				body: readFileSync(resolve("lib/media/__tests__/fixtures/tone.wav")),
+				contentType: "audio/wav",
+			});
+		} else {
+			await route.fulfill({ body: PIXEL, contentType: "image/png" });
+		}
 	});
 	await page.setViewportSize({ width: 390, height: 800 });
 	await page.goto(`${platformsPeer.origin}/?scenario=${id}`);
@@ -459,6 +468,34 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(page.getByText("Find a patient")).toHaveCount(0);
 		await expect(page.getByText("Search by name or barcode")).toHaveCount(0);
 		await expect(page.getByText("First or last name")).toHaveCount(0);
+	},
+	async "menu-grid-web-apps"(page) {
+		const run = await openScenario(page, "menu-grid-web-apps");
+		const grid = page.locator('[data-menu-layout="grid"]');
+		const tile = grid.getByRole("button", { name: /^Visits/ });
+		await tile.focus();
+		await expect(tile).toBeFocused();
+		await expect(grid.locator("audio")).toHaveCount(0);
+		expect(
+			run.mediaRequests.some((path) => path.includes(PLATFORM_IDS.menuSound)),
+		).toBe(false);
+	},
+	async "menu-grid-android"(page) {
+		await openScenario(page, "menu-grid-android");
+		const grid = page.locator('[data-menu-layout="grid"]');
+		const tile = grid.getByRole("button", { name: /^Visits/ });
+		const player = grid.locator("audio");
+		await expect(player).toHaveAccessibleName("Visits");
+		await tile.hover();
+		await page.mouse.down();
+		try {
+			await expect
+				.poll(() => player.evaluate((el: HTMLAudioElement) => el.played.length))
+				.toBeGreaterThan(0);
+		} finally {
+			await page.mouse.up();
+		}
+		await expect(tile).toBeVisible();
 	},
 	async "logo-android"(page) {
 		const run = await openScenario(page, "logo-android");
@@ -1270,6 +1307,12 @@ test("on Android a case-first menu of one form lists that form once the case is 
 	page,
 }) => {
 	try {
+		await page.route("**/nova-icons/record_vitals.png", (route) =>
+			route.fulfill({
+				path: resolve("public/nova-icons/record_vitals.png"),
+				contentType: "image/png",
+			}),
+		);
 		const main = await openNavigation(page, {
 			fixture: "search-first",
 			platform: "android",
@@ -1283,6 +1326,19 @@ test("on Android a case-first menu of one form lists that form once the case is 
 			"Visit",
 		]);
 		await expect(main.getByRole("button", { name: "Finish" })).toHaveCount(0);
+		const grid = main.locator('[data-menu-layout="grid"]');
+		const icon = grid
+			.getByRole("button", { name: "Visit", exact: true })
+			.locator("img");
+		await expect(icon).toHaveAttribute("src", /record_vitals\.png$/);
+		expect(
+			await icon.evaluate(async (image) => {
+				if (!(image instanceof HTMLImageElement))
+					throw new Error("The form command must show an image.");
+				await image.decode();
+				return image.naturalWidth;
+			}),
+		).toBeGreaterThan(0);
 		await main.getByRole("button", { name: "Visit", exact: true }).click();
 		await expect(main.getByRole("textbox", { name: /Note$/ })).toBeVisible({
 			timeout: 20_000,

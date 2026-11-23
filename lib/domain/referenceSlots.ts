@@ -1678,6 +1678,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	name: "display-text",
 	hiddenFromMenu: "config",
 	formsInMenuAbove: "config",
+	menuLayout: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
 	purpose: "display-text",

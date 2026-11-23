@@ -1149,6 +1149,14 @@ the conjoined condition of a submenu that shows above (`compiler.ts`), as
 `id_strings.py::menu_id` and `menus.py::_generate_menu` do. No other menu's
 condition is conjoined, and nothing is projected as `ShadowModule`.
 
+`use_grid_menus` applies to every suite contribution with id `root`.
+`grid_form_menus=all` applies to every other id, while `some` reads
+`display_style=grid` only from ordinary modules. A default list omits the
+suite style. If a grid first menu has no contribution, HQ's
+`GridMenuHelper` appends a styled empty `root` menu with a text child.
+The local compiler emits the same root, and both HQ settings are written
+explicitly so a later publish can return an existing target to lists.
+
 A menu that shows its forms in the menu above (`Module.formsInMenuAbove`) is
 HQ's `put_in_root: true`, which adds the `menu_mode` add-on; the HQ JSON keeps
 its own filter, name and media. The local suite writes its `<menu>` as HQ's

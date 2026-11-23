@@ -234,6 +234,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"after-submit-home",
 	"first-menu-previous",
 	"after-submit-several-destinations",
+	"menu-layout",
 	"app-logo",
 	"saved-forms",
 	"incomplete-forms",
@@ -842,6 +843,18 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "after submit, only the first destination that applies opens, and when the otherwise applies it opens instead of any destination set to run every time",
 		},
 		android: { reading: "runs" },
+	},
+	"menu-layout": {
+		label: "Menu layout",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "grids show text and icons without spoken labels",
+		},
+		android: {
+			reading: "runs",
+			note: "workers can press and hold a grid tile to hear its spoken label",
+		},
 	},
 	"app-logo": {
 		label: "App logo",

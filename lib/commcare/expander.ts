@@ -625,6 +625,8 @@ export function* expandDocSteps(
 					localization.languages,
 					declaresWebApps(doc),
 				);
+		if (shell.doc_type === "Module" && mod.menuLayout === "grid")
+			shell.display_style = "grid";
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
 		const rootModuleUuid = moduleParent(doc, moduleUuid);
@@ -934,6 +936,8 @@ function appLevelValues(
 	doc: BlueprintDoc,
 	localization: CommCareLocalization,
 ): {
+	readonly firstMenuGrid: boolean;
+	readonly formMenuStyle: "none" | "all" | "some";
 	readonly autoGpsCapture?: boolean;
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
@@ -946,6 +950,13 @@ function appLevelValues(
 		// in from CommCare HQ that left it off, the first-publish register
 		// declares the change (`connect-app-captures-location`).
 		...(doc.connectType && { autoGpsCapture: true }),
+		firstMenuGrid: doc.appSettings.firstMenuLayout === "grid",
+		formMenuStyle:
+			doc.appSettings.formMenuLayout === "grid"
+				? "all"
+				: doc.appSettings.formMenuLayout === "individual"
+					? "some"
+					: "none",
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
 			localization.languages.map((language) => {

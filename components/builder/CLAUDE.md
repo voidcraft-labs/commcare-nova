@@ -1943,3 +1943,8 @@ Menu and form settings expose a localized badge or a calculated badge.
 The calculation editor takes the item's navigation slot. It offers a count
 of restored case rows or a Project table. A worker-property read identifies
 whether its source is sign-in information or the worker's saved record.
+
+A menu’s individual grid choice remains editable under a global list or grid
+policy. The control says which layout workers currently see and where its
+saved choice can take effect. The post-selection form menus use the same
+worker command images and sounds as ordinary form menus.

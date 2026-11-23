@@ -3078,6 +3078,21 @@ containment supplies the parent gate. `lib/commcare/CLAUDE.md` owns the lowering
 and its pinned HQ fixture provenance, and `content/docs/nested-menus.mdx` is the
 user-facing guide.
 
+#### Menu layouts
+
+The first menu and the other menus each have their own layout. Other menus can all
+use lists, all use grids, or use individual choices. App settings hold the policies.
+Each ordinary menu keeps its individual grid choice when the app-wide policy changes.
+A new app and a menu without an individual choice start with lists.
+
+A layout belongs to the screen the worker sees. HQ assigns a style to each menu
+contribution by its actual suite id. On a shared screen, Core ignores absent styles,
+so a grid contribution from a child showing forms above also lays out the parent's
+choices as a grid. HQ adds an empty styled first menu if the first menu has no
+explicit contribution. The local package follows both rules. Android workers hold
+a tile to hear its spoken label. Web Apps offers the player on list rows and omits
+it on grid tiles. Both keep each choice's name, image and navigation.
+
 #### Forms in the menu above
 
 `Module.formsInMenuAbove` is CommCare HQ's `put_in_root` (`ModuleBase.put_in_root`, offered

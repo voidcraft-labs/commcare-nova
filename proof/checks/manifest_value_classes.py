@@ -3520,6 +3520,19 @@ def vellum_case_references(xform):
     return found
 
 
+def menu_layout_outside_choices(use, manifest):
+    at = _json(use)
+    if at is None:
+        return None
+    if at.key == "use_grid_menus":
+        return not isinstance(at.value, bool)
+    if at.key == "grid_form_menus":
+        return at.value not in ("none", "all", "some")
+    if at.key == "display_style":
+        return at.value not in ("list", "grid")
+    return False
+
+
 def setting_outside_choices(use, manifest):
     """``application-and-settings/profile-properties-or-features-dependencies-value-outside-its``: a stored
     setting whose value is none of the setting's own choices (the ``values`` of its ``setting:properties.<key>``
@@ -9967,6 +9980,8 @@ def navigation_condition_untyped(use, manifest):
     return None if at.app.authored else False
 
 VALUE_CLASSES = {
+    "application-and-settings/menu-layout-outside-editor-choices": menu_layout_outside_choices,
+    "menus-and-case-lists/module-layout-outside-editor-choices": menu_layout_outside_choices,
     # Questions
     "questions/other-h-head-children-whose-local-name-or-a-descendant-s-core-or": head_child,
     "questions/authored-orx-pollsensor": authored_pollsensor,

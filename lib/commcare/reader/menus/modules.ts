@@ -7,6 +7,7 @@
  * Keys `readStructure` claims (a menu's name, id and forms) are read from the
  * drafts and claimed nothing again.
  */
+
 import type { Draft } from "immer";
 import {
 	type BlueprintDoc,
@@ -37,6 +38,7 @@ import {
 	formChoosesCase,
 	parentStepRead,
 } from "../../hq/entryFacts";
+import { sourceModuleMenuLayout } from "../../hq/menuLayout";
 import { hiddenMenuEntryPoints } from "../../validator/rules/hiddenFromMenu";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
@@ -233,7 +235,11 @@ const MENU = {
 		`${M}/case-list-item-badges`,
 		"schema:CaseList.custom_icons",
 	),
-	displayStyle: refuse(
+	invalidDisplayStyle: refuse(
+		`${M}/module-layout-outside-editor-choices`,
+		"schema:Module.display_style",
+	),
+	displayStyle: take(
 		`${M}/module-display-style-list-grid-read-when-grid-form-menus-some-on`,
 		"schema:Module.display_style",
 	),
@@ -1281,8 +1287,20 @@ function readMenuSettings(
 	if (module.docType === "Module") {
 		if (stored.lazy_load_case_list_fields === true)
 			json.refuse("lazy_load_case_list_fields", MENU.lazyLoad);
-		if (json.used("display_style"))
-			json.refuse("display_style", MENU.displayStyle);
+		const style = sourceModuleMenuLayout(json.peek("display_style"));
+		if (style === "unreadable") {
+			json.refuse("display_style", MENU.invalidDisplayStyle);
+		} else {
+			const grid = json.take(
+				"display_style",
+				MENU.displayStyle,
+				() => style === "grid",
+			).value;
+			if (grid)
+				ctx.writeDraft(() => {
+					module.module.menuLayout = "grid";
+				});
+		}
 		if (stored.auto_select_case === true)
 			if (loadListsFrom(ctx, module.uniqueId))
 				json.refuse("auto_select_case", MENU.autoSelectRefused);

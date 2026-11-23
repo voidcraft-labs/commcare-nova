@@ -25652,10 +25652,10 @@
 		}
 	},
 	{
-		"id": "hq-menus/menu-grid-under-some-grid-menus",
+		"id": "hq-menus/menu-display-unknown-layout",
 		"base": "hq-menus",
-		"entry": "menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/module-layout-outside-editor-choices",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "menu",
 			"menu": 2,
@@ -25664,20 +25664,34 @@
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/display_style",
-			"value": "grid"
-		},
-		"second": {
-			"entry": "application-and-settings/47-hq-grid-form-menus-none-all-some",
-			"standing": "not-yet",
-			"place": {
-				"kind": "app"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/grid_form_menus",
-				"value": "some"
-			}
+			"value": "columns"
 		}
+	},
+	{
+		"id": "hq-menus/menu-grid-under-some-grid-menus",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
+		"change": {
+			"op": "named",
+			"name": "choose_one_grid_menu"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/menuLayout",
+				"value": "grid"
+			},
+			{
+				"key": ["app"],
+				"pointer": "/appSettings/formMenuLayout",
+				"value": "individual"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/menu-under-a-mirror",
@@ -27355,32 +27369,50 @@
 		}
 	},
 	{
-		"id": "hq-new-app/grid-form-menus",
+		"id": "hq-new-app/form-menu-unknown-layout",
 		"base": "hq-new-app",
-		"entry": "application-and-settings/47-hq-grid-form-menus-none-all-some",
-		"standing": "not-yet",
+		"entry": "application-and-settings/menu-layout-outside-editor-choices",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "app"
 		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/grid_form_menus",
-			"value": "all"
+			"value": "columns"
 		}
+	},
+	{
+		"id": "hq-new-app/grid-form-menus",
+		"base": "hq-new-app",
+		"entry": "application-and-settings/47-hq-grid-form-menus-none-all-some",
+		"change": {
+			"op": "named",
+			"name": "choose_grid_form_menus"
+		},
+		"holds": [
+			{
+				"key": ["app"],
+				"pointer": "/appSettings/formMenuLayout",
+				"value": "grid"
+			}
+		]
 	},
 	{
 		"id": "hq-new-app/grid-menus",
 		"base": "hq-new-app",
 		"entry": "application-and-settings/46-hq-use-grid-menus",
-		"standing": "not-yet",
-		"place": {
-			"kind": "app"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/use_grid_menus",
-			"value": true
-		}
+			"op": "named",
+			"name": "choose_grid_first_menu"
+		},
+		"holds": [
+			{
+				"key": ["app"],
+				"pointer": "/appSettings/firstMenuLayout",
+				"value": "grid"
+			}
+		]
 	},
 	{
 		"id": "hq-new-app/hierarchical-location-fixture-only",

@@ -31,6 +31,8 @@ export function appOverview(doc: BlueprintDoc) {
 		name: doc.appName,
 		...(doc.connectType && { connect: doc.connectType }),
 		settings: {
+			firstMenuLayout: doc.appSettings.firstMenuLayout ?? "list",
+			formMenuLayout: doc.appSettings.formMenuLayout ?? "list",
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,
 		},

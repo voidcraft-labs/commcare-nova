@@ -613,3 +613,15 @@ A menu may list forms owned by another menu. Its `formsFromMenu.menuUuid` names 
 A form listed on the first menu may explicitly return to the previous screen. A form returning to a submenu can carry its existing selection when the submitting entry supplies the first menu’s record. Both use the selection’s identity and cardinality. The default destination on existing forms stays stable when the author gains an additional explicit choice.
 
 On Android, Back to the first menu can leave a case in front of the next command. The projection checks every physical form and case list entry that can reuse that datum. Web Apps starts a fresh first menu and checks the destination it actually opens. A conflicting type or selection maximum places a finding with a route back to a fresh choice. A nested entry can use distinct arguments to ask for a patient and a visit, even though it passes through that same first menu.
+
+### Menu layout
+
+The first menu uses `appSettings.firstMenuLayout`. Other menus follow
+`appSettings.formMenuLayout` (absent for lists, grid, or individual).
+A basic menu’s optional `menuLayout` carries its individual grid choice,
+including while an app-wide choice makes it inactive. The choice keeps its
+basic placement because an advanced menu cannot hold it. In individual
+mode one grid contribution makes the whole shared screen a grid, including
+forms shown above in a parent. A contribution omitted for lack of commands
+has no effect. The first menu uses its own setting even if no menu puts
+forms there. `menuScreens.ts` owns both projections.

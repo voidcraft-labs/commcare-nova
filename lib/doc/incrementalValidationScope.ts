@@ -371,6 +371,7 @@ function mutationFootprint(
 				if (
 					Object.hasOwn(mutation.patch, "formsInMenuAbove") ||
 					Object.hasOwn(mutation.patch, "formsFromMenu") ||
+					Object.hasOwn(mutation.patch, "menuLayout") ||
 					mutation.listedForm
 				)
 					return undefined;

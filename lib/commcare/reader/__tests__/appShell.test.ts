@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { inventoryIndex } from "../../surface/inventory";
+import { readHqApp } from "..";
 import { readApplication } from "../appShell";
 import { readStructure } from "../structure";
 import {
@@ -51,6 +52,36 @@ async function readShell(body: Readonly<Record<string, unknown>>) {
 	readStructure(ctx);
 	return { ctx, closed: closeAfterStructure(ctx) };
 }
+
+it("brings in both app layouts and retains a menu's individual choice through a change of policy", async () => {
+	const base = retainedSourceBody("navigation-base/app-source");
+	const modules = base.modules as Record<string, unknown>[];
+	for (const [policy, layout] of [
+		["some", "individual"],
+		["all", "grid"],
+		["none", undefined],
+	] as const) {
+		const body = {
+			...base,
+			use_grid_menus: true,
+			grid_form_menus: policy,
+			modules: modules.map((module, index) =>
+				index === 0 ? { ...module, display_style: "grid" } : module,
+			),
+		};
+		const outcome = await readHqApp({
+			...readerInput(await sourceFromBody(body)),
+			recordDialect: () => undefined,
+		});
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(outcome.draft.doc.appSettings.firstMenuLayout).toBe("grid");
+		expect(outcome.draft.doc.appSettings.formMenuLayout).toBe(layout);
+		expect(
+			outcome.draft.doc.modules[outcome.draft.doc.moduleOrder[0]].menuLayout,
+		).toBe("grid");
+	}
+});
 
 describe("readApplication over CommCare HQ's own apps", () => {
 	it.each([

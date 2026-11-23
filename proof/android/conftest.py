@@ -31,6 +31,7 @@ DOCUMENTS = (
     "targeted-hidden-column",
     "targeted-hidden-from-menu",
     "targeted-listed-forms",
+    "targeted-menu-layouts",
     "targeted-missing-media",
     "targeted-multi-select-destinations",
     "targeted-number-keypad",

@@ -100,6 +100,8 @@ export const APP_GENESIS_FALLBACK_NAME = "Untitled";
 export const appSettingsSchema = z.strictObject({
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
+	firstMenuLayout: z.literal("grid").optional(),
+	formMenuLayout: z.enum(["grid", "individual"]).optional(),
 	runsOnlyOn: z.enum(PLATFORMS).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
@@ -114,6 +116,8 @@ export const appSettingsPatchSchema = z
 	.strictObject({
 		showSavedForms: z.boolean().optional(),
 		showIncompleteForms: z.boolean().optional(),
+		firstMenuLayout: z.literal("grid").nullable().optional(),
+		formMenuLayout: z.enum(["grid", "individual"]).nullable().optional(),
 		runsOnlyOn: z.enum(PLATFORMS).nullable().optional(),
 	})
 	.refine(

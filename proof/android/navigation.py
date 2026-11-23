@@ -32,6 +32,7 @@ def nav(
     paths: Iterable[Sequence[str]] = (),
     endpoints: Iterable[Mapping] = (),
     device: str = "phone",
+    hold_spoken_label: str | None = None,
     sent: list | None = None,
 ) -> dict:
     """The ``nav`` request on ``archive`` over the served state, sent as the ``app`` request is
@@ -46,4 +47,6 @@ def nav(
         "paths": [list(path) for path in paths],
         "endpoints": [dict(endpoint) for endpoint in endpoints],
     }
+    if hold_spoken_label is not None:
+        options["holdSpokenLabel"] = hold_spoken_label
     return observe._read(served, blobs, label, "nav", {"archive": archive}, options, sent=sent)

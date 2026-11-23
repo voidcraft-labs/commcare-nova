@@ -99,6 +99,29 @@ describe("updateApp", () => {
 		},
 	);
 
+	it("switches menu policies independently and restores the default list", async () => {
+		const harness = makeToolWorkspaceHarness(fixture());
+		const grids = await harness.runTool(updateAppTool, {
+			first_menu_layout: "grid",
+			form_menu_layout: "individual",
+		});
+		expect(grids.result).toEqual({
+			ok: true,
+			summary: { menuLayouts: { first: "grid", forms: "individual" } },
+		});
+		const list = await harness.runTool(updateAppTool, {
+			first_menu_layout: "list",
+		});
+		expect(list.result).toEqual({
+			ok: true,
+			summary: { menuLayouts: { first: "list" } },
+		});
+		expect(harness.currentDoc().appSettings).toEqual({
+			...NEW_APP_SETTINGS,
+			formMenuLayout: "individual",
+		});
+	});
+
 	it("names the app and sets both settings in one batch", async () => {
 		const harness = makeToolWorkspaceHarness(fixture());
 		const outcome = await harness.runTool(updateAppTool, {

@@ -275,3 +275,23 @@ def test_menu_badges_are_read_and_shortened_on_the_installed_android_app(android
         ("m0-f0", None), ("m0-f1", ""), ("m0-f2", "999+"),
         ("m0-f3", "999+"), ("m0-f4", "214.."), ("m0-f5", "Équ.."),
     ]
+
+
+def test_a_worker_can_hold_a_grid_label_to_hear_it_and_choose_that_command(android_documents, hq):
+    navs = _navs(
+        android_documents["targeted-menu-layouts"],
+        "menu-layouts",
+        paths=[[], ["m0"], ["m2"], ["m0", "m1-f0"]],
+        hold_spoken_label="4aebda3a657a0d8f532d11ceacb1679081d7bdf7d7d301a53f1096af3580be91",
+    )
+    root = _steps(navs["path:"])[-1]["menu"]
+    assert root["view"] == "GridView"
+    assert [(item["id"], item["playedOnHold"]) for item in root["items"]] == [("m0", True), ("m2", False)]
+    shared = _steps(navs["path:m0"])[-1]["menu"]
+    assert shared["view"] == "GridView"
+    assert [(item["id"], item["playedOnHold"]) for item in shared["items"]] == [("m0-f0", False), ("m1-f0", True)]
+    listed = _steps(navs["path:m2"])[-1]["menu"]
+    assert listed["view"] == "ListView"
+    assert [item["id"] for item in listed["items"]] == ["m2-f0", "m2-f1"]
+    assert listed["items"][0]["audio"]["held"] is True
+    assert any(step.get("screen") == FORM_ENTRY for step in _steps(navs["path:m0/m1-f0"]))

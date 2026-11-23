@@ -71,6 +71,7 @@ import {
 	caseListsOffering,
 	childModuleUuids,
 	menuFormUuidsOf,
+	menuScreenLayout,
 	menuScreenOf,
 	menuWithInheritedCaseSettings,
 	moduleDestination,
@@ -162,6 +163,10 @@ export type GetModuleResult =
 			searchWorkflow: SearchWorkflow | null;
 			/** True when the menu's forms read the search. */
 			formsReadSearch: boolean;
+			/** The ordinary menu's saved individual choice, including when inactive. */
+			menuLayout: "list" | "grid";
+			/** The actual layout of the screen containing this module's forms. */
+			formsMenuLayout: "list" | "grid";
 			/** True when the module shows its forms in the menu above. */
 			formsInMenuAbove: boolean;
 			/** The screen that lists the module's forms. */
@@ -311,6 +316,8 @@ export const getModuleTool = {
 				case_search_config: caseSearchConfig ?? null,
 				searchWorkflow: moduleSearchWorkflow(mod) ?? null,
 				formsReadSearch: moduleFormsReadSearch(mod),
+				menuLayout: mod.menuLayout ?? "list",
+				formsMenuLayout: menuScreenLayout(doc, menuScreenOf(doc, moduleUuid)),
 				formsInMenuAbove: moduleShowsFormsInMenuAbove(mod),
 				listsOn: menuScreenOf(doc, moduleUuid),
 				caseListMenuItem:

@@ -4,6 +4,8 @@ import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { createModuleTool } from "../createModule";
 import { getModuleTool } from "../getModule";
+import { updateAppTool } from "../updateApp";
+import { updateModuleTool } from "../updateModule";
 
 function rootDoc() {
 	return buildDoc({
@@ -23,6 +25,37 @@ function rootDoc() {
 }
 
 describe("module hierarchy shared tools", () => {
+	it("keeps the chosen grid while the app shows lists and reads the effective screen layout", async () => {
+		const doc = expectAdmittedDoc(rootDoc());
+		const [moduleUuid] = doc.moduleOrder;
+		const harness = makeToolWorkspaceHarness(doc);
+		const chosen = await harness.runTool(updateModuleTool, {
+			moduleUuid,
+			menu_layout: "grid",
+		});
+		expect(chosen.result).toMatchObject({ menuLayout: "grid" });
+		async function read() {
+			return (await harness.runTool(getModuleTool, { moduleUuid })).data;
+		}
+		expect(await read()).toMatchObject({
+			menuLayout: "grid",
+			formsMenuLayout: "list",
+		});
+		await harness.runTool(updateAppTool, { form_menu_layout: "individual" });
+		expect(await read()).toMatchObject({
+			menuLayout: "grid",
+			formsMenuLayout: "grid",
+		});
+		await harness.runTool(updateModuleTool, {
+			moduleUuid,
+			menu_layout: "list",
+		});
+		expect(await read()).toMatchObject({
+			menuLayout: "list",
+			formsMenuLayout: "list",
+		});
+	});
+
 	it("creates a child record viewer and reads back parent and child identities", async () => {
 		const doc = expectAdmittedDoc(rootDoc());
 		const parentModuleUuid = doc.moduleOrder[0];

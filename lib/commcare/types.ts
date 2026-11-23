@@ -787,6 +787,8 @@ export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	 * `true` for a Connect app, and absent otherwise, so an update keeps the
 	 * Auto Capture Location a person turned on in HQ.
 	 */
+	use_grid_menus?: boolean;
+	grid_form_menus?: "none" | "all" | "some";
 	auto_gps_capture?: boolean;
 	/**
 	 * The seventeen settings, and the derived custom properties where Nova

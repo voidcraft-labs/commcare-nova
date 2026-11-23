@@ -321,6 +321,12 @@ export function platformFeatureUses(
 		if (wanted("connect-location-capture"))
 			appUses.push(slotUse("connect-location-capture", app, "connectType"));
 	}
+	if (wanted("menu-layout")) {
+		if (doc.appSettings.firstMenuLayout === "grid")
+			appUses.push(slotUse("menu-layout", app, "appSettings.firstMenuLayout"));
+		if (doc.appSettings.formMenuLayout !== undefined)
+			appUses.push(slotUse("menu-layout", app, "appSettings.formMenuLayout"));
+	}
 	if (doc.logo !== undefined && wanted("app-logo"))
 		appUses.push(slotUse("app-logo", app, "logo"));
 	if (doc.appSettings.showSavedForms && wanted("saved-forms"))

@@ -165,6 +165,7 @@ import {
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	makeTranslationUnitId,
+	menuContributionLayout,
 	moduleHasCaseListMenuItem,
 	moduleParent,
 	moduleShowsFormsInMenuAbove,
@@ -1260,7 +1261,7 @@ export function compileCczParts(
 				: moduleRelevant === undefined
 					? parentRelevant
 					: w.and(w.paren(moduleRelevant), w.paren(parentRelevant));
-
+		const layout = menuContributionLayout(doc, moduleUuid);
 		const moduleMenu = xel(
 			"menu",
 			{
@@ -1269,6 +1270,7 @@ export function compileCczParts(
 						? { root: menuIdOf(doc, linkContext, parentUuid) }
 						: {}),
 					id: menuIdOf(doc, linkContext, moduleUuid),
+					...(layout === undefined ? {} : { style: layout }),
 				},
 				xpath: menuRelevant === undefined ? {} : { relevant: menuRelevant },
 			},
@@ -1294,6 +1296,15 @@ export function compileCczParts(
 		// lists is hidden, or its source has none.
 		if (menuCommands.length > 0) suiteMenus.push(moduleMenu);
 	}
+
+	// HQ’s GridMenuHelper adds the styled root even when all modules keep their screens.
+	if (
+		doc.appSettings.firstMenuLayout === "grid" &&
+		!suiteMenus.some((menu) => menu.attribs.id === "root")
+	)
+		suiteMenus.push(
+			el("menu", { id: "root", style: "grid" }, [el("text", {})]),
+		);
 
 	// A projected session can select a detail belonging to a later module.
 	// Resolve dependencies after all details have actually been printed, while

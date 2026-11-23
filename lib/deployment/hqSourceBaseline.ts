@@ -224,6 +224,8 @@ function project(
 	const languages: JsonObject = {};
 	copyKey(languages, source, "langs");
 	const settings: JsonObject = {};
+	copyKey(settings, source, "use_grid_menus");
+	copyKey(settings, source, "grid_form_menus");
 	copyKey(settings, source, "application_version");
 	copyKey(settings, source, "location_fixture_restore");
 	settings.add_ons = pick(source.add_ons, ownership.addOns);

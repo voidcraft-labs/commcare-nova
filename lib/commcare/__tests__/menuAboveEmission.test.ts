@@ -54,6 +54,7 @@ import {
 	resolveFormLinkTarget,
 } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { menuScreenLayout } from "@/lib/domain/menuScreens";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
@@ -344,6 +345,54 @@ describe("the HQ JSON of a menu that shows its forms in the menu above", () => {
 		const { hq } = compiled(admitted(doc));
 		expect(hq.modules.every((module) => !module.put_in_root)).toBe(true);
 		expect(hq.add_ons?.menu_mode).toBeUndefined();
+	});
+});
+
+describe("the layout of menus a worker opens", () => {
+	it("styles each individual contribution, then lets a parent share its child's grid", () => {
+		const doc = menuShapesDoc();
+		doc.appSettings.firstMenuLayout = "grid";
+		doc.appSettings.formMenuLayout = "individual";
+		doc.modules[testUuid("s1")].menuLayout = "grid";
+		const suite = compiled(doc);
+		expect(suite.hq.use_grid_menus).toBe(true);
+		expect(suite.hq.grid_form_menus).toBe("some");
+		expect(suite.hq.modules[1]).toMatchObject({ display_style: "grid" });
+		expect(menuHolding(suite, "m0-f0").attribs.style).toBeUndefined();
+		expect(menuHolding(suite, "m1-f0").attribs).toMatchObject({
+			id: "m0",
+			style: "grid",
+		});
+		expect(menuHolding(suite, "m2-f0").attribs).toMatchObject({
+			id: "root",
+			style: "grid",
+		});
+		expect(menuHolding(suite, "m3-f0").attribs.style).toBeUndefined();
+		expect(
+			menuScreenLayout(doc, { kind: "menu", moduleUuid: testUuid("s0") }),
+		).toBe("grid");
+		expect(
+			menuScreenLayout(doc, { kind: "menu", moduleUuid: testUuid("s3") }),
+		).toBe("list");
+	});
+	it("adds exactly one empty styled root when no menu puts forms on the first screen", () => {
+		const doc = menuShapesDoc();
+		for (const module of Object.values(doc.modules))
+			delete module.formsInMenuAbove;
+		doc.appSettings.firstMenuLayout = "grid";
+		doc.appSettings.formMenuLayout = "grid";
+		const suite = compiled(doc);
+		const menus = findAll(
+			(element) => element.name === "menu",
+			suite.suiteDoc.children,
+		);
+		expect(menus.every((menu) => menu.attribs.style === "grid")).toBe(true);
+		const roots = menus.filter((menu) => menu.attribs.id === "root");
+		expect(roots).toHaveLength(1);
+		expect(
+			findAll((element) => element.name === "command", roots[0].children),
+		).toHaveLength(0);
+		expect(suite.hq.grid_form_menus).toBe("all");
 	});
 });
 

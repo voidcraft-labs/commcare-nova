@@ -4971,7 +4971,8 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		addOns === null ||
 		profileProperties === null ||
 		profileCustomProperties === null ||
-		typeof stored.autoGpsCapture !== "boolean"
+		typeof stored.autoGpsCapture !== "boolean" ||
+		(stored.menuLayouts !== undefined && stored.menuLayouts !== true)
 	)
 		return null;
 	return {
@@ -4979,6 +4980,7 @@ function appOwnershipFromRow(value: unknown): AppOwnership | null {
 		profileProperties,
 		profileCustomProperties,
 		autoGpsCapture: stored.autoGpsCapture,
+		...(stored.menuLayouts === true && { menuLayouts: true as const }),
 	};
 }
 

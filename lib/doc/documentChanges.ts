@@ -156,6 +156,7 @@ export const MENU_KEY_PARTS = {
 	badge: "settings",
 	hiddenFromMenu: "settings",
 	formsInMenuAbove: "settings",
+	menuLayout: "settings",
 	caseListConfig: "case-list",
 	caseSearchConfig: "search",
 	icon: "settings",

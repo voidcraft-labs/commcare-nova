@@ -521,6 +521,10 @@ function appSettingsPatch(
 	if (prev.showIncompleteForms !== next.showIncompleteForms) {
 		patch.showIncompleteForms = next.showIncompleteForms;
 	}
+	if (prev.firstMenuLayout !== next.firstMenuLayout)
+		patch.firstMenuLayout = next.firstMenuLayout ?? null;
+	if (prev.formMenuLayout !== next.formMenuLayout)
+		patch.formMenuLayout = next.formMenuLayout ?? null;
 	if (prev.runsOnlyOn !== next.runsOnlyOn) {
 		patch.runsOnlyOn = next.runsOnlyOn ?? null;
 	}

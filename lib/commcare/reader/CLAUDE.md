@@ -367,6 +367,11 @@ id is an entry of `lib/deployment/reading/firstPublishChanges.ts::FIRST_PUBLISH_
 `applies` reads that record, the two lists together are every such entry, and the lane holds each id
 to a retained base whose `expected.json` lists it (`entryCoverage.test.ts`, rule 3).
 
+The app shell reads both menu layout policies. An ordinary module keeps its
+individual grid choice even while a global policy is active. Its HQ editor
+keeps that choice and can make it effective again. Unsupported layout values
+produce a finding with the menu display settings that can recover the read.
+
 ## What the reader is told
 
 `ReaderInput` (`types.ts`) is everything a reading takes. Beside the source as HQ serves it and

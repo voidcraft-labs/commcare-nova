@@ -62,6 +62,8 @@ import {
 	asUuid,
 	findAuthoredBlueprintIdentity,
 	menuFormUuidsOf,
+	menuScreenLayout,
+	menuScreenOf,
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
 	type Uuid,
@@ -162,6 +164,12 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.describe(
 				"true takes the module and every form in it off the menu, null puts it back, omission keeps it. Off the menu, its forms open on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point.",
 			),
+		menu_layout: z
+			.enum(["list", "grid"])
+			.optional()
+			.describe(
+				"The layout this menu contributes when the app uses individual form menu layouts. A grid in a menu that lists its forms in its parent makes that parent a grid. The first menu always uses its own app setting.",
+			),
 		forms_in_menu_above: z
 			.literal(true)
 			.nullable()
@@ -196,6 +204,8 @@ export type UpdateModuleResult =
 			columns: Array<{ uuid: Uuid }>;
 			retiredCaseType?: string;
 			hiddenFromMenu?: boolean;
+			menuLayout?: "list" | "grid";
+			formsMenuLayout?: "list" | "grid";
 			formsInMenuAbove?: boolean;
 			caseListMenuItem?: boolean;
 			registerFromCaseList?: boolean;
@@ -220,6 +230,7 @@ export const updateModuleTool = {
 			displayCondition,
 			hiddenFromMenu,
 			parentCaseModuleUuid,
+			menu_layout,
 			forms_in_menu_above,
 			case_list_menu_item,
 			register_from_case_list,
@@ -234,6 +245,7 @@ export const updateModuleTool = {
 				displayCondition === undefined &&
 				hiddenFromMenu === undefined &&
 				parentCaseModuleUuid === undefined &&
+				menu_layout === undefined &&
 				forms_in_menu_above === undefined &&
 				case_list_menu_item === undefined &&
 				register_from_case_list === undefined
@@ -287,6 +299,16 @@ export const updateModuleTool = {
 					kind: "mutate",
 					mutations: [],
 					result: { error: "Choose a form from this menu's current source." },
+				};
+			/* A menu listing another menu's forms holds no layout of its own:
+			 * CommCare HQ keeps that choice only on an ordinary menu. */
+			if (menu_layout !== undefined && mod.formsFromMenu !== undefined)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: {
+						error: `Module "${mod.name}" lists the forms of another menu, which takes its layout from form_menu_layout on update_app, so it has no layout of its own to choose.`,
+					},
 				};
 			/* The case list menu item lists the module's cases, so it needs the
 			 * case type this call leaves; and a menu with no forms is its case
@@ -428,6 +450,13 @@ export const updateModuleTool = {
 							case_type,
 						)
 					: caseTypeCatalogMutations(doc, retirement, undefined)),
+				...(menu_layout === undefined
+					? []
+					: [
+							updateModuleMutation(moduleUuid, {
+								menuLayout: menu_layout === "grid" ? "grid" : null,
+							}),
+						]),
 				...updateModuleMutations(mod, {
 					...(name != null && { name }),
 					...(case_type != null && { caseType: case_type }),
@@ -529,6 +558,13 @@ export const updateModuleTool = {
 					}),
 					...(hiddenFromMenu !== undefined && {
 						hiddenFromMenu: newMod.hiddenFromMenu === true,
+					}),
+					...(menu_layout !== undefined && {
+						menuLayout: newMod.menuLayout ?? ("list" as const),
+						formsMenuLayout: menuScreenLayout(
+							newDoc,
+							menuScreenOf(newDoc, moduleUuid),
+						),
 					}),
 					...(forms_in_menu_above !== undefined && {
 						formsInMenuAbove: moduleShowsFormsInMenuAbove(newMod),

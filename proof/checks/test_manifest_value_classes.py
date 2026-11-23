@@ -1721,6 +1721,16 @@ def _settings_and_forms():
                 "/logo_refs",
             ),
         ),
+        "application-and-settings/menu-layout-outside-editor-choices": (
+            refused("app", app(use_grid_menus="tiles"), "schema:Application.use_grid_menus", "/use_grid_menus"),
+            accepted("app", app(use_grid_menus=True), "schema:Application.use_grid_menus", "/use_grid_menus"),
+            refused("app", app(grid_form_menus="columns"), "schema:Application.grid_form_menus", "/grid_form_menus"),
+            accepted("app", app(grid_form_menus="some"), "schema:Application.grid_form_menus", "/grid_form_menus"),
+        ),
+        "menus-and-case-lists/module-layout-outside-editor-choices": (
+            refused("app", _app([_module(display_style="columns")]), "schema:Module.display_style", "/modules/0/display_style"),
+            accepted("app", _app([_module(display_style="grid")]), "schema:Module.display_style", "/modules/0/display_style"),
+        ),
         "application-and-settings/profile-properties-or-features-dependencies-value-outside-its": (
             refused(
                 "app",

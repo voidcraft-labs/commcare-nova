@@ -96,6 +96,11 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"forms-and-case-writes/session-endpoint-id",
 		"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
 	],
+	"menu-layout": [
+		"application-and-settings/46-hq-use-grid-menus",
+		"application-and-settings/47-hq-grid-form-menus-none-all-some",
+		"menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
+	],
 	"case-list-menu-item": [
 		"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true",
 		"menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms",

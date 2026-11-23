@@ -1340,3 +1340,11 @@ def listed_menu_missing_its_required_child(authoring, app_id):
             "source_module_id": {"$menu": 3},
         },
     )
+
+
+def choose_one_grid_menu(authoring, app_id):
+    """Save the app's individual setting, then the menu's Grid option, through HQ's settings pages."""
+    from proof.matrix.bases import _pages
+
+    _pages.save_settings(authoring, app_id, attributes={"grid_form_menus": "some"})
+    _pages.save_module_attributes(authoring, app_id, 2, [("display_style", "grid")], "grid layout")

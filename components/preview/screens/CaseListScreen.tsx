@@ -125,7 +125,6 @@ import {
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
-import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
@@ -327,6 +326,8 @@ import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { showToast } from "@/lib/ui/toastStore";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
+import { PreviewMenuChoice, PreviewMenuChoices } from "./MenuLayout";
+import { PreviewFormChoiceIcon } from "./MenuScreenRows";
 
 /** Canvas width where search sits beside the results instead of above
  *  them: the same responsive truth the running app follows. */
@@ -3216,7 +3217,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					{message("chooseCaseTask")}
 				</p>
 			)}
-			<div className="grid gap-2">
+			<PreviewMenuChoices
+				doc={menuSource.doc}
+				screen={{ kind: "menu", moduleUuid }}
+			>
 				{formMenuDecided.map(({ form, visibility, badge }) => {
 					const localizedFormName =
 						(localizedValues.get(
@@ -3232,38 +3236,40 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						);
 					}
 					return (
-						<Button
+						<PreviewMenuChoice
 							key={form.uuid}
-							type="button"
-							variant="outline"
-							onClick={() =>
-								void openFormWithCase(form.uuid, displayedFormMenuCase, true)
-							}
-							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+							audioLabel={menuSource.forms[form.uuid]?.audioLabel}
+							label={localizedFormName}
 						>
-							<Icon
-								icon={formTypeIcons[form.type]}
-								width="18"
-								height="18"
-								className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
-							/>
-							<span
-								data-form-menu-choice-label
-								className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									void openFormWithCase(form.uuid, displayedFormMenuCase, true)
+								}
+								className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 							>
-								{localizedFormName}
-							</span>
-							{badge && <Badge variant="muted">{badge}</Badge>}
-							<Icon
-								icon={tablerArrowRight}
-								width="15"
-								height="15"
-								className="text-nova-text-muted shrink-0"
-							/>
-						</Button>
+								<PreviewFormChoiceIcon
+									form={menuSource.forms[form.uuid] ?? form}
+								/>
+								<span
+									data-form-menu-choice-label
+									className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+								>
+									{localizedFormName}
+								</span>
+								{badge && <Badge variant="muted">{badge}</Badge>}
+								<Icon
+									icon={tablerArrowRight}
+									width="15"
+									height="15"
+									className="text-nova-text-muted shrink-0"
+								/>
+							</Button>
+						</PreviewMenuChoice>
 					);
 				})}
-			</div>
+			</PreviewMenuChoices>
 			<HiddenItemsReveal items={formMenuHidden} />
 		</div>
 	);
@@ -3315,7 +3321,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					{message("chooseCasesForm")}
 				</p>
 			)}
-			<div className="grid gap-2">
+			<PreviewMenuChoices
+				doc={menuSource.doc}
+				screen={{ kind: "menu", moduleUuid }}
+			>
 				{multiFormMenuDecided.map(({ form, visibility, badge }) => {
 					const localizedFormName =
 						(localizedValues.get(
@@ -3331,35 +3340,37 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						);
 					}
 					return (
-						<Button
+						<PreviewMenuChoice
 							key={form.uuid}
-							type="button"
-							variant="outline"
-							onClick={() =>
-								void openFormWithCases(form.uuid, multiFormMenuChoices, true)
-							}
-							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+							audioLabel={menuSource.forms[form.uuid]?.audioLabel}
+							label={localizedFormName}
 						>
-							<Icon
-								icon={formTypeIcons[form.type]}
-								width="18"
-								height="18"
-								className="shrink-0 text-nova-text-muted transition-colors group-hover:text-pv-accent-bright"
-							/>
-							<span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
-								{localizedFormName}
-							</span>
-							{badge && <Badge variant="muted">{badge}</Badge>}
-							<Icon
-								icon={tablerArrowRight}
-								width="15"
-								height="15"
-								className="shrink-0 text-nova-text-muted"
-							/>
-						</Button>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									void openFormWithCases(form.uuid, multiFormMenuChoices, true)
+								}
+								className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+							>
+								<PreviewFormChoiceIcon
+									form={menuSource.forms[form.uuid] ?? form}
+								/>
+								<span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
+									{localizedFormName}
+								</span>
+								{badge && <Badge variant="muted">{badge}</Badge>}
+								<Icon
+									icon={tablerArrowRight}
+									width="15"
+									height="15"
+									className="shrink-0 text-nova-text-muted"
+								/>
+							</Button>
+						</PreviewMenuChoice>
 					);
 				})}
-			</div>
+			</PreviewMenuChoices>
 			<HiddenItemsReveal items={multiFormMenuHidden} />
 		</div>
 	);

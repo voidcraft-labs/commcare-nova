@@ -102,6 +102,7 @@ describe("hqImportApplication", () => {
 		);
 		expect(Object.keys(application).at(-1)).toBe("_attachments");
 		expect(ownership).toEqual({
+			menuLayouts: true,
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
 			profileCustomProperties: [],

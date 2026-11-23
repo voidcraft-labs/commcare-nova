@@ -99,6 +99,7 @@ import { lookupNames } from "./documents/lookupNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
 import { menuBadges } from "./documents/menuBadges";
+import { menuLayouts } from "./documents/menuLayouts";
 import {
 	migrationAttachment,
 	migrationCaseWrites,
@@ -287,6 +288,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	datetimeSaved,
 	formsInMenuAbove,
 	formsInMenuAboveNested,
+	menuLayouts,
 	formsInMenuAboveRegistrationOnly,
 	formsInMenuAboveOneCase,
 	registerFromCaseList,

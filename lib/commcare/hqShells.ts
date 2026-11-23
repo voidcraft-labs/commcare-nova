@@ -310,6 +310,8 @@ export function applicationShell(
 	options: {
 		/** Where the app runs, on the wire: `declaresWebApps(doc)`. */
 		cloudcareEnabled: boolean;
+		firstMenuGrid?: boolean;
+		formMenuStyle?: "none" | "all" | "some";
 		autoGpsCapture?: boolean;
 		langs?: string[];
 		translations?: Record<string, Record<string, string>>;
@@ -387,6 +389,8 @@ export function applicationShell(
 		// held, the first publish turns Web Apps off or on, which the register
 		// declares (`web-apps-turned-off`, `web-apps-turned-on`).
 		cloudcare_enabled: options.cloudcareEnabled,
+		use_grid_menus: options.firstMenuGrid ?? false,
+		grid_form_menus: options.formMenuStyle ?? "none",
 		...(Object.keys(profile).length > 0 && { profile }),
 		...(addOns.length > 0 && {
 			add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])),

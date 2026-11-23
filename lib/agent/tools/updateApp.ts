@@ -48,7 +48,7 @@ import type {
 
 /** The refusal a call that names nothing to change reads. */
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
-	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms) and where the app runs (runs_only_on); a call needs at least one of them.";
+	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), where the app runs (runs_only_on), and the layouts of the first and other menus (first_menu_layout, form_menu_layout). Choose at least one.";
 
 export const updateAppInputSchema = z
 	.strictObject({
@@ -58,6 +58,16 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"App display name (the title users see on devices). Leave it out to keep the current name.",
+			),
+		first_menu_layout: z
+			.enum(["list", "grid"])
+			.optional()
+			.describe("Layout of the first menu workers open."),
+		form_menu_layout: z
+			.enum(["list", "grid", "individual"])
+			.optional()
+			.describe(
+				"Layout for all other menus. Choose individual to set a menu’s layout with update_module. Web Apps grids show icons and text; Android grids also play spoken labels.",
 			),
 		show_saved_forms: z
 			.boolean()
@@ -106,6 +116,18 @@ function changedSettings(
 	) {
 		settings.showIncompleteForms = input.show_incomplete_forms;
 	}
+	if (
+		input.first_menu_layout !== undefined &&
+		input.first_menu_layout !== (current.firstMenuLayout ?? "list")
+	)
+		settings.firstMenuLayout =
+			input.first_menu_layout === "list" ? null : "grid";
+	if (
+		input.form_menu_layout !== undefined &&
+		input.form_menu_layout !== (current.formMenuLayout ?? "list")
+	)
+		settings.formMenuLayout =
+			input.form_menu_layout === "list" ? null : input.form_menu_layout;
 	if (input.runs_only_on === null) {
 		if (current.runsOnlyOn !== undefined) settings.runsOnlyOn = null;
 	} else if (
@@ -158,7 +180,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
+		"Set the app's display name, its menu layouts, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(
@@ -214,6 +236,17 @@ export const updateAppTool = {
 			const summary: ToolCallSummary = {
 				...(input.name !== undefined && { subject: input.name, nameChange }),
 				...(platforms !== undefined && { platforms }),
+				...((settings.firstMenuLayout !== undefined ||
+					settings.formMenuLayout !== undefined) && {
+					menuLayouts: {
+						...(settings.firstMenuLayout !== undefined && {
+							first: settings.firstMenuLayout ?? "list",
+						}),
+						...(settings.formMenuLayout !== undefined && {
+							forms: settings.formMenuLayout ?? "list",
+						}),
+					},
+				}),
 				...(formListsChanged && {
 					formLists: {
 						...(settings.showSavedForms !== undefined && {

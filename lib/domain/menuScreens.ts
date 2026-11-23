@@ -213,6 +213,47 @@ export function menuScreenContributors(
 	return [...(knownScreens(doc).contributors.get(menuScreenKey(screen)) ?? [])];
 }
 
+/** Layout on the suite menu contributed by this module. The first menu
+ * takes the app's own layout, including when no module contributes to it.
+ * HQ marks only grids. List contributions therefore carry no style. A menu
+ * listing another menu's forms is a `ShadowModule` on the wire, which holds
+ * no choice of its own: only the app-wide grid reaches it
+ * (`suite_xml/sections/menus.py::get_module_contributions` asks
+ * `hasattr(module, 'grid_display_style')`, which only `Module` has). */
+export function menuContributionLayout(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): "grid" | undefined {
+	if (menuScreenOf(doc, moduleUuid).kind === "first-menu")
+		return doc.appSettings.firstMenuLayout;
+	if (doc.appSettings.formMenuLayout === "grid") return "grid";
+	const mod = doc.modules[moduleUuid];
+	if (
+		doc.appSettings.formMenuLayout === "individual" &&
+		mod?.formsFromMenu === undefined
+	)
+		return mod?.menuLayout;
+	return undefined;
+}
+
+/** Core considers all contributions with this screen's id, even ones
+ * whose commands are hidden. An absent style does not conflict with grid.
+ * HQ omits contributions that have no commands. */
+export function menuScreenLayout(
+	doc: BlueprintDoc,
+	screen: MenuScreen,
+): "list" | "grid" {
+	if (screen.kind === "first-menu")
+		return doc.appSettings.firstMenuLayout ?? "list";
+	const hasGrid = menuScreenContributors(doc, screen).some(
+		(uuid) =>
+			menuContributionLayout(doc, uuid) === "grid" &&
+			(menuFormUuidsOf(doc, uuid).length > 0 ||
+				moduleHasCaseListMenuItem(doc.modules[uuid])),
+	);
+	return hasGrid ? "grid" : "list";
+}
+
 /** Everything the screen lists, in the order a worker meets it. */
 export function menuScreenEntries(
 	doc: MenuScreenSource,

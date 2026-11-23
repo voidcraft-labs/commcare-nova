@@ -113,6 +113,7 @@ import {
 	placeChange,
 } from "./hqResourceBaseline";
 import { appConfirmationScope, normalizeHqAppSource } from "./hqSourceBaseline";
+import { legacyMenuLayoutLines } from "./legacyMenuLayouts";
 import {
 	ambiguousReverseHopsOnTarget,
 	authoredReverseHops,
@@ -797,6 +798,12 @@ export async function runDeploymentPreflight(
 	// Lookup tables and an owner beneath the current case owner both pass
 	// now, the first because this publish pushes them and the second
 	// because it never carried a Nova identity to begin with.
+	/* Where this target keeps the app's entities: the files' paths below,
+	 * and the menu ids the layouts CommCare HQ holds are matched by. */
+	const targetExport = exportIdentityOf(
+		input.doc,
+		input.compiledIdentity ?? (await readTargetIdentity(input.access, target)),
+	);
 	const boundary = await prepareExportBoundary({
 		mode: "hq-upload",
 		access: input.access,
@@ -805,11 +812,7 @@ export async function runDeploymentPreflight(
 		/* The paths CommCare HQ keeps this target's files under, for an app
 		 * brought in from it: the bulk upload's entries and every reference
 		 * of the body name them. Empty everywhere else. */
-		heldMediaPaths: exportIdentityOf(
-			input.doc,
-			input.compiledIdentity ??
-				(await readTargetIdentity(input.access, target)),
-		).heldMediaPaths,
+		heldMediaPaths: targetExport.heldMediaPaths,
 		// A publish knows its target exactly: it IS this server and this
 		// project space. So it never consults the deployment record the
 		// download paths fall back on — the record describes where the app
@@ -1662,6 +1665,19 @@ export async function runDeploymentPreflight(
 				input.inPlaceUpdate,
 				await greatestFoldBaselineSeq(await getAppDb(), input.access.appId),
 			),
+			/* A shell's baseline accounts for nothing a person chose there
+			 * before its first complete upload. */
+			layoutReplacements: legacyMenuLayoutLines({
+				doc: boundary.prepared.doc,
+				identity: targetExport.identity,
+				source: read.source,
+				ownership:
+					appBaseline === null ||
+					appBaseline.origin === "unread" ||
+					appBaseline.origin === "create"
+						? null
+						: appBaseline.ownership,
+			}),
 		});
 		if (change !== null) observed.push(change);
 		checks.push({

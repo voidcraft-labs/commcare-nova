@@ -74,6 +74,8 @@ it("holds the document's form-list settings", () => {
 		appSettings: { showSavedForms: true, showIncompleteForms: false },
 	});
 	expect(appOverview(doc).settings).toEqual({
+		firstMenuLayout: "list",
+		formMenuLayout: "list",
 		showSavedForms: true,
 		showIncompleteForms: false,
 	});

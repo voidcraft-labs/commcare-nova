@@ -45,6 +45,7 @@ import type { Uuid } from "./uuid";
 export type AdvancedKindBlocker =
 	| { readonly kind: "several-cases" }
 	| { readonly kind: "forms-read-search" }
+	| { readonly kind: "individual-grid" }
 	| {
 			readonly kind: "case-list-menu-item-narrowed";
 			readonly why: "filter" | "hidden-owners" | "chosen-before";
@@ -437,6 +438,7 @@ export function advancedKindBlockers(
 		blockers.push({ kind: "several-cases" });
 	if (moduleFormsReadSearch(module))
 		blockers.push({ kind: "forms-read-search" });
+	if (module.menuLayout === "grid") blockers.push({ kind: "individual-grid" });
 	if (moduleHasCaseListMenuItem(module)) {
 		const why = caseListNarrowing(doc, moduleUuid);
 		if (why !== undefined)

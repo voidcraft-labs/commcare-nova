@@ -20,7 +20,7 @@ SCREEN = {"call": "webapps/screen"}
 SETTLE = {"settle": True, "timers": True}
 
 APP_TILE = "#menu-region .appicon-default"
-MENU_ROW = "#menu-region .menus-container > tr"
+MENU_ROW = "#menu-region .menus-container > .formplayer-request"
 LIST_ACTION = "#menu-region .case-list-action-button button"
 BREADCRUMB = "#breadcrumb-region .breadcrumb-item a"
 

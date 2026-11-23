@@ -392,6 +392,14 @@ const tiled =
 const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
 export const PLATFORM_FEATURE_FIXTURES = {
+	"menu-layout": {
+		with: () =>
+			survey([], {
+				appSettings: { ...NEW_APP_SETTINGS, firstMenuLayout: "grid" },
+			}),
+		without: () => survey([]),
+		use: slotUse("menu-layout", { kind: "app" }, "appSettings.firstMenuLayout"),
+	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
 	"case-list-here": {
 		with: () =>

@@ -3727,10 +3727,8 @@
 			"setting:hq.use_grid_menus",
 			"schema:Application.use_grid_menus"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `menuStyle.rootGrid`",
-		"subject": "menu-display",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appSettings.firstMenuLayout`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (grid audio IGNORED: no audio control) / RUNS",
@@ -3746,6 +3744,36 @@
 			"cell": "`use_grid_menus`",
 			"markers": []
 		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "application-and-settings/menu-layout-outside-editor-choices",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "Menu layout outside the options the settings page can save",
+		"surfaceKeys": [
+			"schema:Application.use_grid_menus",
+			"schema:Application.grid_form_menus"
+		],
+		"valueClass": "outside-layout-choices",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The app settings page offers List or Grid for the first menu and List, Grid or individual layouts for form menus.",
+		"subject": "menu-display",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The app settings page offers List or Grid for the first menu and List, Grid or individual layouts for form menus."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
 		"gates": []
 	},
 	{
@@ -3757,10 +3785,8 @@
 			"setting:hq.grid_form_menus",
 			"schema:Application.grid_form_menus"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `menuStyle.formMenus`",
-		"subject": "menu-display",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appSettings.formMenuLayout`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (grid audio IGNORED) / RUNS",
@@ -3776,7 +3802,8 @@
 			"cell": "`grid_form_menus` (+ per-module `display_style`, Module fields)",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "application-and-settings/48-hq-target-commcare-flavor-none",

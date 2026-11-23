@@ -523,6 +523,7 @@ describe("the whole body and its ownership", () => {
 			NOVA_FILL,
 		);
 		expect(ownership).toEqual({
+			menuLayouts: true,
 			addOns: ["display_conditions", "subcases"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
 			profileCustomProperties: ["cc-index-case-search-results"],

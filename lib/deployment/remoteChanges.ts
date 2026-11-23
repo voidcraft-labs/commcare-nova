@@ -95,7 +95,7 @@ export function driftReferenceOf(
 export function hqChangedMessage(
 	changes: readonly Pick<
 		DeploymentRemoteChange,
-		"since" | "kind" | "canBringIn" | "requiresReview"
+		"since" | "kind" | "canBringIn" | "requiresReview" | "replacesMenuLayouts"
 	>[],
 	options?: DriftDateOptions,
 ): string {
@@ -104,6 +104,9 @@ export function hqChangedMessage(
 	const app = changes.find((change) => change.kind === "app");
 	const others = changes.some((change) => change.kind !== "app");
 	if (app === undefined) return HQ_CHANGED_MESSAGE;
+	/* The layouts can be there since before the baseline, so the message
+	 * claims no change since it. */
+	if (app.replacesMenuLayouts && !others) return MENU_LAYOUTS_HELD_MESSAGE;
 	if (app.canBringIn) {
 		return hqChangedBringInMessage(app.since, others, options);
 	}
@@ -125,6 +128,10 @@ export function hqChangedMessage(
 		}
 	}
 }
+
+/** The refusal's message where the app's change lists menu layouts this publish would replace. */
+const MENU_LAYOUTS_HELD_MESSAGE =
+	"CommCare HQ holds menu layouts for this app that publishing would replace, so Nova stopped before sending anything. You can match them in Nova first, or publish over what's listed below, which replaces it with this app's version.";
 
 /** The `hq_changed` refusal's message when CommCare HQ's copy moved during the resource push. */
 export const HQ_CHANGED_DURING_PUSH_MESSAGE =

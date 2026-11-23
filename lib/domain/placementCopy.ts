@@ -175,6 +175,8 @@ export function advancedKindBlockerSentence(
 	blocker: AdvancedKindBlocker["kind"],
 ): string {
 	switch (blocker) {
+		case "individual-grid":
+			return "This menu has its own grid layout, which CommCare HQ keeps on a basic menu.";
 		case "several-cases":
 			return "It now lets workers choose several cases, which an advanced menu can't do.";
 		case "forms-read-search":

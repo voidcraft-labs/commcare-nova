@@ -93,7 +93,7 @@ final class Captures {
         });
     }
 
-    private static String digest(File file) throws Exception {
+    static String digest(File file) throws Exception {
         java.security.MessageDigest sha = java.security.MessageDigest.getInstance("SHA-256");
         return new java.math.BigInteger(1, sha.digest(java.nio.file.Files.readAllBytes(file.toPath()))).toString(16);
     }

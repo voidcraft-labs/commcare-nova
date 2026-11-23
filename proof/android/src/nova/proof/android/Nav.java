@@ -54,6 +54,15 @@ final class Nav {
     }
 
     static JSONObject read(JSONObject request) throws Exception {
+        Menus.spokenLabelDigest = request.optString("holdSpokenLabel", "");
+        try {
+            return navigate(request);
+        } finally {
+            Menus.spokenLabelDigest = "";
+        }
+    }
+
+    private static JSONObject navigate(JSONObject request) throws Exception {
         JSONObject found = new JSONObject();
         AppInstallStatus status = Device.install(request.getString("archive"));
         found.put("install", String.valueOf(status));

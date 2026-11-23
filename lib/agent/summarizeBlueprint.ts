@@ -530,7 +530,7 @@ function summarizeModule(
 		mod.parentModuleUuid === undefined
 			? " [top-level menu]"
 			: ` [child menu of uuid ${mod.parentModuleUuid}]`;
-	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listInMenu}${offTheMenu}${formsInMenuAboveInfo(doc, moduleUuid)}`;
+	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listInMenu}${offTheMenu}${formsInMenuAboveInfo(doc, moduleUuid)}${mod.menuLayout === "grid" ? " (individual grid layout)" : ""}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(indentBlock(caseList, indent));
@@ -554,6 +554,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	lines.push(`### App: "${doc.appName}"`);
 	if (doc.connectType) lines.push(`Connect type: ${doc.connectType}`);
 	lines.push(
+		`Menu layouts: first menu ${doc.appSettings.firstMenuLayout ?? "list"}, other menus ${doc.appSettings.formMenuLayout ?? "list"}`,
 		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
 	);
 	lines.push(`Runs on: ${platformDeclarationLabel(declaredPlatforms(doc))}`);

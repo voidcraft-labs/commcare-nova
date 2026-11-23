@@ -766,6 +766,7 @@ describe("adoptedAppBaselineWrite", () => {
 
 	it("owns the needed add-ons and the two settings Nova always writes, and no custom profile property", () => {
 		expect(baselineFor(PLAIN).ownership).toEqual({
+			menuLayouts: true,
 			addOns: ["display_conditions"],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
 			profileCustomProperties: [],
@@ -779,6 +780,7 @@ describe("adoptedAppBaselineWrite", () => {
 		)?.doc;
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
 		expect(baselineFor(connect).ownership).toEqual({
+			menuLayouts: true,
 			addOns: [],
 			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
 			profileCustomProperties: [],

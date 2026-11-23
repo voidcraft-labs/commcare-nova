@@ -74,6 +74,14 @@ export function applyAppMutation(
 				draft.appSettings.showIncompleteForms =
 					mut.settings.showIncompleteForms;
 			}
+			if (mut.settings.firstMenuLayout === null)
+				delete draft.appSettings.firstMenuLayout;
+			else if (mut.settings.firstMenuLayout !== undefined)
+				draft.appSettings.firstMenuLayout = mut.settings.firstMenuLayout;
+			if (mut.settings.formMenuLayout === null)
+				delete draft.appSettings.formMenuLayout;
+			else if (mut.settings.formMenuLayout !== undefined)
+				draft.appSettings.formMenuLayout = mut.settings.formMenuLayout;
 			// `null` clears the declaration to Web Apps and Android, the
 			// absent key; a value narrows the app to one platform.
 			if (mut.settings.runsOnlyOn === null) delete draft.appSettings.runsOnlyOn;

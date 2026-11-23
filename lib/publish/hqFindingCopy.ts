@@ -330,9 +330,7 @@ export const FINDING_COPY: Readonly<
 		never:
 			"This badge has no label or value Nova can show on the worker’s menu. In CommCare HQ, choose a badge label or a calculation that uses data available on that menu, then bring the app in again.",
 	},
-	"menu-display": {
-		"not-yet": "This uses grid menus, which Nova can't hold yet.",
-	},
+	"menu-display": {},
 	"menu-settings": {},
 	"menu-structure": {
 		never:
@@ -441,6 +439,7 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"android-app-dependencies": "The Android apps this app depends on are",
 	"app-logos": "An app logo is",
 	"app-settings": "An app setting is",
+	"menu-display": "The menu layout is",
 	"auto-select": "Choosing a case automatically is",
 	"case-detail-tabs": "A tab on the case detail screen is",
 	"case-list-callout": "A lookup from the case list is",

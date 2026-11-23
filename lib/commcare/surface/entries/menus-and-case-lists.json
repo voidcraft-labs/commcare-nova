@@ -2408,6 +2408,32 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/module-layout-outside-editor-choices",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Menu layout outside the options the settings page can save",
+		"surfaceKeys": ["schema:Module.display_style"],
+		"valueClass": "outside-layout-choices",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: The menu settings page offers List or Grid for a basic menu.",
+		"subject": "menu-display",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The menu settings page offers List or Grid for a basic menu."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/module-display-style-list-grid-read-when-grid-form-menus-some-on",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
@@ -2417,10 +2443,8 @@
 			"schema:Module.display_style"
 		],
 		"valueClass": "per-module-when-some-menus-are-grids",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `menuStyle.moduleGrid`",
-		"subject": "menu-display",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.menuLayout`",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2435,7 +2459,8 @@
 			"cell": "`display_style`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/display-style-on-an-advanced-or-shadow-module",

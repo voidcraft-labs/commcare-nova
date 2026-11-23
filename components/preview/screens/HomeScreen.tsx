@@ -70,6 +70,7 @@ import {
 	useSetPreviewParentCaseRequest,
 } from "@/lib/session/hooks";
 import { DeviceHomeScreen } from "./DeviceHomeScreen";
+import { PreviewMenuChoice, PreviewMenuChoices } from "./MenuLayout";
 import { PreviewCaseListRow, PreviewFormRow } from "./MenuScreenRows";
 import { choosePreviewMenuTile } from "./moduleScreenNavigation";
 
@@ -301,7 +302,7 @@ function ModuleListHome() {
 				)}
 			</div>
 			{mode !== "edit" && <PreviewSetupNotice />}
-			<div className="grid gap-3">
+			<PreviewMenuChoices doc={menuSource.doc} screen={{ kind: "first-menu" }}>
 				{entries.map((entry, mIdx) => {
 					const key = menuScreenEntryKey(entry);
 					const visibility = entryVisibility.get(key) ?? "shown";
@@ -400,96 +401,102 @@ function ModuleListHome() {
 						menuCaseSelections,
 					);
 					return (
-						<motion.button
-							key={mod.uuid}
-							initial={{ opacity: 0, y: 12 }}
-							animate={{ opacity: 1, y: 0 }}
-							transition={{
-								delay: mIdx * 0.06,
-								duration: 0.3,
-								ease: [0.16, 1, 0.3, 1],
-							}}
-							onClick={() =>
-								/* A menu that asks for its parent case before it lists
-								 * its screen opens the parent's list; otherwise
-								 * case-first modules land on the case list (the running
-								 * app hoists the shared case selection), and a bare case
-								 * list (its case list menu entry and no forms) has no
-								 * form menu at all, so it too opens straight to its case
-								 * list. `moduleLanding` is the one rule, shared with a
-								 * form's after-submit link to a module, and
-								 * `choosePreviewMenuTile` the one tile, shared with a
-								 * menu's submenus. */
-								choosePreviewMenuTile(
-									{
-										setPreviewCaseTarget,
-										setPreviewParentCaseRequest,
-										navigate,
-									},
-									{
-										source: menuSource,
-										moduleUuid: mod.uuid,
-										selections: menuCaseSelections,
-										cancelLocation: { kind: "home" },
-										landing: moduleLanding({
-											isCaseFirst: caseFirstModules.has(mod.uuid),
-											isBareCaseList: previewModuleScreenIsBareCaseList(
-												menuSource.doc,
-												mod.uuid,
-											),
-											hasChildren,
-											hasSelectedCase:
-												menuCaseContext.selectedCase !== undefined,
-										}),
-									},
-								)
-							}
-							className="nova-focusable w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
+						<PreviewMenuChoice
+							key={key}
+							audioLabel={mod.audioLabel}
+							label={localizedModuleName}
 						>
-							{mod.icon ? (
-								// Module menu-tile icon: CommCare shows it on the
-								// module's home-screen tile.
-								<ProjectMediaImage
-									assetId={mod.icon}
-									alt=""
-									className="w-10 h-10 rounded-lg object-cover shrink-0"
-								/>
-							) : (
-								<div className="w-10 h-10 rounded-lg bg-pv-accent/10 flex items-center justify-center shrink-0">
-									<Icon
-										icon={tablerGridDots}
-										width="20"
-										height="20"
-										className="text-pv-accent-bright"
+							<motion.button
+								type="button"
+								initial={{ opacity: 0, y: 12 }}
+								animate={{ opacity: 1, y: 0 }}
+								transition={{
+									delay: mIdx * 0.06,
+									duration: 0.3,
+									ease: [0.16, 1, 0.3, 1],
+								}}
+								onClick={() =>
+									/* A menu that asks for its parent case before it lists
+									 * its screen opens the parent's list; otherwise
+									 * case-first modules land on the case list (the running
+									 * app hoists the shared case selection), and a bare case
+									 * list (its case list menu entry and no forms) has no
+									 * form menu at all, so it too opens straight to its case
+									 * list. `moduleLanding` is the one rule, shared with a
+									 * form's after-submit link to a module, and
+									 * `choosePreviewMenuTile` the one tile, shared with a
+									 * menu's submenus. */
+									choosePreviewMenuTile(
+										{
+											setPreviewCaseTarget,
+											setPreviewParentCaseRequest,
+											navigate,
+										},
+										{
+											source: menuSource,
+											moduleUuid: mod.uuid,
+											selections: menuCaseSelections,
+											cancelLocation: { kind: "home" },
+											landing: moduleLanding({
+												isCaseFirst: caseFirstModules.has(mod.uuid),
+												isBareCaseList: previewModuleScreenIsBareCaseList(
+													menuSource.doc,
+													mod.uuid,
+												),
+												hasChildren,
+												hasSelectedCase:
+													menuCaseContext.selectedCase !== undefined,
+											}),
+										},
+									)
+								}
+								className="nova-focusable w-full flex items-center gap-4 p-4 rounded-xl bg-pv-surface border border-pv-input-border hover:border-pv-input-focus hover:translate-y-[-1px] transition-all duration-200 cursor-pointer text-left group"
+							>
+								{mod.icon ? (
+									// Module menu-tile icon: CommCare shows it on the
+									// module's home-screen tile.
+									<ProjectMediaImage
+										assetId={mod.icon}
+										alt=""
+										className="w-10 h-10 rounded-lg object-cover shrink-0"
 									/>
-								</div>
-							)}
-							<div className="flex-1 min-w-0">
-								<div className="font-medium text-nova-text group-hover:text-pv-accent-bright transition-colors">
-									{localizedModuleName}
-								</div>
-								{mode === "edit" && mod.caseType && (
-									<Badge variant="muted" className="mt-1">
-										{mod.caseType}
-									</Badge>
+								) : (
+									<div className="w-10 h-10 rounded-lg bg-pv-accent/10 flex items-center justify-center shrink-0">
+										<Icon
+											icon={tablerGridDots}
+											width="20"
+											height="20"
+											className="text-pv-accent-bright"
+										/>
+									</div>
 								)}
-							</div>
-							{badges?.get(key) && (
-								<Badge variant="muted">{badges.get(key)}</Badge>
-							)}
-							<span className="text-xs text-nova-text-muted shrink-0">
-								{runtimeMessage(
-									mode === "edit" ? undefined : language.language,
-									formCount === 1 ? "formCountOne" : "formCountMany",
-									{
-										count: formCount,
-									},
+								<div className="flex-1 min-w-0">
+									<div className="font-medium text-nova-text group-hover:text-pv-accent-bright transition-colors">
+										{localizedModuleName}
+									</div>
+									{mode === "edit" && mod.caseType && (
+										<Badge variant="muted" className="mt-1">
+											{mod.caseType}
+										</Badge>
+									)}
+								</div>
+								{badges?.get(key) && (
+									<Badge variant="muted">{badges.get(key)}</Badge>
 								)}
-							</span>
-						</motion.button>
+								<span className="text-xs text-nova-text-muted shrink-0">
+									{runtimeMessage(
+										mode === "edit" ? undefined : language.language,
+										formCount === 1 ? "formCountOne" : "formCountMany",
+										{
+											count: formCount,
+										},
+									)}
+								</span>
+							</motion.button>
+						</PreviewMenuChoice>
 					);
 				})}
-			</div>
+			</PreviewMenuChoices>
 			<HiddenItemsReveal items={hiddenEntries} />
 		</ContentFrame>
 	);

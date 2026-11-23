@@ -291,6 +291,10 @@ const built = buildDoc({
 	],
 });
 if (scenario.fixture === "home") built.logo = IDS.logo;
+if (scenarioId === "menu-grid-android" || scenarioId === "menu-grid-web-apps") {
+	built.appSettings.firstMenuLayout = "grid";
+	built.modules[IDS.module].audioLabel = IDS.menuSound;
+}
 /* A group's label is optional and the fixture builder gives every group one;
  * the screens fixture's `rest` and `extras` are unlabeled. */
 if (scenario.fixture === "screens")

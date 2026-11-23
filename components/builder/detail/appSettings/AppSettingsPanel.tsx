@@ -5,6 +5,7 @@ import { Button } from "@/components/shadcn/button";
 import { AppAppearanceSection } from "./AppAppearanceSection";
 import { AppConnectSection } from "./AppConnectSection";
 import { AppDataSourcesSection } from "./AppDataSourcesSection";
+import { AppMenuLayoutSection } from "./AppMenuLayoutSection";
 import { AppPlatformsSection } from "./AppPlatformsSection";
 import { AppSavedFormsSection } from "./AppSavedFormsSection";
 
@@ -48,6 +49,7 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
 				<AppPlatformsSection />
 				<AppAppearanceSection />
+				<AppMenuLayoutSection />
 				<AppSavedFormsSection />
 				<AppConnectSection />
 				<AppDataSourcesSection />
