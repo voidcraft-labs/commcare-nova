@@ -443,6 +443,10 @@ export const RESPELLED_FORM_PARTS = [
 	"/_attachments/*/data/*/:control/@vellum:jr__count",
 	"/_attachments/*/data/*/:control/itemset/@nodeset/:respelled",
 	"/_attachments/*/data/*/:control/itemset/@vellum:nodeset",
+	// The read of a row an itemset's label names, printed from its lookup read
+	// (`buildLookupItemset`), where it is the same expression over the row: Core
+	// parses it as one (`XFormParser.parseItemset`'s `labelRef`).
+	"/_attachments/*/data/*/:control/itemset/label/@ref/:respelled",
 	// A hint writes no markdown form (`buildXFormSource`'s itext); Core reads a
 	// hint's text alone (`FormEntryPrompt.getHintText`).
 	"/_attachments/*/data/*/:itext/hint/*/markdown",
