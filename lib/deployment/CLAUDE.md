@@ -2554,6 +2554,8 @@ A continuation commits to the display inputs as well as the underlying approval.
 An ordinary app and each basic or advanced form own their independent switches.
 Every publish writes both values, including false. A target baseline from before
 Nova owned the app switch keeps its historical ownership and normalized source.
+Its passive comparison counts only HQ moving from the value that baseline's
+source holds as a change made in HQ; the document differing from HQ is not one.
 Preflight reads the target, names its old and intended location value when they
 differ, and offers the usual digest-bound bring-in or discard. The last read
 before the write also checks the observed location. One target's confirmation
