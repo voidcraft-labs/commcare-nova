@@ -86,7 +86,8 @@ export const editSearchFilterTool = {
 					? {
 							operation: "add" as const,
 							filter: { uuid, target: change.target, value: change.value },
-							after: change.after,
+							// Omitted, the row goes last; the wire carries no `undefined`.
+							...(change.after !== undefined && { after: change.after }),
 						}
 					: change.operation === "edit"
 						? {

@@ -1052,6 +1052,64 @@ describe("setCaseListMeta on a peer-removed config", () => {
 		});
 	});
 
+	it("replays search filter adds, edits, reorders and removals as the target holds them", () => {
+		const filter = (name: string, property: string, value: string) => ({
+			uuid: testUuid(`replay-search-filter-${name}`),
+			target: { kind: "property" as const, property },
+			value: term(literal(value)),
+		});
+		const [a, b, c, d] = [
+			filter("a", "region", "north"),
+			filter("b", "status", "open"),
+			filter("c", "phone", "555"),
+			filter("d", "region", "south"),
+		];
+		const base = canonicalFixture(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: ["case_name", "region", "status", "phone"].map(
+							(name) => ({ name, label: proseText(name) }),
+						),
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [survey()],
+						caseSearchConfig: {},
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							searchFilters: [a, b, c],
+						},
+					},
+				],
+			}),
+		);
+		const uuid = base.moduleOrder[0];
+		const withRows = (rows: (typeof a)[] | undefined) =>
+			produce(base, (draft) => {
+				const config = draft.modules[uuid].caseListConfig;
+				if (config === undefined) throw new Error("fixture config missing");
+				if (rows === undefined) delete config.searchFilters;
+				else config.searchFilters = rows;
+			});
+		for (const target of [
+			// c edited and moved first, b removed, d added after a.
+			withRows([{ ...c, value: term(literal("556")) }, a, d]),
+			// The last row leaves with the list.
+			withRows(undefined),
+		]) {
+			const batch = diffDocsToMutations(base, target);
+			expect(batch.every((m) => m.kind === "setCaseListMeta")).toBe(true);
+			expect(apply(base, batch).modules[uuid].caseListConfig).toEqual(
+				target.modules[uuid].caseListConfig,
+			);
+		}
+	});
+
 	it("a same-batch config birth then setCaseListMeta is not falsely rejected", () => {
 		const { doc, moduleUuid } = moduleWithFilter();
 		// Peer cleared the config; a later batch idempotently re-creates it AND
