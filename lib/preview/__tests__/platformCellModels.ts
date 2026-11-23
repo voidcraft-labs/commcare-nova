@@ -12,6 +12,10 @@ import { rowsMatchingFilterText } from "@/components/preview/shared/listFilter";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import {
+	ENDPOINT_MODULE,
+	endpointWireFixture,
+} from "@/lib/commcare/__tests__/endpointWireFixture";
+import {
 	asMediaAssetId,
 	type CaseListOrderPlan,
 	type Column,
@@ -55,6 +59,10 @@ import {
 	webAppsDevice,
 } from "../engine/__tests__/fixtures/previewDevices";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
+import {
+	alwaysOfferedRegistrationReturn,
+	selectionsAfterRegistrationReturn,
+} from "../engine/caseListRegisterAction";
 import { DataInstance } from "../engine/dataInstance";
 import { buildFieldTree } from "../engine/fieldTree";
 import { FormEngine } from "../engine/formEngine";
@@ -62,6 +70,7 @@ import {
 	type AfterSubmitFrameChoice,
 	evaluateAfterSubmit,
 } from "../engine/formLinkEvaluation";
+import { firstMenuSelections } from "../engine/frameLanding";
 import { previewSessionValues } from "../engine/identity";
 import { resolvePreviousTask } from "../engine/previousTask";
 import {
@@ -318,7 +327,142 @@ function firstMenuPrevious(platform: Platform) {
 	);
 }
 
+/** A deep link to a form listed on the first menu, choosing patient "b":
+ *  the menus whose entries read that same datum after Back to Home. */
+function firstMenuEntryPoint(platform: Platform) {
+	const doc = endpointWireFixture("first-menu");
+	const result = prepareEntryPointLaunch({
+		doc,
+		entryPointUuid: testUuid("endpoint-identity"),
+		expectedSeq: 4,
+		selections: [{ moduleUuid: ENDPOINT_MODULE, caseIds: ["b"] }],
+		database: {
+			rows: [{ ...row(), case_id: "b", case_name: "b" }],
+			indices: [] as CaseIndexRow[],
+		},
+		session: { context: { userid: "worker" }, user: {}, userPropertySlugs: {} },
+		lookup: { kind: "idle" as const },
+		notHeld: { rows: [] as CaseRow[], indices: [] as CaseIndexRow[] },
+		rules: previewPlatformRules(platform),
+	});
+	if (result.kind !== "ready") throw new Error(result.message);
+	return Object.fromEntries(
+		Object.entries(result.launch.firstMenuSelections ?? {}).map(
+			([moduleUuid, selection]) => [
+				moduleUuid,
+				selection.cases.map((choice) => choice.caseId),
+			],
+		),
+	);
+}
+
+const FIRST_MENU_ABOVE = testUuid("cell-model-first-menu-visits");
+const FIRST_MENU_HOST = testUuid("cell-model-first-menu-reviews");
+const FIRST_MENU_REGISTER = testUuid("cell-model-first-menu-register");
+
+/** Visits lists its patient follow-up on the first menu; Reviews, under it,
+ *  always offers another menu's registration and returns to the new case. */
+function firstMenuRegistrationDoc() {
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			...["Visits", "Reviews"].map((name) => ({
+				uuid: `cell-model-first-menu-${name.toLowerCase()}`,
+				name,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: name === "Visits" ? "Visit" : "Review",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			})),
+			{
+				uuid: "cell-model-first-menu-registration",
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "cell-model-first-menu-register",
+						name: "Register patient",
+						type: "registration" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: "patient",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[FIRST_MENU_ABOVE].formsInMenuAbove = true;
+	doc.modules[FIRST_MENU_HOST].parentModuleUuid = FIRST_MENU_ABOVE;
+	doc.modules[FIRST_MENU_HOST].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: FIRST_MENU_REGISTER,
+		afterSubmit: "new-case",
+	};
+	assertAdmittedPreviewDoc(doc);
+	return doc;
+}
+
+/** Register from Reviews' list, then Back to Home: the first-menu choice the
+ *  return frame leaves for the next command that reads it. */
+function firstMenuRegistration(platform: Platform) {
+	const doc = firstMenuRegistrationDoc();
+	const landing = alwaysOfferedRegistrationReturn(
+		doc,
+		FIRST_MENU_REGISTER,
+		{ hostModuleUuid: FIRST_MENU_HOST },
+		"registered",
+	);
+	if (!landing) throw new Error("Register returns to the new case.");
+	const next = selectionsAfterRegistrationReturn(
+		{},
+		landing,
+		FIRST_MENU_HOST,
+		"patient",
+		{ caseId: "registered", caseName: "Asha" },
+	);
+	expect(next[FIRST_MENU_HOST]?.cases[0]?.caseId).toBe("registered");
+	const home = firstMenuSelections(
+		landing.firstMenuCases,
+		next,
+		previewPlatformRules(platform),
+	);
+	return home?.[FIRST_MENU_ABOVE]?.cases.map((choice) => choice.caseId) ?? [];
+}
+
 export const PLATFORM_MODEL_CHECKS = {
+	/* A deep link through a first menu that shares one case: Web Apps
+	 * opens Home fresh; Android keeps the case for both menus that read it. */
+	"first-menu-entry-point-web-apps": () => {
+		expect(firstMenuEntryPoint("web-apps")).toEqual({});
+	},
+	"first-menu-entry-point-android": () => {
+		expect(firstMenuEntryPoint("android")).toEqual({
+			[ENDPOINT_MODULE]: ["b"],
+			[testUuid("endpoint-second-patient-menu")]: ["b"],
+		});
+	},
+	/* Register's return through that first menu carries the new case to its
+	 * list on both; only Android keeps it on Home after Back. */
+	"first-menu-registration-web-apps": () => {
+		expect(firstMenuRegistration("web-apps")).toEqual([]);
+	},
+	"first-menu-registration-android": () => {
+		expect(firstMenuRegistration("android")).toEqual(["registered"]);
+	},
 	"first-menu-previous-web-apps": () => {
 		expect(firstMenuPrevious("web-apps")).toEqual([]);
 	},

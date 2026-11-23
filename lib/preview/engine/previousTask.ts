@@ -9,6 +9,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { moduleUuidOfForm } from "@/lib/domain";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { previewMenuCaseContext } from "../menuProjection";
+import { previewPlatformRules } from "../platform";
 import { caseRowToFormPreload } from "./caseDataBindingClient";
 import type { SessionDatumValue } from "./formLinkEvaluation";
 import { moduleFirstMenuCases, screenOfFrame } from "./frameLanding";
@@ -129,7 +130,8 @@ export function resolvePreviousTask(args: {
 	// Formplayer resets and replays choices from the first menu. Without a
 	// command on the frame it stays there and never consumes a case datum.
 	const retainedSelections =
-		plan.destination.kind === "home" && args.platform === "web-apps"
+		plan.destination.kind === "home" &&
+		previewPlatformRules(args.platform).poppedEntrySelections === "address"
 			? []
 			: plan.retainedSelections;
 	for (const retained of retainedSelections) {

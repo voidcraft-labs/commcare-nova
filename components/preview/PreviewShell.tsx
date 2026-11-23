@@ -59,6 +59,7 @@ import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScree
 import { usePreviewSearchArrival } from "@/lib/preview/hooks/usePreviewSearchArrival";
 import { usePreviewSelectionsArrival } from "@/lib/preview/hooks/usePreviewSelectionsArrival";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import { continuesPreviewTask } from "@/lib/preview/taskContinuation";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
@@ -259,8 +260,11 @@ export function PreviewShell() {
 	const clearPreviewNavigation = useClearPreviewNavigation();
 	useLayoutEffect(() => {
 		if (mode !== "preview" || loc.kind !== "home") return;
+		// Android's Home keeps the session as it stands, a case a frame left
+		// before its first command included; Web Apps' Home starts fresh.
 		const held =
-			previewDevice.platform === "android"
+			previewPlatformRules(previewDevice.platform).poppedEntrySelections ===
+			"session"
 				? readCurrentPreviewSelections(previewSessionId)?.menu
 				: undefined;
 		clearPreviewNavigation(held);

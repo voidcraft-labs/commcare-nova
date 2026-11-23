@@ -220,6 +220,14 @@ export const PLATFORM_CELLS: Readonly<
 		model("skip-to-results-android"),
 	"case-search/workflow-search-first-auto-launch-true-default-search-false@android":
 		model("search-first-android"),
+	"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case@web-apps":
+		model("first-menu-entry-point-web-apps"),
+	"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case@android":
+		model("first-menu-entry-point-android"),
+	"menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case@web-apps":
+		model("first-menu-registration-web-apps"),
+	"menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case@android":
+		model("first-menu-registration-android"),
 	"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu@web-apps":
 		model("first-menu-previous-web-apps"),
 	"forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu@android":
