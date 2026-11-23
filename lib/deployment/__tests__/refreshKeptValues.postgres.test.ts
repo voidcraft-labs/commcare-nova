@@ -752,6 +752,63 @@ describe("refreshKeptValues", () => {
 			});
 			expect(Number(after?.nova_revision)).toBe(1);
 		});
+
+		/* A publish reads the app back before its media upload, and HQ's bulk
+		 * upload then adds the file's path to the map. Only the file Nova's own
+		 * upload recorded at that path settles. */
+		it.each([
+			{ recorded: "nova-file", served: "nova-file", kind: "refreshed" },
+			{ recorded: null, served: "nova-file", kind: "changed-in-hq" },
+			{ recorded: "nova-file", served: "hq-file", kind: "changed-in-hq" },
+		] as const)(
+			"answers $kind on an adopted app whose map gained $served where the publish recorded $recorded",
+			async ({ recorded, served, kind }) => {
+				await seedApp();
+				const path = "commcare/image/photo.png";
+				await foldDeploymentAttempt(
+					SCOPE,
+					TARGET,
+					"preflight",
+					{ status: "succeeded", at: PUBLISHED_AT },
+					{ ensure: true, expectedEndings: 0 },
+				);
+				await recordRemoteResource(SCOPE, TARGET, {
+					expectedEndings: 0,
+					kind: "app",
+					novaResourceId: APP,
+					remoteId: HQ_APP,
+					ownership: "adopted",
+					adoptedBy: ACTOR,
+					pushedRevision: 1,
+					uploadedAt: PUBLISHED_AT,
+					remoteRevision: null,
+					baseline: {
+						...baselineOf(liveSource()),
+						novaRevision: 1,
+						mediaFiles: {
+							kind: "set",
+							files: recorded === null ? null : { [path]: recorded },
+						},
+					},
+				});
+				const before = await baselineRow();
+				const grown = liveSource();
+				grown.multimedia_map = {
+					[`jr://file/${path}`]: {
+						media_type: "CommCareImage",
+						multimedia_id: served,
+					},
+				};
+				await withHttpPeer(async (peer) => {
+					serveSource(peer, grown);
+					expect((await refreshKeptValues(SCOPE, TARGET)).kind).toBe(kind);
+				});
+				const after = await baselineRow();
+				if (kind === "refreshed")
+					expect(after?.source_digest).toBe(baselineOf(grown).sourceDigest);
+				else expect(after).toEqual(before);
+			},
+		);
 	});
 
 	describe("writes nothing where CommCare HQ's answer is no app Nova can compare", () => {

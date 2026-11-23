@@ -476,6 +476,11 @@ function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
  * left out, or one HQ now serves. Map item versions and upload metadata
  * describe neither a path nor a file. Web Apps also affects how the reader
  * interprets an absent Incomplete Forms setting.
+ *
+ * The maps compare entry by entry. A path that left the map is a move. A
+ * `settledPaths` path is Nova's own file there, so a new entry or another id
+ * at it is not one: HQ's bulk upload adds Nova's file to the map after the
+ * publish read the app back.
  */
 export function publishReadingFactsMoved(
 	previous: unknown,
@@ -492,12 +497,13 @@ export function publishReadingFactsMoved(
 		return true;
 	const earlier = readMultimediaMap(previous.multimedia_map, undefined) ?? [];
 	const now = current.multimediaMap ?? [];
-	if (earlier.length !== now.length) return true;
+	const nowPaths = new Set(now.map((item) => item.path));
+	if (earlier.some((item) => !nowPaths.has(item.path))) return true;
 	const byPath = new Map(earlier.map((item) => [item.path, item]));
 	return now.some((item) => {
 		const before = byPath.get(item.path);
+		if (before === undefined) return !settledPaths.has(item.path);
 		return (
-			before === undefined ||
 			before.mediaType !== item.mediaType ||
 			before.unreadable !== item.unreadable ||
 			(item.unreadable &&

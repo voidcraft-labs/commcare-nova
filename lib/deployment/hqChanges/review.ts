@@ -101,6 +101,7 @@ import {
 	movedRecordedPaths,
 	nextHqMediaRecord,
 	publishedMediaFiles,
+	recordedHqFilePaths,
 } from "../hqMedia";
 import { type SettledHqMediaRead, settleHqMedia } from "../hqMediaSettle";
 import {
@@ -237,7 +238,13 @@ export function reviewMatchingSource(
 		publishReadingFactsMoved(
 			baseline.source,
 			basis.source,
-			new Set(published.map((file) => `${JR_FILE}${file.wirePath}`)),
+			new Set([
+				...published.map((file) => `${JR_FILE}${file.wirePath}`),
+				...recordedHqFilePaths(
+					baseline.mediaFiles,
+					basis.source.multimediaMap ?? [],
+				),
+			]),
 		)
 	)
 		return null;
@@ -1193,7 +1200,11 @@ async function computeWith(
 			) &&
 			parts.length === 0 &&
 			formIdsAgree(head.doc, targetIdentity, modules) &&
-			!publishReadingFactsMoved(baseline.source, source, new Set())
+			!publishReadingFactsMoved(
+				baseline.source,
+				source,
+				recordedHqFilePaths(baseline.mediaFiles, source.multimediaMap ?? []),
+			)
 		)
 			return answer(unchanged(since));
 		logUnavailable(scope, operation, reference.kind);

@@ -171,6 +171,29 @@ function entriesByWirePath(
 }
 
 /**
+ * The map paths in `now` that hold, readably, the file id `record` keeps for
+ * them: a file Nova's own upload put there and recorded. HQ's bulk upload
+ * adds such a path to the map after the publish read the app back, so a
+ * comparison against that read settles it rather than reading HQ's change.
+ */
+export function recordedHqFilePaths(
+	record: HqMediaRecord | null,
+	now: readonly HqMediaMapItem[],
+): ReadonlySet<string> {
+	const settled = new Set<string>();
+	if (record === null) return settled;
+	for (const [wirePath, item] of entriesByWirePath(now)) {
+		if (
+			!item.unreadable &&
+			item.multimediaId !== null &&
+			record[wirePath] === item.multimediaId
+		)
+			settled.add(item.path);
+	}
+	return settled;
+}
+
+/**
  * How many paths of `record` hold another id in `now`: an entry that names
  * another file, or one Nova cannot read, which its own upload never writes.
  * A path whose entry is gone or names no file is none: a publish puts the

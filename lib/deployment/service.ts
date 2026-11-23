@@ -101,6 +101,7 @@ import {
 	movedRecordedPaths,
 	nextHqMediaRecord,
 	publishedMediaFiles,
+	recordedHqFilePaths,
 } from "./hqMedia";
 import {
 	filesMovedSinceSource,
@@ -4107,8 +4108,10 @@ async function peekChanged(
  * connection, CommCare HQ's source now, and the publish's own comparison of
  * the two. On an app Nova brought in, the live mapping's ownership leaves the
  * language names out of it, as it does for a publish. A file whose id moved at
- * a path the baseline's record holds is a change too; with no document and no
- * fetch, a path with no record says nothing. `observedAt` is taken before the
+ * a path the baseline's record holds is a change too. On an adopted app or one
+ * with a pending list, a map entry the baseline's source lacks is a change
+ * unless the record holds its path at that id: Nova's own upload added it
+ * after the publish read the app back. `observedAt` is taken before the
  * request is sent, so a slow answer never outdates a publish that imported
  * after that moment. It writes nothing and holds no row lock and no pooled
  * connection while CommCare HQ answers. The baseline is read (and its source
@@ -4215,7 +4218,14 @@ async function compareWithHq(
 		baseline.firstPublishReview === "required" ||
 		parts.length > 0 ||
 		((remote.ownership === "adopted" || baseline.hasPublishList) &&
-			publishReadingFactsMoved(baseline.source, read.source, new Set()))
+			publishReadingFactsMoved(
+				baseline.source,
+				read.source,
+				recordedHqFilePaths(
+					baseline.mediaFiles,
+					read.source.multimediaMap ?? [],
+				),
+			))
 	)
 		return { kind: "changed-in-hq" };
 	return {
