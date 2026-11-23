@@ -12,7 +12,7 @@ from proof.formplayer import hq as formplayer
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
-from proof.matrix.author import Authoring
+from proof.matrix.authoring import Authoring
 from proof.matrix.bases import _pages
 from proof.observe import casedata, hqside
 from proof.observe.record import Blobs
