@@ -404,7 +404,7 @@ review. A `review` operation supplies the unit's `revision` from that read.
 Nova checks the exact source and translation behind it and refuses the whole
 batch if either changed. Preserve answer and record insertions such as `{{name}}` when
 translating wording; replacing an insertion with its current display text would
-lose the reference. To show different answers or calculations in this language, set `changeShownValues` to `true` on the individual `set` operation and supply its wording with the intended insertions.
+lose the reference. To show different answers or calculations in this language, set `changeShownValues` to `true` on the individual `set` operation and supply its wording with the intended insertions. A translation that already shows values of its own reads with `showsOwnValues` in `get_translatable_content`, and a `set` on it says what to do with them: `changeShownValues` `true` keeps or changes them, `false` shows the source's values again. A `set` that says neither is refused, so a fresh translation of the source never replaces them unnoticed.
 
 `add_language` always copies a complete effective projection. If the copy
 source itself falls back for one unit, the new target receives the value workers

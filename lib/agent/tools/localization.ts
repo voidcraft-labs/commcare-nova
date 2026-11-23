@@ -266,7 +266,7 @@ const translationUpdateSchema = z.discriminatedUnion("operation", [
 			.nullable()
 			.optional()
 			.describe(
-				"Set to true only when the author wants this language to show different answers or calculations. An ordinary translation keeps its source values.",
+				"Set to true only when the author wants this language to show different answers or calculations. An ordinary translation keeps its source values. Where the current entry shows values of its own (showsOwnValues in getTranslatableContent), say true to keep or change them, or false to show the source's values again.",
 			),
 		translatedFrom: languageIdentityInputSchema
 			.nullable()
@@ -588,7 +588,7 @@ export const getLanguagesTool = {
 
 export const getTranslatableContentTool = {
 	description:
-		"Read a page of translatable app content with its source, target text, context and review state. Continue with nextCursor; restart if the source changed.",
+		"Read a page of translatable app content with its source, target text, context and review state. An entry with showsOwnValues shows answers or calculations of its own, as the author chose. Continue with nextCursor; restart if the source changed.",
 	inputSchema: getTranslatableContentInputSchema,
 	async execute(
 		input: z.infer<typeof getTranslatableContentInputSchema>,
@@ -1007,6 +1007,15 @@ export const updateTranslationsTool = {
 								`Translation unit ${unit.id} source content changed after it was read. Re-read getTranslatableContent before translating it.`,
 							);
 						}
+						/* A translation the author gave values of its own changes
+						 * them only when the edit says what to do with them. */
+						if (
+							entries[unit.id]?.valueMode === "independent-values" &&
+							update.changeShownValues == null
+						)
+							return mutationError(
+								`Translation unit ${unit.id} shows answers or calculations of its own in ${descriptor}, as the author chose. Set changeShownValues to true to keep or change them, or to false to show the source's values again.`,
+							);
 						const mode =
 							update.changeShownValues === true
 								? authoredTranslationValueMode(unit, update.value)

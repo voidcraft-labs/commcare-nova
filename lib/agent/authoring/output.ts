@@ -640,6 +640,12 @@ const readProjectors: {
 						review: explicit.review,
 						translatedFrom: explicit.translatedFrom,
 						value: localized(explicit.value),
+						/* The author chose for this language to show answers or
+						 * calculations of its own; a set keeps that only when
+						 * it says so (`changeShownValues`). */
+						...(explicit.valueMode === "independent-values" && {
+							showsOwnValues: true,
+						}),
 					},
 					protectedParts:
 						unit.valueKind === "prose"

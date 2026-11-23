@@ -811,3 +811,87 @@ it("uses each translation unit's own form and preserves inserted identities", as
 		h.currentDoc().localization?.translations.fra[unit.id],
 	).not.toHaveProperty("valueMode");
 });
+
+it("keeps a translation that shows values of its own until an edit says what to do with them", async () => {
+	const fixture = namedFormFixture([
+		{ name: "Visit", forms: [{ name: "Survey", type: "survey" }] },
+	]);
+	const h = authoring({}, fixture);
+	await h.call("addFields", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fields: [
+			{ kind: "text", id: "name", label: "Name" },
+			{ kind: "text", id: "family", label: "Family" },
+			{ kind: "label", id: "hello", label: "Hello {{name}}" },
+		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "fixture_placeholder",
+	});
+	const unit = [...translationUnitsById(h.currentDoc()).values()].find(
+		(unit) => unit.role === "field-label" && unit.context.fieldId === "hello",
+	);
+	if (!unit) throw new Error("Missing translation source.");
+	await h.call("addLanguage", { language: { language: "fra" } });
+	const read = async () =>
+		z
+			.object({
+				items: z.array(
+					z.object({
+						sourceFingerprint: z.string(),
+						explicit: z
+							.object({ showsOwnValues: z.literal(true).optional() })
+							.nullable()
+							.optional(),
+					}),
+				),
+			})
+			.parse(
+				await h.call("getTranslatableContent", {
+					language: { language: "fra" },
+					query: "Hello",
+					limit: 10,
+				}),
+			).items[0];
+	const setInput = async (value: string, changeShownValues?: boolean) => ({
+		language: { language: "fra" },
+		updates: [
+			{
+				operation: "set",
+				unitId: unit.id,
+				expectedSourceFingerprint: (await read()).sourceFingerprint,
+				value,
+				...(changeShownValues !== undefined && { changeShownValues }),
+			},
+		],
+	});
+	const set = async (value: string, changeShownValues?: boolean) =>
+		h.call("updateTranslations", await setInput(value, changeShownValues));
+	await set("Bonjour {{family}}", true);
+	expect((await read()).explicit?.showsOwnValues).toBe(true);
+	const own = structuredClone(h.currentDoc());
+	/* A translation of the source, as a model re-translating it writes it. */
+	const refused = await makeAuthoringHarness({}, h.currentDoc()).call(
+		"updateTranslations",
+		await setInput("Bonjour {{name}} !"),
+	);
+	expect(refused).toMatchObject({
+		error: expect.stringContaining("Set changeShownValues to true"),
+	});
+	await expect(set("Bonjour {{name}} !")).rejects.toThrow();
+	expect(h.currentDoc()).toEqual(own);
+	/* Rewording while keeping its own values says so. */
+	await set("Salut {{family}}", true);
+	expect(h.currentDoc().localization?.translations.fra[unit.id]).toMatchObject({
+		valueMode: "independent-values",
+	});
+	/* Showing the source's values again says so too. */
+	await set("Bonjour {{name}} !", false);
+	expect(
+		h.currentDoc().localization?.translations.fra[unit.id],
+	).not.toHaveProperty("valueMode");
+	expect((await read()).explicit?.showsOwnValues).toBeUndefined();
+});
