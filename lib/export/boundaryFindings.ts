@@ -293,7 +293,11 @@ export function exportCarrierFindings(
 					"app",
 					describeLookupCarrierAlternative(definition.name, carrier),
 					{},
-					{ tableId: table.tableId, delivery: carrier.kind },
+					{
+						tableId: table.tableId,
+						tableName: definition.name,
+						delivery: carrier.kind,
+					},
 				),
 			);
 		}

@@ -976,8 +976,10 @@ describe("readHqAppForReview", () => {
 			 * room.test.ts, tables whose rows together pass the request's bound in
 			 * lookupTableBudget.test.ts, and below, an app saved twice during the read and a menu
 			 * CommCare HQ could not summarize beside the form's own finding. The ordinary
-			 * form reader in instanceSources.test.ts drives both data-source conflicts. A new code with no
-			 * case fails here. */
+			 * form reader in instanceSources.test.ts drives both data-source conflicts. A place field
+			 * the app cannot carry and one whose worker text HQ's answer sorted are driven where the
+			 * place plan is built, in projectData/places.test.ts and worldEntities.test.ts. A new code
+			 * with no case fails here. */
 			const elsewhere: readonly ReadCircumstance[] = [
 				"too-large",
 				"too-intricate",
@@ -987,6 +989,8 @@ describe("readHqAppForReview", () => {
 				"menu-unreadable-in-hq",
 				"form-data-source-conflict",
 				"unbuildable-data-source-name",
+				"place-field-unusable",
+				"place-value-order-unknown",
 			];
 			const driven = new Set([...cases.map(({ code }) => code), ...elsewhere]);
 			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(

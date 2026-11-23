@@ -114,6 +114,10 @@ export interface ReadingLookupTable {
 	readonly choice: LookupTableChoice | null;
 	/** The Project table the tag met, at the revisions the read saw; null where none. */
 	readonly projectTable: MetProjectTable | null;
+	/** True where CommCare HQ failed the table's rows every time it was asked:
+	 *  the definition comes in as a reference whose rows are unavailable, and a
+	 *  question that takes its choices from it says that HQ couldn't send them. */
+	readonly rowsUnreadable?: true;
 }
 
 export interface ReadingProjectData {
@@ -334,6 +338,10 @@ export function assembleReadingProjectData(input: {
 				};
 		const existing = byTag.get(tag) ?? null;
 		const projectTable = existing === null ? null : metProjectTable(existing);
+		const rowsUnreadable =
+			observed.kind === "rows-unreadable"
+				? { rowsUnreadable: true as const }
+				: {};
 		const findings = lookupTableFindings(read, measured);
 		if (findings.length > 0) {
 			return {
@@ -343,6 +351,7 @@ export function assembleReadingProjectData(input: {
 				binding: null,
 				choice: null,
 				projectTable,
+				...rowsUnreadable,
 			};
 		}
 		const keptColumnIds =
@@ -398,6 +407,7 @@ export function assembleReadingProjectData(input: {
 			binding,
 			choice: null,
 			projectTable,
+			...rowsUnreadable,
 		};
 	});
 	const places = input.places;
@@ -716,7 +726,18 @@ export function readingProjectDataFindingsFor(
 	const budget =
 		unrepresentable.length === 0 ? lookupFixtureBudgetFinding(snapshot) : null;
 	if (budget !== null) findings.push(budget);
-	if (doc !== null) findings.push(...tableChoicesUnusable(doc, snapshot));
+	if (doc !== null)
+		findings.push(
+			...tableChoicesUnusable(
+				doc,
+				snapshot,
+				new Set(
+					data.gathered.tables
+						.filter((table) => table.rowsUnreadable)
+						.map((table) => table.read.table.tag),
+				),
+			),
+		);
 
 	if (reads.readsPlaces) {
 		if (data.gathered.inconsistent) {
@@ -783,11 +804,15 @@ function unrepresentableCellFindings(
  * a question or search field that reads them, however many read it and
  * however many rules it fails, named by the column the table's first error
  * names, or, for a table with no rows, by the value column of the first
- * question or search field that takes its choices from it.
+ * question or search field that takes its choices from it. A table whose
+ * rows CommCare HQ failed every time (`unreadable`, by tag) raises
+ * `table-rows-unreadable` instead, named by its tag: its rows are not known
+ * to break any rule.
  */
 function tableChoicesUnusable(
 	doc: BlueprintDoc,
 	snapshot: LookupFixtureDataSnapshot,
+	unreadable: ReadonlySet<string>,
 ): readonly Finding[] {
 	const byId = new Map(
 		snapshot.definitions.map((definition) => [definition.id, definition]),
@@ -802,6 +827,16 @@ function tableChoicesUnusable(
 		const table = byId.get(tableId);
 		if (table === undefined) {
 			throw new Error("A choices finding named a table its snapshot lacks.");
+		}
+		if (unreadable.has(table.tag)) {
+			findings.push(
+				circumstanceFinding(
+					"table-rows-unreadable",
+					{ kind: "lookup-table", tag: table.tag },
+					{ name: table.tag },
+				),
+			);
+			continue;
 		}
 		const reported = [...lookupLexicalSlots(table)].find(
 			(slot) =>

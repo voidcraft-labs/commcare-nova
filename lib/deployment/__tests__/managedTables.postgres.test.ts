@@ -22,7 +22,6 @@ import {
 	updateLookupRow,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
-import { driftDate } from "@/lib/publish/driftReference";
 import {
 	CONNECT_TO_REFRESH_TABLE,
 	cannotReadManagedTables,
@@ -35,7 +34,6 @@ import {
 	managedColumnGoneItem,
 	managedDataPassed,
 	managedDataUnreadablePermission,
-	managedTableFromElsewhereItem,
 	managedTableGone,
 	managedTableOverCap,
 	managedTableUnrepresentable,
@@ -589,9 +587,13 @@ describe("Manage in Nova, and the publish after it", () => {
 });
 
 describe("a publish of a table another project space manages", () => {
-	it("says the publish puts Nova's copy there, and sends it in the workbook", async () => {
-		// The publisher's connection is approved for the target alone, so the
-		// table's own project space can't be read: the copy goes as it is.
+	it("stops before sending anything while Nova hasn't seen which of its columns are indexed", async () => {
+		/* The publisher's connection is approved for the target alone, so the
+		 * table's own project space can't be read. Nova's copy came from HQ's
+		 * table list, which never says which fields are indexed, and a workbook
+		 * must say so for each one
+		 * (`fixtures/upload/workbook.py::_get_field_is_indexed`), so a guess
+		 * would make a different table there. */
 		await members();
 		const copy = await makeManagedCopy(h, EDITOR_LOOKUP, facilities, {
 			server: "india",
@@ -605,25 +607,19 @@ describe("a publish of a table another project space manages", () => {
 		});
 		const refreshedAt = (await copyOf(copy)).hq?.refreshedAt ?? "";
 		await withManagedPeer(async (peer) => {
-			createPushingTable(peer, facilities);
-			const outcome = await publish(doc);
-			expect(outcome.landed, JSON.stringify(outcome)).toBe(true);
-			expect(
-				outcome.checks.find((check) => check.id === "managed-data"),
-			).toMatchObject({
-				status: "passed",
-				detail: managedDataPassed({ domain: DOMAIN, here: 0, elsewhere: 1 }),
-				items: [
-					managedTableFromElsewhereItem(
-						"facilities",
-						"north",
-						driftDate(refreshedAt),
-						DOMAIN,
-					),
-				],
+			const stopped = refusal(await publish(doc));
+			expect(stopped).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "app_not_ready",
+					details: [
+						"“facilities” needs a verified data source for this destination. You can prepare its table in the project space or refresh worker data in Project data.",
+					],
+				},
 			});
-			expect(publishRequests(peer)).toContain(`POST ${WORKBOOK}`);
+			expect(publishRequests(peer)).toEqual([]);
 		});
+		expect(await copyOf(copy)).toMatchObject({ hq: { refreshedAt } });
 	});
 });
 

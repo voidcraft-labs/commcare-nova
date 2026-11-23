@@ -499,6 +499,23 @@ describe.each(MODES)("planManagedPlaces at a %s", (mode) => {
 			{ [BEDS]: "x".repeat(4097) },
 		]);
 	});
+
+	it("finds a value whose worker text depends on an order CommCare HQ's answer sorted away", () => {
+		/* A dictionary of two entries reaches a worker in the order it was
+		 * saved, which HQ's JSON answer does not keep. One entry has one order. */
+		const result = plan(
+			[
+				place("north", "state", null, { values: { beds: { a: 1, b: 2 } } }),
+				place("south", "state", null, { values: { beds: { a: 1 } } }),
+			],
+			mode,
+		);
+		expect(result.findings).toEqual([
+			circumstanceFinding("place-value-order-unknown", ORGANIZATION, {
+				name: "NORTH: beds",
+			}),
+		]);
+	});
 });
 
 describe("planManagedPlaces at a level the app lacks", () => {

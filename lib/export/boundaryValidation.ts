@@ -449,7 +449,11 @@ async function prepareWithRegistry(
 						item.carrier,
 					),
 					{},
-					{ tableId: item.table.definition.id, delivery: item.carrier.kind },
+					{
+						tableId: item.table.definition.id,
+						tableName: item.table.definition.name,
+						delivery: item.carrier.kind,
+					},
 				),
 			),
 		};
