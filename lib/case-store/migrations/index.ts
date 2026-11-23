@@ -123,6 +123,8 @@ import * as caseWritesPublishPlacement from "./20261110000000_hq_round_trip_case
 import * as caseWritesCommtrackConfirmation from "./20261110010000_hq_round_trip_case_writes_commtrack_confirmation";
 import * as caseWritesFoldHorizon from "./20261110020000_hq_round_trip_case_writes_fold_horizon";
 
+import * as formOpeningData from "./20261208010000_form_opening_data";
+
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
 
@@ -253,6 +255,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261201010000_hq_changes_app_change_kind": hqChangesAppChangeKind,
 	"20261202000000_hq_bring_in_project_data": hqBringInProjectData,
 	"20261204000000_deployment_fold_references": deploymentFoldReferences,
+	"20261208010000_form_opening_data": formOpeningData,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

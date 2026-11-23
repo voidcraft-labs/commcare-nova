@@ -194,6 +194,7 @@ const RUNTIME_READ_WRITE_TABLES = [
  * may row-lock or update a request, step, stage, change-set handle, or
  * receipt row — retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
+	"form_opening_data",
 	"thread_source_contents",
 	"thread_source_links",
 	"app_test_steps",
@@ -670,11 +671,17 @@ const APP_TEST_RUNTIME_ROUTINES = [
 	{ name: "nova_drop_app_test_namespace", identityArguments: "test_id uuid" },
 ] as const;
 
+const EXPIRED_FORM_OPENINGS = {
+	name: "nova_reclaim_expired_form_openings",
+	identityArguments: "",
+} as const;
+
 const EXPECTED_PUBLIC_ROUTINES = [
 	{
 		name: "nova_reject_deployment_fold_reference_update",
 		identityArguments: "",
 	},
+	EXPIRED_FORM_OPENINGS,
 	{ name: "nova_immutable_thread_source", identityArguments: "" },
 	...APP_TEST_RUNTIME_ROUTINES,
 	{ name: "nova_dispose_deleted_app_test", identityArguments: "" },
@@ -727,6 +734,7 @@ const EXPECTED_PUBLIC_ROUTINES = [
 ] as const;
 
 const RUNTIME_ROUTINES = [
+	EXPIRED_FORM_OPENINGS,
 	...APP_TEST_RUNTIME_ROUTINES,
 	{
 		name: "nova_insert_app_change_genesis_fold_baseline",
@@ -1659,6 +1667,9 @@ async function convergePrivilegesInTransaction(
 			TO ${sql.id(config.runtimeRole)}
 		`.execute(tx);
 	}
+	await sql`
+		GRANT EXECUTE ON FUNCTION public.nova_reclaim_expired_form_openings() TO ${sql.id(config.cleanupRole)}
+	`.execute(tx);
 	await sql`
 		GRANT SELECT, UPDATE, DELETE ON TABLE public.form_attachments
 		TO ${sql.id(config.cleanupRole)}
