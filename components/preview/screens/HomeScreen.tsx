@@ -35,6 +35,7 @@ import {
 } from "@/lib/domain";
 import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
 import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import { entryWalksChoices } from "@/lib/preview/engine/entrySessionData";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -314,7 +315,11 @@ function ModuleListHome() {
 											menuSource.modules[entry.moduleUuid]?.caseType !==
 											undefined,
 									});
-									if (form.caseSelections !== undefined) {
+									if (
+										form.caseSelections !== undefined ||
+										(launch.kind === "select-case-first" &&
+											entryWalksChoices(menuSource.doc, form.uuid))
+									) {
 										setPreviewCaseTarget({
 											formUuid: form.uuid,
 											entryChoices: [],

@@ -3,9 +3,15 @@
 import { useMemo } from "react";
 import { Button } from "@/components/shadcn/button";
 import { useForm } from "@/lib/doc/hooks/useEntity";
-import { ownFormSelectionIndex } from "@/lib/domain/advancedEntryDatums";
+import {
+	formCaseSelections,
+	ownFormSelectionIndex,
+} from "@/lib/domain/advancedEntryDatums";
 import { readPreviewScreen } from "@/lib/preview/engine/dataRefusal";
-import { entrySessionData } from "@/lib/preview/engine/entrySessionData";
+import {
+	entrySessionData,
+	entryWalksChoices,
+} from "@/lib/preview/engine/entrySessionData";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { formLogicLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -38,11 +44,25 @@ import { FormScreen } from "./FormScreen";
 type Screen = Extract<PreviewScreen, { type: "form" }>;
 const emptyChoices: readonly PreviewEntryChoice[] = [];
 
+/** A form walks its entry choice by choice where it keeps its own choices
+ * or a datum opens its single match automatically
+ * (`entryWalksChoices`), unless the running session already bound its
+ * cases (a case-first menu or a link), which the form opens on as usual. */
 export function FormEntryScreen({ screen }: { screen: Screen }) {
 	const form = useForm(screen.formUuid);
 	const mode = useEditMode();
-	if (mode !== "preview" || form?.caseSelections === undefined)
-		return <FormScreen screen={screen} />;
+	const menu = usePreviewMenuSource();
+	const target = usePreviewCaseTarget();
+	const walks = useMemo(
+		() =>
+			form !== undefined &&
+			(form.caseSelections !== undefined ||
+				(target?.formUuid === screen.formUuid &&
+					target.entryChoices !== undefined &&
+					entryWalksChoices(menu.doc, screen.formUuid))),
+		[form, target, screen.formUuid, menu.doc],
+	);
+	if (mode !== "preview" || !walks) return <FormScreen screen={screen} />;
 	return <ConfiguredFormEntry screen={screen} />;
 }
 
@@ -62,11 +82,10 @@ function ConfiguredFormEntry({ screen }: { screen: Screen }) {
 	const lookup = usePreviewLookupStatus();
 	const reloadLookup = usePreviewLookupReload();
 	const doc = menu.doc;
-	const form = doc.forms[screen.formUuid];
 	const cases = target?.caseDatabase ?? restored.snapshot;
 	const data = lookup.kind === "data" ? lookup.data : undefined;
 	const prefix = target?.entryChoices ?? emptyChoices;
-	const needsCases = Boolean(form?.caseSelections?.length);
+	const needsCases = formCaseSelections(doc, screen.formUuid).length > 0;
 	const lookupReady = formLogicLookupsCovered(doc, screen.formUuid, data);
 	const output = useMemo(() => {
 		if (!identity || (needsCases && cases === null) || !lookupReady)
@@ -138,7 +157,7 @@ function ConfiguredFormEntry({ screen }: { screen: Screen }) {
 			const ownId =
 				ownIndex === undefined
 					? undefined
-					: form?.caseSelections?.[ownIndex]?.uuid;
+					: formCaseSelections(doc, screen.formUuid)[ownIndex]?.uuid;
 			const own = entryChoices.find((choice) => choice.selectionUuid === ownId);
 			if (!automatic) pushBuilderHistory(window.location.href, false);
 			setTarget({

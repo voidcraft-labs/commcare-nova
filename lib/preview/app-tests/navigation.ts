@@ -12,7 +12,10 @@ import {
 	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
-import { ownFormSelectionIndex } from "@/lib/domain/advancedEntryDatums";
+import {
+	formCaseSelections,
+	ownFormSelectionIndex,
+} from "@/lib/domain/advancedEntryDatums";
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
@@ -29,6 +32,7 @@ import {
 import {
 	caseListStepSession,
 	entrySessionData,
+	entryWalksChoices,
 } from "../engine/entrySessionData";
 import { previewSessionValues } from "../engine/identity";
 import {
@@ -542,7 +546,7 @@ export function appTestFormOpening(
 	const ownChoice =
 		own === undefined
 			? undefined
-			: context.doc.forms[formUuid].caseSelections?.[own];
+			: formCaseSelections(context.doc, formUuid)[own];
 	const caseId = ownChoice && entry.reachedCaseIds.get(ownChoice.uuid);
 	return {
 		kind: "form",
@@ -576,7 +580,13 @@ export function enterAppTestForm(
 			"This form is not available on the current menu.",
 		);
 	const selection = appTestMenuSelection(context, state, moduleUuid);
-	if (entry.form.caseSelections !== undefined)
+	/* A form that keeps its own choices, or whose entry opens a single match
+	 * automatically, is walked choice by choice, as Preview walks it
+	 * (`entryWalksChoices`); a case this menu already chose is its own. */
+	if (
+		entry.form.caseSelections !== undefined ||
+		(selection === undefined && entryWalksChoices(context.doc, formUuid))
+	)
 		return appTestFormOpening(context, state, moduleUuid, formUuid, []);
 	if (state.screen.kind === "menu" && state.screen.taskCases) {
 		const [first, ...remaining] = previousTaskFormSelectors(

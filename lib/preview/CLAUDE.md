@@ -642,7 +642,15 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 ## Form engine lifecycle rules
 
-A form with explicit opening choices visits each entry datum in wire order.
+A form with explicit opening choices visits each entry datum in wire order,
+and so does a form that keeps its menu's choices where one of its datums
+opens its single match automatically (`entrySessionData.ts::entryWalksChoices`,
+`Module.autoSelectSingle` on an advanced menu's list, which the ordinary case
+list never does on its own), unless the running session already bound its
+case (a case-first menu, a link). Such a form's own choices are its derived
+ones (`formCaseSelections`), walked only where the caller passes
+`entryChoices`, and a derived choice the session already holds a case for is
+that case.
 `entrySessionData` returns its next manual choice and the reached case IDs by
 supply UUID. `FormEntryScreen` stores each answer with the earlier calculated
 values. Back restores that prefix. Selecting another record discards the

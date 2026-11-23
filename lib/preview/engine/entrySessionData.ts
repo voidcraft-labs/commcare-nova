@@ -26,6 +26,7 @@ import {
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "@/lib/commcare/sessionContext";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { entryCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	entryDatumCaseId,
@@ -166,10 +167,20 @@ export function entrySessionData(
 	);
 	const held = args.heldEntryValues ?? args.entryChoices?.at(-1)?.earlierValues;
 	const resolvedEntryValues: Record<string, string> = Object.create(null);
+	// A form that keeps its menu's choices walks them only where the caller
+	// walks the entry choice by choice (`entryChoices`), and then only the
+	// ones a worker chooses from a list: Core asks for each at its own step,
+	// and one that opens its single match automatically never shows the list.
+	const explicit = doc.forms[formUuid].caseSelections;
 	const selectionsById = new Map(
-		(doc.forms[formUuid].caseSelections ?? []).map(
-			(row) => [row.uuid, row] as const,
-		),
+		(
+			explicit ??
+			(args.entryChoices === undefined
+				? []
+				: formCaseSelections(doc, formUuid).filter(
+						(row) => row.source.kind === "choose",
+					))
+		).map((row) => [row.uuid, row] as const),
 	);
 	const reached = new Map<Uuid, string>();
 	const newCaseKey = entryNewCaseKeyNumbering();
@@ -195,7 +206,19 @@ export function entrySessionData(
 			);
 		if (datum.query !== undefined) continue;
 		const supply = row.refs.find((ref) => ref.kind === "form-selection");
-		const choice = supply && selectionsById.get(supply.selection);
+		let choice = supply && selectionsById.get(supply.selection);
+		// A menu's own choice the running session already holds (the case the
+		// menu or a link bound) is that case, as it is outside the walk.
+		if (
+			explicit === undefined &&
+			choice !== undefined &&
+			!suppliedChoices.has(choice.uuid) &&
+			row.refs.some(
+				(ref) =>
+					ref.kind === "selected-case" && chosenCases(ref.module).length > 0,
+			)
+		)
+			choice = undefined;
 		if (choice?.source.kind === "choose") {
 			const source = choice.source;
 			const selected = suppliedChoices.get(choice.uuid);
@@ -362,6 +385,25 @@ export function entrySessionData(
 			? {}
 			: { searchResults: args.searchResults }),
 	};
+}
+
+/**
+ * Whether Preview and App Tests walk `formUuid`'s entry choice by choice
+ * (`entrySessionData` with `entryChoices`) rather than through its menu's
+ * case list: the form keeps its own choices, or one of its datums opens its
+ * single match automatically (`Module.autoSelectSingle` on an advanced
+ * menu's list, which the ordinary case list never does on its own).
+ */
+export function entryWalksChoices(doc: BlueprintDoc, formUuid: Uuid): boolean {
+	const form = doc.forms[formUuid];
+	if (form === undefined) return false;
+	if (form.caseSelections !== undefined) return true;
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const moduleUuid = owningModuleOf(ctx, formUuid);
+	if (moduleUuid === undefined) return false;
+	return entrySessionDatums(doc, ctx, moduleUuid, formUuid).some(
+		(datum) => datum.autoselect === true,
+	);
 }
 
 /** The session at a module's case list step. */
