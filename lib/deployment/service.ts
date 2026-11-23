@@ -32,6 +32,7 @@ import {
 	readHqLookupTableRows,
 	uploadLookupTableWorkbook,
 } from "@/lib/commcare/hq/lookupTables";
+import { sourceCapturesLocation } from "@/lib/commcare/locationCapture";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
@@ -1650,6 +1651,8 @@ export async function publishAppToHq(
 						counter,
 						second.digest,
 					) ||
+					sourceCapturesLocation(heldRead) !==
+						sourceCapturesLocation(second.normalized) ||
 					(!shell && webAppsMovedDuringPush(source, read.source))
 				) {
 					return refused("upload", changedDuringPush);
@@ -4245,6 +4248,22 @@ async function compareWithHq(
 			))
 	)
 		return { kind: "changed-in-hq" };
+	if (!baseline.ownership.autoGpsCapture) {
+		const app = await withDeploymentReadSnapshot(scope, "edit", ({ db }) =>
+			db
+				.selectFrom("apps")
+				.select(["connect_type", "app_settings"])
+				.where("id", "=", scope.appId)
+				.where("project_id", "=", scope.projectId)
+				.executeTakeFirstOrThrow(),
+		);
+		if (
+			app.connect_type === null &&
+			(app.app_settings?.captureLocation === true) !==
+				sourceCapturesLocation(read.source.raw)
+		)
+			return { kind: "changed-in-hq" };
+	}
 	return {
 		kind: "unchanged",
 		remote,

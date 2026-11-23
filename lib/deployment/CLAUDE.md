@@ -2548,3 +2548,25 @@ Every live source read for bring-in, passive refresh or publishing must include 
 The MCP tools page HQ birth and change reviews against 80,000 characters of the complete serialized SDK result, including the outer write response around a fresh reading. Size the opaque continuation and every escaped piece before adding it. Move a large case catalog, a lookup choice with many column consequences, or a contributor list onto those same pages. Preserve their complete identities and offer the review digest only when every decision-bearing item has been returned. An oversized upload refusal sends the user to this review before it offers any discard receipt.
 
 A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.
+
+### Ordinary apps’ automatic location
+
+An ordinary app and each basic or advanced form own their independent switches.
+Every publish writes both values, including false. A target baseline from before
+Nova owned the app switch keeps its historical ownership and normalized source.
+Preflight reads the target, names its old and intended location value when they
+differ, and offers the usual digest-bound bring-in or discard. The last read
+before the write also checks the observed location. One target's confirmation
+or source never establishes another target's value.
+
+The exact-source deployment conversion takes its location settings from the
+private output of `scripts/scan-location-capture.ts`. Run it against the
+read-only source under the same writer fence as the complete cutover scan.
+The scan verifies each retained source’s byte count and SHA-256. With no active
+target the app keeps the old default. Equal observed choices become the app's
+choice. Disagreement keeps the default and each target's own old value and
+digest. A released, missing, or unreadable mapping has an unknown prior value
+and requires a successful fresh read before writing. A private genesis starts
+without a prior setting. A private edit and each historical deployment
+comparison apply the converted owning app choice to their own source snapshot.
+The original source and ownership still establish the comparison's HQ standing.

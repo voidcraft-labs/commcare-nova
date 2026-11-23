@@ -29,6 +29,7 @@ import {
 	listHqLookupTables,
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
+import { sourceCapturesLocation } from "@/lib/commcare/locationCapture";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
@@ -1646,6 +1647,19 @@ export async function runDeploymentPreflight(
 				appBaseline,
 			),
 			discards: input.discardRemoteChanges,
+			locationChange:
+				input.doc.connectType === null &&
+				!(
+					appBaseline &&
+					appBaseline.origin !== "unread" &&
+					appBaseline.ownership.autoGpsCapture
+				) &&
+				sourceCapturesLocation(read.source.raw) !==
+					(input.doc.appSettings.captureLocation === true)
+					? input.doc.appSettings.captureLocation
+						? "Automatic location for every form will change from off to on"
+						: "Automatic location for every form will change from on to off"
+					: undefined,
 			appName: input.doc.appName,
 			novaAppId: input.access.appId,
 			remoteAppId: appId,
