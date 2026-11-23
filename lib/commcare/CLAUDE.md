@@ -2064,7 +2064,11 @@ writes is `lib/deployment/lookupJsonPlan.ts`, which keys every row by the
 destination ledger's mapping of a Nova row UUID to CommCare HQ's row id,
 never by its values; `lib/deployment/lookupJsonExecutor.ts` sends it, and
 `lookup/jsonRows.ts` is a Nova row in the resource's shape, walked by the
-same atoms as the worker's fixture row.
+same atoms as the worker's fixture row, but a repeated column the row holds no
+list of, which HQ's row keeps as no key while its restore writes one empty
+element for it: the fixture atoms alone would send it as one empty value.
+`lookup/workbookReceipt.ts::intendedHqRow`, the row HQ is expected to hold of
+Nova's copy, leaves it out the same way.
 
 `searchWireShape.ts` is the authored workflow's spelling, one three-flag `WireShape` for every platform an app declares: `auto_launch` unless list first, `default_search` for skip to results, `inline_search` for forms that read the search (`caseSearchConfig.workflow`, absent search first, and `formsReadSearch`; list first beside Forms read the search is unrepresentable). The case list's filter and inputs choose none of the flags. Android reads no `auto_launch` and opens the list first, which the platform table states (`search-first`, `skip-to-results`). The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute, HQ's `AUTO_LAUNCH_EXPRESSIONS` expression wherever `auto_launch` is on: the multi-select one for a list that selects several cases (`module.is_multi_select()`), which reads the chosen cases as `instance('next_input')`, the instance a multi-select screen builds into the condition's own context and no suite element declares (the suite oracle admits it in `<action auto_launch>` alone), and the single-select one otherwise. Both export paths send a match-all filter for a zero-input search (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 
