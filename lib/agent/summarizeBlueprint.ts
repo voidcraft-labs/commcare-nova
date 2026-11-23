@@ -211,7 +211,8 @@ function summarizeCaseList(mod: Module): string | undefined {
 	if (
 		config.columns.length === 0 &&
 		config.searchInputs.length === 0 &&
-		config.selection === undefined
+		config.selection === undefined &&
+		!config.calculatedSorts?.length
 	) {
 		return undefined;
 	}
@@ -293,25 +294,48 @@ function summarizeCaseList(mod: Module): string | undefined {
 			lines.push(`        - ${formatColumn(col, "")}`);
 		}
 	}
-	const sortedColumns = orderedColumns(config, "list")
-		.filter((column) => column.sort !== undefined)
-		// Priority decides the order; Results position breaks a tie, which is what
-		// the author sees when two carriers share a priority — so the walk starts
-		// in the Results sequence and leans on `sort` being stable. The order
-		// plan every export and Preview read
-		// (`lib/domain/caseListOrder.ts::caseListOrderPlan`) ties the same way,
-		// and a tied pair the SA reads here has to match what it emits.
-		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
-	if (sortedColumns.length > 0) {
+	// Priority decides the order across column rules and independent
+	// calculations alike. Two column rules may share one (two carriers), and
+	// Results position breaks that tie, which is what the author sees, so the
+	// walk starts in the Results sequence and leans on `sort` being stable. The
+	// order plan every export and Preview read
+	// (`lib/domain/caseListOrder.ts::caseListOrderPlan`) ties the same way, and
+	// a tied pair the SA reads here has to match what it emits.
+	const orderRules = [
+		...orderedColumns(config, "list").flatMap((col) =>
+			col.sort === undefined
+				? []
+				: [
+						{
+							priority: col.sort.priority,
+							line: `${col.uuid}: "${col.header}"`,
+							sort: col.sort,
+							menuPosition: col.sort.menuPosition,
+							name:
+								col.sort.label === undefined ? "" : sortByName(col.sort.label),
+						},
+					],
+		),
+		...(config.calculatedSorts ?? []).map((rule) => ({
+			priority: rule.priority,
+			line: `${rule.uuid}: ${rule.label === undefined ? "unnamed calculation" : `calculation ${JSON.stringify(rule.label)}`}`,
+			sort: rule,
+			menuPosition: undefined,
+			// A calculation's name is the handle in its line.
+			name: "",
+		})),
+	].sort((a, b) => a.priority - b.priority);
+	if (orderRules.length > 0) {
 		lines.push("      default_order:");
-		for (const col of sortedColumns) {
-			const comparison = col.sort?.comparator
-				? `, compare as ${col.sort.comparator}`
+		for (const { line, sort, menuPosition, name } of orderRules) {
+			const comparison = sort.comparator
+				? `, compare as ${sort.comparator}`
 				: "";
-			const name =
-				col.sort?.label === undefined ? "" : sortByName(col.sort.label);
+			const blanks = sort.blanks ? `, blanks ${sort.blanks}` : "";
+			const position =
+				menuPosition === undefined ? "" : `, menuPosition ${menuPosition}`;
 			lines.push(
-				`        - ${col.uuid}: "${col.header}" (${col.sort?.direction === "asc" ? "ascending" : "descending"}${comparison}${name})`,
+				`        - ${line} (${sort.direction === "asc" ? "ascending" : "descending"}${comparison}${blanks}${position}${name})`,
 			);
 		}
 	}
