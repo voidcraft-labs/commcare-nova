@@ -23,7 +23,10 @@ import {
 import { eq, literal, sessionUser, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { readFormSearchAnswers } from "@/lib/preview/caseListRegistration";
-import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	androidDevice,
+	webAppsDevice,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { WORKER_INFORMATION_REFUSAL } from "@/lib/preview/engine/dataRefusal";
 import { FormEvaluationInputError } from "@/lib/preview/engine/evaluateForm";
 import {
@@ -425,5 +428,42 @@ it("names a Search answer supplied twice as that, not as a date range", () => {
 		]),
 	).toThrow(
 		"Supply each Search answer once. patient_name appears more than once.",
+	);
+});
+
+it("refuses a search for blank in an Android form check, whose Search screen draws no box", () => {
+	const doc = searchApp([
+		simpleSearchInputDef(
+			testUuid("forms-read-search-answers-input"),
+			"patient_name",
+			"Patient name",
+			"text",
+			"patient_name",
+			{ allowBlank: true },
+		),
+	]);
+	const read = (device: ReturnType<typeof webAppsDevice>) =>
+		formsReadSearchFormAnswers(
+			doc,
+			{
+				formUuid: FORM,
+				searchAnswers: [{ name: "patient_name:blank", value: "true" }],
+			},
+			{
+				identity: workerOf(doc),
+				device,
+				cases: { rows: [], indices: [] },
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+	expect(read(webAppsDevice())).toEqual([
+		{ name: "patient_name:blank", value: "true" },
+	]);
+	expect(() => read(androidDevice())).toThrow(
+		"Android's Search screen shows patient_name without the box to also find blank",
 	);
 });

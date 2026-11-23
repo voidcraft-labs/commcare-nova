@@ -47,6 +47,7 @@ import {
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
 import {
 	openSearchRunState,
+	searchForBlankAnswerRefusal,
 	searchInputAnswerKeys,
 	withHiddenValues,
 } from "@/lib/preview/engine/searchRunState";
@@ -66,6 +67,7 @@ import {
 import {
 	effectivePreviewPlatform,
 	platformUnavailableSentence,
+	previewPlatformRules,
 } from "@/lib/preview/platform";
 import { dataRefusalCopy } from "@/lib/preview/runtimeMessages";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -220,6 +222,7 @@ export async function loadFormEvaluationContext(
 function checkSuppliedSearchAnswers(
 	form: EvaluatedForm,
 	fields: readonly SearchInputDef[],
+	device: FormEvaluationContext["device"],
 ): void {
 	if (!form.searchAnswers) return;
 	const values = new Map<string, string>();
@@ -247,7 +250,11 @@ function checkSuppliedSearchAnswers(
 		fields.filter((field) => field.kind === "hidden").map(({ name }) => name),
 	);
 	const allowed = searchInputAnswerKeys(fields);
+	const rules = previewPlatformRules(device.platform);
 	for (const [key, value] of values) {
+		const blankRefusal = searchForBlankAnswerRefusal(fields, rules, key, value);
+		if (blankRefusal !== undefined)
+			throw new FormEvaluationInputError(blankRefusal);
 		if (hiddenNames.has(key))
 			throw new FormEvaluationInputError(
 				`Search answer ${key} is a hidden value: the search works it out when the worker searches, and the form reads that value. Leave it out of searchAnswers.`,
@@ -255,10 +262,6 @@ function checkSuppliedSearchAnswers(
 		if (!allowed.has(key))
 			throw new FormEvaluationInputError(
 				`Search answer ${key} is unavailable. Use a visible Search field name or its two date endpoints.`,
-			);
-		if (key.endsWith(":blank") && value !== "true")
-			throw new FormEvaluationInputError(
-				`Search answer ${key} says the worker also searched for blank, so its value is true. Leave it out where they did not.`,
 			);
 	}
 	for (const name of rangeNames) {
@@ -293,7 +296,11 @@ export function formsReadSearchFormAnswers(
 ): readonly { name: string; value: string }[] | undefined {
 	const moduleUuid = moduleUuidOfForm(doc, form.formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	checkSuppliedSearchAnswers(form, module?.caseListConfig?.searchInputs ?? []);
+	checkSuppliedSearchAnswers(
+		form,
+		module?.caseListConfig?.searchInputs ?? [],
+		world.device,
+	);
 	if (
 		moduleUuid === undefined ||
 		module === undefined ||
@@ -405,7 +412,11 @@ export async function formSearchContext(
 		const searchAnswers = formsReadSearchFormAnswers(doc, form, world);
 		return searchAnswers === undefined ? {} : { searchAnswers };
 	}
-	checkSuppliedSearchAnswers(form, module.caseListConfig?.searchInputs ?? []);
+	checkSuppliedSearchAnswers(
+		form,
+		module.caseListConfig?.searchInputs ?? [],
+		world.device,
+	);
 	if (world.scenario)
 		throw new FormEvaluationInputError(
 			"This form reads what its module's search found, and test records give the search nothing to run over. Leave out the scenario to search the app's records, or start an app test that runs the search before opening the form.",

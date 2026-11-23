@@ -6,7 +6,7 @@ import { input, literal, matchesPattern, term } from "@/lib/domain/expression";
 import { evaluateSearch } from "../evaluateForm";
 import { previewAsMe } from "../identity";
 import type { SearchEvaluationInput } from "../searchEvaluation";
-import { webAppsDevice } from "./fixtures/previewDevices";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 it("keeps the search draft and validation between bounded calls, and submits hidden values only after correction", async () => {
 	const name = testUuid("11111111-1111-4111-8111-111111111111");
@@ -195,4 +195,59 @@ it("opens and submits the worker platform’s date-range values and keeps intern
 	expect((await screen("yesterday", "android")([])).submitted).toEqual([
 		{ name: "dates:starting", value: "yesterday" },
 	]);
+});
+
+/* Web Apps draws the box to also find blank and sends it ticked; Android draws
+ * none and reads no `allow_blank_value`, so a run there takes no such answer.
+ * The box's answer is true alone: an unticked box is an answer left out. */
+it("takes a search for blank on Web Apps alone, and only as true", async () => {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "People",
+				caseType: "person",
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("blank-village"),
+							"village",
+							"Village",
+							"text",
+							"village",
+							{ allowBlank: true },
+						),
+					],
+				},
+				forms: [],
+			},
+		],
+	});
+	const moduleUuid = doc.moduleOrder[0];
+	const identity = previewAsMe({ id: "worker", name: "Worker" }, doc);
+	if (!identity) throw new Error("Missing worker.");
+	const run = (device: ReturnType<typeof webAppsDevice>, value: string) =>
+		evaluateSearch(
+			doc,
+			{ moduleUuid, answers: [{ name: "village:blank", value }] },
+			{
+				identity,
+				device,
+				cases: { rows: [], indices: [] },
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+	expect((await run(webAppsDevice(), "true")).submitted).toEqual([
+		{ name: "village:blank", value: "true" },
+	]);
+	await expect(run(webAppsDevice(), "yes")).rejects.toThrow(
+		"Search answer village:blank says the worker also searched for blank, so its value is true.",
+	);
+	await expect(run(androidDevice(), "true")).rejects.toThrow(
+		"Android's Search screen shows village without the box to also find blank",
+	);
 });

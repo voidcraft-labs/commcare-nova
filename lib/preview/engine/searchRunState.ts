@@ -26,6 +26,7 @@ import {
 } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { readSearchScreenConditionsAtOpen } from "@/lib/preview/engine/searchInputConstraints";
 import type { LookupChoice } from "@/lib/preview/engine/types";
+import type { PreviewPlatformRules } from "@/lib/preview/platform";
 
 export interface SearchRunState {
 	readonly scopeKey: string;
@@ -182,6 +183,32 @@ export function searchInputAnswerKeys(
 		if (input.allowBlank === true) keys.add(searchForBlankKey(input.name));
 	}
 	return keys;
+}
+
+/** Why an answer supplied from outside a Search screen (an App Test, a form
+ *  check) for a field's search for blank is refused, or `undefined` where the
+ *  key is no such answer or is taken. Web Apps draws the box and sends it
+ *  ticked; Android draws none and reads no `allow_blank_value`
+ *  (`searchForBlank`), so an Android run takes no such answer. The box's
+ *  answer is `true` alone: an unticked box is an answer left out. */
+export function searchForBlankAnswerRefusal(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<PreviewPlatformRules, "searchForBlank">,
+	key: string,
+	value: string,
+): string | undefined {
+	const field = searchInputs.find(
+		(input) =>
+			input.kind !== "hidden" &&
+			input.allowBlank === true &&
+			searchForBlankKey(input.name) === key,
+	);
+	if (field === undefined) return undefined;
+	if (!rules.searchForBlank)
+		return `Android's Search screen shows ${field.name} without the box to also find blank, so an Android run takes no ${key}. Leave it out, or run on Web Apps.`;
+	if (value !== "true")
+		return `Search answer ${key} says the worker also searched for blank, so its value is true. Leave it out where they did not.`;
+	return undefined;
 }
 
 /** Every key a query's prompts answer by: the answers the worker gives

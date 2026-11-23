@@ -43,6 +43,7 @@ import {
 	changeSearchRunDraft,
 	openSearchRunState,
 	restoreSearchRun,
+	searchForBlankAnswerRefusal,
 	searchInputAnswerKeys,
 	withHiddenValues,
 } from "./searchRunState";
@@ -232,6 +233,14 @@ async function searchSnapshot(
 		const answerKeys = searchInputAnswerKeys(inputs);
 		const seen = new Set<string>();
 		for (const { name, value } of answers) {
+			const blankRefusal = searchForBlankAnswerRefusal(
+				inputs,
+				rules,
+				name,
+				value,
+			);
+			if (blankRefusal !== undefined)
+				throw new FormEvaluationInputError(blankRefusal);
 			if (!answerKeys.has(name) || seen.has(name))
 				throw new FormEvaluationInputError(
 					`Search answer ${name} is unavailable or repeated.`,
