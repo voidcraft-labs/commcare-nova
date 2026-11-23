@@ -187,6 +187,7 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"lookup_column_references",
 	"lookup_member_references",
 	"lookup_members",
+	"worker_groups",
 	"app_organization_state",
 	"app_locations",
 	"app_deployments",
@@ -257,8 +258,9 @@ const RUNTIME_APPEND_ONLY_TABLES = [
  * a handle row. A deployment confirmation is inserted on confirm and updated
  * on withdrawal; the two baseline ledgers are upserted only, serialized by
  * the deployment row's lock. A write Nova lets out to CommCare HQ is inserted
- * under its admission's locks and updated once when HQ answers. None of them
- * is ever deleted or locked. */
+ * under its admission's locks and updated once when HQ answers. A worker
+ * group's CommCare HQ target is upserted when a person confirms it, under the
+ * group row's lock. None of them is ever deleted or locked. */
 const RUNTIME_INSERT_UPDATE_TABLES = [
 	"design_identity_handles",
 	"authoring_session_requests",
@@ -266,6 +268,7 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
 	"app_deployment_baselines",
 	"project_space_resource_baselines",
 	"hq_remote_writes",
+	"worker_group_targets",
 ] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
@@ -283,7 +286,9 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
  * it `FOR UPDATE`, a stop and a bring-in `FOR SHARE` or `FOR UPDATE` with the
  * deployment row `FOR UPDATE`. The birth writes them for a deployment it
  * inserts in the same transaction, which no other transaction sees until it
- * commits. So none of them is ever row-locked. */
+ * commits. So none of them is ever row-locked. A worker group's members and a
+ * lookup row's assignments are likewise inserted and deleted, never changed
+ * or locked. */
 const RUNTIME_INSERT_DELETE_TABLES = [
 	"media_asset_refs",
 	"app_location_references",
@@ -293,17 +298,21 @@ const RUNTIME_INSERT_DELETE_TABLES = [
 	"app_deployment_media_paths",
 	"app_deployment_keyed_case_ids",
 	"app_deployment_column_field_words",
+	"worker_group_members",
+	"lookup_row_assignments",
 ] as const;
 
 /** Only a migration writes these, as the migration role: fold baselines,
  * and the migration notices with their key-reader rows, so serving code
- * cannot forge one. */
+ * cannot forge one. An API key's grant epoch is written only by its
+ * `SECURITY DEFINER` trigger, so serving code reads it and cannot reset it. */
 const RUNTIME_READ_ONLY_TABLES = [
 	"app_deployment_fold_references",
 	"conversation_source_cutover",
 	"app_change_fold_baselines",
 	"app_migration_notices",
 	"app_migration_notice_key_readers",
+	"auth_apikey_grant_epoch",
 ] as const;
 
 /** `cases` retains its isolated schema and runtime ownership. Runtime has
@@ -699,6 +708,8 @@ const EXPECTED_PUBLIC_ROUTINES = [
 	{ name: "nova_account_lookup_storage", identityArguments: "" },
 	{ name: "nova_check_assignment_app_project", identityArguments: "" },
 	{ name: "nova_set_lookup_external_bytes", identityArguments: "" },
+	{ name: "nova_invalidate_export_target", identityArguments: "" },
+	{ name: "nova_rotate_api_key_grant", identityArguments: "" },
 	{ name: "nova_immutable_thread_source", identityArguments: "" },
 	...APP_TEST_RUNTIME_ROUTINES,
 	{ name: "nova_dispose_deleted_app_test", identityArguments: "" },
