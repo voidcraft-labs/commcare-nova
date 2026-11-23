@@ -1276,8 +1276,10 @@ def child_menus_listing_the_same_forms(authoring, app_id):
         )
 
 
-def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False):
-    """A second route to the hq-plain forms. HQ resolves the actual source form ids before saving."""
+def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False, stored_type=False):
+    """A second route to the hq-plain forms. HQ resolves the actual source form ids before saving. With
+    ``stored_type``, the menu's stored ``case_type`` holds its source's type, as a document saved where HQ stored
+    the key keeps it, where HQ's ``ShadowModule.case_type`` reads the source's (``models/modules.py``)."""
     owner = _held(authoring, app_id)["modules"][0]
     ops.set_json(
         authoring,
@@ -1291,7 +1293,7 @@ def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False):
             "source_module_id": {"$menu": 0},
             "name": {"en": "At home"},
             "forms": [],
-            "case_type": None,
+            "case_type": owner["case_type"] if stored_type else None,
             "case_details": owner["case_details"],
             "case_list": {"show": show},
             "excluded_form_ids": list(excluded),
@@ -1306,6 +1308,10 @@ def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False):
 
 def all_forms_listed_in_another_menu(authoring, app_id):
     _add_listed_menu(authoring, app_id)
+
+
+def listed_menu_storing_its_type(authoring, app_id):
+    _add_listed_menu(authoring, app_id, stored_type=True)
 
 
 def some_forms_listed_in_another_menu(authoring, app_id):

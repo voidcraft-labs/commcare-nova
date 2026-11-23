@@ -16390,8 +16390,8 @@
 						"$menu": 1
 					}
 				],
-				"pointer": "/caseListConfig/filter/term/field",
-				"value": "district"
+				"pointer": "/caseListConfig/filter/term/userPropertyUuid",
+				"value": "c5a87ddc-f33c-5351-af5a-47df65a5efe9"
 			}
 		]
 	},
@@ -17346,7 +17346,15 @@
 	{
 		"id": "hq-case-management/return-to-the-screen-before-a-first-menu-form",
 		"base": "hq-case-management",
-		"entry": "forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
+		"entry": "forms-and-case-writes/any-other-post-form-workflow-outside-the-offered-set-previous",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Members",
+			"name": "Followup Form"
+		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1",
@@ -17812,19 +17820,7 @@
 				"use_default_audio_for_all": false,
 				"comment": ""
 			}
-		},
-		"holds": [
-			{
-				"key": [
-					"form",
-					{
-						"$xmlns": [1, 0]
-					}
-				],
-				"pointer": "/postSubmit",
-				"value": "previous"
-			}
-		]
+		}
 	},
 	{
 		"id": "hq-case-management/root-question-usercase",
@@ -28206,7 +28202,7 @@
 		"entry": "menus-and-case-lists/shadowmodule-case-type-stored-key",
 		"change": {
 			"op": "named",
-			"name": "all_forms_listed_in_another_menu"
+			"name": "listed_menu_storing_its_type"
 		},
 		"holds": [
 			{
