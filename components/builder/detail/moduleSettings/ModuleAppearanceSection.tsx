@@ -3,7 +3,7 @@
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useNavigationFileLens } from "@/components/builder/media/useNavigationFileLens";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useModule, useStoredModule } from "@/lib/doc/hooks/useEntity";
 import { useMenuScreenSource } from "@/lib/doc/hooks/useMenuScreenSource";
 import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { asUuid, type Uuid } from "@/lib/doc/types";
@@ -26,7 +26,7 @@ export function ModuleAppearanceSection({
 }: ModuleAppearanceSectionProps) {
 	const module = useModule(moduleUuid);
 	const parentModule = useModule(module?.parentModuleUuid);
-	const lens = useNavigationFileLens(module);
+	const lens = useNavigationFileLens(useStoredModule(moduleUuid));
 	const { commitMany } = useBlueprintMutations();
 	const source = useMenuScreenSource();
 	/* A bare case list's name section states the note for both. */

@@ -78,3 +78,32 @@ export function useField(uuid: Uuid | undefined): Field | undefined {
 		sameEntity,
 	);
 }
+
+/** The module as stored, whatever language the Builder shows. An editor of
+ *  one language's own files reads the overrides themselves, where the
+ *  language's projection (`useModule`) shows the file it resolved to. */
+export function useStoredModule(uuid: Uuid | undefined): Module | undefined {
+	return useBlueprintDocEq(
+		(doc) => (uuid === undefined ? undefined : doc.modules[uuid]),
+		sameEntity,
+	);
+}
+
+/** The form as stored, whatever language the Builder shows (see
+ *  {@link useStoredModule}). */
+export function useStoredForm(uuid: Uuid | undefined): Form | undefined {
+	return useBlueprintDocEq(
+		(doc) => (uuid === undefined ? undefined : doc.forms[uuid]),
+		sameEntity,
+	);
+}
+
+/** The field as stored, whatever language the Builder shows. An editor of
+ *  one language's own files reads the overrides themselves, which the
+ *  language's projection (`useField`) has already resolved away. */
+export function useStoredField(uuid: Uuid | undefined): Field | undefined {
+	return useBlueprintDocEq(
+		(doc) => (uuid === undefined ? undefined : doc.fields[uuid]),
+		sameEntity,
+	);
+}

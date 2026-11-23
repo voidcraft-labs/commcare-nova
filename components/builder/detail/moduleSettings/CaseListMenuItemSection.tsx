@@ -19,7 +19,7 @@ import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useNavigationFileLens } from "@/components/builder/media/useNavigationFileLens";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useModule, useStoredModule } from "@/lib/doc/hooks/useEntity";
 import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
@@ -63,7 +63,9 @@ export function CaseListMenuItemSection({
 		MENU_ITEM_NOTE_FEATURES,
 	);
 	const item = module?.caseListMenuItem;
-	const lens = useNavigationFileLens(item);
+	const lens = useNavigationFileLens(
+		useStoredModule(moduleUuid)?.caseListMenuItem,
+	);
 	const on = item !== undefined;
 	const plan = useCallback(
 		(doc: BlueprintDoc) => ({

@@ -3,7 +3,7 @@
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useField } from "@/lib/doc/hooks/useEntity";
+import { useStoredField } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/domain";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 import { MEDIA_KINDS, mediaInLanguage } from "@/lib/domain/multimedia";
@@ -24,7 +24,9 @@ export function FieldLanguageMedia({
 	slotKey: string;
 }) {
 	const canEdit = useCanEdit();
-	const field = useField(fieldUuid);
+	// The stored field: the lens projection has already chosen one file per
+	// role, and this editor shows which of them the language holds itself.
+	const field = useStoredField(fieldUuid);
 	const lens = useBuilderLanguage();
 	const { commitMany } = useBlueprintMutations();
 	const key = slot === "help" ? "help_media" : "label_media";

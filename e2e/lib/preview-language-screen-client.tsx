@@ -55,9 +55,10 @@ import {
 	releaseLanguageWorker,
 } from "./preview-language-worker-boundary";
 
-const doc = languageScreenDoc(
-	new URLSearchParams(window.location.search).has("localizedMedia"),
-);
+// Read before the Builder route below replaces the page's address.
+const query = new URLSearchParams(window.location.search);
+const editMedia = query.has("editMedia");
+const doc = languageScreenDoc(query.has("localizedMedia"));
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
 docStore.getState().startTracking();
@@ -114,7 +115,7 @@ root.render(
 			<BuilderLocalizationProvider>
 				<BuilderFormEngineProvider>
 					<LanguageControls />
-					{new URLSearchParams(window.location.search).has("editMedia") && (
+					{editMedia && (
 						<FieldLanguageMedia
 							fieldUuid={NAME}
 							slot="label"

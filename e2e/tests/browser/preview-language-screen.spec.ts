@@ -149,9 +149,6 @@ test("a rejected submission keeps required errors and review announcements in th
 			);
 			await expect(image(ENGLISH_IMAGE)).toHaveCount(0);
 			await page.evaluate(() => window.previewLanguageScreen.settled());
-			const before = await page.evaluate(() =>
-				window.previewLanguageScreen.observation(),
-			);
 			const question = page.locator(
 				`[data-field-uuid="${NAME}"][data-instance-path]`,
 			);
@@ -162,6 +159,15 @@ test("a rejected submission keeps required errors and review announcements in th
 				question.getByText("Este campo es obligatorio", { exact: true }),
 			).toBeVisible();
 			await expect(announcement).toHaveText("Revise la pregunta resaltada.");
+			// Android saves every answer on the screen when Finish is pressed,
+			// the day its date widget shows among them, before it names the
+			// question a worker still owes (`FormEntryActivity.
+			// saveAnswersForCurrentScreen`). The rebuilt screens keep the
+			// answers that rejected submission left.
+			await page.evaluate(() => window.previewLanguageScreen.settled());
+			const before = await page.evaluate(() =>
+				window.previewLanguageScreen.observation(),
+			);
 			await capture("required-spa");
 			for (const [button, error, review, tag] of [
 				[

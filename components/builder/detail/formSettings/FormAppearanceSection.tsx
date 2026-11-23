@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
-import { useForm } from "@/lib/doc/hooks/useEntity";
+import { useForm, useStoredForm } from "@/lib/doc/hooks/useEntity";
 import { useFormSwitchedTexts } from "@/lib/doc/hooks/useFormSwitchedTexts";
 import { asUuid } from "@/lib/doc/types";
 import { proseTemplateHoldsFormatting } from "@/lib/tiptap/formatText";
@@ -34,7 +34,7 @@ import type { FormSettingsSectionProps } from "./types";
  */
 export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
-	const lens = useNavigationFileLens(form);
+	const lens = useNavigationFileLens(useStoredForm(formUuid));
 	const { commitMany, inline } = useBlueprintMutations();
 	const platforms = useDeclaredPlatforms();
 	const uuid = asUuid(formUuid);
