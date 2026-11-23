@@ -5033,7 +5033,7 @@ def _case_condition_type(tree, properties, dot=None):
     every part is one Nova's type checker types the same way: a literal, a bare read of a declared property of a
     type ``_CASE_VALUE_TYPES`` names (``.``, the column's own property, where ``dot`` gives its type), a comparison of
     two values of one type (an order of two numbers), ``and``/``or``/``not`` over truth values, arithmetic over
-    numbers, ``selected`` of a property and a literal, ``true()`` and ``false()``. None for anything else, which these
+    numbers, ``concat`` of texts, ``selected`` of a property and a text, ``true()`` and ``false()``. None for anything else, which these
     classes leave undecided rather than guess."""
     kind = tree[0]
     if kind == "number":
@@ -5069,9 +5069,14 @@ def _case_condition_type(tree, properties, dot=None):
             return "boolean"
         if name == "not" and len(arguments) == 1:
             return "boolean" if _case_condition_type(arguments[0], properties, dot) == "boolean" else None
-        if name == "selected" and len(arguments) == 2 and arguments[1][0] == "text":
+        if name == "selected" and len(arguments) == 2:
             subject = _case_condition_type(arguments[0], properties, dot)
-            return "boolean" if subject in ("choices", "text") else None
+            value = _case_condition_type(arguments[1], properties, dot)
+            return "boolean" if subject in ("choices", "text") and value == "text" else None
+        # A text holding both quote characters is printed as a concatenation of literals.
+        if name == "concat" and len(arguments) >= 2:
+            parts = [_case_condition_type(argument, properties, dot) for argument in arguments]
+            return "text" if all(part == "text" for part in parts) else None
     return None
 
 

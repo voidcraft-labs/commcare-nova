@@ -4082,6 +4082,11 @@ def _search_and_menus():
                 "app", tabbed(tab(0, relevant="not(village = 'West') or visits > 2")), "schema:DetailTab.relevant",
                 f"{long_}/tabs/0/relevant", readings=True, case_types=village,
             ),
+            # A text with both quote characters is spelled as a concatenation of literals.
+            accepted(
+                "app", tabbed(tab(0, relevant="selected(village, concat('a', \"'\", '\"b'))")),
+                "schema:DetailTab.relevant", f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
             # A property the case type does not declare, or a comparison of a text with a number, is no type the
             # class reads: Nova's reader decides it.
             unsettled(
