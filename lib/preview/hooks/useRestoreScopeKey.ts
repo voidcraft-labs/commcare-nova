@@ -2,13 +2,16 @@
 //
 // One dependency value for everything a worker's restore is derived from.
 //
-// `resolveRestoreScope` answers from three inputs, and the running preview
+// `resolveRestoreScope` answers from four inputs, and the running preview
 // caches its rows under a key that names none of them:
 //
 //   1. which places the persona is assigned to (blueprint: `persona.locations`)
 //   2. which levels own cases, and how far down each one reaches
 //      (blueprint: `organizationLevels`)
 //   3. the place tree itself (Postgres: `app_locations`)
+//   4. the classic case-sharing groups the persona belongs to (Postgres:
+//      `worker_group_members`, Project data, which the lookup manifest's
+//      clock moves)
 //
 // Change any one and the same persona holds a different set of cases. Without
 // this key the preview keeps serving the previous worker's rows with nothing
@@ -56,7 +59,7 @@ function useOrganizationClock(): number {
  * is that it differs whenever the resolved restore could differ, so it is
  * deliberately coarse — the whole level catalog rather than the fields today's
  * derivation happens to consult. A narrower signature would have to be revised
- * every time `personaOwnerIds` grew an input, and forgetting is silent.
+ * every time the restore scope grew an input, and forgetting is silent.
  *
  * Previewing as the signed-in member is a worker assigned nowhere, so its
  * owner set is their own id and depends on none of the document.

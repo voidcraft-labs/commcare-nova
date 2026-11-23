@@ -331,14 +331,18 @@ consume. Both deliberately walk a predicate that already exists rather than
 restating its arms, because two encodings of one rule drift and the one that
 drifts is the one nobody reads.
 
-- `ownerSets.ts::personaOwnerIds` is `CouchUser.get_owner_ids`: the worker's
-  own id plus one id per case-sharing group. Nova has no classic groups, so
-  every other member is a place — HQ turns each case-owning location a user
-  reaches into a group whose `_id` IS the `location_id`
-  (`SQLLocation.case_sharing_group_object`), which is why place ids drop
-  straight into the list rather than being mapped through anything. WHICH
-  places is `assignmentReceivesCasesFrom`, the same predicate the commit gate
-  asks one target at a time.
+- A worker's owner ids are `CouchUser.get_owner_ids`: the worker's own id
+  plus one id per case-sharing group. Two kinds of group stand there. HQ turns
+  each case-owning place a worker reaches into a group whose `_id` IS the
+  `location_id` (`SQLLocation.case_sharing_group_object`), which is why place
+  ids drop straight into the list rather than being mapped through anything;
+  and each classic worker group (`worker_group_members`, in Project data) that
+  shares cases adds its own id. Preview's device owner set is
+  `lib/preview/engine/restoreScope.ts::workerRestoreScope`: the worker's id,
+  their case-owning places paged by `workerPlaces.ts`, then their classic
+  case-sharing groups. `ownerSets.ts::personaOwnerIds` is the place-only
+  derivation App Tests use. WHICH places is `assignmentReceivesCasesFrom`, the
+  same predicate the commit gate asks one target at a time.
 - `footprint.ts::personaFootprint` is the enumerating twin of
   `assignmentFootprintIncludes`, tested alongside it against exact expected destinations for every address-book
   mode, including ancestor retention, sibling branches, depth limits and
