@@ -7,9 +7,11 @@ import {
 } from "@/lib/deployment/hqChanges/baselineSource";
 import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import { servedExport } from "@/lib/deployment/reading/__tests__/novaReading";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { applyMutations } from "@/lib/doc/mutations";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { sharedFormMutations } from "@/lib/doc/scaffolds";
 import { planFormDependentsOnRemove } from "@/lib/doc/sharedFormDependents";
 import {
@@ -650,4 +652,70 @@ describe("two entries opening the same questions", () => {
 			expect(held.fieldOrder[entry.uuid] ?? []).toEqual([]);
 		}
 	});
+});
+
+describe("a parent and its shared entries changing choices together", () => {
+	/** `doc` with its forms keyed in the order `first` names first. */
+	const keyed = (doc: BlueprintDoc, first: Uuid): BlueprintDoc => ({
+		...doc,
+		forms: Object.fromEntries([
+			[first, doc.forms[first]],
+			...Object.entries(doc.forms).filter(([uuid]) => uuid !== first),
+		]) as BlueprintDoc["forms"],
+	});
+	const replace = (
+		doc: BlueprintDoc,
+		parent: Uuid,
+		entries: readonly Uuid[],
+		leaving: Uuid,
+		arriving: FormCaseSelection,
+	) =>
+		produce(doc, (d) => {
+			const rows = d.forms[parent].caseSelections ?? [];
+			d.forms[parent].caseSelections = [
+				...rows.filter((row) => row.uuid !== leaving),
+				arriving,
+			];
+			for (const entry of entries) {
+				const shared = d.forms[entry].shadowOf;
+				if (!shared) continue;
+				shared.selections = [
+					...shared.selections.filter(
+						(row) => row.kind !== "replace" || row.selection !== leaving,
+					),
+					{
+						kind: "replace",
+						selection: arriving.uuid,
+						caseType: arriving.caseType,
+						source: arriving.source,
+					},
+				];
+			}
+		});
+
+	it.each(["parent", "entry"] as const)(
+		"replays a replaced choice with the %s keyed first",
+		(first) => {
+			const { doc, parent, morning, evening, origin } = sharedEntries();
+			const arriving = choose("Visiting household", "visiting");
+			const target = replace(
+				doc,
+				parent,
+				[morning, evening],
+				origin.uuid,
+				arriving,
+			);
+			const from = keyed(doc, first === "parent" ? parent : morning);
+			const to = keyed(target, first === "parent" ? parent : morning);
+			const diff = diffDocsToMutations(from, to);
+			expect(mutationTargetsInvalid(from, diff)).toBe(false);
+			const replayed = produce(from, (d) => {
+				applyMutations(d, diff);
+			});
+			for (const form of [parent, morning, evening])
+				expect(formCaseSelections(replayed, form)).toEqual(
+					formCaseSelections(to, form),
+				);
+		},
+	);
 });

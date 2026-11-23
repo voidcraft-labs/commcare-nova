@@ -645,6 +645,13 @@ function* diffGranularSteps(
 	// changes (the worker's record), which later steps of the batch change,
 	// and `diffEntrySupplies` edits the list `prev` derives.
 	const entryMaterializations: Mutation[] = [];
+	// A shared entry's choices read its parent's, so they are edited around
+	// every form's own: its left-out choices leave before a parent drops one
+	// (else the entry's replacement row already dangles and is no choice to
+	// remove), and its restored, edited and moved ones arrive after a parent
+	// gains one (else there is nothing to restore), whatever the forms' order.
+	const sharedEntryLeaving: Mutation[] = [];
+	const sharedEntryArriving: Mutation[] = [];
 	// Granular collection edits — case-list columns / search-inputs /
 	// case-list metadata + select options — keyed by item uuid so concurrent
 	// edits to different items merge.
@@ -948,7 +955,30 @@ function* diffGranularSteps(
 				patch: {},
 				entryChange: { operation: "use-form-choices" },
 			});
-		updates.push(...diffEntrySupplies(prev, next, prevForm, nextForm));
+		const supplies = diffEntrySupplies(prev, next, prevForm, nextForm);
+		if (nextForm.shadowOf === undefined) updates.push(...supplies);
+		else {
+			const choiceOf = (m: Mutation) =>
+				m.kind === "updateForm" &&
+				m.entryChange !== undefined &&
+				(m.entryChange.operation.endsWith("-choice") ||
+					m.entryChange.operation === "change-shared-form");
+			const reparented = supplies.some(
+				(m) =>
+					m.kind === "updateForm" &&
+					m.entryChange?.operation === "change-shared-form",
+			);
+			for (const m of supplies) {
+				if (!choiceOf(m)) updates.push(m);
+				else if (
+					!reparented &&
+					m.kind === "updateForm" &&
+					m.entryChange?.operation === "remove-choice"
+				)
+					sharedEntryLeaving.push(m);
+				else sharedEntryArriving.push(m);
+			}
+		}
 		const otherwise = diffFormOtherwise(prevForm, nextForm, uuid);
 		updates.push(
 			...otherwise.beforeLinks,
@@ -1093,7 +1123,9 @@ function* diffGranularSteps(
 		...fieldStructure,
 		...renames,
 		...converts,
+		...sharedEntryLeaving,
 		...updates,
+		...sharedEntryArriving,
 		...media,
 		...collections,
 		...orders,
