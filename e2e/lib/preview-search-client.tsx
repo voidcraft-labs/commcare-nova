@@ -46,6 +46,8 @@ const rangeSpelling = new URLSearchParams(window.location.search).get("range");
 const searchesForBlank = new URLSearchParams(window.location.search).has(
 	"blank",
 );
+/* `?hidden` adds a region field Web Apps does not draw, starting at north. */
+const hiddenField = new URLSearchParams(window.location.search).has("hidden");
 const inputs = [
 	simpleSearchInputDef(
 		testUuid("search-barcode"),
@@ -80,6 +82,24 @@ const inputs = [
 				}
 			: undefined,
 	),
+	...(hiddenField
+		? [
+				simpleSearchInputDef(
+					testUuid("search-region"),
+					"region",
+					"Region",
+					"text",
+					"region",
+					{
+						hidden: true,
+						default: {
+							kind: "term",
+							term: { kind: "literal", value: "north" },
+						},
+					},
+				),
+			]
+		: []),
 ];
 const caseType = {
 	name: "patient",
@@ -95,6 +115,7 @@ const caseType = {
 			label: proseText("Registered"),
 			data_type: "date" as const,
 		},
+		{ name: "region", label: proseText("Region"), data_type: "text" as const },
 	],
 };
 const moduleUuid = testUuid("native-search-module");

@@ -383,3 +383,34 @@ test("Web Apps offers a search for blank under a field that allows it, and Andro
 		await peer.close();
 	}
 });
+
+test("Web Apps searches with a hidden field's starting value without drawing it, and Android draws it", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.goto(`${peer.origin}/?platform=web-apps&hidden`);
+		await expect(
+			page.getByLabel("Patient name", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByLabel("Region", { exact: true })).toHaveCount(0);
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({ region: "north" });
+		await page.goto(`${peer.origin}/?platform=android&hidden`);
+		const region = page.getByLabel("Region", { exact: true });
+		await expect(region).toHaveValue("north");
+		await region.fill("south");
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({ region: "south" });
+	} finally {
+		await peer.close();
+	}
+});
