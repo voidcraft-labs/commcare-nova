@@ -244,6 +244,32 @@ describe("blank values", () => {
 		expect(unclaimedText(reading)).toEqual([]);
 	});
 
+	it("counts a label's blank extended text beside the default's as a filled translation", async () => {
+		// Core shows French workers the blank `long` form as it stands; the next publish writes
+		// the English text there, so the review lists it as the label's own blank is listed.
+		const reading = await readForm(
+			oneLabel("l", {
+				en: `<text id="l"><value>Hello</value><value form="long">Hello there</value></text>`,
+				fr: `<text id="l"><value>Bonjour</value><value form="long"/></text>`,
+			}),
+			{ langs: ["en", "fr"] },
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(field(reading, "q").extended_text).toEqual(proseText("Hello there"));
+		expect(formBlankTranslations(reading.xform ?? ({} as never))).toEqual({
+			blankTranslations: 1,
+			blankTranslationSlots: [
+				{
+					fieldPath: ["q"],
+					slot: "extended_text",
+					language: "fra",
+					choiceValue: null,
+				},
+			],
+		});
+		expect(unclaimedText(reading)).toEqual([]);
+	});
+
 	it("refuses a blank first language beside another language's text", async () => {
 		const reading = await readForm(
 			oneLabel("l", {

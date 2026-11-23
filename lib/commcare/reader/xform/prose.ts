@@ -78,7 +78,7 @@ import { attributesByName, sameAttributeMaps } from "../sameElement";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { translationEntryFor } from "../translations";
-import type { ItextRecipient } from "../types";
+import type { BlankTranslationSlot } from "../types";
 import { ownText, type XmlCursor, type XmlNode } from "../xmlCursor";
 import type { ControlNode } from "./body";
 import { TEXT_CONTROLS, type TextControl, X } from "./claims";
@@ -493,7 +493,7 @@ export interface FormText {
 	readonly itext: ItextReading;
 	/** The values blank in a language other than the first whose first-language text is not. */
 	readonly blankTranslations: number;
-	readonly blankTranslationSlots?: readonly ItextRecipient[];
+	readonly blankTranslationSlots?: readonly BlankTranslationSlot[];
 	readonly cursor: XmlCursor;
 }
 
@@ -1052,7 +1052,7 @@ export function readText(input: ReadTextInput): FormText {
 	const slots: SlotText[] = [];
 	const labelTexts: LabelTextReading[] = [];
 	let blankTranslations = 0;
-	const blankTranslationSlots: ItextRecipient[] = [];
+	const blankTranslationSlots: BlankTranslationSlot[] = [];
 	const firstOwner = new Map<string, Reference>();
 	for (const ref of references) {
 		if (ref.id !== undefined && !firstOwner.has(ref.id))
@@ -1067,7 +1067,17 @@ export function readText(input: ReadTextInput): FormText {
 		for (const language of read.blanks)
 			blankTranslationSlots.push(itextRecipient(ref.owner, language));
 		if (read.slot !== undefined) slots.push(read.slot);
-		labelTexts.push(...(read.labelTexts ?? []));
+		for (const reading of read.labelTexts ?? []) {
+			labelTexts.push(reading);
+			// A label's other text left blank beside the default's is filled from it, as the
+			// label's own value is.
+			if (first) blankTranslations += reading.blanks.length;
+			for (const language of reading.blanks)
+				blankTranslationSlots.push({
+					...itextRecipient(ref.owner, language),
+					slot: reading.slot,
+				});
+		}
 	}
 
 	const elsewhere = referencesAnywhere(input);
@@ -1462,6 +1472,9 @@ export interface LabelTextReading {
 	readonly first: boolean;
 	readonly own: LanguageTag;
 	readonly values: ReadonlyMap<LanguageTag, ReadValue>;
+	/** The languages other than the default whose value is blank beside the default's text: each
+	 *  read as no translation, and filled from the source at publication. */
+	readonly blanks: readonly LanguageTag[];
 }
 
 /** Takes one of a label's other texts' values: the element, its record standing at the `form`
@@ -1603,7 +1616,13 @@ function readLabelTexts(
 			}
 			owner.field.field[slot] = placeholderTemplate(ownValue.parts);
 		}
-		out.push({ owner, slot, place, id, first, own, values: read });
+		const blanks = [...read]
+			.filter(
+				([language, value]) =>
+					language !== defaultLanguage && !defaultBlank && valueIsBlank(value),
+			)
+			.map(([language]) => language);
+		out.push({ owner, slot, place, id, first, own, values: read, blanks });
 	}
 	return out;
 }
