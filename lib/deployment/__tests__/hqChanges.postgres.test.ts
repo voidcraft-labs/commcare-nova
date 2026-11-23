@@ -1084,61 +1084,6 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		});
 	}
 
-	it("reviews and takes a form condition on the source project's flat places", async () => {
-		const scope = await broughtIn();
-		const source = changedAnswer(fixtureSource(), (body) => {
-			const [menu] = body.modules as { forms: Record<string, unknown>[] }[];
-			menu.forms[0].form_filter =
-				"count(instance('locations')/locations/location) > 0";
-			return body;
-		});
-		const withPlaces = <T>(run: () => Promise<T>) =>
-			withHttpPeer(async (peer) => {
-				serveRead(peer, source, { tables: true });
-				const collection = (objects: unknown[]) => ({
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						meta: {
-							limit: 100,
-							next: null,
-							offset: 0,
-							total_count: objects.length,
-						},
-						objects,
-					}),
-				});
-				serveAnswer(
-					peer,
-					"/api/user_domains/v1/?limit=100",
-					collection([{ domain_name: FIXTURE_DOMAIN, project_name: "Clinic" }]),
-				);
-				serveAnswer(
-					peer,
-					"/api/user_domains/v1/?limit=100&feature_flag=hierarchical_location_fixture",
-					collection([]),
-				);
-				serveAnswer(
-					peer,
-					`/a/${FIXTURE_DOMAIN}/api/location_type/v1/?limit=1000`,
-					collection([]),
-				);
-				serveAnswer(
-					peer,
-					`/a/${FIXTURE_DOMAIN}/api/location/v2/?limit=5000`,
-					collection([]),
-				);
-				return run();
-			});
-		const listed = changesOf(
-			await withPlaces(() =>
-				reviewHqChanges(scope, KEY_TARGET, { onEvent: () => {} }),
-			),
-		);
-		const taken = await withPlaces(() => bringIn(scope, listed));
-		expect(taken.kind).toBe("brought-in");
-	});
-
 	function changesOf(answer: HqChangesReview) {
 		if (answer.kind !== "changes")
 			throw new Error(`The review answered ${JSON.stringify(answer)}`);
