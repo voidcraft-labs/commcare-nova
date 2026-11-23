@@ -185,6 +185,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
 	"forms-read-search",
+	"search-on-clear",
 	"list-first",
 	"several-cases",
 	"search-field-single-date",
@@ -309,6 +310,18 @@ export const PLATFORM_FEATURES: Readonly<
 			why: 'On Android a worker can open only a case the phone already holds, and choosing any other case stops with "Session Refresh Required".',
 			alternative:
 				"turn off Forms read the search, so the menu searches first and each form reads the case it opens",
+		},
+	},
+	"search-on-clear": {
+		label: "Search again after clearing",
+		channel: "structure",
+		webApps: {
+			reading: "runs",
+			note: "clearing searches again on screens at least 992 pixels wide",
+		},
+		android: {
+			reading: "ignored",
+			note: "the search screen has no Clear button",
 		},
 	},
 	"list-first": {

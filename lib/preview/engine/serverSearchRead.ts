@@ -152,6 +152,7 @@ export async function serverRecordsRead(
 			workflow: search.workflow,
 			formsReadSearch: search.formsReadSearch,
 			searchRelevant: search.relevant,
+			searchReopened: request.entry?.cleared === true,
 			hasSubmitted: false,
 			rules,
 		}) !== "search";

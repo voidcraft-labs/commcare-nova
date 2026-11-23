@@ -85,10 +85,8 @@ export interface SearchCanvasProps {
 	readonly onAddHiddenInput: () => void;
 	/** Disabled-add hint: `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
-	/** Why this menu takes no Search at all (it shows its forms in the menu
-	 *  above), stated under the heading in place of the workflow line, with
-	 *  the panel's button disabled by it. */
-	readonly searchUnavailableReason?: string;
+	/** Where Search is available to the worker. */
+	readonly formsAboveSearchNote?: string;
 	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
 	/** Whether the worker actually sees a search screen (requires an input). */
 	readonly hasSearchSurface?: boolean;
@@ -121,7 +119,7 @@ export function SearchCanvas({
 	onAddInput,
 	onAddHiddenInput,
 	addInputDisabledReason,
-	searchUnavailableReason,
+	formsAboveSearchNote,
 	onMoveInput,
 	hasSearchSurface,
 	hasSearchAction,
@@ -240,8 +238,8 @@ export function SearchCanvas({
 						id={unavailableReasonId}
 						className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted"
 					>
-						{searchUnavailableReason !== undefined
-							? searchUnavailableReason
+						{formsAboveSearchNote !== undefined
+							? formsAboveSearchNote
 							: workflowLine !== undefined
 								? workflowLine
 								: canEdit
@@ -341,30 +339,27 @@ export function SearchCanvas({
 								</div>
 							</div>
 							{canEdit && (
-								<SimpleTooltip content={searchUnavailableReason}>
-									<Button
-										type="button"
-										variant="ghost-action"
-										onClick={
-											searchEnabled
-												? () => onSelect({ type: "search-panel" })
-												: openSearchSettings
-										}
-										disabled={searchUnavailableReason !== undefined}
-										aria-describedby={
-											searchUnavailableReason === undefined
-												? undefined
-												: unavailableReasonId
-										}
-										aria-expanded={panelSelected}
-										data-case-search-panel
-										className="w-full shrink-0 @min-[34rem]:w-auto"
-									>
-										{searchEnabled
-											? "Edit Search screen"
-											: "Change when people continue"}
-									</Button>
-								</SimpleTooltip>
+								<Button
+									type="button"
+									variant="ghost-action"
+									onClick={
+										searchEnabled
+											? () => onSelect({ type: "search-panel" })
+											: openSearchSettings
+									}
+									aria-describedby={
+										formsAboveSearchNote === undefined
+											? undefined
+											: unavailableReasonId
+									}
+									aria-expanded={panelSelected}
+									data-case-search-panel
+									className="w-full shrink-0 @min-[34rem]:w-auto"
+								>
+									{searchEnabled
+										? "Edit Search screen"
+										: "Change when people continue"}
+								</Button>
 							)}
 						</div>
 

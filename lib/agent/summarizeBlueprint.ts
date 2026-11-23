@@ -443,7 +443,7 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 		config.excludedOwnerIds === undefined
 			? "advanced={none}"
 			: "advanced={excludedOwnerIds}";
-	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}`;
+	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}${config.searchOnClear ? ", clearing runs a new search on desktop Web Apps" : ""}`;
 	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}`;
 }
 

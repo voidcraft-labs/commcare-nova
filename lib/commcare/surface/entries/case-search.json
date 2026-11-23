@@ -606,7 +606,7 @@
 		"id": "case-search/search-on-a-put-in-root-module",
 		"area": "case-search",
 		"section": "Case search",
-		"item": "a search on a module whose `put_in_root` is true",
+		"item": "an ordinary search on a menu whose `put_in_root` is true",
 		"surfaceKeys": [
 			"schema:CaseSearch.auto_launch",
 			"schema:CaseSearch.default_search",
@@ -615,17 +615,48 @@
 			"parser:SessionDatumParser/query@default_search"
 		],
 		"valueClass": "on-a-put-in-root-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a search on a menu that shows its forms above. It is not inert: only the Search and Register actions test `put_in_root` (`details.py::DetailContributor.build_detail`); HQ's build still gives the module's form entries their claim `<post>` while the project space syncs cases on form entry (`entries.py::EntriesHelper.include_post_in_entry`) and writes the module's `<remote-request>` (`remote_requests.py::RemoteRequestsHelper.update_suite`), and Nova's gate refuses the shape (`FORMS_IN_MENU_ABOVE_WITH_SEARCH`)",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: An ordinary search belongs to the menu. Its case detail suppresses Search and Register. Its remote request and form-entry claim keep their own conditions.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "Keep the search settings and omit the detail actions.",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "case-search/inline-search-on-a-menu-showing-forms-above",
+		"area": "case-search",
+		"section": "Case search",
+		"item": "an effective inline search on a menu whose `put_in_root` is true",
+		"surfaceKeys": ["schema:CaseSearch.inline_search"],
+		"valueClass": "inline-on-a-put-in-root-module",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `inline search to display only forms`",
+		"subject": "search-setup",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`inline search to display only forms`"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1634,10 +1665,8 @@
 			"parser:SessionDatumParser/query@search_on_clear"
 		],
 		"valueClass": "search-on-clear-without-auto-select",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.searchOnClear`",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseSearchConfig.searchOnClear` requests fresh results after Clear in desktop Web Apps.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (≥992 px wide) / IGNORED",
@@ -1653,7 +1682,8 @@
 			"cell": "`search_on_clear: true`; CASE_SEARCH_ADVANCED",
 			"markers": []
 		},
-		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"],
+		"slotChanges": []
 	},
 	{
 		"id": "case-search/search-on-clear-with-the-case-list-s-auto-select-checked-whether",

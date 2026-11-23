@@ -314,6 +314,69 @@ it.each([false, true])(
 	},
 );
 
+it.each([false, true])(
+	"clears a completed search and refreshes its records only when enabled (%s)",
+	async (searchOnClear) => {
+		const doc = noMatchesDoc();
+		const mod = doc.modules[HOST_MODULE];
+		if (!mod?.caseSearchConfig || "searchActionEnabled" in mod.caseSearchConfig)
+			throw new Error("The worker journey needs an ordinary search.");
+		if (searchOnClear) mod.caseSearchConfig.searchOnClear = true;
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		let current = await startAppTest(scope, {
+			requestId: "start",
+			expectedBlueprintSeq: 0,
+			input: {
+				purpose: "Clear a completed search",
+				scenario: {
+					records: [
+						{ id: "first", caseType: "patient", name: "Maya" },
+						{ id: "second", caseType: "patient", name: "Nia" },
+					],
+				},
+			},
+		});
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `step-${current.step}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		await step({ kind: "menu", moduleUuid: HOST_MODULE });
+		const typed = await step({
+			kind: "search",
+			answers: [{ name: "patient_name", value: "Maya" }],
+		});
+		expect(typed).toMatchObject({
+			results: { rows: [expect.objectContaining({ case_name: "Maya" })] },
+		});
+		const cleared = await step({ kind: "clearSearch" });
+		expect(cleared).toMatchObject({ search: { answers: [] } });
+		if (searchOnClear) {
+			expect(cleared).toMatchObject({
+				screen: "results",
+				results: {
+					rows: expect.arrayContaining([
+						expect.objectContaining({ case_name: "Maya" }),
+						expect.objectContaining({ case_name: "Nia" }),
+					]),
+				},
+			});
+		} else {
+			expect(cleared).toMatchObject({ screen: "search" });
+			expect(cleared.results).toBeUndefined();
+		}
+	},
+);
+
 it("returns a Register from a list whose forms read the search to that search keyed to the new case", async () => {
 	/* The Patients list always offers Registration's form, Back to this list.
 	 * The return frame runs Patients' search again over the registered case

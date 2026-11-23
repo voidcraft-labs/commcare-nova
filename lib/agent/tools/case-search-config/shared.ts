@@ -69,6 +69,7 @@ export const ADVANCED_SLOT_NAMES = [
 	"excludedOwnerIds",
 	"searchWorkflow",
 	"formsReadSearch",
+	"searchOnClear",
 ] as const;
 
 /** The stored `caseSearchConfig` keys the advanced cluster owns. */
@@ -76,6 +77,7 @@ export const ADVANCED_CONFIG_KEYS = [
 	"excludedOwnerIds",
 	"workflow",
 	"formsReadSearch",
+	"searchOnClear",
 ] as const;
 
 /** Nova-only provenance; intentionally absent from both SA-authored clusters. */
@@ -290,6 +292,13 @@ export const setCaseSearchAdvancedBodySchema = z.strictObject({
 	searchWorkflow: searchWorkflowInputSchema.describe(
 		SEARCH_WORKFLOW_DESCRIPTION,
 	),
+	searchOnClear: z
+		.literal(true)
+		.nullable()
+		.optional()
+		.describe(
+			"Set true to search again when a worker clears Search on a desktop Web Apps screen. Smaller screens and Android keep manual search. Null turns it off. Omit to keep the current setting.",
+		),
 	formsReadSearch: formsReadSearchInputSchema.describe(
 		FORMS_READ_SEARCH_DESCRIPTION,
 	),

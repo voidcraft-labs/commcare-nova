@@ -315,6 +315,34 @@ describe("setCaseSearchAdvanced", () => {
 		}
 	});
 
+	it("changes Search after clearing and preserves it through an older tool call", async () => {
+		const h = makeCaseSearchFixture(makeCaseSearchDoc());
+		const settings = {
+			moduleUuid: MOD_A,
+			searchWorkflow: "searchFirst" as const,
+			excludedOwnerIds: null,
+			formsReadSearch: null,
+		};
+		await h.runTool(setCaseSearchAdvancedTool, {
+			...settings,
+			searchOnClear: true,
+		});
+		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toMatchObject({
+			searchOnClear: true,
+		});
+		await h.runTool(setCaseSearchAdvancedTool, settings);
+		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toMatchObject({
+			searchOnClear: true,
+		});
+		await h.runTool(setCaseSearchAdvancedTool, {
+			...settings,
+			searchOnClear: null,
+		});
+		expect(
+			h.currentDoc().modules[MOD_A]?.caseSearchConfig ?? {},
+		).not.toHaveProperty("searchOnClear");
+	});
+
 	it("turns Forms read the search on and off, keeping the workflow", async () => {
 		const base = makeCaseSearchDoc();
 		// Forms that read the search run in Web Apps alone.

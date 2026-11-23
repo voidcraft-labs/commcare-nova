@@ -441,6 +441,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		{
 			url: runtimeUrls(args.runtimeTarget).search,
 			default_search: wire.defaultSearch ? "true" : "false",
+			...(caseSearchConfig.searchOnClear && { search_on_clear: "true" }),
 			"storage-instance": storageInstance,
 			template: "case",
 		},

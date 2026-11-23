@@ -298,23 +298,44 @@ describe("Nova's zero-input row beside a list filter", () => {
 });
 
 describe("a search on a menu that shows its forms above", () => {
-	it("is a finding when it shows the list first, every boolean at its default", async () => {
+	it("brings in the ordinary search and its desktop clear behavior together", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, { searchInputs: [NOTES] }),
 			{
 				edit: (app) => {
 					(app.modules[0] as Record<string, unknown>).put_in_root = true;
 					Object.assign(searchConfig(app), {
-						auto_launch: false,
-						default_search: false,
+						auto_launch: true,
 						inline_search: false,
+						search_on_clear: true,
+					});
+				},
+			},
+		);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ searchOnClear: true });
+		expect(listOf(reading).searchInputs.map((input) => input.name)).toContain(
+			NOTES.name,
+		);
+	});
+
+	it("retains inline search as the precise HQ build refusal", async () => {
+		const reading = await readLists(
+			patients(COLUMNS, { searchInputs: [NOTES] }),
+			{
+				edit: (app) => {
+					(app.modules[0] as Record<string, unknown>).put_in_root = true;
+					Object.assign(searchConfig(app), {
+						auto_launch: true,
+						default_search: false,
+						inline_search: true,
 					});
 				},
 				firstPassOnly: true,
 			},
 		);
 		expect(codes(reading)).toContain(
-			"case-search/search-on-a-put-in-root-module",
+			"case-search/inline-search-on-a-menu-showing-forms-above",
 		);
 	});
 });

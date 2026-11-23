@@ -195,6 +195,7 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 			kind: z.literal("select"),
 			caseIds: z.array(z.string().min(1).max(255)).min(1).max(100),
 		}),
+		z.strictObject({ kind: z.literal("clearSearch") }),
 		z.strictObject({
 			kind: z.literal("search"),
 			answers: z

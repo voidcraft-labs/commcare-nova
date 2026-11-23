@@ -418,6 +418,10 @@ function moduleUses(
 		own.push(
 			slotUse("forms-read-search", owner, "caseSearchConfig.formsReadSearch"),
 		);
+	if (search?.searchOnClear && wanted("search-on-clear"))
+		own.push(
+			slotUse("search-on-clear", owner, "caseSearchConfig.searchOnClear"),
+		);
 	if (workflow === "listFirst" && wanted("list-first"))
 		own.push(slotUse("list-first", owner, "caseSearchConfig.workflow"));
 	if (

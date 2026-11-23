@@ -18,6 +18,7 @@ import {
 	caseListRegistrationReturnOf,
 	type FormIconRef,
 	type MediaAssetId,
+	moduleShowsFormsInMenuAbove,
 	moduleUuidOfForm,
 	type Platform,
 	type TranslationUnitId,
@@ -59,7 +60,9 @@ export function previewRegisterAction(
 	hostUuid: Uuid,
 	platform: Platform,
 ): PreviewRegisterAction | undefined {
-	const slot = doc.modules[hostUuid]?.caseListRegistrationForm;
+	const host = doc.modules[hostUuid];
+	if (host === undefined || moduleShowsFormsInMenuAbove(host)) return undefined;
+	const slot = host.caseListRegistrationForm;
 	if (slot === undefined) return undefined;
 	const form = doc.forms[slot.formUuid];
 	const formModuleUuid = moduleUuidOfForm(doc, slot.formUuid);

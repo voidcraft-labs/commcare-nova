@@ -365,3 +365,6 @@ Answer, section and page-turn observations reuse the evaluation that produced
 their exact next form screen. The normal language, route and action decoration
 still applies. A standalone observe, navigation, identity change or submission
 performs a fresh evaluation; no result is cached across actions or sessions.
+
+
+The records screen's `clearSearch` action clears every visible search answer and retires the previous result. A desktop Web Apps journey with `caseSearchConfig.searchOnClear` submits the cleared values through prompt validation. Android has no Clear action.

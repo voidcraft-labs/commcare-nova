@@ -202,6 +202,7 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/10-markdown-any-property-or-expression@android": model(
 		"link-column-raw-android",
 	),
+	"case-search/search-on-clear@android": model("desktop-search-on-clear"),
 	"case-search/required-test-text@android": model(
 		"search-field-checks-android",
 	),

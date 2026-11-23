@@ -68,16 +68,12 @@ export const WORKFLOW_CLAIMS = {
 			`${S}inline-search-true-with-auto-launch-false`,
 			"schema:CaseSearch.inline_search",
 		),
-		putInRoot: refuse(
+		putInRoot: take(
 			`${S}search-on-a-put-in-root-module`,
 			"schema:CaseSearch.auto_launch",
 		),
-		putInRootDefault: refuse(
-			`${S}search-on-a-put-in-root-module`,
-			"schema:CaseSearch.default_search",
-		),
-		putInRootInline: refuse(
-			`${S}search-on-a-put-in-root-module`,
+		inlinePutInRoot: refuse(
+			`${S}inline-search-on-a-menu-showing-forms-above`,
 			"schema:CaseSearch.inline_search",
 		),
 	}),
@@ -142,13 +138,9 @@ export function readSearchWorkflow(
 	const autoLaunch = config.peek("auto_launch") === true;
 	const defaultSearch = config.peek("default_search") === true;
 	const inline = config.peek("inline_search") === true;
-	if (module.json.peek("put_in_root") === true) {
-		// The finding stands whatever the three booleans hold: a list-first search holds each at
-		// its default, which no claim records. Each one used is claimed under it.
-		config.refuse("auto_launch", W.other.putInRoot);
-		config.refuse("default_search", W.other.putInRootDefault);
-		config.refuse("inline_search", W.other.putInRootInline);
-		ctx.accounting.finding(W.other.putInRoot, config.place);
+	const formsAbove = module.json.peek("put_in_root") === true;
+	if (formsAbove && inline && autoLaunch) {
+		config.refuse("inline_search", W.other.inlinePutInRoot);
 		return undefined;
 	}
 	let workflow: SearchWorkflow;
@@ -196,6 +188,11 @@ export function readSearchWorkflow(
 			name: "schema:CaseSearch.auto_launch",
 		});
 		return undefined;
+	}
+	if (formsAbove) {
+		if (config.used("auto_launch"))
+			config.takePart("auto_launch", "forms-in-menu-above", W.other.putInRoot);
+		else config.takeDefault("auto_launch", W.other.putInRoot);
 	}
 	return workflow;
 }

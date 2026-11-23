@@ -92,7 +92,6 @@ import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { menuAboveSearchSentence } from "@/lib/doc/userFacingErrors";
 import {
 	type CaseListConfig,
 	type CaseProperty,
@@ -993,12 +992,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	);
 
 	const ct = caseTypes.find((c) => c.name === caseType);
-	/* A menu that shows its forms in the menu above takes no Search, so the
-	 * Search panel's controls say why instead of adding one the gate would
-	 * refuse. */
-	const searchUnavailableReason =
+	const formsAboveSearchNote =
 		mod !== undefined && moduleShowsFormsInMenuAbove(mod)
-			? menuAboveSearchSentence(mod.name)
+			? "This menu shows its forms in the menu above. Its case list has no Search or Register button."
 			: undefined;
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
@@ -1950,7 +1946,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				openSearchCondition({ kind: "input", uuid, slot }),
 			onEditSearchButtonCondition: editSearchButtonCondition,
 			searchSettingsHasError: searchButtonConditionBroken,
-			searchUnavailableReason,
+			formsAboveSearchNote,
 			onHideColumn: hideColumnFromSurface,
 			onDeleteColumn: deleteColumn,
 			onRemoveInput: removeInput,
@@ -2134,7 +2130,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
-		searchUnavailableReason,
+		formsAboveSearchNote,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		searchConditionSurface,
@@ -2364,7 +2360,7 @@ export function CaseListWorkspaceCanvas() {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
-		searchUnavailableReason,
+		formsAboveSearchNote,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		resultsDependencyReview,
@@ -2445,11 +2441,9 @@ export function CaseListWorkspaceCanvas() {
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
 								onAddHiddenInput={addHiddenInput}
-								addInputDisabledReason={
-									searchUnavailableReason ?? addDisabledReason
-								}
-								{...(searchUnavailableReason !== undefined && {
-									searchUnavailableReason,
+								addInputDisabledReason={addDisabledReason}
+								{...(formsAboveSearchNote !== undefined && {
+									formsAboveSearchNote,
 								})}
 								hasSearchSurface={config.searchInputs.length > 0}
 								hasSearchAction={effectiveSearchConfig !== undefined}
@@ -2584,8 +2578,8 @@ interface ResolveInspectorArgs {
 	) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
-	/** Why this menu takes no Search (it shows its forms in the menu above). */
-	readonly searchUnavailableReason: string | undefined;
+	/** Where a worker can use the search when this menu shows its forms above. */
+	readonly formsAboveSearchNote: string | undefined;
 	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
 	readonly onDeleteColumn: (
 		surface: CaseDisplaySurface,
@@ -2776,8 +2770,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						hasSearchAction={effectiveSearch !== undefined}
 						onEditDisplayCondition={args.onEditSearchButtonCondition}
 						searchSettingsHasError={args.searchSettingsHasError}
-						{...(args.searchUnavailableReason !== undefined && {
-							searchUnavailableReason: args.searchUnavailableReason,
+						{...(args.formsAboveSearchNote !== undefined && {
+							formsAboveSearchNote: args.formsAboveSearchNote,
 						})}
 					/>
 				),

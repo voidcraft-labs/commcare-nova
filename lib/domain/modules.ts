@@ -2892,6 +2892,8 @@ export const ordinaryCaseSearchConfigSchema = z
 		 * (`forms-read-search`). `moduleFormsReadSearch` is the one reader.
 		 */
 		formsReadSearch: z.literal(true).optional(),
+		/** Clearing the search on a wide Web Apps screen requests its cleared answers. */
+		searchOnClear: z.literal(true).optional(),
 	})
 	.refine(
 		(config) =>
@@ -2939,7 +2941,8 @@ export function caseSearchConfigHasAuthoredSettings(
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
 		config.workflow !== undefined ||
-		config.formsReadSearch !== undefined
+		config.formsReadSearch !== undefined ||
+		config.searchOnClear !== undefined
 	);
 }
 
@@ -3000,7 +3003,8 @@ export function caseSearchConfigAfterFinalInputRemoval(
 	const hasSearchActionSetting =
 		action.searchButtonDisplayCondition !== undefined ||
 		action.workflow !== undefined ||
-		action.formsReadSearch !== undefined;
+		action.formsReadSearch !== undefined ||
+		action.searchOnClear !== undefined;
 	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };

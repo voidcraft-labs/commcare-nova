@@ -1736,6 +1736,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseSearchConfig.searchActionEnabled": "config",
 	"caseSearchConfig.workflow": "config",
 	"caseSearchConfig.formsReadSearch": "config",
+	"caseSearchConfig.searchOnClear": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",
 };

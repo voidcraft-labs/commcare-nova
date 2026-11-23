@@ -179,7 +179,7 @@ describe("a search's settings", () => {
 		]);
 	});
 
-	it("refuses `search_on_clear` beside the case list's own auto select, as HQ reads it, and by its own row otherwise", async () => {
+	it("keeps search on clear unless HQ sees the case list itself auto-select", async () => {
 		// HQ's `Module.is_auto_select` reads the short detail's `auto_select` whether or not the list
 		// is multi-select, and never `auto_select_case`.
 		const read = (
@@ -211,7 +211,8 @@ describe("a search's settings", () => {
 		const caseAuto = await read(true, (module) => {
 			module.auto_select_case = true;
 		});
-		expect(closedCodes(caseAuto)).toContain(own);
+		expect(closedCodes(caseAuto)).not.toContain(own);
+		expect(searchOf(caseAuto)).toMatchObject({ searchOnClear: true });
 		expect(closedCodes(caseAuto)).not.toContain(auto);
 		// HQ refuses it beside the list's auto select on a menu that offers no search too.
 		const inactive = await read(false, (module) => {

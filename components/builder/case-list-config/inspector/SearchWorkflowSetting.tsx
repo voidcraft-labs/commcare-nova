@@ -40,7 +40,18 @@ import {
 	searchWorkflowNoteFeature,
 } from "./searchWorkflowModel";
 
-type OfferKey = SearchWorkflow | "formsReadSearch";
+type OfferKey = SearchWorkflow | "formsReadSearch" | "searchOnClear";
+
+function searchOnClearMutations(moduleUuid: Uuid, on: boolean): Mutation[] {
+	return [
+		{
+			kind: "updateModule",
+			uuid: moduleUuid,
+			patch: {},
+			caseSearchConfigPatch: { searchOnClear: on ? true : null },
+		},
+	];
+}
 
 export function SearchWorkflowSetting({
 	moduleUuid,
@@ -59,6 +70,7 @@ export function SearchWorkflowSetting({
 	const legendId = useId();
 	const current = searchWorkflow(value);
 	const formsOn = value.formsReadSearch === true;
+	const searchOnClear = value.searchOnClear === true;
 
 	/* Each choice the declaration offers, and the switch, asks the gate
 	 * about its exact batch; a choice a platform can't run already has its
@@ -84,9 +96,13 @@ export function SearchWorkflowSetting({
 					moduleUuid,
 					!formsOn,
 				);
+			batches.searchOnClear = searchOnClearMutations(
+				moduleUuid,
+				!searchOnClear,
+			);
 			return batches;
 		},
-		[current, formsOn, moduleUuid, platforms],
+		[current, formsOn, moduleUuid, platforms, searchOnClear],
 	);
 	const gate = useOfferedBatchRefusals<OfferKey>(plan, canEdit);
 
@@ -166,6 +182,14 @@ export function SearchWorkflowSetting({
 			{noteFeature !== undefined && (
 				<PlatformNoteRow features={[noteFeature]} className="px-1" />
 			)}
+
+			<ToggleRow
+				label="Search again after clearing"
+				description="On a desktop Web Apps screen, clearing the search fields also requests fresh results."
+				checked={searchOnClear}
+				onChange={(on) => commitMany(searchOnClearMutations(moduleUuid, on))}
+				disabledReason={gate.searchOnClear}
+			/>
 
 			{formsReadSearchOffered(current) && (
 				<div data-forms-read-search={formsOn ? "true" : "false"}>

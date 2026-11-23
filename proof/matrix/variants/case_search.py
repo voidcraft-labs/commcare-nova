@@ -361,8 +361,15 @@ def search_on_display_only_menu(authoring, app_id):
         authoring,
         app_id,
         ("/modules/0/put_in_root", True),
+        ("/modules/0/search_config/auto_launch", True),
         ("/modules/0/search_config/properties", [_field("village", "Village")]),
     )
+
+
+
+def inline_search_on_display_only_menu(authoring, app_id):
+    search_on_display_only_menu(authoring, app_id)
+    _set_each(authoring, app_id, ("/modules/0/search_config/inline_search", True))
 
 
 # Search fields ------------------------------------------------------------------------------------------------------

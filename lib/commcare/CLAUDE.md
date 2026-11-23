@@ -2584,3 +2584,6 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+
+A menu with `put_in_root` keeps its ordinary remote search and the independently gated form-entry claim. Both short detail actions are withheld as in HQ’s `details.py`. Effective inline search on the same menu is a build refusal. The search’s `search_on_clear` flag round-trips only without HQ’s short-list auto-select. Publishing requires advanced case search for this flag.

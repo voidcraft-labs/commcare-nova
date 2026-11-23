@@ -380,13 +380,6 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 /** The sentence of a target or an entry point whose frame would open
  *  through the first menu with the case every form listed there from a menu
  *  above opens. The offering sites show it beside the disabled choice. */
-/** Why a menu that shows its forms in the menu above takes no Search, in the
- *  builder's words: the `search` arm of `FORMS_IN_MENU_ABOVE_WITH_SEARCH`,
- *  which the Search panel's controls show while they are disabled. */
-export function menuAboveSearchSentence(moduleName: string): string {
-	return `${q(moduleName)} shows its forms in the menu above, and CommCare offers no Search on the case list of such a menu, so a worker could never open its search. You can remove the search from ${q(moduleName)}, or give it its own screen again.`;
-}
-
 /** Why the form an `always` case list registration names is no registration
  *  form the host's list can offer, by the finding's reason. */
 function alwaysNotRegistrationSentence(e: ValidationError): string {
@@ -1075,9 +1068,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 	},
 	FORMS_IN_MENU_ABOVE_WITH_SEARCH: (e) =>
-		e.details?.reason === "forms-read-search"
-			? `${q(modName(e))} shows its forms in the menu above and has its forms read the search, and CommCare HQ can't build a menu that does both. You can turn off Forms read the search, or give ${q(modName(e))} its own screen again.`
-			: menuAboveSearchSentence(modName(e)),
+		`${q(modName(e))} shows its forms in the menu above and has its forms read the search, and CommCare HQ can't build a menu that does both. You can turn off Forms read the search, or give ${q(modName(e))} its own screen again.`,
 	HIDDEN_MENU_NOT_A_DESTINATION: (e) => {
 		const arm = e.details?.arm;
 		const module =

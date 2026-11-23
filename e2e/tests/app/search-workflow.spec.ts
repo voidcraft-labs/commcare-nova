@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
+import { buildUrl } from "@/lib/routing/location";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { pressTrailCrumb } from "../../lib/breadcrumbTrail";
 import { openBuilder } from "../../lib/pageLoads";
+import { removableRoutes } from "../../lib/routes";
 import { SEARCH_STANDING_SEED } from "../../lib/searchStandingSeed";
 
 /**
@@ -480,4 +483,122 @@ test("a list lets its Search action's search, and a Search screen asked for agai
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		await expectDefaultSearch();
 	});
+});
+
+test("clearing a completed desktop search requests all matches and keeps the cleared answers on Back", {
+	tag: "@seed:search-standing",
+}, async ({ scenario, page }) => {
+	const { searchStanding } = seedFor(scenario, "search-standing");
+	const { clinic, finding, searched, other, prompt } = SEARCH_STANDING_SEED;
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const editor = await openWorkflowSetting(
+		page,
+		buildUrl(searchStanding.route, {
+			kind: "search-config",
+			moduleUuid: finding.moduleUuid,
+		}),
+	);
+	const saved = page.waitForResponse(
+		(response) =>
+			response.request().method() === "PUT" &&
+			new URL(response.url()).pathname ===
+				`/api/apps/${searchStanding.appId}` &&
+			(response.request().postData() ?? "").includes('"searchOnClear":true'),
+	);
+	await editor.setting
+		.getByRole("switch", { name: /^Search again after clearing/ })
+		.click();
+	expect((await saved).ok()).toBe(true);
+	await openBuilder(page, searchStanding.route);
+	const main = page.locator("main");
+	const menuItem = (name: string) =>
+		main.getByRole("button", { name: new RegExp(`^${name}\\b`) });
+	await menuItem(clinic.name).click();
+	await menuItem(finding.name).click();
+	const rows = main
+		.getByRole("list", { name: "Cases", exact: true })
+		.getByRole("listitem");
+	await expect(rows).toHaveCount(2);
+	const search = main.getByRole("search", { name: "Search" });
+	const answer = search.getByRole("textbox", { name: prompt.label });
+	await answer.fill(searched.answer);
+	await search
+		.getByRole("button", { name: "Search All Cases", exact: true })
+		.click();
+	await expect(rows).toHaveCount(1);
+	await expect(rows.first()).toContainText(searched.caseName);
+	await main.getByRole("button", { name: "Clear search" }).click();
+	await expect(answer).toHaveValue("");
+	await expect(rows).toHaveCount(2);
+	await expect(rows.filter({ hasText: other.caseName })).toHaveCount(1);
+	const manifest = JSON.parse(
+		readFileSync(".next/server/server-reference-manifest.json", "utf8"),
+	) as {
+		node: Record<string, { filename: string; exportedName: string }>;
+	};
+	const loadCases = new Set(
+		Object.entries(manifest.node)
+			.filter(
+				([, action]) =>
+					action.filename === "lib/preview/engine/caseDataBinding.ts" &&
+					action.exportedName === "loadCasesAction",
+			)
+			.map(([id]) => id),
+	);
+	expect(loadCases.size).toBeGreaterThan(0);
+	// Return an actual older query after Clear, including when the worker has
+	// already left the list. The response must never reopen its results or errors.
+	for (const leave of [false, true]) {
+		const requests = removableRoutes(page);
+		const release = Promise.withResolvers<void>();
+		let olderReady = false;
+		let olderDelivered = false;
+		await requests.route("**/build/**", async (route) => {
+			const request = route.request();
+			const actionId = request.headers()["next-action"];
+			if (!actionId || !loadCases.has(actionId)) return route.continue();
+			const args: unknown = request.postDataJSON();
+			const query: unknown = Array.isArray(args) ? args[0] : undefined;
+			if (
+				typeof query !== "object" ||
+				query === null ||
+				!("moduleUuid" in query) ||
+				query.moduleUuid !== finding.moduleUuid ||
+				!("inputValues" in query)
+			)
+				return route.continue();
+			const inputs = query.inputValues as Record<string, string> | undefined;
+			if (inputs?.[prompt.name] !== other.answer) return route.continue();
+			const response = await route.fetch();
+			olderReady = true;
+			await release.promise;
+			await route.fulfill({ response });
+			olderDelivered = true;
+		});
+		try {
+			await answer.fill(other.answer);
+			await search
+				.getByRole("button", { name: "Search All Cases", exact: true })
+				.click();
+			await expect.poll(() => olderReady).toBe(true);
+			await main.getByRole("button", { name: "Clear search" }).click();
+			if (leave) await page.goBack();
+			release.resolve();
+			await expect.poll(() => olderDelivered).toBe(true);
+			if (leave) {
+				await expect(menuItem(finding.name)).toBeVisible();
+				await page.goForward();
+			}
+			await expect(answer).toHaveValue("");
+			await expect(rows).toHaveCount(2);
+		} finally {
+			release.resolve();
+			await requests.removeAll();
+		}
+	}
+	await page.goBack();
+	await expect(menuItem(finding.name)).toBeVisible();
+	await page.goForward();
+	await expect(rows).toHaveCount(2);
+	await expect(answer).toHaveValue("");
 });

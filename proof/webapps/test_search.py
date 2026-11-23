@@ -322,3 +322,34 @@ def test_web_apps_forces_the_sidebars_search_and_runs_the_default_search_again_a
         if request["queryData"] and request not in executed and request["selections"] == ["2"]
     ]
     assert checked and not any(request["searched"] for request in checked), requests
+
+def test_clear_search_requests_new_results_only_from_a_desktop_query(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    with webapps_hq.project(webapps_documents[DEFAULT_SEARCH]) as project:
+        with project.released(formplayer_runner) as release:
+            for width in (991, 992):
+                small = steps.open_sidebar() if width < 992 else []
+                run = Session(release, editor_driver).run(
+                    [
+                        *TO_RECENT,
+                        *small,
+                        *steps.type_prompt(0, TYPED),
+                        *steps.run_search(),
+                        *small,
+                        *steps.clear_prompts(),
+                        steps.SCREEN,
+                    ],
+                    viewport={"width": width, "height": 760},
+                )
+                searched = [request for request in _menu_requests(run) if request["searched"]]
+                evidence(f"clear-search-{width}", {"requests": searched, "screen": run.screens[-1]})
+                # One default search as the menu opens, one explicit submission with the named patient,
+                # and a separate cleared request only on the wide screen.
+                assert len(searched) == (3 if width == 992 else 2), searched
+                sent = next(entry for entry in searched[1]["queryData"].values() if entry.get("execute"))
+                assert TYPED in sent["inputs"].values(), sent
+                if width == 992:
+                    cleared = next(entry for entry in searched[2]["queryData"].values() if entry.get("execute"))
+                    assert not any((cleared.get("inputs") or {}).values()), cleared
+                assert not run.page_errors, run.page_errors

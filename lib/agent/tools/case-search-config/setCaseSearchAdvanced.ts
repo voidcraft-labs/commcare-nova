@@ -108,6 +108,11 @@ export const setCaseSearchAdvancedTool = {
 			const excludedOwnerIds = input.excludedOwnerIds ?? undefined;
 			const workflow = storedSearchWorkflow(input.searchWorkflow);
 			const formsReadSearch = input.formsReadSearch === true;
+			const searchOnClear =
+				input.searchOnClear === undefined
+					? isOrdinaryCaseSearchConfig(existing) &&
+						existing.searchOnClear === true
+					: input.searchOnClear === true;
 			const clearingOwnerOnly =
 				existing !== undefined &&
 				"searchActionEnabled" in existing &&
@@ -124,7 +129,10 @@ export const setCaseSearchAdvancedTool = {
 			// call keeps its owner rule or clears it in the same breath: clearing
 			// leaves no config at all, so a workflow or formsReadSearch riding
 			// along would be dropped while the result still named it as set.
-			if (ownerOnlyModule && (workflow !== undefined || formsReadSearch)) {
+			if (
+				ownerOnlyModule &&
+				(workflow !== undefined || formsReadSearch || searchOnClear)
+			) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
@@ -141,6 +149,7 @@ export const setCaseSearchAdvancedTool = {
 							...(excludedOwnerIds !== undefined && { excludedOwnerIds }),
 							...(workflow !== undefined && { workflow }),
 							...(formsReadSearch && { formsReadSearch: true as const }),
+							...(searchOnClear && { searchOnClear: true as const }),
 						};
 			const nextConfig = clearingOwnerOnly
 				? undefined
@@ -185,7 +194,7 @@ export const setCaseSearchAdvancedTool = {
 			// Every slot the call stated with a value; `searchWorkflow` is
 			// always stated.
 			const advancedSlotsSet = ADVANCED_SLOT_NAMES.filter(
-				(slot) => input[slot] !== null,
+				(slot) => input[slot] !== null && input[slot] !== undefined,
 			);
 
 			return {

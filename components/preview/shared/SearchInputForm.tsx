@@ -41,9 +41,11 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerSearch from "@iconify-icons/tabler/search";
 import {
 	type ReactNode,
+	type Ref,
 	useCallback,
 	useEffect,
 	useId,
+	useImperativeHandle,
 	useMemo,
 	useRef,
 	useState,
@@ -135,7 +137,12 @@ function loadSearchInputValidation(): Promise<SearchInputValidationModule> {
 
 // ── Public surface ──────────────────────────────────────────────────
 
+export interface SearchFormClear {
+	clear(alsoSearch: boolean): void;
+}
+
 interface SearchInputFormProps {
+	readonly clearRef?: Ref<SearchFormClear>;
 	/** Accessible name for the search landmark. The running case list passes
 	 * the same authored title its visible heading shows. */
 	readonly landmarkLabel?: string;
@@ -205,6 +212,7 @@ const DEBOUNCE_MS = 300;
  * query.
  */
 export function SearchInputForm({
+	clearRef,
 	landmarkLabel = "Search",
 	scopeKey = "",
 	searchInputs,
@@ -548,6 +556,34 @@ export function SearchInputForm({
 			return updated;
 		});
 	};
+	const submit = async (candidate: SearchInputValues) => {
+		if (onSubmit === undefined || awaitingWorker) return;
+		setValidating(true);
+		// Only the newest validation can retire the busy state.
+		const judged = judgeSubmission(candidate);
+		const request = validationRequestRef.current;
+		try {
+			const errors = await judged;
+			if (request === validationRequestRef.current && errors?.size === 0)
+				onSubmit(candidate);
+		} finally {
+			if (request === validationRequestRef.current) setValidating(false);
+		}
+	};
+	useImperativeHandle(clearRef, () => ({
+		clear(alsoSearch) {
+			validationRequestRef.current += 1;
+			const cleared: SearchInputValues = new Map();
+			lastEmittedRef.current = cleared;
+			setDraft(cleared);
+			lastValidatedDraftRef.current = undefined;
+			setValidationState({ scopeKey, attempted: false, errors: new Map() });
+			setCheckRefusal(undefined);
+			setValidationFailure(undefined);
+			setValidating(false);
+			if (alsoSearch) void submit(cleared);
+		},
+	}));
 	const submitAvailable = onSubmit !== undefined;
 
 	// Hidden inputs are system-generated values the worker never sees;
@@ -582,13 +618,7 @@ export function SearchInputForm({
 				onSubmit={async (event) => {
 					event.preventDefault();
 					if (!submitAvailable || validating || awaitingWorker) return;
-					setValidating(true);
-					try {
-						const errors = await judgeSubmission(draft);
-						if (errors?.size === 0) onSubmit?.(draft);
-					} finally {
-						setValidating(false);
-					}
+					await submit(draft);
 				}}
 			>
 				<div

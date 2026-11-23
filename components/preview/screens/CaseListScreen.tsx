@@ -80,7 +80,10 @@ import {
 	RestoreScopeNote,
 	restoreScopeEmptyCopy,
 } from "@/components/preview/shared/RestoreScopeNote";
-import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
+import {
+	type SearchFormClear,
+	SearchInputForm,
+} from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { useImageReference } from "@/components/preview/shared/useImageReference";
 import { Button } from "@/components/shadcn/button";
@@ -117,6 +120,7 @@ import {
 	makeTranslationUnitId,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
+	moduleShowsFormsInMenuAbove,
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
@@ -266,6 +270,7 @@ import {
 	previewSearchClearOffered,
 	previewSearchReopened,
 	previewSearchRunFollows,
+	searchAfterClear,
 } from "@/lib/preview/searchStanding";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import {
@@ -726,6 +731,9 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * Preview run starts the menu's search over (its answers and hidden
 	 * values were another session's), as a device's new session holds no
 	 * query. */
+	const currentSearchScreen = useRef(current);
+	currentSearchScreen.current = current;
+	const clearFormRef = useRef<SearchFormClear>(null);
 	const searchRun = useSearchInputRunState({
 		scopeKey: JSON.stringify([
 			scopeEpoch,
@@ -760,7 +768,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * assigned nowhere) is Core's refusal of the list whose action it gates,
 	 * held as the screen's state (`readPreviewScreen`). */
 	const searchActionRead = readPreviewScreen((): boolean | "undecided" => {
-		if (searchConfig === undefined) return false;
+		if (searchConfig === undefined || (mod && moduleShowsFormsInMenuAbove(mod)))
+			return false;
 		if (searchButtonCondition === undefined) return true;
 		/* A session still waiting for its worker decides nothing
 		 * (`awaitsPreviewIdentity`): the condition is undecided until the
@@ -845,6 +854,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * (`automatic`) gives none. */
 	const submitSearch = useCallback(
 		(next: ReadonlyMap<string, string>, automatic = false) => {
+			if (!currentSearchScreen.current) return;
 			searchRun.submit(next);
 			if (moduleUuid === undefined) return;
 			const given = Object.fromEntries(next);
@@ -860,7 +870,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					: actionSearch(answers, submission, automatic)
 			) as PreviewSubmittedSearch;
 			heldSearchRef.current = submittedSearchKey(search);
-			if (formsReadSearch) awaitingSearchFetchRef.current = true;
+			sawSearchFetchRef.current = false;
+			awaitingSearchFetchRef.current = formsReadSearch;
 			setPreviewSearchState(moduleUuid, search);
 		},
 		[
@@ -896,8 +907,19 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		searchRun.clear();
 		heldSearchRef.current = undefined;
 		if (moduleUuid !== undefined)
-			setPreviewSearchState(moduleUuid, previewSearchAfterClear(searchState));
-	}, [searchRun, moduleUuid, searchState, setPreviewSearchState]);
+			setPreviewSearchState(
+				moduleUuid,
+				searchConfig?.searchOnClear
+					? manualSearch()
+					: previewSearchAfterClear(searchState),
+			);
+	}, [
+		searchRun,
+		moduleUuid,
+		searchState,
+		searchConfig?.searchOnClear,
+		setPreviewSearchState,
+	]);
 	/* Search again from Results opens the Search screen, including where
 	 * the menu ran its default search as it opened. */
 	const searchAgain = useCallback(() => {
@@ -1240,7 +1262,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	/* A claim is a case row the store holds, so the restore scope follows
 	 * what the worker owns and a claim never retires the choice that made
 	 * it: the device's next read holds the claimed case. */
-	const selectionScopeKey = `${stateScopeKey}\u0000${restoreScopeKey}`;
+	const standingSubmission = submittedSearchOf(searchState)?.submission ?? "";
+	const selectionScopeKey = `${standingSubmission}\u0000${stateScopeKey}\u0000${restoreScopeKey}`;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -1531,7 +1554,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		/* What the worker owns is the list's identity; a claim re-reads the
 		 * list through the case data revision and keeps the settled rows on
 		 * screen. */
-		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
+		requestScopeKey: selectionScopeKey,
 		search: readsSearchResults,
 		...(csqlRuntime !== undefined && { csqlRuntime }),
 		chosenCaseIds: stepSession.chosenCaseIds,
@@ -1704,6 +1727,13 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * interchangeable when they are not. */
 	const clearSearch = () => {
 		resetSearch();
+		const alsoSearch = searchAfterClear(
+			searchConfig?.searchOnClear === true,
+			withNavigationWidth(device),
+		);
+		if (clearFormRef.current) clearFormRef.current.clear(alsoSearch);
+		else if (alsoSearch && !hasSearchInputs)
+			submitSearch(EMPTY_SEARCH_INPUT_VALUES);
 		focusFirstSearchControl();
 	};
 
@@ -2849,11 +2879,18 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * with no visible field holds only its Search button. */
 	const searchPane =
 		step === "search" ||
-		(hasSearchInputs && searchActionIsRelevant && step === "browse") ? (
+		(hasSearchInputs &&
+			searchActionIsRelevant &&
+			(step === "browse" ||
+				(step === "results" &&
+					searchAfterClear(
+						searchConfig?.searchOnClear === true,
+						withNavigationWidth(device),
+					)))) ? (
 			<div
 				ref={searchPaneRef}
 				data-case-list-step={step}
-				className={`${split && step === "browse" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
+				className={`${split && step !== "search" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
 			>
 				<div>
 					{/* A search with no title draws no heading; the row stays only
@@ -2933,7 +2970,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					searchRun.refusal === undefined &&
 					searchRun.pending !== true && (
 						<SearchInputForm
-							key={`${scopeEpoch}:${moduleUuid}`}
+							key={`${scopeEpoch}:${previewSessionId}:${moduleUuid}:${current}`}
+							clearRef={clearFormRef}
 							landmarkLabel={title ?? undefined}
 							scopeKey={moduleUuid}
 							searchInputs={config?.searchInputs ?? []}

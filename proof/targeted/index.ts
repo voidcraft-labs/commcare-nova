@@ -140,6 +140,7 @@ import {
 	searchDefaultFilterName,
 	searchHqCompile,
 	searchRelatedLookups,
+	searchWithFormsAbove,
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
@@ -191,6 +192,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	loadTimeValues,
 	sharedPropertySort,
 	searchDefaultFilterName,
+	searchWithFormsAbove,
 	syncOnFormEntry,
 	hqSideState,
 	parentFormSelectionFrame,

@@ -514,6 +514,7 @@ export interface CaseSearchConfig<XPath = string> {
 	properties: CaseSearchProperty<XPath>[];
 	auto_launch: boolean;
 	default_search: boolean;
+	search_on_clear?: true;
 	inline_search: boolean;
 	include_all_related_cases: boolean;
 	search_button_display_condition?: XPath;

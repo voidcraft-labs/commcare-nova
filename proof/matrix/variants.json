@@ -26289,15 +26289,17 @@
 		}
 	},
 	{
+		"id": "hq-menus/inline-search-on-display-only-menu",
+		"base": "hq-menus",
+		"entry": "case-search/inline-search-on-a-menu-showing-forms-above",
+		"standing": "fix-in-hq",
+		"place": { "kind": "search", "menu": 0, "name": "Household registration" },
+		"change": { "op": "named", "name": "inline_search_on_display_only_menu" }
+	},
+	{
 		"id": "hq-menus/search-on-display-only-menu",
 		"base": "hq-menus",
 		"entry": "case-search/search-on-a-put-in-root-module",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Household registration"
-		},
 		"change": {
 			"op": "named",
 			"name": "search_on_display_only_menu"
@@ -37248,12 +37250,6 @@
 		"id": "hq-search/search-on-clear",
 		"base": "hq-search",
 		"entry": "case-search/search-on-clear",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/search_on_clear",

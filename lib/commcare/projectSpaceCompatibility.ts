@@ -155,9 +155,14 @@ export interface HqProjectSpaceCompatibilityProbePlan {
  * filter for every project space.
  */
 export function advancedCaseSearchReasons(module: Module): string[] {
-	if (effectiveCaseSearchConfig(module) === undefined) return [];
+	const config = effectiveCaseSearchConfig(module);
+	if (config === undefined) return [];
 	const inputs = module.caseListConfig?.searchInputs ?? [];
 	const reasons: string[] = [];
+	if (config.searchOnClear)
+		reasons.push(
+			"Clearing Search requests fresh results on a desktop Web Apps screen.",
+		);
 	if (inputs.some((input) => searchInputDefault(input) !== undefined)) {
 		reasons.push("A Search field starts with a suggested value.");
 	}

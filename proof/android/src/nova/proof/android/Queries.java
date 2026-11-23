@@ -112,6 +112,16 @@ final class Queries {
         }
         query.put("prompts", shown);
         query.put("items", items(activity));
+        if (Forms.views) {
+            // The query content as Android inflated it. Retain its own submit button separately so the
+            // witness can distinguish a genuinely available search from an empty or unrelated screen.
+            View content = ((Activity)activity).findViewById(android.R.id.content);
+            View submit = ((Activity)activity).findViewById(R.id.request_button);
+            query.put("controls", Views.describe(content));
+            if (submit != null) {
+                query.put("submitButton", Views.describe(submit));
+            }
+        }
         Multimap<String, String> params = manager.getRawQueryParams(false);
         query.put("RemoteQuerySessionManager.getRawQueryParams", params(params));
 

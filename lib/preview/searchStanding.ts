@@ -61,6 +61,7 @@ import type {
 	PreviewSearchAnswers,
 	PreviewSearchState,
 } from "@/lib/session/types";
+import type { PreviewDevice } from "./engine/previewDevice";
 
 /**
  * A screen of the session, as the searches it keeps see it: the menu it is
@@ -411,4 +412,16 @@ export function previewSearchClearOffered(args: {
 	readonly typed: boolean;
 }): boolean {
 	return args.platformClears && (args.searched || args.typed);
+}
+
+/** Web Apps’ query screen searches after Clear only on the desktop layout. */
+export function searchAfterClear(
+	enabled: boolean,
+	device: Pick<PreviewDevice, "platform" | "windowWidth">,
+): boolean {
+	return (
+		enabled &&
+		device.platform === "web-apps" &&
+		(device.windowWidth ?? 0) >= 992
+	);
 }

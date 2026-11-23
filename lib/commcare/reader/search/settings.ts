@@ -164,7 +164,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}custom-sort-properties-property-name-sort-type-exact-date`,
 		"schema:CaseSearch.custom_sort_properties",
 	),
-	searchOnClear: refuse(
+	searchOnClear: take(
 		`${S}search-on-clear`,
 		"schema:CaseSearch.search_on_clear",
 	),
@@ -1078,11 +1078,12 @@ export function readSearchSettings(
 		}
 	if (!readRegistry(ctx, cursor, claimed)) ok = false;
 	if (cursor.used("search_on_clear")) {
-		cursor.refuse(
-			"search_on_clear",
-			hqAutoSelects(module) ? T.searchOnClearAuto : T.searchOnClear,
-		);
-		ok = false;
+		if (hqAutoSelects(module)) {
+			cursor.refuse("search_on_clear", T.searchOnClearAuto);
+			ok = false;
+		} else if (cursor.take("search_on_clear", T.searchOnClear, Boolean).value) {
+			config.searchOnClear = true;
+		}
 	}
 	cursor.derived("include_all_related_cases", T.includeDerived);
 	claimUndeclaredSearchKeys(cursor);

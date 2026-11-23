@@ -172,3 +172,33 @@ def test_a_tile_cell_takes_only_middle_vertical_alignment(android_documents, hq)
             "Riverside": "center_vertical",
             "open": "top",
         }, (name, gravities)
+
+def _visible_query_buttons(view):
+    if view.get("visibility") in {"gone", "invisible"}:
+        return
+    if view["class"].endswith("Button"):
+        yield view
+    for child in view.get("children", ()):
+        yield from _visible_query_buttons(child)
+
+
+def test_search_on_clear_keeps_androids_search_button_without_adding_a_clear_action(android_documents, hq, evidence):
+    """Install each export. Search on the Android menu opens its query, with its sole visible Search button."""
+    from proof.android import observe
+    from proof.observe.record import Blobs
+
+    document = android_documents["targeted-search-workflow"]
+    with _archives(document, _restored(document)) as (served, archives):
+        for label, archive in archives.items():
+            blobs = Blobs()
+            result = observe.app(served, blobs, label=label, archive=archive, views=True)
+            walked = blobs.get_json(result["answer"])["walks"]
+            # Recent patients enables search-on-clear. Nearby patients keeps it off.
+            for menu, prompt in (("m1", "area"), ("m2", "patient_name")):
+                assert walked[menu]["steps"][-1]["screen"] == LIST, (label, menu)
+                pressing_search = walked[f"{menu}/@action:0"]["steps"]
+                query = next(step["query"] for step in pressing_search if step["screen"] == "QueryRequestActivity")
+                assert query["opened"] and prompt in query["prompts"], (label, menu, query)
+                buttons = list(_visible_query_buttons(query["controls"]))
+                evidence(f"{label}-{menu}-query-buttons", buttons)
+                assert query["submitButton"]["text"].strip() and buttons == [query["submitButton"]], (label, menu, buttons)

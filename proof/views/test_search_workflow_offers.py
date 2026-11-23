@@ -115,3 +115,29 @@ def test_hqs_case_list_page_draws_no_workflow_selector_for_an_app_that_declares_
             counted = _read(editor_driver, unit, app_id, module, stored)
         # No selector, so the save posts the list first the module holds; the settings form says the page loaded.
         assert (counted["selector"], counted["always"]) == (0, 1), counted
+
+
+def test_forms_above_keep_the_remote_search_and_only_the_enabled_form_entry_claim(
+    hq, core_runner, view_documents, published, evidence
+):
+    from lxml import etree
+
+    document = view_documents["targeted-search-forms-above"]
+    minimum = document.exports["minimum"].configuration.hq()
+    observed = {}
+    for sync in (False, True):
+        configured = dataclasses.replace(minimum, sync_cases_on_form_entry=sync)
+        with published(document, "minimum", core_runner, configuration=configured) as (unit, app_id, _):
+            app = operations.held_app(unit, app_id)
+            assert app.get_module(0).put_in_root
+            suite = etree.fromstring(app.create_suite())
+            remote = suite.xpath("./remote-request")
+            assert len(remote) == 1 and remote[0].find("session/query") is not None
+            detail = suite.xpath("./detail[@id='m0_case_short']")
+            entry = suite.xpath("./entry[command/@id='m0-f0']")
+            assert len(detail) == len(entry) == 1
+            actions = detail[0].findall("action")
+            posts = entry[0].findall("post")
+            observed[str(sync)] = {"detailActions": len(actions), "formPosts": len(posts)}
+            assert not actions and len(posts) == int(sync), observed
+    evidence("forms-above-search-claim", observed)

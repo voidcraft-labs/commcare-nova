@@ -352,6 +352,7 @@ function caseSearchConfigPatchSchemaFor(
 			/** `null` is search first. */
 			workflow: configSchema.shape.workflow.nullable(),
 			formsReadSearch: configSchema.shape.formsReadSearch.nullable(),
+			searchOnClear: configSchema.shape.searchOnClear.nullable(),
 		})
 		.partial();
 }

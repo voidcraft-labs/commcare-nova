@@ -4,6 +4,7 @@ import {
 	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
+	moduleShowsFormsInMenuAbove,
 	type Uuid,
 } from "@/lib/domain";
 import type { LanguageTag } from "@/lib/domain/localization";
@@ -44,6 +45,8 @@ export interface SearchEvaluationInput {
 	submitted?: readonly { name: string; value: string }[];
 	/** The current screen's draft and validation survive separate tool calls. */
 	entry?: {
+		/** The worker cleared Search and remains on its manual screen until a successful submission. */
+		cleared?: true;
 		draft: readonly { name: string; value: string }[];
 		errors: Readonly<Record<string, string>>;
 	};
@@ -97,6 +100,7 @@ async function searchSnapshot(
 	const actionCondition = search?.searchButtonDisplayCondition;
 	const relevant =
 		search !== undefined &&
+		!moduleShowsFormsInMenuAbove(mod) &&
 		(actionCondition === undefined ||
 			readingSurfaceNow("list", () =>
 				evaluatePreviewSearchPredicate(
@@ -213,6 +217,7 @@ async function searchSnapshot(
 	 * app: where it is Results with nothing submitted, the default search
 	 * runs as the menu opens (skip to results). */
 	if (
+		input.entry?.cleared !== true &&
 		!run.hasSubmitted &&
 		caseListStep({
 			workflow,

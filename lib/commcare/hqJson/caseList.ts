@@ -933,6 +933,7 @@ function buildSearchConfigDocument(
 		wire === undefined ? undefined : searchInputInstanceId(wire);
 
 	if (caseSearchConfig !== undefined) {
+		if (caseSearchConfig.searchOnClear === true) config.search_on_clear = true;
 		// Use Nova's shared friendly default so a fresh search never inherits
 		// CCHQ's blank or case-type-derived chrome on either wire path. A
 		// search with no title keeps the shell's blank in every language, the

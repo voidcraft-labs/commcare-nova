@@ -2,6 +2,7 @@ import type { AppTestScope } from "@/lib/db/appTests";
 import {
 	assignedLocationUuids,
 	caseSelectionCardinality,
+	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
 	orderedColumns,
 	orderedOrganizationLevels,
@@ -50,6 +51,7 @@ import {
 	formEntryClaimChoices,
 	previewCaseChoiceOf,
 } from "../searchClaims";
+import { searchAfterClear } from "../searchStanding";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import {
@@ -354,6 +356,7 @@ async function observeScreen(
 						workflow: search.workflow,
 						formsReadSearch: search.formsReadSearch,
 						searchRelevant: search.relevant,
+						searchReopened: read.state.screen.searchEntry?.cleared === true,
 						hasSubmitted: search.hasSubmitted,
 						submittedFoundNothing: read.result?.kind === "empty",
 						rules: context.rules,
@@ -1140,6 +1143,42 @@ async function advanceAppTestOnScreen(
 					values: Object.fromEntries(caseRowToFormPreload(row)),
 				})),
 			};
+			break;
+		}
+		case "clearSearch": {
+			if (screen.kind !== "records" || !context.rules.searchClear)
+				throw new AppTestActionError("This screen has no Clear button.");
+			const current = await prepareAppTestRecords(context, scope, state);
+			if (
+				!current.search.relevant ||
+				(!current.search.hasSubmitted && current.search.draft.length === 0)
+			)
+				throw new AppTestActionError("This screen has no search to clear.");
+			const module = context.doc.modules[screen.moduleUuid];
+			const alsoSearch =
+				module !== undefined &&
+				searchAfterClear(
+					effectiveCaseSearchConfig(module)?.searchOnClear === true,
+					context.device,
+				);
+			const cleared = {
+				...state,
+				screen: {
+					...screen,
+					searchEntry: { cleared: true as const, draft: [], errors: {} },
+					searchAnswers: undefined,
+					registeredCaseId: undefined,
+					offset: 0,
+				},
+			};
+			const read = await appTestRecords(
+				context,
+				scope,
+				cleared,
+				alsoSearch ? [] : undefined,
+			);
+			next = read.state;
+			extra = { completed: true };
 			break;
 		}
 		case "search": {

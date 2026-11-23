@@ -269,12 +269,9 @@ describe("a menu that shows its forms in the menu above", () => {
 		expect(verdictOf(toForm, [above(CLIENTS)]).ok).toBe(true);
 	});
 
-	it("refuses a search and admits the owner-only availability", () => {
+	it("admits an ordinary search and owner-only availability", () => {
 		const searching = docOf({ clientsModule: { caseSearchConfig: {} } });
-		const found = refusals(searching, [above(CLIENTS)]);
-		expect(
-			found.map((finding) => [finding.code, finding.details?.reason]),
-		).toEqual([["FORMS_IN_MENU_ABOVE_WITH_SEARCH", "search"]]);
+		expect(verdictOf(searching, [above(CLIENTS)]).ok).toBe(true);
 
 		const ownerOnly = docOf({
 			clientsModule: {
