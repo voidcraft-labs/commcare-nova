@@ -298,8 +298,11 @@ function withFirstForm(
  * Every circumstance these serve stands before acceptance compares HQ's
  * question summary, so no question needs summarizing.
  */
-function serveExport(peer: MockAgent, doc: BlueprintDoc): void {
-	const body = servedExport(doc).body;
+function serveExport(
+	peer: MockAgent,
+	doc: BlueprintDoc,
+	body = servedExport(doc).body,
+): void {
 	const menus = body.modules as Body[];
 	serveApp(peer, {
 		source: {
@@ -961,12 +964,13 @@ describe("readHqAppForReview", () => {
 		});
 
 		it("drives every code a read can raise, here or where its source is built", () => {
-			/* Six codes are driven where their source is built: a source one byte over the
+			/* These codes are driven where their source is built: a source one byte over the
 			 * bound in cap.test.ts, a reading past its work limit in the reader's
 			 * readWorkMeter.test.ts, a process with no room for one more bring-in in
 			 * room.test.ts, tables whose rows together pass the request's bound in
 			 * lookupTableBudget.test.ts, and below, an app saved twice during the read and a menu
-			 * CommCare HQ could not summarize beside the form's own finding. A new code with no
+			 * CommCare HQ could not summarize beside the form's own finding. The ordinary
+			 * form reader in instanceSources.test.ts drives both data-source conflicts. A new code with no
 			 * case fails here. */
 			const elsewhere: readonly ReadCircumstance[] = [
 				"too-large",
@@ -975,6 +979,8 @@ describe("readHqAppForReview", () => {
 				"lookup-data-too-large",
 				"changed-while-reading",
 				"menu-unreadable-in-hq",
+				"form-data-source-conflict",
+				"unbuildable-data-source-name",
 			];
 			const driven = new Set([...cases.map(({ code }) => code), ...elsewhere]);
 			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(
@@ -1193,6 +1199,68 @@ describe("readHqAppForReview", () => {
 			expect(codes(unread.answer)).toContain("unrecognized");
 			expect(codes(unread.answer)).not.toContain("cannot-read-organization");
 			expect(missedLines()).toEqual([]);
+		});
+
+		it("keeps the verified working app for a places read found only after decoding the form", async () => {
+			const doc = locationOwnerFixture("plain", { placeRead: true });
+			const body = servedExport(doc).body;
+			const attachments = body._attachments as Record<string, string>;
+			const menu = (body.modules as Body[])[0];
+			const form = (menu.forms as Body[])[0];
+			const key = `${form.unique_id}.xml`;
+			const declared =
+				/<instance\b[^>]*src="jr:\/\/fixture\/locations"[^>]*\/>/;
+			expect(attachments[key]).toMatch(declared);
+			attachments[key] = attachments[key]
+				.replace(declared, "")
+				.replaceAll("locations", "locat&#105;ons");
+			expect(sourceMayReadPlaces(JSON.stringify(body))).toBe(false);
+			const built = `<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model><instance><data xmlns="${form.xmlns}"/></instance><instance id="locations" src="jr://fixture/locations"/></model></h:head><h:body/></h:html>`;
+			const resource = `/a/${DOMAIN}/apps/download/${APP}/modules-0/forms-0.xml`;
+			const { requests } = await read((peer) => {
+				serveExport(peer, doc, body);
+				serve(peer, PATHS.tables, retainedGroupRead("lookups/lookup-tables"));
+				const domains = {
+					meta: { limit: 100, next: null, offset: 0, total_count: 1 },
+					objects: [{ domain_name: DOMAIN, project_name: "Clinic" }],
+				};
+				for (let pass = 0; pass < 2; pass++) {
+					for (const path of [
+						PATHS.spaces,
+						`${PATHS.spaces}&feature_flag=hierarchical_location_fixture`,
+					])
+						serve(peer, path, {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify(domains),
+						});
+					peer
+						.get(HOST)
+						.intercept({ path: resource, method: "GET" })
+						.reply(200, built);
+					serve(peer, PATHS.source, {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(body),
+					});
+				}
+				serveLevels(peer);
+				servePlaces(peer, []);
+			});
+			expect(asked(requests, resource)).toBe(2);
+			expect(missedLines()).toHaveLength(1);
+			expect(
+				vi
+					.mocked(readHqAppSteps)
+					.mock.calls.slice(0, 2)
+					.map(([input]) => [
+						input.sourceProjectFactories?.locations,
+						input.organization.levelCodes,
+					]),
+			).toEqual([
+				["flat", []],
+				["flat", LOCATION_LEVELS.map((level) => level.code)],
+			]);
 		});
 
 		it("reads places once more, and the reader again, where the source's test missed a spelling", async () => {

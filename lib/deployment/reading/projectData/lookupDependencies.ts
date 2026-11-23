@@ -26,6 +26,12 @@ export async function referencedLookupTags(input: {
 	readonly alsoSource?: HqAppSource;
 	readonly modules?: readonly HqAlignedModule[];
 	readonly listed: readonly HqLookupTable[];
+	readonly suiteDetails?: ReaderInput["suiteDetails"];
+	readonly observeSuiteDetail?: (
+		source: HqAppSource,
+		details: readonly string[],
+		id: string,
+	) => void;
 	readonly observeFactory?: (
 		source: HqAppSource,
 		...args: Parameters<NonNullable<ReaderInput["observeFactory"]>>
@@ -72,6 +78,10 @@ export async function referencedLookupTags(input: {
 				appId,
 				target: { origin: baseUrl(input.creds), domain: input.domain },
 				source,
+				suiteDetails: source === input.source ? input.suiteDetails : undefined,
+				observeSuiteDetail:
+					input.observeSuiteDetail &&
+					((details, id) => input.observeSuiteDetail?.(source, details, id)),
 				observeFactory:
 					input.observeFactory &&
 					((kind, id, form) => input.observeFactory?.(source, kind, id, form)),

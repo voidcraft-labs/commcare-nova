@@ -22,9 +22,11 @@ import {
 } from "@/lib/commcare/hq/locations";
 import {
 	readWorkingLocationFixture,
+	readWorkingSuiteDetails,
 	type WorkingLocationWitness,
 	type WorkingSource,
 } from "@/lib/commcare/hq/workingLocationFixture";
+import { isJsonObject } from "@/lib/commcare/reader/jsonCursor";
 import { WorkLimitReached } from "@/lib/commcare/workMeter";
 import type { ConditionalFactory } from "@/lib/commcare/xpath/instanceSources";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
@@ -204,6 +206,25 @@ function readingSourceText(source: HqAppSource): string {
 export function mayUseProjectFactory(source: string | HqAppSource): boolean {
 	const text = typeof source === "string" ? source : readingSourceText(source);
 	return (
+		(typeof source !== "string" &&
+			Array.isArray(source.raw.modules) &&
+			source.raw.modules.some((menu: unknown) => {
+				if (!isJsonObject(menu) || !isJsonObject(menu.case_details))
+					return false;
+				return [menu.case_details.short, menu.case_details.long].some(
+					(detail) =>
+						isJsonObject(detail) &&
+						Array.isArray(detail.columns) &&
+						detail.columns.some(
+							(column: unknown) =>
+								isJsonObject(column) &&
+								column.useXpathExpression === true &&
+								typeof column.field === "string" &&
+								(column.field.includes("instance") ||
+									column.field.includes("&")),
+						),
+				);
+			})) ||
 		text.includes("locations") ||
 		text.includes("commcare:reports") ||
 		text.includes("commcare-reports") ||
@@ -304,10 +325,41 @@ export function sourceFactoryReads(input: {
 	cancel?: AbortSignal;
 }) {
 	const { creds, domain, cancel } = input;
+	const sameSuiteSource = (after: HqAppSource) => {
+		const before = normalizedHqAppSource(input.source.raw);
+		const current = normalizedHqAppSource(after.raw);
+		return (
+			"normalized" in before &&
+			"normalized" in current &&
+			isDeepStrictEqual(before.normalized, current.normalized)
+		);
+	};
+	const detailReads = new Map<string, Set<string>>();
+	let suiteDetails: Awaited<ReturnType<typeof readWorkingSuiteDetails>>;
 	const needed = new Set<ConditionalFactory>();
 	let formWitness: WorkingLocationWitness | undefined;
 	let currentSuite = false;
 	return {
+		observeDetail(source: HqAppSource, details: readonly string[], id: string) {
+			if (source !== input.source) return;
+			for (const detail of details) {
+				const ids = detailReads.get(detail) ?? new Set<string>();
+				ids.add(id);
+				detailReads.set(detail, ids);
+			}
+		},
+		async readDetails() {
+			if (
+				!suiteDetails &&
+				detailReads.size &&
+				input.working?.source === input.source
+			)
+				suiteDetails = await readWorkingSuiteDetails(
+					{ ...input, working: input.working, sameSuiteSource },
+					detailReads,
+				);
+			return suiteDetails;
+		},
 		observe(
 			source: HqAppSource,
 			kind: ConditionalFactory,
@@ -365,15 +417,7 @@ export function sourceFactoryReads(input: {
 						domain,
 						working: input.working,
 						witness: formWitness,
-						sameSuiteSource: (after) => {
-							const before = normalizedHqAppSource(input.source.raw);
-							const current = normalizedHqAppSource(after.raw);
-							return (
-								"normalized" in before &&
-								"normalized" in current &&
-								isDeepStrictEqual(before.normalized, current.normalized)
-							);
-						},
+						sameSuiteSource,
 						cancel,
 					});
 					if (observed !== undefined)
@@ -442,15 +486,25 @@ export async function readReadingProjectData(input: {
 	let lookups: Awaited<ReturnType<typeof readHqLookupTablesForReading>>;
 	const factoryReads = sourceFactoryReads(input);
 	const pieces = input.pieces ?? new Pieces(cancel);
-	const dependencies = (
+	let suiteDetails: Awaited<ReturnType<typeof readWorkingSuiteDetails>>;
+	const dependencies = async (
 		listed: Parameters<typeof referencedLookupTags>[0]["listed"],
-	) =>
-		referencedLookupTags({
+	) => {
+		const options = {
 			...input,
 			listed,
 			pieces,
 			observeFactory: factoryReads.observe,
+		};
+		const first = await referencedLookupTags({
+			...options,
+			observeSuiteDetail: factoryReads.observeDetail,
 		});
+		suiteDetails = await factoryReads.readDetails();
+		return suiteDetails
+			? referencedLookupTags({ ...options, suiteDetails })
+			: first;
+	};
 	try {
 		let gathered = false;
 		lookups = await readHqLookupTablesForReading({
@@ -467,7 +521,8 @@ export async function readReadingProjectData(input: {
 		if (
 			!("success" in lookups) &&
 			!gathered &&
-			mayUseProjectFactory(sourceText)
+			(mayUseProjectFactory(input.source) ||
+				(input.alsoSource && mayUseProjectFactory(input.alsoSource)))
 		)
 			await dependencies([]);
 	} catch (error) {
@@ -515,6 +570,7 @@ export async function readReadingProjectData(input: {
 		kind: "read",
 		data: {
 			sourceProjectFactories,
+			suiteDetails,
 			...assembleReadingProjectData({
 				origin: { server: input.server, domain },
 				appId: input.appId,

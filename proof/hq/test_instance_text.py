@@ -539,3 +539,54 @@ def test_working_location_witness_reads_the_source_project_without_saving_or_bui
         )
         for resource in ("modules-0/forms-0.xml", "suite.xml")
     }
+
+
+def test_working_suite_declares_column_sources_on_each_entry_that_reaches_its_detail(hq):
+    """Two physical screens and two form commands. Only the selecting command
+    reaches the case details. A different command brings in its own fixture."""
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits, resource_overrides
+
+    configuration = Configuration(domain="nova-detail-source", privileges={"API_ACCESS", "CLOUDCARE"})
+    with hq_check(configuration) as (state, _), hq_redis.shared(None):
+        app = hq_test_app()
+        menu = app["modules"][0]
+        create, follow = menu["forms"]
+        create["custom_instances"] = [{
+            "doc_type": "CustomInstance", "instance_id": "item-list:elsewhere",
+            "instance_path": "jr://fixture/item-list:elsewhere",
+        }]
+        grouped = "count(instance((('item-list:zones')))/zones_list/zones)"
+        ordinary = "count(instance('item-list:zones')/zones_list/zones)"
+        for screen in ("short", "long"):
+            detail = menu["case_details"][screen]
+            seed = detail["columns"][0]
+            detail["columns"] = [
+                {**seed, "field": expression, "useXpathExpression": True, "header": {"en": header}}
+                for header, expression in (("Zone", grouped), ("Available zones", ordinary))
+            ]
+        app_id, _ = operations.publish(state, [nova_shaped_upload(app, "Visits")])
+        with state.committing():
+            credential = operations.seed_api_user(state, "case-list-reader@example.com")
+        with api_rate_limits(state), resource_overrides():
+            source = operations.source_read(state, app_id, credential)
+            assert source.status == 200
+            suite = operations.api_request(
+                state, "GET", f"/a/{state.domain}/apps/download/{app_id}/suite.xml", credential=credential
+            )
+            assert suite.status == 200
+        root = etree.fromstring(suite.body.encode())
+        for detail_id in ("m0_case_short", "m0_case_long"):
+            expressions = root.xpath("./detail[@id=$id]/field/template/text/xpath/variable/xpath/@function",
+                                     id=detail_id)
+            assert set(expressions) >= {ordinary, grouped}
+        entries = {entry.findtext("form"): entry for entry in root.findall("entry")}
+        choosing = entries[follow["xmlns"]]
+        assert {"m0_case_short", "m0_case_long"} <= set(
+            choosing.xpath("./session/*/@detail-select | ./session/*/@detail-confirm")
+        )
+        assert choosing.xpath("./instance[@id='item-list:zones']/@src") == ["jr://fixture/item-list:zones"]
+        assert not choosing.xpath("./instance[@id='item-list:elsewhere']")
+        creating = entries[create["xmlns"]]
+        assert creating.xpath("./instance[@id='item-list:elsewhere']/@src") == ["jr://fixture/item-list:elsewhere"]
+        assert not creating.xpath("./instance[@id='item-list:zones']")

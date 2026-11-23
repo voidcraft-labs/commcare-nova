@@ -391,7 +391,9 @@ interface SuiteReadSources {
 }
 
 const requiredIds = new WeakMap<PendingExpression, ReadonlySet<string>>();
-function requiredInstanceIds(pending: PendingExpression): ReadonlySet<string> {
+export function requiredInstanceIds(
+	pending: PendingExpression,
+): ReadonlySet<string> {
 	const known = requiredIds.get(pending);
 	if (known !== undefined) return known;
 	const ids = new Set<string>();

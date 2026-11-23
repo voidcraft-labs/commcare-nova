@@ -1765,6 +1765,36 @@ def test_a_grouped_suite_lookup_uses_its_own_requests_scanned_instances(manifest
         assert found.lookup_tags == tags
 
 
+def test_calculated_column_uses_only_its_reaching_entries_declarations(manifest):
+    from lxml import etree
+
+    field = {"useXpathExpression": True, "field": "instance((('alias')))/zones_list/zones"}
+    detail = {"columns": [field]}
+    module = {"case_details": {"short": detail}}
+    scope = (("Module", module), ("Detail", detail), ("DetailColumn", field))
+    group = "<session><datum detail-select='m0_case_short'/></session>"
+    other = "<session><datum detail-select='m1_case_long'/></session>"
+    instance = "<instance id='alias' src='jr://fixture/item-list:zones'/>"
+    for second, clone, expected in (
+        (instance, "", {"zones"}), ("", "", set()),
+        (instance, "<detail id='m0_search_short'/><remote-request><session>"
+                   "<datum detail-select='m0_search_short'/></session></remote-request>", set()),
+    ):
+        app = manifest_usage.App({"modules": [module]}, "app.json")
+        source = manifest_usage.Form(etree.XML("<form/>"), "form")
+        source.entry_suites = (etree.XML(
+            f"<suite><detail id='m0_case_short'/><detail id='m1_case_long'/>{clone}"
+            f"<entry>{instance}{group}</entry><remote-request>{second}{group}</remote-request>"
+            f"<entry>{instance}{other}</entry></suite>"
+        ),)
+        app.forms["form"] = source
+        at = manifest_usage.JsonAt(app, scope, "field")
+        found = manifest_usage.Uses()
+        found.expression("app", "/field", field["field"], {}, schemes_only=True, at=at)
+        manifest_usage._expression_uses(found.expressions[0], {"instancePaths": [{"instance": "alias"}]}, manifest, found)
+        assert found.lookup_tags == expected
+
+
 def test_only_deliverable_form_instances_request_lookup_resources(manifest):
     from lxml import etree
 

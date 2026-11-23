@@ -34,6 +34,7 @@ import { createReadContext, type ReadContext } from "./context";
 import {
 	instanceSourcesOf,
 	preparedSource,
+	requiredInstanceIds,
 	slotForm,
 } from "./expressions/readExpression";
 import { instanceIdsIn } from "./expressions/surfaceUses";
@@ -277,6 +278,11 @@ export function* readHqLookupTagsSteps(
 			}
 			const sources = instanceSourcesOf(doc, registration, env);
 			for (const id of ids) {
+				if (
+					registration.suiteDetails?.length &&
+					(!sources?.has(id) || requiredInstanceIds(registration).has(id))
+				)
+					input.observeSuiteDetail?.(registration.suiteDetails, id);
 				if (discover && sources?.has(id)) {
 					const form =
 						registration.mode.target === "xform"

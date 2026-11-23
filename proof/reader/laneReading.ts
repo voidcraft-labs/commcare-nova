@@ -931,13 +931,19 @@ async function readBack(
 				...readerInput,
 				observeFactory: (kind, id, form) =>
 					discovery.observe(source, kind, id, form),
+				observeSuiteDetail: (details, id) =>
+					discovery.observeDetail(source, details, id),
 			}),
 		);
 	const factories = await discovery.read();
 	if (factories.kind === "failed")
 		return account(atApp(hqReadCircumstance(factories.failure)));
 	const outcome = readHqApp(
-		{ ...readerInput, sourceProjectFactories: factories.facts },
+		{
+			...readerInput,
+			sourceProjectFactories: factories.facts,
+			suiteDetails: await discovery.readDetails(),
+		},
 		{ claims: input.claims },
 	);
 	const claims =

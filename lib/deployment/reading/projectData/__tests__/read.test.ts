@@ -12,10 +12,16 @@ import { describe, expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { seenByHq } from "@/lib/commcare/hq/appsSeen";
+import { exportedBody } from "@/lib/commcare/reader/__tests__/novaExport";
 import {
 	retainedSourceBody,
 	sourceFromBody,
 } from "@/lib/commcare/reader/__tests__/readerInput";
+import {
+	patients,
+	uuid,
+} from "@/lib/commcare/reader/caseList/__tests__/fixtures";
+import { plainColumn } from "@/lib/domain";
 import {
 	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_TABLE_BYTES,
@@ -494,6 +500,133 @@ describe("a source project's location instance factory", () => {
 				expect(answer.result.data.sourceProjectFactories?.locations).toBe(
 					changed ? undefined : "hierarchical",
 				);
+		},
+	);
+});
+
+describe("a working suite that supplies another screen's table", () => {
+	const id = "item-list:zones";
+	const url = `/a/${DOMAIN}/apps/download/working-app/suite.xml`;
+	const rows = `/a/${DOMAIN}/api/fixture/v1/?fixture_type_id=${PROTO_ID}`;
+	const both =
+		'<datum id="case_id" detail-select="m0_case_short" detail-confirm="m0_case_long"/>';
+	const short =
+		'<instance-datum id="selected_cases" detail-select="m0_case_short"/>';
+	const table = `<instance id="${id}" src="jr://fixture/item-list:zones"/>`;
+	const native = `<instance id="${id}" src="jr://instance/casedb"/>`;
+	const scenarios = [
+		{
+			name: "a search-results copy has no declaration",
+			first: table,
+			second: table,
+			searchCopy: true,
+		},
+		{ name: "every entry", first: table, second: table, expected: true },
+		{
+			name: "the working source changed",
+			first: table,
+			second: table,
+			changed: true,
+		},
+		{ name: "an unrelated entry", first: "", second: "" },
+		{ name: "only one selecting entry", first: table, second: "" },
+		{
+			name: "another build profile disagrees",
+			first: table,
+			second: table,
+			profile: true,
+		},
+		{
+			name: "two selecting entries have different sources",
+			first: table,
+			second: native,
+		},
+		{
+			name: "a duplicate local declaration",
+			first: table,
+			second: table + native,
+		},
+	];
+	it.each(scenarios)(
+		"fetches the matching rows for $name",
+		async ({ first, second, profile, changed, expected, searchCopy }) => {
+			const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
+			const source = await sourceFromBody(
+				exportedBody(doc, {
+					root: profile
+						? { build_profiles: { field: { name: "Field", langs: ["en"] } } }
+						: {},
+					modules: (menus) => {
+						const pair = menus[0].case_details as {
+							short: { columns: Record<string, unknown>[] };
+							long: { columns: Record<string, unknown>[] };
+						};
+						for (const detail of [pair.short, pair.long])
+							Object.assign(detail.columns[0], {
+								useXpathExpression: true,
+								field:
+									"count(instance((('item-list:zones')))/zones_list/zones)",
+							});
+						return menus;
+					},
+				}),
+			);
+			const suite = (one: string, two: string) =>
+				`<suite><detail id="m0_case_short"/><detail id="m0_case_long"/><detail id="m1_case_short"/>${searchCopy ? '<detail id="m0_search_short"/><remote-request><session><datum detail-select="m0_search_short"/></session></remote-request>' : ""}<entry>${one}<session>${both}</session></entry><remote-request>${two}<session>${short}</session></remote-request><entry>${table}<session><datum detail-select="m1_case_short"/></session></entry></suite>`;
+			const answer = await withHttpPeer(async (peer) => {
+				const collection = (objects: unknown[]) => ({
+					meta: {
+						limit: 1000,
+						next: null,
+						offset: 0,
+						total_count: objects.length,
+					},
+					objects,
+				});
+				serveJson(
+					peer,
+					LIST,
+					collection([
+						{
+							id: PROTO_ID,
+							tag: "zones",
+							fields: [{ field_name: "code", properties: [] }],
+							is_global: true,
+							item_attributes: [],
+							resource_uri: "",
+						},
+					]),
+				);
+				peer
+					.get(HOST)
+					.intercept({ path: url, method: "GET" })
+					.reply(200, suite(first, second));
+				if (profile)
+					peer
+						.get(HOST)
+						.intercept({ path: `${url}?profile=field`, method: "GET" })
+						.reply(200, suite("", ""));
+				serveJson(
+					peer,
+					`/a/${DOMAIN}/apps/source/working-app/`,
+					changed ? { ...source.raw, name: { en: "Changed" } } : source.raw,
+				);
+				if (expected) serveJson(peer, rows, collection([]));
+				const result = await read(
+					source,
+					emptyProject({ dataBytes: 0, largestRowBytes: 0 }),
+				);
+				return {
+					result,
+					paths: peer
+						.getCallHistory()
+						?.calls()
+						.map((call) => call.fullUrl.slice(HOST.length)),
+				};
+			});
+			expect(answer.result.kind).toBe("read");
+			expect(answer.paths).toContain(url);
+			expect(answer.paths?.includes(rows)).toBe(Boolean(expected));
 		},
 	);
 });

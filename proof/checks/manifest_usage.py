@@ -2095,6 +2095,37 @@ def read_observed(found: Uses, manifest: Manifest, readings: Readings):
     found.questions = []
 
 
+def _column_declarations(slot):
+    """The declarations in every installed entry reaching this physical case detail.
+    Where the observation holds no built suite, sibling template expressions can still
+    establish a factory on the same physical detail."""
+    column = slot.nearest("DetailColumn")
+    detail = slot.nearest("Detail")
+    if slot.key != "field" or not column or not column.get("useXpathExpression") or not detail or not slot.app:
+        return None
+    for index, module in enumerate(slot.app.modules):
+        pair = module.get("case_details") or {}
+        screen = next((screen for screen in ("short", "long") if pair.get(screen) is detail), None)
+        if screen is not None:
+            break
+    else:
+        return None
+    suites = slot.app.detail_sources
+    if suites is not None:
+        # Module.get_details and AdvancedModule.get_details clone the same
+        # authored columns on search results when inline search does not apply.
+        ids = (f"m{index}_case_{screen}", f"m{index}_search_{screen}")
+        held = [set(suites[name].items()) for name in ids if name in suites]
+        return dict(set.intersection(*held)) if held else {}
+    return {
+        name: f"jr://fixture/{name}"
+        for sibling in detail.get("columns") or []
+        if isinstance(sibling, dict) and sibling.get("useXpathExpression")
+        and (sibling.get("format") or "plain") in ("plain", "invisible") and isinstance(sibling.get("field"), str)
+        for name in scanned_instance_names(sibling["field"]) if name.startswith("item-list:")
+    }
+
+
 def _suite_fixture_names(slot, expression):
     """A fixture spelling the actual suite slot or this remote request supplies to HQ's scanner.
 
@@ -2134,11 +2165,16 @@ def _expression_uses(expression, parsed, manifest, found):
                     referenced &= set(declared)
                 else:
                     referenced &= set(declared) | at.document.scanned_instance_ids
+        detail = _column_declarations(at) if isinstance(at, JsonAt) else None
+        if detail is not None:
+            declared.update(detail)
         for instance_id in referenced:
             src = declared.get(instance_id)
             scheme = read_scheme(manifest, instance_id, declared)
-            if scheme == "item-list" and isinstance(at, JsonAt) and instance_id not in _suite_fixture_names(at, expression.text):
-                continue
+            if scheme == "item-list" and isinstance(at, JsonAt):
+                available = detail if detail is not None else _suite_fixture_names(at, expression.text)
+                if instance_id not in available:
+                    continue
             if scheme == "item-list":
                 fixture = src.removeprefix("jr://fixture/") if src is not None else instance_id
                 if fixture.startswith("item-list:") and fixture != "item-list:":

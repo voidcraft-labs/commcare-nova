@@ -42,6 +42,12 @@ export interface SourceFormFactoryWitness {
 }
 
 export interface ReaderInput {
+	/** Exact declarations for unresolved case detail reads of this source. */
+	readonly suiteDetails?: import("../hq/suiteDetailSources").SuiteDetailSources;
+	readonly observeSuiteDetail?: (
+		details: readonly string[],
+		id: string,
+	) => void;
 	/** The app's id, derived from the reading's id. */
 	readonly appId: string;
 	/** The project space the source was read from, for a capture's link. */

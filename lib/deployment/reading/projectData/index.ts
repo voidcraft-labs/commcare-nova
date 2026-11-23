@@ -106,6 +106,7 @@ export interface ReadingLookupTable {
 }
 
 export interface ReadingProjectData {
+	readonly suiteDetails?: import("@/lib/commcare/reader/types").ReaderInput["suiteDetails"];
 	readonly sourceProjectFactories?: import("@/lib/commcare/reader/types").ReaderInput["sourceProjectFactories"];
 	/** The reader's catalog over the bindings. */
 	readonly lookups: ReaderLookupCatalog;

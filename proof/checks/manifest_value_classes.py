@@ -998,6 +998,35 @@ class App:
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
 
     @cached_property
+    def detail_sources(self):
+        """Each named detail's common external instance sources across all built entries and suites."""
+        suites = _app_suites(self)
+        if not suites:
+            return None
+        scopes = {}
+        detail_attributes = ("detail-select", "detail-confirm", "detail-inline", "detail-persistent")
+        for suite in suites:
+            known = {detail.get("id") for detail in suite.root.findall("detail")}
+            for entry in suite.root:
+                if entry.tag not in ("entry", "remote-request"):
+                    continue
+                reached = {
+                    datum.get(attr) for datum in entry.iterfind("./session/*")
+                    if datum.tag in ("datum", "instance-datum") for attr in detail_attributes
+                } & known
+                declared = {}
+                for instance in entry.findall("instance"):
+                    name = instance.get("id")
+                    declared[name] = None if name in declared else instance.get("src")
+                sources = {(name, src) for name, src in declared.items() if name and src}
+                for name in reached:
+                    if name in scopes:
+                        scopes[name].intersection_update(sources)
+                    else:
+                        scopes[name] = sources.copy()
+        return {name: dict(values) for name, values in scopes.items()}
+
+    @cached_property
     def modules(self):
         return [module for module in self.doc.get("modules") or [] if isinstance(module, dict)]
 

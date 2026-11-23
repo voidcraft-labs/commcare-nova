@@ -919,6 +919,20 @@ def source_factory_answers(state, app_id, credential, source):
     if source.status != 200:
         return
     supplied = json.loads(source.body)
+    # A grouped reference can be supplied by another reached detail or entry
+    # member, independently of the project's locations flag. Capture the
+    # actual working suite; retain.py keeps only the requested answers.
+    detail_reads = any(
+        column.get("useXpathExpression") and
+        ("instance" in str(column.get("field")) or "&" in str(column.get("field")))
+        for module in supplied.get("modules") or []
+        for screen in ("short", "long")
+        for column in (((module.get("case_details") or {}).get(screen) or {}).get("columns") or [])
+    )
+    resources = set()
+    if detail_reads:
+        for profile in (None, *(supplied.get("build_profiles") or {})):
+            resources.add(("suite.xml", profile or ""))
     encoded = "&#" in source.body
     for flag, required in (
         (toggles.HIERARCHICAL_LOCATION_FIXTURE, "locations" in source.body),
@@ -934,17 +948,18 @@ def source_factory_answers(state, app_id, credential, source):
             continue
         if not any(row.get("domain_name") == state.domain for row in json.loads(response.body)["objects"]):
             continue
-        resources = [("suite.xml", None)]
+        resources.add(("suite.xml", ""))
         for menu, module in enumerate(supplied.get("modules") or []):
             for index, form in enumerate(module.get("forms") or []):
                 xml = (supplied.get("_attachments") or {}).get(f"{form.get('unique_id')}.xml")
                 if isinstance(xml, str) and ("locations" in xml or "&#" in xml):
                     for profile in (None, *(supplied.get("build_profiles") or {})):
-                        resources.append((f"modules-{menu}/forms-{index}.xml", profile))
-        for resource, profile in resources:
-            query = "?" + urlencode({"profile": profile}) if profile else ""
-            path = f"/a/{state.domain}/apps/download/{app_id}/{resource}{query}"
-            yield path, api_request(state, "GET", path, credential=credential)
+                        resources.add((f"modules-{menu}/forms-{index}.xml", profile or ""))
+    for resource, profile in sorted(resources):
+        query = "?" + urlencode({"profile": profile}) if profile else ""
+        path = f"/a/{state.domain}/apps/download/{app_id}/{resource}{query}"
+        yield path, api_request(state, "GET", path, credential=credential)
+    if resources:
         yield "source-check", source_read(state, app_id, credential)
 
 

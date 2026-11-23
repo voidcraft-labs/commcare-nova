@@ -517,6 +517,7 @@ function readerInputFor(
 		lookup: fetched.data.lookups,
 		organization: fetched.data.organization,
 		sourceProjectFactories: fetched.data.sourceProjectFactories,
+		suiteDetails: fetched.data.suiteDetails,
 		media: readingMediaIndex({ source: fetched.source, appId, plan }),
 		appStrings: readingAppStrings(readerLookupContext(fetched.data)),
 		recordDialect: recordDialectRoundTrip,
@@ -1292,20 +1293,22 @@ async function gatherFromHqWith(
 
 	/* 5. The Project data. */
 	onEvent({ type: "stage", stage: "reading-project-data" });
-	const projectData = await readReadingProjectData({
-		creds,
-		server: key.server,
-		domain: key.domain,
-		working: reading,
-		appId,
-		readingId: input.readingId,
-		source,
-		project: input.project,
-		pieces,
-		modules,
-		places: "when-source-reads",
-		...(cancel !== undefined && { cancel }),
-	});
+	const readData = (places: "when-source-reads" | "always") =>
+		readReadingProjectData({
+			creds,
+			server: key.server,
+			domain: key.domain,
+			working: reading,
+			appId,
+			readingId: input.readingId,
+			source,
+			project: input.project,
+			pieces,
+			modules,
+			places,
+			...(cancel !== undefined && { cancel }),
+		});
+	const projectData = await readData("when-source-reads");
 	if (projectData.kind === "too-intricate")
 		return answer(accountOf([atApp("too-intricate")], appName, false));
 	if (projectData.kind === "failed")
@@ -1339,20 +1342,7 @@ async function gatherFromHqWith(
 		 * the read failed, nothing was missed: the failure below answers. */
 		log.error("[reading] places read missed", undefined, scopeContext(scope));
 		onEvent({ type: "stage", stage: "reading-project-data" });
-		const again = await readReadingProjectData({
-			creds,
-			server: key.server,
-			domain: key.domain,
-			remoteAppId: key.remoteAppId,
-			appId,
-			readingId: input.readingId,
-			source,
-			project: input.project,
-			pieces,
-			modules,
-			places: "always",
-			...(cancel !== undefined && { cancel }),
-		});
+		const again = await readData("always");
 		if (again.kind === "too-intricate")
 			return answer(accountOf([atApp("too-intricate")], appName, false));
 		if (again.kind === "failed") return answer(failedRead(again.failure));
@@ -1779,18 +1769,7 @@ async function checkWith(
 			source,
 			modules: fetched.modules,
 			outcome,
-			reader: {
-				target: reader.target,
-				lookup: reader.lookup,
-				organization: reader.organization,
-				sourceProjectFactories: reader.sourceProjectFactories,
-				media: reader.media,
-				appStrings: reader.appStrings,
-				recordDialect: reader.recordDialect,
-				...(reader.saveOnlyEditedApplied !== undefined && {
-					saveOnlyEditedApplied: reader.saveOnlyEditedApplied,
-				}),
-			},
+			reader,
 			choices,
 			settlements: handOffSettlements(outcome.claims.handOffs, judgedPlan, [
 				...projectFindings,

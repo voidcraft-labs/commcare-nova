@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { plainColumn } from "@/lib/domain";
+import type { SuiteDetailSources } from "../../hq/suiteDetailSources";
 import { wireTable } from "../../lookup/__tests__/lookupWireCorpus";
 import { lookupWireNaming } from "../../lookup/naming";
+import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { readHqApp } from "../index";
 import { type ExportEdits, exportedBody, inputFor } from "./novaExport";
 
@@ -167,5 +170,115 @@ describe("reading an HQ form with named table data", () => {
 			missing.kind === "account" &&
 				missing.findings.map((one) => one.detail.reason),
 		).toContain("parse:unknown-column");
+	});
+});
+
+describe("the instance declarations available to a calculated case column", () => {
+	const cell = (instance: string, code: string) => {
+		const rows = `${instance}/zones_list/zones`;
+		return `if(count(${rows}) > 0, ${rows}[code = '${code}'][1]/label, '')`;
+	};
+	const ordinary = cell("instance('item-list:zones')", "north");
+	const grouped = cell("instance((('item-list:zones')))", "west");
+	const missing =
+		"expressions-and-data/lookup-table-instance-undiscovered-in-suite";
+	async function detailReading(
+		witness: "both" | "short" | "long" | "elsewhere",
+		used: "both" | "short" = "both",
+		suiteDetails?: SuiteDetailSources,
+	) {
+		const table = wireTable("zones", [
+			{ name: "code", type: "text" },
+			{ name: "label", type: "text" },
+		]);
+		const doc = patients([
+			plainColumn(uuid(1), "case_name", "Name"),
+			plainColumn(uuid(2), "notes", "Notes"),
+		]);
+		const body = exportedBody(doc, {
+			modules(menus) {
+				const menu = menus[0];
+				const pair = menu.case_details as Record<
+					"short" | "long",
+					{ columns: Record<string, unknown>[] }
+				>;
+				for (const screen of ["short", "long"] as const) {
+					const [one, two] = pair[screen].columns;
+					pair[screen].columns = [
+						...(used === "both" || used === screen
+							? [{ ...one, useXpathExpression: true, field: grouped }]
+							: []),
+						{
+							...two,
+							...((witness === "both" || witness === screen) && {
+								useXpathExpression: true,
+								field: ordinary,
+							}),
+						},
+					];
+				}
+				if (witness === "elsewhere") {
+					// A command condition supplies a source only to the command that evaluates it.
+					const form = (menu.forms as Record<string, unknown>[])[0];
+					form.form_filter = `${ordinary} > 0`;
+				}
+				return menus;
+			},
+		});
+		return readHqApp(
+			await inputFor(body, {
+				suiteDetails,
+				lookup: {
+					definitions: new Map([[table.id, table]]),
+					table: (name) =>
+						name === table.tag
+							? {
+									tableId: table.id,
+									column: (wire) =>
+										table.columns.find((column) => column.wireName === wire)
+											?.id,
+								}
+							: undefined,
+				},
+			}),
+		);
+	}
+	it.each([
+		["both", "both", true],
+		["short", "both", false],
+		["long", "both", false],
+		["short", "short", true],
+		["elsewhere", "both", false],
+	] as const)(
+		"uses a %s sibling for a column on %s screens",
+		async (witness, used, held) => {
+			const result = await detailReading(witness, used);
+			expect(result.defects).toEqual([]);
+			const findings =
+				result.kind === "account" ? result.findings.map((f) => f.code) : [];
+			if (held) expect(findings).toEqual([]);
+			else expect(findings).toContain(missing);
+		},
+	);
+	it("uses a declaration supplied by all entries reaching the same detail", async () => {
+		const held = await detailReading(
+			"long",
+			"both",
+			new Map([
+				[
+					"m0_case_short",
+					new Map([["item-list:zones", "jr://fixture/item-list:zones"]]),
+				],
+			]),
+		);
+		expect(held.kind === "account" ? held.findings : []).toEqual([]);
+		const absent = await detailReading(
+			"both",
+			"both",
+			new Map([["m0_case_short", new Map([["item-list:zones", null]])]]),
+		);
+		expect(
+			absent.kind === "account" && absent.findings.map((f) => f.code),
+		).toContain(missing);
 	});
 });

@@ -236,6 +236,12 @@ Four rules hold everywhere here:
   validations in one remote request can supply one another’s instances. Its `itemset.instance_id` is checked
   by HQ’s validator. The scanner reads the request’s actual XPath texts. A different command’s expressions
   cannot establish that a Search field can load its table.
+  A calculated case column can read a table supplied by another field on the same physical
+  Results or Details screen. A generated search-results copy of either screen also participates. For a source that depends on a different screen or another part of the
+  command, the reader checks the authenticated working suite and each retained build profile.
+  It follows session datums to their named detail and checks the declaration of every entry and
+  remote request that reaches that screen. It verifies the working source again before using the
+  result. The reading of an emitted form or a different historical source establishes its own scope.
   A secondary instance's source is recorded at its `src`, and its id under
   `xform:model/instance@id` (`provisional.ts::claimDeclarations`). A search row's key is
   recorded at its `property`, and the class its Search field's presence test chooses it in at

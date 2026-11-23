@@ -10,7 +10,7 @@ import { tryParseXml } from "../xmlParse";
 import type { HqAppReading } from "./appReading";
 import { type HqAppSource, readHqAppSource } from "./appSource";
 import { HQ_BUILD_RESOURCE_MAX_BYTES } from "./bounds";
-import { withHqRequestDeadline } from "./deadline";
+import { hqDeadlineReached, withHqRequestDeadline } from "./deadline";
 import {
 	baseUrl,
 	type CommCareCredentials,
@@ -19,6 +19,11 @@ import {
 } from "./http";
 import { MemoryMeterFullError } from "./memoryMeter";
 import { isHqObject } from "./readCollection";
+import {
+	readSuiteDetailSources,
+	type SuiteDetailReads,
+	type SuiteDetailSources,
+} from "./suiteDetailSources";
 
 export interface WorkingLocationWitness {
 	readonly menu: number;
@@ -109,24 +114,22 @@ export type WorkingSource = Pick<
 	"application" | "seen" | "source"
 >;
 
-/** locations' factory reads a legacy project setting unavailable through an
- * API key. Observe the actual working resource on the source project. HQ
- * serves the authenticated working id directly; requesting "latest" instead
- * requires a worker's login on projects with location-specific releases.
- * Request only a form or suite:
- * download_odk_profile would autogenerate a build. The second source read
- * verifies the form attachment or the lack of any custom suite declarations
- * that could otherwise impersonate the generated instance. */
-export async function readWorkingLocationFixture(input: {
+interface WorkingRead {
 	creds: CommCareCredentials;
 	domain: string;
 	working: WorkingSource;
-	sameSuiteSource: (after: HqAppSource) => boolean;
-	witness?: WorkingLocationWitness;
 	cancel?: AbortSignal;
-}): Promise<"flat" | "hierarchical" | undefined> {
-	const { creds, domain, working, witness, cancel } = input;
-	const { application, seen, source } = working;
+	sameSuiteSource: (after: HqAppSource) => boolean;
+}
+
+async function readWorkingResource<T>(
+	input: WorkingRead,
+	resource: string,
+	profile: string | undefined,
+	read: (xml: string) => T | undefined,
+): Promise<T | undefined> {
+	const { creds, domain, working, cancel } = input;
+	const { application, seen } = working;
 	const remoteAppId = application.appId;
 	if (
 		application.builtFromAppId !== null ||
@@ -137,18 +140,9 @@ export async function readWorkingLocationFixture(input: {
 	)
 		return;
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(remoteAppId)) return;
-	if (!witness && customLocations(source)) return;
-	const original = witness && source.modules[witness.menu]?.forms[witness.form];
-	if (witness && (!original?.attachment || original.xmlns !== witness.xmlns))
-		return;
-	const resource = witness
-		? `modules-${witness.menu}/forms-${witness.form}.xml`
-		: "suite.xml";
-	const query = witness?.profile
-		? `?${new URLSearchParams({ profile: witness.profile })}`
-		: "";
+	const query = profile ? `?${new URLSearchParams({ profile: profile })}` : "";
 	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${remoteAppId}/${resource}${query}`;
-	const observed = await withHqRequestDeadline(
+	return withHqRequestDeadline(
 		async (signal) => {
 			let response: Awaited<ReturnType<typeof sendHq>>;
 			try {
@@ -168,10 +162,105 @@ export async function readWorkingLocationFixture(input: {
 			}
 			const body = await response.read(HQ_BUILD_RESOURCE_MAX_BYTES, "text");
 			if (body.kind !== "read") return undefined;
-			return locationSource(new TextDecoder().decode(body.bytes), witness);
+			return read(new TextDecoder().decode(body.bytes));
 		},
 		undefined,
 		cancel,
+	);
+}
+
+export async function readWorkingSuiteDetails(
+	input: WorkingRead,
+	reads: SuiteDetailReads,
+): Promise<SuiteDetailSources | undefined> {
+	if (input.working.source.raw.use_custom_suite || !reads.size) return;
+	// All profiles answer one question. Their count does not extend its deadline.
+	return withHqRequestDeadline(
+		async (signal) => {
+			try {
+				return await readWorkingSuiteProfiles(
+					{ ...input, cancel: signal },
+					reads,
+				);
+			} catch (error) {
+				if (hqDeadlineReached(signal) && !input.cancel?.aborted) return;
+				throw error;
+			}
+		},
+		undefined,
+		input.cancel,
+	);
+}
+
+async function readWorkingSuiteProfiles(
+	input: WorkingRead,
+	reads: SuiteDetailReads,
+): Promise<SuiteDetailSources | undefined> {
+	const { source, application } = input.working;
+	const merged = new Map<string, Map<string, string | null> | null>();
+	for (const profile of [
+		undefined,
+		...source.buildProfiles.map((profile) => profile.id),
+	]) {
+		const scopes = await readWorkingResource(
+			input,
+			"suite.xml",
+			profile,
+			(xml) => readSuiteDetailSources(xml, reads, input.cancel),
+		);
+		if (!scopes) return;
+		for (const [id, scope] of scopes) {
+			const before = merged.get(id);
+			if (before && scope) {
+				for (const [name, src] of before)
+					if (scope.get(name) !== src) before.set(name, null);
+			} else if (scope) merged.set(id, new Map(scope));
+			else if (!before) merged.set(id, null);
+		}
+	}
+	const after = await readHqAppSource(
+		input.creds,
+		input.domain,
+		application.appId,
+		{ admit: "any", cancel: input.cancel },
+	);
+	if (
+		"kind" in after &&
+		after.kind === "source" &&
+		source.lastModified === after.source.lastModified &&
+		input.sameSuiteSource(after.source)
+	)
+		return merged;
+}
+
+/** locations' factory reads a legacy project setting unavailable through an
+ * API key. Observe the actual working resource on the source project. HQ
+ * serves the authenticated working id directly; requesting "latest" instead
+ * requires a worker's login on projects with location-specific releases.
+ * Request only a form or suite:
+ * download_odk_profile would autogenerate a build. The second source read
+ * verifies the form attachment or the lack of any custom suite declarations
+ * that could otherwise impersonate the generated instance. */
+export async function readWorkingLocationFixture(
+	input: WorkingRead & { witness?: WorkingLocationWitness },
+): Promise<"flat" | "hierarchical" | undefined> {
+	const { creds, domain, witness, cancel } = input;
+	const {
+		source,
+		application: { appId: remoteAppId },
+	} = input.working;
+	if (!witness && customLocations(source)) return;
+	const original = witness && source.modules[witness.menu]?.forms[witness.form];
+	if (witness && (!original?.attachment || original.xmlns !== witness.xmlns))
+		return;
+	const resource = witness
+		? `modules-${witness.menu}/forms-${witness.form}.xml`
+		: "suite.xml";
+	const observed = await readWorkingResource(
+		input,
+		resource,
+		witness?.profile,
+		(xml) => locationSource(xml, witness),
 	);
 	if (!observed) return;
 	const after = await readHqAppSource(creds, domain, remoteAppId, {

@@ -1725,17 +1725,7 @@ export async function checkHqChanges(
 			source: readerNow.source,
 			modules: readerNow.modules,
 			outcome: now,
-			reader: {
-				target: readerNow.target,
-				lookup: readerNow.lookup,
-				organization: readerNow.organization,
-				media: readerNow.media,
-				appStrings: readerNow.appStrings,
-				recordDialect: readerNow.recordDialect,
-				...(readerNow.saveOnlyEditedApplied !== undefined && {
-					saveOnlyEditedApplied: readerNow.saveOnlyEditedApplied,
-				}),
-			},
+			reader: readerNow,
 			choices: {
 				kind: "choices",
 				choices: [own],
