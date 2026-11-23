@@ -23,7 +23,8 @@
  * The predicate dialect is per-rule: the filter, the search-button display
  *     condition, and a prompt's required condition and check rule lower
  *     through on-device JavaRosa XPath (`judgePredicate`),
- *     while an advanced input's predicate lowers through the mixed-dialect
+ *     while an advanced input's predicate and the search condition of a
+ *     search whose condition is its own lower through the mixed-dialect
  *     CSQL emitter (`judgeCsqlPredicate`). A rule whose judgment is
  *     dialect-independent passes the same function for both.
  *
@@ -89,8 +90,9 @@ export interface ModuleWireSlotJudge {
 		predicate: Expression,
 		slot: ModuleWireSlotIdentity,
 	): ValidationError | undefined;
-	/** An advanced search-input's effective predicate, which lowers through
-	 * the mixed-dialect CSQL emitter. */
+	/** An advanced search-input's effective predicate, and a search's own
+	 * condition, each of which lowers through the mixed-dialect CSQL
+	 * emitter. */
 	judgeCsqlPredicate(
 		predicate: Expression,
 		slot: ModuleWireSlotIdentity,
@@ -135,8 +137,11 @@ export function collectModuleWireSlotFindings(
 	);
 	if (request !== undefined) {
 		csqlPredicates.push(request);
+		// The search condition is sent to HQ alone, through the CSQL emitter
+		// as an advanced input's condition is; the list a device runs keeps
+		// its own filter, judged above.
 		collect(
-			judge.judgePredicate(request, {
+			judge.judgeCsqlPredicate(request, {
 				mod,
 				moduleUuid,
 				slot: "caseListConfig.searchCondition",
