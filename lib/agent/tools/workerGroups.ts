@@ -31,24 +31,30 @@ export const getWorkerGroupsTool = {
 			kind: "architect" as const,
 			authority: scope,
 		};
-		const target = input.target
-			? await readGroupTarget({ scope, grant }, input.target)
-			: undefined;
-		const data = await withAppTx(
-			async (tx) => {
-				await authorizeAgentScopeInTransaction(tx, scope, "edit");
-				if (ctx.dataGrant)
-					await lockProjectDataGrant(
-						tx,
-						scope.actorId,
-						ctx.dataGrant,
-						NOVA_MCP_FLOOR_SCOPES,
-					);
-				return readGroupDirectory(tx, scope.projectId, input);
-			},
-			{ isolationLevel: "repeatable read" },
-		);
-		return { kind: "read", data: { ...data, target } };
+		try {
+			const target = input.target
+				? await readGroupTarget({ scope, grant }, input.target)
+				: undefined;
+			const data = await withAppTx(
+				async (tx) => {
+					await authorizeAgentScopeInTransaction(tx, scope, "edit");
+					if (ctx.dataGrant)
+						await lockProjectDataGrant(
+							tx,
+							scope.actorId,
+							ctx.dataGrant,
+							NOVA_MCP_FLOOR_SCOPES,
+						);
+					return readGroupDirectory(tx, scope.projectId, input);
+				},
+				{ isolationLevel: "repeatable read" },
+			);
+			return { kind: "read", data: { ...data, target } };
+		} catch (error) {
+			if (error instanceof LookupError)
+				return { kind: "read", data: lookupFailure(error) };
+			throw error;
+		}
 	},
 };
 export const editWorkerGroupTool = {

@@ -1,6 +1,8 @@
 import { sql } from "kysely";
 import { v7 } from "uuid";
 import { beforeEach, expect, it } from "vitest";
+import { getWorkerGroupsTool } from "@/lib/agent/tools/workerGroups";
+import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import {
 	canonicalTestBlueprint,
 	setupAppStateTestDb,
@@ -258,3 +260,24 @@ function revisionsOf<T>(revisions: T | undefined): T {
 		throw new Error("The saved table returned no revisions.");
 	return revisions;
 }
+
+it("answers an agent's read of a group that no longer exists with the refusal, not a tool failure", async () => {
+	const context = {
+		appId: scope.appId,
+		projectId: scope.projectId,
+		userId: scope.actorUserId,
+		runId: "worker-groups-run",
+		invocation: {
+			requestId: "worker-groups-read",
+			invocationOrdinal: 0,
+			toolName: "getWorkerGroups",
+		},
+	} as unknown as ToolInvocationContext;
+	const gone = asUuid(v7());
+	expect(
+		await getWorkerGroupsTool.execute({ search: {}, groupId: gone }, context),
+	).toEqual({
+		kind: "read",
+		data: expect.objectContaining({ success: false, code: "not_found" }),
+	});
+});
