@@ -334,7 +334,7 @@ describe("case-list author command boundaries", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it.each(["select", "multi-select"])(
+	it.each(["select", "multi-select", "checkboxes"])(
 		"requires lookup options for %s inputs on both authored arms",
 		(type) => {
 			const options = {

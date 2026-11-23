@@ -480,6 +480,7 @@ function searchAnswerField(
 				optionsSource: input.options,
 				default_value,
 			};
+		case "checkboxes":
 		case "multi-select":
 			return {
 				kind: "multi_select",

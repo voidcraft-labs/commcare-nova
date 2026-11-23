@@ -132,6 +132,7 @@ export const promptLookupFixtures = buildLookupFixtures(
 );
 export const promptScenarios = [
 	"prompt-widgets",
+	"prompt-checkboxes",
 	"prompt-guards",
 	"prompt-dataflow",
 ] as const;
@@ -228,6 +229,37 @@ export function searchPromptFixture(scenario: PromptScenario) {
 				"hidden",
 				"Hidden value",
 				term(literal("secret")),
+			),
+		];
+	} else if (scenario === "prompt-checkboxes") {
+		declareWorkerProperties(doc, ["region_group"]);
+		config.searchInputs = [
+			simpleSearchInputDef(
+				id.regions,
+				"regions",
+				"Regions",
+				"checkboxes",
+				"regions",
+				{
+					options: {
+						kind: "lookup",
+						tableId,
+						valueColumnId: valueId,
+						labelColumnId: labelId,
+						filter: eq(
+							tableColumn(tableId, groupId),
+							sessionUser("region_group"),
+						),
+					},
+					default: term(literal("north")),
+				},
+			),
+			simpleSearchInputDef(
+				id.first_name,
+				"first_name",
+				"Name",
+				"text",
+				"first_name",
 			),
 		];
 	} else if (scenario === "prompt-dataflow") {

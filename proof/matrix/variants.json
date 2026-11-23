@@ -33818,12 +33818,13 @@
 		"id": "hq-search/checkbox-field",
 		"base": "hq-search",
 		"entry": "case-search/input-checkbox-itemset",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/5/type",
+				"value": "checkboxes"
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/5",

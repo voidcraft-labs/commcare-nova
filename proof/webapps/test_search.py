@@ -244,6 +244,39 @@ def test_web_apps_lists_a_lookup_prompts_choices_in_label_order(
     assert prompts["Region"] == prompts["Regions"] == ["East", "North & coast"]
 
 
+CHECKED_REGIONS = """() => [...document.querySelectorAll("fieldset.query-field input[type=checkbox]")].map(box =>
+    [box.value, box.labels[0].textContent.trim(), box.checked])"""
+
+
+def test_web_apps_submits_the_checked_regions_in_their_displayed_order(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    document = webapps_documents["prompt-checkboxes"]
+    database = casedata.document_case_database(document)
+    database = dataclasses.replace(
+        database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
+    )
+    opening = [*steps.open_app("Inline"), *steps.choose("Followup"), steps.SCREEN]
+    checking = steps.type_prompt(0, "east#,#north")
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *opening, {"eval": CHECKED_REGIONS}, *checking, {"eval": CHECKED_REGIONS},
+                *steps.run_search(), steps.SCREEN,
+            ])
+    boxes = [run.value(len(opening)), run.value(len(opening) + 1 + len(checking))]
+    requests = _menu_requests(run)
+    submitted = [entry["inputs"]["regions"] for request in requests if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    evidence("checkbox-search", {"boxes": boxes, "submitted": submitted})
+    assert run.page_errors == []
+    assert boxes == [
+        [["east", "East", False], ["north", "North & coast", True]],
+        [["east", "East", True], ["north", "North & coast", True]],
+    ]
+    assert submitted == ["east#,#north"], requests
+
+
 DEFAULT_SEARCH = "targeted-search-workflow"
 TO_RECENT = steps.path(steps.open_app("Search workflows"), steps.choose("Recent patients"))
 TYPED = "Amina"

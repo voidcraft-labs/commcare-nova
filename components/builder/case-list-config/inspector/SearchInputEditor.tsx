@@ -135,6 +135,7 @@ import {
 	type RelationPath,
 	relationStep,
 } from "@/lib/domain/expression";
+import { takesMultipleSearchChoices } from "@/lib/domain/modules";
 import {
 	type Platform,
 	type PlatformFeatureId,
@@ -428,7 +429,7 @@ function VisibleSearchInputEditor({
 			setNameRefusal(grammarRefusal);
 			return;
 		}
-		if (value.kind === "simple" && value.type === "multi-select") {
+		if (value.kind === "simple" && takesMultipleSearchChoices(value.type)) {
 			const refusal = multiSelectSearchInputRefusal({ ...value, name });
 			if (refusal !== undefined) {
 				setNameRefusal(refusal);
@@ -441,7 +442,7 @@ function VisibleSearchInputEditor({
 	/* The reason a multiple-choice widget is withheld from this row, if any:
 	 * the same verdict the commit gate applies. */
 	const multiSelectRefusal =
-		value.kind === "simple" && value.type !== "multi-select"
+		value.kind === "simple" && !takesMultipleSearchChoices(value.type)
 			? multiSelectSearchInputRefusal(value)
 			: undefined;
 	/* The field types a platform the app runs on can't show, each with that
@@ -632,7 +633,7 @@ function VisibleSearchInputEditor({
 			const typeAllowed =
 				(SEARCH_INPUT_TYPE_PROPERTY_TYPES[value.type]?.includes(dataType) ??
 					true) &&
-				(value.type !== "multi-select" ||
+				(!takesMultipleSearchChoices(value.type) ||
 					multiSelectSearchInputRefusal({
 						name: patch.name ?? value.name,
 						property,
@@ -951,7 +952,7 @@ function VisibleSearchInputEditor({
 					<FieldRow
 						label="Choices"
 						hint={
-							value.type === "multi-select"
+							takesMultipleSearchChoices(value.type)
 								? "People tick any that apply, and a case matches when it holds one of them"
 								: "People pick one, and a case matches when it holds that value"
 						}
@@ -2041,7 +2042,7 @@ function TypePicker({
 						// than selectable into a validation error.
 						const refusal =
 							platformRefusals[t] ??
-							(t === "multi-select" ? multiSelectRefusal : undefined);
+							(takesMultipleSearchChoices(t) ? multiSelectRefusal : undefined);
 						const admitted =
 							refusal === undefined &&
 							(propertyDataType === undefined ||

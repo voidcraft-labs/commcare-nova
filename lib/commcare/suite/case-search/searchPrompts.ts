@@ -179,6 +179,7 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 	select: { input: "select1" },
 	// Several choices, stored as one `#,#`-joined answer.
 	"multi-select": { input: "select" },
+	checkboxes: { input: "checkbox" },
 };
 
 // ── Shared prompt projection ─────────────────────────────────────

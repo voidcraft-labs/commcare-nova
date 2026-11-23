@@ -25,6 +25,7 @@ DOCUMENTS = (
     "localization-bilingual",
     "media-only",
     "navigation-base",
+    "prompt-checkboxes",
     "prompt-widgets",
     "search-browse",
     "targeted-capture-widgets",

@@ -160,6 +160,26 @@ public class SearchPromptRuntimeTest {
             assertEquals(Collections.singletonList("south"), new ArrayList<>(manager.getRawQueryParams(false).get("region")));
         }
     }
+    @Test public void checkboxAnswersTrackAvailableRowsOnBothWorkers() throws Exception {
+        for (boolean hq : new boolean[]{false, true}) {
+            for (List<String> widgets : Arrays.asList(Arrays.asList("checkbox", "daterange", "select1"),
+                    Arrays.asList("checkbox", "date", "daterange", "select", "select1"))) {
+                Data data = new Data();
+                RemoteQuerySessionManager manager = manager("prompt-checkboxes", hq, data, "search_command.m0", widgets);
+                assertEquals(Arrays.asList("east:East", "north:North & coast"), choices(manager, "regions"));
+                assertEquals("north", manager.getUserAnswers().get("regions"));
+                answer(manager, "regions", "east#,#north");
+                assertEquals(Arrays.asList("east", "north"), new ArrayList<>(manager.getRawQueryParams(false).get("regions")));
+                data.regionGroup.setValue(new StringData("B"));
+                manager.refreshInputDependentState();
+                assertEquals(Collections.singletonList("south:South"), choices(manager, "regions"));
+                assertFalse(manager.getUserAnswers().containsKey("regions"));
+                assertFalse(manager.getRawQueryParams(false).containsKey("regions"));
+                answer(manager, "regions", "south");
+                assertEquals(Collections.singletonList("south"), new ArrayList<>(manager.getRawQueryParams(false).get("regions")));
+            }
+        }
+    }
     @Test public void lookupChoicesFollowTheirLabelsByCodeUnitKeepingTiesInRowOrder() throws Exception {
         List<String> expected = Arrays.asList("row_6:10", "row_7:9", "row_1:B", "row_4:Z", "row_2:a", "row_5:a", "row_8:a", "row_0:b", "row_3:\u00e9");
         for (boolean hq : new boolean[]{false, true}) {

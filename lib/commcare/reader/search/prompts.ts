@@ -149,11 +149,15 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}input-select-multi-lookup-itemset`,
 		"schema:CaseSearchProperty.itemset",
 	),
+	itemsetCheckbox: take(
+		`${S}input-checkbox-itemset`,
+		"schema:CaseSearchProperty.itemset",
+	),
 	reports: refuse(
 		`${S}input-select1-select-commcare-reports-itemset-mobile-ucr`,
 		"schema:CaseSearchProperty.input_",
 	),
-	checkbox: refuse(
+	checkbox: take(
 		`${S}input-checkbox-itemset`,
 		"schema:CaseSearchProperty.input_",
 	),
@@ -732,9 +736,23 @@ function readPrompt(
 		} else if (input === "daterange") {
 			prompt.take("input_", P.dateRange, String).value;
 			type = "date-range";
-		} else if (input === "checkbox")
-			cover(prompt, ["itemset"], refuseWith("input_", P.checkbox));
-		else if (input === "select1" || input === "select") {
+		} else if (
+			input === "select1" ||
+			input === "select" ||
+			input === "checkbox"
+		) {
+			const widget =
+				input === "select1"
+					? P.select1
+					: input === "checkbox"
+						? P.checkbox
+						: P.select;
+			const binding =
+				input === "select1"
+					? P.itemset
+					: input === "checkbox"
+						? P.itemsetCheckbox
+						: P.itemsetMulti;
 			const itemset = prompt.peek("itemset");
 			const instance = isJsonObject(itemset) ? itemset.instance_id : undefined;
 			// The scheme HQ's build checks, where the itemset names an instance
@@ -762,11 +780,7 @@ function readPrompt(
 					unrecognizedAt("schema:CaseSearchProperty.itemset"),
 				);
 			else {
-				const cursor = prompt.object(
-					"itemset",
-					"Itemset",
-					input === "select1" ? P.itemset : P.itemsetMulti,
-				);
+				const cursor = prompt.object("itemset", "Itemset", binding);
 				const label = fieldName(itemset.label);
 				const value = fieldName(itemset.value);
 				const sortText = itemset.sort;
@@ -812,11 +826,7 @@ function readPrompt(
 					ctx.facts.unreadTables.push({ tag: source.tag, place });
 					unreadTable = source.tag;
 					refused = true;
-					prompt.take(
-						"input_",
-						input === "select1" ? P.select1 : P.select,
-						String,
-					).value;
+					prompt.take("input_", widget, String).value;
 					cursor.take("nodeset", P.itemsetNodeset, String).value;
 					cursor.take("label", P.itemsetLabel, String).value;
 					cursor.take("value", P.itemsetValue, String).value;
@@ -843,11 +853,7 @@ function readPrompt(
 					cover(cursor, ITEMSET_KEYS, raised);
 					cover(prompt, ["input_"], raised);
 				} else {
-					prompt.take(
-						"input_",
-						input === "select1" ? P.select1 : P.select,
-						String,
-					).value;
+					prompt.take("input_", widget, String).value;
 					itemsetCursor = cursor;
 					cursor.take("instance_id", P.itemsetInstance, String).value;
 					// The table the field's choices read, through Nova's typed carrier.
@@ -864,7 +870,12 @@ function readPrompt(
 					cursor.take("value", P.itemsetValue, String).value;
 					if (sortColumn !== undefined)
 						cursor.take("sort", P.itemsetSort, String).value;
-					type = input === "select1" ? "select" : "multi-select";
+					type =
+						input === "select1"
+							? "select"
+							: input === "checkbox"
+								? "checkboxes"
+								: "multi-select";
 					options = {
 						kind: "lookup",
 						tableId: table.tableId as LookupTableId,

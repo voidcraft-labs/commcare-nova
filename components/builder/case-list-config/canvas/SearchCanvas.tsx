@@ -754,6 +754,7 @@ function AppField({
 					icon={tablerChevronDown}
 				/>
 			);
+		case "checkboxes":
 		case "multi-select":
 			return (
 				<FieldBox

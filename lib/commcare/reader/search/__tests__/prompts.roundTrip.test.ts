@@ -355,7 +355,7 @@ describe("Search fields over a table and over dates", () => {
 		},
 	});
 
-	for (const type of ["select", "multi-select"] as const)
+	for (const type of ["select", "multi-select", "checkboxes"] as const)
 		it(`reads a ${type} field whose choices come from a table, sorted and filtered`, async () => {
 			const inputs: SearchInputDef[] = [
 				{
@@ -442,6 +442,7 @@ describe("Search fields over a table and over dates", () => {
 		"date",
 		"select",
 		"multi-select",
+		"checkboxes",
 	] as const)
 		it(`reads a ${type} field that names exact matching as naming no mode`, async () => {
 			const property = type === "date" ? "dob" : "notes";
@@ -453,7 +454,7 @@ describe("Search fields over a table and over dates", () => {
 				property,
 			};
 			const field = (exact: boolean): SearchInputDef =>
-				type === "select" || type === "multi-select"
+				type === "select" || type === "multi-select" || type === "checkboxes"
 					? {
 							...base,
 							type,

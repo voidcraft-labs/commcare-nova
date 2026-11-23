@@ -150,6 +150,8 @@ export interface PreviewPlatformRules {
 	/** A hidden Search field with a starting value (manifest
 	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
 	readonly hiddenSearchFieldWithDefault: "hidden" | "editable";
+	/** HQ's Web Apps model indexes labels by value; Android enumerates Core's itemset rows. */
+	readonly searchChoiceOrder: "values" | "rows";
 	/** A barcode Search field (manifest `case-search/appearance-barcode-scan`:
 	 *  a plain text box in Web Apps). */
 	readonly barcodeSearchField: "text" | "scan-or-text";
@@ -415,6 +417,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
 		hiddenSearchFieldWithDefault: "hidden",
+		searchChoiceOrder: "values",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
 		searchClear: true,
@@ -483,6 +486,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
 		hiddenSearchFieldWithDefault: "editable",
+		searchChoiceOrder: "rows",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
 		searchClear: false,

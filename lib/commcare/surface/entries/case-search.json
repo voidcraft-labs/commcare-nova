@@ -2362,10 +2362,9 @@
 			"parser:QueryPromptParser/itemset"
 		],
 		"valueClass": "checkbox",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `checkbox` choice widget",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: checkboxes with ordered choices from a Project table",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

@@ -94,6 +94,7 @@ export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
 	barcode: "Barcode",
 	select: "Single choice",
 	"multi-select": "Multiple choice",
+	checkboxes: "Checkboxes",
 };
 
 export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
@@ -103,6 +104,7 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 	barcode: tablerBarcode,
 	select: tablerCircleDot,
 	"multi-select": tablerSquareCheck,
+	checkboxes: tablerSquareCheck,
 };
 
 /** The icon a row wears in the canvas and its drag preview. A hidden value
@@ -121,7 +123,8 @@ export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
 	"date-range": "Two calendars for a start and end date",
 	barcode: "A field for scanning a barcode",
 	select: "A list to pick one choice from a lookup table",
-	"multi-select": "Checkboxes to pick several choices from a lookup table",
+	"multi-select": "A list to pick several choices from a lookup table",
+	checkboxes: "Checkboxes to pick several choices from a lookup table",
 };
 
 /**
@@ -439,6 +442,7 @@ export function expectedTypeForDefault(
 		case "date":
 			return "date";
 		case "select":
+		case "checkboxes":
 		case "multi-select":
 			return "text";
 		case "date-range":
@@ -468,6 +472,7 @@ const CONSTRAINT_FOR_DEFAULT: Record<
 	date: { accepts: compatibleTypesFor("date") },
 	select: { accepts: compatibleTypesFor("text") },
 	"multi-select": { accepts: compatibleTypesFor("text") },
+	checkboxes: { accepts: compatibleTypesFor("text") },
 };
 
 export function constraintForDefault(
@@ -485,6 +490,7 @@ export function seedDefaultExpression(
 		case "text":
 		case "barcode":
 		case "select":
+		case "checkboxes":
 		case "multi-select":
 			return term(literal(""));
 	}
