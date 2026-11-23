@@ -355,7 +355,7 @@ export function hashtagSource(
 }
 
 /** /data/... path completions — uses Child/Descendant + NameTest tree nodes. */
-function dataPathSource(
+export function dataPathSource(
 	getReference: () => FormReferenceContext | undefined,
 ): (ctx: CompletionContext) => CompletionResult | null {
 	return (ctx) => {
@@ -371,10 +371,13 @@ function dataPathSource(
 			left = left.firstChild;
 		const firstNameTest = left.getChild("NameTest");
 		if (!firstNameTest) return null;
-		if (state.doc.sliceString(firstNameTest.from, firstNameTest.to) !== "data")
+		const reference = getReference();
+		if (
+			state.doc.sliceString(firstNameTest.from, firstNameTest.to) !==
+			(reference?.rootName ?? "data")
+		)
 			return null;
 
-		const reference = getReference();
 		// No form paths after the form has closed: same rule as `#form/`.
 		if (!reference || reference.scope === "session") return null;
 

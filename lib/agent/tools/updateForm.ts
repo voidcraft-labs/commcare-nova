@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
 import { formLogicSchema } from "@/lib/domain/expression/types";
+import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	refineFormConnectMutations,
@@ -55,6 +56,12 @@ export const updateFormInputSchema = formAddressSchema
 			.min(1)
 			.optional()
 			.describe("New form name. Leave it out to keep the current name."),
+		answerRoot: formRootNameSchema
+			.nullable()
+			.optional()
+			.describe(
+				"The first name in every submitted answer address. Set this when an existing reporting or data workflow expects a particular name. Null restores data.",
+			),
 		purpose: z
 			.string()
 			.nullable()
@@ -149,6 +156,7 @@ export const updateFormTool = {
 			moduleUuid: rawModuleUuid,
 			formUuid: rawFormUuid,
 			name,
+			answerRoot,
 			purpose,
 			recordName,
 			open_condition,
@@ -181,6 +189,8 @@ export const updateFormTool = {
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
+			if (answerRoot !== undefined)
+				patch.dataRootName = answerRoot === "data" ? null : answerRoot;
 			if (purpose !== undefined) patch.purpose = purpose;
 			if (plain_text !== undefined)
 				patch.plainText = plain_text === true ? true : null;

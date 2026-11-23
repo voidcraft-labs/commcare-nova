@@ -28,6 +28,7 @@ import {
 	placementIneligibility,
 	planPlacements,
 } from "@/lib/commcare/placement";
+import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import {
 	type PreparedMutationCandidate,
 	preparedCandidateHasAdmissionIssue,
@@ -88,6 +89,11 @@ export { documentHoldsIdentity };
 /** What an identity move is about. Every UUID is the entity's own. */
 export type IdentityMoveSubject =
 	| {
+			readonly kind: "submitted-question";
+			readonly formUuid: Uuid;
+			readonly fieldUuid: Uuid;
+	  }
+	| {
 			readonly kind: "case-operation";
 			readonly formUuid: Uuid;
 			readonly operationUuid: Uuid;
@@ -105,6 +111,7 @@ export type IdentityMoveSubject =
  *  model iteration cannot run for a query repeat, or why a menu's kind
  *  moves. */
 export type IdentityMoveReason =
+	| { readonly source: "submitted-question" }
 	| {
 			readonly source: "case-placement";
 			readonly reason: PlacementIneligibility;
@@ -159,6 +166,11 @@ export interface IdentityMoveReport {
 
 export const identityMoveSubjectSchema = z.discriminatedUnion("kind", [
 	z.strictObject({
+		kind: z.literal("submitted-question"),
+		formUuid: uuidSchema,
+		fieldUuid: uuidSchema,
+	}),
+	z.strictObject({
 		kind: z.literal("case-operation"),
 		formUuid: uuidSchema,
 		operationUuid: uuidSchema,
@@ -192,7 +204,19 @@ export function withIdentityMoves(
 	batch: readonly Mutation[],
 	options: IdentityMoveOptions = {},
 ): IdentityMovePlan {
-	if (!documentHoldsIdentity(doc))
+	if (
+		!documentHoldsIdentity(doc) &&
+		!(
+			doc.publishedQuestions?.length &&
+			batch.some(
+				(m) =>
+					m.kind === "moveField" ||
+					m.kind === "convertField" ||
+					m.kind === "updateField" ||
+					m.kind === "updateForm",
+			)
+		)
+	)
 		return {
 			batch,
 			moves: [],
@@ -388,6 +412,20 @@ function withoutHoldsFor(
 	return kept;
 }
 
+/** Published identities name the actual submitted column. In particular a
+ * query repeat's row has its own element between the wrapper and its fields. */
+function submittedAnswerPaths(doc: BlueprintDoc) {
+	const forms = new Map<Uuid, ReturnType<typeof collectFieldLocations>>();
+	return (formUuid: Uuid, fieldUuid: Uuid) => {
+		let fields = forms.get(formUuid);
+		if (fields === undefined) {
+			fields = collectFieldLocations(doc, formUuid);
+			forms.set(formUuid, fields);
+		}
+		return fields.get(fieldUuid)?.path.toXPath();
+	};
+}
+
 /**
  * Every held identity `after` keeps in another place than `before` does,
  * with the reason the earlier place no longer expresses it: first each
@@ -406,6 +444,30 @@ export function identityMovesBetween(
 ): readonly IdentityMove[] {
 	const recorded = options.recorded ?? NO_RECORDED_HOLDS;
 	const moves: IdentityMove[] = [...carriedCreateKindMoves(before, after)];
+	if (
+		before.publishedQuestions?.length &&
+		(before.fields !== after.fields ||
+			before.fieldOrder !== after.fieldOrder ||
+			before.forms !== after.forms)
+	) {
+		const previous = submittedAnswerPaths(before);
+		const current = submittedAnswerPaths(after);
+		for (const fieldUuid of before.publishedQuestions) {
+			const oldForm = formOfField(before, fieldUuid);
+			const formUuid = formOfField(after, fieldUuid);
+			if (oldForm === undefined || formUuid === undefined) continue;
+			const oldPath = previous(oldForm, fieldUuid);
+			const newPath = current(formUuid, fieldUuid);
+			if (oldPath === undefined || newPath === undefined || oldPath === newPath)
+				continue;
+			moves.push({
+				subject: { kind: "submitted-question", formUuid, fieldUuid },
+				from: { answerPath: oldPath },
+				to: { answerPath: newPath },
+				reason: { source: "submitted-question" },
+			});
+		}
+	}
 	for (const change of placementHoldChanges(before, after)) {
 		if (change.from === null || holdChangeRestores(change, recorded)) continue;
 		const move = moveOfChange(after, change);

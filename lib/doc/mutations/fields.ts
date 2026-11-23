@@ -13,6 +13,7 @@ import {
 	pickFieldKeysForKind,
 	reconcileFieldForKind,
 } from "@/lib/domain";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import {
 	cascadeDeleteField,
 	findContainingForm,
@@ -174,13 +175,70 @@ export function applyFieldMutation(
 		}
 		case "moveField": {
 			const field = draft.fields[mut.uuid];
-			if (!field) return;
-			if (mut.after === mut.uuid) return;
+			if (!field || mut.after === mut.uuid) return;
+			const doc = draft as unknown as BlueprintDoc;
+			const form =
+				mut.where === undefined ? undefined : findContainingForm(doc, mut.uuid);
+			const layout =
+				form === undefined
+					? undefined
+					: submissionLayout(form, doc.fields, doc.fieldOrder);
+			const previous = layout?.parents.get(mut.uuid);
+			const keepOrder = (parent: Uuid, sequence: readonly Uuid[]) => {
+				const screen = draft.fieldOrder[parent] ?? [];
+				const together =
+					screen.length === sequence.length &&
+					screen.every((uuid, index) => uuid === sequence[index]);
+				for (const [position, uuid] of sequence.entries()) {
+					const member = draft.fields[uuid];
+					if (member === undefined) continue;
+					if (together) delete member.submissionPlacement;
+					else member.submissionPlacement = { parent, position };
+				}
+			};
+			if (mut.where === "submission") {
+				if (
+					layout === undefined ||
+					previous === undefined ||
+					!layout.children.has(mut.toParentUuid)
+				)
+					return;
+				const siblings = layout.children.get(mut.toParentUuid) ?? [];
+				if (mut.after !== null && !siblings.includes(mut.after)) return;
+				if (previous !== mut.toParentUuid)
+					keepOrder(
+						previous,
+						(layout.children.get(previous) ?? []).filter(
+							(uuid) => uuid !== mut.uuid,
+						),
+					);
+				keepOrder(
+					mut.toParentUuid,
+					spliceAfter([...siblings], mut.uuid, mut.after),
+				);
+				return;
+			}
 			if (
 				mut.after != null &&
 				!(draft.fieldOrder[mut.toParentUuid] ?? []).includes(mut.after)
 			)
 				return;
+			const preserveSubmitted = () => {
+				if (layout === undefined || previous === undefined) return;
+				const originalScreen = layout.controlParents.get(mut.uuid);
+				if (
+					originalScreen !== undefined &&
+					originalScreen !== previous &&
+					originalScreen !== mut.toParentUuid
+				)
+					keepOrder(originalScreen, layout.children.get(originalScreen) ?? []);
+				keepOrder(previous, layout.children.get(previous) ?? []);
+				if (previous !== mut.toParentUuid)
+					keepOrder(
+						mut.toParentUuid,
+						layout.children.get(mut.toParentUuid) ?? [],
+					);
+			};
 			// A same-parent move is a pure reorder. A cross-parent move needs
 			// the complete destination, subtree, and same-form checks below.
 			const currentParent = findFieldParent(
@@ -193,6 +251,7 @@ export function applyFieldMutation(
 					mut.uuid,
 					mut.after,
 				);
+				preserveSubmitted();
 				return;
 			}
 			const destIsForm = draft.forms[mut.toParentUuid] !== undefined;
@@ -268,6 +327,7 @@ export function applyFieldMutation(
 				mut.uuid,
 				mut.after,
 			);
+			preserveSubmitted();
 			return;
 		}
 		case "convertField": {

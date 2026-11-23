@@ -1,3 +1,4 @@
+import { caseSlotFacts } from "@/lib/domain/basicCaseSlots";
 /**
  * The rules over held placements: where a published app already keeps a
  * form's case changes in CommCare HQ (`CaseOperation.placement`,
@@ -317,7 +318,9 @@ function blockPathFindings(
 		const here = saveToCase.filter((held) => held.repeat === repeat);
 		// The scope's own namespace: its authored questions and, at the root,
 		// the form's Connect blocks, beside each held path's first segment.
-		const questionUuids = doc.fieldOrder[repeat ?? formUuid] ?? [];
+		const questionUuids =
+			caseSlotFacts(doc, formUuid).submittedChildren.get(repeat ?? formUuid) ??
+			[];
 		const questions = questionUuids.flatMap((uuid) => {
 			const field = doc.fields[uuid];
 			return field === undefined ? [] : [field];
@@ -511,12 +514,13 @@ function appendedNameFindings(
 	}
 	const errors: ValidationError[] = [];
 	for (const [repeat, names] of byScope) {
-		const questions = (doc.fieldOrder[repeat ?? formUuid] ?? []).flatMap(
-			(uuid) => {
-				const field = doc.fields[uuid];
-				return field === undefined ? [] : [field];
-			},
-		);
+		const questions = (
+			caseSlotFacts(doc, formUuid).submittedChildren.get(repeat ?? formUuid) ??
+			[]
+		).flatMap((uuid) => {
+			const field = doc.fields[uuid];
+			return field === undefined ? [] : [field];
+		});
 		const connectIds =
 			repeat === undefined ? [...formConnectIds(doc, formUuid)] : [];
 		const scopeTaken = new Set<string>([
@@ -648,8 +652,25 @@ export function validateCasePlacements(
 		operations: orderedCaseOperations(form),
 	};
 	const holds = holdsOf(ctx, form.ownClosePlacement);
+	const consumed = holds.flatMap((hold) => {
+		if (
+			hold.placement.kind !== "save-to-case" ||
+			!hold.placement.path.some((segment) => segment.toLowerCase() === "case")
+		)
+			return [];
+		return [
+			placementError(
+				ctx,
+				"SUBMITTED_CASE_CHANGE_WRAPPER",
+				"A group around a saved case change uses the ID case. Workers read that group as a second case change. Move the change to a group with a different ID.",
+				hold.operation,
+				{ slot: "placement" },
+			),
+		];
+	});
 	if (holds.length === 0) return [];
 	return [
+		...consumed,
 		...inexpressibleFindings(ctx, planPlacements(doc, formUuid).inexpressible),
 		...sharedFindings(ctx, holds),
 		...blockPathFindings(ctx, holds),

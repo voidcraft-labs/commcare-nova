@@ -302,10 +302,15 @@ export async function evaluateFormSnapshot(
 	const fieldsByPath = new Map(
 		Object.values(engineInput.fields)
 			.filter((field) => findContainingForm(doc, field.uuid) === input.formUuid)
-			.map((field) => [`/data/${computeFieldPath(doc, field.uuid)}`, field]),
+			.map((field) => [
+				`${engine.rootPath}/${computeFieldPath(doc, field.uuid)}`,
+				field,
+			]),
 	);
 	const normalizePath = (path: string) =>
-		path.startsWith("/data/") ? path : `/data/${path.replace(/^#form\//, "")}`;
+		path.startsWith(`${engine.rootPath}/`)
+			? path
+			: `${engine.rootPath}/${path.replace(/^#form\//, "")}`;
 	const fieldAt = (path: string) =>
 		fieldsByPath.get(path.replace(/\[\d+\]/g, ""));
 	const checkChoiceAnswers = () => {
@@ -347,7 +352,7 @@ export async function evaluateFormSnapshot(
 				 * changes nothing; a uuid that is no section of the form refuses
 				 * as it does on Android. */
 				const named = engine
-					.getFieldTree()
+					.getControlTree()
 					.some(
 						(node) =>
 							node.field.kind === "section" && node.field.uuid === sectionUuid,
@@ -381,40 +386,51 @@ export async function evaluateFormSnapshot(
 				? undefined
 				: engine
 						.formScreens()
-						.find(
-							(screen) =>
-								path === screen.path ||
-								path.startsWith(`${screen.path}/`) ||
-								path.startsWith(`${screen.path}[`),
-						);
-		for (const repeat of input.repeats ?? []) {
+						.find((screen) => engine.containsControl(screen.path, path));
+		for (const repeat of [...(input.repeats ?? [])].sort(
+			(a, b) => a.path.split("/").length - b.path.split("/").length,
+		)) {
 			const path = normalizePath(repeat.path);
 			const field = fieldAt(path);
 			if (field?.kind !== "repeat" || field.repeat_mode !== "user_controlled")
 				throw new FormEvaluationInputError(
 					`Repeat ${repeat.path} is unavailable or its rows are calculated.`,
 				);
-		}
-		if (input.repeats?.length)
-			await engine.restoreRepeatCountSnapshotAsync(
-				new Map(
-					(input.repeats ?? []).map(({ path, count }) => [
-						normalizePath(path),
-						count,
-					]),
-				),
-				evaluate,
-			);
-		for (const repeat of input.repeats ?? []) {
-			// A requested row CommCare refuses to insert stops this evaluation,
-			// as the refused insert stops the running app's action.
-			const path = normalizePath(repeat.path);
-			const state = engine.getState(path);
-			if (
-				state.insertRefusal !== undefined &&
-				engine.getRepeatCount(path) < repeat.count
-			)
-				throw new SetvalueRefusal(state.insertRefusal);
+			if (!engine.materializePaths(path).includes(path))
+				throw new FormEvaluationInputError(
+					`Repeat ${repeat.path} needs its containing entry first.`,
+				);
+			const checkAccess = async (action: "add" | "remove") => {
+				if (
+					!(await engine.workerCanEditRepeatAsync(
+						path,
+						field.uuid,
+						action,
+						evaluate,
+					))
+				)
+					throw new FormEvaluationInputError(
+						`Open the page with repeat ${repeat.path} before changing its entries.`,
+					);
+			};
+			while (engine.getRepeatCount(path) < repeat.count) {
+				await checkAccess("add");
+				if ((await engine.addRepeatAsync(path, evaluate)) === undefined) {
+					const refusal = engine.getState(path).insertRefusal;
+					if (refusal) throw new SetvalueRefusal(refusal);
+					throw new FormEvaluationInputError(
+						`Repeat ${repeat.path} could not add an entry.`,
+					);
+				}
+			}
+			while (engine.getRepeatCount(path) > repeat.count) {
+				await checkAccess("remove");
+				await engine.removeRepeatAsync(
+					path,
+					engine.getRepeatCount(path) - 1,
+					evaluate,
+				);
+			}
 		}
 		for (const answer of input.answers) {
 			checkChoiceAnswers();
@@ -436,17 +452,34 @@ export async function evaluateFormSnapshot(
 				} else await engine.enterScreenAsync(screen.path, evaluate);
 			}
 			const field = fieldAt(path);
+			if (field && !engine.materializePaths(path).includes(path)) {
+				throw new FormEvaluationInputError(
+					`Answer ${answer.path} needs an entry in its repeating group. Add that entry before answering its questions.`,
+				);
+			}
 			if (
 				!field ||
 				!Object.hasOwn(engine.store.getState(), path) ||
-				!engine.effectivelyVisiblePaths().has(path) ||
+				!engine.workerRelevantPaths().has(path) ||
 				isContainer(field) ||
 				field.kind === "hidden" ||
-				field.kind === "label" ||
+				(field.kind === "label" &&
+					(!field.askForConfirmation ||
+						previewPlatformRules(context.device.platform)
+							.messageConfirmation !== "checkbox")) ||
 				isCaptureFieldKind(field.kind)
 			) {
 				throw new FormEvaluationInputError(
 					`Answer ${answer.path} is not an editable question in this form. Media capture requires the running app.`,
+				);
+			}
+			if (
+				field.kind === "label" &&
+				answer.value !== "OK" &&
+				answer.value !== ""
+			) {
+				throw new FormEvaluationInputError(
+					"Use OK to check the message or an empty answer to clear it.",
 				);
 			}
 			await engine.setValueAsync(
@@ -486,16 +519,27 @@ export async function evaluateFormSnapshot(
 			!context.captureEntry ||
 			visibleScreens.length === 0 ||
 			visibleScreens.at(-1)?.current === true;
-		/* Formplayer rebuilds the session before it validates a submission. */
-		await engine.prepareSubmitAsync(evaluate);
-		checkChoiceAnswers();
-		const valid = await engine.validateAllAsync(evaluate);
+		const submitting =
+			!context.captureEntry || (context.submitEntry === true && canSubmit);
+		// A standalone form check proposes a submission. A retained test only
+		// commits the current entry when the worker chooses Submit on its last page.
+		let valid: boolean;
+		if (submitting) {
+			await engine.prepareSubmitAsync(evaluate);
+			checkChoiceAnswers();
+			valid = await engine.validateAllAsync(evaluate);
+		} else {
+			valid = await engine.observeValidationAsync(evaluate);
+		}
 		const relevantPaths = engine.effectivelyVisiblePaths();
+		const workerRelevant = engine.workerRelevantPaths();
 		const presentation = projectFormPresentation(
-			engine.getFieldTree(),
-			{ stateAt: (_field, path) => engine.getState(path) },
+			engine.getControlTree(),
+			{ stateAt: (_field, path) => engine.getState(path), workerRelevant },
 			{
 				language: engineInput.language,
+				containsControl: engine.containsControl,
+				rootPath: engine.rootPath,
 				/* A sectioned form on Android pages by section; every other
 				 * form's page is its current screen (the whole form on Web
 				 * Apps). */
@@ -503,7 +547,7 @@ export async function evaluateFormSnapshot(
 				screens.length > 0 &&
 				screens.every((screen) => screen.kind === "section")
 					? { currentSectionUuid: engine.currentSectionUuid() }
-					: { currentScreenPath: currentScreenPath ?? "/data" }),
+					: { currentScreenPath: currentScreenPath ?? engine.rootPath }),
 				availableSectionUuids: new Set(
 					sections
 						.filter(
@@ -551,8 +595,8 @@ export async function evaluateFormSnapshot(
 					retainedValue?: typeof value;
 				} = relevant ? { value } : { retainedValue: value };
 				return {
-					path: path.replace(/^\/data\//, ""),
-					parentPath: parentPath.replace(/^\/data\/?/, ""),
+					path: path.slice(engine.rootPath.length + 1),
+					parentPath: parentPath.slice(engine.rootPath.length + 1),
 					depth,
 					...(position === undefined ? {} : { position }),
 					...(sectionUuid === undefined ? {} : { sectionUuid }),
@@ -564,9 +608,11 @@ export async function evaluateFormSnapshot(
 					participates: relevant,
 					...observedAnswer,
 					visible: relevant && visible,
-					required: relevant && required,
-					valid: !relevant || valid,
-					...(relevant && errorMessage ? { error: errorMessage } : {}),
+					required: workerRelevant.has(path) && required,
+					valid: !workerRelevant.has(path) || valid,
+					...(workerRelevant.has(path) && errorMessage
+						? { error: errorMessage }
+						: {}),
 					label,
 					hint,
 					help,
@@ -615,7 +661,7 @@ export async function evaluateFormSnapshot(
 			sections,
 			screens,
 			canSubmit,
-			...(valid && canSubmit
+			...(submitting && valid && canSubmit
 				? {
 						submission: engine.computeSubmissionMutation({
 							caseIds: ids,

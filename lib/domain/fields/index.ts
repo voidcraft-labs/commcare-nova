@@ -136,7 +136,7 @@ export type FieldKind = (typeof fieldKinds)[number];
 /**
  * The capture kinds — every kind whose answer is an attachment rather
  * than a value the worker types. They share one schema shape (label +
- * hint + required + relevant; no validation, no default; a case
+ * hint, help, required, relevant, validation and a starting value; a case
  * operation saves a link to the file through a `capture-link` write
  * value) and one wire shape
  * (`<upload mediatype>` over a `binary` bind).

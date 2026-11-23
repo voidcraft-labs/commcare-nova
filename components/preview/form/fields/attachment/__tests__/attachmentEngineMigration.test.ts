@@ -310,6 +310,8 @@ describe("admitted engine edits through the attachment HTTP adapter", () => {
 				{ [FORM_UUID]: [A, B], [A]: [C], [B]: [] },
 			);
 			h.controller.addRepeat(A);
+			h.controller.addRepeat(A);
+			h.controller.addRepeat(B);
 			ownSlot(h.entryKey, "left-0", C, "/data/left[0]/photo");
 			ownSlot(h.entryKey, "left-1", C, "/data/left[1]/photo");
 			replyToMove(
@@ -348,6 +350,8 @@ describe("admitted engine edits through the attachment HTTP adapter", () => {
 				],
 				{ [FORM_UUID]: [A, B], [A]: [], [B]: [C] },
 			);
+			h.controller.addRepeat(A);
+			h.controller.addRepeat(B);
 			h.controller.addRepeat(B);
 			for (const index of [0, 1]) {
 				ownSlot(

@@ -62,6 +62,7 @@ import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import { datumRefKey } from "@/lib/domain/expression/types";
 import { freeQuestionId } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { type ValidationError, validationError } from "../errors";
 import {
 	checkErrorDetails,
@@ -1248,7 +1249,11 @@ function rootFieldNamesConnectBlock(
 	if (connectIds.size === 0) return [];
 	const taken = formRootTakenIds(doc, ctx.formUuid);
 	const errors: ValidationError[] = [];
-	for (const uuid of doc.fieldOrder[ctx.formUuid] ?? []) {
+	for (const uuid of submissionLayout(
+		ctx.formUuid,
+		doc.fields,
+		doc.fieldOrder,
+	).children.get(ctx.formUuid) ?? []) {
 		const field = doc.fields[uuid];
 		if (field === undefined || !connectIds.has(field.id)) continue;
 		const suggestedId = freeQuestionId(field.id, taken);
@@ -1276,9 +1281,20 @@ function duplicateFieldIds(
 	ctx: FormContext,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const layout = submissionLayout(ctx.formUuid, doc.fields, doc.fieldOrder);
+	for (const [uuid, reason] of layout.problems) {
+		const field = doc.fields[uuid];
+		errors.push(
+			validationError("FIELD_SUBMISSION_PLACEMENT", "field", reason, {
+				...baseLocation(ctx),
+				fieldUuid: uuid,
+				fieldId: field.id,
+			}),
+		);
+	}
 	const walk = (parentUuid: Uuid, parentPath: string): void => {
 		const counts = new Map<string, number>();
-		const order = doc.fieldOrder[parentUuid] ?? [];
+		const order = layout.children.get(parentUuid) ?? [];
 		for (const uuid of order) {
 			const field = doc.fields[uuid];
 			if (!field) continue;

@@ -198,6 +198,23 @@ const helpField = () =>
 	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.help);
 const relevantField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.relevant);
+const questionLockField = () =>
+	z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe(
+			"Protect this question against changes in the CommCare HQ form designer. An authorized Nova editor may still edit it. The destination project space must support question locking.",
+		);
+const namespaceField = () =>
+	z
+		.string()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe(
+			"A Hidden Value may use a separate namespace that a receiving service expects. Leave it out to inherit the form namespace. On an edit, null restores inheritance.",
+		);
 const calculateField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
@@ -215,6 +232,14 @@ const hiddenAnswerTypeField = () =>
 		.optional()
 		.describe(FIELD_DOCS.answerType);
 
+const confirmationField = () =>
+	z
+		.boolean()
+		.nullable()
+		.optional()
+		.describe(
+			"On a label, show a confirmation checkbox on Android. Web Apps confirms the message when the worker submits.",
+		);
 const keypadField = () =>
 	z.enum(TEXT_KEYPADS).nullable().optional().describe(FIELD_DOCS.keypad);
 /**
@@ -319,11 +344,11 @@ const caseWriteField = () =>
 		.describe(FIELD_DOCS.caseWrite);
 
 /**
- * Whether a kind holds an answer a case can save: every kind but a label
- * and the three containers.
+ * A message can submit an answer like any other leaf. Case placement decides
+ * which editable location can save it.
  */
 function kindSavesAnswer(kind: FieldKind): boolean {
-	return kind !== "label" && !fieldRegistry[kind].isContainer;
+	return !fieldRegistry[kind].isContainer;
 }
 
 /**
@@ -428,10 +453,14 @@ const ADD_GATED_KEYS = [
 	"relevant",
 	"validate",
 	"calculate",
+	"answerNamespace",
 	"default_value",
+	"addFirstLabel",
+	"addLabel",
 	"optionsSource",
 	"keypad",
 	"answerType",
+	"askForConfirmation",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -486,13 +515,28 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			plain_label: plainLabelField(),
 			keypad: keypadField(),
 			answerType: hiddenAnswerTypeField(),
+			askForConfirmation: confirmationField(),
 			hint: hintField(),
 			help: helpField(),
+			addFirstLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding the first entry in a repeating group.",
+				),
+			addLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding another entry in a repeating group. Also used for the first when no separate text is set.",
+				),
 			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
+			answerNamespace: namespaceField(),
+			lockedInHq: questionLockField(),
 			default_value: defaultValueField(),
 			optionsSource: optionsSourceField().nullable().optional(),
 			caseWrite: caseWriteField(),
@@ -600,13 +644,28 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			plain_label: plainLabelField(),
 			keypad: keypadField(),
 			answerType: hiddenAnswerTypeField(),
+			askForConfirmation: confirmationField(),
 			hint: hintField(),
 			help: helpField(),
+			addFirstLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding the first entry in a repeating group.",
+				),
+			addLabel: proseTemplateSchema
+				.nullable()
+				.optional()
+				.describe(
+					"Button text for adding another entry in a repeating group. Also used for the first when no separate text is set.",
+				),
 			plain_help: plainHelpField(),
 			required: requiredField(),
 			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
+			answerNamespace: namespaceField(),
+			lockedInHq: questionLockField(),
 			default_value: defaultValueField(),
 			field_list: fieldListField(),
 			// A select source is required state and cannot be cleared. Omission

@@ -2577,3 +2577,7 @@ boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
 
 A control-less leaf holds its answer type by the class Core reads (`XFormParser.typeMappings`, `AnswerDataFactory.templateByDataType`). The reader keeps that type explicitly. An alias is written in the spelling of the same class, and an unrecognized type becomes an untyped node. The review records each changed bind type on its own node.
+
+A form has two orders. The primary instance, expressions, generated siblings and HQ case question paths follow the submitted groups in `lib/domain/submissionLayout.ts`. Body controls follow the worker's screen groups from `fieldOrder`. A saved Vellum question can sit under a different group on screen within the same enclosing repeat. The reader joins the controls to their data nodes before minting identities, so a wording change keeps both orders, including intervening hidden values.
+
+The first element of the model's unnamed instance is the submitted answer envelope. Vellum's `parseDataTree` retains its tag and `setFormID` binds `#form` to it. HQ's `XForm.resolve_path` prefixes relative question paths with that tag. The reader retains the root on the form, and the compiler, generated case and metadata writers, expression printers and attachment references take their structural paths from that form. Secondary instances keep their own names.

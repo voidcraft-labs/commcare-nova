@@ -1,5 +1,7 @@
 # Web Preview Engine
 
+Web Apps supplies `OK` for each relevant message when the worker submits. Android supplies it for a passive message when leaving the screen. A visible confirmation box on Android starts with its stored string and gives `OK` when checked or a blank when cleared. Each answer participates in the ordinary relevance and validation cascade.
+
 Client-side form preview running entirely from the in-memory blueprint, with no
 XForm parsing. The non-writing authoring evaluator uses this same engine in a
 bounded Node thread; it has no database or submission writer. Its observations
@@ -479,7 +481,7 @@ Raw answer writes commit synchronously and remain in `pendingValuePaths` until
 some current revision settles their cascade. Every successor revision first
 reconciles those paths, so blur, validation, repeat changes, and submit cannot
 retire an answer calculation and then observe stale state. User-controlled
-repeat add/remove revisions are atomic within an entry: later browser events
+repeats start empty. Their authored template is held separately from live rows. Removing the last entry returns the first invitation, clears its answers and releases its capture slots. Add/remove revisions are atomic within an entry: later browser events
 queue behind topology mutation, defaults/cascade, and compaction publication.
 Navigation may still retire the whole entry and discard its engine.
 
@@ -758,7 +760,9 @@ writes a complete lifecycle write by itself.
 
 ## Attachments are staged per form entry, reserved atomically at submit
 
-A capture question's answer is a server-minted attachment name; the bytes go
+A capture question can start with a filename supplied by its form. Preview keeps that
+answer as text. Selecting a file records the server-minted attachment name for that
+question and entry. Only a matching selection reserves bytes at submit. The bytes go
 straight to GCS on a signed URL (`components/preview/form/fields/attachment`),
 never through a Server Action — a `File` argument would make React encode
 multipart, which the edge WAF reads as header injection.
@@ -984,6 +988,7 @@ keypress retires the request immediately, including between those frames.
 
 A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews one page per section, because that is what the wire's `appearance="field-list"` group is on a phone: one screen per section, Next validating the screen before it turns, Back never validating, an empty or all-irrelevant screen skipped. Running as Web Apps, Preview shows the same form as titled groups on one page, as Web Apps does. Running as Android, a form with no sections pages one screen per group shown on one screen and per question outside one; any other group is transparent, labelled or not, and a field-list group nested in one joins its host's screen.
 
+- A question shown outside its submitted group inherits relevance from both trees on the worker's screen, including repeat entries. Android pages, interactive answers and the headless App Test use the same control ancestry. A submitted value inherits relevance from its data ancestors, so a default can still reach HQ when only its screen group is invisible.
 - **The engine owns the page model**: `FormEngine.formScreens()` (the platform's screens, `rules.formScreens`: one `/data` screen on Web Apps; on Android one per section, or Core's field-list screens in a form with no sections), `FormEngine.sectionScreens()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `FormEngine.repeatPromptPoints()` (Android's repeat prompts in a form without sections: after the last screen of a user-added repeat outside a group shown on one screen, or where the repeat stands when it has no entry), `validateSection(uuid)` / `validateScreen(path)` (`validateAll` restricted to the paths under that section or screen, marking them touched) and `firstInvalidFieldTarget({ withinSection })` / `({ withinScreen })` (the same target, limited to the page). The controller mirrors them, with `enterScreenAsync(path)` and `validateScreenAsync(path)` beside the section pair; `hooks/useFormScreens.ts` (`useFormScreens`, `useSectionScreens`, `useRepeatPromptPoints`) subscribes through a one-string key so a keystroke does not re-render the pager; the engine keeps its last unsectioned walk keyed on the store state, tree and instance, so screens and prompts share one walk.
 - **The pager follows the platform** (`components/preview/form/sections/useFormPaging.ts`): off on Web Apps (`mode: "none"`), where `form/sections/useScrolledSection.ts` writes `activeSectionByForm` with the section in view as the author scrolls, so a flip to edit mode opens on it; by section on Android in a sectioned form, the open page session state, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page; by screen on Android in a form without sections, the open screen (by path) belonging to the form entry. It arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties (a screen only while its path is still in the list); `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between; `showPage` and `showPageOf` turn with no check, which is what Submit routing (the page holding the earliest invalid question) and Clear form (the first page) use. Stepping Next past a repeat prompt's place opens `RepeatAddPrompt` (Go back, Android's add choice, Do not add, or Do not add, I'm finished when nothing follows); Add appends an entry and opens its first screen. The prompts before the first visible screen (a repeat the form opens with) open once when the entry starts, as Android raises them on opening the form. Enter never advances.
 - **`FormScreen` renders the page the pager names**: `SectionPage` for a section (the shared `SectionHeading` as a focusable `h2` the page is labelled by, over `InteractiveFormRenderer` rooted at the section, so every question reads and writes the same paths as on one page), or `ScreenPage` for a screen of a form without sections (Android's one header line, the enclosing labeled groups joined with ` > ` and a repeat entry's position, over the whole form's renderer scoped to the screen by `FormScreenScope`, so entries and capture slots keep their identities). Running as Android, groups and repeats draw no card, add or remove: a screen's groups are its header. Running as Web Apps there is no pager, and each section reaches `InteractiveFormRenderer` as a titled group (the same `SectionHeading`, not focusable as a page). The bottom bar carries the `SectionStepper` for sections alone (`nav aria-label="Sections"`, `aria-current="step"`, a polite "Section k of n: title" after a user-driven turn) plus Back / Next, with Submit, or Android's Finish (`submitLabel`), taking Next's place on the last visible page. The invalid-submit and attachment-not-ready arms turn to the question's page before the ordinary two-frame reveal.
@@ -2583,3 +2588,9 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+A field can appear on a different screen from its submitted group. `engine/fieldTree.ts::formFieldTrees` derives both orders from one field identity. Data initialization, expression paths, captures and submission use the submitted order. Screen traversal, required-answer focus and section progress use the control order and resolve each question at its submitted address in the current repeat row.
+
+A retained App Test observes current validation without answering a message. A forward page turn commits the page it leaves. An explicit Submit on the final page commits the form and builds its submission. A standalone form check computes its proposed submission on its own entry.
+
+Repeat row requests from a worker require the repeat to be reachable by its control ancestry and submitted relevance. An Android invitation may first require a successful page turn. Restoring a previously authorized entry/checkpoint retains rows on pages the worker has left.

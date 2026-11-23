@@ -30,16 +30,120 @@
 		"item": "Question ID `case`, `registration`, `script`",
 		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
 		"valueClass": "case-registration-script",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name HQ's form builder only warns about, which Nova's question id rule refuses (`questionId.ts::RESERVED_QUESTION_IDS`)",
-		"subject": "question-ids",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The designer warning remains on script and registration. Workers can submit script on either platform and registration on Android. An ordinary case answer has its own runtime refusal.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
 		},
 		"emission": {
 			"cell": "verbatim",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "questions/submitted-answer-name-only-android-stores",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An ordinary submitted answer named registration, fixture, schema, or sync in the sync namespace",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "answer-name-only-android-stores",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: verbatim answer on Android. Web Apps reads the name as an instruction.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE on Web Apps / RUNS on Android",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "Web Apps would read this answer as an instruction"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "The submitted ID and effective namespace",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/submitted-namespace-the-form-designer-cannot-keep",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An explicit empty namespace or a custom namespace on a visible question",
+		"surfaceKeys": ["xform:model/instance//*@xmlns"],
+		"valueClass": "submitted-namespace-the-form-designer-cannot-keep",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The designer cannot retain this namespace on the question. Use a Hidden Value with a nonempty receiving namespace or inherit the form namespace.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The designer cannot retain this namespace on the question. Use a Hidden Value with a nonempty receiving namespace or inherit the form namespace."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/ordinary-answer-in-stock-namespace",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An ordinary submitted node in the stock instruction namespace",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "ordinary-answer-in-stock-namespace",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Workers read this namespace as a stock instruction. Use the namespace of the receiving service or inherit the form namespace.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Workers read this namespace as a stock instruction. Use the namespace of the receiving service or inherit the form namespace."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/submitted-node-consumed-as-case",
+		"area": "questions",
+		"section": "Question types",
+		"item": "An ordinary answer or group named case in any capitalization",
+		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
+		"valueClass": "submitted-node-consumed-as-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Workers read this answer as a case change. Rename it in the form designer and bring the form in again.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Workers read this answer as a case change. Rename it in the form designer and bring the form in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -1086,10 +1190,8 @@
 			"xform:trigger@appearance"
 		],
 		"valueClass": "acknowledge-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `label.acknowledge`",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Confirmation checkbox on Android or a message automatically confirmed in Web Apps.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (auto-`OK`; a required one never blocks) / RUNS (checkbox)",
@@ -1103,10 +1205,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`trigger` with the held appearance, or none (Web Apps reads `N-per-row` and `text-align-*` on it, and Android a `floating-` value)",
+			"cell": "Confirmation checkbox on Android or a message automatically confirmed in Web Apps.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/ref-less-trigger",
@@ -2183,10 +2286,8 @@
 			"xform:repeat/jr:addEmptyCaption",
 			"xform:repeat/jr:addEmptyCaption@ref"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `repeat.addLabel`, `addFirstLabel`",
-		"subject": "repeats",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized text for adding the first entry and for adding another.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2201,7 +2302,8 @@
 			"cell": "itext refs",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/other-repeat-captions-choosecaption-delcaption-donecaption",
@@ -4675,7 +4777,9 @@
 		"section": "Question types",
 		"item": "Data Parent (data node under another group than its control, within one repeat)",
 		"surfaceKeys": [
+			"xform:group@ref",
 			"xform:input@ref",
+			"xform:repeat@nodeset",
 			"xform:secret@ref",
 			"xform:select@ref",
 			"xform:select1@ref",
@@ -4683,10 +4787,9 @@
 			"xform:upload@ref"
 		],
 		"valueClass": "data-parent",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.dataParent`",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a question has an independent submitted group and position",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4800,10 +4903,8 @@
 		"item": "data-node `xmlns` on a Hidden Value",
 		"surfaceKeys": ["xform:model/instance//*@xmlns"],
 		"valueClass": "hidden-value-namespace",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Hidden Value's data-node namespace (Vellum's \"Special Hidden Value XMLNS attribute\", `mugs/baseSpecs.js`)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A Hidden Value keeps its submitted namespace in Field.answerNamespace. An absent value inherits the form namespace.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a (submission shape only)",
@@ -4813,7 +4914,8 @@
 			"cell": "`xmlns` on the data node",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/vellum-lock-all-locked-question",
@@ -4826,10 +4928,8 @@
 			"vellum-markup:bind@vellum:lock",
 			"vellum-markup:model/instance//*@vellum:lock"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.lockedInHq` (privilege `locked_admin_questions` a target precondition; no runtime effect)",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Field.lockedInHq protects the question in the HQ designer. The target must support locked questions.",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4838,7 +4938,39 @@
 			"cell": "the attribute",
 			"markers": []
 		},
-		"gates": ["privilege/locked_admin_questions"]
+		"gates": ["privilege/locked_admin_questions"],
+		"slotChanges": []
+	},
+	{
+		"id": "questions/question-lock-the-designer-cannot-represent",
+		"area": "questions",
+		"section": "Question types",
+		"item": "A lock value the form designer does not treat as a lock on this question",
+		"surfaceKeys": [
+			"vellum-plugin:lock",
+			"vellum-feature:edit_locked_questions",
+			"vellum-markup:bind@vellum:lock",
+			"vellum-markup:model/instance//*@vellum:lock"
+		],
+		"valueClass": "unsupported-question-lock",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The designer cannot show this lock. Select Locked in the question settings in CommCare HQ and bring the form in again.",
+		"subject": "question-ids",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The designer cannot show this lock. Select Locked in the question settings in CommCare HQ and bring the form in again."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "questions/vellum-comment",
@@ -4961,10 +5093,8 @@
 		"item": "bind `required` on a label",
 		"surfaceKeys": ["xform:model/bind@required"],
 		"valueClass": "on-a-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the acknowledge label's required",
-		"subject": "question-logic",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Required expression on the message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4976,10 +5106,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`required=\"true()\"`",
+			"cell": "Required expression on the message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/vellum-requiredcondition-expr-vellum-requiredcondition-equal-to",
@@ -5090,16 +5221,40 @@
 		"gates": []
 	},
 	{
+		"id": "questions/validation-on-a-hidden-value",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "A validation condition on a hidden value",
+		"surfaceKeys": ["xform:model/bind@constraint"],
+		"valueClass": "validation-on-hidden-value",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Vellum’s Hidden Value cannot carry a validation condition.",
+		"subject": "question-logic",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "DataBindOnly.spec.constraintAttr has presence notallowed in Vellum misc.js."
+			}
+		]
+	},
+	{
 		"id": "questions/bind-constraint-on-a-capture-question-or-a-label",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
 		"item": "bind `constraint` on a geopoint, image, audio, video, signature or file question or a label",
 		"surfaceKeys": ["xform:model/bind@constraint"],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.validate` on those kinds",
-		"subject": "question-logic",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Validation condition on a location, attachment or message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5111,10 +5266,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`constraint` on every kind that carries validation, `barcode` and `secret` among them (`fieldKindCarriesValidation`)",
+			"cell": "Validation condition on a location, attachment or message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/validation-message-without-a-validation-condition",
@@ -5525,10 +5681,8 @@
 			"xform:setvalue@value"
 		],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.default_value` on those kinds",
-		"subject": "question-logic",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Once-only starting value on the answer.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (new sessions only) / RUNS (new instances only)",
@@ -5542,10 +5696,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`setvalue xforms-ready`",
+			"cell": "Once-only starting value on the answer.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/setvalue-event-jr-insert-default-inside-a-repeat-not-reading",
@@ -6187,10 +6342,9 @@
 		"item": "a data root whose element is named other than `data` (Vellum keeps the name it finds, `parser.js::parseDataTree`), so every answer's path starts with that name",
 		"surfaceKeys": ["xform:model/instance/*"],
 		"valueClass": "root-named-other-than-data",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a form's own root name; Nova writes `data`, and every path of the form's case management names the root",
-		"subject": "form-source",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form’s submitted answer root (`Form.dataRootName`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6202,9 +6356,55 @@
 			}
 		},
 		"emission": {
-			"cell": "Nova writes `data`",
+			"cell": "Nova writes the form’s submitted answer root",
 			"markers": []
 		},
+		"gates": []
+	},
+	{
+		"id": "questions/answer-root-that-the-form-designer-reads-as-its-own-element",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "An answer root named instance, parsererror or bind, which the form designer reads as one of its own elements. Use a different answer root such as survey and update its answer paths.",
+		"surfaceKeys": ["xform:model/instance/*"],
+		"valueClass": "root-name-reserved-by-designer",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the form cannot open in the form designer.",
+		"subject": "form-answer-addresses",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum parser.js searches the whole XML for instance and parsererror and the head for bind. The first two stop the designer opening. A bind root supplies no nodeset to modeliteration.js::parseBindElement, which calls path.replace and throws."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/data-root-name-that-workers-cannot-address",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "A primary instance whose root cannot be addressed by an unqualified XPath name in Core",
+		"surfaceKeys": ["xform:model/instance/*"],
+		"valueClass": "root-name-unaddressable",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Core cannot parse an answer path anchored at this name",
+		"subject": "form-answer-addresses",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core Lexer.matchNCName only consumes upper or lower case UTF-16 letters or underscore, followed by the same, decimal digits, dots or hyphens. A qualified name also needs an XPath prefix binding."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
 		"gates": []
 	},
 	{
@@ -9128,10 +9328,8 @@
 			"xform:upload/hint@ref"
 		],
 		"valueClass": "on-a-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.hint` on a label",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized hint on a message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (always markdown) / DIFFERENT (plain)",
@@ -9145,10 +9343,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`<hint>` itext",
+			"cell": "Localized hint on a message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/hint-media-other-than-a-missing-file-the-media-section-refuses",
@@ -9278,10 +9477,8 @@
 			"itext-form:hq/markdown"
 		],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.help` on those kinds",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized help text on an attachment or message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT",
@@ -9293,10 +9490,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`<help>` itext",
+			"cell": "Localized help text on an attachment or message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/help-media",
@@ -9354,10 +9552,8 @@
 			"xform:model/itext/translation/text/value@form"
 		],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Field.help_media` on those kinds",
-		"subject": "question-media",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Help media on an attachment or message.",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (only when help has text) / RUNS",
@@ -9370,10 +9566,11 @@
 			}
 		},
 		"emission": {
-			"cell": "itext media",
+			"cell": "Help media on an attachment or message.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/validation-message-text",
@@ -9408,10 +9605,8 @@
 		"item": "validation message text on a geopoint, image, audio, video, signature or file question or a label",
 		"surfaceKeys": ["xform:model/bind@jr:constraintMsg"],
 		"valueClass": "on-capture-or-label",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a validation message on those kinds",
-		"subject": "question-text",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Localized message for the question’s validation condition.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9423,10 +9618,11 @@
 			}
 		},
 		"emission": {
-			"cell": "itext",
+			"cell": "Localized message for the question’s validation condition.",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "questions/validation-message-markdown-form",

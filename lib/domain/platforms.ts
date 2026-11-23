@@ -183,6 +183,7 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
+	"answer-name-requires-android",
 	"case-list-here",
 	"forms-read-search",
 	"list-first",
@@ -203,6 +204,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"choice-media",
 	"help-media",
 	"row-starting-value",
+	"confirm-message",
 	"now",
 	"today",
 	"random-and-unique-id",
@@ -243,6 +245,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 /** The features a declaration can refuse, in `PLATFORM_FEATURE_IDS` order. */
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
+	"answer-name-requires-android",
 	"case-list-here",
 	"forms-read-search",
 	"list-first",
@@ -259,6 +262,21 @@ export type RefusablePlatformFeatureId =
 export const PLATFORM_FEATURES: Readonly<
 	Record<PlatformFeatureId, PlatformFeature>
 > = {
+	"answer-name-requires-android": {
+		label: "Answer names reserved in Web Apps",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "Web Apps would read this answer as an instruction",
+			remedy: "Give the answer a different ID.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "has an answer ID reserved in Web Apps",
+			why: "Web Apps would read this answer as an instruction when the worker submits the form.",
+			alternative: "give the answer a different ID",
+		},
+	},
 	"datetime-question": {
 		label: "Date and time questions",
 		channel: "structure",
@@ -560,6 +578,18 @@ export const PLATFORM_FEATURES: Readonly<
 				"the starting value stays, and is sent, until the calculation runs " +
 				"again: when something it reads changes, or a screen holding an " +
 				"answer is saved",
+		},
+	},
+	"confirm-message": {
+		label: "Message confirmation",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "Web Apps confirms the message when the worker submits the form",
+		},
+		android: {
+			reading: "runs",
+			note: "the worker can check the box to confirm",
 		},
 	},
 	now: {

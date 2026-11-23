@@ -29,7 +29,7 @@ import { literalOutputText } from "@/lib/commcare/reader/xform/prose";
 import { buildLabelNodes } from "@/lib/commcare/xform/builder";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { isConsumerWhitespace } from "@/lib/commcare/xform/consumerWhitespace";
-import type { FormPath } from "@/lib/commcare/xform/formPath";
+import { FormPath } from "@/lib/commcare/xform/formPath";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type {
@@ -496,7 +496,10 @@ function formSummaryDifferences(input: {
 	const explained = [
 		...(input.facts?.generated ?? []).map((node) => node.path),
 		...(input.facts?.caseRegionPaths ?? []),
-		...[...formConnectIds(doc, formUuid)].map((id) => `/data/${id}`),
+		...[...formConnectIds(doc, formUuid)].map(
+			(id) =>
+				`${FormPath.root(doc.forms[formUuid]?.dataRootName).toXPath()}/${id}`,
+		),
 	];
 	const isExplained = (path: string) =>
 		path.includes("/@") ||

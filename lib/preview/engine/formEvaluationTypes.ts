@@ -69,6 +69,8 @@ export interface FormEvaluationContext {
 	/** Internal app-test continuation. Ordinary form checks omit both. */
 	entry?: FormEvaluationEntry;
 	captureEntry?: boolean;
+	/** A retained worker explicitly chose Submit. */
+	submitEntry?: boolean;
 	identity: ResolvedPreviewIdentity;
 	/** The device the check or journey session runs on: its platform's
 	 *  screens, recalculation, day numbers and session values. */

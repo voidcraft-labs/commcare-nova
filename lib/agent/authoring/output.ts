@@ -227,7 +227,9 @@ export function authoringEncoders(
 			(slot === "label" ||
 				slot === "hint" ||
 				slot === "help" ||
-				slot === "validate_msg")
+				slot === "validate_msg" ||
+				slot === "addFirstLabel" ||
+				slot === "addLabel")
 		)
 			return { entity: "field", uuid: uuid.data, slot };
 		if (
@@ -447,7 +449,9 @@ const readProjectors: {
 					slot === "label" ||
 					slot === "hint" ||
 					slot === "help" ||
-					slot === "validate_msg"
+					slot === "validate_msg" ||
+					slot === "addFirstLabel" ||
+					slot === "addLabel"
 				) {
 					const value = record.parse(source)[slot];
 					return {
@@ -478,6 +482,7 @@ const readProjectors: {
 			openCondition,
 			closeCondition,
 			ownClosePlacement: _heldClose,
+			dataRootName,
 			plainText,
 			...form
 		} = data.form;
@@ -516,6 +521,7 @@ const readProjectors: {
 				// Read under the name an edit takes, so a read sent back
 				// through `updateForm` keeps it.
 				...(plainText === true && { plain_text: true }),
+				...(dataRootName !== undefined && { answerRoot: dataRootName }),
 				...(closeCondition !== undefined && {
 					closeCondition: formCondition(
 						form.uuid,

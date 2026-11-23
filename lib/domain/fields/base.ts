@@ -66,17 +66,23 @@ export { formLogicSchema, proseTemplateSchema };
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
  * fields extend this directly (they have no label and no input wiring).
- * Sibling position belongs only to the owning `fieldOrder` membership array;
- * fields carry no parallel ordering property.
+ * Screen position belongs to fieldOrder. A separately placed submitted
+ * value keeps its own parent and position.
  */
 export type StructuralFieldBase = {
 	uuid: Uuid;
 	id: string;
+	submissionPlacement?: { parent: Uuid; position: number };
+	lockedInHq?: boolean;
 };
 
 export const structuralFieldBase = z.strictObject({
 	uuid: uuidSchema,
 	id: z.string(),
+	submissionPlacement: z
+		.strictObject({ parent: uuidSchema, position: z.int().nonnegative() })
+		.optional(),
+	lockedInHq: z.boolean().optional(),
 });
 
 /**
@@ -151,6 +157,14 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	plainHelp: z.literal(true).optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
+});
+
+/** Questions whose collected or attached answer can start with a value and
+ * be checked by an expression when the worker leaves the screen. */
+export const checkedInputFieldBaseSchema = inputFieldBaseSchema.extend({
+	validate: formLogicSchema.optional(),
+	validate_msg: proseTemplateSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 /**

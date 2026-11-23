@@ -110,6 +110,7 @@ import {
 } from "./documents/migrations";
 import { missingMedia } from "./documents/missingMedia";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
+import { namedAnswerRoot } from "./documents/namedAnswerRoot";
 import {
 	formLinkSessionReads,
 	nestedMenuSessionReads,
@@ -126,6 +127,7 @@ import {
 	registerFromCaseListWebApps,
 } from "./documents/registerFromCaseList";
 import { relatedColumns } from "./documents/relatedColumns";
+import { repeatInvitations } from "./documents/repeatInvitations";
 import {
 	openingQueryChoices,
 	queryRepeatPlacements,
@@ -165,16 +167,25 @@ import {
 } from "./documents/stableWitnesses";
 import { startingAndCalculatedAnswers } from "./documents/startingAndCalculatedAnswers";
 import { styledValue } from "./documents/styledValue";
+import {
+	receivingAnswersOnAndroid,
+	receivingAnswersOnBoth,
+} from "./documents/submittedAnswerNames";
+import { submittedGroups } from "./documents/submittedGroups";
 import { supplyPointText } from "./documents/supplyPointText";
 import { plainLabels, textReads } from "./documents/textReads";
 import { tileGroupFilter } from "./documents/tileGroupFilter";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
+import { workerMessages } from "./documents/workerMessages";
 
 /** Every targeted document's maker, in the corpus's order. */
 export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
+	receivingAnswersOnBoth,
+	receivingAnswersOnAndroid,
 	lookupReservedTags,
 	searchHqCompile,
 	validatedBarcodeSecret,
+	workerMessages,
 	labelSort,
 	customTile,
 	closeConditions,
@@ -189,6 +200,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinksHiddenFallback,
 	labelledGroupRepeat,
 	repeatCountCopy,
+	repeatInvitations,
 	reservedNodeNames,
 	searchRelatedLookups,
 	loadTimeValues,
@@ -261,6 +273,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	sameTypeChild,
 	supplyPointText,
 	fieldListFlags,
+	submittedGroups,
+	namedAnswerRoot,
 	plainLabels,
 	plainHelp,
 	searchWorkflow,

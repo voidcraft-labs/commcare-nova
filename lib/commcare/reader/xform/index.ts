@@ -17,7 +17,11 @@ import type {
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { activeActions, isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
+import {
+	activeActions,
+	isMultiSelectMenu,
+	menuMayLoadRegistryCase,
+} from "../../hq/publishedCaseBlocks";
 import {
 	type GeneratedNodePurpose,
 	generatedBaseName,
@@ -167,6 +171,9 @@ export interface DraftField {
 	kind: FieldKind;
 	readonly id: string;
 	readonly parent: DraftField | null;
+	/** The submitted parent, resolved after all controls have been read. */
+	dataParent: DraftField | null;
+	dataPosition?: number;
 	/** True for the stand-in of a question that got a finding; never in a returned document. */
 	readonly standIn: boolean;
 	/** The refusal a stand-in got (its kind's, its repeat's, or its data node's), which covers
@@ -381,6 +388,8 @@ function readForm(
 		intentIds: root === undefined ? new Set() : intentIdsOf(root),
 	});
 	if ("refused" in parsed) return parsed;
+	if (parsed.dataRoot.name !== "data")
+		form.form.dataRootName = parsed.dataRoot.name;
 	if (parsed.ignore.includes("markdown")) form.form.plainText = true;
 	const tree = readDataTree(
 		parsed,
@@ -789,7 +798,16 @@ function appendedRootNames(
 	const multi =
 		module !== undefined &&
 		isMultiSelectMenu({ case_details: module.json.peek("case_details") });
-	if (active.size > 0 && !(requires === "none" && !opens) && (!multi || opens))
+	const registry =
+		module !== undefined &&
+		menuMayLoadRegistryCase({
+			search_config: module.json.peek("search_config"),
+		});
+	if (
+		active.size > 0 &&
+		!(requires === "none" && !opens) &&
+		((!multi && !registry) || opens)
+	)
 		names.add("case");
 	if (active.has("usercase_update")) names.add("commcare_usercase");
 	return names;
@@ -854,7 +872,7 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 /** A field's ids from the form's root, a query repeat's row left out: its identity key's path. */
 function fieldPath(field: DraftField): string[] {
 	const path: string[] = [];
-	for (let at: DraftField | null = field; at !== null; at = at.parent)
+	for (let at: DraftField | null = field; at !== null; at = at.dataParent)
 		path.unshift(at.id);
 	return path;
 }
@@ -932,6 +950,18 @@ export function mintFields(ctx: ReadContext): void {
 								: { event: expression.event },
 						);
 					}
+				}
+				// A parent may appear later in the body, so materialize data
+				// placement only after all identities have been minted.
+				for (const field of fields) {
+					if (field.dataPosition === undefined) continue;
+					const parent =
+						field.dataParent === null ? form.uuid : field.dataParent.uuid;
+					if (parent !== undefined)
+						field.field.submissionPlacement = {
+							parent,
+							position: field.dataPosition,
+						};
 				}
 				xform.sourceNames = sourceNames(xform, fields);
 			});

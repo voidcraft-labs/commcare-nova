@@ -50,9 +50,15 @@ import {
 	labelShowsAsTyped,
 	type Uuid,
 } from "@/lib/domain";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
+import {
+	rebaseOntoContext,
+	stripIndices,
+} from "@/lib/preview/engine/instancePaths";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { usePresentationSelector } from "@/lib/preview/hooks/usePresentationDocument";
 import {
 	usePresentationField,
 	useVisibleFieldOrder,
@@ -63,10 +69,9 @@ import { LabelContent } from "@/lib/references/LabelContent";
 import { useAppId, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
-import { onFormScreen, useFormScreenScope } from "./FormScreenScope";
+import { useFormScreenScope } from "./FormScreenScope";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
-import { LabelField } from "./fields/LabelField";
 import { RepeatEntriesWithoutChrome, RepeatField } from "./fields/RepeatField";
 import { SectionHeading } from "./sections/SectionHeading";
 import { depthPadding } from "./virtual/rowStyles";
@@ -111,7 +116,7 @@ const NO_REPEAT_INSTANCES: readonly RepeatInstanceIdentity[] = [];
  */
 export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	parentEntityId,
-	prefix = "/data",
+	prefix: suppliedPrefix,
 	parentPath,
 	depth = 0,
 	leadingGap = true,
@@ -119,6 +124,9 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	repeatInstances = NO_REPEAT_INSTANCES,
 	accessibleContext = "",
 }: InteractiveFormRendererProps) {
+	const prefix = usePresentationSelector(
+		(doc) => suppliedPrefix ?? `/${formRootName(doc.forms[parentEntityId])}`,
+	);
 	const fieldUuids = useVisibleFieldOrder(asUuid(parentEntityId), prefix);
 
 	// `flow-root` creates a new block formatting context so the last child's
@@ -196,7 +204,12 @@ const InteractiveField = memo(function InteractiveField({
 	// Engine state is keyed by the CONCRETE path so each repeat instance
 	// carries its own value / visibility / validity; the uuid covers the
 	// render before the doc row resolves.
-	const enginePath = field ? `${prefix}/${field.id}` : undefined;
+	const controller = useEngineController();
+	const savedPath = controller.getPath(uuid);
+	const enginePath =
+		savedPath === undefined
+			? field && `${prefix}/${field.id}`
+			: rebaseOntoContext(stripIndices(savedPath), prefix);
 	const state = useEngineStateAt(uuid, enginePath);
 	/* The asterisk, and the word a screen reader reads for it, as the platform
 	 * Preview plays draws them: every required question in Web Apps, and on
@@ -211,7 +224,6 @@ const InteractiveField = memo(function InteractiveField({
 			rules.requiredMark,
 			targetFacts?.markRequiredQuestions ?? null,
 		);
-	const controller = useEngineController();
 	const entryKey = controller.entryKey;
 	const projectProse = useProseProjection();
 	// Capture questions stage bytes against the app; every other kind
@@ -234,11 +246,16 @@ const InteractiveField = memo(function InteractiveField({
 	if (!state.visible) return null;
 
 	const fieldId = field.id;
-	const path = `${prefix}/${fieldId}`;
+	const path = enginePath ?? `${prefix}/${fieldId}`;
 	const fieldPath = fpath(fieldId, parentPath);
 	/* Android paging an unsectioned form one screen at a time: a row off the
 	 * screen draws nothing (`FormScreenScope`). */
-	if (!onFormScreen(screen, path)) return null;
+	if (
+		screen !== null &&
+		!controller.containsControl(screen, path) &&
+		!controller.containsControl(path, screen)
+	)
+		return null;
 
 	// Transparent group: an empty/absent label means the group has no UI
 	// chrome at runtime: matches CommCare's behavior for unlabeled
@@ -411,19 +428,6 @@ const InteractiveField = memo(function InteractiveField({
 				accessibleContext={accessibleContext}
 				position={position}
 			/>
-		);
-	} else if (field.kind === "label") {
-		// Label fields are standalone presentation; wrap them in the same
-		// depth-padded block so they align with sibling fields.
-		content = (
-			<div
-				style={{
-					paddingLeft: depthPadding(depth),
-					paddingRight: depthPadding(depth),
-				}}
-			>
-				<LabelField field={field} state={state} />
-			</div>
 		);
 	} else {
 		content = (

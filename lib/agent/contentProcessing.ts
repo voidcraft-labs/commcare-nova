@@ -358,12 +358,15 @@ export function flatFieldToField(
 		uuid,
 		id: q.id,
 		...(q.label !== undefined && q.label !== null && { label: q.label }),
+		...(q.askForConfirmation === true && { askForConfirmation: true }),
 		...(q.plain_label === true && { plainLabel: true }),
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.plain_help === true && { plainHelp: true }),
 		...(q.keypad != null && { keypad: q.keypad }),
 		...(q.answerType != null && { answerType: q.answerType }),
+		...(q.lockedInHq === true && { lockedInHq: true }),
+		...(q.answerNamespace != null && { answerNamespace: q.answerNamespace }),
 		...(q.required !== undefined &&
 			q.required !== null && { required: q.required }),
 		...(q.relevant !== undefined &&
@@ -379,6 +382,8 @@ export function flatFieldToField(
 		}),
 		...(q.calculate !== undefined &&
 			q.calculate !== null && { calculate: q.calculate }),
+		...(q.addLabel != null && { addLabel: q.addLabel }),
+		...(q.addFirstLabel != null && { addFirstLabel: q.addFirstLabel }),
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
 		...(q.optionsSource != null && { optionsSource: q.optionsSource }),

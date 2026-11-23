@@ -51,6 +51,7 @@ import {
 	BlueprintDocProvider,
 	BlueprintEditableContext,
 } from "@/lib/doc/provider";
+import type { Uuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { PreviewCaseDatabaseProvider } from "@/lib/preview/engine/useCaseDatabaseSnapshot";
@@ -73,6 +74,7 @@ export interface InitialBuilderAccess {
 	/** The hold each target's latest recording wrote, read in the same
 	 *  transaction (`AppReadSnapshot.recordedHolds`). A new build has none. */
 	readonly recordedHolds?: readonly PlacementHold[];
+	readonly publishedQuestions?: readonly Uuid[];
 }
 
 // ── Provider ────────────────────────────────────────────────────────────
@@ -247,6 +249,7 @@ function BuilderProviderInner({
 						appId={buildId === "new" ? undefined : buildId}
 						baseSeq={initialAccess?.baseSeq ?? 0}
 						recordedHolds={initialAccess?.recordedHolds}
+						publishedQuestions={initialAccess?.publishedQuestions}
 						userId={userId ?? ""}
 					>
 						{/* The presence layer rides the reconciler's single

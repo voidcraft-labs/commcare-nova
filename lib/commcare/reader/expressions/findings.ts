@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { isCaptureFieldKind } from "@/lib/domain/fields";
 import { menuScreenOf, screenChoosesCaseFirst } from "@/lib/domain/menuScreens";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -1390,6 +1391,18 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"questions/bind-required-expr",
 		"xform:model/bind@required",
 	),
+	"label-required": take(
+		"questions/bind-required-on-a-label",
+		"xform:model/bind@required",
+	),
+	"attachment-constraint": take(
+		"questions/bind-constraint-on-a-capture-question-or-a-label",
+		"xform:model/bind@constraint",
+	),
+	"attachment-default": take(
+		"questions/default-on-a-capture-question-or-a-label",
+		"xform:setvalue@value",
+	),
 	"bind-constraint": take(
 		"questions/bind-constraint",
 		"xform:model/bind@constraint",
@@ -1588,12 +1601,24 @@ export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
  *  `refused` answers `"form-default"` where a refusal takes M2 or M3 by its code. */
 export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	relevant: formSlot(C["bind-relevant"].entry),
-	validate: formSlot(C["bind-constraint"].entry),
+	validate: {
+		held: (doc, ref) => {
+			const kind =
+				ref.entity === "field" ? doc.fields[ref.uuid]?.kind : undefined;
+			return kind !== undefined &&
+				(kind === "label" || kind === "geopoint" || isCaptureFieldKind(kind))
+				? C["attachment-constraint"].entry
+				: C["bind-constraint"].entry;
+		},
+		refused: () => "form-default",
+	},
 	required: {
-		held: (_doc, _ref, bound) =>
-			bound.kind === "match-all"
-				? C["bind-required-true"].entry
-				: C["bind-required-expr"].entry,
+		held: (doc, ref, bound) =>
+			ref.entity === "field" && doc.fields[ref.uuid]?.kind === "label"
+				? C["label-required"].entry
+				: bound.kind === "match-all"
+					? C["bind-required-true"].entry
+					: C["bind-required-expr"].entry,
 		refused: () => "form-default",
 	},
 	calculate: formSlot(C["bind-calculate-on-a-hidden-value"].entry),
@@ -1601,6 +1626,9 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		held(doc, ref, bound) {
 			if (readsFormNode(bound))
 				return C["a-default-value-that-reads-form-nodes"].entry;
+			const kind = doc.fields[ref.uuid]?.kind;
+			if (kind !== undefined && (kind === "label" || isCaptureFieldKind(kind)))
+				return C["attachment-default"].entry;
 			return insideRepeat(doc, ref.uuid)
 				? C["setvalue-event-jr-insert-default-inside-a-repeat-not-reading"]
 						.entry
@@ -1618,6 +1646,8 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	hint: PROSE,
 	help: PROSE,
 	validate_msg: PROSE,
+	addFirstLabel: PROSE,
+	addLabel: PROSE,
 	option_label: PROSE,
 	form_display_condition: displayCondition(
 		C["form-filter-lifting-into-predicate-a-direct-own-case-property-in"].entry,

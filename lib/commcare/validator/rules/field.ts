@@ -1,3 +1,4 @@
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 /**
  * Field-level validation rules.
  *
@@ -42,6 +43,10 @@ import {
 	questionIdProblem,
 	questionIdProblemSentence,
 } from "@/lib/domain/questionId";
+import {
+	answerNamespaceProblem,
+	submittedAction,
+} from "@/lib/domain/submittedAnswerName";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type ValidationError, validationError } from "../errors";
 
@@ -397,13 +402,39 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
  * siblings.
  */
 function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
+	if (field.kind === "hidden" && field.answerNamespace !== undefined) {
+		const problem =
+			answerNamespaceProblem(field.answerNamespace) ??
+			(submittedAction(field.id, field.answerNamespace) === "stock"
+				? "Workers use this namespace for stock transactions."
+				: undefined);
+		if (problem)
+			return [
+				validationError(
+					"SUBMITTED_ANSWER_NAMESPACE",
+					"field",
+					`For hidden value "${field.id}", ${problem[0].toLowerCase()}${problem.slice(1)} Enter the receiving service’s namespace or clear it to use the form’s namespace.`,
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid: ctx.formUuid,
+						formName: ctx.formName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
+				),
+			];
+	}
 	const problem = questionIdProblem(field.id);
 	if (problem === undefined) return [];
-	// Read from `fieldOrder`, the persisted order, not the derived parent
-	// index, which a document handed in from storage may not hold.
-	const [parentKey, siblingUuids] = Object.entries(ctx.doc.fieldOrder).find(
-		([, order]) => order?.includes(field.uuid),
-	) ?? [undefined, []];
+	const layout = submissionLayout(
+		ctx.formUuid,
+		ctx.doc.fields,
+		ctx.doc.fieldOrder,
+	);
+	const parentKey = layout.parents.get(field.uuid);
+	const siblingUuids =
+		parentKey === undefined ? [] : layout.children.get(parentKey);
 	const siblings = new Set(
 		(siblingUuids ?? [])
 			.filter((uuid) => uuid !== field.uuid)

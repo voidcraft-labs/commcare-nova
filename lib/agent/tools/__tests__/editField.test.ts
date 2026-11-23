@@ -35,6 +35,7 @@ import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeAuthoringHarness } from "../../__tests__/authoringHarness";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
+import { addFieldsTool } from "../addFields";
 import { editFieldTool } from "../editField";
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
@@ -1195,4 +1196,51 @@ it("locates a hidden assignment that a worker cannot use and accepts the repaire
 			},
 		}),
 	).toMatchObject({ ok: true });
+});
+
+it("creates a locked integration value and lets an authorized editor unlock it and change or clear its namespace", async () => {
+	const h = makeToolWorkspaceHarness(makeDoc());
+	const result = await h.runTool(addFieldsTool, {
+		moduleUuid: MOD,
+		formUuid: FORM,
+		fields: [
+			{
+				id: "service_value",
+				kind: "hidden",
+				answerNamespace: "urn:household:visit",
+				lockedInHq: true,
+			},
+		],
+	});
+	if ("error" in result.result) throw new Error(result.result.error);
+	const field = Object.values(h.currentDoc().fields).find(
+		(f) => f.id === "service_value",
+	);
+	if (field?.kind !== "hidden")
+		throw new Error("The integration value is missing");
+	expect(field).toMatchObject({
+		answerNamespace: "urn:household:visit",
+		lockedInHq: true,
+	});
+	const address = { moduleUuid: MOD, formUuid: FORM, fieldUuid: field.uuid };
+	const rejected = await h.runTool(editFieldTool, {
+		...address,
+		updates: {
+			kind: "hidden",
+			answerNamespace: "http://www.w3.org/2000/xmlns/",
+		},
+	});
+	expect(rejected.result).toHaveProperty("error");
+	expect(h.currentDoc().fields[field.uuid]).toMatchObject({
+		answerNamespace: "urn:household:visit",
+	});
+	const cleared = await h.runTool(editFieldTool, {
+		...address,
+		updates: { kind: "hidden", answerNamespace: null, lockedInHq: null },
+	});
+	if ("error" in cleared.result) throw new Error(cleared.result.error);
+	expect(h.currentDoc().fields[field.uuid]).not.toHaveProperty(
+		"answerNamespace",
+	);
+	expect(h.currentDoc().fields[field.uuid]).not.toHaveProperty("lockedInHq");
 });

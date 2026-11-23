@@ -17,7 +17,7 @@ import {
 import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import { createEvaluationApp } from "./evaluationFixture";
-import { webAppsDevice } from "./fixtures/previewDevices";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 /** The root answer a proposed submission carries for the question `id`. */
 function answerOf(
@@ -414,6 +414,30 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 		cases: { rows: [], indices: [] },
 		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 	};
+	const empty = await evaluateForm(
+		doc,
+		{ formUuid, repeats: [{ path: "visits", count: 0 }] },
+		context,
+	);
+	expect(
+		empty.presentation.nodes.find((node) => node.path === "visits"),
+	).toMatchObject({
+		repeatCount: 0,
+		children: [],
+	});
+	expect(empty.fields.map(({ path }) => path)).not.toContain(
+		"visits[0]/rating",
+	);
+	await expect(
+		evaluateForm(
+			doc,
+			{
+				formUuid,
+				answers: [{ path: "visits[0]/rating", value: "4" }],
+			},
+			context,
+		),
+	).rejects.toThrow("Add that entry before answering its questions.");
 	const result = await evaluateForm(
 		doc,
 		{
@@ -1020,4 +1044,371 @@ it("evaluates questions in a private registration before its record name is auth
 		},
 	);
 	expect(result).toHaveProperty("presentation");
+});
+
+it("visits the worker's field-list page before accepting a question submitted under the preceding page", async () => {
+	const first = testUuid("submitted-early");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visit",
+				forms: [
+					{
+						name: "Review",
+						type: "survey",
+						fields: [
+							f({
+								kind: "group",
+								uuid: first,
+								id: "first",
+								fieldList: true,
+								children: [
+									f({
+										kind: "text",
+										id: "gate",
+										label: "Name",
+										required: "true()",
+									}),
+								],
+							}),
+							f({
+								kind: "group",
+								id: "second",
+								fieldList: true,
+								children: [
+									f({
+										kind: "text",
+										id: "answer",
+										label: "Outcome",
+										submissionPlacement: { parent: first, position: 1 },
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = Object.values(doc.forms)[0].uuid;
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!identity) throw new Error("The worker is missing.");
+	const context = {
+		identity,
+		device: androidDevice(),
+		cases: { rows: [], indices: [] },
+		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		captureEntry: true,
+	};
+	const open = await evaluateForm(doc, { formUuid, answers: [] }, context);
+	expect(open.screens.find((s) => s.current)?.path).toBe("/data/first");
+	const answer = { path: "first/answer", value: "Visited" };
+	await expect(
+		evaluateForm(
+			doc,
+			{ formUuid, answers: [answer] },
+			{ ...context, entry: open.entry },
+		),
+	).rejects.toThrow("A question before this one needs an answer first.");
+	const recorded = await evaluateForm(
+		doc,
+		{ formUuid, answers: [{ path: "first/gate", value: "Jo" }, answer] },
+		{ ...context, entry: open.entry },
+	);
+	expect(recorded.screens.find((s) => s.current)?.path).toBe("/data/second");
+	expect(recorded.fields.find((f) => f.path === answer.path)).toMatchObject({
+		value: "Visited",
+		onCurrentPage: true,
+	});
+});
+
+it.each([webAppsDevice(), androidDevice()])(
+	"retains messages until the worker commits their actual screen or submits on $platform",
+	async (device) => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Checklist",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									id: "opening",
+									fieldList: true,
+									children: [
+										f({ kind: "text", id: "note" }),
+										f({
+											kind: "label",
+											id: "notice",
+											label: "Read the instructions",
+										}),
+									],
+								}),
+								f({
+									kind: "group",
+									id: "finish",
+									fieldList: true,
+									children: [
+										f({
+											kind: "label",
+											id: "consent",
+											label: "Check your answers",
+											askForConfirmation: true,
+										}),
+										f({
+											kind: "text",
+											id: "extra",
+											relevant: "#form/finish/consent = 'OK'",
+										}),
+										f({ kind: "label", id: "closing", label: "Thank you" }),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = Object.values(doc.forms)[0].uuid;
+		const identity = previewAsMe({ id: "member" }, doc);
+		if (!identity) throw new Error("Missing worker identity");
+		const context = {
+			identity,
+			device,
+			cases: { rows: [], indices: [] },
+			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+			captureEntry: true,
+		};
+		const observe = (
+			entry?: Awaited<ReturnType<typeof evaluateForm>>["entry"],
+			answers: { path: string; value: string }[] = [],
+			screenPath?: string,
+			submitEntry = false,
+		) =>
+			evaluateForm(
+				doc,
+				{ formUuid, answers, screenPath },
+				{ ...context, entry, submitEntry },
+			);
+		const opened = await observe();
+		const changed = await observe(opened.entry, [
+			{ path: "opening/note", value: "Read at the visit" },
+		]);
+		for (const result of [opened, changed]) {
+			expect(
+				result.fields.find((field) => field.path === "opening/notice")?.value,
+			).toBe("");
+			expect(
+				result.fields.find((field) => field.path === "finish/extra")?.visible,
+			).toBe(false);
+			expect(result.entry?.checkpoint.state["/data/finish/closing"].value).toBe(
+				"",
+			);
+			expect(result.entry?.checkpoint.state["/data/finish/consent"].value).toBe(
+				"",
+			);
+		}
+		let entry = changed.entry;
+		if (device.platform === "android") {
+			const next = await observe(entry, [], "/data/finish");
+			expect(next.entry?.checkpoint.state["/data/opening/notice"].value).toBe(
+				"OK",
+			);
+			expect(next.entry?.checkpoint.state["/data/finish/closing"].value).toBe(
+				"",
+			);
+			const checked = await observe(next.entry, [
+				{ path: "finish/consent", value: "OK" },
+			]);
+			expect(
+				checked.fields.find((field) => field.path === "finish/extra")?.visible,
+			).toBe(true);
+			entry = checked.entry;
+		}
+		const submitted = await observe(entry, [], undefined, true);
+		expect(submitted.submission).toBeDefined();
+		for (const path of ["opening/notice", "finish/consent", "finish/closing"])
+			expect(submitted.entry?.checkpoint.state[`/data/${path}`].value).toBe(
+				"OK",
+			);
+		expect(
+			submitted.fields.find((field) => field.path === "finish/extra")?.visible,
+		).toBe(true);
+	},
+);
+
+it("changes repeat rows only while their control is reachable and retains hidden rows on resume", async () => {
+	const form = testUuid("repeat-edit-form");
+	const group = testUuid("repeat-edit-group");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						uuid: form,
+						name: "Roster",
+						type: "survey",
+						fields: [
+							f({ kind: "text", id: "open" }),
+							f({
+								kind: "group",
+								uuid: group,
+								id: "visible_group",
+								relevant: "#form/open = 'yes'",
+								children: [
+									f({
+										kind: "repeat",
+										id: "roster",
+										repeat_mode: "user_controlled",
+										submissionPlacement: { parent: form, position: 1 },
+										children: [f({ kind: "text", id: "note" })],
+									}),
+								],
+							}),
+							f({ kind: "text", id: "last" }),
+						],
+					},
+				],
+			},
+		],
+	});
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!identity) throw new Error("Missing worker identity");
+	const context = {
+		identity,
+		device: webAppsDevice(),
+		cases: { rows: [], indices: [] },
+		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		captureEntry: true,
+	};
+	const observe = (
+		entry?: Awaited<ReturnType<typeof evaluateForm>>["entry"],
+		count?: number,
+		answers: { path: string; value: string }[] = [],
+	) =>
+		evaluateForm(
+			doc,
+			{
+				formUuid: form,
+				answers,
+				repeats: count === undefined ? undefined : [{ path: "roster", count }],
+			},
+			{ ...context, entry },
+		);
+	const closed = await observe();
+	await expect(observe(closed.entry, 1)).rejects.toThrow(
+		"Open the page with repeat roster",
+	);
+	const opened = await observe(closed.entry, undefined, [
+		{ path: "open", value: "yes" },
+	]);
+	const edited = await observe(opened.entry, 1, [
+		{ path: "roster[0]/note", value: "Keep me" },
+	]);
+	const hidden = await observe(edited.entry, undefined, [
+		{ path: "open", value: "no" },
+	]);
+	await expect(observe(hidden.entry, 0)).rejects.toThrow(
+		"Open the page with repeat roster",
+	);
+	const returned = await observe(hidden.entry, undefined, [
+		{ path: "open", value: "yes" },
+	]);
+	expect(
+		returned.fields.find((field) => field.path === "roster[0]/note")?.value,
+	).toBe("Keep me");
+	const removed = await observe(returned.entry, 0);
+	expect(
+		removed.fields.find((field) => field.path === "roster")?.repeatCount,
+	).toBe(0);
+});
+
+it("requires the Android repeat invitation and its preceding answers before adding nested entries", async () => {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Roster",
+						type: "survey",
+						fields: [
+							f({ kind: "text", id: "opening" }),
+							f({ kind: "text", id: "gate", required: "true()" }),
+							f({
+								kind: "repeat",
+								id: "roster",
+								repeat_mode: "user_controlled",
+								children: [
+									f({ kind: "text", id: "name" }),
+									f({
+										kind: "repeat",
+										id: "visits",
+										repeat_mode: "user_controlled",
+										children: [f({ kind: "text", id: "note" })],
+									}),
+								],
+							}),
+							f({ kind: "text", id: "last" }),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = Object.values(doc.forms)[0].uuid;
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!identity) throw new Error("Missing worker identity");
+	const context = {
+		identity,
+		device: androidDevice(),
+		cases: { rows: [], indices: [] },
+		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		captureEntry: true,
+	};
+	const opened = await evaluateForm(doc, { formUuid, answers: [] }, context);
+	const request = (entry: typeof opened.entry, path: string) =>
+		evaluateForm(
+			doc,
+			{ formUuid, answers: [], repeats: [{ path, count: 1 }] },
+			{ ...context, entry },
+		);
+	await expect(request(opened.entry, "roster")).rejects.toThrow(
+		"Open the page",
+	);
+	await expect(request(opened.entry, "roster[0]/visits")).rejects.toThrow(
+		"containing entry first",
+	);
+	const gate = await evaluateForm(
+		doc,
+		{ formUuid, answers: [], screenPath: "/data/gate" },
+		{ ...context, entry: opened.entry },
+	);
+	await expect(request(gate.entry, "roster")).rejects.toThrow("Open the page");
+	const ready = await evaluateForm(
+		doc,
+		{ formUuid, answers: [{ path: "gate", value: "done" }] },
+		{ ...context, entry: gate.entry },
+	);
+	const first = await request(ready.entry, "roster");
+	expect(
+		first.fields.find((field) => field.path === "roster")?.repeatCount,
+	).toBe(1);
+	await expect(request(first.entry, "roster[0]/visits")).rejects.toThrow(
+		"Open the page",
+	);
+	const inside = await evaluateForm(
+		doc,
+		{ formUuid, answers: [{ path: "roster[0]/name", value: "Lee" }] },
+		{ ...context, entry: first.entry },
+	);
+	const nested = await request(inside.entry, "roster[0]/visits");
+	expect(
+		nested.fields.find((field) => field.path === "roster[0]/visits")
+			?.repeatCount,
+	).toBe(1);
 });

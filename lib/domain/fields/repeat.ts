@@ -50,7 +50,11 @@ import {
 	queryRepeatPlacementSchema,
 	rowTimingSchema,
 } from "../queryRepeatPlacement";
-import { containerFieldBase, formLogicSchema } from "./base";
+import {
+	containerFieldBase,
+	formLogicSchema,
+	proseTemplateSchema,
+} from "./base";
 
 /**
  * Shared shape for all three repeat variants — `kind` discriminator,
@@ -60,6 +64,8 @@ import { containerFieldBase, formLogicSchema } from "./base";
  */
 const repeatBase = containerFieldBase.extend({
 	kind: z.literal("repeat"),
+	addFirstLabel: proseTemplateSchema.optional(),
+	addLabel: proseTemplateSchema.optional(),
 	relevant: formLogicSchema.optional(),
 });
 

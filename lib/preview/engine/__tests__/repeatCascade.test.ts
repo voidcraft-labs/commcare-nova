@@ -115,6 +115,8 @@ describe("a row reading a total outside its repeat", () => {
 			totalReaders({ repeat_mode: "user_controlled" }),
 			androidDevice(),
 		);
+		expect(values(engine, "/data/members", "x")).toBe("");
+		engine.addRepeat("/data/members");
 		expect(values(engine, "/data/members", "x")).toBe("1");
 		engine.addRepeat("/data/members");
 		engine.addRepeat("/data/members");
@@ -132,6 +134,7 @@ describe("a row reading a total outside its repeat", () => {
 			totalReaders({ repeat_mode: "user_controlled" }),
 			webAppsDevice(),
 		);
+		engine.addRepeat("/data/members");
 		engine.addRepeat("/data/members");
 		expect(values(engine, "/data/members", "x")).toBe("1 2");
 		// The request's opening pass runs every row with two rows, then the
@@ -176,6 +179,7 @@ describe("a row reading a total outside its repeat", () => {
 			);
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
+			engine.addRepeat("/data/members");
 			engine.removeRepeat("/data/members", 0);
 			expect(values(engine, "/data/members", "x")).toBe("2 3");
 			expect(engine.getState("/data/total").value).toBe("2");
@@ -195,6 +199,7 @@ describe("a row reading a total outside its repeat", () => {
 			);
 			const evaluate = workerEvaluator(engine);
 			await engine.initializeAsync(evaluate);
+			await engine.addRepeatAsync("/data/members", evaluate);
 			await engine.addRepeatAsync("/data/members", evaluate);
 			await engine.addRepeatAsync("/data/members", evaluate);
 			expect(values(engine, "/data/members", "x")).toBe(afterThirdRow);
@@ -233,6 +238,7 @@ describe("a row reading its own repeat through a filter", () => {
 				],
 				device,
 			);
+			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
 			engine.setValue("/data/members[0]/v", "yes");

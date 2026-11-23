@@ -10,6 +10,7 @@ import type { BlueprintDoc, CaseProperty } from "./blueprint";
 import { columnPropertyCaseType } from "./columnRelation";
 import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
+import { FIELD_ITEXT_SLOTS } from "./expression/types";
 import type { Field } from "./fields";
 import { isContainer } from "./fields";
 import {
@@ -51,6 +52,8 @@ export const translationUnitRoles = [
 	"field-hint",
 	"field-help",
 	"field-validation-message",
+	"field-first-add-label",
+	"field-add-label",
 	"select-option-label",
 	"case-list-header",
 	"case-list-sort-label",
@@ -349,10 +352,7 @@ function fieldUnits(
 			fieldKind: field.kind,
 		};
 		const addProse = (
-			role: Extract<
-				TranslationUnitRole,
-				"field-label" | "field-hint" | "field-help" | "field-validation-message"
-			>,
+			role: Extract<TranslationUnitRole, keyof typeof FIELD_ITEXT_SLOTS>,
 			slot: string,
 			value: ProseTemplate | undefined,
 		): void => {
@@ -382,6 +382,11 @@ function fieldUnits(
 			"validate_msg",
 			"validate_msg" in field ? field.validate_msg : undefined,
 		);
+
+		if (field.kind === "repeat") {
+			addProse("field-first-add-label", "addFirstLabel", field.addFirstLabel);
+			addProse("field-add-label", "addLabel", field.addLabel);
+		}
 
 		if ("optionsSource" in field && field.optionsSource.kind === "inline") {
 			for (const option of field.optionsSource.options) {
@@ -945,13 +950,7 @@ export function itextUnitTranslationId(unit: ItextUnit): TranslationUnitId {
 	return makeTranslationUnitId(
 		"field",
 		unit.field,
-		unit.role === "field-label"
-			? "label"
-			: unit.role === "field-hint"
-				? "hint"
-				: unit.role === "field-help"
-					? "help"
-					: "validate_msg",
+		FIELD_ITEXT_SLOTS[unit.role],
 	);
 }
 
@@ -1069,8 +1068,14 @@ export function translationUnitProseSlot(
 			return { entity: "field", uuid: owner.fieldUuid, slot: "hint" };
 		case "field-help":
 			return { entity: "field", uuid: owner.fieldUuid, slot: "help" };
+		case "field-first-add-label":
+		case "field-add-label":
 		case "field-validation-message":
-			return { entity: "field", uuid: owner.fieldUuid, slot: "validate_msg" };
+			return {
+				entity: "field",
+				uuid: owner.fieldUuid,
+				slot: FIELD_ITEXT_SLOTS[unit.role],
+			};
 		default:
 			return undefined;
 	}

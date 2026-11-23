@@ -458,6 +458,7 @@ export interface BlueprintMutations {
 	moveField: (
 		uuid: Uuid,
 		opts: {
+			where?: "screen" | "submission";
 			toParentUuid?: Uuid;
 			afterUuid?: Uuid;
 			beforeUuid?: Uuid;
@@ -1330,7 +1331,13 @@ export function createBlueprintMutations(
 				// is unreachable in practice because every field has a parent
 				// entry in `fieldOrder`. Read the parent directly from the
 				// store-maintained `fieldParent` reverse index (O(1)).
-				const toParentUuid = opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
+				const toParentUuid =
+					opts.toParentUuid ??
+					(opts.where === "submission"
+						? field.submissionPlacement?.parent
+						: undefined) ??
+					doc.fieldParent[uuid] ??
+					uuid;
 
 				// Resolve the requested slot to a landing in the destination
 				// parent's sequence, excluding the moved field from the neighbour
@@ -1344,13 +1351,17 @@ export function createBlueprintMutations(
 						afterUuid: opts.afterUuid,
 					},
 					uuid,
+					opts.where,
 				);
 
 				// A write to a case the form creates in one repeat follows the
 				// move to the create of the field's new repeat; the form's own
 				// case and the worker's record keep theirs, and the gate judges
 				// a write read from inside a repeat.
-				const rehoming = planFieldMoveCaseWrites(doc, uuid, toParentUuid);
+				const rehoming =
+					opts.where === undefined
+						? planFieldMoveCaseWrites(doc, uuid, toParentUuid)
+						: { ok: true as const, mutations: [] };
 				if (!rehoming.ok) {
 					const messages = [rehoming.message];
 					if (announce) notifyRejectedCommit(messages);
@@ -1358,7 +1369,13 @@ export function createBlueprintMutations(
 				}
 				return toOutcome(
 					guardedApply([
-						{ kind: "moveField", uuid, toParentUuid, after },
+						{
+							kind: "moveField",
+							uuid,
+							toParentUuid,
+							after,
+							...(opts.where && { where: opts.where }),
+						},
 						...rehoming.mutations,
 					]),
 				);

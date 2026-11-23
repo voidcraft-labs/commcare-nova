@@ -104,6 +104,24 @@ def document_type_declaration(authoring, app_id):
 # Question ids and data nodes ----------------------------------------------------------------------------------------
 
 
+def submitted_case_answer(authoring, app_id):
+    _change(authoring, app_id, "submitted-case-answer",
+            ("<weight />", "<Case />", 1), ('"#form/weight"', '"#form/Case"', 2), ('"/data/weight"', '"/data/Case"', 2))
+
+
+def android_answer_name(authoring, app_id):
+    _change(authoring, app_id, "android-answer-name", ("<weight />", "<registration />", 1),
+            ('"#form/weight"', '"#form/registration"', 2), ('"/data/weight"', '"/data/registration"', 2))
+
+
+def ordinary_stock_answer(authoring, app_id):
+    _change(authoring, app_id, "ordinary-stock-answer", ("<double_age />", '<double_age xmlns="http://commcarehq.org/ledger/v1" />', 1))
+
+
+def empty_hidden_namespace(authoring, app_id):
+    _change(authoring, app_id, "empty-hidden-namespace", ("<double_age />", '<double_age xmlns="" />', 1))
+
+
 def question_id_script(authoring, app_id):
     """The question ``weight`` renamed ``script``, a name HQ's form builder only warns about, at its data node, its
     bind and its control."""
@@ -655,6 +673,11 @@ def hidden_value_xmlns(authoring, app_id):
     )
 
 
+def unrecognized_question_lock(authoring, app_id):
+    _change(authoring, app_id, "unrecognized-question-lock",
+            ('<full_name />', '<full_name vellum:lock="partial" />', 1))
+
+
 def locked_question(authoring, app_id):
     """The text question ``full_name`` locked (``vellum:lock="all"``) on its data node and its bind."""
     _change(
@@ -691,6 +714,16 @@ def required_condition_differing(authoring, app_id):
     )
 
 
+def constraint_on_hidden_value(authoring, app_id):
+    """Vellum's Hidden Value has no Validation Condition property."""
+    _change(
+        authoring,
+        app_id,
+        "constraint-on-hidden-value",
+        (DOUBLE_AGE_BIND, 'nodeset="/data/double_age" constraint="true()" vellum:calculate', 1),
+    )
+
+
 def constraint_on_capture(authoring, app_id):
     """A validation condition on the image question ``photo``."""
     _change(
@@ -713,14 +746,23 @@ def message_without_condition(authoring, app_id):
 
 
 def message_on_capture(authoring, app_id):
-    """A validation message on the location question ``location``, with no validation condition."""
+    """A validation message on the location question without a validation condition."""
+    _location_message(authoring, app_id, "message-on-capture", "")
+
+
+def message_on_capture_with_condition(authoring, app_id):
+    """The location question carries both a validation condition and the message it displays."""
+    _location_message(authoring, app_id, "message-on-capture-with-condition", ' constraint="true()"')
+
+
+def _location_message(authoring, app_id, name, condition):
     _change(
         authoring,
         app_id,
-        "message-on-capture",
+        name,
         (
             'nodeset="/data/location" type="geopoint" />',
-            'nodeset="/data/location" type="geopoint" jr:constraintMsg="jr:itext(\'location-constraintMsg\')" />',
+            f'nodeset="/data/location" type="geopoint"{condition} jr:constraintMsg="jr:itext(\'location-constraintMsg\')" />',
             1,
         ),
         (
@@ -918,6 +960,24 @@ def data_root_named_survey(authoring, app_id):
         ("<data xmlns:jrm=", "<survey xmlns:jrm=", 1),
         ("</data>", "</survey>", 1),
         ("/data/", "/survey/", None),
+    )
+
+
+def data_root_reserved_by_designer(authoring, app_id):
+    _change(authoring, app_id, "data-root-reserved-by-designer",
+            ("<data xmlns:jrm=", "<instance xmlns:jrm=", 1),
+            ("</data>", "</instance>", 1), ("/data/", "/instance/", None))
+
+
+def data_root_unaddressable(authoring, app_id):
+    """The data root named ``患者``, at the element and in every path."""
+    _change(
+        authoring,
+        app_id,
+        "data-root-unaddressable",
+        ("<data xmlns:jrm=", "<患者 xmlns:jrm=", 1),
+        ("</data>", "</患者>", 1),
+        ("/data/", "/患者/", None),
     )
 
 

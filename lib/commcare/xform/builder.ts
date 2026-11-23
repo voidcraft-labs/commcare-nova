@@ -1,5 +1,7 @@
+import { declaresWebApps } from "@/lib/domain/platforms";
 import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
 import { caseTypeHopMap } from "../caseTypeDepths";
+import { assertAnswerDataReachesReceiver } from "./submittedData";
 /**
  * XForm XML emitter.
  *
@@ -36,6 +38,7 @@ import { caseTypeHopMap } from "../caseTypeDepths";
  */
 
 import { type ChildNode, type Element, isTag } from "domhandler";
+import { findOne } from "domutils";
 import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
@@ -145,6 +148,7 @@ import {
 	datetimeCaseValuePath,
 	questionDatetimeCaseValue,
 } from "./datetimeCaseValue";
+import { appendChildren } from "./domSplice";
 import { formCasePropertyRead } from "./formCaseRead";
 import {
 	type FormExpressionEmission,
@@ -393,7 +397,7 @@ export function buildConnectBlocks(
 		// `id=` attribute, and the bind nodeset below, so all three references
 		// to this block always agree.
 		const lmId = lm.id;
-		const lmPath = FormPath.root().child(lmId);
+		const lmPath = FormPath.root(context.mode.formRootName).child(lmId);
 		dataElements.push(
 			connectBlockData(CONNECT_BLOCK_SHAPES.learn_module, lmId, {
 				name: lm.name,
@@ -423,7 +427,7 @@ export function buildConnectBlocks(
 		// case-references load map agree on which XPath actually runs at
 		// form-fill time.
 		const userScore = effectiveAssessmentUserScore(connect.assessment);
-		const assessPath = FormPath.root().child(assessId);
+		const assessPath = FormPath.root(context.mode.formRootName).child(assessId);
 		dataElements.push(
 			connectBlockData(CONNECT_BLOCK_SHAPES.assessment, assessId, {}),
 		);
@@ -467,7 +471,7 @@ export function buildConnectBlocks(
 		// the bind XML and the case-references load map agree on which
 		// XPaths actually run at form-fill time.
 		const { entityId, entityName } = effectiveDeliverEntities(du);
-		const duPath = FormPath.root().child(duId);
+		const duPath = FormPath.root(context.mode.formRootName).child(duId);
 		// HQ's form builder lists `work_area_id` after `entity_name` and writes
 		// it with a bare bind (`commcareConnect.js`,
 		// `ConnectDeliverUnit.childNodes`); Connect reads the empty value as no
@@ -531,7 +535,7 @@ export function buildConnectBlocks(
 	if (connect.task) {
 		const t = connect.task;
 		const taskId = t.id;
-		const taskPath = FormPath.root().child(taskId);
+		const taskPath = FormPath.root(context.mode.formRootName).child(taskId);
 		dataElements.push(
 			connectBlockData(CONNECT_BLOCK_SHAPES.task, taskId, {
 				name: t.name,
@@ -564,6 +568,8 @@ export function buildConnectBlocks(
  * unset or the form carries no Connect block.
  */
 export interface BuildXFormOptions {
+	/** A reading compares even a form whose submitted answers are being refused. The export and device paths check the emitted primary data. */
+	readonly readingComparison?: true;
 	xmlns: string;
 	connect?: ResolvedConnectConfig;
 	/**
@@ -716,10 +722,10 @@ export function inDataTreeOrder(
 			if (isTag(child)) visit(child, path.child(child.name));
 		}
 	};
-	visit(data, FormPath.root());
+	visit(data, FormPath.root(data.name));
 	const at = (setvalue: Element): number => {
 		const ref = setvalue.attribs.ref ?? "";
-		const target = FormPath.parse(ref);
+		const target = FormPath.parse(ref, data.name);
 		return (
 			position.get(
 				(target.endsInAttribute() ? target.parent() : target).toXPath(),
@@ -849,7 +855,11 @@ export function buildXFormSource(
 	const caseTypeHops = caseTypeHopMap(doc, opts.moduleCaseType);
 	const instances = new InstanceSink();
 	const context: WireElementContext = {
-		mode: { target: "xform", constraint: false },
+		mode: {
+			target: "xform",
+			constraint: false,
+			formRootName: doc.forms[formUuid]?.dataRootName,
+		},
 		instances,
 	};
 	const lookupSelects = deriveLookupSelectKit(
@@ -1042,15 +1052,17 @@ export function buildXFormSource(
 
 	// The form's text formatting switch, read beside each text's own setting.
 	const textForm: Pick<Form, "plainText"> = doc.forms[formUuid] ?? {};
-	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
+	const controls = new Map<Uuid, Element>();
+	for (const fieldUuid of expressions.form.fieldOrder.get(formUuid) ?? []) {
+		const ownBody: Element[] = [];
 		buildFieldParts(
 			doc,
 			fieldUuid,
-			FormPath.root(),
+			FormPath.root(doc.forms[formUuid]?.dataRootName),
 			dataElements,
 			binds,
 			setvalues,
-			bodyElements,
+			ownBody,
 			false,
 			addItext,
 			context,
@@ -1061,8 +1073,11 @@ export function buildXFormSource(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
+		if (ownBody[0] !== undefined) controls.set(fieldUuid, ownBody[0]);
 	}
+	bodyElements.push(...orderedControls(doc, formUuid, controls));
 
 	// Connect data + binds are data-only (no body elements).
 	const connectParts = buildConnectBlocks(opts.connect, context, expressions);
@@ -1081,7 +1096,7 @@ export function buildXFormSource(
 	// mirrors the prior emitter's sequence exactly: instance → secondary
 	// instances → binds → setvalues → itext.
 	const dataEl = el(
-		"data",
+		doc.forms[formUuid]?.dataRootName ?? "data",
 		{
 			xmlns: opts.xmlns,
 			"xmlns:jrm": "http://dev.commcarehq.org/jr/xforms",
@@ -1125,6 +1140,8 @@ export function buildXFormSource(
 		binds.push(...owners.binds);
 	}
 
+	if (!opts.readingComparison)
+		assertAnswerDataReachesReceiver(dataEl, declaresWebApps(doc));
 	const modelChildren: ChildNode[] = [
 		el("instance", {}, [dataEl]),
 		...instances
@@ -1268,6 +1285,7 @@ function buildFieldParts(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
+	controls: Map<Uuid, Element>,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1386,7 +1404,13 @@ function buildFieldParts(
 
 	// Containers replace this placeholder after assembling their children.
 	const dataSlot = dataElements.length;
-	dataElements.push(el(field.id, {}));
+	const dataAttributes: Record<string, string> = {};
+	if (field.kind === "hidden") {
+		if (field.answerNamespace !== undefined)
+			dataAttributes.xmlns = field.answerNamespace;
+		if (field.lockedInHq) dataAttributes["vellum:lock"] = "all";
+	}
+	dataElements.push(el(field.id, dataAttributes));
 
 	// Both runtime and editor attributes serialize the same typed expression.
 	// The Vellum serializer decides whether that expression has an editor spelling.
@@ -1395,7 +1419,8 @@ function buildFieldParts(
 		slot: "required" | "relevant" | "calculate" | "default_value" | "validate",
 	) =>
 		expressions.lower(expression, { entity: "field", uuid: fieldUuid, slot });
-	const bindAttributes: Record<string, string> = {};
+	const bindAttributes: Record<string, string> =
+		field.lockedInHq && field.kind !== "hidden" ? { "vellum:lock": "all" } : {};
 	const bindXPath: NonNullable<WireElementSpec<"bind">["xpath"]> = {
 		"vellum:nodeset": nodePath.toWire("hashtag"),
 		nodeset: nodePath.toWire(),
@@ -1749,6 +1774,7 @@ function buildFieldParts(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
 		return;
 	}
@@ -2171,6 +2197,7 @@ function buildContainer(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
+	controls: Map<Uuid, Element>,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -2192,7 +2219,8 @@ function buildContainer(
 	const childParentPath =
 		queryRepeat === undefined ? nodePath : nodePath.queryBoundIteration();
 
-	for (const childUuid of orderedFieldUuids(doc, fieldUuid)) {
+	for (const childUuid of expressions.form.fieldOrder.get(fieldUuid) ?? []) {
+		const ownBody: Element[] = [];
 		buildFieldParts(
 			doc,
 			childUuid,
@@ -2200,7 +2228,7 @@ function buildContainer(
 			childData,
 			childBinds,
 			childSetvalues,
-			childBody,
+			ownBody,
 			childInsideRepeat,
 			addItext,
 			context,
@@ -2211,7 +2239,9 @@ function buildContainer(
 			generatedNodes,
 			caseScalarText,
 			textForm,
+			controls,
 		);
+		if (ownBody[0] !== undefined) controls.set(childUuid, ownBody[0]);
 	}
 
 	const query =
@@ -2249,7 +2279,16 @@ function buildContainer(
 	// binds, its condition's among them. Child binds always append at the end
 	// (order is irrelevant to JavaRosa).
 	if (query !== undefined) {
-		binds.splice(bindSlot, 1, ...query.binds);
+		const queryBinds = [...query.binds];
+		if (field.lockedInHq) {
+			const original = binds[bindSlot];
+			const bind = queryBinds.find(
+				(element) => element.attribs.nodeset === original.attribs.nodeset,
+			);
+			if (bind) bind.attribs["vellum:lock"] = "all";
+			else queryBinds.unshift(original);
+		}
+		binds.splice(bindSlot, 1, ...queryBinds);
 	} else if (relevant) {
 		const value = expressions.lower(relevant, {
 			entity: "field",
@@ -2268,7 +2307,8 @@ function buildContainer(
 			},
 			context,
 		);
-	} else {
+		if (field.lockedInHq) binds[bindSlot].attribs["vellum:lock"] = "all";
+	} else if (!field.lockedInHq) {
 		binds.splice(bindSlot, 1);
 	}
 	binds.push(...childBinds);
@@ -2290,12 +2330,30 @@ function buildContainer(
 		: undefined;
 
 	if (field.kind === "repeat") {
+		const captions: Element[] = [];
+		for (const [slot, suffix, tag] of [
+			["addFirstLabel", "add-empty-caption", "jr:addEmptyCaption"],
+			["addLabel", "add-caption", "jr:addCaption"],
+		] as const) {
+			const id = `${itextKey}-${suffix}`;
+			if (
+				addItext(id, field[slot], undefined, false, false, false).registered
+			) {
+				captions.push(
+					xel(
+						tag,
+						{ xpath: { ref: w.call("jr:itext", [w.str(id)]) } },
+						context,
+					),
+				);
+			}
+		}
 		bodyElements.push(
 			buildRepeatBody(
 				field,
 				nodePath,
 				labelEl,
-				childBody,
+				[...captions, ...childBody],
 				binds,
 				dataElements,
 				context,
@@ -2339,6 +2397,32 @@ function buildContainer(
 			groupChildren,
 		),
 	);
+}
+
+/** Controls are emitted against their submitted paths. Nest the visible ones
+ * in the order a worker sees them, including a repeat's actual row control. */
+function orderedControls(
+	doc: BlueprintDoc,
+	parent: Uuid,
+	controls: ReadonlyMap<Uuid, Element>,
+): Element[] {
+	const children: Element[] = [];
+	for (const uuid of orderedFieldUuids(doc, parent)) {
+		const element = controls.get(uuid);
+		if (element === undefined) continue;
+		const field = doc.fields[uuid];
+		if (isContainer(field)) {
+			const holder =
+				field.kind === "repeat"
+					? findOne((node) => node.name === "repeat", element.children, true)
+					: element;
+			if (!holder)
+				throw new Error(`The repeat ${field.id} has no row control.`);
+			appendChildren(holder, orderedControls(doc, uuid, controls));
+		}
+		children.push(element);
+	}
+	return children;
 }
 
 /** What one query repeat writes besides its authored children. */

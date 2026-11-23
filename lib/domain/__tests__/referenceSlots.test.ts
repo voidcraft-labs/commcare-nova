@@ -674,13 +674,19 @@ describe("fieldReferenceSlotsFor", () => {
 	it("repeat narrows by mode: count_bound has repeat_count, query_bound has ids_query", () => {
 		expect(
 			fieldReferenceSlotsFor("repeat", "user_controlled").map((s) => s.slot),
-		).toEqual(["relevant", "label"]);
+		).toEqual(["relevant", "label", "addFirstLabel", "addLabel"]);
 		expect(
 			fieldReferenceSlotsFor("repeat", "count_bound").map((s) => s.slot),
-		).toEqual(["relevant", "repeat_count", "label"]);
+		).toEqual([
+			"relevant",
+			"repeat_count",
+			"label",
+			"addFirstLabel",
+			"addLabel",
+		]);
 		expect(
 			fieldReferenceSlotsFor("repeat", "query_bound").map((s) => s.slot),
-		).toEqual(["relevant", "ids_query", "label"]);
+		).toEqual(["relevant", "ids_query", "label", "addFirstLabel", "addLabel"]);
 	});
 
 	it("without a mode, repeat reports the umbrella (kind-level) slot set", () => {
@@ -689,6 +695,8 @@ describe("fieldReferenceSlotsFor", () => {
 			"repeat_count",
 			"ids_query",
 			"label",
+			"addFirstLabel",
+			"addLabel",
 		]);
 	});
 });

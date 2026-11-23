@@ -313,10 +313,9 @@ export const FIELD_KIND_ROWS: readonly FieldKindRow[] = [
 		"label",
 		(facts) => facts.control === "trigger" && facts.appearance === LABEL_TOKEN,
 	),
-	refuseRow(
-		X.refusedKind.acknowledgeLabel,
-		(facts) => facts.control === "trigger",
-	),
+	takeRow(X.kind.acknowledge, "label", (facts) => facts.control === "trigger", {
+		slots: { askForConfirmation: true },
+	}),
 	// upload
 	takeRow(
 		X.kind.image,

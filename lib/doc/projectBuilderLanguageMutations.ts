@@ -209,7 +209,14 @@ export function projectBuilderLanguageMutations(
 				const next = structuredClone(mutation);
 				const patch = next.patch as Record<string, unknown>;
 				const currentField = doc.fields[mutation.uuid];
-				for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
+				for (const slot of [
+					"label",
+					"hint",
+					"help",
+					"validate_msg",
+					"addFirstLabel",
+					"addLabel",
+				] as const) {
 					if (!hasOwn(patch, slot)) continue;
 					const id = makeTranslationUnitId("field", mutation.uuid, slot);
 					if (!units.has(id) && currentField !== undefined) {

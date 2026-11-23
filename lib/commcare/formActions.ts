@@ -15,7 +15,6 @@
  * (`hqLoadReference`), which feeds HQ's app summary / case property usage.
  */
 
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	expressionSlotValue,
@@ -24,6 +23,7 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { planFormCaseWire } from "./casePlacementPlan";
 import { caseTypeHopMap } from "./caseTypeDepths";
 import {
@@ -139,8 +139,9 @@ export function buildCaseReferencesLoad(
 		return [...refs];
 	};
 
+	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const walk = (parentUuid: Uuid, parentPath: FormPath): void => {
-		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
+		for (const fieldUuid of layout.children.get(parentUuid) ?? []) {
 			const field = doc.fields[fieldUuid];
 			if (!field) continue;
 			const nodePath = parentPath.child(field.id);
@@ -169,13 +170,13 @@ export function buildCaseReferencesLoad(
 			// `descendFormPathIntoField` adds the model-iteration `<item>` step for
 			// `query_bound` so descendant paths match the XForm emitter +
 			// identity-backed case binding path derivation.
-			if (doc.fieldOrder[fieldUuid] !== undefined) {
+			if (layout.children.has(fieldUuid)) {
 				walk(fieldUuid, descendFormPathIntoField(field, nodePath));
 			}
 		}
 	};
 
-	walk(formUuid, FormPath.root());
+	walk(formUuid, FormPath.root(doc.forms[formUuid]?.dataRootName));
 
 	// Connect assessment + deliver unit carry their own XPath fields
 	// keyed by the Connect wrapper ids.
@@ -189,7 +190,7 @@ export function buildCaseReferencesLoad(
 		const h = toLoadRefs([effectiveAssessmentUserScore(connect.assessment)]);
 		if (h.length > 0) {
 			load[
-				FormPath.root()
+				FormPath.root(doc.forms[formUuid]?.dataRootName)
 					.child(assessId)
 					.child("assessment")
 					.child("user_score")
@@ -206,7 +207,9 @@ export function buildCaseReferencesLoad(
 		const { entityId, entityName } = effectiveDeliverEntities(
 			connect.deliver_unit,
 		);
-		const deliverPath = FormPath.root().child(duId).child("deliver");
+		const deliverPath = FormPath.root(doc.forms[formUuid]?.dataRootName)
+			.child(duId)
+			.child("deliver");
 		const idH = toLoadRefs([entityId]);
 		if (idH.length > 0) {
 			load[deliverPath.child("entity_id").toXPath()] = idH;

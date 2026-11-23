@@ -5977,7 +5977,7 @@ def _node_name(element):
 # The question ids Vellum warns about in any case (``baseSpecs.js::RESERVED_NAMES``), and those its parser finds by
 # bare element name at any depth, so a form holding one never opens (``parser.js``, and jQuery's ``parseXML``, which
 # takes any ``parsererror`` element for its own parse failure); ``lib/domain/questionId.ts::RESERVED_QUESTION_IDS``.
-RESERVED_ANY_CASE = frozenset({"case", "registration", "script"})
+RESERVED_ANY_CASE = frozenset({"script"})
 NEVER_OPENED = frozenset({"instance", "bind", "parsererror"})
 
 
@@ -6008,10 +6008,109 @@ def invalid_question_id(use, manifest):
     return VELLUM_ELEMENT_NAME.fullmatch(name) is None or name.lower() == "meta" or name in NEVER_OPENED
 
 
+def _hq_primary_case(form):
+    """Whether HQ appends its own primary case block (XForm._create_casexml).
+    A project's registry support is an external fact, so a potential registry
+    load cannot establish an HQ build collision from the form alone."""
+    if form.app_form is None:
+        return None
+    app, stored = form.app_form
+    if (stored.get("doc_type") or "Form") != "Form":
+        return False
+    actions = _actions(stored)
+    requires = _requires(stored)
+    opens = requires != "case" and _active(actions.get("open_case"))
+    if opens:
+        return True
+    module = app.module_of(stored) or {}
+    if requires == "none" or _multi_select(module):
+        return False
+    search = module.get("search_config") or {}
+    if _offers_search(module) and search.get("data_registry") and search.get("data_registry_workflow") == "load_case":
+        return None
+    return (any(_active(actions.get(name)) for name in ("update_case", "close_case", "usercase_update"))
+            or any((actions.get(name) or {}).get("preload") for name in ("case_preload", "usercase_preload", "load_from_form"))
+            or any(_active(subcase) for subcase in _subcases(stored)))
+
+
+def _hq_case_collision(form, node):
+    return (node.getparent() is form.data_root and _node_name(node) == "case"
+            and etree.QName(node).namespace in (etree.QName(form.data_root).namespace, CASE))
+
+
+def primary_case_question(use, manifest):
+    form, node = _data_node(use)
+    if form is None:
+        return None
+    return node is not None and _hq_case_collision(form, node) and _hq_primary_case(form)
+
+
+def submitted_case_answer(use, manifest):
+    form, node = _data_node(use)
+    if form is None:
+        return None
+    if node is None or _local(node).lower() != "case":
+        return False
+    if etree.QName(node).namespace == CASE and _local(node) == "case":
+        return False
+    if _hq_case_collision(form, node) and _hq_primary_case(form) is True:
+        return False
+    return not any(ancestor.tag == "{%s}case" % CASE for ancestor in node.iterancestors())
+
+
+def android_answer_name(use, manifest):
+    form, node = _question_node(use)
+    if form is None:
+        return None
+    if node is None:
+        return False
+    name = _local(node).lower()
+    namespace = etree.QName(node).namespace
+    return (namespace != "http://commcarehq.org/ledger/v1" and
+            (name in ("registration", "fixture", "schema") or name == "sync" and namespace == "http://commcarehq.org/sync"))
+
+
+def ordinary_stock_answer(use, manifest):
+    form, node = _data_node(use)
+    if form is None:
+        return None
+    stock = "http://commcarehq.org/ledger/v1"
+    if node is None or etree.QName(node).namespace != stock:
+        return False
+    return (_local(node) not in ("balance", "transfer") and node.get("{%s}role" % VELLUM) not in
+            ("Balance", "Transfer", "Dispense", "Receive")
+            and not any(etree.QName(a).namespace == stock or a.tag == "{%s}case" % CASE for a in node.iterancestors() if a is not form.data_root))
+
+
+def unsupported_question_lock(use, manifest):
+    at = use.at
+    if at is None or not hasattr(at, "attribute") or at.attribute is None:
+        return None
+    if at.attribute != "{http://commcarehq.org/xforms/vellum}lock":
+        return False
+    if at.element.get(at.attribute) != "all":
+        return True
+    form, node = _data_node(use)
+    if form is None or node is None:
+        return False
+    path = _path_of(form, node)
+    bind = form.bind(path)
+    return bool(form.question_controls(path)) and (bind is None or bind.get(at.attribute) != "all")
+
+
+def namespace_the_designer_cannot_keep(use, manifest):
+    form, node = _data_node(use)
+    if form is None:
+        return None
+    if node is None or not use.key.endswith("@xmlns"):
+        return False
+    return node.nsmap.get(None) in (None, "") or bool(form.question_controls(_path_of(form, node)))
+
+
 def reserved_question_id(use, manifest):
     """``questions/question-id-case-registration-script``: a question's data node whose name passes Vellum's Question
-    ID rule and is ``case``, ``registration`` or ``script`` in any case, which HQ's form builder only warns about and
-    Nova's question id rule refuses (``RESERVED_ANY_CASE``; Nova's reader claims the node under this entry,
+    ID rule and is ``registration`` or ``script`` in any case, which Vellum warns about and Nova preserves
+    on a platform whose reader can submit it (Nova's reader claims the node under this entry,
     ``lib/commcare/reader/xform/join.ts``)."""
     form, element = _question_node(use)
     if form is None:
@@ -8461,6 +8560,21 @@ def attribute_bind_no_plugin_owns(use, manifest):
     return not (owner in form.model_repeats or (_local(owner) == "item" and parent in form.model_repeats))
 
 
+def validation_on_hidden_value(use, manifest):
+    """Vellum's DataBindOnly has no constraintAttr. Only a bodyless authored leaf is that question."""
+    form, bind, node = _bind(use)
+    if form is None:
+        return None
+    if bind is None or node is None or isinstance(node, tuple) or use.attribute != "constraint":
+        return False
+    return (
+        node in form.vellum_nodes
+        and form.vellum_nodes[node] is None
+        and not _children(node)
+        and not form.question_controls(bind.get("nodeset"))
+    )
+
+
 def bind_on_data_root(use, manifest):
     """``questions/bind-whose-path-names-the-data-root-itself-data-data-or-a``: a bind whose nodeset names the data
     root itself, which Core applies to the root (``XFormParser.getAbsRef`` resolves a relative path from it), so its
@@ -9698,14 +9812,24 @@ def build_profiles_held(use, manifest):
     return None
 
 
-def data_root_named_other_than_data(use, manifest):
-    """``questions/data-root-element-named-other-than-data``: a form whose main instance's data root is named other
-    than ``data`` (``lib/commcare/reader/xform/parse.ts::claimDataRoot``, by its local name), so every answer's path
-    starts with that name. Another instance's root is no data root."""
-    form, element = _form_element(use)
+def unaddressable_answer_root(use, manifest):
+    form, root = _form_element(use)
     if form is None:
         return None
-    return element is form.data_root and _local(element) != "data"
+    if root is not form.data_root:
+        return False
+    name = _local(root)
+    def letter(ch):
+        return ord(ch) <= 0xffff and (ch.isupper() or ch.islower() or ch == "_")
+    return bool(root.prefix or not letter(name[0]) or
+                any(not (letter(ch) or ord(ch) <= 0xffff and ch.isdecimal() or ch in ".-") for ch in name[1:]))
+
+
+def designer_reserved_answer_root(use, manifest):
+    form, root = _form_element(use)
+    if form is None:
+        return None
+    return root is form.data_root and not root.prefix and _local(root) in {"instance", "bind", "parsererror"}
 
 
 # The registry ---------------------------------------------------------------------
@@ -9752,6 +9876,7 @@ VALUE_CLASSES = {
     "questions/two-sibling-data-nodes-with-one-name": sibling_with_one_name,
     "questions/hidden-value-with-children": hidden_value_with_children,
     "questions/hidden-value-bound-a-type-nova-would-not-write": explicit_hidden_answer_type,
+    "questions/validation-on-a-hidden-value": validation_on_hidden_value,
     "questions/hidden-value-with-both-calculate-and-a-default-by-any-expression": hidden_value_default_read,
     "questions/a-question-other-than-a-group-or-repeat-whose-data-node-has": question_with_children,
     "questions/default-data-value-datavalue-instance-text": default_data_value,
@@ -10058,7 +10183,8 @@ VALUE_CLASSES = {
     "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
     "case-search/search-on-clear": search_on_clear_without_auto_select,
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
-    "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
+    "questions/data-root-name-that-workers-cannot-address": unaddressable_answer_root,
+    "questions/answer-root-that-the-form-designer-reads-as-its-own-element": designer_reserved_answer_root,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": alt_text_holding_text,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
@@ -10067,4 +10193,10 @@ VALUE_CLASSES = {
     "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
     "application-and-settings/build-profiles-non-empty": build_profiles_held,
     "questions/question-id-case-registration-script": reserved_question_id,
+    "questions/a-root-question-case-in-a-form-where-hq-writes-the-primary-case": primary_case_question,
+    "questions/submitted-answer-name-only-android-stores": android_answer_name,
+    "questions/submitted-node-consumed-as-case": submitted_case_answer,
+    "questions/question-lock-the-designer-cannot-represent": unsupported_question_lock,
+    "questions/ordinary-answer-in-stock-namespace": ordinary_stock_answer,
+    "questions/submitted-namespace-the-form-designer-cannot-keep": namespace_the_designer_cannot_keep,
 }

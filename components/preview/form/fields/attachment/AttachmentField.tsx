@@ -1075,7 +1075,7 @@ function AttachmentControl({
 								: hasAnswer
 									? (slotDraft?.file.name ??
 										staged?.originalFilename ??
-										"File attached")
+										(state.edited ? "File attached" : state.value))
 									: (slotDraft?.file.name ?? "No file attached.")}
 				</p>
 			) : null}

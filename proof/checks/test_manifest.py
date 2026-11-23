@@ -1247,24 +1247,21 @@ NAMED_ROOT = FORM.replace(
 DATA_ROOT = FORM.replace(b'name="Visit">', b'name="Visit" uiVersion="1">')
 
 
-def test_a_use_a_held_new_reader_takes_on_a_nova_export_is_reported_held_new(manifest):
-    """Contract: Nova's gate refuses every value a HELD-NEW class with a reader takes, so where an export of Nova's
-    holds one, the manifest check reports it under the key's ``held-new`` path, resting on that entry, and the same
-    export at the value Nova writes reports nothing there. The plausible failure: a check that holds the use because
-    an allowing entry names its key, so an export Nova's reader would not bring in passes the lane."""
-    path = f"/{pointer_token('xform:model/instance/*')}/held-new"
-
-    def reported(xml):
+def test_the_reader_accepts_named_answer_roots_beside_its_two_distinct_refusals(manifest):
+    def standing(xml):
         found = manifest_usage.Uses()
         manifest_usage.xform_uses(xml, manifest, "form:0.0", found)
-        return [
-            [entry["id"] for entry in difference.after["entries"]]
-            for difference in manifest_usage.unclassified("doc", found.uses, manifest)
-            if difference.path == path
-        ]
+        root, = [use for use in found.uses if use.key == "xform:model/instance/*"
+                 and use.at.element is use.at.document.data_root]
+        verdict, entries = manifest_usage.standing(manifest, root)
+        return verdict, [entry.id for entry in entries]
 
-    assert reported(NAMED_ROOT) == [["questions/data-root-element-named-other-than-data"]]
-    assert reported(DATA_ROOT) == []
+    assert standing(DATA_ROOT) == (manifest_usage.HELD, [])
+    assert standing(NAMED_ROOT) == (manifest_usage.HELD, [])
+    for name, rule in (("instance", "answer-root-that-the-form-designer-reads-as-its-own-element"),
+                       ("患者", "data-root-name-that-workers-cannot-address")):
+        xml = NAMED_ROOT.replace(b"<visit ", ("<" + name + " ").encode()).replace(b"</visit>", ("</" + name + ">").encode())
+        assert standing(xml) == (manifest_usage.REFUSED, ["questions/" + rule])
 
 
 def test_a_use_no_entry_refuses_where_it_sits_stands_by_where_its_class_is_judged():

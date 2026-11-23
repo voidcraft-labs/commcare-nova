@@ -37,6 +37,8 @@ const XPATH_ATTRIBUTES = {
 	"orx:pollsensor": ["ref"],
 	itemset: ["nodeset"],
 	label: ["ref"],
+	"jr:addEmptyCaption": ["ref"],
+	"jr:addCaption": ["ref"],
 	value: ["ref"],
 	hint: ["ref"],
 	help: ["ref"],

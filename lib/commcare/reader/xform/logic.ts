@@ -1,9 +1,10 @@
+import { isCaptureFieldKind } from "@/lib/domain/fields";
 /**
  * A field's logic slots and load-time values. No attribute is read
  * here for its meaning: each that holds an expression is pushed as the field's
  * draft expression, which stage 5b registers under the field's UUID and the
  * expression stage binds and claims. What is claimed here is what a kind does
- * not hold (a `required` on a label, a `calculate` on a shown question, any
+ * not hold (a validation on a hidden value, a `calculate` on a shown question, any
  * `readonly`), the shape of each default's `setvalue`, and the scalar check
  * Nova's emitter conjoins onto the constraint of a question a trimmed sibling
  * stands beside or a Save to Case block's name or external id row reads, which
@@ -63,7 +64,7 @@ export function standInRefusal(field: DraftField): StandingRefusal | undefined {
 		RESERVED_QUESTION_IDS.anyCase.has(lowered) &&
 		lowered !== "meta";
 	return {
-		claim: reservedAnyCase ? X.questionIdReserved : X.questionIdGrammar,
+		claim: reservedAnyCase ? X.submittedCase : X.questionIdGrammar,
 		place: field.place,
 		detail: { name: field.id },
 	};
@@ -248,16 +249,8 @@ function readBindLogic(
 		});
 	if (logic.relevant !== undefined && fieldKindDeclaresKey(kind, "relevant"))
 		push("relevant", logic.relevant, "relevant", XFORM);
-	if (logic.required !== undefined) {
-		if (fieldKindDeclaresKey(kind, "required"))
-			push("required", logic.required, "required", XFORM);
-		else if (kind === "label")
-			cursor.refuse(
-				{ element, attribute: "required" },
-				X.requiredOnLabel,
-				place,
-			);
-	}
+	if (logic.required !== undefined && fieldKindDeclaresKey(kind, "required"))
+		push("required", logic.required, "required", XFORM);
 	if (logic.constraint !== undefined) {
 		if (fieldKindDeclaresKey(kind, "validate")) {
 			const folded = checkedOwners.has(field.node)
@@ -275,7 +268,7 @@ function readBindLogic(
 		} else if (!CONTAINER_KINDS.has(kind))
 			cursor.refuse(
 				{ element, attribute: "constraint" },
-				X.constraintOnCapture,
+				X.unsupportedHiddenConstraint,
 				place,
 			);
 	}
@@ -369,10 +362,15 @@ function readDefaults(input: PendingLogicInput): void {
 		}
 		defaulted.add(field);
 		if (!fieldKindDeclaresKey(field.kind, "default_value")) {
-			cursor.refuseSubtree(element, X.defaultOnCapture, place);
+			cursor.refuseSubtree(element, X.formLevelSetvalue, place);
 			continue;
 		}
-		const sites = expected === "jr-insert" ? X.defaultInside : X.defaultOutside;
+		const sites =
+			field.kind === "label" || isCaptureFieldKind(field.kind)
+				? X.defaultOnCapture
+				: expected === "jr-insert"
+					? X.defaultInside
+					: X.defaultOutside;
 		cursor.take({ element }, sites.setvalue).value;
 		cursor.take({ element, attribute: "event" }, sites.event).value;
 		cursor.take({ element, attribute: "ref" }, sites.ref).value;

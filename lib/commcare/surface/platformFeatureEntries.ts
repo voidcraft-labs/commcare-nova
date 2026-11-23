@@ -54,6 +54,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"questions/question-list-unlabelled-anywhere-else",
 		"questions/groups-nested-in-a-question-list",
 	],
+	"answer-name-requires-android": [
+		"questions/submitted-answer-name-only-android-stores",
+	],
 	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
 	"row-starting-value": [
 		"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression",
@@ -64,7 +67,13 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"questions/help-text-with-no-markdown-form",
 	],
 	"choice-media": ["questions/choice-image", "questions/choice-audio-video"],
-	"help-media": ["questions/help-media"],
+	"help-media": [
+		"questions/help-media",
+		"questions/help-media-on-a-capture-question-or-a-label",
+	],
+	"confirm-message": [
+		"questions/acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
+	],
 	now: ["expressions-and-data/now"],
 	today: ["expressions-and-data/today"],
 	"random-and-unique-id": [
@@ -194,6 +203,10 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The same markdown text as a copy in every language; renderer only.",
 	"questions/label-image-audio-video-same-asset-every-language":
 		"Renderer only.",
+	"questions/hint-text-on-a-label":
+		"The platform renders the message’s hint like any other hint.",
+	"questions/help-text-on-a-capture-question-or-a-label":
+		"The platform renders help on messages and attachments like any other help text.",
 	"questions/hint-text":
 		"Renderer only: markdown on Web Apps, plain on Android.",
 	"questions/help-text-markdown-form": "Renderer only.",

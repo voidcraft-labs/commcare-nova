@@ -56,6 +56,7 @@ export function kindAppearanceToken(
 
 /** The token a field's own kind or shape carries, before any setting. */
 function kindToken(field: Field): string | undefined {
+	if (field.kind === "label" && field.askForConfirmation) return undefined;
 	return kindAppearanceToken(
 		field.kind,
 		field.kind === "group" && field.fieldList === true

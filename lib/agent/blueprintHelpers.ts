@@ -641,6 +641,7 @@ export function updateFormMutations(
 	formUuid: Uuid,
 	patch: Partial<{
 		name: string;
+		dataRootName: string | null;
 		openCondition: Form["openCondition"] | null;
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
@@ -654,6 +655,8 @@ export function updateFormMutations(
 		mutations.push({ kind: "renameForm", uuid: formUuid, newId: patch.name });
 	}
 	const reducerPatch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
+	if (patch.dataRootName !== undefined)
+		reducerPatch.dataRootName = patch.dataRootName;
 	if (patch.openCondition !== undefined) {
 		reducerPatch.openCondition =
 			patch.openCondition === null ? null : patch.openCondition;

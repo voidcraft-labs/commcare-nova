@@ -14,6 +14,9 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "targeted-receiving-answers",
+    "targeted-receiving-answers-android",
+
     "case-operation-conditional",
     "case-operation-key",
     "case-operation-query",
@@ -24,6 +27,8 @@ DOCUMENTS = (
     "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0",
     "localization-bilingual",
     "navigation-base",
+    "targeted-worker-messages",
+    "targeted-repeat-invitations",
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
     "targeted-hidden-from-menu",
@@ -32,8 +37,10 @@ DOCUMENTS = (
     "targeted-number-keypad",
     "targeted-plain-help",
     "targeted-plain-labels",
+    "targeted-named-answer-root",
     "targeted-preview-android-renders",
     "targeted-styled-value",
+    "targeted-submitted-groups",
     "targeted-tile-hidden-order",
 )
 

@@ -171,6 +171,8 @@ export function toHqFormLink(
  * logo reaches an app built on CommCare HQ when a person adds it there.
  */
 export interface ExpandOptions {
+	/** Compare the partly read form while the reader accounts for its receiver actions and platform choices. */
+	readonly readingComparison?: true;
 	readonly runtimeTarget?: RuntimeTarget;
 	/**
 	 * The ids every menu and form takes. Absent means the derivation; a
@@ -358,6 +360,7 @@ export function* expandDocSteps(
 				ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
 
 			const source = buildXFormSource(doc, formUuid, {
+				readingComparison: opts.readingComparison,
 				xmlns,
 				expressionDoc: authoredDoc,
 				datumId: entryDatumIdResolver(

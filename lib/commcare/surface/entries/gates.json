@@ -3269,7 +3269,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types `lockedInHq`)",
+		"content": "HELD (Question types `lockedInHq`)",
 		"contentEntries": ["questions/vellum-lock-all-locked-question"],
 		"platforms": "n/a",
 		"preflight": {

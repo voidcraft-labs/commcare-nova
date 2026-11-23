@@ -63,6 +63,8 @@ export const HIDDEN_ANSWER_TYPE_LABELS = {
 export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
 	answerType: z.enum(HIDDEN_ANSWER_TYPES).optional(),
+	/** A distinct namespace used by the service that receives this answer. */
+	answerNamespace: z.string().min(1).optional(),
 	calculate: formLogicSchema.optional(),
 	default_value: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),

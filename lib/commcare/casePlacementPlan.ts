@@ -365,7 +365,7 @@ function buildPlan(
 	const saveToCase: SaveToCaseBlock[] = [];
 	const datums = formCaseEntryPlan(doc, formUuid, moduleKind).datums;
 	const appendedNames: AppendedBlockName[] = [];
-	const root = FormPath.root();
+	const root = FormPath.root(doc.forms[formUuid]?.dataRootName);
 	const scopeOf = (repeat: Uuid | undefined): FormPath =>
 		repeat === undefined
 			? root
@@ -600,7 +600,7 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 		updateMap,
 		scopeOf,
 	} = input;
-	const root = FormPath.root();
+	const root = FormPath.root(doc.forms[formUuid]?.dataRootName);
 	const loadOfTag = new Map(advanced.loads.map((load, i) => [load.tag, i]));
 	const openOfTag = new Map(advanced.opens.map((open, i) => [open.tag, i]));
 	const openTagOf = new Map(
@@ -859,8 +859,9 @@ export function saveToCaseBlocks(
 			subject,
 			scope:
 				repeat === undefined
-					? FormPath.root()
-					: (repeatRowPath(doc, formUuid, repeat) ?? FormPath.root()),
+					? FormPath.root(doc.forms[formUuid]?.dataRootName)
+					: (repeatRowPath(doc, formUuid, repeat) ??
+						FormPath.root(doc.forms[formUuid]?.dataRootName)),
 			path: planned.placement.path,
 			held: planned.held,
 		});

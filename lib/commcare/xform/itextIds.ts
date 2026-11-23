@@ -14,6 +14,8 @@ const roles = [
 	["hint", "field-hint", "hint"],
 	["help", "field-help", "help"],
 	["validate_msg", "field-validation-message", "constraintMsg"],
+	["addFirstLabel", "field-first-add-label", "add-empty-caption"],
+	["addLabel", "field-add-label", "add-caption"],
 ] as const;
 
 /** Logical ancestry, without generated query-repeat item nodes. A hyphen an id

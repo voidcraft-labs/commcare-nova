@@ -72,7 +72,7 @@ export function formNodeProjection(
 		if (!graph.has(node)) return undefined;
 		switch (node.kind) {
 			case "form-root":
-				return { name: "data" };
+				return { name: form.dataRootName ?? "data" };
 			case "field": {
 				const field = form.fields.get(node.uuid);
 				if (field === undefined) return undefined;
@@ -156,7 +156,7 @@ export function formNodeProjection(
 		path(node) {
 			const coordinates = graph.path(node);
 			if (coordinates === undefined) return undefined;
-			let path = FormPath.root();
+			let path = FormPath.root(form.dataRootName);
 			for (const coordinate of coordinates.slice(1)) {
 				const projected = step(coordinate);
 				if (projected === undefined) return undefined;

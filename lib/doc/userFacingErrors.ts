@@ -610,6 +610,11 @@ type PlatformBuilderCopy =
 	| { readonly sentence: string };
 
 const PLATFORM_BUILDER_COPY = {
+	"answer-name-requires-android": {
+		lead: (subject) =>
+			`${subject} has an answer ID that Web Apps reserves for its own instructions.`,
+		alternative: "give the answer a different ID",
+	},
 	"datetime-question": {
 		lead: (subject) =>
 			`${subject} asks for a date and time, which Web Apps can't show.`,
@@ -1670,6 +1675,7 @@ const USER_MESSAGE_BY_CODE: Record<
 				: "";
 		return `${q(fieldName(e))} and a CommCare Connect block of ${q(formName(e))} share one name, so the form would hold two items CommCare can't tell apart. You can rename the field, or give the block another ID.${offer}`;
 	},
+	FIELD_SUBMISSION_PLACEMENT: (e) => e.message,
 	DUPLICATE_FIELD_ID: (e) =>
 		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
 	CASE_OPERATION_DUPLICATE_UUID: () =>
@@ -1816,6 +1822,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The timing for ${q(fieldName(e))} in ${q(formName(e))} changes where your published app keeps each row's record ID. You can review that change to use the new timing.`,
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: (e) =>
 		queryRepeatModelIterationSentence(e),
+	SUBMITTED_ANSWER_NAMESPACE: (e) => e.message,
+	SUBMITTED_CASE_CHANGE_WRAPPER: (e) => e.message,
 	INVALID_FIELD_ID: (e) => {
 		const sentence = questionIdSentence(e, fieldName(e), "question");
 		return sentence === undefined

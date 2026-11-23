@@ -24,11 +24,14 @@ export const PLACEMENT_LABELS = [
 	"ordinary-menu",
 	"advanced-menu",
 ] as const;
-export type PlacementLabel = (typeof PLACEMENT_LABELS)[number];
+export type PlacementLabel =
+	| (typeof PLACEMENT_LABELS)[number]
+	| { readonly answerPath: string };
 
 /** A place's words, folded into a sentence ("from Case Management to Save
  *  to Case"). */
 export function placementLabelWords(label: PlacementLabel): string {
+	if (typeof label === "object") return label.answerPath;
 	switch (label) {
 		case "case-management":
 			return "Case Management";

@@ -149,6 +149,48 @@ async function signatures(
 }
 
 describe("summaryDifferences over CommCare HQ's retained summary", () => {
+	it("checks the translated question at HQ's named submitted path", async () => {
+		const withNamedForm = eachForm((xml) =>
+			xml.includes('id="answer-label"')
+				? xml
+						.replace("<data ", "<visit ")
+						.replace("</data>", "</visit>")
+						.replaceAll('"/data/answer"', '"/visit/answer"')
+				: xml,
+		);
+		const body = (source: Body) => {
+			const updated = withNamedForm(structuredClone(source));
+			const [menu] = updated.modules as {
+				forms: {
+					actions: {
+						update_case: { update: { notes: { question_path: string } } };
+					};
+				}[];
+			}[];
+			// HQ also stores this answer's address in its active case update.
+			menu.forms[0].actions.update_case.update.notes.question_path =
+				"/visit/answer";
+			return updated;
+		};
+		const summary = (other: boolean) =>
+			eachQuestion((q) =>
+				q.value === "/data/answer"
+					? {
+							...q,
+							value: "/visit/answer",
+							...(other && {
+								translations: { en: "Wrong question" },
+								label: "Wrong question",
+							}),
+						}
+					: q,
+			);
+		expect(await signatures({ body, summary: summary(false) })).toEqual([]);
+		expect(await signatures({ body, summary: summary(true) })).toEqual([
+			"summary/question/label",
+		]);
+	});
+
 	it("finds nothing for the reading of navigation-base", async () => {
 		expect(await signatures()).toEqual([]);
 	});

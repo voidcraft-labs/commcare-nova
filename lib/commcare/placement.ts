@@ -66,6 +66,8 @@ import {
 	usercaseSlotReasons,
 } from "@/lib/domain/basicCaseSlots";
 import type { Expression } from "@/lib/domain/expression/types";
+import { suffixUntilFree } from "@/lib/domain/idSlug";
+import { submittedAction } from "@/lib/domain/submittedAnswerName";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { openActionViewBefore } from "./advancedPlacement";
 import type { PlannedLoad } from "./advancedSelections";
@@ -323,9 +325,9 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			if (subcase.inSource) {
 				const scope =
 					op.forEach === undefined
-						? FormPath.root()
+						? FormPath.root(f.doc.forms[f.formUuid]?.dataRootName)
 						: (repeatRowPath(f.doc, f.formUuid, op.forEach.repeat) ??
-							FormPath.root());
+							FormPath.root(f.doc.forms[f.formUuid]?.dataRootName));
 				// The block runs once per selected case, in the selected-case
 				// row's operations group, named in the operations namespace of
 				// its authored scope.
@@ -441,6 +443,18 @@ function ownCloseReasons(
 	return saveToCaseReasons(f, { kind: "own-close" }, placement);
 }
 
+/** An unheld case change needs a wrapper that stays ordinary on either platform.
+ * Existing published places keep their original names and are checked against
+ * the declaration. The operation's own ID still identifies it in every editor. */
+function receiverSafeOperationName(facts: CaseSlotFacts, id: string): string {
+	if (!submittedAction(id)) return id;
+	const taken = new Set(facts.operations.map((op) => op.id));
+	for (const op of facts.operations)
+		if (op.placement?.kind === "save-to-case")
+			for (const name of op.placement.path) taken.add(name);
+	return suffixUntilFree("save_" + id, taken);
+}
+
 /**
  * The Save to Case place today's allocator gives a subject: the wrappers of
  * `saveToCaseBlockShape`, each named by `planGeneratedNodes` (which has
@@ -459,8 +473,9 @@ function derivedSaveToCase(
 	const repeat = operation?.forEach?.repeat;
 	let scope =
 		repeat === undefined
-			? FormPath.root()
-			: (repeatRowPath(f.doc, f.formUuid, repeat) ?? FormPath.root());
+			? FormPath.root(f.doc.forms[f.formUuid]?.dataRootName)
+			: (repeatRowPath(f.doc, f.formUuid, repeat) ??
+				FormPath.root(f.doc.forms[f.formUuid]?.dataRootName));
 	const authoredScope = scope;
 	const segments: string[] = [];
 	for (const segment of saveToCaseBlockShape(f.doc, f.formUuid, subject)) {
@@ -498,7 +513,7 @@ function derivedSaveToCase(
 							: nodes.close()
 						: operation?.action === "own" && f.severalCases
 							? nodes.updateSelectedCases()
-							: (operation?.id ?? "");
+							: receiverSafeOperationName(f, operation?.id ?? "");
 				break;
 		}
 		segments.push(name);
@@ -539,7 +554,7 @@ interface ActionState {
  */
 function advancedRootNames(f: CaseSlotFacts): ReadonlySet<string> {
 	const names = new Set<string>(formConnectIds(f.doc, f.formUuid));
-	for (const uuid of f.doc.fieldOrder[f.formUuid] ?? []) {
+	for (const uuid of f.submittedChildren.get(f.formUuid) ?? []) {
 		const field = f.doc.fields[uuid];
 		if (field !== undefined) names.add(field.id);
 	}
@@ -558,7 +573,7 @@ function advancedRootNames(f: CaseSlotFacts): ReadonlySet<string> {
  *  segment of each Save to Case block held there. */
 function advancedRowNames(f: CaseSlotFacts, repeat: Uuid): ReadonlySet<string> {
 	const names = new Set<string>();
-	for (const uuid of f.doc.fieldOrder[repeat] ?? []) {
+	for (const uuid of f.submittedChildren.get(repeat) ?? []) {
 		const field = f.doc.fields[uuid];
 		if (field !== undefined) names.add(field.id);
 	}

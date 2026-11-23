@@ -1,85 +1,37 @@
 "use client";
-import { useMemo } from "react";
-import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
-import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type {
-	CommitOutcome,
-	FieldPatchFor,
-	LabelField as LabelFieldEntity,
-	ProseTemplate,
-} from "@/lib/domain";
-import { PREVIEW_LABEL_RENDERING } from "@/lib/markdown";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import type { LabelField as Message } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { LabelContent } from "@/lib/references/LabelContent";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
-import { FIELD_STYLES } from "../fieldStyles";
-import { TextEditable } from "../TextEditable";
-import { useLabelFormatText } from "../useLabelFormatText";
 
-/**
- * Display-only label field renderer. Labels carry only `label` + optional
- * `relevant` in the domain schema: no hint, no data binding. The preview
- * engine still provides a resolved label (hashtag substitution) via
- * `FieldState`.
- */
 export function LabelField({
 	field,
 	state,
+	onChange,
+	onBlur,
 }: {
-	/** The label field entity. Prop name is `field` to match the domain.
-	 *  consistent with other preview field components: the prop name is
-	 *  cosmetic; the value is a domain `LabelField`. */
-	field: LabelFieldEntity;
+	field: Message;
 	state: FieldState;
+	onChange: (value: string) => void;
+	onBlur: () => void;
 }) {
-	const mode = useEditMode();
-	const isEditMode = mode === "edit";
-	/* The running preview renders the label as the runtime it plays does
-	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
-	const labelRendering = usePreviewPlatformRules().labelMarkdown;
-	const { updateField } = useBlueprintMutations();
-	const labelFormatText = useLabelFormatText(field);
-	/* Inline save callback: null in preview mode so the TextEditable
-	 * below falls back to read-only. In edit mode returns a stable
-	 * `(field, value) => void` that coerces empty strings to undefined
-	 * (an unset property) and commits through the doc store. The
-	 * patch's `property` arg is a runtime key (the TextEditable's
-	 * `fieldType` axis), so we cast back to the label kind's partial
-	 * shape: every key TextEditable can save (`label`) is declared on
-	 * `LabelField`, so the runtime contract holds. */
-	const saveField = useMemo<
-		((field: string, value: ProseTemplate) => CommitOutcome) | null
-	>(() => {
-		if (!isEditMode) return null;
-		return (property, value) => {
-			return updateField(field.uuid, "label", {
-				[property]: value,
-			} as FieldPatchFor<"label">);
-		};
-	}, [isEditMode, field.uuid, updateField]);
-
+	const rules = usePreviewPlatformRules();
+	const isEditMode = useEditMode() === "edit";
+	const { language } = useBuilderLanguage();
+	if (!field.askForConfirmation || rules.messageConfirmation !== "checkbox")
+		return null;
 	return (
-		<div className="py-1">
-			{/* Label media above the text: same `MediaDisplay` the input fields
-			    use, so a display-only label shows its image/audio/video too. */}
-			<MediaDisplay media={field.label_media} interactive={!isEditMode} />
-			<TextEditable
-				value={field.label}
-				onSave={saveField ? (v) => saveField("label", v) : undefined}
-				fieldType="label"
-				formatText={labelFormatText}
-				proseSlot={{ entity: "field", uuid: field.uuid, slot: "label" }}
-			>
-				<LabelContent
-					label={field.label}
-					resolvedLabel={state.resolvedLabel}
-					isEditMode={isEditMode}
-					rendering={isEditMode ? PREVIEW_LABEL_RENDERING : labelRendering}
-					plainLabel={labelFormatText?.plain === true}
-					className={FIELD_STYLES.label}
-					proseSlot={{ entity: "field", uuid: field.uuid, slot: "label" }}
-				/>
-			</TextEditable>
-		</div>
+		<label className="pv-choice-row inline-flex items-center gap-2 px-2 py-1">
+			<input
+				type="checkbox"
+				className="accent-pv-accent"
+				checked={state.value === "OK"}
+				disabled={isEditMode}
+				onBlur={onBlur}
+				onChange={(event) => onChange(event.target.checked ? "OK" : "")}
+			/>
+			{runtimeMessage(language, "confirmMessage")}
+		</label>
 	);
 }

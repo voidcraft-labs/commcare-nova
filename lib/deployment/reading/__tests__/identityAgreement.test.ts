@@ -60,16 +60,18 @@ import {
 	publishRefuses,
 } from "@/lib/commcare/reader/__tests__/publishedDocuments";
 import { sourceFromBody } from "@/lib/commcare/reader/__tests__/readerInput";
+import { matchingResolver } from "@/lib/commcare/reader/identity";
 import { kindAppearanceToken } from "@/lib/commcare/xform/appearance";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
+import { acceptReading } from "../acceptance";
 import { readingEmission } from "../emission";
 import {
 	holdsNovaAppearance,
 	identityDifferences,
 	sourceApplication,
 } from "../identityAgreement";
-import { DOMAIN, HOST, readingInput } from "./acceptanceInput";
+import { acceptanceInput, DOMAIN, HOST, readingInput } from "./acceptanceInput";
 import {
 	controlAt,
 	editXml,
@@ -150,6 +152,85 @@ function appearanceAt(path: string, appearance: string) {
 }
 
 describe("identityDifferences", () => {
+	it("keeps a named envelope, a generated count and an inert appearance on adoption and on a later HQ reading", async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "int", id: "length", label: proseText("How many?") }),
+								f({ kind: "text", id: "plain", label: proseText("Notes") }),
+								f({
+									kind: "repeat",
+									id: "visits",
+									repeat_mode: "count_bound",
+									repeat_count: "#form/length + 1",
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const form = Object.values(doc.forms)[0];
+		form.dataRootName = "visit";
+		const source = await servedSource(
+			doc,
+			appearanceAt("/visit/plain", "compact"),
+		);
+		const first = servedReading(source);
+		const changed = await servedSource(doc, (xml) =>
+			appearanceAt(
+				"/visit/plain",
+				"compact",
+			)(xml).replaceAll(">Notes<", ">Visit notes<"),
+		);
+		const later = servedReading(changed, {
+			resolver: matchingResolver(
+				first.reader.appId,
+				first.outcome.draft.identities.entries,
+			),
+		});
+		for (const read of [first, later]) {
+			const [facts] = read.outcome.draft.facts.forms;
+			expect(
+				facts.generated.some(
+					(node) => node.purpose === "count" && node.path.startsWith("/visit/"),
+				),
+			).toBe(true);
+			expect(facts.inertAppearances).toContain("plain");
+			const accepted = acceptReading(
+				acceptanceInput(read.reader, read.outcome),
+			);
+			expect(accepted.ok ? [] : accepted.differences).toEqual([]);
+			expect(Object.values(read.outcome.draft.doc.forms)[0].dataRootName).toBe(
+				"visit",
+			);
+		}
+		expect(
+			Object.values(later.outcome.draft.doc.fields).map((f) => f.uuid),
+		).toEqual(Object.values(first.outcome.draft.doc.fields).map((f) => f.uuid));
+		const other = structuredClone(doc);
+		Object.values(other.forms)[0].dataRootName = "round";
+		const switched = await servedSource(other);
+		const differences = identityDifferences({
+			source: switched,
+			emission: first.emission,
+			draft: first.outcome.draft,
+			attachmentTarget: TARGET,
+		}).differences;
+		expect(differences.map((one) => one.signature)).toContain(
+			"identity/form/dataRootName",
+		);
+	});
+
 	it("finds none between a reading's source and Nova's emission of its document", async () => {
 		expect(await signatures(undefined)).toEqual([]);
 	});

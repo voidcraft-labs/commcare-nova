@@ -1,8 +1,7 @@
 // lib/domain/fields/image.ts
 //
 // Image capture field. Emits `<upload mediatype="image/*">` over a
-// `binary` bind. Cannot be calculated or validated — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema. A case
+// `binary` bind. Its starting value, constraint and help are shared with other questions. A case
 // operation saves a link to the captured file through a `capture-link`
 // write value, never the file itself.
 //
@@ -17,13 +16,10 @@
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
+import { checkedInputFieldBaseSchema } from "./base";
 
-export const imageFieldSchema = fieldBaseSchema.extend({
+export const imageFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("image"),
-	hint: proseTemplateSchema.optional(),
-	required: formLogicSchema.optional(),
-	relevant: formLogicSchema.optional(),
 });
 
 export type ImageField = z.infer<typeof imageFieldSchema>;
@@ -36,7 +32,7 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	label: "Image",
 	isStructural: false,
 	isContainer: false,
-	carriesValidation: false,
+	carriesValidation: true,
 	saDocs:
 		'Photo attachment. Name what to capture, such as "Photo of the meter", rather than how, because how the worker adds it depends on where the app runs.',
 	convertTargets: ["audio", "video", "signature", "file"],

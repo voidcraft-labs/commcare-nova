@@ -29,6 +29,8 @@ export const TRANSLATION_FILL_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"field-hint",
 		"field-help",
 		"field-validation-message",
+		"field-first-add-label",
+		"field-add-label",
 		"select-option-label",
 	],
 );

@@ -565,12 +565,16 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 		case "field-label":
 		case "field-hint":
 		case "field-help":
+		case "field-first-add-label":
+		case "field-add-label":
 		case "field-validation-message": {
 			const slot = {
 				"field-label": "label",
 				"field-hint": "hint",
 				"field-help": "help",
 				"field-validation-message": "validate_msg",
+				"field-first-add-label": "addFirstLabel",
+				"field-add-label": "addLabel",
 			}[unit.role];
 			return owner.kind === "field"
 				? (draft, value) => {

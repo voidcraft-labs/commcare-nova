@@ -292,7 +292,7 @@ describe("the repeat table", () => {
 		]);
 	});
 
-	it("refuses add captions and drops the others where they hold text", async () => {
+	it("reads the add caption and drops a deletion caption where both hold text", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: `<r jr:template=""><q/></r>`,
@@ -300,9 +300,12 @@ describe("the repeat table", () => {
 				body: '<group><repeat nodeset="/data/r"><jr:addCaption>Add</jr:addCaption><jr:delCaption>Remove</jr:delCaption><input ref="/data/r/q"/></repeat></group>',
 			}),
 		);
-		expect(codesAt(reading, "r")).toEqual([
-			Q("repeat-add-captions-jr-addcaption-jr-addemptycaption"),
-		]);
+		expect(codesAt(reading, "r")).toEqual([]);
+		expect(
+			readFields(reading.xform ?? ({} as never)).find(
+				(field) => field.id === "r",
+			)?.field,
+		).toMatchObject({ addLabel: { parts: [{ kind: "text", text: "Add" }] } });
 	});
 });
 

@@ -586,6 +586,21 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			]),
 		use: slotUse("question-pages", FIELD_OWNER, "kind"),
 	},
+	"answer-name-requires-android": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "registration",
+				label: proseText("Registration reference"),
+			}),
+		without: () =>
+			oneField({
+				kind: "text",
+				id: "record_ref",
+				label: proseText("Registration reference"),
+			}),
+		use: slotUse("answer-name-requires-android", FIELD_OWNER, "id"),
+	},
 	"number-keypad": {
 		with: () =>
 			oneField({
@@ -645,6 +660,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			},
 			"media",
 		),
+	},
+	"confirm-message": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "notice",
+				label: proseText("Notice"),
+				askForConfirmation: true,
+			}),
+		without: () =>
+			oneField({ kind: "label", id: "notice", label: proseText("Notice") }),
+		use: slotUse("confirm-message", FIELD_OWNER, "askForConfirmation"),
 	},
 	"help-media": {
 		with: () =>

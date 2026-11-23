@@ -65,6 +65,7 @@ NOVA_LABELS = {
     "child_cases": "Child Cases",
     "form_link_workflow": "Link to other forms in End of Form Navigation",
     "save_to_case": "Save to Case",
+    "locked_admin_questions": "Locked Admin Questions",
     "locations": "Locations",
     "data_forwarding": "Data Forwarding",
 }

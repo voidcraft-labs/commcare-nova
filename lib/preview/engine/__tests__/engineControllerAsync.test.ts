@@ -360,11 +360,11 @@ describe("EngineController async runtime", () => {
 		const first = ctrl.addRepeatAsync(REPEAT_UUID);
 		const second = ctrl.addRepeatAsync(REPEAT_UUID);
 		await vi.runAllTimersAsync();
-		await expect(Promise.all([first, second])).resolves.toEqual([1, 2]);
+		await expect(Promise.all([first, second])).resolves.toEqual([0, 1]);
 
-		expect(ctrl.getRepeatCount(REPEAT_UUID)).toBe(3);
+		expect(ctrl.getRepeatCount(REPEAT_UUID)).toBe(2);
+		expect(ctrl.store.getState()["/data/items[0]/name"]?.value).toBe("ready");
 		expect(ctrl.store.getState()["/data/items[1]/name"]?.value).toBe("ready");
-		expect(ctrl.store.getState()["/data/items[2]/name"]?.value).toBe("ready");
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 
 		const compactions: unknown[] = [];
@@ -374,11 +374,11 @@ describe("EngineController async runtime", () => {
 		await vi.runAllTimersAsync();
 		await expect(Promise.all([removal, replacement])).resolves.toEqual([
 			true,
-			2,
+			1,
 		]);
 		expect(compactions).toHaveLength(1);
-		expect(ctrl.getRepeatCount(REPEAT_UUID)).toBe(3);
-		expect(ctrl.store.getState()["/data/items[2]/name"]?.value).toBe("ready");
+		expect(ctrl.getRepeatCount(REPEAT_UUID)).toBe(2);
+		expect(ctrl.store.getState()["/data/items[1]/name"]?.value).toBe("ready");
 		ctrl.dispose();
 	});
 
@@ -405,6 +405,7 @@ describe("EngineController async runtime", () => {
 		};
 		const ctrl = controllerForDoc(doc);
 		await ctrl.activateFormAsync(FORM_UUID);
+		await ctrl.addRepeatAsync(REPEAT_UUID);
 		await ctrl.addRepeatAsync(REPEAT_UUID);
 		expect(ctrl.store.getState()["/data/items[1]/name"]?.value).toBe("ready");
 
@@ -546,6 +547,7 @@ describe("EngineController async runtime", () => {
 		await vi.runAllTimersAsync();
 		await activation;
 		const additions = [
+			ctrl.addRepeatAsync(REPEAT_UUID),
 			ctrl.addRepeatAsync(REPEAT_UUID),
 			ctrl.addRepeatAsync(REPEAT_UUID),
 		];

@@ -27,6 +27,7 @@ import {
 	effectiveCaseSearchConfig,
 	type Uuid,
 } from "@/lib/domain";
+import { formOfField } from "@/lib/domain/fieldForm";
 import {
 	type WorkerRecordRequirement,
 	workerRecordRequirements,
@@ -64,6 +65,7 @@ export const HQ_PLAN_PRIVILEGE_IDS = [
 	"save_to_case",
 	"locations",
 	"data_forwarding",
+	"locked_admin_questions",
 ] as const;
 export type HqPlanPrivilegeId = (typeof HQ_PLAN_PRIVILEGE_IDS)[number];
 
@@ -113,6 +115,7 @@ export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	save_to_case: "advanced-case-actions",
 	locations: "organization",
 	data_forwarding: "data-forwarding",
+	locked_admin_questions: "locked-questions",
 } as const satisfies Record<HqPlanPrivilegeId, PlanFeatureId>;
 
 /** A form named as every reason names it: its name, trimmed, or its id. */
@@ -374,6 +377,20 @@ export function requiredPlanPrivileges(
 	 * receiver takes each form and nothing reaches CommCare Connect. */
 	add("data_forwarding", connectFormReasons(doc, connect));
 
+	const lockedForms = new Set(
+		Object.values(doc.fields)
+			.filter((field) => field.lockedInHq === true)
+			.map((field) => formOfField(doc, field.uuid)),
+	);
+	add(
+		"locked_admin_questions",
+		forms
+			.filter(({ formUuid }) => lockedForms.has(formUuid))
+			.map(
+				({ formUuid }) =>
+					`${formName(doc, formUuid)} holds a question locked in CommCare HQ.`,
+			),
+	);
 	return uses;
 }
 

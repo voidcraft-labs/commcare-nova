@@ -55,6 +55,7 @@ import {
 	unavailablePlatform,
 } from "./platforms";
 import { expressionSlotValues } from "./referenceSlots";
+import { answerRequiresAndroid } from "./submittedAnswerName";
 import type { Uuid } from "./uuid";
 
 export type PlatformFeatureOwner =
@@ -337,6 +338,26 @@ export function platformFeatureUses(
 				formUuid,
 			};
 			const formUses: PlatformFeatureUse[] = [];
+			if (wanted("answer-name-requires-android")) {
+				const lockedPaths = [
+					...(form.ownClosePlacement ? [form.ownClosePlacement.path] : []),
+					...(form.caseOperations ?? []).flatMap((op) =>
+						op.placement?.kind === "save-to-case" ? [op.placement.path] : [],
+					),
+				];
+				if (
+					lockedPaths.some((path) =>
+						path.some((name) => answerRequiresAndroid(name)),
+					)
+				)
+					formUses.push(
+						slotUse(
+							"answer-name-requires-android",
+							formOwner,
+							"caseOperations",
+						),
+					);
+			}
 			if (wanted("after-submit-home") && afterSubmitCanGoHome(doc, formUuid))
 				formUses.push(
 					slotUse(
@@ -624,6 +645,14 @@ function fieldUses(
 	expressionUses: ExpressionUses,
 ): PlatformFeatureUse[] {
 	const uses: PlatformFeatureUse[] = [];
+	if (
+		wanted("answer-name-requires-android") &&
+		answerRequiresAndroid(
+			field.id,
+			field.kind === "hidden" ? field.answerNamespace : undefined,
+		)
+	)
+		uses.push(slotUse("answer-name-requires-android", owner, "id"));
 	for (const id of PLATFORM_FEATURE_IDS) {
 		if (PLATFORM_FEATURES[id].fieldKind === field.kind && wanted(id))
 			uses.push(slotUse(id, owner, "kind"));
@@ -646,6 +675,12 @@ function fieldUses(
 		wanted("plain-text")
 	)
 		uses.push(slotUse("plain-text", owner, "plainLabel"));
+	if (
+		field.kind === "label" &&
+		field.askForConfirmation &&
+		wanted("confirm-message")
+	)
+		uses.push(slotUse("confirm-message", owner, "askForConfirmation"));
 	if ("plainHelp" in field && field.plainHelp === true && wanted("plain-text"))
 		uses.push(slotUse("plain-text", owner, "plainHelp"));
 	if (

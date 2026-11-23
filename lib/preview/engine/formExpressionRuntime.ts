@@ -92,7 +92,7 @@ export function previewFormNodeProjection(
 		path(node) {
 			const coordinates = path(node);
 			if (coordinates === undefined) return undefined;
-			let result = FormPath.root();
+			let result = FormPath.root(form.dataRootName);
 			for (const coordinate of coordinates.slice(1)) {
 				const projected = step(coordinate);
 				if (projected === undefined) return undefined;
@@ -266,7 +266,7 @@ export function formExpressionRuntime(
 			startingDatetime
 				? startingDatetimeWire(expression, build)
 				: toWire(expression, build),
-			{ target: "preview" },
+			{ target: "preview", formRootName: doc.forms[formUuid]?.dataRootName },
 		).text;
 	};
 	const texts = new Map<string, string | undefined>();

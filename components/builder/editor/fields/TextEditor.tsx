@@ -39,7 +39,9 @@ function proseSlotOf(
 	return key === "label" ||
 		key === "hint" ||
 		key === "help" ||
-		key === "validate_msg"
+		key === "validate_msg" ||
+		key === "addFirstLabel" ||
+		key === "addLabel"
 		? { entity: "field", uuid: fieldUuid, slot: key }
 		: undefined;
 }

@@ -268,10 +268,14 @@ async function seed(subject: ReturnType<typeof fixture>) {
 	expect(await ctrl.onValueChangeAsync(fields.point.uuid, "40 -74 0 0")).toBe(
 		true,
 	);
-	if (fields.visit.kind === "group")
+	if (fields.visit.kind === "group") {
+		expect(
+			await ctrl.addRepeatAsync(fields.visits.uuid, "/data/visit/visits"),
+		).toBe(0);
 		expect(
 			await ctrl.addRepeatAsync(fields.visits.uuid, "/data/visit/visits"),
 		).toBe(1);
+	}
 	expect(
 		await ctrl.setValueAtAsync("/data/visit/visits[1]/note", "Second visit"),
 	).toBe(true);

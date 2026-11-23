@@ -1,3 +1,4 @@
+import { isCaptureFieldKind } from "@/lib/domain/fields";
 /**
  * Media on a text: the `image`, `audio` and `video` values of a text on
  * the slots Nova holds media for (a question's label, its help, an inline
@@ -58,7 +59,14 @@ function slotString(holding: SlotText["media"]): string {
 }
 
 /** The claim a held slot takes on each language's value of a media kind. */
-function heldClaim(holding: SlotText["media"], kind: MediaKind): Claim<"take"> {
+function heldClaim(slot: SlotText, kind: MediaKind): Claim<"take"> {
+	const holding = slot.media;
+	if (
+		holding === "help_media" &&
+		(slot.owner.field.kind === "label" ||
+			isCaptureFieldKind(slot.owner.field.kind))
+	)
+		return X.helpMediaOnCapture[kind];
 	if (holding === "help_media") return X.helpMedia[kind];
 	if (holding === "option_media")
 		return kind === "image" ? X.choiceImage.image : X.choiceAudioVideo[kind];
@@ -160,13 +168,6 @@ function readSlotMedia(
 		if (first)
 			for (const value of values.values())
 				claimFormValue(ctx.accounting, value, place);
-		if (slot.media === "refused") {
-			if (first)
-				for (const value of values.values())
-					cursor.refuseSubtree(value, X.helpMediaOnCapture[kind], place);
-			else ctx.accounting.finding(X.helpMediaOnCapture[kind], place);
-			continue;
-		}
 		if (slot.media === "unheld") {
 			for (const [language, value] of values) {
 				const path = ownText(value).trim();
@@ -252,7 +253,7 @@ function readSlotMedia(
 		}) => {
 			if (first)
 				for (const value of values.values())
-					cursor.takeSubtree(value, heldClaim(slot.media, kind)).value;
+					cursor.takeSubtree(value, heldClaim(slot, kind)).value;
 			setMedia(slot, kind, asset.assetId);
 			for (const one of paths)
 				ctx.facts.mediaReferences.push({

@@ -9,6 +9,8 @@
 
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { formOfField } from "@/lib/domain/fieldForm";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 
 /** A requested slot. All three are optional; absent means append. */
 export interface FieldSlotRequest {
@@ -29,10 +31,17 @@ export function fieldSlotAfter(
 	parentUuid: Uuid,
 	slot: FieldSlotRequest,
 	exclude?: Uuid,
+	where?: "screen" | "submission",
 ): Uuid | null {
-	const siblings = orderedFieldUuids(doc, parentUuid).filter(
-		(uuid) => uuid !== exclude,
-	);
+	const form =
+		where === "submission" ? formOfField(doc, parentUuid) : undefined;
+	const order =
+		form === undefined
+			? orderedFieldUuids(doc, parentUuid)
+			: (submissionLayout(form, doc.fields, doc.fieldOrder).children.get(
+					parentUuid,
+				) ?? []);
+	const siblings = order.filter((uuid) => uuid !== exclude);
 	if (slot.afterUuid !== undefined) return slot.afterUuid;
 	if (slot.beforeUuid !== undefined) {
 		const at = siblings.indexOf(slot.beforeUuid);

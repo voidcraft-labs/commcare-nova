@@ -449,6 +449,16 @@ export const termSchema: z.ZodType<Term> = z.union([
 	locationLevelTermSchema,
 	locationFieldTermSchema,
 ]);
+/** The field slot a form text reference names, independent of its printed itext id. */
+export const FIELD_ITEXT_SLOTS = {
+	"field-label": "label",
+	"field-hint": "hint",
+	"field-help": "help",
+	"field-validation-message": "validate_msg",
+	"field-first-add-label": "addFirstLabel",
+	"field-add-label": "addLabel",
+} as const;
+
 export const itextUnitSchema = z.union([
 	z.strictObject({
 		field: uuidSchema,
@@ -457,6 +467,8 @@ export const itextUnitSchema = z.union([
 			"field-hint",
 			"field-help",
 			"field-validation-message",
+			"field-first-add-label",
+			"field-add-label",
 		]),
 	}),
 	z.strictObject({
@@ -1179,7 +1191,7 @@ export type ProseSlotRef =
 	| {
 			readonly entity: "field";
 			readonly uuid: Uuid;
-			readonly slot: "label" | "hint" | "help" | "validate_msg";
+			readonly slot: (typeof FIELD_ITEXT_SLOTS)[keyof typeof FIELD_ITEXT_SLOTS];
 	  }
 	| {
 			readonly entity: "field";
@@ -1194,6 +1206,8 @@ const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
 	"hint",
 	"help",
 	"validate_msg",
+	"addFirstLabel",
+	"addLabel",
 	"option_label",
 ]);
 

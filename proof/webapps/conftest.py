@@ -27,6 +27,8 @@ DOCUMENTS = (
     "navigation-base",
     "prompt-widgets",
     "search-browse",
+    "targeted-worker-messages",
+    "targeted-repeat-invitations",
     "targeted-capture-widgets",
     "targeted-custom-tile",
     "targeted-empty-list-no-english",

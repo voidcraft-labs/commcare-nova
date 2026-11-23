@@ -206,9 +206,13 @@ function editPatchToFieldPatch(
 		"label",
 		"hint",
 		"help",
+		"addFirstLabel",
+		"addLabel",
 		"required",
 		"relevant",
 		"calculate",
+		"answerNamespace",
+		"lockedInHq",
 		"default_value",
 	] as const;
 	for (const key of scalarKeys) {
@@ -228,6 +232,9 @@ function editPatchToFieldPatch(
 	// `plainHelp`, false or null clears it (the domain stores only `true`).
 	if (updates.field_list !== undefined)
 		patch.fieldList = updates.field_list === true ? true : null;
+	if (updates.askForConfirmation !== undefined)
+		patch.askForConfirmation =
+			updates.askForConfirmation === true ? true : null;
 	if (updates.plain_label !== undefined)
 		patch.plainLabel = updates.plain_label === true ? true : null;
 	if (updates.plain_help !== undefined)

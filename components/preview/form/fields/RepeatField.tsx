@@ -50,6 +50,7 @@ import {
 	type RepeatField as RepeatFieldEntity,
 } from "@/lib/domain";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
+import { repeatAddCaption } from "@/lib/preview/engine/repeatAddCaption";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
@@ -196,9 +197,9 @@ export function RepeatField({
 	// The latter is a non-reactive method call; `addRepeat` /
 	// `removeRepeat` bump `repeatCount` on the repeat's own
 	// `FieldState` to give subscribers the re-render signal.
-	// `?? 1` covers the brief `DEFAULT_RUNTIME_STATE` window before
+	// `?? 0` covers the brief `DEFAULT_RUNTIME_STATE` window before
 	// the engine's first sync to the runtime store.
-	const count = state.repeatCount ?? 1;
+	const count = state.repeatCount ?? 0;
 
 	const onToggle = useCallback(() => {
 		toggleCollapse(field.uuid);
@@ -209,6 +210,10 @@ export function RepeatField({
 		(field.label
 			? projectProse(field.label)
 			: runtimeMessage(language, "entry"));
+
+	const buttonText =
+		repeatAddCaption(field, state, count, projectProse) ??
+		runtimeMessage(language, "addEntry", { label: addLabel });
 
 	// Add/Remove affordances are only meaningful for `user_controlled`
 	// repeats. Counted and record-query repeats derive their own rows. Show
@@ -384,7 +389,7 @@ export function RepeatField({
 										idx={idx}
 										depth={depth + 1}
 										onRemove={
-											isUserControlled && count > 1
+											isUserControlled
 												? () => removeInstance(idx, instanceKey)
 												: undefined
 										}
@@ -468,9 +473,7 @@ export function RepeatField({
 										height="14"
 										aria-hidden="true"
 									/>
-									<span id={addActionId}>
-										{runtimeMessage(language, "addEntry", { label: addLabel })}
-									</span>
+									<span id={addActionId}>{buttonText}</span>
 								</button>
 							</div>
 						)}

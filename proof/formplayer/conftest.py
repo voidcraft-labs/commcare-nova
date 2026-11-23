@@ -15,6 +15,8 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "targeted-receiving-answers",
+
     "case-capture-multiple",
     "case-capture-repeat",
     "case-extension-registration",
@@ -27,6 +29,7 @@ DOCUMENTS = (
     "prompt-widgets",
     "search-hidden-link",
     "search-remote-defaults",
+    "targeted-repeat-invitations",
     "targeted-form-link-hidden-target",
     "targeted-hidden-from-menu",
     "targeted-invalid-question-ids",
@@ -35,8 +38,10 @@ DOCUMENTS = (
     "targeted-multi-select-destinations",
     "targeted-save-to-case-read",
     "targeted-search-hq-compile",
+    "targeted-named-answer-root",
     "targeted-search-workflow",
     "targeted-several-case-close",
+    "targeted-submitted-groups",
     "targeted-validated-barcode-secret",
     "xpath-context",
 )

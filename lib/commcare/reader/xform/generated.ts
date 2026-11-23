@@ -707,6 +707,7 @@ export function datetimeSpellingOf(
 /** The owner value an owner node's calculate holds. */
 function ownerValueOf(
 	calculate: string,
+	rootName: string,
 ): "acting-user" | "unowned" | undefined {
 	for (const value of ["acting-user", "unowned"] as const) {
 		const built = buildOwnerNodes(
@@ -714,7 +715,7 @@ function ownerValueOf(
 				{
 					purpose: "owner",
 					operationUuid: "reader" as never,
-					scope: FormPath.root(),
+					scope: FormPath.root(rootName),
 					name: "nova_owner_reader",
 					value,
 				},
@@ -829,7 +830,7 @@ export function recognizeGenerated(
 		bindHoldsOnly(bind, ["calculate"]) &&
 		endsScope(node)
 	) {
-		const ownerValue = ownerValueOf(calculate);
+		const ownerValue = ownerValueOf(calculate, node.rootName);
 		if (ownerValue !== undefined)
 			return {
 				kind: "generated-candidate",

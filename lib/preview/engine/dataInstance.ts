@@ -161,8 +161,17 @@ export class DataInstance {
 	private queryRepeatPaths = new Set<string>();
 	private rootAttributes: Readonly<Record<string, string>>;
 
+	get rootName(): string {
+		return this.name;
+	}
+
+	get rootPath(): string {
+		return `/${this.rootName}`;
+	}
+
 	constructor(
 		rootAttributes: XFormDataRootRuntimeAttributes | undefined = undefined,
+		private name = "data",
 	) {
 		this.rootAttributes = rootAttributes ? { ...rootAttributes } : {};
 	}
@@ -192,7 +201,11 @@ export class DataInstance {
 		this.elementAttributes = new Map(structuredClone(snapshot.attributes));
 	}
 
-	setRootAttributes(rootAttributes: XFormDataRootRuntimeAttributes): void {
+	setRoot(
+		rootName: string,
+		rootAttributes: XFormDataRootRuntimeAttributes,
+	): void {
+		this.name = rootName;
 		this.rootAttributes = { ...rootAttributes };
 	}
 
@@ -217,7 +230,7 @@ export class DataInstance {
 				walk(node.children ?? [], path);
 			}
 		};
-		walk(tree, "/data");
+		walk(tree, this.rootPath);
 	}
 
 	/** The rows of a repeat that are relevant: a query wrapper's
@@ -238,10 +251,10 @@ export class DataInstance {
 	/** Initialize from a field tree, creating an entry for each non-structural field. */
 	initFromFields(
 		tree: FieldTreeNode[],
-		prefix = "/data",
+		prefix = this.rootPath,
 		bindTypeOf: FieldBindTypeOf = kindBindType,
 	): void {
-		if (prefix === "/data") {
+		if (prefix === this.rootPath) {
 			this.refreshTemplate(tree, bindTypeOf);
 		}
 		for (const node of tree) {
@@ -252,13 +265,13 @@ export class DataInstance {
 				// Groups and sections don't have values — recurse into children
 				if (node.children) this.initFromFields(node.children, path, bindTypeOf);
 			} else if (f.kind === "repeat") {
-				// Repeats start with one instance [0]
-				this.counts.set(path, 1);
+				// The template supplies fields for a future insert. It is not a submitted row.
+				this.counts.set(path, 0);
 				if (node.children)
 					this.initFromFields(node.children, `${path}[0]`, bindTypeOf);
 			} else {
-				// Leaf field — empty string initial value
-				this.set(path, "");
+				// Installing the template must not grow the repeats containing this leaf.
+				this.data.set(path, "");
 			}
 		}
 	}
@@ -317,22 +330,13 @@ export class DataInstance {
 		return this.elementAttributes.get(path) ?? {};
 	}
 
-	/** Register a repeat container, seeding one instance if it has no live
-	 *  count yet. The incremental add-field path uses this — the full
-	 *  `initFromFields` walk seeds counts itself. */
+	/** Register an empty template for a repeat added in the Builder. */
 	ensureRepeat(repeatPath: string): void {
-		if (!this.counts.has(repeatPath)) this.counts.set(repeatPath, 1);
+		if (!this.counts.has(repeatPath)) this.counts.set(repeatPath, 0);
 	}
 
-	/**
-	 * Add a new repeat instance. Returns the new index.
-	 *
-	 * The new instance is seeded from the AUTHORED template shape — the
-	 * `[0]` subtree with every nested repeat at one instance — not from
-	 * instance `[0]`'s live shape. A user who grew a nested repeat to three
-	 * rows inside instance 1 gets a fresh instance with one nested row,
-	 * matching what the deployed form's `jr:template` would produce.
-	 */
+	/** Insert an empty copy of the authored subtree. Nested repeats keep
+	 * their templates until their own binding or a worker inserts a row. */
 	addRepeatInstance(repeatPath: string): number {
 		const count = this.getRepeatCount(repeatPath);
 		const newIndex = count;
@@ -343,14 +347,14 @@ export class DataInstance {
 			const suffix = key.slice(templatePrefix.length);
 			// Skip keys inside nested instances >= 1 — template shape only.
 			if (/\[[1-9]\d*\]/.test(suffix)) continue;
-			this.set(`${repeatPath}[${newIndex}]/${suffix}`, "");
+			this.data.set(`${repeatPath}[${newIndex}]/${suffix}`, "");
 		}
-		// Nested repeat containers restart at one instance in the new copy.
+		// A new copy never inherits another row’s inner memberships.
 		for (const key of [...this.counts.keys()]) {
 			if (!key.startsWith(templatePrefix)) continue;
 			const suffix = key.slice(templatePrefix.length);
 			if (/\[[1-9]\d*\]/.test(suffix)) continue;
-			this.counts.set(`${repeatPath}[${newIndex}]/${suffix}`, 1);
+			this.counts.set(`${repeatPath}[${newIndex}]/${suffix}`, 0);
 		}
 
 		this.counts.set(repeatPath, newIndex + 1);
@@ -360,7 +364,11 @@ export class DataInstance {
 	/** Remove a repeat instance and renumber higher indices. */
 	removeRepeatInstance(repeatPath: string, index: number): void {
 		const count = this.getRepeatCount(repeatPath);
-		if (count <= 1) return; // Keep at least one instance
+		if (!Number.isInteger(index) || index < 0 || index >= count) return;
+		if (count === 1) {
+			this.setRepeatCount(repeatPath, 0);
+			return;
+		}
 
 		// Remove value + nested-count keys for this index
 		const prefix = `${repeatPath}[${index}]/`;
@@ -420,9 +428,7 @@ export class DataInstance {
 		return this.counts.get(repeatPath) ?? 0;
 	}
 
-	/** Set an initialization-owned repeat cardinality, including zero.
-	 * Interactive removal deliberately keeps one row; query/count-bound form
-	 * initialization must still be able to materialize an empty nodeset. */
+	/** Set membership without dropping the template needed for later inserts. */
 	setRepeatCount(repeatPath: string, target: number): void {
 		if (!Number.isSafeInteger(target) || target < 0) {
 			throw new Error("Repeat count must be a nonnegative safe integer.");
@@ -438,7 +444,8 @@ export class DataInstance {
 			}
 			for (const key of [...this.counts.keys()]) {
 				if (key === repeatPath || !key.startsWith(`${repeatPath}[`)) continue;
-				if (!key.startsWith(firstPrefix)) this.counts.delete(key);
+				if (key.startsWith(firstPrefix)) this.counts.set(key, 0);
+				else this.counts.delete(key);
 			}
 			for (const key of [...this.elementAttributes.keys()]) {
 				if (key.startsWith(`${repeatPath}[`)) {
@@ -631,7 +638,7 @@ class FormXPathInstance implements XPathInstance {
 			multiplicity: 0,
 			children: [
 				{
-					name: "data",
+					name: data.rootName,
 					answerType: "untyped",
 					repeat: false,
 					children: template,

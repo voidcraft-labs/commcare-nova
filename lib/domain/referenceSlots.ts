@@ -173,8 +173,9 @@ export type ReferenceSlot =
 // reads as a contract, not a list to eyeball. The audit test proves
 // each group exact against the per-kind schemas.
 
-/** Kinds extending `inputFieldBaseSchema` — full input wiring
- *  (hint / help / required / relevant). */
+/** The kinds with a worker prompt, starting value, validation and help.
+ * Labels participate because workers submit their acknowledgment. The
+ * schema audit checks each slot's exact set of kinds independently. */
 const INPUT_KINDS = [
 	"text",
 	"int",
@@ -187,29 +188,9 @@ const INPUT_KINDS = [
 	"geopoint",
 	"barcode",
 	"secret",
+	"label",
+	...captureFieldKinds,
 ] as const satisfies readonly FieldKind[];
-
-/** Input kinds that also carry `validate` / `validate_msg` /
- *  `default_value` (every input kind except `geopoint`, whose
- *  sensor-shaped value takes a default but no constraint). */
-const VALIDATED_INPUT_KINDS = [
-	"text",
-	"int",
-	"decimal",
-	"date",
-	"time",
-	"datetime",
-	"single_select",
-	"multi_select",
-	"barcode",
-	"secret",
-] as const satisfies readonly FieldKind[];
-
-/** Binary capture kinds — label + hint + required + relevant plus the
- *  capture case-write destination (no help, no validation, no default).
- *  Aliases the domain's `captureFieldKinds`; the audit test proves the
- *  group exact against the per-kind schemas. */
-const CAPTURE_KINDS = captureFieldKinds;
 
 const SELECT_KINDS = [
 	"single_select",
@@ -289,7 +270,7 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "validate",
 		path: "validate",
 		kind: "expression",
-		appliesTo: VALIDATED_INPUT_KINDS,
+		appliesTo: INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -306,14 +287,14 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "default_value",
 		path: "default_value",
 		kind: "expression",
-		appliesTo: [...VALIDATED_INPUT_KINDS, "geopoint", "hidden"],
+		appliesTo: [...INPUT_KINDS, "hidden"],
 	},
 	{
 		entity: "field",
 		slot: "required",
 		path: "required",
 		kind: "expression",
-		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS],
+		appliesTo: INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -343,7 +324,7 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "hint",
 		path: "hint",
 		kind: "prose",
-		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS],
+		appliesTo: INPUT_KINDS,
 	},
 	{
 		entity: "field",
@@ -357,7 +338,21 @@ export const FIELD_REFERENCE_SLOTS = [
 		slot: "validate_msg",
 		path: "validate_msg",
 		kind: "prose",
-		appliesTo: VALIDATED_INPUT_KINDS,
+		appliesTo: INPUT_KINDS,
+	},
+	{
+		entity: "field",
+		slot: "addFirstLabel",
+		path: "addFirstLabel",
+		kind: "prose",
+		appliesTo: ["repeat"],
+	},
+	{
+		entity: "field",
+		slot: "addLabel",
+		path: "addLabel",
+		kind: "prose",
+		appliesTo: ["repeat"],
 	},
 	{
 		entity: "field",

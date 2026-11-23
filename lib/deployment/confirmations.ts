@@ -155,6 +155,8 @@ function planFeatureWhereMissing(
 	switch (feature) {
 		case "web-apps":
 			return webAppsWhereMissing(narrowingTo(doc, "android"));
+		case "locked-questions":
+			return "You can remove the question locks in Nova before publishing to this project space.";
 		case "advanced-case-actions":
 			return saveToCaseWhereMissing(
 				placementMoveOffer(doc, "save-to-case") !== null,

@@ -256,8 +256,18 @@ export const X = {
 			src: "xform:model/instance/*@src",
 		},
 	),
-	rootNotData: one(
+	designerRoot: one(
 		"refuse",
+		Q("answer-root-that-the-form-designer-reads-as-its-own-element"),
+		"xform:model/instance/*",
+	),
+	unaddressableRoot: one(
+		"refuse",
+		Q("data-root-name-that-workers-cannot-address"),
+		"xform:model/instance/*",
+	),
+	namedRoot: one(
+		"take",
 		Q("data-root-element-named-other-than-data"),
 		"xform:model/instance/*",
 	),
@@ -359,8 +369,23 @@ export const X = {
 		Q("question-id-failing-the-grammar-or-meta-in-any-case"),
 		"xform:model/instance//*",
 	),
-	questionIdReserved: one(
+	submittedCase: one(
 		"refuse",
+		Q("submitted-node-consumed-as-case"),
+		"xform:model/instance//*",
+	),
+	submittedStock: one(
+		"refuse",
+		Q("ordinary-answer-in-stock-namespace"),
+		"xform:model/instance//*",
+	),
+	androidAnswer: one(
+		"take",
+		Q("submitted-answer-name-only-android-stores"),
+		"xform:model/instance//*",
+	),
+	questionIdReserved: one(
+		"take",
 		Q("question-id-case-registration-script"),
 		"xform:model/instance//*",
 	),
@@ -375,13 +400,26 @@ export const X = {
 		Q("vellum-comment"),
 		"vellum-markup:model/instance//*@vellum:comment",
 	),
-	vellumLock: under("refuse", Q("vellum-lock-all-locked-question"), {
+	unrecognizedLock: under(
+		"refuse",
+		Q("question-lock-the-designer-cannot-represent"),
+		{
+			node: "vellum-markup:model/instance//*@vellum:lock",
+			bind: "vellum-markup:bind@vellum:lock",
+		},
+	),
+	vellumLock: under("take", Q("vellum-lock-all-locked-question"), {
 		node: "vellum-markup:model/instance//*@vellum:lock",
 		bind: "vellum-markup:bind@vellum:lock",
 	}),
+	hiddenNamespace: one(
+		"take",
+		Q("data-node-xmlns-on-a-hidden-value"),
+		"xform:model/instance//*@xmlns",
+	),
 	dataNodeXmlns: one(
 		"refuse",
-		Q("data-node-xmlns-on-a-hidden-value"),
+		Q("submitted-namespace-the-form-designer-cannot-keep"),
 		"xform:model/instance//*@xmlns",
 	),
 	defaultDataValue: one(
@@ -483,7 +521,7 @@ export const X = {
 		"xform:model/instance//*",
 	),
 	dataParentOtherGroup: one(
-		"refuse",
+		"take",
 		Q("data-parent-data-node-under-another-group-than-its-control"),
 		"xform:input@ref",
 	),
@@ -552,6 +590,14 @@ export const X = {
 			control: "xform:select",
 			ref: "xform:select@ref",
 		}),
+		acknowledge: kind(
+			"acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
+			{
+				node: "mug:Trigger",
+				control: "xform:trigger",
+				ref: "xform:trigger@ref",
+			},
+		),
 		label: kind("label-trigger-whose-appearance-is-exactly-minimal", {
 			node: "mug:Trigger",
 			control: "xform:trigger",
@@ -690,11 +736,6 @@ export const X = {
 			"refuse",
 			Q("a-select-whose-bind-type-is-neither-a-choice-type-nor-a-string"),
 			"jr-type:int",
-		),
-		acknowledgeLabel: one(
-			"refuse",
-			Q("acknowledge-label-a-trigger-whose-appearance-is-neither-exactly"),
-			"mug:Trigger",
 		),
 		face: one("refuse", Q("face-capture-image-face"), "mug:FaceCapture"),
 		uploadOther: one(
@@ -999,10 +1040,15 @@ export const X = {
 		Q("a-count-that-depends-on-the-rows-it-creates-through-calculations"),
 		"xform:repeat@jr:count",
 	),
-	addCaptions: one(
-		"refuse",
+	addCaptions: under(
+		"take",
 		Q("repeat-add-captions-jr-addcaption-jr-addemptycaption"),
-		"xform:repeat/jr:addCaption",
+		{
+			addCaption: "xform:repeat/jr:addCaption",
+			addCaptionRef: "xform:repeat/jr:addCaption@ref",
+			addEmptyCaption: "xform:repeat/jr:addEmptyCaption",
+			addEmptyCaptionRef: "xform:repeat/jr:addEmptyCaption@ref",
+		},
 	),
 	otherCaptions: one(
 		"drop",
@@ -1036,16 +1082,11 @@ export const X = {
 	),
 
 	// ── Logic slots and load-time values (11) ────────────────────────────
-	requiredOnLabel: one(
-		"refuse",
-		Q("bind-required-on-a-label"),
-		"xform:model/bind@required",
-	),
 	/** A constraint that is Nova's scalar check alone, held by the field's record of it. */
 	scalarCheck: one("take", Q("bind-constraint"), "xform:model/bind@constraint"),
-	constraintOnCapture: one(
+	unsupportedHiddenConstraint: one(
 		"refuse",
-		Q("bind-constraint-on-a-capture-question-or-a-label"),
+		Q("validation-on-a-hidden-value"),
 		"xform:model/bind@constraint",
 	),
 	calculateOnVisible: one(
@@ -1060,14 +1101,18 @@ export const X = {
 		"xform:model/bind@jr:constraintMsg",
 	),
 	messageOnCapture: one(
-		"refuse",
+		"take",
 		Q("validation-message-on-a-capture-question-or-a-label"),
 		"xform:model/bind@jr:constraintMsg",
 	),
-	defaultOnCapture: one(
-		"refuse",
+	defaultOnCapture: under(
+		"take",
 		Q("default-on-a-capture-question-or-a-label"),
-		"xform:setvalue",
+		{
+			setvalue: "xform:setvalue",
+			event: "xform:setvalue@event",
+			ref: "xform:setvalue@ref",
+		},
 	),
 	defaultOutside: under(
 		"take",
@@ -1231,12 +1276,12 @@ export const X = {
 		elementKeys("label"),
 	),
 	hint: under("take", Q("hint-text"), slotKeys("hint")),
-	hintOnLabel: under("refuse", Q("hint-text-on-a-label"), elementKeys("hint")),
+	hintOnLabel: under("take", Q("hint-text-on-a-label"), slotKeys("hint")),
 	help: under("take", Q("help-text-markdown-form"), slotKeys("help")),
 	helpOnCapture: under(
-		"refuse",
+		"take",
 		Q("help-text-on-a-capture-question-or-a-label"),
-		elementKeys("help"),
+		slotKeys("help"),
 	),
 	alert: under(
 		"take",
@@ -1411,7 +1456,7 @@ export const X = {
 		Q("label-or-option-media-differing-by-language"),
 	),
 	helpMediaOnCapture: mediaClaims(
-		"refuse",
+		"take",
 		Q("help-media-on-a-capture-question-or-a-label"),
 	),
 	hintMedia: mediaClaims(

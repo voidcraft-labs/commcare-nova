@@ -2823,9 +2823,7 @@ function plannedPath(
 	const root = form.xform?.parsed.dataRoot.name ?? "data";
 	const relative = path.startsWith(`/${root}/`)
 		? path.slice(root.length + 2)
-		: path.startsWith("/data/")
-			? path.slice(6)
-			: path;
+		: path;
 	return plannedOwnerPaths.has(relative)
 		? `#owner:${relative}`
 		: (siblings.get(relative) ?? relative);

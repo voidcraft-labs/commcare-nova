@@ -252,7 +252,14 @@ function fieldItextUnits(
 ): TranslationUnit[] {
 	const ids: TranslationUnitId[] = [];
 	const record = field as unknown as Record<string, unknown>;
-	for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
+	for (const slot of [
+		"label",
+		"hint",
+		"help",
+		"validate_msg",
+		"addFirstLabel",
+		"addLabel",
+	] as const) {
 		if (record[slot] !== undefined) {
 			ids.push(makeTranslationUnitId("field", field.uuid, slot));
 		}
@@ -295,7 +302,14 @@ function projectFieldWithUnits(
 	const localized = structuredClone(field) as Field;
 	const sourceRecord = field as unknown as Record<string, unknown>;
 	const record = localized as unknown as Record<string, unknown>;
-	for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
+	for (const slot of [
+		"label",
+		"hint",
+		"help",
+		"validate_msg",
+		"addFirstLabel",
+		"addLabel",
+	] as const) {
 		if (sourceRecord[slot] === undefined) continue;
 		const unit = units.get(makeTranslationUnitId("field", field.uuid, slot));
 		if (unit !== undefined) {

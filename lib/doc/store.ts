@@ -727,7 +727,14 @@ export function createBlueprintDocStore() {
 		/* Clearing one of these removes its translation unit and may prune an
 		 * authored target entry. A slot-only inverse could not reconstruct that
 		 * dependent entry, so keep the complete diff for this uncommon case. */
-		for (const key of ["label", "hint", "help", "validate_msg"]) {
+		for (const key of [
+			"label",
+			"hint",
+			"help",
+			"validate_msg",
+			"addFirstLabel",
+			"addLabel",
+		]) {
 			if (patch[key] === null) return undefined;
 		}
 		/* A repeat's mode decides which of its slots exist: the forward write

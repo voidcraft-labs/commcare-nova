@@ -22,7 +22,10 @@ import { Fragment, useEffect, useId, useRef } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/domain";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
+import { referenceNames } from "@/lib/domain/referenceNames";
 import type { FormScreenPage } from "@/lib/preview/engine/formEngine";
+import { rebaseOntoContext } from "@/lib/preview/engine/instancePaths";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationSelector } from "@/lib/preview/hooks/usePresentationDocument";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
@@ -65,22 +68,36 @@ function headerParts(
 	screen: FormScreenPage,
 ): readonly HeaderPart[] {
 	const parts: HeaderPart[] = [];
-	let parent: Uuid = formUuid;
-	let prefix = "/data";
-	for (const step of pathSteps(screen.path)) {
-		const uuid = (doc.fieldOrder[parent] ?? []).find(
-			(child) => doc.fields[child]?.id === step.id,
-		);
-		const field = uuid === undefined ? undefined : doc.fields[uuid];
-		if (uuid === undefined || field === undefined) break;
-		const path = `${prefix}/${step.id}`;
-		const labeled = "label" in field && Boolean(field.label);
-		if (field.kind === "repeat" && labeled)
-			parts.push({ uuid, path, position: (step.index ?? 0) + 1 });
-		else if (field.kind === "group" && labeled) parts.push({ uuid, path });
-		prefix = step.index === undefined ? path : `${path}[${step.index}]`;
-		parent = uuid;
+	const names = referenceNames(doc);
+	const parents: Uuid[] = [];
+	const seen = new Set<Uuid>();
+	for (
+		let at: Uuid | undefined = screen.uuid;
+		at !== undefined && at !== formUuid && !seen.has(at);
+		at = doc.fieldParent[at]
+	) {
+		seen.add(at);
+		parents.unshift(at);
 	}
+	for (const uuid of parents) {
+		const field = doc.fields[uuid];
+		if ((field?.kind !== "group" && field?.kind !== "repeat") || !field.label)
+			continue;
+		const steps = names.fieldPathSegments(uuid);
+		if (steps === undefined) continue;
+		const path = rebaseOntoContext(
+			`/${formRootName(doc.forms[formUuid])}/${steps.join("/")}`,
+			screen.path,
+		);
+		const row =
+			field.kind === "repeat" ? pathSteps(path).at(-1)?.index : undefined;
+		parts.push({
+			uuid,
+			path: row === undefined ? path : path.slice(0, path.lastIndexOf("[")),
+			...(field.kind === "repeat" && { position: (row ?? 0) + 1 }),
+		});
+	}
+
 	return parts;
 }
 

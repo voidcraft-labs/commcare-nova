@@ -62,6 +62,9 @@ TWO_LANGUAGE_APP = "yesno.json"
 # test_commtrack_supply_point_text.py builds with CommCare Supply on and off, and the document whose form builder saves
 # test_text_formatting_saves.py reads for markdown forms.
 DOCUMENTS = (
+    "targeted-receiving-answers",
+    "targeted-receiving-answers-android",
+
     "case-operation-scalar",
     "case-worker-followup",
     "search-parent",
@@ -69,7 +72,10 @@ DOCUMENTS = (
     "localization-bilingual",
     "case-extension-multiple-repeat",
     "navigation-base",
+    "targeted-worker-messages",
+    "targeted-repeat-invitations",
     "targeted-label-sort",
+    "targeted-named-answer-root",
     "prompt-widgets",
     "case-capture-query",
     "form-link-unconditional",

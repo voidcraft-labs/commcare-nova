@@ -22,6 +22,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { expressionAt } from "@/lib/domain/expressionSource";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
@@ -924,9 +925,16 @@ export class TriggerDag {
 		add("calculate", "calculate", "trigger");
 		add("required", "required", "metadata");
 		add("validate", "validation", "settle-free");
-		const templates = (["label", "hint", "help", "validate_msg"] as const).map(
-			(slot) => fieldProseTemplate(field, slot),
-		);
+		const templates = (
+			[
+				"label",
+				"hint",
+				"help",
+				"validate_msg",
+				"addFirstLabel",
+				"addLabel",
+			] as const
+		).map((slot) => fieldProseTemplate(field, slot));
 		if (
 			(field.kind === "single_select" || field.kind === "multi_select") &&
 			field.optionsSource.kind === "inline"
@@ -1295,7 +1303,7 @@ export class TriggerDag {
 		tree: FieldTreeNode[],
 		doc: BlueprintDoc,
 		formUuid: Uuid,
-		prefix = "/data",
+		prefix = `/${formRootName(doc.forms[formUuid])}`,
 	): CycleReport[] {
 		return [
 			...this.reportGraphCycles(tree, doc, formUuid, prefix, false),

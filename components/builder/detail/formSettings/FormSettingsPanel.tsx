@@ -6,6 +6,7 @@ import { DisplayConditionSection } from "@/components/builder/conditions/Display
 import { Button } from "@/components/shadcn/button";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { AfterSubmitSection } from "./AfterSubmitSection";
+import { AnswerRootSection } from "./AnswerRootSection";
 import { CaseChangesSection } from "./CaseChangesSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
@@ -88,6 +89,7 @@ export function FormSettingsPanel({
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<AnswerRootSection formUuid={formUuid} />
 
 				{!noMatches && (
 					<DisplayConditionSection

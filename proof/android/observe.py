@@ -103,7 +103,7 @@ def _answers() -> dict:
 
 
 def _read(
-    served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None, about=None
+    served, blobs, label, op, archives: dict, options: dict, *, delivered: bool = False, sent=None, submissions=None, about=None
 ) -> dict:
     from proof.android.hq import DevicePeer
     from proof.formplayer.hq import DEVICE_REPORT
@@ -143,6 +143,8 @@ def _read(
                 peer.close()
         # Each picture the device drew, as a blob the record names (a record names every blob it reads).
         pictures = sorted(blobs.put(path.read_bytes()) for path in drawn.glob("*.png"))
+    if submissions is not None:
+        submissions.extend(one for one in peer.views.submissions if DEVICE_REPORT not in one.instance)
     if sent is not None:
         # Each form the device sent HQ's receiver, as it sent it; its log reports are not forms.
         sent.extend(
@@ -180,6 +182,7 @@ def app(
     fix=LANE_FIX,
     clock=None,
     sent=None,
+    submissions=None,
     device: str = "phone",
     commands=None,
     views: bool = False,
@@ -239,7 +242,7 @@ def app(
         options["reopen"] = True
     if searches is not None:
         options["searches"] = list(searches)
-    return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent)
+    return _read(served, blobs, label, "app", {"archive": archive}, options, delivered=delivered, sent=sent, submissions=submissions)
 
 
 def installs(served, blobs, *, label: str, first: bytes, second: bytes) -> dict:

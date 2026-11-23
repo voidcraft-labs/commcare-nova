@@ -5996,7 +5996,6 @@ def _held_new():
         body="""<select1 ref="/data/s"><item><value>a'b"c</value></item><item><value>a'b</value></item></select1>""",
     )
     named = _form(data="<q/>").replace(b"<data ", b'<visit uiVersion="1" ').replace(b"</data>", b"</visit>")
-    versioned = _form(data="<q/>").replace(b'name="T"', b'name="T" uiVersion="1"')
     # Hidden Values (data nodes no control names): a, b and c with a calculate and a default, a read by r's later
     # default, c through m's calculate by s's, b by nothing; h with both in a repeat; t with a calculate alone.
     hidden_values = _form(
@@ -6155,9 +6154,15 @@ def _held_new():
             refused("form", choices, "xform:select1/item/value", "select1[1]/item[1]/value[1]"),
             accepted("form", choices, "xform:select1/item/value", "select1[1]/item[2]/value[1]"),
         ),
-        "questions/data-root-element-named-other-than-data": (
-            refused("form", named, "xform:model/instance/*", f"instance[1]/{data}visit[1]"),
-            accepted("form", versioned, "xform:model/instance/*", f"instance[1]/{data}data[1]"),
+        "questions/data-root-name-that-workers-cannot-address": (
+            refused("form", named.replace(b"visit", "患者".encode()), "xform:model/instance/*", f"instance[1]/{data}患者[1]"),
+            accepted("form", named, "xform:model/instance/*", f"instance[1]/{data}visit[1]"),
+        ),
+        "questions/answer-root-that-the-form-designer-reads-as-its-own-element": (
+            *(refused("form", named.replace(b"visit", name.encode()), "xform:model/instance/*", f"instance[1]/{data}{name}[1]")
+              for name in ("instance", "bind", "parsererror")),
+            *(accepted("form", named.replace(b"visit", name.encode()), "xform:model/instance/*", f"instance[1]/{data}{name}[1]")
+              for name in ("case", "registration", "Bind")),
         ),
         "menus-and-case-lists/detail-max-select-value-above-100": (
             refused(

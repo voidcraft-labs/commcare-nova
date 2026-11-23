@@ -301,6 +301,21 @@ describe("field and property identity policy", () => {
 	])("admits field id %s", (id) => {
 		assertAdmittedDoc(survey([{ ...plain, id }]));
 	});
+	it.each(["Registration", "fixture", "SCHEMA"])(
+		"offers an Android declaration or a different ID for %s",
+		(id) => {
+			const web = candidate(survey(), (d) => {
+				d.fields[q].id = id;
+			});
+			expect(findings(web, ["PLATFORM_FEATURE_UNAVAILABLE"])).toHaveLength(1);
+			const android = candidate(survey(), (d) => {
+				d.fields[q].id = id;
+				d.appSettings.runsOnlyOn = "android";
+			});
+			expect(findings(android, [])).toEqual([]);
+		},
+	);
+
 	it.each([
 		["1answer", "not-letter-first", "q1answer"],
 		["answer value", "characters", "answer_value"],
@@ -310,7 +325,6 @@ describe("field and property identity policy", () => {
 		["XMLcode", "xml-prefix", "qXMLcode"],
 		["Meta", "reserved-name", "q_Meta"],
 		["case", "reserved-name", "q_case"],
-		["Script", "reserved-name", "q_Script"],
 		["parsererror", "reserved-name", "q_parsererror"],
 	])(
 		"rejects field id %s under Nova's identifier policy as %s, offering %s",

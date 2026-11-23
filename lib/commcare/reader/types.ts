@@ -433,7 +433,14 @@ export interface ReadGeneratedNode {
  * message or choice has its own recipient in each language of the form. */
 export interface ItextRecipient {
 	readonly fieldPath: readonly string[];
-	readonly slot: "label" | "hint" | "help" | "validate_msg" | "option_label";
+	readonly slot:
+		| "label"
+		| "hint"
+		| "help"
+		| "validate_msg"
+		| "addFirstLabel"
+		| "addLabel"
+		| "option_label";
 	readonly choiceValue: string | null;
 	readonly language: LanguageTag;
 }

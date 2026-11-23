@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import copy
 import zipfile
+from pathlib import Path
 
 import pytest
 from lxml import etree
@@ -431,6 +432,36 @@ def test_optional_constraint_refusals_clear_the_saved_value(
     else:
         assert "unanswerable" in question
         assert "submission" not in step
+
+
+def test_vellum_independent_data_order_reaches_core_submission(hq, core_runner):
+    """HQ builds the unmodified Vellum source, then Core walks and submits that built form."""
+    from proof.checks import casedata, cases
+    from proof.rules.conftest import published, restore, run as run_spelling
+
+    fixture = Path(__file__).resolve().parents[2] / "lib/commcare/reader/xform/__tests__/fixtures/vellum-in-between.xml"
+    source = fixture.read_text(encoding="utf-8")
+    authored = etree.fromstring(source.encode()).find(f".//{{{XFORMS}}}instance")[0]
+    expected_nodes = [etree.QName(node).localname for node in authored]
+    document = cases.load_corpus().document("targeted-submitted-groups")
+    with published(document, core_runner) as app:
+        built = app.spell(sources={"0.0": lambda _: source}).build
+        assert built.files is not None and not built.raised, built.raised
+        database = casedata.case_database(document.document)
+        ran = run_spelling(app, core_runner, built, restore(app, database), database)
+    assert ran.trace is not None, ran.admission
+    run, = [run for run in ran.trace["runs"] if "m0-f0" in commands(run)]
+    assert run["end"] == "submitted", run
+    step = form_step(run)
+    paths = ["/data/before-child", "/data/parent/child", "/data/after-child"]
+    answers = [e for e in step["events"] if e.get("dataPath") in paths]
+    assert [e["dataPath"] for e in answers] == paths
+    root = etree.fromstring(step["submission"].encode())
+    assert [etree.QName(n).localname for n in root if etree.QName(n).localname in expected_nodes] == expected_nodes
+    for event in answers:
+        _, _, *parts = event["dataPath"].split("/")
+        node = root.find("/".join(f"{{*}}{part}" for part in parts))
+        assert node is not None and node.text == event["answer"]
 
 
 def test_the_answer_tables_dates_satisfy_the_date_constraints_hq_forms_carry(basic_trace):

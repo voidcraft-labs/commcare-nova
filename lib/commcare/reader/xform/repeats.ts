@@ -107,15 +107,15 @@ function plain(element: Element, name: string): string | undefined {
 		: undefined;
 }
 
-/** A repeat's captions: `jr:addCaption` and `jr:addEmptyCaption` refused, the others dropped
- *  where they hold text and refused where they reference itext. */
+/** The text stage reads the first and subsequent add buttons. A native runtime never
+ * shows the other captions. An itext reference on one cannot survive a Vellum save. */
 function claimCaptions(input: ReadRepeatInput): void {
 	const { repeat, parsed, cursor, place } = input;
 	for (const child of repeat.element.children.filter(isTag)) {
 		if (elementNamespace(child, parsed.scope(child)) !== JAVAROSA_NS) continue;
 		const local = splitName(child.name).local;
 		if (local === "addCaption" || local === "addEmptyCaption")
-			cursor.refuseSubtree(child, X.addCaptions, place);
+			continue; // readText resolves the caption and its translations.
 		else if (plain(child, "ref") !== undefined)
 			cursor.refuseSubtree(child, X.itextCaptions, place);
 		else cursor.dropSubtree(child, X.otherCaptions);

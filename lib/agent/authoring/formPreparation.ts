@@ -32,6 +32,7 @@ import {
 	type FormExpressionSlotRef,
 	formLinkDatumNameSchema,
 } from "@/lib/domain/expression/types";
+import { formRootNameSchema } from "@/lib/domain/formAnswerRoot";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { rowTimingSchema } from "@/lib/domain/queryRepeatPlacement";
 import {
@@ -246,7 +247,13 @@ function fieldDeclaration(
 ): FormStructureField {
 	const repeat = raw.repeat == null ? undefined : object.parse(raw.repeat);
 	const prose = new Set(previous?.proseSlots ?? []);
-	for (const slot of ["label", "hint", "help"] as const) {
+	for (const slot of [
+		"label",
+		"hint",
+		"help",
+		"addFirstLabel",
+		"addLabel",
+	] as const) {
 		if (raw[slot] === null) prose.delete(slot);
 		else if (raw[slot] !== undefined) prose.add(slot);
 	}
@@ -642,6 +649,14 @@ export function prepareFormAuthoring(args: {
 		}
 		const result: FormStructure = {
 			...saved,
+			...(toolName === "updateForm" &&
+				uuid === formUuid &&
+				input.answerRoot !== undefined && {
+					dataRootName:
+						input.answerRoot === null
+							? undefined
+							: formRootNameSchema.parse(input.answerRoot),
+				}),
 			fields,
 			fieldOrder: order,
 			links,

@@ -219,6 +219,8 @@ export interface PreviewPlatformRules {
 	/** Web Apps `question.html` renders the hint through `markdown.render`;
 	 *  Android `QuestionWidget::addHintText` as plain text. */
 	readonly hint: "markdown" | "plain";
+	/** HQ submits OK for info questions. Android reads a checkbox on an interactive message. */
+	readonly messageConfirmation: "automatic" | "checkbox";
 	/** Label markdown. Both runtimes format the label Core hands them with
 	 *  its values already substituted (`FormEntryCaption.getSpecialFormQuestionText`
 	 *  → `FormDef.fillTemplateString`), so a value's own formatting shows.
@@ -421,6 +423,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "label-icon",
 		helpMediaWithoutText: "hidden",
 		hint: "markdown",
+		messageConfirmation: "automatic",
 		labelMarkdown: Object.freeze({
 			singleNewline: "break",
 			html: "literal",
@@ -488,6 +491,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "info-button",
 		helpMediaWithoutText: "shown",
 		hint: "plain",
+		messageConfirmation: "checkbox",
 		labelMarkdown: Object.freeze({
 			singleNewline: "space",
 			html: "dropped",

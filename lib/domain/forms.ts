@@ -13,6 +13,7 @@ import {
 	relationStepSchema,
 	valueSchema,
 } from "./expression/types";
+import { formRootNameSchema } from "./formAnswerRoot";
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
@@ -793,6 +794,7 @@ export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
 export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
+	dataRootName: formRootNameSchema.optional(),
 	entryPoint: formEntryPointSchema.optional(),
 	uuid: uuidSchema,
 	id: z.string(),

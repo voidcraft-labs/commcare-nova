@@ -22,6 +22,7 @@ import {
 
 export interface FormPrintContext {
 	readonly graph?: FormNodeGraph;
+	readonly dataRootName?: string;
 	readonly sourceNode?: FormNodeRef;
 	readonly contextNode?: FormNodeRef;
 	readonly step?: (node: FormNodeRef) => FormNodeStep | undefined;
@@ -291,7 +292,9 @@ function printWith(
 				missing(path);
 				return;
 			}
-			emit(spelling === "absolute" ? "/data" : "#form");
+			emit(
+				spelling === "absolute" ? `/${ctx.dataRootName ?? "data"}` : "#form",
+			);
 			const coordinates = graph
 				?.path(target)
 				?.filter((node) => node.kind === "field" && node.role === undefined);

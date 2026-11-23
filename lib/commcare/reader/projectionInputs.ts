@@ -146,10 +146,11 @@ export function* readExpansionSteps(
 	doc: BlueprintDoc,
 ): Generator<void, HqApplication, void> {
 	const { inputs, facts } = built(ctx);
+	const comparison = { ...inputs, readingComparison: true as const };
 	if (ctx.heldExpansions === undefined)
-		return yield* expandDocSteps(doc, inputs);
+		return yield* expandDocSteps(doc, comparison);
 	return yield* ctx.heldExpansions.expansionSteps(doc, facts, () =>
-		expandDocSteps(doc, inputs),
+		expandDocSteps(doc, comparison),
 	);
 }
 

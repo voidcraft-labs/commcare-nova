@@ -204,7 +204,7 @@ describe("classifyAppearance", () => {
 });
 
 describe("a trigger's appearance, read through the form's stages", () => {
-	it("reads a label only where Android's widget draws no acknowledge", async () => {
+	it("holds the checkbox answer independently of a trigger's display tokens", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: "<list/><foo/><copy/><banner/>",
@@ -215,21 +215,22 @@ describe("a trigger's appearance, read through the form's stages", () => {
 		expect(
 			fields.map((field) => [field.id, field.kind, field.standIn]),
 		).toEqual([
-			["list", "hidden", true],
-			["foo", "hidden", true],
+			["list", "label", false],
+			["foo", "label", false],
 			["copy", "label", false],
 			["banner", "label", false],
 		]);
-		const acknowledge = Q(
-			"acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
-		);
-		expect(codesAt(reading, "list")).toEqual([acknowledge]);
-		expect(codesAt(reading, "foo")).toEqual([acknowledge]);
+		expect(fields.slice(0, 2).map((field) => field.field)).toEqual([
+			expect.objectContaining({ askForConfirmation: true }),
+			expect.objectContaining({ askForConfirmation: true }),
+		]);
+		expect(codesAt(reading, "list")).toEqual([]);
+		expect(codesAt(reading, "foo")).toEqual([]);
 		expect(codesAt(reading, "copy")).toEqual([Q("trigger-selectable")]);
 		expect(codesAt(reading, "banner")).toEqual([
 			Q("floating-good-floating-caution-floating-bad"),
 		]);
-		expect(reading.xform?.inertAppearances).toEqual([]);
+		expect(reading.xform?.inertAppearances).toEqual(["list", "foo"]);
 	});
 });
 

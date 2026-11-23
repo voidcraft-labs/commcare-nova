@@ -19,8 +19,14 @@ import { EditorState, type TransactionSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { referenceContextChanged } from "@/components/builder/referenceContextChanged";
+import { buildFieldEntries } from "@/components/ui/FieldPicker";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
+import {
+	parseFormExpressionForSlot,
+	projectFormExpression,
+} from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AppSettings,
@@ -30,12 +36,15 @@ import {
 } from "@/lib/domain";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
+import { ReferenceProvider } from "@/lib/references/provider";
 import {
 	buildExpressionEditorContext,
 	type ExpressionEditorContext,
 } from "../expressionEditorContext";
 import type { FormReferenceContext } from "../formReferenceContext";
+import { buildFormReferenceContext } from "../formReferenceContext";
 import {
+	dataPathSource,
 	hashtagSource,
 	instanceSource,
 	relativeSource,
@@ -605,4 +614,100 @@ describe("a choice holding a quote mark", () => {
 			[],
 		);
 	});
+});
+
+it("offers and reparses the picked answer after its submitted address changes", () => {
+	const left = testUuid("catalog-left"),
+		right = testUuid("catalog-right");
+	const chosen = testUuid("catalog-chosen"),
+		other = testUuid("catalog-other"),
+		result = testUuid("catalog-result");
+	const slot = { entity: "field", uuid: result, slot: "calculate" } as const;
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Screening",
+						type: "survey",
+						fields: [
+							f({
+								uuid: left,
+								kind: "group",
+								id: "left",
+								children: [
+									f({
+										uuid: chosen,
+										kind: "text",
+										id: "name",
+										label: "Person named on the first screen",
+									}),
+								],
+							}),
+							f({
+								uuid: right,
+								kind: "group",
+								id: "right",
+								children: [
+									f({
+										uuid: other,
+										kind: "text",
+										id: "name",
+										label: "Person named on the second screen",
+									}),
+								],
+							}),
+							f({ uuid: result, kind: "hidden", id: "result" }),
+						],
+					},
+				],
+			},
+		],
+	});
+	const form = Object.values(doc.forms)[0];
+	const original = parseFormExpressionForSlot(
+		doc,
+		slot,
+		"/data/left/name",
+		"unavailable",
+	);
+	if (!original.ok || !original.expression)
+		throw new Error("The original selected answer did not bind.");
+	const changed = structuredClone(doc);
+	changed.forms[form.uuid].dataRootName = "screening";
+	changed.fields[chosen].submissionPlacement = { parent: right, position: 0 };
+	changed.fields[other].submissionPlacement = { parent: left, position: 0 };
+	expect(referenceContextChanged(changed, doc)).toBe(true);
+	const reference = buildFormReferenceContext(changed, form.uuid);
+	const paths = dataPathSource(() => reference)(ctxFor("/screening/right"));
+	expect(paths?.options.map((item) => item.label)).toContain(
+		"/screening/right/name",
+	);
+	const hashtags = hashtagSource(() => reference)(ctxFor("#form/"));
+	expect(hashtags?.options).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				label: "#form/right/name",
+				detail: "Person named on the first screen",
+			}),
+		]),
+	);
+	const provider = new ReferenceProvider(() => reference);
+	expect(provider.resolve("#form/right/name", form.uuid)?.part).toMatchObject({
+		uuid: chosen,
+	});
+	expect(
+		buildFieldEntries(changed, form.uuid).find((item) => item.uuid === chosen)
+			?.path,
+	).toBe("right/name");
+	const text = projectFormExpression(
+		changed,
+		slot,
+		original.expression,
+		"unavailable",
+	).text;
+	expect(text).toBe("/screening/right/name");
+	const read = parseFormExpressionForSlot(changed, slot, text, "unavailable");
+	expect(read.ok && read.expression).toEqual(original.expression);
 });

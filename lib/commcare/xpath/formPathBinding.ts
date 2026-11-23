@@ -1003,11 +1003,11 @@ function bindFormNodePath(
 	let hasName = false;
 	let steps = path.steps;
 	if (spelling === "absolute") {
-		if (!plain(steps[0], "data"))
+		if (!plain(steps[0], form.dataRootName ?? "data"))
 			refuse(
 				"unknown-field",
 				whole,
-				"A form's absolute answer path starts at /data. You can also use #form/question.",
+				`This form's absolute answer path starts at /${form.dataRootName ?? "data"}. You can also use #form/question.`,
 			);
 		steps = steps.slice(1);
 	}

@@ -8,6 +8,7 @@ import {
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
+import { formRootName } from "@/lib/domain/formAnswerRoot";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import {
 	projectLocalizedForm,
@@ -138,9 +139,10 @@ export function bindAppTestAction(
 				const path = computeFieldPath(doc, field.uuid);
 				return path === undefined ? [] : [{ uuid: field.uuid, path }];
 			});
-			const path = action.sectionUuid
-				.replace(/^#form\//, "")
-				.replace(/^\/data\//, "");
+			const root = `/${formRootName(doc.forms[formUuid])}/`;
+			const path = action.sectionUuid.startsWith(root)
+				? action.sectionUuid.slice(root.length)
+				: action.sectionUuid.replace(/^#form\//, "");
 			const exact = candidates.filter(
 				(item) => item.uuid === action.sectionUuid || item.path === path,
 			);

@@ -185,9 +185,9 @@ import {
 	SEARCH_STANDING_SEED,
 } from "./searchStandingSeed";
 import { buildSessionStorageState } from "./session";
-
 import { SMOKE_TEXT } from "./smokeText";
 import { buildSortByBlueprint, SORT_BY_SEED, sortByRoute } from "./sortBySeed";
+import { buildVisitReport, visitReport } from "./visitReportSeed";
 
 /** One context per seed process, one actor/Project universe per scenario. */
 /** One form taking part in Connect Learn, in an app that runs on Android
@@ -1760,6 +1760,9 @@ export async function createSmokeBuilders(
 			});
 			return { localizationAppId: appId };
 		},
+		"visit-report": async () => ({
+			appId: await seedRuntimeApp(visitReport.appName, buildVisitReport),
+		}),
 		sections: async () => {
 			const { appId: formSectionsAppId, baseSeq: formSectionsGenesisSeq } =
 				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {

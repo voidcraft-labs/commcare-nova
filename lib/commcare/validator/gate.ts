@@ -367,6 +367,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_HASHTAG_ON_CREATE_FORM: "soundness",
 	USERCASE_WRITE_UNDECLARED_PROPERTY: "soundness",
 	USERCASE_WRITE_MANAGED_PROPERTY: "soundness",
+	FIELD_SUBMISSION_PLACEMENT: "soundness",
 	DUPLICATE_FIELD_ID: "soundness",
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.
@@ -416,6 +417,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
 	INVALID_FIELD_ID: "soundness",
+	SUBMITTED_ANSWER_NAMESPACE: "soundness",
 	VALIDATION_ON_NON_INPUT_KIND: "shape",
 	REPEAT_COUNT_TYPE: "soundness",
 	EMPTY_REPEAT_COUNT: "soundness",

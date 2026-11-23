@@ -567,3 +567,42 @@ it("prints a new-case session reference while its private registration name is i
 		},
 	});
 });
+
+it("uses the submitted root from the same form edit and reads its absolute condition back by that name", async () => {
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "People",
+				caseType: "person",
+				forms: [{ name: "Register", type: "registration" }],
+			},
+		]),
+	);
+	expect(
+		await h.call("addFields", {
+			formUuid: "Register",
+			fields: [{ kind: "text", id: "name", label: "Name" }],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await h.call("updateForm", {
+			formUuid: "Register",
+			answerRoot: "screening",
+			open_condition: "/screening/name = 'Lee'",
+		}),
+	).toMatchObject({ ok: true });
+	expect(await h.call("getForm", { formUuid: "Register" })).toMatchObject({
+		form: { answerRoot: "screening", openCondition: "/screening/name = 'Lee'" },
+	});
+	expect(
+		await h.call("updateForm", {
+			formUuid: "Register",
+			answerRoot: null,
+			open_condition: "/data/name = 'Lee'",
+		}),
+	).toMatchObject({ ok: true });
+	const read = await h.call("getForm", { formUuid: "Register" });
+	expect(read).toMatchObject({ form: { openCondition: "/data/name = 'Lee'" } });
+	expect(read).not.toHaveProperty("form.answerRoot");
+});

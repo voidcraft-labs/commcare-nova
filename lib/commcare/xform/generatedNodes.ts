@@ -72,7 +72,6 @@
 
 import { commCareLocalization } from "@/lib/commcare/localization";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -542,10 +541,12 @@ function allocateGeneratedNodes(
 	const heldContainerScopes = new Map<string, Uuid | undefined>();
 	const repeatScopes = new Map<Uuid, FormPath>();
 	const walk = (parentUuid: Uuid, parentPath: FormPath, root: boolean) => {
-		const children = orderedFieldUuids(doc, parentUuid).flatMap((uuid) => {
-			const field = doc.fields[uuid];
-			return field === undefined ? [] : [field];
-		});
+		const children = (structure.fieldOrder.get(parentUuid) ?? []).flatMap(
+			(uuid) => {
+				const field = doc.fields[uuid];
+				return field === undefined ? [] : [field];
+			},
+		);
 		const scopeKey: Uuid | undefined = root ? undefined : parentUuid;
 		const scope = new Namespace([
 			...children.map((field) => field.id),
@@ -634,14 +635,17 @@ function allocateGeneratedNodes(
 			if (field.kind === "repeat") repeatScopes.set(field.uuid, childPath);
 		}
 	};
-	walk(formUuid, FormPath.root(), true);
+	walk(formUuid, FormPath.root(form.dataRootName), true);
 
 	// Each scope's containers, after its questions' generated siblings.
 	const containers = new Map<
 		string,
 		{ operations: string; subcases: string; selectedCases: string }
 	>();
-	for (const scopePath of [FormPath.root(), ...repeatScopes.values()]) {
+	for (const scopePath of [
+		FormPath.root(form.dataRootName),
+		...repeatScopes.values(),
+	]) {
 		const scope = fieldScopes.get(scopePath.toXPath()) ?? new Namespace([]);
 		// A held path that passes through a container names that container:
 		// the scope's one group of its kind, which unheld blocks share.
@@ -663,8 +667,8 @@ function allocateGeneratedNodes(
 		const repeat = operation.forEach?.repeat;
 		return (
 			repeat === undefined
-				? FormPath.root()
-				: (repeatScopes.get(repeat) ?? FormPath.root())
+				? FormPath.root(form.dataRootName)
+				: (repeatScopes.get(repeat) ?? FormPath.root(form.dataRootName))
 		).toXPath();
 	};
 	// Every held segment after the first is taken in its scope's operations
@@ -673,7 +677,7 @@ function allocateGeneratedNodes(
 	for (const path of held.paths) {
 		const scopePath =
 			path.repeat === undefined
-				? FormPath.root()
+				? FormPath.root(form.dataRootName)
 				: repeatScopes.get(path.repeat);
 		if (scopePath === undefined) continue;
 		const key = scopePath.toXPath();
@@ -762,7 +766,7 @@ function allocateGeneratedNodes(
 				kind,
 			);
 	}
-	const root = FormPath.root().toXPath();
+	const root = FormPath.root(form.dataRootName).toXPath();
 	const rootOperations = operationNamespace(root);
 	const conditionUpdateSelectedCases = rootOperations.allocate(
 		generatedBaseName("condition", UPDATE_SELECTED_CASES.slice("nova_".length)),

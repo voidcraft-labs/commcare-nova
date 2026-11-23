@@ -21664,19 +21664,23 @@
 		"id": "hq-media/help-media-on-label",
 		"base": "hq-media",
 		"entry": "questions/help-media-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Animals",
-			"formName": "Survey",
-			"path": "place_note"
-		},
 		"change": {
 			"op": "named",
 			"name": "help_media_on_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["place_note"]
+				],
+				"pointer": "/help_media/image",
+				"value": "7e963ff5-eb82-547b-8024-f13d83cd5fd4"
+			}
+		]
 	},
 	{
 		"id": "hq-media/hint-media",
@@ -29227,19 +29231,23 @@
 		"id": "hq-questions/acknowledge-label",
 		"base": "hq-questions",
 		"entry": "questions/acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "acknowledge_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/askForConfirmation",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-questions/action-inside-control",
@@ -29833,18 +29841,40 @@
 		"id": "hq-questions/constraint-on-capture",
 		"base": "hq-questions",
 		"entry": "questions/bind-constraint-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "constraint_on_capture"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/validate/kind",
+				"value": "neq"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/constraint-on-hidden-value",
+		"base": "hq-questions",
+		"entry": "questions/validation-on-a-hidden-value",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Questions",
 			"formName": "Survey",
-			"path": "photo"
+			"path": "double_age"
 		},
 		"change": {
 			"op": "named",
-			"name": "constraint_on_capture"
+			"name": "constraint_on_hidden_value"
 		}
 	},
 	{
@@ -30026,15 +30056,13 @@
 		"id": "hq-questions/data-parent-other-group",
 		"base": "hq-questions",
 		"entry": "questions/data-parent-data-node-under-another-group-than-its-control",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "full_name"
-		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["full_name"]],
+				"pointer": "/submissionPlacement/position",
+				"value": 1
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "data_parent_other_group"
@@ -30061,7 +30089,23 @@
 		"id": "hq-questions/data-root-named-survey",
 		"base": "hq-questions",
 		"entry": "questions/data-root-element-named-other-than-data",
-		"standing": "not-yet",
+		"holds": [
+			{
+				"key": ["form", { "$xmlns": [0, 0] }],
+				"pointer": "/dataRootName",
+				"value": "survey"
+			}
+		],
+		"change": {
+			"op": "named",
+			"name": "data_root_named_survey"
+		}
+	},
+	{
+		"id": "hq-questions/data-root-reserved-by-designer",
+		"base": "hq-questions",
+		"entry": "questions/answer-root-that-the-form-designer-reads-as-its-own-element",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 0,
@@ -30071,7 +30115,24 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "data_root_named_survey"
+			"name": "data_root_reserved_by_designer"
+		}
+	},
+	{
+		"id": "hq-questions/data-root-unaddressable",
+		"base": "hq-questions",
+		"entry": "questions/data-root-name-that-workers-cannot-address",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"name": "Survey"
+		},
+		"change": {
+			"op": "named",
+			"name": "data_root_unaddressable"
 		}
 	},
 	{
@@ -30224,19 +30285,23 @@
 		"id": "hq-questions/default-on-capture",
 		"base": "hq-questions",
 		"entry": "questions/default-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "default_on_capture"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/default_value/term/value",
+				"value": "x"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/defaults-out-of-order",
@@ -30555,19 +30620,23 @@
 		"id": "hq-questions/help-on-capture",
 		"base": "hq-questions",
 		"entry": "questions/help-text-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "help_on_capture"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["photo"]
+				],
+				"pointer": "/help/parts/0/text",
+				"value": "Stand back from the house"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-calculate-and-default",
@@ -30611,19 +30680,23 @@
 		"id": "hq-questions/hidden-value-xmlns",
 		"base": "hq-questions",
 		"entry": "questions/data-node-xmlns-on-a-hidden-value",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "double_age"
-		},
 		"change": {
 			"op": "named",
 			"name": "hidden_value_xmlns"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["double_age"]
+				],
+				"pointer": "/answerNamespace",
+				"value": "http://example.org/special"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/hidden-with-children",
@@ -30647,19 +30720,23 @@
 		"id": "hq-questions/hint-on-label",
 		"base": "hq-questions",
 		"entry": "questions/hint-text-on-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "hint_on_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/hint/parts/0/text",
+				"value": "Read this first"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/ignore-rich-text",
@@ -31032,17 +31109,40 @@
 		"id": "hq-questions/locked-question",
 		"base": "hq-questions",
 		"entry": "questions/vellum-lock-all-locked-question",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"name": "Survey"
-		},
 		"change": {
 			"op": "named",
 			"name": "locked_question"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["full_name"]
+				],
+				"pointer": "/lockedInHq",
+				"value": true
+			}
+		]
+	},
+	{
+		"id": "hq-questions/unrecognized-question-lock",
+		"base": "hq-questions",
+		"entry": "questions/question-lock-the-designer-cannot-represent",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"name": "Survey",
+			"path": "full_name"
+		},
+		"change": {
+			"op": "named",
+			"name": "unrecognized_question_lock"
 		}
 	},
 	{
@@ -31120,8 +31220,8 @@
 	{
 		"id": "hq-questions/message-on-capture",
 		"base": "hq-questions",
-		"entry": "questions/validation-message-on-a-capture-question-or-a-label",
-		"standing": "not-yet",
+		"entry": "questions/validation-message-without-a-validation-condition",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -31134,6 +31234,28 @@
 			"op": "named",
 			"name": "message_on_capture"
 		}
+	},
+	{
+		"id": "hq-questions/message-on-capture-with-condition",
+		"base": "hq-questions",
+		"entry": "questions/validation-message-on-a-capture-question-or-a-label",
+		"change": {
+			"op": "named",
+			"name": "message_on_capture_with_condition"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["location"]
+				],
+				"pointer": "/validate_msg/parts/0/text",
+				"value": "Stand outside"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/message-without-condition",
@@ -31680,22 +31802,102 @@
 		}
 	},
 	{
-		"id": "hq-questions/question-id-script",
+		"id": "hq-questions/submitted-case-answer",
 		"base": "hq-questions",
-		"entry": "questions/question-id-case-registration-script",
-		"standing": "not-yet",
+		"entry": "questions/submitted-node-consumed-as-case",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
 			"form": 0,
 			"menuName": "Questions",
 			"formName": "Survey",
-			"path": "script"
+			"path": "Case"
 		},
 		"change": {
 			"op": "named",
-			"name": "question_id_script"
+			"name": "submitted_case_answer"
 		}
+	},
+	{
+		"id": "hq-questions/ordinary-stock-answer",
+		"base": "hq-questions",
+		"entry": "questions/ordinary-answer-in-stock-namespace",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "double_age"
+		},
+		"change": {
+			"op": "named",
+			"name": "ordinary_stock_answer"
+		}
+	},
+	{
+		"id": "hq-questions/empty-hidden-namespace",
+		"base": "hq-questions",
+		"entry": "questions/submitted-namespace-the-form-designer-cannot-keep",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Questions",
+			"formName": "Survey",
+			"path": "double_age"
+		},
+		"change": {
+			"op": "named",
+			"name": "empty_hidden_namespace"
+		}
+	},
+	{
+		"id": "hq-questions/android-answer-name",
+		"base": "hq-questions",
+		"entry": "questions/submitted-answer-name-only-android-stores",
+		"change": {
+			"op": "named",
+			"name": "android_answer_name"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["registration"]
+				],
+				"pointer": "/id",
+				"value": "registration"
+			}
+		]
+	},
+	{
+		"id": "hq-questions/question-id-script",
+		"base": "hq-questions",
+		"entry": "questions/question-id-case-registration-script",
+		"change": {
+			"op": "named",
+			"name": "question_id_script"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["script"]
+				],
+				"pointer": "/id",
+				"value": "script"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/question-node-with-children",
@@ -31770,19 +31972,23 @@
 		"id": "hq-questions/repeat-add-caption",
 		"base": "hq-questions",
 		"entry": "questions/repeat-add-captions-jr-addcaption-jr-addemptycaption",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "members"
-		},
 		"change": {
 			"op": "named",
 			"name": "repeat_add_caption"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["members"]
+				],
+				"pointer": "/addLabel/parts/0/text",
+				"value": "Add a member"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/repeat-appearance",
@@ -31872,19 +32078,23 @@
 		"id": "hq-questions/required-on-label",
 		"base": "hq-questions",
 		"entry": "questions/bind-required-on-a-label",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "intro"
-		},
 		"change": {
 			"op": "named",
 			"name": "required_on_label"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["intro"]
+				],
+				"pointer": "/required/kind",
+				"value": "match-all"
+			}
+		]
 	},
 	{
 		"id": "hq-questions/save-to-case-attachment",

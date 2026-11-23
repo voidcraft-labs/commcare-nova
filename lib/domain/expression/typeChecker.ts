@@ -90,6 +90,7 @@ import {
 	type DatumRef,
 	datumRefKey,
 	type Expression,
+	FIELD_ITEXT_SLOTS,
 	type FormNodeRef,
 	formNodeKey,
 	isConditionArm,
@@ -1631,15 +1632,7 @@ function formTextAdmission(
 			(unit.role === "select-option-label"
 				? field.choices?.kind === "inline" &&
 					field.choices.options.some((option) => option.uuid === unit.option)
-				: field.proseSlots?.includes(
-						unit.role === "field-label"
-							? "label"
-							: unit.role === "field-hint"
-								? "hint"
-								: unit.role === "field-help"
-									? "help"
-									: "validate_msg",
-					) === true);
+				: field.proseSlots?.includes(FIELD_ITEXT_SLOTS[unit.role]) === true);
 		if (!present)
 			return refusal(
 				"unknown-form-field",

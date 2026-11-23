@@ -244,6 +244,13 @@ need the running app; evaluation does not prove deployment or successful storage
 The check runs on one platform the app runs on, chosen with `platform` (Web Apps
 by default when the app runs on both).
 
+A worker-controlled repeat starts empty. `evaluate_form` and an app test’s
+`answer` action take `repeats`, for example `[{ "path": "visits", "count": 2 }]`.
+That creates `visits[0]` and `visits[1]` before their answers are applied. A
+count of zero clears the group. On a repeat question, `addFirstLabel` sets the
+first entry button and `addLabel` sets the later one. Each accepts translated
+wording and references to answers.
+
 For a complete observed journey, `start_app_test` opens the saved app at its
 entry screen with disposable records. `start_app_test` and `continue_app_test`
 take exactly one of `app_id` or `work_id`, plus a stable `request_id` for each
@@ -1021,6 +1028,13 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
 | `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, case operations with authored conditions and values, its `openCondition` and `closeCondition` as authored text, its after-submit `destinations` in the order they run (each one's `uuid` is the `linkUuid` the link tools take), and its `otherwise`: `{ kind: "destination", destination }` or `{ kind: "link", linkUuid, target, datums? }`. It also lists `offeredOnCaseListsOf`, the modules whose case lists always offer the form. |
 
+An integration that receives submitted answers may depend on their first name.
+The form designer reserves `instance`, `bind` and `parsererror` for its own elements. Choose a different answer root, such as `survey`.
+
+`update_form.answerRoot` changes that name for the whole form. For example,
+`visit_report` makes an answer at `visit_report/village`. Pass `null` to restore
+`data`. A wording edit keeps the current name. `get_form` returns a custom name as `form.answerRoot`.
+
 ### Where a form goes after submit
 
 A form's `post_submit` says where people go once it is submitted, for a form
@@ -1200,7 +1214,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 |---|---|
 | `add_fields` | Insert one or more fields in one call and receive every field and inline-choice UUID in input/source order. Address the form by `moduleUuid` and `formUuid`; use names for same-call field references and `parentUuid` for nesting, and use `beforeFieldUuid` / `afterFieldUuid` for placement. A group takes `field_list`: `true` shows its questions together on one screen on Android, `false` one per screen, and Web Apps shows the whole form on one page either way; a new group with a label starts at `true` unless it holds a repeat whose rows the worker adds, so leave it out to take that. `plain_label: true` shows a label exactly as typed, so `*`, `#`, numbered lines and links stay as written instead of formatting as Markdown; a choice takes its own `plain_label`, which Android reads and Web Apps doesn't. `plain_help: true` shows a help text as typed on Android; Web Apps formats every help text either way. `keypad: "numbers"` gives a Text question a number keypad and keeps the answer as text, for a phone number or an ID. `field_list`, `plain_label`, `plain_help` and `keypad` are read back where set. A count-bound repeat, `repeat: { mode: "count_bound", count }`, needs a whole-number count: an integer question, a single choice whose values are whole numbers, a hidden value whose calculation is a whole number, or an expression wrapped in `int(...)`. A query-bound repeat takes `when`: `on-open` keeps the records its query finds as the form opens, and `as-answers-change` follows the query as answers change; leave it out to let Nova choose from the form. A hidden field can hold a `default_value`, a `calculate`, or both, and an optional `answerType` sets how it holds its answer; leave it out for automatic typing. |
 | `edit_field` | Change a field by `moduleUuid`, `formUuid`, and `fieldUuid`: label, validation, visibility, choices, or case wiring. It also converts a field's kind in place where the data is compatible, text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode, keeping identity and references, and returns the final inline-choice UUIDs when it replaces or creates them. It sets `field_list`, `plain_label`, `plain_help` and `keypad` as `add_fields` does, where `null` is `false` (for `keypad`, the full keyboard). It sets a hidden field's `answerType`, where `null` returns to automatic typing, and a query repeat's `when`. For these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
-| `move_field` | Reposition `fieldUuid` with `beforeFieldUuid` / `afterFieldUuid`, or append under `parentUuid` (`null` means the form root; a group, repeat, or section otherwise), keeping every reference intact. |
+| `move_field` | Reposition `fieldUuid` with `beforeFieldUuid` / `afterFieldUuid`, or append under `parentUuid` (`null` means the form root; a group, repeat, or section otherwise), keeping every reference intact. Set `where` to `screen` to move the question while keeping its submitted answer in place, or `submission` to move the answer while keeping the worker’s screen in place. An anchor selects a sibling in the arrangement you chose. |
 | `set_form_sections` | Split a form into sections (pages), re-page it, or return it to a single page, in one call. Pass the complete list of pages, first page first, each naming its top-level questions in order: keep a section by `sectionUuid`, leave it out to create one, and leave a current section out to remove it once its questions have moved. An empty list removes every section. |
 | `remove_field` | Delete a field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 | `get_field` | Read one field by `moduleUuid`, `formUuid`, and `fieldUuid`, including `caseWrites`, every place its answer is saved; `field_list`, `plain_label`, `plain_help` and `keypad` where set, in the names an edit takes; and, on a query repeat, `rows` (`set-when-opened` or `follow-query`) with `rowsKept: true` where a published app keeps that choice. |
@@ -1210,6 +1224,13 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | `update_case_property` | Change that property's wording or choices with an `updates` object. Omit a setting to keep it; use `null` to clear an optional setting. Existing form questions retain their own content. |
 
 A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so group questions into sections before saving. `add_fields` can add sections and their questions together, with `parentUuid` naming the section; Nova assigns identities and orders parents before children. `set_form_sections` can re-page an existing form. Intermediate arrangements stay private until the complete form is valid. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
+
+A hidden value can take `answerNamespace` when a receiving service requires
+its own namespace. Pass `null` in `edit_field` to inherit the form’s namespace.
+`lockedInHq` marks a question for restricted editing in CommCare HQ. Project
+membership determines who can change it in Nova. A reading or publishing
+refusal about a submitted name identifies the platform or service that
+interprets it and the change that lets the form proceed.
 
 ### Saving a field answer to a case
 
@@ -1255,6 +1276,12 @@ to, `null` stops it saving anywhere, and leaving `caseWrite` out keeps it. A
 question that saves to several places refuses a `caseWrite`; change each of
 those writes with `update_case_operation`, or pass `null` first to stop every
 one. Changing `id` never renames saved case data.
+
+A message (`label`) can use `askForConfirmation` to show an Android checkbox.
+With `required` set, the worker must check it to continue. Web Apps confirms
+the visible message on submission. Messages and capture questions can carry
+a starting answer, help, and a validation rule with its message. A starting
+filename supplies text. Choosing or recording a file supplies the bytes.
 
 A capture field (`image`, `audio`, `video`, `signature`, `file`) saves a link
 to its file, with the same `caseWrite` as any other field. In a case change,

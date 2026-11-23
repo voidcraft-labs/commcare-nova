@@ -6,6 +6,7 @@ import { moduleUuidOfForm } from "../postSubmit";
 import type { QueryRepeatPlacement, RowTiming } from "../queryRepeatPlacement";
 import { ownRecordValue } from "../records";
 import { expressionSlotValue } from "../referenceSlots";
+import { submissionLayout } from "../submissionLayout";
 import type { Uuid } from "../uuid";
 import type {
 	Expression,
@@ -40,7 +41,14 @@ export interface FormStructureField {
 	/** A Hidden Value's value slot, absent where it holds neither. Where both slots are present, the calculation supplies the final answer. */
 	readonly hiddenValueSource?: "calculate" | "default_value";
 	readonly choices?: FormStructureChoices;
-	readonly proseSlots?: readonly ("label" | "hint" | "help" | "validate_msg")[];
+	readonly proseSlots?: readonly (
+		| "label"
+		| "hint"
+		| "help"
+		| "validate_msg"
+		| "addFirstLabel"
+		| "addLabel"
+	)[];
 }
 
 export type FormStructureConnect = Readonly<
@@ -53,6 +61,7 @@ export type FormStructureConnect = Readonly<
 >;
 
 export interface FormStructure {
+	readonly dataRootName?: string;
 	readonly formUuid: Uuid;
 	readonly moduleUuid: Uuid;
 	readonly type: FormType;
@@ -90,14 +99,15 @@ export function formStructure(
 	const form = ownRecordValue(doc.forms, formUuid);
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (form === undefined || moduleUuid === undefined) return undefined;
+	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const fields = new Map<Uuid, FormStructureField>();
-	const fieldOrder = new Map<Uuid, readonly Uuid[]>();
+
 	const visiting = new Set<Uuid>();
 	const visit = (parent: Uuid): void => {
 		if (visiting.has(parent)) return;
 		visiting.add(parent);
 		const ordered = ownRecordValue(doc.fieldOrder, parent) ?? [];
-		fieldOrder.set(parent, ordered);
+
 		for (const uuid of ordered) {
 			const field = ownRecordValue(doc.fields, uuid);
 			if (field === undefined || fields.has(uuid)) continue;
@@ -107,7 +117,7 @@ export function formStructure(
 				uuid,
 				id: field.id,
 				kind: field.kind,
-				parent,
+				parent: layout.parents.get(uuid) ?? parent,
 				proseSlots: [
 					...("label" in field && field.label !== undefined
 						? ["label" as const]
@@ -117,6 +127,12 @@ export function formStructure(
 						: []),
 					...("help" in field && field.help !== undefined
 						? ["help" as const]
+						: []),
+					...(field.kind === "repeat" && field.addFirstLabel !== undefined
+						? ["addFirstLabel" as const]
+						: []),
+					...(field.kind === "repeat" && field.addLabel !== undefined
+						? ["addLabel" as const]
 						: []),
 					...("validate_msg" in field && field.validate_msg !== undefined
 						? ["validate_msg" as const]
@@ -177,10 +193,11 @@ export function formStructure(
 	}
 	const result: FormStructure = {
 		formUuid,
+		...(form.dataRootName !== undefined && { dataRootName: form.dataRootName }),
 		moduleUuid,
 		type: form.type,
 		fields,
-		fieldOrder,
+		fieldOrder: layout.children,
 		connect,
 		links: new Map(
 			formLinkEntries(form).map(({ role, link }) => [

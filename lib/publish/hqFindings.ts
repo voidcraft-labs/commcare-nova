@@ -100,6 +100,7 @@ export const SUBJECTS = [
 	"expressions",
 	"form-case-management",
 	"form-settings",
+	"form-answer-addresses",
 	"form-source",
 	"hand-written-content",
 	"hierarchical-locations",

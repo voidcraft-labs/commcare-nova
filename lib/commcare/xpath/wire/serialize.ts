@@ -276,7 +276,7 @@ export function serializeWire(
 				root =
 					mode.target === "vellum" && node.root.spelling === "hashtag"
 						? "#form"
-						: "/data";
+						: `/${node.root.name ?? mode.formRootName ?? "data"}`;
 				break;
 			case "context":
 				root = "";

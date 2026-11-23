@@ -156,7 +156,14 @@ export function FieldRenderer({
 				/>
 			);
 		case "label":
-			return <LabelField field={field} state={state} />;
+			return (
+				<LabelField
+					field={field}
+					state={state}
+					onChange={onChange}
+					onBlur={onBlur}
+				/>
+			);
 		// Geopoint draws the location question of the platform Preview plays:
 		// Web Apps' map and address search, or Android's Record location.
 		case "geopoint":

@@ -92,6 +92,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	expressions: "Expressions",
 	"form-case-management": "Case management",
 	"form-settings": "Form settings",
+	"form-answer-addresses": "Submitted answer addresses",
 	"form-source": "A form's source",
 	"hand-written-content": "Hand-written XML",
 	"hierarchical-locations": "The older organization list",
@@ -293,6 +294,7 @@ export const FINDING_COPY: Readonly<
 	"form-settings": {
 		"not-yet": "This uses a form setting, which Nova can't hold yet.",
 	},
+	"form-answer-addresses": {},
 	"form-source": {
 		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
 	},
@@ -518,6 +520,12 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	"carriage-returns": {
 		"breaks-when-run":
 			"A text here holds a carriage return, where devices end the text's line. Devices don't show the text as written, and they read the part after the carriage return as a line of its own, which can set the wording of another text. Without the carriage return, devices show the whole text.",
+	},
+	"form-answer-addresses": {
+		"hq-refuses":
+			"The form designer uses this answer root to read the form itself. A different root, such as survey, and matching question paths let it open the form.",
+		"breaks-when-run":
+			"Workers cannot read answers under this root. A name such as survey, used at the start of each question path, makes the answers reachable.",
 	},
 	"case-types": {
 		"hq-refuses":
