@@ -1,6 +1,7 @@
 import "server-only";
 
 import { greatestFoldBaselineSeq } from "@/lib/agent/change-set/baseLoader";
+import { changesUnownedAndroidApps } from "@/lib/commcare/androidAppDependencies";
 import type {
 	CommCareApiError,
 	CommCareCredentials,
@@ -1646,6 +1647,10 @@ export async function runDeploymentPreflight(
 				appBaseline,
 			),
 			discards: input.discardRemoteChanges,
+			replacesUnownedAndroidRequirements: changesUnownedAndroidApps(
+				read.source.profile.features,
+				input.doc.appSettings.requiredAndroidApps,
+			),
 			appName: input.doc.appName,
 			novaAppId: input.access.appId,
 			remoteAppId: appId,

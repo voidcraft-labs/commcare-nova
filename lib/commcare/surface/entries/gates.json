@@ -3107,7 +3107,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Settings and profile, `features.dependencies`)",
+		"content": "HELD (Settings and profile, `features.dependencies`)",
 		"contentEntries": ["application-and-settings/31-features-dependencies"],
 		"platforms": "n/a",
 		"preflight": {

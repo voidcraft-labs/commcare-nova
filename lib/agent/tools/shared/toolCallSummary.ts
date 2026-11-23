@@ -53,6 +53,7 @@ export interface ToolCallSummary {
 	 * recorded before the settings existed reads as it always did.
 	 */
 	formLists?: { saved?: boolean; incomplete?: boolean };
+	requiredAndroidApps?: readonly import("@/lib/domain/requiredAndroidApps").RequiredAndroidApp[];
 	/**
 	 * For a call that changed where the app runs: the RESULTING declaration,
 	 * `"both"` or the one platform. Absent when it left the declaration as it

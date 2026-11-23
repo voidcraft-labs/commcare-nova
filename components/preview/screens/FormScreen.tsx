@@ -25,6 +25,7 @@ import {
 	useLocalizedField,
 	useLocalizedText,
 	useTranslationUnitEditor,
+	useWorkerWordingOverride,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ChoiceAnswerCheck } from "@/components/preview/shared/ChoiceAnswerCheck";
 import {
@@ -62,6 +63,7 @@ import {
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import type { LanguageTag } from "@/lib/domain/localization";
 import {
 	afterSubmitFrameLanding,
@@ -780,6 +782,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 		"name",
 	);
 	const localizedFormName = useLocalizedText(formNameUnitId);
+	const submitWording = useWorkerWordingOverride(
+		generatedWordingId(formUuid ?? "missing", "submitButton"),
+	);
 	const formNameEditor = useTranslationUnitEditor(formNameUnitId);
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
@@ -3740,12 +3745,16 @@ export function FormScreen({ screen }: FormScreenProps) {
 												aria-hidden="true"
 											/>
 										)}
-										{runtimeMessage(
-											language.language,
-											submitStatus.kind === "running"
-												? "submitting"
-												: platformRules.submitLabel,
-										)}
+										{submitStatus.kind !== "running" &&
+										platformRules.submitLabel === "submit" &&
+										submitWording !== undefined
+											? submitWording
+											: runtimeMessage(
+													language.language,
+													submitStatus.kind === "running"
+														? "submitting"
+														: platformRules.submitLabel,
+												)}
 									</button>
 								) : (
 									<button

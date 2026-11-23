@@ -105,6 +105,11 @@ export type GeneratedKeyVerdict =
 			readonly language: string;
 			readonly value: string;
 	  }
+	| {
+			readonly kind: "wording";
+			readonly unit: TranslationUnitId;
+			readonly value: string;
+	  }
 	| { readonly kind: "not-yet" };
 
 /**
@@ -132,7 +137,7 @@ function unitsOf(
  * The verdict on each held key, in order, by the five rules: a blank value, an id no string of
  * the table has, and a value equal to the table's string are inert; an id whose source is one
  * translation unit, where every other id that unit feeds holds the same value in that language or
- * is this one, folds into that unit's text in that language; anything else is not yet held. The
+ * is this one, folds into that unit's text in that language; a split or constant with an owned output keeps its own wording. The
  * fold rule reads the stored value of every id a unit feeds, so `held` lists every generated key
  * whose menu and form read, those a finding covers among them.
  *
@@ -142,8 +147,7 @@ function unitsOf(
  * the language's `translations` last), so where a screen reads the key the override is the file a
  * worker sees or hears, or the alt text a screen reader says, in that language. It is inert only
  * where no screen reads the key, or where it names the path the language shows without it; any
- * other override is a different file or text in one language, which no slot of Nova's document
- * holds (media is one per slot for every language), so it is not yet held.
+ * other override is a different file in one language. A registered image description is independently held on its mapping and screen.
  */
 export function classifyGeneratedTranslationKeys(
 	held: readonly HeldGeneratedKey[],
@@ -163,7 +167,19 @@ export function classifyGeneratedTranslationKeys(
 		}
 	return held.map((one): GeneratedKeyVerdict => {
 		if (one.value === "") return { kind: "inert" };
+		// HQ refers to this technical language code only in its mobile report
+		// table (mobile_ucr.py), never on a screen of a document Nova admits.
+		if (one.id === "lang.current") return { kind: "inert" };
+		const wording =
+			table.wordingUnits && Object.hasOwn(table.wordingUnits, one.id)
+				? table.wordingUnits[one.id]
+				: undefined;
+		const own: GeneratedKeyVerdict = wording
+			? { kind: "wording", unit: wording, value: one.value }
+			: { kind: "not-yet" };
 		const reading = media(one);
+		if (one.id.split(".").at(-2) === "alt_text" && (wording || reading))
+			return wording ? own : { kind: "inert" };
 		if (reading !== undefined)
 			return reading.kind === "unread" ||
 				(reading.kind === "shows" && reading.value === one.value)
@@ -178,13 +194,13 @@ export function classifyGeneratedTranslationKeys(
 			: undefined;
 		const units = unitsOf(source);
 		const unit = units[0];
-		if (units.length !== 1 || unit === undefined) return { kind: "not-yet" };
+		if (units.length !== 1 || unit === undefined) return own;
 		const agree = (feeds.get(unit) ?? []).every(
 			(id) =>
 				id === one.id || stored.get(`${one.language}\u0000${id}`) === one.value,
 		);
 		return agree
 			? { kind: "fold", unit, language: one.language, value: one.value }
-			: { kind: "not-yet" };
+			: own;
 	});
 }

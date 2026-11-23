@@ -76,7 +76,11 @@ async function readBackFailure(doc: BlueprintDoc): Promise<string | null> {
 			)
 			.join("; ")}`;
 	const { declaration } = outcome.draft;
-	const expected = canonDocument(doc);
+	const expected = canonDocument(
+		doc,
+		undefined,
+		doc.localization?.sourceLanguage,
+	);
 	const differences = readBackDifferences(expected, {
 		doc: outcome.draft.doc,
 		choices: declaration.kind === "choices" ? declaration.choices : [],

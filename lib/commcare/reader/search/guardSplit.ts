@@ -7,17 +7,23 @@
  * (`readGuardText`), and `joinedGuardsSplitAsRead` is the reader's canonical
  * choice that puts a Nova-born document's two texts where that reading does.
  */
+
 import type {
 	BlueprintDoc,
 	LanguageTag,
 	SearchInputDef,
 	TranslationUnitId,
 } from "@/lib/domain";
-import { makeTranslationUnitId } from "@/lib/domain/localization";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
+import {
+	editableLanguageEntries,
+	makeTranslationUnitId,
+} from "@/lib/domain/localization";
 import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "@/lib/domain/searchRuntimeValidationMessages";
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import { moduleExpressionContexts } from "../../expressionContext";
+import { generatedSearchChecks } from "../../generatedSearchWording";
 import { commCareLocalization } from "../../localization";
 import { identityLookupWireNaming } from "../../lookup/naming";
 import {
@@ -129,7 +135,10 @@ export function joinedGuardsSplitAsRead(doc: BlueprintDoc): BlueprintDoc {
 			entry,
 		]),
 	);
-	const translated = Object.values(localization.translations).some((entries) =>
+	const translated = [
+		...Object.values(localization.translations),
+		localization.generatedSourceWording,
+	].some((entries) =>
 		Object.keys(entries ?? {}).some((unit) =>
 			guardUnits.has(unit as TranslationUnitId),
 		),
@@ -160,7 +169,6 @@ export function joinedGuardsSplitAsRead(doc: BlueprintDoc): BlueprintDoc {
 		);
 		const someAlone = messageUnits.length < carriers.length;
 		for (const [language, code] of Object.entries(localization.wireCodes)) {
-			if (language === source) continue;
 			const guard = wire.text(code, guardUnit);
 			const joined = messageUnits.map((unit) => ({
 				unit,
@@ -184,26 +192,56 @@ export function joinedGuardsSplitAsRead(doc: BlueprintDoc): BlueprintDoc {
 	}
 	if (changes.length === 0) return doc;
 	return withCandidate(doc, (draft) => {
-		const translations = draft.localization?.translations;
-		if (translations === undefined) return;
+		const loc = draft.localization;
+		if (!loc) return;
+		const byUnit = new Map<TranslationUnitId, Map<LanguageTag, string>>();
 		for (const { language, unit, value } of changes) {
-			const current = units.get(unit);
-			const targets = translations[language];
-			if (current === undefined || targets === undefined) continue;
-			const entry = translationEntryFor(
-				current.valueKind,
-				current.source,
-				value,
-				source,
-			);
-			if (entry === undefined) delete targets[unit];
-			else targets[unit] = entry;
+			const byLanguage = byUnit.get(unit) ?? new Map<LanguageTag, string>();
+			byLanguage.set(language, value);
+			byUnit.set(unit, byLanguage);
 		}
+		for (const [id, values] of byUnit) {
+			const current = units.get(id);
+			if (!current || typeof current.source !== "string") continue;
+			let base = current.source;
+			const sourceText = values.get(source);
+			if (sourceText !== undefined && current.owner.kind === "search-input") {
+				const owner = current.owner;
+				const input = draft.modules[
+					owner.moduleUuid
+				]?.caseListConfig?.searchInputs.find(
+					(one) => one.uuid === owner.searchInputUuid,
+				);
+				if (!input || input.kind === "hidden" || !input.validation) continue;
+				base = sourceText;
+				input.validation.message = base;
+				for (const [language, code] of Object.entries(loc.wireCodes)) {
+					if (language !== source && !values.has(language))
+						values.set(language, wire.text(code, id));
+				}
+			}
+			for (const [language, value] of values) {
+				if (language === source && current.owner.kind === "search-input")
+					continue;
+				const entry = translationEntryFor("text", base, value, source);
+				const targets = editableLanguageEntries(
+					loc,
+					language,
+					entry !== undefined,
+				);
+				if (!targets) continue;
+				if (!entry) delete targets[id];
+				else targets[id] = entry;
+			}
+		}
+		if (!Object.keys(loc.generatedSourceWording ?? {}).length)
+			delete loc.generatedSourceWording;
 	});
 }
 
 /**
- * The reader's canonical choice `unprinted-search-guard-translations-are-absent`: a translation of
+ * The reader's canonical choice for wording absent from the wire: a hidden
+ * column output, a disabled search output, or a translation of
  * one of Nova's search guard sentences that no Search field of the app carries, and none. The
  * catalog of those sentences is every app's that has a Search field
  * (`translationUnits.ts`, `SEARCH_RUNTIME_VALIDATION_MESSAGES`), while an export prints only the
@@ -211,33 +249,88 @@ export function joinedGuardsSplitAsRead(doc: BlueprintDoc): BlueprintDoc {
  * date range and search value sentences Preview alone shows are in no export at all. So no export
  * holds such a translation, and the reader returns none.
  */
+export function unprintedSearchWording(
+	doc: BlueprintDoc,
+): ReadonlySet<TranslationUnitId> {
+	const held = new Set(
+		SEARCH_RUNTIME_VALIDATION_MESSAGES.map((row) =>
+			makeTranslationUnitId("system", "search-validation", row.key),
+		),
+	);
+
+	const required = makeTranslationUnitId(
+		"system",
+		"search-required",
+		"default",
+	);
+	held.add(required);
+	for (const unit of snapshotTranslationUnits(doc).values())
+		if (unit.generated?.dormant) held.add(unit.id);
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
+		if (!module?.caseListConfig || !effectiveCaseSearchConfig(module)) continue;
+		const checks = generatedSearchChecks(doc, moduleUuid);
+		for (const check of checks.values()) {
+			for (const id of typeof check.source === "string"
+				? [check.source]
+				: check.source)
+				held.delete(id);
+		}
+		for (const input of module.caseListConfig.searchInputs) {
+			if (input.kind === "hidden") continue;
+			if (input.required && input.required.message === undefined)
+				held.delete(required);
+			if (!checks.has(input.uuid))
+				held.add(generatedWordingId(input.uuid, "promptValidation"));
+		}
+	}
+	return held;
+}
+
 export function unprintedGuardTranslationsAbsent(
 	doc: BlueprintDoc,
 ): BlueprintDoc {
-	const translations = doc.localization?.translations;
-	if (translations === undefined) return doc;
-	const guardUnits = new Set<TranslationUnitId>(
-		SEARCH_RUNTIME_VALIDATION_MESSAGES.map((entry) =>
-			makeTranslationUnitId("system", "search-validation", entry.key),
-		),
+	const localization = doc.localization;
+	if (!localization) return doc;
+	const translations = localization.translations;
+	const inventory = snapshotTranslationUnits(doc);
+	const hasGuard = [
+		...Object.values(translations),
+		localization.generatedSourceWording,
+	].some((entries) =>
+		Object.keys(entries ?? {}).some((id) => {
+			const unit = inventory.get(id);
+			return (
+				unit?.role === "search-runtime-validation-message" ||
+				unit?.generated?.role === "promptValidation" ||
+				unit?.generated?.dormant === true
+			);
+		}),
 	);
-	const held = Object.entries(translations).flatMap(([language, entries]) =>
+	if (!hasGuard) return doc;
+	const unprintedUnits = unprintedSearchWording(doc);
+	const unprinted = [
+		...Object.entries(translations),
+		[localization.sourceLanguage, localization.generatedSourceWording] as const,
+	].flatMap(([language, entries]) =>
 		Object.keys(entries ?? {}).flatMap((unit) =>
-			guardUnits.has(unit as TranslationUnitId)
+			unprintedUnits.has(unit as TranslationUnitId)
 				? [[language as LanguageTag, unit as TranslationUnitId] as const]
 				: [],
 		),
 	);
-	if (held.length === 0) return doc;
-	const printed = new Set(
-		[...guardCarriers(doc).keys()].map((key) =>
-			makeTranslationUnitId("system", "search-validation", key),
-		),
-	);
-	const unprinted = held.filter(([, unit]) => !printed.has(unit));
 	if (unprinted.length === 0) return doc;
 	return withCandidate(doc, (draft) => {
-		for (const [language, unit] of unprinted)
-			delete draft.localization?.translations[language]?.[unit];
+		const loc = draft.localization;
+		if (!loc) return;
+		for (const [language, unit] of unprinted) {
+			const entries =
+				language === loc.sourceLanguage
+					? loc.generatedSourceWording
+					: loc.translations[language];
+			if (entries) delete entries[unit];
+		}
+		if (!Object.keys(loc.generatedSourceWording ?? {}).length)
+			delete loc.generatedSourceWording;
 	});
 }

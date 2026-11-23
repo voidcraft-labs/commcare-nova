@@ -7,6 +7,10 @@ import {
 } from "@/lib/domain/localization";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
+import {
+	type RequiredAndroidApp,
+	requiredAndroidAppsSchema,
+} from "@/lib/domain/requiredAndroidApps";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
@@ -45,10 +49,20 @@ export const appTestSessionIdSchema = z
 	);
 
 export const appTestStartSchema = z.strictObject({
+	installedAndroidApps: requiredAndroidAppsSchema
+		.optional()
+		.describe(
+			"Apps already installed on the Preview phone for this test. An Android app with missing requirements stops before opening. Web Apps ignores this selection.",
+		),
 	sessions: z
 		.array(
 			z.strictObject({
 				id: appTestSessionIdSchema,
+				installedAndroidApps: requiredAndroidAppsSchema
+					.optional()
+					.describe(
+						"Apps already installed on this session’s Preview phone. Omit to use the test’s device setup.",
+					),
 				personaUuid: z
 					.string()
 					.min(1)
@@ -284,6 +298,7 @@ export interface AppTestSnapshot {
 	blueprint: PersistableDoc;
 	user: PreviewSessionUser;
 	projectSpace: string | null;
+	androidAppLabels?: import("@/lib/domain/requiredAndroidApps").AndroidAppLabels;
 	lookup: {
 		projectRevision: string;
 		definitions: readonly LookupTableDefinition[];
@@ -374,6 +389,9 @@ export interface AppTestSessionState {
 	language: LanguageTag;
 	/** The platform this session runs on, one the saved app declares. */
 	platform: Platform;
+	installedAndroidApps?: RequiredAndroidApp[];
+	/** Start showed the phone’s missing-app dialog and left the worker on device home. */
+	awaitingAndroidApps?: boolean;
 	/** The UUID part of the session's Android `deviceid`, minted when the
 	 *  session starts: one session is one install. */
 	androidDeviceId: string;

@@ -316,6 +316,13 @@ export function platformFeatureUses(
 	}
 	if (doc.logo !== undefined && wanted("app-logo"))
 		appUses.push(slotUse("app-logo", app, "logo"));
+	if (
+		doc.appSettings.requiredAndroidApps?.length &&
+		wanted("required-android-apps")
+	)
+		appUses.push(
+			slotUse("required-android-apps", app, "appSettings.requiredAndroidApps"),
+		);
 	if (doc.appSettings.showSavedForms && wanted("saved-forms"))
 		appUses.push(slotUse("saved-forms", app, "appSettings.showSavedForms"));
 	if (doc.appSettings.showIncompleteForms && wanted("incomplete-forms"))

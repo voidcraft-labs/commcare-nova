@@ -179,6 +179,7 @@ import {
 	sessionUser,
 	term,
 } from "@/lib/domain/expression";
+import { parseLanguageTag } from "@/lib/domain/localization";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	docAfter,
@@ -790,6 +791,85 @@ const setDefaultLanguage: KindGenerator = (ctx) => {
 			batch([
 				addLanguageMutation(heldLanguageWireCodes(ctx.doc), language),
 				{ kind: "setDefaultLanguage", code: languageTag(language) },
+			]),
+		);
+};
+
+const rebindLanguageCodes: KindGenerator = (ctx) => {
+	const loc = effectiveAppLocalization(ctx.doc.localization);
+	const registered = loc.languageOrder.find(
+		(tag) => !tag.startsWith("project:"),
+	);
+	if (!registered) return [];
+	const to = addLanguageMutation(
+		heldLanguageWireCodes(ctx.doc),
+		parseLanguageTag(registered),
+	).wireCode;
+	return [
+		batch([
+			{
+				kind: "rebindLanguageCodes",
+				changes: [
+					{ language: registered, from: loc.wireCodes[registered], to },
+				],
+			},
+		]),
+	];
+};
+
+const rebaseSourceLanguage: KindGenerator = (ctx) => {
+	const before = effectiveAppLocalization(ctx.doc.localization);
+	return targetLanguages(ctx).map(({ prefix, tag }) =>
+		batch([
+			...prefix,
+			{ kind: "rebaseSourceLanguage", from: before.sourceLanguage, to: tag },
+		]),
+	);
+};
+
+const setProjectLanguageDirection: KindGenerator = (ctx) => {
+	const before = effectiveAppLocalization(ctx.doc.localization);
+	const existing = before.languageOrder.find((code) =>
+		code.startsWith("project:"),
+	);
+	if (existing !== undefined)
+		return [
+			batch([
+				{
+					kind: "setProjectLanguageDirection",
+					code: existing,
+					direction: before.rtlProjectLanguages?.[existing] ? "ltr" : "rtl",
+				},
+			]),
+		];
+	const held = heldLanguageWireCodes(ctx.doc);
+	const code = ["qq", "qq-local"].find((code) => !held.has(code));
+	if (code === undefined) return [];
+	const language: AppLanguageIdentity = { kind: "project", language: code };
+	return [
+		batch([
+			addLanguageMutation(held, language),
+			{
+				kind: "setProjectLanguageDirection",
+				code: languageTag(language),
+				direction: "rtl",
+			},
+		]),
+	];
+};
+
+const moveLanguage: KindGenerator = (ctx) => {
+	const [first, second] = effectiveAppLocalization(
+		ctx.doc.localization,
+	).languageOrder;
+	if (second !== undefined)
+		return [batch([{ kind: "moveLanguage", code: first, after: second }])];
+	return freshLanguages(ctx)
+		.slice(0, 1)
+		.map((language) =>
+			batch([
+				addLanguageMutation(heldLanguageWireCodes(ctx.doc), language),
+				{ kind: "moveLanguage", code: first, after: languageTag(language) },
 			]),
 		);
 };
@@ -3015,6 +3095,10 @@ export const EDIT_KIND_GENERATORS = {
 	addLanguage,
 	removeLanguage,
 	setDefaultLanguage,
+	moveLanguage,
+	rebindLanguageCodes,
+	rebaseSourceLanguage,
+	setProjectLanguageDirection,
 	setTranslation,
 	reviewTranslation,
 	renameCaseProperties,

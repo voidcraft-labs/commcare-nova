@@ -91,6 +91,8 @@ public class Reader {
         switch (op) {
             case "profile":
                 return profile(request);
+            case "required-apps":
+                return RequiredApps.read(request);
             case "installs":
                 return installs(request);
             case "app":

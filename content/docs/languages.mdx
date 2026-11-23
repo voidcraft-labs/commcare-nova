@@ -6,6 +6,9 @@ description: Add app languages, copy existing text, translate it, and choose wha
 Commcare Nova keeps worker-facing app content in a language catalog. One
 language is the **source** used while the app is designed, and one is the
 **default** workers see when they first open the app. They may be different.
+In **App setup → Languages**, you can move a language earlier or later, or
+choose **Make default** to put it first. Each language keeps its saved text and
+review status when its position changes.
 
 Use the language selector in the Builder header to change the language shown by
 the structure tree, editing canvas, case workspace, and Preview. The selected
@@ -27,6 +30,13 @@ thousand. A group name such as Chinese or Arabic is not itself a choosable
 language: the picker explains the group and lists its member languages as
 choices, so the app always records the one language workers actually speak.
 
+If your project uses its own language code, choose **Use a project language
+code**. Enter the exact code, such as `qaa`, and choose the text to copy.
+Nova also keeps these codes when you bring in an app. Each has its own
+translations, even when two codes refer to the same language. The language
+card lets you switch the writing direction in the Builder and Preview. You
+can translate its text by hand.
+
 When a language is customarily written in more than one writing system, the
 picker asks which one before the language can be added. Mandarin Chinese, for
 example, is added as Simplified or Traditional; there is no unspecified
@@ -36,7 +46,7 @@ appears as well. It is always skippable: the general option targets the
 language as spoken internationally, and a country choice such as Mexico
 tailors the app to that country's conventions.
 
-The language's worker-facing name, its name in its own language, and its
+A registered language's worker-facing name, its name in its own language, and its
 left-to-right or right-to-left direction follow from the choice itself and are
 never edited per app. No language code appears anywhere in the Builder; the
 Builder URL carries a technical tag for the selected language so links and
@@ -94,6 +104,20 @@ filter by status:
 - **Out of date** means the source changed after that target value was written;
   the running app uses the current source until the target is reviewed or
   replaced.
+
+Open **Worker wording** in a form, menu, case-list column or search field to change the words workers see in the selected language. For example, a form can say “Finish visit” on its Web Apps submit button, and a case column can use a short label on the list and a longer heading on the detail screen. The wording follows the control when you move it. **Use default wording** restores that control’s usual text in this language. You can also find these phrases in **Languages**.
+
+Hiding a column keeps the wording you set for its results or details. It
+returns when you show that column again. Search results, the case list menu entry and the registration action also keep their wording when you turn them off and back on.
+
+When you change a control’s original wording, **Languages** shows the new source beside any copied or AI translation that needs a fresh review. Preview uses the control’s usual wording in that language while you decide whether to keep or replace the saved translation.
+
+When a control would show no text in the selected language, Preview and app
+tests can show wording supplied by another language in the app’s language
+order. You can enter wording in the selected language to give it its own text.
+
+
+For a generated search message, you can edit the wording in any app language, including the source. **Use default wording** restores the message Nova supplies. A change to the source language keeps the wording you saved, even for checks your current searches do not use.
 
 Saving and reopening an unchanged app keeps its translations and review status.
 References in translated labels stay attached to the same answers and records.
@@ -187,3 +211,5 @@ phrases to translate:
 These notes do not block adding a language. They keep the coverage count from
 claiming those surfaces were translated when their data or wire behavior does
 not support that claim.
+
+When CommCare HQ changes the original language, Nova keeps your saved translations. A phrase marked **Out of date** shows the wording workers see beside your editable translation. If that phrase would become the original, the change review links to it. You can mark the wording as reviewed, replace it, or choose **Use the original text**, then check the changes again. A registered language renamed in CommCare HQ keeps its translations when you bring in the new code.

@@ -1,12 +1,14 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { Button } from "@/components/shadcn/button";
 import { AppAppearanceSection } from "./AppAppearanceSection";
 import { AppConnectSection } from "./AppConnectSection";
 import { AppDataSourcesSection } from "./AppDataSourcesSection";
 import { AppPlatformsSection } from "./AppPlatformsSection";
 import { AppSavedFormsSection } from "./AppSavedFormsSection";
+import { RequiredAndroidAppsSection } from "./RequiredAndroidAppsSection";
 
 /** Shell prop shape: just a dismiss callback wired from the popover
  *  trigger. The app surface is a singleton: there is no entity uuid to
@@ -47,7 +49,9 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
 				<AppPlatformsSection />
+				<RequiredAndroidAppsSection />
 				<AppAppearanceSection />
+				<ControlWording owner="app" />
 				<AppSavedFormsSection />
 				<AppConnectSection />
 				<AppDataSourcesSection />

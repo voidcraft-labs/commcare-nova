@@ -22,10 +22,20 @@ interface SelectorRow {
 	readonly qualifier: string | undefined;
 }
 
+function languageAxis(identity: AppLanguageIdentity): string {
+	return identity.kind === "project"
+		? `project:${identity.language}`
+		: identity.language;
+}
+
 /** Human labels for the current app's language identities. The optional full
  * registry resolves the long tail after its lazy chunk is available. */
 export function languageSelectorRows(
-	languages: readonly { tag: LanguageTag; identity: AppLanguageIdentity }[],
+	languages: readonly {
+		tag: LanguageTag;
+		identity: AppLanguageIdentity;
+		direction?: "ltr" | "rtl";
+	}[],
 	resolver?: Pick<
 		LanguageRegistrySearch,
 		"resolvedLanguageDisplayLabel" | "resolvedLanguageEnglishName"
@@ -34,13 +44,15 @@ export function languageSelectorRows(
 	const axisCounts = new Map<string, number>();
 	for (const { identity } of languages) {
 		axisCounts.set(
-			identity.language,
-			(axisCounts.get(identity.language) ?? 0) + 1,
+			languageAxis(identity),
+			(axisCounts.get(languageAxis(identity)) ?? 0) + 1,
 		);
 	}
-	const rows: SelectorRow[] = languages.map(({ tag, identity }) => {
+	const rows: SelectorRow[] = languages.map(({ tag, identity, direction }) => {
 		const qualifiers = languageQualifierLabels(identity);
-		const sharesAxis = (axisCounts.get(identity.language) ?? 0) > 1;
+		const sharesAxis =
+			identity.kind !== "project" &&
+			(axisCounts.get(languageAxis(identity)) ?? 0) > 1;
 		return {
 			tag,
 			identity,
@@ -50,7 +62,7 @@ export function languageSelectorRows(
 			englishName:
 				languageEnglishName(identity) ??
 				resolver?.resolvedLanguageEnglishName(identity),
-			direction: languageDirection(identity),
+			direction: direction ?? languageDirection(identity),
 			qualifier:
 				qualifiers.length > 0
 					? qualifiers.join(", ")

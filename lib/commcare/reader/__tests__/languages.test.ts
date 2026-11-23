@@ -1,8 +1,8 @@
 /**
  * An HQ app's language codes read into Nova's language identities.
  *
- * It would catch `en` beside `eng` held as two languages; a macrolanguage's
- * code read to no identity; a code HQ's grammar refuses, an empty one or a
+ * It would catch `en` and `eng` merged into one language; a macrolanguage's
+ * code assigned to an invented registry identity; a code HQ's grammar refuses, an empty one or a
  * repeated one held; `pt-br`, `zh-hans` and `cmn-hanttw` read without their
  * region or script, since the suffix is lower case; and a code Nova itself
  * wrote for an identity read back to another identity, which would make an
@@ -18,6 +18,10 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	addLanguageMutation,
+	heldLanguageWireCodes,
+} from "@/lib/doc/languageMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
@@ -26,9 +30,11 @@ import {
 	type BlueprintDoc,
 	collectTranslationUnits,
 	languageTag,
+	parseLanguageTag,
 	proseText,
 } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
+import { automaticTranslationLaunchLanguage } from "@/lib/translation/capabilityPolicy";
 import { mintLanguageWireCode } from "../../languageWire";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { matchingResolver } from "../identity";
@@ -76,13 +82,14 @@ describe("languageIdentityForHqCode", () => {
 		["eng", { language: "eng" }],
 		["hin", { language: "hin" }],
 		["pt-br", { language: "por", region: "BR" }],
-		["zh-hans", { language: "cmn", script: "Hans" }],
+		["zh-hans", undefined],
+		["zho-hans", undefined],
 		["cmn-hanttw", { language: "cmn", script: "Hant", region: "TW" }],
 		/* CN is no region of Traditional Chinese, so the suffix adds nothing, and Chinese with
 		 * no script is no identity. */
 		["cmn-hantcn", undefined],
-		["ar", { language: "arb" }],
-		["en-zz", { language: "eng" }],
+		["ar", undefined],
+		["en-zz", undefined],
 		["xx", undefined],
 		["zh", undefined],
 		["lat", undefined],
@@ -162,16 +169,30 @@ describe("readLanguages", () => {
 		});
 	});
 
-	it("refuses a second code that names a language an earlier one named", async () => {
-		const { ctx, findings } = await read(["en", "eng"]);
-		expect(findings).toMatchObject([
-			{
-				code: `${A}/langs-code-nova-s-language-registry-cannot-name`,
-				place: { kind: "languages" },
-				detail: { name: "eng" },
-			},
-		]);
-		expect(ctx.draft.localization).toBeUndefined();
+	it.each([
+		["eng", "qaa", "en"],
+		["en", "qaa", "eng"],
+		["qaa", "eng", "en"],
+	])("keeps every code when %s is first", async (...codes) => {
+		const { ctx, findings } = await read(codes);
+		expect(findings).toEqual([]);
+		const loc = ctx.draft.localization;
+		expect(loc?.wireCodes).toEqual({
+			eng: "en",
+			"project:eng": "eng",
+			"project:qaa": "qaa",
+		});
+		expect(loc?.languageOrder.map((tag) => loc.wireCodes[tag])).toEqual(codes);
+	});
+
+	it("keeps a language code without a registry identity for manual translation", async () => {
+		const { ctx, findings } = await read(["xx", "zh"]);
+		expect(findings).toEqual([]);
+		expect(ctx.draft.localization).toMatchObject({
+			sourceLanguage: "project:xx",
+			languageOrder: ["project:xx", "project:zh"],
+			translations: { "project:zh": {} },
+		});
 	});
 
 	it.each<[readonly string[], string, string | undefined]>([
@@ -186,8 +207,6 @@ describe("readLanguages", () => {
 			"en",
 		],
 		[["en", ""], "langs-containing-an-empty-code", undefined],
-		[["en", "xx"], "langs-code-nova-s-language-registry-cannot-name", "xx"],
-		[["en", "zh"], "langs-code-nova-s-language-registry-cannot-name", "zh"],
 	])(
 		"refuses %o under its entry, at the languages place",
 		async (codes, entry, name) => {
@@ -211,6 +230,56 @@ describe("readLanguages", () => {
 			eng: "en",
 			[languageTag(simplified)]: "zh",
 		});
+	});
+
+	it("keeps an ambiguous macro script in the project and uses only a matching picker name or incumbent", async () => {
+		const code = "zho-hans";
+		for (const language of ["cmn", "hak", "nan"]) {
+			const identity = { language, script: "Hans" };
+			const name = resolvedLanguageDisplayLabel(identity);
+			if (!name) throw Error("Expected a registered language label");
+			const { ctx } = await read(["en", code], { [code]: name });
+			expect(ctx.draft.localization?.wireCodes).toEqual({
+				eng: "en",
+				[languageTag(identity)]: code,
+			});
+		}
+		const nameSets: readonly Readonly<Record<string, string>>[] = [
+			{},
+			{ [code]: "Field language" },
+			{ [code]: "English" },
+		];
+		for (const names of nameSets) {
+			const { ctx } = await read(["en", code], names);
+			expect(ctx.draft.localization?.wireCodes).toEqual({
+				eng: "en",
+				[`project:${code}`]: code,
+			});
+		}
+		expect(languageIdentityForHqCode("ara-eg")).toEqual({
+			language: "arb",
+			region: "EG",
+		});
+		expect(languageIdentityForHqCode("zho-hanttw")).toEqual({
+			language: "cmn",
+			script: "Hant",
+			region: "TW",
+		});
+		const bound = { language: "nan", script: "Hans" };
+		const doc = produce(survey(), (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: bound, wireCode: code },
+			]);
+		});
+		const raw = exportedBody(doc);
+		const strings = raw.translations as Record<string, Record<string, string>>;
+		for (const texts of Object.values(strings)) texts[code] = "Field language";
+		const outcome = readHqApp(
+			await inputFor(raw, { knownLanguageCodes: knownLanguageCodesOf(doc) }),
+		);
+		expect(
+			outcome.kind === "read" && outcome.draft.doc.localization?.wireCodes,
+		).toEqual({ eng: "en", [languageTag(bound)]: code });
 	});
 
 	it("guesses no language into an app that holds none", async () => {
@@ -270,6 +339,87 @@ async function readExport(
 }
 
 describe("a re-read of an app Nova holds", () => {
+	it("cleanly reads a project code that also spells the registered British English region", async () => {
+		const project = { kind: "project", language: "eng-gb" } as const;
+		const british = { language: "eng", region: "GB" };
+		let doc = survey();
+		for (const identity of [project, british]) {
+			const mutation = addLanguageMutation(
+				heldLanguageWireCodes(doc),
+				identity,
+			);
+			doc = produce(doc, (draft) => {
+				applyMutations(draft, [mutation]);
+			});
+		}
+		const expected = {
+			eng: "en",
+			"project:eng-gb": "eng-gb",
+			"eng-GB": "eng-gba",
+		};
+		expect(doc.localization?.wireCodes).toEqual(expected);
+		for (const hints of [
+			{},
+			{ knownLanguageCodes: knownLanguageCodesOf(doc) },
+		]) {
+			const read = await readExport(doc, hints);
+			expect(read.draft.doc.localization?.wireCodes).toEqual(expected);
+			const tagsByCode = new Map(
+				Object.entries(read.draft.doc.localization?.wireCodes ?? {}).map(
+					([tag, code]) => [code, parseLanguageTag(tag)],
+				),
+			);
+			expect(
+				automaticTranslationLaunchLanguage(tagsByCode.get("eng-gb") ?? british),
+			).toBeUndefined();
+			expect(
+				automaticTranslationLaunchLanguage(
+					tagsByCode.get("eng-gba") ?? project,
+				),
+			).toBe("eng");
+		}
+		const onlyRegistered = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{ kind: "removeLanguage", code: "project:eng-gb" },
+			]);
+		});
+		expect(
+			(await readExport(onlyRegistered)).draft.doc.localization?.wireCodes,
+		).toEqual({
+			eng: "en",
+			"eng-GB": "eng-gba",
+		});
+	});
+	it("reserves an existing code binding before a newly arrived canonical spelling", async () => {
+		const incumbent = produce(survey(), (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "eng" },
+					wireCode: "eng",
+				},
+			]);
+		});
+		const withBoth = produce(incumbent, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addLanguage",
+					language: { kind: "project", language: "en" },
+					wireCode: "en",
+				},
+				{ kind: "moveLanguage", code: "project:en", after: null },
+			]);
+		});
+		const read = await readExport(withBoth, {
+			knownLanguageCodes: knownLanguageCodesOf(incumbent),
+		});
+		expect(read.draft.doc.localization).toMatchObject({
+			languageOrder: ["project:en", "eng"],
+			sourceLanguage: "eng",
+			wireCodes: { eng: "eng", "project:en": "en" },
+		});
+	});
+
 	it.each<[AppLanguageIdentity, string, AppLanguageIdentity]>([
 		[{ language: "swc" }, "sw", { language: "swh" }],
 		[{ language: "prs" }, "fas", { language: "pes" }],

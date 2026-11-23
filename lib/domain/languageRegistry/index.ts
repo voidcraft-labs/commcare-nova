@@ -9,8 +9,10 @@
 
 import {
 	type AppLanguageIdentity,
+	type EffectiveAppLocalization,
 	type LanguageDirection,
 	type LanguageTag,
+	languageTag,
 	parseLanguageTag,
 } from "../localization";
 import {
@@ -221,6 +223,7 @@ function toIdentity(
  * sentences. Empty means the identity is a lawful selection.
  */
 export function identityIssues(identity: AppLanguageIdentity): string[] {
+	if (identity.kind === "project") return [];
 	const issues: string[] = [];
 	const verdict = languageCodeVerdict(identity.language);
 	if (verdict.kind !== "individual-living") {
@@ -305,6 +308,7 @@ export function languageDisplayLabel(
 	value: AppLanguageIdentity | LanguageTag,
 ): string | undefined {
 	const identity = toIdentity(value);
+	if (identity.kind === "project") return identity.language;
 	for (const key of displayKeyChain(identity)) {
 		const endonym = ENDONYM_BY_KEY[key];
 		if (endonym !== undefined) return endonym;
@@ -333,6 +337,7 @@ export function languageEnglishName(
 	value: AppLanguageIdentity | LanguageTag,
 ): string | undefined {
 	const identity = toIdentity(value);
+	if (identity.kind === "project") return undefined;
 	const base = COMMON_ENGLISH_NAME_BY_CODE[identity.language];
 	if (base === undefined) return undefined;
 	const qualifiers = languageQualifierLabels(identity);
@@ -372,8 +377,13 @@ export function languageQualifierLabels(
  */
 export function languageDirection(
 	value: AppLanguageIdentity | LanguageTag,
+	localization?: Pick<EffectiveAppLocalization, "rtlProjectLanguages">,
 ): LanguageDirection {
 	const identity = toIdentity(value);
+	if (identity.kind === "project")
+		return localization?.rtlProjectLanguages?.[languageTag(identity)] === true
+			? "rtl"
+			: "ltr";
 	if (identity.script !== undefined) {
 		return rtlScriptSet.has(identity.script) ? "rtl" : "ltr";
 	}

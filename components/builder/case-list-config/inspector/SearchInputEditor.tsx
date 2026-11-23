@@ -51,6 +51,7 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
+import { ControlWording } from "@/components/builder/localization/ControlWording";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
@@ -875,6 +876,7 @@ function VisibleSearchInputEditor({
 			validityIndex={emptyValidityIndex}
 		>
 			<div className="space-y-5">
+				{moduleUuid && <ControlWording owner={value.uuid} />}
 				<FieldRow label="Label" hint="Shown above the field">
 					<BlurCommitTextInput
 						value={value.label}

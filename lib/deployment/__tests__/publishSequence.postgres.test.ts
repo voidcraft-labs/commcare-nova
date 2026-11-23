@@ -1641,51 +1641,76 @@ describe("changes made in CommCare HQ", () => {
 		});
 	});
 
-	it("stops at the upload when the app's compared keys moved during the push, and not when only an ignored key did", async () => {
-		const doc = await seed(await lookupDocument());
-		await withPeer(async (peer) => {
-			emptyTables(peer);
-			accepted(peer, 201);
-			serve(peer, SOURCE, "source-shell");
-			workbookTaken(peer);
-			tablesAfterPush(peer);
-			tableRows(peer);
-			serve(peer, SOURCE, "source-shell");
-			accepted(peer, 200);
-			serve(peer, SOURCE, "source-live");
-			expect((await publish(doc)).landed).toBe(true);
-
-			const republish = (
-				secondRead: (source: Record<string, unknown>) => void,
-			) => {
-				tablesAfterPush(peer);
-				tableRows(peer);
-				serve(peer, SOURCE, "source-live");
+	it.each(["app name", "legacy Android requirements"] as const)(
+		"stops at the upload when %s changes during the push, and accepts a save that only touched an ignored key",
+		async (change) => {
+			const doc = await seed(await lookupDocument());
+			await withPeer(async (peer) => {
+				emptyTables(peer);
+				accepted(peer, 201);
+				serve(peer, SOURCE, "source-shell");
 				workbookTaken(peer);
 				tablesAfterPush(peer);
 				tableRows(peer);
-				serveEdited(peer, SOURCE, "source-live", secondRead);
-			};
-			republish(savedInHq);
-			accepted(peer, 200);
-			serve(peer, SOURCE, "source-live");
-			expect((await publish(doc)).landed).toBe(true);
+				serve(peer, SOURCE, "source-shell");
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
 
-			republish(renamedInHq);
-			const stopped = refusal(await publish(doc));
-			expect(stopped).toEqual(
-				expect.objectContaining({
-					phase: "upload",
-					failure: {
-						code: "hq_changed",
-						message: HQ_CHANGED_DURING_PUSH_MESSAGE,
-						details: [],
-					},
-					remoteChanges: [],
-				}),
-			);
-		});
-	});
+				const republish = (
+					secondRead: (source: Record<string, unknown>) => void,
+				) => {
+					tablesAfterPush(peer);
+					tableRows(peer);
+					serve(peer, SOURCE, "source-live");
+					workbookTaken(peer);
+					tablesAfterPush(peer);
+					tableRows(peer);
+					serveEdited(peer, SOURCE, "source-live", secondRead);
+				};
+				republish(savedInHq);
+				accepted(peer, 200);
+				serve(peer, SOURCE, "source-live");
+				expect((await publish(doc)).landed).toBe(true);
+
+				if (change === "legacy Android requirements") {
+					await h
+						.db()
+						.updateTable("app_deployment_baselines")
+						.set({
+							ownership: sql`ownership - 'profileFeatures'`,
+						})
+						.execute();
+					republish((source) => {
+						const profile = source.profile as
+							| Record<string, unknown>
+							| undefined;
+						source.profile = {
+							...profile,
+							features: {
+								...(profile?.features as Record<string, unknown> | undefined),
+								dependencies: ["com.simprints.id"],
+							},
+						};
+					});
+				} else {
+					republish(renamedInHq);
+				}
+				const stopped = refusal(await publish(doc));
+				expect(stopped).toEqual(
+					expect.objectContaining({
+						phase: "upload",
+						failure: {
+							code: "hq_changed",
+							message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+							details: [],
+						},
+						remoteChanges: [],
+					}),
+				);
+			});
+		},
+	);
 
 	it("stops at the upload when the shell this publish made is given a menu during the push", async () => {
 		const doc = await seed(await lookupDocument());

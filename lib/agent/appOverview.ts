@@ -16,6 +16,7 @@ import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	STANDARD_CASE_PROPERTY_DESCRIPTIONS,
 } from "@/lib/domain";
+import { ANDROID_APP_NAMES } from "@/lib/domain/requiredAndroidApps";
 
 import { workerReadiness } from "@/lib/domain/workerReadiness";
 
@@ -31,6 +32,9 @@ export function appOverview(doc: BlueprintDoc) {
 		settings: {
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,
+			requiredAndroidApps: (doc.appSettings.requiredAndroidApps ?? []).map(
+				(app) => ({ app, name: ANDROID_APP_NAMES[app] }),
+			),
 		},
 		/** Where workers use the app, and the features that declaration refuses. */
 		platforms: declaredPlatforms(doc),

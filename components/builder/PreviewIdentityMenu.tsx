@@ -32,10 +32,12 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
 import { useRef, useState } from "react";
 import { AppTestHistory } from "@/components/builder/AppTestHistory";
+import { useAndroidAppName } from "@/components/builder/localization/useAndroidAppName";
 import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
@@ -65,9 +67,11 @@ import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
+	usePreviewInstalledAndroidApps,
 	usePreviewing,
 	usePreviewPersonaUuid,
 	usePreviewPlatform,
+	useSetPreviewAndroidAppInstalled,
 	useSetPreviewing,
 	useSetPreviewPersonaUuid,
 	useSetPreviewPlatform,
@@ -142,7 +146,10 @@ function PreviewIdentityMenuBody() {
 	const appSettings = useAppSettings();
 	const declared = declaredPlatforms({ appSettings });
 	const platform = usePreviewPlatform();
+	const appName = useAndroidAppName();
 	const setPlatform = useSetPreviewPlatform();
+	const installedApps = usePreviewInstalledAndroidApps();
+	const setInstalled = useSetPreviewAndroidAppInstalled();
 	const caseTypes = useEffectiveCaseTypes();
 	/* The running worker's open claims, read each time the menu opens. The
 	 * read names the worker it asked about, so an answer for a worker the
@@ -271,6 +278,22 @@ function PreviewIdentityMenuBody() {
 						</DropdownMenuRadioGroup>
 					</DropdownMenuGroup>
 					<DropdownMenuSeparator />
+					{platform === "android" &&
+						appSettings.requiredAndroidApps?.length && (
+							<DropdownMenuGroup>
+								<DropdownMenuLabel>Installed on this phone</DropdownMenuLabel>
+								{appSettings.requiredAndroidApps.map((app) => (
+									<DropdownMenuCheckboxItem
+										key={app}
+										checked={installedApps.includes(app)}
+										onCheckedChange={(checked) => setInstalled(app, checked)}
+									>
+										{appName(app)}
+									</DropdownMenuCheckboxItem>
+								))}
+								<DropdownMenuSeparator />
+							</DropdownMenuGroup>
+						)}
 					<DropdownMenuGroup>
 						<DropdownMenuLabel>Running as</DropdownMenuLabel>
 						<DropdownMenuRadioGroup

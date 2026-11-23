@@ -1938,3 +1938,9 @@ cancels wording. Suggestion keymaps precede editor commit shortcuts, which prece
 StarterKit's block splitting. Both menus show names plus full paths and empty
 results. The suggestion list keeps focus in the editor; the explicit picker
 moves it into a search input and returns it on dismissal.
+
+
+The Worker wording section on an app, menu, form, search input or case column
+edits that control's individual outputs in the selected language through the
+same translation mutations as Languages. Use default wording clears the
+override. Viewers can read these words and switch their language lens.

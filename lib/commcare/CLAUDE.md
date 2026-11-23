@@ -2426,13 +2426,21 @@ empty) and never written over a value the target holds, because Nova does not
 yet hold them as settings an author sets, and writing over a person's choice
 in HQ would undo it at every publish; the local `.ccz` writes the same
 seventeen the project space then holds (`keptProfile.ts::targetProfileProperties`).
-In `translations`, of the keys HQ generates Nova writes only
-`app.display.name` and `homescreen.title`, each only in a language whose
-localized app name differs from `appName`, and it writes every current
-language's name; `android.package.name.*`, every runtime UI-catalog key and
-any other key keep HQ's value verbatim, and a generated key is never carried
-(`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides,
-and a `.ccz` made for the project space carries the ones it holds. A key is
+Required Android apps have one generated package name in every language.
+A destination's UI translation replaces the name only for its own language.
+The default archive locale merges each language's generated and translated
+names in reverse build order, as HQ's app strings writer does. Android
+Preview reads destination text as Core reads the resulting locale record,
+including its escaped number signs and line breaks.
+
+In `translations`, Nova projects each saved worker-wording override under
+the locale id its current control and output role generate. Ordinary app
+name translations supply `app.display.name` and `homescreen.title`
+when a language’s display name differs from the source. Runtime catalog
+overrides, the language selector wording and `android.package.name.*`
+belong to their destination. A local archive merges generated wording
+and the destination’s text in the order of HQ’s builder.
+A key is
 judged as HQ's build writes it, stripped and on one line
 (`commcare_translations.py::dumps`): ` modules.m0` is the generated
 `modules.m0`, and a key that is then no locale record of its own name (one

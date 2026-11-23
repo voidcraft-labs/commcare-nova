@@ -730,6 +730,7 @@ export interface HqApplicationProfile {
 	 * carries as it is.
 	 */
 	properties?: Record<string, unknown>;
+	features?: Record<string, unknown>;
 	/**
 	 * HQ persists this inside an unschematized DictProperty. Nova-authored
 	 * values are strings, but a target app may already contain any JSON value;

@@ -38,6 +38,7 @@ import {
 	type WireIdentity,
 } from "@/lib/commcare";
 import { addOnsNeededBy } from "@/lib/commcare/addOns";
+import { requiredAndroidPackages } from "@/lib/commcare/androidAppDependencies";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import {
@@ -84,6 +85,7 @@ import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
 	caseListMenuItemLabelUnit,
+	type EmissionPlan,
 	emissionPlan,
 	searchAnswersOf,
 } from "./emissionPlan";
@@ -98,6 +100,11 @@ import {
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "./formLinkProjection";
+import {
+	generatedWordingKeys,
+	generatedWordingOverrides,
+	hasOutputOverrides,
+} from "./generatedWording";
 import { emptyListDetailPair, projectCaseListForHq } from "./hqJson/caseList";
 import {
 	type HqAdvancedFormTree,
@@ -758,8 +765,11 @@ export function* expandDocSteps(
 	const serialized = serializeHqApplication(
 		applicationShell(doc.appName, modules, attachments, {
 			cloudcareEnabled: declaresWebApps(doc),
-			...appLevelValues(doc, localization),
+			...appLevelValues(authoredDoc, localization, { options: opts, plan }),
 			profileProperties: appProfileProperties(authoredDoc),
+			androidPackages: requiredAndroidPackages(
+				authoredDoc.appSettings.requiredAndroidApps,
+			).map(({ id }) => id),
 			...(Object.keys(derivedProfile).length > 0 && {
 				profileCustomProperties: derivedProfile,
 			}),
@@ -822,11 +832,19 @@ function advancedActions(
 function appLevelValues(
 	doc: BlueprintDoc,
 	localization: CommCareLocalization,
+	projection?: { options: ExpandOptions; plan: EmissionPlan },
 ): {
 	readonly autoGpsCapture?: boolean;
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
 } {
+	const overrides =
+		projection && hasOutputOverrides(doc)
+			? generatedWordingOverrides(
+					doc,
+					generatedWordingKeys(doc, projection.plan, projection.options),
+				)
+			: {};
 	const appNameByLanguage = localization.textMap(
 		makeTranslationUnitId("app", "name"),
 	);
@@ -853,6 +871,7 @@ function appLevelValues(
 								localization.languageName(code),
 							]),
 						),
+						...overrides[language],
 					},
 				];
 			}),

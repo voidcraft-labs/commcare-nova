@@ -1093,6 +1093,20 @@ reader does cancels, and the difference is ordinary mutations keyed by Nova's
 UUIDs (`diffDocsToMutations` under `HQ_READING_DELTA`, a delta that moves no
 saved case rows). Nothing is ever rebuilt from CommCare HQ's app.
 
+The Android apps workers need (`profile.features.dependencies`) are the one
+setting whose baseline side a review may project before reading it
+(`androidAppDependencies.ts::androidRequirementsComparisonSource`). Where the
+baseline does not own the setting and CommCare HQ holds a selection the
+document lacks, the baseline side takes the document's selection, so the take
+brings HQ's in. Where the baseline holds a selection and the source now lacks
+the key outright, CommCare HQ deleted it because the project space lost App
+Dependencies (`views/settings.py::edit_commcare_profile` deletes it on every
+settings save there, while the settings page saves a cleared picker as `[]`;
+`androidRequirementsPrivilegeLost`): the baseline side drops it too, so no one
+clears the document's selection, and the review says why
+(`ANDROID_APPS_PRIVILEGE_LOST_LINE`). A present `[]` is a person's clear and
+comes in as one.
+
 It is offered only over a usable pair (`hqChanges/reference.ts::usablePair`):
 a baseline that holds a source that verifies (origin `push`, `read` or
 `changes`) and names a `nova_revision`, a `push` baseline's revision equal to
@@ -1363,11 +1377,11 @@ cell on a list that was no tile, a formatting flag under a form whose
 formatting was off, a registration form's place) takes the reader's spelling
 where it no longer fits.
 
-**What is held, and what is unavailable.** Two changes are named and not
-taken (`held`): a new first language that would change the source language of
-an app with several (`languages-reordered`: no mutation changes the source
-language there), and a version that does not offer the app's own declaration
-of where it runs (`runs-elsewhere`). A reading now that holds something Nova
+**What is held, and what is unavailable.** A version that cannot run on every
+platform the app selects is held for review (`runs-elsewhere`). When a stale saved translation would become canonical, `stale-source-translation` returns the language, unit and breadcrumb. The review links to that phrase. Marking it as reviewed, replacing it, or using the original text allows a fresh review; other stale drafts retain their authorship and exact effective worker text through the rebase. The language
+that opens first can move independently of the language holding the app’s
+original wording. A source change supported by HQ’s stored wording rebases
+each translation unit in the accepted edit. A reading now that holds something Nova
 cannot hold is an account, and nothing is taken. A review is `unavailable`
 where nothing in the project space is this app's (`not-published`: no
 deployment there, or none whose publish made the app; `publishing-stopped`:

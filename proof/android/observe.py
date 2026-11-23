@@ -247,6 +247,11 @@ def installs(served, blobs, *, label: str, first: bytes, second: bytes) -> dict:
     return _read(served, blobs, label, "installs", {"first": first, "second": second}, {})
 
 
+def required_apps(served, blobs, archive: bytes, installed: list[str], label: str) -> dict:
+    """The destination or dialog when the worker presses Start on this phone."""
+    return _read(served, blobs, label, "required-apps", {"archive": archive}, {"installed": installed})
+
+
 def profile_identity(archive: bytes) -> dict:
     """What an archive's profile names the app it is and its version by: its ``uniqueid`` and ``version``."""
     from lxml import etree

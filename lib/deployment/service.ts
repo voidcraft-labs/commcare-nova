@@ -1,3 +1,4 @@
+import { changesUnownedAndroidApps } from "@/lib/commcare/androidAppDependencies";
 import "server-only";
 
 import { gzipSync } from "node:zlib";
@@ -1627,7 +1628,17 @@ export async function publishAppToHq(
 				const moved = diffHqAppSource({
 					baseline: heldRead,
 					current: second.normalized,
-					ownership: comparedOwnership,
+					// The preflight decision covers the selection it showed, including an
+					// existing target whose old publish did not own Android requirements.
+					ownership: {
+						...comparedOwnership,
+						profileFeatures: [
+							...new Set([
+								...(comparedOwnership.profileFeatures ?? []),
+								"dependencies",
+							]),
+						],
+					},
 					importFiles: { published, recorded: appBaseline?.mediaFiles ?? null },
 					shell,
 					languageNames,
@@ -4245,6 +4256,32 @@ async function compareWithHq(
 			))
 	)
 		return { kind: "changed-in-hq" };
+	if (
+		!baseline.ownership.profileFeatures?.includes("dependencies") &&
+		changesUnownedAndroidApps(read.source.profile.features)
+	) {
+		const settings = await withDeploymentReadSnapshot(
+			scope,
+			"edit",
+			async ({ db }) =>
+				(
+					await db
+						.selectFrom("apps")
+						.select("app_settings")
+						.where("id", "=", scope.appId)
+						.where("project_id", "=", scope.projectId)
+						.executeTakeFirstOrThrow()
+				).app_settings,
+		);
+		if (settings === null) throw new Error("The saved app has no settings.");
+		if (
+			changesUnownedAndroidApps(
+				read.source.profile.features,
+				settings.requiredAndroidApps,
+			)
+		)
+			return { kind: "changed-in-hq" };
+	}
 	return {
 		kind: "unchanged",
 		remote,

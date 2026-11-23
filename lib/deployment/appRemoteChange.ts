@@ -34,6 +34,8 @@ import type {
  * confirms exactly the state Nova read, known baseline or not.
  */
 export function appRemoteChange(input: {
+	/** Whether this publish replaces Android requirements CommCare HQ holds that Nova's baseline does not own. */
+	readonly replacesUnownedAndroidRequirements?: boolean;
 	readonly authority: ReturnType<typeof appConfirmationScope>;
 	/** A completed review may disclose a removal the shorter publish preview cannot show. */
 	readonly discards?: readonly RemoteChangeDiscard[];
@@ -148,7 +150,14 @@ export function appRemoteChange(input: {
 		languageNames: input.languageNames,
 		mediaChanged: input.mediaChanged,
 	});
-	return parts.length === 0 && removed.length === 0
+	const descriptions = parts.map(describeAppChange);
+	if (
+		!baseline.ownership.profileFeatures?.includes("dependencies") &&
+		input.replacesUnownedAndroidRequirements
+	) {
+		descriptions.push("Required Android apps already selected in CommCare HQ");
+	}
+	return descriptions.length === 0 && removed.length === 0
 		? null
-		: change(parts.map(describeAppChange), true);
+		: change(descriptions, true);
 }
