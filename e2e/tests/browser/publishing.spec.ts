@@ -3382,6 +3382,7 @@ test("a change made in CommCare HQ to the app that Nova can bring in shows the c
 						observedDigest: "digest-app",
 						renamedInNova: [],
 						tables: [],
+						ownerRules: [],
 						readingId: "01928c3e-5b7a-7cde-8f01-23456789abcd",
 						reviewDigest: "review-digest",
 					},
