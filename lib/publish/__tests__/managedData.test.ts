@@ -522,6 +522,7 @@ const READINGS: Record<
 	},
 	HAND_BACK_OFFERED: { kind: "sentence", texts: [copy.HAND_BACK_OFFERED] },
 	USE_HQ_TABLE: { kind: "label", texts: [copy.USE_HQ_TABLE] },
+	USE_HQ_TABLE_CHOOSE: { kind: "sentence", texts: [copy.USE_HQ_TABLE_CHOOSE] },
 	takeHqTableTitle: {
 		kind: "label",
 		texts: [copy.takeHqTableTitle("Districts", "acme-health")],
@@ -611,6 +612,14 @@ const READINGS: Record<
 	SEPARATE_TABLE_TOO_LARGE: {
 		kind: "sentence",
 		texts: [copy.SEPARATE_TABLE_TOO_LARGE],
+	},
+	SEPARATE_TABLE_ROWS_UNAVAILABLE: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_ROWS_UNAVAILABLE],
+	},
+	SEPARATE_TABLE_NO_ROOM: {
+		kind: "sentence",
+		texts: [copy.SEPARATE_TABLE_NO_ROOM],
 	},
 	separateTableAppChanged: {
 		kind: "sentence",

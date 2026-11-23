@@ -222,6 +222,9 @@ export const KEEP_MANAGING_IN_NOVA = "Keep managing it in Nova";
 
 /** The action on a Nova table a publish put in a project space, and its confirmation's title. */
 export const USE_HQ_TABLE = "Use the table from CommCare HQ";
+/** Use the table from CommCare HQ, before a project space is chosen. */
+export const USE_HQ_TABLE_CHOOSE =
+	"You can choose the project space whose table Nova uses for this one.";
 export function takeHqTableTitle(name: string, domain: string): string {
 	return `Use the table in ${domain} for ${name}?`;
 }
@@ -340,6 +343,14 @@ export const SEPARATE_TABLE_ASSIGNED =
 /** A separate table of a table larger than one change copies. */
 export const SEPARATE_TABLE_TOO_LARGE =
 	"This table is larger than one change can copy. You can create a new table and import its rows in parts.";
+
+/** A separate table of a table CommCare HQ manages whose current rows Nova doesn't hold. */
+export const SEPARATE_TABLE_ROWS_UNAVAILABLE =
+	"Nova doesn't hold this table's current rows yet. You can refresh it in Project data, then create a separate table.";
+
+/** A separate table whose rows would run past the Project's lookup storage. */
+export const SEPARATE_TABLE_NO_ROOM =
+	"This Project doesn't have room for another copy of this table's rows, so nothing changed. You can free space in Project data, then create the separate table.";
 
 /** A separate table where an app it rebinds changed meanwhile. */
 export function separateTableAppChanged(appName: string): string {

@@ -13,7 +13,7 @@
  */
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useReducer, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -46,20 +46,25 @@ import {
 	SEPARATE_TABLE,
 	SEPARATE_TABLE_CONFIRM,
 	USE_HQ_TABLE,
+	USE_HQ_TABLE_CHOOSE,
 	USE_HQ_TABLE_CONFIRM,
 } from "@/lib/publish/managedData";
 import { useCanDelete, useProjectCanEdit } from "@/lib/session/hooks";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
+import {
+	appsStillListed,
+	TAKE_HQ_TABLE_UNCHOSEN,
+	type TableSourceReview,
+	takeHqTablePending,
+	takeHqTableReducer,
+	takeHqTableWorking,
+} from "./tableSourceModel";
 import { useHqTableSourcesView, useManifestEntry } from "./useProjectData";
 
 const TRANSPORT_FAILURE =
 	"Nova couldn't reach this data table. Check your connection and try again.";
 
-type Review = {
-	readonly title: string;
-	readonly lines: readonly string[];
-	readonly reviewDigest: string;
-};
+type Review = TableSourceReview;
 
 export function TableSourceActions({
 	table,
@@ -146,10 +151,15 @@ export function TableSourceActions({
 	);
 }
 
-/** One confirmation's frame: the title, the lines, the refusal and the two buttons. */
+/**
+ * One confirmation's frame: the title, the lines, the refusal and the two
+ * buttons. `pending` is what it says under the title before a review is on
+ * screen.
+ */
 function Confirmation({
 	review,
 	loadingTitle,
+	pending,
 	confirmLabel,
 	cancelLabel,
 	working,
@@ -161,6 +171,7 @@ function Confirmation({
 }: {
 	review: Review | null;
 	loadingTitle: string;
+	pending: string;
 	confirmLabel: string;
 	cancelLabel: string;
 	working: boolean;
@@ -178,9 +189,7 @@ function Confirmation({
 					<AlertDialogTitle className="[overflow-wrap:anywhere]">
 						{review?.title ?? loadingTitle}
 					</AlertDialogTitle>
-					<AlertDialogDescription>
-						{first ?? (refusal === null ? "Reading the table" : "")}
-					</AlertDialogDescription>
+					<AlertDialogDescription>{first ?? pending}</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogBody className="space-y-3">
 					{children}
@@ -239,21 +248,23 @@ function UseHqTableDialog({
 	onCancel: () => void;
 	onLanded: () => Promise<void>;
 }) {
-	const [chosen, setChosen] = useState<string | null>(null);
-	const [review, setReview] = useState<Review | null>(null);
-	const [working, setWorking] = useState(false);
-	const [refusal, setRefusal] = useState<string | null>(null);
+	const [state, dispatch] = useReducer(
+		takeHqTableReducer,
+		TAKE_HQ_TABLE_UNCHOSEN,
+	);
+	const { chosen, review, refusal } = state;
+	const working = takeHqTableWorking(state);
 	const keyOf = (source: { server: string; domain: string }) =>
 		`${source.server}\u0000${source.domain}`;
 	const choiceOf = (key: string) =>
 		sources.find((source) => keyOf(source) === key);
 
+	/* Each answer is dispatched with the project space it read, and the
+	 * reducer drops one the person has since moved off. */
 	const read = async (key: string) => {
 		const source = choiceOf(key);
 		if (source === undefined) return;
-		setWorking(true);
-		setRefusal(null);
-		setReview(null);
+		dispatch({ kind: "choose", key });
 		try {
 			const answer = await reviewUseHqTableAction(
 				table.projectId,
@@ -261,20 +272,21 @@ function UseHqTableDialog({
 				source.server,
 				source.domain,
 			);
-			if (answer.ok) setReview(answer.review);
-			else setRefusal(answer.message);
+			dispatch(
+				answer.ok
+					? { kind: "read", key, review: answer.review, refusal: null }
+					: { kind: "read", key, review: null, refusal: answer.message },
+			);
 		} catch {
-			setRefusal(TRANSPORT_FAILURE);
-		} finally {
-			setWorking(false);
+			dispatch({ kind: "read", key, review: null, refusal: TRANSPORT_FAILURE });
 		}
 	};
 
 	const confirm = async () => {
-		const source = chosen === null ? undefined : choiceOf(chosen);
-		if (source === undefined || review === null) return;
-		setWorking(true);
-		setRefusal(null);
+		const key = chosen;
+		const source = key === null ? undefined : choiceOf(key);
+		if (key === null || source === undefined || review === null) return;
+		dispatch({ kind: "confirm" });
 		try {
 			const answer = await takeHqTableAction(
 				table.projectId,
@@ -287,20 +299,24 @@ function UseHqTableDialog({
 				await onLanded();
 				return;
 			}
-			setRefusal(answer.message);
-			if (answer.reason === "review-moved") {
-				const again = await reviewUseHqTableAction(
-					table.projectId,
-					table.id,
-					source.server,
-					source.domain,
-				);
-				setReview(again.ok ? again.review : null);
+			if (answer.reason !== "review-moved") {
+				dispatch({ kind: "confirmed", key, refusal: answer.message });
+				return;
 			}
+			const again = await reviewUseHqTableAction(
+				table.projectId,
+				table.id,
+				source.server,
+				source.domain,
+			);
+			dispatch({
+				kind: "confirmed",
+				key,
+				refusal: answer.message,
+				review: again.ok ? again.review : null,
+			});
 		} catch {
-			setRefusal(TRANSPORT_FAILURE);
-		} finally {
-			setWorking(false);
+			dispatch({ kind: "confirmed", key, refusal: TRANSPORT_FAILURE });
 		}
 	};
 
@@ -308,6 +324,7 @@ function UseHqTableDialog({
 		<Confirmation
 			review={review}
 			loadingTitle={USE_HQ_TABLE}
+			pending={takeHqTablePending(state, USE_HQ_TABLE_CHOOSE)}
 			confirmLabel={USE_HQ_TABLE_CONFIRM}
 			cancelLabel={KEEP_NOVA_TABLE}
 			working={working}
@@ -318,10 +335,7 @@ function UseHqTableDialog({
 		>
 			<RadioGroup<string>
 				aria-label="Project space"
-				onValueChange={(value) => {
-					setChosen(value);
-					void read(value);
-				}}
+				onValueChange={(value) => void read(value)}
 			>
 				{sources.map((source) => (
 					<RadioGroupItem<string>
@@ -416,7 +430,10 @@ function SeparateTableDialog({
 					table.projectId,
 					table.id,
 				);
-				if (again.ok) setState({ kind: "read", review: again.review });
+				if (again.ok) {
+					setState({ kind: "read", review: again.review });
+					setApps((current) => appsStillListed(current, again.review.apps));
+				}
 			}
 		} catch {
 			setRefusal(TRANSPORT_FAILURE);
@@ -429,6 +446,7 @@ function SeparateTableDialog({
 		<Confirmation
 			review={review}
 			loadingTitle={SEPARATE_TABLE}
+			pending={refusal === null ? "Reading the table" : ""}
 			confirmLabel={SEPARATE_TABLE_CONFIRM}
 			cancelLabel={KEEP_ONE_TABLE}
 			working={working}
