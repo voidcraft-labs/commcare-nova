@@ -95,6 +95,34 @@ describe("shared entry-point authoring tools", () => {
 			own.uuid,
 		]);
 	});
+	it("reads an explicit null for case creations on add as no choice made", async () => {
+		const doc = endpointWireFixture("registration-supplied");
+		const kept = doc.forms[ENDPOINT_FORM].entryCaseCreations;
+		delete doc.forms[ENDPOINT_FORM].entryPoint;
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
+		const formLink = await h.runTool(addEntryPointTool, {
+			target: {
+				kind: "form",
+				moduleUuid: ENDPOINT_MODULE,
+				formUuid: ENDPOINT_FORM,
+			},
+			id: "visit",
+			caseCreationUuids: null,
+		});
+		expect(formLink.result).not.toHaveProperty("error");
+		expect(h.currentDoc().forms[ENDPOINT_FORM].entryCaseCreations).toEqual(
+			kept,
+		);
+		const menuLink = await h.runTool(addEntryPointTool, {
+			target: { kind: "module", moduleUuid: ENDPOINT_MODULE },
+			id: "patients",
+			caseCreationUuids: null,
+		});
+		expect(menuLink.result).not.toHaveProperty("error");
+		expect(h.currentDoc().modules[ENDPOINT_MODULE].entryPoint?.id).toBe(
+			"patients",
+		);
+	});
 	it("creates, reads, edits, clears, and removes one UUID-owned point through the workspace", async () => {
 		const h = makeToolWorkspaceHarness(expectAdmittedDoc(fixture()));
 		const added = await h.runTool(addEntryPointTool, {

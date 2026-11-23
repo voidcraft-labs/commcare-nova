@@ -205,7 +205,10 @@ export const addEntryPointTool = {
 			};
 			return await commitEntryPoint(
 				ctx,
-				input.caseCreationUuids === undefined
+				// On creation, null and omission both mean no choice is made
+				// (`lib/agent/CLAUDE.md` § Write semantics): a form keeps the
+				// creations it already supplies.
+				input.caseCreationUuids == null
 					? planEntryPointAdd(ctx.snapshot.doc, input.target, entryPoint)
 					: planFormEntryCaseCreations(
 							ctx.snapshot.doc,
