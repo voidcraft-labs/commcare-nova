@@ -59,6 +59,7 @@ import {
 	organizationLevelSchema,
 	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
+	readCasePropertyNameSchema,
 	type SearchInputDef,
 	searchInputDefSchema,
 	selectOptionSchema,
@@ -1353,7 +1354,9 @@ function createMutationSchema({
 				.array(
 					z.strictObject({
 						caseType: z.string().min(1),
-						from: authoredCasePropertyNameSchema,
+						// A brought-in name past the authored bound can be renamed
+						// away from; the new name keeps the authored grammar.
+						from: readCasePropertyNameSchema,
 						to: authoredCasePropertyNameSchema,
 					}),
 				)
@@ -1374,7 +1377,7 @@ function createMutationSchema({
 			kind: z.literal("addCaseProperty"),
 			caseType: z.string(),
 			property: casePropertySchema,
-			after: authoredCasePropertyNameSchema.nullable().optional(),
+			after: readCasePropertyNameSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("setCaseProperty"),
@@ -1384,13 +1387,13 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("moveCaseProperty"),
 			caseType: z.string(),
-			property: authoredCasePropertyNameSchema,
-			after: authoredCasePropertyNameSchema.nullable(),
+			property: readCasePropertyNameSchema,
+			after: readCasePropertyNameSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("removeCaseProperty"),
 			caseType: z.string(),
-			property: authoredCasePropertyNameSchema,
+			property: readCasePropertyNameSchema,
 		}),
 		z.object({
 			kind: z.literal("setCaseTypeMeta"),

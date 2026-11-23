@@ -1597,8 +1597,16 @@ export function planReferenceIndexMaintenance(
 				const previous = ownRecordValue(doc.modules, mut.uuid)?.caseType;
 				if (mut.patch.caseType !== previous) {
 					addParentMenuDependents(mut.uuid);
+					// A form's own-case operations take the module's type as the
+					// origin of their links and walks, so their relation evidence
+					// moves with it; a form with no such operation keeps its own.
 					for (const uuid of ownRecordValue(doc.formOrder, mut.uuid) ?? [])
-						carriers.add(uuid);
+						if (
+							ownRecordValue(doc.forms, uuid)?.caseOperations?.some(
+								(operation) => operation.action === "own",
+							)
+						)
+							carriers.add(uuid);
 					for (const carrier of Object.keys(
 						ownRecordValue(index.ctx, mut.uuid) ?? {},
 					)) {

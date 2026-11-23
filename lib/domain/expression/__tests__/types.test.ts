@@ -621,24 +621,30 @@ describe("identity and identifier boundaries", () => {
 			);
 		},
 	);
-	it.each(["parent", "_custom", "host9"])(
+	// A case index is a single XML child name: HQ's page saves `site-link`
+	// and `site.link`, and Core's lexer reads each as one name step.
+	it.each(["parent", "_custom", "host9", "site-link", "site.link"])(
 		"admits relation identifier %s",
 		(identifier) => {
 			const payload = { kind: "ancestor", via: [{ identifier }] };
 			expect(relationPathSchema.parse(payload)).toStrictEqual(payload);
 		},
 	);
-	it.each(["parent') or 1=1", "with whitespace", "parent-link", "9parent"])(
-		"refuses relation identifier %s",
-		(identifier) => {
-			expect(
-				relationPathSchema.safeParse({
-					kind: "ancestor",
-					via: [{ identifier }],
-				}).success,
-			).toBe(false);
-		},
-	);
+	it.each([
+		"parent') or 1=1",
+		"with whitespace",
+		"parent/*",
+		"9parent",
+		"-parent",
+		".parent",
+	])("refuses relation identifier %s", (identifier) => {
+		expect(
+			relationPathSchema.safeParse({
+				kind: "ancestor",
+				via: [{ identifier }],
+			}).success,
+		).toBe(false);
+	});
 	it("rejects empty paths and malformed destination qualifiers independently", () => {
 		expect(
 			relationPathSchema.safeParse({ kind: "ancestor", via: [] }).success,

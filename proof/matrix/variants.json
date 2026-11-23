@@ -6674,6 +6674,179 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/column-over-a-long-name",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/column-reading-a-property-name-over-255-characters",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/columns",
+			"value": [
+				{
+					"model": "case",
+					"field": "name",
+					"header": {
+						"en": "Name"
+					},
+					"format": "plain",
+					"useXpathExpression": false,
+					"grid_x": null,
+					"grid_y": null,
+					"enum": [],
+					"graph_configuration": {
+						"config": {},
+						"locale_specific_config": {},
+						"annotations": [],
+						"series": [],
+						"doc_type": "GraphConfiguration"
+					},
+					"late_flag": 30,
+					"time_ago_interval": 365.25,
+					"date_format": "%d/%m/%y",
+					"doc_type": "DetailColumn"
+				},
+				{
+					"model": "case",
+					"field": "dob",
+					"header": {
+						"en": "Born"
+					},
+					"format": "date",
+					"useXpathExpression": false,
+					"grid_x": null,
+					"grid_y": null,
+					"enum": [],
+					"graph_configuration": {
+						"config": {},
+						"locale_specific_config": {},
+						"annotations": [],
+						"series": [],
+						"doc_type": "GraphConfiguration"
+					},
+					"late_flag": 30,
+					"time_ago_interval": 365.25,
+					"date_format": "%d/%m/%y",
+					"doc_type": "DetailColumn"
+				},
+				{
+					"model": "case",
+					"field": "phone",
+					"header": {
+						"en": "Phone"
+					},
+					"format": "phone",
+					"useXpathExpression": false,
+					"grid_x": null,
+					"grid_y": null,
+					"enum": [],
+					"graph_configuration": {
+						"config": {},
+						"locale_specific_config": {},
+						"annotations": [],
+						"series": [],
+						"doc_type": "GraphConfiguration"
+					},
+					"late_flag": 30,
+					"time_ago_interval": 365.25,
+					"date_format": "%d/%m/%y",
+					"doc_type": "DetailColumn"
+				},
+				{
+					"model": "case",
+					"field": "village",
+					"header": {
+						"en": "Village"
+					},
+					"format": "enum",
+					"enum": [
+						{
+							"key": "north",
+							"value": {
+								"en": "North"
+							},
+							"alt_text": {},
+							"doc_type": "MappingItem"
+						},
+						{
+							"key": "south",
+							"value": {
+								"en": "South"
+							},
+							"alt_text": {},
+							"doc_type": "MappingItem"
+						}
+					],
+					"useXpathExpression": false,
+					"grid_x": null,
+					"grid_y": null,
+					"graph_configuration": {
+						"config": {},
+						"locale_specific_config": {},
+						"annotations": [],
+						"series": [],
+						"doc_type": "GraphConfiguration"
+					},
+					"late_flag": 30,
+					"time_ago_interval": 365.25,
+					"date_format": "%d/%m/%y",
+					"doc_type": "DetailColumn"
+				},
+				{
+					"model": "case",
+					"field": "visits + 1",
+					"header": {
+						"en": "Next visit"
+					},
+					"format": "plain",
+					"useXpathExpression": true,
+					"grid_x": null,
+					"grid_y": null,
+					"enum": [],
+					"graph_configuration": {
+						"config": {},
+						"locale_specific_config": {},
+						"annotations": [],
+						"series": [],
+						"doc_type": "GraphConfiguration"
+					},
+					"late_flag": 30,
+					"time_ago_interval": 365.25,
+					"date_format": "%d/%m/%y",
+					"doc_type": "DetailColumn"
+				},
+				{
+					"date_format": "%d/%m/%y",
+					"doc_type": "DetailColumn",
+					"enum": [],
+					"field": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+					"format": "plain",
+					"graph_configuration": {
+						"annotations": [],
+						"config": {},
+						"doc_type": "GraphConfiguration",
+						"locale_specific_config": {},
+						"series": []
+					},
+					"grid_x": null,
+					"grid_y": null,
+					"header": {
+						"en": "Long"
+					},
+					"late_flag": 30,
+					"model": "case",
+					"time_ago_interval": 365.25,
+					"useXpathExpression": false
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/field",
+				"value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/column-over-an-unknown-hash-property",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/column-reading-an-unknown-hash-property",

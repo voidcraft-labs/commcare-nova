@@ -486,4 +486,48 @@ describe("Nova's export of a related column reads back as itself", () => {
 			}),
 		);
 	});
+
+	/** Reads the Members list after HQ's pages saved `field` over its address column. */
+	const readField = (field: string) =>
+		readLists(
+			app([plainColumn(uuid(1), "address", "Address", { via: PARENT })]),
+			{
+				edit: (json) => {
+					const pair = json.modules[1]?.case_details;
+					for (const detail of [pair?.short, pair?.long])
+						for (const column of detail?.columns ?? [])
+							if (column.field === "parent/address") column.field = field;
+				},
+			},
+		);
+
+	// HQ's page saves a property name of any length (`details/utils.js::isValidPropertyName`)
+	// and Core's lexer reads one (`Lexer.matchNCName` has no bound): the name is a read.
+	it("holds a property name past 255 characters, on the list's own case and through an index", async () => {
+		const long = "x".repeat(256);
+		for (const [field, via] of [
+			[long, undefined],
+			[`site-link/${long}`, [{ identifier: "site-link" }]],
+		] as const) {
+			const reading = await readField(field);
+			expect(codes(reading), field).toEqual([]);
+			expect(listOf(reading, 1).columns).toContainEqual(
+				expect.objectContaining({
+					field: long,
+					...(via !== undefined && { via }),
+				}),
+			);
+		}
+	});
+
+	// HQ's build rewrites `#owner_name` alone (`PropertyXpathGenerator.xpath`) and writes any
+	// other `#` word into the step, which Core's lexer refuses: the column breaks on both workers.
+	it("refuses a `#` word other than #owner_name, on the list's own case and through an index", async () => {
+		for (const field of ["#visit", "site-link/#visit"]) {
+			const reading = await readField(field);
+			expect(codes(reading), field).toContain(
+				"menus-and-case-lists/column-reading-an-unknown-hash-property",
+			);
+		}
+	});
 });
