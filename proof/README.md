@@ -2700,7 +2700,7 @@ saying what it holds:
 | `hq-saved-pages` | `hq-new-app` after every app-manager section is saved once with nothing changed |
 | `starter-health`, `starter-agriculture`, `starter-wash` | HQ's three starter apps, as HQ's template loader makes them, with stand-in media |
 | `hq-kept-settings` | every value a project space keeps, each at a choice of its own |
-| `hq-languages` | three languages, with the texts a person leaves blank or renames |
+| `hq-languages` | three languages, with the texts a person leaves blank or renames and a menu badge saved in one |
 | `hq-menus` | each navigation shape a person sets on HQ's pages |
 | `hq-questions` | every kind of question Nova holds, as HQ's form builder writes each, read with date and time questions split |
 | `hq-names` | the characters HQ's grammars take and Nova holds |

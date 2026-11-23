@@ -20,7 +20,11 @@
    ``javaRosa/itextWidget.js::iTextIDWidget``), and a text question ``crop``
    whose French label is blank while its English one is not
    (``blank-translations-filled``).
-4. Two generated keys on the UI translations page
+4. A text badge on the second menu, saved on its settings page
+   (``views/modules.py::edit_module_attr``, ``views/utils.py::handle_custom_icon_edits``) with the page's
+   language, the app's first: the badge holds English alone, ``{"en": "New"}``, where HQ's build gives every
+   language that text and Nova writes it in each (``badge-respelled``).
+5. Two generated keys on the UI translations page
    (``views/apps.py::edit_app_ui_translations``): the first form's name in
    English, ``forms.m0f0``, at the text HQ's build writes for it, which
    changes nothing; and the second menu's name in French, ``modules.m1``,
@@ -29,7 +33,8 @@
    drops ``modules.m0`` from every save, so the override is on the second
    menu.
 
-Its configuration is the lane's floor and no flag. Web Apps is off, as
+Its configuration is the lane's floor and the ``CUSTOM_ICON_BADGES`` privilege, without which HQ's settings
+page saves no badge (``handle_custom_icon_edits``). Web Apps is off, as
 ``Application.cloudcare_enabled`` defaults, and its content runs on Android,
 so its preselected declaration is Android only: an app of several languages
 is read where an archive is made, which compares its app strings with HQ's
@@ -109,6 +114,9 @@ def build(authoring) -> str:
     ops.upload_form_source(authoring, app_id, 0, 0, visit_source, "visit-source")
     _pages.new_survey_module(authoring, app_id, name="Village notes")
     ops.upload_form_source(authoring, app_id, 1, 0, notes_source, "notes-source")
+    _pages.save_module_attributes(
+        authoring, app_id, 1, [("custom_icon_type", "text"), ("custom_icon_text_body", "New")], "badge"
+    )
     _pages.save_ui_translations(
         authoring, app_id, {"en": {"forms.m0f0": "Survey"}, "fra": {"modules.m1": "Carnet du village"}}
     )
@@ -118,7 +126,7 @@ def build(authoring) -> str:
 BASE = Base(
     id="hq-languages",
     build=build,
-    configuration=Configuration(),
+    configuration=Configuration(privileges=frozenset({"CUSTOM_ICON_BADGES"})),
     exhibits=(
         "application-and-settings/langs-order-langs-0-default",
         "application-and-settings/langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin",
@@ -129,6 +137,7 @@ BASE = Base(
         "questions/itext-ids-other-than-a-pragma-key-default-placement",
         "questions/text-input-xsd-string",
         "questions/multiple-choice-select1-item",
+        "menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
     ),
     vellum=((0, 0),),
 )
