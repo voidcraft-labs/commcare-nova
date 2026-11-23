@@ -922,7 +922,7 @@ async function readBack(
 	const discovery = sourceFactoryReads({
 		creds,
 		domain: LANE_TARGET.domain,
-		remoteAppId,
+		working: reading,
 		source,
 	});
 	if (mayUseProjectFactory(source))

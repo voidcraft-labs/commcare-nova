@@ -23,6 +23,7 @@ import {
 import {
 	readWorkingLocationFixture,
 	type WorkingLocationWitness,
+	type WorkingSource,
 } from "@/lib/commcare/hq/workingLocationFixture";
 import { WorkLimitReached } from "@/lib/commcare/workMeter";
 import type { ConditionalFactory } from "@/lib/commcare/xpath/instanceSources";
@@ -298,7 +299,7 @@ async function readPlaces(
 export function sourceFactoryReads(input: {
 	creds: CommCareCredentials;
 	domain: string;
-	remoteAppId?: string;
+	working?: WorkingSource;
 	source: HqAppSource;
 	cancel?: AbortSignal;
 }) {
@@ -355,12 +356,14 @@ export function sourceFactoryReads(input: {
 					sourceProjectFactories.mobileReports = flag.kind === "applied";
 				else if (flag.kind === "not-applied")
 					sourceProjectFactories.locations = "flat";
-				else if (input.remoteAppId && (formWitness || currentSuite)) {
+				else if (
+					input.working?.source === input.source &&
+					(formWitness || currentSuite)
+				) {
 					const observed = await readWorkingLocationFixture({
 						creds,
 						domain,
-						remoteAppId: input.remoteAppId,
-						source: input.source,
+						working: input.working,
 						witness: formWitness,
 						sameSuiteSource: (after) => {
 							const before = normalizedHqAppSource(input.source.raw);
@@ -407,7 +410,7 @@ export async function readReadingProjectData(input: {
 	readonly appId: string;
 	readonly readingId: string;
 	readonly source: HqAppSource;
-	readonly remoteAppId?: string;
+	readonly working?: WorkingSource;
 	/**
 	 * Another source whose text names tables and places for this read too:
 	 * a review of changes made in CommCare HQ reads one set of Project data

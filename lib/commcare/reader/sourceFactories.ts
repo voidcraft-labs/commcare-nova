@@ -72,19 +72,20 @@ export function sourceFactories(input: ReaderInput): InstanceFactories {
 export function generatedFormInstances(
 	input: ReaderInput,
 	form: DraftForm,
+	uploads: ReadonlySet<string>,
 ): ReadonlyMap<string, string> {
 	const added = new Map([["commcaresession", "jr://instance/session"]]);
 	const raw = input.source.raw;
 	const menu = Array.isArray(raw.modules) && raw.modules[form.menu];
 	if (!isJsonObject(menu)) return added;
-	const actions = form.json.peek("actions");
-	if (!isJsonObject(actions)) return added;
 	const basic = form.docType === "Form";
 	if (basic && isMultiSelectMenu(menu))
 		added.set(
 			"selected_cases",
 			"jr://instance/selected-entities/selected_cases",
 		);
+	const actions = form.json.peek("actions");
+	if (!isJsonObject(actions)) return added;
 	const active = basic
 		? activeActions(actions, form.json.peek("requires"))
 		: new Set<string>();
@@ -110,7 +111,15 @@ export function generatedFormInstances(
 			[...block.properties.keys()].some((key) => key.includes("/"))
 		)
 			casedb = true;
-		if (input.saveOnlyEditedApplied === true && block.editOnly.size > 0)
+		// XFormCaseBlock.add_case_updates partitions exact upload refs into
+		// attachment updates before applying any save-only-if-edited test.
+		if (
+			input.saveOnlyEditedApplied === true &&
+			[...block.editOnly].some((key) => {
+				const ref = block.properties.get(key);
+				return ref !== undefined && !uploads.has(ref);
+			})
+		)
 			casedb = true;
 		if (
 			raw.case_sharing !== true ||

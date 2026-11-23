@@ -942,10 +942,8 @@ def source_factory_answers(state, app_id, credential, source):
                     for profile in (None, *(supplied.get("build_profiles") or {})):
                         resources.append((f"modules-{menu}/forms-{index}.xml", profile))
         for resource, profile in resources:
-            query = {"latest": "true", "target": "save"}
-            if profile:
-                query["profile"] = profile
-            path = f"/a/{state.domain}/apps/download/{app_id}/{resource}?{urlencode(query)}"
+            query = "?" + urlencode({"profile": profile}) if profile else ""
+            path = f"/a/{state.domain}/apps/download/{app_id}/{resource}{query}"
             yield path, api_request(state, "GET", path, credential=credential)
         yield "source-check", source_read(state, app_id, credential)
 

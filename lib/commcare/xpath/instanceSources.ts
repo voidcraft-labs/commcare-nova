@@ -10,13 +10,13 @@ const nativeSources = new Map([
 	["groups", "jr://fixture/user-groups"],
 	["reports", "jr://fixture/commcare:reports"],
 	["registry", "jr://instance/remote/registry"],
-	["search-input", "jr://instance/search-input"],
 ]);
 
 const nativeIds = new Map(
 	[...nativeSources].map(([id, source]) => [source, id]),
 );
 nativeIds.set("jr://fixture/locations", "locations");
+nativeIds.set("jr://instance/search-input", "search-input");
 const fixtureKinds = new Set([
 	"commtrack",
 	"schedule",
@@ -117,6 +117,7 @@ function factorySource(
 		case "results":
 			return validResults(id, facts) ? `jr://instance/remote/${id}` : undefined;
 		case "search-input": {
+			if (colon < 0) return "jr://instance/search-input";
 			const name = id.slice(colon + 1);
 			return validResults(name, facts)
 				? `jr://instance/search-input/${name}`
@@ -143,17 +144,31 @@ export function scannedInstances(
 	rendered: string,
 	facts?: InstanceFactories,
 	declaredIds?: ReadonlySet<string>,
+	invalidPreset?: (id: string) => void,
 ): Iterable<readonly [string, string]> {
-	return matchedFactories(hqHtmlUnescape(rendered), facts, declaredIds);
+	return matchedFactories(
+		hqHtmlUnescape(rendered),
+		facts,
+		declaredIds,
+		invalidPreset,
+	);
 }
 
 function* matchedFactories(
 	text: string,
 	facts?: InstanceFactories,
 	declaredIds?: ReadonlySet<string>,
+	invalidPreset?: (id: string) => void,
 ): Generator<readonly [string, string]> {
 	for (const match of text.matchAll(instancePattern)) {
 		const id = match[1];
+		// HQ dispatches the scheme before checking declarations. Its preset
+		// factory indexes the fixed dictionary by the entire matched ID.
+		const colon = id.indexOf(":");
+		if (colon >= 0 && nativeSources.has(id.slice(0, colon))) {
+			invalidPreset?.(id);
+			continue;
+		}
 		if (declaredIds?.has(id)) continue;
 		const source = factorySource(id, facts);
 		if (source !== undefined) yield [id, source];
@@ -167,14 +182,15 @@ export function instanceSourcesAfterScan(
 	input: { rendered: string } | { xmlValue: string },
 	declaredIds: ReadonlySet<string> = new Set(declared.keys()),
 	facts?: InstanceFactories,
+	invalidPreset?: (id: string) => void,
 ): ReadonlyMap<string, string> {
 	const sources = new Map(declared);
 	// In an XML value already decoded by its parser, the single unescape of
 	// lxml's re-escaped value restores that exact value.
 	const factories =
 		"rendered" in input
-			? scannedInstances(input.rendered, facts, declaredIds)
-			: matchedFactories(input.xmlValue, facts, declaredIds);
+			? scannedInstances(input.rendered, facts, declaredIds, invalidPreset)
+			: matchedFactories(input.xmlValue, facts, declaredIds, invalidPreset);
 	for (const [id, source] of factories) {
 		if (!declaredIds.has(id)) sources.set(id, source);
 	}

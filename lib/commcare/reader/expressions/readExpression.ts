@@ -415,17 +415,26 @@ function requiredInstanceIds(pending: PendingExpression): ReadonlySet<string> {
 
 /** Core accepts a grouped literal ID. HQ adds a factory instance from a
  * scanner-visible spelling in one of the generated entry's actual texts. */
-function suiteReadSources(
+export function suiteReadSources(
 	doc: BlueprintDoc,
 	pending: PendingExpression,
 	env: ExpressionReadEnv,
+	invalidPreset?: (id: string) => void,
 ): SuiteReadSources | undefined {
 	const mode = pending.mode;
-	if (mode.target !== "hq-json" || !pending.text.includes("instance"))
+	const text = pending.slotText ?? pending.text;
+	if (
+		mode.target !== "hq-json" ||
+		(!text.includes("instance") && !text.includes("&"))
+	)
 		return undefined;
 	const ids = requiredInstanceIds(pending);
-	if (ids.size === 0 && env.factories === undefined) return undefined;
-	const text = pending.slotText ?? pending.text;
+	if (
+		ids.size === 0 &&
+		env.factories === undefined &&
+		invalidPreset === undefined
+	)
+		return undefined;
 	const slot =
 		mode.interpolation !== "none" && mode.interpolation !== "enum-key"
 			? hqInterpolationSlot(doc, pending.ref, mode.interpolation)
@@ -441,6 +450,7 @@ function suiteReadSources(
 		},
 		undefined,
 		env.factories,
+		invalidPreset,
 	);
 	const missing = [...ids].find(
 		(id) => id.startsWith("item-list:") && !sources.has(id),

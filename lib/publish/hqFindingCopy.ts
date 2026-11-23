@@ -823,6 +823,16 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "CommCare HQ returned an error where its own summary of this app's forms should be, so Nova has nothing sure to check its reading against.",
 		next: "Opening the app's forms in CommCare HQ's form builder usually shows which one is broken. If they all open, Dimagi support (support@dimagi.com) can help. Then you can check again.",
 	},
+	"form-data-source-conflict": {
+		title: "A form uses one name for two data sources",
+		body: "CommCare HQ uses {name} to fill in submission details or case data. This form gives that name to a different source, so workers can receive different values.",
+		next: "You can give the other source its own name in CommCare HQ and update the questions that read it, then check again.",
+	},
+	"unbuildable-data-source-name": {
+		title: "CommCare HQ cannot build this data source",
+		body: "CommCare HQ reads {name} as one of its built-in sources and cannot build an app with this reference.",
+		next: "You can give the source and its references a distinct name in CommCare HQ, then check again.",
+	},
 	"shadow-disagrees": {
 		title: "A question's logic says two things",
 		body: "This question's logic and the copy the form builder keeps of it don't match, so Nova can't tell which one the author meant.",

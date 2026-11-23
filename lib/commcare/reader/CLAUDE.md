@@ -215,7 +215,11 @@ Four rules hold everywhere here:
   A form reads each local instance ID through the source it declares. HQ fills a missing ID
   when its factory and its whole-form scanner supply it on the default build and every retained
   language profile. The concrete basic and advanced form builds also supply the session and the
-  instances their active case actions generate. A grouped path can read these without a scanner match.
+  instances their active case actions generate. The reader checks that each generated
+  case or submission expression reads its intended concrete source, including references
+  with no authored XPath. Multi-select's added declaration alone is no generated read.
+  HQ dispatches each scanner-visible ID before checking existing declarations. A fixed
+  preset with a suffix prevents the build even when the form has declared that ID. A grouped path can read these without a scanner match.
   A named results or Search input factory requires the app to name that results source. Report factories
   depend on the source project’s Mobile UCR setting. HQ replaces each report configuration’s UUID in
   every source read, so a slug that needs the original UUID stays unresolved. An implicit places reference

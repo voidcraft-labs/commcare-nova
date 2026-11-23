@@ -812,7 +812,9 @@ bring-in, a table's row read and the place list stop once they are certain to pa
 flag through the two lists the publish probe reads. A reading asks for the flag when case
 updates depend on “save only if changed”, or an active expression needs a project-dependent
 instance. With hierarchical locations enabled, the flat-fixture setting comes from an actual
-working form or suite in that project. The reader keeps an unverified declaration unresolved.
+working form or suite in that project. Both requests use the working id that the bracketed
+application read authenticated and identified as a working app. They address this document
+directly, including on project spaces with location-specific releases. The reader keeps an unverified declaration unresolved.
 
 `hq/media.ts::readHqMediaFile` reads one file from the address HQ gives its media map item
 (`hqmedia/models.py::HQMediaMapItem.url`), bounded by the caller's limit, under a deadline of its

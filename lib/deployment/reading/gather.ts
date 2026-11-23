@@ -1296,7 +1296,7 @@ async function gatherFromHqWith(
 		creds,
 		server: key.server,
 		domain: key.domain,
-		remoteAppId: key.remoteAppId,
+		working: reading,
 		appId,
 		readingId: input.readingId,
 		source,

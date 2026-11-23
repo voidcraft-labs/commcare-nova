@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { wireTable } from "../../lookup/__tests__/lookupWireCorpus";
 import { scannedInstances } from "../../xpath/instanceSources";
+import { matchingResolver } from "../identity";
 import { readHqApp } from "../index";
 import { sourceFactories } from "../sourceFactories";
 import { exportedBody, inputFor } from "./novaExport";
@@ -589,4 +590,240 @@ it("resolves only the app's named searches and only recoverable report sources",
 			}),
 		});
 	}
+});
+
+describe("the source read by HQ-generated worker actions", () => {
+	const source = "jr://fixture/item-list:clinics";
+	function built(
+		id: string,
+		declaration: string,
+		caseLoad: boolean,
+		kind = "Form",
+	) {
+		return exportedBody(visit, {
+			xml: (xml) =>
+				xml
+					.replace('<instance src="jr://instance/casedb" id="casedb"/>', "")
+					.replace(
+						'<instance src="jr://instance/session" id="commcaresession"/>',
+						"",
+					)
+					.replace(
+						"<model>",
+						`<model><instance id="${id}" src="${declaration}"/>`,
+					)
+					.replace(/calculate="[^"]*instance[^"]*"/, 'calculate="1"'),
+			modules: (menus) =>
+				menus.map((menu) => ({
+					...menu,
+					doc_type: kind === "AdvancedForm" ? "AdvancedModule" : "Module",
+					forms: (menu.forms as Record<string, unknown>[]).map((form) => ({
+						...form,
+						doc_type: kind,
+						requires: "case",
+						actions:
+							kind === "AdvancedForm"
+								? {
+										load_update_cases: [
+											{
+												case_type: "patient",
+												case_tag: "load",
+												preload: caseLoad ? { "/data/note": "age" } : {},
+											},
+										],
+										open_cases: [],
+									}
+								: {
+										...(form.actions as object),
+										case_preload: {
+											preload: caseLoad ? { "/data/note": "age" } : {},
+										},
+									},
+					})),
+				})),
+		});
+	}
+	it.each([
+		["casedb", source, true, "Form", true],
+		["casedb", source, true, "AdvancedForm", true],
+		["casedb", source, false, "Form", false],
+		["commcaresession", source, false, "Form", true],
+		["commcaresession", source, false, "AdvancedForm", true],
+		["other", source, true, "Form", false],
+		["casedb", "jr://instance/casedb", true, "Form", false],
+	] as const)(
+		"checks %s from %s when preload=%s in %s",
+		async (id, declared, active, kind, clash) => {
+			const input = await inputFor(built(id, declared, active, kind), {
+				lookup,
+			});
+			const result = readHqApp(input);
+			expect(result.defects).toEqual([]);
+			const found =
+				result.kind === "account" &&
+				result.findings.some(
+					(f) => f.code === "form-data-source-conflict" && f.detail.name === id,
+				);
+			expect(found).toBe(clash);
+		},
+	);
+	it.each([false, true])(
+		"checks the group source only when HQ generates its shared case owner, sharing=%s",
+		async (sharing) => {
+			const body = built("groups", source, false);
+			body.case_sharing = sharing;
+			const menu = (body.modules as { forms: Record<string, unknown>[] }[])[0];
+			const form = menu.forms[0];
+			form.requires = "none";
+			form.actions = {
+				open_case: {
+					condition: { type: "always" },
+					name_update: { question_path: "/data/note" },
+				},
+			};
+			const result = readHqApp(await inputFor(body, { lookup }));
+			expect(result.defects).toEqual([]);
+			expect(
+				result.kind === "account" &&
+					result.findings.some(
+						(f) =>
+							f.code === "form-data-source-conflict" &&
+							f.detail.name === "groups",
+					),
+			).toBe(sharing);
+		},
+	);
+	it.each([false, true])(
+		"checks the case source of an edit-only write when the source flag is %s",
+		async (enabled) => {
+			const body = built("casedb", source, false);
+			const menu = (body.modules as { forms: Record<string, unknown>[] }[])[0];
+			menu.forms[0].actions = {
+				update_case: {
+					condition: { type: "always" },
+					update: { age: { question_path: "/data/note", update_mode: "edit" } },
+				},
+			};
+			const result = readHqApp(
+				await inputFor(body, { lookup, saveOnlyEditedApplied: enabled }),
+			);
+			expect(result.defects).toEqual([]);
+			expect(
+				result.kind === "account" &&
+					result.findings.some(
+						(f) =>
+							f.code === "form-data-source-conflict" &&
+							f.detail.name === "casedb",
+					),
+			).toBe(enabled);
+		},
+	);
+	it("keeps a table under an unrelated alias alongside a genuine active preload", async () => {
+		const body = built("clinic-data", source, true);
+		const forms = body._attachments as Record<string, string>;
+		for (const [id, xml] of Object.entries(forms)) {
+			forms[id] = xml.replace(
+				'calculate="1"',
+				`calculate="count(instance('clinic-data')/clinics_list/clinics)"`,
+			);
+		}
+		const result = readHqApp(await inputFor(body, { lookup }));
+		expect(result.kind === "account" ? result.findings : []).toEqual([]);
+		expect(result.kind).toBe("read");
+	});
+	it("rechecks the worker source when bringing in changes to an adopted app", async () => {
+		const baseline = await inputFor(
+			built("casedb", "jr://instance/casedb", true),
+			{ lookup },
+		);
+		const clean = readHqApp(baseline);
+		expect(clean.kind === "account" ? clean.findings : []).toEqual([]);
+		if (clean.kind !== "read") throw new Error("Unusable baseline");
+		const resolver = matchingResolver(
+			baseline.appId,
+			clean.draft.identities.entries,
+		);
+		const now = readHqApp(
+			await inputFor(built("casedb", source, true), { resolver, lookup }),
+		);
+		expect(now.kind === "account" && now.findings).toContainEqual(
+			expect.objectContaining({
+				code: "form-data-source-conflict",
+				detail: { name: "casedb" },
+			}),
+		);
+		const replay = readHqApp(
+			await inputFor(exportedBody(clean.draft.doc), { resolver, lookup }),
+		);
+		expect(replay.kind).toBe("read");
+	});
+});
+
+describe("HQ dispatches fixed instance schemes before consulting the form's declarations", () => {
+	it.each([
+		["casedb:archive", "'casedb:archive'", true],
+		["registry:", "'registry:'", true],
+		["commcaresession:one:two", "'commcaresession:one:two'", true],
+		["casedb:archive", "(('casedb:archive'))", false],
+		["archive", "'archive'", false],
+	] as const)("reads %s via %s", async (id, call, broken) => {
+		const result = await readAge(
+			`<instance id="${id}" src="jr://instance/casedb"/>`,
+			call,
+		);
+		expect(result.defects).toEqual([]);
+		if (broken)
+			expect(result.kind === "account" && result.findings).toContainEqual(
+				expect.objectContaining({
+					code: "unbuildable-data-source-name",
+					detail: { name: id },
+				}),
+			);
+		else expect(result.kind).toBe("read");
+	});
+	it("names the failing preset on a real menu condition", async () => {
+		const body = exportedBody(visit, {
+			modules: (menus) =>
+				menus.map((menu) => ({
+					...menu,
+					forms: (menu.forms as Record<string, unknown>[]).map((form) => ({
+						...form,
+						form_filter: "count(instance('ledgerdb:archive')/x) > 0",
+					})),
+				})),
+		});
+		const result = readHqApp(await inputFor(body));
+		expect(result.kind === "account" && result.findings).toContainEqual(
+			expect.objectContaining({
+				code: "unbuildable-data-source-name",
+				detail: { name: "ledgerdb:archive" },
+			}),
+		);
+	});
+	it("checks scanner-visible prose in a language that only a named build includes", async () => {
+		const change = (xml: string) =>
+			xml.replace(
+				/(<translation\b[^>]*lang="en"[^>]*>[\s\S]*?<\/translation>)/,
+				(en) =>
+					en +
+					en
+						.replace('lang="en"', 'lang="fr"')
+						.replaceAll(">Note<", ">Guide to instance('groups:archive')<"),
+			);
+		const result = await readAge(
+			'<instance id="casedb" src="jr://instance/casedb"/>',
+			"'casedb'",
+			change,
+			{
+				langs: ["en"],
+				build_profiles: { field: { name: "Field", langs: ["fr"] } },
+			},
+		);
+		expect(result.kind === "account" && result.findings).toContainEqual(
+			expect.objectContaining({
+				code: "unbuildable-data-source-name",
+				detail: { name: "groups:archive" },
+			}),
+		);
+	});
 });

@@ -409,12 +409,44 @@ function readForm(
 	);
 	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
+	const controls = readControls({
+		parsed,
+		tree,
+		binds: binds.byNode,
+		cursor,
+		accounting,
+		formPlace,
+	});
+	const uploads = new Set(
+		controls.all
+			.filter((control) => control.tag === "upload")
+			.map((control) => control.element.attribs.ref),
+	);
+	const buildInstances = generatedFormInstances(ctx.input, form, uploads);
+	// The case/meta builder uses literal local IDs and never replaces a
+	// declaration. selected_cases is supplied for authored expressions only.
+	for (const instance of parsed.instances) {
+		const required = buildInstances.get(instance.id);
+		if (
+			required !== undefined &&
+			instance.id !== "selected_cases" &&
+			instance.src !== required
+		) {
+			accounting.circumstance("form-data-source-conflict", formPlace, {
+				name: instance.id,
+			});
+		}
+	}
 	const readSources = builtFormInstanceSources(
 		parsed,
 		ctx.input.source,
 		instanceSources,
 		sourceFactories(ctx.input),
-		generatedFormInstances(ctx.input, form),
+		buildInstances,
+		(id) =>
+			accounting.circumstance("unbuildable-data-source-name", formPlace, {
+				name: id,
+			}),
 		ctx.input.observeFactory &&
 			((profile) => (kind, id) =>
 				ctx.input.observeFactory?.(kind, id, {
@@ -425,14 +457,7 @@ function readForm(
 				})),
 	);
 	const carrierInstances = new Set<string>();
-	const controls = readControls({
-		parsed,
-		tree,
-		binds: binds.byNode,
-		cursor,
-		accounting,
-		formPlace,
-	});
+
 	const intents: AppearanceForm = {
 		intents: new Set(
 			parsed.head.children

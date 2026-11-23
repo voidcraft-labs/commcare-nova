@@ -7,6 +7,7 @@ import {
 	XHTML_NS,
 } from "../xmlNamespaces";
 import { tryParseXml } from "../xmlParse";
+import type { HqAppReading } from "./appReading";
 import { type HqAppSource, readHqAppSource } from "./appSource";
 import { HQ_BUILD_RESOURCE_MAX_BYTES } from "./bounds";
 import { withHqRequestDeadline } from "./deadline";
@@ -101,22 +102,40 @@ function locationSource(
 	if (sources.has("jr://fixture/commtrack:locations")) return "hierarchical";
 }
 
+/** The source and authenticated, project-specific application answer from the
+ * same bracketed read. The source export alone also describes a saved build. */
+export type WorkingSource = Pick<
+	Extract<HqAppReading, { kind: "read" }>,
+	"application" | "seen" | "source"
+>;
+
 /** locations' factory reads a legacy project setting unavailable through an
  * API key. Observe the actual working resource on the source project. HQ
- * resolves target=save to the working app. Request only a form or suite:
+ * serves the authenticated working id directly; requesting "latest" instead
+ * requires a worker's login on projects with location-specific releases.
+ * Request only a form or suite:
  * download_odk_profile would autogenerate a build. The second source read
  * verifies the form attachment or the lack of any custom suite declarations
  * that could otherwise impersonate the generated instance. */
 export async function readWorkingLocationFixture(input: {
 	creds: CommCareCredentials;
 	domain: string;
-	remoteAppId: string;
-	source: HqAppSource;
+	working: WorkingSource;
 	sameSuiteSource: (after: HqAppSource) => boolean;
 	witness?: WorkingLocationWitness;
 	cancel?: AbortSignal;
 }): Promise<"flat" | "hierarchical" | undefined> {
-	const { creds, domain, remoteAppId, source, witness, cancel } = input;
+	const { creds, domain, working, witness, cancel } = input;
+	const { application, seen, source } = working;
+	const remoteAppId = application.appId;
+	if (
+		application.builtFromAppId !== null ||
+		application.domain !== domain ||
+		seen.domain !== domain ||
+		seen.server !== creds.server ||
+		!seen.remoteAppIds.includes(remoteAppId)
+	)
+		return;
 	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(remoteAppId)) return;
 	if (!witness && customLocations(source)) return;
 	const original = witness && source.modules[witness.menu]?.forms[witness.form];
@@ -125,9 +144,10 @@ export async function readWorkingLocationFixture(input: {
 	const resource = witness
 		? `modules-${witness.menu}/forms-${witness.form}.xml`
 		: "suite.xml";
-	const query = new URLSearchParams({ latest: "true", target: "save" });
-	if (witness?.profile) query.set("profile", witness.profile);
-	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${remoteAppId}/${resource}?${query}`;
+	const query = witness?.profile
+		? `?${new URLSearchParams({ profile: witness.profile })}`
+		: "";
+	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${remoteAppId}/${resource}${query}`;
 	const observed = await withHqRequestDeadline(
 		async (signal) => {
 			let response: Awaited<ReturnType<typeof sendHq>>;

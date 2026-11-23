@@ -48,7 +48,7 @@ import {
 	classifiedInstanceId,
 	EXPRESSION_CLAIMS,
 } from "./expressions/findings";
-import { slotForm } from "./expressions/readExpression";
+import { slotForm, suiteReadSources } from "./expressions/readExpression";
 import {
 	instanceIdsRead,
 	unreadDeclarationUse,
@@ -1057,6 +1057,16 @@ export function* bindExpressionsSteps(
 	const env = expressionEnvOf(ctx);
 	const pending = ctx.pending.list();
 	const firstDoc = provisionalDocument(ctx);
+	// Validate the source suite slot once. Reprinted candidate expressions
+	// below do not run in the working HQ app.
+	for (const slot of pending) {
+		if (slot.usesOnly || slot.mode.target !== "hq-json") continue;
+		suiteReadSources(firstDoc, slot, env, (name) =>
+			ctx.accounting.circumstance("unbuildable-data-source-name", slot.place, {
+				name,
+			}),
+		);
+	}
 	yield;
 	const first = yield* readExpressionsSteps(firstDoc, pending, env);
 	yield;

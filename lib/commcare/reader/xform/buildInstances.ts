@@ -227,6 +227,7 @@ export function builtFormInstanceSources(
 	declared: ReadonlyMap<string, string>,
 	factories: InstanceFactories,
 	generated: ReadonlyMap<string, string>,
+	invalidPreset: (id: string) => void,
 	observe?: (profile?: string) => InstanceFactories["observe"],
 ): ReadonlyMap<string, string> {
 	const declaredIds = new Set(form.instances.map(({ id }) => id));
@@ -246,12 +247,16 @@ export function builtFormInstanceSources(
 			? { ...factories, observe: observe(profile) }
 			: factories;
 		for (const rendered of renderBuild(form, langs, values)) {
-			for (const [id, src] of scannedInstances(rendered, at, declaredIds))
+			for (const [id, src] of scannedInstances(
+				rendered,
+				at,
+				declaredIds,
+				invalidPreset,
+			))
 				if (!declaredIds.has(id)) actual.set(id, src);
 		}
 		if (common === undefined) common = new Map(actual);
 		else for (const id of common.keys()) if (!actual.has(id)) common.delete(id);
-		if (common.size === declared.size) break;
 	}
 	const sources = common ?? new Map(declared);
 	for (const [id, source] of generated)

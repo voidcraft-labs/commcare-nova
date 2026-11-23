@@ -11,6 +11,7 @@ import type { MockAgent } from "undici";
 import { describe, expect, it } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { seenByHq } from "@/lib/commcare/hq/appsSeen";
 import {
 	retainedSourceBody,
 	sourceFromBody,
@@ -92,12 +93,25 @@ function read(
 	source: HqAppSource,
 	project: ReadingProjectSide,
 	places: "when-source-reads" | "always" = "when-source-reads",
+	builtFromAppId: string | null = null,
 ) {
 	return readReadingProjectData({
 		creds: { username: "account", apiKey: "fixture-key", server: "india" },
 		server: "india",
 		domain: DOMAIN,
-		remoteAppId: "working-app",
+		working: {
+			source,
+			seen: seenByHq("india", DOMAIN, ["working-app"]),
+			application: {
+				appId: "working-app",
+				domain: DOMAIN,
+				builtFromAppId,
+				builds: [],
+				version: 1,
+				name: "Visits",
+				rawModules: [],
+			},
+		},
 		appId: "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d",
 		readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
 		source,
@@ -280,7 +294,7 @@ describe("a source project's location instance factory", () => {
 			serveJson(peer, LIST, collection([]));
 			serveJson(peer, all, collection(domains));
 			serveJson(peer, flag, collection(flagged ? domains : []));
-			const path = `/a/${DOMAIN}/apps/download/working-app/modules-0/forms-0.xml?latest=true&target=save`;
+			const path = `/a/${DOMAIN}/apps/download/working-app/modules-0/forms-0.xml`;
 			if (flagged) {
 				peer
 					.get(HOST)
@@ -319,6 +333,45 @@ describe("a source project's location instance factory", () => {
 		if (ran.answer.kind === "read")
 			expect(ran.answer.data.sourceProjectFactories?.locations).toBe(expected);
 		expect(ran.paths.includes(ran.path)).toBe(flagged);
+	});
+
+	it("keeps a saved build out of the working resource path", async () => {
+		const source = await sourceNoting(
+			"",
+			"count(instance('locations')/locations/location) > 0",
+		);
+		const answer = await withHttpPeer(async (peer) => {
+			serveJson(peer, LIST, collection([]));
+			serveJson(peer, all, collection(domains));
+			serveJson(peer, flag, collection(domains));
+			serveJson(peer, LEVELS, collection([]));
+			serveJson(
+				peer,
+				`/a/${DOMAIN}/api/location/v2/?limit=5000`,
+				collection([]),
+			);
+			const result = await read(
+				source,
+				emptyProject({ dataBytes: 0, largestRowBytes: 0 }),
+				"when-source-reads",
+				"original-working-app",
+			);
+			return {
+				result,
+				paths: peer
+					.getCallHistory()
+					?.calls()
+					.map((call) => call.fullUrl),
+			};
+		});
+		expect(answer.result.kind).toBe("read");
+		expect(answer.paths?.some((path) => path.includes("/apps/download/"))).toBe(
+			false,
+		);
+		if (answer.result.kind === "read")
+			expect(
+				answer.result.data.sourceProjectFactories?.locations,
+			).toBeUndefined();
 	});
 
 	it("asks no project flag for a scanner-visible label with no expression consuming it", async () => {
@@ -402,7 +455,7 @@ describe("a source project's location instance factory", () => {
 				serveJson(peer, LIST, collection([]));
 				serveJson(peer, all, collection(domains));
 				serveJson(peer, flag, collection(domains));
-				const suite = `/a/${DOMAIN}/apps/download/working-app/suite.xml?latest=true&target=save`;
+				const suite = `/a/${DOMAIN}/apps/download/working-app/suite.xml`;
 				peer
 					.get(HOST)
 					.intercept({ path: suite, method: "GET" })
@@ -433,7 +486,7 @@ describe("a source project's location instance factory", () => {
 						.map((call) => call.fullUrl),
 				};
 			});
-			expect(answer.paths?.some((path) => path.includes("/suite.xml?"))).toBe(
+			expect(answer.paths?.some((path) => path.endsWith("/suite.xml"))).toBe(
 				true,
 			);
 			expect(answer.result.kind).toBe("read");

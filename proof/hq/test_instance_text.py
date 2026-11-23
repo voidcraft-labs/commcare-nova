@@ -334,7 +334,7 @@ def test_remote_request_factory_scans_a_siblings_xpath_after_one_html_unescape(h
             {("item-list:zones", "jr://fixture/item-list:zones")} if available else set())
 
 
-def test_concrete_form_build_adds_session_and_only_active_preload_sources(hq):
+def test_concrete_form_build_adds_session_and_only_active_preload_sources(hq, core_runner):
     from corehq.apps.app_manager.models import AdvancedModule, Application, Module
     from corehq.apps.app_manager.models.form_actions import LoadUpdateAction
     from corehq.apps.app_manager.xform import XForm
@@ -350,11 +350,16 @@ def test_concrete_form_build_adds_session_and_only_active_preload_sources(hq):
             (Module, "case", True, False, False, "jr://instance/casedb"),
             (Module, "none", True, False, False, None),
             (Module, "none", False, True, False, "jr://instance/casedb"),
+            (Module, "case", True, False, True, "jr://fixture/item-list:clinics"),
+            (Module, "none", False, True, True, "jr://fixture/item-list:clinics"),
             (AdvancedModule, None, False, False, False, None),
             (AdvancedModule, None, True, False, False, "jr://instance/casedb"),
             (AdvancedModule, None, True, False, True, "jr://fixture/item-list:clinics"),
         ):
-            source = xml.format(shadow='<instance id="casedb" src="jr://fixture/item-list:clinics"/>' if shadow else "")
+            source = xml.format(shadow=(
+                '<instance id="casedb" src="jr://fixture/item-list:clinics"/>'
+                '<instance id="commcaresession" src="jr://fixture/item-list:sessions"/>'
+            ) if shadow else "")
             menu = app.add_module(module_cls.new_module("Visits", "en"))
             menu.case_type = "patient"
             form = menu.new_form("Visit", "en", attachment=source)
@@ -374,8 +379,55 @@ def test_concrete_form_build_adds_session_and_only_active_preload_sources(hq):
             form.add_stuff_to_xform(tree)
             built = etree.fromstring(tree.render())
             instances = {node.get("id"): node.get("src") for node in built.iter(f"{{{XFORMS}}}instance")}
-            assert instances.get("commcaresession") == "jr://instance/session"
+            expected_session = "jr://fixture/item-list:sessions" if shadow else "jr://instance/session"
+            assert instances.get("commcaresession") == expected_session
             assert instances.get("casedb") == expected
+            values = {node.get("ref"): node.get("value") for node in built.iter(f"{{{XFORMS}}}setvalue")}
+            refs = ["/data/meta/userID"]
+            if (preload and requires != "none") or user_preload:
+                refs.append("/data/age")
+            else:
+                assert "/data/age" not in values
+            parsed = core_runner.request(
+                "xpathParse", deadline=30, expressions=[values[ref] for ref in refs]
+            )["results"]
+            reads = [{path["instance"] for path in result["instancePaths"]} for result in parsed]
+            assert reads[0] == {"commcaresession"}
+            if len(reads) == 2:
+                assert {"casedb", "commcaresession"} <= reads[1]
+                assert instances["casedb"] == expected
+
+
+@pytest.mark.parametrize(("local_id", "argument", "broken"), [
+    ("casedb:archive", "'casedb:archive'", True),
+    ("registry:", "'registry:'", True),
+    ("casedb:archive", "(('casedb:archive'))", False),
+    ("clinic-case", "'clinic-case'", False),
+    ("casedb", "'casedb'", False),
+])
+def test_fixed_instance_factory_runs_before_explicit_form_declarations(hq, local_id, argument, broken):
+    from types import SimpleNamespace
+
+    from corehq.apps.app_manager.models.forms import FormBase
+    from corehq.apps.app_manager.xform import XForm
+
+    xml = f"""<h:html xmlns:h="{XHTML}" xmlns="{XFORMS}"><h:head><model>
+        <instance><data xmlns="urn:nova:source"><age/></data></instance>
+        <instance id="{local_id}" src="jr://fixture/item-list:clinics"/>
+        <bind nodeset="/data/age" calculate="count(instance({argument})/clinics_list/clinics)"/>
+        </model></h:head><h:body/></h:html>"""
+    app = SimpleNamespace(get_build_langs=lambda _profile: ["en"])
+    form = SimpleNamespace(get_app=lambda: app, get_version=lambda: 1)
+    tree = XForm(xml.encode())
+    if broken:
+        with pytest.raises(KeyError) as exc:
+            FormBase.add_stuff_to_xform(form, tree)
+        assert exc.value.args == (local_id,)
+    else:
+        FormBase.add_stuff_to_xform(form, tree)
+        built = etree.fromstring(tree.render())
+        assert [instance.get("src") for instance in built.iter(f"{{{XFORMS}}}instance")
+                if instance.get("id") == local_id] == ["jr://fixture/item-list:clinics"]
 
 
 def test_factories_follow_the_source_project_and_the_apps_own_search_and_report_ids(hq):
@@ -430,7 +482,7 @@ def test_working_location_witness_reads_the_source_project_without_saving_or_bui
     observed = {}
     for domain, flat in (("nova-source-space", False), ("nova-other-space", True)):
         configuration = Configuration(
-            domain=domain, privileges={"CLOUDCARE", "API_ACCESS"}, flags={"HIERARCHICAL_LOCATION_FIXTURE"}
+            domain=domain, privileges={"CLOUDCARE", "API_ACCESS"}, flags={"HIERARCHICAL_LOCATION_FIXTURE", "MANAGE_RELEASES_PER_LOCATION"}
         )
         with hq_check(configuration) as (state, _), hq_redis.shared(None):
             app_json = _edited(_label_as_one_text_node("Guide to instance('locations')"))
@@ -442,6 +494,10 @@ def test_working_location_witness_reads_the_source_project_without_saving_or_bui
                 )
                 credential = operations.seed_api_user(state, "reader@example.com")
             with api_rate_limits(state), resource_overrides():
+                application = operations.application_read(state, app_id, credential)
+                assert application.status == 200
+                envelope = json.loads(application.body)
+                assert envelope["id"] == app_id and envelope["built_from_app_id"] is None
                 assert operations.source_read(state, app_id, credential).status == 200
                 apps_before = {
                     key: json.dumps(doc, sort_keys=True)
@@ -449,7 +505,9 @@ def test_working_location_witness_reads_the_source_project_without_saving_or_bui
                     if doc.get("doc_type") == "Application"
                 }
                 for resource in ("modules-0/forms-0.xml", "suite.xml"):
-                    path = f"/a/{domain}/apps/download/{app_id}/{resource}?latest=true&target=save"
+                    path = f"/a/{domain}/apps/download/{app_id}/{resource}"
+                    gated = operations.api_request(state, "GET", path + "?latest=true&target=save", credential=credential)
+                    assert gated.status == 406
                     answer = operations.api_request(state, "GET", path, credential=credential)
                     assert answer.status == 200, (resource, answer.status, answer.body[:150])
                     root = etree.fromstring(answer.body.encode())
@@ -464,7 +522,7 @@ def test_working_location_witness_reads_the_source_project_without_saving_or_bui
                 missing = operations.api_request(
                     state,
                     "GET",
-                    f"/a/{domain}/apps/download/{app_id}/modules-0/forms-999.xml?latest=true&target=save",
+                    f"/a/{domain}/apps/download/{app_id}/modules-0/forms-999.xml",
                     credential=credential,
                 )
                 assert missing.status == 404

@@ -479,6 +479,11 @@ export function readSearchPrompts(
 			for (const [id, source] of scannedInstances(
 				runtime.text,
 				sourceFactories(ctx.input),
+				undefined,
+				(name) =>
+					ctx.accounting.circumstance("unbuildable-data-source-name", place, {
+						name,
+					}),
 			))
 				suiteSources.set(id, source);
 	};
