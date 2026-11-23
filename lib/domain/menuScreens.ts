@@ -323,8 +323,9 @@ function advancedDatumKey(tag: string): string {
  * alignWithRootMenu`, which a basic case list entry passes through as a
  * form's does, HQ's `add_parent_datums` over `entry_for_module`), so it reads
  * the root entry's own key: its first form's, read the same way, so an
- * advanced root's `case_id_<tag>`, or its basic case list's where it has no
- * form (HQ aligns with nothing there and the child keeps its basic id).
+ * advanced root's `case_id_<tag>`. A root with no form aligns nothing (HQ's
+ * `add_parent_datums` returns the child's datums as they are), so the child
+ * keeps its own basic id.
  * Otherwise a basic entry starts with its first selection (`entrySelections`'
  * key), and a form of a menu emitted advanced with its first load's datum,
  * `case_id_<tag>` (`advancedEntryDatums.ts::advancedLoadTags`): a held tag as
@@ -350,12 +351,14 @@ function entryFirstDatumKey(
 		(pair) => pair.targetModuleUuid === first.module,
 	);
 	const parent = alignment.parentEntry;
-	if (match !== undefined && parent !== undefined) {
+	if (match !== undefined && parent?.kind === "form") {
 		const [parentFirst] = entrySelections(doc, parent);
 		if (parentFirst?.module !== match.sourceModuleUuid) return first.key;
-		return parent.kind === "form"
-			? entryFirstDatumKey(doc, parent, new Set([...visiting, entry.module]))
-			: parentFirst.key;
+		return entryFirstDatumKey(
+			doc,
+			parent,
+			new Set([...visiting, entry.module]),
+		);
 	}
 	if (
 		entry.kind === "browse" ||

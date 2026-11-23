@@ -11,6 +11,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, makeTranslationUnitId } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { advancedFixture } from "../../../__tests__/advancedPlacementFixture";
 import { caseListLabelAsBuilt } from "../modules";
 import {
@@ -469,6 +470,74 @@ describe("a parent selection, written early and judged late", () => {
 		expect(
 			ctx.doc?.modules[members?.uuid as string]?.parentCaseModuleUuid,
 		).toBe(visits?.uuid);
+	});
+});
+
+describe("a child menu of another case type under a root with no forms", () => {
+	it("reads the child form's case read through the datum HQ's build keeps, `case_id`", async () => {
+		const doc = nested(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "village", label: proseText("Village") }],
+					},
+					{
+						name: "member",
+						parent_type: "household",
+						properties: [{ name: "care_status", label: proseText("Status") }],
+					},
+				],
+				modules: [
+					{
+						name: "Households",
+						caseType: "household",
+						caseListMenuItem: {},
+						forms: [],
+					},
+					{
+						name: "Members",
+						caseType: "member",
+						forms: [
+							{
+								name: "Member visit",
+								type: "followup",
+								fields: [
+									f({
+										kind: "hidden",
+										id: "copied_status",
+										calculate: "#member/care_status",
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+		// HQ's build leaves the child's datum `case_id` where the root has no
+		// form (`entries.py::add_parent_datums`), so a form made in HQ reads
+		// that id. Stored as HQ holds it, the read keeps the case read.
+		const reading = await readMenusOf(doc, (json) => {
+			const attachments = json._attachments as Record<string, unknown>;
+			for (const [key, value] of Object.entries(attachments)) {
+				if (typeof value === "string")
+					attachments[key] = value.replaceAll(
+						"session/data/case_id_member",
+						"session/data/case_id",
+					);
+			}
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const read = reading.doc as BlueprintDoc;
+		expect(moduleNamed(read, "Members").parentModuleUuid).toBe(
+			moduleNamed(read, "Households").uuid,
+		);
+		const visitForm = formNamed(read, "Member visit");
+		const field = read.fieldOrder[visitForm.uuid]
+			?.map((uuid) => read.fields[uuid])
+			.find((one) => one?.id === "copied_status");
+		expect(JSON.stringify(field)).toContain('"care_status"');
 	});
 });
 

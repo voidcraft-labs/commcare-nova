@@ -1163,8 +1163,12 @@ has none. Several `<menu>` elements share an id; the suite oracle admits that
 and the root id `root`.
 
 HQ's `add_parent_datums` aligns a child entry against the root module's first
-form. A root with no forms contributes no datums. A child with a different
-case type selects its own case even when its parent lists cases.
+form. A root with no forms contributes no datums, renames none and aligns
+none (`_get_first_forms_datums` is empty, so `return datums`): a child of a
+different case type keeps `case_id` (and `parent_id` for its parent
+selection) even when its parent lists cases, and the form reads those ids. A
+same-type selection the domain matches to such a root still answers for the
+root's chosen case under the child's own id.
 
 `formLinkProjection.ts::entrySessionDatums` owns the entry namespace shared by
 the suite, XForm, form links, and post-submit frames. First it builds the

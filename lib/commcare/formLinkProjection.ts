@@ -756,19 +756,31 @@ function alignWithRootMenu(
 	const alignment = rootSelectionAlignment(doc, entry);
 	const parent = alignment.parentEntry;
 	if (parent === undefined) return current;
-	// HQ aligns a child entry with its root's first form and with nothing
-	// where the root has none (`EntriesHelper._get_first_forms_datums`). A
-	// form-less root's basic browse selection is that nothing under the
-	// child's own ids, so an advanced root's browse entry, whose datum HQ
-	// names after the case type, is read as the basic one it stands for.
-	const parentDatums =
-		parent.kind === "form"
-			? entrySessionDatums(doc, ctx, parent.module, parent.form)
-			: basicCaseListSessionDatums(doc, ctx, parent.module);
 	for (const issue of alignment.boundMismatches)
 		ctx.onHqSelectionBoundMismatch?.(issue);
 	if (alignment.parentSelectionConflict)
 		ctx.onParentSelectionConflict?.(entry.module);
+	// HQ aligns a child entry with its root's first form, and where the root
+	// has none it returns the child's datums as they are
+	// (`EntriesHelper.add_parent_datums`: `_get_first_forms_datums` is empty,
+	// so `if not parent_datums: return datums`). Nothing is renamed or carried
+	// forward: a child of another case type keeps `case_id`, and a child's
+	// parent selection keeps `parent_id`. A same-type selection the domain
+	// matches to the form-less root still answers for the root's chosen
+	// case, under the child's own id.
+	if (parent.kind !== "form") {
+		for (const pair of alignment.matches) {
+			const matched = current.find(
+				(datum) =>
+					sessionDatumRequiresSelection(datum) &&
+					ctx.selectionSourceModules.get(datum) === pair.targetModuleUuid,
+			);
+			if (matched !== undefined)
+				ctx.alignedSelectionSources.set(matched, pair.sourceModuleUuid);
+		}
+		return current;
+	}
+	const parentDatums = entrySessionDatums(doc, ctx, parent.module, parent.form);
 	if (parentDatums.length === 0) return current;
 	const parentIds = new Set(parentDatums.map((datum) => datum.id));
 	for (const datum of current) {

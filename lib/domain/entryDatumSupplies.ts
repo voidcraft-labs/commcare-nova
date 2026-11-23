@@ -437,7 +437,8 @@ export function formLinkTargetSupplies(
  * `parent_` prefixes, and whether it holds several cases), and the root
  * alignment, under which an aligned selection takes the root datum's id and
  * an unaligned one that collides with a root datum is renamed by its case
- * type. A root datum other than a selection never collides with one.
+ * type. A root datum other than a selection never collides with one, and a
+ * root with no forms aligns and renames nothing.
  */
 export interface EntrySelection {
 	readonly module: Uuid;
@@ -455,8 +456,10 @@ export function entrySelections(
 	const path = basicMenuSelectionPath(doc, entry.module);
 	const chain = path.map((row) => row.detail);
 	const alignment = rootSelectionAlignment(doc, entry);
+	// Only a root's first form renames or aligns a child's datums; a form-less
+	// root leaves every one under the child's own id (HQ's `add_parent_datums`).
 	const parent =
-		alignment.parentEntry === undefined
+		alignment.parentEntry?.kind !== "form"
 			? []
 			: entrySelections(
 					doc,
