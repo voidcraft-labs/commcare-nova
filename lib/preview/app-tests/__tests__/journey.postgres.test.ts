@@ -1260,6 +1260,114 @@ it("opens the results of a search with no visible field, its hidden Search value
 	});
 });
 
+it("searches every open record of the type when only the device list has a condition", async () => {
+	const author = await makeDurableAuthoringHarness(h);
+	expect(
+		await author.call("createModule", { name: "People", case_type: "person" }),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("createForm", {
+			moduleUuid: "People",
+			name: "Visit",
+			type: "followup",
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addFields", {
+			formUuid: "Visit",
+			moduleUuid: "People",
+			fields: [
+				{
+					kind: "text",
+					id: "stage",
+					label: "Stage",
+					caseWrite: { caseType: "person", property: "stage" },
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addSearchInputs", {
+			moduleUuid: "People",
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "person_name",
+					label: "Name",
+					type: "text",
+					property: "case_name",
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("setCaseListFilter", {
+			moduleUuid: "People",
+			surface: "list",
+			filter: "#case/stage = 'active'",
+		}),
+	).toMatchObject({ ok: true });
+	const doc = await author.currentDoc();
+	const people = Object.values(doc.modules).find(
+		(module) => module.name === "People",
+	);
+	if (!people?.caseListConfig) throw new Error("Missing people menu");
+	/* The list condition alone was edited: the search keeps sending no
+	 * restriction, stored as its explicit all-records arm. */
+	expect(people.caseListConfig.searchCondition).toEqual({ kind: "match-all" });
+
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const records = [
+		{
+			id: "maya-active",
+			caseType: "person",
+			name: "Maya",
+			properties: { stage: "active" },
+		},
+		{
+			id: "maya-closed",
+			caseType: "person",
+			name: "Maya",
+			properties: { stage: "done" },
+		},
+	];
+	const begun = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Search past the list condition", scenario: { records } },
+	});
+	let step = begun.step;
+	const act = async (requestId: string, action: AppTestAction) => {
+		const result = await continueAppTest(scope, {
+			testId: begun.testId,
+			expectedStep: step,
+			requestId,
+			action,
+		});
+		step = result.step;
+		return result.observation;
+	};
+	await act("open", { kind: "menu", moduleUuid: people.uuid });
+	const searched = await act("search", {
+		kind: "search",
+		answers: [{ name: "person_name", value: "Maya" }],
+	});
+	/* HQ's search is sent no `_xpath_query` restriction, so it finds both
+	 * open records named Maya, the one the device list hides among them. */
+	expect(searched).toMatchObject({ results: { kind: "rows" } });
+	const rows = (searched as { results: { rows: { case_id: string }[] } })
+		.results.rows;
+	expect(rows.map((row) => row.case_id).sort()).toEqual([
+		"maya-active",
+		"maya-closed",
+	]);
+});
+
 it("creates a place-owned record from empty entry using the worker reading advertised to authors", async () => {
 	const author = await makeDurableAuthoringHarness(h);
 	const write = async (name: string, input: unknown) =>

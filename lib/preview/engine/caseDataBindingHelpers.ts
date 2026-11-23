@@ -422,7 +422,9 @@ export async function readCases(
 		inputValues?: SearchInputValues;
 		/** A search's `_xpath_query` rows, folded with what the device worked
 		 *  out (`searchCsqlRuntime.ts::foldSearchCsql`). Present, they stand
-		 *  for the case list filter and the advanced inputs' predicates. */
+		 *  for the search condition and the advanced inputs' predicates, and
+		 *  the device list's own condition never applies. Every searched read
+		 *  carries them, an unrestricted one as `match-all`. */
 		searchCsql?: SearchCsqlQuery;
 		bindings?: TermBindings;
 		/** Rows-free lookup definition types for the compiler's

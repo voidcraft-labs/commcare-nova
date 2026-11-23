@@ -590,10 +590,21 @@ export interface SearchCsqlQuery {
 	readonly unfoldedDeviceRead: boolean;
 }
 
+/** A search no row restricts: HQ is sent no `_xpath_query`, so it finds
+ * every open case of the type. A search whose rows fold to nothing, and a
+ * read keyed by case ids, both read as this. */
+const UNRESTRICTED_SEARCH_CSQL: SearchCsqlQuery = {
+	query: { kind: "match-all" },
+	authored: undefined,
+	readsAnswers: false,
+	unfoldedDeviceRead: false,
+};
+
 /**
  * The search's rows folded with the device's values: what HQ's search is
- * asked once the device has built the request. `undefined` when the search
- * has no row. `lookupNaming` names the lookup tables the rows read, as the
+ * asked once the device has built the request. A search with no row is
+ * asked nothing beyond its type, never the device list's condition: an
+ * independent list condition is the browse list's alone. `lookupNaming` names the lookup tables the rows read, as the
  * browser's evaluation named them (`world.lookup.naming`), so both sides
  * compose each clause in one context and key its pieces alike.
  */
@@ -603,14 +614,14 @@ export function foldSearchCsql(
 	caseListConfig: CaseListConfig,
 	wire: SearchCsqlRuntimeWire,
 	lookupNaming?: LookupWireNaming,
-): SearchCsqlQuery | undefined {
+): SearchCsqlQuery {
 	const clauses = searchCsqlClauses(
 		doc,
 		moduleUuid,
 		caseListConfig,
 		lookupNaming,
 	);
-	if (clauses === undefined) return undefined;
+	if (clauses === undefined) return UNRESTRICTED_SEARCH_CSQL;
 	const rows = clauses.map((clause, row) => ({
 		readsAnswers: expressionReferencesAnySearchInput(clause.expression),
 		folded: foldCsqlRuntime(clause.expression, rowValues(wire, row), {
@@ -651,19 +662,12 @@ function readsDeviceData(node: Expression | Term): boolean {
 	}
 }
 
-/** The search of a read keyed by case ids: the case the no-matches form
- * registered, which the device shows by its id (the wire's return frame),
- * not by the search, so no row of the search applies. */
-const KEYED_SEARCH_CSQL: SearchCsqlQuery = {
-	query: { kind: "match-all" },
-	authored: undefined,
-	readsAnswers: false,
-	unfoldedDeviceRead: false,
-};
-
 /**
  * The search rows one Results read compiles: none for a read keyed by case
- * ids (`keyed`), the rows folded with the browser's values otherwise.
+ * ids (`keyed`: the case the no-matches form registered, which the device
+ * shows by its id, the wire's return frame, not by the search), the rows
+ * folded with the browser's values otherwise. Always defined, so a searched
+ * read never falls back to the browse list's condition.
  */
 export function searchCsqlForRead(args: {
 	readonly keyed: boolean;
@@ -672,8 +676,8 @@ export function searchCsqlForRead(args: {
 	readonly caseListConfig: CaseListConfig;
 	readonly wire: SearchCsqlRuntimeWire | undefined;
 	readonly lookupNaming?: LookupWireNaming;
-}): SearchCsqlQuery | undefined {
-	if (args.keyed) return KEYED_SEARCH_CSQL;
+}): SearchCsqlQuery {
+	if (args.keyed) return UNRESTRICTED_SEARCH_CSQL;
 	return foldSearchCsql(
 		args.doc,
 		args.moduleUuid,
