@@ -541,6 +541,64 @@ it("loads the table scope for a lookup filter even when the condition uses no ro
 	});
 });
 
+it("loads the table scope for a count of a table's rows in a menu badge and conditions", async () => {
+	const table = {
+		id: lookupTableIdSchema.parse(uuidv7()),
+		name: "Clinics",
+		tag: "clinics",
+		definitionRevision: parseLookupRevision("0"),
+		columns: [
+			{
+				id: lookupColumnIdSchema.parse(uuidv7()),
+				wireName: "name",
+				label: "name",
+				dataType: "text" as const,
+			},
+		],
+	};
+	const lookupCatalog = vi.fn(async () => ({
+		projectId: "project-test",
+		projectRevision: parseLookupRevision("1"),
+		definitions: [table],
+	}));
+	const h = authoring(
+		{ lookupCatalog, lookupDefinitions: echoLookupDefinitions([table]) },
+		namedFormFixture([
+			{ name: "Clinics", forms: [{ name: "Survey", type: "survey" }] },
+		]),
+	);
+	await h.call("updateModule", {
+		moduleUuid: "Clinics",
+		badge: {
+			kind: "calculation",
+			expression: "count(table-rows('Clinics'))",
+		},
+		displayCondition: "count(table-rows('Clinics')) > 0",
+	});
+	await h.call("updateForm", {
+		moduleUuid: "Clinics",
+		formUuid: "Survey",
+		displayCondition: "count(table-rows('Clinics')) > 0",
+	});
+	expect(lookupCatalog).toHaveBeenCalled();
+	const doc = h.currentDoc();
+	const menu = Object.values(doc.modules).find(
+		(module) => module.name === "Clinics",
+	);
+	const form = Object.values(doc.forms).find(
+		(one) => one.displayCondition !== undefined,
+	);
+	expect({
+		badge: JSON.stringify(menu?.badge),
+		menuCondition: JSON.stringify(menu?.displayCondition),
+		formCondition: JSON.stringify(form?.displayCondition),
+	}).toEqual({
+		badge: expect.stringContaining(table.id),
+		menuCondition: expect.stringContaining(table.id),
+		formCondition: expect.stringContaining(table.id),
+	});
+});
+
 it.each(["outer", "outer/inner"])(
 	"binds full parent path %s when descendants share its leaf name",
 	async (parentPath) => {

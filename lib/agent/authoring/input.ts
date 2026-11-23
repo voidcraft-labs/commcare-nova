@@ -95,7 +95,7 @@ function readsCatalog(
 			return (
 				(catalog === "locations"
 					? node.name === "location"
-					: ["lookup", "table-column"].includes(node.name)) ||
+					: ["lookup", "table-column", "table-rows"].includes(node.name)) ||
 				node.args.some((arg) => readsCatalog(arg, catalog))
 			);
 		case "binary":
