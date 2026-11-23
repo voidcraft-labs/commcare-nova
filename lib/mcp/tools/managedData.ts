@@ -26,6 +26,7 @@ import { z } from "zod";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import {
+	inspectManagedLookupWorker,
 	LOOKUP_TABLE_NOT_FOUND,
 	letHqManageLookupTable,
 	type ManagedTableOutcome,
@@ -34,7 +35,12 @@ import {
 	refreshManagedLookupTable,
 	refreshManagedPlaces,
 } from "@/lib/deployment/managedData";
-
+import {
+	attestSourceWorkbook,
+	historicalSourceWorkbook,
+	inspectInlineSourceRow,
+	sourceWorkbookBytes,
+} from "@/lib/deployment/managedLookupObservation";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import type {
@@ -169,6 +175,101 @@ export function registerRefreshManagedData(
 	registerScopedTool(
 		server,
 		ctx,
+		"inspect_lookup_source",
+		{
+			description:
+				"Inspect the source access of one Project data table with the caller’s approved CommCare HQ connection. For worker, request a fresh check for a named mobile worker or your connected account and receive a bounded row sample. For workbook, use a freshly downloaded selected-table .xlsx file with the user’s approval to check its workers, groups and places and record a historical observation. Receipt reads the last recorded check. Historical workbook facts cannot authorize worker delivery or a new destination.",
+			inputSchema: z.strictObject({
+				project_id: projectIdSchema,
+				table_id: tableIdSchema,
+				operation: z.enum(["worker", "workbook", "receipt", "inventory-row"]),
+				worker_username: z.string().max(128).optional(),
+				ordinal: z.number().int().nonnegative().optional(),
+				revision: z.string().regex(/^\d+$/).optional(),
+				workbook_base64: z
+					.string()
+					.max(Math.ceil(sourceWorkbookBytes / 3) * 4)
+					.optional(),
+			}),
+		},
+		async (args) => {
+			try {
+				const tableId = parsedTableId(args.table_id);
+				if (!ctx.grant || !tableId)
+					throw new McpInvalidInputError(
+						"This connection or table is unavailable. You can reconnect and open the table again.",
+					);
+				const access = {
+					scope: await lookupScope(ctx, args.project_id),
+					tableId,
+					grant: ctx.grant,
+				};
+				if (
+					(args.workbook_base64 !== undefined) !==
+						(args.operation === "workbook") ||
+					(args.worker_username !== undefined && args.operation !== "worker")
+				)
+					throw new McpInvalidInputError(
+						"You can choose one source check for this table.",
+					);
+				if (args.operation === "inventory-row") {
+					if (
+						args.ordinal === undefined ||
+						(args.ordinal > 0 && !args.revision)
+					)
+						throw new McpInvalidInputError(
+							"A source row needs its position and the revision returned with the first row.",
+						);
+					return jsonResult(
+						await inspectInlineSourceRow(access, args.ordinal, args.revision),
+					);
+				}
+				if (args.ordinal !== undefined || args.revision !== undefined)
+					throw new McpInvalidInputError(
+						"An inventory row position belongs to the inventory-row operation.",
+					);
+				if (args.operation === "workbook") {
+					const encoded = args.workbook_base64 ?? "";
+					const bytes = Buffer.from(encoded, "base64");
+					if (!bytes.length || bytes.toString("base64") !== encoded)
+						throw new McpInvalidInputError(
+							"Use the base64 bytes of the selected-table workbook.",
+						);
+					return jsonResult({
+						receipt: await attestSourceWorkbook(access, bytes),
+					});
+				}
+				if (args.operation === "receipt")
+					return jsonResult({
+						receipt: await historicalSourceWorkbook(access),
+					});
+				const checked = await inspectManagedLookupWorker(
+					access,
+					args.worker_username ?? "",
+				);
+				return jsonResult(
+					checked.ok
+						? {
+								ok: true,
+								inspection: {
+									rows: checked.worker.rows.length,
+									observedAt: checked.worker.observedAt,
+									indexedFields: checked.worker.indexedFields,
+								},
+							}
+						: checked,
+				);
+			} catch (error) {
+				return toMcpErrorResult(error, {
+					projectId: args.project_id,
+					userId: ctx.userId,
+				});
+			}
+		},
+	);
+	registerScopedTool(
+		server,
+		ctx,
 		"refresh_managed_data",
 		{
 			description:
@@ -215,7 +316,7 @@ export function registerRefreshManagedData(
 						tableAnswer(
 							args.project_id,
 							tableInput,
-							await refreshManagedLookupTable(scope, tableId),
+							await refreshManagedLookupTable(scope, tableId, ctx.grant),
 						),
 					);
 				}
@@ -276,6 +377,13 @@ export function registerSetLookupTableManagement(
 			description:
 				'Change who manages a lookup table that came from CommCare HQ. Without `review_digest` this changes nothing: it returns what the change does, the apps that read the table and a `review_digest`. Show the user that answer and ask. Only after they agree, send the same call again with that `review_digest`. The change is made only while the table and the apps that read it are still what that answer showed; otherwise nothing changes, the answer\'s `reason` is `review-moved`, and it holds the change as it stands now with a new `review_digest`: show it and ask again. `managed_by: "nova"` means the table is edited in Nova from then on and each publish replaces it in CommCare HQ, and a later change there stops the next publish. `managed_by: "commcare-hq"` hands it back: Nova takes CommCare HQ\'s columns and rows and stops changing the table there. Never decide this for the user.',
 			inputSchema: z.strictObject({
+				current_workbook_base64: z
+					.string()
+					.max(Math.ceil(sourceWorkbookBytes / 3) * 4)
+					.optional()
+					.describe(
+						"For a confirmed transfer of an assigned table, attach the current selected-table workbook downloaded from its source project space for this transfer.",
+					),
 				project_id: projectIdSchema,
 				table_id: tableIdSchema,
 				managed_by: z
@@ -307,12 +415,27 @@ export function registerSetLookupTableManagement(
 					);
 				}
 				if (args.review_digest !== undefined) {
+					let workbook: Buffer | undefined;
+					if (args.current_workbook_base64 !== undefined) {
+						workbook = Buffer.from(args.current_workbook_base64, "base64");
+						if (
+							args.managed_by !== "nova" ||
+							!workbook.length ||
+							workbook.length > sourceWorkbookBytes ||
+							workbook.toString("base64") !== args.current_workbook_base64
+						)
+							throw new McpInvalidInputError(
+								"You can attach the current selected-table workbook with a confirmed transfer to Nova.",
+							);
+					}
 					const outcome =
 						args.managed_by === "nova"
 							? await manageLookupTableInNova(
 									scope,
 									tableId,
 									args.review_digest,
+									ctx.grant,
+									...(workbook ? [workbook] : []),
 								)
 							: await letHqManageLookupTable(
 									scope,

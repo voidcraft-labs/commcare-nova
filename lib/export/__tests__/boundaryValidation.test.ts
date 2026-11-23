@@ -467,6 +467,7 @@ describe("prepareExportBoundary", () => {
 					role: "owner",
 				},
 				[],
+				"export",
 			);
 			expect(getLookupDefinitions).not.toHaveBeenCalled();
 			/* No referenced table — nothing to carry, so neither carrier. */
@@ -636,6 +637,7 @@ describe("prepareExportBoundary", () => {
 				role: ACCESS.role,
 			},
 			[tableId],
+			"export",
 		);
 		expect(missing.violations.map((finding) => finding.code)).toContain(
 			"LOOKUP_TABLE_NOT_AVAILABLE",

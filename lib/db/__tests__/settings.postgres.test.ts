@@ -29,6 +29,7 @@ vi.mock("@/lib/commcare/client", () => ({
 	discoverAccessibleDomains: mocks.discover,
 }));
 
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("settings_");
@@ -85,6 +86,12 @@ describe("getHqCredentials — decrypt happens ONLY after the target resolves", 
 				server: "eu",
 			},
 			domain: PROD,
+			connectionDigest: canonicalJsonDigest([
+				"alice@example.com",
+				"ciphertext",
+				"eu",
+				PROD.name,
+			]),
 		});
 		expect(mocks.decrypt).toHaveBeenCalledTimes(1);
 	});

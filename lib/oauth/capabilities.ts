@@ -121,6 +121,13 @@ const KNOWN_CAPABILITIES: readonly CapabilityDef[] = [
 		icon: tablerUsersPlus,
 		matches: (s) => s.has("nova.projects.write"),
 	},
+	{
+		key: "nova.projects.data.export",
+		label:
+			"Download private Project data assignments and worker installation data for project spaces you can access",
+		icon: tablerCloudDownload,
+		matches: (s) => s.has("nova.projects.data.export"),
+	},
 ];
 
 /**
@@ -145,6 +152,7 @@ const KNOWN_CAPABILITY_SCOPES: ReadonlySet<string> = new Set([
 	"nova.hq.import",
 	"nova.projects.read",
 	"nova.projects.write",
+	"nova.projects.data.export",
 ]);
 
 // ── Public API ──────────────────────────────────────────────────────

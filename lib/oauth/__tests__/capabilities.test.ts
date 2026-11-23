@@ -33,6 +33,7 @@ describe("deriveCapabilities", () => {
 			"nova.hq.import",
 			"nova.projects.read",
 			"nova.projects.write",
+			"nova.projects.data.export",
 		];
 		expect(deriveCapabilities(scopes).map(({ key }) => key)).toEqual(scopes);
 	});

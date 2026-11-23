@@ -25,6 +25,7 @@ import {
 	useState,
 } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import { DatePicker } from "@/components/shadcn/date-picker";
@@ -89,6 +90,7 @@ import {
 import type { StoredLocation } from "@/lib/organization/types";
 import type { OrganizationView } from "@/lib/organization/useOrganization";
 import { useOrganization } from "@/lib/organization/useOrganization";
+import type { PlaceSearch } from "@/lib/organization/usePlacePage";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { parseClockTime } from "@/lib/ui/clockTime";
@@ -125,8 +127,14 @@ const AUTOMATION_PREVIEW_UNAVAILABLE_MESSAGE =
 
 type AutomationOrganizationState = Pick<
 	OrganizationView,
-	"loading" | "error" | "warning" | "refreshing" | "reload"
->;
+	| "loading"
+	| "error"
+	| "warning"
+	| "refreshing"
+	| "reload"
+	| "paged"
+	| "revision"
+> & { appId: string };
 
 function Input(props: ComponentProps<typeof ShadcnInput>) {
 	return <ShadcnInput {...props} autoComplete="off" data-1p-ignore="" />;
@@ -918,6 +926,15 @@ function AutomationEditor({
 									<ConditionsEditor
 										automation={state.automation}
 										locations={locations}
+										remote={
+											organizationState.paged
+												? {
+														appId: organizationState.appId,
+														revision: organizationState.revision,
+														activeOnly: true,
+													}
+												: undefined
+										}
 										locationChoicesAvailable={locationChoicesAvailable}
 										onEdit={edit}
 									/>
@@ -952,6 +969,15 @@ function AutomationEditor({
 											caseTypes={caseTypes}
 											forms={forms}
 											locations={locations}
+											remote={
+												organizationState.paged
+													? {
+															appId: organizationState.appId,
+															revision: organizationState.revision,
+															activeOnly: true,
+														}
+													: undefined
+											}
 											locationChoicesAvailable={locationChoicesAvailable}
 											levels={levels}
 											userProperties={userProperties}
@@ -1741,11 +1767,13 @@ function useRepeatedRowRemovalFocus(items: readonly { readonly uuid: Uuid }[]) {
 function ConditionsEditor({
 	automation,
 	locations,
+	remote,
 	locationChoicesAvailable,
 	onEdit,
 }: {
 	automation: Automation;
 	locations: readonly StoredLocation[];
+	remote?: PlaceSearch;
 	locationChoicesAvailable: boolean;
 	onEdit: (recipe: (draft: WritableDraft<Automation>) => void) => void;
 }) {
@@ -2060,22 +2088,41 @@ function ConditionsEditor({
 						{criterion.kind === "location" && (
 							<>
 								<Labeled label="Location">
-									<Choice
-										value={criterion.locationUuid}
-										disabled={!locationChoicesAvailable}
-										onChange={(locationUuid) =>
-											onEdit((draft) => {
-												const item = draft.criteria[index];
-												if (item?.kind === "location") {
-													item.locationUuid = asUuid(locationUuid);
-												}
-											})
-										}
-										options={automationLocationOptions(
-											liveLocations,
-											criterion.locationUuid,
-										)}
-									/>
+									{remote ? (
+										<LocationChoiceSelect
+											remote={remote}
+											locations={liveLocations}
+											value={criterion.locationUuid}
+											ariaLabel="Location"
+											placeholder="Choose a place"
+											disabled={!locationChoicesAvailable}
+											onValueChange={(locationUuid) =>
+												onEdit((draft) => {
+													const item = draft.criteria[index];
+													if (item?.kind === "location") {
+														item.locationUuid = asUuid(locationUuid);
+													}
+												})
+											}
+										/>
+									) : (
+										<Choice
+											value={criterion.locationUuid}
+											disabled={!locationChoicesAvailable}
+											onChange={(locationUuid) =>
+												onEdit((draft) => {
+													const item = draft.criteria[index];
+													if (item?.kind === "location") {
+														item.locationUuid = asUuid(locationUuid);
+													}
+												})
+											}
+											options={automationLocationOptions(
+												liveLocations,
+												criterion.locationUuid,
+											)}
+										/>
+									)}
 								</Labeled>
 								<Toggle
 									checked={criterion.includeDescendants}
@@ -2593,6 +2640,7 @@ function AlertEditor({
 	caseTypes,
 	forms,
 	locations,
+	remote,
 	locationChoicesAvailable,
 	levels,
 	userProperties,
@@ -2602,6 +2650,7 @@ function AlertEditor({
 	caseTypes: readonly CaseType[];
 	forms: readonly AutomationFormChoice[];
 	locations: readonly StoredLocation[];
+	remote?: PlaceSearch;
 	locationChoicesAvailable: boolean;
 	levels: readonly { uuid: Uuid; name: string }[];
 	userProperties: readonly { uuid: Uuid; label: string; slug: string }[];
@@ -2767,37 +2816,67 @@ function AlertEditor({
 								)}
 								{recipient.kind === "location" && (
 									<Labeled label="Location">
-										<Choice
-											value={recipient.locationUuid}
-											disabled={!locationChoicesAvailable}
-											onChange={(value) =>
-												onEdit((draft) => {
-													if (draft.kind === "conditional-alert") {
-														const item = draft.recipients[index];
-														if (item?.kind === "location")
-															item.locationUuid = asUuid(value);
-													}
-												})
-											}
-											options={automationLocationOptions(
-												locations,
-												recipient.locationUuid,
-											).map(([id, label, unavailable]) => {
-												const alreadySelected = automation.recipients.some(
-													(candidate) =>
-														candidate.uuid !== recipient.uuid &&
-														candidate.kind === "location" &&
-														candidate.locationUuid === id,
-												);
-												return [
-													id,
-													alreadySelected
-														? `${label} (already selected)`
-														: label,
-													unavailable || alreadySelected,
-												];
-											})}
-										/>
+										{remote ? (
+											<LocationChoiceSelect
+												remote={remote}
+												locations={locations}
+												value={recipient.locationUuid}
+												ariaLabel="Location"
+												placeholder="Choose a place"
+												disabled={!locationChoicesAvailable}
+												issueFor={(row) =>
+													automation.recipients.some(
+														(candidate) =>
+															candidate.kind === "location" &&
+															candidate.uuid !== recipient.uuid &&
+															candidate.locationUuid === row.id,
+													)
+														? "Already selected"
+														: undefined
+												}
+												onValueChange={(value) =>
+													onEdit((draft) => {
+														if (draft.kind === "conditional-alert") {
+															const item = draft.recipients[index];
+															if (item?.kind === "location")
+																item.locationUuid = asUuid(value);
+														}
+													})
+												}
+											/>
+										) : (
+											<Choice
+												value={recipient.locationUuid}
+												disabled={!locationChoicesAvailable}
+												onChange={(value) =>
+													onEdit((draft) => {
+														if (draft.kind === "conditional-alert") {
+															const item = draft.recipients[index];
+															if (item?.kind === "location")
+																item.locationUuid = asUuid(value);
+														}
+													})
+												}
+												options={automationLocationOptions(
+													locations,
+													recipient.locationUuid,
+												).map(([id, label, unavailable]) => {
+													const alreadySelected = automation.recipients.some(
+														(candidate) =>
+															candidate.uuid !== recipient.uuid &&
+															candidate.kind === "location" &&
+															candidate.locationUuid === id,
+													);
+													return [
+														id,
+														alreadySelected
+															? `${label} (already selected)`
+															: label,
+														unavailable || alreadySelected,
+													];
+												})}
+											/>
+										)}
 									</Labeled>
 								)}
 							</div>

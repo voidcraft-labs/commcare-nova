@@ -7,6 +7,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { registerSharedTool } from "./adapters/sharedToolAdapter";
+import { registerExportResource } from "./exportResource";
 import { registerBringInHqApp } from "./tools/bringInHqApp";
 import { registerBringInHqChanges } from "./tools/bringInHqChanges";
 import { registerCheckProjectSpaceCompatibility } from "./tools/checkProjectSpaceCompatibility";
@@ -32,6 +33,7 @@ import {
 	registerSetLookupTableManagement,
 } from "./tools/managedData";
 import { registerMoveApp } from "./tools/moveApp";
+import { registerPlaceIdWorkbook } from "./tools/placeIdWorkbook";
 import { registerProvisionWorkers } from "./tools/provisionWorkers";
 import { registerReadHqApp } from "./tools/readHqApp";
 import { registerReadHqChanges } from "./tools/readHqChanges";
@@ -55,6 +57,8 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerWorkTools(server, ctx);
 	registerDeleteApp(server, ctx);
 	registerCompileApp(server, ctx);
+	registerPlaceIdWorkbook(server, ctx);
+	registerExportResource(server, ctx);
 	registerGetHqConnection(server, ctx);
 	registerListHqApps(server, ctx);
 	registerReadHqApp(server, ctx);

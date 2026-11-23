@@ -61,6 +61,10 @@ const expectedRules: LifecycleRule[] = [
 			matchesPrefix: [STAGED_CAPTURE_PREFIX],
 		},
 	},
+	{
+		action: { type: "Delete" },
+		condition: { age: 1, matchesPrefix: ["private-exports/"] },
+	},
 ];
 
 function beforeMetadata(

@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /** Publish persisted apps through the actual SDK, compiler, ledger and HTTP. */
 
 import { createHash } from "node:crypto";
@@ -57,7 +58,7 @@ import {
 } from "@/lib/deployment/errors";
 import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
-import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
+import { refreshDeployment } from "@/lib/deployment/service";
 import {
 	readDeployment,
 	readDeploymentNovaRevisions,
@@ -141,14 +142,33 @@ const SOURCE = sourcePath();
  */
 const PROJECT_SPACES_READ = `GET ${HOST}/api/user_domains/v1/?limit=100`;
 const PROJECT_SPACES = [PROJECT_SPACES_READ, PROJECT_SPACES_READ];
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
-	scopes = ["nova.read", "nova.hq.write"],
+	scopes = ["nova.read", "nova.write", "nova.hq.write"],
 ) {
+	const clientId = "publish-fixture";
+	const issuedAt = Math.floor(Date.now() / 1000);
+	await sql`INSERT INTO auth_oauth_client(id,"clientId","redirectUris","createdAt","updatedAt") VALUES (${clientId},${clientId},'[]'::jsonb,now(),now()) ON CONFLICT DO NOTHING`.execute(
+		h.db(),
+	);
+	await sql`INSERT INTO auth_oauth_consent(id,"clientId","userId",scopes,"createdAt","updatedAt")
+ SELECT ${`${userId}-consent`},${clientId},id,${JSON.stringify(scopes)}::jsonb,now(),now() FROM auth_user WHERE id=${userId}
+ ON CONFLICT(id) DO UPDATE SET scopes=excluded.scopes`.execute(h.db());
 	return withMcpClient(
 		(server) =>
-			registerUploadAppToHq(server, { userId, scopes, authKind: "oauth" }),
+			registerUploadAppToHq(server, {
+				userId,
+				scopes,
+				authKind: "oauth",
+				grant: {
+					kind: "oauth",
+					clientId,
+					issuedAt,
+					expiresAt: issuedAt + 3600,
+					scopes,
+				},
+			}),
 		run,
 	);
 }
