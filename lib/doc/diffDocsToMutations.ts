@@ -1239,6 +1239,11 @@ function* diffGranularSteps(
 	// early child removal because that removed module may still own a surviving
 	// form; the child removal leads reparenting because the reducer refuses to
 	// demote a root while any child remains.
+	/* A language's own files name the language, and target admission takes
+	 * them only once the app holds it, so a file in a language the target
+	 * adds waits until the localization diff has added it. */
+	const priorLanguages = new Set(beforeLanguages.languageOrder);
+	const awaitingLanguage: Mutation[] = [];
 	const structural: Mutation[] = [
 		...appLevel,
 		...rootModuleAdds,
@@ -1256,7 +1261,19 @@ function* diffGranularSteps(
 		...media,
 		...collections,
 		...orders,
-	];
+	].filter((mutation) => {
+		if (
+			(mutation.kind === "setFieldMedia" ||
+				mutation.kind === "setModuleMedia" ||
+				mutation.kind === "setFormMedia") &&
+			mutation.language !== undefined &&
+			!priorLanguages.has(mutation.language)
+		) {
+			awaitingLanguage.push(mutation);
+			return false;
+		}
+		return true;
+	});
 
 	// (6) Case-type catalog — granular catalog mutations (declare / retire /
 	// add-property / set-property / remove-property / set-meta) keyed by
@@ -1334,6 +1351,7 @@ function* diffGranularSteps(
 					applyMutations(draft, admitMutationBatch(residual));
 				});
 	structural.push(...diffLocalization(localizationBase, next));
+	structural.push(...awaitingLanguage);
 	// Held placements last: no other mutation writes a held slot, and
 	// localization writes none, so `localizationBase` holds what every
 	// mutation before this one leaves held.

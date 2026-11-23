@@ -240,6 +240,68 @@ describe("language-scoped media across editors", () => {
 				.media,
 		).toEqual(inlineChoice(base, CHOICE).media);
 	});
+	it("undoes removing a language that held its own question, choice and menu files", () => {
+		const shared = produce(choiceFixture(), (draft) => {
+			draft.modules[MODULE].icon = first;
+			const field = draft.fields[CHOICE_FIELD];
+			if (field.kind !== "single_select") throw Error("Expected a choice.");
+			field.label_media = { image: first };
+		});
+		const withFrench = apply(shared, [
+			{
+				kind: "setFieldMedia",
+				fieldUuid: CHOICE_FIELD,
+				slot: "label",
+				language: "fra",
+				media: { image: third },
+			},
+			{
+				kind: "setFieldMedia",
+				fieldUuid: CHOICE_FIELD,
+				slot: "label",
+				optionUuid: CHOICE,
+				language: "fra",
+				media: { image: third },
+			},
+			{
+				kind: "setModuleMedia",
+				uuid: MODULE,
+				language: "fra",
+				icon: third,
+				audioLabel: null,
+			},
+		]);
+		const removed = apply(withFrench, [
+			{ kind: "removeLanguage", code: "fra" },
+		]);
+		/* Undo is the diff back to the document before the removal. */
+		const undo = diffDocsToMutations(removed, withFrench);
+		const kinds = undo.map((mutation) => mutation.kind);
+		expect(kinds.indexOf("addLanguage")).toBeGreaterThanOrEqual(0);
+		const restored = apply(removed, undo);
+		expect(restored.fields[CHOICE_FIELD]).toEqual(
+			withFrench.fields[CHOICE_FIELD],
+		);
+		expect(restored.modules[MODULE]).toEqual(withFrench.modules[MODULE]);
+		expect(restored.localization).toEqual(withFrench.localization);
+	});
+	it("brings in a language that arrives with a menu file of its own", () => {
+		const base = produce(choiceFixture(), (draft) => {
+			draft.modules[MODULE].icon = first;
+		});
+		const target = produce(base, (draft) => {
+			if (draft.localization === undefined) throw Error("No languages.");
+			draft.localization.languageOrder.push("hin");
+			draft.localization.wireCodes.hin = "hi";
+			draft.localization.translations.hin = {};
+			draft.modules[MODULE].mediaByLanguage = { hin: { icon: third } };
+		});
+		const changed = apply(base, diffDocsToMutations(base, target));
+		expect(changed.modules[MODULE]).toEqual(target.modules[MODULE]);
+		expect(
+			effectiveAppLocalization(changed.localization).languageOrder,
+		).toContain("hin");
+	});
 	it("distinguishes a full form, a selected installation with no image, and an invalid installation default", () => {
 		const media = {
 			image: first,
