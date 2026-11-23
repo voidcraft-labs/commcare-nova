@@ -104,6 +104,8 @@ it("actual OAuth registration records allowed capabilities without granting user
 		"nova.hq.import",
 		"nova.hq.read",
 		"nova.hq.write",
+		"nova.preview.search.read",
+		"nova.preview.search.write",
 		"nova.projects.read",
 		"nova.projects.write",
 		"nova.read",
