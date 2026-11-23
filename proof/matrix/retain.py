@@ -273,6 +273,9 @@ def app_reads(authoring, app_id, credential):
     ):
         with authoring.step("reads", name.encode()):
             found[name] = read()
+    with authoring.step("reads", b"source-factories"):
+        for path, answer in operations.source_factory_answers(state, app_id, credential, found["source"]):
+            found[f"factory:{path}"] = answer
     return found
 
 
@@ -331,6 +334,11 @@ def reading_input(app_id_answers, project_answers, media, base, *, claims) -> di
         "source": app_id_answers["source"].retained(),
         "application": app_id_answers["application"].retained(),
         "currentVersion": app_id_answers["currentVersion"].retained(),
+        "sourceFactoryReads": {
+            key.removeprefix("factory:"): answer.retained()
+            for key, answer in app_id_answers.items()
+            if key.startswith("factory:")
+        },
         "projectSpaces": {
             "all": app_id_answers["projectSpaces:all"].retained(),
             "flagged": app_id_answers["projectSpaces:flagged"].retained(),
@@ -452,7 +460,14 @@ def keep_answers(retained, answers, project_answers, media, asked=None):
     retained.keep("application", answers["application"])
     retained.keep("app-source", answers["source"])
     retained.keep("current-version", answers["currentVersion"])
-    if wanted("projectSpaces:all") and wanted("projectSpaces:flagged"):
+    factory_reads = {
+        key.removeprefix("factory:"): answer.retained()
+        for key, answer in answers.items()
+        if key.startswith("factory:") and wanted(key)
+    }
+    if factory_reads:
+        retained.keep("source-factories", factory_reads)
+    if wanted("projectSpaces:all") and (wanted("projectSpaces:flagged") or factory_reads):
         retained.keep("project-spaces", answers["projectSpaces:all"])
         retained.keep("project-spaces-flag", answers["projectSpaces:flagged"])
     for name, file_name in (

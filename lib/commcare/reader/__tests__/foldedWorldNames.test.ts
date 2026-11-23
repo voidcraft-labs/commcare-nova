@@ -209,6 +209,7 @@ describe("location data names that differ only in capitalization", () => {
 			`instance('locations')/locations/location[@id = /data/place]/location_data/zone`,
 			`instance('locations')/locations/location[@id = /data/place]/location_data/Zone`,
 			{
+				sourceProjectFactories: { locations: "flat" },
 				organization: {
 					levelCodes: levels.map((one) => one.code),
 					levels,
@@ -244,6 +245,7 @@ describe("location data names that differ only in capitalization", () => {
 				`instance('locations')/locations/location[@id = /data/place]/location_data/${name}`,
 				"2",
 				{
+					sourceProjectFactories: { locations: "flat" },
 					organization: {
 						levelCodes: levels.map((one) => one.code),
 						levels,

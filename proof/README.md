@@ -2658,7 +2658,8 @@ practice mode before the app (`hq-kept-settings` names one as its practice
 worker, and HQ's build of an app whose practice worker the project space does
 not hold raises `PracticeUserException`); HQ's answers to every read Nova's own reading makes (`app-source.json`,
 `application.json`, `current-version.json`, and, only where the first
-reading asked for them, `project-spaces.json` and `project-spaces-flag.json`,
+reading asked for them, `project-spaces.json`, `project-spaces-flag.json`,
+`source-factories.json` with the source project flags and working resources it consumed,
 `lookup-tables.json`, a fixture-row answer for each table read, `location-types.json`,
 `locations.json` and `media-reads.json`), so a base keeps only the answers a
 reading uses; `seed.json`, the case seed made from A alone

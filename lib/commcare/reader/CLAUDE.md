@@ -213,8 +213,15 @@ Four rules hold everywhere here:
   `unlessClaimed`). Such a text is read in the logic of its form's first field, since a path's
   uses are classed by its form's rules alone.
   A form reads each local instance ID through the source it declares. HQ fills a missing ID
-  only when its factory and its whole-form scanner can supply it on the default build and every retained
-  language profile. The scanner sees HQ’s rendered XForm: it normalizes itext, rewrites the default
+  when its factory and its whole-form scanner supply it on the default build and every retained
+  language profile. The concrete basic and advanced form builds also supply the session and the
+  instances their active case actions generate. A grouped path can read these without a scanner match.
+  A named results or Search input factory requires the app to name that results source. Report factories
+  depend on the source project’s Mobile UCR setting. HQ replaces each report configuration’s UUID in
+  every source read, so a slug that needs the original UUID stays unresolved. An implicit places reference
+  uses the source project’s effective location fixture. Where the legacy location setting applies,
+  the reader checks the source app’s working resource and verifies the source again. An unavailable
+  source leaves the path unresolved; explicit declarations retain their stated source. The scanner sees HQ’s rendered XForm: it normalizes itext, rewrites the default
   language and version, and omits comments, excluded translations and Vellum attributes. A suite
   expression gets one HTML-unescape pass for the scanner; Core executes its original XPath. A dotted lookup ID, for
   example, needs an explicit declaration in the XForm. A selected-entities datum, remote

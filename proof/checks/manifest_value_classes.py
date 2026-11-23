@@ -145,6 +145,7 @@ class Form:
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
         self.scans = {}  # per-language-profile readings from HQ's pre-factory pipeline
+        self.read_built_instances = None  # lazily, for an undeclared read in an actual HQ build
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
         # The suites (their roots) whose entries open the form, where the check reads any: HQ's builds of an app
         # JSON's upload, or a local archive's own suite (``manifest_usage.link_entry_suites``).
@@ -167,6 +168,38 @@ class Form:
         if self.model is not None:
             names -= {element.get("id") for element in self.model if element.tag in ("instance", f"{{{XFORMS}}}instance")}
         return names
+
+    @cached_property
+    def built_instances(self):
+        return self.read_built_instances() if self.read_built_instances is not None else ()
+
+    @cached_property
+    def working_instances(self):
+        """External declarations present in every recorded build and available across language profiles.
+        A declaration present without a default-profile scan was added by HQ's concrete form build."""
+        if not self.built_instances or self.app_form is None:
+            return {}
+        app, form = self.app_form
+        first_profile = next(iter(form_language_profiles(app.doc)), None)
+        default_scan = set(self.scans.get(first_profile, {}).get("names", []))
+        all_profiles = self.scanned_instance_ids
+        direct = {"commcaresession"}
+        actions = form.get("actions") or {}
+        if form.get("doc_type") == "Form" and (
+            (_requires(form) != "none" and (actions.get("case_preload") or {}).get("preload"))
+            or (actions.get("usercase_preload") or {}).get("preload")
+        ):
+            direct.add("casedb")
+        if form.get("doc_type") == "AdvancedForm" and any(
+            isinstance(load, dict) and load.get("preload") for load in actions.get("load_update_cases") or []
+        ):
+            direct.add("casedb")
+        return {
+            name: source
+            for name, source in self.built_instances[0].items()
+            if (name in direct or name in all_profiles or name not in default_scan)
+            and all(instances.get(name) == source for instances in self.built_instances[1:])
+        }
 
     @cached_property
     def xmlns(self):
@@ -386,7 +419,15 @@ class Form:
     @cached_property
     def declared_instances(self):
         """Each ``(id, src)`` the form declares, in order."""
-        return _declared_instances(self.root)
+        return (
+            tuple(
+                (element.get("id"), element.get("src"))
+                for element in self.model
+                if element.tag == f"{{{XFORMS}}}instance" and element.get("id") and element.get("src")
+            )
+            if self.model is not None
+            else ()
+        )
 
     @cached_property
     def counted_repeats(self):
@@ -5580,8 +5621,11 @@ def hierarchical_locations(use, manifest):
     if document is not None:
         if read is None:
             return None
+        declarations = dict(document.declared_instances)
+        if isinstance(document, Form) and read - set(declarations):
+            declarations = {**document.working_instances, **declarations}
         verdicts = {
-            _locations_source(source) for instance_id, source in document.declared_instances if instance_id in read
+            _locations_source(source) for instance_id, source in declarations.items() if instance_id in read
             and source in (FLAT_LOCATIONS, HIERARCHICAL_LOCATIONS)
         }
         if True in verdicts:

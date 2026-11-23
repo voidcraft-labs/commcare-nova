@@ -1,3 +1,4 @@
+import { generatedFormInstances, sourceFactories } from "../sourceFactories";
 import { builtFormInstanceSources } from "./buildInstances";
 /**
  * The form reader: each form's source read into the draft's fields (stage 3),
@@ -412,6 +413,16 @@ function readForm(
 		parsed,
 		ctx.input.source,
 		instanceSources,
+		sourceFactories(ctx.input),
+		generatedFormInstances(ctx.input, form),
+		ctx.input.observeFactory &&
+			((profile) => (kind, id) =>
+				ctx.input.observeFactory?.(kind, id, {
+					menu: form.menu,
+					form: form.index,
+					xmlns: form.xmlns,
+					profile,
+				})),
 	);
 	const carrierInstances = new Set<string>();
 	const controls = readControls({
@@ -1109,6 +1120,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		}
 	return {
 		lookup: ctx.input.lookup.definitions,
+		factories: sourceFactories(ctx.input),
 		sourceNames,
 		itextUnits,
 		instanceSources,

@@ -61,7 +61,12 @@ const ORIGIN = COMMCARE_SERVERS[LANE_TARGET.server].baseUrl;
 
 type Answers = Pick<
 	LaneReadInput,
-	"source" | "application" | "currentVersion" | "projectSpaces" | "projectData"
+	| "source"
+	| "application"
+	| "currentVersion"
+	| "projectSpaces"
+	| "projectData"
+	| "sourceFactoryReads"
 >;
 
 interface Served {
@@ -122,11 +127,24 @@ function tagsByTableId(answers: Answers): ReadonlyMap<string, string> {
 function answerFor(
 	answers: Answers,
 	path: string,
+	asked: readonly string[],
 ): { readonly name: string; readonly answer: Served } | undefined {
 	const url = new URL(path, ORIGIN);
 	const at = url.pathname;
 	const space = `/a/${LANE_TARGET.domain}`;
 	const appId = applicationId(answers);
+	const extra = answers.sourceFactoryReads;
+	const held = extra && Object.hasOwn(extra, path) ? extra[path] : undefined;
+	if (held) return { name: `factory:${path}`, answer: served(held) };
+	if (
+		asked.includes("source") &&
+		at === `${space}/apps/source/${appId}/` &&
+		extra?.["source-check"]
+	)
+		return {
+			name: "factory:source-check",
+			answer: served(extra["source-check"]),
+		};
 	if (appId !== undefined) {
 		if (at === `${space}/api/application/v1/${appId}/`)
 			return { name: "application", answer: served(answers.application) };
@@ -136,7 +154,17 @@ function answerFor(
 			return { name: "currentVersion", answer: served(answers.currentVersion) };
 	}
 	if (at === "/api/user_domains/v1/" && answers.projectSpaces !== undefined) {
-		return url.searchParams.has("feature_flag")
+		const flag = url.searchParams.get("feature_flag");
+		if (flag !== null && flag !== "save-only-edited-form-fields") return;
+		if (flag === null && asked.includes("projectSpaces:all") && extra) {
+			const repeat = Object.keys(extra).find(
+				(key) =>
+					key.startsWith("membership:") && !asked.includes(`factory:${key}`),
+			);
+			if (repeat)
+				return { name: `factory:${repeat}`, answer: served(extra[repeat]) };
+		}
+		return flag !== null
 			? {
 					name: "projectSpaces:flagged",
 					answer: served(answers.projectSpaces.flagged),
@@ -208,7 +236,9 @@ export async function withRetainedHq<T>(
 		.intercept({ path: () => true, method: () => true })
 		.reply((request) => {
 			const found =
-				request.method === "GET" ? answerFor(answers, request.path) : undefined;
+				request.method === "GET"
+					? answerFor(answers, request.path, asked)
+					: undefined;
 			const path = new URL(request.path, ORIGIN).pathname;
 			if (found === undefined || asked.includes(found.name))
 				return refuse(path);

@@ -42,6 +42,7 @@ import {
 	type ReaderLookupCatalog,
 	type ReaderMediaResolution,
 	readHqApp,
+	readHqLookupTagsSteps,
 } from "@/lib/commcare/reader";
 import { serializeClaimLog } from "@/lib/commcare/reader/accounting";
 import { matchingResolver } from "@/lib/commcare/reader/identity";
@@ -65,7 +66,12 @@ import {
 	firstPublishChangePlaces,
 } from "@/lib/deployment/reading/firstPublishChanges";
 import { type Gathered, gatherFromHq } from "@/lib/deployment/reading/gather";
+import { Pieces } from "@/lib/deployment/reading/pieces";
 import type { ReadingProjectSide } from "@/lib/deployment/reading/projectData/read";
+import {
+	mayUseProjectFactory,
+	sourceFactoryReads,
+} from "@/lib/deployment/reading/projectData/read";
 import {
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
@@ -130,6 +136,7 @@ export interface LaneReadInput {
 	readonly currentVersion: RetainedHqAnswer;
 	/** HQ's two project space lists, whole and filtered by the flag. Asked for only where the
 	 *  source holds a write saved only if changed. */
+	readonly sourceFactoryReads?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
 		readonly flagged: RetainedHqAnswer;
@@ -912,7 +919,27 @@ async function readBack(
 		knownCaseTypes: knownCaseTypesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};
-	const outcome = readHqApp(readerInput, { claims: input.claims });
+	const discovery = sourceFactoryReads({
+		creds,
+		domain: LANE_TARGET.domain,
+		remoteAppId,
+		source,
+	});
+	if (mayUseProjectFactory(source))
+		await new Pieces().steps(
+			readHqLookupTagsSteps({
+				...readerInput,
+				observeFactory: (kind, id, form) =>
+					discovery.observe(source, kind, id, form),
+			}),
+		);
+	const factories = await discovery.read();
+	if (factories.kind === "failed")
+		return account(atApp(hqReadCircumstance(factories.failure)));
+	const outcome = readHqApp(
+		{ ...readerInput, sourceProjectFactories: factories.facts },
+		{ claims: input.claims },
+	);
 	const claims =
 		input.claims === "full"
 			? serializeClaimLog(outcome.claims)

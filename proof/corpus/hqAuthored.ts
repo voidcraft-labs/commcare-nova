@@ -96,6 +96,7 @@ export interface RetainedHqApp {
 	readonly application: RetainedHqAnswer;
 	readonly currentVersion: RetainedHqAnswer;
 	/** `project-spaces.json` and `project-spaces-flag.json`, where the reading asks for them. */
+	readonly sourceFactoryReads?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
 		readonly flagged: RetainedHqAnswer;
@@ -241,6 +242,10 @@ export function loadRetainedHqApp(
 		return fail(directory, "does not exist: no lane run retained it");
 	const base = readJson(directory, "base.json") as RetainedHqApp["base"];
 	if (base?.id !== id) fail(directory, `holds a base.json naming ${base?.id}`);
+	const sourceFactoryReads = optionalJson(
+		directory,
+		"source-factories.json",
+	) as RetainedHqApp["sourceFactoryReads"];
 	const all = optionalAnswer(directory, "project-spaces.json");
 	const flagged = optionalAnswer(directory, "project-spaces-flag.json");
 	const mediaRows = (optionalJson(directory, "media.json") ?? []) as readonly {
@@ -265,6 +270,7 @@ export function loadRetainedHqApp(
 	return {
 		id,
 		directory,
+		...(sourceFactoryReads && { sourceFactoryReads }),
 		base,
 		source: answer(directory, "app-source.json"),
 		application: answer(directory, "application.json"),
@@ -315,6 +321,9 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 		source: app.source,
 		application: app.application,
 		currentVersion: app.currentVersion,
+		...(app.sourceFactoryReads && {
+			sourceFactoryReads: app.sourceFactoryReads,
+		}),
 		...(app.projectSpaces !== undefined && {
 			projectSpaces: app.projectSpaces,
 		}),

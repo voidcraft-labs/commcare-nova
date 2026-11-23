@@ -70,16 +70,13 @@ import {
 import { isHqObject, readHqCollection } from "./hq/readCollection";
 import { readHqJson } from "./hq/readJson";
 import { HQ_THROTTLE_MAX_WAIT_MS } from "./hq/throttle";
-/** Private compatibility inputs stay behind the CommCare boundary: the probe
- * takes its plan as data, and the one flag this client reads by name comes
- * from `hqPrivateFeatureFlag`, so its slug is the probe's own. */
+/** Project flag slugs are resolved from the pinned domain-scoped gate definitions. */
 import type {
 	HqPrivateFeatureFlagRequirement,
 	HqProjectSpaceAdvisoryProbePlan,
 	HqProjectSpaceCapabilityProbePlan,
 	HqProjectSpaceCompatibilityProbePlan,
 } from "./projectSpaceCompatibility";
-import { hqPrivateFeatureFlag } from "./projectSpaceCompatibility";
 import { domainFeatureFlag } from "./surface/gates";
 
 /* The HQ wire primitives live in `./hq/http` so every driver shares one
@@ -587,11 +584,9 @@ function notAMemberProjectSpaceResult(
 	};
 }
 
-/** Whether CommCare HQ's builds in a project space save an answer only when the worker changed it. */
-export type HqSaveOnlyEditedAnswers =
-	/** The project space holds the flag: CommCare HQ's build compares before it saves. */
+/** Whether CommCare HQ applies the named feature to this source project. */
+export type HqSourceProjectFlag =
 	| { readonly kind: "applied" }
-	/** The project space does not hold it: CommCare HQ's build saves every time. */
 	| { readonly kind: "not-applied" }
 	/** The key's own list of project spaces answered and does not hold this one. */
 	| { readonly kind: "not-a-member" }
@@ -615,8 +610,25 @@ export async function readHqSaveOnlyEditedAnswers(
 	creds: CommCareCredentials,
 	domain: string,
 	options: { readonly cancel?: AbortSignal } = {},
-): Promise<HqSaveOnlyEditedAnswers> {
-	const failed = (error: CommCareApiError): HqSaveOnlyEditedAnswers => ({
+): Promise<HqSourceProjectFlag> {
+	return readHqSourceFlag(
+		creds,
+		domain,
+		"SAVE_ONLY_EDITED_FORM_FIELDS",
+		options,
+	);
+}
+
+export async function readHqSourceFlag(
+	creds: CommCareCredentials,
+	domain: string,
+	symbol:
+		| "HIERARCHICAL_LOCATION_FIXTURE"
+		| "MOBILE_UCR"
+		| "SAVE_ONLY_EDITED_FORM_FIELDS",
+	options: { readonly cancel?: AbortSignal } = {},
+): Promise<HqSourceProjectFlag> {
+	const failed = (error: CommCareApiError): HqSourceProjectFlag => ({
 		kind: "failed",
 		failure: classifyHqFailure(error, "project-spaces"),
 	});
@@ -631,7 +643,7 @@ export async function readHqSaveOnlyEditedAnswers(
 	if (!Array.isArray(visible)) return failed(visible);
 	if (!visible.some((candidate) => candidate.name === domain))
 		return { kind: "not-a-member" };
-	const flag = hqPrivateFeatureFlag("save-only-edited-answers");
+	const flag = domainFeatureFlag(symbol);
 	const flagged = await list(flag.slug);
 	if (!Array.isArray(flagged)) {
 		/* A slug HQ no longer knows answers 400, which is Nova's to fix. */

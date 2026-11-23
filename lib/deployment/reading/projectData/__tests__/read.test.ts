@@ -97,6 +97,7 @@ function read(
 		creds: { username: "account", apiKey: "fixture-key", server: "india" },
 		server: "india",
 		domain: DOMAIN,
+		remoteAppId: "working-app",
 		appId: "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d",
 		readingId: "019a7f3c-2b1d-7e40-8a9b-0c1d2e3f4a5b",
 		source,
@@ -243,4 +244,203 @@ describe("readReadingProjectData", () => {
 			failure: { request: "location-types", status: 403 },
 		});
 	});
+});
+
+describe("a source project's location instance factory", () => {
+	const all = "/api/user_domains/v1/?limit=100";
+	const flag = `${all}&feature_flag=hierarchical_location_fixture`;
+	const domains = [{ domain_name: DOMAIN, project_name: "Clinic" }];
+	const collection = (objects: unknown[]) => ({
+		objects,
+		meta: { limit: 100, next: null, offset: 0, total_count: objects.length },
+	});
+	it.each([
+		["standard project", false, "", "flat"],
+		["legacy project, flat list", true, "jr://fixture/locations", "flat"],
+		[
+			"legacy project, hierarchical list",
+			true,
+			"jr://fixture/commtrack:locations",
+			"hierarchical",
+		],
+		[
+			"legacy project with no corroborating declaration",
+			true,
+			"jr://instance/session",
+			undefined,
+		],
+		["legacy project changed during the read", true, "changed", undefined],
+	] as const)("reads %s", async (_site, flagged, fixture, expected) => {
+		const source = await sourceNoting(
+			"",
+			"count(instance('locations')/locations/location) > 0",
+		);
+		const form = source.modules[0].forms[0];
+		const ran = await withHttpPeer(async (peer) => {
+			serveJson(peer, LIST, collection([]));
+			serveJson(peer, all, collection(domains));
+			serveJson(peer, flag, collection(flagged ? domains : []));
+			const path = `/a/${DOMAIN}/apps/download/working-app/modules-0/forms-0.xml?latest=true&target=save`;
+			if (flagged) {
+				peer
+					.get(HOST)
+					.intercept({ path, method: "GET" })
+					.reply(
+						200,
+						`<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model><instance><data xmlns="${form.xmlns}"/></instance><instance id="locations" src="${fixture === "changed" ? "jr://fixture/locations" : fixture}"/></model></h:head><h:body/></h:html>`,
+					);
+				if (fixture !== "jr://instance/session") {
+					const after =
+						fixture === "changed"
+							? { ...source.raw, _attachments: {} }
+							: source.raw;
+					serveJson(peer, `/a/${DOMAIN}/apps/source/working-app/`, after);
+				}
+			}
+			serveJson(peer, LEVELS, collection([]));
+			serveJson(
+				peer,
+				`/a/${DOMAIN}/api/location/v2/?limit=5000`,
+				collection([]),
+			);
+			const answer = await read(
+				source,
+				emptyProject({ dataBytes: 0, largestRowBytes: 0 }),
+			);
+			return {
+				answer,
+				paths: (peer.getCallHistory()?.calls() ?? []).map((call) =>
+					call.fullUrl.replace(HOST, ""),
+				),
+				path,
+			};
+		});
+		expect(ran.answer.kind).toBe("read");
+		if (ran.answer.kind === "read")
+			expect(ran.answer.data.sourceProjectFactories?.locations).toBe(expected);
+		expect(ran.paths.includes(ran.path)).toBe(flagged);
+	});
+
+	it("asks no project flag for a scanner-visible label with no expression consuming it", async () => {
+		const source = await sourceNoting("", "true()", "<!--before-->");
+		const attachments = Object.fromEntries(
+			Object.entries(source.raw._attachments as Record<string, string>).map(
+				([key, xml]) => [
+					key,
+					xml.replace(
+						/<value( [^>]*)?>[^<]+<\/value>/,
+						"<value>Guide to instance('locations')</value>",
+					),
+				],
+			),
+		);
+		expect(
+			Object.values(attachments).some((xml) =>
+				xml.includes("Guide to instance"),
+			),
+		).toBe(true);
+		const reading = await sourceFromBody({
+			...source.raw,
+			_attachments: attachments,
+		});
+		const reply = await withHttpPeer(async (peer) => {
+			serveJson(peer, LIST, collection([]));
+			serveJson(peer, LEVELS, collection([]));
+			serveJson(
+				peer,
+				`/a/${DOMAIN}/api/location/v2/?limit=5000`,
+				collection([]),
+			);
+			const result = await read(
+				reading,
+				emptyProject({ dataBytes: 0, largestRowBytes: 0 }),
+			);
+			return {
+				result,
+				paths: peer
+					.getCallHistory()
+					?.calls()
+					.map((call) => call.fullUrl),
+			};
+		});
+		expect(reply.result.kind).toBe("read");
+		expect(
+			reply.paths?.some(
+				(path) =>
+					path.includes("user_domains") || path.includes("apps/download/"),
+			),
+		).toBe(false);
+	});
+
+	it.each([false, true])(
+		"corroborates a suite-only factory against the same working source, changed=%s",
+		async (changed) => {
+			const original = await sourceNoting("");
+			const menus = original.raw.modules as Array<
+				Record<string, unknown> & { forms: Record<string, unknown>[] }
+			>;
+			const source = await sourceFromBody({
+				...original.raw,
+				modules: menus.map((menu, i) =>
+					i === 0
+						? {
+								...menu,
+								forms: menu.forms.map((form, j) =>
+									j === 0
+										? {
+												...form,
+												form_filter:
+													"count(instance('locations')/locations/location) > 0",
+											}
+										: form,
+								),
+							}
+						: menu,
+				),
+			});
+			const answer = await withHttpPeer(async (peer) => {
+				serveJson(peer, LIST, collection([]));
+				serveJson(peer, all, collection(domains));
+				serveJson(peer, flag, collection(domains));
+				const suite = `/a/${DOMAIN}/apps/download/working-app/suite.xml?latest=true&target=save`;
+				peer
+					.get(HOST)
+					.intercept({ path: suite, method: "GET" })
+					.reply(
+						200,
+						'<suite><entry><instance id="locations" src="jr://fixture/commtrack:locations"/></entry></suite>',
+					);
+				serveJson(
+					peer,
+					`/a/${DOMAIN}/apps/source/working-app/`,
+					changed ? { ...source.raw, name: "Changed" } : source.raw,
+				);
+				serveJson(peer, LEVELS, collection([]));
+				serveJson(
+					peer,
+					`/a/${DOMAIN}/api/location/v2/?limit=5000`,
+					collection([]),
+				);
+				const result = await read(
+					source,
+					emptyProject({ dataBytes: 0, largestRowBytes: 0 }),
+				);
+				return {
+					result,
+					paths: peer
+						.getCallHistory()
+						?.calls()
+						.map((call) => call.fullUrl),
+				};
+			});
+			expect(answer.paths?.some((path) => path.includes("/suite.xml?"))).toBe(
+				true,
+			);
+			expect(answer.result.kind).toBe("read");
+			if (answer.result.kind === "read")
+				expect(answer.result.data.sourceProjectFactories?.locations).toBe(
+					changed ? undefined : "hierarchical",
+				);
+		},
+	);
 });

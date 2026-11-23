@@ -15,7 +15,10 @@ import {
 	WorkLimitReached,
 	WorkMeter,
 } from "../workMeter";
-import { instanceForRead } from "../xpath/instanceSources";
+import {
+	type ConditionalFactory,
+	instanceForRead,
+} from "../xpath/instanceSources";
 import { readApplication } from "./appShell";
 import { assembleDocument, assembleDocumentSteps } from "./assemble";
 import { readCaseLists, readCaseListsSteps, settleCaseLists } from "./caseList";
@@ -31,6 +34,7 @@ import { createReadContext, type ReadContext } from "./context";
 import {
 	instanceSourcesOf,
 	preparedSource,
+	slotForm,
 } from "./expressions/readExpression";
 import { instanceIdsIn } from "./expressions/surfaceUses";
 import {
@@ -53,6 +57,7 @@ import type {
 	ReaderOptions,
 	ReadOutcome,
 	ReadWork,
+	SourceFormFactoryWitness,
 } from "./types";
 import { readWorkLimit, sourceCharacters } from "./work";
 import {
@@ -217,10 +222,44 @@ export function* readHqLookupTagsSteps(
 			return input.lookup.table(tag);
 		},
 	};
+	// Resolve potential conditional declarations during discovery, then request a
+	// project fact only for a declaration consumed by an actual expression.
+	// Prose alone can cause HQ to add an instance without a worker reading it.
+	const discover = input.observeFactory;
+	const candidates = new Map<
+		string | undefined,
+		Map<string, { kind: ConditionalFactory; form?: SourceFormFactoryWitness }>
+	>();
+	const probe =
+		discover === undefined
+			? {}
+			: {
+					sourceProjectFactories: {
+						locations: "flat" as const,
+						mobileReports: true,
+					},
+					observeFactory(
+						kind: ConditionalFactory,
+						id: string,
+						form?: SourceFormFactoryWitness,
+					) {
+						let inScope = candidates.get(form?.xmlns);
+						if (!inScope) {
+							inScope = new Map();
+							candidates.set(form?.xmlns, inScope);
+						}
+						if (!inScope.has(id)) inScope.set(id, { kind, form });
+					},
+				};
 	function* collect(ctx: ReadContext): Generator<void, void, void> {
 		const doc = provisionalDocument(ctx);
 		const env = expressionEnvOf(ctx);
 		const pending = ctx.pending.list();
+		const formByUuid = new Map(
+			ctx.draft.modules.flatMap((menu) =>
+				menu.forms.map((form) => [form.uuid, form.xmlns] as const),
+			),
+		);
 		for (const [index, registration] of pending.entries()) {
 			if (index > 0 && index % 32 === 0) yield;
 			if (registration.usesOnly === true) continue;
@@ -238,15 +277,25 @@ export function* readHqLookupTagsSteps(
 			}
 			const sources = instanceSourcesOf(doc, registration, env);
 			for (const id of ids) {
+				if (discover && sources?.has(id)) {
+					const form =
+						registration.mode.target === "xform"
+							? slotForm(doc, registration.ref)
+							: undefined;
+					const scope = form === undefined ? undefined : formByUuid.get(form);
+					const candidate = candidates.get(scope)?.get(id);
+					if (candidate) discover(candidate.kind, id, candidate.form);
+				}
 				const bound = instanceForRead(id, sources);
 				if (bound?.kind === "table") tags.add(bound.tag);
 			}
 		}
 	}
-	const { complete, meter } = yield* runStages({ ...input, lookup }, options, [
-		...STAGE_STEPS.slice(0, REGISTRATION_PARTS.length),
-		collect,
-	]);
+	const { complete, meter } = yield* runStages(
+		{ ...input, lookup, ...probe },
+		options,
+		[...STAGE_STEPS.slice(0, REGISTRATION_PARTS.length), collect],
+	);
 	if (!complete) throw new WorkLimitReached(meter);
 	return tags;
 }

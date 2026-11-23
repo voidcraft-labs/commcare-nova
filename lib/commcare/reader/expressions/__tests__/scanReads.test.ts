@@ -188,39 +188,55 @@ describe("the scan of an app's expressions", () => {
 		]);
 	});
 
-	it("collects place property slugs and table tags", () => {
-		const app = doc();
-		const form = onlyForm(app);
-		const relevant: SlotContextRef = {
-			entity: "field",
-			uuid: fieldNamed(app, "q1"),
-			slot: "relevant",
-		};
-		const scanned = scanReads(
-			[
-				registration(
-					app,
-					relevant,
-					"instance('locations')/locations/location[@id = /data/q1]/location_data/zone = 'x'",
-				),
-				registration(
-					app,
-					relevant,
-					"instance('locations')/locations/location[location_data/area = 'n']/@id = /data/q1",
-				),
-			],
-			app,
-			readEnv({
-				instanceSources: new Map([
-					[form, new Map([["crops", "jr://fixture/item-list:crops"]])],
-				]),
-			}),
-		);
-		expect(scanned.locationDataSlugs).toEqual(["area", "zone"]);
-		// The form declares the table and nothing of it reads its id.
-		expect(scanned.lookupTags).toEqual([]);
-		expect(scanned.declaredLookupTags).toEqual(["crops"]);
-	});
+	it.each([true, false])(
+		"collects only the place properties of the actual source, flat=%s",
+		(flatPlaces) => {
+			const app = doc();
+			const form = onlyForm(app);
+			const relevant: SlotContextRef = {
+				entity: "field",
+				uuid: fieldNamed(app, "q1"),
+				slot: "relevant",
+			};
+			const scanned = scanReads(
+				[
+					registration(
+						app,
+						relevant,
+						"instance('locations')/locations/location[@id = /data/q1]/location_data/zone = 'x'",
+					),
+					registration(
+						app,
+						relevant,
+						"instance('locations')/locations/location[location_data/area = 'n']/@id = /data/q1",
+					),
+				],
+				app,
+				readEnv({
+					instanceSources: new Map([
+						[
+							form,
+							new Map([
+								["crops", "jr://fixture/item-list:crops"],
+								[
+									"locations",
+									flatPlaces
+										? "jr://fixture/locations"
+										: "jr://instance/session",
+								],
+							]),
+						],
+					]),
+				}),
+			);
+			expect(scanned.locationDataSlugs).toEqual(
+				flatPlaces ? ["area", "zone"] : [],
+			);
+			// The form declares the table and nothing of it reads its id.
+			expect(scanned.lookupTags).toEqual([]);
+			expect(scanned.declaredLookupTags).toEqual(["crops"]);
+		},
+	);
 
 	it("reads a table by the id its form declares it under, or by its item-list id", () => {
 		const app = doc();

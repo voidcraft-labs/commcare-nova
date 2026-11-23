@@ -128,6 +128,9 @@ def input_of(members: Mapping[str, bytes], *, claims: str = "full") -> dict:
         "identity": "mint",
         "claims": claims,
     }
+    factories = _optional(members, "source-factories.json")
+    if factories:
+        found["sourceFactoryReads"] = factories
     spaces = _optional(members, "project-spaces.json")
     flagged = _optional(members, "project-spaces-flag.json")
     if spaces is not None and flagged is not None:

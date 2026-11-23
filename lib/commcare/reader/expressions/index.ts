@@ -139,6 +139,7 @@ import {
 } from "./surfaceUses";
 
 export interface ExpressionReadEnv {
+	readonly factories?: import("../../xpath/instanceSources").InstanceFactories;
 	readonly lookup: LookupDefinitionIndex;
 	/** Per form: the source's own names, from which the binding projection is built. */
 	readonly sourceNames: ReadonlyMap<Uuid, ReadSourceNames>;

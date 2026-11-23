@@ -7,7 +7,9 @@ import "server-only";
  * decision is `index.ts`'s; this file only reads.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
+import { readHqSourceFlag } from "@/lib/commcare/client";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { classifyHqFailure, type HqFailure } from "@/lib/commcare/hq/failure";
@@ -18,10 +20,16 @@ import {
 	listHqLocations,
 	listHqLocationTypes,
 } from "@/lib/commcare/hq/locations";
+import {
+	readWorkingLocationFixture,
+	type WorkingLocationWitness,
+} from "@/lib/commcare/hq/workingLocationFixture";
 import { WorkLimitReached } from "@/lib/commcare/workMeter";
+import type { ConditionalFactory } from "@/lib/commcare/xpath/instanceSources";
 import { readLookupReferencingApps } from "@/lib/db/lookupReferenceEdges";
 import { getAppDb } from "@/lib/db/pg";
 import { projectRoleFor } from "@/lib/db/projectMembership";
+import { normalizedHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { recordFromEntries } from "@/lib/domain/records";
 import { readLookupFixtureDataInTransaction } from "@/lib/lookup/fixtureSnapshot";
@@ -192,6 +200,16 @@ function readingSourceText(source: HqAppSource): string {
 	return parts.join("\n");
 }
 
+export function mayUseProjectFactory(source: string | HqAppSource): boolean {
+	const text = typeof source === "string" ? source : readingSourceText(source);
+	return (
+		text.includes("locations") ||
+		text.includes("commcare:reports") ||
+		text.includes("commcare-reports") ||
+		text.includes("&#")
+	);
+}
+
 type PlacesAnswer =
 	| { readonly kind: "read"; readonly places: ReadingPlacesRead }
 	| { readonly kind: "failed"; readonly failure: HqFailure };
@@ -274,6 +292,97 @@ async function readPlaces(
 	};
 }
 
+/** Project settings for factories an expression in this source actually consumes.
+ * A baseline can ask for the project setting, but only the current working
+ * app can supply its rendered form or suite. */
+export function sourceFactoryReads(input: {
+	creds: CommCareCredentials;
+	domain: string;
+	remoteAppId?: string;
+	source: HqAppSource;
+	cancel?: AbortSignal;
+}) {
+	const { creds, domain, cancel } = input;
+	const needed = new Set<ConditionalFactory>();
+	let formWitness: WorkingLocationWitness | undefined;
+	let currentSuite = false;
+	return {
+		observe(
+			source: HqAppSource,
+			kind: ConditionalFactory,
+			id: string,
+			form?: WorkingLocationWitness,
+		) {
+			needed.add(kind);
+			if (
+				kind === "locations" &&
+				id === "locations" &&
+				source === input.source
+			) {
+				if (form) formWitness ??= form;
+				else currentSuite = true;
+			}
+		},
+		async read(): Promise<
+			| {
+					kind: "read";
+					facts: NonNullable<ReadingProjectData["sourceProjectFactories"]>;
+			  }
+			| { kind: "failed"; failure: HqFailure }
+		> {
+			const sourceProjectFactories: {
+				locations?: "flat" | "hierarchical";
+				mobileReports?: boolean;
+			} = {};
+			for (const kind of needed) {
+				const flag = await readHqSourceFlag(
+					creds,
+					domain,
+					kind === "locations" ? "HIERARCHICAL_LOCATION_FIXTURE" : "MOBILE_UCR",
+					{ cancel },
+				);
+				if (flag.kind === "failed") return flag;
+				if (flag.kind === "not-a-member")
+					return {
+						kind: "failed",
+						failure: {
+							kind: "not-a-member",
+							request: "project-spaces",
+							status: 403,
+						},
+					};
+				if (kind === "mobileReports")
+					sourceProjectFactories.mobileReports = flag.kind === "applied";
+				else if (flag.kind === "not-applied")
+					sourceProjectFactories.locations = "flat";
+				else if (input.remoteAppId && (formWitness || currentSuite)) {
+					const observed = await readWorkingLocationFixture({
+						creds,
+						domain,
+						remoteAppId: input.remoteAppId,
+						source: input.source,
+						witness: formWitness,
+						sameSuiteSource: (after) => {
+							const before = normalizedHqAppSource(input.source.raw);
+							const current = normalizedHqAppSource(after.raw);
+							return (
+								"normalized" in before &&
+								"normalized" in current &&
+								isDeepStrictEqual(before.normalized, current.normalized)
+							);
+						},
+						cancel,
+					});
+					if (observed !== undefined)
+						sourceProjectFactories.locations = observed;
+				}
+			}
+
+			return { kind: "read", facts: sourceProjectFactories };
+		},
+	};
+}
+
 /**
  * Read a bring-in's project data, in order: CommCare HQ's lookup tables the
  * source reads, with their rows; the Project's tables of those tags
@@ -298,6 +407,7 @@ export async function readReadingProjectData(input: {
 	readonly appId: string;
 	readonly readingId: string;
 	readonly source: HqAppSource;
+	readonly remoteAppId?: string;
 	/**
 	 * Another source whose text names tables and places for this read too:
 	 * a review of changes made in CommCare HQ reads one set of Project data
@@ -327,18 +437,36 @@ export async function readReadingProjectData(input: {
 	/* Dated before CommCare HQ is asked, as every refresh dates its read. */
 	const tablesReadAt = new Date();
 	let lookups: Awaited<ReturnType<typeof readHqLookupTablesForReading>>;
+	const factoryReads = sourceFactoryReads(input);
+	const pieces = input.pieces ?? new Pieces(cancel);
+	const dependencies = (
+		listed: Parameters<typeof referencedLookupTags>[0]["listed"],
+	) =>
+		referencedLookupTags({
+			...input,
+			listed,
+			pieces,
+			observeFactory: factoryReads.observe,
+		});
 	try {
+		let gathered = false;
 		lookups = await readHqLookupTablesForReading({
 			creds,
 			domain,
-			referencedTags: (listed) =>
-				referencedLookupTags({
-					...input,
-					listed,
-					pieces: input.pieces ?? new Pieces(cancel),
-				}),
 			cancel,
+			referencedTags: (listed) => {
+				gathered = true;
+				return dependencies(listed);
+			},
 		});
+		// Even a source using no Project tables can consume a project-scoped
+		// factory. Entity-encoded words go through the actual renderer.
+		if (
+			!("success" in lookups) &&
+			!gathered &&
+			mayUseProjectFactory(sourceText)
+		)
+			await dependencies([]);
 	} catch (error) {
 		if (error instanceof WorkLimitReached) return { kind: "too-intricate" };
 		throw error;
@@ -349,6 +477,10 @@ export async function readReadingProjectData(input: {
 			failure: classifyHqFailure(lookups, lookups.request),
 		};
 	}
+
+	const factories = await factoryReads.read();
+	if (factories.kind === "failed") return factories;
+	const sourceProjectFactories = factories.facts;
 
 	const tags = lookups.tables.map((read) => read.table.tag);
 	const projectTables = await project.tables(tags);
@@ -378,26 +510,29 @@ export async function readReadingProjectData(input: {
 
 	return {
 		kind: "read",
-		data: assembleReadingProjectData({
-			origin: { server: input.server, domain },
-			appId: input.appId,
-			readingId: input.readingId,
-			tablesReadAt,
-			tables: lookups.tables,
-			hqTags: lookups.listed,
-			project: {
-				projectId: projectTables.projectId,
-				projectRevision: projectTables.projectRevision,
-				definitions: projectTables.definitions,
-				rowsByTable: projectTables.rowsByTable,
-				apps,
-				keptColumns: projectTables.keptColumns,
-				siblings,
-				mayAdminister,
-			},
-			measured,
-			places,
-			placesUnread,
-		}),
+		data: {
+			sourceProjectFactories,
+			...assembleReadingProjectData({
+				origin: { server: input.server, domain },
+				appId: input.appId,
+				readingId: input.readingId,
+				tablesReadAt,
+				tables: lookups.tables,
+				hqTags: lookups.listed,
+				project: {
+					projectId: projectTables.projectId,
+					projectRevision: projectTables.projectRevision,
+					definitions: projectTables.definitions,
+					rowsByTable: projectTables.rowsByTable,
+					apps,
+					keptColumns: projectTables.keptColumns,
+					siblings,
+					mayAdminister,
+				},
+				measured,
+				places,
+				placesUnread,
+			}),
+		},
 	};
 }

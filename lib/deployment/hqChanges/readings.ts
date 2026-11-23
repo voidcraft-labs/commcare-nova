@@ -316,6 +316,7 @@ export function* makeHqChangeReadingsSteps(
 		resolver,
 		lookup: data.lookups,
 		organization: data.organization,
+		sourceProjectFactories: data.sourceProjectFactories,
 		appStrings: readingAppStrings(readerLookupContext(data)),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),

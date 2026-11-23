@@ -395,11 +395,18 @@ function requiredInstanceIds(pending: PendingExpression): ReadonlySet<string> {
 	const known = requiredIds.get(pending);
 	if (known !== undefined) return known;
 	const ids = new Set<string>();
-	const parsed = sharedFormSyntax(pending.text);
+	const wire = sharedFormSyntax(pending.text);
+	const parsed =
+		!wire.ok && pending.text.includes(".")
+			? readStoredNameSyntax(pending.text)
+			: wire;
 	if (parsed.ok && parsed.node !== undefined)
 		visitSyntax(parsed.node, (node) => {
 			const id = literalInstanceId(node);
-			if (id !== undefined && needsInstanceDeclaration(node, pending.text))
+			if (
+				id &&
+				(id.value.includes(".") || needsInstanceDeclaration(node, pending.text))
+			)
 				ids.add(id.value);
 		});
 	requiredIds.set(pending, ids);
@@ -411,12 +418,13 @@ function requiredInstanceIds(pending: PendingExpression): ReadonlySet<string> {
 function suiteReadSources(
 	doc: BlueprintDoc,
 	pending: PendingExpression,
+	env: ExpressionReadEnv,
 ): SuiteReadSources | undefined {
 	const mode = pending.mode;
 	if (mode.target !== "hq-json" || !pending.text.includes("instance"))
 		return undefined;
 	const ids = requiredInstanceIds(pending);
-	if (ids.size === 0) return undefined;
+	if (ids.size === 0 && env.factories === undefined) return undefined;
 	const text = pending.slotText ?? pending.text;
 	const slot =
 		mode.interpolation !== "none" && mode.interpolation !== "enum-key"
@@ -426,9 +434,14 @@ function suiteReadSources(
 		slot === undefined
 			? { ok: true as const, text }
 			: interpolateHqXPath(text, slot);
-	const sources = instanceSourcesAfterScan(pending.suiteSources ?? new Map(), {
-		rendered: runtime.ok ? runtime.text : "",
-	});
+	const sources = instanceSourcesAfterScan(
+		pending.suiteSources ?? new Map(),
+		{
+			rendered: runtime.ok ? runtime.text : "",
+		},
+		undefined,
+		env.factories,
+	);
 	const missing = [...ids].find(
 		(id) => id.startsWith("item-list:") && !sources.has(id),
 	);
@@ -448,7 +461,7 @@ export function instanceSourcesOf(
 	env: ExpressionReadEnv,
 ): ReadonlyMap<string, string> | undefined {
 	if (pending.mode.target !== "xform")
-		return suiteReadSources(doc, pending)?.sources;
+		return suiteReadSources(doc, pending, env)?.sources;
 	const form = slotForm(doc, pending.ref);
 	const sources =
 		form === undefined ? undefined : env.formReadSources?.get(form);
@@ -457,6 +470,8 @@ export function instanceSourcesOf(
 		(form === undefined ? undefined : env.instanceSources.get(form)) ??
 			new Map(),
 		{ xmlValue: pending.text },
+		undefined,
+		env.factories,
 	);
 }
 
@@ -1719,7 +1734,7 @@ export function bindSlot(
 ):
 	| { readonly kind: "refused"; readonly cause: SlotRefusal }
 	| { readonly kind: "bound"; readonly bound: BoundSlot } {
-	const missingTable = suiteReadSources(doc, pending)?.missingTable;
+	const missingTable = suiteReadSources(doc, pending, env)?.missingTable;
 	if (missingTable !== undefined) {
 		const { name, claim } = undiscoveredLookupName(missingTable);
 		return {
@@ -1756,7 +1771,19 @@ export function bindSlot(
 		if (original.ok && original.node !== undefined) {
 			const raw = bindFormSyntax(
 				spelling,
-				readingScope(doc, pending, env, withdrawn),
+				readingScope(
+					doc,
+					mode.target === "hq-json"
+						? {
+								...pending,
+								text: spelling,
+								slotText: spelling,
+								mode: { target: "hq-json", interpolation: "none" },
+							}
+						: pending,
+					env,
+					withdrawn,
+				),
 				original.node,
 			);
 			if (raw.ok && raw.expression !== undefined) {

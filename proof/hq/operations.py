@@ -909,6 +909,47 @@ def api_access_read(state, credential: ApiCredential) -> HqAnswer:
         return api_request(state, "GET", f"/a/{state.domain}/api/lookup_table/v1/?limit=1", credential=credential)
 
 
+def source_factory_answers(state, app_id, credential, source):
+    """Actual source-project facts and working resources potentially consumed by the reader.
+    The retained base keeps only requests the production reader made."""
+    from urllib.parse import urlencode
+
+    from corehq import toggles
+
+    if source.status != 200:
+        return
+    supplied = json.loads(source.body)
+    encoded = "&#" in source.body
+    for flag, required in (
+        (toggles.HIERARCHICAL_LOCATION_FIXTURE, "locations" in source.body),
+        (toggles.MOBILE_UCR, "commcare:reports" in source.body or "commcare-reports" in source.body),
+    ):
+        if not encoded and not required:
+            continue
+        yield f"membership:{flag.slug}", project_spaces_read(state, credential)
+        path = f"/api/user_domains/v1/?limit=100&feature_flag={flag.slug}"
+        response = api_request(state, "GET", path, credential=credential)
+        yield path, response
+        if flag is not toggles.HIERARCHICAL_LOCATION_FIXTURE or response.status != 200:
+            continue
+        if not any(row.get("domain_name") == state.domain for row in json.loads(response.body)["objects"]):
+            continue
+        resources = [("suite.xml", None)]
+        for menu, module in enumerate(supplied.get("modules") or []):
+            for index, form in enumerate(module.get("forms") or []):
+                xml = (supplied.get("_attachments") or {}).get(f"{form.get('unique_id')}.xml")
+                if isinstance(xml, str) and ("locations" in xml or "&#" in xml):
+                    for profile in (None, *(supplied.get("build_profiles") or {})):
+                        resources.append((f"modules-{menu}/forms-{index}.xml", profile))
+        for resource, profile in resources:
+            query = {"latest": "true", "target": "save"}
+            if profile:
+                query["profile"] = profile
+            path = f"/a/{state.domain}/apps/download/{app_id}/{resource}?{urlencode(query)}"
+            yield path, api_request(state, "GET", path, credential=credential)
+        yield "source-check", source_read(state, app_id, credential)
+
+
 def project_spaces_read(state, credential: ApiCredential, *, feature_flag: str | None = None) -> HqAnswer:
     """``api/resources/v0_5.py::UserDomainsResource``, as Nova's ``listDomainsMatching`` reads it:
     ``GET /api/user_domains/v1/?limit=100``, with ``&feature_flag=<slug>`` where one is named, through

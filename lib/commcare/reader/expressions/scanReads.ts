@@ -78,7 +78,7 @@ const CSQL_RELATION_FUNCTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /** Every node of a syntax tree, in document order. */
-function nodesOf(root: FormSyntax): FormSyntax[] {
+function nodesOf(root: FormSyntax, includePredicates = true): FormSyntax[] {
 	const found: FormSyntax[] = [];
 	const visit = (node: FormSyntax): void => {
 		found.push(node);
@@ -94,7 +94,7 @@ function nodesOf(root: FormSyntax): FormSyntax[] {
 				return;
 			case "filter":
 				visit(node.base);
-				visit(node.where);
+				if (includePredicates) visit(node.where);
 				return;
 			case "binary":
 				visit(node.left);
@@ -580,6 +580,16 @@ function readsScanner(
 	// The instance ids each form's expressions read, so a declaration of a
 	// table is a read only where an expression of its form reads its id.
 	const readIds = new Map<Uuid, Set<string>>();
+	const noteLocationProperty = (path: NonNullable<ReturnType<typeof flat>>) => {
+		const [data, slug] = path.steps;
+		if (
+			data?.name === "location_data" &&
+			!data.attribute &&
+			slug &&
+			!slug.attribute
+		)
+			slugs.add(slug.name);
+	};
 	const scan = (
 		syntax: FormSyntax,
 		ref: PendingExpression["ref"],
@@ -624,18 +634,23 @@ function readsScanner(
 			const path = flat(at, true);
 			if (path === undefined) continue;
 			if (path.root === undefined) {
-				const [data, slug] = path.steps;
-				if (
-					data?.name === "location_data" &&
-					!data.attribute &&
-					slug !== undefined &&
-					!slug.attribute
-				)
-					slugs.add(slug.name);
+				if (row?.kind === "location" && !inPredicate.has(at))
+					noteLocationProperty(path);
 				continue;
 			}
 			const instance = instanceId(path);
 			if (instance === "locations") {
+				const location = path.steps[1];
+				if (
+					path.steps[0]?.name === "locations" &&
+					location?.name === "location"
+				)
+					for (const where of location.where)
+						for (const candidate of nodesOf(where, false)) {
+							const relative = flat(candidate);
+							if (relative?.root === undefined && relative)
+								noteLocationProperty(relative);
+						}
 				const index = path.steps.findIndex(
 					(step) => step.name === "location_data" && !step.attribute,
 				);

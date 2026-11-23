@@ -976,7 +976,17 @@ class _Unit:
                 ("currentVersion", operations.current_version_read),
             ):
                 with ops(f"reads:{label}", name.encode()):
-                    found[name] = kept(read(unit, app_id, credential))
+                    answer = read(unit, app_id, credential)
+                    found[name] = kept(answer)
+                    if name == "source":
+                        source = answer
+            with ops("reads:source-factories", label.encode()):
+                factory_reads = {
+                    path: kept(answer)
+                    for path, answer in operations.source_factory_answers(unit, app_id, credential, source)
+                }
+                if factory_reads:
+                    found["sourceFactoryReads"] = factory_reads
             with ops("reads:project-spaces", label.encode()):
                 found["projectSpaces"] = {
                     "all": kept(operations.project_spaces_read(unit, credential)),

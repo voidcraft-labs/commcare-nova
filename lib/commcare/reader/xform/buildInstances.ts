@@ -11,7 +11,10 @@ import {
 	VELLUM_NS,
 	XFORMS_NS,
 } from "../../xmlNamespaces";
-import { scannedInstances } from "../../xpath/instanceSources";
+import {
+	type InstanceFactories,
+	scannedInstances,
+} from "../../xpath/instanceSources";
 import { scanAfterRenames } from "./itextReferences";
 import { ItextValues } from "./itextValues";
 import type { ParsedXForm } from "./parse";
@@ -222,27 +225,36 @@ export function builtFormInstanceSources(
 	form: ParsedXForm,
 	source: Pick<HqAppSource, "langs" | "buildProfiles">,
 	declared: ReadonlyMap<string, string>,
+	factories: InstanceFactories,
+	generated: ReadonlyMap<string, string>,
+	observe?: (profile?: string) => InstanceFactories["observe"],
 ): ReadonlyMap<string, string> {
 	const declaredIds = new Set(form.instances.map(({ id }) => id));
 	const profiles = [
-		source.langs,
-		...source.buildProfiles.map((profile) => profile.langs),
+		{ id: undefined, langs: source.langs },
+		...source.buildProfiles,
 	];
 	const seen = new Set<string>();
 	const values = new ItextValues();
 	let common: Map<string, string> | undefined;
-	for (const langs of profiles) {
+	for (const { id: profile, langs } of profiles) {
 		const key = JSON.stringify([...new Set(langs)].sort());
 		if (seen.has(key)) continue;
 		seen.add(key);
 		const actual = new Map(declared);
+		const at = observe
+			? { ...factories, observe: observe(profile) }
+			: factories;
 		for (const rendered of renderBuild(form, langs, values)) {
-			for (const [id, src] of scannedInstances(rendered))
+			for (const [id, src] of scannedInstances(rendered, at, declaredIds))
 				if (!declaredIds.has(id)) actual.set(id, src);
 		}
 		if (common === undefined) common = new Map(actual);
 		else for (const id of common.keys()) if (!actual.has(id)) common.delete(id);
 		if (common.size === declared.size) break;
 	}
-	return common ?? declared;
+	const sources = common ?? new Map(declared);
+	for (const [id, source] of generated)
+		if (!declaredIds.has(id) && !sources.has(id)) sources.set(id, source);
+	return sources;
 }

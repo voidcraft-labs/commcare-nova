@@ -808,10 +808,11 @@ refused before it is parsed. The throttled reads of one bring-in run one at a ti
 bring-in, a table's row read and the place list stop once they are certain to pass Nova's limit
 (the row read's `maxRows`, the place list's `stopPast`), or pass their byte bound.
 
-`client.ts::readHqSaveOnlyEditedAnswers` reads the one flag a bring-in needs of the source
-project space, by the two lists the publish probe reads, and answers a failure where a publish's
-probe would answer `unverified`: a bring-in never guesses whether a write is saved only if
-changed.
+`client.ts::readHqSourceFlag` reads the source project’s membership and a domain-only feature
+flag through the two lists the publish probe reads. A reading asks for the flag when case
+updates depend on “save only if changed”, or an active expression needs a project-dependent
+instance. With hierarchical locations enabled, the flat-fixture setting comes from an actual
+working form or suite in that project. The reader keeps an unverified declaration unresolved.
 
 `hq/media.ts::readHqMediaFile` reads one file from the address HQ gives its media map item
 (`hqmedia/models.py::HQMediaMapItem.url`), bounded by the caller's limit, under a deadline of its

@@ -1511,7 +1511,12 @@ def _instance_uses(document, manifest, artifact, found, *, schemes):
     """Each instance a document declares with a source: the source Core gives it, and (where HQ's build reads the
     document's instance ids, ``schemes``) its scheme; the (id, src) pairs, in order."""
     declared = []
-    for element in document.root.iter():
+    nodes = (
+        document.root.iter()
+        if not isinstance(document, Form)
+        else ((child for child in document.model if child.tag == INSTANCE) if document.model is not None else ())
+    )
+    for element in nodes:
         if not isinstance(element.tag, str) or etree.QName(element).localname != "instance":
             continue
         src, instance_id = element.get("src"), element.get("id")
@@ -1959,6 +1964,23 @@ def built_suites(document, records, states, parsed=None) -> tuple:
     return tuple(found)
 
 
+def built_form_instances(records, states, position, cache):
+    """Declarations of the worker form in each recorded HQ build, independent of its source's spelling."""
+    menu, form = position.split(".")
+    path = f"modules-{menu}/forms-{form}.xml"
+    seen = set()
+    for configuration, part in states:
+        state = (records.configurations[configuration].part(part) or {}).get("state") or {}
+        ref = ((state.get("build") or {}).get("files") or {}).get(path)
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        if ref not in cache:
+            native = Form(_parse(records.blobs.get(ref), path), path)
+            cache[ref] = (native.xmlns, dict(native.declared_instances))
+        yield cache[ref]
+
+
 def _form_position(name):
     """``modules-<m>/forms-<f>.xml`` as ``<m>.<f>``, the path HQ and Nova both write a form at."""
     matched = FORM_FILE.fullmatch(name)
@@ -2107,7 +2129,11 @@ def _expression_uses(expression, parsed, manifest, found):
         referenced = {path["instance"] for path in parsed["instancePaths"] if path["instance"]}
         if isinstance(at, XmlAt) and isinstance(at.document, Form):
             if referenced - set(declared):
-                referenced &= set(declared) | at.document.scanned_instance_ids
+                if at.document.built_instances:
+                    declared = {**at.document.working_instances, **declared}
+                    referenced &= set(declared)
+                else:
+                    referenced &= set(declared) | at.document.scanned_instance_ids
         for instance_id in referenced:
             src = declared.get(instance_id)
             scheme = read_scheme(manifest, instance_id, declared)
@@ -2600,6 +2626,7 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
         if state not in states:
             states.append(state)
     suites = {}  # each built suite's blob, parsed once
+    form_instances = {}
     for (artifact, ref), (key, configurations, states) in sent.items():
         try:
             app = json.loads(blobs.get(ref))
@@ -2620,6 +2647,14 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
         for exported in found.documents[first:]:
             if isinstance(exported, Form):
                 exported.entry_suites = built
+                position = exported.artifact.rpartition("form:")[2]
+                exported.read_built_instances = lambda states=states, position=position, form_xmlns=exported.xmlns: (
+                    tuple(
+                        instances
+                        for xmlns, instances in built_form_instances(records, states, position, form_instances)
+                        if xmlns == form_xmlns
+                    )
+                )
     for artifact, entries in sorted(observed["archives"].items()):
         archive_uses(
             {name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found, document.hq_side

@@ -7,6 +7,7 @@
  * simple over its name without `exclude`, advanced with a condition to come
  * with it.
  */
+
 import type {
 	BlueprintDoc,
 	LookupColumnId,
@@ -71,6 +72,7 @@ import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { manifestFindingOf } from "../languages";
 import { lookupNameRefusal, undiscoveredLookupName } from "../lookupNames";
 import { pendingPlaceholder } from "../pendingExpressions";
+import { sourceFactories } from "../sourceFactories";
 import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
 import { readGuardText } from "./guardSplit";
 import { BLANK_IS_ABSENT, spelledAsShown } from "./settings";
@@ -474,7 +476,10 @@ export function readSearchPrompts(
 				? { ok: true as const, text }
 				: interpolateHqXPath(text, { interpolateDots });
 		if (runtime.ok)
-			for (const [id, source] of scannedInstances(runtime.text))
+			for (const [id, source] of scannedInstances(
+				runtime.text,
+				sourceFactories(ctx.input),
+			))
 				suiteSources.set(id, source);
 	};
 	for (const prompt of prompts) {

@@ -1913,7 +1913,7 @@ function instanceEntry(
 			C["declared-and-referenced-instance-with-an-unrecognized-src"].entry
 		);
 	return (
-		schemeEntry(id) ??
+		(sources === undefined ? schemeEntry(id) : undefined) ??
 		C[
 			"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
 		].entry

@@ -332,3 +332,152 @@ def test_remote_request_factory_scans_a_siblings_xpath_after_one_html_unescape(h
         assert not unknown
         assert {(item.id, item.src) for item in instances} == (
             {("item-list:zones", "jr://fixture/item-list:zones")} if available else set())
+
+
+def test_concrete_form_build_adds_session_and_only_active_preload_sources(hq):
+    from corehq.apps.app_manager.models import AdvancedModule, Application, Module
+    from corehq.apps.app_manager.models.form_actions import LoadUpdateAction
+    from corehq.apps.app_manager.xform import XForm
+
+    xml = f"""<h:html xmlns:h="{XHTML}" xmlns="{XFORMS}"><h:head><h:title>Visit</h:title><model>
+        <instance><data xmlns="urn:nova:post-scan"><age/></data></instance>{{shadow}}
+        <bind nodeset="/data/age" calculate="count(instance((('casedb')))/casedb/case)"/>
+        </model></h:head><h:body><input ref="/data/age"><label>Age</label></input></h:body></h:html>"""
+    with hq_check(CONFIGURATION) as (state, _):
+        app = Application.new_app(state.domain, "Visits")
+        for module_cls, requires, preload, user_preload, shadow, expected in (
+            (Module, "case", False, False, False, None),
+            (Module, "case", True, False, False, "jr://instance/casedb"),
+            (Module, "none", True, False, False, None),
+            (Module, "none", False, True, False, "jr://instance/casedb"),
+            (AdvancedModule, None, False, False, False, None),
+            (AdvancedModule, None, True, False, False, "jr://instance/casedb"),
+            (AdvancedModule, None, True, False, True, "jr://fixture/item-list:clinics"),
+        ):
+            source = xml.format(shadow='<instance id="casedb" src="jr://fixture/item-list:clinics"/>' if shadow else "")
+            menu = app.add_module(module_cls.new_module("Visits", "en"))
+            menu.case_type = "patient"
+            form = menu.new_form("Visit", "en", attachment=source)
+            if module_cls is Module:
+                form.requires = requires
+                if preload:
+                    form.actions.case_preload.preload = {"/data/age": "age"}
+                if user_preload:
+                    form.actions.usercase_preload.preload = {"/data/age": "age"}
+            else:
+                form.actions.load_update_cases = [
+                    LoadUpdateAction(
+                        case_type="patient", case_tag="load", preload={"/data/age": "age"} if preload else {}
+                    )
+                ]
+            tree = XForm(source.encode(), domain=app.domain)
+            form.add_stuff_to_xform(tree)
+            built = etree.fromstring(tree.render())
+            instances = {node.get("id"): node.get("src") for node in built.iter(f"{{{XFORMS}}}instance")}
+            assert instances.get("commcaresession") == "jr://instance/session"
+            assert instances.get("casedb") == expected
+
+
+def test_factories_follow_the_source_project_and_the_apps_own_search_and_report_ids(hq):
+    from corehq.apps.app_manager.models import Application, Module, ReportModule
+    from corehq.apps.app_manager.models.report_app_config import ReportAppConfig
+    from corehq.apps.app_manager.suite_xml.post_process.instances import get_instance_factory
+    from corehq.apps.locations.models import LocationFixtureConfiguration
+
+    for flags in (set(), {"HIERARCHICAL_LOCATION_FIXTURE", "MOBILE_UCR", "USER_CONFIGURABLE_REPORTS"}):
+        with hq_check(Configuration(privileges={"CLOUDCARE"}, flags=flags)) as (state, _):
+            app = Application.new_app(state.domain, "Visits")
+            menu = app.add_module(Module.new_module("Visit", "en"))
+            menu.search_config.instance_name = "visits"
+            reports = app.add_module(ReportModule.new_module("Reports", "en"))
+            reports.report_configs = [ReportAppConfig(report_id="proof", report_slug="visits", uuid="report-uuid")]
+
+            # Source reads re-key even an existing report config. Its slug stays stable.
+            exported_report = app.scrub_source({**app.to_json(), "_attachments": {}})["modules"][1]["report_configs"][0]
+            assert exported_report["report_slug"] == "visits" and exported_report["uuid"] != "report-uuid"
+
+            def src(name):
+                result = get_instance_factory(name)(app, name)
+                return result.src if result else None
+
+            for flat in (True, False):
+                with state.committing():
+                    LocationFixtureConfiguration.objects.update_or_create(
+                        domain=app.domain, defaults={"sync_flat_fixture": flat}
+                    )
+                assert src("locations") == (
+                    "jr://fixture/commtrack:locations" if flags and not flat else "jr://fixture/locations"
+                )
+            assert src("results") == "jr://instance/remote/results"
+            assert src("results:inline") == "jr://instance/remote/results:inline"
+            assert src("results:visits") == "jr://instance/remote/results:visits"
+            assert src("results:other") is None
+            assert src("search-input:results:visits") == "jr://instance/search-input/results:visits"
+            assert src("search-input:results:other") is None
+            assert src("reports") == "jr://fixture/commcare:reports"
+            assert src("commcare:reports") == ("jr://fixture/commcare:reports" if flags else None)
+            for prefix in ("commcare-reports:", "commcare-reports-filters:"):
+                assert src(prefix + "visits") == ("jr://fixture/" + prefix + "report-uuid" if flags else None)
+
+
+def test_working_location_witness_reads_the_source_project_without_saving_or_building(hq, core_runner):
+    """The same source in two project spaces with opposite defaults, through HQ's URL resolver
+    and an ordinary API-key reader. Each GET leaves the working app and entire build set intact."""
+    from corehq.apps.locations.models import LocationFixtureConfiguration
+    from proof.hq import redis as hq_redis
+    from proof.hq.seams import api_rate_limits, resource_overrides
+
+    observed = {}
+    for domain, flat in (("nova-source-space", False), ("nova-other-space", True)):
+        configuration = Configuration(
+            domain=domain, privileges={"CLOUDCARE", "API_ACCESS"}, flags={"HIERARCHICAL_LOCATION_FIXTURE"}
+        )
+        with hq_check(configuration) as (state, _), hq_redis.shared(None):
+            app_json = _edited(_label_as_one_text_node("Guide to instance('locations')"))
+            app_json["modules"][0]["forms"][0]["form_filter"] = "count(instance('locations')/locations/location) > 0"
+            app_id, _ = operations.publish(state, [nova_shaped_upload(app_json, "Visits")])
+            with state.committing():
+                LocationFixtureConfiguration.objects.update_or_create(
+                    domain=domain, defaults={"sync_flat_fixture": flat}
+                )
+                credential = operations.seed_api_user(state, "reader@example.com")
+            with api_rate_limits(state), resource_overrides():
+                assert operations.source_read(state, app_id, credential).status == 200
+                apps_before = {
+                    key: json.dumps(doc, sort_keys=True)
+                    for key, doc in state.couch.mock_docs.items()
+                    if doc.get("doc_type") == "Application"
+                }
+                for resource in ("modules-0/forms-0.xml", "suite.xml"):
+                    path = f"/a/{domain}/apps/download/{app_id}/{resource}?latest=true&target=save"
+                    answer = operations.api_request(state, "GET", path, credential=credential)
+                    assert answer.status == 200, (resource, answer.status, answer.body[:150])
+                    root = etree.fromstring(answer.body.encode())
+                    seen = {
+                        n.get("src")
+                        for n in root.iter()
+                        if isinstance(n.tag, str)
+                        and etree.QName(n).localname == "instance"
+                        and n.get("id") == "locations"
+                    }
+                    observed[(domain, resource)] = seen
+                missing = operations.api_request(
+                    state,
+                    "GET",
+                    f"/a/{domain}/apps/download/{app_id}/modules-0/forms-999.xml?latest=true&target=save",
+                    credential=credential,
+                )
+                assert missing.status == 404
+                assert apps_before == {
+                    key: json.dumps(doc, sort_keys=True)
+                    for key, doc in state.couch.mock_docs.items()
+                    if doc.get("doc_type") == "Application"
+                }
+    assert observed == {
+        (space, resource): {prefix}
+        for space, prefix in (
+            ("nova-source-space", "jr://fixture/commtrack:locations"),
+            ("nova-other-space", "jr://fixture/locations"),
+        )
+        for resource in ("modules-0/forms-0.xml", "suite.xml")
+    }

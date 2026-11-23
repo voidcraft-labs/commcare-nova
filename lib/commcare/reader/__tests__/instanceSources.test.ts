@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { wireTable } from "../../lookup/__tests__/lookupWireCorpus";
+import { scannedInstances } from "../../xpath/instanceSources";
 import { readHqApp } from "../index";
+import { sourceFactories } from "../sourceFactories";
 import { exportedBody, inputFor } from "./novaExport";
 
 const currentAge = {
@@ -388,4 +390,203 @@ describe("reading a grouped instance ID in an HQ form", () => {
 				).toMatchObject({ kind: "hidden", calculate: currentAge });
 		},
 	);
+});
+
+describe("HQ's effective native form instances", () => {
+	const empty =
+		"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one";
+	it.each([
+		["flat", "flat", "", "instance('locations')", true],
+		["hierarchical", "hierarchical", "", "instance('locations')", false],
+		["unknown", undefined, "", "instance('locations')", false],
+		[
+			"explicit flat in a hierarchical project",
+			"hierarchical",
+			'<instance id="locations" src="jr://fixture/locations"/>',
+			"instance((('locations')))",
+			true,
+		],
+		[
+			"explicit hierarchical in a flat project",
+			"flat",
+			'<instance id="locations" src="jr://fixture/commtrack:locations"/>',
+			"instance((('locations')))",
+			false,
+		],
+	] as const)(
+		"reads the source project's %s places",
+		async (_name, locations, declaration, call, held) => {
+			const xml = (source: string) =>
+				source
+					.replace(
+						'<instance src="jr://instance/casedb" id="casedb"/>',
+						declaration,
+					)
+					.replace(
+						/calculate="[^"]*instance[^"]*casedb[^"]*"/,
+						`calculate="count(${call}/locations/location)"`,
+					);
+			const outcome = readHqApp(
+				await inputFor(exportedBody(visit, { xml }), {
+					sourceProjectFactories: { locations },
+				}),
+			);
+			expect(outcome.defects).toEqual([]);
+			if (held)
+				expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			else expect(outcome.kind).toBe("account");
+		},
+	);
+	it.each([
+		["basic active preload", "Form", "case", true, false, true],
+		[
+			"basic preload excluded by the requires setting",
+			"Form",
+			"none",
+			true,
+			false,
+			false,
+		],
+		[
+			"worker preload even without case selection",
+			"Form",
+			"none",
+			false,
+			true,
+			true,
+		],
+		["advanced load with a preload", "AdvancedForm", "case", true, false, true],
+		[
+			"advanced load without a preload",
+			"AdvancedForm",
+			"case",
+			false,
+			false,
+			false,
+		],
+	] as const)(
+		"resolves a grouped case read from a %s",
+		async (_name, kind, requires, preload, worker, available) => {
+			const body = exportedBody(visit, {
+				xml: (s) =>
+					s
+						.replace('<instance src="jr://instance/casedb" id="casedb"/>', "")
+						.replaceAll(
+							"instance(&apos;casedb&apos;)",
+							"instance((('casedb')))",
+						),
+				modules: (menus) =>
+					menus.map((menu) => ({
+						...menu,
+						doc_type: kind === "Form" ? "Module" : "AdvancedModule",
+						forms: (menu.forms as Record<string, unknown>[]).map((form) => {
+							const map = preload ? { "/data/note": "age" } : {};
+							if (kind === "AdvancedForm")
+								return {
+									...form,
+									doc_type: kind,
+									actions: {
+										load_update_cases: [
+											{ case_type: "patient", case_tag: "load", preload: map },
+										],
+										open_cases: [],
+									},
+								};
+							return {
+								...form,
+								requires,
+								actions: {
+									...(form.actions as object),
+									case_preload: { preload: map },
+									usercase_preload: {
+										preload: worker ? { "/data/note": "age" } : {},
+									},
+								},
+							};
+						}),
+					})),
+			});
+			const outcome = readHqApp(await inputFor(body));
+			expect(outcome.defects).toEqual([]);
+			expect(
+				outcome.kind === "account" &&
+					outcome.findings.some((f) => f.code === empty),
+			).toBe(!available);
+		},
+	);
+	it("reads the undeclared session that an ordinary form build appends, including a grouped literal", async () => {
+		const xml = (s: string) =>
+			s
+				.replace(
+					'<instance src="jr://instance/session" id="commcaresession"/>',
+					"",
+				)
+				.replaceAll(
+					"instance(&apos;commcaresession&apos;)",
+					"instance((('commcaresession')))",
+				);
+		const outcome = readHqApp(await inputFor(exportedBody(visit, { xml })));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind === "read")
+			expect(
+				Object.values(outcome.draft.doc.fields).find(
+					(f) => f.id === "current_age",
+				),
+			).toMatchObject({ calculate: currentAge });
+	});
+});
+
+it("resolves only the app's named searches and only recoverable report sources", async () => {
+	const body = exportedBody(visit, {
+		modules: (menus) => [
+			...menus.map((menu) => ({
+				...menu,
+				search_config: { instance_name: "visits", enabled: false },
+			})),
+			{
+				unique_id: "reports",
+				case_type: "",
+				doc_type: "ReportModule",
+				module_type: "report",
+				forms: [],
+				report_configs: [{ report_slug: "clinic", uuid: "fresh-export-id" }],
+			},
+		],
+	});
+	const names = [
+		"results",
+		"results:inline",
+		"results:visits",
+		"results:missing",
+		"search-input:results:visits",
+		"search-input:results:missing",
+		"commcare:reports",
+		"reports",
+		"commcare-reports:clinic",
+		"commcare-reports-filters:historic",
+	];
+	for (const mobileReports of [true, false]) {
+		const input = await inputFor(body, {
+			sourceProjectFactories: { mobileReports },
+		});
+		const sources = new Map(
+			scannedInstances(
+				names.map((name) => `instance('${name}')`).join(" "),
+				sourceFactories(input),
+			),
+		);
+		expect(Object.fromEntries(sources)).toEqual({
+			results: "jr://instance/remote/results",
+			"results:inline": "jr://instance/remote/results:inline",
+			"results:visits": "jr://instance/remote/results:visits",
+			"search-input:results:visits":
+				"jr://instance/search-input/results:visits",
+			reports: "jr://fixture/commcare:reports",
+			...(mobileReports && {
+				"commcare:reports": "jr://fixture/commcare:reports",
+				"commcare-reports-filters:historic":
+					"jr://fixture/commcare-reports-filters:historic",
+			}),
+		});
+	}
 });

@@ -8,7 +8,6 @@ const nativeSources = new Map([
 	["casedb", "jr://instance/casedb"],
 	["ledgerdb", "jr://instance/ledgerdb"],
 	["groups", "jr://fixture/user-groups"],
-	["locations", "jr://fixture/locations"],
 	["reports", "jr://fixture/commcare:reports"],
 	["registry", "jr://instance/remote/registry"],
 	["search-input", "jr://instance/search-input"],
@@ -17,6 +16,7 @@ const nativeSources = new Map([
 const nativeIds = new Map(
 	[...nativeSources].map(([id, source]) => [source, id]),
 );
+nativeIds.set("jr://fixture/locations", "locations");
 const fixtureKinds = new Set([
 	"commtrack",
 	"schedule",
@@ -59,25 +59,75 @@ export function declaredInstance(source: string): InstanceSource | undefined {
 	return undefined;
 }
 
-function factorySource(id: string): string | undefined {
+/** Facts of the source app and its HQ project space. An absent project fact is
+ * unresolved. An explicit declaration resolves solely from its own source. */
+export type ConditionalFactory = "locations" | "mobileReports";
+
+export interface InstanceFactories {
+	readonly observe?: (kind: ConditionalFactory, id: string) => void;
+	readonly namedResults: ReadonlySet<string>;
+	readonly scrubbedReportSlugs: ReadonlySet<string>;
+	readonly locations?: "flat" | "hierarchical";
+	readonly mobileReports?: boolean;
+}
+
+function validResults(id: string, facts?: InstanceFactories): boolean {
+	return (
+		id === "results" ||
+		id === "results:inline" ||
+		facts?.namedResults.has(id) === true
+	);
+}
+
+function factorySource(
+	id: string,
+	facts?: InstanceFactories,
+): string | undefined {
 	const native = nativeSources.get(id);
 	if (native !== undefined) return native;
-	const scheme = id.split(":")[0];
-	if (
-		scheme === "item-list" ||
-		fixtureKinds.has(scheme) ||
-		id === "commcare:reports"
-	)
-		return `jr://fixture/${id}`;
-	if (scheme === "results") return `jr://instance/remote/${id}`;
-	if (scheme === "search-input")
-		return `jr://instance/search-input/${id.slice("search-input:".length)}`;
-	if (
-		scheme === "selected_cases" ||
-		(!id.includes(":") && id.includes("selected_cases"))
-	)
-		return `jr://instance/selected-entities/${id}`;
-	return undefined;
+	const colon = id.indexOf(":");
+	const scheme = colon < 0 ? id : id.slice(0, colon);
+	switch (scheme) {
+		case "locations":
+			facts?.observe?.("locations", id);
+			if (facts?.locations === undefined) return undefined;
+			return facts.locations === "flat"
+				? `jr://fixture/${id}`
+				: `jr://fixture/commtrack:${id}`;
+		case "item-list":
+		case "commtrack":
+		case "schedule":
+		case "indicators":
+		case "case-search-fixture":
+			return `jr://fixture/${id}`;
+		case "commcare":
+			if (id === "commcare:reports") facts?.observe?.("mobileReports", id);
+			return id === "commcare:reports" && facts?.mobileReports
+				? `jr://fixture/${id}`
+				: undefined;
+		case "commcare-reports":
+		case "commcare-reports-filters": {
+			if (colon >= 0) facts?.observe?.("mobileReports", id);
+			if (!facts?.mobileReports || colon < 0) return undefined;
+			const name = id.slice(colon + 1);
+			return facts.scrubbedReportSlugs.has(name)
+				? undefined
+				: `jr://fixture/${scheme}:${name}`;
+		}
+		case "results":
+			return validResults(id, facts) ? `jr://instance/remote/${id}` : undefined;
+		case "search-input": {
+			const name = id.slice(colon + 1);
+			return validResults(name, facts)
+				? `jr://instance/search-input/${name}`
+				: undefined;
+		}
+		default:
+			return scheme === "selected_cases" ||
+				(colon < 0 && id.includes("selected_cases"))
+				? `jr://instance/selected-entities/${id}`
+				: undefined;
+	}
 }
 
 // Python \s also includes four information separators in JSON XPath.
@@ -91,14 +141,21 @@ const instancePattern = new RegExp(
  * Suite entries union scans of individual expressions, not concatenated text. */
 export function scannedInstances(
 	rendered: string,
+	facts?: InstanceFactories,
+	declaredIds?: ReadonlySet<string>,
 ): Iterable<readonly [string, string]> {
-	return matchedFactories(hqHtmlUnescape(rendered));
+	return matchedFactories(hqHtmlUnescape(rendered), facts, declaredIds);
 }
 
-function* matchedFactories(text: string): Generator<readonly [string, string]> {
+function* matchedFactories(
+	text: string,
+	facts?: InstanceFactories,
+	declaredIds?: ReadonlySet<string>,
+): Generator<readonly [string, string]> {
 	for (const match of text.matchAll(instancePattern)) {
 		const id = match[1];
-		const source = factorySource(id);
+		if (declaredIds?.has(id)) continue;
+		const source = factorySource(id, facts);
 		if (source !== undefined) yield [id, source];
 	}
 }
@@ -109,14 +166,15 @@ export function instanceSourcesAfterScan(
 	declared: ReadonlyMap<string, string>,
 	input: { rendered: string } | { xmlValue: string },
 	declaredIds: ReadonlySet<string> = new Set(declared.keys()),
+	facts?: InstanceFactories,
 ): ReadonlyMap<string, string> {
 	const sources = new Map(declared);
 	// In an XML value already decoded by its parser, the single unescape of
 	// lxml's re-escaped value restores that exact value.
 	const factories =
 		"rendered" in input
-			? scannedInstances(input.rendered)
-			: matchedFactories(input.xmlValue);
+			? scannedInstances(input.rendered, facts, declaredIds)
+			: matchedFactories(input.xmlValue, facts, declaredIds);
 	for (const [id, source] of factories) {
 		if (!declaredIds.has(id)) sources.set(id, source);
 	}

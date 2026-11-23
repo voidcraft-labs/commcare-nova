@@ -10,6 +10,7 @@ import {
 	readHqLookupTagsSteps,
 } from "@/lib/commcare/reader";
 import { mintingResolver } from "@/lib/commcare/reader/identity";
+import type { ReaderInput } from "@/lib/commcare/reader/types";
 import { alignedFromSource } from "../../hqChanges/baselineSource";
 import { readingAppStrings } from "../appStrings";
 import type { Pieces } from "../pieces";
@@ -25,6 +26,10 @@ export async function referencedLookupTags(input: {
 	readonly alsoSource?: HqAppSource;
 	readonly modules?: readonly HqAlignedModule[];
 	readonly listed: readonly HqLookupTable[];
+	readonly observeFactory?: (
+		source: HqAppSource,
+		...args: Parameters<NonNullable<ReaderInput["observeFactory"]>>
+	) => void;
 	readonly appId: string;
 	readonly readingId: string;
 	readonly domain: string;
@@ -67,6 +72,9 @@ export async function referencedLookupTags(input: {
 				appId,
 				target: { origin: baseUrl(input.creds), domain: input.domain },
 				source,
+				observeFactory:
+					input.observeFactory &&
+					((kind, id, form) => input.observeFactory?.(source, kind, id, form)),
 				modules:
 					source === input.source && input.modules !== undefined
 						? input.modules

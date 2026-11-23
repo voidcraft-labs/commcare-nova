@@ -1790,6 +1790,26 @@ def test_only_deliverable_form_instances_request_lookup_resources(manifest):
     assert {use.key for use in found.uses} == {"instance-scheme:item-list", "instance-scheme:selected_cases"}
 
 
+def test_compiled_form_instances_follow_authentic_post_scan_declarations(manifest):
+    from lxml import etree
+
+    root = etree.fromstring(
+        b'<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><model><instance><data/></instance></model></h:head></h:html>'
+    )
+    form = manifest_usage.Form(root, "form")
+    form.app_form = (
+        manifest_usage.App({"langs": ["en"], "build_profiles": {"es": {"langs": ["es"]}}}, "app"),
+        {"doc_type": "Form"},
+    )
+    form.scans = {'["en"]': {"names": ["casedb", "results:missing"]}, '["es"]': {"names": []}}
+    form.built_instances = [{"commcaresession": "jr://instance/session", "casedb": "jr://instance/casedb"}]
+    expression = manifest_usage.Expression("form", "@test", "", (), False, manifest_usage.XmlAt(form, root), True)
+    parsed = {"instancePaths": [{"instance": key} for key in ("commcaresession", "casedb", "results:missing")]}
+    found = manifest_usage.Uses()
+    manifest_usage._expression_uses(expression, parsed, manifest, found)
+    assert {use.key for use in found.uses} == {"instance-scheme:commcaresession"}
+
+
 def test_a_profile_property_use_joins_the_reader_s_record_under_the_one_entry_naming_it(manifest):
     """Contract: a profile property only Nova's local profile writes (``cc-app-version``) and one HQ's profile writes
     from the target (``PostURL``) are uses of ``profile-property:<key>`` held by the one entry naming each, INERT or
