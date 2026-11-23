@@ -1729,6 +1729,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].mode.kind": "discriminator",
 	"caseListConfig.searchInputs[].hint": "display-text",
 	"caseListConfig.searchInputs[].required.message": "display-text",
+	"caseListConfig.searchInputs[].required.noMessage": "config",
 	"caseListConfig.searchInputs[].validation.message": "display-text",
 	"caseSearchConfig.searchActionEnabled": "config",
 	"caseSearchConfig.workflow": "config",

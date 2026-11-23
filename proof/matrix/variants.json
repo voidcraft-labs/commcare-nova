@@ -36947,6 +36947,28 @@
 		}
 	},
 	{
+		"id": "hq-search/check-with-no-message-on-a-guarded-field",
+		"base": "hq-search",
+		"entry": "case-search/a-check-with-no-message-on-a-field-nova-s-search-guards",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/0/validations",
+			"value": [
+				{
+					"test": "string-length(instance('search-input:results')/input/field[@name = 'client_name']) > 1",
+					"text": {},
+					"doc_type": "Assertion"
+				}
+			]
+		}
+	},
+	{
 		"id": "hq-search/required-with-no-message",
 		"base": "hq-search",
 		"entry": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
