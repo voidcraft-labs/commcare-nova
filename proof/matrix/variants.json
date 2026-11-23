@@ -31135,7 +31135,7 @@
 			"menu": 0,
 			"form": 0,
 			"menuName": "Questions",
-			"name": "Survey",
+			"formName": "Survey",
 			"path": "full_name"
 		},
 		"change": {
