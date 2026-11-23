@@ -1244,7 +1244,10 @@ class CsqlBinder {
 				refuseWith(HQ_REFUSES, "csql:arithmetic");
 			unrecognizedRow();
 		}
-		const last = path[path.length - 1] as { name: string; attribute: boolean };
+		const named = path[path.length - 1] as { name: string; attribute: boolean };
+		const last = named.attribute
+			? named
+			: { ...named, name: csqlPropertyName(named.name) };
 		if (path.length === 1) {
 			if (last.attribute) {
 				if (last.name === "case_type") return term({ kind: "case-row-type" });
@@ -2111,15 +2114,25 @@ const ONE_TOKEN = /^[A-Za-z0-9_]{1,255}$/u;
  * `(selected(p, 'a') and selected(p, 'b'))` finds where each word is one token. For a value
  * the device works out Nova prints `selected-any` and `selected-all` (`csql/emitter.ts::selection`),
  * so there `selected` is `selected-any`.
+ *
+ * HQ's index also keeps the case's name under the key `name` beside `case_name`, both the
+ * one `name.exact` field (`case_search/const.py::INDEXED_METADATA_BY_KEY`), so a property
+ * step `name` is the `case_name` Nova prints. An attribute `@name` is no property step.
  */
 function hqSelectionSpelling(node: FormSyntax, prefix: string): FormSyntax {
 	const within = (child: FormSyntax) => hqSelectionSpelling(child, prefix);
 	switch (node.kind) {
+		case "name":
+			return !node.wildcard && node.name === "name"
+				? { ...node, name: "case_name" }
+				: node;
 		case "group":
 		case "negative":
 			return { ...node, value: within(node.value) };
 		case "axis":
-			return { ...node, value: within(node.value) };
+			return node.axis === "attribute"
+				? node
+				: { ...node, value: within(node.value) };
 		case "child":
 			return {
 				...node,
@@ -2336,6 +2349,13 @@ function rowClaim(
 		key: refusal.key ?? claimKey(refusal.entryId, ROW_KEY, keys),
 		detail: refusal.detail,
 	};
+}
+
+/** The property a CSQL property step names. HQ's index keeps the case's name
+ *  under the key `name` as well as `case_name`, one `name.exact` field
+ *  (`case_search/const.py::INDEXED_METADATA_BY_KEY`): both are Nova's `case_name`. */
+export function csqlPropertyName(step: string): string {
+	return step === "name" ? "case_name" : step;
 }
 
 /** One `_xpath_query` value read under the context of the slot the caller

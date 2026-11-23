@@ -2110,6 +2110,41 @@ export function classifySearchRows(
 				/** The derivation the candidate reads as its field's condition again. */
 				undoes?: (typeof derivations)[number];
 			}[] = [];
+			// The field an earlier row read as a simple field's derivation, read as its condition
+			// again with this conjunct joined: a condition one of whose conjuncts a simple field
+			// derives is no simple field.
+			const undoing = (
+				derivation: (typeof derivations)[number],
+			): (typeof candidates)[number] => ({
+				from: "field",
+				input: derivation.input,
+				undoes: derivation,
+				doc: withCandidate(doc, (draft) => {
+					const inputs =
+						draft.modules[module.uuid]?.caseListConfig?.searchInputs;
+					const at =
+						inputs?.findIndex((one) => one.uuid === derivation.input) ?? -1;
+					const entry = inputs?.[at];
+					if (inputs === undefined || entry?.kind !== "simple") return;
+					const {
+						property: _property,
+						via: _via,
+						mode: _mode,
+						...rest
+					} = entry as SimpleSearchInputDef;
+					inputs[at] = {
+						...rest,
+						kind: "advanced",
+						predicate: derivation.conjunct,
+					} as SearchInputDef;
+					setPredicate(
+						draft as BlueprintDoc,
+						module.uuid,
+						derivation.input,
+						conjunct,
+					);
+				}),
+			});
 			// A field that holds no condition (a simple or a hidden one) takes no conjunct: a
 			// candidate that changes nothing is no placement.
 			const fieldCandidate = (field: PromptReading) =>
@@ -2225,47 +2260,28 @@ export function classifySearchRows(
 					? derivations.filter((one) => one.input === firstPrompt?.uuid)
 					: derivations) {
 					if (conjuncts[derivation.at]?.placement.kind !== "C") continue;
-					candidates.push({
-						from: "field",
-						input: derivation.input,
-						undoes: derivation,
-						doc: withCandidate(doc, (draft) => {
-							const inputs =
-								draft.modules[module.uuid]?.caseListConfig?.searchInputs;
-							const at =
-								inputs?.findIndex((one) => one.uuid === derivation.input) ?? -1;
-							const entry = inputs?.[at];
-							if (inputs === undefined || entry?.kind !== "simple") return;
-							const {
-								property: _property,
-								via: _via,
-								mode: _mode,
-								...rest
-							} = entry as SimpleSearchInputDef;
-							inputs[at] = {
-								...rest,
-								kind: "advanced",
-								predicate: derivation.conjunct,
-							} as SearchInputDef;
-							setPredicate(
-								draft as BlueprintDoc,
-								module.uuid,
-								derivation.input,
-								conjunct,
-							);
-						}),
-					});
+					candidates.push(undoing(derivation));
 				}
 			} else {
 				// A conjunct that reads no field: the search's own filter (F) on a menu whose forms
 				// read the search, then the condition of an excluded field, which may read no field.
 				// A join that changes what the list's own filter prints comes after every field, and
 				// one the device's list filter reads otherwise than HQ's search is no join
-				// (`joinReadsAlike`).
+				// (`joinReadsAlike`). One no list filter can hold is, after every field that can, the
+				// condition of a field an earlier row read as a simple field's derivation, read as its
+				// condition again with the conjunct joined, as kind D reads one: Nova writes such a
+				// field's condition as its rows, the derivation's beside the conjunct's, so a reading
+				// of Nova's own export gives the advanced field again
+				// (`fieldConditionsReadingNoFieldAreTheFilters` keeps it there where no list filter
+				// can hold it).
 				const joins = ownsFilter && joinReadsAlike(conjunct, doc, caseType);
 				const keeps = joins && filterJoinKeepsList();
 				if (keeps) filterCandidate();
 				for (const field of holders()) fieldCandidate(field);
+				if (!joins)
+					for (const derivation of derivations)
+						if (conjuncts[derivation.at]?.placement.kind === "C")
+							candidates.push(undoing(derivation));
 				if (joins && !keeps) filterCandidate();
 			}
 			// A conjunct that reads a field outside its presence guard is no condition Nova prints in
@@ -2503,6 +2519,12 @@ export function classifySearchRows(
 		(result, one) => joinedFilter(result, one.predicate),
 		undefined,
 	);
+	const unrestated = listClauses.flatMap((_, index) =>
+		restated.has(index) ? [] : [index],
+	);
+	// The list's filter, in the spelling a restating row gave a clause of it where that prints
+	// the stored filter (kind B), where every row restated it.
+	const listNow = doc.modules[module.uuid]?.caseListConfig?.filter;
 	const combined = withCandidate(doc, (draft) => {
 		const config = draft.modules[module.uuid]?.caseListConfig;
 		if (config)
@@ -2511,22 +2533,33 @@ export function classifySearchRows(
 	const originally = listFilterText(ctx, start, module.uuid);
 	const shared = listFilterText(ctx, combined, module.uuid);
 	doc =
-		originally !== undefined &&
-		shared !== undefined &&
-		(originally === shared ||
-			(originally !== "" && shared !== "" && sameXPathText(originally, shared)))
-			? combined
-			: withCandidate(doc, (draft) => {
+		// Every row restates the list and every clause of the list is restated: the one filter
+		// both send, in the list's own spelling.
+		requestConditions.length > 0 &&
+		requestConditions.every((one) => one.placement.kind === "B") &&
+		listClauses.length > 0 &&
+		unrestated.length === 0 &&
+		!unread
+			? withCandidate(doc, (draft) => {
 					const config = draft.modules[module.uuid]?.caseListConfig;
 					if (config)
-						replaceCaseConditions(config, {
-							listCondition: mod.caseListConfig?.filter ?? null,
-							searchCondition: requestCondition ?? null,
-						});
-				});
-	const unrestated = listClauses.flatMap((_, index) =>
-		restated.has(index) ? [] : [index],
-	);
+						replaceCaseConditions(config, { filter: listNow ?? null });
+				})
+			: originally !== undefined &&
+					shared !== undefined &&
+					(originally === shared ||
+						(originally !== "" &&
+							shared !== "" &&
+							sameXPathText(originally, shared)))
+				? combined
+				: withCandidate(doc, (draft) => {
+						const config = draft.modules[module.uuid]?.caseListConfig;
+						if (config)
+							replaceCaseConditions(config, {
+								listCondition: mod.caseListConfig?.filter ?? null,
+								searchCondition: requestCondition ?? null,
+							});
+					});
 	if (unrestated.length > 0 && !unread) takeUnrestatedDetail(ctx, module);
 	// Nova's emission of the settled menu writes every source row back. A search of HQ's two
 	// markers alone is Nova's search with no fields and no filter, whose zero-input row Nova writes

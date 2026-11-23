@@ -104,7 +104,6 @@ const CASES: readonly Case[] = [
 		edit: (body) => renameFirst(body, "_x"),
 		findings: [[`${S}prompt-key-outside-nova-s-name-grammar`, "search", "_x"]],
 	},
-
 	{
 		title: "a blank answer searched for",
 		edit: (body) => {
@@ -232,7 +231,6 @@ const CASES: readonly Case[] = [
 			],
 		],
 	},
-
 	{
 		title: "a checkbox field",
 		edit: (body) => {
@@ -387,15 +385,6 @@ const CASES: readonly Case[] = [
 		findings: [[`${S}input-checkbox-itemset`, "search", "case_name"]],
 	},
 	{
-		title: "an address appearance beside a date matched by HQ's own rule",
-		edit: (body) => {
-			const prompt = first(body);
-			prompt.appearance = "address";
-			prompt.input_ = "date";
-		},
-		findings: [],
-	},
-	{
 		// HQ's Case List page blanks every check of an address field on a save, so the second
 		// validation is the address field's finding, not one of its own beside it.
 		title: "an address field with a second validation",
@@ -462,6 +451,43 @@ async function account(edit: (body: JsonObject) => void) {
 			[finding.code, finding.place.kind, finding.detail.name ?? ""] as const,
 	);
 }
+
+describe("a Search field CommCare HQ matches by its own rule", () => {
+	// Each was a refusal until a field could take the project space's matching
+	// (`matching: "project-space"`); now each reads with no finding.
+	for (const [title, edit] of [
+		[
+			"named for a case attribute",
+			(body: JsonObject) => renameFirst(body, "case_id"),
+		],
+		[
+			"of a date",
+			(body: JsonObject) => {
+				first(body).input_ = "date";
+			},
+		],
+		[
+			"of a date over an address appearance",
+			(body: JsonObject) => {
+				const prompt = first(body);
+				prompt.appearance = "address";
+				prompt.input_ = "date";
+			},
+		],
+	] as const)
+		it(`reads one ${title} as a field the project space matches`, async () => {
+			const { doc } = await documentOf(edit);
+			const fields = Object.values(doc.modules).flatMap(
+				(module) => module.caseListConfig?.searchInputs ?? [],
+			);
+			expect(
+				fields.some(
+					(field) =>
+						field.kind === "simple" && field.matching === "project-space",
+				),
+			).toBe(true);
+		});
+});
 
 describe("a Search field Nova cannot hold", () => {
 	it("is no finding where nothing was edited", async () => {

@@ -39,6 +39,7 @@
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 		"case-search/and-or-parentheses",
 		"case-search/appearance-barcode-scan",
+		"case-search/case-list-filter-clause-the-search-does-not-restate",
 		"case-search/clause-chosen-at-runtime-by-input-presence",
 		"case-search/date-add-d-interval-n-datetime-add",
 		"case-search/date-v-string-date-datetime-v-string",

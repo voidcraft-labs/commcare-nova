@@ -271,7 +271,7 @@ describe("a bare prompt's name", () => {
 });
 
 describe("Nova's zero-input row beside a list filter", () => {
-	it("leaves the filter's clauses unrestated, which Nova's export would send", async () => {
+	it("holds the list's filter apart from a search that sends every case", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				search: {},
@@ -289,9 +289,11 @@ describe("Nova's zero-input row beside a list filter", () => {
 				},
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/case-list-filter-clause-the-search-does-not-restate",
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(listOf(reading)).toMatchObject({
+			filter: eq(prop("patient", "notes"), literal("open")),
+			searchCondition: { kind: "match-all" },
+		});
 	});
 });
 
@@ -317,8 +319,8 @@ describe("a search on a menu that shows its forms above", () => {
 	});
 });
 
-describe("a row read up to a rewrite", () => {
-	it("reports the rewrite in the reading", async () => {
+describe("a search row on the project space's day beside a list on the worker's", () => {
+	it("holds the two days apart, with no rewrite", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				searchInputs: [NOTES],
@@ -337,9 +339,14 @@ describe("a row read up to a rewrite", () => {
 			},
 		);
 		expect(closedCodes(reading)).toEqual([]);
-		expect(reading.ctx.facts.rewrites.map((one) => one.id)).toContain(
-			"search-today-device-day",
-		);
+		expect(reading.ctx.facts.rewrites).toEqual([]);
+		expect(listOf(reading)).toMatchObject({
+			filter: lte(prop("patient", "dob"), today()),
+			searchCondition: {
+				kind: "lte",
+				right: { kind: "today", clock: "project-space" },
+			},
+		});
 	});
 });
 
@@ -406,8 +413,10 @@ describe("a row an author wrote around the device's values", () => {
 			predicate: { kind: "when-input-present" },
 		});
 		expect(read).not.toHaveProperty("validation");
-		expect(reading.ctx.facts.rewrites.map((one) => one.id)).toEqual([
-			"search-value-guards",
+		// The row's guards and the check the field gains are each the guards' rewrite, where each is stored.
+		expect(reading.ctx.facts.rewrites.map((one) => [one.id, one.key])).toEqual([
+			["search-value-guards", "schema:DefaultCaseSearchProperty.defaultValue"],
+			["search-value-guards", "schema:CaseSearchProperty.validations"],
 		]);
 	});
 });

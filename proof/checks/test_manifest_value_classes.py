@@ -6556,6 +6556,10 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
+        # A native search filter's value read outside its search screen. Nova's checker refuses such a value at
+        # every editor (``search_filter_value``'s slot profile), so no export of Nova's holds one; no reader decides
+        # it from a stored app's ``defaultValue``.
+        "case-search/native-filter-value-outside-screen-scope",
         "expressions-and-data/commtrack-products-commtrack-programs",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
