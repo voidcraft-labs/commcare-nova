@@ -27504,6 +27504,23 @@
 		]
 	},
 	{
+		"id": "hq-plain/auto-capture-location-every-form",
+		"base": "hq-plain",
+		"entry": "application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app",
+		"change": {
+			"op": "set-json",
+			"pointer": "/auto_gps_capture",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": "app",
+				"pointer": "/appSettings/captureLocation",
+				"value": true
+			}
+		]
+	},
+	{
 		"id": "hq-plain/auto-select-on-a-multi-select-list",
 		"base": "hq-plain",
 		"entry": "menus-and-case-lists/detail-auto-select-multi-select",

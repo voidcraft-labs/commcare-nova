@@ -228,6 +228,7 @@
 	"hq-plain": [
 		"hq-plain/advanced-itemsets-turned-on",
 		"hq-plain/auto-capture-location",
+		"hq-plain/auto-capture-location-every-form",
 		"hq-plain/child-case-in-a-shared-multi-select-menu",
 		"hq-plain/computed-endpoint-argument",
 		"hq-plain/custom-instance",
