@@ -7,7 +7,10 @@ import {
 } from "@/lib/commcare";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { moduleUuidOfForm } from "@/lib/domain";
-import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import type {
+	PreviewEntryChoice,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 import { previewMenuCaseContext } from "../menuProjection";
 import { caseRowToFormPreload } from "./caseDataBindingClient";
 import { screenOfFrame } from "./frameLanding";
@@ -16,6 +19,9 @@ import type { CaseDatabaseSnapshot } from "./xpathInstances";
 export interface PreviousTask {
 	readonly destination: PreviousTaskProjection["destination"];
 	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+	/** The submitting entry's own choices the preceding frame keeps, in
+	 *  frame order: the walk resumes from them at the next list. */
+	readonly entryChoices: readonly PreviewEntryChoice[];
 	readonly caseDatabase: CaseDatabaseSnapshot;
 }
 
@@ -70,14 +76,35 @@ export function resolvePreviousTask(args: {
 	readonly formUuid: Uuid;
 	readonly submittedCaseIds: readonly string[];
 	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+	/** The choices the submitting entry walked, when it walked its own. */
+	readonly entryChoices?: readonly PreviewEntryChoice[];
 	readonly caseDatabase: CaseDatabaseSnapshot;
 }): PreviousTask {
 	const plan = projectPreviousTask(args.doc, args.formUuid);
 	const selections: Record<string, PreviewMenuCaseSelection> = {};
+	const entryChoices: PreviewEntryChoice[] = [];
 	const rowById = new Map(
 		args.caseDatabase.rows.map((row) => [row.case_id, row]),
 	);
 	for (const retained of plan.retainedSelections) {
+		// A choice the entry walked is the entry's, held by its identity:
+		// two choices from one list are two records, never one menu's.
+		const walked = args.entryChoices?.find((choice) =>
+			retained.selectionUuids?.includes(choice.selectionUuid),
+		);
+		if (walked !== undefined) {
+			const row = rowById.get(walked.caseId);
+			if (!row || row.case_type !== retained.caseType)
+				throw new Error(
+					"The preceding task requires a record absent from the saved device state.",
+				);
+			entryChoices.push({
+				selectionUuid: walked.selectionUuid,
+				caseId: walked.caseId,
+				caseName: row.case_name || "Case",
+			});
+			continue;
+		}
 		const current =
 			retained.source === "form-records"
 				? {
@@ -114,6 +141,7 @@ export function resolvePreviousTask(args: {
 	return {
 		destination: previousTaskDestination(args.doc, args.formUuid, plan),
 		selections,
+		entryChoices,
 		caseDatabase: args.caseDatabase,
 	};
 }

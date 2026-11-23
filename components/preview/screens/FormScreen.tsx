@@ -2120,6 +2120,7 @@ export function FormScreen({
 								formUuid: sourceFormUuid,
 								submittedCaseIds: resultCaseIds,
 								selections: menuCaseSelections,
+								...(entryChoices !== undefined && { entryChoices }),
 								caseDatabase: refreshedCaseDatabase,
 							}),
 						choice,
@@ -2362,7 +2363,18 @@ export function FormScreen({
 					forgetCompletedPages();
 					if (next.kind === "home") navigate.goHome();
 					else if (next.kind === "menu") navigate.openModule(next.moduleUuid);
-					else {
+					else if (route.task.entryChoices.length > 0) {
+						/* A form that walks its own choices reopens at its next
+						 * list with the choices its preceding frame keeps, as a
+						 * link carries them. */
+						setPreviewCaseTarget({
+							formUuid: next.formUuid,
+							caseDatabase: refreshedCaseDatabase,
+							entryChoices: route.task.entryChoices,
+							openedByLink: true,
+						});
+						navigate.openForm(next.moduleUuid, next.formUuid);
+					} else {
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,
 							caseDatabase: refreshedCaseDatabase,
