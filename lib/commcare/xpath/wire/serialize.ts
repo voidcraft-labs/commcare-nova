@@ -195,7 +195,8 @@ function shadowEligibility(
 	if (expr.k === "expansion") return "withheld";
 	let eligible = false;
 	if (expr.k === "path") {
-		if (expr.root.k === "hq-case") return "withheld";
+		if (expr.root.k === "hq-case" || expr.root.k === "hq-worker")
+			return "withheld";
 		if (expr.root.k === "form" && expr.root.spelling === "hashtag") {
 			if (
 				expr.steps.some(
@@ -301,6 +302,13 @@ export function serializeWire(
 						"The chosen cases of a multi-select list's auto-launch condition cannot be read outside a suite slot.",
 					);
 				root = `instance(${printLiteral("next_input", mode)})`;
+				break;
+			case "hq-worker":
+				if (!hashtagInterpolationRuns(mode))
+					throw new Error(
+						"The HQ worker shortcut needs a slot that interpolates worker references.",
+					);
+				root = "#user";
 				break;
 			case "hq-case":
 				if (mode.target !== "hq-json" || mode.interpolation !== "case")

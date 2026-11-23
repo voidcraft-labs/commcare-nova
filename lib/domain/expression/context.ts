@@ -831,7 +831,7 @@ export function slotContext(
 			},
 			options.form,
 		);
-		if (slot.slot === "form_display_condition") {
+		if (slot.slot === "form_display_condition" || slot.slot === "form_badge") {
 			if (saved === undefined) return undefined;
 			const caseFirst =
 				formRouteBeforeCase(doc, moduleUuid, slot.uuid, options.form) ===
@@ -840,8 +840,8 @@ export function slotContext(
 				"record",
 				"session",
 				["SU", "HQ", "PV"],
-				{ kind: "condition" },
-				{ caseData: caseFirst },
+				slot.slot === "form_badge" ? { kind: "value" } : { kind: "condition" },
+				{ caseData: caseFirst || slot.slot === "form_badge" },
 			);
 			if (caseFirst)
 				rows = [{ kind: "case", root: "casedb", caseType: module.caseType }];
@@ -1105,6 +1105,10 @@ export function slotContext(
 			targets,
 			condition ? { kind: "condition" } : { kind: "value" },
 			{
+				...(slot.slot === "module_badge" ||
+				slot.slot === "module_display_condition"
+					? { caseData: true }
+					: {}),
 				searchInputs: admitsInputs ? searchInputs : [],
 				patternMatching:
 					slot.slot === "search_input_required_when" ||
@@ -1187,7 +1191,8 @@ export function slotContext(
 		// evaluates (questions, Connect, case operations, links, choice filters).
 		windowWidth:
 			slot.entity === "module" ||
-			(slot.entity === "form" && slot.slot === "form_display_condition"),
+			(slot.entity === "form" &&
+				(slot.slot === "form_display_condition" || slot.slot === "form_badge")),
 	};
 	return {
 		slot,

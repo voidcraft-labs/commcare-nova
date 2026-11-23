@@ -5,6 +5,11 @@ import android.content.Intent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
+import android.widget.TextView;
+import org.commcare.dalvik.R;
+import io.reactivex.schedulers.Schedulers;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.commcare.activities.MenuActivity;
 import org.commcare.adapters.MenuAdapter;
@@ -79,7 +84,19 @@ final class Menus {
             JSONObject shown = new JSONObject();
             shown.put("id", id(item));
             shown.put("kind", item instanceof Entry ? "form" : "menu");
-            shown.put("texts", Views.texts(adapter.getView(i, null, view)));
+            View row = adapter.getView(i, null, view);
+            if (((MenuDisplayable)item).getRawBadgeTextObject() != null) {
+                // Badge work is queued on Rx's single scheduler, then posted
+                // to the main looper. Join those exact queues before reading.
+                CountDownLatch settled = new CountDownLatch(1);
+                Schedulers.single().scheduleDirect(settled::countDown);
+                if (!settled.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("The menu badge did not settle");
+                ShadowLooper.idleMainLooper();
+                View badge = row.findViewById(R.id.badge_view);
+                TextView label = row.findViewById(R.id.badge_text);
+                shown.put("badge", badge.getVisibility() == View.VISIBLE ? label.getText().toString() : "");
+            }
+            shown.put("texts", Views.texts(row));
             shown.put("image", media(((MenuDisplayable)item).getImageURI()));
             shown.put("audio", media(((MenuDisplayable)item).getAudioURI()));
             items.put(shown);

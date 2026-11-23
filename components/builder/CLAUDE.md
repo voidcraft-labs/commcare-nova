@@ -1938,3 +1938,8 @@ cancels wording. Suggestion keymaps precede editor commit shortcuts, which prece
 StarterKit's block splitting. Both menus show names plus full paths and empty
 results. The suggestion list keeps focus in the editor; the explicit picker
 moves it into a search input and returns it on dismissal.
+
+Menu and form settings expose a localized badge or a calculated badge.
+The calculation editor takes the item's navigation slot. It offers a count
+of restored case rows or a Project table. A worker-property read identifies
+whether its source is sign-in information or the worker's saved record.

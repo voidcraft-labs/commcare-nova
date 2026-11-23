@@ -253,7 +253,7 @@ def _hq_plain_source():
 def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_base_again():
     """Contract: ``parity.added_uses`` gives the uses the lane decides in a variant's source that its base's source
     does not decide alike: exactly the decided use of the one value a row sets (a badge on a form, which the manifest
-    holds as not yet held, ``forms-and-case-writes/custom-icons-0``), and none for the base's source over itself.
+    holds, ``forms-and-case-writes/custom-icons-0``), and none for the base's source over itself.
     The plausible failure: an identity or an extraction that reads a variant's use as already seen in its base, so
     every row's judged uses come back empty and the join judges nothing (``proof/matrix/parity-decided.json`` then
     fails by name in the lane; this holds the function without HQ)."""
@@ -266,6 +266,6 @@ def test_a_variant_s_added_uses_are_the_one_its_change_makes_and_none_for_its_ba
     [added] = parity.added_uses(base, variant)
     assert added.use == Use("schema:Form.custom_icons", "app.json", "/modules/0/forms/1/custom_icons")
     assert (added.standing, [entry.id for entry in added.entries]) == (
-        manifest_usage.HELD_NEW,
+        manifest_usage.HELD,
         ["forms-and-case-writes/custom-icons-0"],
     )

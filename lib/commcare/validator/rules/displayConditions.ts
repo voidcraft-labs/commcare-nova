@@ -1,4 +1,5 @@
 import { slotContext } from "@/lib/domain/expression/context";
+import type { MenuBadge } from "@/lib/domain/menuBadge";
 
 /**
  * Shared validation for module/form navigation display conditions.
@@ -8,13 +9,11 @@ import { slotContext } from "@/lib/domain/expression/context";
  * resolve there instead of treating a generic `TypeContext` as permission to
  * read a case row or a Search prompt:
  *
- *   - module conditions have no case or Search-input context;
- *   - form conditions may read the selected case only when the screen that
- *     lists the form chooses a case first (`menuScreens.ts::
- *     screenChoosesCaseFirst`, which reads every entry the screen lists), and
- *     only through a direct self read of that module's case type;
- *   - Search inputs, relation walks, relation presence, and relation counts are
- *     unavailable on both surfaces.
+ * Menu conditions read the restored device snapshot and the signed-in worker.
+ * A form condition reads the selected case and its connected rows only on
+ * a screen that has already chosen that case. HQ rejects general case queries
+ * on form commands in a menu that lists forms first. Search answers and a
+ * future form's data are unavailable while workers choose what to open.
  *
  * Both carriers lower through JavaRosa's on-device XPath evaluator, so the
  * portability checks mirror the existing case-list on-device rules. Raw XPath
@@ -270,7 +269,7 @@ function validateCarrier(
 			carrier.kind === "module"
 				? "A module is shown before any case is selected."
 				: carrier.caseFirst
-					? `Only direct properties of the selected "${carrier.mod.caseType ?? "case"}" case are available there; related cases and case counts are not.`
+					? `The selected "${carrier.mod.caseType ?? "case"}" record and its connected records are available there.`
 					: blocker !== undefined
 						? blockerExplanation(doc, blocker)
 						: "This module asks the user to choose a form before it selects a case.";
@@ -337,17 +336,68 @@ function validateCarrier(
 	return errors;
 }
 
+/** Badge values use the record evaluator at the same point at which the
+ * worker reads the label. The expression still goes through the gate when
+ * its owner has no visibility condition. */
+function validateBadge(
+	doc: BlueprintDoc,
+	owner: Module | Form,
+	badge: MenuBadge | undefined,
+	slot:
+		| { entity: "module"; uuid: Uuid; slot: "module_badge" }
+		| { entity: "form"; uuid: Uuid; slot: "form_badge" },
+	loc: ReturnType<typeof location>,
+	lookupTables?: LookupTypeIndex,
+): ValidationError[] {
+	if (badge?.kind !== "calculation") return [];
+	const ctx = slotContext(doc, slot, lookupTables ?? new Map());
+	if (!ctx) throw new Error("A saved badge has no owning slot.");
+	const errors = semanticCheckErrors(
+		checkExpression(badge.expression, ctx),
+	).map((error) =>
+		validationError(
+			"MENU_BADGE_EXPRESSION",
+			slot.entity,
+			`The badge for "${owner.name}" cannot show this value. ${error.message}`,
+			loc,
+			checkErrorDetails(error),
+		),
+	);
+	const issue = firstPortabilityIssue(badge.expression, ctx);
+	if (issue)
+		errors.push(
+			validationError(
+				"MENU_BADGE_EXPRESSION",
+				slot.entity,
+				`The badge for "${owner.name}" ${issue.message}.`,
+				loc,
+				issue.details,
+			),
+		);
+	return errors;
+}
+
 export function moduleDisplayCondition(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
-	if (mod.displayCondition === undefined) return [];
-	return validateCarrier(
-		{ kind: "module", moduleUuid, mod, condition: mod.displayCondition },
+	const errors = validateBadge(
 		doc,
+		mod,
+		mod.badge,
+		{ entity: "module", uuid: moduleUuid, slot: "module_badge" },
+		{ moduleUuid, moduleName: mod.name },
 		lookupTables,
+	);
+	if (mod.displayCondition === undefined) return errors;
+	return errors.concat(
+		validateCarrier(
+			{ kind: "module", moduleUuid, mod, condition: mod.displayCondition },
+			doc,
+			lookupTables,
+		),
 	);
 }
 
@@ -358,7 +408,20 @@ export function formDisplayCondition(
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	const form = doc.forms[formUuid];
-	if (form.displayCondition === undefined) return [];
+	const errors = validateBadge(
+		doc,
+		form,
+		form.badge,
+		{ entity: "form", uuid: formUuid, slot: "form_badge" },
+		{
+			moduleUuid,
+			moduleName: doc.modules[moduleUuid].name,
+			formUuid,
+			formName: form.name,
+		},
+		lookupTables,
+	);
+	if (form.displayCondition === undefined) return errors;
 	const missing = formRouteBeforeCase(doc, moduleUuid, formUuid);
 	const route = missing ?? moduleUuid;
 	const mod = doc.modules[route];
@@ -366,22 +429,24 @@ export function formDisplayCondition(
 	const blocker = screenCaseFirstBlocker(doc, screen);
 	// The same answer `slotContext` gives the condition (`caseData`).
 	const caseFirst = missing === undefined;
-	return validateCarrier(
-		{
-			kind: "form",
-			moduleUuid: route,
-			mod,
-			formUuid,
-			form,
-			condition: form.displayCondition,
-			caseFirst,
-			// The blocker names the screen only where the form's own module
-			// would choose its case first; otherwise the module is the reason.
-			...(!caseFirst &&
-				blocker !== undefined &&
-				moduleIsCaseFirst(doc, route) && { blocker }),
-		},
-		doc,
-		lookupTables,
+	return errors.concat(
+		validateCarrier(
+			{
+				kind: "form",
+				moduleUuid: route,
+				mod,
+				formUuid,
+				form,
+				condition: form.displayCondition,
+				caseFirst,
+				// The blocker names the screen only where the form's own module
+				// would choose its case first; otherwise the module is the reason.
+				...(!caseFirst &&
+					blocker !== undefined &&
+					moduleIsCaseFirst(doc, route) && { blocker }),
+			},
+			doc,
+			lookupTables,
+		),
 	);
 }

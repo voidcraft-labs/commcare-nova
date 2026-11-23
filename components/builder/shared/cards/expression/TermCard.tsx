@@ -276,11 +276,61 @@ function SessionUserTermCard({
 	reference,
 	...props
 }: TermCardProps & { readonly reference: SessionUserReference }) {
-	const { userProperties } = usePredicateEditContext();
+	const { userProperties, expressionContext, admitExpressionChange } =
+		usePredicateEditContext();
 	const presentation = sessionUserPresentation(reference, userProperties);
-	if (presentation.kind === "preserved")
-		return <PreservedSessionContext label={presentation.label} />;
-	return <EditableTermCard {...props} />;
+	if (
+		!expressionContext ||
+		![
+			"case_list_filter",
+			"case_list_column_expression",
+			"form_display_condition",
+			"module_display_condition",
+			"module_badge",
+			"form_badge",
+		].includes(expressionContext.slot.slot)
+	)
+		return presentation.kind === "preserved" ? (
+			<PreservedSessionContext label={presentation.label} />
+		) : (
+			<EditableTermCard {...props} />
+		);
+	const { source, ...base } = reference;
+	const worker = source === "worker-record";
+	const other = wrapTerm(
+		worker ? base : { ...reference, source: "worker-record" },
+	);
+	const admission = admitExpressionChange?.(props.path, other);
+	return (
+		<div className="space-y-2">
+			<EditableTermCard
+				{...props}
+				onChange={(next) =>
+					props.onChange(
+						worker &&
+							next.kind === "term" &&
+							(next.term.kind === "session-user" ||
+								next.term.kind === "session-user-property")
+							? wrapTerm({ ...next.term, source: "worker-record" })
+							: next,
+					)
+				}
+			/>
+			<p className="text-[13px] text-nova-text-secondary">
+				{worker
+					? "Reads the worker’s saved record."
+					: "Reads the information set at sign-in."}
+			</p>
+			<Button
+				type="button"
+				variant="ghost"
+				disabled={admission?.admitted === false}
+				onClick={() => props.onChange(other)}
+			>
+				{worker ? "Use sign-in information" : "Use worker record"}
+			</Button>
+		</div>
+	);
 }
 
 function PreservedSessionContext({ label }: { readonly label: string }) {

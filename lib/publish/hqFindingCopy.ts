@@ -272,6 +272,8 @@ export const FINDING_COPY: Readonly<
 			"A deep link here has an ID with a space at its start or end, or an argument that names no case its form creates, which Nova can't keep exactly.",
 	},
 	"display-conditions": {
+		never:
+			"This condition reads a value that the worker’s menu cannot use. In CommCare HQ, choose a condition that uses the information available on that menu, then bring the app in again.",
 		"not-yet":
 			"A display condition here is more than Nova can read as a condition yet.",
 	},
@@ -327,8 +329,8 @@ export const FINDING_COPY: Readonly<
 			"A media file here is larger than Nova takes, or this app has more media than Nova takes.",
 	},
 	"menu-badges": {
-		"not-yet":
-			"This uses a badge on a menu or form, which Nova can't hold yet.",
+		never:
+			"This badge has no label or value Nova can show on the worker’s menu. In CommCare HQ, choose a badge label or a calculation that uses data available on that menu, then bring the app in again.",
 	},
 	"menu-display": {
 		"not-yet": "This uses grid menus, which Nova can't hold yet.",

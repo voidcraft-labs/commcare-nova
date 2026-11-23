@@ -83,6 +83,7 @@ import {
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { useImageReference } from "@/components/preview/shared/useImageReference";
+import { Badge } from "@/components/shadcn/badge";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import {
@@ -246,6 +247,7 @@ import {
 	previewCaseListFormRequest,
 	previewCaseListHeldChoices,
 	previewCaseListMenuChoice,
+	previewEntryBadge,
 	previewMenuCaseContext,
 	previewSelectionsBefore,
 } from "@/lib/preview/menuProjection";
@@ -634,77 +636,80 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * reach this running-app pane, so no edit gate is needed here. A case
 	 * the choice just claimed is read once the device holds it: until then a
 	 * condition that reads the device's cases is still loading. */
-	const decideCaseLoadingForms = useCallback(
+	const formMenuItem = useCallback(
 		(
-			row: Pick<FormMenuCase, "case_id">,
+			form: (typeof caseLoadingForms)[number],
+			row?: Pick<FormMenuCase, "case_id">,
 			claimedCaseIds: readonly string[] = NO_CLAIMED_CASES,
-		) =>
-			caseLoadingForms.map((form) => ({
-				form,
-				visibility: formDisplayVisibility({
-					condition: form.displayCondition,
-					hiddenFromMenu: form.hiddenFromMenu === true,
-					session: searchSession,
-					types: previewExpressionContext(
-						menuSource.doc,
-						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
-						searchEnvironment.lookup,
-					),
-					selectedCase: navigationSelectedCase(
+		) => {
+			const selectedCase = row
+				? navigationSelectedCase(
 						menuSource.doc,
 						moduleUuid,
 						form.uuid,
 						row.case_id,
 						stepSession.data,
-					),
-					deviceCases: deviceCasesHoldingClaims(
-						navigationDeviceCases,
-						claimedCaseIds,
-					),
-					lookup: lookupStatus,
-				}),
-			})),
+					)
+				: undefined;
+			const deviceCases = deviceCasesHoldingClaims(
+				navigationDeviceCases,
+				claimedCaseIds,
+			);
+			const visibility = formDisplayVisibility({
+				condition: form.displayCondition,
+				hiddenFromMenu: form.hiddenFromMenu === true,
+				session: searchSession,
+				types: previewExpressionContext(
+					menuSource.doc,
+					{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
+					searchEnvironment.lookup,
+				),
+				selectedCase,
+				deviceCases,
+				lookup: lookupStatus,
+			});
+			const badge =
+				visibility === "shown"
+					? previewEntryBadge({
+							doc: menuSource.doc,
+							entry: { kind: "form", moduleUuid, formUuid: form.uuid },
+							selectedCase,
+							session: searchSession,
+							lookup: lookupStatus,
+							deviceCases,
+							platform: device.platform,
+							localizedValues,
+						})
+					: "";
+			return {
+				form,
+				badge,
+				visibility: badge === undefined ? ("pending" as const) : visibility,
+			};
+		},
 		[
-			caseLoadingForms,
-			searchSession,
+			device.platform,
+			lookupStatus,
 			menuSource.doc,
 			moduleUuid,
 			navigationDeviceCases,
-			lookupStatus,
+			localizedValues,
 			searchEnvironment.lookup,
+			searchSession,
 			stepSession.data,
 		],
 	);
-	/* A several-case form menu uses the same three-valued display-condition
-	 * projection as the ordinary post-selection menu. Valid-by-construction
-	 * keeps selected-case properties out of these shared conditions, so the
-	 * worker/session/user/lookup world is complete without pretending one of
-	 * the selected rows represents the whole collection. */
+	const decideCaseLoadingForms = useCallback(
+		(
+			row: Pick<FormMenuCase, "case_id">,
+			claimedCaseIds: readonly string[] = NO_CLAIMED_CASES,
+		) =>
+			caseLoadingForms.map((form) => formMenuItem(form, row, claimedCaseIds)),
+		[caseLoadingForms, formMenuItem],
+	);
 	const decideMultiCaseLoadingForms = useCallback(
-		() =>
-			caseLoadingForms.map((form) => ({
-				form,
-				visibility: formDisplayVisibility({
-					condition: form.displayCondition,
-					hiddenFromMenu: form.hiddenFromMenu === true,
-					session: searchSession,
-					types: previewExpressionContext(
-						menuSource.doc,
-						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
-						searchEnvironment.lookup,
-					),
-					deviceCases: navigationDeviceCases,
-					lookup: lookupStatus,
-				}),
-			})),
-		[
-			caseLoadingForms,
-			searchSession,
-			menuSource.doc,
-			navigationDeviceCases,
-			lookupStatus,
-			searchEnvironment.lookup,
-		],
+		() => caseLoadingForms.map((form) => formMenuItem(form)),
+		[caseLoadingForms, formMenuItem],
 	);
 
 	// ── Responsive split: the canvas's own width decides ──
@@ -3212,7 +3217,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				</p>
 			)}
 			<div className="grid gap-2">
-				{formMenuDecided.map(({ form, visibility }) => {
+				{formMenuDecided.map(({ form, visibility, badge }) => {
 					const localizedFormName =
 						(localizedValues.get(
 							makeTranslationUnitId("form", form.uuid, "name"),
@@ -3248,6 +3253,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							>
 								{localizedFormName}
 							</span>
+							{badge && <Badge variant="muted">{badge}</Badge>}
 							<Icon
 								icon={tablerArrowRight}
 								width="15"
@@ -3310,7 +3316,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				</p>
 			)}
 			<div className="grid gap-2">
-				{multiFormMenuDecided.map(({ form, visibility }) => {
+				{multiFormMenuDecided.map(({ form, visibility, badge }) => {
 					const localizedFormName =
 						(localizedValues.get(
 							makeTranslationUnitId("form", form.uuid, "name"),
@@ -3343,6 +3349,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							<span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
 								{localizedFormName}
 							</span>
+							{badge && <Badge variant="muted">{badge}</Badge>}
 							<Icon
 								icon={tablerArrowRight}
 								width="15"

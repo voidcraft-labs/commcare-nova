@@ -35,6 +35,8 @@ DOCUMENTS = (
     "worker-place-forms",
     "worker-place-menus",
     "menu-landings",
+    "menu-badge-readings",
+    "worker-record-menu-readings",
     "pinned-tile",
     "listed-source-forms",
 )
@@ -95,3 +97,14 @@ def test_source_menu_entries_open_one_form_using_the_detail_of_each_route(native
         endpoints = {endpoint.get("id"): endpoint for endpoint in suite.findall("endpoint")}
         for link, command in (("clinic-visit", "m0-f1"), ("visit", "m1-f1")):
             assert command in [el.get("value").strip("'") for el in endpoints[link].findall(".//command")], (artifact,link)
+
+
+def test_hq_and_local_menu_and_command_badges(native):
+    record = next(record for record in native.step("menu-screens") if record["scenario"] == "menu-badge-readings")
+    local, hq = (etree.fromstring(record[key]) for key in ("local", "native"))
+    for carrier in ("menu", "entry/command"):
+        path = f'{carrier}/display/text[@form="badge"]'
+        actual, expected = local.findall(path), hq.findall(path)
+        assert len(expected) == 2, carrier
+        parsed = parse_xml_xpaths(*actual, *expected)
+        assert [shape(node, parsed) for node in actual] == [shape(node, parsed) for node in expected], carrier

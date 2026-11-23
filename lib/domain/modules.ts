@@ -56,6 +56,7 @@ import {
 } from "./jsonNumber";
 import { lookupOptionsSourceSchema } from "./lookupCarriers";
 import { lookupColumnIdSchema } from "./lookupIds";
+import { menuBadgeSchema } from "./menuBadge";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
 import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
@@ -3094,6 +3095,7 @@ export const moduleSchema = z.strictObject({
 	 * case row, so validator context rules admit only global/session terms.
 	 */
 	displayCondition: conditionSchema.optional(),
+	badge: menuBadgeSchema.optional(),
 	/**
 	 * Present when the module is off the menu: no menu lists it or any of
 	 * its forms, whatever `displayCondition` says. The condition keeps

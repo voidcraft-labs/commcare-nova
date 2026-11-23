@@ -58,6 +58,7 @@ function formReadSite(
 		path,
 		searchValidation: false,
 	});
+	if (ref.slot === "form_badge") return site(["badge", "expression"]);
 	if (ref.slot === "form_display_condition") return site(["displayCondition"]);
 	if (!("member" in ref) || !("operationUuid" in ref.member)) return undefined;
 	const member = ref.member;
@@ -128,6 +129,8 @@ function moduleReadSite(
 	switch (ref.slot) {
 		case "case_list_action_condition":
 			return site(module.caseListRegistrationForm, ["showWhen", "condition"]);
+		case "module_badge":
+			return site(module.badge, ["expression"]);
 		case "module_display_condition":
 			return site(module.displayCondition, []);
 		case "case_list_filter":

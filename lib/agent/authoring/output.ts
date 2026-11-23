@@ -48,6 +48,7 @@ import {
 	termSchema,
 	valueSchema,
 } from "@/lib/domain/expression/types";
+import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { referenceNames } from "@/lib/domain/referenceNames";
 import { log } from "@/lib/logger";
 import {
@@ -532,6 +533,7 @@ const readProjectors: {
 		return {
 			...data,
 			icon: project(moduleIconRefSchema.nullable(), data.icon, options),
+			badge: project(menuBadgeSchema.nullable(), data.badge, options),
 			display_condition: project(
 				conditionSchema.nullable(),
 				data.display_condition,

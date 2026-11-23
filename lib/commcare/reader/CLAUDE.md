@@ -956,3 +956,10 @@ A version-two menu listing another menu’s forms resolves its source menu throu
 ### Menus reached through a selected case on Home
 
 Form links, deep links and Register can carry a case before the first menu command. The reader resolves the finished menu and form structure through the wire frame projector. It accounts the original feature on the physical field that supplied the route. A first menu that would let one datum name different records has a separate, placed refusal. Changing the menu structure or the destination in HQ allows the person to retry the read.
+
+A module's or form's first badge comes from its `custom_icons` list. Its
+nonempty XPath takes precedence over its localized text. A case-list item
+and its registration button inherit the storage field but their suite
+commands never read it. `reader/menus/modules.ts` accounts for each carrier
+at its source pointer. The expression reader binds badge calculations in
+the navigation slot with no HQ hashtag interpolation.

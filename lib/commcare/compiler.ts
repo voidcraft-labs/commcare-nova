@@ -11,6 +11,7 @@ import {
 	menuWithInheritedCaseSettings,
 } from "@/lib/domain/listedForms";
 import { buildEntryPointSuite } from "./entryPointSuite";
+import { projectMenuBadge } from "./menuBadge";
 import { basicActionsWriteWorker } from "./session";
 import type { TargetFacts } from "./targetFacts";
 import type { TargetFill } from "./targetOverlay";
@@ -997,6 +998,30 @@ export function compileCczParts(
 				},
 				{ mode: { target: "suite" }, instances: commandInstances },
 			);
+			const badge = projectMenuBadge(
+				authoredDoc,
+				{ kind: "form", uuid: formUuid },
+				form.badge,
+				lookupNaming,
+				ownCaseDatumId,
+				entryDatumIdResolver(
+					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+				),
+			);
+			if (badge?.kind === "text") {
+				appStrings[`forms.m${sourceIndex}f${fIdx}.badge`] = badge.text;
+				appStringUnits[`forms.m${sourceIndex}f${fIdx}.badge`] = badge.unit;
+			}
+			const formNav = buildNavMenuNode(
+				`forms.m${sourceIndex}f${fIdx}`,
+				`forms.m${sourceIndex}f${fIdx}`,
+				form.icon,
+				form.audioLabel,
+				assets,
+				"compileCcz form command",
+				badge && { value: badge, instances: commandInstances },
+			);
+			Object.assign(appStrings, formNav.strings);
 			const entryDef = deriveEntryDefinition({
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
@@ -1087,15 +1112,6 @@ export function compileCczParts(
 			// it doesn't, so the no-media shape is unchanged. Its app_strings
 			// (the jr:// path locales) merge into the table the suite oracle
 			// resolves `<locale id>` against.
-			const formNav = buildNavMenuNode(
-				`forms.m${sourceIndex}f${fIdx}`,
-				`forms.m${sourceIndex}f${fIdx}`,
-				form.icon,
-				form.audioLabel,
-				assets,
-				"compileCcz form command",
-			);
-			Object.assign(appStrings, formNav.strings);
 			// The worker-record assertion's message. CommCare throws
 			// `NoLocalizedTextException` on a locale id with no app_strings
 			// entry, so the string travels with the assertion that references
@@ -1199,6 +1215,20 @@ export function compileCczParts(
 			above && parentUuid !== undefined && parentKeepsScreen
 				? sortedModuleUuids.indexOf(parentUuid)
 				: mIdx;
+		const moduleInstances = new InstanceSink();
+		const badge =
+			synthetic === undefined
+				? projectMenuBadge(
+						authoredDoc,
+						{ kind: "module", uuid: moduleUuid },
+						mod.badge,
+						lookupNaming,
+					)
+				: undefined;
+		if (badge?.kind === "text") {
+			appStrings[`modules.m${mIdx}.badge`] = badge.text;
+			appStringUnits[`modules.m${mIdx}.badge`] = badge.unit;
+		}
 		const moduleNav = buildNavMenuNode(
 			`modules.m${textLocaleModuleIndex}`,
 			`modules.m${mIdx}`,
@@ -1206,6 +1236,7 @@ export function compileCczParts(
 			mod.audioLabel,
 			assets,
 			"compileCcz module menu",
+			badge && { value: badge, instances: moduleInstances },
 		);
 		Object.assign(appStrings, moduleNav.strings);
 
@@ -1229,7 +1260,7 @@ export function compileCczParts(
 				: moduleRelevant === undefined
 					? parentRelevant
 					: w.and(w.paren(moduleRelevant), w.paren(parentRelevant));
-		const moduleInstances = new InstanceSink();
+
 		const moduleMenu = xel(
 			"menu",
 			{

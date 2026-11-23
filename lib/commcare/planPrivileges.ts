@@ -28,6 +28,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	menusUsingWorkerRecord,
 	type WorkerRecordRequirement,
 	workerRecordRequirements,
 } from "@/lib/domain/workerRecordRequirements";
@@ -57,6 +58,7 @@ import { formSourceHoldsSupplyPointText } from "./xform/supplyPointText";
 /** The privileges a rule below derives, by HQ's slug. */
 export const HQ_PLAN_PRIVILEGE_IDS = [
 	"cloudcare",
+	"custom_icon_badges",
 	"user_case",
 	"lookup_tables",
 	"child_cases",
@@ -106,6 +108,7 @@ export const CURRENT_PLANS = [
 /** Each privilege's plan feature in Nova's vocabulary. */
 export const PLAN_FEATURE_FOR_PRIVILEGE = {
 	cloudcare: "web-apps",
+	custom_icon_badges: "menu-badges",
 	user_case: "worker-records",
 	lookup_tables: "lookup-tables",
 	child_cases: "child-cases",
@@ -259,6 +262,24 @@ export function requiredPlanPrivileges(
 	 * (`cloudcare/views.py::FormplayerMain.dispatch`). */
 	add("cloudcare", declaresWebApps(doc) ? ["This app runs in Web Apps."] : []);
 
+	add(
+		"custom_icon_badges",
+		doc.moduleOrder.flatMap((moduleUuid) => {
+			const module = doc.modules[moduleUuid];
+			if (!module) return [];
+			const own =
+				module.badge === undefined ? [] : [`${module.name} has a menu badge.`];
+			return [
+				...own,
+				...orderedFormUuids(doc, moduleUuid).flatMap((formUuid) =>
+					doc.forms[formUuid]?.badge === undefined
+						? []
+						: [`${formName(doc, formUuid)} has a form badge.`],
+				),
+			];
+		}),
+	);
+
 	/* `user_case`: HQ's build fails for a form that saves to the worker's
 	 * record (`helpers/validators.py::ApplicationValidator._check_subscription`),
 	 * and a worker's record is made only under the privilege
@@ -266,7 +287,10 @@ export function requiredPlanPrivileges(
 	 * value a form reads from it is blank. */
 	add(
 		"user_case",
-		formsUsingWorkerRecord(doc, connect).map(
+		[
+			...menusUsingWorkerRecord(doc),
+			...formsUsingWorkerRecord(doc, connect),
+		].map(
 			(form) =>
 				`${form.name} ${
 					form.reads && form.writes

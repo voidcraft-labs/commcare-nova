@@ -188,7 +188,8 @@ def menu_screens(session):
     for followups in (False, True):
         enabled = flags | ({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM"} if followups else set())
         with native_check(
-            ENDPOINT_DOMAIN, flags=enabled, commcare_version=DEFAULT_COMMCARE_VERSION, server_origin=NOVA_SERVER_ORIGIN
+            ENDPOINT_DOMAIN, flags=enabled, privileges={"USERCASE"}, commcare_version=DEFAULT_COMMCARE_VERSION,
+            server_origin=NOVA_SERVER_ORIGIN,
         ):
             for source in sources:
                 roles = source.stem.startswith("case-list-action-roles-")
@@ -216,6 +217,8 @@ def menu_screens(session):
                         continue
                 suite = hand_assembled_suite(app, endpoints=True)
                 source.with_suffix(".hq-suite.xml").write_bytes(suite)
+                if source.stem == "menu-badge-readings":
+                    source.with_suffix(".hq.properties").write_text(known_app_strings(app, "en"))
                 records.append({
                     "scenario": source.stem,
                     "sourceSha256": sha256(raw),

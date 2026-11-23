@@ -6,6 +6,9 @@ import type { SlotContextRef } from "./types";
  *  refusals name a slot through this one table. */
 export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 	switch (slot) {
+		case "form_badge":
+		case "module_badge":
+			return "badge";
 		case "calculate":
 			return "calculated value";
 		case "default_value":

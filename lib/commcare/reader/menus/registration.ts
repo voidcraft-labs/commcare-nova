@@ -191,9 +191,9 @@ const REGISTRATION = {
 		`${M}/case-list-form-relevancy-expression-with-followup-forms-as-case`,
 		"schema:CaseListForm.relevancy_expression",
 	),
-	customIcons: refuse(
-		`${M}/custom-icons-0-badge-localized-text-or-xpath`,
-		"schema:CustomIcon",
+	customIcons: drop(
+		`${M}/case-list-action-badges`,
+		"schema:CaseListForm.custom_icons",
 	),
 } as const;
 
@@ -861,7 +861,7 @@ function readAlways(
 		});
 	} else cursor.drop("relevancy_expression", REGISTRATION.relevancyInert);
 	if (Array.isArray(block.custom_icons) && block.custom_icons.length > 0)
-		cursor.refuse("custom_icons", REGISTRATION.customIcons);
+		cursor.drop("custom_icons", REGISTRATION.customIcons);
 	const label = readLabel(ctx, cursor, host, stored.name);
 	const media = readNavMedia(
 		ctx,

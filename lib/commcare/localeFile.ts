@@ -59,6 +59,7 @@ const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"app-name",
 		"module-name",
 		"form-name",
+		"menu-badge",
 		"case-list-menu-item-label",
 		"case-list-registration-label",
 		"case-list-header",
@@ -91,6 +92,7 @@ export function translationUnitUsesLocaleFile(
 const ARGUMENT_SCREEN_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"module-name",
 	"form-name",
+	"menu-badge",
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"search-input-label",

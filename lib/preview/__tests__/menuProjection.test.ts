@@ -37,6 +37,7 @@ import {
 	previewScreenEntryVisibility,
 	previewSelectionsBefore,
 	previewTargetAboveForm,
+	shownMenuBadge,
 } from "../menuProjection";
 import {
 	pinnedTileSearchReading,
@@ -1402,4 +1403,19 @@ describe("what choosing a case goes on to", () => {
 			previewMenuSelectionsLetGo(caseFirst, selections, { moduleUuid: CHILD }),
 		).toEqual([CHILD]);
 	});
+});
+
+it("keeps the full Web Apps badge and applies Android's integer range to long labels", () => {
+	for (const [text, android] of [
+		["0", ""],
+		["0000", "999+"],
+		["+123", "999+"],
+		["-2147483648", "999+"],
+		["2147483648", "214.."],
+		["١٢٣٤", "999+"],
+		["Équipe", "Équ.."],
+	] as const) {
+		expect(shownMenuBadge(text, "web-apps")).toBe(text);
+		expect(shownMenuBadge(text, "android")).toBe(android);
+	}
 });

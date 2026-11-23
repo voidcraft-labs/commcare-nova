@@ -1087,9 +1087,31 @@ const ownCaseRead: Fold = {
 		// In a question's choice filter a `prop` is the candidate case's: the
 		// form's own case, or a case above it, is `form-case` there.
 		if (context.ruleSet === "record" && context.slot.entity !== "field") {
-			if (walk.length !== 0 || moduleCaseType === undefined) return undefined;
+			if (moduleCaseType === undefined) return undefined;
+			const [first, ...others] = walk;
+			if (first === undefined)
+				return api.term(
+					{ kind: "prop", caseType: moduleCaseType, property },
+					node,
+				);
+			if (
+				context.slot.slot !== "form_display_condition" &&
+				context.slot.slot !== "form_badge"
+			)
+				return undefined;
+			const via = [
+				{ identifier: first },
+				...others.map((identifier) => ({ identifier })),
+			] satisfies [RelationStep, ...RelationStep[]];
+			const caseType = destinationType(env.doc, moduleCaseType, via);
+			if (caseType === undefined) return undefined;
 			return api.term(
-				{ kind: "prop", caseType: moduleCaseType, property },
+				{
+					kind: "prop",
+					caseType: moduleCaseType,
+					property,
+					via: { kind: "ancestor", via },
+				},
 				node,
 			);
 		}

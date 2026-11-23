@@ -1,4 +1,5 @@
 // lib/domain/forms.ts
+
 import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
@@ -15,6 +16,7 @@ import {
 } from "./expression/types";
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
+import { menuBadgeSchema } from "./menuBadge";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
 	type CasePlacement,
@@ -808,6 +810,7 @@ export const formSchema = z.strictObject({
 	 * terms are meaningful for this form's navigation position.
 	 */
 	displayCondition: conditionSchema.optional(),
+	badge: menuBadgeSchema.optional(),
 	/**
 	 * Present when the form is off the menu: no menu lists it, whatever
 	 * `displayCondition` says. The condition keeps applying once the form

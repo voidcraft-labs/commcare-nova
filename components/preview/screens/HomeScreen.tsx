@@ -55,7 +55,7 @@ import {
 	previewModuleOwnVisibility,
 	previewModuleScreenIsBareCaseList,
 	previewScreenEntries,
-	previewScreenEntryVisibility,
+	previewScreenWithBadges,
 } from "@/lib/preview/menuProjection";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -167,7 +167,9 @@ function ModuleListHome() {
 	const screenRead = useMemo(
 		() =>
 			readPreviewScreen(() =>
-				previewScreenEntryVisibility({
+				previewScreenWithBadges({
+					platform: device.platform,
+					localizedValues,
 					doc: menuSource.doc,
 					entries,
 					ownModuleVisibility,
@@ -193,6 +195,8 @@ function ModuleListHome() {
 				}),
 			),
 		[
+			device.platform,
+			localizedValues,
 			entries,
 			ownModuleVisibility,
 			menuSource,
@@ -204,7 +208,11 @@ function ModuleListHome() {
 		],
 	);
 	const entryVisibility =
-		screenRead.kind === "read" ? screenRead.value : NO_ENTRY_VISIBILITY;
+		screenRead.kind === "read"
+			? screenRead.value.visibility
+			: NO_ENTRY_VISIBILITY;
+	const badges =
+		screenRead.kind === "read" ? screenRead.value.badges : undefined;
 	const hiddenEntries = useMemo(
 		() =>
 			previewHiddenScreenEntries({
@@ -315,6 +323,7 @@ function ModuleListHome() {
 						if (form === undefined) return null;
 						return (
 							<PreviewFormRow
+								badge={badges?.get(key)}
 								key={key}
 								form={form}
 								index={mIdx}
@@ -465,6 +474,9 @@ function ModuleListHome() {
 									</Badge>
 								)}
 							</div>
+							{badges?.get(key) && (
+								<Badge variant="muted">{badges.get(key)}</Badge>
+							)}
 							<span className="text-xs text-nova-text-muted shrink-0">
 								{runtimeMessage(
 									mode === "edit" ? undefined : language.language,

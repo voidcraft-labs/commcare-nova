@@ -80,6 +80,7 @@ import {
 	orderedColumns,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
+import type { MenuBadge } from "@/lib/domain/menuBadge";
 import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import {
@@ -145,6 +146,7 @@ export type GetModuleResult =
 			icon: ModuleIconRef | null;
 			audio_label: MediaAssetId | null;
 			display_condition: Expression | null;
+			badge: MenuBadge | null;
 			/** True when the module is off the menu, with every form in it. */
 			hidden_from_menu: boolean;
 			/** Present when CommCare HQ receives the module as an advanced
@@ -296,6 +298,7 @@ export const getModuleTool = {
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				display_condition: mod.displayCondition ?? null,
+				badge: mod.badge ?? null,
 				hidden_from_menu: mod.hiddenFromMenu === true,
 				advanced: moduleAdvancedRead(doc, moduleUuid),
 				case_list_config: caseListConfig ?? null,

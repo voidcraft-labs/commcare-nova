@@ -98,6 +98,7 @@ import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupNames } from "./documents/lookupNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
+import { menuBadges } from "./documents/menuBadges";
 import {
 	migrationAttachment,
 	migrationCaseWrites,
@@ -212,6 +213,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	datetimeOperands,
 	datetimeEquality,
 	caseIdColumn,
+	menuBadges,
 	attributeDisplayCondition,
 	gpsQuestion,
 	blankLabels,

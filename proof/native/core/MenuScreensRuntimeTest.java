@@ -14,6 +14,7 @@ import org.commcare.util.mocks.*;
 import org.commcare.xml.SuiteParser;
 import org.javarosa.core.model.Constants;
 import org.javarosa.core.model.User;
+import org.javarosa.core.services.locale.*;
 import org.javarosa.core.model.condition.EvaluationContext;
 import org.javarosa.core.model.instance.ExternalDataInstance;
 import org.json.JSONArray;
@@ -207,6 +208,58 @@ public class MenuScreensRuntimeTest {
  @Test public void aScreenThatReadsAUserFieldTheDeviceLacksFailsWhereNovaSays()throws Exception{
   for(String document:WORKER_DOCUMENTS)for(boolean hq:new boolean[]{false,true})
    assertTrue(document+" hq="+hq+" refuses no screen",listEachScreen(document,hq)[1]>0);
+ }
+ /** Read both kinds of badge from the installed suite and the publisher's locale table
+  * as the signed-in worker moves between the home screen and each menu. */
+ @Test public void signedInWorkersReadBadgesOnMenusAndCommands() throws Exception {
+  String document="menu-badge-readings";
+  for (boolean hq : new boolean[]{false,true}) {
+   LocalizerManager.clearInstance();
+   LocalizerManager.init(true);
+   try (InputStream input=getClass().getResourceAsStream("/menu-screens/"+document+(hq?".hq":"")+".properties")) {
+    assertNotNull(document,input);
+    Localizer localizer=LocalizerManager.getGlobalLocalizer();
+    localizer.addAvailableLocale("en");
+    localizer.registerLocaleResource("en",new TableLocaleSource(LocalizationUtils.parseLocaleInput(input)));
+    localizer.setLocale("en");
+    for(int size : new int[]{1,2}) {
+     String[][] held=new String[size][];
+     for(int row=0;row<size;row++) held[row]=new String[]{"visit-"+row,"visit"};
+     SessionWrapper session=session(suite(document,hq),MockDataUtils.getStaticStorage(),held);
+     MenuLoader root=new MenuLoader(session.getPlatform(),session,"root",FAIL,false,false,true);
+     assertNull(root.getLoadException());
+     assertArrayEquals(new String[]{Integer.toString(size),"New"},root.getBadgeText());
+     for(int i=0;i<2;i++) {
+      String menuId=root.getMenus()[i].getCommandID();
+      MenuLoader menu=new MenuLoader(session.getPlatform(),session,menuId,FAIL,false,false,true);
+      assertNull(menu.getLoadException());
+      assertArrayEquals(new String[]{i==0?"Ready":Integer.toString(size)},menu.getBadgeText());
+     }
+    }
+   } finally {LocalizerManager.clearInstance();}
+  }
+ }
+ @Test public void aFormsFirstScreenReadsTheSignedInWorkersOwnRestoredCase() throws Exception {
+  for (boolean hq : new boolean[]{false,true}) {
+   for(String district : new String[]{"north","south"}) {
+    JSONArray cases = new JSONArray();
+    for(String worker : new String[]{"worker-id","another-worker"}) {
+     JSONObject properties = new JSONObject().put("hq_user_id",worker)
+       .put("district",worker.equals("worker-id") ? district : "north");
+     cases.put(new JSONObject().put("id",worker+"-case").put("type","commcare-user").put("properties",properties));
+    }
+    SessionWrapper session=session(suite("worker-record-menu-readings",hq),MockDataUtils.getStaticStorage(),
+      new JSONObject().put("district",district.equals("north") ? "south" : "north"),cases);
+    for(String screen : new String[]{"root","m1"}) {
+     MenuLoader loader=new MenuLoader(session.getPlatform(),session,screen,FAIL,false,false,false);
+     assertNull(loader.getLoadException());
+     List<String> shown=new ArrayList<>();
+     for(MenuDisplayable item : loader.getMenus()) shown.add(item.getCommandID());
+     assertTrue(shown.contains(screen.equals("root") ? "m1" : "m1-f0"));
+     assertEquals(district.equals("north"),shown.contains(screen.equals("root") ? "m0" : "m1-f1"));
+    }
+   }
+  }
  }
  /** Steps back from where the session stands, as a device's Back reaches the case list, until the session asks for a
   * case (`CommCareSession.stepBack`), chooses `caseId` there, and returns the command the session then opens, or null

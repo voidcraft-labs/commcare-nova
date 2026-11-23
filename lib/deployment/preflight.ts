@@ -55,6 +55,7 @@ import {
 	locationPropertiesOf,
 	organizationLevelsOf,
 } from "@/lib/domain";
+import { menusUsingWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
@@ -1847,14 +1848,17 @@ export async function runDeploymentPreflight(
 	// A restored worker record is not observable through the API key. The
 	// plan half (user cases) is a confirmation of `plan-features`; this edge
 	// keeps the device half.
-	const workerRecordForms = formsUsingWorkerRecord(boundary.prepared.doc);
+	const workerRecordForms = [
+		...menusUsingWorkerRecord(boundary.prepared.doc),
+		...formsUsingWorkerRecord(boundary.prepared.doc),
+	];
 	checks.push({
 		id: "worker-record-access",
 		title: workerRecordSetup.title,
 		status: workerRecordForms.length === 0 ? "passed" : "attention",
 		detail:
 			workerRecordForms.length === 0
-				? "No form in this app reads or saves to the worker's own record."
+				? "This app does not use the worker's own record."
 				: `${workerRecordSetup.detail} ${workerRecordSetup.consequences}`,
 		items: workerRecordForms.map((form) => form.name),
 	});

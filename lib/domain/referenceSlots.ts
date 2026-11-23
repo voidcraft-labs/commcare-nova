@@ -380,6 +380,13 @@ export const FIELD_REFERENCE_SLOTS = [
 export const FORM_REFERENCE_SLOTS = [
 	{
 		entity: "form",
+		slot: "form_badge",
+		path: "badge.expression",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "form_display_condition",
 		path: "displayCondition",
 		kind: "expression",
@@ -664,6 +671,12 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "case_list_action_condition",
 		path: "caseListRegistrationForm.showWhen.condition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "module_badge",
+		path: "badge.expression",
 		kind: "expression",
 	},
 	{
@@ -984,6 +997,7 @@ function expressionRefForEntry(
 		const mod = ownRecordValue(doc.modules, uuid);
 		if (mod === undefined) return undefined;
 		switch (entry.slot) {
+			case "module_badge":
 			case "module_display_condition":
 			case "case_list_action_condition":
 			case "case_list_filter":
@@ -1026,6 +1040,7 @@ function expressionRefForEntry(
 	const form = ownRecordValue(doc.forms, uuid);
 	if (form === undefined) return undefined;
 	switch (entry.slot) {
+		case "form_badge":
 		case "form_display_condition":
 		case "form_open_condition":
 		case "form_close_condition":

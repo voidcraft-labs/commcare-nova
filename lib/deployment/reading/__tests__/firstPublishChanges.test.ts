@@ -2517,6 +2517,13 @@ const menuNamed = (name: Json): ExportEdits =>
 		menu.name = name;
 	});
 
+const menuBadged = (xpath: string | null): ExportEdits =>
+	onMenu((menu) => {
+		menu.custom_icons = [
+			{ doc_type: "CustomIcon", form: "badge", text: { en: "New" }, xpath },
+		];
+	});
+
 /** The Project data each pair whose document reads a table or holds a file publishes with. */
 const PAIR_PROJECT_DATA: Partial<
 	Record<FirstPublishChangeId, PairProjectData>
@@ -2984,6 +2991,12 @@ const PAIRS: Readonly<Record<FirstPublishChangeId, Pair>> = {
 	},
 	// A menu's name with spaces at its end, which no device shows.
 	"names-respelled": editedPair(followUpDoc, menuNamed({ en: "Patients  " })),
+	// A text badge whose source also holds an empty calculation, which the
+	// build reads as no calculation and Nova writes as none.
+	"badge-respelled": {
+		on: async () => factsOf(await readAs(followUpDoc(), menuBadged(""), {})),
+		off: async () => factsOf(await readAs(followUpDoc(), menuBadged(null), {})),
+	},
 	// A menu's icon stored under the language being edited alone.
 	"media-maps-respelled": {
 		on: async () =>

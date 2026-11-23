@@ -265,3 +265,13 @@ def test_list_actions_open_the_parent_form_or_the_form_creating_a_member(android
         forms = [step for step in steps if step["screen"] == FORM_ENTRY]
         assert forms and forms[0]["session"]["command"] == command, steps
         assert any((step.get("list") or {}).get("took") == 0 for step in steps), steps
+
+
+def test_menu_badges_are_read_and_shortened_on_the_installed_android_app(android_documents, hq):
+    walks = _navs(android_documents["targeted-menu-badges"], "menu-badges", paths=[["m0"]])
+    screens = [step["menu"] for step in _steps(walks["path:m0"]) if step.get("menu")]
+    menu = next(screen for screen in screens if screen["id"] == "m0")
+    assert [(item["id"], item.get("badge")) for item in menu["items"]] == [
+        ("m0-f0", None), ("m0-f1", ""), ("m0-f2", "999+"),
+        ("m0-f3", "999+"), ("m0-f4", "214.."), ("m0-f5", "Équ.."),
+    ]

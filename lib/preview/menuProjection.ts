@@ -45,6 +45,7 @@ import {
 	type NavigationDeviceCases,
 	type NavigationItemVisibility,
 	type NavigationSelectedCase,
+	navigationBadgeValue,
 } from "./engine/displayConditionEvaluation";
 import type { PreviewSearchSessionValues } from "./engine/identity";
 import type { PreviewScreen } from "./engine/types";
@@ -420,6 +421,103 @@ export function previewModuleVisibility(
 	args: Parameters<typeof previewModuleOwnVisibility>[1],
 ): ReadonlyMap<Uuid, NavigationItemVisibility> {
 	return inheritedModuleVisibility(doc, previewModuleOwnVisibility(doc, args));
+}
+
+/** Android's MenuAdapter tests exactly "0" and integer overflow. Java parses
+ * BMP decimal digits, including non-ASCII decimal blocks, one UTF-16 unit at a time. */
+export function shownMenuBadge(
+	text: string,
+	platform: import("@/lib/domain/platforms").Platform,
+): string {
+	if (platform === "web-apps" || text.length === 0) return text;
+	if (text === "0") return "";
+	if (text.length <= 3) return text;
+	const body = /^[+-]/u.test(text) ? text.slice(1) : text;
+	let integer = 0;
+	for (let i = 0; i < body.length; i++) {
+		const unit = body.charCodeAt(i);
+		if (!/\p{Nd}/u.test(String.fromCharCode(unit)))
+			return text.slice(0, 3) + "..";
+		let start = unit;
+		while (start > 0 && /\p{Nd}/u.test(String.fromCharCode(start - 1))) start--;
+		integer = integer * 10 + ((unit - start) % 10);
+		if (integer > (text.startsWith("-") ? 2147483648 : 2147483647))
+			return text.slice(0, 3) + "..";
+	}
+	return "999+";
+}
+
+export function previewEntryBadge(args: {
+	doc: BlueprintDoc;
+	entry: MenuScreenEntry;
+	selectedCase?: NavigationSelectedCase | undefined;
+	session: PreviewSearchSessionValues;
+	lookup: PreviewLookupStatus;
+	deviceCases?: NavigationDeviceCases;
+	authoring?: boolean;
+	localizedValues: Pick<ReadonlyMap<TranslationUnitId, unknown>, "get">;
+	platform: import("@/lib/domain/platforms").Platform;
+}): string | undefined {
+	const { doc, entry } = args;
+	if (entry.kind === "case-list") return "";
+	const ref =
+		entry.kind === "menu"
+			? {
+					entity: "module" as const,
+					uuid: entry.moduleUuid,
+					slot: "module_badge" as const,
+				}
+			: {
+					entity: "form" as const,
+					uuid: entry.formUuid,
+					slot: "form_badge" as const,
+				};
+	const badge =
+		ref.entity === "module"
+			? doc.modules[ref.uuid]?.badge
+			: doc.forms[ref.uuid]?.badge;
+	if (badge === undefined || (args.authoring && badge.kind === "calculation"))
+		return "";
+	const text =
+		badge.kind === "text"
+			? ((args.localizedValues.get(
+					makeTranslationUnitId(ref.entity, ref.uuid, "badge"),
+				) as string | undefined) ?? badge.text)
+			: navigationBadgeValue({
+					...args,
+					expression: badge.expression,
+					types: previewExpressionContext(
+						doc,
+						ref,
+						args.lookup.kind === "data" ? args.lookup.data : undefined,
+					),
+				});
+	return text === undefined ? undefined : shownMenuBadge(text, args.platform);
+}
+
+export function previewScreenWithBadges(
+	args: Parameters<typeof previewScreenEntryVisibility>[0] &
+		Pick<
+			Parameters<typeof previewEntryBadge>[0],
+			"platform" | "localizedValues"
+		>,
+) {
+	const visibility = new Map(previewScreenEntryVisibility(args));
+	const badges = new Map<string, string>();
+	for (const entry of args.entries) {
+		const key = menuScreenEntryKey(entry);
+		if (visibility.get(key) !== "shown") continue;
+		const value = previewEntryBadge({
+			...args,
+			entry,
+			selectedCase:
+				entry.kind === "form" ? args.selectedCaseOf(entry) : undefined,
+		});
+		if (value === undefined) {
+			if (!args.authoring) visibility.set(key, "pending");
+		} else if (value) badges.set(key, value);
+	}
+	return { visibility, badges };
 }
 
 /** A stable key for one entry of a running screen. */

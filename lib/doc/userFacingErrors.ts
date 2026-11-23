@@ -1063,6 +1063,11 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} needs at least one result field so people can tell cases apart. Add a name or another identifying field; if you're replacing the last one, add its replacement first.`,
 	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`${q(modName(e))} is shown before a case is chosen, so its display condition can't use case information. Use current-user information or a fixed value.`,
+	MENU_BADGE_EXPRESSION: (e) =>
+		recordFindingCopy(
+			e,
+			`The badge for ${q(e.scope === "form" ? formName(e) : modName(e))}`,
+		) ?? e.message,
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The display condition for ${q(modName(e))}`) ??
 		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,

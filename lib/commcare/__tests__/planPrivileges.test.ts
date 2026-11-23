@@ -528,6 +528,37 @@ describe("each privilege's reasons", () => {
 		requiredPlanPrivileges(doc, pushes, TARGET).find((use) => use.id === id)
 			?.reasons;
 
+	it("asks for menu badges and worker records where each is read on the worker's menu", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [{ name: "Follow up", type: "survey", fields: [] }],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const module = doc.modules[moduleUuid];
+		const form = doc.forms[doc.formOrder[moduleUuid][0]];
+		module.badge = { kind: "text", text: "Today" };
+		form.badge = {
+			kind: "calculation",
+			expression: {
+				kind: "term",
+				term: {
+					kind: "session-user",
+					source: "worker-record",
+					field: "district",
+				},
+			},
+		};
+		expect(reasonsOf(doc, "custom_icon_badges")).toEqual([
+			"Visits has a menu badge.",
+			"Follow up has a form badge.",
+		]);
+		expect(reasonsOf(doc, "user_case")?.join(" ")).toContain("Follow up");
+	});
+
 	it("asks for Web-Based Apps for an app that declares Web Apps, with one reason, and not for an Android-only app", () => {
 		for (const runsOnlyOn of [undefined, "web-apps"] as const) {
 			const doc = buildDoc({

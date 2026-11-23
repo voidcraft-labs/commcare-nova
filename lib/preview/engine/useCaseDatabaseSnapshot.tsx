@@ -118,8 +118,10 @@ export function caseDatabaseRequirements(
 		...Object.values(doc.forms),
 	].some(
 		(item) =>
-			item.displayCondition !== undefined &&
-			expressionReadsCaseDatabase(item.displayCondition, doc),
+			(item.displayCondition !== undefined &&
+				expressionReadsCaseDatabase(item.displayCondition, doc)) ||
+			(item.badge?.kind === "calculation" &&
+				expressionReadsCaseDatabase(item.badge.expression, doc)),
 	);
 	/* A search's runtime pieces are worked out on the device before it sends
 	 * them (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`); one that reads

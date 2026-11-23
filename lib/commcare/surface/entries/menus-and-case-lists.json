@@ -902,10 +902,8 @@
 			"schema:ShadowModule.module_filter"
 		],
 		"valueClass": "outside-predicate",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed expression model in `Module.displayCondition` (session-profile `Expression`)",
-		"subject": "display-conditions",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: restored-record and table queries in a menu visibility condition",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -919,6 +917,40 @@
 		"emission": {
 			"cell": "`module_filter`, printed",
 			"markers": ["printed"]
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/navigation-condition-outside-typed-worker-context",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Worker menu or form condition without a typed reading at that point in the worker's route",
+		"surfaceKeys": [
+			"schema:Form.form_filter",
+			"schema:AdvancedForm.form_filter",
+			"schema:ShadowForm.form_filter",
+			"schema:Module.module_filter",
+			"schema:AdvancedModule.module_filter",
+			"schema:ShadowModule.module_filter"
+		],
+		"valueClass": "navigation-condition-outside-typed-worker-context",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The worker's menu cannot evaluate this condition with the records and values available before the item opens.",
+		"subject": "display-conditions",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The worker's menu cannot evaluate this condition with the records and values available before the item opens."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1835,10 +1867,8 @@
 			"schema:ShadowModule.custom_icons"
 		],
 		"valueClass": "module-first-badge",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.badge` (`{text{lang}} | {expression}`)",
-		"subject": "menu-badges",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a localized navigation badge or a calculation shown beside the worker's menu item",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (hides `0`; shows text longer than 3 characters as `999+` when it parses as an integer and otherwise as its first 3 characters and `..`, `MenuAdapter.updateBadgeView`)",
@@ -1854,7 +1884,122 @@
 			"cell": "`custom_icons[0]`; privilege `custom_icon_badges`",
 			"markers": []
 		},
-		"gates": ["privilege/custom_icon_badges"]
+		"gates": ["privilege/custom_icon_badges"],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/custom-icon-form-other-than-badge",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Custom icon with another display form",
+		"surfaceKeys": ["schema:CustomIcon.form"],
+		"valueClass": "custom-icon-form-other-than-badge",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The editor creates only badges and has no control to select another display form.",
+		"subject": "menu-badges",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The editor creates only badges and has no control to select another display form."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/badge-missing-localized-text",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Badge with no text in any build language",
+		"surfaceKeys": ["schema:CustomIcon.text"],
+		"valueClass": "badge-missing-localized-text",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The build references its badge locale id, emits no definition for it and Core cannot evaluate the label.",
+		"subject": "menu-badges",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The build references its badge locale id, emits no definition for it and Core cannot evaluate the label."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/badge-calculation-outside-typed-values",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "Badge calculation with no typed interpretation",
+		"surfaceKeys": ["schema:CustomIcon.xpath"],
+		"valueClass": "badge-calculation-outside-typed-values",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The navigation calculation cannot be bound to a typed value on the worker menu where it is evaluated.",
+		"subject": "menu-badges",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "The navigation calculation cannot be bound to a typed value on the worker menu where it is evaluated."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-item-badges",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`custom_icons` on a case list menu item",
+		"surfaceKeys": ["schema:CaseList.custom_icons"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: the case list menu item writes its label, picture and audio only",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-action-badges",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`custom_icons` on a case list action",
+		"surfaceKeys": ["schema:CaseListForm.custom_icons"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: the case list action writes its label, picture and audio only",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/custom-icons-1",

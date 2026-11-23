@@ -1333,7 +1333,8 @@ function screenFormsObservation(
 	parent: Uuid | null,
 ) {
 	return appTestScreenForms(context, state, parent).map(
-		({ form, moduleUuid, visibility }) => ({
+		({ form, moduleUuid, visibility, badge }) => ({
+			...(badge && { badge }),
 			uuid: form.uuid,
 			name: projectLocalizedForm(context.doc, context.language, form.uuid)
 				?.name,

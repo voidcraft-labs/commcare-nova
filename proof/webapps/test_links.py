@@ -265,3 +265,23 @@ def test_web_apps_shows_each_menus_forms_and_uses_its_own_link_to_the_same_form(
                 ]
                 assert [_shown(screen) for screen in opened.screens] == [expected]
                 evidence(endpoint, opened.screens)
+
+
+def test_web_apps_displays_the_full_badges_formplayer_returns(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    with webapps_hq.project(webapps_documents["targeted-menu-badges"]) as project:
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Field rounds"), *steps.arrive(any_screen=True), steps.SCREEN,
+                *steps.choose("Visit forms"), *steps.arrive(any_screen=True), steps.SCREEN,
+            ])
+    home, forms = run.screens
+    assert run.page_errors == [] and run.dialogs == []
+    assert [command["badge"] for command in home["commands"]] == ["New", ""]
+    expected = ["", "0", "0000", "1234", "2147483648", "Équipe"]
+    assert [command["badge"] for command in forms["commands"]] == expected
+    menus = [exchange.json() for exchange in run.answered("navigate_menu")]
+    response = next(menu for menu in menus if len(menu.get("commands") or ()) == len(expected))
+    assert [command.get("badgeText") or "" for command in response["commands"]] == expected
+    evidence("badges", {"formplayer": response["commands"], "webApps": forms["commands"]})

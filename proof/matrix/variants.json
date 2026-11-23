@@ -16294,19 +16294,43 @@
 		"id": "hq-case-management/form-condition-reading-casedb-in-a-case-only-menu",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/form_filter",
 			"value": "count(instance('casedb')/casedb/case[@case_type = 'member']) > 1"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/displayCondition/left/via/source",
+				"value": "casedb"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/displayCondition/left/via/where/0/right/term/caseType",
+				"value": "member"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/displayCondition/right/term/value",
+				"value": 1
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/inline-search-under-a-parent-selection",
@@ -16333,17 +16357,33 @@
 		"id": "hq-case-management/list-filter-worker-property-alone",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/case_details/short/filter",
 			"value": "#user/district"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/filter/term/source",
+				"value": "worker-record"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/filter/term/field",
+				"value": "district"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/load-from-a-gone-question",
@@ -21949,12 +21989,6 @@
 		"id": "hq-menus/badge",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 2,
-			"name": "Follow-ups"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/2/custom_icons",
@@ -21968,6 +22002,174 @@
 					"xpath": ""
 				}
 			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "text",
+					"text": "New"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-menus/badge-future-form-answer",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/badge-calculation-outside-typed-values",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {},
+					"xpath": "/data/future"
+				}
+			]
+		},
+		"standing": "never",
+		"place": {
+			"kind": "menu",
+			"menu": 2,
+			"name": "Follow-ups"
+		}
+	},
+	{
+		"id": "hq-menus/badge-ignores-later-icons",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/custom-icons-1",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				},
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "Old"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "text",
+					"text": "New"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-menus/badge-prefers-calculation-over-old-text",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {
+						"en": "Old"
+					},
+					"xpath": "4"
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 2
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "calculation",
+					"expression": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": 4
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-menus/badge-unsupported-display-form",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/custom-icon-form-other-than-badge",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "caption",
+					"text": {
+						"en": "New"
+					},
+					"xpath": null
+				}
+			]
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 2,
+			"name": "Follow-ups"
+		}
+	},
+	{
+		"id": "hq-menus/badge-without-text-or-calculation",
+		"base": "hq-menus",
+		"entry": "menus-and-case-lists/badge-missing-localized-text",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/2/custom_icons",
+			"value": [
+				{
+					"doc_type": "CustomIcon",
+					"form": "badge",
+					"text": {},
+					"xpath": null
+				}
+			]
+		},
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "menu",
+			"menu": 2,
+			"name": "Follow-ups"
 		}
 	},
 	{
@@ -25285,17 +25487,43 @@
 		"id": "hq-menus/menu-filter-outside-predicate",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/module-filter-value-outside-predicate-any-xpath-hq-s-validator",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 3,
-			"name": "Tools"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/3/module_filter",
 			"value": "count(instance('casedb')/casedb/case[@case_type = 'household']) > 0"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 3
+					}
+				],
+				"pointer": "/displayCondition/left/via/source",
+				"value": "casedb"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 3
+					}
+				],
+				"pointer": "/displayCondition/left/via/where/0/right/term/caseType",
+				"value": "household"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 3
+					}
+				],
+				"pointer": "/displayCondition/right/term/value",
+				"value": 0
+			}
+		]
 	},
 	{
 		"id": "hq-menus/menu-filter-reading-the-case",
@@ -27704,14 +27932,6 @@
 		"id": "hq-plain/form-badge",
 		"base": "hq-plain",
 		"entry": "forms-and-case-writes/custom-icons-0",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/1/custom_icons",
@@ -27725,7 +27945,22 @@
 					"xpath": ""
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/badge",
+				"value": {
+					"kind": "text",
+					"text": "New"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-plain/form-comment",

@@ -180,6 +180,7 @@ function formMutations(form: Form, rewrite: SlotReadRewrite): Mutation[] {
 	}
 	const mutations: Mutation[] = [];
 	const patch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
+	if (changedKeys.has("badge")) patch.badge = mapped.badge;
 	if (changedKeys.has("displayCondition"))
 		patch.displayCondition = mapped.displayCondition;
 	if (changedKeys.has("openCondition"))
@@ -246,6 +247,12 @@ function moduleMutations(module: Module, rewrite: SlotReadRewrite): Mutation[] {
 	}
 	if (!changed) return [];
 	const mutations: Mutation[] = [];
+	if (!deepEqual(module.badge, mapped.badge))
+		mutations.push({
+			kind: "updateModule",
+			uuid: module.uuid,
+			patch: { badge: mapped.badge },
+		});
 	if (!deepEqual(module.displayCondition, mapped.displayCondition))
 		mutations.push({
 			kind: "updateModule",

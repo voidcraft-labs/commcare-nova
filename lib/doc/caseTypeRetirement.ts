@@ -712,6 +712,15 @@ function collectModuleConfigReferences(
 				// Entity parentage and the registration form's identity are
 				// unrelated to the case-type catalog.
 				break;
+			case "module_badge":
+				if (
+					mod.badge?.kind === "calculation" &&
+					expressionRefsCaseType(mod.badge.expression, caseType)
+				)
+					out.push(
+						sameRef(`the badge on ${where} uses "${caseType}" information`),
+					);
+				break;
 			case "module_display_condition": {
 				if (
 					mod.displayCondition &&

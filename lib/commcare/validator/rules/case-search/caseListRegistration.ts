@@ -172,6 +172,7 @@ export function caseListRegistrationForm(
 			: []),
 		...(form.displayCondition !== undefined ? ["a display condition"] : []),
 		...(form.hiddenFromMenu === true ? ["hiddenFromMenu"] : []),
+		...(form.badge === undefined ? [] : ["a menu badge"]),
 	];
 	if (navigation.length > 0) {
 		errors.push(

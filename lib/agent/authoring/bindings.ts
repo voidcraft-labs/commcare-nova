@@ -579,6 +579,13 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		}
 		return id;
 	}
+	forDeviceRecords(caseType?: string): AuthoringScope {
+		return new AuthoringScope({
+			...this.options,
+			currentCaseType: caseType,
+			tableId: undefined,
+		});
+	}
 	forTable(tableId: string): AuthoringScope {
 		return new AuthoringScope({
 			...this.options,
@@ -606,10 +613,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		}
 		if (term.kind === "session-user-property") {
 			const property = this.options.doc.userProperties?.[term.userPropertyUuid];
-			return property ? `user(${quote(property.slug)})` : undefined;
+			if (!property) return undefined;
+			const read = `user(${quote(property.slug)})`;
+			return term.source === "worker-record" ? `worker-record(${read})` : read;
 		}
 		if (term.kind === "session-user")
-			return `external-user(${quote(term.field)})`;
+			return `${term.source === "worker-record" ? "worker-record" : "external-user"}(${quote(term.field)})`;
 		if (
 			term.kind === "prop" &&
 			!term.via &&

@@ -1088,6 +1088,7 @@ export type FormExpressionSlotRef =
 			readonly uuid: Uuid;
 			readonly slot:
 				| "form_display_condition"
+				| "form_badge"
 				| "form_open_condition"
 				| "form_close_condition"
 				| "assessment_user_score"
@@ -1149,6 +1150,7 @@ export type ModuleExpressionSlotRef =
 			readonly uuid: Uuid;
 			readonly slot:
 				| "module_display_condition"
+				| "module_badge"
 				| "case_list_filter"
 				| "case_list_action_condition"
 				| "search_button_display_condition"

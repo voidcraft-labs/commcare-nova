@@ -533,6 +533,15 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 			return (draft, value) => {
 				draft.appName = text(value);
 			};
+		case "menu-badge":
+			if (owner.kind !== "form" && owner.kind !== "module") return undefined;
+			return (draft, value) => {
+				const badge =
+					owner.kind === "form"
+						? draft.forms[owner.formUuid]?.badge
+						: draft.modules[owner.moduleUuid]?.badge;
+				if (badge?.kind === "text") badge.text = text(value);
+			};
 		case "module-name":
 			return owner.kind === "module"
 				? (draft, value) => {

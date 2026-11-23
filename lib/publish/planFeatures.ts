@@ -20,6 +20,7 @@ import type { DeploymentConfirmationKind } from "@/lib/deployment/types";
 
 export type PlanFeatureId =
 	| "web-apps"
+	| "menu-badges"
 	| "worker-records"
 	| "lookup-tables"
 	| "child-cases"
@@ -48,6 +49,13 @@ export const PLAN_FEATURES: Readonly<
 		plans: "Advanced and Enterprise",
 		consequence:
 			"Without it, mobile workers can't open this app in Web Apps, and saving the app's settings in CommCare HQ turns its Web App setting off.",
+	},
+	"menu-badges": {
+		id: "menu-badges",
+		label: "Menu and form badges",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"Without it, people editing the app in CommCare HQ can't add, change or remove its badges.",
 	},
 	"worker-records": {
 		id: "worker-records",

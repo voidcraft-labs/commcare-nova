@@ -2284,6 +2284,42 @@
 		]
 	},
 	{
+		"change": "badge-respelled",
+		"placeKinds": ["menu", "form"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/xpath"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/xpath"
+			}
+		]
+	},
+	{
 		"change": "media-maps-respelled",
 		"placeKinds": ["menu", "form"],
 		"rows": [
@@ -2478,6 +2514,16 @@
 				"artifact": "formplayer@local.ccz",
 				"path": "/runs/*/steps/*/response/commands/*/displayText:trimmed",
 				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/custom_icons/0/text"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/forms/*/custom_icons/0/text"
 			}
 		]
 	},

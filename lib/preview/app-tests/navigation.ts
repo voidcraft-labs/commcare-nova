@@ -3,12 +3,15 @@ import {
 	caseSelectionCardinality,
 	caseSelectionMaximum,
 	formLaunch,
+	localizeTranslationUnit,
 	type MenuScreen,
+	type MenuScreenEntry,
 	menuFormUuidsOf,
 	menuScreenOf,
 	moduleDestination,
 	moduleIsBareCaseList,
 	screenChoosesCaseFirst,
+	snapshotTranslationUnits,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -25,6 +28,8 @@ import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import {
 	formDisplayVisibility,
 	type NavigationDeviceCases,
+	type NavigationItemVisibility,
+	type NavigationSelectedCase,
 	navigationSelectedCase,
 } from "../engine/displayConditionEvaluation";
 import { caseListStepSession } from "../engine/entrySessionData";
@@ -41,6 +46,7 @@ import {
 	moduleHasChildren,
 	previewCaseListMenuEntry,
 	previewContributorVisibility,
+	previewEntryBadge,
 	previewMenuCaseContext,
 	previewModuleOwnVisibility,
 	previewModuleVisibility,
@@ -152,12 +158,41 @@ function appTestVisibilityArgs(
 	} as const;
 }
 
+/** Badges are evaluated only for commands the session offers. The observation
+ * uses the browser's value projector over this test worker's restored rows. */
+function appTestBadge(
+	context: AppTestContext,
+	state: Pick<AppTestSessionState, "deviceCases" | "platform">,
+	entry: MenuScreenEntry,
+	visibility: NavigationItemVisibility,
+	selectedCase?: NavigationSelectedCase,
+) {
+	if (visibility !== "shown") return {};
+	const badge = previewEntryBadge({
+		...appTestVisibilityArgs(context, state),
+		doc: context.doc,
+		entry,
+		platform: state.platform,
+		selectedCase,
+		localizedValues: {
+			get: (id) => {
+				const unit = snapshotTranslationUnits(context.doc).get(id);
+				return (
+					unit &&
+					localizeTranslationUnit(context.doc, context.language, unit).effective
+				);
+			},
+		},
+	});
+	return badge ? { badge } : {};
+}
+
 /** The menu tiles a home (`null`) or menu screen lists, by the same
  *  projection the browser's screens list them (`previewScreenEntries`). */
 export function appTestMenus(
 	context: AppTestContext,
 	parent: Uuid | null,
-	state: Pick<AppTestSessionState, "deviceCases">,
+	state: Pick<AppTestSessionState, "deviceCases" | "platform">,
 ) {
 	const { doc } = context;
 	const visibility = previewModuleVisibility(
@@ -170,6 +205,12 @@ export function appTestMenus(
 				? [
 						{
 							uuid: entry.moduleUuid,
+							...appTestBadge(
+								context,
+								state,
+								entry,
+								visibility.get(entry.moduleUuid) ?? "hidden",
+							),
 							name: projectLocalizedModule(
 								doc,
 								context.language,
@@ -303,24 +344,32 @@ export function appTestForms(
 							session: previewSessionValues(identity, context.device),
 						}).data,
 					);
+		const visibility = combineNavigationVisibility(
+			contributor,
+			formDisplayVisibility({
+				condition: form.displayCondition,
+				hiddenFromMenu: form.hiddenFromMenu === true,
+				session: previewSessionValues(identity, context.device),
+				types: previewExpressionContext(
+					doc,
+					{ entity: "form", uuid, slot: "form_display_condition" },
+					lookup,
+				),
+				selectedCase,
+				deviceCases: appTestDeviceCases(context, state),
+				lookup: { kind: "data", data: lookup },
+			}),
+		);
 		return [
 			{
 				form,
-				visibility: combineNavigationVisibility(
-					contributor,
-					formDisplayVisibility({
-						condition: form.displayCondition,
-						hiddenFromMenu: form.hiddenFromMenu === true,
-						session: previewSessionValues(identity, context.device),
-						types: previewExpressionContext(
-							doc,
-							{ entity: "form", uuid, slot: "form_display_condition" },
-							lookup,
-						),
-						selectedCase,
-						deviceCases: appTestDeviceCases(context, state),
-						lookup: { kind: "data", data: lookup },
-					}),
+				visibility,
+				...appTestBadge(
+					context,
+					state,
+					{ kind: "form", moduleUuid, formUuid: uuid },
+					visibility,
+					selectedCase,
 				),
 			},
 		];

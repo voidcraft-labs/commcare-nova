@@ -916,13 +916,12 @@
 			"schema:ShadowForm.custom_icons",
 			"schema:CustomIcon.form",
 			"schema:CustomIcon.text",
-			"schema:CustomIcon.xpath"
+			"schema:CustomIcon.xpath",
+			"schema:CustomIcon"
 		],
 		"valueClass": "form-badge",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.badge`",
-		"subject": "menu-badges",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a localized navigation badge or a calculation shown beside the worker's menu item",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (hides `0`; shows text longer than 3 characters as `999+` when it parses as an integer and otherwise as its first 3 characters and `..`, `MenuAdapter.updateBadgeView`)",
@@ -938,7 +937,8 @@
 			"cell": "`custom_icons[0]`; privilege `custom_icon_badges`",
 			"markers": []
 		},
-		"gates": ["privilege/custom_icon_badges"]
+		"gates": ["privilege/custom_icon_badges"],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/form-filter-lifting-into-predicate-a-direct-own-case-property-in",
@@ -981,10 +981,8 @@
 			"schema:ShadowForm.form_filter"
 		],
 		"valueClass": "typed-expression",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed expression model in `Form.displayCondition`",
-		"subject": "display-conditions",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: queries over restored rows and reads of records connected to a selected case in a form visibility condition",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -999,7 +997,8 @@
 			"cell": "printed with HQ hashtags",
 			"markers": ["printed"]
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/form-filter-reading-case-status-case-id-case-type-owner-id",
@@ -7517,13 +7516,13 @@
 			"schema:Module.module_filter",
 			"schema:AdvancedModule.module_filter",
 			"schema:ReportModule.module_filter",
-			"schema:ShadowModule.module_filter"
+			"schema:ShadowModule.module_filter",
+			"schema:Detail.filter",
+			"schema:DetailColumn.field"
 		],
 		"valueClass": "usercase-term",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: usercase term in Predicate (Predicate `session-user` reads session user data, a different source)",
-		"subject": "display-conditions",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a typed property of the worker’s own restored record",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7538,7 +7537,8 @@
 			"cell": "`#user/<prop>`; privilege `user_case` (without it HQ's build fails `invalid user property xpath reference` for a `form_filter`, and the other slots read nothing)",
 			"markers": []
 		},
-		"gates": ["privilege/user_case"]
+		"gates": ["privilege/user_case"],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case",

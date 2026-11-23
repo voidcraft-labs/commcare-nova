@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import { motion } from "motion/react";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
+import { Badge } from "@/components/shadcn/badge";
 import type { Form } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import type { PreviewCaseListMenuEntry } from "@/lib/preview/menuProjection";
@@ -22,10 +23,12 @@ function rowTransition(index: number) {
  *  whichever menu holds it. */
 export function PreviewFormRow({
 	form,
+	badge,
 	label,
 	index,
 	onClick,
 }: {
+	readonly badge?: string | undefined;
 	readonly form: Pick<Form, "uuid" | "icon" | "type">;
 	readonly label: string;
 	readonly index: number;
@@ -59,6 +62,7 @@ export function PreviewFormRow({
 			<div className="flex-1 min-w-0">
 				<div className="text-sm font-medium text-nova-text">{label}</div>
 			</div>
+			{badge && <Badge variant="muted">{badge}</Badge>}
 		</motion.button>
 	);
 }

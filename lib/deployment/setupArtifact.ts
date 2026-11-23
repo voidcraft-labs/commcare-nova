@@ -46,6 +46,7 @@ import {
 	organizationLevelsOf,
 	ownRecordValue,
 } from "@/lib/domain";
+import { menusUsingWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import type { OrganizationSnapshot } from "@/lib/organization/types";
 import {
 	DISTANCE_SEARCH_SETUP_CAVEATS,
@@ -869,7 +870,13 @@ function levelsInSetupOrder(
 function workerRecordSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
-	const forms = formsUsingWorkerRecord(input.doc);
+	const forms = [
+		...menusUsingWorkerRecord(input.doc),
+		...formsUsingWorkerRecord(input.doc).map((form) => ({
+			...form,
+			uuid: form.formUuid,
+		})),
+	];
 	if (forms.length === 0) return null;
 	return {
 		id: "worker-record",
@@ -877,7 +884,7 @@ function workerRecordSection(
 		summary: workerRecordSetup.detail,
 		url: null,
 		steps: forms.map((form) =>
-			step(form.formUuid, form.name, [
+			step(form.uuid, form.name, [
 				form.reads && form.writes
 					? "Reads and saves worker information"
 					: form.reads

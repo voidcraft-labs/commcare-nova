@@ -68,6 +68,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
+import { menuBadgeSchema } from "@/lib/domain/menuBadge";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -142,6 +143,12 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.describe(
 				`Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools. ${CASE_LIST_ORDER_GUIDANCE}`,
 			),
+		badge: menuBadgeSchema
+			.nullable()
+			.optional()
+			.describe(
+				"A short label beside this item on the worker’s menu. Give it text or a calculation. A null value removes the badge.",
+			),
 		displayCondition: conditionSchema
 			.nullable()
 			.optional()
@@ -197,7 +204,7 @@ export type UpdateModuleResult =
 
 export const updateModuleTool = {
 	description:
-		"Update a module's name, case type, parent-record selection, visibility, where its forms show, whether its menu shows the case list as its own item, or the registration its case list offers.",
+		"Update a module's name, case type, parent-record selection, visibility, menu badge, where its forms show, whether its menu shows the case list as its own item, or the registration its case list offers.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
@@ -209,6 +216,7 @@ export const updateModuleTool = {
 			name,
 			case_type,
 			case_list_columns,
+			badge,
 			displayCondition,
 			hiddenFromMenu,
 			parentCaseModuleUuid,
@@ -222,6 +230,7 @@ export const updateModuleTool = {
 				input.listed_form === undefined &&
 				input.forms_from_menu === undefined &&
 				case_type == null &&
+				badge === undefined &&
 				displayCondition === undefined &&
 				hiddenFromMenu === undefined &&
 				parentCaseModuleUuid === undefined &&
@@ -405,6 +414,9 @@ export const updateModuleTool = {
 			const mutations = [
 				...(sourceChange?.mutations ?? []),
 				...(visibility ? [visibility] : []),
+				...(badge === undefined
+					? []
+					: [updateModuleMutation(moduleUuid, { badge })]),
 				...(parentCaseModuleUuid === undefined
 					? []
 					: [updateModuleMutation(moduleUuid, { parentCaseModuleUuid })]),

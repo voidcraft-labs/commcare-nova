@@ -24,6 +24,7 @@ import {
 	usePinnedCaseTile,
 } from "@/components/preview/shared/PinnedCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
+import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -74,7 +75,7 @@ import {
 	previewModuleOwnVisibility,
 	previewModuleScreenIsBareCaseList,
 	previewScreenEntries,
-	previewScreenEntryVisibility,
+	previewScreenWithBadges,
 } from "@/lib/preview/menuProjection";
 import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
 import {
@@ -225,7 +226,9 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		() =>
 			readPreviewScreen(() => {
 				ownModuleVisibility.get(moduleUuid);
-				return previewScreenEntryVisibility({
+				return previewScreenWithBadges({
+					platform: device.platform,
+					localizedValues,
 					doc: menuSource.doc,
 					entries,
 					ownModuleVisibility,
@@ -251,6 +254,8 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 				});
 			}),
 		[
+			device.platform,
+			localizedValues,
 			moduleUuid,
 			entries,
 			ownModuleVisibility,
@@ -263,7 +268,11 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 		],
 	);
 	const entryVisibility =
-		screenRead.kind === "read" ? screenRead.value : NO_ENTRY_VISIBILITY;
+		screenRead.kind === "read"
+			? screenRead.value.visibility
+			: NO_ENTRY_VISIBILITY;
+	const badges =
+		screenRead.kind === "read" ? screenRead.value.badges : undefined;
 	const hiddenItemsOf = useCallback(
 		(listed: readonly MenuScreenEntry[]) =>
 			previewHiddenScreenEntries({
@@ -516,6 +525,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 					className="text-nova-text-muted group-hover:text-pv-accent-bright shrink-0"
 				/>
 				<div className="text-sm font-medium text-nova-text">{childName}</div>
+				{badges?.get(key) && <Badge variant="muted">{badges.get(key)}</Badge>}
 			</motion.button>
 		);
 	};
@@ -699,6 +709,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 
 						return (
 							<PreviewFormRow
+								badge={badges?.get(key)}
 								key={key}
 								form={form}
 								index={fIdx}

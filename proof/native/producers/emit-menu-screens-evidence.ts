@@ -1067,6 +1067,11 @@ function write(name: string, doc: BlueprintDoc, readings: Readings): void {
 		resolve(output, `${name}.suite.xml`),
 		zip.readAsText("suite.xml"),
 	);
+	if (name === "menu-badge-readings")
+		writeFileSync(
+			resolve(output, `${name}.properties`),
+			zip.readAsText("en/app_strings.txt"),
+		);
 	const ctx = formLinkProjectionContext(doc);
 	if (readings.kind === "roles") {
 		assertEveryMenuConditionHolds(name, doc);
@@ -1415,6 +1420,76 @@ function surveyMenu(key: string, name: string, extra: object = {}) {
 			},
 		],
 	};
+}
+
+/** Core reads both badge carriers, first on the home screen and again on
+ * the chosen menu. The same installed app runs with one and two records. */
+{
+	const doc = buildDoc({
+		appName: "Visit records",
+		modules: [
+			surveyMenu("badge-visits", "Visits"),
+			surveyMenu("badge-notes", "Notes"),
+		],
+	});
+	doc.modules[testUuid("badge-visits")].badge = {
+		kind: "calculation",
+		expression: {
+			kind: "count",
+			via: { kind: "cases", source: "casedb", where: [] },
+		},
+	};
+	doc.modules[testUuid("badge-notes")].badge = { kind: "text", text: "New" };
+	doc.forms[testUuid("badge-visits-form")].badge = {
+		kind: "text",
+		text: "Ready",
+	};
+	doc.forms[testUuid("badge-notes-form")].badge =
+		doc.modules[testUuid("badge-visits")].badge;
+	const verdict = mutationCommitVerdict(doc, [], lookupContextOf(undefined));
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict));
+	write("menu-badge-readings", doc, NONE);
+}
+
+/** A command on a forms-first screen reads the worker's own restored case.
+ * Core's control uses a contrary sign-in value and a second worker's case. */
+{
+	const district = {
+		kind: "term" as const,
+		term: {
+			kind: "session-user" as const,
+			field: "district",
+			source: "worker-record" as const,
+		},
+	};
+	const rule = {
+		kind: "eq" as const,
+		left: district,
+		right: {
+			kind: "term" as const,
+			term: { kind: "literal" as const, value: "north" },
+		},
+	};
+	const visits = surveyMenu("district-visits", "Visits");
+	const options = surveyMenu("district-options", "Options");
+	const doc = buildDoc({
+		appName: "District work",
+		modules: [
+			visits,
+			{
+				...options,
+				forms: [
+					options.forms[0],
+					{
+						...surveyMenu("district-north", "North visit").forms[0],
+						displayCondition: rule,
+					},
+				],
+			},
+		],
+	});
+	doc.modules[testUuid("district-visits")].displayCondition = rule;
+	write("worker-record-menu-readings", doc, NONE);
 }
 
 /** The worker data of a worker assigned to `place`, which HQ writes as all

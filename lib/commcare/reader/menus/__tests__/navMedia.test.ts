@@ -20,6 +20,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain";
 import { localAppStringTable } from "../../../appStrings";
@@ -133,7 +134,7 @@ async function readWithMedia(
 	return readHqApp(
 		{
 			...input,
-			recordDialect: () => undefined,
+			recordDialect: recordDialectRoundTrip,
 			appStrings: (read) => localAppStringTable(read, []),
 		},
 		{ claims: "full" },
@@ -213,6 +214,68 @@ describe("a menu's and a form's media read as HQ shows them", () => {
 				(one) => one.register === "media-maps-respelled",
 			),
 		).toEqual([]);
+	});
+
+	it("reads a restored-case count in a menu and the worker record in a form from the saved app", async () => {
+		const outcome = await readWithMedia(caseListApp(), (json) => {
+			const menu = json.modules[1] as AppJson["modules"][number];
+			menu.module_filter =
+				"count(instance('casedb')/casedb/case[@case_type = 'patient']) > 0";
+			menu.forms[0].form_filter = "#user/district = 'north'";
+		});
+		expect(outcome.defects).toEqual([]);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The app did not read.");
+		expect(
+			moduleNamed(outcome.draft.doc, "Patients").displayCondition?.kind,
+		).toBe("gt");
+		const forms = Object.values(outcome.draft.doc.forms);
+		expect(forms.some((form) => form.displayCondition?.kind === "eq")).toBe(
+			true,
+		);
+	});
+
+	it("reads the menu's translated badge and the form's calculation from the same app", async () => {
+		const outcome = await readWithMedia(app(), (json) => {
+			const menu = json.modules[0] as AppJson["modules"][number];
+			menu.custom_icons = [
+				{
+					doc_type: "CustomIcon",
+					form: "badge",
+					xpath: null,
+					text: { en: "New", es: "Hoy" },
+				},
+			];
+			(menu.forms[0] as Record<string, unknown>).custom_icons = [
+				{ doc_type: "CustomIcon", form: "badge", xpath: "4", text: {} },
+			];
+		});
+		expect(outcome.defects).toEqual([]);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The app did not read.");
+		const doc = outcome.draft.doc;
+		expect(moduleNamed(doc, "Visits").badge).toEqual({
+			kind: "text",
+			text: "New",
+		});
+		expect(formNamed(doc, "Visit").badge).toEqual({
+			kind: "calculation",
+			expression: { kind: "term", term: { kind: "literal", value: 4 } },
+		});
+	});
+
+	it("reads a list item and its action when their inherited badge fields contain text and an expression", async () => {
+		const outcome = await readWithMedia(caseListApp(), (json) => {
+			const { item, register } = listBlocks(json);
+			item.custom_icons = [{ doc_type: "CustomIcon", text: { en: "Inbox" } }];
+			register.custom_icons = [{ doc_type: "CustomIcon", xpath: "3 + 1" }];
+		});
+		expect(outcome.defects).toEqual([]);
+		expect(findings(outcome)).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The app did not read.");
+		const patients = moduleNamed(outcome.draft.doc, "Patients");
+		expect(patients.caseListMenuItem).toBeDefined();
+		expect(patients.caseListRegistrationForm?.kind).toBe("always");
 	});
 
 	it("reads the first language's path under the switch, though another stores a second", async () => {

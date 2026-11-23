@@ -485,7 +485,17 @@ function infer(
 		const verdict = recordPositionVerdict(
 			expression.kind,
 			position,
-			holdsOneYesNo(type),
+			holdsOneYesNo(type) ||
+				("profile" in ctx &&
+					[
+						"case_list_filter",
+						"form_display_condition",
+						"module_display_condition",
+					].includes(ctx.slot.slot) &&
+					expression.kind === "term" &&
+					(expression.term.kind === "session-user" ||
+						expression.term.kind === "session-user-property") &&
+					expression.term.source === "worker-record"),
 		);
 		if (!verdict.ok)
 			errors.unshift({
@@ -1078,6 +1088,33 @@ function admission(
 				"places-unavailable",
 			);
 		if (
+			ctx.slot.slot === "form_display_condition" &&
+			expression.kind === "cases" &&
+			expression.source === "casedb" &&
+			!profile.caseData
+		)
+			return refusal(
+				"case-data-unavailable",
+				"This form is shown before a case is selected. Its visibility condition can read the worker's own record.",
+			);
+		if (
+			[
+				"module_display_condition",
+				"form_display_condition",
+				"module_badge",
+				"form_badge",
+			].includes(ctx.slot.slot) &&
+			(expression.kind === "table-rows" ||
+				expression.kind === "project" ||
+				(expression.kind === "cases" &&
+					expression.source === "casedb" &&
+					profile.caseData) ||
+				(expression.kind === "count" &&
+					!isRelationPath(expression.via) &&
+					["cases", "table-rows"].includes(expression.via.kind)))
+		)
+			return undefined;
+		if (
 			["call", "cases", "table-rows", "project"].includes(expression.kind) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
 		)
@@ -1142,15 +1179,6 @@ function admission(
 		return refusal(
 			"case-data-unavailable",
 			"Case information is not available before a case is chosen.",
-		);
-	if (
-		ctx.slot.entity === "form" &&
-		ctx.slot.slot === "form_display_condition" &&
-		["exists", "missing", "count"].includes(expression.kind)
-	)
-		return refusal(
-			"case-data-unavailable",
-			"A form menu can read only the case selected by its own menu.",
 		);
 	if (expression.kind === "term") return termAdmission(expression.term, ctx);
 	return undefined;
@@ -1413,14 +1441,17 @@ function termAdmission(
 		);
 	if (
 		term.kind === "prop" &&
-		ctx.slot.entity === "form" &&
-		ctx.slot.slot === "form_display_condition" &&
-		(term.caseType !== caseScope(ctx)?.caseType ||
-			(term.via !== undefined && term.via.kind !== "self"))
+		!caseScope(ctx) &&
+		[
+			"module_display_condition",
+			"form_display_condition",
+			"module_badge",
+			"form_badge",
+		].includes(ctx.slot.slot)
 	)
 		return refusal(
 			"case-data-unavailable",
-			"A form menu can read only the case selected by its own menu.",
+			"This menu has no selected record. You can read the worker's record or query the records on the device.",
 		);
 	// A form reads its menu's Search answers where Core keeps them: the case
 	// list registration form, and the forms of a menu whose forms read the

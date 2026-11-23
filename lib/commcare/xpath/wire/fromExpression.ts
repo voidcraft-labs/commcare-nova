@@ -562,10 +562,18 @@ function term(input: Term, ctx: Context): WireExpr {
 			if (via === undefined || via.kind === "self") return w.context([leaf]);
 			switch (via.kind) {
 				case "ancestor":
-					return w.append(buildAncestorJoinNodeset(via.via, root), [leaf]);
+					return w.append(
+						buildAncestorJoinNodeset(via.via, root, origin(ctx)),
+						[leaf],
+					);
 				case "subcase":
 					return w.append(
-						buildSubcaseJoinNodeset(via.identifier, root, via.ofCaseType),
+						buildSubcaseJoinNodeset(
+							via.identifier,
+							root,
+							via.ofCaseType,
+							origin(ctx),
+						),
 						[leaf],
 					);
 				case "any-relation":

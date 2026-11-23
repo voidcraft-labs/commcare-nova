@@ -2592,3 +2592,9 @@ When a menu lists forms from another menu, Preview carries both the route menu U
 ### Home with a retained case
 
 A commandless Previous frame lands on Home. Formplayer rebuilds the menu with fresh choices. Android keeps each selected datum and makes it available to any form or case-list command with the matching datum. The retained choice and its record properties belong to the corresponding browser history entry and worker. A fresh Home starts empty. An unrelated selector still asks for its own case.
+
+The same navigation evaluator reads a menu or form's calculated badge.
+A restored-record count waits for the signed-in worker's snapshot even when
+no form or display condition reads cases. Text badges use the owner's
+translation unit. Android's menu adapter formats a long badge after the
+expression has evaluated. Web Apps renders the value as text.

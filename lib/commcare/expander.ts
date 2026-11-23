@@ -109,6 +109,7 @@ import {
 	hqXPath,
 	serializeHqApplication,
 } from "./hqJson/xpath";
+import { hqMenuBadges, projectMenuBadge } from "./menuBadge";
 import { emittedModuleKind } from "./moduleKind";
 import { buildXFormSource } from "./xform/builder";
 
@@ -509,6 +510,19 @@ export function* expandDocSteps(
 					entryDatumIds(doc, linkContext, moduleUuid, formUuid),
 				),
 			);
+			formShellObj.custom_icons = hqMenuBadges(
+				projectMenuBadge(
+					authoredDoc,
+					{ kind: "form", uuid: formUuid },
+					form.badge,
+					opts.lookupNaming,
+					ownCaseDatumId,
+					entryDatumIdResolver(
+						entryDatumIds(doc, linkContext, moduleUuid, formUuid),
+					),
+				),
+				localization,
+			);
 			formShellObj.form_filter =
 				formFilter === undefined
 					? null
@@ -634,6 +648,16 @@ export function* expandDocSteps(
 						expressions({ slot: "module_display_condition" }),
 						opts.lookupNaming,
 					);
+		if (synthetic === undefined)
+			shell.custom_icons = hqMenuBadges(
+				projectMenuBadge(
+					authoredDoc,
+					{ kind: "module", uuid: moduleUuid },
+					mod.badge,
+					opts.lookupNaming,
+				),
+				localization,
+			);
 		shell.module_filter =
 			moduleFilter === undefined ? null : hqXPath(moduleFilter, "no-case");
 		// A menu that shows its forms in the menu above is HQ's `put_in_root`.

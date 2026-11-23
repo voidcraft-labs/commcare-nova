@@ -1151,6 +1151,17 @@ function sourceTextSlot(
 		return (draft, value) => {
 			draft.appName = value;
 		};
+	if (
+		found?.role === "menu-badge" &&
+		(owner?.kind === "module" || owner?.kind === "form")
+	)
+		return (draft, value) => {
+			const badge =
+				owner.kind === "module"
+					? draft.modules[owner.moduleUuid]?.badge
+					: draft.forms[owner.formUuid]?.badge;
+			if (badge?.kind === "text") badge.text = value;
+		};
 	if (found?.role === "module-name" && owner?.kind === "module")
 		return (draft, value) => {
 			draft.modules[owner.moduleUuid].name = value;

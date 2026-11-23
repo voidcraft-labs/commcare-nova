@@ -732,32 +732,25 @@ condition slot), validated by
 `lib/commcare/validator/rules/displayConditions.ts` and emitted through
 `lib/commcare/suite/displayConditions.ts`.
 
-The validator's restrictions are wire-forced, not stylistic:
+A visibility condition evaluates while the worker chooses a menu or form.
+A menu can query restored case rows and data tables before the worker
+selects a case. A form can use the chosen case, including its linked rows,
+when the physical screen has selected that case and HQ can apply the filter
+to that command. HQ excludes the worker's own restored record from its
+forms-first restriction on case queries. Sign-in values and worker-record
+properties have distinct typed sources. In a case-list filter the case store
+binds a worker-record read to the authorized worker and Project.
 
-- A relevancy expression that throws at render takes down the **entire** Web Apps
-  menu screen, not just the offending item — `MenuLoader::getMenuDisplayables`
-  catches and `MenuScreen::init` rethrows at screen level. Every condition is
-  therefore boolean by construction and checker-gated.
-- HQ rejects any casedb reference in a form filter whose module does not
-  guarantee a selected case (`menus.py`, via `xpath_references_case` after
-  interpolation). Module filters skip that check but hard-reject `#case`,
-  `#parent`, `#host`, **and** bare-dot case shorthand
-  (`app_manager/xpath.py::_ensure_no_case_references`), so an emitted module
-  filter must be dot-free as well as hashtag-free.
-- Counts, `exists`/`missing`, and non-self reads are refused.
-
-The form-condition evaluation locus for a case-first module is the case-list
-screen after selection — including whether a form chosen before the case opens;
-the module screen's form list is a gating site only for the forms-first flow.
-That locus is a product requirement as well as a validator rule, because it
-decides what the editor may offer: `CaseDataScope` is `per-case` (case rows
-and their relatives), `selected-case` (one chosen case's own properties —
-relationship walks, counts, and presence tests withheld with the scope's own
-explanation), or `global` (no case at all). A module condition and a
-forms-first form condition are `global`; a case-first form condition is
-`selected-case`. `PredicateEditProvider` reads the slot's profile
-(`editorAxesForSlot`), so no surface can silently offer a read the commit gate
-would reject.
+A badge on a menu or form has either localizable text or a typed calculation
+in the item's display context. HQ's editor replaces its first custom icon.
+The suite reads its locale key or evaluates its expression. Core requests the
+badge when it lists the item. Web Apps displays its whole text. Android hides
+an empty badge and the exact string `0`. A value over three UTF-16 units
+displays as `999+` if Java can parse it as a 32-bit integer. Other long values
+display their first three units followed by two dots. Case-list commands and
+registration buttons ignore the inherited badge field on their HQ models.
+The publish plan asks for the badge privilege and for worker-record capability
+where the chosen expression reads that record.
 
 A second, independent axis governs **Never match**.
 A navigation condition that is, or starts with, `match-none` is refused by a

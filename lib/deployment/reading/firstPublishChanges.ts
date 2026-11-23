@@ -1720,6 +1720,24 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/translations/*/app.display.name",
 		],
 	},
+	"badge-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("badge-respelled"),
+		at: {
+			kinds: ["menu", "form"],
+			places: (facts) => recordedPlaces(facts, "badge-respelled"),
+		},
+		paths: [
+			"/modules/*/custom_icons",
+			"/modules/*/custom_icons/0/text",
+			"/modules/*/custom_icons/0/xpath",
+			"/modules/*/forms/*/custom_icons",
+			"/modules/*/forms/*/custom_icons/0/text",
+			"/modules/*/forms/*/custom_icons/0/xpath",
+		],
+	},
+
 	/**
 	 * A navigation media map read as the file HQ's build shows in each language
 	 * and written under every language with the switches off
@@ -1750,6 +1768,8 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			places: (facts) => recordedPlaces(facts, "text-spaces-dropped"),
 		},
 		paths: [
+			"/modules/*/custom_icons/0/text",
+			"/modules/*/forms/*/custom_icons/0/text",
 			"/modules/*/name",
 			"/modules/*/forms/*/name",
 			"/name",
