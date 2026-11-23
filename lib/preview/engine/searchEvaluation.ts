@@ -173,7 +173,7 @@ async function searchSnapshot(
 		);
 		if (
 			!relevant ||
-			context.device.platform !== "web-apps" ||
+			rules.searchRangeStartingValue !== "date-picker" ||
 			(initialStep === "results" && answers === undefined)
 		)
 			return initial;
@@ -220,7 +220,7 @@ async function searchSnapshot(
 				"Search is not available on this screen.",
 			);
 		const projected =
-			context.device.platform === "web-apps"
+			rules.searchRangeStartingValue === "date-picker"
 				? webSearchRangeDraft(inputs, run.draft)
 				: { draft: run.draft };
 		if (projected.unavailable)
@@ -247,7 +247,7 @@ async function searchSnapshot(
 			else
 				values.set(
 					name,
-					rangeEnd && context.device.platform === "android"
+					rangeEnd && rules.searchRangeChosenDay === "utc-midnight"
 						? androidSelectedRangeDay(value)
 						: value,
 				);
@@ -335,7 +335,7 @@ async function searchSnapshot(
 	// The journey's private continuation keeps the original answer keys. Its
 	// public observation shows the same field text as the worker's screen.
 	const display =
-		context.device.platform === "web-apps"
+		rules.searchRangeStartingValue === "date-picker"
 			? webSearchRangeDraft(inputs, run.draft)
 			: undefined;
 	const visible = new Map(display?.draft ?? run.draft);

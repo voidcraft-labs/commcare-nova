@@ -3004,7 +3004,6 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							onSubmit={submitSearch}
 							submitLabel={CASE_SEARCH_BUTTON_LABEL}
 							localizeValidationMessage={localizeSearchValidationMessage}
-							platform={platform}
 							platformRules={platformRules}
 							renderRefusal={(reason) => (
 								<PreviewDataRefusalPanel

@@ -185,7 +185,6 @@ function Surface({ revision }: { revision: number }) {
 			)}
 			{platformRules !== undefined && <SearchHeading rules={platformRules} />}
 			<SearchInputForm
-				platform={platform}
 				platformRules={platformRules}
 				caseType={caseType}
 				searchInputs={inputs}

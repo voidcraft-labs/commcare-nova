@@ -58,7 +58,14 @@ export type PreviewDataRefusalReason =
 	 * `RemoteQuerySessionManager.refreshItemSetChoices`). `input` is the
 	 * field's label, or its name where it has none. */
 	| {
-			readonly kind: "unoffered-starting-choice" | "unreadable-starting-range";
+			readonly kind: "unoffered-starting-choice";
+			readonly inputUuid: Uuid;
+			readonly input: string;
+	  }
+	/** A date-range Search field whose starting value Web Apps' date picker
+	 * cannot show as a pair of dates, so its screen does not open. */
+	| {
+			readonly kind: "unreadable-starting-range";
 			readonly inputUuid: Uuid;
 			readonly input: string;
 	  };

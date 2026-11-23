@@ -117,7 +117,7 @@ it("opens and submits the worker platform’s date-range values and keeps intern
 				{
 					name: "Visits",
 					caseType: "person",
-					caseSearchConfig: { workflow },
+					caseSearchConfig: workflow === "searchFirst" ? {} : { workflow },
 					caseListConfig: {
 						...caseListConfig([{ field: "case_name", header: "Name" }]),
 						searchInputs: [

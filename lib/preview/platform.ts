@@ -152,6 +152,18 @@ export interface PreviewPlatformRules {
 	readonly hiddenSearchFieldWithDefault: "hidden" | "editable";
 	/** HQ's Web Apps model indexes labels by value; Android enumerates Core's itemset rows. */
 	readonly searchChoiceOrder: "values" | "rows";
+	/** A date-range Search field's starting value. Web Apps' range picker
+	 *  reads it by the client's strict Moment formats and shows each end in the
+	 *  browser's calendar (`cloudcare/js/utils.js`, `menus/views/query.js`;
+	 *  `searchRangeAnswer.ts::webSearchRangeDraft`), refusing the screen where
+	 *  it cannot; Android's prompt shows the stored text
+	 *  (`androidStartingRangeLabel`). */
+	readonly searchRangeStartingValue: "date-picker" | "text";
+	/** A day the worker picks for a date-range end. Android's Material range
+	 *  picker supplies UTC midnight, which its callback prints in the worker's
+	 *  zone (`androidSelectedRangeDay`); Web Apps' picker gives the calendar
+	 *  day itself. */
+	readonly searchRangeChosenDay: "calendar-day" | "utc-midnight";
 	/** A barcode Search field (manifest `case-search/appearance-barcode-scan`:
 	 *  a plain text box in Web Apps). */
 	readonly barcodeSearchField: "text" | "scan-or-text";
@@ -418,6 +430,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchFieldChecks: true,
 		hiddenSearchFieldWithDefault: "hidden",
 		searchChoiceOrder: "values",
+		searchRangeStartingValue: "date-picker",
+		searchRangeChosenDay: "calendar-day",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
 		searchClear: true,
@@ -487,6 +501,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		searchFieldChecks: false,
 		hiddenSearchFieldWithDefault: "editable",
 		searchChoiceOrder: "rows",
+		searchRangeStartingValue: "text",
+		searchRangeChosenDay: "utc-midnight",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
 		searchClear: false,

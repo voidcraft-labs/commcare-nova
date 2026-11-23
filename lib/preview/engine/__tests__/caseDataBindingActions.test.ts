@@ -10,6 +10,7 @@ import {
 	CasePropertiesValidationError,
 	type CasePropertyFailure,
 	type CaseRow,
+	type CaseRowWithCalculated,
 	type CaseStore,
 	type JsonObject,
 	SchemaNotSyncedError,
@@ -33,6 +34,7 @@ import {
 import type { Expression } from "@/lib/domain/expression";
 import {
 	dateAdd,
+	dateLiteral,
 	double,
 	eq,
 	formField,
@@ -92,6 +94,21 @@ function emptySearchResults() {
 		totalRows: 0,
 		offset: 0,
 		rows: [],
+	}));
+}
+
+/** A completed search's reader that returns each page in turn, the page
+ * starting at the offset its request names. */
+function searchResultPages(
+	total: number,
+	...pages: ReadonlyArray<CaseRowWithCalculated[]>
+) {
+	const remaining = [...pages];
+	return vi.fn<CaseStore["querySearchResults"]>(async (args) => ({
+		primaryCount: total,
+		totalRows: total,
+		offset: args.offset ?? 0,
+		rows: remaining.shift() ?? [],
 	}));
 }
 
@@ -3005,7 +3022,10 @@ describe("loadCasesAction", () => {
 			} as Awaited<ReturnType<typeof getSession>>);
 			const store = {
 				...actionStore(),
-				query: appCaseQuery([buildSyntheticRow({ dob: "2024-01-01" })]),
+				query: appCaseQuery(),
+				querySearchResults: searchResultPages(1, [
+					{ ...buildSyntheticRow({ dob: "2024-01-01" }), calculated: {} },
+				]),
 			} satisfies CaseStore;
 			vi.mocked(withProjectContext).mockResolvedValueOnce(store);
 			const blueprint = buildBlueprint([FORMATTED_PROPS_CASE_TYPE]);
@@ -3042,9 +3062,10 @@ describe("loadCasesAction", () => {
 				inputValues: { "dob:starting": submitted },
 			});
 			if (admitted) {
-				expect(result.kind).toBe("rows");
-				expect(store.query).toHaveBeenCalledWith(
+				expect(result).toMatchObject({ kind: "rows" });
+				expect(store.querySearchResults).toHaveBeenCalledWith(
 					expect.objectContaining({ caseType: "patient" }),
+					undefined,
 				);
 			} else {
 				expect(result).toMatchObject({
@@ -3052,9 +3073,7 @@ describe("loadCasesAction", () => {
 					repair: "inputs",
 					...(expectedMessage && { message: expectedMessage }),
 				});
-				expect(store.query).not.toHaveBeenCalledWith(
-					expect.objectContaining({ caseType: "patient" }),
-				);
+				expect(store.querySearchResults).not.toHaveBeenCalled();
 			}
 		},
 	);
@@ -3065,12 +3084,20 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
 		} as Awaited<ReturnType<typeof getSession>>);
-		const first = { ...buildSyntheticRow({}), case_id: "first-page" };
-		const second = { ...buildSyntheticRow({}), case_id: "second-page" };
+		const first = {
+			...buildSyntheticRow({}),
+			case_id: "first-page",
+			calculated: {},
+		};
+		const second = {
+			...buildSyntheticRow({}),
+			case_id: "second-page",
+			calculated: {},
+		};
 		const store = {
 			...actionStore(),
-			count: vi.fn<CaseStore["count"]>().mockResolvedValue(51),
-			query: appCaseQuery([first], [second]),
+			query: appCaseQuery(),
+			querySearchResults: searchResultPages(51, [first], [second]),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValue(store);
 		const tables = [
@@ -3131,7 +3158,7 @@ describe("loadCasesAction", () => {
 					sourceLanguage: "eng",
 					defaultLanguage: "eng",
 					languageOrder: ["eng", "fra"],
-					translations: {},
+					translations: { fra: {} },
 					wireCodes: { eng: "en", fra: "fr" },
 				},
 			},

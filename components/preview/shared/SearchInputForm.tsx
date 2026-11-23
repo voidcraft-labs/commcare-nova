@@ -79,7 +79,7 @@ import {
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
-import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
+import { PLATFORMS } from "@/lib/domain/platforms";
 import {
 	PreviewDataRefusal,
 	type PreviewDataRefusalReason,
@@ -152,7 +152,6 @@ export interface SearchFormClear {
 
 interface SearchInputFormProps {
 	readonly clearRef?: Ref<SearchFormClear>;
-	readonly platform?: Platform;
 	/** Accessible name for the search landmark. The running case list passes
 	 * the same authored title its visible heading shows. */
 	readonly landmarkLabel?: string;
@@ -204,6 +203,8 @@ interface SearchInputFormProps {
 		| "searchScreenText"
 		| "barcodeSearchField"
 		| "searchChoiceOrder"
+		| "searchRangeStartingValue"
+		| "searchRangeChosenDay"
 	>;
 	/** What the screen shows in place of its fields where a required
 	 *  condition or a check reads data the worker's device lacks (a place key
@@ -239,7 +240,6 @@ export function SearchInputForm({
 	onSubmit,
 	submitLabel = "Search",
 	localizeValidationMessage = (source) => source,
-	platform = "web-apps",
 	platformRules = DEFAULT_SEARCH_RULES,
 	renderRefusal,
 }: SearchInputFormProps) {
@@ -294,10 +294,10 @@ export function SearchInputForm({
 	const [sourceDraft, setDraft] = useState<SearchInputValues>(value);
 	const displayed = useMemo<ReturnType<typeof webSearchRangeDraft>>(
 		() =>
-			platform === "web-apps"
+			platformRules.searchRangeStartingValue === "date-picker"
 				? webSearchRangeDraft(searchInputs, sourceDraft)
 				: { draft: sourceDraft },
-		[platform, searchInputs, sourceDraft],
+		[platformRules.searchRangeStartingValue, searchInputs, sourceDraft],
 	);
 	const draft = displayed.draft;
 	const validateSubmission = useCallback(
@@ -574,7 +574,7 @@ export function SearchInputForm({
 	const setKey = (key: string, next: string, discard?: string) => {
 		setDraft((prev) => {
 			const updated = new Map(
-				platform === "web-apps"
+				platformRules.searchRangeStartingValue === "date-picker"
 					? webSearchRangeDraft(searchInputs, prev).draft
 					: prev,
 			);
@@ -668,7 +668,9 @@ export function SearchInputForm({
 								draft={draft}
 								startingLabel={displayed.labels?.get(input.name)}
 								setKey={setKey}
-								platform={platform}
+								utcMidnightDays={
+									platformRules.searchRangeChosenDay === "utc-midnight"
+								}
 								showHint={platformRules.searchScreenText}
 								choiceOrder={platformRules.searchChoiceOrder}
 								scanBarcode={
@@ -748,7 +750,9 @@ interface SearchInputRowProps {
 	readonly setKey: (key: string, next: string, discard?: string) => void;
 	/** Android shows no Search field hints (`searchScreenText`). */
 	readonly showHint: boolean;
-	readonly platform: Platform;
+	/** Android's range picker gives each chosen day as UTC midnight
+	 *  (`searchRangeChosenDay`). */
+	readonly utcMidnightDays: boolean;
 	/** Android scans a barcode Search field; Web Apps draws a text box. */
 	readonly scanBarcode: boolean;
 	/** Required right now; the label carries the mark. */
@@ -771,7 +775,7 @@ function SearchInputRow({
 	startingLabel,
 	setKey,
 	showHint,
-	platform,
+	utcMidnightDays,
 	scanBarcode,
 	required,
 	choiceOrder,
@@ -840,14 +844,14 @@ function SearchInputRow({
 					onChangeFrom={(next) =>
 						setKey(
 							`${input.name}:from`,
-							platform === "android" ? androidSelectedRangeDay(next) : next,
+							utcMidnightDays ? androidSelectedRangeDay(next) : next,
 							`${input.name}:starting`,
 						)
 					}
 					onChangeTo={(next) =>
 						setKey(
 							`${input.name}:to`,
-							platform === "android" ? androidSelectedRangeDay(next) : next,
+							utcMidnightDays ? androidSelectedRangeDay(next) : next,
 							`${input.name}:starting`,
 						)
 					}

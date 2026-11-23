@@ -120,7 +120,10 @@ export async function openSavedSearchRanges(
 					values,
 				).toString("hex"),
 			];
-			if (context.device.platform === "web-apps") {
+			if (
+				previewPlatformRules(context.device.platform)
+					.searchRangeStartingValue === "date-picker"
+			) {
 				const shown = webSearchRangeDraft(
 					[field],
 					new Map(Object.entries(answers)),
@@ -220,7 +223,11 @@ export function matchesSavedSearchRanges(
 				(suffix) => answer.get(name + suffix) === values.get(name + suffix),
 			);
 		if (matches(original)) continue;
-		if (context.device.platform !== "web-apps") return false;
+		if (
+			previewPlatformRules(context.device.platform).searchRangeStartingValue !==
+			"date-picker"
+		)
+			return false;
 		const shown = webSearchRangeDraft([saved], original, zone);
 		if (shown.unavailable || !matches(shown.draft)) return false;
 	}
