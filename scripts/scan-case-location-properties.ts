@@ -1,6 +1,7 @@
 /**
  * READ-ONLY — report cases whose JSONB property document holds a
- * `location_id` key, which the case's own location column replaced
+ * `location_id` key, which the case's own location column replaced, and
+ * stored case schemas that still declare it
  * (`scripts/lib/caseLocationProperties.ts`).
  *
  * Run before `migrate-case-location-properties.ts`, and again after it; the
@@ -14,7 +15,10 @@ import {
 	closeCaseStoreDatabase,
 	getCaseStoreDatabase,
 } from "../lib/case-store/postgres/connection";
-import { scanCaseLocationProperties } from "./lib/caseLocationProperties";
+import {
+	scanCaseLocationProperties,
+	scanCaseLocationSchemas,
+} from "./lib/caseLocationProperties";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
@@ -62,7 +66,13 @@ async function main(): Promise<void> {
 		console.log(
 			`\n${total} row(s) across ${groups.length} app/type group(s) hold location_id in their property document.`,
 		);
-		if (total > 0) {
+		const schemas = await scanCaseLocationSchemas(db, { appId: opts.app });
+		for (const schema of schemas)
+			console.log(
+				`${schema.appId} / ${schema.caseType}: stored schema declares location_id (${schema.active ? "active" : "retired"})`,
+			);
+		console.log(`${schemas.length} stored case schema(s) declare location_id.`);
+		if (total > 0 || schemas.length > 0) {
 			console.log(
 				"\nNext: run scripts/migrate-case-location-properties.ts as a dry run, execute it in the target environment, then re-scan to zero.",
 			);

@@ -1,6 +1,7 @@
 /**
  * WRITER — move each case's `location_id` out of its JSONB property document
- * into the case's own location column (`scripts/lib/caseLocationProperties.ts`).
+ * into the case's own location column, and remove it from every stored case
+ * schema that declares it (`scripts/lib/caseLocationProperties.ts`).
  *
  * Dry-run by default; nothing writes without `--execute`. Run the read-only
  * scan first for sizing, execute this against the intended environment, then
@@ -15,7 +16,9 @@ import {
 } from "../lib/case-store/postgres/connection";
 import {
 	migrateCaseLocationProperties,
+	migrateCaseLocationSchemas,
 	scanCaseLocationProperties,
+	scanCaseLocationSchemas,
 } from "./lib/caseLocationProperties";
 import { runMain } from "./lib/main";
 
@@ -60,11 +63,22 @@ async function main(): Promise<void> {
 			console.log(
 				`  ${group.appId} / ${group.caseType}: ${group.rowCount} (${group.columnHeld} keep their column)`,
 			);
+		const schemas = await scanCaseLocationSchemas(db, scope);
+		console.log(
+			`${opts.execute === true ? "Removing" : "Would remove"} location_id from ${schemas.length} stored case schema(s).`,
+		);
+		for (const schema of schemas)
+			console.log(`  ${schema.appId} / ${schema.caseType}`);
 		if (opts.execute !== true) return;
 		const moved = await migrateCaseLocationProperties(db, scope);
+		const cleared = await migrateCaseLocationSchemas(db, scope);
 		const after = await scanCaseLocationProperties(db, scope);
-		const remaining = after.reduce((sum, group) => sum + group.rowCount, 0);
-		console.log(`\nMoved ${moved} row(s); ${remaining} remain.`);
+		const remaining =
+			after.reduce((sum, group) => sum + group.rowCount, 0) +
+			(await scanCaseLocationSchemas(db, scope)).length;
+		console.log(
+			`\nMoved ${moved} row(s) and cleared ${cleared} schema(s); ${remaining} remain.`,
+		);
 		if (remaining > 0)
 			throw new Error(
 				"the case location repair did not converge to zero; inspect concurrent writers and re-run the read-only scan",
