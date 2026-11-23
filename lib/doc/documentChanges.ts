@@ -180,9 +180,10 @@ export const CASE_LIST_KEY_PARTS = {
 /**
  * The part each key of a form is listed under. `null` only for the form's
  * own `uuid`. Its type, its conditions, its case changes and the held place
- * of its own close are what it saves to cases.
+ * of its own close and of its opening records are what it saves to cases.
  */
 export const FORM_KEY_PARTS = {
+	heldSelectionTags: "case-changes",
 	caseSelections: "case-changes",
 	computedDatums: "settings",
 	submitLabel: "settings",
