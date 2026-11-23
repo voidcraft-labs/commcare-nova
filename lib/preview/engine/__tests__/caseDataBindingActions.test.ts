@@ -374,6 +374,7 @@ const EMPTY_CASE_DATABASE_PATCH = { rows: [], indices: [] } as const;
 function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 	return {
 		query: appCaseQuery(),
+		holdsDeviceCases: vi.fn(async () => true),
 		readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
 		readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
 		queryGrouped: vi.fn(),
@@ -754,6 +755,10 @@ describe("submitFormAction", () => {
 				},
 			],
 		});
+		// Without the follow-up's generated starting value the form reads no
+		// record when it opens, so it submits without a signed opening.
+		for (const field of Object.values(committedBlueprint.fields))
+			if ("default_value" in field) delete field.default_value;
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
 			kind: "current",
 			projectId: PROJECT_A,
@@ -1536,7 +1541,10 @@ describe("submitFormAction", () => {
 		).toBeLessThan(resolveAppScopeMock.mock.invocationCallOrder[0] ?? Infinity);
 	});
 
-	it("loads the exact Project-scoped definitions once and attaches them to the submitted program", async () => {
+	it("refuses a form whose operations read a table when it arrives without its signed opening", async () => {
+		// The opening a form starts from carries the table definitions and
+		// rows its operations read (`formOpeningSnapshot.ts`); a submission
+		// that lost it is refused before any definition is read or written.
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -1574,33 +1582,7 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		getLookupDefinitionsMock.mockResolvedValueOnce({
-			projectId: PROJECT_A,
-			projectRevision: "1",
-			definitions: [
-				{
-					id: OPERATION_LOOKUP_TABLE,
-					name: "Status",
-					tag: "status",
-					definitionRevision: "1",
-					columns: [
-						{
-							id: OPERATION_LOOKUP_COLUMN,
-							wireName: "status",
-							label: "Status",
-							dataType: "text",
-						},
-					],
-				},
-			],
-		});
-		const applySubmission = vi.fn().mockResolvedValueOnce({
-			primaryCaseIds: [],
-			createdChildren: [],
-			operations: [],
-			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
-		});
+		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
@@ -1622,141 +1604,12 @@ describe("submitFormAction", () => {
 				canonicalJsonDigest(toPersistableDoc(doc)),
 			),
 		).toEqual({
-			kind: "survey",
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+			kind: "error",
+			message:
+				"Reopen this form to load its opening records before submitting.",
 		});
-
-		// Exactly the tables the program's own operations reference, read once
-		// under the same Project scope the membership gate resolved.
-		expect(getLookupDefinitionsMock).toHaveBeenCalledTimes(1);
-		expect(getLookupDefinitionsMock).toHaveBeenCalledWith(
-			{ projectId: PROJECT_A, actorId: OWNER_A, role: "owner" },
-			[OPERATION_LOOKUP_TABLE],
-		);
-		const envelope = applySubmission.mock.calls[0]?.[0];
-		expect(
-			envelope.operations?.lookupTableSchemas
-				?.get(OPERATION_LOOKUP_TABLE)
-				?.get(OPERATION_LOOKUP_COLUMN),
-		).toBe("text");
-
-		// Authorized snapshot, then definitions, then the apply — the
-		// definition read must never precede the membership proof.
-		const snapshotOrder =
-			loadAuthorizedFormSubmissionSnapshotMock.mock.invocationCallOrder[0];
-		const definitionsReadOrder =
-			getLookupDefinitionsMock.mock.invocationCallOrder[0];
-		const applyOrder = applySubmission.mock.invocationCallOrder[0];
-		expect(snapshotOrder).toBeLessThan(definitionsReadOrder);
-		expect(definitionsReadOrder).toBeLessThan(applyOrder);
-	});
-
-	it("keeps one lookup-schema map on the same envelope across a schema-heal retry", async () => {
-		const { getSession } = await import("@/lib/auth-utils");
-		const { withProjectContext } = await import("@/lib/case-store");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const { doc, formUuid, noteUuid } = operationSurveyDoc({
-			lookupCondition: true,
-		});
-		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
-			kind: "current",
-			projectId: PROJECT_A,
-			app: {
-				blueprint: assertAdmittedPreviewDoc(doc, {
-					kind: "available",
-					projectId: PROJECT_A,
-					projectRevision: parseLookupRevision("1"),
-					definitions: [
-						{
-							id: OPERATION_LOOKUP_TABLE,
-							name: "Status",
-							tag: "status",
-							definitionRevision: parseLookupRevision("1"),
-							columns: [
-								{
-									id: OPERATION_LOOKUP_COLUMN,
-									wireName: "status",
-									label: "Status",
-									dataType: "text",
-								},
-							],
-						},
-					],
-				}),
-				mutation_seq: 8,
-				project_id: PROJECT_A,
-			},
-		});
-		getLookupDefinitionsMock.mockResolvedValueOnce({
-			projectId: PROJECT_A,
-			projectRevision: "1",
-			definitions: [
-				{
-					id: OPERATION_LOOKUP_TABLE,
-					name: "Status",
-					tag: "status",
-					definitionRevision: "1",
-					columns: [
-						{
-							id: OPERATION_LOOKUP_COLUMN,
-							wireName: "status",
-							label: "Status",
-							dataType: "text",
-						},
-					],
-				},
-			],
-		});
-		materializeMock.mockResolvedValueOnce(undefined);
-		const applySubmission = vi
-			.fn()
-			.mockRejectedValueOnce(new SchemaNotSyncedError(APP_ID, "patient"))
-			.mockResolvedValueOnce({
-				primaryCaseIds: [],
-				createdChildren: [],
-				operations: [],
-				blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
-				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
-			});
-		vi.mocked(withProjectContext).mockResolvedValueOnce(
-			stubCaseStore(applySubmission),
-		);
-
-		const { submitFormAction } = await import("../caseDataBinding");
-		expect(
-			await submitFormAction(
-				{
-					kind: "survey",
-					formUuid,
-					entryKey: FINAL_ENTRY_KEY,
-					attachmentRefs: [],
-					operationAnswers: {
-						root: [{ fieldUuid: noteUuid, value: "first" }],
-						repeats: [],
-					},
-				},
-				APP_ID,
-				canonicalJsonDigest(toPersistableDoc(doc)),
-			),
-		).toEqual({
-			kind: "survey",
-			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
-		});
-
-		// The heal retries the WHOLE envelope, so the compiler context the
-		// second attempt runs against must be the same object, not a second
-		// definition read that could observe a changed schema mid-submission.
-		expect(getLookupDefinitionsMock).toHaveBeenCalledTimes(1);
-		expect(materializeMock).toHaveBeenCalledTimes(1);
-		expect(applySubmission).toHaveBeenCalledTimes(2);
-		const firstEnvelope = applySubmission.mock.calls[0]?.[0];
-		const retryEnvelope = applySubmission.mock.calls[1]?.[0];
-		expect(retryEnvelope).toBe(firstEnvelope);
-		expect(retryEnvelope.operations?.lookupTableSchemas).toBe(
-			firstEnvelope.operations?.lookupTableSchemas,
-		);
+		expect(getLookupDefinitionsMock).not.toHaveBeenCalled();
+		expect(applySubmission).not.toHaveBeenCalled();
 	});
 
 	it("prepares and atomically commits an attachment-bearing survey instead of taking the legacy no-op guard", async () => {

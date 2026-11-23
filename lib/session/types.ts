@@ -115,6 +115,7 @@ export interface PreviewEntryChoice extends PreviewCaseChoice {
 }
 
 export interface PreviewCaseTarget {
+	opening?: import("@/lib/preview/engine/formOpeningSnapshot").FormOpeningState;
 	entryChoices?: readonly PreviewEntryChoice[];
 	formUuid: Uuid;
 	cases?: readonly PreviewCaseChoice[];

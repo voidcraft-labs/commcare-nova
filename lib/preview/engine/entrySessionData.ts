@@ -33,7 +33,8 @@ import {
 	entryDatumCaseKey,
 	entryNewCaseKeyNumbering,
 } from "@/lib/domain/entryCaseIdentity";
-import type { DatumRef } from "@/lib/domain/expression/types";
+import { type DatumRef, datumRefKey } from "@/lib/domain/expression/types";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import type {
 	PreviewCaseChoice,
 	PreviewEntryChoice,
@@ -67,6 +68,8 @@ export interface EntrySessionInput {
 	/** Ordered input from this form's own entry. Two input positions may use the same menu. */
 	readonly entryChoices?: readonly PreviewEntryChoice[];
 	readonly heldEntryValues?: Readonly<Record<string, string>>;
+	readonly openedEntryKey?: string;
+	readonly openingLookup?: PreviewLookupData;
 	/** The menu's case selections, keyed by the module that chose them. */
 	readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	/** What the search of the form's search-first module returned, which
@@ -79,6 +82,8 @@ export interface EntrySessionInput {
 }
 
 export interface EntrySessionData {
+	/** Stable reference identities, including alternate names for one physical datum. */
+	readonly datumsByRef?: Readonly<Record<string, string>>;
 	readonly reachedCaseIds: ReadonlyMap<Uuid, string>;
 	/** Calculations already executed, keyed by immutable supply identity. */
 	readonly resolvedEntryValues?: Readonly<Record<string, string>>;
@@ -328,6 +333,11 @@ export function entrySessionData(
 				.find((candidate) => candidate !== undefined);
 			if (chosen === undefined) continue;
 			if (supply) reached.set(supply.selection, chosen.caseId);
+			for (const ref of selection)
+				reached.set(
+					implicitFormSelectionId(formUuid, ref.module),
+					chosen.caseId,
+				);
 			const caseName = caseNameOf(chosen.caseId, chosen);
 			hold(datum.id, {
 				value: chosen.caseId,
@@ -350,8 +360,10 @@ export function entrySessionData(
 							serializeWire(datum.function, { target: "preview" }).text,
 							{ session: args.session, data, casedb },
 						);
-			if (supply && ref.kind === "worker-record")
-				reached.set(supply.selection, value);
+			if (ref.kind === "worker-record") {
+				if (supply) reached.set(supply.selection, value);
+				reached.set(implicitFormSelectionId(formUuid, "worker-record"), value);
+			}
 			const caseName =
 				ref.kind === "worker-record" ? caseNameOf(value) : undefined;
 			hold(datum.id, {
@@ -373,9 +385,16 @@ export function entrySessionData(
 	}
 	if (args.caseListSearchText !== undefined && args.caseListSearchText !== "")
 		data[CASE_LIST_SEARCH_TEXT_DATA_NAME] = args.caseListSearchText;
+	const datumsByRef: Record<string, string> = Object.create(null);
+	for (const row of ids) {
+		const datum = values.get(row.id);
+		if (row.scalar && datum !== undefined)
+			for (const ref of row.refs) datumsByRef[datumRefKey(ref)] = datum.value;
+	}
 	return {
 		data,
 		values,
+		datumsByRef,
 		reachedCaseIds: reached,
 		...(nextSelection && { nextSelection }),
 		...(Object.keys(resolvedEntryValues).length && { resolvedEntryValues }),

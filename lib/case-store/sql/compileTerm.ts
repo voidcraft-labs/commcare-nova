@@ -69,6 +69,7 @@ import {
 } from "@/lib/domain/expression/temporalType";
 import type { ScalarHeld } from "@/lib/domain/expression/typeChecker";
 import type { RelationPath, Term } from "@/lib/domain/expression/types";
+import { datumRefKey } from "@/lib/domain/expression/types";
 import { AbsentWorkerFieldError } from "../errors";
 import { compileLiteral } from "./compileLiteral";
 import {
@@ -128,6 +129,8 @@ type RuntimeBindingValue = TermBindingValue | FormFieldBindingValue;
  * must thread runtime values before calling the term compiler.
  */
 export interface TermBindings {
+	/** Values actually reached on the server-verified form entry. */
+	entryDatums?: ReadonlyMap<string, string>;
 	/** Search-input values keyed by immutable authored identity. */
 	searchInputs?: ReadonlyMap<Uuid, TermBindingValue>;
 
@@ -282,6 +285,13 @@ export interface TermCompileContext {
 	 * owner.
 	 */
 	workerPlaceIds?: readonly string[];
+	/** The worker fixture an already-open form read. Each row contains only
+	 * ancestor IDs available in that particular authorized fixture. */
+	workerPlaceLineage?: readonly {
+		readonly id: string;
+		readonly levelUuid: string;
+		readonly lineage: Readonly<Record<string, string>>;
+	}[];
 	/**
 	 * Rows-free lookup-table definitions (table id → column id →
 	 * declared data type) for the lookup-table carriers. Optional —
@@ -498,6 +508,21 @@ export function compileTerm(
 					}),
 				);
 			}
+			if (ctx.workerPlaceLineage !== undefined) {
+				const rows = ctx.workerPlaceLineage
+					.filter(
+						(place) =>
+							place.levelUuid === destination.uuid &&
+							place.lineage[source.uuid] !== undefined,
+					)
+					.map((place) => ({
+						place: place.id,
+						owner: place.lineage[source.uuid],
+					}));
+				return sql<string>`(SELECT entry.place FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb)
+					AS entry(place text, owner text)
+					WHERE entry.owner = ${sql.ref(`${ctx.anchorAlias}.owner_id`)} LIMIT 1)`;
+			}
 			const places = ctx.workerPlaceIds;
 			if (places === undefined) {
 				throw new Error(
@@ -631,6 +656,8 @@ function chosenCaseBinding(
 	ctx: TermCompileContext,
 ): string | undefined {
 	const { datum } = term;
+	if (ctx.bindings.entryDatums)
+		return ctx.bindings.entryDatums.get(datumRefKey(datum));
 	const ids = ctx.bindings.chosenCaseIds;
 	if (datum.kind !== "selected-case" || ids === undefined) return undefined;
 	return Object.hasOwn(ids, datum.module) ? ids[datum.module] : undefined;

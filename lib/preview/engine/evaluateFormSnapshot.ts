@@ -54,6 +54,7 @@ import {
 import { projectFormPresentation } from "./formPresentation";
 import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
+import { openingCaseAssignments } from "./openingCaseAssignments";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
 import { formReadsSearchResults } from "./xpathInstances";
@@ -247,7 +248,15 @@ export async function evaluateFormSnapshot(
 	let engine: FormEngine;
 	try {
 		engine = new FormEngine(
-			engineInput,
+			{
+				...engineInput,
+				openingAssignments: openingCaseAssignments(
+					doc,
+					input.formUuid,
+					session.reachedCaseIds,
+					context.cases,
+				),
+			},
 			module.caseType,
 			caseData,
 			context.identity,

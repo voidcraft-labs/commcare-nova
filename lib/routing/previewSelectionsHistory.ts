@@ -50,6 +50,7 @@ export type PreviewSelectionsTarget = Pick<
 	| "formUuid"
 	| "cases"
 	| "entryChoices"
+	| "opening"
 	| "caseListSearchText"
 	| "formChosenAfterCase"
 >;
@@ -76,6 +77,7 @@ export function previewSelectionsTargetOf(
 	if (target === undefined) return undefined;
 	return {
 		formUuid: target.formUuid,
+		...(target.opening && { opening: target.opening }),
 		...(target.entryChoices && {
 			entryChoices: target.entryChoices.map((choice) => ({ ...choice })),
 		}),
@@ -97,10 +99,16 @@ export function previewSelectionsTargetOf(
 
 /** Selections in one comparable form: the target as its selections. */
 function comparable(recorded: RecordedPreviewSelections): string {
+	const target = previewSelectionsTargetOf(
+		recorded.target as PreviewCaseTarget,
+	);
 	return JSON.stringify({
 		task: recorded.task,
 		menu: recorded.menu,
-		target: previewSelectionsTargetOf(recorded.target as PreviewCaseTarget),
+		target: target && {
+			...target,
+			opening: target.opening?.binding.evidence.signature,
+		},
 		selected: recorded.selected,
 	});
 }

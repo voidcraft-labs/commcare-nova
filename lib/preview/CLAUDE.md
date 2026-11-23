@@ -651,6 +651,9 @@ case (a case-first menu, a link). Such a form's own choices are its derived
 ones (`formCaseSelections`), walked only where the caller passes
 `entryChoices`, and a derived choice the session already holds a case for is
 that case.
+
+An entry that reads case or lookup values keeps its authorized opening projection through the running form. The signed manifest binds the app, Project, signed-in member and session, effective worker and persona, device, preview run, physical route, form, entry and committed revision. Manual choices and automatic values are ordered by their supplying identities. SQL evaluates case expressions and finds indexed destinations in that view, then verifies the current target's type and worker access under its write lock. Returning to an in-memory checkpoint uses its original entry. A full page reload starts a new preview session and device. Nova has no persisted worker-form draft. Durable submission receipts survive the entry and answer identical retries before the old data is consulted.
+
 `entrySessionData` returns its next manual choice and the reached case IDs by
 supply UUID. `FormEntryScreen` stores each answer with the earlier calculated
 values. Back restores that prefix. Selecting another record discards the

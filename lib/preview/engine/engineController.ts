@@ -111,6 +111,7 @@ import {
 	formLogicLookupsCovered,
 	type PreviewLookupData,
 } from "./lookupEvaluation";
+import { openingCaseAssignments } from "./openingCaseAssignments";
 import {
 	defaultPreviewDevice,
 	type PreviewDevice,
@@ -916,7 +917,7 @@ export class EngineController {
 				? undefined
 				: entrySessionData(state, formUuid, {
 						...input,
-						lookupData: this.lookupData,
+						lookupData: input.openingLookup ?? this.lookupData,
 						entryKey,
 						caseDatabase: caseDatabase ?? null,
 						session: previewSessionValues(
@@ -961,7 +962,13 @@ export class EngineController {
 		resume?: LookupWaitResume,
 	): boolean {
 		if (
-			formLogicLookupsCovered(state, formUuid, this.lookupData ?? undefined)
+			formLogicLookupsCovered(
+				state,
+				formUuid,
+				this.sessionFor(formUuid)?.openingLookup ??
+					this.lookupData ??
+					undefined,
+			)
 		) {
 			if (this.lookupWait?.formUuid === formUuid) this.clearLookupWait();
 			return false;
@@ -2043,7 +2050,12 @@ export class EngineController {
 			return;
 		}
 		this.contain("activate", formUuid, undefined, () => {
-			this.mountForm(formUuid, caseData, uuidv4(), caseDatabase);
+			this.mountForm(
+				formUuid,
+				caseData,
+				this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
+				caseDatabase,
+			);
 		});
 	}
 
@@ -2096,7 +2108,7 @@ export class EngineController {
 		return this.mountFormAsync(
 			formUuid,
 			caseData,
-			uuidv4(),
+			this.sessionFor(formUuid)?.openedEntryKey ?? uuidv4(),
 			undefined,
 			caseDatabase,
 		);
@@ -2265,11 +2277,21 @@ export class EngineController {
 			caseDatabase,
 		);
 		const engine = new FormEngine(
-			input,
+			caseDatabase && session
+				? {
+						...input,
+						openingAssignments: openingCaseAssignments(
+							state,
+							formUuid,
+							session.reachedCaseIds,
+							caseDatabase,
+						),
+					}
+				: input,
 			state.modules[moduleUuid]?.caseType,
 			caseData,
 			this.previewIdentity,
-			this.lookupData,
+			this.sessionFor(formUuid)?.openingLookup ?? this.lookupData,
 			caseDatabase,
 			{
 				stagedAsync: true,
@@ -2535,11 +2557,21 @@ export class EngineController {
 		const searchAnswers = this.searchAnswersFor(formUuid);
 		const session = this.mountEntrySession(s, formUuid, entryKey, caseDatabase);
 		this.engine = new FormEngine(
-			input,
+			caseDatabase && session
+				? {
+						...input,
+						openingAssignments: openingCaseAssignments(
+							s,
+							formUuid,
+							session.reachedCaseIds,
+							caseDatabase,
+						),
+					}
+				: input,
 			mod?.caseType,
 			caseData,
 			this.previewIdentity,
-			this.lookupData,
+			this.sessionFor(formUuid)?.openingLookup ?? this.lookupData,
 			caseDatabase,
 			{
 				restoredEntry,

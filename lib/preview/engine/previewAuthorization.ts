@@ -83,6 +83,8 @@ export type AuthorizedPreviewContext =
 	| {
 			kind: "ready";
 			identity: ResolvedPreviewIdentity;
+			/** The authenticated session holding this worker entry. */
+			sessionId?: string;
 			/**
 			 * The device Preview runs on: the one the client sent, checked
 			 * against the committed blueprint (its platform declared, its
@@ -254,6 +256,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 	return {
 		kind: "ready",
 		identity: identityOnRecord,
+		...(session?.session?.id && { sessionId: session.session.id }),
 		device,
 		restoreScope,
 		store,

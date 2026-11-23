@@ -128,6 +128,12 @@ import {
 	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import {
+	type FormOpeningProjection,
+	type FormOpeningState,
+	restoreOpeningCases,
+	restoreOpeningLookup,
+} from "@/lib/preview/engine/formOpeningSnapshot";
+import {
 	previewSessionValues,
 	type ResolvedPreviewIdentity,
 } from "@/lib/preview/engine/identity";
@@ -403,6 +409,10 @@ function describeSubmissionRejection(
 				: `Nothing was saved: a case automation computed a ${facet} that is too long. Shorten the answers it builds that value from and submit again.`;
 		}
 		case "target":
+			if (rejection.reason === "managed-worker-record")
+				return "This form reached a worker profile detail that the app keeps in sync. You can save your answer to a worker detail added in App setup.";
+			if (rejection.reason === "missing-connection")
+				return "This record was missing a connection when the form opened. You can reopen the form and choose a record with that connection.";
 			return rejection.reason === "not-found-or-out-of-scope"
 				? "Nothing was saved: a case automation points at a case that no longer exists or moved out of reach. Refresh and try again."
 				: "Nothing was saved: a case automation points at a case whose type no longer matches what the automation expects.";
@@ -479,7 +489,9 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 }
 
 interface FormScreenProps {
-	heldEntryValues?: Readonly<Record<string, string>>;
+	opening?: FormOpeningState;
+	projection?: FormOpeningProjection;
+	onReopen?: () => void;
 	/** Stable identity passed by PreviewShell so an Activity-retained form never
 	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
@@ -522,8 +534,31 @@ function stringArrayValuesEqual(
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
-export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
-	const explicitCases = screen.cases;
+export function FormScreen({
+	screen,
+	opening,
+	projection,
+	onReopen,
+}: FormScreenProps) {
+	const heldEntryValues = projection?.resolvedEntries;
+	const openedCases = useMemo(
+		() => projection && restoreOpeningCases(projection.cases),
+		[projection],
+	);
+	const openedLookup = useMemo(
+		() => projection && restoreOpeningLookup(projection.lookup),
+		[projection],
+	);
+	const explicitCases = useMemo(() => {
+		if (!projection || !openedCases) return screen.cases;
+		const rows = new Map(
+			openedCases.rows.map((row) => [row.case_id, row.case_name]),
+		);
+		return projection.primaryCaseIds.map((caseId) => ({
+			caseId,
+			caseName: rows.get(caseId) ?? "",
+		}));
+	}, [projection, openedCases, screen.cases]);
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { inline } = useBlueprintMutations();
@@ -897,9 +932,9 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 	const carriedCaseData = carriedTargetMatches
 		? previewCaseTarget?.caseData
 		: undefined;
-	const carriedCaseDatabase = carriedTargetMatches
-		? previewCaseTarget?.caseDatabase
-		: undefined;
+	const carriedCaseDatabase =
+		openedCases ??
+		(carriedTargetMatches ? previewCaseTarget?.caseDatabase : undefined);
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		mod?.caseType,
@@ -960,7 +995,7 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 	const { state: caseDataState } = useCaseData({
 		appId,
 		caseType: mod?.caseType,
-		caseId: effectiveCaseId,
+		caseId: openedCases ? undefined : effectiveCaseId,
 		ancestorDepth: Math.max(0, reachableChain.length - 1),
 		// A case-loading form runs on the worker's device, so it may only
 		// preload from a case that device holds.
@@ -985,6 +1020,14 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 		 * empty map value, does not ask useFormEngine to start a second rebuild
 		 * beside the controller's cardinality-change rebuild. */
 		if (severalCaseForm) return undefined;
+		if (openedCases)
+			return effectiveCaseId
+				? caseDatabaseToFormPreloads(
+						openedCases,
+						effectiveCaseId,
+						reachableChain,
+					)
+				: undefined;
 		if (carriedCaseData !== undefined) return carriedCaseData;
 		if (settledCase)
 			return caseRowsToFormPreloads(
@@ -994,7 +1037,15 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 			);
 		if (autoRow) return caseRowsToFormPreloads(autoRow, [], reachableChain);
 		return undefined;
-	}, [severalCaseForm, carriedCaseData, settledCase, autoRow, reachableChain]);
+	}, [
+		severalCaseForm,
+		carriedCaseData,
+		settledCase,
+		autoRow,
+		reachableChain,
+		openedCases,
+		effectiveCaseId,
+	]);
 
 	const requiresCaseBinding =
 		form !== undefined && CASE_LOADING_FORM_TYPES.has(form.type);
@@ -1004,6 +1055,7 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 	// an active entry. Returning to Edit retains an already initialized entry.
 	const caseBindingReady =
 		!requiresCaseBinding ||
+		(Boolean(openedCases) && caseData !== undefined) ||
 		(severalCaseForm &&
 			(effectiveCaseIds?.length ?? 0) > 0 &&
 			!caseBindingReplaced) ||
@@ -1036,6 +1088,8 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 						appId,
 						boundCases: effectiveCases ?? [],
 						heldEntryValues,
+						openedEntryKey: opening?.entry,
+						openingLookup: openedLookup,
 						entryChoices,
 						menuSelections: menuCaseSelections,
 						...(searchResultsSnapshot === undefined
@@ -1048,6 +1102,8 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 			mode,
 			effectiveCases,
 			heldEntryValues,
+			opening?.entry,
+			openedLookup,
 			entryChoices,
 			menuCaseSelections,
 			searchResultsSnapshot,
@@ -2785,7 +2841,7 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 				 * dropping it here would quietly give a persona's work to the
 				 * signed-in member while every read still looked persona-scoped. */
 				return await submitFormAction(
-					mutation,
+					opening ? { ...mutation, formOpening: opening.binding } : mutation,
 					submittedAppId,
 					finalBlueprintDigest,
 					viewerTimeZone(),
@@ -3003,6 +3059,12 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 				if (appId !== undefined) {
 					retireAttachmentEntry({ appId, entryKey });
 				}
+				if (onReopen) {
+					controller.deactivate();
+					onReopen();
+					settleClear();
+					return;
+				}
 				const nextEntryKey = await controller.restartActiveEntryAsync();
 				if (nextEntryKey === undefined) {
 					settleClear();
@@ -3016,7 +3078,15 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 				throw error;
 			}
 		},
-		[appId, controller, entryKey, session, showFirstPage, submitStatus.kind],
+		[
+			appId,
+			controller,
+			entryKey,
+			session,
+			showFirstPage,
+			submitStatus.kind,
+			onReopen,
+		],
 	);
 
 	// A fresh entry waits for its selected record and ancestor preloads before

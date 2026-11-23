@@ -168,7 +168,25 @@ export interface OwnCaseProgram {
  * physical execution order and re-proves the whole resolved sequence
  * with `validateResolvedCaseOperationTypeSequence` before any write.
  */
+/** Immutable database reads of an authorized form entry. The write transaction
+ * reauthorizes reached targets before changing any current row. */
+export interface OpeningReadSet {
+	readonly currentOwnerIds: readonly string[];
+	readonly cases: DeviceCaseDatabase;
+	readonly locations?: readonly Pick<
+		import("@/lib/organization/footprint").LocationFixtureRow,
+		"id" | "levelUuid" | "lineage"
+	>[];
+	readonly lookupRows: readonly {
+		readonly id: string;
+		readonly table_id: string;
+		readonly order_key: number;
+		readonly values: Readonly<Record<string, string | number>>;
+	}[];
+}
+
 export interface CaseOperationProgram {
+	readonly openingReads?: OpeningReadSet;
 	/** The authored-key identity scope half the operations share. */
 	readonly formUuid: Uuid;
 	/**
@@ -216,6 +234,7 @@ export interface CaseOperationProgram {
 	readonly lookupTableSchemas?: LookupTableSchemas;
 	/** Open-namespace worker data for `sessionUser` terms: the keys the
 	 * worker's device holds. */
+	readonly entryDatums?: ReadonlyMap<string, string>;
 	readonly sessionUser?: ReadonlyMap<string, string>;
 	/** What a read of a key `sessionUser` lacks means
 	 * (`TermBindings.sessionUserAbsent`): blank for a key every device holds

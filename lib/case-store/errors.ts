@@ -335,13 +335,17 @@ export type SubmissionRejection =
 	| {
 			readonly kind: "target";
 			readonly operationUuid: string;
-			readonly slot: "target" | `link:${string}`;
-			readonly reason: "not-found-or-out-of-scope" | "case-type-mismatch";
+			readonly slot: "target" | `link:${string}` | `write:${number}`;
+			readonly reason:
+				| "not-found-or-out-of-scope"
+				| "case-type-mismatch"
+				| "missing-connection"
+				| "managed-worker-record";
 	  }
 	| {
 			readonly kind: "sequence";
 			readonly operationUuid: string;
-			readonly slot: "target" | `link:${string}`;
+			readonly slot: "target" | `link:${string}` | `write:${number}`;
 			readonly reason:
 				| "case-link-target-is-self"
 				| "rolling-case-type-mismatch"

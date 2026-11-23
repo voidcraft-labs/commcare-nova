@@ -511,6 +511,7 @@ export interface SubmissionAttachmentReference {
  * injection — which is also why the bytes never travel this way at all.
  */
 interface SubmissionProtocol {
+	readonly formOpening?: import("./formOpeningSnapshot").FormOpeningBinding;
 	readonly formUuid: string;
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;

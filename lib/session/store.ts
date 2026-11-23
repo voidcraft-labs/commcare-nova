@@ -1638,6 +1638,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * is unchanged too. */
 					if (
 						current?.formUuid === target?.formUuid &&
+						current?.opening?.binding.evidence.signature ===
+							target?.opening?.binding.evidence.signature &&
 						previewCaseChoicesEqual(current?.cases, target?.cases) &&
 						previewCaseChoicesEqual(
 							current?.entryChoices,

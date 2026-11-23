@@ -2393,6 +2393,7 @@ describe("readCaseData", () => {
 		let calls = 0;
 		const flaky: CaseStore = {
 			query: (a) => store.query(a),
+			holdsDeviceCases: (a) => store.holdsDeviceCases(a),
 			readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 			readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 			queryGrouped: (a) => store.queryGrouped(a),

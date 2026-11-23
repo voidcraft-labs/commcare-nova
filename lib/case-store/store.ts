@@ -1094,6 +1094,13 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
  * authorizes, and the worker stamped as each new row's `owner_id`.
  */
 export interface CaseStore extends SchemaCaseStore {
+	/** Reauthorize a previously opened device projection without exposing values.
+	 * Every supplied case must still belong to this worker's unparked restore. */
+	holdsDeviceCases(args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+		readonly caseIds: readonly string[];
+	}): Promise<boolean>;
 	/** Read the complete bound worker restore without partitioning through the
 	 * active Blueprint catalog. The restore closure and tenant predicates live
 	 * in SQL. A worker's search claims are case rows the closure reaches as it

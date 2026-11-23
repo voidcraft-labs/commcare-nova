@@ -23,11 +23,13 @@
 // layer composes both modules.
 
 import "server-only";
-
+import type { FormOpeningProjection } from "./formOpeningSnapshot";
+import { restoreOpeningCases } from "./formOpeningSnapshot";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
 } from "./lookupTableReferences";
+import { resolveRestoreScope } from "./restoreScope";
 
 export {
 	caseOperationProgramLookupTableIds,
@@ -1688,6 +1690,7 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
 	readonly blueprintDigest: string;
+	readonly opening?: FormOpeningProjection;
 	readonly identity: ResolvedPreviewIdentity;
 	/** The device the form ran on, whose session context values a case
 	 *  operation writing one writes. */
@@ -1734,6 +1737,16 @@ export async function buildSubmissionOperationProgram(args: {
 		projection: args.projection,
 		identity: args.identity,
 		device: args.device,
+		opening: args.opening,
+		...(args.opening && {
+			currentOwnerIds: (
+				await resolveRestoreScope({
+					appId: args.appId,
+					identity: args.identity,
+					blueprint: app.blueprint,
+				})
+			).ownerIds,
+		}),
 		...(movesOwnerToPlace && {
 			workerPlaceIds:
 				args.workerPlaceIds ??
@@ -1756,7 +1769,16 @@ export async function buildSubmissionOperationProgram(args: {
 		built,
 		app.blueprint,
 		args.lookupScope,
-		args.lookupTableSchemas,
+		args.opening
+			? new Map(
+					args.opening.lookup.definitions.map((table) => [
+						table.id,
+						new Map(
+							table.columns.map((column) => [column.id, column.dataType]),
+						),
+					]),
+				)
+			: args.lookupTableSchemas,
 	);
 
 	const validated = args.projection;
@@ -1985,7 +2007,9 @@ function committedProgramForm(
  * directly against the storage executor.
  */
 export function buildCaseOperationProgramFromDoc(args: {
+	readonly currentOwnerIds?: readonly string[];
 	readonly blueprint: PersistableDoc;
+	readonly opening?: FormOpeningProjection;
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
@@ -2250,6 +2274,23 @@ export function buildCaseOperationProgramFromDoc(args: {
 							: [],
 				),
 			),
+			...(args.opening && {
+				entryDatums: new Map(Object.entries(args.opening.datums)),
+				openingReads: {
+					currentOwnerIds: args.currentOwnerIds ?? [args.identity.ownerId],
+					cases: restoreOpeningCases(args.opening.cases),
+					locations: args.opening.cases.locations ?? [],
+					lookupRows: Object.entries(args.opening.lookup.rowsByTable).flatMap(
+						([tableId, rows]) =>
+							rows.map((row, index) => ({
+								id: row.id,
+								table_id: tableId,
+								order_key: index,
+								values: row.values,
+							})),
+					),
+				},
+			}),
 			sessionUser: new Map(Object.entries(session.user)),
 			sessionUserAbsent: { readsBlank: PREVIEW_UNKNOWN_WORKER_KEYS },
 			userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
@@ -2684,6 +2725,7 @@ export function schemaHealingCaseStore(
 		// Un-healed: this raw restore read does not consult a case-type schema,
 		// compile typed properties, or write. It therefore cannot raise the
 		// missing/stale-schema signals the wrapper remedies.
+		holdsDeviceCases: (a) => store.holdsDeviceCases(a),
 		readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),

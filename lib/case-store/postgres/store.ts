@@ -1119,6 +1119,39 @@ export class PostgresCaseStore implements CaseStore {
 		return rows.map((row) => this.shapeCaseRow(row, calcAliases));
 	}
 
+	async holdsDeviceCases(args: {
+		readonly appId: string;
+		readonly restoreScope: RestoreScope;
+		readonly caseIds: readonly string[];
+	}): Promise<boolean> {
+		if (!args.caseIds.length) return true;
+		const projectId = this.requireProjectId();
+		return this.dataTransaction(async (trx) => {
+			const scope = buildRestoreScope(trx, {
+				appId: args.appId,
+				projectId,
+				ownerIds: args.restoreScope.ownerIds,
+			});
+			const result = await scope.liveRows
+				.select((eb) => eb.fn.countAll<string>().as("held"))
+				.where(
+					sql<boolean>`live.case_id = ANY(${sql.val(args.caseIds)}::text[])`,
+				)
+				.where(({ not, exists, selectFrom }) =>
+					not(
+						exists(
+							selectFrom("parked_case_values as parked")
+								.select("parked.id")
+								.whereRef("parked.case_id", "=", "live.case_id")
+								.where("parked.dismissed_at", "is", null),
+						),
+					),
+				)
+				.executeTakeFirstOrThrow();
+			return Number(result.held) === args.caseIds.length;
+		}, true);
+	}
+
 	async readDeviceCaseDatabase(args: {
 		readonly appId: string;
 		readonly restoreScope: RestoreScope;
@@ -1130,11 +1163,24 @@ export class PostgresCaseStore implements CaseStore {
 				projectId,
 				ownerIds: args.restoreScope.ownerIds,
 			});
-			let rowQuery = rowRestore.creator
-				.selectFrom("cases as c")
+			// Read each authorized case by its primary key. On a fresh tenant
+			// PostgreSQL estimates a single case and can otherwise repeatedly
+			// scan both the tenant and its restore for each held row.
+			const storedRows = await rowRestore.liveRows
+				.innerJoinLateral(
+					(qb) =>
+						qb
+							.selectFrom("cases as owned")
+							.selectAll("owned")
+							.whereRef("owned.case_id", "=", "live.case_id")
+							.limit(1)
+							.as("c"),
+					(join) =>
+						join
+							.on("c.app_id", "=", args.appId)
+							.on("c.project_id", "=", projectId),
+				)
 				.selectAll("c")
-				.where("c.app_id", "=", args.appId)
-				.where("c.project_id", "=", projectId)
 				.where(({ not, exists, selectFrom }) =>
 					not(
 						exists(
@@ -1144,52 +1190,18 @@ export class PostgresCaseStore implements CaseStore {
 								.where("held.dismissed_at", "is", null),
 						),
 					),
-				);
-			rowQuery = rowRestore.restrict(rowQuery, "c");
-			const storedRows = await rowQuery
+				)
 				.orderBy("c.opened_on", "asc")
 				.orderBy("c.case_id", "asc")
 				.execute();
 			const rows = storedRows.map(({ project_id: _projectId, ...row }) => row);
 
-			const indexRestore = buildRestoreScope(trx, {
-				appId: args.appId,
+			const indices = await this.readDeviceIndices(
+				trx,
+				args.appId,
 				projectId,
-				ownerIds: args.restoreScope.ownerIds,
-			});
-			let indexQuery = indexRestore.creator
-				.selectFrom("case_indices as ci")
-				.innerJoin("cases as source", "source.case_id", "ci.case_id")
-				.innerJoin("cases as ancestor", "ancestor.case_id", "ci.ancestor_id")
-				.select([
-					"ci.case_id",
-					"ci.ancestor_id",
-					"ci.identifier",
-					"ci.relationship",
-					"ci.depth",
-					"ci.target_case_type",
-				])
-				.where("ci.depth", "=", 1)
-				.where("source.app_id", "=", args.appId)
-				.where("source.project_id", "=", projectId)
-				.where("ancestor.app_id", "=", args.appId)
-				.where("ancestor.project_id", "=", projectId)
-				.where(({ not, exists, selectFrom }) =>
-					not(
-						exists(
-							selectFrom("parked_case_values as held")
-								.select("held.id")
-								.whereRef("held.case_id", "=", "source.case_id")
-								.where("held.dismissed_at", "is", null),
-						),
-					),
-				);
-			indexQuery = indexRestore.restrict(indexQuery, "source");
-			const indices = await indexQuery
-				.orderBy("ci.case_id", "asc")
-				.orderBy("ci.identifier", "asc")
-				.orderBy("ci.ancestor_id", "asc")
-				.execute();
+				rows,
+			);
 			const propertyTypes = await this.readCaseDatabasePropertyTypes(
 				trx,
 				args.appId,
@@ -1239,47 +1251,61 @@ export class PostgresCaseStore implements CaseStore {
 			.orderBy("c.case_id", "asc")
 			.execute();
 		const rows = storedRows.map(({ project_id: _projectId, ...row }) => row);
-		// The read above already holds the tenant's own rows, so the indices
-		// are read for those ids alone and only the ancestor is checked, by
-		// its key. Joining both ends to `cases` let Postgres pair every case
-		// with every case before probing `case_indices` when the tenant's
-		// rows had no statistics yet: 500 fresh cases took 18 seconds.
-		const tenantCaseIds = rows.map((row) => row.case_id);
-		const indices =
-			tenantCaseIds.length === 0
-				? []
-				: await trx
-						.selectFrom("case_indices as ci")
-						.select([
-							"ci.case_id",
-							"ci.ancestor_id",
-							"ci.identifier",
-							"ci.relationship",
-							"ci.depth",
-							"ci.target_case_type",
-						])
-						.where("ci.depth", "=", 1)
-						.where("ci.case_id", "in", tenantCaseIds)
-						.where((eb) =>
-							eb.exists(
-								eb
-									.selectFrom("cases as ancestor")
-									.select(sql<number>`1`.as("held"))
-									.whereRef("ancestor.case_id", "=", "ci.ancestor_id")
-									.where("ancestor.app_id", "=", args.appId)
-									.where("ancestor.project_id", "=", args.projectId),
-							),
-						)
-						.orderBy("ci.case_id", "asc")
-						.orderBy("ci.identifier", "asc")
-						.orderBy("ci.ancestor_id", "asc")
-						.execute();
+		const indices = await this.readDeviceIndices(
+			trx,
+			args.appId,
+			args.projectId,
+			rows,
+		);
 		const propertyTypes = await this.readCaseDatabasePropertyTypes(
 			trx,
 			args.appId,
 			rows.map((row) => row.case_type),
 		);
 		return { rows, indices, propertyTypes };
+	}
+
+	/** The source rows were selected in this transaction, including the worker
+	 * restore and hold when reading a device. Check the far endpoint by its
+	 * tenant key. Rejoining the source or its closure lets an unanalyzed
+	 * tenant pair every case with every other before it probes the edge. */
+	private async readDeviceIndices(
+		trx: Transaction<Database>,
+		appId: string,
+		projectId: string,
+		rows: readonly { readonly case_id: string }[],
+	): Promise<DeviceCaseDatabase["indices"]> {
+		if (rows.length === 0) return [];
+		const sourceIds = rows.map((row) => row.case_id);
+		return trx
+			.selectFrom("case_indices as ci")
+			.innerJoinLateral(
+				(qb) =>
+					qb
+						.selectFrom("cases as ancestor")
+						.select(["ancestor.app_id", "ancestor.project_id"])
+						.whereRef("ancestor.case_id", "=", "ci.ancestor_id")
+						.limit(1)
+						.as("target"),
+				(join) =>
+					join
+						.on("target.app_id", "=", appId)
+						.on("target.project_id", "=", projectId),
+			)
+			.select([
+				"ci.case_id",
+				"ci.ancestor_id",
+				"ci.identifier",
+				"ci.relationship",
+				"ci.depth",
+				"ci.target_case_type",
+			])
+			.where("ci.depth", "=", 1)
+			.where(sql<boolean>`ci.case_id = ANY(${sql.val(sourceIds)}::text[])`)
+			.orderBy("ci.case_id", "asc")
+			.orderBy("ci.identifier", "asc")
+			.orderBy("ci.ancestor_id", "asc")
+			.execute();
 	}
 
 	private async readCaseDatabasePropertyTypes(
