@@ -442,7 +442,7 @@ export function appRemoteChange(input: {
 			...(needsReview && { requiresReview: true }),
 			note: needsReview
 				? input.canBringIn
-					? "Review the complete list of files before publishing here."
+					? "You can review the complete list of files before publishing here."
 					: REQUIRED_FIRST_PUBLISH_RECOVERY
 				: null,
 			observedDigest: reviewed
@@ -458,14 +458,14 @@ export function appRemoteChange(input: {
 			...change(
 				[
 					baseline.unverifiedNextChanges
-						? "Review what the next publish would change in this project space."
-						: "Review what the first publish would change in this project space.",
+						? "You can review what the next publish would change in this project space."
+						: "You can review what the first publish would change in this project space.",
 				],
 				baseline.origin !== "unread",
 			),
 			requiresReview: true,
 			note: input.canBringIn
-				? "Review changes from CommCare HQ before publishing here."
+				? "You can review changes from CommCare HQ before publishing here."
 				: `Nova cannot verify the previous reading. ${REQUIRED_FIRST_PUBLISH_RECOVERY}`,
 		};
 	}

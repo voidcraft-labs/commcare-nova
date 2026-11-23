@@ -754,13 +754,15 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 				expect(review.observed_digest).toMatch(/^[0-9a-f]{64}$/);
 				expect(seen.size).toBeGreaterThan(1);
 				const offered = lines.filter((line) =>
-					line.includes("Publishing removes the unused reference"),
+					line.includes(
+						"from the app in CommCare HQ. This app doesn't use it.",
+					),
 				);
 				expect(offered).toHaveLength(files.length);
-				for (const [path, id] of files)
+				for (const [path] of files)
 					expect(
-						offered.filter(
-							(line) => line.includes(path) && line.includes(`“${id}”`),
+						offered.filter((line) =>
+							line.includes(`“${path.slice("jr://file/".length)}”`),
 						),
 					).toHaveLength(1);
 			}),

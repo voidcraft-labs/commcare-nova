@@ -500,7 +500,7 @@ test("changes made in both places list both, open in full on Show all, and offer
 	const files = Array.from(
 		{ length: 20 },
 		(_, index) =>
-			`Publishing removes the unused reference “jr://file/visit-${index}.png” to HQ file “photo-${index}”.`,
+			`Publishing removes the file “visit-${index}.png” from the app in CommCare HQ. This app doesn't use it.`,
 	);
 	const hqChanges = [...files, "The question Weight in the form Visit"];
 	const refusal = {

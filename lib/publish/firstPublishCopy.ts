@@ -193,8 +193,8 @@ export function firstPublishLines(
 		heading: nextPublish ? NEXT_PUBLISH_HEADING : FIRST_PUBLISH_HEADING,
 		lead: view.needsReview
 			? nextPublish
-				? "Review changes from CommCare HQ to see what the next publish would change."
-				: "Review changes from CommCare HQ to see what this first publish would change."
+				? "You can review changes from CommCare HQ to see what the next publish would change."
+				: "You can review changes from CommCare HQ to see what this first publish would change."
 			: nextPublish
 				? NEXT_PUBLISH_DIALOG_LEAD
 				: surface === "review"

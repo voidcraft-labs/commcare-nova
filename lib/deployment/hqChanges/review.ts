@@ -1932,8 +1932,8 @@ export async function checkHqChanges(
 		...(legacy
 			? [
 					priorNext
-						? "Review what the next publish would change in this project space."
-						: "Review what the first publish would change in this project space.",
+						? "You can review what the next publish would change in this project space."
+						: "You can review what the first publish would change in this project space.",
 				]
 			: []),
 		...changedFiles.map(removedHqFileLine),

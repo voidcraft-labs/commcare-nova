@@ -466,7 +466,8 @@ describe("a list longer than ten lines", () => {
 	it("waits to offer either decision until every physical file it would remove is visible", () => {
 		const files = Array.from(
 			{ length: 20 },
-			(_, i) => `Publishing removes the unused reference “visit-${i}”.`,
+			(_, i) =>
+				`Publishing removes the reference to “visit-${i}” from the app in CommCare HQ. This app doesn't use it.`,
 		);
 		const state = answered(
 			changes({

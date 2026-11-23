@@ -238,6 +238,7 @@ import {
 	appConfirmationScope,
 	confirmedAppSourceMoved,
 	diffHqAppSource,
+	hqFilePathName,
 	normalizeHqAppSource,
 } from "@/lib/deployment/hqSourceBaseline";
 import { hqImportApplication } from "@/lib/deployment/importApplication";
@@ -3310,7 +3311,10 @@ async function bringInOverPeer(input: {
 					];
 		if (
 			removed.some(
-				(path) => !review.hqChanges.some((line) => line.includes(`“${path}”`)),
+				(path) =>
+					!review.hqChanges.some((line) =>
+						line.includes(`“${hqFilePathName(path)}”`),
+					),
 			)
 		)
 			throw new Error(

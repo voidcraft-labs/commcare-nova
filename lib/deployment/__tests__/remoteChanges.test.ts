@@ -653,6 +653,26 @@ function sampleArms(
 	return [PUBLISHED, BROUGHT_IN, CHANGES_BROUGHT_IN].map((since) => say(since));
 }
 
+describe("a removed-file change", () => {
+	it("names each file by its path, invites the review a long list needs, and asks for the first publish's review", () => {
+		const lines = sampleAppRemoteChange();
+		expect(lines).toContain(
+			"Publishing removes the reference to “commcare/image/photo-0.png” from the app in CommCare HQ. This app doesn't use it.",
+		);
+		expect(lines).toContain(
+			"Publishing removes the file “commcare/image/photo-1.png” from the app in CommCare HQ. This app doesn't use it.",
+		);
+		for (const line of [
+			"You can review the complete list of files before publishing here.",
+			"You can review what the first publish would change in this project space.",
+			"You can review what the next publish would change in this project space.",
+			"You can review changes from CommCare HQ before publishing here.",
+		])
+			expect(lines).toContain(line);
+		expect(lines.join(" ")).not.toMatch(/jr:\/\/|file1”/);
+	});
+});
+
 describe("the copy", () => {
 	const modules = {
 		remoteChanges: remoteChangesModule,

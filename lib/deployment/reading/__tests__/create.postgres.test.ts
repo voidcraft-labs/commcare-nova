@@ -533,7 +533,7 @@ describe("createFromReview", () => {
 				.filter((choice) => choice.preselected)
 				.flatMap((choice) => choice.removesFiles ?? [])
 				.join(" "),
-		).toContain(earlier);
+		).toContain("“commcare/orphan.png”");
 		const createAt = (user: string, id: string, of: typeof first) =>
 			withHttpPeer(async (peer) => {
 				serveFixtureApp(peer, { source: source(id) });
@@ -548,7 +548,9 @@ describe("createFromReview", () => {
 			current.review.runsOn
 				.find((choice) => choice.preselected)
 				?.removesFiles?.join(" "),
-		).toContain(later);
+		).toContain("“commcare/orphan.png”");
+		/* The line names the path alike for both files; the review binds the file. */
+		expect(current.reviewDigest).not.toBe(first.reviewDigest);
 		expect((await createAt(ACTOR, later, current)).kind).toBe("created");
 	});
 	it("creates where CommCare HQ's save counter alone moved, and records the create's counter", async () => {
@@ -747,7 +749,7 @@ describe("createFromReview", () => {
 				(choice) => choice.preselected,
 			);
 			expect(decision?.removesFiles).toEqual([
-				"Publishing removes the unused reference “jr://file/commcare/image/menuicon.png” to HQ file “menuicon”.",
+				"Publishing removes the file “commcare/image/menuicon.png” from the app in CommCare HQ. This app doesn't use it.",
 			]);
 			return create(createInputFor(KEY, review));
 		});

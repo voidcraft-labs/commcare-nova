@@ -657,12 +657,23 @@ export function hqDiscardDigest(
 	});
 }
 
+/** A media map path as a person reads it: the file's path within the app. */
+export function hqFilePathName(path: string): string {
+	return path.startsWith("jr://file/") ? path.slice("jr://file/".length) : path;
+}
+
+/**
+ * A file the next import takes out of HQ's app, named by its path in the
+ * app's files. CommCare HQ's own id for the file names nothing a person can
+ * find, so the line leaves it to the reading's digest.
+ */
 export function removedHqFileLine(
 	file: Pick<RemovedHqFile, "path" | "multimediaId">,
 ): string {
+	const name = hqFilePathName(file.path);
 	return file.multimediaId
-		? `Publishing removes the unused reference “${file.path}” to HQ file “${file.multimediaId}”.`
-		: `Publishing removes the unused reference “${file.path}”.`;
+		? `Publishing removes the file “${name}” from the app in CommCare HQ. This app doesn't use it.`
+		: `Publishing removes the reference to “${name}” from the app in CommCare HQ. This app doesn't use it.`;
 }
 
 /**

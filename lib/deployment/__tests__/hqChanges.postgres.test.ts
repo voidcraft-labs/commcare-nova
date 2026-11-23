@@ -992,6 +992,8 @@ describe("recordRefreshedAppBaseline after a bring-in of changes", () => {
 // ---------------------------------------------------------------------------
 
 const UNUSED_PATH = "jr://file/commcare/logo/data/hq_logo_android_home.png";
+/** The file a removal line names: its path within the app, never HQ's id. */
+const UNUSED_NAME = "“commcare/logo/data/hq_logo_android_home.png”";
 
 function withUnusedImage(source: RetainedHqAnswer): RetainedHqAnswer {
 	return changedAnswer(source, (body) => ({
@@ -1362,7 +1364,7 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			);
 			expect(listed.publishChanges.join(" ")).not.toMatch(warning);
 			expect(listed.hqChanges.join(" ")).not.toMatch(
-				/removes the unused reference/,
+				/from the app in CommCare HQ\. This app doesn't use it\./,
 			);
 			expect(earlier.first_publish_changes?.removedFiles).toHaveLength(1);
 			expect(await read(renamed, () => bringIn(scope, listed))).toMatchObject({
@@ -1633,9 +1635,11 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 			// HQ's changes keeps one and removes the other; HQ keeps its own logo.
 			expect(listed.requiresReview).toBe(true);
 			expect(
-				listed.hqChanges.filter((line) => line.includes("unused reference")),
+				listed.hqChanges.filter((line) =>
+					line.includes("This app doesn't use it"),
+				),
 			).toEqual([
-				`Publishing removes the unused reference “${path(second)}” to HQ file “${second}”.`,
+				`Publishing removes the file “commcare/image/${second}.png” from the app in CommCare HQ. This app doesn't use it.`,
 			]);
 			expect(listed.publishChanges.join(" ")).toContain("under several names");
 			const before = await e2eBaseline();
@@ -4116,7 +4120,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			const northBefore = await baseline(north.domain);
 			const offered = await list(south.domain);
 			if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
-			expect(offered.hqChanges.join(" ")).toContain("unused-image");
+			expect(offered.hqChanges.join(" ")).toContain(UNUSED_NAME);
 			const taken = await bringInHqChanges(
 				actor,
 				key(south.domain),
@@ -4613,7 +4617,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			expect(await baselineOfApp()).toEqual(held);
 			for (const id of current)
 				expect(review.hqChanges).toContain(
-					`Publishing removes the unused reference “jr://file/commcare/image/data/${id}.png” to HQ file “${id}”.`,
+					`Publishing removes the file “commcare/image/data/${id}.png” from the app in CommCare HQ. This app doesn't use it.`,
 				);
 			if (current.length)
 				expect(review.publishChanges).toContain(
@@ -4678,7 +4682,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				expect(changed.kind).toBe("changes");
 				if (changed.kind === "changes")
 					expect(changed.hqChanges).toContain(
-						"Publishing removes the unused reference “jr://file/commcare/image/data/new-two.png” to HQ file “new-identity”.",
+						"Publishing removes the file “commcare/image/data/new-two.png” from the app in CommCare HQ. This app doesn't use it.",
 					);
 			}
 			const repeat = await read(served, false);
@@ -4745,7 +4749,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		const change = first.outcome.refusal?.remoteChanges[0];
 		if (!change)
 			throw new Error("The first publish must name the unapproved file.");
-		expect(change.parts.join(" ")).toContain(UNUSED_PATH);
+		expect(change.parts.join(" ")).toContain(UNUSED_NAME);
 		const prior = await baselineOfApp();
 		for (const [member, version] of [
 			[editor, 3],
@@ -4865,7 +4869,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				`Expected the other project space's own review: ${otherPreview.outcome.refusal?.failure.code}.`,
 			);
 		expect(theirs.identity).toBe(other.appId);
-		expect(theirs.parts.join(" ")).toContain(UNUSED_PATH);
+		expect(theirs.parts.join(" ")).toContain(UNUSED_NAME);
 		expect(theirs.observedDigest).not.toBe(offered.observedDigest);
 		expect((await applying(theirs.observedDigest, true)).imported).toHaveLength(
 			1,
@@ -4931,7 +4935,9 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				throw new Error(JSON.stringify(reviewed));
 			expect(reviewed.requiresReview).toBeUndefined();
 			for (const [file] of files)
-				expect(reviewed.hqChanges.join(" ")).toContain(file);
+				expect(reviewed.hqChanges.join(" ")).toContain(
+					`“${file.slice("jr://file/".length)}”`,
+				);
 			expect(reviewed.observedDigest).not.toBe(partial.observedDigest);
 			const kept = await publishOver(appId, source, true, source, 3, [
 				{
@@ -5026,7 +5032,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			const discard = stopped.outcome.refusal?.remoteChanges[0];
 			if (!discard)
 				throw new Error("Missing file-loss review on the stopped publish.");
-			expect(discard.parts.join(" ")).toContain("earlier-file");
+			expect(discard.parts.join(" ")).toContain(UNUSED_NAME);
 			expect(discard.observedDigest).not.toBe(priorDigest);
 			const review = (current: typeof prior, tables = true) =>
 				withHttpPeer(async (peer) => {
@@ -5052,7 +5058,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				});
 			const offered = await review(prior);
 			if (offered.kind !== "changes") throw new Error(JSON.stringify(offered));
-			expect(offered.hqChanges.join(" ")).toContain("earlier-file");
+			expect(offered.hqChanges.join(" ")).toContain(UNUSED_NAME);
 			expect((await accept(prior, offered)).kind).toBe("recorded");
 			expect((await baselineOfApp()).first_publish_changes?.ids).toContain(
 				"unused-media-entries-removed",
@@ -5080,9 +5086,11 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			expect(await baselineOfApp()).toEqual(approved);
 			const changed = await review(later);
 			if (changed.kind !== "changes") throw new Error(JSON.stringify(changed));
-			expect(changed.hqChanges.join(" ")).toContain("later-file");
-			if (history === "next-card")
-				expect(changed.hqChanges.join(" ")).toContain("-different.png");
+			/* The line names the file's path; the later file at it is a new
+			 * review by its digest, whatever the line reads. */
+			expect(changed.hqChanges.join(" ")).toContain(
+				history === "next-card" ? "-different.png”" : UNUSED_NAME,
+			);
 			expect(changed.observedDigest).not.toBe(offered.observedDigest);
 			const staleDiscard = await publishOver(
 				appId,
@@ -5258,9 +5266,11 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			if (joins) {
 				expect(listed.publishChanges.join(" ")).toMatch(/under several names/);
 				expect(
-					listed.hqChanges.filter((line) => line.includes("unused reference")),
+					listed.hqChanges.filter((line) =>
+						line.includes("This app doesn't use it"),
+					),
 				).toEqual([
-					"Publishing removes the unused reference “jr://file/commcare/image/visit-survey.png” to HQ file “visit-survey”.",
+					"Publishing removes the file “commcare/image/visit-survey.png” from the app in CommCare HQ. This app doesn't use it.",
 				]);
 				// A take keeps the first path. Keeping Nova's current document at
 				// this moment would also remove that path. Its different loss must
@@ -5381,11 +5391,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			const same = forms[0];
 			const reordered = structuredClone(doc);
 			reordered.formOrder[reordered.moduleOrder[0]].reverse();
-			function saved(
-				current: BlueprintDoc,
-				version: number,
-				recipient: Uuid,
-			) {
+			function saved(current: BlueprintDoc, version: number, recipient: Uuid) {
 				const base = emission(current, version);
 				const index =
 					current.formOrder[current.moduleOrder[0]].indexOf(recipient);
@@ -5788,7 +5794,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 		const stopped = await publishOver(appId, damaged, false, damaged, 4);
 		expect(
 			stopped.outcome.refusal?.remoteChanges[0]?.parts.join(" "),
-		).toContain(UNUSED_PATH);
+		).toContain(UNUSED_NAME);
 		expect(stopped.requests).not.toContain(`POST ${IMPORT_PATH}`);
 		const clean = await publishOver(
 			appId,
@@ -5881,7 +5887,7 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			const retried = await publishOver(appId, saved, false, saved, 4);
 			expect(
 				retried.outcome.refusal?.remoteChanges[0]?.parts.join(" "),
-			).toContain("unused-image");
+			).toContain(UNUSED_NAME);
 			expect(retried.requests).not.toContain(`POST ${IMPORT_PATH}`);
 		},
 		30_000,
