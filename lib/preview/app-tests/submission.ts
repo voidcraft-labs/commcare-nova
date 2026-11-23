@@ -197,7 +197,7 @@ export async function submitAppTest(
 					: undefined,
 				(operationUuid, caseType) => {
 					const key = built.program?.entryCaseKeys?.get(operationUuid);
-					return key === undefined
+					return key === undefined || screen.entry === undefined
 						? undefined
 						: registeredCaseOnDevice(
 								result.caseDatabasePatch,

@@ -656,9 +656,13 @@ describe("no chosen case ahead of a command", () => {
 		expect(refusals(doc, [above(CLIENTS)])).toEqual([]);
 	});
 
-	it("keeps the first-menu patient and the submenu visit under different deep link arguments", () => {
+	it("opens a submenu's deep link on its own visit alone, as HQ's endpoint builder reads no first-menu prefix", () => {
 		// Extra lists visits, so its own case list chooses a case the parent's
-		// frame does not hold, and a case list entry point opens on it.
+		// frame does not hold, and a case list entry point opens on it. HQ's
+		// endpoint builder reads the first menu's lists from a generator its
+		// entry pass has already read to its end once a form selects a case
+		// (`EndpointsHelper.get_frame_children`), so the parent's patient is no
+		// argument of the submenu's deep link.
 		const doc = docOf({
 			clients: [followup(VISIT, "Visit")],
 			extra: [followup(CHECK, "Check")],
@@ -682,8 +686,7 @@ describe("no chosen case ahead of a command", () => {
 			projectEntryPoint(verdict.nextDoc, { kind, moduleUuid: EXTRA })
 				.requiredSelections;
 		const menu = selection("module");
-		expect(menu.map((row) => row.caseType)).toEqual(["patient", "visit"]);
-		expect(new Set(menu.map((row) => row.argumentId)).size).toBe(2);
+		expect(menu.map((row) => row.caseType)).toEqual(["visit"]);
 		expect(selection("case-list")).toEqual(menu.slice(0, -1));
 	});
 
