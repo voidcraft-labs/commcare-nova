@@ -907,6 +907,7 @@ function collectModuleConfigReferences(
 				for (const input of list?.searchInputs ?? []) {
 					if (
 						input.kind === "hidden" &&
+						input.value !== undefined &&
 						expressionRefsCaseType(input.value, caseType)
 					) {
 						out.push({

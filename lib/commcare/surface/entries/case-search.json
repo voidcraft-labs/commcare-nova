@@ -2882,10 +2882,9 @@
 			"parser:QueryPromptParser/prompt@exclude"
 		],
 		"valueClass": "hidden-excluded-without-default-without-required-or-validations",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the hidden arm with an optional value (Nova's `hiddenSearchInputSchema` requires `value` today)",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `kind: hidden` with no `value` (never a filter); Web Apps holds it blank, and Android shows it empty for the worker to fill in",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (shown, editable)",

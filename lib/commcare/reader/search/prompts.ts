@@ -239,9 +239,13 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`,
 		"schema:CaseSearchProperty.exclude",
 	),
-	hiddenNoDefault: refuse(
+	hiddenNoDefault: take(
 		`${S}hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
 		"schema:CaseSearchProperty.hidden",
+	),
+	hiddenNoDefaultExclude: take(
+		`${S}hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
+		"schema:CaseSearchProperty.exclude",
 	),
 	hiddenNoExclude: refuse(
 		`${S}hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
@@ -684,9 +688,7 @@ function readPrompt(
 				? P.hiddenWidget
 				: !exclude
 					? P.hiddenNoExclude
-					: !holds("default_value")
-						? P.hiddenNoDefault
-						: undefined;
+					: undefined;
 		if (claim !== undefined) {
 			hiddenRefused = true;
 			cover(
@@ -989,11 +991,26 @@ function readPrompt(
 				place,
 			);
 	}
+	// A hidden field without a starting value is held as one with none: Web Apps holds it blank,
+	// and Android, which shows it, seeds no answer for it
+	// (`RemoteQuerySessionManager.initUserAnswers`).
+	const storedDefault = prompt.peek("default_value");
+	const hiddenWithValue =
+		hidden && typeof storedDefault === "string" && storedDefault.trim() !== "";
 	if (!hiddenRefused) {
 		if (exclude && hidden)
-			prompt.take("exclude", P.hiddenExclude, Boolean).value;
+			prompt.take(
+				"exclude",
+				hiddenWithValue ? P.hiddenExclude : P.hiddenNoDefaultExclude,
+				Boolean,
+			).value;
 		else if (exclude) prompt.take("exclude", P.exclude, Boolean).value;
-		if (hidden) prompt.take("hidden", P.hiddenValue, Boolean).value;
+		if (hidden)
+			prompt.take(
+				"hidden",
+				hiddenWithValue ? P.hiddenValue : P.hiddenNoDefault,
+				Boolean,
+			).value;
 	}
 	const allowBlank =
 		!hidden &&
@@ -1227,7 +1244,9 @@ function readPrompt(
 			name,
 			label: common.label,
 			kind: "hidden",
-			value: pendingPlaceholder("value"),
+			...(defaultIndex !== undefined && {
+				value: pendingPlaceholder("value"),
+			}),
 		};
 	else {
 		const widget = {

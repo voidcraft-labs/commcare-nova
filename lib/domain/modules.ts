@@ -1602,11 +1602,18 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
  * with a `<display>` label HQ still requires. The `default` attribute needs
  * HQ's advanced case search on the target project space, the same
  * requirement a visible prompt with a starting value already carries.
+ *
+ * Absent `value` is a hidden field with no starting value: Web Apps holds it
+ * blank and sends nothing for it, and Android, which shows every hidden
+ * field, shows it empty for the worker to fill in
+ * (`RemoteQuerySessionManager.initUserAnswers` seeds an answer only from a
+ * starting value). It is still never a filter: what the worker types there
+ * reaches only a condition that reads it.
  */
 export const hiddenSearchInputSchema = searchInputBase
 	.extend({
 		kind: z.literal("hidden"),
-		value: valueSchema,
+		value: valueSchema.optional(),
 	})
 	.strict();
 
@@ -1785,7 +1792,8 @@ export function searchInputScreenExpressions(
 export function searchInputExpressions(
 	input: SearchInputDef,
 ): readonly Expression[] {
-	if (input.kind === "hidden") return [input.value];
+	if (input.kind === "hidden")
+		return input.value === undefined ? [] : [input.value];
 	const seed = searchInputDefault(input);
 	return seed === undefined ? [] : [seed];
 }
@@ -2067,21 +2075,21 @@ export function advancedSearchInputDef(
 
 /**
  * Constructs a hidden search input. `value` is the global-scope expression
- * Nova evaluates when the Search screen opens; the input never shows and
- * never filters.
+ * Nova evaluates when the Search screen opens, or absent for a hidden field
+ * with no starting value; the input never filters.
  */
 export function hiddenSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
-	value: Expression,
+	value: Expression | undefined,
 ): HiddenSearchInputDef {
 	return hiddenSearchInputSchema.parse({
 		uuid,
 		kind: "hidden",
 		name,
 		label,
-		value,
+		...(value !== undefined && { value }),
 	});
 }
 

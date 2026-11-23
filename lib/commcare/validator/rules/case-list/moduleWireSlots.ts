@@ -203,6 +203,7 @@ export function collectModuleWireSlotFindings(
 			);
 		}
 		if (input.kind === "hidden") {
+			if (input.value === undefined) continue;
 			collect(
 				judge.judgeExpression(input.value, {
 					mod,

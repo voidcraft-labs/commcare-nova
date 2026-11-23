@@ -426,7 +426,7 @@ function formatColumn(col: Column, place: string): string {
  */
 function formatSearchInput(input: SearchInputDef): string {
 	if (input.kind === "hidden") {
-		return `${input.uuid}: (hidden) ${input.name} (system value, "${input.label}")`;
+		return `${input.uuid}: (hidden) ${input.name} (${input.value === undefined ? "no value" : "system value"}, "${input.label}")`;
 	}
 	const body =
 		input.kind === "simple"

@@ -389,7 +389,11 @@ export function searchScreenOpeningCovered(
 	const lookup = environment.lookup;
 	for (const input of searchInputs) {
 		if (input.kind === "hidden") {
-			if (!expressionLookupsCovered(input.value, lookup)) return false;
+			if (
+				input.value !== undefined &&
+				!expressionLookupsCovered(input.value, lookup)
+			)
+				return false;
 			continue;
 		}
 		const start = searchInputDefault(input);

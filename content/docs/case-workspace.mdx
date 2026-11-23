@@ -420,11 +420,14 @@ it names, so Nova asks for another name and says why.
 ### Hidden values
 
 **Add search field** also offers a **Hidden value**: a value carried with the
-search, such as the time of the search or the worker's id. It is never shown, never asked, and
-never narrows the results; it exists so other conditions can read it by name.
+search, such as the time of the search or the worker's id. Web Apps never shows
+or asks it, and it never narrows the results; it exists so other conditions can
+read it by name. Android shows it on the Search screen as an ordinary field,
+where the worker can change it.
 A hidden value works with fixed values, the current date and time, and
 current-user information, and cannot read case information or another search
-field.
+field. It can also start with no value: Web Apps keeps it blank, and Android
+shows it empty for the worker to fill in.
 
 In Preview, each new search uses the current worker and data to resolve these
 values. Editing answers keeps the previous search's hidden values until you

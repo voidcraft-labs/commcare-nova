@@ -431,7 +431,9 @@ export function resolveSearchInputDefaults(
  * (the validator refuses `input(...)` in its value), so each expression
  * evaluates over the session alone. A value whose lookup carriers the
  * held snapshot does not cover contributes nothing this resolution; a
- * blank result is omitted, matching an unanswered prompt.
+ * blank result is omitted, matching an unanswered prompt, as is a hidden
+ * field with no value, which Core seeds no answer for
+ * (`RemoteQuerySessionManager.initUserAnswers`).
  */
 export function resolveSearchHiddenValues(
 	searchInputs: readonly SearchInputDef[],
@@ -441,7 +443,7 @@ export function resolveSearchHiddenValues(
 	const lookupData = environment.lookup;
 	const values = new Map<string, string>();
 	for (const input of searchInputs) {
-		if (input.kind !== "hidden") continue;
+		if (input.kind !== "hidden" || input.value === undefined) continue;
 		if (!expressionLookupsCovered(input.value, lookupData)) continue;
 		const value = evaluatePreviewSearchExpression(
 			input.value,

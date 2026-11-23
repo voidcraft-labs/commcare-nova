@@ -204,22 +204,6 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a hidden field with no value",
-		edit: (body) => {
-			const prompt = first(body);
-			delete prompt.required;
-			prompt.hidden = true;
-			prompt.exclude = true;
-		},
-		findings: [
-			[
-				`${S}hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
 		title: "a hidden field with a widget",
 		edit: (body) => {
 			const prompt = first(body);
@@ -505,6 +489,26 @@ describe("a search for blank on a field CommCare HQ matches by its own rule", ()
 			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		},
 	);
+});
+
+// HQ's Case List page hides a field and leaves it out of the request with no starting value; Web
+// Apps holds it blank, and Android shows it empty (`RemoteQuerySessionManager.initUserAnswers`
+// seeds an answer only from a starting value), so Nova holds it as a hidden field with none.
+describe("a hidden field CommCare HQ holds with no value", () => {
+	it("reads as a hidden field with no value, and the gate admits it", async () => {
+		const { doc } = await documentOf((body) => {
+			const prompt = first(body);
+			delete prompt.required;
+			prompt.hidden = true;
+			prompt.exclude = true;
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field).toMatchObject({ kind: "hidden", name: "case_name" });
+		expect(field && "value" in field).toBe(false);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
 });
 
 describe("a Search field Nova cannot hold", () => {

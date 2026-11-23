@@ -168,6 +168,24 @@ describe("Search fields Nova emits", () => {
 		expect(codes(reading)).toEqual([]);
 		expect(read.searchInputs).toEqual(asRead(inputs, reading));
 	});
+
+	// A hidden field with no value is a hidden, excluded prompt with no `default`, which reads
+	// back as a hidden field with none; one with a value keeps it.
+	it("reads a hidden field with no value beside one with a value", async () => {
+		const inputs: SearchInputDef[] = [
+			{ uuid: uuid(9), name: "region", label: "Region", kind: "hidden" },
+			{
+				uuid: uuid(10),
+				name: "district",
+				label: "District",
+				kind: "hidden",
+				value: term(literal("north")),
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+	});
 });
 
 describe("each Search field's slots and arm", () => {

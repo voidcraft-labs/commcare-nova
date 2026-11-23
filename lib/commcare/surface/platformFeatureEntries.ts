@@ -136,6 +136,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"search-for-blank": ["case-search/allow-blank-value"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+		"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
 	],
 	"search-first": [
 		"case-search/workflow-search-first-auto-launch-true-default-search-false",

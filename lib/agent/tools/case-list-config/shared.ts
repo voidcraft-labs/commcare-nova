@@ -488,10 +488,11 @@ function refineSearchInputBoundary(
 				required?: { when?: Expression };
 				validation?: { rule: Expression };
 		  }
-		| { kind: "hidden"; value: Expression },
+		| { kind: "hidden"; value?: Expression },
 	ctx: z.RefinementCtx,
 ): void {
 	if (input.kind === "hidden") {
+		if (input.value === undefined) return;
 		if (expressionReadsCaseData(input.value)) {
 			ctx.addIssue({
 				code: "custom",
@@ -644,7 +645,7 @@ export const searchInputDefInputSchema = z
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
 			 * `.describe()` here would clone the node past the projection's
 			 * identity map and inline the whole Expression family. */
-			value: valueExpressionInputSchema,
+			value: valueExpressionInputSchema.optional(),
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);
@@ -682,7 +683,7 @@ export const searchInputUpdateInputSchema = z
 			predicate: predicateInputSchema,
 		}),
 		hiddenSearchInputSchema.omit({ uuid: true }).extend({
-			value: valueExpressionInputSchema,
+			value: valueExpressionInputSchema.optional(),
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);

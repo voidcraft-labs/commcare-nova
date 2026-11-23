@@ -35518,12 +35518,6 @@
 		"id": "hq-search/hidden-field-with-no-value",
 		"base": "hq-search",
 		"entry": "case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/-",
@@ -35548,7 +35542,29 @@
 				"is_group": false,
 				"doc_type": "CaseSearchProperty"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/kind",
+				"value": "hidden"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/6/name",
+				"value": "region"
+			}
+		]
 	},
 	{
 		"id": "hq-search/hidden-value-sent-with-the-search",

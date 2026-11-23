@@ -423,3 +423,28 @@ it("marks a field that searches for blank on both wires", () => {
 	const bare = buildSearchPrompts([plain], "m0", new Map(), expressions);
 	expect(serializeXml(bare.elements[0])).not.toContain("allow_blank_value");
 });
+
+// A hidden field with no value is a hidden, excluded prompt with no `default`: Core seeds no
+// answer for it (`RemoteQuerySessionManager.initUserAnswers`), and HQ's Case List page writes the
+// same prompt for a field hidden and left out of the request with no starting value.
+it("emits a hidden field with no value as a hidden prompt with no default", () => {
+	const { doc, config, expressions } = projection("prompt-widgets");
+	config.searchInputs = config.searchInputs.map((one) => {
+		if (one.kind !== "hidden") return one;
+		const { value: _value, ...rest } = one;
+		return rest;
+	});
+	expect(runValidation(doc, promptLookupContext)).toEqual([]);
+	const emission = buildSearchPrompts(
+		config.searchInputs,
+		"m0",
+		undefined,
+		expressions,
+		promptLookupNaming,
+	);
+	expect(emission.elements.at(-1)?.attribs).toEqual({
+		key: "hidden",
+		hidden: "true",
+		exclude: "true()",
+	});
+});
