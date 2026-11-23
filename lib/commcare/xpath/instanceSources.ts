@@ -78,6 +78,21 @@ function factorySource(id: string): string | undefined {
 	return undefined;
 }
 
+/** The factories HQ's scanner reaches in one rendered form or suite XPath.
+ * Suite entries union scans of individual expressions, not concatenated text. */
+export function* scannedInstances(
+	text: string,
+): Generator<readonly [string, string]> {
+	// Python also admits U+001C..U+001F as whitespace. XML 1.0 cannot contain them.
+	for (const match of text.matchAll(
+		/instance\(\p{White_Space}*['"]([\p{L}\p{N}_:-]+)['"]\p{White_Space}*\)/gu,
+	)) {
+		const id = match[1];
+		const source = factorySource(id);
+		if (source !== undefined) yield [id, source];
+	}
+}
+
 /** The secondary instances available to reads after HQ has built the form.
  * Declared IDs, even those with an inline root, always win over a factory. */
 export function formInstanceSources(
@@ -85,15 +100,9 @@ export function formInstanceSources(
 	rendered: string,
 	declaredIds: ReadonlySet<string> = new Set(declared.keys()),
 ): ReadonlyMap<string, string> {
-	// Python also admits U+001C..U+001F as whitespace. XML 1.0 cannot contain them.
 	const sources = new Map(declared);
-	for (const match of rendered.matchAll(
-		/instance\(\p{White_Space}*['"]([\p{L}\p{N}_:-]+)['"]\p{White_Space}*\)/gu,
-	)) {
-		const id = match[1];
-		if (declaredIds.has(id) || sources.has(id)) continue;
-		const source = factorySource(id);
-		if (source !== undefined) sources.set(id, source);
+	for (const [id, source] of scannedInstances(rendered)) {
+		if (!declaredIds.has(id)) sources.set(id, source);
 	}
 	return sources;
 }

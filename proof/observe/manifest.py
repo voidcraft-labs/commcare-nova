@@ -774,6 +774,11 @@ def app_expressions(value, found):
             text = value.get(slot)
             if isinstance(text, str) and text.strip() and (when is None or value.get(when)):
                 found.add(text)
+        itemset = value.get("itemset")
+        if isinstance(itemset, dict):
+            nodeset = itemset.get("nodeset")
+            if isinstance(nodeset, str) and nodeset.strip():
+                found.add(nodeset)
         for child in value.values():
             app_expressions(child, found)
     elif isinstance(value, list):

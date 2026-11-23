@@ -638,6 +638,62 @@ describe("a Search field Nova cannot hold", () => {
 				).toEqual([[MISSING, "search", "case_name", "parse:unknown-column"]]);
 			});
 
+		it.each([
+			["same search request", "instance((('item-list:t')))"],
+			["form entry", "instance((('item-list:t')))"],
+			["same search request", "instance ('item-list:t')"],
+			["form entry", "instance ('item-list:t')"],
+		] as const)(
+			"uses the declaration from the %s to resolve %s",
+			async (source, read) => {
+				const body = exportedBody(PROMPTS);
+				const firstPrompt = first(body);
+				firstPrompt.input_ = "select1";
+				firstPrompt.itemset = {
+					...itemset("item-list:t", `${read}/t_list/t`, "code"),
+					sort: "code",
+				};
+				const conventional = "count(instance('item-list:t')/t_list/t) > 0";
+				if (source === "same search request") {
+					const second = promptsOf(body)[1] as JsonObject;
+					second.input_ = "select1";
+					second.itemset = {
+						...itemset(
+							"item-list:t",
+							"instance('item-list:t')/t_list/t",
+							"code",
+						),
+						sort: "code",
+					};
+				} else {
+					const form = (
+						(body.modules as JsonObject[])[0].forms as JsonObject[]
+					)[0];
+					form.form_filter = conventional;
+				}
+				const input = withTable(await inputFor(body));
+				const outcome = readHqApp({
+					...input,
+					lookup: {
+						...input.lookup,
+						definitions: new Map([[TABLE_T.id, TABLE_T]]),
+					},
+				});
+				expect(outcome.defects).toEqual([]);
+				if (source === "same search request")
+					expect(outcome.kind === "account" ? outcome.findings : []).toEqual(
+						[],
+					);
+				else
+					expect(
+						outcome.kind === "account" &&
+							outcome.findings.map((entry) => entry.code),
+					).toContain(
+						"expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+					);
+			},
+		);
+
 		// A filter row's value a device reads from a table, as from the cases on the device, is the
 		// one entry for values that query device data, at the search.
 		it.each([

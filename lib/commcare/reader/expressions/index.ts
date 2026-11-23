@@ -1992,7 +1992,7 @@ function surfaceUseFactsOf(
 					? "child-of-inline"
 					: "other",
 		instanceSources: instanceSourcesOf(doc, registration, env) ?? new Map(),
-		formInstancesOnly: registration.mode.target === "xform",
+		formInstancesOnly: instanceSourcesOf(doc, registration, env) !== undefined,
 		shorthand:
 			registration.mode.target === "hq-json" &&
 			registration.mode.interpolation !== "none" &&

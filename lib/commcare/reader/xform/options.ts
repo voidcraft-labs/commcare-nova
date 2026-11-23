@@ -11,7 +11,7 @@ import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import { instanceForRead } from "../../xpath/instanceSources";
 import { w } from "../../xpath/wire/builders";
 import { casePropertyStep } from "../../xpath/wire/rowScope";
@@ -194,14 +194,8 @@ function instanceChain(node: FormSyntax):
 		if (at.left === undefined) return undefined;
 		at = at.left;
 	}
-	if (
-		at.kind !== "call" ||
-		at.name !== "instance" ||
-		at.args.length !== 1 ||
-		at.args[0]?.kind !== "string"
-	)
-		return undefined;
-	return { id: at.args[0].value, steps, predicates };
+	const id = literalInstanceId(at);
+	return id === undefined ? undefined : { id: id.value, steps, predicates };
 }
 
 /** A ref that is one name step: the column's or the property's name. */

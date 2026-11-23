@@ -52,6 +52,37 @@ export type FormSyntax = Bounds &
 		  }
 	);
 
+/** Core takes precisely one XPathStringLiteral as an instance path root
+ * (XPathPathExpr.getReference): parentheses around the literal do not supply
+ * another argument. Return the literal itself to retain its source span. */
+export function literalInstanceId(
+	node: FormSyntax | undefined,
+): Extract<FormSyntax, { kind: "string" }> | undefined {
+	if (
+		node?.kind !== "call" ||
+		node.name !== "instance" ||
+		node.args.length !== 1
+	)
+		return undefined;
+	let argument = node.args[0];
+	while (argument.kind === "group") argument = argument.value;
+	return argument.kind === "string" ? argument : undefined;
+}
+
+/** HQ's scanner requires the call's opening parenthesis immediately after
+ * its name, and a literal directly inside it. Core ignores both distinctions. */
+export function needsInstanceDeclaration(
+	node: FormSyntax,
+	text: string,
+): boolean {
+	const id = literalInstanceId(node);
+	return (
+		node.kind === "call" &&
+		id !== undefined &&
+		(node.args[0] !== id || !text.startsWith("instance(", node.from))
+	);
+}
+
 export interface FormSyntaxIssue extends Bounds {
 	readonly message: string;
 }

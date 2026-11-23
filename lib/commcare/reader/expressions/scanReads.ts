@@ -17,7 +17,7 @@ import {
 	formLinkProjectionContext,
 } from "../../formLinkProjection";
 import { rethrowWorkStop } from "../../workMeter";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import { instanceForRead } from "../../xpath/instanceSources";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
@@ -608,18 +608,16 @@ function readsScanner(
 			// own row.
 			if (at.kind === "filter")
 				for (const inside of nodesOf(at.where)) inPredicate.add(core(inside));
-			if (at.kind === "call" && at.name === "instance") {
-				const id = at.args[0];
-				if (id?.kind === "string") {
-					const localId = native.localIds.get(id.from) ?? id.value;
-					if (form !== undefined && sources !== undefined) {
-						const read = readIds.get(form) ?? new Set<string>();
-						readIds.set(form, read);
-						read.add(localId);
-					}
-					const bound = instanceForRead(localId, sources);
-					if (bound?.kind === "table") tags.add(bound.tag);
+			const id = literalInstanceId(at);
+			if (id !== undefined) {
+				const localId = native.localIds.get(id.from) ?? id.value;
+				if (form !== undefined && sources !== undefined) {
+					const read = readIds.get(form) ?? new Set<string>();
+					readIds.set(form, read);
+					read.add(localId);
 				}
+				const bound = instanceForRead(localId, sources);
+				if (bound?.kind === "table") tags.add(bound.tag);
 			}
 			if (inner) continue;
 			noteWalk(rowType ?? moduleType, at);
