@@ -171,8 +171,9 @@ describe("entry points", () => {
 			moduleUuid: M,
 			formUuid: F,
 		});
-		// Android keeps the claimed case on Home after Back, so the menus that
-		// consume it there still come from the frame the workflow builds.
+		// Android keeps the claimed case on Home after Back, the case the
+		// workflow frame opens with.
+		expect(projection.opensWithFirstMenuCase).toBe(true);
 		expect(projection.homeFrame[0]).toMatchObject({
 			type: "datum",
 			datum: { id: "case_id" },
@@ -196,6 +197,52 @@ describe("entry points", () => {
 			),
 		);
 	});
+	it("holds an ordinary menu's claimed case on Home, and keeps the first-menu rules to the workflow frame", () => {
+		const doc = endpointWireFixture("first-menu");
+		delete doc.modules[M].formsInMenuAbove;
+		admitted(doc);
+		const projection = projectEntryPoint(doc, {
+			kind: "form",
+			moduleUuid: M,
+			formUuid: F,
+		});
+		// HQ claims the case in a push ahead of the menu's command, so Back
+		// stops on Home with it still chosen and every menu selecting a
+		// patient under the same id skips its list.
+		expect(projection.frame[0]).toMatchObject({ type: "command" });
+		expect(projection.homeFrame[0]).toMatchObject({
+			type: "datum",
+			datum: { id: "case_id" },
+		});
+		expect(projection.requiredSelections[0]?.firstMenuConsumers).toEqual([
+			M,
+			testUuid("endpoint-second-patient-menu"),
+		]);
+		// No menu shows its forms on the first menu: the destination does not
+		// open with a shared first-menu case.
+		expect(projection.firstMenuFrame[0]).toMatchObject({ type: "command" });
+		expect(projection.opensWithFirstMenuCase).toBe(false);
+		// With two claims, Back pops the second with its posted claim and
+		// keeps only the first.
+		const child = endpointWireFixture("child");
+		const nested = projectEntryPoint(child, {
+			kind: "form",
+			moduleUuid: M,
+			formUuid: F,
+		});
+		expect(
+			nested.orderedArguments.map((argument) => argument.argumentId),
+		).toEqual(["parent_id", "case_id"]);
+		expect(
+			nested.requiredSelections.map((row) => [
+				row.argumentId,
+				row.firstMenuConsumers,
+			]),
+		).toEqual([
+			["parent_id", [testUuid("endpoint-parent")]],
+			["case_id", undefined],
+		]);
+	});
 	it("preserves multiple selection cardinality and maximum", () => {
 		const p = projectEntryPoint(fixture(true), {
 			kind: "form",
@@ -209,6 +256,8 @@ describe("entry points", () => {
 				cardinality: "multiple",
 				maximum: 5,
 				argumentId: "selected_cases",
+				// HQ claims chosen cases too; only this menu reads them.
+				firstMenuConsumers: [M],
 			},
 		]);
 	});

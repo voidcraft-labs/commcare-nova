@@ -625,10 +625,7 @@ export function settleEntryPoints(ctx: ReadContext): void {
 								: ("case-list" as const),
 						moduleUuid,
 					};
-		if (
-			!project(target).requiredSelections.some((row) => row.firstMenuConsumers)
-		)
-			continue;
+		if (!project(target).opensWithFirstMenuCase) continue;
 		const claim =
 			"form" in owner
 				? ENTRY_POINTS.firstMenuCase[owner.docType]

@@ -11,6 +11,7 @@ import org.commcare.util.CommCarePlatform;
 import org.commcare.xml.SuiteParser;
 import org.javarosa.core.model.Constants;
 import org.javarosa.core.model.condition.EvaluationContext;
+import org.javarosa.core.model.data.StringData;
 import org.javarosa.core.model.instance.*;
 import org.javarosa.xpath.XPathParseTool;
 import org.javarosa.xpath.expr.FunctionUtils;
@@ -46,6 +47,18 @@ public class EndpointRuntimeTest {
      assertTrue(storage.contains(selected.first));args.put(arg.getId(),selected.first);instances.put(arg.getInstanceId(),selected.second);
     }else args.put(arg.getId(),arg.getId().equals("parent_id")?"parent-one":"case-one");
    }
+   if(scenario.equals("single")||scenario.equals("child")){
+    // What a device holds once each claim has posted and synced: the session's data and the claimed cases, which
+    // a claim's post reads when Back asks whether it is needed again.
+    TreeElement data=new TreeElement("data"),cases=new TreeElement("casedb");
+    for(var arg:args.entrySet()){
+     TreeElement value=new TreeElement(arg.getKey());value.setValue(new StringData(arg.getValue()));data.addChild(value);
+     TreeElement held=new TreeElement("case");held.setAttribute(null,"case_id",arg.getValue());cases.addChild(held);
+    }
+    TreeElement sessionRoot=new TreeElement("session");sessionRoot.addChild(data);
+    instances.put("commcaresession",new FormInstance(sessionRoot,"commcaresession"));
+    instances.put("casedb",new FormInstance(cases,"casedb"));
+   }
    EvaluationContext context=new EvaluationContext(null,instances);Endpoint.populateEndpointArgumentsToEvaluationContext(endpoint,args,context);
    if(scenario.equals("multiple")){
     assertEquals("case-one",FunctionUtils.toString(XPathParseTool.parseXPath("instance('selected_cases')/results/value[1]").eval(context)));
@@ -80,6 +93,16 @@ public class EndpointRuntimeTest {
     assertEquals(scenario+" hq="+hq,scenario.equals("registration")||scenario.equals("child")?1:0,computed);
     assertNull(scenario+" hq="+hq,session.getNeededDatum());
     for(var arg:args.entrySet())assertEquals(arg.getValue(),session.getData().get(arg.getKey()));
+    if(scenario.equals("single")||scenario.equals("child")){
+     // The menu's command follows the claim pushes, yet Back reaches the first menu with the first claimed case
+     // still chosen: each posted claim needs nothing, and a later claim's case goes with its claim.
+     int backs=0;
+     while(session.getCommand()!=null){session.stepBack(context);if(++backs>6)throw new AssertionError(scenario+" never reached the first menu");}
+     assertEquals(scenario+" hq="+hq,SessionFrame.STATE_COMMAND_ID,session.getNeededData(context));
+     String first=scenario.equals("child")?"parent_id":"case_id";
+     assertEquals(scenario+" hq="+hq,args.get(first),session.getData().get(first));
+     if(scenario.equals("child"))assertNull(scenario+" hq="+hq,session.getData().get("case_id"));
+    }
     if(scenario.equals("first-menu")){
      session.stepBack(context);
      assertNull("Back returns to the first menu",session.getCommand());

@@ -119,15 +119,27 @@ export interface EntryPointProjection {
 	)[];
 	readonly frame: readonly FrameChild[];
 	/**
-	 * The frame whose selections before its first command Android keeps on
-	 * Home after Back. Where the endpoint claims its selections, each claim
-	 * push puts its datum ahead of every command, and a claim already posted
-	 * is not relevant again, so Back pops through the claim command to Home
-	 * with that case still collected (`CommCareSession.stepBack`): the
-	 * selections Home keeps are the ones the entry's own workflow frame leads
-	 * with. With inline search nothing is claimed, so it is `frame` itself.
+	 * The frame Android keeps on Home after Back, read up to its first
+	 * command. HQ claims every selection the endpoint binds, each in its own
+	 * push ahead of the navigation (`EndpointsHelper._make_session_endpoint`),
+	 * so the first claimed case precedes every command. Back pops the
+	 * navigation, then each posted claim with the cases claimed after the
+	 * first, since a claim already posted needs nothing more
+	 * (`CommCareSession.stepBack`, `getNeededData`), and stops on Home with
+	 * that first case still collected, whatever menu the destination is in.
+	 * It is that case, then the endpoint frame's commands. With inline search
+	 * nothing is claimed, so it is `frame` itself.
 	 */
 	readonly homeFrame: readonly FrameChild[];
+	/**
+	 * The frame the first-menu rules read: the workflow frame where claims are
+	 * posted, else `frame`. It leads with a selection exactly where the
+	 * destination opens with the case the first menu's forms share.
+	 */
+	readonly firstMenuFrame: readonly FrameChild[];
+	/** Whether a selection this entry point binds is the first menu's shared
+	 *  case, read from `firstMenuFrame`. */
+	readonly opensWithFirstMenuCase: boolean;
 }
 /** One synchronous projection batch shares lowering and cached form actions.
  * Create a fresh projector for each document read; no cross-mutation cache. */
@@ -173,13 +185,30 @@ export function projectEntryPoint(
 	)
 		throw new Error("The entry point form is missing.");
 	const frame = entryPointFrame(doc, context, target, "endpoint");
-	const homeFrame = moduleUsesInlineSearch(doc.modules[target.moduleUuid])
-		? frame
-		: entryPointFrame(doc, context, target, "workflow");
-	// The two frames are built apart, so their datums are matched by id.
+	const claims = !moduleUsesInlineSearch(doc.modules[target.moduleUuid]);
+	const firstClaim = claims
+		? frame.find(
+				(child) =>
+					child.type === "datum" &&
+					child.datum.requiresSelection &&
+					!child.datum.query,
+			)
+		: undefined;
+	const homeFrame = firstClaim
+		? [firstClaim, ...frame.filter((child) => child.type === "command")]
+		: frame;
+	const firstMenuFrame = claims
+		? entryPointFrame(doc, context, target, "workflow")
+		: frame;
 	const homeCases = new Map(
 		[...homeSelectionConsumers(doc, context, homeFrame)].map(
 			([datum, consumers]) => [datum.id, consumers],
+		),
+	);
+	// The workflow frame is built apart, so its datums are matched by id.
+	const firstMenuCaseIds = new Set(
+		[...homeSelectionConsumers(doc, context, firstMenuFrame).keys()].map(
+			(datum) => datum.id,
 		),
 	);
 	const requiredSelections = frame.flatMap((child) => {
@@ -264,6 +293,10 @@ export function projectEntryPoint(
 		orderedArguments,
 		frame,
 		homeFrame,
+		firstMenuFrame,
+		opensWithFirstMenuCase: requiredSelections.some((selection) =>
+			firstMenuCaseIds.has(selection.argumentId),
+		),
 	};
 }
 

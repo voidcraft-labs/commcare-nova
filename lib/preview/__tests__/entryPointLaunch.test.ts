@@ -113,6 +113,35 @@ it.each([
 		} else expect(returned).toEqual({});
 	},
 );
+it.each([
+	["Android", ANDROID_RULES],
+	["Web Apps", WEB_APPS_RULES],
+] as const)(
+	"keeps an ordinary menu's claimed case for every menu reading it on the first menu after Back on %s",
+	(_, rules) => {
+		// Neither menu shows its forms on the first menu, so the frame toward
+		// Visit starts with its menu's command; Android still holds the claimed
+		// case on Home, because the claim's push comes before every command.
+		const doc = endpointWireFixture("first-menu");
+		delete doc.modules[ENDPOINT_MODULE].formsInMenuAbove;
+		const result = launch({
+			...args(doc),
+			entryPointUuid: testUuid("endpoint-identity"),
+			selections: [{ moduleUuid: ENDPOINT_MODULE, caseIds: ["b"] }],
+			rules,
+		});
+		if (result.kind !== "ready") throw new Error(result.message);
+		const returned = result.launch.firstMenuSelections;
+		if (rules === ANDROID_RULES) {
+			expect(Object.keys(returned ?? {}).sort()).toEqual(
+				[ENDPOINT_MODULE, testUuid("endpoint-second-patient-menu")].sort(),
+			);
+			expect(
+				returned?.[testUuid("endpoint-second-patient-menu")].cases[0].caseId,
+			).toBe("b");
+		} else expect(returned ?? {}).toEqual({});
+	},
+);
 it("installs a supplied registration ID only after validating every argument and a fresh ID in this app", () => {
 	const doc = endpointWireFixture("registration-supplied");
 	const form = doc.forms[ENDPOINT_FORM];
