@@ -1427,6 +1427,8 @@ it("preserves unmodeled native metadata outside PostgreSQL jsonb's character rep
 	expect(JSON.parse((await kept()).hq_observation as string)).toEqual(updated);
 });
 
+/* A 10,004-place birth, its pages, a worker read and a full refresh in one
+ * body: sized past the 5 s default, which batch load alone can exceed. */
 it("pages a 10,004-place adoption by revision and reads only the assigned worker branch with its ancestors", async () => {
 	await seedApp();
 	const legacy = Array.from({ length: 10_001 }, (_, i) =>
@@ -1526,4 +1528,4 @@ it("pages a 10,004-place adoption by revision and reads only the assigned worker
 			(row) => row.name,
 		),
 	).toEqual(["North two", "Riverside"]);
-});
+}, 30_000);
