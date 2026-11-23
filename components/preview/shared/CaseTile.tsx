@@ -13,7 +13,7 @@
 
 "use client";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
-import type { CaseProperty } from "@/lib/domain";
+import { type CaseProperty, tileCellOnlyOnAndroid } from "@/lib/domain";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import type { TileGridProjection } from "@/lib/preview/caseTileLayout";
 import {
@@ -114,7 +114,7 @@ export function CaseTile({
 						{/* A hidden column that still orders the list holds its square
 						 *  and shows nothing: the device's zero-width sort carrier. */}
 						{!entry.valueHidden &&
-							(!entry.column.tile?.androidOnly ||
+							(!tileCellOnlyOnAndroid(entry.column, entry.column.tile) ||
 								platformRules.searchOnlyTileCell === "drawn") && (
 								<>
 									{entry.prefixLabel ? (
@@ -125,7 +125,8 @@ export function CaseTile({
 									) : (
 										<span className="sr-only">{label}: </span>
 									)}
-									{entry.column.tile?.androidOnly || entry.rawValue
+									{tileCellOnlyOnAndroid(entry.column, entry.column.tile) ||
+									entry.rawValue
 										? String(
 												entry.column.kind === "calculated"
 													? (row.calculated[entry.column.uuid] ?? "")

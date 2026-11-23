@@ -555,6 +555,23 @@ export function tileCellFor(
 }
 
 /**
+ * Whether a Results tile cell draws only on Android. HQ writes an
+ * `invisible` field (a cell marked `androidOnly`) and an `address` (a map
+ * location) with a zero template width (`detail_screen.py::HideShortColumn`):
+ * Web Apps hides a zero-width tile field (`tile_item.html`), and Android
+ * draws its stored value at its cell (`EntityViewTile.addFieldView`).
+ */
+export function tileCellOnlyOnAndroid(
+	column: Pick<Column, "kind">,
+	cell: TileCell | undefined,
+): boolean {
+	return (
+		cell !== undefined &&
+		(cell.androidOnly === true || column.kind === "map-location")
+	);
+}
+
+/**
  * The grid a set of cells actually occupies, in columns x rows.
  *
  * This is DERIVED, never authored, and every renderer must derive it

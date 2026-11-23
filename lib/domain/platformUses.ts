@@ -44,6 +44,7 @@ import {
 	moduleSearchWorkflow,
 	type SearchInputDef,
 	tileCellFor,
+	tileCellOnlyOnAndroid,
 } from "./modules";
 import {
 	expressionLeafFeature,
@@ -533,9 +534,13 @@ function moduleUses(
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
 		const cell = tileCellFor(column, list?.tile);
-		if (cell?.androidOnly && wanted("raw-custom-tile-field"))
+		if (tileCellOnlyOnAndroid(column, cell) && wanted("raw-custom-tile-field"))
 			uses.push(
-				slotUse("raw-custom-tile-field", target, slot("tile.androidOnly")),
+				slotUse(
+					"raw-custom-tile-field",
+					target,
+					slot(cell?.androidOnly ? "tile.androidOnly" : "kind"),
+				),
 			);
 		if (
 			cell !== undefined &&

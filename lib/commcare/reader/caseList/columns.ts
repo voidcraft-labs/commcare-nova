@@ -2085,9 +2085,15 @@ function readColumn(
 			column.refuse("format", C.severalOfOneFormat, formatName(format));
 			return undefined;
 		}
+		// HQ writes an address with a zero template width, so a custom
+		// Results tile hides it on Web Apps and Android draws it at its cell.
 		column.take(
 			"format",
-			count > 1 ? C.severalAddressAdvanced : C.address,
+			count > 1
+				? C.severalAddressAdvanced
+				: options.inTile && screen === "short"
+					? C.invisibleInTile
+					: C.address,
 			String,
 		).value;
 		return proposal({

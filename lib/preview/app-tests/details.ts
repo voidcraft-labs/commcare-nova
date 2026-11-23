@@ -4,6 +4,7 @@ import {
 	effectiveCaseTypes,
 	moduleFormsReadSearch,
 	orderedColumns,
+	tileCellOnlyOnAndroid,
 	type Uuid,
 } from "@/lib/domain";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
@@ -241,7 +242,7 @@ export async function appTestFormCaseContext(
 		if (
 			!value ||
 			!column.tile ||
-			(column.tile.androidOnly &&
+			(tileCellOnlyOnAndroid(column, column.tile) &&
 				previewPlatformRules(state.platform).searchOnlyTileCell === "hidden")
 		)
 			return [];
