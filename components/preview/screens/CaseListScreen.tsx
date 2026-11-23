@@ -368,7 +368,8 @@ interface CaseListScreenProps {
 export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const menuSource = usePreviewMenuSource();
+	const language = useBuilderLanguage();
+	const menuSource = usePreviewMenuSource(language.language);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const setPreviewMenuCaseSelection = useSetPreviewMenuCaseSelection();
 	const previewParentCaseRequest = usePreviewParentCaseRequest();
@@ -528,7 +529,6 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		seededFormUuid !== undefined ||
 		caseLoadingForms.length > 0;
 
-	const language = useBuilderLanguage();
 	const message = useWorkerMessage();
 	const mod = useWorkerModule(language.language, moduleUuid);
 	const menuCaseContext = useMemo(

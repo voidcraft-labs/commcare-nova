@@ -398,7 +398,9 @@ function mutationFootprint(
 
 			/* Media mutates only its owning form. */
 			case "setFormMedia":
-				scope.formUuids.add(mutation.uuid);
+				if (mutation.registrationOf)
+					scope.moduleUuids.add(mutation.registrationOf);
+				else scope.formUuids.add(mutation.uuid);
 				break;
 			case "renameForm":
 				scope.formUuids.add(mutation.uuid);

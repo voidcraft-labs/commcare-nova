@@ -21,6 +21,17 @@ import {
 	type TranslationUnitId,
 	type WireStringSource,
 } from "@/lib/domain";
+import type { IconRef } from "@/lib/domain/builtinIcons";
+import {
+	type Media,
+	type MediaValues,
+	storedFormMedia,
+} from "@/lib/domain/multimedia";
+import {
+	type NavigationMedia,
+	navigationFilesInLanguage,
+	storedNavigationFile,
+} from "@/lib/domain/navigationMedia";
 import { planLanguageWire } from "./languageWire";
 
 export type WireLanguageMap = Record<string, string>;
@@ -29,6 +40,18 @@ export interface CommCareLocalization {
 	/** Wire codes in `languageOrder` order. */
 	readonly languages: readonly string[];
 	readonly defaultLanguage: string;
+	navigationMedia<T extends IconRef>(
+		code: string,
+		carrier: NavigationMedia<T>,
+	): Pick<NavigationMedia<T>, "icon" | "audioLabel">;
+	storedMenuMedia(
+		code: string,
+		carrier: NavigationMedia,
+	): {
+		icon: ReturnType<typeof storedNavigationFile>;
+		audioLabel: ReturnType<typeof storedNavigationFile>;
+	};
+	media(wireCode: string, bundle: Media | undefined): MediaValues | undefined;
 	/** The device language picker's label row for one wire code. */
 	languageName(wireCode: string): string;
 	wireText(wireCode: string, unitId: TranslationUnitId): string;
@@ -126,6 +149,23 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 	return {
 		languages: plan.languages,
 		defaultLanguage: plan.defaultLanguage,
+		navigationMedia(code, carrier) {
+			return navigationFilesInLanguage(carrier, tagFor(code), effective);
+		},
+		storedMenuMedia(code, carrier) {
+			const tag = tagFor(code);
+			return {
+				icon: storedNavigationFile(carrier, "icon", tag),
+				audioLabel: storedNavigationFile(carrier, "audioLabel", tag),
+			};
+		},
+		media(wireCode, bundle) {
+			return storedFormMedia(
+				bundle,
+				tagFor(wireCode),
+				effective.defaultLanguage,
+			);
+		},
 		languageName(wireCode) {
 			const name = plan.nameByWireCode.get(wireCode);
 			if (name === undefined) {

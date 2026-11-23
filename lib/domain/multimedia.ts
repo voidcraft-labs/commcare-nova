@@ -27,7 +27,14 @@
 // wire shape in `lib/db/mediaAssets.ts`.
 
 import { z } from "zod";
+import { languageTagSchema } from "./localization";
 import type { Platform } from "./platforms";
+import {
+	ownRecordSchema,
+	ownRecordValue,
+	recordFromEntries,
+	recordWithValue,
+} from "./records";
 import { CANONICAL_UUID_PATTERN, type Uuid } from "./uuid";
 
 /**
@@ -927,12 +934,153 @@ export function resolveUploadMimeType(
  * `MediaAssetId`s; menu icons use the slot-specific `ModuleIconRef` /
  * `FormIconRef` unions in `builtinIcons.ts`.
  */
-export const mediaSchema = z.strictObject({
+export const mediaValuesSchema = z.strictObject({
 	image: mediaAssetIdSchema.optional(),
 	audio: mediaAssetIdSchema.optional(),
 	video: mediaAssetIdSchema.optional(),
 });
+export type MediaValues = z.infer<typeof mediaValuesSchema>;
+
+/** A null role on an adopted translation inherits the form's default value.
+ * An omitted role follows the ordinary shared value an author chose. */
+export const translatedMediaSchema = z.strictObject({
+	image: mediaAssetIdSchema.nullable().optional(),
+	audio: mediaAssetIdSchema.nullable().optional(),
+	video: mediaAssetIdSchema.nullable().optional(),
+});
+export const mediaSchema = mediaValuesSchema
+	.extend({
+		mediaByLanguage: ownRecordSchema(
+			languageTagSchema,
+			translatedMediaSchema,
+		).optional(),
+		formDefaultLanguage: languageTagSchema.optional(),
+	})
+	.superRefine((media, ctx) => {
+		for (const [language, values] of Object.entries(
+			media.mediaByLanguage ?? {},
+		)) {
+			for (const role of MEDIA_KINDS) {
+				if (values[role] !== undefined && !media[role])
+					ctx.addIssue({
+						code: "custom",
+						path: ["mediaByLanguage", language, role],
+						message:
+							"Choose a shared file before adding this file in another language.",
+					});
+			}
+		}
+	});
 export type Media = z.infer<typeof mediaSchema>;
+
+/** The files that this language actually shows. Legacy bundles keep their identity. */
+export function mediaInLanguage(
+	media: Media | undefined,
+	language: string,
+	defaultLanguage: string,
+): MediaValues | undefined {
+	if (!media?.mediaByLanguage) return media;
+	const translation = ownRecordValue(media.mediaByLanguage, language);
+	const fallback = ownRecordValue(
+		media.mediaByLanguage,
+		media.formDefaultLanguage ?? defaultLanguage,
+	);
+	const result: MediaValues = {};
+	for (const role of MEDIA_KINDS) {
+		const file = translation?.[role];
+		const shown =
+			file === null ? (fallback?.[role] ?? media[role]) : (file ?? media[role]);
+		if (shown) result[role] = shown;
+	}
+	return result;
+}
+
+/** Files explicitly carried by this translation. An inherited role stays absent
+ * in the form resource, since a named installation can omit the original default. */
+export function storedFormMedia(
+	media: Media | undefined,
+	language: string,
+	defaultLanguage: string,
+): MediaValues | undefined {
+	const effective = mediaInLanguage(media, language, defaultLanguage);
+	const values = ownRecordValue(media?.mediaByLanguage, language);
+	if (!effective || !values || language === defaultLanguage) return effective;
+	const out = { ...effective };
+	for (const role of MEDIA_KINDS) if (values[role] === null) delete out[role];
+	return out;
+}
+
+/** Core rejects a locale that introduces a key absent in the build's default.
+ * An installation with no translated key at all simply shows no file. */
+export function installedFormMedia(
+	media: Media | undefined,
+	language: string,
+	appDefault: string,
+	installation: readonly string[],
+):
+	| { kind: "files"; files: MediaValues }
+	| { kind: "missing-default"; role: MediaKind } {
+	const first = installation[0];
+	if (!first) return { kind: "files", files: {} };
+	const fallback = storedFormMedia(media, first, appDefault);
+	const chosen = storedFormMedia(media, language, appDefault);
+	const files: MediaValues = {};
+	for (const role of MEDIA_KINDS) {
+		if (
+			!fallback?.[role] &&
+			installation.some(
+				(tag) => storedFormMedia(media, tag, appDefault)?.[role],
+			)
+		)
+			return { kind: "missing-default", role };
+		const file = chosen?.[role] ?? fallback?.[role];
+		if (file) files[role] = file;
+	}
+	return { kind: "files", files };
+}
+
+/** Replace the files for one language. A cleared translated file uses the shared
+ * file. Each edit applies to the current carrier, preserving every other language. */
+export function editMediaInLanguage(
+	current: Media | undefined,
+	files: MediaValues | null,
+	language: string,
+	sourceLanguage: string,
+	defaultLanguage: string,
+): Media | undefined {
+	const result: Media = {};
+	const translations = recordFromEntries(
+		Object.entries(current?.mediaByLanguage ?? {}).map(([tag, row]) => [
+			tag,
+			{ ...row },
+		]),
+	);
+	const previous = mediaInLanguage(current, language, defaultLanguage);
+	const translated = translations[language] ?? {};
+	for (const role of MEDIA_KINDS) {
+		const wanted = files?.[role];
+		const shared = language === sourceLanguage ? wanted : current?.[role];
+		if (shared) result[role] = shared;
+		if (files && wanted !== undefined && wanted === previous?.[role]) continue;
+		if (language === sourceLanguage) {
+			delete translated[role];
+			if (!shared)
+				for (const row of Object.values(translations))
+					if (row[role] === null) delete row[role];
+		} else if (wanted === undefined || wanted === shared)
+			delete translated[role];
+		else translated[role] = wanted;
+	}
+	translations[language] = translated;
+	for (const [tag, row] of Object.entries(translations))
+		if (!Object.keys(row).length) delete translations[tag];
+	if (Object.keys(translations).length) {
+		result.mediaByLanguage = translations;
+		if (current?.formDefaultLanguage)
+			result.formDefaultLanguage = current.formDefaultLanguage;
+	}
+	return Object.keys(result).length ? result : undefined;
+}
 
 /**
  * Lifecycle status of a stored media asset. Two states only:
@@ -1116,3 +1264,23 @@ export function pendingGcsObjectKeyFor(
  * `MediaAssetId` brand.
  */
 export type { Uuid };
+
+/** A scoped edit arriving from another editor replaces just this language.
+ * Deleting the final override restores the compact legacy shared carrier. */
+export function replaceMediaLanguageEntry<T>(
+	carrier: { mediaByLanguage?: Record<string, T> },
+	tag: string,
+	value: T | null,
+): void {
+	if (value !== null) {
+		carrier.mediaByLanguage = recordWithValue<T>(
+			carrier.mediaByLanguage,
+			tag,
+			structuredClone(value),
+		);
+	} else if (carrier.mediaByLanguage) {
+		delete carrier.mediaByLanguage[tag];
+		if (!Object.keys(carrier.mediaByLanguage).length)
+			delete carrier.mediaByLanguage;
+	}
+}

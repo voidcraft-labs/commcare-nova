@@ -16,6 +16,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import { navigationMediaProblem } from "@/lib/domain/navigationMedia";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
@@ -65,6 +67,30 @@ import { hiddenMenuEntryPoints } from "./hiddenFromMenu";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 import { multiSelectTopology } from "./multiSelect";
 
+function localizedMenuMedia(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	const app = effectiveAppLocalization(doc.localization);
+	for (const carrier of [
+		mod,
+		mod.caseListMenuItem,
+		mod.caseListRegistrationForm?.kind === "always"
+			? mod.caseListRegistrationForm
+			: undefined,
+	]) {
+		const problem = navigationMediaProblem(carrier, app);
+		if (problem)
+			return [
+				validationError("MENU_MEDIA_LANGUAGE", "module", problem, {
+					moduleUuid,
+					moduleName: mod.name,
+				}),
+			];
+	}
+	return [];
+}
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
 }
@@ -294,6 +320,7 @@ export const CASE_LIST_ORDER_RULES: readonly ModuleRule[] = [
 ];
 
 export const MODULE_RULES: readonly ModuleRule[] = [
+	localizedMenuMedia,
 	parentCaseSelection,
 	caseFormsNoCaseType,
 	caseListMenuItemNoCaseType,

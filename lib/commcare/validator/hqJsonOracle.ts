@@ -968,7 +968,9 @@ function checkNavMediaDict(
 	errors: ValidationError[],
 ): void {
 	for (const [lang, value] of Object.entries(media)) {
-		if (value.startsWith(JR_FILE_PREFIX)) continue;
+		// HQ's menu page stores a cleared language as an empty string. It
+		// participates in fallback ordering but never contributes a resource.
+		if (value === "" || value.startsWith(JR_FILE_PREFIX)) continue;
 		errors.push(
 			validationError(
 				"HQJSON_BAD_NAV_MEDIA_VALUE",

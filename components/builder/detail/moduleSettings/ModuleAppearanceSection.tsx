@@ -1,6 +1,7 @@
 "use client";
 
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
+import { useNavigationFileLens } from "@/components/builder/media/useNavigationFileLens";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useMenuScreenSource } from "@/lib/doc/hooks/useMenuScreenSource";
@@ -14,7 +15,7 @@ interface ModuleAppearanceSectionProps {
 }
 
 /**
- * The module's menu tile (`module.icon` / `audioLabel`) on Home or inside its
+ * The module's menu tile (`lens.icon` / `audioLabel`) on Home or inside its
  * structural parent. The case list's own menu entry, with its icon and
  * spoken label, is `CaseListMenuItemSection`. Each edit reconstructs the
  * untouched sibling slot, and clears use explicit JSON-safe `null` sentinels
@@ -25,7 +26,8 @@ export function ModuleAppearanceSection({
 }: ModuleAppearanceSectionProps) {
 	const module = useModule(moduleUuid);
 	const parentModule = useModule(module?.parentModuleUuid);
-	const { setModuleMedia } = useBlueprintMutations();
+	const lens = useNavigationFileLens(module);
+	const { commitMany } = useBlueprintMutations();
 	const source = useMenuScreenSource();
 	/* A bare case list's name section states the note for both. */
 	const bare = useIsBareCaseListModule(moduleUuid);
@@ -63,16 +65,23 @@ export function ModuleAppearanceSection({
 							Icon
 						</span>
 						<SingleAssetSlot
-							value={module.icon}
+							value={lens.icon}
+							reading={lens.reading("icon")}
+							removalLabel={lens.removalLabel("icon")}
 							kind="image"
 							iconLibrary="module"
-							slotKey={`module:${moduleUuid}:icon`}
+							slotKey={`module:${moduleUuid}:icon:${lens.language}`}
 							ariaLabel="Menu tile icon"
 							onChange={(icon) =>
-								setModuleMedia(uuid, {
-									icon: icon ?? null,
-									audioLabel: module.audioLabel ?? null,
-								})
+								commitMany([
+									{
+										kind: "setModuleMedia",
+										uuid,
+										language: lens.language,
+										icon: icon ?? null,
+										audioLabel: lens.audioLabel ?? null,
+									},
+								])
 							}
 						/>
 					</div>
@@ -81,15 +90,22 @@ export function ModuleAppearanceSection({
 							Spoken label
 						</span>
 						<SingleAssetSlot
-							value={module.audioLabel}
+							value={lens.audioLabel}
+							reading={lens.reading("audioLabel")}
+							removalLabel={lens.removalLabel("audioLabel")}
 							kind="audio"
-							slotKey={`module:${moduleUuid}:audioLabel`}
+							slotKey={`module:${moduleUuid}:audioLabel:${lens.language}`}
 							ariaLabel="Menu tile spoken label"
 							onChange={(audioLabel) =>
-								setModuleMedia(uuid, {
-									icon: module.icon ?? null,
-									audioLabel: audioLabel ?? null,
-								})
+								commitMany([
+									{
+										kind: "setModuleMedia",
+										uuid,
+										language: lens.language,
+										icon: lens.icon ?? null,
+										audioLabel: audioLabel ?? null,
+									},
+								])
 							}
 						/>
 					</div>

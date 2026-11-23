@@ -15,6 +15,8 @@ import {
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	searchScreenTitleText,
 } from "./modules";
+import { mediaInLanguage } from "./multimedia";
+import { navigationFilesInLanguage } from "./navigationMedia";
 import { filledProse, translationFillSource } from "./translationFill";
 import {
 	localizeTranslationUnit,
@@ -56,11 +58,19 @@ export function projectLocalizedForm(
 ) {
 	const form = doc.forms[uuid];
 	if (form === undefined) return undefined;
-	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
+	if (
+		language === effectiveAppLocalization(doc.localization).sourceLanguage &&
+		!form.mediaByLanguage
+	) {
 		return form;
 	}
 	return {
 		...form,
+		...navigationFilesInLanguage(
+			form,
+			language,
+			effectiveAppLocalization(doc.localization),
+		),
 		name: localizedText(
 			snapshotTranslationUnits(doc),
 			doc,
@@ -80,13 +90,35 @@ export function projectLocalizedModule(
 ): Module | undefined {
 	const module = doc.modules[uuid];
 	if (module === undefined) return undefined;
-	if (language === effectiveAppLocalization(doc.localization).sourceLanguage) {
+	const app = effectiveAppLocalization(doc.localization);
+	const register = module.caseListRegistrationForm;
+	if (
+		language === app.sourceLanguage &&
+		!module.mediaByLanguage &&
+		!module.caseListMenuItem?.mediaByLanguage &&
+		!(register?.kind === "always" && register.mediaByLanguage)
+	) {
 		return module;
 	}
 	const units = unitIndex ?? snapshotTranslationUnits(doc);
 	const text = (id: TranslationUnitId, fallback: string): string =>
 		localizedText(units, doc, language, id, fallback);
 	const localized = structuredClone(module);
+	Object.assign(localized, navigationFilesInLanguage(module, language, app));
+	if (localized.caseListMenuItem)
+		Object.assign(
+			localized.caseListMenuItem,
+			navigationFilesInLanguage(localized.caseListMenuItem, language, app),
+		);
+	if (localized.caseListRegistrationForm?.kind === "always")
+		Object.assign(
+			localized.caseListRegistrationForm,
+			navigationFilesInLanguage(
+				localized.caseListRegistrationForm,
+				language,
+				app,
+			),
+		);
 	localized.name = text(
 		makeTranslationUnitId("module", module.uuid, "name"),
 		module.name,
@@ -225,6 +257,18 @@ export interface LocalizedFieldProjectionOptions {
 }
 
 /** Project prose and inline option labels without changing identity or logic. */
+function hasLocalizedMedia(field: Field): boolean {
+	return Boolean(
+		("label_media" in field && field.label_media?.mediaByLanguage) ||
+			("help_media" in field && field.help_media?.mediaByLanguage) ||
+			("optionsSource" in field &&
+				field.optionsSource.kind === "inline" &&
+				field.optionsSource.options.some(
+					(option) => option.media?.mediaByLanguage,
+				)),
+	);
+}
+
 export function projectLocalizedField(
 	doc: BlueprintDoc,
 	language: LanguageTag,
@@ -237,6 +281,7 @@ export function projectLocalizedField(
 	const filled = options.filled === true;
 	if (
 		!filled &&
+		!hasLocalizedMedia(field) &&
 		language === effectiveAppLocalization(doc.localization).sourceLanguage
 	) {
 		return field;
@@ -278,11 +323,12 @@ function projectFieldWithUnits(
 	filled: boolean,
 ): Field {
 	if (
-		filled &&
+		!hasLocalizedMedia(field) &&
 		language === effectiveAppLocalization(doc.localization).sourceLanguage &&
-		!fieldItextUnits(field, units).some(
-			(unit) => translationFillSource(doc, unit, language) !== undefined,
-		)
+		(!filled ||
+			!fieldItextUnits(field, units).some(
+				(unit) => translationFillSource(doc, unit, language) !== undefined,
+			))
 	) {
 		// In the source language a slot the fill leaves alone reads the stored
 		// value, so a field with no filled slot is the stored field itself.
@@ -293,6 +339,29 @@ function projectFieldWithUnits(
 			? filledProse(doc, unit, language)
 			: localizeTranslationUnit(doc, language, unit).effective;
 	const localized = structuredClone(field) as Field;
+	const { defaultLanguage } = effectiveAppLocalization(doc.localization);
+	if ("label_media" in localized && localized.label_media)
+		localized.label_media = mediaInLanguage(
+			localized.label_media,
+			language,
+			defaultLanguage,
+		);
+	if ("help_media" in localized && localized.help_media)
+		localized.help_media = mediaInLanguage(
+			localized.help_media,
+			language,
+			defaultLanguage,
+		);
+	if (
+		"optionsSource" in localized &&
+		localized.optionsSource.kind === "inline"
+	) {
+		for (const option of localized.optionsSource.options) {
+			if (option.media)
+				option.media = mediaInLanguage(option.media, language, defaultLanguage);
+		}
+	}
+
 	const sourceRecord = field as unknown as Record<string, unknown>;
 	const record = localized as unknown as Record<string, unknown>;
 	for (const slot of ["label", "hint", "help", "validate_msg"] as const) {
@@ -335,6 +404,7 @@ export function projectLocalizedFields(
 	const filled = options.filled === true;
 	if (
 		!filled &&
+		!Object.values(doc.fields).some(hasLocalizedMedia) &&
 		language === effectiveAppLocalization(doc.localization).sourceLanguage
 	) {
 		return doc.fields;

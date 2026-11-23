@@ -20,6 +20,7 @@ import { v4 as uuidv4 } from "uuid";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { FieldLanguageMedia } from "@/components/builder/media/FieldLanguageMedia";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
@@ -493,15 +494,29 @@ export function OptionsEditorWidget({
 							</fieldset>
 						)}
 						<div className="basis-full pl-1">
-							<MediaSlot
-								value={opt.media}
-								onChange={(media) => setOptionMedia(i, media)}
-								kinds={MEDIA_KINDS}
-								// The UUID is the authored identity. Values are mutable
-								// wire projections and never address option media.
-								slotKey={`option:${slotKeyBase}:${opt.uuid}`}
-								ariaLabel={projectProse(opt.label).trim() || `Option ${i + 1}`}
-							/>
+							{fieldUuid ? (
+								<FieldLanguageMedia
+									fieldUuid={fieldUuid}
+									slot="label"
+									optionUuid={opt.uuid}
+									slotKey={`option:${slotKeyBase}:${opt.uuid}`}
+									ariaLabel={
+										projectProse(opt.label).trim() || `Option ${i + 1}`
+									}
+								/>
+							) : (
+								<MediaSlot
+									value={opt.media}
+									onChange={(media) => setOptionMedia(i, media)}
+									kinds={MEDIA_KINDS}
+									// The UUID is the authored identity. Values are mutable
+									// wire projections and never address option media.
+									slotKey={`option:${slotKeyBase}:${opt.uuid}`}
+									ariaLabel={
+										projectProse(opt.label).trim() || `Option ${i + 1}`
+									}
+								/>
+							)}
 						</div>
 					</div>
 				))}

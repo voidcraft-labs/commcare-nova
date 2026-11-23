@@ -39,7 +39,11 @@
 import { z } from "zod";
 import type { Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
-import { setFieldMediaMutations } from "../../blueprintHelpers";
+import {
+	appLanguageIdentitySchema,
+	effectiveAppLocalization,
+	languageTag,
+} from "@/lib/domain/localization";
 import type { ToolInvocationContext } from "../../workspace/types";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
@@ -65,6 +69,11 @@ const fieldMediaAttachmentSchema = fieldAddressSchema
 				"Which message slot the media attaches to: `label` (every visible " +
 					"field but a group or repeat) or `help` (input fields). The media " +
 					"shows alongside that message's text.",
+			),
+		language: appLanguageIdentitySchema
+			.optional()
+			.describe(
+				"The app language whose files to change. Leave this out to edit the shared files.",
 			),
 		media: mediaBundleInput(
 			"The image/audio/video to attach. Supply any subset of `image`, " +
@@ -99,6 +108,7 @@ export const attachFieldMediaTool = {
 		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<AttachFieldMediaResult>> {
 		const doc = ctx.snapshot.doc;
+		const languages = effectiveAppLocalization(doc.localization);
 		const { attachments } = input;
 		try {
 			// Resolve every attachment before writing anything, collecting
@@ -118,6 +128,15 @@ export const attachFieldMediaTool = {
 				}
 
 				const { field } = found;
+				const language = attachment.language
+					? languageTag(attachment.language)
+					: languages.sourceLanguage;
+				if (!languages.languageOrder.includes(language)) {
+					failures.push(
+						`attachments[${i}]: This language is not in the app. Choose one of the app’s languages or add it first.`,
+					);
+					continue;
+				}
 				const mediaKey = mediaKeyForSlot(slot);
 				// Slot availability is per-KIND, asked of the schema — not of
 				// this field instance. An unset optional `<slot>_media` is absent
@@ -142,11 +161,15 @@ export const attachFieldMediaTool = {
 					.filter(([, v]) => v !== undefined)
 					.map(([k]) => k);
 				resolved.push({
-					mutations: setFieldMediaMutations(
-						field.uuid,
-						slot,
-						setKinds.length > 0 ? media : null,
-					),
+					mutations: [
+						{
+							kind: "setFieldMedia",
+							fieldUuid: field.uuid,
+							slot,
+							language,
+							media: setKinds.length ? media : null,
+						},
+					],
 					expectations: bundleExpectations(
 						media,
 						`the ${slot} media on field "${field.id}"`,

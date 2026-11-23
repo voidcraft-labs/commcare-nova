@@ -1,14 +1,10 @@
 /**
  * Media on a text: the `image`, `audio` and `video` values of a text on
  * the slots Nova holds media for (a question's label, its help, an inline
- * choice), and the same rule for a map of paths by language, which the menu
- * and list readers call. A file must be one in every app language, read as
- * each language shows it (a language with no media form of its own shows the
- * form's default language's, a map is read as HQ's build shows it): one
- * path, or several paths the media index resolves to one asset,
- * which is one file CommCare HQ holds under several names (a Nova document
- * holds the asset, and its publish keeps one of the paths,
- * `media-paths-joined`). Its file is the media index's to answer: an asset
+ * choice). A language can have its own Project file or inherit the form's
+ * default file. Two paths can also name the same asset: the document holds
+ * that identity and the deployment accounts for both paths. Lists use their
+ * independent shared-file reader below; navigation uses menus/navMedia.ts. Its file is the media index's to answer: an asset
  * fills the slot and is listed at every path that names it; a path with no
  * file is handed off to project data with its node, since which entry it
  * stands under is project data's rule.
@@ -16,7 +12,11 @@
 
 import { type Element, isTag } from "domhandler";
 import type { LanguageTag, MediaKind } from "@/lib/domain";
-import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import {
+	NO_ENTRIES,
+	recordFromEntries,
+	recordWithValue,
+} from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { el, text as textNode } from "../../elementBuilders";
 import type { NamespaceScope } from "../../xmlNamespaces";
@@ -93,31 +93,51 @@ function emitterMediaValue(
 	return sameElementWhole(value, scope, built, builtScopes(built, outer));
 }
 
-/** Puts an asset in a slot's media on its draft. */
-function setMedia(slot: SlotText, kind: MediaKind, assetId: string): void {
-	const field = slot.owner.field.field;
-	if (slot.media === "option_media") {
-		const option = (
-			field.optionsSource as { options?: Record<string, unknown>[] } | undefined
-		)?.options?.[slot.owner.option ?? -1];
-		if (option !== undefined)
-			option.media = withMedia(option.media, kind, assetId);
-		return;
-	}
-	const key = slot.media === "help_media" ? "help_media" : "label_media";
-	field[key] = withMedia(field[key], kind, assetId);
-}
-
-/** A slot's media with `assetId` as its `kind`. */
-function withMedia(
-	media: unknown,
+/** Drafts may still contain temporary asset identities while bring-in prepares its files. */
+function setMedia(
+	slot: SlotText,
 	kind: MediaKind,
-	assetId: string,
-): Record<string, unknown> {
-	return recordFromEntries([
-		...Object.entries((media ?? NO_ENTRIES) as Record<string, unknown>),
-		[kind, assetId],
-	]);
+	shared: string,
+	byLanguage: ReadonlyMap<LanguageTag, string | null>,
+	defaultLanguage?: LanguageTag,
+): void {
+	const field = slot.owner.field.field;
+	const option =
+		slot.media === "option_media"
+			? (
+					field.optionsSource as
+						| { options?: Record<string, unknown>[] }
+						| undefined
+				)?.options?.[slot.owner.option ?? -1]
+			: undefined;
+	const carrier = slot.media === "option_media" ? option : field;
+	if (!carrier) return;
+	const key =
+		slot.media === "option_media"
+			? "media"
+			: slot.media === "help_media"
+				? "help_media"
+				: "label_media";
+	const previous = (carrier[key] ?? NO_ENTRIES) as Record<string, unknown>;
+	const localized = recordFromEntries(
+		Object.entries(
+			(previous.mediaByLanguage ?? NO_ENTRIES) as Record<
+				string,
+				Record<string, unknown>
+			>,
+		),
+	);
+	for (const [language, asset] of byLanguage)
+		localized[language] = recordWithValue<unknown>(
+			localized[language],
+			kind,
+			asset,
+		);
+	carrier[key] = {
+		...recordWithValue<unknown>(previous, kind, shared),
+		...(Object.keys(localized).length && { mediaByLanguage: localized }),
+		...(defaultLanguage && { formDefaultLanguage: defaultLanguage }),
+	};
 }
 
 /**
@@ -129,10 +149,10 @@ function readSlotMedia(
 	ctx: ReadContext,
 	cursor: XmlCursor,
 	slot: SlotText,
-	itext: Pick<ItextReading, "languages" | "defaultLanguage">,
+	itext: Pick<ItextReading, "languages" | "defaultLanguage" | "source">,
 	scope: (element: Element) => NamespaceScope,
 ): void {
-	const { defaultLanguage, languages } = itext;
+	const { defaultLanguage, languages, source } = itext;
 	const place = slot.place;
 	const first = slot.first;
 	for (const kind of MEDIA_KINDS) {
@@ -227,66 +247,94 @@ function readSlotMedia(
 			recipients.set(path, at);
 		}
 		const defaultPath = defaultValue && ownText(defaultValue).trim();
-		const paths = [...recipients.keys()];
-		const joined = paths.length === 1 ? undefined : oneAsset(ctx, paths);
-		// A language whose text holds no form of the kind, or no text, shows the form's default
-		// language's, since Core loads the default locale's keys under every locale
-		// (`Localizer.getLocaleData`) and shows the default locale in a language the form holds
-		// no translation of (`FormDef.initLocale`); so the paths shown are the paths held. A form
-		// the default language lacks is a key Core refuses when it loads the language that holds
-		// it, so it differs.
+		// Core loads the default locale's keys under every locale
+		// (`Localizer.getLocaleData`), so a language with no form of this kind
+		// shows the form default's file. A form the default language lacks is a
+		// key Core refuses when it loads the language that holds it.
 		if (
 			defaultLanguage === undefined ||
 			!values.has(defaultLanguage) ||
-			(paths.length !== 1 && joined === undefined)
+			source === undefined
 		) {
 			if (first)
 				for (const value of values.values())
-					cursor.refuseSubtree(value, X.mediaDiffering[kind], place);
-			else ctx.accounting.finding(X.mediaDiffering[kind], place);
+					cursor.refuseSubtree(value, X.mediaMissingDefault[kind], place);
+			else ctx.accounting.finding(X.mediaMissingDefault[kind], place);
 			continue;
 		}
-		const hold = (asset: {
-			readonly assetId: string;
-			readonly mediaKind: MediaKind;
-		}) => {
+		// Core stores an explicitly empty value as a key containing an empty
+		// string. Vellum fills that value when saving a role that has a file in
+		// another language. Such a save would change what a worker sees.
+		const populated = [...values.values()].filter(
+			(value) => ownText(value).trim() !== "",
+		);
+		if (populated.length && populated.length < values.size) {
 			if (first)
 				for (const value of values.values())
-					cursor.takeSubtree(value, heldClaim(slot.media, kind)).value;
-			setMedia(slot, kind, asset.assetId);
-			for (const one of paths)
-				ctx.facts.mediaReferences.push({
-					path: one,
-					itextRecipients: recipients.get(one),
-					...inheritedAt(one === defaultPath),
-					assetId: asset.assetId,
-					mediaKind: kind,
-					place,
-					slot: slotString(slot.media),
-				});
-		};
-		if (joined !== undefined) {
-			hold(joined);
+					cursor.refuseSubtree(value, X.mediaBlankBesideFile[kind], place);
+			else ctx.accounting.finding(X.mediaBlankBesideFile[kind], place);
 			continue;
 		}
-		const path = paths[0] as string;
-		const resolution = ctx.input.media.resolve(path);
-		if (resolution.kind === "asset") {
-			hold(resolution);
-			continue;
+		const assets = new Map<LanguageTag, string>();
+		const paths = new Map<string, string>();
+		const missing = new Set<string>();
+		for (const [language, value] of values) {
+			const path = ownText(value).trim();
+			const resolution = ctx.input.media.resolve(path);
+			if (resolution.kind === "asset") {
+				assets.set(language, resolution.assetId);
+				paths.set(path, resolution.assetId);
+			} else {
+				if (first) cursor.handOffSubtree(value, "media-reference", path, key);
+				if (!missing.has(path))
+					ctx.facts.pendingMedia.push({
+						path,
+						mediaKind: kind,
+						resolution: resolution.kind,
+						itextRecipients: recipients.get(path),
+						...inheritedAt(path === defaultPath),
+						place,
+						slot: slotString(slot.media),
+					});
+				missing.add(path);
+			}
 		}
-		if (first)
-			for (const value of values.values())
-				cursor.handOffSubtree(value, "media-reference", path, key);
-		ctx.facts.pendingMedia.push({
-			path,
-			mediaKind: kind,
-			resolution: resolution.kind,
-			itextRecipients: recipients.get(path),
-			...inheritedAt(path === defaultPath),
-			place,
-			slot: slotString(slot.media),
-		});
+		const distinct = new Set(assets.values()).size > 1;
+		if (first) {
+			const claim = distinct
+				? X.mediaDiffering[kind]
+				: heldClaim(slot.media, kind);
+			for (const [language, value] of values)
+				if (assets.has(language)) cursor.takeSubtree(value, claim).value;
+		}
+		for (const [path, assetId] of paths)
+			ctx.facts.mediaReferences.push({
+				path,
+				itextRecipients: recipients.get(path),
+				...inheritedAt(path === defaultPath),
+				assetId,
+				mediaKind: kind,
+				place,
+				slot: slotString(slot.media),
+			});
+		const defaultFile = assets.get(defaultLanguage);
+		if (missing.size || defaultFile === undefined) continue;
+		const shared = assets.get(source) ?? defaultFile;
+		const translated = new Map<LanguageTag, string | null>();
+		for (const language of languages) {
+			const own = assets.get(language);
+			if (own !== undefined && own !== shared) translated.set(language, own);
+			else if (own === undefined) translated.set(language, null);
+		}
+		setMedia(
+			slot,
+			kind,
+			shared,
+			translated,
+			translated.size && defaultLanguage !== languages[0]
+				? defaultLanguage
+				: undefined,
+		);
 	}
 }
 

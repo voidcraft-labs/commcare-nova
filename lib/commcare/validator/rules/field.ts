@@ -34,6 +34,7 @@ import {
 	snapshotTranslationUnits,
 } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
+import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 import {
 	type QueryRepeatNeed,
 	queryRepeatPlacementNeeds,
@@ -633,8 +634,51 @@ function displayCombination(
 	];
 }
 
+function localizedMedia(field: Field, ctx: FieldContext): ValidationError[] {
+	const bundles: (Media | undefined)[] = [];
+	if ("label_media" in field) bundles.push(field.label_media);
+	if ("help_media" in field) bundles.push(field.help_media);
+	if ("optionsSource" in field && field.optionsSource.kind === "inline")
+		for (const choice of field.optionsSource.options)
+			bundles.push(choice.media);
+	const languages = effectiveAppLocalization(
+		ctx.doc.localization,
+	).languageOrder;
+	for (const media of bundles) {
+		if (!media?.mediaByLanguage) continue;
+		let message: string | undefined;
+		if (
+			media.formDefaultLanguage &&
+			!languages.includes(media.formDefaultLanguage)
+		)
+			message =
+				"The language this media inherits from is no longer in the app. Choose a shared file.";
+		for (const [language, values] of Object.entries(media.mediaByLanguage)) {
+			if (!languages.includes(language))
+				message =
+					"This media names a language outside the app. Choose an app language for the file.";
+			for (const role of MEDIA_KINDS)
+				if (values[role] !== undefined && !media[role])
+					message = `A translated ${role} needs a shared file. Choose the shared ${role} for this question or choice first, or remove its translated files.`;
+		}
+		if (message)
+			return [
+				validationError("FORM_MEDIA_LANGUAGE", "field", message, {
+					moduleUuid: ctx.moduleUuid,
+					moduleName: ctx.moduleName,
+					formUuid: ctx.formUuid,
+					formName: ctx.formName,
+					fieldUuid: field.uuid,
+					fieldId: field.id,
+				}),
+			];
+	}
+	return [];
+}
+
 const FIELD_RULES = [
 	displayCombination,
+	localizedMedia,
 	selectNoOptions,
 	selectOptionValueInvalid,
 	selectOptionValueDuplicate,

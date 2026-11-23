@@ -51,6 +51,8 @@ export function mutationTargetsInvalid(
 	if (
 		mutations.some(
 			(m) =>
+				(m.kind === "setModuleMedia" && m.caseListItem === true) ||
+				(m.kind === "setFormMedia" && m.registrationOf !== undefined) ||
 				m.kind === "addEntryPoint" ||
 				m.kind === "updateEntryPoint" ||
 				m.kind === "removeEntryPoint",
@@ -62,7 +64,26 @@ export function mutationTargetsInvalid(
 			return true;
 		let current = doc;
 		for (const mutation of mutations) {
-			if (mutation.kind === "addEntryPoint") {
+			if (mutation.kind === "setModuleMedia" && mutation.caseListItem) {
+				if (
+					!current.modules[mutation.uuid]?.caseListMenuItem ||
+					mutationTargetsInvalid(current, [
+						{ ...mutation, caseListItem: undefined },
+					])
+				)
+					return true;
+			} else if (mutation.kind === "setFormMedia" && mutation.registrationOf) {
+				const registration =
+					current.modules[mutation.registrationOf]?.caseListRegistrationForm;
+				if (
+					registration?.kind !== "always" ||
+					registration.formUuid !== mutation.uuid ||
+					mutationTargetsInvalid(current, [
+						{ ...mutation, registrationOf: undefined },
+					])
+				)
+					return true;
+			} else if (mutation.kind === "addEntryPoint") {
 				const target = mutation.target;
 				if (
 					!ownRecordValue(current.modules, target.moduleUuid) ||
@@ -512,8 +533,19 @@ export function mutationTargetsInvalid(
 				moduleParents.set(m.uuid, destinationParent);
 				break;
 			}
-			case "renameModule":
 			case "setModuleMedia":
+				if (
+					m.languageEntry !== undefined &&
+					(!m.language || m.icon !== null || m.audioLabel !== null)
+				)
+					return true;
+				if (
+					!modules.has(m.uuid) ||
+					(m.language !== undefined && !languages.includes(m.language))
+				)
+					return true;
+				break;
+			case "renameModule":
 			case "setCaseListMenuItem":
 				if (!modules.has(m.uuid)) return true;
 				break;
@@ -560,8 +592,19 @@ export function mutationTargetsInvalid(
 				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
 				formOwners.set(m.uuid, m.toModuleUuid);
 				break;
-			case "renameForm":
 			case "setFormMedia":
+				if (
+					m.languageEntry !== undefined &&
+					(!m.language || m.icon !== null || m.audioLabel !== null)
+				)
+					return true;
+				if (
+					!forms.has(m.uuid) ||
+					(m.language !== undefined && !languages.includes(m.language))
+				)
+					return true;
+				break;
+			case "renameForm":
 				if (!forms.has(m.uuid)) return true;
 				break;
 			case "updateForm": {
@@ -787,7 +830,30 @@ export function mutationTargetsInvalid(
 				break;
 			}
 			case "setFieldMedia": {
+				if (
+					m.sharedOnly &&
+					(m.language !== undefined ||
+						m.languageEntry !== undefined ||
+						m.media?.mediaByLanguage !== undefined)
+				)
+					return true;
+				if (m.languageEntry !== undefined && (!m.language || m.media !== null))
+					return true;
 				if (!fields.has(m.fieldUuid)) return true;
+				if (
+					m.language !== undefined &&
+					(!languages.includes(m.language) ||
+						m.media?.mediaByLanguage ||
+						m.media?.formDefaultLanguage)
+				)
+					return true;
+				if (
+					m.optionUuid !== undefined &&
+					(m.language === undefined ||
+						m.slot !== "label" ||
+						optionOwners.get(m.optionUuid) !== m.fieldUuid)
+				)
+					return true;
 				const currentKind = fieldKinds.get(m.fieldUuid);
 				if (
 					currentKind === undefined ||

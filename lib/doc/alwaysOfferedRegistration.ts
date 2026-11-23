@@ -152,6 +152,12 @@ export function alwaysOfferedRegistrationChoices(
 				formUuid,
 				...(stored?.label !== undefined && { label: stored.label }),
 				...(stored?.icon !== undefined && { icon: stored.icon }),
+				...(stored?.mediaByLanguage && {
+					mediaByLanguage: stored.mediaByLanguage,
+				}),
+				...(stored?.mediaByFormerCode && {
+					mediaByFormerCode: stored.mediaByFormerCode,
+				}),
 				...(stored?.audioLabel !== undefined && {
 					audioLabel: stored.audioLabel,
 				}),

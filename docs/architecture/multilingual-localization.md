@@ -427,13 +427,18 @@ score:
   separate localized-lookup-column model;
 - Connect names and descriptions have no multilingual carrier on the current
   accepted wire;
-- module/form audio labels and other media currently reference one shared asset
-  for every locale;
+
 - automation messages have recipient-language semantics independent of an app's
   currently selected locale;
 - authoring-only metadata such as purposes, case-property guidance, personas,
   roles, organization descriptions, and setup instructions is outside the
   worker-app language catalog unless it feeds an emitted display surface.
+
+### Localized media
+
+A question label, supported help slot, and written choice keep shared image, audio and video identities and sparse role-specific entries keyed by app language. A missing itext form in a target translation follows the actual default and stays absent in that translation on export. A key introduced only outside the form default is a placed repair in HQ. A language-specific edit targets the field and choice identities so a concurrent edit to a different language survives.
+
+The image and spoken name of a module, form, case list menu item or Register button use separate language entries. The installed default strings supply a missing strict path. The complete app can source a fallback from a language formerly present, while a named installation limits its candidates to its own languages. The reader retains the former code when that decision changes the visible file. Media referrals, Project authorization, deletion, remapping and archive budgeting enumerate shared and translated files through the same media walk.
 
 ## Builder and Preview experience
 

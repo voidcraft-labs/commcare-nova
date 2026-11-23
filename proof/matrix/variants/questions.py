@@ -1094,6 +1094,24 @@ def media_one_language(authoring, app_id):
     )
 
 
+def media_empty_translation(authoring, app_id):
+    """Core keeps this blank value; Vellum fills it with the English image on save."""
+    _change(
+        authoring, app_id, "media-empty-translation",
+        (NOTE_EN, NOTE_EN + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+        (NOTE_FRA, NOTE_FRA + '<value form="image"/>', 1),
+    )
+
+
+def localized_label_images(authoring, app_id):
+    """The same question shows a different existing Project image in each language."""
+    _change(
+        authoring, app_id, "localized-label-images",
+        (NOTE_EN, NOTE_EN + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+        (NOTE_FRA, NOTE_FRA + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_login.png</value>', 1),
+    )
+
+
 def outputs_differ(authoring, app_id):
     """``note``'s French label showing the answer to ``note``, which its English label does not."""
     _change(authoring, app_id, "outputs-differ", (NOTE_FRA, '<value>Remarque <output value="/data/note" /></value>', 1))

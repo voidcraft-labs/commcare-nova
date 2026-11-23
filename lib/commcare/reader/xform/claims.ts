@@ -1406,8 +1406,16 @@ export const X = {
 		audio: "itext-form:core/audio",
 		video: "itext-form:core/video",
 	}),
-	mediaDiffering: mediaClaims(
+	mediaBlankBesideFile: mediaClaims(
 		"refuse",
+		Q("empty-media-form-beside-a-translated-file"),
+	),
+	mediaMissingDefault: mediaClaims(
+		"refuse",
+		Q("media-form-missing-in-default-language"),
+	),
+	mediaDiffering: mediaClaims(
+		"take",
 		Q("label-or-option-media-differing-by-language"),
 	),
 	helpMediaOnCapture: mediaClaims(

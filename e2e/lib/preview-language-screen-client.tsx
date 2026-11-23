@@ -7,6 +7,7 @@ import {
 	BuilderLocalizationProvider,
 	useBuilderLanguage,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { FieldLanguageMedia } from "@/components/builder/media/FieldLanguageMedia";
 import {
 	__resetAttachmentCoordinatorForTests,
 	getAttachmentSlotPath,
@@ -54,7 +55,9 @@ import {
 	releaseLanguageWorker,
 } from "./preview-language-worker-boundary";
 
-const doc = languageScreenDoc();
+const doc = languageScreenDoc(
+	new URLSearchParams(window.location.search).has("localizedMedia"),
+);
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
 docStore.getState().startTracking();
@@ -111,6 +114,14 @@ root.render(
 			<BuilderLocalizationProvider>
 				<BuilderFormEngineProvider>
 					<LanguageControls />
+					{new URLSearchParams(window.location.search).has("editMedia") && (
+						<FieldLanguageMedia
+							fieldUuid={NAME}
+							slot="label"
+							slotKey={`field:${NAME}:label`}
+							ariaLabel="Question picture and recordings"
+						/>
+					)}
 					<ScrollRegistryProvider>
 						<EditGuardProvider>
 							<FormScreen

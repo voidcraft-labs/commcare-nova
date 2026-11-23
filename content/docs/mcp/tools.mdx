@@ -1414,6 +1414,8 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles, form menu tiles, a case list's menu item (`target: case-list-menu-item`) and a case list's Register button (`target: case-list-registration`): any mix of them, the whole app's menu in one call. |
 | `set_app_logo` | Set or clear the app logo. It shows in Preview, and in Web Apps once it is added in the app's settings in CommCare HQ. |
 
+The field, choice and menu media tools accept an optional app language on each attachment or menu item. Set its `language` to `{"language":"fra"}` for French. Omitting the language edits the shared file. Imported pictures and recordings use the same Project permissions as files uploaded in Nova.
+
 Library reads select exactly one `work_id` or `app_id`, so new-app work can read
 its Project's documents before the first save. Use a returned asset id if a
 filename matches more than one file. `read_source` defaults to 12,000 characters

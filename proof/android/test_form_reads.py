@@ -535,3 +535,67 @@ def test_gregorian_clear_button_removes_only_its_own_date(android_documents, hq,
         assert day and _child(root, path).text == day, (path, question, instance)
         days[path] = day
     assert len(set(days.values())) == 1, days
+
+
+def _files_drawn_in_labels(view):
+    """The center colors of images drawn beside each text in the worker widget's own MediaLayout."""
+    def pixels(node):
+        if "centerPixel" in node:
+            yield node["centerPixel"]
+        for child in node.get("children", ()):
+            yield from pixels(child)
+
+    if view.get("class") == "MediaLayout":
+        for text in _texts(view):
+            yield text, list(pixels(view))
+    for child in view.get("children", ()):
+        yield from _files_drawn_in_labels(child)
+
+
+def test_selected_language_uses_its_own_installed_menu_form_help_and_choice_images(android_documents, hq):
+    """The menu adapter resolves the chosen worker language's installed file. The form's native MediaLayout
+    draws the localized question, help and choice image. Its neighboring choice remains text only."""
+    with _served(android_documents["media-language-files"]) as (served, archive):
+        answer, _ = _app(served, archive, "localized-files", views=True)
+
+    expected = {
+        "en": {"Visits": "50a8af47cc2e68f022bfb93e26be925081df6d21b3d4c276cdabdbd8d31de83d",
+               "Record visit": "c5f74c6dda51d3941b4d17d05991f900debbf387ff748eda65d2f03dda227b2e"},
+        "fra": {"Visits": "c5f74c6dda51d3941b4d17d05991f900debbf387ff748eda65d2f03dda227b2e",
+                "Record visit": "30ab512e6539a83342a9415c6e7ddc7358a0ffd2aefe5369c86b9efb591e3984"},
+    }
+    # Each of the fixture's PNGs is a single solid color. The device may rescale or recompress the bitmap:
+    # the blue, red or green channel remains its unique strongest channel respectively.
+    expected_drawn = {
+        "en": {"Street": "blue", "Find the visiting point": "green", "First": "red", "Second": None},
+        "fra": {"Street": "red", "Find the visiting point": "blue", "First": "blue", "Second": None},
+    }
+    seen = set()
+    seen_drawn = set()
+    for name, walk in answer["walks"].items():
+        language = "fra" if "@language:fra" in name else "en"
+        for step in walk["steps"]:
+            for item in (step.get("menu") or {}).get("items") or ():
+                for title, digest in expected[language].items():
+                    if title not in item["texts"]:
+                        continue
+                    media = item["image"]
+                    assert media and media["held"] is True and media["uri"].endswith(f"/{digest}.png"), (name, title, item)
+                    seen.add((language, title))
+        for form in _forms(walk):
+            for screen in form["screens"]:
+                for label, colors in _files_drawn_in_labels(screen.get("view") or {}):
+                    if label not in expected_drawn[language]:
+                        continue
+                    wanted = expected_drawn[language][label]
+                    if wanted is None:
+                        assert colors == [], (name, label, colors)
+                    else:
+                        (pixel,) = colors
+                        channels = dict(zip(("red", "green", "blue"), bytes.fromhex(pixel[3:]), strict=True))
+                        assert channels[wanted] > max(v for k, v in channels.items() if k != wanted), (name, label, pixel)
+                    seen_drawn.add((language, label))
+            if any(q["reference"] == "/data/colour[1]" for s in form["screens"] for q in s.get("questions", ())):
+                assert form["saved"]["finishing"] is True, (name, form)
+    assert seen_drawn == {(lang, label) for lang, rows in expected_drawn.items() for label in rows}, seen_drawn
+    assert seen == {(language, title) for language, items in expected.items() for title in items}, seen

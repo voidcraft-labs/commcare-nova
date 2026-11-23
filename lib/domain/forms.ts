@@ -1,4 +1,5 @@
 // lib/domain/forms.ts
+
 import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
@@ -16,6 +17,10 @@ import {
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
+import {
+	formerNavigationMediaSchema,
+	navigationMediaSchema,
+} from "./navigationMedia";
 import {
 	type CasePlacement,
 	casePlacementSchema,
@@ -866,6 +871,8 @@ export const formSchema = z.strictObject({
 	 * affordance within a module's menu.
 	 */
 	icon: formIconRefSchema.optional(),
+	mediaByLanguage: navigationMediaSchema(formIconRefSchema).optional(),
+	mediaByFormerCode: formerNavigationMediaSchema(formIconRefSchema).optional(),
 	/** Audio version of the form's menu label, for audio-prompt playback. */
 	audioLabel: mediaAssetIdSchema.optional(),
 });

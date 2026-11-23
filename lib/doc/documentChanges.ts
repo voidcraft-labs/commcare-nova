@@ -159,6 +159,8 @@ export const MENU_KEY_PARTS = {
 	caseSearchConfig: "search",
 	icon: "settings",
 	audioLabel: "settings",
+	mediaByLanguage: "settings",
+	mediaByFormerCode: "settings",
 	heldKind: "settings",
 } as const satisfies Record<keyof Module, MenuPart | null>;
 
@@ -202,6 +204,8 @@ export const FORM_KEY_PARTS = {
 	caseOperations: "case-changes",
 	icon: "settings",
 	audioLabel: "settings",
+	mediaByLanguage: "settings",
+	mediaByFormerCode: "settings",
 } as const satisfies Record<keyof Form, FormPart | null>;
 
 /** Where a key of the document's root is filed: an app part, or one of the walks below. */
@@ -315,22 +319,42 @@ function formFieldOrder(doc: BlueprintDoc, form: string): string[] {
 /** The slot path of each media reference `walkAssetRefs` visits. */
 function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 	const location = ref.location;
+	const language =
+		location.language === undefined
+			? []
+			: [
+					location.formerLanguage ? "mediaByFormerCode" : "mediaByLanguage",
+					location.language,
+				];
 	switch (location.kind) {
 		case "app_logo":
 			return ["logo"];
 		case "module_icon":
-			return ["modules", location.moduleUuid, "icon"];
+			return ["modules", location.moduleUuid, ...language, "icon"];
 		case "module_audio_label":
-			return ["modules", location.moduleUuid, "audioLabel"];
+			return ["modules", location.moduleUuid, ...language, "audioLabel"];
 		case "case_list_icon":
-			return ["modules", location.moduleUuid, "caseListMenuItem", "icon"];
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListMenuItem",
+				...language,
+				"icon",
+			];
 		case "case_list_audio_label":
-			return ["modules", location.moduleUuid, "caseListMenuItem", "audioLabel"];
+			return [
+				"modules",
+				location.moduleUuid,
+				"caseListMenuItem",
+				...language,
+				"audioLabel",
+			];
 		case "case_list_registration_icon":
 			return [
 				"modules",
 				location.moduleUuid,
 				"caseListRegistrationForm",
+				...language,
 				"icon",
 			];
 		case "case_list_registration_audio_label":
@@ -338,14 +362,21 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				"modules",
 				location.moduleUuid,
 				"caseListRegistrationForm",
+				...language,
 				"audioLabel",
 			];
 		case "form_icon":
-			return ["forms", location.formUuid, "icon"];
+			return ["forms", location.formUuid, ...language, "icon"];
 		case "form_audio_label":
-			return ["forms", location.formUuid, "audioLabel"];
+			return ["forms", location.formUuid, ...language, "audioLabel"];
 		case "field_media_bundle":
-			return ["fields", location.fieldUuid, location.bundleKey, ref.slotKind];
+			return [
+				"fields",
+				location.fieldUuid,
+				location.bundleKey,
+				...language,
+				ref.slotKind,
+			];
 		case "option_media": {
 			const field = doc.fields[location.fieldUuid];
 			const options =
@@ -363,6 +394,7 @@ function mediaSlotPath(doc: BlueprintDoc, ref: AssetRef): readonly string[] {
 				"options",
 				String(at),
 				"media",
+				...language,
 				ref.slotKind,
 			];
 		}
@@ -408,7 +440,12 @@ function mediaSlotIdentity(
 ): readonly string[] {
 	const location = ref.location;
 	if (location.kind === "option_media")
-		return ["option", location.optionUuid, ref.slotKind];
+		return [
+			"option",
+			location.optionUuid,
+			...(location.language ? [location.language] : []),
+			ref.slotKind,
+		];
 	if (location.kind === "image_map_mapping")
 		return ["image-map", location.columnUuid];
 	return path;

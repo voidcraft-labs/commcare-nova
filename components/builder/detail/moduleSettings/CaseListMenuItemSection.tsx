@@ -16,6 +16,7 @@ import { useCallback, useId } from "react";
 import { InlineField } from "@/components/builder/detail/formSettings/InlineField";
 import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
+import { useNavigationFileLens } from "@/components/builder/media/useNavigationFileLens";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
@@ -62,6 +63,7 @@ export function CaseListMenuItemSection({
 		MENU_ITEM_NOTE_FEATURES,
 	);
 	const item = module?.caseListMenuItem;
+	const lens = useNavigationFileLens(item);
 	const on = item !== undefined;
 	const plan = useCallback(
 		(doc: BlueprintDoc) => ({
@@ -146,12 +148,25 @@ export function CaseListMenuItemSection({
 							Icon
 						</span>
 						<SingleAssetSlot
-							value={item.icon}
+							value={lens.icon}
+							reading={lens.reading("icon")}
+							removalLabel={lens.removalLabel("icon")}
 							kind="image"
 							iconLibrary="module"
-							slotKey={`caselist:${moduleUuid}:icon`}
+							slotKey={`caselist:${moduleUuid}:icon:${lens.language}`}
 							ariaLabel="Case list menu item icon"
-							onChange={(icon) => setItem(withSlot("icon", icon))}
+							onChange={(icon) =>
+								commitMany([
+									{
+										kind: "setModuleMedia",
+										uuid: moduleUuid,
+										caseListItem: true,
+										language: lens.language,
+										icon: icon ?? null,
+										audioLabel: lens.audioLabel ?? null,
+									},
+								])
+							}
 						/>
 					</div>
 					<div>
@@ -159,12 +174,23 @@ export function CaseListMenuItemSection({
 							Spoken label
 						</span>
 						<SingleAssetSlot
-							value={item.audioLabel}
+							value={lens.audioLabel}
+							reading={lens.reading("audioLabel")}
+							removalLabel={lens.removalLabel("audioLabel")}
 							kind="audio"
-							slotKey={`caselist:${moduleUuid}:audioLabel`}
+							slotKey={`caselist:${moduleUuid}:audioLabel:${lens.language}`}
 							ariaLabel="Case list menu item spoken label"
 							onChange={(audioLabel) =>
-								setItem(withSlot("audioLabel", audioLabel))
+								commitMany([
+									{
+										kind: "setModuleMedia",
+										uuid: moduleUuid,
+										caseListItem: true,
+										language: lens.language,
+										icon: lens.icon ?? null,
+										audioLabel: audioLabel ?? null,
+									},
+								])
 							}
 						/>
 					</div>

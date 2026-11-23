@@ -10,6 +10,10 @@ import {
 	languageTag,
 } from "@/lib/domain";
 import {
+	rebaseFormMediaLanguages,
+	rebaseNavigationMedia,
+} from "@/lib/domain/formMediaLanguages";
+import {
 	editableLanguageEntries,
 	reboundLanguageCodes,
 	translationSourceFingerprintsEqual,
@@ -102,6 +106,14 @@ export function applyAppMutation(
 			const current = effectiveAppLocalization(draft.localization);
 			if (current.languageOrder.length !== 1) return;
 			const tag = languageTag(mut.language);
+			rebaseNavigationMedia(draft, current, tag, [tag], current.sourceLanguage);
+			rebaseFormMediaLanguages(
+				draft.fields,
+				current.sourceLanguage,
+				[current.sourceLanguage],
+				current.defaultLanguage,
+				current.defaultLanguage,
+			);
 			draft.localization = {
 				sourceLanguage: tag,
 				defaultLanguage: tag,
@@ -137,8 +149,21 @@ export function applyAppMutation(
 			) {
 				return;
 			}
+			rebaseNavigationMedia(
+				draft,
+				localization,
+				localization.sourceLanguage,
+				localization.languageOrder.filter((tag) => tag !== mut.code),
+			);
 			localization.languageOrder = localization.languageOrder.filter(
 				(code) => code !== mut.code,
+			);
+			rebaseFormMediaLanguages(
+				draft.fields,
+				localization.sourceLanguage,
+				localization.languageOrder,
+				localization.defaultLanguage,
+				localization.defaultLanguage,
 			);
 			delete localization.translations[mut.code];
 			delete localization.wireCodes[mut.code];
@@ -188,12 +213,18 @@ export function applyAppMutation(
 			const localization = materializeLocalization(draft);
 			if (!localization.languageOrder.includes(mut.code)) return;
 			const after = mut.kind === "setDefaultLanguage" ? null : mut.after;
-			localization.languageOrder = spliceAfter(
+			const order = spliceAfter(localization.languageOrder, mut.code, after);
+			// A file inherited from the form default keeps showing the same
+			// file when the first language changes.
+			rebaseFormMediaLanguages(
+				draft.fields,
+				localization.sourceLanguage,
 				localization.languageOrder,
-				mut.code,
-				after,
+				localization.defaultLanguage,
+				order[0],
 			);
-			localization.defaultLanguage = localization.languageOrder[0];
+			localization.languageOrder = order;
+			localization.defaultLanguage = order[0];
 			return;
 		}
 		case "setTranslation": {

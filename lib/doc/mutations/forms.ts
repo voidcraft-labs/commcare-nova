@@ -3,6 +3,9 @@ import { caseWriteIdOf, caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { caseOperationSchema, type Form } from "@/lib/domain";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import { replaceMediaLanguageEntry } from "@/lib/domain/multimedia";
+import { editNavigationInLanguage } from "@/lib/domain/navigationMedia";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
 
@@ -528,18 +531,35 @@ export function applyFormMutation(
 			return;
 		}
 		case "setFormMedia": {
-			// Set or clear the form's menu media (tile `icon` + `audioLabel`).
-			// Mirrors `setModuleMedia` one level down: explicit `MediaAssetId | null`
-			// slots so a clear survives JSON over the SSE wire (a generic
-			// `updateForm` patch would encode it as `{ key: undefined }`, which
-			// `JSON.stringify` drops). A `null` clear deletes the optional
-			// property; canonical documents never retain own `undefined` values.
-			const form = draft.forms[mut.uuid];
-			if (!form) return;
-			if (mut.icon === null) delete form.icon;
-			else form.icon = mut.icon;
-			if (mut.audioLabel === null) delete form.audioLabel;
-			else form.audioLabel = mut.audioLabel;
+			const registration =
+				mut.registrationOf === undefined
+					? undefined
+					: draft.modules[mut.registrationOf]?.caseListRegistrationForm;
+			const carrier =
+				mut.registrationOf === undefined
+					? draft.forms[mut.uuid]
+					: registration?.kind === "always" &&
+							registration.formUuid === mut.uuid
+						? registration
+						: undefined;
+			if (!carrier) return;
+			if (mut.languageEntry !== undefined && mut.language) {
+				replaceMediaLanguageEntry(carrier, mut.language, mut.languageEntry);
+				return;
+			}
+			if (mut.language !== undefined)
+				editNavigationInLanguage(
+					carrier,
+					mut,
+					mut.language,
+					effectiveAppLocalization(draft.localization),
+				);
+			else {
+				if (mut.icon === null) delete carrier.icon;
+				else carrier.icon = mut.icon;
+				if (mut.audioLabel === null) delete carrier.audioLabel;
+				else carrier.audioLabel = mut.audioLabel;
+			}
 			return;
 		}
 	}

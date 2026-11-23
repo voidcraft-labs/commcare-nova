@@ -417,6 +417,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// A written choice with no label in any language and no media: HQ's form
 	// builder drops its itext on save and HQ's next build refuses the form,
 	// and an option with no `<label>` is one CommCare refuses to parse.
+	FORM_MEDIA_LANGUAGE: "soundness",
+	MENU_MEDIA_LANGUAGE: "soundness",
 	SELECT_OPTION_LABEL_EMPTY: "soundness",
 	// Schema-legal (both slots are optional so history hydrates) but
 	// contradictory; `rules/field.ts::hiddenValueBothSources` has the why.

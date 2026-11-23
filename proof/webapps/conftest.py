@@ -25,6 +25,7 @@ DOCUMENTS = (
     "case-operation-key",
     "case-operation-query",
     "localization-bilingual",
+    "media-language-files",
     "media-only",
     "navigation-base",
     "prompt-widgets",

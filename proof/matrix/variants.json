@@ -21114,14 +21114,6 @@
 		"id": "hq-kept-settings/form-icon-by-language",
 		"base": "hq-kept-settings",
 		"entry": "forms-and-case-writes/media-image-media-audio-differing-by-language",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Rounds",
-			"name": "Survey"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/0/media_image",
@@ -21129,7 +21121,33 @@
 				"en": "jr://file/commcare/logo/data/hq_logo_android_home.png",
 				"fra": "jr://file/commcare/logo/data/hq_logo_android_login.png"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_home.png"
+				}
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 0]
+					}
+				],
+				"pointer": "/mediaByLanguage/fra/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_login.png"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-kept-settings/homescreen-title",
@@ -21184,6 +21202,43 @@
 		}
 	},
 	{
+		"id": "hq-kept-settings/localized-label-images",
+		"base": "hq-kept-settings",
+		"entry": "questions/label-or-option-media-differing-by-language",
+		"change": {
+			"op": "named",
+			"name": "localized_label_images"
+		},
+		"holds": [
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["note"]
+				],
+				"pointer": "/label_media/image",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_home.png"
+				}
+			},
+			{
+				"key": [
+					"field",
+					{
+						"$xmlns": [0, 0]
+					},
+					["note"]
+				],
+				"pointer": "/label_media/mediaByLanguage/fra/image",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_login.png"
+				}
+			}
+		]
+	},
+	{
 		"id": "hq-kept-settings/markdown-default-language-only",
 		"base": "hq-kept-settings",
 		"entry": "questions/a-markdown-form-in-some-languages-only-each-other-language-holding-the-default-s",
@@ -21224,10 +21279,28 @@
 		}
 	},
 	{
+		"id": "hq-kept-settings/media-empty-translation",
+		"base": "hq-kept-settings",
+		"entry": "questions/empty-media-form-beside-a-translated-file",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Rounds",
+			"formName": "Survey",
+			"path": "note"
+		},
+		"change": {
+			"op": "named",
+			"name": "media_empty_translation"
+		}
+	},
+	{
 		"id": "hq-kept-settings/media-one-language",
 		"base": "hq-kept-settings",
-		"entry": "questions/label-or-option-media-differing-by-language",
-		"standing": "not-yet",
+		"entry": "questions/media-form-missing-in-default-language",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "question",
 			"menu": 0,
@@ -21245,12 +21318,6 @@
 		"id": "hq-kept-settings/menu-icon-by-language",
 		"base": "hq-kept-settings",
 		"entry": "menus-and-case-lists/media-image-media-audio-differing-by-language",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 0,
-			"name": "Rounds"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/media_image",
@@ -21258,7 +21325,33 @@
 				"en": "jr://file/commcare/logo/data/hq_logo_android_home.png",
 				"fra": "jr://file/commcare/logo/data/hq_logo_android_login.png"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_home.png"
+				}
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/mediaByLanguage/fra/icon",
+				"value": {
+					"$projectFile": "jr://file/commcare/logo/data/hq_logo_android_login.png"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-kept-settings/note-image-without-map-entry",

@@ -430,6 +430,7 @@ const MODULE_PATCH_SKIP = new Set<string>([
 	"caseListEntryPoint",
 	"icon",
 	"audioLabel",
+	"mediaByLanguage",
 	"name",
 	"parentModuleUuid",
 	"order",
@@ -445,6 +446,7 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"entryPoint",
 	"icon",
 	"audioLabel",
+	"mediaByLanguage",
 	"name",
 	"order",
 	"caseOperations",
@@ -466,6 +468,59 @@ const FORM_PATCH_SKIP = new Set<string>([
  * skipped, since the convert already dropped it (`reconcileFieldForKind`) and
  * admission refuses media on a slot the kind lacks.
  */
+function changedLanguageEntries<T>(
+	before: Record<string, T> | undefined,
+	after: Record<string, T> | undefined,
+): [string, T | null][] {
+	const entries: [string, T | null][] = [];
+	for (const language of new Set([
+		...Object.keys(before ?? {}),
+		...Object.keys(after ?? {}),
+	])) {
+		const previous = before?.[language],
+			next = after?.[language];
+		if (!deepEqual(previous, next))
+			entries.push([language, next === undefined ? null : cloneEntity(next)]);
+	}
+	return entries;
+}
+
+/** Every change from HQ names only the shared files or one translated row.
+ * A replay on a collaborator’s newer document preserves its other languages. */
+function diffMediaBundle(
+	before: Media | undefined,
+	after: Media | undefined,
+	fieldUuid: Uuid,
+	slot: "label" | "help",
+	optionUuid?: Uuid,
+): Mutation[] {
+	const { mediaByLanguage: previousLanguages, ...previousShared } =
+		before ?? {};
+	const { mediaByLanguage: nextLanguages, ...nextShared } = after ?? {};
+	const target = { fieldUuid, slot, ...(optionUuid && { optionUuid }) };
+	const updates: Mutation[] = changedLanguageEntries(
+		previousLanguages,
+		nextLanguages,
+	).map(([language, languageEntry]) => ({
+		kind: "setFieldMedia",
+		...target,
+		language,
+		languageEntry,
+		media: null,
+	}));
+	if (
+		!deepEqual(previousShared, nextShared) ||
+		(before === undefined) !== (after === undefined)
+	)
+		updates.push({
+			kind: "setFieldMedia",
+			...target,
+			sharedOnly: true,
+			media: after ? nextShared : null,
+		});
+	return updates;
+}
+
 function diffFieldMedia(
 	prev: Record<string, unknown>,
 	next: Record<string, unknown>,
@@ -480,14 +535,14 @@ function diffFieldMedia(
 		const prevMedia = prev[key];
 		const nextMedia = next[key];
 		if (deepEqual(prevMedia, nextMedia)) continue;
-		out.push({
-			kind: "setFieldMedia",
-			fieldUuid: uuid,
-			slot,
-			media: (nextMedia == null
-				? null
-				: cloneEntity(nextMedia)) as Media | null,
-		});
+		out.push(
+			...diffMediaBundle(
+				prevMedia as Media | undefined,
+				nextMedia as Media | undefined,
+				uuid,
+				slot,
+			),
+		);
 	}
 	return out;
 }
@@ -910,11 +965,50 @@ function* diffGranularSteps(
 			renames.push({ kind: "renameModule", uuid, newId: n.name as string });
 		}
 		const patch = propertyPatch(p, n, MODULE_PATCH_SKIP);
+		const oldRegister = prevModule.caseListRegistrationForm,
+			newRegister = nextModule.caseListRegistrationForm;
+		if (
+			oldRegister?.kind === "always" &&
+			newRegister?.kind === "always" &&
+			deepEqual(
+				{ ...oldRegister, mediaByLanguage: undefined },
+				{ ...newRegister, mediaByLanguage: undefined },
+			)
+		) {
+			delete patch.caseListRegistrationForm;
+			for (const [language, languageEntry] of changedLanguageEntries(
+				oldRegister.mediaByLanguage,
+				newRegister.mediaByLanguage,
+			)) {
+				media.push({
+					kind: "setFormMedia",
+					uuid: newRegister.formUuid,
+					registrationOf: uuid,
+					icon: null,
+					audioLabel: null,
+					language,
+					languageEntry,
+				});
+			}
+		}
 		if (Object.keys(patch).length > 0) {
 			updates.push({
 				kind: "updateModule",
 				uuid,
 				patch: patch as Extract<Mutation, { kind: "updateModule" }>["patch"],
+			});
+		}
+		for (const [language, languageEntry] of changedLanguageEntries(
+			prevModule.mediaByLanguage,
+			nextModule.mediaByLanguage,
+		)) {
+			media.push({
+				kind: "setModuleMedia",
+				uuid,
+				icon: null,
+				audioLabel: null,
+				language,
+				languageEntry,
 			});
 		}
 		if (menuMediaChanged(p, n)) {
@@ -925,7 +1019,31 @@ function* diffGranularSteps(
 				audioLabel: nextModule.audioLabel ?? null,
 			});
 		}
-		if (!deepEqual(prevModule.caseListMenuItem, nextModule.caseListMenuItem)) {
+		const previousItem = prevModule.caseListMenuItem,
+			nextItem = nextModule.caseListMenuItem;
+		if (
+			previousItem &&
+			nextItem &&
+			deepEqual(
+				{ ...previousItem, mediaByLanguage: undefined },
+				{ ...nextItem, mediaByLanguage: undefined },
+			)
+		) {
+			for (const [language, languageEntry] of changedLanguageEntries(
+				previousItem.mediaByLanguage,
+				nextItem.mediaByLanguage,
+			)) {
+				media.push({
+					kind: "setModuleMedia",
+					uuid,
+					caseListItem: true,
+					icon: null,
+					audioLabel: null,
+					language,
+					languageEntry,
+				});
+			}
+		} else if (!deepEqual(previousItem, nextItem)) {
 			updates.push({
 				kind: "setCaseListMenuItem",
 				uuid,
@@ -989,6 +1107,19 @@ function* diffGranularSteps(
 			),
 			...otherwise.afterLinks,
 		);
+		for (const [language, languageEntry] of changedLanguageEntries(
+			prevForm.mediaByLanguage,
+			nextForm.mediaByLanguage,
+		)) {
+			media.push({
+				kind: "setFormMedia",
+				uuid,
+				icon: null,
+				audioLabel: null,
+				language,
+				languageEntry,
+			});
+		}
 		if (menuMediaChanged(p, n)) {
 			media.push({
 				kind: "setFormMedia",
@@ -2839,6 +2970,18 @@ function diffOptions(
 					opt.uuid,
 				),
 			});
+			continue;
+		}
+		if (
+			!contentEqualIgnoringOrder(p, opt) &&
+			contentEqualIgnoringOrder(
+				{ ...p, media: undefined },
+				{ ...opt, media: undefined },
+			)
+		) {
+			out.push(
+				...diffMediaBundle(p.media, opt.media, fieldUuid, "label", opt.uuid),
+			);
 			continue;
 		}
 		if (!contentEqualIgnoringOrder(p, opt)) {

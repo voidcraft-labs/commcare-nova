@@ -1782,6 +1782,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	SELECT_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
+	FORM_MEDIA_LANGUAGE: (e) => e.message,
+	MENU_MEDIA_LANGUAGE: (e) => e.message,
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
 	HIDDEN_VALUE_BOTH_SOURCES: (e) =>

@@ -73,7 +73,10 @@ import {
 	localizationWireFixture,
 } from "@/lib/commcare/__tests__/localizationWireFixture";
 import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
-import { mediaWireFixture } from "@/lib/commcare/__tests__/mediaWireFixtures";
+import {
+	localizedMediaWireFixture,
+	mediaWireFixture,
+} from "@/lib/commcare/__tests__/mediaWireFixtures";
 import {
 	nestedMenuScenarios,
 	nestedMenuWireFixture,
@@ -371,6 +374,11 @@ function produced(): Produced[] {
 			doc,
 			media === undefined ? {} : { media },
 		);
+	}
+
+	{
+		const { doc, assets } = localizedMediaWireFixture();
+		add("media", "media-language-files", doc, { media: uploadedMedia(assets) });
 	}
 
 	for (const scenario of navigationScenarios) {

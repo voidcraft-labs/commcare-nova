@@ -7,6 +7,11 @@ import type {
 	TranslationEntry,
 } from "@/lib/domain";
 import {
+	rebaseFormMediaLanguages,
+	rebaseNavigationMedia,
+} from "@/lib/domain/formMediaLanguages";
+import {
+	effectiveAppLocalization,
 	languageEntries,
 	translationSourceFingerprint,
 	translationSourceFingerprintsEqual,
@@ -239,6 +244,21 @@ export function rebaseSourceLanguage(
 	)
 		return;
 	const order = localization.languageOrder;
+	// The worker's files stay where they are: the new source language takes
+	// the shared slot, and every other language keeps the file it showed.
+	rebaseNavigationMedia(
+		draft,
+		effectiveAppLocalization(localization),
+		target,
+		order,
+	);
+	rebaseFormMediaLanguages(
+		draft.fields,
+		target,
+		order,
+		localization.defaultLanguage,
+		localization.defaultLanguage,
+	);
 	const texts = [...snapshotTranslationUnits(doc).values()].map((raw) => {
 		const unit = wordingSourceUnit(doc, raw);
 		return {

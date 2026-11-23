@@ -1618,6 +1618,8 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"connect.task.description": "display-text",
 	icon: "media",
 	audioLabel: "media",
+	mediaByLanguage: "media",
+	mediaByFormerCode: "media",
 };
 
 export const NON_REFERENCE_MODULE_PATHS: Readonly<
@@ -1637,11 +1639,15 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
+	mediaByLanguage: "media",
+	mediaByFormerCode: "media",
 	// The case list menu entry: its label is plain display text (the
 	// module's name when absent), its icon and spoken label media.
 	"caseListMenuItem.label": "display-text",
 	"caseListMenuItem.icon": "media",
 	"caseListMenuItem.audioLabel": "media",
+	"caseListMenuItem.mediaByLanguage": "media",
+	"caseListMenuItem.mediaByFormerCode": "media",
 	// The case list registration form: `kind` selects when the list offers
 	// it, `label` is the Register action's text, its icon and spoken label
 	// are media, `afterSubmit` is where a worker goes after registering, and
@@ -1650,6 +1656,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListRegistrationForm.label": "display-text",
 	"caseListRegistrationForm.icon": "media",
 	"caseListRegistrationForm.audioLabel": "media",
+	"caseListRegistrationForm.mediaByLanguage": "media",
+	"caseListRegistrationForm.mediaByFormerCode": "media",
 	"caseListRegistrationForm.afterSubmit": "config",
 	// The two Results/Details sequences are lists of column uuids — identity,
 	// not a reference a rename or a case-type retirement would follow.
