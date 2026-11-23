@@ -65,6 +65,25 @@ describe("setCaseListFilter", () => {
 		expect(await run("list", null)).not.toHaveProperty("searchCondition");
 	});
 
+	it("edits the one condition of a menu with no search, storing no search condition", async () => {
+		const h = fixtureWithConfig();
+		const before = eq(prop("patient", "case_name"), literal("Ada"));
+		const after = eq(prop("patient", "case_name"), literal("Bo"));
+		for (const filter of [before, after]) {
+			const result = await h.runTool(setCaseListFilterTool, {
+				moduleUuid: MOD_A,
+				surface: "list",
+				filter,
+			});
+			if ("error" in result.result) throw new Error(result.result.error);
+		}
+		const mod = h.currentDoc().modules[MOD_A];
+		expect(mod.caseSearchConfig).toBeUndefined();
+		// Turning search on later projects the list's current condition.
+		expect(mod.caseListConfig).toHaveProperty("filter", after);
+		expect(mod.caseListConfig).not.toHaveProperty("searchCondition");
+	});
+
 	it("rejects a third value for the built-in case status", async () => {
 		const h = fixtureWithConfig();
 		const before = structuredClone(h.currentDoc());

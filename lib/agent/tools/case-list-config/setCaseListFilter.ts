@@ -87,23 +87,23 @@ export const setCaseListFilterTool = {
 			// concurrent column edit on the guarded re-apply): `null` clears the
 			// slot, an Expression sets it. The reducer maps `null → delete`, so a
 			// clear crosses the JSON wire intact.
+			// A menu with no search has one condition: a list edit there is the
+			// combined edit, so no search condition is ever stored beside it
+			// (absence projects the list's condition once search is turned on).
+			const hasSearch = effectiveCaseSearchConfig(mod) !== undefined;
 			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
 					uuid: mod.uuid,
 					patch:
-						input.surface === "list"
+						input.surface === "list" && hasSearch
 							? { listCondition: filter }
 							: input.surface === "search"
 								? { searchCondition: filter }
 								: { filter },
 				},
 			];
-			if (
-				input.surface === "search" &&
-				filter !== null &&
-				effectiveCaseSearchConfig(mod) === undefined
-			)
+			if (input.surface === "search" && filter !== null && !hasSearch)
 				mutations.unshift(
 					enableCaseSearchMutation(mod.uuid, mod.caseSearchConfig),
 				);
