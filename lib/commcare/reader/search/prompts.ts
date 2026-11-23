@@ -501,7 +501,8 @@ function readPrompt(
 	// them. A refused prompt is still a field of the provisional document (`PromptReading.refused`),
 	// so the expressions of the other fields that read it bind; it keeps the search out of the
 	// settle.
-	const claimed = new Set<string>();
+	// Each claimed key and the refusal it stands under, if any, so a key read only beside another can stand under its refusal.
+	const claimed = new Map<string, Finding | undefined>();
 	const site = (at: JsonCursor, key: string) => `${at.pointer}\u0000${key}`;
 	let refused = false;
 	let unreadTable: string | undefined;
@@ -511,12 +512,13 @@ function readPrompt(
 		at: JsonCursor = prompt,
 		detail: { readonly name: string; readonly reason?: string } = named,
 	): Finding => {
+		const finding = manifestFindingOf(claim, place, detail);
 		if (at.used(key)) {
 			at.refuse(key, claim, detail);
-			claimed.add(site(at, key));
+			claimed.set(site(at, key), finding);
 		} else ctx.accounting.finding(claim, place, detail);
 		refused = true;
-		return manifestFindingOf(claim, place, detail);
+		return finding;
 	};
 	const unrecognizedAt = (surfaceKey: string): Finding => {
 		const detail = { name: surfaceKey };
@@ -528,7 +530,7 @@ function readPrompt(
 		for (const key of keys)
 			if (at.used(key) && !claimed.has(site(at, key))) {
 				ctx.accounting.cover({ json: at, key }, by);
-				claimed.add(site(at, key));
+				claimed.set(site(at, key), by);
 			}
 	};
 	const refusedHere = (key: string) => claimed.has(site(prompt, key));
@@ -565,7 +567,7 @@ function readPrompt(
 	] as const)
 		if (blank && prompt.used(key)) {
 			prompt.drop(key, claim);
-			claimed.add(site(prompt, key));
+			claimed.set(site(prompt, key), undefined);
 			sameState(
 				ctx,
 				claim.entry,
@@ -900,6 +902,17 @@ function readPrompt(
 			prompt.takeDefault("input_", P.text);
 		else if (input !== "")
 			cover(prompt, ["itemset"], refuseWith("input_", P.inputUnnamed));
+		// An appearance only dresses the widget its input type gives: beside an input type Nova
+		// refuses it is no field Nova holds, so it stands under that refusal rather than claim a
+		// barcode scan (Android's scanner callout) or a respelled address for a field that is not
+		// there.
+		const widgetRefusal = claimed.get(site(prompt, "input_"));
+		if (
+			widgetRefusal !== undefined &&
+			typeof appearance === "string" &&
+			appearance !== ""
+		)
+			cover(prompt, ["appearance"], widgetRefusal);
 		if (!refusedHere("appearance")) {
 			if (appearance === "barcode_scan" && type === "text") {
 				prompt.take("appearance", P.barcode, String).value;

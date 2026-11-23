@@ -242,6 +242,51 @@ describe("a search's settings", () => {
 		]);
 	});
 
+	it.each([
+		["an input type no runtime names", { input_: "slider" }],
+		[
+			"a Mobile UCR choice list",
+			{
+				input_: "select1",
+				itemset: {
+					instance_id: "commcare-reports:abc",
+					nodeset: "instance('commcare-reports:abc')/rows/row",
+					label: "name",
+					value: "id",
+					sort: "",
+				},
+			},
+		],
+	])(
+		"leaves a barcode scan beside %s under that input's refusal",
+		async (_title, widget) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					const prompt = (
+						app.modules[0]?.search_config.properties as
+							| Record<string, unknown>[]
+							| undefined
+					)?.[0];
+					if (prompt === undefined)
+						throw new Error("The search holds a field.");
+					Object.assign(prompt, widget, { appearance: "barcode_scan" });
+				},
+			});
+			const records = [...reading.ctx.close().claims.records()];
+			const at = (key: string) =>
+				records.find(
+					(one) => one.where === `/modules/0/search_config/properties/0/${key}`,
+				)?.entry;
+			expect(
+				records.some(
+					(one) => one.entry === "case-search/appearance-barcode-scan",
+				),
+			).toBe(false);
+			expect(at("appearance")).toBe(at("input_"));
+			expect(at("input_")).toBeDefined();
+		},
+	);
+
 	it("counts each key HQ's model removed under the removed keys' entry, and any other undeclared key under its own", async () => {
 		const removed = [
 			"again_label",
