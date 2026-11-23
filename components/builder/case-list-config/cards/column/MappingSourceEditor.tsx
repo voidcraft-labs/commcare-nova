@@ -13,8 +13,11 @@ import {
 } from "@/components/shadcn/select";
 import type { Column } from "@/lib/domain";
 import type { CaseMappingRow } from "@/lib/domain/caseMappingRows";
-import { matchAll } from "@/lib/domain/expression/builders";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
+import {
+	type MappingComparisonMode,
+	mappingComparisonPatch,
+} from "../../mappingRowComparison";
 
 export function MappingSourceEditor({
 	column,
@@ -51,19 +54,11 @@ export function MappingSourceEditor({
 						if (!next || next === mode) return;
 						setIssue(
 							onChange(
-								next === "condition"
-									? {
-											when: matchAll(),
-											value: undefined,
-											...(image && { match: undefined }),
-										}
-									: {
-											value: row.value ?? "",
-											when: undefined,
-											...(image && {
-												match: next === "exact" ? "exact" : undefined,
-											}),
-										},
+								mappingComparisonPatch(
+									row,
+									next as MappingComparisonMode,
+									image,
+								),
 							),
 						);
 					}}
