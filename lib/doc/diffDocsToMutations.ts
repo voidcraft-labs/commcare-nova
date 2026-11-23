@@ -170,8 +170,10 @@ import {
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
-import { searchConditionOf } from "@/lib/domain/searchConditions";
+import {
+	searchConditionOf,
+	searchContentWithoutInputs,
+} from "@/lib/domain/searchConditions";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -2691,9 +2693,7 @@ function diffCaseSearchConfig(
 			next,
 			caseSearchConfigAfterFinalInputRemoval(
 				prev,
-				effectiveFilterForEmission(
-					searchConditionOf(nextMod.caseListConfig),
-				) !== undefined,
+				searchContentWithoutInputs(nextMod.caseListConfig),
 			),
 		)
 	) {
@@ -2701,10 +2701,9 @@ function diffCaseSearchConfig(
 			cleanupCaseSearchAfterFinalInputMutation({
 				uuid: moduleUuid,
 				config: prev,
-				hasCasesAvailableCondition:
-					effectiveFilterForEmission(
-						searchConditionOf(nextMod.caseListConfig),
-					) !== undefined,
+				hasCasesAvailableCondition: searchContentWithoutInputs(
+					nextMod.caseListConfig,
+				),
 			}),
 		];
 	}
@@ -2740,8 +2739,7 @@ function diffCaseSearchConfig(
 		prevIsMarker &&
 		next === undefined &&
 		nextMod.caseListConfig?.searchInputs.length === 0 &&
-		effectiveFilterForEmission(searchConditionOf(nextMod.caseListConfig)) ===
-			undefined
+		!searchContentWithoutInputs(nextMod.caseListConfig)
 	) {
 		return [disableUnusedCaseSearchMutation(moduleUuid)];
 	}

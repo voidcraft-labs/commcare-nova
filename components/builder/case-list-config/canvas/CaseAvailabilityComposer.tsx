@@ -127,8 +127,12 @@ export function CaseAvailabilityComposer({
 }: CaseAvailabilityComposerProps) {
 	const canEdit = useCanEdit();
 	const [chosenSurface, setChosenSurface] = useState<"list" | "search">("list");
+	// Search filters keep Search on without a field
+	// (`modules.ts::effectiveCaseSearchConfig`), so their surface stays here.
 	const hasSearch =
-		config.searchInputs.length > 0 || isOrdinaryCaseSearchConfig(searchConfig);
+		config.searchInputs.length > 0 ||
+		(config.searchFilters?.length ?? 0) > 0 ||
+		isOrdinaryCaseSearchConfig(searchConfig);
 	const surface =
 		dependencyReview?.kind === "cases-available"
 			? (dependencyReview.surface ?? "list")

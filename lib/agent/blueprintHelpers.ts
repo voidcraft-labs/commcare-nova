@@ -1,4 +1,4 @@
-import { searchConditionOf } from "@/lib/domain/searchConditions";
+import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
@@ -71,7 +71,6 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	slugifyId,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -523,10 +522,9 @@ export function removeSearchInputMutation(
 						cleanupCaseSearchAfterFinalInputMutation({
 							uuid: mod.uuid,
 							config: mod.caseSearchConfig,
-							hasCasesAvailableCondition:
-								effectiveFilterForEmission(
-									searchConditionOf(mod.caseListConfig),
-								) !== undefined,
+							hasCasesAvailableCondition: searchContentWithoutInputs(
+								mod.caseListConfig,
+							),
 						}),
 					] satisfies Mutation[])
 				: []),

@@ -2987,13 +2987,14 @@ export function searchScreenTitleText(
  *
  * Title and subtitle belong to the input screen and therefore disappear with
  * that screen. Action settings remain valid on a zero-input manual action, and
- * an effective Cases available rule retains the action for automatic Results.
- * Assigned-case availability alone remains independent and carries the
- * internal no-action marker instead of manufacturing Search.
+ * search content that remains (`searchConditions.ts::searchContentWithoutInputs`:
+ * an effective search condition or a search filter) retains the action for
+ * automatic Results. Assigned-case availability alone remains independent and
+ * carries the internal no-action marker instead of manufacturing Search.
  */
 export function caseSearchConfigAfterFinalInputRemoval(
 	config: CaseSearchConfig | undefined,
-	hasCasesAvailableCondition: boolean,
+	searchContentRemains: boolean,
 ): CaseSearchConfig | undefined {
 	if (config === undefined) return undefined;
 	if (isOwnerOnlyCaseSearchConfig(config)) return config;
@@ -3009,7 +3010,7 @@ export function caseSearchConfigAfterFinalInputRemoval(
 		action.workflow !== undefined ||
 		action.formsReadSearch !== undefined ||
 		action.searchOnClear !== undefined;
-	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
+	if (searchContentRemains || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };
 	}

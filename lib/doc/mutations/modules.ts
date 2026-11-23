@@ -22,10 +22,9 @@ import {
 	type Uuid,
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import {
 	replaceCaseConditions,
-	searchConditionOf,
+	searchContentWithoutInputs,
 } from "@/lib/domain/searchConditions";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 
@@ -387,9 +386,7 @@ export function applyModuleMutation(
 							!isOwnerOnlyCaseSearchConfig(mod.caseSearchConfig) &&
 							!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig) &&
 							(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
-							effectiveFilterForEmission(
-								searchConditionOf(mod.caseListConfig),
-							) === undefined
+							!searchContentWithoutInputs(mod.caseListConfig)
 						) {
 							delete mod.caseSearchConfig;
 						}
@@ -422,9 +419,7 @@ export function applyModuleMutation(
 					if (config === undefined) continue;
 					const nextConfig = caseSearchConfigAfterFinalInputRemoval(
 						config,
-						effectiveFilterForEmission(
-							searchConditionOf(mod.caseListConfig),
-						) !== undefined,
+						searchContentWithoutInputs(mod.caseListConfig),
 					);
 					if (nextConfig === undefined) delete mod.caseSearchConfig;
 					else mod.caseSearchConfig = nextConfig;

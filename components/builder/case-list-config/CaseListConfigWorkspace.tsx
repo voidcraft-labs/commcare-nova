@@ -117,11 +117,8 @@ import {
 	type TileCell,
 	visibleSearchInputs,
 } from "@/lib/domain";
-import {
-	type Expression,
-	effectiveFilterForEmission,
-} from "@/lib/domain/expression";
-import { searchConditionOf } from "@/lib/domain/searchConditions";
+import type { Expression } from "@/lib/domain/expression";
+import { searchContentWithoutInputs } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
@@ -914,8 +911,11 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const updateExcludedOwnerIds = useCallback(
 		(next: Expression | undefined) => {
 			if (next !== undefined) {
+				// A menu whose search filters keep Search on takes the rule as a
+				// Search setting: the owner-only marker is for a menu with no Search.
 				if (
-					searchConfig === undefined ||
+					(searchConfig === undefined &&
+						(config.searchFilters?.length ?? 0) === 0) ||
 					isOwnerOnlyCaseSearchConfig(searchConfig)
 				) {
 					commitMany([
@@ -960,7 +960,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				),
 			);
 		},
-		[commitMany, moduleUuid, searchConfig],
+		[commitMany, config.searchFilters, moduleUuid, searchConfig],
 	);
 	const configureSearchAction = useCallback(() => {
 		/* Search with nothing to fill in opens on its results: the planner
@@ -1219,8 +1219,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			(input) => input.uuid !== uuid,
 		);
 		const removesVisibleSearchScreen = remainingInputs.length === 0;
-		const hasCasesAvailableCondition =
-			effectiveFilterForEmission(searchConditionOf(config)) !== undefined;
+		const hasCasesAvailableCondition = searchContentWithoutInputs(config);
 		const nextSearchConfig = removesVisibleSearchScreen
 			? caseSearchConfigAfterFinalInputRemoval(
 					searchConfig,
@@ -2722,8 +2721,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							sortedInputs.length === 1 &&
 							opensOnResultsAfterFinalInput(
 								args.searchConfig,
-								effectiveFilterForEmission(searchConditionOf(config)) !==
-									undefined,
+								searchContentWithoutInputs(config),
 							)
 						}
 						preservesAssignedCaseRule={

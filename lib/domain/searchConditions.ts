@@ -11,6 +11,23 @@ export function searchConditionOf(
 	return config?.searchCondition ?? config?.filter;
 }
 
+/**
+ * Whether a case list's Search keeps sending something once it has no
+ * field: an effective search condition, or a search filter. Either keeps
+ * the Search action, so the last field's removal leaves it in place
+ * (`modules.ts::caseSearchConfigAfterFinalInputRemoval`).
+ */
+export function searchContentWithoutInputs(
+	config:
+		| Pick<CaseListConfig, "filter" | "searchCondition" | "searchFilters">
+		| undefined,
+): boolean {
+	return (
+		effectiveFilterForEmission(searchConditionOf(config)) !== undefined ||
+		(config?.searchFilters?.length ?? 0) > 0
+	);
+}
+
 export function searchConditionSlot(config: Conditions | undefined) {
 	return config?.searchCondition === undefined
 		? "case_list_filter"
