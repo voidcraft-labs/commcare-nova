@@ -6,6 +6,8 @@ import {
 	effectiveCaseTypes,
 	featuresNotOffered,
 	isStandardCaseListProperty,
+	menuFormUuidsOf,
+	menuWithInheritedCaseSettings,
 	orderedAutomations,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
@@ -59,10 +61,21 @@ export function appOverview(doc: BlueprintDoc) {
 				})),
 		})),
 		modules: doc.moduleOrder.map((uuid) => {
-			const module = doc.modules[uuid];
+			// A menu listing another menu's forms takes its case type and
+			// selection from that menu, and lists the forms it shows there.
+			const module =
+				menuWithInheritedCaseSettings(doc, uuid) ?? doc.modules[uuid];
+			const source = module.formsFromMenu;
 			return {
 				uuid,
 				name: module.name,
+				...(source && {
+					formsFromMenu: {
+						menuUuid: source.menuUuid,
+						name: doc.modules[source.menuUuid]?.name ?? "",
+						excludedFormUuids: source.excludedFormUuids ?? [],
+					},
+				}),
 				...(module.purpose && { purpose: module.purpose }),
 				...(module.parentModuleUuid && { parentUuid: module.parentModuleUuid }),
 				...(module.parentCaseModuleUuid && {
@@ -80,7 +93,10 @@ export function appOverview(doc: BlueprintDoc) {
 						}),
 					},
 				}),
-				forms: (doc.formOrder[uuid] ?? []).map((formUuid) => {
+				forms: (source
+					? menuFormUuidsOf(doc, uuid)
+					: (doc.formOrder[uuid] ?? [])
+				).map((formUuid) => {
 					const form = doc.forms[formUuid];
 					return {
 						uuid: formUuid,
