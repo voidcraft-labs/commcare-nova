@@ -5,8 +5,6 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { chosenCase } from "@/lib/domain/__tests__/chosenCaseFixture";
-import { eq, prop } from "@/lib/domain/expression/builders";
 import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import { submitFormAction } from "../caseDataBinding";
 import { blueprintRevisionDigest } from "../caseDataBindingClient";
@@ -342,18 +340,33 @@ it("rechecks a restored linked record against the list's excluded owners at its 
 	]);
 });
 
-it("rechecks a linked later choice against a filter that reads the earlier choice", async () => {
-	const { request, device, doc } = await openPracticeForm(3, (blueprint) => {
-		const people = blueprint.moduleOrder[0];
-		const assigned = Object.values(blueprint.modules).find(
-			(menu) => menu.name === "Assigned contacts",
-		);
-		if (!assigned?.caseListConfig) throw new Error("Missing contact list");
-		assigned.caseListConfig.filter = eq(
-			prop("person", "case_id"),
-			chosenCase(people),
-		);
-	});
+// A menu's own list cannot read another menu's choice (it is reachable on its
+// own), so a later choice depends on an earlier one through `under`.
+it("rechecks a linked later choice against the earlier choice it is chosen under", async () => {
+	const { request, device, doc, pool } = await openPracticeForm(
+		3,
+		(blueprint) => {
+			const assigned = Object.values(blueprint.modules).find(
+				(menu) => menu.name === "Assigned contacts",
+			);
+			if (!assigned?.caseListConfig) throw new Error("Missing contact list");
+			delete assigned.caseListConfig.filter;
+			const quick = Object.values(blueprint.forms).find(
+				(form) => form.name === "Visit with assigned contact",
+			);
+			const [person, contact] = quick?.caseSelections ?? [];
+			if (!person || contact?.source.kind !== "choose")
+				throw new Error("Missing assigned contact route");
+			contact.source = {
+				...contact.source,
+				under: { selection: person.uuid, identifier: "parent" },
+			};
+		},
+	);
+	await pool.query(
+		`INSERT INTO case_indices (case_id, ancestor_id, target_case_type, identifier, relationship, depth)
+		VALUES ('training-2','training-1','person','parent','child',1)`,
+	);
 	const form = Object.values(doc.forms).find(
 		(form) => form.name === "Visit with assigned contact",
 	);
@@ -363,7 +376,7 @@ it("rechecks a linked later choice against a filter that reads the earlier choic
 	const launch = {
 		...request,
 		form: form.uuid,
-		entry: testUuid("link-with-an-earlier-menu-filter"),
+		entry: testUuid("link-under-the-earlier-choice"),
 	};
 	const first = await readFormOpeningAction(
 		{
@@ -384,11 +397,14 @@ it("rechecks a linked later choice against a filter that reads the earlier choic
 			},
 			device,
 		);
-	expect((await choose("training-2")).kind).toBe("reopen");
-	const approved = await choose("training-1");
+	expect((await choose("training-3")).kind).toBe("reopen");
+	const approved = await choose("training-2");
 	if (approved.kind !== "opening")
-		throw new Error("Could not choose the matching contact");
-	expect(approved.projection.primaryCaseIds).toEqual(["training-1"]);
+		throw new Error("Could not choose the contact under the first person");
+	expect(approved.projection.choices).toEqual([
+		{ selection: choices[0].uuid, caseId: "training-1" },
+		{ selection: choices[1].uuid, caseId: "training-2" },
+	]);
 });
 
 it("writes each chosen record and replays the committed receipt after the saved snapshot expires", async () => {

@@ -3450,6 +3450,116 @@ def usercase_preload_other(use, manifest):
     return None if None in verdicts else False
 
 
+def source_only_record_load(use, manifest):
+    """``forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value``: a record load
+    Nova can hold neither as an ordered opening assignment nor as the question's own default, read where Nova's
+    reader draws the line on a read of the app as it stands (``caseManagement/preloads.ts``,
+    ``advancedActions.ts::readLoadPreloads``). A ``usercase_preload`` the next row holds (beside an active
+    ``usercase_update`` that writes, each path a question outside any repeat, each property a worker-record read
+    spells) into a question that takes no default value: a Hidden Value its bind calculates, or a group or
+    repeat. And a ``case_preload`` or load ``preload`` whose property spells, with its trailing newline, a case
+    child the plain spelling of which HQ's build refuses (``_unemittable``), which no assignment can name: into
+    a question taking no default value, or (a ``case_preload``) through an index other than ``parent``, or (a
+    load) in a repeat or through any index. A label is the picker's row, and a repeat a ``case_preload`` fills
+    none of, so neither is this class. Which load an earlier read of the app had already folded into a default is
+    the history of a bring-in, not the export's; on a read of the export as it stands the reader holds every
+    other load as an assignment. A path naming a node Nova's generated nodes take (``nova_``) is left open, as
+    in ``usercase_preload_other``."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    actions = _actions(form)
+    load = at.nearest("LoadUpdateAction")
+    if load is not None:
+        preload = load.get("preload") or {}
+        kind = "load"
+    elif _in_actions(at, form, "usercase_preload"):
+        preload = (actions.get("usercase_preload") or {}).get("preload") or {}
+        kind = "usercase"
+    elif _in_actions(at, form, "case_preload"):
+        preload = (actions.get("case_preload") or {}).get("preload") or {}
+        kind = "own"
+    else:
+        return False
+    if not isinstance(preload, dict) or not preload:
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    if kind == "usercase":
+        update = actions.get("usercase_update") or {}
+        if not (_active(update) and update.get("update")):
+            return False
+        if any(_usercase_read(property_name) is None for property_name in preload.values()):
+            return False
+        verdicts = {_usercase_question(xform, path) for path in preload}
+        if False in verdicts:
+            return False
+        if None in verdicts:
+            return None
+        defaults = {_takes_no_default(xform, _absolute(xform, path)) for path in preload}
+        return True if True in defaults else None if None in defaults else False
+    unsure = False
+    for path, property_name in preload.items():
+        if not isinstance(property_name, str) or not _unemittable(property_name):
+            continue
+        absolute = _absolute(xform, path)
+        if absolute is None or xform.node(absolute) is None or _is_label(xform, absolute):
+            continue
+        *indices, _name = property_name[:-1].split("/")
+        if kind == "own":
+            if xform.in_repeat(absolute):
+                continue
+            if any(index != "parent" for index in indices):
+                return True
+        elif indices or xform.in_repeat(absolute):
+            return True
+        verdict = _takes_no_default(xform, absolute)
+        if verdict:
+            return True
+        unsure = unsure or verdict is None
+    return None if unsure else False
+
+
+def _unemittable(property_name):
+    """Whether a preloaded property spells, with the one trailing newline HQ's grammar admits, a case child Nova
+    names (``preloads.ts::preloadReadOf``) whose plain spelling HQ's build refuses
+    (``preloads.ts::hqBuildRefusesProperty``, ``name`` for ``case_name``): no opening assignment can spell it."""
+    if not property_name.endswith("\n") or HQ_PROPERTY_PATH.fullmatch(property_name) is None:
+        return False
+    name = property_name[:-1].split("/")[-1]
+    if name not in CASE_CHILD_ELEMENTS and (name in ("name", "owner_id") or name in HQ_CASE_RESERVED_WORDS):
+        return False
+    plain = "name" if name == "case_name" else name
+    return HQ_PROPERTY_PATH.fullmatch(plain) is None or plain in HQ_CASE_RESERVED_WORDS
+
+
+def _absolute(xform, path):
+    """A preload path as the absolute path of the main instance's node it names, or None."""
+    if not isinstance(path, str) or not path or xform.data_root is None:
+        return None
+    root = f"/{_local(xform.data_root)}"
+    if path.startswith("/"):
+        return path if path.startswith(f"{root}/") else None
+    return f"{root}/{path}"
+
+
+def _takes_no_default(xform, path):
+    """Whether a question takes no default value Nova can give it (``preloads.ts::holdsDefault``): a group or a
+    repeat, or a node no control names whose bind calculates it (a Hidden Value). None for a node whose name
+    Nova's generated nodes take."""
+    node = xform.node(path) if path else None
+    if node is None or isinstance(node, tuple):
+        return None
+    if _local(node).startswith("nova_"):
+        return None
+    controls = xform.question_controls(path)
+    if controls:
+        return _local(controls[0]) in ("group", "repeat")
+    bind = xform.bind(path)
+    return bind is not None and bind.get("calculate") is not None
+
+
 def _usercase_read(property_name):
     """The worker-case element a ``usercase_preload`` of ``property_name`` reads where a worker-record read prints
     it, else None (``preloads.ts::usercaseRead``): HQ's build refuses the property outside its grammar or in its
@@ -9894,6 +10004,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/update-key-with-any-other-index-segment-or-user-where-the": unrecognized_index_key,
     "forms-and-case-writes/an-update-key-with-an-index-segment-on-a-form-that-opens-its": index_key_on_opened_case,
     "forms-and-case-writes/any-other-usercase-preload": usercase_preload_other,
+    "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value": source_only_record_load,
     "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module": (
         multi_select_top_level
     ),

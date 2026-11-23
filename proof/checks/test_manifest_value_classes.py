@@ -1213,6 +1213,14 @@ def _pollsensor_form(ref=None):
     )
 
 
+# A question and a Hidden Value its bind calculates.
+HIDDEN_CALCULATED = _form(
+    data="<q/><h/>",
+    model='<bind nodeset="/data/h" calculate="/data/q"/>',
+    body='<input ref="/data/q"><label>Q</label></input>',
+)
+
+
 def _question_app(form, **fields):
     """An app whose one module holds ``form`` (unique_id ``f``), its XForm being QUESTIONS."""
     return _with_forms(_app([_module([form])], **fields), f=QUESTIONS)
@@ -1999,6 +2007,67 @@ def _settings_and_forms():
                 _app([_module([_usercase_form({"/data/q": "name"})])]),
                 "schema:FormActions.usercase_preload",
                 f"{actions}/usercase_preload",
+            ),
+        ),
+        "forms-and-case-writes/a-source-only-record-load-with-no-equivalent-editable-initial-value": (
+            # A worker load the row above holds, into a Hidden Value its bind calculates: no assignment holds a
+            # worker value on a basic form, and the question takes no default to hold it as.
+            refused(
+                "app",
+                _with_forms(_app([_module([_usercase_form({"/data/h": "name"})])]), f=HIDDEN_CALCULATED),
+                "schema:FormActions.usercase_preload",
+                f"{actions}/usercase_preload",
+            ),
+            accepted(
+                "app",
+                _with_forms(_app([_module([_usercase_form({"/data/q": "name"})])]), f=HIDDEN_CALCULATED),
+                "schema:FormActions.usercase_preload",
+                f"{actions}/usercase_preload",
+            ),
+            # A case child spelled only with its trailing newline: held as the question's default, but into a
+            # calculated Hidden Value, or through an index other than parent, it has no equivalent.
+            refused(
+                "app",
+                _with_forms(
+                    _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/h": "date_opened\n"}})])]),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:FormActions.case_preload",
+                f"{actions}/case_preload",
+            ),
+            refused(
+                "app",
+                _with_forms(
+                    _app(
+                        [
+                            _module(
+                                [_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/q": "host/date_opened\n"}})]
+                            )
+                        ]
+                    ),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:FormActions.case_preload",
+                f"{actions}/case_preload",
+            ),
+            accepted(
+                "app",
+                _with_forms(
+                    _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/q": "date_opened\n"}})])]),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:FormActions.case_preload",
+                f"{actions}/case_preload",
+            ),
+            # An ordinary property into the same Hidden Value is an ordered opening assignment.
+            accepted(
+                "app",
+                _with_forms(
+                    _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/h": "dob"}})])]),
+                    f=HIDDEN_CALCULATED,
+                ),
+                "schema:FormActions.case_preload",
+                f"{actions}/case_preload",
             ),
         ),
         "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module": (

@@ -227,10 +227,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"This uses its own wording for an empty list or the Continue button, which Nova can't hold yet.",
 	},
-	"case-preloads": {
-		"not-yet":
-			"This uses a way of loading a case value into a question, which Nova can't hold yet.",
-	},
+	"case-preloads": {},
 	"case-property-names": {
 		never:
 			"A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in.",

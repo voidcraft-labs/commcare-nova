@@ -161,13 +161,6 @@ export interface OwnCaseProgram {
 	readonly closeCondition?: DomainExpression;
 }
 
-/**
- * The advanced-operation half of a submission. `operations` arrives in
- * canonical `(order, uuid)` sequence (the caller sorts via
- * `orderedCaseOperations`); the executor expands it over `scopes` into
- * physical execution order and re-proves the whole resolved sequence
- * with `validateResolvedCaseOperationTypeSequence` before any write.
- */
 /** Immutable database reads of an authorized form entry. The write transaction
  * reauthorizes reached targets before changing any current row. */
 export interface OpeningReadSet {
@@ -185,7 +178,16 @@ export interface OpeningReadSet {
 	}[];
 }
 
+/**
+ * The advanced-operation half of a submission. `operations` arrives in
+ * canonical `(order, uuid)` sequence (the caller sorts via
+ * `orderedCaseOperations`); the executor expands it over `scopes` into
+ * physical execution order and re-proves the whole resolved sequence
+ * with `validateResolvedCaseOperationTypeSequence` before any write.
+ */
 export interface CaseOperationProgram {
+	/** The signed opening's rows, which every read of this submission
+	 *  evaluates against; absent for a form that reads no opening. */
 	readonly openingReads?: OpeningReadSet;
 	/** The authored-key identity scope half the operations share. */
 	readonly formUuid: Uuid;
@@ -232,9 +234,11 @@ export interface CaseOperationProgram {
 	 * across the whole envelope (including a schema-heal retry).
 	 */
 	readonly lookupTableSchemas?: LookupTableSchemas;
+	/** The session values the signed opening reached, by datum reference
+	 *  (`datumRefKey`); a chosen-case read takes only these. */
+	readonly entryDatums?: ReadonlyMap<string, string>;
 	/** Open-namespace worker data for `sessionUser` terms: the keys the
 	 * worker's device holds. */
-	readonly entryDatums?: ReadonlyMap<string, string>;
 	readonly sessionUser?: ReadonlyMap<string, string>;
 	/** What a read of a key `sessionUser` lacks means
 	 * (`TermBindings.sessionUserAbsent`): blank for a key every device holds
