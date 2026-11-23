@@ -355,6 +355,8 @@ export interface BuilderSessionState {
 	 *  is derived (`effectivePreviewPlatform` over the app's declaration), so a
 	 *  choice the app no longer declares derives away with no write here. */
 	previewPlatform: Platform | undefined;
+	/** Authorized Search target and settings currently supplying this worker session. */
+	previewSearchRevision?: string;
 	/** Preview on Android is showing the device's home screen. A running
 	 *  fact, not a route: the URL's `home` is shared with edit mode and gains
 	 *  no Preview-only kind. */
@@ -756,6 +758,7 @@ export interface BuilderSessionState {
 	 *  reach) and opens Android on its home screen. The caller navigates
 	 *  home. */
 	setPreviewPlatform: (platform: Platform) => void;
+	setPreviewSearchRevision: (revision: string | undefined) => void;
 	/** Show or leave Android's home screen. */
 	setPreviewAtDeviceHome: (atHome: boolean) => void;
 	/** Record Sync with server's time. */
@@ -948,6 +951,21 @@ export interface SessionStoreInit {
  *  wrote never matches the session the page now runs. */
 export function newPreviewSessionId(): string {
 	return uuidv7();
+}
+
+function freshPreviewNavigation() {
+	return {
+		previewCaseTarget: undefined,
+		previewCaseListRegistrationEntry: undefined,
+		previewTaskContinuation: undefined,
+		previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+		previewEntryPointLaunch: undefined,
+		previewSelectedCase: undefined,
+		previewMenuCaseSelections: {},
+		previewSessionId: newPreviewSessionId(),
+		previewParentCaseRequest: undefined,
+		previewSearchStates: {},
+	};
 }
 
 /** Create a scoped Zustand session store. Called once per BuilderProvider
@@ -1550,16 +1568,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(get().previewPlatform);
 					set({
 						previewPersonaUuid: personaUuid,
-						previewCaseTarget: undefined,
-						previewCaseListRegistrationEntry: undefined,
-						previewTaskContinuation: undefined,
-						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
-						previewEntryPointLaunch: undefined,
-						previewSelectedCase: undefined,
-						previewMenuCaseSelections: {},
-						previewSessionId: newPreviewSessionId(),
-						previewParentCaseRequest: undefined,
-						previewSearchStates: {},
+						...freshPreviewNavigation(),
 						/* The identity menu also navigates home; a new worker on a
 						 * phone starts from its home screen, freshly synced. */
 						previewAtDeviceHome: android,
@@ -1575,18 +1584,20 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(platform);
 					set({
 						previewPlatform: platform,
-						previewCaseTarget: undefined,
-						previewCaseListRegistrationEntry: undefined,
-						previewTaskContinuation: undefined,
-						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
-						previewEntryPointLaunch: undefined,
-						previewSelectedCase: undefined,
-						previewMenuCaseSelections: {},
-						previewSessionId: newPreviewSessionId(),
-						previewParentCaseRequest: undefined,
-						previewSearchStates: {},
+						...freshPreviewNavigation(),
 						previewAtDeviceHome: android,
 						previewDeviceSyncedAt: android ? Date.now() : undefined,
+					});
+				},
+
+				setPreviewSearchRevision(revision) {
+					const state = get();
+					if (state.previewSearchRevision === revision) return;
+					// Each transition owns a new session, including A → B → A. A
+					// restored history entry or late read cannot reuse the first A.
+					set({
+						previewSearchRevision: revision,
+						...(state.previewing && freshPreviewNavigation()),
 					});
 				},
 

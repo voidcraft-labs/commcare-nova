@@ -2,7 +2,14 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import type { PreviewSearchCatalog } from "@/lib/preview/searchSettings";
-import { previewSearchCatalogIn } from "./previewSearchSettings";
+import {
+	type PreviewSearchTarget,
+	resolvePreviewSearchFacts,
+} from "@/lib/preview/searchSettings";
+import {
+	previewSearchCatalogIn,
+	readAuthorizedPreviewSearchCatalog,
+} from "./previewSearchSettings";
 import {
 	previewProjectSpace,
 	resolvePreviewDeploymentTarget,
@@ -32,8 +39,20 @@ import type { PreviewDeploymentAnswer } from "./types";
  */
 export async function previewProjectSpaceFor(
 	scope: DeploymentScope,
+	selection?: { readonly target?: PreviewSearchTarget },
 ): Promise<string | null> {
 	try {
+		if (selection !== undefined) {
+			const catalog = await readAuthorizedPreviewSearchCatalog(
+				scope.appId,
+				scope.projectId,
+				scope.actorUserId,
+			);
+			return (
+				resolvePreviewSearchFacts(catalog, selection.target).projectSpace ??
+				null
+			);
+		}
 		const deployments = await readDeploymentPreviewRecords(scope);
 		return previewProjectSpace(resolvePreviewDeploymentTarget(deployments));
 	} catch (error) {

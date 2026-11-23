@@ -81,6 +81,10 @@ import {
 	typesCompatible,
 } from "@/lib/domain/expression/ruleSets";
 import {
+	searchIndexedComparison,
+	searchIndexedValueKind,
+} from "@/lib/domain/expression/searchIndexedComparison";
+import {
 	type ScalarHeld,
 	scalarDataType,
 	typeOf,
@@ -94,10 +98,13 @@ import type {
 } from "@/lib/domain/expression/types";
 import { isConditionArm } from "@/lib/domain/expression/types";
 import { walkPropertyRefs } from "@/lib/domain/expression/walk";
+import { SYSTEM_DATETIME_CASE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import {
 	isReadableTemporalValue,
 	wireTimeOfDay,
 } from "@/lib/domain/temporalValues";
+import { CaseSearchUnavailableError } from "../searchRequest";
+import { certifiedFuzzyMatch } from "./certifiedFuzzyMatch";
 import {
 	type CompilePredicateThunk,
 	compileDeviceTextExpression,
@@ -119,6 +126,7 @@ import {
 } from "./compileTerm";
 import { compileCoreDayNumber } from "./coreDayNumber";
 import type { Database } from "./database";
+import { indexedSearchDate } from "./searchIndexedDate";
 
 /** Module-scoped expression builder. Same shape as the sibling compilers. */
 const eb = expressionBuilder<Database, keyof Database>();
@@ -460,7 +468,20 @@ function compileNot(
 	pred: Extract<DomainExpression, { kind: "not" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	return negateTwoValued(compilePredicate(pred.clause, ctx));
+	return negateTwoValued(
+		compilePredicate(pred.clause, negatedSearchBound(ctx)),
+	);
+}
+
+function negatedSearchBound(
+	ctx: PredicateCompileContext,
+): PredicateCompileContext {
+	return ctx.searchBound
+		? {
+				...ctx,
+				searchBound: ctx.searchBound === "certain" ? "possible" : "certain",
+			}
+		: ctx;
 }
 
 /** The two-valued negation of a predicate: unknown reads as false first. */
@@ -869,6 +890,90 @@ function compileOrderedComparison(
 	right: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (
+		ctx.reading === "search" &&
+		left.kind === "term" &&
+		left.term.kind === "prop"
+	) {
+		const typing = recordQueryContextFor(ctx);
+		const leftType = scalarDataType(typeOf(left, typing)?.data);
+		let mode = searchIndexedComparison(
+			operator === "=",
+			left,
+			leftType,
+			right,
+			scalarDataType(typeOf(right, typing)?.data),
+		);
+		if (mode === "runtime") {
+			const concrete = decidedListItem(right, ctx);
+			mode =
+				typeof concrete === "string"
+					? searchIndexedValueKind(concrete)
+					: undefined;
+		}
+		if (
+			!mode &&
+			operator !== "=" &&
+			(leftType === "text" || leftType === "time")
+		)
+			throw new CaseSearchUnavailableError({
+				kind: "query-value-invalid",
+				field: left.term.property,
+			});
+		if (mode) {
+			const raw = compileStoredText(left.term, ctx);
+			const bound = compileExpression(right, expressionContextFor(ctx));
+			if (mode === "exact-text")
+				return eb(raw, operator, sql`(${bound})::text`);
+			if (mode === "number") {
+				const number = sql<number>`case when trim(${raw}) collate "C" ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$' and pg_input_is_valid(trim(${raw}), 'double precision') then (${raw})::double precision end`;
+				return eb(number, operator, sql<number>`(${bound})::double precision`);
+			}
+			const indexed = indexedSearchDate(raw);
+			const value =
+				mode === "date"
+					? sql<Date>`timezone('UTC',(${bound})::date::timestamp)`
+					: sql<Date>`(${bound})::timestamptz`;
+			// Elasticsearch rounds an inclusive upper or exclusive lower
+			// date-only bound up through the last millisecond of its UTC day.
+			const rounded =
+				mode === "date" && (operator === ">" || operator === "<=");
+			const compare = rounded
+				? eb(
+						indexed.instant,
+						operator === ">" ? ">=" : "<",
+						sql<Date>`${value} + interval '24 hours'`,
+					)
+				: eb(indexed.instant, operator, value);
+			return ctx.searchBound
+				? sql<boolean>`case when ${indexed.uncertain} then ${ctx.searchBound === "possible"} else ${compare} end`
+				: compare;
+		}
+	}
+	if (
+		ctx.reading === "search" &&
+		left.kind === "term" &&
+		left.term.kind === "prop" &&
+		SYSTEM_DATETIME_CASE_PROPERTIES.has(left.term.property) &&
+		scalarDataType(typeOf(right, recordQueryContextFor(ctx))?.data) === "date"
+	) {
+		const zone = ctx.bindings.projectTimeZone;
+		if (!zone)
+			throw new CaseSearchUnavailableError({
+				kind: "project-zone-unavailable",
+			});
+		const sqlCtx = expressionContextFor(ctx);
+		const instant = compileExpression(left, sqlCtx);
+		const day = compileExpression(right, sqlCtx);
+		const nextDay = operator === ">" || operator === "<=";
+		const midnight = sql<Date>`timezone(${zone}, ((${day})::date + ${nextDay ? 1 : 0}::integer)::timestamp)`;
+		return operator === "="
+			? eb.and([
+					eb(instant, ">=", midnight),
+					eb(instant, "<", sql<Date>`${midnight} + interval '24 hours'`),
+				])
+			: eb(instant, operator, midnight);
+	}
 	if (operator !== "=") {
 		for (const operand of [left, right])
 			if (constantComparand(operand, ctx)?.blank)
@@ -1120,6 +1225,10 @@ function compileMatch(
 				valueRead,
 			]) as unknown as Expression<SqlBool>;
 		case "fuzzy":
+			if (ctx.searchBound) {
+				const matched = certifiedFuzzyMatch(propRead, valueRead);
+				return sql<boolean>`coalesce(${matched}, ${ctx.searchBound === "possible"})`;
+			}
 			return compileFuzzyMatch(propRead, valueRead, ctx);
 		case "phonetic":
 			return compilePhoneticMatch(propRead, valueRead, ctx);
@@ -1816,7 +1925,7 @@ function compileExistsOrMissing(
 	const innerWhere =
 		pred.where !== undefined
 			? compilePredicate(pred.where, {
-					...ctx,
+					...(mode === "missing" ? negatedSearchBound(ctx) : ctx),
 					anchorAlias: compiledPath.leafAlias,
 					relationPathDepth: nextDepth,
 					...(relation.destinationCaseType === undefined
@@ -1860,7 +1969,7 @@ function compileSelfViaQuantifier(
 	// `missing(self, where)` is a negation: two-valued like `not`.
 	return where === undefined
 		? (eb.lit(false) as Expression<SqlBool>)
-		: negateTwoValued(compilePredicate(where, ctx));
+		: negateTwoValued(compilePredicate(where, negatedSearchBound(ctx)));
 }
 
 /**

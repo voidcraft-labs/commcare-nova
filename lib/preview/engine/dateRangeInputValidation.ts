@@ -1,4 +1,3 @@
-import { isValid, parseISO } from "date-fns";
 import {
 	DATE_RANGE_CONFIGURATION_MESSAGE,
 	DATE_RANGE_INVALID_MESSAGE,
@@ -7,9 +6,7 @@ import {
 	type SearchInputDef,
 	simpleSearchInputHasCoherentRangeWidget,
 } from "@/lib/domain";
-
-/** Wire-form calendar date accepted by CommCare's daterange encoding. */
-export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+import { isValidCalendarDate } from "@/lib/domain/calendarDate";
 
 export {
 	DATE_RANGE_CONFIGURATION_MESSAGE,
@@ -17,6 +14,10 @@ export {
 	DATE_RANGE_ORDER_MESSAGE,
 	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
 } from "@/lib/domain";
+export {
+	ISO_DATE_PATTERN,
+	isValidCalendarDate,
+} from "@/lib/domain/calendarDate";
 
 export type SearchInputValuesLike = ReadonlyMap<string, string>;
 
@@ -59,10 +60,6 @@ export function dateRangeInputErrors(
 		if (lower > upper) errors.set(input.name, DATE_RANGE_ORDER_MESSAGE);
 	}
 	return errors;
-}
-
-export function isValidCalendarDate(value: string): boolean {
-	return ISO_DATE_PATTERN.test(value) && isValid(parseISO(value));
 }
 
 /** Typed boundary for server-side callers that bypass the form. */

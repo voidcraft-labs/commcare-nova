@@ -1,6 +1,6 @@
 import { getAuthDb } from "@/lib/auth/db";
 import type { AppTestScope } from "@/lib/db/appTests";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import { readAuthorizedPreviewSearchCatalog } from "@/lib/deployment/previewSearchSettings";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
@@ -10,6 +10,7 @@ import type { PersistableDoc } from "@/lib/domain";
 import { balancedKeysBetween } from "@/lib/lookup/orderKeys";
 import { getLookupFixtureData, getLookupManifest } from "@/lib/lookup/service";
 import { readOrganization } from "@/lib/organization/service";
+import { resolvePreviewSearchFacts } from "@/lib/preview/searchSettings";
 import type { AppTestSnapshot, AppTestStartInput } from "./types";
 
 /** Capture authorized external read inputs once. Test entry, navigation and
@@ -92,14 +93,21 @@ export async function captureAppTestSnapshot(
 				...(additionalUuids.length ? { additionalUuids } : {}),
 			};
 	}
+	const searchCatalog = await readAuthorizedPreviewSearchCatalog(
+		scope.appId,
+		scope.projectId,
+		scope.actorUserId,
+	);
+	const searchFacts = resolvePreviewSearchFacts(
+		searchCatalog,
+		input.searchTarget,
+	);
 	return {
+		searchFacts,
 		purpose: input.purpose,
 		blueprint: toPersistableDoc(doc),
 		user,
-		projectSpace: await previewProjectSpaceFor({
-			...scope,
-			actorUserId: scope.actorUserId,
-		}),
+		projectSpace: searchFacts.projectSpace ?? null,
 		lookup: {
 			projectRevision: lookup.projectRevision,
 			definitions: lookup.definitions,

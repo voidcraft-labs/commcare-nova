@@ -727,7 +727,12 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * values were another session's), as a device's new session holds no
 	 * query. */
 	const searchRun = useSearchInputRunState({
-		scopeKey: `${scopeEpoch}:${previewSessionId}:${moduleUuid ?? ""}`,
+		scopeKey: JSON.stringify([
+			scopeEpoch,
+			previewSessionId,
+			moduleUuid,
+			device.searchConfiguration?.revision,
+		]),
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 		environment: searchEnvironment,
@@ -2964,9 +2969,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 							{localizeSearchValidationMessage(state.message)}
 						</p>
 						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-							{state.repair === "inputs"
-								? message("retrySearchInformation")
-								: "Return to edit mode and review Search settings"}
+							{state.reason?.kind === "link-history-unavailable"
+								? `“${state.reason.field}” searches the “${state.reason.identifier}” link. You can change that search field or try newly created records in an isolated App Test.`
+								: state.repair === "inputs"
+									? message("retrySearchInformation")
+									: "Return to edit mode and review Search settings"}
 						</p>
 					</div>
 				)}

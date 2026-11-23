@@ -50,6 +50,8 @@ export function collectConfigLookupTableIds(
 		if (caseListConfig.filter !== undefined) {
 			walkExpressionNodes(caseListConfig.filter, collect);
 		}
+		if (caseListConfig.searchCondition !== undefined)
+			walkExpressionNodes(caseListConfig.searchCondition, collect);
 		for (const column of caseListConfig.columns) {
 			if (column.kind === "calculated") {
 				walkExpressionNodes(column.expression, collect);

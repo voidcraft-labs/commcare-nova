@@ -374,6 +374,8 @@ const EMPTY_CASE_DATABASE_PATCH = { rows: [], indices: [] } as const;
 function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 	return {
 		query: appCaseQuery(),
+		querySearchResults: vi.fn(),
+		readSearchResultInstance: vi.fn(),
 		readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
 		readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
 		queryGrouped: vi.fn(),

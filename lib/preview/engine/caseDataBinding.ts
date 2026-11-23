@@ -36,6 +36,10 @@ import {
 	SEARCH_READING,
 } from "@/lib/case-store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
+import {
+	type CaseSearchRequest,
+	CaseSearchUnavailableError,
+} from "@/lib/case-store/searchRequest";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
 import { requireExpressionContext } from "@/lib/commcare/expressionContext";
 import { AppAccessError } from "@/lib/db/appAccess";
@@ -54,6 +58,7 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 	PersistableDoc,
+	Uuid,
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
@@ -125,6 +130,7 @@ import type {
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import { previewCaseStoreOrder } from "./caseListOrder";
+import { completedSearchRequest } from "./completedSearchRequest";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -170,6 +176,7 @@ import type {
 	LoadCaseDatabaseSnapshotResult,
 	LoadSearchResultsSnapshotResult,
 } from "./xpathInstances";
+import { formReadsSearchScore } from "./xpathInstances";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -344,16 +351,23 @@ function environmentReading(
 function runningRead(
 	searched: boolean,
 	restoreScope: RestoreScope,
+	request?: CaseSearchRequest,
 ):
 	| {
 			reading: CaseQueryReading;
-			searchPopulation: { heldBy: RestoreScope };
+			searchPopulation: { heldBy: RestoreScope; request?: CaseSearchRequest };
 	  }
 	| { reading: CaseQueryReading; restoreScope: RestoreScope } {
 	// HQ's search reads the Project's open cases, not the restore
 	// (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`).
 	return searched
-		? { reading: SEARCH_READING, searchPopulation: { heldBy: restoreScope } }
+		? {
+				reading: SEARCH_READING,
+				searchPopulation: {
+					heldBy: restoreScope,
+					...(request === undefined ? {} : { request }),
+				},
+			}
 		: { reading: CASEDB_READING, restoreScope };
 }
 
@@ -716,7 +730,19 @@ async function prepareRunningCaseRead(
 			// The running Results surface passes a bounded window. The form-selection
 			// caller deliberately omits it because it needs the complete candidate set.
 			page: args.page,
-			...runningRead(searched, context.restoreScope),
+			...runningRead(
+				searched,
+				context.restoreScope,
+				searched && !keyedSearch && environment !== undefined
+					? completedSearchRequest(
+							environment.doc.modules[environment.moduleUuid],
+							inputValues,
+							csqlRuntime?.filterValues,
+							device.searchConfiguration,
+							{ doc: environment.doc, caseType: args.caseType },
+						)
+					: undefined,
+			),
 		},
 	};
 }
@@ -737,6 +763,13 @@ export async function loadCasesAction(
 		// Editable date-range drafts are validated in the running form, but the
 		// action repeats the gate for stale/tampered callers. This is a repairable
 		// input error, not an observability fault.
+		if (err instanceof CaseSearchUnavailableError)
+			return {
+				kind: "invalid-search",
+				message: err.message,
+				reason: err.reason,
+				repair: "settings",
+			};
 		if (err instanceof SearchInputValuesError) {
 			return {
 				kind: "invalid-search",
@@ -770,7 +803,9 @@ export async function loadCasesAction(
  * population, so a module with no effective Search has no results to give.
  */
 export async function loadSearchResultsSnapshotAction(
-	args: Omit<RunningCaseReadArgs, "page" | "search" | "viewerLocation">,
+	args: Omit<RunningCaseReadArgs, "page" | "search" | "viewerLocation"> & {
+		readonly formUuid?: Uuid;
+	},
 ): Promise<LoadSearchResultsSnapshotResult> {
 	try {
 		const prepared = await prepareRunningCaseRead({ ...args, search: true });
@@ -797,14 +832,28 @@ export async function loadSearchResultsSnapshotAction(
 			};
 		return {
 			kind: "data",
-			snapshot: await readSearchResultsSnapshot(prepared.store, {
-				...read,
-				searchPopulation,
-			}),
+			snapshot: await readSearchResultsSnapshot(
+				prepared.store,
+				{
+					...read,
+					searchPopulation,
+				},
+				Boolean(
+					args.formUuid &&
+						args.blueprint &&
+						formReadsSearchScore(args.blueprint, args.formUuid),
+				),
+			),
 		};
 	} catch (err) {
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
+		if (err instanceof CaseSearchUnavailableError)
+			return {
+				kind: "invalid-search",
+				message: err.message,
+				reason: err.reason,
+			};
 		if (err instanceof SearchInputValuesError)
 			return { kind: "invalid-search", message: err.message };
 		const refusal = serverPreviewDataRefusalOf(err);
@@ -1994,12 +2043,15 @@ export async function submitFormAction(
 		 * conditions read `commcare_project` exactly as the form engine did
 		 * when it showed them. The receipt digest covers only the actor,
 		 * owner, and persona, so this cannot disturb replay. */
-		const projectSpace = await previewProjectSpaceFor({
-			appId,
-			projectId: authorized.projectId,
-			role: authorized.role,
-			actorUserId: session.user.id,
-		});
+		const projectSpace = await previewProjectSpaceFor(
+			{
+				appId,
+				projectId: authorized.projectId,
+				role: authorized.role,
+				actorUserId: session.user.id,
+			},
+			suppliedDevice?.searchConfiguration,
+		);
 		let identity: ResolvedPreviewIdentity | null;
 		if (personaUuid === undefined) {
 			identity = previewAsMe(

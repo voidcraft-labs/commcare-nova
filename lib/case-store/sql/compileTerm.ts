@@ -201,6 +201,8 @@ export interface TermBindings {
 	 * not. Validated at the compile site, never trusted raw.
 	 */
 	viewerTimeZone?: string;
+	/** Confirmed destination clock for search-only reads. */
+	projectTimeZone?: string;
 
 	/**
 	 * The case chosen in each menu the list's entry passes through, keyed by
@@ -220,6 +222,9 @@ export interface TermBindings {
  * and forwards the rest unchanged into downstream calls.
  */
 export interface TermCompileContext {
+	/** Lower or upper bound on native index membership. A negative
+	 * predicate exchanges the bounds before it compiles its operand. */
+	readonly searchBound?: "certain" | "possible";
 	/**
 	 * What the anchor row stands for (`CaseReading`): it decides the class
 	 * `date_opened` and `last_modified` read in, whether `closed_on` is

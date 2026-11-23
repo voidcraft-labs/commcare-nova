@@ -40,6 +40,7 @@ import {
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
+	formReadsSearchScore,
 	type SearchResultsSnapshot,
 } from "../engine/xpathInstances";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
@@ -160,7 +161,11 @@ async function appTestSearchResults(
 	});
 	if (refusal !== undefined) throw new AppTestActionError(refusal);
 	const found = await readingSurface("search", () =>
-		serverSearchResults(context.store, read),
+		serverSearchResults(
+			context.store,
+			read,
+			formReadsSearchScore(context.doc, screen.formUuid),
+		),
 	);
 	if (found === undefined) throw refused();
 	return found;
@@ -1140,7 +1145,10 @@ async function advanceAppTestOnScreen(
 		case "search": {
 			const read = await appTestRecords(context, scope, state, action.answers);
 			next = read.state;
-			extra = { completed: Object.keys(read.search.errors).length === 0 };
+			extra = {
+				completed:
+					read.result?.kind === "rows" || read.result?.kind === "empty",
+			};
 			break;
 		}
 		case "pageNext":

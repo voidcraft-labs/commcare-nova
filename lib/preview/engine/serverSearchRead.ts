@@ -24,6 +24,7 @@ import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
 import type { readCases } from "./caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "./caseListOrder";
+import { completedSearchRequest } from "./completedSearchRequest";
 import { PreviewDataRefusal } from "./dataRefusal";
 import { caseListStepSession } from "./entrySessionData";
 import { evaluateSearch } from "./evaluateForm";
@@ -270,7 +271,20 @@ export async function serverRecordsRead(
 					excludedOwnerIds: search.excludedOwnerIds,
 					authoredExcludedOwnerIds: search.authoredExcludedOwnerIds,
 					...(searched
-						? { searchPopulation: { heldBy: world.restoreScope } }
+						? {
+								searchPopulation: {
+									heldBy: world.restoreScope,
+									...(registeredCaseId === undefined && {
+										request: completedSearchRequest(
+											mod,
+											search.inputValues,
+											wire?.filterValues,
+											world.device.searchConfiguration,
+											{ doc: world.doc, caseType },
+										),
+									}),
+								},
+							}
 						: { restoreScope: world.restoreScope }),
 				};
 	return { search, searched, read, refusal };
@@ -284,8 +298,13 @@ export async function serverRecordsRead(
 export async function serverSearchResults(
 	store: Parameters<typeof readSearchResultsSnapshot>[0],
 	read: Awaited<ReturnType<typeof serverRecordsRead>>["read"],
+	readsHitScore = false,
 ): Promise<SearchResultsSnapshot | undefined> {
 	if (read?.searchPopulation === undefined) return undefined;
 	const { restoreScope: _restore, searchPopulation, ...rest } = read;
-	return readSearchResultsSnapshot(store, { ...rest, searchPopulation });
+	return readSearchResultsSnapshot(
+		store,
+		{ ...rest, searchPopulation },
+		readsHitScore,
+	);
 }

@@ -1,6 +1,8 @@
 import { sql, type Transaction } from "kysely";
+import type { PreviewSearchFacts } from "@/lib/preview/searchSettings";
 import { PostgresCaseStore } from "./postgres/store";
 import { HeuristicCaseGenerator } from "./sample/heuristic";
+import { searchConfigurationFromFacts } from "./searchConfiguration";
 import type { Database } from "./sql/database";
 import type { CaseStore } from "./store";
 
@@ -38,6 +40,8 @@ export type AppTestCaseStore = Pick<
 	| "queryGrouped"
 	| "readDeviceCaseDatabase"
 	| "readCaseDatabasePatch"
+	| "readSearchResultInstance"
+	| "querySearchResults"
 	| "insert"
 	| "update"
 	| "applySubmission"
@@ -51,6 +55,7 @@ export type AppTestCaseStore = Pick<
 export async function withAppTestNamespace<T>(
 	tx: Transaction<Database>,
 	args: {
+		searchFacts?: PreviewSearchFacts;
 		testId: string;
 		appId: string;
 		projectId: string;
@@ -107,6 +112,17 @@ export async function withAppTestNamespace<T>(
 		actorUserId: args.actorUserId,
 		ownerId: args.ownerId,
 		sampleGenerator: new HeuristicCaseGenerator(),
+		...(args.searchFacts && {
+			readSearchConfiguration: async (_tx, scope, _selector, types) => {
+				if (
+					scope.appId !== args.appId ||
+					scope.projectId !== args.projectId ||
+					!args.searchFacts
+				)
+					throw new Error("The search belongs to a different app test.");
+				return searchConfigurationFromFacts(args.searchFacts, types);
+			},
+		}),
 		authorizeMutation: async (_tx, mutation) => {
 			if (
 				mutation.appId !== args.appId ||
