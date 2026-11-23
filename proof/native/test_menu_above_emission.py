@@ -2,7 +2,8 @@
 
 Contract: for each document of the ``menu-screens`` family but its three controls, every ``<menu>``, every
 ``<entry>/<stack>`` and every ``<endpoint>`` HQ's suite contributors build from Nova's HQ import body equal the
-ones Nova's local suite writes, compared whole (every attribute, leaf text and child, in order), with known
+ones Nova's local suite writes, compared whole (every attribute, leaf text and child, in order, but a menu's
+instance declarations, whose order HQ takes from a set: ``_menu_instances_by_id``), with known
 XPath carriers compared as HQ's parser's complete expression trees. ``MenuScreensRuntimeTest`` then runs the
 menus and frames on both suites in Core. The plausible failures: a menu id, a ``root`` attribute, a locale id,
 a conjoined condition or a frame child Nova writes differently from HQ's build (``id_strings.py::menu_id``,
@@ -44,11 +45,37 @@ CONTROLS = ("step-back-control", "two-registrations-control", "undeclared-worker
 SELECTORS = ("menu", "entry/stack", "endpoint")
 
 
+def _menu_instances_by_id(root):
+    """Each ``<menu>``'s ``<instance>`` declarations in id order, in place.
+
+    HQ appends a menu's instances by iterating a ``set``
+    (``post_process/instances.py::InstancesHelper._add_menu_instances`` over
+    ``get_all_instances_referenced_in_xpaths``; ``Instance.__hash__`` hashes
+    its ``src`` and ``id``), so their order follows the process's string hash
+    seed, which the proof fixes and HQ's build does not choose. Core reads
+    a menu's instances into a table by id (``MenuParser.parse``), so the order
+    carries nothing; everything else of the menu is compared in order.
+    """
+    for menu in root.findall("menu"):
+        instances = menu.findall("instance")
+        for instance in instances:
+            menu.remove(instance)
+        menu.extend(sorted(instances, key=lambda instance: instance.get("id")))
+    return root
+
+
 def test_hq_menus_frames_and_endpoints_equal_novas(native):
     records = native.step("menu-screens")
     assert sorted(record["scenario"] for record in records) == sorted(DOCUMENTS + CONTROLS)
     compared = [record for record in records if record["scenario"] in DOCUMENTS]
-    suites = [(record, etree.fromstring(record["local"]), etree.fromstring(record["native"])) for record in compared]
+    suites = [
+        (
+            record,
+            _menu_instances_by_id(etree.fromstring(record["local"])),
+            _menu_instances_by_id(etree.fromstring(record["native"])),
+        )
+        for record in compared
+    ]
     parsed = parse_xml_xpaths(
         *(
             element
