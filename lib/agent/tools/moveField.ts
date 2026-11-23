@@ -237,10 +237,15 @@ export const moveFieldTool = {
 				.filter((uuid) => uuid !== moved.uuid)
 				.map((uuid) => doc.fields[uuid])
 				.find((sibling) => sibling?.id === moved.id);
+			// An ordinary move carries the value with its question where the two
+			// share a place (the reducer's rule), so the value lands beside the
+			// destination's values too.
+			const valueFollows =
+				input.where === undefined &&
+				layout.parents.get(moved.uuid) ===
+					layout.controlParents.get(moved.uuid);
 			if (
-				(input.where === "submission" ||
-					(input.where === undefined &&
-						moved.submissionPlacement === undefined)) &&
+				(input.where === "submission" || valueFollows) &&
 				collision !== undefined
 			) {
 				return fail(

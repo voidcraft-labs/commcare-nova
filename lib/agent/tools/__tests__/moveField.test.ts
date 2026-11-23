@@ -388,4 +388,38 @@ describe("where a question appears and where its answer is saved", () => {
 			layout.children.get(group)?.map((uuid) => saved.fields[uuid].id),
 		).toEqual(["golf_one", "alpha", "golf_two"]);
 	});
+
+	it("moves a question with its answer once another answer beside it was placed on its own", async () => {
+		const initial = makeDoc();
+		const h = makeToolWorkspaceHarness(initial);
+		const form = formUuidOf(initial);
+		const group = uuidOf(initial, "grp");
+		const charlie = uuidOf(initial, "charlie");
+		const golfOne = uuidOf(initial, "golf_one");
+		const placed = await h.runTool(moveFieldTool, {
+			...fieldAddress(initial, "golf_one"),
+			where: "submission",
+			afterFieldUuid: uuidOf(initial, "bravo"),
+		});
+		if ("error" in placed.result) throw new Error(placed.result.error);
+		// Placing golf_one's answer at the top level pins its new siblings'
+		// order too, though nobody separated charlie's answer from charlie.
+		const moved = await h.runTool(moveFieldTool, {
+			...fieldAddress(initial, "charlie"),
+			parentUuid: group,
+		});
+		if ("error" in moved.result) throw new Error(moved.result.error);
+		const saved = expectAdmittedDoc(h.currentDoc());
+		const names = referenceNames(saved);
+		expect(names.fieldPathSegments(charlie)).toEqual(["grp", "charlie"]);
+		// The answer placed on its own stays where its author put it.
+		expect(names.fieldPathSegments(golfOne)).toEqual(["golf_one"]);
+		const layout = submissionLayout(form, saved.fields, saved.fieldOrder);
+		expect(
+			layout.children.get(form)?.map((uuid) => saved.fields[uuid].id),
+		).toEqual(["alpha", "bravo", "golf_one", "grp"]);
+		expect(
+			layout.children.get(group)?.map((uuid) => saved.fields[uuid].id),
+		).toEqual(["golf_two", "charlie"]);
+	});
 });

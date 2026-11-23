@@ -177,13 +177,20 @@ export function applyFieldMutation(
 			const field = draft.fields[mut.uuid];
 			if (!field || mut.after === mut.uuid) return;
 			const doc = draft as unknown as BlueprintDoc;
-			const form =
-				mut.where === undefined ? undefined : findContainingForm(doc, mut.uuid);
+			const form = findContainingForm(doc, mut.uuid);
 			const layout =
 				form === undefined
 					? undefined
 					: submissionLayout(form, doc.fields, doc.fieldOrder);
 			const previous = layout?.parents.get(mut.uuid);
+			// An ordinary move carries the value with its question where the
+			// two share a place, and leaves a value placed on its own where it
+			// is, as a screen move does.
+			const valueFollows =
+				mut.where === undefined &&
+				layout !== undefined &&
+				previous !== undefined &&
+				previous === layout.controlParents.get(mut.uuid);
 			const keepOrder = (parent: Uuid, sequence: readonly Uuid[]) => {
 				const screen = draft.fieldOrder[parent] ?? [];
 				const together =
@@ -225,6 +232,10 @@ export function applyFieldMutation(
 				return;
 			const preserveSubmitted = () => {
 				if (layout === undefined || previous === undefined) return;
+				if (valueFollows) {
+					carrySubmitted();
+					return;
+				}
 				const originalScreen = layout.controlParents.get(mut.uuid);
 				if (
 					originalScreen !== undefined &&
@@ -238,6 +249,30 @@ export function applyFieldMutation(
 						mut.toParentUuid,
 						layout.children.get(mut.toParentUuid) ?? [],
 					);
+			};
+			// The value lands in its new parent's submitted sequence after the
+			// nearest earlier question on screen whose value is there too, and
+			// both parents' placements are written again, so a placement drops
+			// wherever the screen and the submission agree once more.
+			const carrySubmitted = () => {
+				if (layout === undefined || previous === undefined) return;
+				const left = (layout.children.get(previous) ?? []).filter(
+					(uuid) => uuid !== mut.uuid,
+				);
+				const base =
+					previous === mut.toParentUuid
+						? left
+						: (layout.children.get(mut.toParentUuid) ?? []).filter(
+								(uuid) => uuid !== mut.uuid,
+							);
+				const screen = draft.fieldOrder[mut.toParentUuid] ?? [];
+				const at = screen.indexOf(mut.uuid);
+				let anchor: Uuid | null = null;
+				for (let i = at - 1; i >= 0 && anchor === null; i--)
+					if (base.includes(screen[i])) anchor = screen[i];
+				const landed = spliceAfter([...base], mut.uuid, anchor);
+				if (previous !== mut.toParentUuid) keepOrder(previous, left);
+				keepOrder(mut.toParentUuid, landed);
 			};
 			// A same-parent move is a pure reorder. A cross-parent move needs
 			// the complete destination, subtree, and same-form checks below.

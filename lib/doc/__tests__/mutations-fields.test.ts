@@ -423,6 +423,56 @@ describe("field topology and identity", () => {
 		expect(next.fieldParent[children[0]]).toBe(groupPlan.cloneUuid);
 		expect(duplicateFieldMutations(next, Q("gone"))).toBeUndefined();
 	});
+	it("carries an answer with its question on an ordinary move, and keeps one placed on its own", () => {
+		// Placing child's answer at the form's top level writes a placement on
+		// every sibling there, a and b included.
+		const separated = commit(fixture(), [
+			{
+				kind: "moveField",
+				uuid: Q("child"),
+				where: "submission",
+				toParentUuid: F,
+				after: Q("b"),
+			},
+		]);
+		expect(separated.fields[Q("a")].submissionPlacement).toBeDefined();
+		const moved = commit(separated, [
+			{
+				kind: "moveField",
+				uuid: Q("a"),
+				toParentUuid: Q("group"),
+				after: Q("child"),
+			},
+		]);
+		const layout = submissionLayout(F, moved.fields, moved.fieldOrder);
+		expect(layout.parents.get(Q("a"))).toBe(Q("group"));
+		expect(layout.parents.get(Q("child"))).toBe(F);
+		expect(layout.children.get(F)).toEqual([Q("b"), Q("child"), Q("group")]);
+		expect(layout.children.get(Q("group"))).toEqual([Q("a")]);
+		// child's own answer stays at the top level when its question moves.
+		const back = commit(moved, [
+			{ kind: "moveField", uuid: Q("child"), toParentUuid: F, after: null },
+		]);
+		const after = submissionLayout(F, back.fields, back.fieldOrder);
+		expect(after.children.get(F)).toEqual([Q("b"), Q("child"), Q("group")]);
+		expect(after.parents.get(Q("a"))).toBe(Q("group"));
+		// Once screen and submission agree again, no placement is left.
+		const agreed = commit(back, [
+			{ kind: "moveField", uuid: Q("child"), toParentUuid: F, after: Q("b") },
+			{ kind: "moveField", uuid: Q("a"), toParentUuid: F, after: null },
+		]);
+		expect(agreed.fieldOrder[F]).toEqual([
+			Q("a"),
+			Q("b"),
+			Q("child"),
+			Q("group"),
+		]);
+		expect(
+			Object.values(agreed.fields).filter(
+				(field) => field.submissionPlacement !== undefined,
+			),
+		).toEqual([]);
+	});
 	it("duplicates the screen with fresh answers beside their independently placed originals", () => {
 		const source = commit(fixture(), [
 			{
