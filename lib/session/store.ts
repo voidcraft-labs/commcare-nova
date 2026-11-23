@@ -1655,6 +1655,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								),
 						) &&
 						current?.caseData === target?.caseData &&
+						current?.afterSubmission === target?.afterSubmission &&
 						current?.caseDatabase === target?.caseDatabase &&
 						current?.searchLaunch?.moduleUuid ===
 							target?.searchLaunch?.moduleUuid &&

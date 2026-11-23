@@ -41,10 +41,14 @@ async function openPracticeForm(
 	configure?: (
 		blueprint: ReturnType<typeof independentChoicesBlueprint>,
 	) => void,
+	withOpeningValues = false,
 ) {
 	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic signed opening secret");
 	await h.seedProjectMember(member.id, project, "owner");
-	const blueprint = independentChoicesBlueprint("field-visits");
+	const blueprint = independentChoicesBlueprint(
+		"field-visits",
+		withOpeningValues,
+	);
 	configure?.(blueprint);
 	const app = await h.seedAppWithBlueprint(blueprint, {
 		id: "signed-opening-practice",
@@ -496,4 +500,108 @@ it("writes each chosen record and replays the committed receipt after the saved 
 	).toBe("reopen");
 	expect(await reclaimExpiredFormOpeningData()).toBe(1);
 	expect(await submit()).toEqual(result);
+});
+
+it("opens the next form on the device its submission left, a case the restore no longer holds among it", async () => {
+	const { pool, device, request, first, app, next, doc, module } =
+		await openPracticeForm(3, undefined, true);
+	const second = await readFormOpeningAction(
+		{
+			...request,
+			previous: first.evidence,
+			choice: { selection: next.selectionUuid, caseId: "training-1" },
+		},
+		device,
+	);
+	if (second.kind !== "opening" || !second.next)
+		throw new Error(`Could not open second choice: ${second.kind}`);
+	const opened = await readFormOpeningAction(
+		{
+			...request,
+			previous: second.evidence,
+			choice: { selection: second.next.selectionUuid, caseId: "training-2" },
+		},
+		device,
+	);
+	if (opened.kind !== "opening") throw new Error("Could not finish choices");
+	const note = Object.values(doc.fields).find((field) => field.id === "note");
+	if (!note) throw new Error("Fixture is missing its visit note");
+	const result = await submitFormAction(
+		{
+			kind: "followup" as const,
+			caseIds: ["training-2"],
+			entryKey: request.entry,
+			formUuid: request.form,
+			attachmentRefs: [],
+			formOpening: { run: request.run, module, evidence: opened.evidence },
+			operationAnswers: {
+				root: [{ fieldUuid: note.uuid, value: "Seen today" }],
+				repeats: [],
+			},
+		},
+		app,
+		request.blueprintDigest,
+		undefined,
+		undefined,
+		undefined,
+		device,
+	);
+	expect(result.kind).toBe("followup");
+	// The case leaves this worker's restore, as a case the entry closed does;
+	// the device keeps it until it syncs.
+	await pool.query(
+		"UPDATE cases SET owner_id='another-worker' WHERE app_id=$1 AND case_id='training-2'",
+		[app],
+	);
+	// A follow-up of the review menu, which opens on the case it is given.
+	const review = Object.values(doc.forms).find(
+		(form) => form.name === "Review a visit",
+	);
+	const reviewMenu = doc.moduleOrder.find((uuid) =>
+		doc.formOrder[uuid]?.includes(review?.uuid as never),
+	);
+	if (!review || !reviewMenu) throw new Error("Fixture is missing its review");
+	const following = {
+		...request,
+		module: reviewMenu,
+		form: review.uuid,
+		entry: testUuid("following-entry"),
+		bound: ["training-2"],
+	};
+	expect((await readFormOpeningAction(following, device)).kind).toBe(
+		"record-unavailable",
+	);
+	const afterSubmission = await readFormOpeningAction(
+		{ ...following, afterSubmission: request.entry },
+		device,
+	);
+	if (afterSubmission.kind !== "opening")
+		throw new Error(
+			`Could not open after the submission: ${afterSubmission.kind}`,
+		);
+	expect(afterSubmission.projection.primaryCaseIds).toEqual(["training-2"]);
+	expect(afterSubmission.projection.submittedCaseIds).toContain("training-2");
+	// Restoring that entry keeps the case its submission left.
+	expect(
+		(
+			await readFormOpeningAction(
+				{
+					...following,
+					bound: undefined,
+					previous: afterSubmission.evidence,
+					restore: true,
+				},
+				device,
+			)
+		).kind,
+	).toBe("opening");
+	// Another entry's key opens nothing this actor did not commit.
+	expect(
+		(
+			await readFormOpeningAction(
+				{ ...following, afterSubmission: "never-submitted" },
+				device,
+			)
+		).kind,
+	).toBe("reopen");
 });

@@ -2787,6 +2787,8 @@ export function schemaHealingCaseStore(
 		holdsDeviceCases: (a) => store.holdsDeviceCases(a),
 		readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
+		readSubmittedCaseDatabasePatch: (a) =>
+			store.readSubmittedCaseDatabasePatch(a),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),
 		count: (a) => heal(() => store.count(a)),
 		insert: (a) => heal(() => store.insert(a)),

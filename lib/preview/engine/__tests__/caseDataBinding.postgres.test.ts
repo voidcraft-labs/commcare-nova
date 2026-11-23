@@ -2396,6 +2396,8 @@ describe("readCaseData", () => {
 			holdsDeviceCases: (a) => store.holdsDeviceCases(a),
 			readDeviceCaseDatabase: (a) => store.readDeviceCaseDatabase(a),
 			readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
+			readSubmittedCaseDatabasePatch: (a) =>
+				store.readSubmittedCaseDatabasePatch(a),
 			queryGrouped: (a) => store.queryGrouped(a),
 			count: (a) => store.count(a),
 			insert: (a) => store.insert(a),

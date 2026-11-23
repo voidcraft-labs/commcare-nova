@@ -27,6 +27,7 @@ import { workerListDocument } from "../workerModule";
 import { loadCasesAction } from "./caseDataBinding";
 import { readCaseDatabaseSnapshot } from "./caseDataBindingHelpers";
 import type { ParentCaseSelection } from "./caseDataBindingTypes";
+import { overlayCaseDatabasePatch } from "./caseDatabasePatch";
 import { previewDataRefusalOf } from "./dataRefusal";
 import {
 	caseListStepSession,
@@ -73,6 +74,9 @@ const requestSchema = z.strictObject({
 	restore: z.literal(true).optional(),
 	choice: manualChoiceSchema.optional(),
 	carried: z.array(manualChoiceSchema).optional(),
+	/** The form entry whose submission opened this one (a link or the
+	 * previous task): its committed patch is on the device. */
+	afterSubmission: z.string().min(1).optional(),
 });
 
 function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
@@ -105,6 +109,9 @@ export async function readFormOpeningAction(
 		kind: "reopen",
 		message: "The opening records changed. Open the form again to load them.",
 	} as const;
+	/* The record the form opens on is no longer one the worker's device
+	 * holds: the worker can choose another on its list. */
+	const unavailable = { kind: "record-unavailable" } as const;
 	if (!parsed.success) return reopen;
 	const args = parsed.data;
 	try {
@@ -145,6 +152,9 @@ export async function readFormOpeningAction(
 		};
 		const secret = process.env.BETTER_AUTH_SECRET ?? "";
 		let prior: FormOpeningProjection;
+		/* The cases the submission that opened this entry left on the device,
+		 * which its list no longer need show (a case it closed). */
+		let submittedCaseIds = new Set<string>();
 		if (args.previous) {
 			prior = await verifyFormOpening(secret, audience, args.previous);
 			if (
@@ -154,14 +164,17 @@ export async function readFormOpeningAction(
 				(args.restore ? args.choice : prior.complete || !args.choice)
 			)
 				return reopen;
+			submittedCaseIds = new Set(prior.submittedCaseIds ?? []);
 			if (
 				!(await context.store.holdsDeviceCases({
 					appId: args.app,
 					restoreScope: context.restoreScope,
-					caseIds: prior.cases.rows.map((row) => row.case_id),
+					caseIds: prior.cases.rows
+						.map((row) => row.case_id)
+						.filter((id) => !submittedCaseIds.has(id)),
 				}))
 			)
-				return reopen;
+				return prior.primaryCaseIds.length ? unavailable : reopen;
 			if (prior.cases.locations?.length) {
 				const currentPlaces = new Set(
 					await workerPlaceIds(args.app, context.blueprint, args.persona),
@@ -191,10 +204,30 @@ export async function readFormOpeningAction(
 				)
 			)
 				return reopen;
-			const restored = await readCaseDatabaseSnapshot(context.store, {
+			const restore = await readCaseDatabaseSnapshot(context.store, {
 				appId: args.app,
 				restoreScope: context.restoreScope,
 			});
+			/* A device keeps what its last submission wrote until it syncs, a
+			 * case that submission closed among it, so the form a submission
+			 * opens reads the restore with that submission's committed patch,
+			 * read from this actor's own receipt, laid over it. */
+			const submitted =
+				args.afterSubmission === undefined
+					? undefined
+					: await context.store.readSubmittedCaseDatabasePatch({
+							appId: args.app,
+							entryKey: args.afterSubmission,
+						});
+			if (args.afterSubmission !== undefined && submitted === undefined)
+				return reopen;
+			const restored =
+				submitted === undefined
+					? restore
+					: overlayCaseDatabasePatch(restore, submitted);
+			submittedCaseIds = new Set(
+				submitted?.rows.map((row) => row.case_id) ?? [],
+			);
 			const cases = appReadsPlaces(doc)
 				? {
 						...restored,
@@ -231,6 +264,7 @@ export async function readFormOpeningAction(
 			if (ids.length === 0) return true;
 			if (new Set(ids).size !== ids.length || ids.some((id) => !rows.has(id)))
 				return false;
+			if (ids.every((id) => submittedCaseIds.has(id))) return true;
 			const listed = explicit
 				? workerListDocument(doc, module, "form-selection")
 				: doc;
@@ -308,10 +342,10 @@ export async function readFormOpeningAction(
 			const walks = bound.length === 0 && entryWalksChoices(doc, args.form);
 			if (
 				(!walks && isCaseForm !== bound.length > 0) ||
-				(isCaseForm && parent && !under) ||
-				!(await available(args.module, bound, under))
+				(isCaseForm && parent && !under)
 			)
 				return reopen;
+			if (!(await available(args.module, bound, under))) return unavailable;
 		} else if (args.bound) return reopen;
 		const resolve = (choices: FormOpeningProjection["choices"]) =>
 			entrySessionData(doc, args.form, {
@@ -408,6 +442,9 @@ export async function readFormOpeningAction(
 			carried: [...carried.values()],
 			...(Object.keys(parentChoices).length && { parentChoices }),
 			primaryCaseIds: ownCaseId ? [ownCaseId] : bound,
+			...(submittedCaseIds.size > 0 && {
+				submittedCaseIds: [...submittedCaseIds],
+			}),
 			// The session keeps its records without a prototype; a Server
 			// Action answers only with plain objects, so each is copied into one.
 			sessionData: { ...reached.data },

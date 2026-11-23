@@ -2357,6 +2357,7 @@ export function FormScreen({
 											? next.selectingModuleUuids
 											: [],
 									caseDatabase: route.task.caseDatabase,
+									afterSubmission: sourceEntryKey,
 								},
 					);
 					settleAttempt({ kind: "idle" });
@@ -2370,6 +2371,7 @@ export function FormScreen({
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,
 							caseDatabase: refreshedCaseDatabase,
+							afterSubmission: sourceEntryKey,
 							entryChoices: route.task.entryChoices,
 							openedByLink: true,
 						});
@@ -2378,6 +2380,7 @@ export function FormScreen({
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,
 							caseDatabase: refreshedCaseDatabase,
+							afterSubmission: sourceEntryKey,
 						});
 						const [first, ...remaining] = next.selectingModuleUuids;
 						if (first === undefined)
@@ -2448,6 +2451,7 @@ export function FormScreen({
 									}
 								: {}),
 						caseDatabase: refreshedCaseDatabase,
+						afterSubmission: sourceEntryKey,
 					});
 					settleAttempt({ kind: "idle" });
 					navigate.openForm(route.moduleUuid, route.formUuid);

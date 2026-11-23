@@ -134,6 +134,7 @@ import type {
 	ApplySubmissionArgs,
 	SubmissionEnvelopeResult,
 } from "../submission";
+import { parseSubmissionEnvelopeResult } from "../submission";
 import { caseSchemaIndexLockScope } from "./indexIdentity";
 import { retireCaseTypeSchemasInTransaction } from "./schemaRetirement";
 import {
@@ -1228,6 +1229,22 @@ export class PostgresCaseStore implements CaseStore {
 				}),
 			true,
 		);
+	}
+
+	async readSubmittedCaseDatabasePatch(args: {
+		readonly appId: string;
+		readonly entryKey: string;
+	}): Promise<DeviceCaseDatabase | undefined> {
+		const row = await this.db
+			.selectFrom("form_submission_intents")
+			.select("result")
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", this.requireProjectId())
+			.where("created_by", "=", this.requireActorUserId())
+			.where("entry_key", "=", args.entryKey)
+			.executeTakeFirst();
+		if (row?.result == null) return undefined;
+		return parseSubmissionEnvelopeResult(row.result).caseDatabasePatch;
 	}
 
 	private async readCaseDatabasePatchInTransaction(

@@ -377,6 +377,7 @@ function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 		holdsDeviceCases: vi.fn(async () => true),
 		readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
 		readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
+		readSubmittedCaseDatabasePatch: vi.fn(async () => undefined),
 		queryGrouped: vi.fn(),
 		count: vi.fn(),
 		insert: vi.fn(),

@@ -3273,9 +3273,10 @@ test.describe("authenticated builder", () => {
 				await expect(
 					main.getByRole("button", { name: "Next", exact: true }),
 				).toHaveCount(0);
-				// Hold only the source's selected-record read, retaining its real
-				// response. The previously visited form must not accept answers
-				// against stale data while the fresh entry is still being prepared.
+				// Hold only the source's signed opening, retaining its real response:
+				// the form reads its record from that snapshot. The previously
+				// visited form must not accept answers against stale data while
+				// the fresh entry is still being prepared.
 				const releaseCaseRead = Promise.withResolvers<void>();
 				let heldCaseRead = false;
 				const caseReadRoutes = removableRoutes(page);
@@ -3287,14 +3288,15 @@ test.describe("authenticated builder", () => {
 						const args: unknown = body?.startsWith("[")
 							? JSON.parse(body)
 							: null;
+						const opening: unknown = Array.isArray(args) ? args[0] : null;
 						if (
 							request.method() === "POST" &&
 							request.headers()["next-action"] &&
-							Array.isArray(args) &&
-							args[0] === fixture.appId &&
-							args[1] === FORM_LINKS_SEED.caseType &&
-							typeof args[2] === "string" &&
-							args[3] === 0
+							typeof opening === "object" &&
+							opening !== null &&
+							(opening as { app?: unknown }).app === fixture.appId &&
+							typeof (opening as { blueprintDigest?: unknown })
+								.blueprintDigest === "string"
 						) {
 							const response = await route.fetch();
 							heldCaseRead = true;
@@ -3315,7 +3317,7 @@ test.describe("authenticated builder", () => {
 					).toHaveCount(0);
 					await expect(
 						main.getByRole("button", { name: "Submit", exact: true }),
-					).toBeDisabled();
+					).toHaveCount(0);
 				} finally {
 					releaseCaseRead.resolve();
 					await caseReadRoutes.removeAll();
@@ -3343,7 +3345,8 @@ test.describe("authenticated builder", () => {
 			});
 			await test.step("an unavailable selected record offers another selection", async () => {
 				// Obtain the missing-record response from the real authorized server
-				// read, using an absent ID at the network boundary. No fixture row
+				// opening, asking it to open the form on an absent ID at the network
+				// boundary instead of restoring the entry it signed. No fixture row
 				// or live data is deleted to exercise this terminal read result.
 				const missingRecordRoutes = removableRoutes(page);
 				await missingRecordRoutes.route(
@@ -3354,16 +3357,23 @@ test.describe("authenticated builder", () => {
 						const args: unknown = body?.startsWith("[")
 							? JSON.parse(body)
 							: null;
+						const opening: unknown = Array.isArray(args) ? args[0] : null;
 						if (
+							Array.isArray(args) &&
 							request.method() === "POST" &&
 							request.headers()["next-action"] &&
-							Array.isArray(args) &&
-							args[0] === fixture.appId &&
-							args[1] === FORM_LINKS_SEED.caseType &&
-							typeof args[2] === "string" &&
-							args[3] === 0
+							typeof opening === "object" &&
+							opening !== null &&
+							(opening as { app?: unknown }).app === fixture.appId &&
+							typeof (opening as { blueprintDigest?: unknown })
+								.blueprintDigest === "string"
 						) {
-							args[2] = "missing-selected-record";
+							const {
+								previous: _previous,
+								restore: _restore,
+								...rest
+							} = opening as Record<string, unknown>;
+							args[0] = { ...rest, bound: ["missing-selected-record"] };
 							await route.fulfill({
 								response: await route.fetch({ postData: JSON.stringify(args) }),
 							});

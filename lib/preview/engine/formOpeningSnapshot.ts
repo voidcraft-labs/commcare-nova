@@ -96,6 +96,10 @@ export interface FormOpeningProjection {
 	 * separately: a blank text value is distinct from an absent selection. */
 	readonly primaryCaseIds: readonly string[];
 	readonly parentChoices?: Readonly<Record<string, readonly string[]>>;
+	/** The cases the submission that opened this entry left on the device
+	 * (`afterSubmission`), held there until sync though a restore may omit
+	 * them (a case it closed). */
+	readonly submittedCaseIds?: readonly string[];
 	readonly datums: Readonly<Record<string, string>>;
 	readonly resolvedEntries: Readonly<Record<string, string>>;
 	readonly sessionData: Readonly<Record<string, string>>;

@@ -1129,6 +1129,16 @@ export interface CaseStore extends SchemaCaseStore {
 		readonly caseIds: readonly string[];
 	}): Promise<DeviceCaseDatabase>;
 
+	/** The patch a committed submission of this actor's form entry left on the
+	 * device (`SubmissionEnvelopeResult.caseDatabasePatch`), read from its
+	 * durable receipt, or `undefined` where this actor committed no such
+	 * entry. The next form a submission opens reads the device it left, which
+	 * keeps a case the entry just closed until sync. */
+	readSubmittedCaseDatabasePatch(args: {
+		readonly appId: string;
+		readonly entryKey: string;
+	}): Promise<DeviceCaseDatabase | undefined>;
+
 	/**
 	 * DomainExpression-driven SELECT with optional inline calculated-column
 	 * projection. Default ordering (when `sort` is absent) is

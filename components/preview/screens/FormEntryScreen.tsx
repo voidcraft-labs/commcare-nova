@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/shadcn/button";
+import { useReconcilerContext } from "@/lib/collab/context";
+import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
+import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
 import { blueprintRevisionDigest } from "@/lib/preview/engine/caseDataBindingClient";
 import { entryWalksChoices } from "@/lib/preview/engine/entrySessionData";
 import { readFormOpeningAction } from "@/lib/preview/engine/formOpeningAction";
@@ -12,8 +15,15 @@ import {
 	formNeedsOpeningEvidence,
 } from "@/lib/preview/engine/formOpeningSnapshot";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
+import { useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
+import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
+import {
+	previewCaseListReturn,
+	previewMenuCaseContext,
+} from "@/lib/preview/menuProjection";
+import { useNavigate } from "@/lib/routing/hooks";
 import {
 	pushBuilderHistory,
 	readBuilderHistoryMove,
@@ -27,12 +37,14 @@ import {
 	usePreviewPersonaUuid,
 	usePreviewSessionId,
 	useSetPreviewCaseTarget,
+	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import { PreviewDataRefusalPanel } from "../shared/PreviewDataRefusal";
 import { CaseListScreen } from "./CaseListScreen";
 import { FormScreen } from "./FormScreen";
+import { FORM_PRIMARY_ACTION_CLS } from "./formActionButtonStyles";
 
 type Screen = Extract<PreviewScreen, { type: "form" }>;
 type OpeningResult = Awaited<ReturnType<typeof readFormOpeningAction>>;
@@ -70,12 +82,16 @@ export function FormEntryScreen({ screen }: { screen: Screen }) {
 }
 
 function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
-	const { doc } = usePreviewMenuSource();
+	const menuSource = usePreviewMenuSource();
+	const { doc } = menuSource;
+	const collab = useReconcilerContext();
 	const app = useAppId();
 	const persona = usePreviewPersonaUuid();
 	const device = usePreviewDevice();
 	const current = usePreviewCaseTarget();
 	const setTarget = useSetPreviewCaseTarget();
+	const setSelectedCase = useSetPreviewSelectedCase();
+	const navigate = useNavigate();
 	const session = useBuilderSessionApi();
 	const target = current?.formUuid === screen.formUuid ? current : undefined;
 	const stored =
@@ -94,13 +110,62 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 			mounted.current = false;
 		};
 	}, []);
-	const bound =
-		// A second entry keeps its own choices, as a form with its own does.
-		entrySelectionSettings(doc.forms[screen.formUuid]) === undefined
-			? (screen.cases ?? target?.cases)
-			: undefined;
-	const linkedChoices = target?.openedByLink ? target.entryChoices : undefined;
 	const selections = usePreviewMenuCaseSelections();
+	const menuCaseContext = useMemo(
+		() => previewMenuCaseContext(menuSource, screen.moduleUuid, selections),
+		[menuSource, screen.moduleUuid, selections],
+	);
+	const form = doc.forms[screen.formUuid];
+	// A second entry keeps its own choices, as a form with its own does.
+	const ownChoices = entrySelectionSettings(form) !== undefined;
+	const held = ownChoices
+		? undefined
+		: (screen.cases ?? menuCaseContext.selectedCase?.cases ?? target?.cases);
+	/* Opened with no case in hand (from the structure tree rather than its
+	 * case list), a form that loads a case binds the first one its list
+	 * holds, as `FormScreen` does for a form that needs no opening. */
+	const autoSelect =
+		held === undefined &&
+		!ownChoices &&
+		form !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		doc.modules[screen.moduleUuid]?.caseListConfig?.selection === undefined &&
+		!entryWalksChoices(doc, screen.formUuid);
+	const autoParentCase = useMemo(
+		() =>
+			autoSelect
+				? parentCaseConstraint(
+						doc,
+						screen.moduleUuid,
+						menuCaseContext.parentCase,
+					)
+				: undefined,
+		[autoSelect, doc, screen.moduleUuid, menuCaseContext.parentCase],
+	);
+	const restoreScopeKey = useRestoreScopeKey(persona);
+	const autoCases = useCases({
+		appId: app,
+		caseType: autoSelect ? doc.modules[screen.moduleUuid]?.caseType : undefined,
+		parentCase: autoParentCase,
+		requestScopeKey: `${screen.moduleUuid}\u0000${screen.formUuid}\u0000${restoreScopeKey}`,
+	});
+	const autoRow =
+		autoSelect && autoCases.state.kind === "rows"
+			? autoCases.state.rows[0]
+			: undefined;
+	const autoBound = useMemo(
+		() =>
+			autoRow === undefined
+				? undefined
+				: [{ caseId: autoRow.case_id, caseName: autoRow.case_name || "Case" }],
+		[autoRow],
+	);
+	const autoSettled =
+		!autoSelect ||
+		(autoCases.state.kind !== "loading" && autoCases.state.kind !== "idle");
+	const bound = held ?? autoBound;
+	const linkedChoices = target?.openedByLink ? target.entryChoices : undefined;
+	const afterSubmission = target?.afterSubmission;
 	const parentChoices = useMemo(() => {
 		const chosen: Record<string, string[]> = {};
 		const seen = new Set([screen.moduleUuid]);
@@ -123,8 +188,10 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 			entry,
 			stored,
 			bound,
+			autoSettled,
 			parentChoices,
 			linkedChoices,
+			afterSubmission,
 		}),
 		[
 			app,
@@ -134,8 +201,10 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 			entry,
 			stored,
 			bound,
+			autoSettled,
 			parentChoices,
 			linkedChoices,
+			afterSubmission,
 		],
 	);
 	const initial = useReloadableResource<RequestResult>({
@@ -149,9 +218,20 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 		prepare: () => {
 			if (stored && issuedHere.current === stored.binding.evidence.signature)
 				return { notReady: { kind: "ready", opening: stored } };
-			if (!app) return { notReady: { kind: "loading" } };
+			if (!app || (!stored && !autoSettled))
+				return { notReady: { kind: "loading" } };
 			return {
 				fetch: async () => {
+					/* The server signs the opening for the revision it holds, so
+					 * an edit still saving is saved first (as a submission
+					 * waits), or its digest would name a revision it lacks. */
+					const saved = await collab?.reconciler.waitForHumanSaveBarrier();
+					if (saved !== undefined && saved.kind !== "saved")
+						return {
+							kind: "error",
+							message:
+								"Your latest edit hasn't saved yet, so the form can't open. Try again once it saves.",
+						};
 					const blueprintDigest = await blueprintRevisionDigest(doc);
 					const result = await readFormOpeningAction(
 						{
@@ -171,6 +251,7 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 											selection: row.selectionUuid,
 											caseId: row.caseId,
 										})),
+										afterSubmission,
 									}),
 						},
 						device,
@@ -207,9 +288,20 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 			? loaded
 			: undefined;
 	const projection = opening?.projection;
+	/* Each opening this entry loads is saved on the session once. A later
+	 * session change that drops it (a submission's next task, a new case)
+	 * leaves it dropped, rather than handing the next entry of this form the
+	 * records this one opened with. */
+	const savedOpening = useRef<string | undefined>(undefined);
 	useEffect(() => {
 		// Save the empty prefix too: Android Back can return to the first choice.
-		if (opening && !stored && session.getState().previewSessionId === run) {
+		if (
+			opening &&
+			!stored &&
+			savedOpening.current !== opening.binding.evidence.signature &&
+			session.getState().previewSessionId === run
+		) {
+			savedOpening.current = opening.binding.evidence.signature;
 			setTarget({
 				...target,
 				formUuid: screen.formUuid,
@@ -232,6 +324,35 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 	const failure =
 		choiceFailure ??
 		(initial.state.kind !== "ready" ? initial.state : undefined);
+	if (failure?.kind === "record-unavailable")
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-4 px-6">
+				<div role="status" className="max-w-xs space-y-2 text-center">
+					<h3 className="text-sm font-medium text-nova-text">
+						This record is no longer available
+					</h3>
+					<p className="text-sm text-nova-text-muted">
+						The record may have changed or moved out of this worker's access.
+						Another record can be selected to continue.
+					</p>
+				</div>
+				<button
+					type="button"
+					className={FORM_PRIMARY_ACTION_CLS}
+					onClick={() => {
+						setSelectedCase(undefined);
+						const back = previewCaseListReturn(
+							session.getState().previewCaseTarget,
+							{ moduleUuid: screen.moduleUuid, formUuid: screen.formUuid },
+						);
+						setTarget(back.target);
+						navigate.replace({ kind: "cases", moduleUuid: back.moduleUuid });
+					}}
+				>
+					Choose another record
+				</button>
+			</div>
+		);
 	if (failure?.kind === "data-refused")
 		return (
 			<PreviewDataRefusalPanel

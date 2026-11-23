@@ -128,6 +128,10 @@ export interface PreviewCaseTarget {
 	 * restore may omit a case the device just closed, but the linked form still
 	 * opens against the case and casedb state the submitting entry committed. */
 	caseData?: CaseDataByType;
+	/** The form entry whose submission opened this form (a direct link or
+	 * the previous task). A form that opens on a signed snapshot reads the
+	 * device that submission left (`formOpeningAction.ts`). */
+	afterSubmission?: string;
 	caseDatabase?: CaseDatabaseSnapshot;
 	/** What the worker typed into the case list's filter when they chose the
 	 * case, which the entry's session holds as `session/data/stringquery`, as
@@ -174,6 +178,9 @@ export interface PreviewTaskContinuation {
 	readonly returnModuleUuid?: Uuid;
 	readonly selectingModuleUuids: readonly Uuid[];
 	readonly caseDatabase: CaseDatabaseSnapshot;
+	/** The form entry whose submission left `caseDatabase` on the device
+	 * (`PreviewCaseTarget.afterSubmission`). */
+	readonly afterSubmission?: string;
 }
 
 /** The worker's answers as the search-input instance would hold them:
