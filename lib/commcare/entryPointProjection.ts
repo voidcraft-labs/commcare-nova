@@ -287,9 +287,16 @@ function entryPointFrame(
 	const preceding = new Set(
 		prefix.flatMap((c) => (c.type === "datum" ? [c.datum.id] : [])),
 	);
+	// A menu listing another menu's forms takes the common prefix of its
+	// source's own entries, every form of the source including the ones it
+	// leaves out (`get_frame_children`: `form is None and module_type ==
+	// "shadow"` reads `get_module_datums(source)`).
+	const listsModule =
+		doc.modules[target.moduleUuid]?.formsFromMenu?.menuUuid ??
+		target.moduleUuid;
 	const common = commonPrefixById(
-		(context.formOrder[target.moduleUuid] ?? []).map((uuid) =>
-			entryFrameDatums(doc, context, target.moduleUuid, uuid),
+		(context.formOrder[listsModule] ?? []).map((uuid) =>
+			entryFrameDatums(doc, context, listsModule, uuid),
 		),
 	);
 	const frame = [

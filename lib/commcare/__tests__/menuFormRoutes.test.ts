@@ -19,6 +19,7 @@ import { eq, literal, prop } from "@/lib/domain/expression";
 import { menuScreenEntries } from "@/lib/domain/menuScreens";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
 import { compileCcz } from "../compiler";
+import { projectEntryPoint } from "../entryPointProjection";
 import { expandDoc } from "../expander";
 import {
 	entryDatumIds,
@@ -335,6 +336,18 @@ describe("a form listed in a second menu", () => {
 			[ROUTE, "clinic-visit", undefined],
 			[SOURCE, "visit", true],
 		]);
+	});
+
+	it("opens the listing menu's own deep link over every form of its source, as HQ's endpoint builder does", () => {
+		// `get_frame_children(module, None)` on a ShadowModule reads the
+		// SOURCE's entries, including the registration the menu leaves out,
+		// so the common prefix is empty and the link takes no case.
+		const projection = projectEntryPoint(twoMenus(), {
+			kind: "module",
+			moduleUuid: ROUTE,
+		});
+		expect(projection.requiredSelections).toEqual([]);
+		expect(projection.frame).toEqual([{ type: "command", id: "m0" }]);
 	});
 
 	it("publishes one source XForm, and both local suite commands point to that same form with the source label", () => {
