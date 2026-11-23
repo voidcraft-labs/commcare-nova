@@ -1471,7 +1471,7 @@ const TARGETS_OWN = {
 	uiTranslations: { en: { "home.start": "Begin a visit" } },
 	addOns: { menu_mode: true },
 	profileProperties: { "cc-autoup-freq": "freq-daily" },
-	appAttributes: { auto_gps_capture: true },
+	appAttributes: { secure_submissions: true },
 } as const;
 
 /** The first import of `log` (`<what>` names it in the failure). */
@@ -1530,10 +1530,11 @@ it("captures a republish after an edit in each key, over a person's saves of the
 	expect(sent.profile).toMatchObject({
 		properties: { "cc-autoup-freq": "freq-daily", "cc-show-saved": "yes" },
 	});
-	expect(sent).not.toHaveProperty("auto_gps_capture");
+	expect(sent.auto_gps_capture).toBe(false);
+	expect(sent).not.toHaveProperty("secure_submissions");
 	expect(update.assumedSource).toMatchObject({
 		add_ons: TARGETS_OWN.addOns,
-		auto_gps_capture: true,
+		auto_gps_capture: false,
 	});
 });
 
