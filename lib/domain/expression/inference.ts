@@ -526,9 +526,13 @@ function hiddenAssignmentType(
 	if (bind === undefined) return value;
 	if (bind === "boolean") return undefined;
 	if (site.source === "default_value") {
+		// An untyped starting answer is cast to nothing: Core holds it as
+		// UncastData (`AnswerDataFactory.templateByDataType`, DATATYPE_NULL),
+		// the same text the automatic `xsd:string` holds as StringData, so
+		// it keeps the value's own type as the automatic one does.
+		if (bind === "untyped") return value;
 		if (bind === "long") return forStorage ? "text" : "decimal";
-		if (bind === "file" || bind === "barcode" || bind === "untyped")
-			return "text";
+		if (bind === "file" || bind === "barcode") return "text";
 		return bind;
 	}
 	const held = scalarHeldOf(node);

@@ -951,3 +951,38 @@ it("keeps a 64-bit starting answer numeric in a formula and stores its submitted
 	).toBe("text");
 	expect(hiddenWriterVerdicts(built)).toEqual([]);
 });
+
+it("keeps an untyped starting answer's own type, as the automatic one keeps it", () => {
+	// The form builder binds every Hidden Value with no type. Core holds its
+	// starting answer uncast (DATATYPE_NULL's UncastData), the same text the
+	// automatic `xsd:string` holds, so neither turns a date into text.
+	const built = doc({
+		register: [
+			f({
+				uuid: uuid("untyped_start"),
+				kind: "hidden",
+				id: "untyped_start",
+				answerType: "untyped",
+				default_value: "today()",
+				caseWrite: { caseType: "patient", property: "untyped_seen" },
+			}),
+			f({
+				uuid: uuid("automatic_start"),
+				kind: "hidden",
+				id: "automatic_start",
+				default_value: "today()",
+				caseWrite: { caseType: "patient", property: "automatic_seen" },
+			}),
+		],
+	});
+	const inferred = inferExpressionTypes(built);
+	const patient = inferred.caseTypes.find((type) => type.name === "patient");
+	for (const name of ["untyped", "automatic"]) {
+		expect(inferred.hiddenTypes.get(uuid(`${name}_start`))).toBe("date");
+		expect(
+			patient?.properties.find((property) => property.name === `${name}_seen`)
+				?.data_type,
+		).toBe("date");
+	}
+	expect(hiddenWriterVerdicts(built)).toEqual([]);
+});
