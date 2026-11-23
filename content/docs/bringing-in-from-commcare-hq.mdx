@@ -121,10 +121,17 @@ Nova keeps no copy of the list. **Copy the list** lets you take it with you, and
 
 Nova doesn't bring in part of an app.
 
-A lookup table of any size comes in. Where a table holds more than Nova reads
-at once while bringing in an app, the app comes in with the table's columns, and
-the table's page in Project data offers **Refresh**, which reads its rows in
-pages. Until then Nova has no copy of its rows to show or preview.
+Where a lookup table holds more than Nova reads at once while bringing in an
+app, the app comes in with the table's columns, and the table's page in Project
+data offers **Refresh**, which reads its rows in pages. Until then Nova has no
+copy of its rows to show or preview.
+
+The tables Nova does read while bringing in an app still have to fit what Nova
+carries in one app. An app whose tables together hold more lookup data than
+that is listed under **Nova can't hold this yet**, and so is a table already in
+your Project, managed in the same project space, that would keep more than 250
+columns once the columns your apps read are added. Those limits are Nova's, not
+the app's.
 
 Nova also gives each app only so much checking for its size. An app that takes
 more checking than that is listed under **Nova can't hold this yet** as an app
