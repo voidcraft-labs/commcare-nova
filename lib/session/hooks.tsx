@@ -136,6 +136,17 @@ export function useSetPreviewAtDeviceHome(): (atHome: boolean) => void {
 	return useBuilderSession((s) => s.setPreviewAtDeviceHome);
 }
 
+export function usePreviewLocationFix() {
+	return useBuilderSession((state) => state.previewLocationFix);
+}
+export function usePreviewSubmissionLocation() {
+	return useBuilderSession((state) => state.previewSubmissionLocation);
+}
+
+export function useSetPreviewLocationFix() {
+	return useBuilderSession((state) => state.setPreviewLocationFix);
+}
+
 /** When this Preview run last synced on Android, epoch milliseconds. */
 export function usePreviewDeviceSyncedAt(): number | undefined {
 	return useBuilderSession((s) => s.previewDeviceSyncedAt);

@@ -542,6 +542,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	lines.push(`### App: "${doc.appName}"`);
 	if (doc.connectType) lines.push(`Connect type: ${doc.connectType}`);
 	lines.push(
+		`Automatic location on Android: ${doc.connectType !== null ? "on for all forms through Connect" : doc.appSettings.captureLocation ? "on for all forms" : "chosen by each form"}`,
 		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
 	);
 	lines.push(`Runs on: ${platformDeclarationLabel(declaredPlatforms(doc))}`);

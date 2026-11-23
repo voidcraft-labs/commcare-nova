@@ -10,6 +10,7 @@ import { CaseChangesSection } from "./CaseChangesSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
 import { FormEntrySection } from "./FormEntrySection";
+import { FormLocationSection } from "./FormLocationSection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
 import { OwnCaseSection } from "./OwnCaseSection";
 import { RecordNameSection } from "./RecordNameSection";
@@ -87,6 +88,7 @@ export function FormSettingsPanel({
 
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
+				<FormLocationSection formUuid={formUuid} />
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				{!noMatches && (

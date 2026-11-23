@@ -48,7 +48,7 @@ import type {
 
 /** The refusal a call that names nothing to change reads. */
 export const UPDATE_APP_EMPTY_INPUT_MESSAGE =
-	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms) and where the app runs (runs_only_on); a call needs at least one of them.";
+	"This call named nothing to change, so the app is as it was. update_app sets the display name (name), whether workers see saved forms (show_saved_forms), whether they see incomplete forms (show_incomplete_forms), whether forms request the device location (capture_location), and where the app runs (runs_only_on); a call needs at least one of them.";
 
 export const updateAppInputSchema = z
 	.strictObject({
@@ -58,6 +58,12 @@ export const updateAppInputSchema = z
 			.optional()
 			.describe(
 				"App display name (the title users see on devices). Leave it out to keep the current name.",
+			),
+		capture_location: z
+			.boolean()
+			.optional()
+			.describe(
+				"Whether every form requests the Android device's location when it opens. False lets each form choose. Connect always requests location. Web Apps leaves the location empty.",
 			),
 		show_saved_forms: z
 			.boolean()
@@ -94,6 +100,11 @@ function changedSettings(
 	current: AppSettings,
 ): AppSettingsPatch {
 	const settings: AppSettingsPatch = {};
+	if (
+		input.capture_location !== undefined &&
+		input.capture_location !== (current.captureLocation === true)
+	)
+		settings.captureLocation = input.capture_location;
 	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms

@@ -514,6 +514,9 @@ function appSettingsPatch(
 	next: AppSettings,
 ): AppSettingsPatch | undefined {
 	const patch: AppSettingsPatch = {};
+	if (prev.captureLocation !== next.captureLocation) {
+		patch.captureLocation = next.captureLocation === true;
+	}
 	if (prev.showSavedForms !== next.showSavedForms) {
 		patch.showSavedForms = next.showSavedForms;
 	}

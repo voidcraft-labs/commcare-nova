@@ -5,6 +5,7 @@ import { Button } from "@/components/shadcn/button";
 import { AppAppearanceSection } from "./AppAppearanceSection";
 import { AppConnectSection } from "./AppConnectSection";
 import { AppDataSourcesSection } from "./AppDataSourcesSection";
+import { AppLocationSection } from "./AppLocationSection";
 import { AppPlatformsSection } from "./AppPlatformsSection";
 import { AppSavedFormsSection } from "./AppSavedFormsSection";
 
@@ -49,6 +50,7 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 				<AppPlatformsSection />
 				<AppAppearanceSection />
 				<AppSavedFormsSection />
+				<AppLocationSection />
 				<AppConnectSection />
 				<AppDataSourcesSection />
 			</div>
