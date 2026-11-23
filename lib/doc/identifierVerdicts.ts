@@ -492,9 +492,9 @@ const CASE_OPERATION_PROPERTY_OK: CaseOperationPropertyVerdict = { ok: true };
  * Adjudicate a case property a case operation would write.
  *
  * Reserved properties are the ones the operation's own facets own (the
- * name, the owner) or that CommCare HQ stores somewhere other than the
- * property (`location_id`, `hq_user_id`), so writing one through the
- * generic slot would mean something a property write does not. A case operation's write is always in the form's
+ * name, the owner) or that are a fact of the case or a word CommCare HQ
+ * reserves, so writing one through the generic slot would mean something a
+ * property write does not. A case operation's write is always in the form's
  * source, so the names HQ's form builder can't keep there are refused too:
  * the three it can't open a form with, and `close`, which it reads as
  * closing the case. `alreadyWritten` is the set this operation already

@@ -329,7 +329,13 @@ export type SubmissionRejection =
 	| {
 			readonly kind: "text-value";
 			readonly operationUuid: string;
-			readonly facet: "name" | "rename" | "owner" | "external_id";
+			readonly facet:
+				| "name"
+				| "rename"
+				| "owner"
+				| "external_id"
+				| "location_id"
+				| "hq_user_id";
 			readonly reason: "blank" | "too-long";
 	  }
 	| {

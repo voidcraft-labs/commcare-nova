@@ -6085,12 +6085,6 @@ def _held_new():
         subcase = _subcase(case_properties={key: _update("/data/q")})
         return _with_forms(_app([_module([_form_json("none", subcases=[subcase])])]), f=QUESTIONS)
 
-    # A SaveToCase block of a patient whose own update rows are `location_id` and `size`.
-    block = _form(
-        data=f"""<op vellum:role="SaveToCase" vellum:case_type="patient">{case}<update><location_id/>
-      <size/></update></case></op>"""
-    )
-    row = f"{data}op[1]/{{{CASE_NS}}}case[1]/{{{CASE_NS}}}update[1]/{{{CASE_NS}}}"
     household = _load("load_household_0", case_type="household")
     worker = _load("usercase", auto_select={"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""})
 
@@ -6214,17 +6208,6 @@ def _held_new():
             accepted("form", count_rows, hidden_type, hidden("r", "item", "nova_query_id_r"), readings=True),
             refused("form", count_rows, hidden_type, hidden("s", "item", "nova_query_id_s"), readings=True),
             accepted("form", case_attribute, hidden_type, case_id, readings=True),
-        ),
-        "forms-and-case-writes/update-keys-location-id-hq-user-id": (
-            refused("app", own_update("location_id"), update_map, updates),
-            accepted("app", own_update("district"), update_map, updates),
-            # Under the condition never, HQ's build writes no key of the map, the inert class beside it.
-            accepted("app", own_update("location_id", NEVER), update_map, updates),
-            refused("app", child_update("hq_user_id"), child_map, children),
-            # A child case's key with an index step is refused before its property is read.
-            accepted("app", child_update("parent/location_id"), child_map, children),
-            refused("form", block, "xform:model/instance//*", f"{row}location_id[1]"),
-            accepted("form", block, "xform:model/instance//*", f"{row}size[1]"),
         ),
         "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": (
             refused("app", own_update("größe"), update_map, updates),

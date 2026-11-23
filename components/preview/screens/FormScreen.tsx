@@ -403,7 +403,13 @@ function describeSubmissionRejection(
 					? "case owner"
 					: rejection.facet === "rename"
 						? "new case name"
-						: "case name";
+						: rejection.facet === "external_id"
+							? "external ID"
+							: rejection.facet === "location_id"
+								? "location ID"
+								: rejection.facet === "hq_user_id"
+									? "worker ID, which CommCare also keeps as the external ID,"
+									: "case name";
 			return rejection.reason === "blank"
 				? `Nothing was saved: a case automation computed an empty ${facet}. Check the answers it builds that value from and submit again.`
 				: `Nothing was saved: a case automation computed a ${facet} that is too long. Shorten the answers it builds that value from and submit again.`;

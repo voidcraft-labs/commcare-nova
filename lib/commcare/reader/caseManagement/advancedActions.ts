@@ -88,7 +88,6 @@ import { registrationOpenIndex } from "./advancedRegistration";
 import {
 	ancestorSteps,
 	dropCreateNameRequired,
-	isServerDivertedWrite,
 	namesAttachment,
 	type PropertyNameClass,
 	type ProposedValue,
@@ -312,10 +311,6 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:LoadUpdateAction.case_properties",
 	),
-	loadLocationKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
-		"schema:LoadUpdateAction.case_properties",
-	),
 	loadWorkerKey: refuse(
 		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
 		"schema:LoadUpdateAction.case_properties",
@@ -506,10 +501,6 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		"schema:AdvancedOpenCaseAction.case_properties",
 	),
-	openLocationKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
-		"schema:AdvancedOpenCaseAction.case_properties",
-	),
 	openRepeat: take(
 		`${F}/advancedopencaseaction-repeat-context-equal-to-the-name-question`,
 		"schema:AdvancedOpenCaseAction.repeat_context",
@@ -596,7 +587,6 @@ const LOAD_PROPERTY_CLAIMS = {
 		"non-core": ADVANCED_CLAIMS.loadNonCoreKey,
 		"non-ascii": ADVANCED_CLAIMS.loadNonAsciiKey,
 	},
-	diverted: ADVANCED_CLAIMS.loadLocationKeys,
 };
 
 /** The worker's load's: a key no worker property takes is its own row. */
@@ -904,9 +894,6 @@ function readProperties(
 		readonly names: Readonly<
 			Record<Exclude<PropertyNameClass, "too-long">, Claim<"refuse">>
 		>;
-		/** The row of a key HQ's server stores apart from the case's properties
-		 *  (`basicActions.ts::isServerDivertedWrite`). */
-		readonly diverted: Claim<"refuse">;
 		/** The worker's load's row of a key the worker's record takes no write to
 		 *  (`worldEntities.ts::holdsWorkerRecordWrite`), `name` and `owner_id`
 		 *  among them; absent on every other action. */
@@ -980,18 +967,6 @@ function readProperties(
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
-		}
-		// HQ's build writes a load's and an open action's keys into the case
-		// block's `<update>` as it writes a basic update's
-		// (`xform.py::XForm._create_casexml_advanced` → `add_case_updates`), so
-		// HQ's server stores these two apart from the case's properties there too,
-		// a case above included, unless the key's question is an upload, which
-		// names an attachment.
-		if (isServerDivertedWrite(r.form, property, cursor.peek("question_path"))) {
-			cursor.refuseMapEntry(claims.diverted, { name: key });
-			r.ok = false;
-			out.refused = true;
-			continue;
 		}
 		// `name` and `owner_id` are the case's name and owner; every other key is a
 		// property, which Nova's grammar must name.
@@ -2256,7 +2231,6 @@ export function readAdvancedActions(
 					"non-core": ADVANCED_CLAIMS.openNonCoreKey,
 					"non-ascii": ADVANCED_CLAIMS.openNonAsciiKey,
 				},
-				diverted: ADVANCED_CLAIMS.openLocationKeys,
 			},
 			{ kind: "elsewhere" },
 			true,

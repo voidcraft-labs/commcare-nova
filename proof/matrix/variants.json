@@ -16865,14 +16865,6 @@
 		"id": "hq-case-management/location-id-write",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/update-keys-location-id-hq-user-id",
-		"standing": "not-yet",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Members",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/forms/0/actions/update_case/update/location_id",
@@ -16881,7 +16873,19 @@
 				"update_mode": "always",
 				"doc_type": "ConditionalCaseUpdate"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "location_id"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/members-chosen-from-their-household",

@@ -569,30 +569,31 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		);
 	});
 
-	it("refuses a key `location_id`", async () => {
+	const NON_ASCII = `${F}/update-key-holding-a-non-ascii-core-name-character`;
+	it("refuses a key holding a non-ASCII name character, recorded at the map and the keys above it", async () => {
 		const reading = await readCases(app([visit]), {
 			edit: (json) => {
 				const update = actionsOf(json).update_case.update as Record<
 					string,
 					unknown
 				>;
-				update.location_id = { question_path: "/data/other" };
+				update.größe = { question_path: "/data/other" };
 			},
 		});
-		expect(codes(reading)).toContain(`${F}/update-keys-location-id-hq-user-id`);
+		expect(codes(reading)).toContain(NON_ASCII);
 		// The refusal names the map's own key, whose value is the map, so it is
 		// recorded at the map, where the map's held claim stands too, and where the
 		// lane's manifest check reads the key's use; and at each key above it the
 		// entry names, which its class is a fact about too (`Accounting.findingAt`'s
 		// `#recordAround`). The refusal's own record also names the key it reads.
 		const refusal = [...reading.ctx.close().claims.records()].filter(
-			(one) => one.entry === `${F}/update-keys-location-id-hq-user-id`,
+			(one) => one.entry === NON_ASCII,
 		);
 		const at = (where: string, key: string) => ({
 			artifact: "app.json",
 			where: `/modules/0/forms/0/${where}`,
 			key,
-			entry: `${F}/update-keys-location-id-hq-user-id`,
+			entry: NON_ASCII,
 			standing: "not-yet",
 		});
 		expect(refusal).toEqual([
@@ -600,7 +601,7 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			at("actions/update_case", "schema:FormActions.update_case"),
 			{
 				...at("actions/update_case/update", "schema:UpdateCaseAction.update"),
-				at: "/modules/0/forms/0/actions/update_case/update/location_id",
+				at: "/modules/0/forms/0/actions/update_case/update/größe",
 			},
 		]);
 	});
@@ -1241,16 +1242,16 @@ describe("one cause, one finding, at a basic form's case actions", () => {
 		);
 	}
 
-	it("refuses a key `location_id` once, with no difference raised at the form's actions", async () => {
+	it("refuses a key holding a non-ASCII name character once, with no difference raised at the form's actions", async () => {
 		const reading = await readMenusOf(app([visit]), (json) => {
 			const update = actionsOf(json as AppJson).update_case.update as Record<
 				string,
 				unknown
 			>;
-			update.location_id = { question_path: "/data/other" };
+			update.größe = { question_path: "/data/other" };
 		});
 		expect(atActions(reading)).toEqual([
-			`${F}/update-keys-location-id-hq-user-id`,
+			`${F}/update-key-holding-a-non-ascii-core-name-character`,
 		]);
 	});
 
@@ -1614,9 +1615,9 @@ describe("a key HQ's server stores apart from a case's properties, wherever a ba
 	// for the own case, a case above it, the worker's record and a child case), and HQ's
 	// server stores `location_id` as the case's location and copies `hq_user_id` to its
 	// external id wherever a block holds them (`update_strategy.py::_apply_update_action`).
-	// Nova holds neither as a write (`FORBIDDEN_CASE_WRITE_PROPERTIES`), so a reading that
-	// took one as a property would hold a document that writes something else.
-	const DIVERTED = `${F}/update-keys-location-id-hq-user-id`;
+	// Nova writes both as HQ's server stores them, so a reading holds each as a write of its
+	// key, but `hq_user_id` on the worker's record, which HQ's user-case sync keeps in step.
+	const WORKER_KEY = `${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`;
 
 	/** Every finding a whole reading raises at a form's case actions. */
 	function atActions(reading: Awaited<ReturnType<typeof readMenusOf>>) {
@@ -1823,24 +1824,30 @@ describe("a key HQ's server stores apart from a case's properties, wherever a ba
 		},
 	];
 
+	/** Every property a case operation of the reading's document writes. */
+	function writtenProperties(doc: BlueprintDoc | undefined): string[] {
+		return Object.values(doc?.forms ?? {}).flatMap((form) =>
+			(form.caseOperations ?? []).flatMap((operation) =>
+				(operation.writes ?? []).map((write) => write.property),
+			),
+		);
+	}
+
 	for (const site of SITES)
-		it(`refuses \`location_id\` and \`hq_user_id\` written to ${site.where} once, where Nova's own write there reads with none`, async () => {
-			// The pair: Nova's own export of the write reads with no finding at its actions.
-			const plain = await readMenusOf(site.doc(), (json) => {
-				site.map(json as AppJson);
-			});
-			expect(atActions(plain)).toEqual([]);
-			expect(plain.outcome.defects).toEqual([]);
+		it(`reads \`location_id\` and \`hq_user_id\` written to ${site.where} as writes of those keys`, async () => {
 			for (const key of ["location_id", "hq_user_id"]) {
 				const stored = site.to(key);
 				const reading = await readMenusOf(site.doc(), (json) =>
 					renameKey(site.map(json as AppJson), site.from, stored),
 				);
-				expect(atActions(reading), key).toEqual([DIVERTED]);
 				expect(reading.outcome.defects, key).toEqual([]);
-				const found = reading.findings.filter((one) => one.code === DIVERTED);
-				expect(found[0]?.detail?.name, key).toBe(stored);
-				expect(reading.doc, key).toBeUndefined();
+				if (site.where === "the worker's record" && key === "hq_user_id") {
+					expect(atActions(reading), key).toEqual([WORKER_KEY]);
+					expect(reading.doc, key).toBeUndefined();
+					continue;
+				}
+				expect(atActions(reading), key).toEqual([]);
+				expect(writtenProperties(reading.doc), key).toContain(key);
 			}
 		});
 

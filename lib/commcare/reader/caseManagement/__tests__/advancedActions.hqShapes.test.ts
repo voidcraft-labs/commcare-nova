@@ -341,14 +341,9 @@ describe("an advanced form's loads and open actions", () => {
 		const ILLEGAL = `${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`;
 		const NON_CORE = `${F}/update-key-holding-a-character-validate-property-accepts-that-is`;
 		const NON_ASCII = `${F}/update-key-holding-a-non-ascii-core-name-character`;
-		// HQ's build writes a load's and an open action's keys into the case block's
-		// `<update>` as it writes a basic update's (`_create_casexml_advanced` →
-		// `add_case_updates`), and HQ's server stores these two apart from the case's
-		// properties there (`update_strategy.py::_apply_update_action`).
-		const DIVERTED = `${F}/update-keys-location-id-hq-user-id`;
+		// HQ's user-case sync keeps `hq_user_id` in step with the worker.
+		const WORKER_KEY = `${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`;
 		const CASES: readonly (readonly [string, string])[] = [
-			["location_id", DIVERTED],
-			["hq_user_id", DIVERTED],
 			["dob+1", ILLEGAL],
 			["status", ILLEGAL],
 			["date-opened", ILLEGAL],
@@ -400,9 +395,8 @@ describe("an advanced form's loads and open actions", () => {
 			for (const [key, entry] of [
 				["status", ILLEGAL],
 				["mood\n", NON_CORE],
-				// The worker's record is a case HQ's server updates as any other.
-				["location_id", DIVERTED],
-				["hq_user_id", DIVERTED],
+				// The worker's record keeps `hq_user_id` in step with the worker.
+				["hq_user_id", WORKER_KEY],
 			] as const) {
 				// The key replaces the load's one write, which would leave it writing nothing.
 				const reading = await readMenusOf(doc, (app) => {
@@ -434,6 +428,32 @@ describe("an advanced form's loads and open actions", () => {
 			};
 			return open;
 		};
+
+		for (const [surface, fixture, stored] of [
+			["a load's", () => memberFollowup().doc, lastLoad],
+			["an open action's", () => registration().doc, ownOpen],
+		] as const)
+			it(`reads ${surface} \`location_id\` and \`hq_user_id\` as writes of those keys`, async () => {
+				// HQ's build writes a load's and an open action's keys into the case
+				// block's `<update>` as it writes a basic update's
+				// (`_create_casexml_advanced` → `add_case_updates`), where HQ's server
+				// keeps the case's location and copies its external id
+				// (`update_strategy.py::_apply_update_action`), as Nova's case store does.
+				const doc = fixture();
+				for (const key of ["location_id", "hq_user_id"]) {
+					const reading = await writing(doc, key, stored);
+					expect(reading.outcome.defects, key).toEqual([]);
+					expect(codesOf(reading), key).toEqual([]);
+					expect(
+						Object.values(reading.doc?.forms ?? {}).flatMap((form) =>
+							(form.caseOperations ?? []).flatMap((operation) =>
+								(operation.writes ?? []).map((write) => write.property),
+							),
+						),
+						key,
+					).toContain(key);
+				}
+			});
 
 		for (const [surface, fixture, stored] of [
 			["a load's", () => memberFollowup().doc, lastLoad],

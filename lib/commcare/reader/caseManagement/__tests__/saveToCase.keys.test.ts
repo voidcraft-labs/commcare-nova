@@ -7,13 +7,13 @@
  * IndexedFormBaseValidator.check_case_properties` reads only the actions'), and
  * HQ's server applies the block's `<update>` as any other's
  * (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`):
- * `location_id` becomes the case's location column, `hq_user_id` is copied
- * to its external id, `name` renames the case, and every other key, a word
- * HQ reserves among them, is kept as a property. Nova holds none of them as a
- * write (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`),
- * so each is one finding at the block, under the entry that says why, and no
- * operation; a key Nova holds (`external_id`, a plain name) is read as the
- * write it is, with no finding, into a document the commit gate admits. A
+ * `name` renames the case, and every other key, a word HQ reserves among
+ * them, is kept as a property. Nova holds none of those as a write
+ * (`standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`), so
+ * each is one finding at the block, under the entry that says why, and no
+ * operation; a key Nova holds (`external_id`, `location_id`, which becomes the
+ * case's location column, `hq_user_id`, which is also copied to its external
+ * id, a plain name) is read as the write it is, with no finding, into a document the commit gate admits. A
  * block of the worker's record holds its keys to the worker properties
  * instead (`workerRecordKeys.test.ts`). A block refused for one node of it (a
  * reserved row, an `<attachment>`, a `<case>` no Save to Case role marks) is
@@ -21,7 +21,7 @@
  * node, where the lane's parity decides the class, and not at the block's
  * node or the guard's, which the lane holds.
  *
- * The plausible failure: a block writing `status` or `location_id` read as a
+ * The plausible failure: a block writing `status` read as a
  * plain write with no finding, into a document the commit gate refuses
  * (what the reader did before); a block refused whole recorded at its own node
  * and its guard's, where the lane holds a Save to Case node.
@@ -46,7 +46,6 @@ const NOTE = testUuid("block-keys-note");
 /** The property the emitted block writes, renamed in the source to each key. */
 const WRITTEN = "sizzz";
 
-const LOCATION = "forms-and-case-writes/update-keys-location-id-hq-user-id";
 const RESERVED =
 	"questions/savetocase-update-key-nova-reserves-for-a-case-s-own-facts";
 const ATTACHMENT = "questions/attachment-inside-a-savetocase-block";
@@ -149,8 +148,6 @@ function placesOf(
 
 describe("a Save to Case block's update key Nova holds as no write", () => {
 	for (const [key, entry] of [
-		["location_id", LOCATION],
-		["hq_user_id", LOCATION],
 		["status", RESERVED],
 		["date_opened", RESERVED],
 		["closed", RESERVED],
@@ -222,7 +219,7 @@ describe("a Save to Case block's update key Nova holds as no write", () => {
 		]);
 	});
 
-	for (const key of [WRITTEN, "size"])
+	for (const key of [WRITTEN, "size", "location_id", "hq_user_id"])
 		it(`reads \`${key}\` as the write it is, into a document the gate admits`, async () => {
 			const outcome = await readWith(key);
 			expect(outcome.defects).toEqual([]);

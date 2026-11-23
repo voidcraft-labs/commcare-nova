@@ -2744,6 +2744,7 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 		case "datetime-literal-precision":
 		case "format-date-pattern-not-fixed":
 		case "closed-on-not-on-device":
+		case "location-not-in-search":
 		case "case-type-ordering":
 		case "epoch-fraction-on-device":
 		case "runtime-selected-value-type":

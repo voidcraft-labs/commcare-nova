@@ -46,7 +46,6 @@ import { readHqApp } from "./heldReading";
 
 const WORKER =
 	"forms-and-case-writes/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes";
-const LOCATION = "forms-and-case-writes/update-keys-location-id-hq-user-id";
 const FACET =
 	"questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat";
 /** The worker property each export writes, renamed in the source to each key. */
@@ -224,6 +223,9 @@ const REFUSED_EVERYWHERE = [
 	"Status",
 	"first_name",
 	"username",
+	// HQ's user-case sync keeps it in step with the worker, and HQ's user data
+	// refuses it as a field (`USER_DATA_SYSTEM_FIELDS`).
+	"hq_user_id",
 	`w${"x".repeat(127)}`,
 ];
 
@@ -262,14 +264,26 @@ describe("a write of the worker's record to a key no worker property takes", () 
 			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		});
 
-		it(`refuses \`location_id\` in ${path} under the row of the keys HQ stores apart`, async () => {
+		it(`reads \`location_id\` in ${path} as a worker detail the record keeps as its location`, async () => {
 			const outcome = await readWith(app(), "location_id");
 			expect(outcome.defects).toEqual([]);
-			expect(
-				outcome.kind === "account"
-					? outcome.findings.map((one) => one.code)
-					: [],
-			).toEqual([LOCATION]);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			if (outcome.kind !== "read") throw new Error("The write did not read.");
+			const read = outcome.draft.doc;
+			const worker = Object.values(read.forms)
+				.flatMap((form) => form.caseOperations ?? [])
+				.find(
+					(one) => one.action !== "own" && one.target.kind === "worker-record",
+				);
+			expect(worker?.writes?.map((one) => one.property)).toEqual([
+				"location_id",
+			]);
+			const verdict = mutationCommitVerdict(
+				read,
+				[],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		});
 	}
 

@@ -122,6 +122,7 @@ const PATIENT: CaseType = {
 		{ name: "prior_age", label: proseText("Prior age"), data_type: "int" },
 		{ name: "meds", label: proseText("Meds"), data_type: "multi_select" },
 		{ name: "seen_at", label: proseText("Seen at"), data_type: "datetime" },
+		{ name: "hq_user_id", label: proseText("Worker ID"), data_type: "text" },
 	],
 };
 // A superset of `patient` — every shared property keeps its exact
@@ -4439,4 +4440,143 @@ describe("a date and time saved to a case", () => {
 			expect(row?.properties.seen_at).toBe(stored);
 		},
 	);
+});
+
+// ---------------------------------------------------------------
+// The keys CommCare HQ's server stores apart from a case's properties
+// ---------------------------------------------------------------
+
+// HQ's server applies a block's `<update>` key by key
+// (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`):
+// `location_id` sets the case's location column and is no property, and
+// `hq_user_id` is a property whose value it also copies into the external id,
+// after the block's known keys (`external_id` among them). A device applies
+// both as properties alone (`CaseXmlParser.updateCase`), so until its next
+// sync it keeps its own external id. The plausible failures: the location
+// saved as a JSONB property, the copy missing from the stored external id, or
+// the submission's device patch showing the server's copy before a sync.
+describe("location_id and hq_user_id", () => {
+	const update = (writes: CaseOperationWrite[]) =>
+		rootProgram([envOp(operation({ uuid: OP_A, writes }))]);
+	const text = (value: string) => term(literal(value));
+
+	it("stores the location in its column and copies hq_user_id into the external id the device keeps", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		await store.update({
+			appId: APP_ID,
+			caseId: SESSION_CASE_ID,
+			patch: { external_id: "before" },
+		});
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: update([
+				{ property: "location_id", value: text("district-7") },
+				{ property: "hq_user_id", value: text("worker-9") },
+			]),
+		});
+
+		const row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.location_id).toBe("district-7");
+		expect(row?.properties).not.toHaveProperty("location_id");
+		expect(row?.properties).toMatchObject({ hq_user_id: "worker-9" });
+		expect(row?.external_id).toBe("worker-9");
+		const patched = result.caseDatabasePatch?.rows.find(
+			(one) => one.case_id === SESSION_CASE_ID,
+		);
+		expect(patched?.external_id).toBe("before");
+		expect(patched?.location_id).toBe("district-7");
+		expect(patched?.properties).toMatchObject({ hq_user_id: "worker-9" });
+
+		const found = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			predicate: eq(prop("patient", "location_id"), literal("district-7")),
+		});
+		expect(found.map((one) => one.case_id)).toEqual([SESSION_CASE_ID]);
+	});
+
+	it("keeps the block's own external_id on the device and the hq_user_id copy on the server", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: update([
+				{ property: "external_id", value: text("written") },
+				{ property: "hq_user_id", value: text("copied") },
+			]),
+		});
+
+		expect((await patientRow(store, SESSION_CASE_ID))?.external_id).toBe(
+			"copied",
+		);
+		expect(
+			result.caseDatabasePatch?.rows.find(
+				(one) => one.case_id === SESSION_CASE_ID,
+			)?.external_id,
+		).toBe("written");
+	});
+
+	it("gives a created case the hq_user_id copy on the server and no external id on the device", async () => {
+		const store = makeStore();
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram(
+				[
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "create",
+							target: { kind: "new" },
+							name: text("Bea"),
+							writes: [
+								{ property: "hq_user_id", value: text("worker-3") },
+								{ property: "location_id", value: text("") },
+							],
+						}),
+					),
+				],
+				{ sessionCaseId: null },
+			),
+		});
+		const created = result.operations[0]?.caseId;
+		if (created === undefined) throw new Error("The create ran.");
+		const row = await patientRow(store, created);
+		expect(row?.external_id).toBe("worker-3");
+		// A blank location is a real blank write, which reads as blank.
+		expect(row?.location_id).toBe("");
+		const patched = result.caseDatabasePatch?.rows.find(
+			(one) => one.case_id === created,
+		);
+		expect(patched?.external_id).toBeNull();
+	});
+
+	it("rejects a location past 255 characters before any effect", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const err = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: update([
+					{ property: "notes", value: text("changed") },
+					{ property: "location_id", value: text("x".repeat(256)) },
+				]),
+			}),
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "text-value",
+			facet: "location_id",
+			reason: "too-long",
+		});
+		const row = await patientRow(store, SESSION_CASE_ID);
+		expect(row?.location_id).toBeNull();
+		expect(row?.properties).toMatchObject({ notes: "original" });
+	});
 });

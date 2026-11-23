@@ -886,12 +886,32 @@ owned by the worker with a `host` extension index to each chosen case, as HQ's
 claim does, and a person releases them from the identity menu. Reserved write properties are
 `lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES` — HQ's authoring-side
 case-reserved-words list plus `name` and `owner_id` — extended with
-`location_id`, `hq_user_id`, and `external_id`.
+`external_id`.
 
-`location_id` and `hq_user_id` are reserved because CommCare HQ stores each
-somewhere other than the property: a written `location_id` becomes the case's
-own location and a written `hq_user_id` is copied to its external id
-(`update_strategy.py::_apply_update_action`). `category` and `state` are
+`location_id` and `hq_user_id` are written as CommCare HQ's server stores
+them (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`),
+whichever action or Save to Case block writes them. A written `location_id`
+is the case's own location: an opaque text, not one of the Project's places
+and no grant of access, which the case store keeps in the nullable
+`cases.location_id` column and every device reads as the case's
+`location_id` property (HQ's restore writes the column back as that element
+where it holds text, `V2CaseXMLGenerator.add_custom_properties`). It is a
+writable standard scalar like `external_id`
+(`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`), held to text
+and 255 characters, and no standard property every case carries: a case type
+holds it where the app saves or declares it. HQ's case search indexes no
+location (`corehq/pillows/case_search.py::_get_case_properties`), so a
+search's read of it is refused (`typeChecker.ts`, `location-not-in-search`).
+A written `hq_user_id` is an ordinary property whose value the case store
+also copies into the case's external id, applied after the block's own
+`external_id` as HQ applies its known keys first; the submitting device keeps
+its own external id until its next sync (`CaseXmlParser.updateCase` keeps the
+key as a property alone), which the submission's device patch holds
+(`postgres/submissionEnvelope.ts::DeviceExternalIds`). The worker's record
+keeps `hq_user_id` in step with the worker, so no form writes it there
+(`USERCASE_BUILT_IN_KEYS`); a worker detail named `location_id` is the
+record's location column, as HQ's user-case sync leaves it
+(`lib/db/syncUsercaseRow.ts`). `category` and `state` are
 ordinary properties on both runtimes: Core keeps each in the case's property
 map (`Case.java::setCategory`, `setState`) and shows it as a child like any
 other (`CaseChildElement.setCaseProperties`), beside an attribute of the same

@@ -132,6 +132,7 @@ const CODES: Readonly<Record<CheckErrorCode, true>> = {
 	"datetime-literal-precision": true,
 	"format-date-pattern-not-fixed": true,
 	"closed-on-not-on-device": true,
+	"location-not-in-search": true,
 	"case-type-ordering": true,
 	"epoch-fraction-on-device": true,
 	"runtime-selected-value-type": true,

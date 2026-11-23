@@ -1987,6 +1987,15 @@ export class PostgresCaseStore implements CaseStore {
 							"allow",
 						),
 					}),
+			...(args.row.location_id === null || args.row.location_id === undefined
+				? { location_id: null }
+				: {
+						location_id: normalizedCaseScalar(
+							"location_id",
+							args.row.location_id,
+							"allow",
+						),
+					}),
 			...(args.caseId === undefined ? {} : { case_id: args.caseId }),
 			app_id: args.appId,
 			project_id: this.requireProjectId(),
@@ -2077,7 +2086,7 @@ export class PostgresCaseStore implements CaseStore {
 			if (replay !== undefined) return replay;
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			const effects = await executeSubmissionEnvelope(
+			const { deviceExternalIds, ...effects } = await executeSubmissionEnvelope(
 				trx,
 				this.submissionEnvelopeHost(),
 				args,
@@ -2089,13 +2098,13 @@ export class PostgresCaseStore implements CaseStore {
 					operation.executed ? [operation.caseId] : [],
 				),
 			];
-			const caseDatabasePatch = await this.readCaseDatabasePatchInTransaction(
-				trx,
-				{
+			const caseDatabasePatch = devicePatch(
+				await this.readCaseDatabasePatchInTransaction(trx, {
 					appId: args.appId,
 					projectId: this.requireProjectId(),
 					caseIds: affectedCaseIds,
-				},
+				}),
+				deviceExternalIds,
 			);
 			const result: SubmissionEnvelopeResult = {
 				...effects,
@@ -2138,6 +2147,7 @@ export class PostgresCaseStore implements CaseStore {
 						case_type: a.seed.caseType,
 						case_name: a.seed.caseName,
 						external_id: a.seed.externalId ?? null,
+						location_id: a.seed.locationId ?? null,
 						status: "open",
 						properties: a.seed.properties,
 						...(a.seed.parentCaseId === undefined
@@ -2261,6 +2271,15 @@ export class PostgresCaseStore implements CaseStore {
 								external_id: normalizedCaseScalar(
 									"external_id",
 									row.external_id,
+									"allow",
+								),
+							}),
+					...(row.location_id === null || row.location_id === undefined
+						? { location_id: null }
+						: {
+								location_id: normalizedCaseScalar(
+									"location_id",
+									row.location_id,
 									"allow",
 								),
 							}),
@@ -2446,6 +2465,15 @@ export class PostgresCaseStore implements CaseStore {
 						external_id: normalizedCaseScalar(
 							"external_id",
 							args.patch.external_id,
+							"allow",
+						),
+					}),
+			...(args.patch.location_id === undefined
+				? {}
+				: {
+						location_id: normalizedCaseScalar(
+							"location_id",
+							args.patch.location_id,
 							"allow",
 						),
 					}),
@@ -2744,6 +2772,7 @@ export class PostgresCaseStore implements CaseStore {
 				`${leafAlias}.closed_on as closed_on`,
 				`${leafAlias}.case_name as case_name`,
 				`${leafAlias}.external_id as external_id`,
+				`${leafAlias}.location_id as location_id`,
 				`${leafAlias}.parent_case_id as parent_case_id`,
 				`${leafAlias}.properties as properties`,
 			])
@@ -4868,6 +4897,27 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 }
 
 /**
+ * The submission's post-write rows as the submitting device holds them:
+ * where CommCare HQ's server copied a saved `hq_user_id` into a case's
+ * external id, the device keeps the external id it had
+ * (`submissionEnvelope.ts::DeviceExternalIds`) until its next sync.
+ */
+function devicePatch(
+	patch: DeviceCaseDatabase,
+	deviceExternalIds: ReadonlyMap<string, string | null>,
+): DeviceCaseDatabase {
+	if (deviceExternalIds.size === 0) return patch;
+	return {
+		...patch,
+		rows: patch.rows.map((row) =>
+			deviceExternalIds.has(row.case_id)
+				? { ...row, external_id: deviceExternalIds.get(row.case_id) ?? null }
+				: row,
+		),
+	};
+}
+
+/**
  * Strip the bound-tenant `project_id` off a raw `cases` row. It is the
  * tenant scoping key the store filters on, NOT part of the `CaseRow`
  * contract (`Omit<Selectable<CasesTable>, "project_id">`), and must
@@ -4910,7 +4960,7 @@ function creationStamps(
  * any Postgres write. Java/JavaScript string length is UTF-16 code units.
  */
 function normalizedCaseScalar(
-	property: "case_name" | "external_id",
+	property: "case_name" | "external_id" | "location_id",
 	value: string,
 	blank: "allow" | "reject",
 ): string {

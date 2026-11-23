@@ -17,6 +17,7 @@ import {
 	unavailablePlatform,
 } from "../platforms";
 import {
+	isDeviceOnlyCaseProperty,
 	isSearchOnlyCaseProperty,
 	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
 	type SearchOnlyCaseProperty,
@@ -195,6 +196,7 @@ export type CheckErrorCode =
 	| "datetime-literal-precision"
 	| "format-date-pattern-not-fixed"
 	| "closed-on-not-on-device"
+	| "location-not-in-search"
 	| "case-type-ordering"
 	| "epoch-fraction-on-device"
 	| "runtime-selected-value-type"
@@ -3551,6 +3553,8 @@ function propertyType(
 	);
 	if (declared === undefined && isSearchOnlyCaseProperty(property))
 		return searchOnlyProperty(property, ctx, fail, root);
+	if (isDeviceOnlyCaseProperty(property) && readByServerSearch(ctx, root))
+		return fail("location-not-in-search", LOCATION_NOT_IN_SEARCH_MESSAGE);
 	if (declared === undefined)
 		return fail(
 			"unknown-property",
@@ -3566,6 +3570,26 @@ function propertyType(
 		property,
 		root ?? "",
 	);
+}
+export const LOCATION_NOT_IN_SEARCH_MESSAGE =
+	"A case's location ID is kept on the device but not in CommCare's server search, so a search can't read it. A property of your own can hold the same value for searching.";
+/**
+ * Whether CommCare HQ's case search, rather than a device, answers this
+ * read: a slot HQ's search evaluates (`CS`), or a row of a search's results,
+ * which HQ builds from its search index. A device-only value
+ * (`standardCaseProperties.ts::DEVICE_ONLY_CASE_PROPERTIES`) has no entry
+ * there, so a read of it would find nothing on HQ while the case store, which
+ * holds the column, would find the row.
+ */
+function readByServerSearch(
+	ctx: TypingContext,
+	root: string | undefined,
+): boolean {
+	if (root === "results" || root === "results:inline") return true;
+	// A chosen case is the device's own row, which a device reads even in a
+	// search (the query carries the value it found).
+	if (root === "casedb") return false;
+	return "profile" in ctx && ctx.profile.targets.has("CS");
 }
 export const CLOSED_ON_NOT_ON_DEVICE_MESSAGE =
 	"Date closed is known only to CommCare's server search, so it can't be read here. Case status shows whether a case is closed.";

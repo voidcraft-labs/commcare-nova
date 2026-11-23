@@ -6508,8 +6508,8 @@ def attachment_in_save_to_case(use, manifest):
 
 # The names a SaveToCase block's ``update`` row may hold that Nova reserves for a case's own facts or as a word in
 # ``case-reserved-words.json`` (``lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES``,
-# less the block's own rows ``case_type``, ``case_name`` and ``owner_id`` and the two
-# ``update-keys-location-id-hq-user-id`` holds); ``proof/ci/__tests__/manifestReaders.test.ts`` holds it to that set.
+# less the block's own rows ``case_type``, ``case_name`` and ``owner_id``); ``proof/ci/__tests__/manifestReaders.test.ts``
+# holds it to that set.
 SAVE_TO_CASE_RESERVED_UPDATE_KEYS = frozenset(
     {
         "actions",
@@ -6662,9 +6662,8 @@ HQ_PROPERTY = re.compile(r"[a-zA-Z][\w-]*\n?")
 def _no_worker_property(key):
     """Whether the worker's record takes no write to ``key`` (``lib/commcare/reader/worldEntities.ts::
     holdsWorkerRecordWrite``): a key HQ's user-case sync writes over, or a name no worker property takes. The two
-    keys HQ's server stores apart are ``update-keys-location-id-hq-user-id``'s."""
-    if key in ("location_id", "hq_user_id"):
-        return False
+    ``hq_user_id`` HQ's sync writes over, and ``location_id``, a worker property's slug, the record holds in its
+    location column (``update-keys-location-id-hq-user-id``)."""
     lowered = key.lower()
     return (
         key in USERCASE_BUILT_IN_KEYS
@@ -9292,11 +9291,6 @@ def _in_reference_details(at):
 # was (``manifest_usage.standing``).
 
 
-# The update keys CommCare HQ's server stores apart from a case's properties wherever a case block's ``<update>``
-# holds them (``form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_update_action``:
-# ``location_id`` becomes the case's own column, ``hq_user_id`` is copied to its external id;
-# ``lib/commcare/reader/caseManagement/basicActions.ts::isServerDivertedKey``).
-SERVER_DIVERTED_KEYS = frozenset({"location_id", "hq_user_id"})
 # HQ's property grammar with parents (``helpers/validators.py::validate_property``, which
 # ``IndexedFormBaseValidator.check_case_properties`` runs on every written key; ``basicActions.ts::HQ_PROPERTY_PATH``),
 # matched whole: Python's ``re.match`` of a pattern ending in ``$`` takes one newline before the end, which the
@@ -9430,39 +9424,6 @@ def _written_properties(at):
                 continue
             found.append(written)
     return found
-
-
-def _save_to_case_row(use):
-    """The name of the row of a SaveToCase node's own ``case/update`` an instance-content use sits on, or None."""
-    form, element = _data_node(use)
-    if form is None or element is None:
-        return None
-    update = element.getparent()
-    case = update.getparent() if update is not None else None
-    if update is None or update.tag != f"{{{CASE}}}update" or case is None or case.tag != f"{{{CASE}}}case":
-        return None
-    held = form.holder(element)
-    if held is None or held[0] != "save-to-case" or case.getparent() is not held[1]:
-        return None
-    return _local(element)
-
-
-def location_or_external_id_key(use, manifest):
-    """``forms-and-case-writes/update-keys-location-id-hq-user-id``: a write of ``location_id`` or ``hq_user_id``,
-    which HQ's server stores apart from the case's properties: an action's key whose last step names one (a basic
-    update's, through ``parent`` or ``host`` too, the worker's record's, a child case's, a load's or an open
-    action's), and a row of a SaveToCase node's own ``case/update`` that names one, on any case
-    (``basicActions.ts::isServerDivertedWrite``, ``saveToCase.ts::refusedRowKey``). A key whose question is an
-    upload names an attachment instead (``xform.py::XFormCaseBlock.add_case_updates`` over ``is_attachment``), the
-    upload question's class, which reads the form's body. A HELD-NEW class's reader reads only the use and the
-    objects that hold it, so this one takes such a key too, where Nova's reader claims it as the upload's."""
-    at = _json(use)
-    if at is not None:
-        written = _written_properties(at)
-        return None if written is None else any(name in SERVER_DIVERTED_KEYS for name in written)
-    if _xml(use, "xform") is None:
-        return None
-    return _save_to_case_row(use) in SERVER_DIVERTED_KEYS
 
 
 def non_ascii_core_name_key(use, manifest):
@@ -10154,7 +10115,6 @@ VALUE_CLASSES = {
     "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp": av1_mov_avi_theora_h263,
     "forms-and-case-writes/form-filter-using-fixture-value": fixture_value,
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
-    "forms-and-case-writes/update-keys-location-id-hq-user-id": location_or_external_id_key,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,

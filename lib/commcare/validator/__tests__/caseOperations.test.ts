@@ -809,8 +809,6 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 			"owner_id",
 			"date_opened",
 			"date_modified",
-			"location_id",
-			"hq_user_id",
 		]) {
 			expectCode("CASE_OPERATION_RESERVED_PROPERTY", [
 				update({ writes: [{ property, value: term(literal("x")) }] }),
@@ -833,6 +831,22 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 		];
 		const codes = validateCandidate(built.doc).map((error) => error.code);
 		expect(codes).toEqual([]);
+	});
+
+	it("admits location_id through the generic write slot without a catalog declaration", () => {
+		// HQ's server keeps the key as the case's location column
+		// (`update_strategy.py::_apply_update_action`), which the case store
+		// holds as it holds the external id.
+		const built = fixture();
+		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
+			update({
+				writes: [
+					{ property: "location_id", value: term(literal("district-7")) },
+				],
+			}),
+		];
+		expect(validateCandidate(built.doc).map((error) => error.code)).toEqual([]);
 	});
 
 	it("admits only retypes whose source values remain portable", () => {

@@ -125,6 +125,41 @@ describe("Preview structural XPath instances", () => {
 		);
 	});
 
+	it("projects the case's location column as its location_id property where it holds text", () => {
+		// CommCare HQ's restore writes the column back as the case's `location_id`
+		// element only where it holds text (`V2CaseXMLGenerator.add_custom_properties`).
+		const instance = caseDatabaseXPathInstance(
+			{
+				rows: [
+					row({ case_id: "placed", location_id: "district-7" }),
+					row({ case_id: "blank", location_id: "" }),
+					row({ case_id: "none" }),
+				],
+				indices: [],
+			},
+			[],
+		);
+		const ctx = context(new Map([["casedb", instance]]));
+		expect(
+			evaluate(
+				"instance('casedb')/casedb/case[@case_id='placed']/location_id",
+				ctx,
+			),
+		).toBe("district-7");
+		expect(
+			evaluate(
+				"count(instance('casedb')/casedb/case[@case_id='blank' or @case_id='none']/location_id)",
+				ctx,
+			),
+		).toBe(0);
+		expect(
+			evaluate(
+				"count(instance('casedb')/casedb/case[location_id = 'district-7'])",
+				ctx,
+			),
+		).toBe(1);
+	});
+
 	it("projects the device casedb attributes, properties, and parent index", () => {
 		const openedAt = new Date(2026, 7, 1, 12);
 		const modifiedAt = new Date(2026, 7, 2, 12);

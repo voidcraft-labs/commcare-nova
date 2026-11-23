@@ -64,6 +64,7 @@ import { orderedCaseOperations } from "../forms";
 import { moduleUuidOfForm } from "../postSubmit";
 import { proseText } from "../prose";
 import {
+	CASE_LOCATION_PROPERTY,
 	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
@@ -1315,6 +1316,12 @@ class Inference {
 		const resolve = (caseType: string, property: string): void => {
 			const key = propertyKey(caseType, property);
 			if (result.has(key)) return;
+			// The case's own location is a text column whatever writes it
+			// (`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`).
+			if (property === CASE_LOCATION_PROPERTY) {
+				result.set(key, { type: "text", origin: { kind: "standard" } });
+				return;
+			}
 			const declared = this.declared(caseType, property);
 			if (declared?.data_type !== undefined) {
 				result.set(key, {
@@ -1486,6 +1493,8 @@ class Inference {
 				caseType.properties.map((property) => property.name),
 			);
 			const entries: CaseProperty[] = caseType.properties.map((property) => {
+				if (property.name === CASE_LOCATION_PROPERTY)
+					return { ...property, data_type: "text" };
 				if (property.data_type !== undefined) return property;
 				const derived = properties.get(
 					propertyKey(caseType.name, property.name),

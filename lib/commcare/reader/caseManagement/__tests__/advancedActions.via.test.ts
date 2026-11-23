@@ -16,8 +16,9 @@
  * load-with-no-case`), a step other than `parent` or `host` (the same), the
  * name or owner of the case above (`update-key-name-or-owner-id-through-an-
  * index-segment`), a step whose case type nothing in the app fixes
- * (`index-path-through-a-case-type-the-app-does-not-fix`), and a key HQ's
- * server stores apart (`update-keys-location-id-hq-user-id`).
+ * (`index-path-through-a-case-type-the-app-does-not-fix`). A key HQ's
+ * server stores apart (`location_id`) is the case above's write as any other
+ * key is.
  *
  * The plausible failures: Nova's own export of a write through the own case's
  * parent read as `unrecognized` (what the reader did before), or such a key
@@ -44,7 +45,6 @@ const F = "forms-and-case-writes";
 const ELSEWHERE = `${F}/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`;
 const FACET = `${F}/update-key-name-or-owner-id-through-an-index-segment`;
 const UNKNOWN = `${F}/index-path-through-a-case-type-the-app-does-not-fix`;
-const DIVERTED = `${F}/update-keys-location-id-hq-user-id`;
 
 /** A follow-up of visits, chosen on their own, that writes its visit's
  *  household's remark through the visit's parent link. */
@@ -175,7 +175,6 @@ describe("a write through the own load's parent link", () => {
 		["host/owner_id", FACET],
 		["user/remark", ELSEWHERE],
 		["home/remark", ELSEWHERE],
-		["parent/location_id", DIVERTED],
 	] as const)
 		it(`refuses \`${key}\` on the own load once, at its key`, async () => {
 			const outcome = await reading(throughParent(), ownKey(key));
@@ -184,6 +183,22 @@ describe("a write through the own load's parent link", () => {
 			expect(findings.map((one) => one.code)).toEqual([entry]);
 			expect(findings[0]?.detail?.name).toBe(key);
 		});
+
+	it("reads `parent/location_id` on the own load as the case above's location", async () => {
+		const outcome = await reading(
+			throughParent(),
+			ownKey("parent/location_id"),
+		);
+		expect(outcome.defects).toEqual([]);
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const writes = Object.values(outcome.draft.doc.forms).find(
+			(form) => form.name === "Under test",
+		)?.caseOperations?.[0]?.writes;
+		expect(writes?.map((write) => [write.property, write.via])).toEqual([
+			["location_id", [{ identifier: "parent", throughCaseType: "household" }]],
+		]);
+	});
 
 	it("refuses a key through an index on a load other than the form's own", async () => {
 		// The household's load, first of the chain, chosen with no `case_index`.

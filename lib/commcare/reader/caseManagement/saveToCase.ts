@@ -129,7 +129,6 @@ import {
 import {
 	basicCaseReading,
 	dropCreateNameRequired,
-	isServerDivertedKey,
 	nameBasicOperationsPast,
 	refusedCaseManagement,
 } from "./basicActions";
@@ -206,10 +205,6 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	reservedType: refuse(
 		`${Q}/savetocase-create-close-or-link-of-commcare-user-or-type-user`,
 		"vellum-markup:model/instance//*@vellum:case_type",
-	),
-	locationKey: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
-		"xform:model/instance//*",
 	),
 	reservedKey: refuse(
 		`${Q}/savetocase-update-key-nova-reserves-for-a-case-s-own-facts`,
@@ -1359,9 +1354,9 @@ function rowCondition(
  * reads only the actions'), and HQ's server applies the block's `<update>` as
  * any other (`update_strategy.py::SqlCaseUpdateStrategy._apply_update_action`):
  *
- * - `location_id` and `hq_user_id` it stores apart from the case's properties
- *   (`basicActions.ts::isServerDivertedKey`): `locationKey`, on any case, the
- *   worker's record included;
+ * - `location_id` and `hq_user_id` are rows as any other: HQ's server keeps
+ *   the first as the case's location column and copies the second into its
+ *   external id, as the case store does;
  * - on the worker's record, whose writes the gate holds to a worker property
  *   the reading declares (`validateWorkerRecordProperty`), every other name
  *   but one (`worldEntities.ts::holdsWorkerRecordWrite`): a key HQ's user-case
@@ -1386,7 +1381,6 @@ function refusedRowKey(
 	property: string,
 	workerRecord: boolean,
 ): Claim<"refuse"> | "outside" | undefined {
-	if (isServerDivertedKey(property)) return SAVE_TO_CASE_CLAIMS.locationKey;
 	if (workerRecord)
 		return holdsWorkerRecordWrite(property)
 			? undefined

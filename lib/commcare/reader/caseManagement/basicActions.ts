@@ -241,17 +241,9 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 		"schema:UpdateCaseAction.update",
 	),
-	locationKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
-		"schema:UpdateCaseAction.update",
-	),
 	workerKey: refuse(
 		`${F}/a-write-of-the-worker-s-record-to-a-key-no-worker-property-takes`,
 		"schema:UpdateCaseAction.update",
-	),
-	locationChildKeys: refuse(
-		`${F}/update-keys-location-id-hq-user-id`,
-		"schema:OpenSubCaseAction.case_properties",
 	),
 	illegalKey: refuse(
 		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
@@ -1040,19 +1032,6 @@ export function propertyNameClass(key: string): PropertyNameClass | undefined {
 	return "non-ascii";
 }
 
-/**
- * A key CommCare HQ's server stores apart from the case's properties once a
- * case block's `<update>` holds it: `location_id` becomes the case's own
- * location column and `hq_user_id` is also copied to its external id
- * (`form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy.
- * _apply_update_action`). Nova holds it nowhere
- * (`standardCaseProperties.ts::FORBIDDEN_CASE_WRITE_PROPERTIES`). Whether a
- * written key reaches `<update>` is `isServerDivertedWrite`'s.
- */
-export function isServerDivertedKey(property: string): boolean {
-	return property === "location_id" || property === "hq_user_id";
-}
-
 /** Each form's upload refs, collected once per parsed source. */
 const UPLOAD_REFS = new WeakMap<ParsedXForm, ReadonlySet<string>>();
 
@@ -1079,27 +1058,6 @@ function uploadRefs(parsed: ParsedXForm): ReadonlySet<string> {
 	walk(parsed.body, scopeOf(parsed.body, scopeOf(parsed.html, new Map())));
 	UPLOAD_REFS.set(parsed, refs);
 	return refs;
-}
-
-/**
- * Whether HQ's build writes `property`, read from `questionPath`, into a case
- * block's `<update>` as a key its server stores apart (`isServerDivertedKey`).
- * Every action's keys go through `xform.py::XFormCaseBlock.add_case_updates`
- * (a basic update, a case above it, the worker's record, a child case, an
- * advanced load and an open action), which writes a key into `<update>`
- * unless its `question_path` is the `ref` of an `<upload>` in the form's
- * body (`is_attachment`, by the stored text), where the key names an
- * `<attachment>` instead and is no location or external id: that write is
- * the upload question's row (`BASIC_CLAIMS.uploadQuestion`), which reading
- * the value raises. The diverted key's row is
- * `update-keys-location-id-hq-user-id`, under the key of the map that holds it.
- */
-export function isServerDivertedWrite(
-	form: DraftForm,
-	property: string,
-	questionPath: unknown,
-): boolean {
-	return isServerDivertedKey(property) && !namesAttachment(form, questionPath);
 }
 
 /** Whether HQ's build writes an action's key read from `questionPath` as an
@@ -1548,13 +1506,12 @@ function readUpdateMap(
 				continue;
 			}
 		}
-		// HQ's server stores these two elsewhere wherever a case block's
-		// `<update>` holds them (`update_strategy.py::_apply_update_action`): the
-		// form's own case's, a case's above it and the worker's record's alike.
-		if (isServerDivertedWrite(r.form, property, cursor.peek("question_path"))) {
-			refuseEntry(cursor, BASIC_CLAIMS.locationKeys, key);
-			continue;
-		}
+		// `location_id` and `hq_user_id` are read as any other key: HQ's server
+		// keeps the first as the case's location column and copies the second
+		// into its external id wherever a case block's `<update>` holds them
+		// (`update_strategy.py::_apply_update_action`), and the case store does
+		// the same (`standardCaseProperties.ts::WRITABLE_STANDARD_CASE_PROPERTIES`,
+		// `postgres/submissionEnvelope.ts::partitionWrites`).
 		const facet =
 			indices.length === 0 && (property === "name" || property === "owner_id");
 		const categoryOrState = property === "category" || property === "state";
@@ -2363,11 +2320,6 @@ function readSubcases(
 		for (const [key, cursor] of properties) {
 			if (key.includes("/")) {
 				refuseEntry(cursor, BASIC_CLAIMS.illegalChildKey, key);
-				ok = false;
-				continue;
-			}
-			if (isServerDivertedWrite(r.form, key, cursor.peek("question_path"))) {
-				refuseEntry(cursor, BASIC_CLAIMS.locationChildKeys, key);
 				ok = false;
 				continue;
 			}

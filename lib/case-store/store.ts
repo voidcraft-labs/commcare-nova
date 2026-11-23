@@ -91,7 +91,15 @@ export interface RelatedRead {
  * reads it; the store binds it). `owner_id` stays — it is the CommCare
  * case-owner (the future location-access axis), a real row field.
  */
-export type CaseRow = Omit<Selectable<CasesTable>, "project_id">;
+/**
+ * One case row as a reader receives it. `location_id` is optional because a
+ * durable submission receipt's `caseDatabasePatch` written before the column
+ * existed holds rows without it; such a row holds no location, as `null` says.
+ */
+export type CaseRow = Omit<
+	Selectable<CasesTable>,
+	"project_id" | "location_id"
+> & { readonly location_id?: string | null };
 
 /** One direct case-index edge whose source and ancestor both belong to the
  * bound app and Project. The target type is persisted on the edge because
@@ -142,6 +150,8 @@ export interface CaseUpdate {
 	readonly case_name?: string;
 	/** External-system identity. Routed to `external_id`, never JSONB; `""` is an explicit write. */
 	readonly external_id?: string;
+	/** The case's own location, as CommCare HQ keeps a form's `location_id` write. Routed to `location_id`, never JSONB; `""` is an explicit write. */
+	readonly location_id?: string;
 	/**
 	 * Open/closed lifecycle status. Normal app closure goes through
 	 * `close()`, which owns the canonical `closed` value. This slot remains
