@@ -22,6 +22,7 @@ import { savePreviewSearchSettingsAction } from "@/lib/deployment/previewSearchA
 import {
 	type PreviewSearchProfile,
 	type PreviewSearchValues,
+	previewSearchIssueText,
 	previewSearchValuesSchema,
 } from "@/lib/preview/searchSettings";
 
@@ -230,9 +231,7 @@ export function PreviewSearchSettingsForm({
 	async function save() {
 		const values = previewSearchValuesSchema.safeParse(persistedValues(data));
 		if (!values.success) {
-			setError(
-				values.error.issues[0]?.message ?? "Review the search settings.",
-			);
+			setError(previewSearchIssueText(values.error.issues[0]));
 			return;
 		}
 		const changes = previewSearchChangesSchema.safeParse(

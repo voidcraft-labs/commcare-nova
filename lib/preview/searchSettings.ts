@@ -23,27 +23,28 @@ export function previewSearchTargetKey(target: PreviewSearchTarget): string {
 		: JSON.stringify([target.server, target.domain]);
 }
 
+const namedZone =
+	"Choose a named time zone such as Asia/Kolkata, America/New_York or UTC. A local abbreviation can refer to more than one place.";
 export const searchTimeZoneSchema = z
 	.string()
-	.min(1)
-	.max(128)
-	.refine(
-		(name) => searchTimeZoneIdentity(name) !== undefined,
-		"Choose a named time zone such as Asia/Kolkata, America/New_York or UTC. A local abbreviation can refer to more than one place.",
-	);
+	.min(1, namedZone)
+	.max(128, namedZone)
+	.refine((name) => searchTimeZoneIdentity(name) !== undefined, namedZone);
 
 // PostgreSQL jsonb must be able to store every admitted rule.
-const ruleText = z
-	.string()
-	.min(1)
-	.max(256)
-	.refine(
-		(value) => !value.includes("\0") && value.isWellFormed(),
-		"Use text without a null character or an incomplete Unicode character.",
-	);
+function ruleText(missing: string, name: string) {
+	return z
+		.string()
+		.min(1, `Add ${missing} to this rule.`)
+		.max(256, `Keep each ${name} to 256 characters or fewer.`)
+		.refine(
+			(value) => !value.includes("\0") && value.isWellFormed(),
+			"Use text without a null character or an incomplete Unicode character.",
+		);
+}
 const propertyAddress = {
-	caseType: ruleText,
-	property: ruleText,
+	caseType: ruleText("a record type", "record type"),
+	property: ruleText("a property name", "property name"),
 };
 
 export const fuzzySearchPropertySchema = z.strictObject({
@@ -52,13 +53,13 @@ export const fuzzySearchPropertySchema = z.strictObject({
 });
 export const ignoredSearchTextSchema = z.strictObject({
 	...propertyAddress,
-	literal: ruleText,
+	literal: ruleText("the text to ignore", "text to ignore"),
 });
 
 const propertyMatchingSchema = z.strictObject({
 	fuzzyProperties: z
 		.array(fuzzySearchPropertySchema)
-		.max(256)
+		.max(256, "Keep matching rules to 256 or fewer.")
 		.refine(
 			(rows) =>
 				new Set(rows.map((row) => JSON.stringify([row.caseType, row.property])))
@@ -67,7 +68,9 @@ const propertyMatchingSchema = z.strictObject({
 		),
 	// HQ processes each literal in the order its configuration supplies it,
 	// including repeated properties on types interleaved through that order.
-	ignoredText: z.array(ignoredSearchTextSchema).max(16384),
+	ignoredText: z
+		.array(ignoredSearchTextSchema)
+		.max(16384, "Keep text to ignore to 16,384 entries or fewer."),
 });
 
 export const previewSearchValuesSchema = z.strictObject({
@@ -212,4 +215,20 @@ export function previewSearchPropertyMatchers(
 		)
 		? first
 		: null;
+}
+
+/** Name the rule a refused value belongs to, numbered as the settings list
+ * shows each kind of rule. */
+export function previewSearchIssueText(
+	issue: z.core.$ZodIssue | undefined,
+): string {
+	if (!issue) return "Review the search settings.";
+	const [group, list, index] = issue.path;
+	if (group !== "propertyMatchers" || typeof index !== "number")
+		return issue.message;
+	if (list === "fuzzyProperties")
+		return `Matching rule ${index + 1}: ${issue.message}`;
+	if (list === "ignoredText")
+		return `Ignored text ${index + 1}: ${issue.message}`;
+	return issue.message;
 }

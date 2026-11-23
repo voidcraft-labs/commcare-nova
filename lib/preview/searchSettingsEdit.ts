@@ -3,10 +3,15 @@ import {
 	fuzzySearchPropertySchema,
 	ignoredSearchTextSchema,
 	type PreviewSearchValues,
+	previewSearchIssueText,
 	previewSearchValuesSchema,
 } from "./searchSettings";
 
-const position = z.number().int().min(0).max(16384);
+const fewerChanges =
+	"Save fewer changed rules together. You can change the remaining rules after this save.";
+const outside =
+	"That rule position is outside the current settings. Read the latest rules and choose a position in that list.";
+const position = z.number().int(outside).min(0, outside).max(16384, outside);
 function splices<T extends z.ZodType>(row: T) {
 	return z
 		.array(
@@ -18,7 +23,7 @@ function splices<T extends z.ZodType>(row: T) {
 				insert: z.array(row).describe("Rows to insert here, in order."),
 			}),
 		)
-		.max(256);
+		.max(256, fewerChanges);
 }
 
 // A normal edit transports its changed rows. Leave room for the browser action
@@ -41,7 +46,7 @@ export const previewSearchChangesSchema = z
 	.refine(
 		(edit) =>
 			new TextEncoder().encode(JSON.stringify(edit)).length <= 64 * 1024,
-		"Save fewer changed rules together. You can change the remaining rules after this save.",
+		fewerChanges,
 	);
 export type PreviewSearchChanges = z.infer<typeof previewSearchChangesSchema>;
 type Splice<T> = { start: number; remove: number; insert: T[] };
@@ -73,11 +78,7 @@ export function applyPreviewSearchChanges(
 			propertyMatchers?.ignoredText ?? [],
 			edit.propertyMatchers.ignoredText,
 		);
-		if (!fuzzyProperties || !ignoredText)
-			return {
-				error:
-					"That rule position is outside the current settings. Read the latest rules and choose a position in that list.",
-			};
+		if (!fuzzyProperties || !ignoredText) return { error: outside };
 		propertyMatchers = { fuzzyProperties, ignoredText };
 	}
 	const result = previewSearchValuesSchema.safeParse({
@@ -87,7 +88,7 @@ export function applyPreviewSearchChanges(
 	});
 	return result.success
 		? { values: result.data }
-		: { error: result.error.issues[0].message };
+		: { error: previewSearchIssueText(result.error.issues[0]) };
 }
 
 /** Use unchanged rows as anchors. Distant edits and moves therefore never

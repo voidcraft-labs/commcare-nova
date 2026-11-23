@@ -3,6 +3,7 @@ import {
 	localSearchDefaults,
 	type PreviewSearchCatalog,
 	type PreviewSearchTarget,
+	previewSearchIssueText,
 	previewSearchPropertyMatchers,
 	previewSearchValuesSchema,
 	resolvePreviewSearchFacts,
@@ -220,6 +221,39 @@ describe("facts a worker's search may use", () => {
 				}).success,
 			).toBe(false);
 	});
+});
+
+it("names the rule and the cell a refused rule needs", () => {
+	const row = { caseType: "patient", property: "code", literal: "x" };
+	const refused = (ignoredText: unknown[], fuzzyProperties: unknown[] = []) => {
+		const result = previewSearchValuesSchema.safeParse({
+			...localSearchDefaults,
+			propertyMatchers: { fuzzyProperties, ignoredText },
+		});
+		return result.success
+			? undefined
+			: previewSearchIssueText(result.error.issues[0]);
+	};
+	expect(refused([row, { ...row, literal: "" }])).toBe(
+		"Ignored text 2: Add the text to ignore to this rule.",
+	);
+	expect(refused([], [{ caseType: "", property: "name", fuzzy: true }])).toBe(
+		"Matching rule 1: Add a record type to this rule.",
+	);
+	expect(refused([{ ...row, property: "p".repeat(257) }])).toBe(
+		"Ignored text 1: Keep each property name to 256 characters or fewer.",
+	);
+	expect(refused(Array.from({ length: 16385 }, () => row))).toBe(
+		"Keep text to ignore to 16,384 entries or fewer.",
+	);
+	expect(
+		previewSearchIssueText(
+			previewSearchValuesSchema.safeParse({
+				...localSearchDefaults,
+				timeZone: "x".repeat(129),
+			}).error?.issues[0],
+		),
+	).toMatch(/^Choose a named time zone/);
 });
 
 it("compares named regional calendars by IANA identity, across summer and winter", () => {
