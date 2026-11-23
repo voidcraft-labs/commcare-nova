@@ -742,6 +742,18 @@ the guarded Blueprint transaction; ordinary additive changes ride a post-commit 
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
 
+### Earlier record links in Search
+
+A stored case has one creation-history flag and its set of observed cleared index identifiers. A live direct edge supplies its current target. Removing an observed direct edge remembers that identifier on the source case, including a surviving case detached during a sample reset. Assigning a new target removes the clear. Clearing an absent edge preserves the previous observation. The case row carries these facts across a Project move and drops them when the case is deleted. They are internal to the case store and excluded from the worker restore, case pages and submission snapshots.
+
+Existing cases and newly loaded historical records have incomplete history. A local creation, including a submission or a generated sample, starts with complete tracking. A reused caller-supplied ID starts another case lifetime. The read-only `scripts/scan-case-index-history.ts` counts current edges, known clears, coverage and completed submission observations by app and Project. A post-submission snapshot alone cannot certify a missing edge's entire history.
+
+### Completed worker searches
+
+A submitted request resolves its destination's revision, maximum, time zone and effective property matchers in the authorized app/Project transaction. The database certifies the open primary population before the device sees its results. An unconfirmed matcher, historical clear, fuzzy expansion or cutoff can change the answer; each produces a placed refusal before a count, row or claim is returned. CSQL fuzzy predicates carry lower and upper bounds through negation and related-row predicates so that an independent filter can still establish a certain match or exclusion. Ordered ignored literals follow their single configured sequence across requested types.
+
+`querySearchResults` reads the primary count and the visible, optionally grouped page under the same snapshot. Inline filtering, display order and paging apply after the server limit. `readSearchResultInstance` delivers the primary hits and the endpoints of the related paths that the search-enabled menus' exported details request. The worker's restore keeps its persisted properties, including one named `commcare_search_score`. Only the online search result can supply its native score.
+
 ### Fixed case indexes
 
 Physical indexes are fixed tenant, type and identity infrastructure. Adding,

@@ -41,6 +41,7 @@ import * as hqBringInLedger from "./20261201000000_hq_bring_in_ledger";
 import * as hqChangesAppChangeKind from "./20261201010000_hq_changes_app_change_kind";
 import * as hqBringInProjectData from "./20261202000000_hq_bring_in_project_data";
 import * as deploymentFoldReferences from "./20261204000000_deployment_fold_references";
+import * as caseIndexHistory from "./20261208020000_case_index_history";
 import * as previewSearchSettings from "./20261208050000_preview_search_settings";
 // Case-store migration set + provider.
 //
@@ -254,6 +255,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20261201010000_hq_changes_app_change_kind": hqChangesAppChangeKind,
 	"20261202000000_hq_bring_in_project_data": hqBringInProjectData,
 	"20261204000000_deployment_fold_references": deploymentFoldReferences,
+	"20261208020000_case_index_history": caseIndexHistory,
 	"20261208050000_preview_search_settings": previewSearchSettings,
 };
 
