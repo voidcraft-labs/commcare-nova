@@ -146,7 +146,7 @@ describe("workerOwnerMutations", () => {
 			form.children.filter(isTag),
 		);
 		expect(owner.map((node) => node.attribs.calculate)).toEqual([
-			"/data/meta/userID",
+			"replace(/data/meta/userID, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
 		]);
 	});
 

@@ -4052,6 +4052,7 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			 * next publish finds it there, records it, and sends the rows. */
 			hq.writes.length = 0;
 			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-after-create-then-update");
 			const again = await publish(doc);
@@ -4112,6 +4113,7 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 
 			hq.writes.length = 0;
 			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-after-create-then-update");
 			const again = await publish(doc);
@@ -4131,34 +4133,27 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 		});
 	});
 
-	it("admits each request on the table's rows and the publisher's standing at that moment, and sends nothing past a refusal", async () => {
+	it("admits each request on the publisher's standing at that moment, and sends nothing past one it refuses", async () => {
 		const doc = await seed(await typesDocument());
 		await withPeer(async (peer) => {
 			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
-			let edited = false;
+			let removed = false;
 			const hq = jsonLookupPeer(peer, {
-				/* Someone edits a row in Nova once the first row is there. */
+				/* The publisher leaves the Project once the first row is there.
+				 * (An edit of the table in Nova waits for a request still open,
+				 * so it cannot land between two of them.) */
 				after: async (method, path) => {
-					if (method !== "POST" || path !== rowsPath || edited) return;
-					edited = true;
-					await editTypesRows((ids, columns) => [
-						{
-							kind: "update",
-							rowId: ids[1] ?? fail(),
-							cells: [
-								{ columnId: columns.code, value: "002" },
-								{ columnId: columns.name, value: "Hospital 2" },
-							],
-						},
-					]);
+					if (method !== "POST" || path !== rowsPath || removed) return;
+					removed = true;
+					await h.removeProjectMember(ACTOR, PROJECT);
 				},
 			});
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
-			expect(refusal(await publish(doc))).toMatchObject({
-				phase: "resources",
-				failure: { code: "app_not_ready" },
-			});
+			/* However the publish answers a publisher with no standing, it
+			 * sends CommCare HQ nothing more. */
+			await publish(doc).catch((error: unknown) => error);
+			expect(removed).toBe(true);
 			expect(hq.writes).toEqual([
 				"POST /a/clinic/api/lookup_table/v1/",
 				`POST ${rowsPath}`,
