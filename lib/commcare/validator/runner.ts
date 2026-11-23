@@ -549,6 +549,8 @@ const PROSE_SURFACE_LABELS: Record<ProseSurface, string> = {
 	hint: "hint",
 	help: "help text",
 	validate_msg: "validation message",
+	addFirstLabel: "first entry button",
+	addLabel: "another entry button",
 	option_label: "answer option label",
 };
 

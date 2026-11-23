@@ -416,7 +416,7 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 	};
 	const empty = await evaluateForm(
 		doc,
-		{ formUuid, repeats: [{ path: "visits", count: 0 }] },
+		{ formUuid, answers: [], repeats: [{ path: "visits", count: 0 }] },
 		context,
 	);
 	expect(

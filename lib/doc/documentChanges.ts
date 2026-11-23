@@ -201,6 +201,7 @@ export const FORM_KEY_PARTS = {
 	caseOperations: "case-changes",
 	icon: "settings",
 	audioLabel: "settings",
+	dataRootName: "settings",
 } as const satisfies Record<keyof Form, FormPart | null>;
 
 /** Where a key of the document's root is filed: an app part, or one of the walks below. */

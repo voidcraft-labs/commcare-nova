@@ -418,6 +418,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
 	INVALID_FIELD_ID: "soundness",
 	SUBMITTED_ANSWER_NAMESPACE: "soundness",
+	// Workers read a group named case around a saved change as a second case change.
+	SUBMITTED_CASE_CHANGE_WRAPPER: "soundness",
 	VALIDATION_ON_NON_INPUT_KIND: "shape",
 	REPEAT_COUNT_TYPE: "soundness",
 	EMPTY_REPEAT_COUNT: "soundness",

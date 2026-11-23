@@ -8587,7 +8587,7 @@ def validation_on_hidden_value(use, manifest):
     form, bind, node = _bind(use)
     if form is None:
         return None
-    if bind is None or node is None or isinstance(node, tuple) or use.attribute != "constraint":
+    if bind is None or node is None or isinstance(node, tuple) or use.at.attribute != "constraint":
         return False
     return (
         node in form.vellum_nodes
