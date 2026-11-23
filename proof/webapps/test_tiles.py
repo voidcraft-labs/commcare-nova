@@ -265,7 +265,7 @@ def test_web_apps_lays_out_the_selected_cases_independent_details_grid(
         with project.released(formplayer_runner, database=visits()) as release:
             run = Session(release, editor_driver).run([
                 *_to_visits("detail-layout"), *_open_visit("east"),
-                {"call": "webapps/case-layout", "arg": {"surface": "detail"}},
+                {"call": "webapps/case_layout", "arg": {"surface": "detail"}},
             ])
     cells = run.value(-1)["cells"]
     evidence("detail-grid", cells)
@@ -273,7 +273,9 @@ def test_web_apps_lays_out_the_selected_cases_independent_details_grid(
     assert [cell["position"] for cell in cells] == ["1 / 1 / 2 / 13", "2 / 1 / 3 / 13", "3 / 1 / 4 / 13"]
 
 
-def test_web_apps_shows_the_named_slots_in_layout_order(hq, formplayer_runner, editor_driver, webapps_documents):
+def test_web_apps_shows_the_named_slots_in_layout_order(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
     from proof.observe.visit_layout_data import visits
 
     with webapps_hq.project(webapps_documents["tile-named-layout"], "maximum") as project:
@@ -282,10 +284,15 @@ def test_web_apps_shows_the_named_slots_in_layout_order(hq, formplayer_runner, e
     listed = run.screens[0]["list"]
     assert listed["tiles"]
     west = next(row for row in listed["rows"] if row["id"] == "row-west")
-    assert len(west["cells"]) == 10
-    assert west["cells"][0]["text"] == "Amina"
-    assert west["cells"][1]["text"] == "Village\u2005West"
-    assert west["cells"][-1]["text"] == "Visit part 7\u2005Amina 7"
+    evidence("named-slots-west", west["cells"])
+    # The list's hidden sort field rides the tile as a zero-width cell Web
+    # Apps hides; the ten named positions are the cells it shows.
+    shown = [cell for cell in west["cells"] if not cell["hidden"]]
+    assert len(shown) == 10
+    assert len(west["cells"]) - len(shown) == 1
+    assert shown[0]["text"] == "Amina"
+    assert shown[1]["text"] == "Village\u2005West"
+    assert shown[-1]["text"] == "Visit part 7\u2005Amina 7"
 
 
 def test_web_apps_keeps_the_selected_case_above_forms_and_expands_the_chosen_detail(
@@ -303,7 +310,7 @@ def test_web_apps_keeps_the_selected_case_above_forms_and_expands_the_chosen_det
             with project.released(formplayer_runner, database=visits()) as release:
                 select = _open_visit("east") if expanded else steps.select_case("east")
                 actions = [*_to_visits(scenario), *select, steps.SCREEN,
-                           {"call": "webapps/case-layout", "arg": {"surface": "form"}}]
+                           {"call": "webapps/case_layout", "arg": {"surface": "form"}}]
                 context_index = len(actions) - 1
                 if expanded:
                     actions.extend([*steps.click("#persistent-case-tile .persistent-sticky", visible=True), steps.SCREEN])
