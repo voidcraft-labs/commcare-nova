@@ -382,12 +382,13 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "unavailable",
 			note: "the field isn't shown, so a search runs without it",
-			remedy: "A single-choice Search field runs on both.",
+			remedy: "A checkboxes Search field or a single-choice one runs on both.",
 		},
 		refusal: {
 			what: "lets workers pick several choices",
 			why: "Android doesn't show a multiple-choice Search field, so a search there runs without it.",
-			alternative: "let workers pick one choice, which both platforms show",
+			alternative:
+				"show the choices as checkboxes or let workers pick one, which both platforms show",
 		},
 	},
 	"connect-app": {

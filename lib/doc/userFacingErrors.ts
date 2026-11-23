@@ -638,7 +638,7 @@ const PLATFORM_BUILDER_COPY = {
 	"search-field-multiple-choice": {
 		lead: (subject) =>
 			`${subject} takes several choices, which Android doesn't show.`,
-		alternative: "let workers pick one choice",
+		alternative: "show the choices as checkboxes or let workers pick one",
 	},
 	"connect-app": {
 		sentence:

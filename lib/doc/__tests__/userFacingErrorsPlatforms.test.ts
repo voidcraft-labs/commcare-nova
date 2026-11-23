@@ -57,7 +57,7 @@ describe("each refusable structural feature in the builder's words", () => {
 		],
 		[
 			"search-field-multiple-choice",
-			'Search field "regions" takes several choices, which Android doesn\'t show. You can let workers pick one choice, or set the app to run only in Web Apps in App settings.',
+			'Search field "regions" takes several choices, which Android doesn\'t show. You can show the choices as checkboxes or let workers pick one, or set the app to run only in Web Apps in App settings.',
 		],
 		[
 			"connect-app",
