@@ -2,7 +2,8 @@
 //
 // The held placements of a document, as every reader of them names them: a
 // case operation's `placement`, a form's `ownClosePlacement`, a query
-// repeat's `placement`, and a menu's `heldKind`. `holdPlacements` is the one mutation that writes
+// repeat's `placement`, a menu's `heldKind`, and a basic form's
+// `heldBasicOpening`. `holdPlacements` is the one mutation that writes
 // them (`mutations/placements.ts`), and who may change one is decided over
 // two documents and the recordings: an editor's change is admitted where the
 // batch leaves the earlier hold unable to express its target (a move), or
@@ -55,7 +56,8 @@ export type PlacementTarget =
 	  }
 	| { readonly target: "own-close"; readonly formUuid: Uuid }
 	| { readonly target: "query-repeat"; readonly fieldUuid: Uuid }
-	| { readonly target: "module-kind"; readonly moduleUuid: Uuid };
+	| { readonly target: "module-kind"; readonly moduleUuid: Uuid }
+	| { readonly target: "basic-opening"; readonly formUuid: Uuid };
 
 /** A `PlacementHoldEntry` that holds a placement rather than clearing one. */
 export type PlacementHold = PlacementHoldEntry & {
@@ -112,6 +114,8 @@ export function placementTargetOf(entry: PlacementTarget): PlacementTarget {
 			return { target: "query-repeat", fieldUuid: entry.fieldUuid };
 		case "module-kind":
 			return { target: "module-kind", moduleUuid: entry.moduleUuid };
+		case "basic-opening":
+			return { target: "basic-opening", formUuid: entry.formUuid };
 	}
 }
 
@@ -161,7 +165,27 @@ export function placementHoldEntry(
 					{ target: "module-kind" }
 				>["placement"],
 			};
+		case "basic-opening":
+			return {
+				...target,
+				placement: placement as Extract<
+					PlacementHoldEntry,
+					{ target: "basic-opening" }
+				>["placement"],
+			};
 	}
+}
+
+/** A basic form's case settings slot holds its own record's starting values
+ *  only while it is a basic form holding one. */
+function basicOpeningExpresses(doc: BlueprintDoc, formUuid: Uuid): boolean {
+	const form = ownRecordValue(doc.forms, formUuid);
+	return (
+		form !== undefined &&
+		!form.shadowOf &&
+		form.caseSelections === undefined &&
+		(form.openingAssignments ?? []).some((row) => row.source.kind === "own")
+	);
 }
 
 function queryRepeatField(doc: BlueprintDoc, fieldUuid: Uuid) {
@@ -186,6 +210,7 @@ export function placementTargetExists(
 			);
 		case "form-selection":
 		case "own-close":
+		case "basic-opening":
 			return ownRecordValue(doc.forms, target.formUuid) !== undefined;
 		case "query-repeat":
 			return queryRepeatField(doc, target.fieldUuid) !== undefined;
@@ -220,6 +245,10 @@ export function heldPlacementOf(
 			return queryRepeatField(doc, target.fieldUuid)?.placement ?? null;
 		case "module-kind":
 			return ownRecordValue(doc.modules, target.moduleUuid)?.heldKind ?? null;
+		case "basic-opening":
+			return (
+				ownRecordValue(doc.forms, target.formUuid)?.heldBasicOpening ?? null
+			);
 	}
 }
 
@@ -270,6 +299,12 @@ export function readPlacementHolds(
 					target: "own-close",
 					formUuid,
 					placement: form.ownClosePlacement,
+				});
+			if (form.heldBasicOpening !== undefined)
+				add({
+					target: "basic-opening",
+					formUuid,
+					placement: form.heldBasicOpening,
 				});
 			const walk = (parentUuid: Uuid): void => {
 				for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
@@ -340,6 +375,8 @@ export function holdExpresses(
 		}
 		case "module-kind":
 			return heldKindExpresses(doc, entry.moduleUuid);
+		case "basic-opening":
+			return basicOpeningExpresses(doc, entry.formUuid);
 	}
 }
 

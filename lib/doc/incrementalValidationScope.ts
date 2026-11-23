@@ -495,6 +495,9 @@ function mutationFootprint(
 					/* A menu's held kind decides its kind, which moves every form
 					 * of it and every link into it. */
 					if (hold.target === "module-kind") return undefined;
+					/* Where a basic form keeps its starting values decides
+					 * whether its menu emits advanced, as a held kind does. */
+					if (hold.target === "basic-opening") return undefined;
 					const formUuid =
 						hold.target === "query-repeat"
 							? findContainingForm(doc, hold.fieldUuid)

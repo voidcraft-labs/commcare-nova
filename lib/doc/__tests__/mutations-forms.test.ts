@@ -752,7 +752,7 @@ describe("held placements are written by no edit", () => {
 				},
 			}),
 		).toContain(
-			"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `heldSelectionTags`, `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.",
+			"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `heldSelectionTags`, `ownClosePlacement`, `heldBasicOpening` and each case change's `placement`, and the form takes the placements its shape gives.",
 		);
 	});
 });

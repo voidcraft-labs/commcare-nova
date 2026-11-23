@@ -173,6 +173,7 @@ import {
 import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { sharedEntryValues } from "@/lib/domain/formEntryCases";
+import type { FormOpeningAssignment } from "@/lib/domain/forms";
 import type { FormEntryChange } from "./formEntryMutations";
 
 // ── Value comparison ─────────────────────────────────────────────────
@@ -460,6 +461,9 @@ const FORM_PATCH_SKIP = new Set<string>([
 	// patch.
 	"ownClosePlacement",
 	"heldSelectionTags",
+	"heldBasicOpening",
+	// Starting values diff granularly (`diffOpeningAssignments`).
+	"openingAssignments",
 ]);
 
 // ── Field media diff ─────────────────────────────────────────────────
@@ -1489,6 +1493,7 @@ function unheldForm(form: Form): Form {
 	const {
 		ownClosePlacement: _held,
 		heldSelectionTags: _selectionTags,
+		heldBasicOpening: _basicOpening,
 		...rest
 	} = cloneEntity(form);
 	if (rest.caseOperations === undefined) return rest;
@@ -1558,6 +1563,11 @@ function placementTargetsOf(
 				target: "own-close",
 				formUuid,
 				placement: form.ownClosePlacement ?? null,
+			});
+			add({
+				target: "basic-opening",
+				formUuid,
+				placement: form.heldBasicOpening ?? null,
 			});
 			const walk = (parentUuid: Uuid): void => {
 				for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
@@ -2654,12 +2664,65 @@ function diffEntrySupplies(
 			next.map((row) => row.uuid),
 		).map((move) => ({ operation: "move-value" as const, ...move })),
 	);
+	changes.push(
+		...diffOpeningAssignments(
+			before.openingAssignments ?? [],
+			after.openingAssignments ?? [],
+		),
+	);
 	return changes.map((entryChange) => ({
 		kind: "updateForm",
 		uuid: after.uuid,
 		patch: {},
 		entryChange,
 	}));
+}
+
+/**
+ * A form's starting values from records, granularly: removals, adds with
+ * their landing anchor, edits, then the moves that turn the sequence into the
+ * next one. An edit that changes a value's record also moves it beside that
+ * record's others (`formEntryMutations.ts`), which no projection of the
+ * earlier order foresees, so a diff holding one places every value in turn.
+ */
+function diffOpeningAssignments(
+	prev: readonly FormOpeningAssignment[],
+	next: readonly FormOpeningAssignment[],
+): FormEntryChange[] {
+	const changes: FormEntryChange[] = [];
+	const prevByUuid = new Map(prev.map((row) => [row.uuid, row]));
+	const nextUuids = new Set(next.map((row) => row.uuid));
+	for (const row of prev)
+		if (!nextUuids.has(row.uuid))
+			changes.push({ operation: "remove-assignment", uuid: row.uuid });
+	for (const [i, row] of next.entries())
+		if (!prevByUuid.has(row.uuid))
+			changes.push({
+				operation: "add-assignment",
+				value: cloneEntity(row),
+				after: next[i - 1]?.uuid ?? null,
+			});
+	let sourceMoved = false;
+	for (const row of next) {
+		const earlier = prevByUuid.get(row.uuid);
+		if (earlier === undefined || deepEqual(earlier, row)) continue;
+		if (!deepEqual(earlier.source, row.source)) sourceMoved = true;
+		const { uuid, ...value } = cloneEntity(row);
+		changes.push({ operation: "edit-assignment", uuid, value });
+	}
+	const order = next.map((row) => row.uuid);
+	const moves = sourceMoved
+		? order.map((uuid, i) => ({ uuid, after: order[i - 1] ?? null }))
+		: sequenceMovesTo(
+				arrivalsProjected(
+					prev.filter((row) => nextUuids.has(row.uuid)).map((row) => row.uuid),
+					order,
+				),
+				order,
+			);
+	for (const move of moves)
+		changes.push({ operation: "move-assignment", ...move });
+	return changes;
 }
 
 /**

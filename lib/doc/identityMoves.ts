@@ -456,7 +456,7 @@ function moveOfChange(
 	switch (target.target) {
 		case "form-selection": {
 			const from = change.from;
-			if (!from || typeof from === "string" || from.kind !== "selection-tag")
+			if (!from || typeof from !== "object" || from.kind !== "selection-tag")
 				return;
 			const nextTag = emittedSelectionTag(
 				after,
@@ -550,5 +550,10 @@ function moveOfChange(
 			if (blocker === undefined) return;
 			return moduleKindMove(after, target.moduleUuid, "basic", blocker.kind);
 		}
+		case "basic-opening":
+			// The starting values stay the form's own; only the case settings
+			// slot that carried them goes, and the form's next publish writes
+			// them where its shape now puts them.
+			return undefined;
 	}
 }

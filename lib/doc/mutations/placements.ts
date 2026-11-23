@@ -2,7 +2,8 @@
  * The `holdPlacements` reducer: writes each entry's held slot, in order, and
  * computes nothing. A case operation's hold is its `placement`, an own
  * close's is `Form.ownClosePlacement`, a query repeat's is the repeat's
- * `placement`, a menu's kind is `Module.heldKind`; `null` deletes the key. Target admission
+ * `placement`, a menu's kind is `Module.heldKind`, an adopted basic form's case settings
+ * slot for its starting values is `Form.heldBasicOpening`; `null` deletes the key. Target admission
  * (`mutationTargetAdmission.ts`) refuses an entry whose target is missing,
  * so a target the reducer cannot find is a stale replay and is left alone.
  */
@@ -73,6 +74,13 @@ export function applyHoldPlacements(
 				if (module === undefined) break;
 				if (hold.placement === null) delete module.heldKind;
 				else module.heldKind = hold.placement;
+				break;
+			}
+			case "basic-opening": {
+				const form = ownRecordValue(draft.forms, hold.formUuid);
+				if (form === undefined) break;
+				if (hold.placement === null) delete form.heldBasicOpening;
+				else form.heldBasicOpening = hold.placement;
 				break;
 			}
 		}

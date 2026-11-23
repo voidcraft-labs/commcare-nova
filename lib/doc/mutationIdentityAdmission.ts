@@ -72,6 +72,11 @@ function nestedFormIdentities(
 			kind: "entryValue" as const,
 			ownerUuid: form.uuid,
 		})),
+		...(form.openingAssignments ?? []).map((row) => ({
+			uuid: row.uuid,
+			kind: "openingAssignment" as const,
+			ownerUuid: form.uuid,
+		})),
 		...(form.caseOperations ?? []).map((operation) => ({
 			uuid: operation.uuid,
 			kind: "caseOperation" as const,
@@ -444,7 +449,8 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "updateForm":
 			if (
 				mutation.entryChange?.operation === "add-choice" ||
-				mutation.entryChange?.operation === "add-value"
+				mutation.entryChange?.operation === "add-value" ||
+				mutation.entryChange?.operation === "add-assignment"
 			)
 				return createClaims([
 					{
@@ -452,7 +458,9 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 						kind:
 							mutation.entryChange.operation === "add-choice"
 								? "formSelection"
-								: "entryValue",
+								: mutation.entryChange.operation === "add-value"
+									? "entryValue"
+									: "openingAssignment",
 						ownerUuid: mutation.uuid,
 					},
 				]);

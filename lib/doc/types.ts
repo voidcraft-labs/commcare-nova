@@ -518,6 +518,9 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	id: true,
 	name: true,
 	caseOperations: true,
+	// Starting values are entities with their own four entry changes; a
+	// whole-array replacement would drop a concurrent add.
+	openingAssignments: true,
 	// Links are entities with their own four kinds below; a whole-array
 	// replacement would erase identity and never survives the wire.
 	formLinks: true,
@@ -529,6 +532,9 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	// alone; no form patch writes it.
 	ownClosePlacement: true,
 	heldSelectionTags: true,
+	// That an adopted basic form keeps its own record's starting values in
+	// HQ's case settings slot is held by `holdPlacements` alone.
+	heldBasicOpening: true,
 });
 
 /**
@@ -539,11 +545,13 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 function formHoldsPlacement(form: {
 	readonly ownClosePlacement?: unknown;
 	readonly heldSelectionTags?: unknown;
+	readonly heldBasicOpening?: unknown;
 	readonly caseOperations?: readonly { readonly placement?: unknown }[];
 }): boolean {
 	return (
 		form.heldSelectionTags !== undefined ||
 		form.ownClosePlacement !== undefined ||
+		form.heldBasicOpening !== undefined ||
 		(form.caseOperations ?? []).some(
 			(operation) => operation.placement !== undefined,
 		)
@@ -551,7 +559,7 @@ function formHoldsPlacement(form: {
 }
 
 const HELD_FORM_PLACEMENT_MESSAGE =
-	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `heldSelectionTags`, `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.";
+	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `heldSelectionTags`, `ownClosePlacement`, `heldBasicOpening` and each case change's `placement`, and the form takes the placements its shape gives.";
 
 /**
  * `addModule`'s module: any module, holding no kind. Whether CommCare HQ
@@ -961,6 +969,11 @@ export const placementHoldSchema = z.discriminatedUnion("target", [
 		moduleUuid: uuidSchema,
 		placement: z.literal("advanced").nullable(),
 	}),
+	z.strictObject({
+		target: z.literal("basic-opening"),
+		formUuid: uuidSchema,
+		placement: z.literal(true).nullable(),
+	}),
 ]);
 export type PlacementHoldEntry = z.infer<typeof placementHoldSchema>;
 
@@ -984,7 +997,8 @@ export function placementTargetKey(
 		  }
 		| { readonly target: "own-close"; readonly formUuid: string }
 		| { readonly target: "query-repeat"; readonly fieldUuid: string }
-		| { readonly target: "module-kind"; readonly moduleUuid: string },
+		| { readonly target: "module-kind"; readonly moduleUuid: string }
+		| { readonly target: "basic-opening"; readonly formUuid: string },
 ): string {
 	switch (target.target) {
 		case "case-operation":
@@ -997,6 +1011,8 @@ export function placementTargetKey(
 			return `query-repeat:${target.fieldUuid}`;
 		case "module-kind":
 			return `module-kind:${target.moduleUuid}`;
+		case "basic-opening":
+			return `basic-opening:${target.formUuid}`;
 	}
 }
 
