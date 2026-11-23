@@ -1310,7 +1310,13 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   datums in the target module → form command → the target form's remaining
   datums. The module command is the menu id (`menuIdOf`); where it is `root`
   there is none, and the prefix runs over the form entries of every menu that
-  shows its forms above (`_root_module_datums`). The parent prepend drops
+  shows its forms above (`_root_module_datums`). HQ's endpoint builder is the
+  one exception (`FrameBuilder` `endpoint`, `rootListsSeenBy`):
+  `EndpointsHelper` builds its `WorkflowHelper` over the `app.get_modules()`
+  generator, which the entry pass's detail lookup reads to its end once any
+  form entry selects a case, so a deep link toward a first-menu form carries
+  no root prefix, `[command, datum…]`; entry stacks, links and returns keep it.
+  The parent prepend drops
   every child whose id, a command's or a datum's, the parent part holds. `homeSelectionConsumers` reads each physical selection before the first
   command. A link, deep link, static module return or list action installs
   the selection for the destination that consumes that ID. On Android, Back
@@ -2202,7 +2208,12 @@ target’s own navigation after submit. A registration by a child open binds
 the actual operation UUID on read and derives its physical datum from the
 form’s held placement on export. `formLinkProjection.ts::caseListFormReturnFrames`
 builds one return frame for `case-list` and two for `new-case`, only where
-the form follows its host. The hidden empty-search placement can choose
+the form follows its host. Every selection on a return frame is matched to
+the form's own datums as a link's are (`matchChildrenToSource`, HQ's
+`_get_datums_matched_to_source`), so a case the form creates takes the place
+of the earlier selection of its type: a members list under a chosen
+household, offered a form registering a household and a member, returns
+under the new household (`CaseListFormReturnFrame.createdSelections`). The hidden empty-search placement can choose
 either return. The compiler builds them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
 a submenu host's parent's `get_frame_children`, then the host's, each pass
 matched on its own and each adding to the cut frame up to its first matched
@@ -2489,13 +2500,26 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 `entryPointProjection.ts` shares the form-link frame machinery and projects
 against the emission document, so hidden case list registration forms never change the
 common selection prefix. Module endpoints include the destination's common
-selections; case-list endpoints omit only the final selection, and are refused
+selections; a menu listing another menu's forms takes that prefix over its
+source's entries (`get_frame_children` reads `get_module_datums(source)` for a
+`ShadowModule`). Case-list endpoints omit only the final selection, and are refused
 when that does not faithfully open a list. A formless module keeps its actual
 module command. A case list registration form never admits an endpoint.
 
 `entryPointSuite.ts` mirrors HQ `EndpointsHelper`: one argument per selectable
 case datum, ordered claim push frames and resolvable remote-request commands,
-then a navigation push. Collection arguments use the selected-entities instance;
+then a navigation push. Because each claim push comes before the navigation,
+Android's Back pops the navigation, then each posted claim with every case
+claimed after the first, and stops on Home with the first claimed case still
+chosen, whatever menu the destination is in (`CommCareSession.stepBack`,
+witnessed by `proof/native/core/EndpointRuntimeTest.java`).
+`EntryPointProjection.homeFrame` is that carry (the endpoint frame itself
+with inline search, which claims nothing), and it gives each menu reading that
+case under the same id, type and count its `firstMenuConsumers` for
+Preview's Android launch. The first-menu rules and the reader read
+`firstMenuFrame` instead, the workflow frame, which leads with a selection
+only where the destination opens with the first menu's shared case.
+Collection arguments use the selected-entities instance;
 computed datums remain owned by their entry. Only form endpoints can bypass
 relevancy. Inline-search destinations hydrate a known case through the selected
 target's case-fixture URL and reuse their entry's claim behavior. Current HQ
