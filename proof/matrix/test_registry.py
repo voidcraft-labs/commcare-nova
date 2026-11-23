@@ -163,13 +163,13 @@ def test_a_row_may_name_the_declaration_its_change_is_read_under_and_a_question_
     read under its base's declaration, which the reading no longer offers, and a question place the judge compares
     with no finding's, which no reading can meet."""
     holding = {key: item for key, item in ROW.items() if key not in ("standing", "place")}
-    declared = {**holding, "holds": [], "declaration": {"runsOnlyOn": "android", "splitDatetime": True}}
+    declared = {**holding, "holds": [], "declaration": {"runsOnlyOn": "android", "splitDatetime": False}}
     path = _rows([declared])
     try:
         (variant,) = registry.load_variants(path, named={"made": made})
     finally:
         path.unlink()
-    assert variant.declaration == registry.Declaration("android", True)
+    assert variant.declaration == registry.Declaration("android", False)
     _refused([{**declared, "declaration": {"runsOnlyOn": "android"}}], {"made": made}, "a declaration is")
     question = {"kind": "question", "menu": 0, "form": 0, "menuName": "Questions", "name": "Survey", "path": "a"}
     _refused([{**ROW, "place": question}], {"made": made}, "names its menuName, its formName")

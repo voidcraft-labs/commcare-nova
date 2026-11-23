@@ -31857,7 +31857,7 @@
 		"id": "hq-questions/android-answer-name",
 		"base": "hq-questions",
 		"entry": "questions/submitted-answer-name-only-android-stores",
-		"declaration": { "runsOnlyOn": "android", "splitDatetime": true },
+		"declaration": { "runsOnlyOn": "android", "splitDatetime": false },
 		"change": {
 			"op": "named",
 			"name": "android_answer_name"
