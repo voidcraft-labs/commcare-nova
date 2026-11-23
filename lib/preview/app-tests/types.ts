@@ -51,11 +51,17 @@ export const appTestSessionIdSchema = z
 const sensorFixInput = deviceLocationSchema
 	.optional()
 	.describe(
-		"Simulated Android location fix for automatic capture. Omit to simulate location permission denied or a device without a fix. A location question still uses its own answer.",
+		"Simulated Android location fix for automatic capture in this Android session. Omit to simulate location permission denied or a device without a fix. A location question still uses its own answer.",
+	);
+
+const defaultSensorFixInput = deviceLocationSchema
+	.optional()
+	.describe(
+		"Simulated Android location fix every Android session takes for automatic capture unless it names its own. Web Apps sessions send no location. Omit to simulate location permission denied or a device without a fix.",
 	);
 
 export const appTestStartSchema = z.strictObject({
-	locationFix: sensorFixInput,
+	locationFix: defaultSensorFixInput,
 	sessions: z
 		.array(
 			z.strictObject({

@@ -269,6 +269,49 @@ it("lands a submission's app_home on the first screen in Web Apps and the phone'
 	await run.step({ kind: "finish" }, "phone");
 });
 
+const FIX = { latitude: 12.97, longitude: 77.59, altitude: 920, accuracy: 8 };
+
+it("gives the test's device location to its Android sessions and none to a Web Apps session", async () => {
+	await seed(sectionEntryDoc());
+	const run = await begin({
+		locationFix: FIX,
+		sessions: [
+			{ id: "web", platform: "web-apps" },
+			{ id: "phone", platform: "android" },
+		],
+	});
+	const row = await h
+		.db()
+		.selectFrom("app_test_sessions")
+		.select("state")
+		.where("id", "=", run.testId())
+		.executeTakeFirstOrThrow();
+	const sessions = (
+		row.state as { sessions: Record<string, { locationFix?: unknown }> }
+	).sessions;
+	expect(sessions.phone.locationFix).toEqual(FIX);
+	expect(sessions.web).not.toHaveProperty("locationFix");
+	await run.step({ kind: "finish" }, "phone");
+});
+
+it.each([
+	[
+		"a Web Apps session's own device location",
+		{ sessions: [{ id: "web", platform: "web-apps", locationFix: FIX }] },
+		"Choose an Android session",
+	],
+	[
+		"a test's device location with no Android session",
+		{ locationFix: FIX, platform: "web-apps" },
+		"this test starts no Android session",
+	],
+])("refuses %s", async (_, input, sentence) => {
+	await seed(sectionEntryDoc());
+	const refusal = begin(input);
+	await expect(refusal).rejects.toBeInstanceOf(AppTestActionError);
+	await expect(refusal).rejects.toThrow(sentence);
+});
+
 it("refuses to continue a test started under the previous runtime", async () => {
 	await seed(sectionEntryDoc());
 	const run = await begin({});
