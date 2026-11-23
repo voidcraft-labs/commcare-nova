@@ -4581,6 +4581,80 @@ describe("location_id and hq_user_id", () => {
 		expect(row?.location_id).toBeNull();
 		expect(row?.properties).toMatchObject({ notes: "original" });
 	});
+
+	it("keeps the hq_user_id copy on a parent written through an index, whatever the authored order", async () => {
+		// HQ's build gathers a form's writes through `parent` into one block,
+		// so the copy lands after the block's known `external_id`.
+		const store = makeStore();
+		const parent = "00000000-0000-7000-8000-000000004601";
+		await seedSessionPatient(store);
+		await seedPatient(store, parent, "Household");
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						id: "link_household",
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								relationship: "child",
+								target: { kind: "expression", expr: text(parent) },
+							},
+						],
+					}),
+					{ expressionSnapshotTypes: { links: new Map([[0, "patient"]]) } },
+				),
+			]),
+		});
+		const opening = {
+			currentOwnerIds: [ACTOR],
+			lookupRows: [],
+			cases: await store.readDeviceCaseDatabase({
+				appId: APP_ID,
+				restoreScope: { ownerIds: [ACTOR] },
+			}),
+		};
+		const own = ownOp({
+			writes: [
+				{
+					property: "hq_user_id",
+					via: [{ identifier: "parent" }],
+					value: text("worker-7"),
+				},
+				{
+					property: "external_id",
+					via: [{ identifier: "parent" }],
+					value: text("explicit"),
+				},
+			],
+		});
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: {
+				...ownProgram("followup", [
+					{
+						...own,
+						viaCaseTypes: new Map([
+							[0, "patient"],
+							[1, "patient"],
+						]),
+					},
+				]),
+				openingReads: opening,
+			},
+		});
+		const row = await patientRow(store, parent);
+		expect(row?.external_id).toBe("worker-7");
+		expect(row?.properties).toMatchObject({ hq_user_id: "worker-7" });
+	});
 });
 
 // One choice saved to a list of choices: the writers agree on the list

@@ -2365,36 +2365,45 @@ async function applyOperationEffects(
 			await stampModified(trx, host, appId, entry.caseId);
 		}
 
-		// The writes through an index, each on the case its chain reached,
-		// after the block of the case they start from.
+		// The writes through an index, after the block of the case they start
+		// from. CommCare HQ's build gathers the writes reaching one case into
+		// one block (`xform.py::_add_case_updates`), whose known keys it
+		// applies before its other keys, so each reached case takes its writes
+		// as one partition, whatever their authored order.
+		const byCase = new Map<string, (typeof entry.viaWrites)[number][]>();
 		for (const write of entry.viaWrites) {
-			const part = partitionWrites([
-				{ property: write.property, value: write.value },
-			]);
+			const writes = byCase.get(write.caseId);
+			if (writes) writes.push(write);
+			else byCase.set(write.caseId, [write]);
+		}
+		for (const [caseId, writes] of byCase) {
+			const named = writes.findLast((write) => write.property === "case_name");
+			const part = partitionWrites(
+				writes
+					.filter((write) => write.property !== "case_name")
+					.map((write) => ({ property: write.property, value: write.value })),
+			);
 			const { patch, removals, scalars } = part;
-			await noteDeviceExternalId(trx, host, appId, write.caseId, part, device);
+			await noteDeviceExternalId(trx, host, appId, caseId, part, device);
 			if (
 				Object.keys(patch).length > 0 ||
 				Object.keys(scalars).length > 0 ||
-				write.property === "case_name"
+				named !== undefined
 			) {
 				await host.updateCase(trx, {
 					appId,
-					caseId: write.caseId,
-					patch:
-						write.property === "case_name"
-							? { case_name: storedText(write.value) }
-							: {
-									...scalars,
-									...(Object.keys(patch).length > 0
-										? { properties: patch }
-										: {}),
-								},
+					caseId,
+					patch: {
+						...(named !== undefined && {
+							case_name: storedText(named.value),
+						}),
+						...scalars,
+						...(Object.keys(patch).length > 0 ? { properties: patch } : {}),
+					},
 				});
 			}
-			if (removals.length > 0 && write.property !== "case_name") {
-				await removeProperties(trx, host, appId, write.caseId, removals);
-			}
+			if (removals.length > 0)
+				await removeProperties(trx, host, appId, caseId, removals);
 		}
 	}
 }
