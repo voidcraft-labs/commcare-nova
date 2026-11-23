@@ -333,7 +333,9 @@ export function applicationShell(
 	 * app Settings page attributes) are deliberately NOT emitted. Three keys carry Nova's values beside the
 	 * target's own, `translations`, `add_ons` and `profile`; the update path
 	 * projects each onto the target's current value before import
-	 * (`targetOverlay.ts`). `auto_gps_capture` is always written, including false when the author clears it. Every other omitted field was previously sent at
+	 * (`targetOverlay.ts`). `auto_gps_capture` is always written, false
+	 * included, so clearing the switch reaches HQ (an absent key on update keeps
+	 * HQ's earlier value). Every other omitted field was previously sent at
 	 * exactly HQ's own schema default, so create behaves identically (couch
 	 * `wrap` supplies the same default, and `_create_app_from_doc` sets
 	 * `cloudcare_enabled` itself from the domain's Web Apps privilege, which a

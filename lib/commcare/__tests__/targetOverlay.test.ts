@@ -543,16 +543,17 @@ describe("the whole body and its ownership", () => {
 		).toBe(true);
 	});
 
-	it("names no add-on and no profile key for the shell, and its Auto Capture Location", () => {
+	it("names no add-on and no profile key for the shell, and owns its Auto Capture Location", () => {
+		// Every shell writes `auto_gps_capture`, false included, so a later
+		// publish that clears the switch is compared on the key it wrote.
 		const shell = expandAppShell(buildDoc({ appName: "Visits" }));
+		expect(shell.auto_gps_capture).toBe(false);
 		expect(shellOwnership(shell)).toEqual({
 			addOns: [],
 			profileProperties: [],
 			profileCustomProperties: [],
-			autoGpsCapture: false,
+			autoGpsCapture: true,
 		});
-		expect(shellOwnership({ auto_gps_capture: true }).autoGpsCapture).toBe(
-			true,
-		);
+		expect(shellOwnership({}).autoGpsCapture).toBe(false);
 	});
 });
