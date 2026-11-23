@@ -78,7 +78,19 @@ it("holds the form lists and ordered Android apps a settings edit can replace", 
 			{ app: "commcare-toolkit", name: "CommCare Toolkit" },
 		],
 		captureLocation: false,
+		caseSharing: false,
 	});
+});
+
+it("holds whether a new case goes to the worker's case-sharing group", () => {
+	const doc = buildDoc({
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			caseSharing: true,
+		},
+	});
+	expect(appOverview(doc).settings).toMatchObject({ caseSharing: true });
 });
 
 it("holds the app's own location request, which a form's read does not name", () => {

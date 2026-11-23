@@ -260,6 +260,9 @@ export const updateAppTool = {
 				...(settings.captureLocation !== undefined && {
 					captureLocation: settings.captureLocation === true,
 				}),
+				...(settings.caseSharing !== undefined && {
+					caseSharing: settings.caseSharing === true,
+				}),
 				...(formListsChanged && {
 					formLists: {
 						...(settings.showSavedForms !== undefined && {

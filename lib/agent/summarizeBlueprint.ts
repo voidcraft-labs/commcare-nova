@@ -546,6 +546,10 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		`Automatic location on Android: ${doc.connectType !== null ? "on for all forms through Connect" : doc.appSettings.captureLocation ? "on for all forms" : "chosen by each form"}`,
 		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
 	);
+	if (doc.appSettings.caseSharing === true)
+		lines.push(
+			"Case sharing: on. A new case a form gives the default owner goes to the worker's case-sharing group.",
+		);
 	if (doc.appSettings.requiredAndroidApps?.length)
 		lines.push(
 			`Workers on Android need ${doc.appSettings.requiredAndroidApps.map((app) => ANDROID_APP_NAMES[app]).join(", ")}.`,

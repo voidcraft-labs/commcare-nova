@@ -38,6 +38,9 @@ export function appOverview(doc: BlueprintDoc) {
 			/** Every form requests the Android device location; a Connect app's
 			 * forms request it whatever this says. */
 			captureLocation: doc.appSettings.captureLocation === true,
+			/** A new case a form gives the default owner goes to the worker's
+			 * one case-sharing group. */
+			caseSharing: doc.appSettings.caseSharing === true,
 		},
 		/** Where workers use the app, and the features that declaration refuses. */
 		platforms: declaredPlatforms(doc),
