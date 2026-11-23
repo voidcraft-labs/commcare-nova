@@ -18570,16 +18570,32 @@
 		"id": "hq-case-management/visit-kind-written-as-one-and-several-choices",
 		"base": "hq-case-management",
 		"entry": "forms-and-case-writes/writers-single-select-multi-select",
-		"standing": "not-yet",
-		"place": {
-			"kind": "menu",
-			"menu": 0,
-			"name": "Households"
-		},
 		"change": {
 			"op": "named",
 			"name": "visit_kind_from_both_selects"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 1]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "visit_kind"
+			},
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [0, 2]
+					}
+				],
+				"pointer": "/caseOperations/0/writes/1/property",
+				"value": "visit_kind"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/worker-record-first-name",

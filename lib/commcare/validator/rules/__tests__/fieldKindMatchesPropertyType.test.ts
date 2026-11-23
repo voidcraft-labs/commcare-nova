@@ -103,7 +103,8 @@ describe("case writer type admission", () => {
 		{ kind: "decimal", declared: "int", fits: false },
 		{ kind: "multi_select", declared: "text", fits: false },
 		{ kind: "text", declared: "multi_select", fits: false },
-		{ kind: "single_select", declared: "multi_select", fits: false },
+		// One choice is a list of choices holding it alone.
+		{ kind: "single_select", declared: "multi_select", fits: true },
 		{ kind: "date", declared: "datetime", fits: false },
 		{ kind: "int", declared: "text", fits: false },
 	] satisfies {
@@ -182,7 +183,8 @@ describe("case writer type admission", () => {
 		},
 	);
 	// Writers agree on the one of their types that holds every other: an
-	// integer and a decimal on decimal, a choice and text on text. Where none
+	// integer and a decimal on decimal, a choice and text on text, one choice
+	// and several on several. Where none
 	// does, text holds a number, a date, a choice and text as the text a
 	// device submits, so those are saved as text; any other pair is a finding
 	// for each writer.
@@ -192,7 +194,7 @@ describe("case writer type admission", () => {
 		{ first: "int", second: "text", agreed: "text" },
 		{ first: "date", second: "text", agreed: "text" },
 		{ first: "int", second: "time", agreed: undefined },
-		{ first: "single_select", second: "multi_select", agreed: undefined },
+		{ first: "single_select", second: "multi_select", agreed: "multi_select" },
 	] satisfies {
 		first: FieldSpec["kind"];
 		second: FieldSpec["kind"];

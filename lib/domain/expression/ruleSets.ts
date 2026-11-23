@@ -57,6 +57,12 @@ export function isValueStorageAssignable(
 	if (valueType === ANY_TYPE) return false;
 	if (valueType === destinationType) return true;
 	if (valueType === "int" && destinationType === "decimal") return true;
+	// One choice is a list of choices holding it alone: a device stores both
+	// as the text of their values, space-separated, and a several-choice
+	// question reads one choice's value as that one choice
+	// (`SelectMultiData.cast` splits the text on spaces).
+	if (valueType === "single_select" && destinationType === "multi_select")
+		return true;
 	return (
 		(valueType === "text" || valueType === "single_select") &&
 		(destinationType === "text" || destinationType === "single_select")
@@ -68,10 +74,11 @@ export function isValueStorageAssignable(
  * one of them is storage-assignable to (`isValueStorageAssignable`), so
  * `int` and `decimal` agree on `decimal` (an integer fits decimal storage).
  * `text` and `single_select` are assignable each to the other, since both
- * are stored as the same text, and agree on `text`. Undefined where no
- * such type exists, as for `multi_select` beside any other type: storage
- * keeps text out of a list of choices, and a list is no one choice or
- * number.
+ * are stored as the same text, and agree on `text`. `single_select` and
+ * `multi_select` agree on `multi_select`, one choice being a list of one.
+ * Undefined where no such type exists, as for `multi_select` beside any
+ * other type: storage keeps text out of a list of choices, and a list is
+ * no one choice or number.
  */
 export function agreedStorageType(
 	types: Iterable<CasePropertyDataType>,

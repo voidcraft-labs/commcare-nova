@@ -4580,3 +4580,45 @@ describe("location_id and hq_user_id", () => {
 		expect(row?.properties).toMatchObject({ notes: "original" });
 	});
 });
+
+// One choice saved to a list of choices: the writers agree on the list
+// (`ruleSets.ts::isValueStorageAssignable`), and the stored list is the one a
+// device reads from the text it stores, the values split on spaces. The
+// plausible failure: the scalar refused at storage, or stored as one string a
+// several-choice read takes apart differently.
+describe("a single choice saved to a list of choices", () => {
+	it("stores the choice as a one-element list and a blank one as nothing", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store, { notes: "original", meds: ["old"] });
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						writes: [{ property: "meds", value: term(literal("aspirin")) }],
+					}),
+				),
+			]),
+		});
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ meds: ["aspirin"] });
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						writes: [{ property: "meds", value: term(literal("")) }],
+					}),
+				),
+			]),
+		});
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).not.toHaveProperty("meds");
+	});
+});

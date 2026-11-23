@@ -195,7 +195,7 @@ function isSelect(kind: unknown): boolean {
 }
 
 /** Each property's select type, where every writer of it a reading reads is
- *  a select question of one kind: the type its writers agree on, which the
+ *  a select question: the type its writers agree on, which the
  *  translations of its choices and a case list's labels of them are keyed
  *  by. A property any other writer writes is left untyped. */
 function selectTypes(
@@ -214,12 +214,10 @@ function selectTypes(
 	}
 	const out = new Map<string, "single_select" | "multi_select">();
 	for (const [key, set] of kinds) {
-		const [only, ...more] = [...set];
-		if (
-			more.length === 0 &&
-			(only === "single_select" || only === "multi_select")
-		)
-			out.set(key, only);
+		if (![...set].every(isSelect)) continue;
+		// One choice and several join on several, a list holding one choice
+		// as the text a device stores for it (`ruleSets.ts::agreedStorageType`).
+		out.set(key, set.has("multi_select") ? "multi_select" : "single_select");
 	}
 	return out;
 }
@@ -617,10 +615,6 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 }
 
 const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
-	singleMulti: refuse(
-		`forms-and-case-writes/writers-single-select-multi-select`,
-		null,
-	),
 	otherPair: refuse(`forms-and-case-writes/any-other-mixed-writer-pair`, null),
 });
 
@@ -628,7 +622,8 @@ const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
  * The writers of each property judged over the bound document
  * (`concreteCasePropertyWriterTypes`): writers that agree on one stored type
  * (`agreedStorageType`: `int` with `decimal` on `decimal`, `text` with
- * `single_select` on `text`), or that are saved as text
+ * `single_select` on `text`, `single_select` with `multi_select` on
+ * `multi_select`), or that are saved as text
  * (`ruleSets.ts::joinsAsText`, which adds the one type `text`), are one type
  * Nova holds, with nothing claimed, since those entries name no key; writers
  * that do not are the manifest's row for their pair, one finding per
@@ -673,15 +668,7 @@ export function settleWriterTypes(
 		if (NOT_CATALOGUED.has(caseType)) continue;
 		for (const [property, types] of byProperty) {
 			if (types.size < 2 || agreedStorageType(types) !== undefined) continue;
-			const pair = (a: CasePropertyDataType, b: CasePropertyDataType) =>
-				types.size === 2 && types.has(a) && types.has(b);
-			finding(
-				caseType,
-				property,
-				pair("single_select", "multi_select")
-					? WRITER_CLAIMS.singleMulti
-					: WRITER_CLAIMS.otherPair,
-			);
+			finding(caseType, property, WRITER_CLAIMS.otherPair);
 		}
 	}
 	for (const verdict of verdicts) {

@@ -5039,10 +5039,9 @@
 		"item": "writers `single_select` ⊔ `multi_select`",
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions that write one case property (a single-select and a multi-select writer), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: join `multi_select`",
-		"subject": "writer-types",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: join `multi_select`, the choices merged by value in writer order, the first label kept (`ruleSets.ts::agreedStorageType`, `reader/caseManagement/catalog.ts::selectTypes`); a device stores one choice and several as their values' text, which a several-choice question reads token by token (`SelectMultiData.cast`), and the case store keeps one choice as a list of one",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

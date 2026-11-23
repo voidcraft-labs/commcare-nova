@@ -72,7 +72,8 @@ export function declaredTypeHolds(
 	return (
 		given === declared ||
 		(given === "int" && declared === "decimal") ||
-		(given === "single_select" && declared === "text")
+		(given === "single_select" && declared === "text") ||
+		(given === "single_select" && declared === "multi_select")
 	);
 }
 

@@ -808,6 +808,13 @@ export function storageValueFromEvaluation(
 	switch (dataType) {
 		case "multi_select": {
 			if (Array.isArray(value)) return value.map((entry) => String(entry));
+			// One choice saved to a list of choices (`ruleSets.ts::
+			// isValueStorageAssignable`): the list a device reads from the
+			// text it stores, its values split on spaces.
+			if (typeof value === "string") {
+				const tokens = value.split(/\s+/).filter((token) => token !== "");
+				return tokens.length === 0 ? undefined : tokens;
+			}
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.submissionEnvelope.storageValueFromEvaluation",
