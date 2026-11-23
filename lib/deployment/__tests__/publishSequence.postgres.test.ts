@@ -2726,6 +2726,9 @@ describe("a publish over an app Nova brought in", () => {
 			serve(peer, SOURCE, "source-live");
 			accepted(peer, 200, HQ_APP, bodies);
 			serve(peer, SOURCE, "source-live");
+			/* The caller's document predates the placements the first publish
+			 * recorded, so preflight reads the app once more over the head. */
+			serve(peer, SOURCE, "source-live");
 			mediaTaken(peer);
 			expect((await publish(doc)).landed).toBe(true);
 		});
