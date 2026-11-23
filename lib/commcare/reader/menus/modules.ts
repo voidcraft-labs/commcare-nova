@@ -29,6 +29,7 @@ import {
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { advancedLoadListMenus, parentStepRead } from "../../hq/entryFacts";
@@ -1562,10 +1563,13 @@ function settleParentSelections(
 		const verdict = caseParentSelectionVerdict(doc, module.uuid, named.uuid);
 		if (verdict.ok) {
 			const catalogType = doc.caseTypes?.find(
-				(type) => type.name === doc.modules[module.uuid]?.caseType,
+				(type) =>
+					type.name ===
+					menuWithInheritedCaseSettings(doc, module.uuid)?.caseType,
 			);
 			if (
-				catalogType?.parent_type !== doc.modules[named.uuid]?.caseType ||
+				catalogType?.parent_type !==
+					menuWithInheritedCaseSettings(doc, named.uuid)?.caseType ||
 				catalogType?.relationship === "extension"
 			)
 				ctx.accounting.claimEntryClass(

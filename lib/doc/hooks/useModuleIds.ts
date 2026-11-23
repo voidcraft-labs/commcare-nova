@@ -17,6 +17,7 @@ import type { Uuid } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
+	caseSelectionCardinality,
 	childModuleUuids,
 	type Form,
 	type Module,
@@ -33,6 +34,7 @@ import {
 	screenChoosesCaseFirst,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	useBlueprintDoc,
 	useBlueprintDocEq,
@@ -102,6 +104,16 @@ export function useCaseParentModuleOptions(moduleUuid: Uuid) {
 		(doc) =>
 			doc.moduleOrder.flatMap((uuid) => {
 				if (!caseParentSelectionVerdict(doc, moduleUuid, uuid).ok) return [];
+				// CommCare HQ offers no menu that selects several records as a
+				// parent (`get_modules_with_parent_case_type`); one already chosen
+				// stays listed so the control can show it.
+				const candidate = menuWithInheritedCaseSettings(doc, uuid);
+				if (
+					candidate !== undefined &&
+					caseSelectionCardinality(candidate) === "multiple" &&
+					doc.modules[moduleUuid]?.parentCaseModuleUuid !== uuid
+				)
+					return [];
 				const module =
 					language === null
 						? doc.modules[uuid]
