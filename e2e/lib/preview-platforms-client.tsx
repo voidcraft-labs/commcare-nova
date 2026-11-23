@@ -428,6 +428,20 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					},
 				]),
 			];
+		case "label-texts":
+			return [
+				inSection("Visit", [
+					{
+						kind: "text",
+						id: "full_name",
+						label: "Name",
+						plainLabel: true,
+						extended_text: "Full name of the person",
+						qr_code: "household-12",
+						spoken_text: "Say the full name",
+					},
+				]),
+			];
 		case "home":
 			return [{ kind: "text", id: "note", label: "Note" }];
 		case "search":
@@ -540,6 +554,9 @@ toastRoot.render(<ToastContainer />);
 
 window.previewPlatforms = {
 	answer: (uuid) => controller?.store.getState()[uuid]?.value,
+	setPlatform(next) {
+		session.getState().setPreviewPlatform(next);
+	},
 	async settled() {
 		await controller?.awaitSettled();
 	},
@@ -555,6 +572,8 @@ declare global {
 	interface Window {
 		previewPlatforms: {
 			answer(uuid: string): string | undefined;
+			/** Plays `next` as the builder's platform switch does. */
+			setPlatform(next: Platform): void;
 			settled(): Promise<void>;
 			dispose(): Promise<void>;
 		};

@@ -3,7 +3,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerQrcode from "@iconify-icons/tabler/qrcode";
 import tablerVolume from "@iconify-icons/tabler/volume";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/shadcn/button";
 
 /**
@@ -32,10 +32,17 @@ export function LabelQrCode({ text }: { text: string }) {
 	);
 }
 
+/** The utterance Preview is reading aloud, whichever button started it:
+ *  speech is the window's, so one button stops only its own. */
+let speaking: SpeechSynthesisUtterance | null = null;
+
 /**
  * The speaker button Android shows beside a label with spoken text and no
  * audio (`lib/preview/labelPresentation.ts`). It reads the text aloud
- * through the browser's speech, where the browser has it.
+ * through the browser's speech, where the browser has it. The browser keeps
+ * reading after the page moves on, so the reading this button started stops
+ * when the button goes: the worker moves to another screen, Preview plays
+ * Web Apps, or the builder leaves Preview.
  */
 export function LabelSpeechButton({
 	text,
@@ -44,12 +51,30 @@ export function LabelSpeechButton({
 	text: string;
 	questionLabel: string | undefined;
 }) {
+	const started = useRef<SpeechSynthesisUtterance | null>(null);
 	const speak = useCallback(() => {
 		const speech = globalThis.speechSynthesis;
 		if (speech === undefined) return;
 		speech.cancel();
-		speech.speak(new SpeechSynthesisUtterance(text));
+		const utterance = new SpeechSynthesisUtterance(text);
+		const done = () => {
+			if (speaking === utterance) speaking = null;
+		};
+		utterance.addEventListener("end", done);
+		utterance.addEventListener("error", done);
+		started.current = utterance;
+		speaking = utterance;
+		speech.speak(utterance);
 	}, [text]);
+	useEffect(
+		() => () => {
+			const mine = started.current;
+			if (mine === null || speaking !== mine) return;
+			speaking = null;
+			globalThis.speechSynthesis?.cancel();
+		},
+		[],
+	);
 	return (
 		<Button
 			type="button"

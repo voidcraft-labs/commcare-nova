@@ -618,6 +618,54 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			.click();
 		await expect(header).toHaveText("Visits (2) > Details");
 	},
+	async "label-texts-android"(page) {
+		/* The browser's speech, recorded: what it was asked to read and when
+		 * it was told to stop. */
+		await page.addInitScript(() => {
+			const calls: string[] = [];
+			Object.defineProperty(window, "speechCalls", { value: calls });
+			Object.defineProperty(window, "SpeechSynthesisUtterance", {
+				configurable: true,
+				value: class extends EventTarget {
+					constructor(readonly text: string) {
+						super();
+					}
+				},
+			});
+			Object.defineProperty(window, "speechSynthesis", {
+				configurable: true,
+				value: {
+					speak(utterance: SpeechSynthesisUtterance) {
+						calls.push(`speak:${utterance.text}`);
+					},
+					cancel() {
+						calls.push("cancel");
+					},
+				},
+			});
+		});
+		const speech = () =>
+			page.evaluate(
+				() => (window as unknown as { speechCalls: string[] }).speechCalls,
+			);
+		await openScenario(page, "label-texts-android");
+		await expect(
+			page.getByText("Full name of the person", { exact: true }),
+		).toBeVisible();
+		await expect(page.locator("[data-label-qr-code]")).toContainText(
+			"household-12",
+		);
+		await page.getByRole("button", { name: /^Read aloud/ }).click();
+		await expect.poll(speech).toEqual(["cancel", "speak:Say the full name"]);
+		/* Web Apps has no speaker button; the reading it started stops with it. */
+		await page.evaluate(() => window.previewPlatforms.setPlatform("web-apps"));
+		await expect(page.getByRole("button", { name: /^Read aloud/ })).toHaveCount(
+			0,
+		);
+		await expect
+			.poll(speech)
+			.toEqual(["cancel", "speak:Say the full name", "cancel"]);
+	},
 	async "label-markdown-android"(page) {
 		await openScenario(page, "label-markdown-android");
 		/* Markwon joins the single newline with a space, drops the raw tag and
