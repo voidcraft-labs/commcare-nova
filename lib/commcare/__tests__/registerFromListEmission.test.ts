@@ -679,7 +679,7 @@ describe("a list action's condition and the instances the list loads", () => {
 				location: { moduleUuid: roleIds.households },
 				details: {
 					reason: "instance-not-on-the-list",
-					instances: ["commcaresession"],
+					instances: "commcaresession",
 				},
 			},
 		]);

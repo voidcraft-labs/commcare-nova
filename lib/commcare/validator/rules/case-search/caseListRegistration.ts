@@ -156,7 +156,7 @@ export function caseListActionVisibility(
 				{
 					...details,
 					reason: "instance-not-on-the-list",
-					instances: undeclared,
+					instances: undeclared.join(" "),
 					slot: "caseListRegistrationForm.showWhen.condition",
 				},
 			),
