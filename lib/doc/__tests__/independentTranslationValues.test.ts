@@ -33,6 +33,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { workerRecordRequirements } from "@/lib/domain/workerRecordRequirements";
 import { buildEngineInput } from "@/lib/preview/engine/engineInput";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
 
@@ -250,5 +251,23 @@ describe("a translation that shows its own answers", () => {
 		expect(engineIn("spa")).toBe("Hola Ana");
 		// The English label reads nothing: the engine leaves its text as written.
 		expect(engineIn("eng")).toBeUndefined();
+	});
+});
+
+describe("what a translation alone reads", () => {
+	it("counts the worker's record a translation alone reads", () => {
+		const plain = fixture();
+		expect(workerRecordRequirements(plain)).toEqual([]);
+		const doc = commit(plain, [
+			spanish(plain, {
+				parts: [
+					{ kind: "text", text: "Hola " },
+					{ kind: "user-ref", property: "village" },
+				],
+			}),
+		]);
+		expect(workerRecordRequirements(doc)).toEqual([
+			{ formUuid: FORM, name: "Visit", reads: true, writes: false },
+		]);
 	});
 });
