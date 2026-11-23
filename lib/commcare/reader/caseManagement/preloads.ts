@@ -16,6 +16,7 @@ import {
 	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import { term } from "@/lib/domain/expression/builders";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
@@ -44,6 +45,7 @@ import {
 import { conditionQuestionPath } from "./conditions";
 
 import {
+	holdsAsOpeningAssignment,
 	holdsEarlierDefault,
 	recordLateAssignment,
 	settleOpeningAssignments,
@@ -170,6 +172,23 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
  *  form expression reading one (`findings.ts::nameGrammarEntry`). */
 export const UNNAMED_PRELOAD =
 	EXPRESSION_CLAIMS["a-form-expression-outside-what-nova-types"];
+
+/** The refusal of a preloaded property Nova's case-property grammar cannot
+ *  hold though HQ's admits it (`validate_property` takes any Unicode letter),
+ *  as the expression stage refuses a form expression reading one
+ *  (`findings.ts::nameGrammarEntry`); `undefined` for a name Nova holds. */
+export function preloadNameRefusal(
+	name: string | undefined,
+): typeof UNNAMED_PRELOAD | undefined {
+	if (name === undefined) return UNNAMED_PRELOAD;
+	if (authoredCasePropertyNameSchema.safeParse(name).success) return undefined;
+	for (let index = 0; index < name.length; index++)
+		if (name.charCodeAt(index) > 0x7f)
+			return EXPRESSION_CLAIMS[
+				"update-key-holding-a-non-ascii-core-name-character"
+			];
+	return UNNAMED_PRELOAD;
+}
 
 /** The rows a case preload's question reads under, in the table's order. */
 const PRELOAD_ROWS = [
@@ -448,6 +467,7 @@ export function readPreloads(
 					);
 				if (
 					canEmit &&
+					(!read.name || holdsAsOpeningAssignment(read.indices, read.name)) &&
 					!holdsEarlierDefault(ctx, form, { kind: "own" }, path, property) &&
 					!(multi && topLevel)
 				) {
@@ -533,9 +553,10 @@ export function readPreloads(
 					if (authored) candidates.push({ field, place: field.place });
 					continue;
 				}
-				if (name === undefined) {
+				const unnamed = preloadNameRefusal(name);
+				if (name === undefined || unnamed !== undefined) {
 					// HQ's build reads a child element no property name of Nova's names.
-					refuseEntry(UNNAMED_PRELOAD, field.place, {
+					refuseEntry(unnamed ?? UNNAMED_PRELOAD, field.place, {
 						name: property,
 						reason: "name:case-property",
 					});

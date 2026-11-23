@@ -762,6 +762,24 @@ describe("an advanced form's loads and open actions", () => {
 			}
 		});
 
+		it("refuses a name HQ's grammar takes and Nova's document cannot hold on its load, never failing the whole reading", async () => {
+			// HQ's `validate_property` admits any Unicode letter and a hyphen in an
+			// index step; Nova's case-property and index grammars do not.
+			const { doc } = memberFollowup();
+			for (const property of ["prénom", "my-index/village"]) {
+				const reading = await readMenusOf(doc, (app) => {
+					const load = actionsOf(app).load_update_cases[0] as Record<
+						string,
+						unknown
+					>;
+					load.preload = { "/data/name": property };
+				});
+				expect(reading.outcome.defects, property).toEqual([]);
+				expect(codesOf(reading).length, property).toBeGreaterThan(0);
+				expect(nameAssignment(reading.doc), property).toBeUndefined();
+			}
+		});
+
 		it("reads one on the load next to the own where the load before it shares its type", async () => {
 			const { doc } = visitUnderTwoHouseholds();
 			const plain = await readMenusOf(doc, (app) => {

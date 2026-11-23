@@ -3,10 +3,12 @@ import {
 	formCaseSelections,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import {
 	formFieldPath,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
+import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type { HqAppSource } from "../../hq/appSource";
@@ -177,6 +179,21 @@ export function holdsEarlierDefault(
 		earlier.original.get(form.xmlns)?.has(signature(source, path, property)) ===
 			true &&
 		!earlier.represented.has(JSON.stringify([form.uuid, carrier(source), path]))
+	);
+}
+
+/** Whether Nova's document can hold a starting value read from `name`
+ *  through `indices`: the property in Nova's case-property grammar and each
+ *  index step an XML element name. HQ's grammar is wider (any Unicode letter,
+ *  a hyphen in an index), and an entry outside Nova's goes on to the reader's
+ *  placed refusal on its question rather than into the document. */
+export function holdsAsOpeningAssignment(
+	indices: readonly string[],
+	name: string,
+): boolean {
+	return (
+		authoredCasePropertyNameSchema.safeParse(name).success &&
+		indices.every((step) => XML_ELEMENT_NAME_PATTERN.test(step))
 	);
 }
 

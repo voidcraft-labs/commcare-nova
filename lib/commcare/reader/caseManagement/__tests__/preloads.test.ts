@@ -288,6 +288,29 @@ describe("a case preload through `parent`, against the index the app links by", 
 });
 
 describe("case values assigned when a form opens", () => {
+	/**
+	 * HQ's property grammar admits any Unicode letter and a hyphen in an index
+	 * step; Nova's document does not. Such an entry stays out of the document
+	 * and is refused on its question, never left to fail the whole reading at
+	 * assembly.
+	 */
+	it.each([
+		["a property with a non-ASCII letter", "prénom"],
+		["an index step holding a hyphen", "my-index/village"],
+	])(
+		"refuses %s on its question rather than failing the reading",
+		async (_, property) => {
+			const reading = await preloaded([f({ kind: "text", id: "q", uuid: Q })], {
+				"/data/q": property,
+			});
+			const whole = reading.whole;
+			if (whole?.kind !== "account")
+				throw new Error(`The entry should be refused, got ${whole?.kind}`);
+			expect(whole.defects).toEqual([]);
+			expect(whole.findings.length).toBeGreaterThan(0);
+		},
+	);
+
 	it("retains both the authored default and the later record assignment on a new import", async () => {
 		const reading = await preloaded(
 			[

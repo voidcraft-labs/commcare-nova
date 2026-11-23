@@ -110,6 +110,7 @@ import {
 	statedBack,
 } from "./conditions";
 import {
+	holdsAsOpeningAssignment,
 	holdsEarlierDefault,
 	recordLateAssignment,
 } from "./openingAssignments";
@@ -118,6 +119,7 @@ import {
 	fieldAt,
 	holdsDefault,
 	hqBuildRefusesProperty,
+	preloadNameRefusal,
 	preloadReadOf,
 	UNNAMED_PRELOAD,
 	writeDefault,
@@ -2784,7 +2786,9 @@ function readLoadPreloads(
 		)
 			return [];
 		const { indices, name } = preloadReadOf(property);
-		return name && !hqBuildRefusesProperty(name === "case_name" ? "name" : name)
+		return name &&
+			!hqBuildRefusesProperty(name === "case_name" ? "name" : name) &&
+			holdsAsOpeningAssignment(indices, name)
 			? [{ field, indices, property: name, path }]
 			: [];
 	});
@@ -2841,13 +2845,18 @@ function readLoadPreloads(
 	const unnamed = entries.find(
 		({ property }) =>
 			typeof property === "string" &&
-			preloadReadOf(property).name === undefined,
+			preloadNameRefusal(preloadReadOf(property).name) !== undefined,
 	);
 	if (unnamed !== undefined) {
-		L.refuse("preload", UNNAMED_PRELOAD, {
-			name: unnamed.property as string,
-			reason: "name:case-property",
-		});
+		L.refuse(
+			"preload",
+			preloadNameRefusal(preloadReadOf(unnamed.property as string).name) ??
+				UNNAMED_PRELOAD,
+			{
+				name: unnamed.property as string,
+				reason: "name:case-property",
+			},
+		);
 		r.ok = false;
 		return;
 	}
