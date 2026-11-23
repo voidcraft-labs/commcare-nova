@@ -33,6 +33,7 @@ import { makeAuthoringHarness } from "../../__tests__/authoringHarness";
 
 const MOD = testUuid("display-settings-module");
 const FORM = testUuid("display-settings-form");
+const ADDRESS_FIELD = testUuid("display-settings-address");
 const FORM_ADDRESS = { moduleUuid: MOD, formUuid: FORM };
 
 /** A survey whose one form holds `intro` and `fields`. */
@@ -249,5 +250,47 @@ describe("display combinations the tools refuse", () => {
 			fields: [{ ...itemOf("group"), repeatsPerRow: "2" }],
 		});
 		expect(refused).toHaveProperty("error");
+	});
+
+	it("turns off address search on a question that holds it, and never turns it on", async () => {
+		const h = makeAuthoringHarness(
+			{},
+			makeDoc([
+				f({
+					uuid: ADDRESS_FIELD,
+					id: "where",
+					kind: "text",
+					label: "Where",
+					addressLookup: true,
+					sendTopics: ["home"],
+				}),
+			]),
+		);
+		const at = { ...FORM_ADDRESS, fieldUuid: ADDRESS_FIELD };
+		expect(
+			await attempt(h, "editField", {
+				...at,
+				updates: { kind: "text", addressLookup: true },
+			}),
+		).toHaveProperty("error");
+		expect(
+			await attempt(h, "addFields", {
+				...FORM_ADDRESS,
+				fields: [{ ...itemOf("text"), addressLookup: true }],
+			}),
+		).toHaveProperty("error");
+
+		expect(
+			await attempt(h, "editField", {
+				...at,
+				updates: { kind: "text", addressLookup: null, sendTopics: null },
+			}),
+		).toEqual({ ok: true });
+		expect(h.currentDoc().fields[ADDRESS_FIELD]).not.toHaveProperty(
+			"addressLookup",
+		);
+		expect(h.currentDoc().fields[ADDRESS_FIELD]).not.toHaveProperty(
+			"sendTopics",
+		);
 	});
 });

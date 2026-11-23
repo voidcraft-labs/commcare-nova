@@ -70,6 +70,13 @@ export function canOfferDisplaySetting(
 		!fieldDisplaySettingsFor(field.kind).some((setting) => setting.key === key)
 	)
 		return true;
+	/* Web Apps runs address search only where the project space has both
+	 * `CASE_SEARCH_ADVANCED` and the geocoder privilege
+	 * (`cloudcare/views.py::has_geocoder_privs`), and otherwise saves
+	 * "Not Supported by Web Entry" as the answer (`entries.js::UnsupportedEntry`).
+	 * No publish check asks for that pair, so the setting is offered only
+	 * where a question already holds it (above), to keep or turn off. */
+	if (key === "addressLookup") return false;
 	if (key === "receiveFrom") {
 		if ("addressLookup" in field && field.addressLookup) return false;
 		if (field.kind !== "single_select") return true;
