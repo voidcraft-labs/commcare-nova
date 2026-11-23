@@ -119,6 +119,34 @@ export function useBuilderLanguage(): BuilderLanguageState {
 	return value;
 }
 
+/** The language a file editor edits, and the app's source and default. */
+export interface FileLanguageLens {
+	readonly language: LanguageTag;
+	readonly sourceLanguage: LanguageTag;
+	readonly defaultLanguage: LanguageTag;
+	readonly isSource: boolean;
+}
+
+/**
+ * The selected worker language for an editor of one language's files. A
+ * surface outside the provider has no language lens, so it edits the source
+ * language's (shared) files, as {@link useShowsSourceLanguage} reads.
+ */
+export function useFileLanguageLens(): FileLanguageLens {
+	const value = useContext(BuilderLocalizationContext);
+	const persisted = useAppLocalization();
+	return useMemo(() => {
+		if (value !== null) return value;
+		const effective = effectiveAppLocalization(persisted);
+		return {
+			language: effective.sourceLanguage,
+			sourceLanguage: effective.sourceLanguage,
+			defaultLanguage: effective.defaultLanguage,
+			isSource: true,
+		};
+	}, [persisted, value]);
+}
+
 /**
  * Whether the builder shows the source language, which owns every setting a
  * text's languages share (a label's Format text, for one). A surface outside

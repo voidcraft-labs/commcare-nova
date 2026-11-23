@@ -1,6 +1,6 @@
 "use client";
 
-import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useFileLanguageLens } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useStoredField } from "@/lib/doc/hooks/useEntity";
@@ -27,7 +27,7 @@ export function FieldLanguageMedia({
 	// The stored field: the lens projection has already chosen one file per
 	// role, and this editor shows which of them the language holds itself.
 	const field = useStoredField(fieldUuid);
-	const lens = useBuilderLanguage();
+	const lens = useFileLanguageLens();
 	const { commitMany } = useBlueprintMutations();
 	const key = slot === "help" ? "help_media" : "label_media";
 	const media =

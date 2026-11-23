@@ -1,6 +1,6 @@
 "use client";
 
-import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { useFileLanguageLens } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useAppLocalization } from "@/lib/doc/hooks/useLocalization";
 import type { IconRef } from "@/lib/domain/builtinIcons";
 import { effectiveAppLocalization } from "@/lib/domain/localization";
@@ -12,7 +12,7 @@ import {
 export function useNavigationFileLens<T extends IconRef>(
 	carrier: NavigationMedia<T> | undefined,
 ) {
-	const { language, isSource } = useBuilderLanguage();
+	const { language, isSource } = useFileLanguageLens();
 	const app = effectiveAppLocalization(useAppLocalization());
 	return {
 		language,
