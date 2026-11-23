@@ -330,7 +330,12 @@ with its refund. New schema migrations adding measured columns must reconcile
 the existing measurement in the same migration. Operators can audit totals
 before and after migration with `scripts/scan-lookup-storage.ts`. A bounded
 `scripts/reclaim-lookup-storage.ts --max-batches N` invocation resumes SQL
-cleanup after an interruption. External object owners confirm physical
+cleanup after an interruption. The migration that widens `lookup_tables.data_bytes` to
+bigint runs while the previous revision serves, and that revision adds a row
+by concatenating the string the driver now returns; once it stops serving,
+`scripts/scan-lookup-table-bytes.ts` sizes the damage and
+`scripts/migrate-lookup-table-bytes.ts --execute` sets each inline table's
+total back to its rows' stored bytes. External object owners confirm physical
 deletion before requesting their refund.
 
 ## Tables from CommCare HQ

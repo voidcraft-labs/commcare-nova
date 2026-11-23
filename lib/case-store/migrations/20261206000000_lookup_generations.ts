@@ -28,6 +28,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		used_bytes bigint NOT NULL DEFAULT 0 CHECK (used_bytes >= 0),
 		bulk_slots integer NOT NULL DEFAULT 2 CHECK (bulk_slots > 0)
 	)`.execute(db);
+	// The previous revision reads the widened total as a string and adds a row
+	// by concatenating it; scripts/migrate-lookup-table-bytes.ts repairs those
+	// totals once that revision has stopped serving.
 	await sql`ALTER TABLE lookup_tables
 		DROP CONSTRAINT lookup_tables_row_count_check, ADD CHECK (row_count >= 0),
 		DROP CONSTRAINT lookup_tables_column_count_check, ADD CHECK (column_count >= 0),
