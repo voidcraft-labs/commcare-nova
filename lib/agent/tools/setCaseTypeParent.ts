@@ -1,6 +1,15 @@
 import { z } from "zod";
-import { editCaseRelation } from "@/lib/doc/caseRelationEdit";
-import { caseRelationSchema } from "@/lib/domain/caseRelations";
+import {
+	editCaseRelation,
+	removeCaseRelations,
+	setDefaultCaseParent,
+} from "@/lib/doc/caseRelationEdit";
+import type { Mutation } from "@/lib/doc/types";
+import {
+	type CaseRelation,
+	caseRelationSchema,
+	declaredCaseRelations,
+} from "@/lib/domain/caseRelations";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
@@ -24,7 +33,9 @@ export const setCaseTypeParentInputSchema = z.strictObject({
 	relationship: z
 		.enum(["child", "extension"])
 		.optional()
-		.describe("Defaults to child. An extension shares its parent's lifecycle."),
+		.describe(
+			"Defaults to child. An extension shares its parent's lifecycle. When removing a link, give it to remove only the link of that kind; leave it out to remove the link of either kind.",
+		),
 });
 
 export const setCaseTypeParentTool = {
@@ -66,12 +77,32 @@ export const setCaseTypeParentTool = {
 							error: "Choose the destination record type for this link.",
 						},
 					};
-				const edge = {
-					identifier: input.link.name,
-					targetType: input.parentType,
-					relationship: input.relationship ?? "child",
-				} as const;
-				const mutations = editCaseRelation(current, input.link.change, edge);
+				const name = input.link.name;
+				const target = input.parentType;
+				let mutations: Mutation[];
+				if (input.link.change === "add")
+					mutations = editCaseRelation(current, "add", {
+						identifier: name,
+						targetType: target,
+						relationship: input.relationship ?? "child",
+					});
+				else {
+					const declared = declaredCaseRelations(current);
+					const matching = declared.filter(
+						(edge) =>
+							edge.identifier === name &&
+							edge.targetType === target &&
+							(input.relationship === undefined ||
+								edge.relationship === input.relationship),
+					);
+					if (matching.length === 0)
+						return {
+							kind: "mutate",
+							mutations: [],
+							result: { error: missingLinkError(current.name, declared) },
+						};
+					mutations = removeCaseRelations(current, matching);
+				}
 				if (mutations.length === 0)
 					return {
 						kind: "mutate",
@@ -87,31 +118,23 @@ export const setCaseTypeParentTool = {
 						}
 					: { kind: "mutate", mutations: [], result: { error: change.error } };
 			}
-			const parent_type = input.parentType;
-			const relationship =
-				parent_type === null ? null : (input.relationship ?? "child");
-			if (
-				(current.parent_type ?? null) === parent_type &&
-				(current.relationship ?? (current.parent_type ? "child" : null)) ===
-					relationship
-			)
+			const mutations = setDefaultCaseParent(
+				current,
+				input.parentType === null
+					? null
+					: {
+							identifier: "parent",
+							targetType: input.parentType,
+							relationship: input.relationship ?? "child",
+						},
+			);
+			if (mutations.length === 0)
 				return {
 					kind: "mutate",
 					mutations: [],
 					result: { ok: true, summary: { noop: true } },
 				};
-			const commit = await guardedMutate(
-				ctx,
-				[
-					{
-						kind: "setCaseTypeMeta",
-						caseType: input.caseType,
-						parent_type,
-						relationship,
-					},
-				],
-				"case-type:parent",
-			);
+			const commit = await guardedMutate(ctx, mutations, "case-type:parent");
 			if (!commit.ok)
 				return {
 					kind: "mutate",
@@ -128,3 +151,17 @@ export const setCaseTypeParentTool = {
 		}
 	},
 };
+
+/** The refusal for a link removal that names no link the type holds. */
+function missingLinkError(
+	caseType: string,
+	declared: readonly CaseRelation[],
+): string {
+	const held = declared.map(
+		(edge) =>
+			`${edge.identifier} to ${edge.targetType}${edge.relationship ? ` (${edge.relationship})` : ""}`,
+	);
+	return held.length === 0
+		? `The record type ${caseType} has no links to remove.`
+		: `The record type ${caseType} has no such link. Its links are: ${held.join(", ")}. You can name one of those to remove it.`;
+}
