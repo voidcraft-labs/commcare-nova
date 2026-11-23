@@ -278,3 +278,23 @@ describe("lookup input schemas", () => {
 		).toBe(false);
 	});
 });
+
+describe("an export name CommCare HQ can't store", () => {
+	it("says which character stands in the way, in the person's words", () => {
+		const message = (value: string) =>
+			lookupWireNameSchema.safeParse(value).error?.issues[0]?.message;
+		expect(message("1code")).toBe(
+			"The export name can't start with “1”. It needs to start with a letter or an underscore. A name such as site_code or site.name works.",
+		);
+		expect(message("site code")).toBe(
+			"The export name can't hold a space. A name such as site_code or site.name works.",
+		);
+		expect(message("site/code")).toBe(
+			"The export name can't hold “/”. A name such as site_code or site.name works.",
+		);
+		expect(lookupTagSchema.safeParse("xmlish").error?.issues[0]?.message).toBe(
+			'The export tag can\'t start with lowercase "xml", which CommCare HQ keeps for itself. A capital first letter works.',
+		);
+		expect(lookupWireNameSchema.safeParse("site.code").success).toBe(true);
+	});
+});

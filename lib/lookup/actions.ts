@@ -124,15 +124,23 @@ const projectIdSchema = z
 		"Project id contains invalid Unicode.",
 	);
 
+/** The sentence for an entry a schema refuses with no sentence of its own:
+ * Zod's own wording names types and paths a person never sees. */
+const INVALID_PROJECT_DATA =
+	"Nova couldn't save that change to Project data. You can check the entry and try again.";
+
+/** Parse input with Nova's sentence for any issue whose schema gives none. */
+const ownSentences = { error: () => INVALID_PROJECT_DATA };
+
 function invalidInput(error: ZodError): LookupFailure {
 	const details = error.issues.slice(0, 100).map((issue) => ({
 		code: "invalid_input",
-		message: `${issue.path.length > 0 ? `${issue.path.join(".")}: ` : ""}${issue.message}`,
+		message: issue.message,
 	}));
 	return {
 		success: false,
 		code: "invalid_input",
-		message: error.issues[0]?.message ?? "Some lookup-table input is invalid.",
+		message: error.issues[0]?.message ?? INVALID_PROJECT_DATA,
 		details,
 		totalDetailCount: error.issues.length,
 	};
@@ -175,7 +183,7 @@ async function runLookupAction<Value, Input>(
 		// client input. A ZodError thrown by auth, SQL, or the service is an
 		// internal fault and must be logged like any other invariant failure.
 		const projectResult = projectIdSchema.safeParse(projectIdInput);
-		const inputResult = inputSchema.safeParse(input);
+		const inputResult = inputSchema.safeParse(input, ownSentences);
 		if (!projectResult.success) return invalidInput(projectResult.error);
 		if (!inputResult.success) return invalidInput(inputResult.error);
 		const projectId = projectResult.data;
@@ -247,7 +255,7 @@ async function runLookupGovernanceAction<Input>(
 			};
 		}
 		const projectResult = projectIdSchema.safeParse(projectIdInput);
-		const inputResult = inputSchema.safeParse(input);
+		const inputResult = inputSchema.safeParse(input, ownSentences);
 		if (!projectResult.success) return invalidInput(projectResult.error);
 		if (!inputResult.success) return invalidInput(inputResult.error);
 

@@ -477,7 +477,7 @@ function translateExpectedSqlError(error: unknown): never {
 	) {
 		throw new LookupError(
 			"invalid_input",
-			"That column wire name is already used in this table.",
+			"That export name is already used in this table.",
 			{ cause: error },
 		);
 	}
@@ -1458,7 +1458,7 @@ export async function addLookupColumn(
 			if (columns.some((item) => item.wire_name === parsed.column.wireName)) {
 				throw new LookupError(
 					"invalid_input",
-					"That column wire name is already used in this table.",
+					"That export name is already used in this table.",
 				);
 			}
 			const orderKey = deriveKeyAtIndex(
@@ -1574,7 +1574,7 @@ async function updateLookupColumnProjection(
 				if (duplicate) {
 					throw new LookupError(
 						"invalid_input",
-						"That column wire name is already used in this table.",
+						"That export name is already used in this table.",
 					);
 				}
 				await assertLookupRenamesAllowed(tx, scope.projectId, input.tableId, [

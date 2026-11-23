@@ -132,10 +132,29 @@ export const lookupColumnLabelSchema = z
 		),
 	);
 
+/** What keeps `value` from being a name CommCare HQ can store, said about
+ * the first character that does. Every prefix of an XML name is one, so the
+ * longest prefix the pattern admits ends right before that character. */
+function wireNameProblem(label: string, value: string): string {
+	const characters = [...value];
+	let good = 0;
+	while (
+		good < characters.length &&
+		LOOKUP_WIRE_IDENTIFIER_PATTERN.test(characters.slice(0, good + 1).join(""))
+	)
+		good++;
+	const character = characters[good] ?? "";
+	const example = "A name such as site_code or site.name works.";
+	if (/\s/u.test(character)) return `${label} can't hold a space. ${example}`;
+	if (good === 0)
+		return `${label} can't start with “${character}”. It needs to start with a letter or an underscore. ${example}`;
+	return `${label} can't hold “${character}”. ${example}`;
+}
+
 function wireIdentifierSchema(kind: "tag" | "column") {
 	const maxLength =
 		kind === "tag" ? LOOKUP_MAX_TAG_LENGTH : LOOKUP_MAX_WIRE_NAME_LENGTH;
-	const label = kind === "tag" ? "Table tag" : "Column wire name";
+	const label = kind === "tag" ? "The export tag" : "The export name";
 	return z
 		.string()
 		.min(1, `${label} cannot be blank.`)
@@ -145,10 +164,10 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 				(value.length <= 2 * maxLength && [...value].length <= maxLength),
 			`${label} must be at most ${maxLength} characters.`,
 		)
-		.refine(
-			(value) => LOOKUP_WIRE_IDENTIFIER_PATTERN.test(value),
-			`${label} needs to be a name CommCare HQ can store. A name such as site_code or site.name works.`,
-		)
+		.superRefine((value, ctx) => {
+			if (value === "" || LOOKUP_WIRE_IDENTIFIER_PATTERN.test(value)) return;
+			ctx.addIssue({ code: "custom", message: wireNameProblem(label, value) });
+		})
 		.refine(
 			(value) => !LOOKUP_XML_PREFIX_PATTERN.test(value),
 			`${label} can't start with lowercase "xml", which CommCare HQ keeps for itself. A capital first letter works.`,
@@ -292,7 +311,7 @@ export const createLookupTableInputSchema = z
 				ctx.addIssue({
 					code: "custom",
 					path: ["columns", index, "wireName"],
-					message: `Duplicate column wire name "${wireName}".`,
+					message: `The export name “${wireName}” is used twice in this table.`,
 				});
 			}
 			seen.add(wireName);

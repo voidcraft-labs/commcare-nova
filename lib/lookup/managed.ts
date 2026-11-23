@@ -570,7 +570,7 @@ export async function createManagedLookupTablesInTransaction(
 		if (tags.has(tag)) {
 			throw new LookupError(
 				"tag_taken",
-				`Table tag "${tag}" appears more than once in this authoring batch.`,
+				`The export tag “${tag}” is used for more than one table in this change.`,
 			);
 		}
 		tags.add(tag);
@@ -658,7 +658,7 @@ export async function createManagedLookupTablesInTransaction(
 	if (taken !== undefined) {
 		throw new LookupError(
 			"tag_taken",
-			`Table tag "${taken.tag}" is already used in this Project.`,
+			`The export tag “${taken.tag}” is already used in this Project.`,
 		);
 	}
 	const nextRevision = parseLookupRevision(

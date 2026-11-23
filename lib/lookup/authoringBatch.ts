@@ -244,7 +244,9 @@ function parseBatch(
 			);
 		}
 		if (create.rows.length > LOOKUP_MAX_ROWS) {
-			invalid(`A lookup table may have at most ${LOOKUP_MAX_ROWS} rows.`);
+			invalid(
+				`One change can write at most ${LOOKUP_MAX_ROWS.toLocaleString("en-US")} rows to a table. You can add the rest in a later change.`,
+			);
 		}
 		if (create.attributes !== undefined) {
 			parseInput(
@@ -265,7 +267,9 @@ function parseBatch(
 			const { key: _key, ...draft } = column;
 			parseInput(lookupColumnDraftSchema, draft, "Column");
 			if (wireNames.has(column.wireName)) {
-				invalid(`Duplicate column wire name "${column.wireName}".`);
+				invalid(
+					`The export name “${column.wireName}” is used twice in this table.`,
+				);
 			}
 			wireNames.add(column.wireName);
 		}
@@ -341,7 +345,9 @@ function parseBatch(
 		}
 		if (update.replaceRows !== undefined) {
 			if (update.replaceRows.length > LOOKUP_MAX_ROWS) {
-				invalid(`A lookup table may have at most ${LOOKUP_MAX_ROWS} rows.`);
+				invalid(
+					`One change can write at most ${LOOKUP_MAX_ROWS.toLocaleString("en-US")} rows to a table. You can add the rest in a later change.`,
+				);
 			}
 			assertUniqueKeys(update.replaceRows, "row key");
 		}
@@ -820,7 +826,7 @@ async function applyColumnOperations(
 					)
 				) {
 					invalid(
-						`Column wire name "${operation.column.wireName}" is already used in this table.`,
+						`The export name “${operation.column.wireName}” is already used in this table.`,
 					);
 				}
 				const id = minted[mintedIndex++];
@@ -892,7 +898,7 @@ async function applyColumnOperations(
 					)
 				) {
 					invalid(
-						`Column wire name "${nextWireName}" is already used in this table.`,
+						`The export name “${nextWireName}” is already used in this table.`,
 					);
 				}
 				const repeated = operation.repeated ?? column.repeated ?? false;
@@ -1622,7 +1628,7 @@ async function applyBatch(
 		if (seenTags.has(desired.tag)) {
 			throw new LookupError(
 				"tag_taken",
-				`Table tag "${desired.tag}" appears more than once in this authoring batch.`,
+				`The export tag “${desired.tag}” is used for more than one table in this change.`,
 			);
 		}
 		seenTags.set(desired.tag, desired.tableId);
@@ -1638,7 +1644,7 @@ async function applyBatch(
 		) {
 			throw new LookupError(
 				"tag_taken",
-				`Table tag "${desired.tag}" is already used in this Project.`,
+				`The export tag “${desired.tag}” is already used in this Project.`,
 			);
 		}
 	}

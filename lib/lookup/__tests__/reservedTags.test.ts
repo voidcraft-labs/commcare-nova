@@ -105,15 +105,15 @@ describe("tags that contain a word the runtime reads as its own data", () => {
 		const parsed = lookupTagSchema.safeParse("my_casedb_x");
 		expect(parsed.success).toBe(false);
 		expect(parsed.error?.issues.map((issue) => issue.message)).toEqual([
-			"Table tag contains casedb, and CommCare reads any tag containing casedb as its own data, so a table can't use it. You can write it as case_db instead.",
+			"The export tag contains casedb, and CommCare reads any tag containing casedb as its own data, so a table can't use it. You can write it as case_db instead.",
 		]);
 		expect(
 			lookupTagSchema.safeParse("xledgerdb").error?.issues[0]?.message,
 		).toBe(
-			"Table tag contains ledgerdb, and CommCare reads any tag containing ledgerdb as its own data, so a table can't use it. You can write it as ledger_db instead.",
+			"The export tag contains ledgerdb, and CommCare reads any tag containing ledgerdb as its own data, so a table can't use it. You can write it as ledger_db instead.",
 		);
 		expect(lookupTagSchema.safeParse("casedb").error?.issues[0]?.message).toBe(
-			"Table tag is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.",
+			"The export tag is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.",
 		);
 	});
 });
@@ -129,7 +129,7 @@ describe("the tag's length", () => {
 		expect(lookupTagSchema.parse("t".repeat(32))).toBe("t".repeat(32));
 		const refused = lookupTagSchema.safeParse("t".repeat(33));
 		expect(refused.error?.issues.map((issue) => issue.message)).toEqual([
-			"Table tag must be at most 32 characters.",
+			"The export tag must be at most 32 characters.",
 		]);
 	});
 });

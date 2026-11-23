@@ -86,7 +86,7 @@ function translateExpectedDatabaseError(error: unknown): never {
 	) {
 		throw new LookupError(
 			"invalid_input",
-			"That column wire name is already used in this table.",
+			"That export name is already used in this table.",
 			{ cause: error },
 		);
 	}
