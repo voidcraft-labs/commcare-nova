@@ -258,13 +258,22 @@ describe("postSubmitDestinationsOffered", () => {
 	// HQ builds the frame to the screen of a submenu that keeps it under a
 	// top-level menu above as the root lists' common prefix then the
 	// submenu's command (`workflow.py::_frame_children_for_module`), which
-	// opens with the case every form listed from a menu above opens.
-	it("withholds module from a submenu under a parent above whose forms open one case", () => {
+	// opens with the case every form listed from a menu above opens. A form
+	// whose own entry selects that case carries it there; one that selects
+	// none has no case to carry.
+	it("offers module from a submenu under a parent above only to a form that supplies its one case", () => {
 		const shape: Shape = {
 			parent: { formsInMenuAbove: true, opensOneCase: true },
 		};
-		expect(offered(shape)).toEqual(["app_home", "firstMenu", "previous"]);
-		expect(postSubmitNotOfferedReason(docOf(shape), form, "module")).toBe(
+		expect(offered(shape)).toEqual([
+			"app_home",
+			"firstMenu",
+			"module",
+			"previous",
+		]);
+		const survey: Shape = { ...shape, formType: "survey" };
+		expect(offered(survey)).not.toContain("module");
+		expect(postSubmitNotOfferedReason(docOf(survey), form, "module")).toBe(
 			"menu-opens-with-first-menu-case",
 		);
 		// A parent above with no form opening a case shares none.
@@ -354,8 +363,11 @@ describe("otherwiseDestinationsOffered", () => {
 			["firstMenu", "previous"],
 		],
 		[
-			"a parent above whose forms open one case",
-			{ parent: { formsInMenuAbove: true, opensOneCase: true } },
+			"a parent above whose forms open one case, for a form choosing none",
+			{
+				parent: { formsInMenuAbove: true, opensOneCase: true },
+				formType: "survey",
+			},
 			"menu-opens-with-first-menu-case",
 			["firstMenu", "previous"],
 		],
@@ -455,8 +467,9 @@ describe("defaultPostSubmit", () => {
 	});
 
 	it("sends the follow-up of a submenu that opens with the first menu's case to the first menu", () => {
-		// `previous` is withheld by the forms reading the search and `module`
-		// by the case HQ would put ahead of the submenu's command.
+		// `previous` is withheld by the forms reading the search. The form
+		// supplies the case HQ puts ahead of the submenu's command, so `module`
+		// is offered, but the default stays where saved apps already went.
 		const doc = docOf({
 			formsReadSearch: true,
 			parent: { formsInMenuAbove: true, opensOneCase: true },
@@ -464,8 +477,8 @@ describe("defaultPostSubmit", () => {
 		expect(defaultPostSubmitOf(doc, form)).toBe("firstMenu");
 		expect(postSubmitDestinationsOffered(doc, form)).toEqual([
 			"app_home",
-			"module",
 			"firstMenu",
+			"module",
 		]);
 	});
 

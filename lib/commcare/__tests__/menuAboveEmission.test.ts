@@ -24,6 +24,7 @@ import {
 	caseListFormReturnFrames,
 	entryNewCaseDatumId,
 	entrySessionDatums,
+	type FormLinkProjectionContext,
 	type FrameChild,
 	formFrameChildren,
 	formLinkProjectionContext,
@@ -34,6 +35,7 @@ import {
 	ROOT_MENU_ID,
 	targetFrameChildren,
 } from "@/lib/commcare/formLinkProjection";
+import { homeSelectionConsumers } from "@/lib/commcare/previousTaskProjection";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
@@ -569,6 +571,8 @@ describe("stacks of HQ's module-in-root shape", () => {
  *  parent's own command where the parent keeps its screen, so it is held by
  *  that fact. */
 function writtenFrames(doc: BlueprintDoc): {
+	readonly emitted: BlueprintDoc;
+	readonly ctx: FormLinkProjectionContext;
 	readonly frames: readonly { what: string; children: FrameChild[] }[];
 	/** The ids of each Register return frame that carries the new case. */
 	readonly carryingNewCase: readonly { what: string; ids: string[] }[];
@@ -682,10 +686,22 @@ function writtenFrames(doc: BlueprintDoc): {
 			}
 		}
 	}
-	return { frames, carryingNewCase, parentMenuWithoutScreen, registerReturns };
+	return {
+		emitted,
+		ctx,
+		frames,
+		carryingNewCase,
+		parentMenuWithoutScreen,
+		registerReturns,
+	};
 }
 
-it("writes no frame that holds a chosen case ahead of its first command, and no Register return carrying the new case that names an id twice, over the menu-screens corpus", {
+// A frame may hold the first menu's shared case ahead of its first command
+// (`workflow.py::_root_module_datums`); Android then keeps that case for
+// every command that reads its datum (`CommCareSession.syncState`), so the
+// gate admits such a frame only where no command reads that datum as another
+// type or number of records.
+it("writes no frame whose case ahead of its first command another command reads otherwise, and no Register return carrying the new case that names an id twice, over the menu-screens corpus", {
 	timeout: 60_000,
 }, () => {
 	let frames = 0;
@@ -697,10 +713,18 @@ it("writes no frame that holds a chosen case ahead of its first command, and no 
 			registerReturns += written.registerReturns;
 			for (const frame of written.frames) {
 				frames++;
+				if (!frameLeadsWithSelection(frame.children)) continue;
+				const conflicts = [
+					...homeSelectionConsumers(
+						written.emitted,
+						written.ctx,
+						frame.children,
+					).values(),
+				].filter((row) => row.conflict);
 				expect(
-					frameLeadsWithSelection(frame.children),
-					`${frame.what} leads with a chosen case`,
-				).toBe(false);
+					conflicts,
+					`${frame.what} leads with a case another command reads otherwise`,
+				).toEqual([]);
 			}
 			for (const frame of written.carryingNewCase)
 				expect(new Set(frame.ids).size, `${frame.what} names an id twice`).toBe(

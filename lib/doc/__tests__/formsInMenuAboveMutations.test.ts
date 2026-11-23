@@ -105,26 +105,36 @@ describe("setModuleFormsInMenuAboveMutation", () => {
 });
 
 describe("after submit, when a menu shows its forms on the app's first menu", () => {
-	it("moves an explicit module or previous destination to the first menu", () => {
+	// A form listed on the first menu can still return to the screen before
+	// it (`workflow.py::_get_static_stack_frame` pops its final selection or
+	// command), so a still-offered Previous stays Previous; its menu has no
+	// screen any more, so a module destination moves to the first menu.
+	it("moves an explicit module destination to the first menu and keeps previous", () => {
 		const next = committed(visitsDoc(), [
 			setModuleFormsInMenuAboveMutation(VISITS, true),
 		]);
 		expect(next.forms[MODULE_FORM].postSubmit).toBe("firstMenu");
-		expect(next.forms[PREVIOUS_FORM].postSubmit).toBe("firstMenu");
+		expect(next.forms[PREVIOUS_FORM].postSubmit).toBe("previous");
 	});
 
-	it("leaves an absent after-submit absent for its new default", () => {
+	it("pins an absent after-submit to the previous screen it went to, past the first menu's new default", () => {
 		const next = committed(visitsDoc(), [
 			setModuleFormsInMenuAboveMutation(VISITS, true),
 		]);
-		expect(next.forms[DEFAULT_FORM].postSubmit).toBeUndefined();
 		expect(defaultPostSubmitOf(next, DEFAULT_FORM)).toBe("firstMenu");
+		expect(next.forms[DEFAULT_FORM].postSubmit).toBe("previous");
 	});
 
 	it("pins an absent after-submit whose destination is still offered when the default moves back", () => {
 		const above = committed(visitsDoc(), [
 			setModuleFormsInMenuAboveMutation(VISITS, true),
+			{
+				kind: "updateForm",
+				uuid: DEFAULT_FORM,
+				patch: { postSubmit: null },
+			},
 		]);
+		expect(above.forms[DEFAULT_FORM].postSubmit).toBeUndefined();
 		expect(effectivePostSubmit(above, DEFAULT_FORM)).toBe("firstMenu");
 		const own = committed(above, [
 			throughTheWire(setModuleFormsInMenuAboveMutation(VISITS, false)),

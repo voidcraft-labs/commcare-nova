@@ -627,7 +627,18 @@ describe("no chosen case ahead of a command", () => {
 		const doc = docOf({
 			clients: [followup(VISIT, "Visit")],
 			extraUnderClients: true,
-			extra: [registration(CHECK, "Registration")],
+			// A survey chooses no patient, so returning to Extra after it would
+			// open the submenu without the case Extra's forms ask for. A
+			// registration of a patient here is refused outright: HQ gives its
+			// new case the first menu's chosen case's place in the session.
+			extra: [
+				{
+					uuid: CHECK,
+					name: "Survey",
+					type: "survey",
+					fields: [noteField()],
+				},
+			],
 		});
 		const found = refusals(doc, [
 			above(CLIENTS),
