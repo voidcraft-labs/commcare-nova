@@ -71,6 +71,13 @@ export interface AdoptedBirth {
 	readonly targetIdentity: TargetIdentity;
 }
 
+/** The exact mapping seen by a review of this fixture. */
+export function appClaimOf(birth: AdoptedBirth): string {
+	const mapping = birth.deployment.active.find((row) => row.kind === "app");
+	if (!mapping) throw new Error("Expected the adopted app mapping.");
+	return mapping.pushToken;
+}
+
 /** A ready media asset of the Project, which a held path names. */
 export async function seedAsset(
 	h: AppStateTestDb,

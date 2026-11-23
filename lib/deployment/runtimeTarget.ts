@@ -55,6 +55,7 @@ export type DownloadTargetRefusalReason =
 	| "pick-project-space"
 	| "needs-published-project-space"
 	| "selection-held-from-hq"
+	| "project-search-target"
 	| "domain-not-for-import-file"
 	| "not-declared-for-android"
 	| CczUnavailable["reason"];
@@ -275,6 +276,7 @@ export function downloadRefusalLines(refusal: DownloadTargetRefusal): string[] {
 		case "unknown-project-space":
 			return refusal.reached.map(projectSpaceLabel);
 		case "needs-published-project-space":
+		case "project-search-target":
 		case "domain-not-for-import-file":
 		case "not-declared-for-android":
 		case "workers-sent-elsewhere":

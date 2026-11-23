@@ -80,6 +80,11 @@ import {
 	valueSchema,
 } from "@/lib/domain/expression";
 import {
+	projectChoiceSearchInput,
+	projectRangeSearchInput,
+	projectScalarSearchInput,
+} from "@/lib/domain/modules";
+import {
 	caseWriteViaInputSchema,
 	toCaseWriteVia,
 } from "../case-operations/shared";
@@ -480,7 +485,7 @@ export const SA_SEARCH_INPUT_TYPES = SEARCH_INPUT_TYPES;
 function refineSearchInputBoundary(
 	input:
 		| {
-				kind: "simple" | "advanced";
+				kind: "simple" | "advanced" | "parameter";
 				type: SearchInputType;
 				default?: Expression;
 				required?: { when?: Expression };
@@ -605,6 +610,20 @@ export const searchInputDefInputSchema = z
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
 		}),
+		projectScalarSearchInput.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
+		projectRangeSearchInput.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+		}),
+		projectChoiceSearchInput.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
 		hiddenSearchInputSchema.omit({ uuid: true }).extend({
 			...searchInputUuidSlot,
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
@@ -644,6 +663,17 @@ export const searchInputUpdateInputSchema = z
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
+		}),
+		projectScalarSearchInput.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
+		projectRangeSearchInput.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
+		}),
+		projectChoiceSearchInput.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
 		}),
 		hiddenSearchInputSchema.omit({ uuid: true }).extend({
 			value: valueExpressionInputSchema,

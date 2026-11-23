@@ -32,6 +32,7 @@ import {
 	registerSetLookupTableManagement,
 } from "./tools/managedData";
 import { registerMoveApp } from "./tools/moveApp";
+import { registerProjectSearchDestinations } from "./tools/projectSearchDestinations";
 import { registerProvisionWorkers } from "./tools/provisionWorkers";
 import { registerReadHqApp } from "./tools/readHqApp";
 import { registerReadHqChanges } from "./tools/readHqChanges";
@@ -55,6 +56,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerWorkTools(server, ctx);
 	registerDeleteApp(server, ctx);
 	registerCompileApp(server, ctx);
+	registerProjectSearchDestinations(server, ctx);
 	registerGetHqConnection(server, ctx);
 	registerListHqApps(server, ctx);
 	registerReadHqApp(server, ctx);

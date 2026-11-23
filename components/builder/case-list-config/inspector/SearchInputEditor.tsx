@@ -51,6 +51,7 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
+import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
@@ -725,6 +726,7 @@ function VisibleSearchInputEditor({
 	};
 
 	const toCustomCondition = () => {
+		if (value.kind === "parameter") return;
 		if (value.kind === "advanced") {
 			onEditCondition("match");
 			return;
@@ -950,9 +952,11 @@ function VisibleSearchInputEditor({
 					<FieldRow
 						label="Choices"
 						hint={
-							value.type === "multi-select"
-								? "People tick any that apply, and a case matches when it holds one of them"
-								: "People pick one, and a case matches when it holds that value"
+							value.kind === "parameter"
+								? "The project space uses the selected values to find matches"
+								: value.type === "multi-select"
+									? "People tick any that apply, and a case matches when it holds one of them"
+									: "People pick one, and a case matches when it holds that value"
 						}
 					>
 						<SearchChoiceSourceEditor
@@ -967,26 +971,35 @@ function VisibleSearchInputEditor({
 					</FieldRow>
 				) : null}
 
-				<FieldRow
-					label="How it matches"
-					hint={
-						value.kind === "advanced"
-							? "The condition below decides which cases match"
-							: SEARCH_MODE_DESCRIPTIONS[effectiveModeKind(value)]
-					}
-				>
-					<MatchPicker
-						value={value}
-						propertyDataType={propertyDataType}
-						invalid={resolved.typeCouplingErrors.length > 0}
-						rowIndex={index}
-						triggerRef={matchTriggerRef}
-						onPickMode={
-							value.kind === "simple" ? setModeKind : requestStandardMode
-						}
-						onPickCustom={toCustomCondition}
+				{value.kind === "parameter" ? (
+					<ToggleRow
+						label="Send this answer"
+						description="The project space receives the answer under this field’s name. With this off, other named values can still use the answer."
+						checked={value.sendAnswer}
+						onChange={(sendAnswer) => onChange({ ...value, sendAnswer })}
 					/>
-				</FieldRow>
+				) : (
+					<FieldRow
+						label="How it matches"
+						hint={
+							value.kind === "advanced"
+								? "The condition below decides which cases match"
+								: SEARCH_MODE_DESCRIPTIONS[effectiveModeKind(value)]
+						}
+					>
+						<MatchPicker
+							value={value}
+							propertyDataType={propertyDataType}
+							invalid={resolved.typeCouplingErrors.length > 0}
+							rowIndex={index}
+							triggerRef={matchTriggerRef}
+							onPickMode={
+								value.kind === "simple" ? setModeKind : requestStandardMode
+							}
+							onPickCustom={toCustomCondition}
+						/>
+					</FieldRow>
+				)}
 
 				{value.kind === "advanced" && (
 					<FieldRow
@@ -1885,6 +1898,22 @@ function rebuildRow(
 		throw new Error(
 			"A choice search field cannot be rebuilt without its lookup source.",
 		);
+	}
+	if (value.kind === "parameter") {
+		const common = {
+			uuid: value.uuid,
+			kind: "parameter" as const,
+			name,
+			label,
+			sendAnswer: value.sendAnswer,
+			...visible,
+		};
+		if (type === "date-range") return { ...common, type };
+		if (isSelectSearchInputType(type)) {
+			if (!options) throw new Error("A choice field needs a table of choices.");
+			return { ...common, type, options, ...(dflt && { default: dflt }) };
+		}
+		return { ...common, type, ...(dflt && { default: dflt }) };
 	}
 	if (value.kind === "simple") {
 		const property = patch.property ?? value.property;

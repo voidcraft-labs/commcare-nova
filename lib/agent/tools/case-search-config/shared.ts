@@ -78,8 +78,11 @@ export const ADVANCED_CONFIG_KEYS = [
 	"formsReadSearch",
 ] as const;
 
-/** Nova-only provenance; intentionally absent from both SA-authored clusters. */
-export const INTERNAL_SLOT_NAMES = ["searchActionEnabled"] as const;
+/** Edited through their own operations, independently of display and worker settings. */
+export const INTERNAL_SLOT_NAMES = [
+	"searchActionEnabled",
+	"projectSearch",
+] as const;
 
 export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];

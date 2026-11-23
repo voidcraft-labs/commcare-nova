@@ -18,6 +18,7 @@
  * No line holds a word of an app, and neither do the logs.
  */
 
+import { DeploymentSessionEndedError, sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
 import { z } from "zod";
 import {
 	HQ_READING_REQUEST_MAX_BYTES,
@@ -134,6 +135,7 @@ export async function answerHqChanges<Body extends KeyedBody>(
 			projectId: access.projectId,
 			role: access.role,
 			actorUserId: userId,
+			requireOperation: sessionManagementGrant(userId, session.session.id),
 		};
 	} catch (err) {
 		const response = handleApiError(
@@ -165,6 +167,10 @@ export async function answerHqChanges<Body extends KeyedBody>(
 				});
 				write({ type: "done", answer });
 			} catch (error) {
+				if (error instanceof DeploymentSessionEndedError) {
+					write({ type: "done", answer: { kind: "refused", message: error.message } });
+					return;
+				}
 				log.error("[hq-changes] failed", error, {
 					appId: scope.appId,
 					projectId: scope.projectId,

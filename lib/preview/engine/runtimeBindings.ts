@@ -258,6 +258,7 @@ function clauseForInput(
 		// A hidden input seeds the search-input instance for `input(...)`
 		// reads; it never matches a case property of its own.
 		case "hidden":
+		case "parameter":
 			return undefined;
 		case "simple":
 			return buildSimpleArmClause(
@@ -280,7 +281,7 @@ function clauseForInput(
 					where: "composeRuntimeFilter",
 					family: "SearchInputDef",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: ["simple", "advanced", "hidden"],
+					knownKinds: ["simple", "advanced", "hidden", "parameter"],
 				}),
 			);
 		}

@@ -8,6 +8,7 @@ import { localAppStringTable } from "@/lib/commcare/appStrings";
 import type { AppStringTable } from "@/lib/commcare/reader/types";
 import {
 	type ColumnFieldWordRow,
+	type ProjectSearchBinding,
 	targetWireIdentity,
 } from "@/lib/commcare/wireIdentity";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -34,15 +35,16 @@ export function readingAppStrings(
 ): (
 	doc: BlueprintDoc,
 	columnWords: readonly ColumnFieldWordRow[],
+	projectSearches?: readonly ProjectSearchBinding[],
 ) => AppStringTable | null {
 	const definitions =
 		lookupContext.kind === "available" ? lookupContext.definitions : [];
-	return (doc, columnWords) =>
+	return (doc, columnWords, projectSearches) =>
 		mutationCommitVerdict(doc, [], lookupContext).ok
 			? localAppStringTable(
 					doc,
 					definitions,
-					targetWireIdentity([], columnWords),
+					targetWireIdentity([], columnWords, projectSearches),
 				)
 			: null;
 }

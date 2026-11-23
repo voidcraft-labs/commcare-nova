@@ -58,7 +58,7 @@ export async function recordPublishPlacements(input: {
 			kind: "publish-placement",
 			expectedProjectId: input.scope.projectId,
 			expectedHeadSeq: input.expectedHeadSeq,
-		});
+		}, { beforeWrite: async ({ tx }) => { await input.scope.requireOperation?.(tx); } });
 		return {
 			kind: "recorded",
 			seq: receipt.seq,

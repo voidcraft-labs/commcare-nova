@@ -863,6 +863,21 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "project_search":
+				break;
+			case "project_search_parameter": {
+				if (search && !isOwnerOnlyCaseSearchConfig(search)) {
+					for (const parameter of search.projectSearch?.defaults ?? []) {
+						if (expressionRefsCaseType(parameter.value, caseType))
+							out.push(
+								sameRef(
+									`the search value “${parameter.name}” on ${where} uses "${caseType}" information`,
+								),
+							);
+					}
+				}
+				break;
+			}
 			case "search_input_hidden_value": {
 				for (const input of list?.searchInputs ?? []) {
 					if (
@@ -938,6 +953,7 @@ function termRefsCaseType(term: Term, caseType: string): boolean {
 		case "fixed-location":
 		case "choice":
 		case "form-node":
+		case "search-result-field":
 		case "case-row-type":
 		case "repeat-row":
 		case "location-level":

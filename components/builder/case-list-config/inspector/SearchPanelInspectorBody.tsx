@@ -60,6 +60,7 @@ import {
 import type { Expression } from "@/lib/domain/expression";
 import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
+import { ProjectSearchSettings } from "./ProjectSearchSettings";
 import { SearchWorkflowSetting } from "./SearchWorkflowSetting";
 import {
 	BUTTON_ONLY_SEARCH_SCREEN_LINE,
@@ -172,6 +173,15 @@ export function SearchPanelInspectorBody({
 				}
 				className="m-0 min-w-0 space-y-4 border-0 p-0"
 			>
+				{moduleUuid && (
+					<ProjectSearchSettings
+						moduleUuid={moduleUuid}
+						value={value}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={knownInputs}
+					/>
+				)}
 				{hasVisibleSearchScreen ? (
 					<>
 						<div data-search-show-title={showsTitle ? "true" : "false"}>

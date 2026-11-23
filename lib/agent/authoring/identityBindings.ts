@@ -167,6 +167,11 @@ export function bindNamedIdentity(args: {
 					...declarations(input.case_list_columns, "columnUuid", "header"),
 				);
 			break;
+		case "project-search":
+			candidates = Object.entries(doc.appSettings.projectSearches ?? {}).map(
+				([uuid, search]) => ({ id: uuid, names: [search.name] }),
+			);
+			break;
 		case "search-input":
 			candidates = named<{ uuid: string; name: string }>(
 				scope.inputs ?? module?.caseListConfig?.searchInputs ?? [],

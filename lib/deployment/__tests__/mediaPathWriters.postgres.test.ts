@@ -28,6 +28,7 @@ import { gzipSync } from "node:zlib";
 import { sql } from "kysely";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { applyBlueprintChangeProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
@@ -38,6 +39,7 @@ import {
 import type { TargetIdentity } from "../targetIdentity";
 import {
 	type AdoptedBirth,
+	appClaimOf,
 	birthAdoptedApp,
 	HELD_FILE_ID,
 	HELD_PATH,
@@ -98,6 +100,7 @@ function taken(
 		target: TARGET,
 		expectedEndings: 0,
 		remoteAppId: HQ_APP,
+		reviewedPushToken: appClaimOf(birth),
 		read,
 		source: stored(source, observedAt),
 		ownership: OWNERSHIP,
@@ -147,14 +150,20 @@ function holdFirstWriter(first: HqChangesTaken) {
 	const wrote = new Promise<void>((resolve) => {
 		markWritten = resolve;
 	});
-	const committed = h
-		.db()
-		.transaction()
-		.execute(async (tx) => {
-			await recordHqChangesTaken({ kind: "commit", tx, seq: FIRST_SEQ }, first);
+	const committed = applyBlueprintChangeProposal({
+		appId: APP,
+		userId: ACTOR,
+		expectedProjectId: PROJECT,
+		kind: "hq-changes",
+		batchId: crypto.randomUUID(),
+		expectedHeadSeq: FIRST_SEQ - 1,
+		guard: { mutations: [{ kind: "setAppName", name: "Updated visits" }] },
+		inTransaction: async ({ tx, seq }) => {
+			await recordHqChangesTaken({ kind: "commit", tx, seq }, first);
 			markWritten();
 			await released;
-		});
+		},
+	});
 	return { wrote, committed, release };
 }
 

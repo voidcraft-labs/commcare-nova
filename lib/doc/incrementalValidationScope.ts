@@ -507,7 +507,11 @@ function mutationFootprint(
 			 * whole-document gate; the two home-screen switches are read by no
 			 * rule. */
 			case "setAppSettings":
-				if (mutation.settings.runsOnlyOn !== undefined) return undefined;
+				if (
+					mutation.settings.runsOnlyOn !== undefined ||
+					mutation.settings.projectSearch
+				)
+					return undefined;
 				break;
 
 			default:

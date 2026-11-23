@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { hqPlaceUrl } from "@/lib/deployment/hqPlaceUrl";
 import type { AccountAnswer } from "@/lib/deployment/reading/answers";
@@ -735,6 +736,58 @@ describe("a review's lookup tables a page at a time", () => {
 		};
 	}
 
+	it("retains every project search detail across escaped names and table choices before issuing the birth digest", () => {
+		const text = '"\\🪴'.repeat(30000);
+		const base = review();
+		const answer = reviewAnswer({
+			...base,
+			projectSearches: [
+				{
+					searchUuid: testUuid("directory"),
+					name: text,
+					endpointId: 17,
+					menus: [
+						{
+							menuUuid: testUuid("followup"),
+							name: "Visits",
+							parameters: ["area"],
+							results: [{ name: "case_id", type: "text" }],
+						},
+					],
+				},
+			],
+		});
+		let page: string | null = null;
+		const fragments: string[] = [];
+		const tables: string[] = [];
+		let calls = 0;
+		do {
+			const start = pageFor(answer, page ? parseAccountPage(page) : null);
+			if (!start || start.restarted)
+				throw new Error("The source review lost its place.");
+			const shown = describeReading(answer, KEY, { ...FIRST_PAGE, ...start });
+			const projection = shown.review;
+			if (!projection) throw new Error("Expected a review.");
+			const serialized = JSON.stringify({
+				content: [{ type: "text", text: JSON.stringify(shown) }],
+			});
+			expect(serialized.length).toBeLessThanOrEqual(100000);
+			for (const row of projection.project_search_details ?? [])
+				if (row.kind === "search") {
+					expect(row.endpointId).toBe(17);
+					fragments.push(row.text);
+				}
+			tables.push(...projection.tables.map((t) => t.tag));
+			page = projection.next_page;
+			expect(projection.review_digest).toBe(page === null ? DIGEST : null);
+			if (page) expect(page.includes(DIGEST)).toBe(false);
+			calls++;
+			if (calls > 30) throw new Error("The review did not finish.");
+		} while (page);
+		expect(calls).toBeGreaterThan(1);
+		expect(fragments.join("")).toBe(text);
+		expect(tables).toEqual(base.tables.map((t) => t.tag));
+	});
 	it("cuts 2,000 tables at their longest into pages under the limit that give every table once", () => {
 		const answer = manyTables(2000);
 		const seen: string[] = [];
@@ -817,6 +870,7 @@ describe("mapReadingRefusal", () => {
 			}),
 		);
 		expect(tags).toEqual({
+			session_ended: "permission_denied",
 			no_project_access: "permission_denied",
 			invalid_input: "invalid_input",
 			name_missing: "invalid_input",

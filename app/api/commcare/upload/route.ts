@@ -56,6 +56,7 @@
  * locale or zone the date formatter refuses reads as the default's.
  */
 
+import { sessionManagementGrant } from "@/lib/deployment/sessionManagementGrant";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -309,6 +310,7 @@ export async function POST(req: NextRequest) {
 			projectId: access.projectId,
 			role: access.role,
 			actorUserId: session.user.id,
+			requireOperation: sessionManagementGrant(session.user.id, session.session.id),
 		};
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
 		const appId = body.appId;

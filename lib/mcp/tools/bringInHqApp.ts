@@ -42,6 +42,7 @@ import {
 } from "../errors";
 import { toolText } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { bringInProgress, openBringInCall } from "./readHqApp";
@@ -239,7 +240,7 @@ export function registerBringInHqApp(
 					splitDatetime: args.split_datetime,
 					tableChoices: args.table_choices,
 				};
-				const answer = await createFromReview(call.actor, input, {
+				const answer = await createFromReview({ ...call.actor, requireOperation: toolWriteGrant(ctx, "bring_in_hq_app") }, input, {
 					onEvent: bringInProgress(extra),
 				});
 				if (answer.kind === "refused")

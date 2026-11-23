@@ -1,4 +1,7 @@
-import { slotContext } from "@/lib/domain/expression/context";
+import {
+	readsProjectSearchResults,
+	slotContext,
+} from "@/lib/domain/expression/context";
 import { formFieldPath } from "@/lib/domain/expression/formStructure";
 import type { FormPrintContext } from "@/lib/domain/expression/print";
 import {
@@ -56,6 +59,7 @@ export function formPrintContext(
 				);
 	const datumId = entryDatumIdResolver(datums);
 	return {
+		projectSearchResults: readsProjectSearchResults(context),
 		...names,
 		...(projection === undefined
 			? {}

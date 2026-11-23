@@ -62,6 +62,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
@@ -214,6 +215,7 @@ export function registerRefreshDeployment(
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "refresh_deployment", args),
 				};
 				if (args.kept_values === true) {
 					return jsonResult(

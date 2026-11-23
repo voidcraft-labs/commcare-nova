@@ -55,6 +55,7 @@ export type HqPrivateFeatureFlagId =
 	| "deep-links"
 	| "case-search-base"
 	| "advanced-case-search"
+	| "project-search"
 	| "commcare-connect"
 	| "attachment-links"
 	| "no-matches-registration"
@@ -82,6 +83,7 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"deep-links": "SESSION_ENDPOINTS",
 	"case-search-base": "SYNC_SEARCH_CASE_CLAIM",
 	"advanced-case-search": "CASE_SEARCH_ADVANCED",
+	"project-search": "CASE_SEARCH_ENDPOINTS",
 	"commcare-connect": "COMMCARE_CONNECT",
 	"attachment-links": "VIEW_FORM_ATTACHMENT",
 	"no-matches-registration": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
@@ -441,6 +443,16 @@ export function projectSpaceCompatibilityProbePlan(
 		 * module's search does: a module that has cases
 		 * (`moduleCaseTypeForActions`, the gate `expandDoc` reads). */
 		const searchLands = moduleCaseTypeForActions(doc, module.uuid) !== "";
+		const config = effectiveCaseSearchConfig(module);
+		if (searchLands && config?.projectSearch) {
+			const name =
+				doc.appSettings.projectSearches?.[config.projectSearch.searchUuid]
+					?.name;
+			addReason(
+				"project-search",
+				`“${module.name}” uses the search “${name ?? module.name}” supplied by this project space. Its results can change whenever the project space updates it.`,
+			);
+		}
 		const advancedReasons = searchLands
 			? advancedCaseSearchReasons(module)
 			: [];
@@ -553,6 +565,7 @@ export function projectSpaceCompatibilityProbePlan(
 
 	for (const [capability, flags] of [
 		["multi-select-case-lists", ["advanced-case-search"]],
+		["project-search", ["project-search"]],
 		["related-case-search", ["related-case-lookups"]],
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
 		["commcare-connect", ["commcare-connect"]],

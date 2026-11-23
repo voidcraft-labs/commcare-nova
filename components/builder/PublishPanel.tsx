@@ -332,12 +332,14 @@ export const PublishPanel = memo(function PublishPanel() {
 	const handleDownloadJson = useCallback(
 		async (
 			downloadServer?: CommCareServer,
+			domain?: string,
 		): Promise<PublishDownloadOutcome> => {
 			const s = docStore?.getState();
 			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
 			return runDownload({
 				appId: s.appId,
 				server: downloadServer,
+				domain,
 				endpoint: "/api/compile/json",
 				fileLabel: "the CommCare HQ import file",
 				// The import file is always a ZIP: the app, its companions, and the

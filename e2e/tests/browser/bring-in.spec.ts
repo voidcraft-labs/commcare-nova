@@ -27,6 +27,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
+import { asUuid } from "@/lib/domain/uuid";
 import {
 	accountHeadingLine,
 	accountLead,
@@ -1489,6 +1490,60 @@ test("the account groups what keeps the app out by where it lives, and its list 
 // ---------------------------------------------------------------------------
 
 test.describe("the review", () => {
+	test("shows which project space supplies each menu's search before creating the app", async ({
+		page,
+	}) => {
+		const routes = removableRoutes(page);
+		try {
+			const review = reviewOf({
+				projectSearches: [
+					{
+						searchUuid: asUuid("00000000-0000-7000-8000-000000000017"),
+						name: "Area visits",
+						endpointId: 17,
+						menus: [
+							{
+								menuUuid: asUuid("00000000-0000-7000-8000-000000000018"),
+								name: "Follow up",
+								parameters: ["area"],
+								results: [{ name: "district", type: "text" }],
+							},
+						],
+					},
+				],
+			});
+			await recorded(routes, "/api/commcare/bring-in/read", (route) =>
+				fulfillNdjson(route, answered(reviewAnswer(review))),
+			);
+			await open(page, routes, APP_ADDRESS);
+			await expect(
+				page.getByRole("heading", {
+					name: "Searches supplied by this project space",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText("Area visits · Search ID 17", { exact: true }),
+			).toBeVisible();
+			await expect(
+				page.getByText("Follow up · Sends area · Reads district (text)", {
+					exact: true,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText(KEY.domain + " manages these searches", {
+					exact: false,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: BRING_IN_ACTIONS.bringItIn,
+					exact: true,
+				}),
+			).toBeEnabled();
+		} finally {
+			await routes.removeAll();
+		}
+	});
 	test("Where workers use this app is chosen for the person, and choosing another changes what the first publish changes", async ({
 		page,
 	}) => {

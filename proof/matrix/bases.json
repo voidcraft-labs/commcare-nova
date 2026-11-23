@@ -15,6 +15,8 @@
 	"hq-nova-then-builder",
 	"hq-places",
 	"hq-plain",
+	"hq-project-database-search",
+	"hq-project-search",
 	"hq-questions",
 	"hq-saved-pages",
 	"hq-search",

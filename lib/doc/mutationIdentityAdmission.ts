@@ -8,6 +8,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { assertNever } from "@/lib/utils/assertNever";
 
 export interface MutationIdentityAdmissionIssue {
@@ -18,11 +19,26 @@ export interface MutationIdentityAdmissionIssue {
 	readonly incomingKind: BlueprintAuthoredIdentityKind;
 }
 
+function projectSearchParameterClaims(
+	moduleUuid: Uuid,
+	parameters: readonly { uuid: Uuid }[],
+) {
+	return parameters.map(({ uuid }) => ({
+		uuid,
+		kind: "projectSearchParameter" as const,
+		ownerUuid: moduleUuid,
+	}));
+}
+
 function nestedModuleIdentities(
 	module: Extract<Mutation, { kind: "addModule" }>["module"],
 ): BlueprintAuthoredIdentity[] {
 	return [
 		{ uuid: module.uuid, kind: "module" },
+		...projectSearchParameterClaims(
+			module.uuid,
+			projectSearchOf(module)?.defaults ?? [],
+		),
 		...[module.entryPoint, module.caseListEntryPoint].flatMap((e) =>
 			e
 				? [
@@ -252,6 +268,22 @@ function ownedIdentityReplacementBy(
 				),
 			};
 		}
+		case "updateModule": {
+			if (
+				!mutation.caseSearchConfigPatch ||
+				!Object.hasOwn(mutation.caseSearchConfigPatch, "projectSearch")
+			)
+				return undefined;
+			return {
+				kind: "projectSearchParameter",
+				ownerUuid: mutation.uuid,
+				retainedUuids: new Set(
+					mutation.caseSearchConfigPatch.projectSearch?.after?.defaults.map(
+						(p) => p.uuid,
+					),
+				),
+			};
+		}
 		case "setAutomationSchedule":
 			return {
 				kind: "automationEvent",
@@ -303,6 +335,17 @@ function createClaims(
 
 function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 	switch (mutation.kind) {
+		case "setAppSettings": {
+			const edit = mutation.settings.projectSearch;
+			return edit?.operation === "add"
+				? createClaims([{ uuid: edit.uuid, kind: "projectSearch" }])
+				: [];
+		}
+		case "updateModule":
+			return projectSearchParameterClaims(
+				mutation.uuid,
+				mutation.caseSearchConfigPatch?.projectSearch?.after?.defaults ?? [],
+			).map((identity) => ({ identity, preserveIfOwnedBy: mutation.uuid }));
 		case "addEntryPoint":
 			return createClaims([
 				{
@@ -443,7 +486,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "removeModule":
 		case "moveModule":
 		case "renameModule":
-		case "updateModule":
 		case "setModuleMedia":
 		case "setCaseListMenuItem":
 		case "removeForm":
@@ -479,7 +521,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
-		case "setAppSettings":
 		case "relabelSourceLanguage":
 		case "addLanguage":
 		case "removeLanguage":

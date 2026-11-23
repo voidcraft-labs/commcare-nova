@@ -22,6 +22,8 @@ DOCUMENTS = (
     "case-operation-key",
     "case-operation-query",
     "case-operation-sequence",
+    "hq-project-database-search",
+    "hq-project-search",
     "media-rich",
     "navigation-base",
     "prompt-widgets",

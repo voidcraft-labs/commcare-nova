@@ -16,6 +16,7 @@ import {
 	caseQueryReadingFor,
 	SEARCH_READING,
 } from "@/lib/domain/expression/temporalType";
+import { projectSearchOf } from "@/lib/domain/modules";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { caseListStep } from "../caseListPhase";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
@@ -168,6 +169,13 @@ export async function serverRecordsRead(
 		registeredCaseId: request.registeredCaseId,
 	});
 	const registeredCaseId = request.registeredCaseId;
+	if (
+		resultVisible &&
+		searched &&
+		registeredCaseId === undefined &&
+		projectSearchOf(mod)
+	)
+		throw new PreviewDataRefusal({ kind: "project-search" });
 	/* The session at the list's step: what a browse filter's chosen case and
 	 * a search's runtime values read. A search's rows reach the store folded
 	 * with what this session's device works out, as the browser's do. */

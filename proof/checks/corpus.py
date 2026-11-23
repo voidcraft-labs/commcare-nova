@@ -680,6 +680,7 @@ class Authored:
     places: Path | None
     seed: Path | None
     practice_workers: Path | None = None
+    project_searches: Path | None = None
 
     def app_json(self):
         return _read_json(self.app)
@@ -760,6 +761,7 @@ class Document:
             places=held("places.json"),
             seed=held("seed.json"),
             practice_workers=held("practice-workers.json"),
+            project_searches=held("project-searches.json"),
         )
 
     @cached_property

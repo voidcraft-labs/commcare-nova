@@ -271,6 +271,8 @@ function compiler(bindings: QueryBindings) {
 			if (name === "session") {
 				return { kind: "session-context", field: string(args[0]) };
 			}
+			if (name === "result-field")
+				return { kind: "search-result-field", name: string(args[0]) };
 			if (name === "record-type") return { kind: "case-row-type" };
 			if (name === "external-user") {
 				return { kind: "session-user", field: string(args[0]) };

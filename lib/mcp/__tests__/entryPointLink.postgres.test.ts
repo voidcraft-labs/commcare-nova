@@ -25,6 +25,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { loadAppBlueprint } from "../loadApp";
 import { registerGetEntryPointLink } from "../tools/getEntryPointLink";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
@@ -66,14 +67,15 @@ const INPUT = {
 	entry_point_uuid: ENTRY,
 	selections: [{ module_uuid: MODULE, case_ids: ["hq-b /?", "hq-a"] }],
 };
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.write"],
 ) {
+	const ctx = await installationCredential(h.db(), userId, [...new Set([...scopes, "nova.read", "nova.write"])]);
 	return withMcpClient(
 		(server) =>
-			registerGetEntryPointLink(server, { userId, scopes, authKind: "oauth" }),
+			registerGetEntryPointLink(server, ctx),
 		run,
 	);
 }

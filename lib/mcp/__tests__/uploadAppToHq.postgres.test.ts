@@ -97,6 +97,7 @@ import {
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { loadAppBlueprint } from "../loadApp";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
@@ -141,14 +142,15 @@ const SOURCE = sourcePath();
  */
 const PROJECT_SPACES_READ = `GET ${HOST}/api/user_domains/v1/?limit=100`;
 const PROJECT_SPACES = [PROJECT_SPACES_READ, PROJECT_SPACES_READ];
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.write"],
 ) {
+	const ctx = await installationCredential(h.db(), userId, [...new Set([...scopes, "nova.read", "nova.write"])]);
 	return withMcpClient(
 		(server) =>
-			registerUploadAppToHq(server, { userId, scopes, authKind: "oauth" }),
+			registerUploadAppToHq(server, ctx),
 		run,
 	);
 }

@@ -246,6 +246,8 @@
 		"hq-plain/update-from-a-label",
 		"hq-plain/update-never-alone"
 	],
+	"hq-project-database-search": [],
+	"hq-project-search": [],
 	"hq-questions": [
 		"hq-questions/action-inside-control",
 		"hq-questions/appearance-android-inside-held",

@@ -243,6 +243,7 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId } from "../runId";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { registerScopedTool } from "../scopedTool";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
@@ -798,6 +799,7 @@ export function registerUploadAppToHq(
 							projectId: access.projectId,
 							role: access.role,
 							actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "upload_app_to_hq"),
 						},
 						doc,
 						compiledAtSeq: app.mutation_seq,

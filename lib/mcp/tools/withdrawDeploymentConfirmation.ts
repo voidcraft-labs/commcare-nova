@@ -37,6 +37,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
@@ -118,6 +119,7 @@ export function registerWithdrawDeploymentConfirmation(
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "withdraw_deployment_confirmation", args),
 				};
 				/* The deployment is found from the ledger, so withdrawing asks
 				 * CommCare HQ nothing and needs no key. */

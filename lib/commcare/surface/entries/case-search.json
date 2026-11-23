@@ -1675,10 +1675,9 @@
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
 		"valueClass": "endpoint-parameter",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.searchEndpoint`: a typed reference to a target-owned endpoint of either kind, held under a name with its declared parameters and result fields (each default filter on such a menu, whatever its key, `_xpath_query` included, is held as an entry of that key, emitted as HQ stores it, and read as a parameter of that name, not as a CSQL filter or as the key's meaning in the rows above, since HQ sends it to the endpoint removing only configuration and metrics-tag keys, `case_search/models.py::extract_search_request_config`, `utils.py::get_project_db_fixture`); its id per project space is target-owned, in the deployment ledger (an id names a different endpoint, or none, elsewhere; Nova never reads or edits the endpoint)",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the menu uses a named project search. Its ordered parameter values are device expressions, including a value sent under `_xpath_query`. The destination supplies the service id.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (online only) / RUNS (online only)",

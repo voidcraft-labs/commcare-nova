@@ -1,4 +1,5 @@
 import "server-only";
+import type { HqManagementGrant } from "../store";
 
 /**
  * The `hq-adoption` birth: an app brought in from CommCare HQ is born in one
@@ -115,6 +116,7 @@ export function adoptedDeploymentWrite(input: {
 // ---------------------------------------------------------------------------
 
 export interface AdoptionBirth {
+	readonly requireOperation?: HqManagementGrant;
 	readonly actorUserId: string;
 	/** Attribution only: an adoption holds no run. Minted outside the transaction. */
 	readonly runId: string;
@@ -147,6 +149,7 @@ export async function adoptHqAppInTransaction(
 	tx: Transaction<AppDatabase>,
 	birth: AdoptionBirth,
 ): Promise<AdoptionOutcome> {
+	await birth.requireOperation?.(tx);
 	const { candidate, actorUserId, projectData, at } = birth;
 	const { appId, projectId } = candidate;
 	try {

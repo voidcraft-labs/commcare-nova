@@ -70,6 +70,7 @@ import {
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { CaseListRegistrationSetting } from "./CaseListRegistrationSetting";
 import { AddGhostButton, AuthoredDragPreviewLabel } from "./canvasChrome";
+import { ProjectSearchFieldAdder } from "./ProjectSearchFieldAdder";
 
 export interface SearchCanvasProps {
 	readonly searchInputs: readonly SearchInputDef[];
@@ -80,6 +81,7 @@ export interface SearchCanvasProps {
 	readonly onSelect: (next: WorkspaceSelection) => void;
 	/** Enables an intentional zero-input Search action before opening settings. */
 	readonly onConfigureSearchAction?: () => void;
+	readonly onAddParameterInput?: (name: string, label: string) => boolean;
 	readonly onAddInput: (property: CaseProperty) => void;
 	/** Adds a hidden value: computed when the search runs, never shown. */
 	readonly onAddHiddenInput: () => void;
@@ -119,6 +121,7 @@ export function SearchCanvas({
 	onSelect,
 	onConfigureSearchAction,
 	onAddInput,
+	onAddParameterInput,
 	onAddHiddenInput,
 	addInputDisabledReason,
 	searchUnavailableReason,
@@ -454,13 +457,25 @@ export function SearchCanvas({
 							</ol>
 						)}
 
-						{canEdit && (
-							<AddSearchFieldControl
-								properties={properties}
-								onChoose={onAddInput}
-								onChooseHidden={onAddHiddenInput}
-								disabledReason={addInputDisabledReason}
+						{canEdit &&
+						onAddParameterInput &&
+						searchConfig &&
+						"projectSearch" in searchConfig &&
+						searchConfig.projectSearch ? (
+							<ProjectSearchFieldAdder
+								onAdd={onAddParameterInput}
+								onAddHidden={onAddHiddenInput}
+								disabledReason={searchUnavailableReason}
 							/>
+						) : (
+							canEdit && (
+								<AddSearchFieldControl
+									properties={properties}
+									onChoose={onAddInput}
+									onChooseHidden={onAddHiddenInput}
+									disabledReason={addInputDisabledReason}
+								/>
+							)
 						)}
 					</div>
 				</section>

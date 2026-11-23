@@ -14,7 +14,13 @@ import {
 	getEntryPointLinkSchema,
 } from "./entryPointTypes";
 import { DeploymentAppDeletedError, DeploymentError } from "./errors";
+import { sessionManagementGrant } from "./sessionManagementGrant";
 import { previewDeploymentAnswerFor } from "./previewSpace";
+import { configureProjectSearchDestination } from "./projectSearchDestination";
+import {
+	projectSearchDestinationEdit,
+	projectSearchDestinationInput,
+} from "./projectSearchDestinationInput";
 import { firstPublishOf, leftBehindResources } from "./resources";
 import type { CczUnavailable } from "./runtimeTarget";
 import {
@@ -35,8 +41,10 @@ import {
 import type { SetupArtifact } from "./setupArtifact";
 import {
 	type DeploymentScope,
+	type HqManagementGrant,
 	type DeploymentTargetKey,
 	holdTargetFacts,
+	inspectProjectSearchDestination,
 	readDeploymentsForApp,
 	readFirstPublishStates,
 	readReachedDeploymentTargets,
@@ -172,7 +180,7 @@ async function resolveScope(
 	appId: string,
 	capability: "view" | "edit",
 ): Promise<
-	| { readonly ok: true; readonly scope: DeploymentScope }
+	| { readonly ok: true; readonly scope: DeploymentScope & { readonly requireOperation: HqManagementGrant } }
 	| { readonly ok: false; readonly result: DeploymentActionResult<never> }
 > {
 	const session = await getSession();
@@ -195,6 +203,7 @@ async function resolveScope(
 				projectId: access.projectId,
 				role: access.role,
 				actorUserId: session.user.id,
+				requireOperation: sessionManagementGrant(session.user.id, session.session.id),
 			},
 		};
 	} catch (error) {
@@ -968,5 +977,40 @@ export async function getEntryPointLinkAction(
 		};
 	} catch (error) {
 		return failure(error, "check deep link", resolved.scope);
+	}
+}
+
+/** Read or confirm exactly the project-space searches the contributor reviewed. */
+export async function projectSearchDestinationAction(
+	targetInput: unknown,
+	editInput?: unknown,
+) {
+	const target = projectSearchDestinationInput.safeParse(targetInput);
+	const edit = projectSearchDestinationEdit.optional().safeParse(editInput);
+	if (!target.success || !edit.success)
+		return {
+			success: false as const,
+			code: "invalid_input" as const,
+			message:
+				"Choose a destination and a search ID for each connected search.",
+		};
+	const resolved = await resolveScope(
+		target.data.appId,
+		edit.data ? "edit" : "view",
+	);
+	if (!resolved.ok) return resolved.result;
+	try {
+		const data = edit.data
+			? await configureProjectSearchDestination(
+					resolved.scope,
+					target.data,
+					edit.data,
+					resolved.scope.requireOperation,
+				)
+			: (await inspectProjectSearchDestination(resolved.scope, target.data))
+					.review;
+		return { success: true as const, data };
+	} catch (error) {
+		return failure(error, "connect project searches", resolved.scope);
 	}
 }

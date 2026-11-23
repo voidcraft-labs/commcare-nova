@@ -212,7 +212,7 @@ const STAGES: readonly HqChangesProgress[] = [
 
 beforeEach(() => {
 	requireSessionMock.mockReset();
-	requireSessionMock.mockResolvedValue({ user: { id: USER } });
+	requireSessionMock.mockResolvedValue({ user: { id: USER }, session: { id: "browser-session" } });
 	vi.mocked(resolveAppScope).mockReset();
 	vi.mocked(resolveAppScope).mockResolvedValue({
 		projectId: PROJECT,
@@ -299,7 +299,7 @@ describe("the review route", () => {
 		await lines(await post("review", req));
 		const [scope, target, options] =
 			vi.mocked(reviewHqChanges).mock.calls[0] ?? [];
-		expect(scope).toEqual(SCOPE);
+		expect(scope).toEqual({ ...SCOPE, requireOperation: expect.any(Function) });
 		expect(target).toEqual(TARGET);
 		expect(options?.cancel).toBe(req.signal);
 	});
@@ -356,7 +356,7 @@ describe("the bring-in route", () => {
 		vi.mocked(bringInHqChanges).mockResolvedValue(OUTCOMES[0][1]);
 		await lines(await post("bring-in", request("bring-in", BRING_IN)));
 		const call = vi.mocked(bringInHqChanges).mock.calls[0];
-		expect(call?.[0]).toEqual(SCOPE);
+		expect(call?.[0]).toEqual({ ...SCOPE, requireOperation: expect.any(Function) });
 		expect(call?.[1]).toEqual(TARGET);
 		expect(call?.[2]).toEqual({
 			readingId: BRING_IN.readingId,
@@ -419,7 +419,7 @@ describe("the check route", () => {
 		await (await post("check", req)).json();
 		const [scope, options] =
 			vi.mocked(checkHqChangesForApp).mock.calls[0] ?? [];
-		expect(scope).toEqual(SCOPE);
+		expect(scope).toEqual({ ...SCOPE, requireOperation: expect.any(Function) });
 		expect(options?.cancel).toBe(req.signal);
 	});
 });

@@ -68,6 +68,7 @@ import {
 	registerReadHqChanges,
 } from "../tools/readHqChanges";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
@@ -171,12 +172,12 @@ async function broughtIn(): Promise<string> {
 }
 
 /** The two tools and `get_deployment`, called as `userId`. */
-function withTools<T>(
+async function withTools<T>(
 	run: (client: Client) => Promise<T>,
 	userId = MEMBER,
 ): Promise<T> {
+	const ctx = await installationCredential(h.db(), userId, [...new Set([...SCOPES, "nova.read", "nova.write"])]);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes: SCOPES, authKind: "api-key" as const };
 		registerReadHqChanges(server, ctx);
 		registerBringInHqChanges(server, ctx);
 		registerGetDeployment(server, ctx);

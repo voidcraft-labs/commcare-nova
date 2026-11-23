@@ -4,6 +4,7 @@ import { getEntryPointLink } from "@/lib/deployment/entryPointLinks";
 import { getEntryPointLinkSchema } from "@/lib/deployment/entryPointTypes";
 import { toMcpErrorResult } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 
@@ -47,6 +48,7 @@ export function registerGetEntryPointLink(
 						projectId: access.projectId,
 						role: access.role,
 						actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "get_entry_point_link", args),
 					},
 					target: { server: args.server, domain: args.domain },
 					doc,

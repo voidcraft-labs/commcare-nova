@@ -859,6 +859,67 @@ test("native clearing availability confirms once and preserves Search and assign
 	).toBeVisible();
 });
 
+test("a menu can send its existing answer and a named value to a project space and switch back", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search`);
+	const [original] = (await savedModule(page)).caseListConfig.searchInputs;
+	await page
+		.getByRole("button", { name: "Edit Search screen", exact: true })
+		.click();
+	const source = page.getByRole("combobox", { name: "Search source" });
+	const chooseSource = async (name: string) => {
+		await source.click();
+		await page.getByRole("option", { name, exact: true }).click();
+	};
+	await chooseSource("New project space search");
+	await expect(
+		page.getByText("Any matching rules on those fields will be replaced.", {
+			exact: false,
+		}),
+	).toBeVisible();
+	await page
+		.getByRole("textbox", { name: "Search name", exact: true })
+		.fill("Clinic registry");
+	const use = page.getByRole("button", { name: "Use this search" });
+	await use.click();
+	await expect(source).toContainText("Clinic registry");
+	expect((await savedModule(page)).caseListConfig.searchInputs).toMatchObject([
+		{
+			kind: "parameter",
+			uuid: original.uuid,
+			name: original.name,
+			sendAnswer: true,
+		},
+	]);
+	await page
+		.getByRole("textbox", { name: "Name sent to the search", exact: true })
+		.fill("area");
+	await page.getByRole("textbox", { name: "Value", exact: true }).fill("north");
+	await page.getByRole("button", { name: "Add named value" }).click();
+	expect(
+		(await savedModule(page)).caseSearchConfig.projectSearch.defaults,
+	).toMatchObject([{ name: "area" }]);
+	await chooseSource("Ordinary case search");
+	await use.click();
+	await expect(
+		page.getByText(
+			/Choose the case property.*will search before switching back/,
+		),
+	).toBeVisible();
+	await page
+		.getByRole("combobox", { name: original.label, exact: true })
+		.click();
+	await page
+		.getByRole("option", { name: original.property, exact: true })
+		.click();
+	await use.click();
+	await expect(source).toContainText("Ordinary case search");
+	const saved = await savedModule(page);
+	expect(saved.caseListConfig.searchInputs).toEqual([original]);
+	expect(saved.caseSearchConfig?.projectSearch).toBeUndefined();
+});
+
 test("native Search screen copy clears overrides back to visible defaults and states the button's fixed text", async ({
 	page,
 }) => {

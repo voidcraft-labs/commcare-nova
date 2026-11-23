@@ -66,6 +66,7 @@ export interface RemoteRequestBuild {
  */
 export function buildRemoteRequest(args: {
 	readonly module: Module;
+	readonly projectSearchId?: number;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
 	readonly expressions: ModuleExpressionContexts;
@@ -123,6 +124,7 @@ export function buildRemoteRequest(args: {
 		expressions: args.expressions,
 		lookupNaming: args.lookupNaming,
 		runtimeTarget: args.runtimeTarget,
+		projectSearchId: args.projectSearchId,
 		...(args.datumId === undefined ? {} : { datumId: args.datumId }),
 	});
 

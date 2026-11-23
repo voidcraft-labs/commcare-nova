@@ -36823,22 +36823,6 @@
 		]
 	},
 	{
-		"id": "hq-search/search-endpoint",
-		"base": "hq-search",
-		"entry": "case-search/case-search-endpoint-id",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
-		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/search_config/case_search_endpoint_id",
-			"value": 1
-		}
-	},
-	{
 		"id": "hq-search/search-input-in-the-results-detail",
 		"base": "hq-search",
 		"entry": "expressions-and-data/search-input-results-read-in-the-search-results-detail",

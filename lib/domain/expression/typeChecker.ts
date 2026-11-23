@@ -37,6 +37,7 @@ import {
 	type RecordQueryContext,
 	type RecordQueryRowScope,
 	type RowScope,
+	readsProjectSearchResults,
 	type TypingContext,
 	withFormContextNode,
 } from "./context";
@@ -1762,7 +1763,7 @@ function searchResultsRowFindings(
 	errors: CheckError[],
 ): void {
 	const searched =
-		ctx.supplies.searchResults === undefined
+		ctx.supplies.searchResults === undefined || readsProjectSearchResults(ctx)
 			? undefined
 			: ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module);
 	for (const [index, where] of expression.where.entries()) {
@@ -1902,6 +1903,7 @@ export function expressionRowScope(
 	const searched =
 		expression.source === "search-results" &&
 		"supplies" in ctx &&
+		!readsProjectSearchResults(ctx) &&
 		ctx.supplies.searchResults !== undefined
 			? ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module)
 			: undefined;
@@ -3318,6 +3320,27 @@ function inferTerm(
 			return ctx.facts.caseTypes.some((type) => type.name === term.caseType)
 				? scalar("text")
 				: fail("unknown-case-type", `Unknown case type '${term.caseType}'.`);
+		case "search-result-field": {
+			const row = activeRowScope(ctx);
+			if (
+				!("profile" in ctx) ||
+				!readsProjectSearchResults(ctx) ||
+				row?.kind !== "case" ||
+				!("root" in row) ||
+				row.root === "casedb"
+			)
+				return fail(
+					"row-scope",
+					"A returned field needs a row from this menu’s project-space search.",
+					"case",
+				);
+			const declared = row.caseType
+				? ctx.facts.caseTypes
+						.find((type) => type.name === row.caseType)
+						?.properties.find((field) => field.name === term.name)
+				: undefined;
+			return nodes(declared?.data_type ?? "text", "string");
+		}
 		case "case-row-type":
 			return activeRowScope(ctx)?.kind === "case"
 				? nodes("text", "string")

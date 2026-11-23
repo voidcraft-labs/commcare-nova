@@ -50,6 +50,7 @@ import {
 } from "../tools/deploymentTools";
 import { registerStopPublishing } from "../tools/stopPublishing";
 import { registerWithdrawDeploymentConfirmation } from "../tools/withdrawDeploymentConfirmation";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
@@ -97,13 +98,13 @@ const GET = "get_deployment",
 	REFRESH = "refresh_deployment",
 	WITHDRAW = "withdraw_deployment_confirmation",
 	STOP = "stop_publishing";
-function asUser<T>(
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 	scopes = ["nova.read", "nova.hq.read", "nova.hq.write", "nova.hq.import"],
 ) {
+	const ctx = await installationCredential(h.db(), userId, [...new Set([...scopes, "nova.read", "nova.write"])]);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes, authKind: "oauth" as const };
 		registerGetDeployment(server, ctx);
 		registerRefreshDeployment(server, ctx);
 		registerWithdrawDeploymentConfirmation(server, ctx);

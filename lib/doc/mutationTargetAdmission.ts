@@ -19,6 +19,7 @@ import {
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
+import { projectSearchOf } from "@/lib/domain/modules";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
 
@@ -99,6 +100,8 @@ export function mutationTargetsInvalid(
 	if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined) return true;
 	if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined) return true;
 	const modules = new Set(Object.keys(doc.modules));
+	const searchStates = new Map<string, ReturnType<typeof projectSearchOf>>();
+
 	const moduleParents = new Map<string, string | null>();
 	const moduleChildren = new Map<string, Set<string>>();
 	for (const module of Object.values(doc.modules)) {
@@ -385,6 +388,9 @@ export function mutationTargetsInvalid(
 		}
 		return undefined;
 	};
+	const projectSearches = new Set(
+		Object.keys(doc.appSettings.projectSearches ?? {}),
+	);
 	const initialLocalization = effectiveAppLocalization(doc.localization);
 	let sourceLanguage = initialLocalization.sourceLanguage;
 	let defaultLanguage = initialLocalization.defaultLanguage;
@@ -419,6 +425,7 @@ export function mutationTargetsInvalid(
 			case "removeEntryPoint":
 				break;
 			case "addModule":
+				searchStates.set(m.module.uuid, projectSearchOf(m.module));
 				{
 					const parent = m.module.parentModuleUuid ?? null;
 					if (
@@ -459,6 +466,17 @@ export function mutationTargetsInvalid(
 				break;
 			case "updateModule":
 				if (!modules.has(m.uuid)) return true;
+				if (m.caseSearchConfigPatch?.projectSearch) {
+					const { before, after } = m.caseSearchConfigPatch.projectSearch;
+					const current = searchStates.has(m.uuid)
+						? searchStates.get(m.uuid)
+						: projectSearchOf(doc.modules[m.uuid]);
+					if (!deepEqual(current ?? null, before)) return true;
+					searchStates.set(m.uuid, after ?? undefined);
+				} else if (Object.hasOwn(m.patch, "caseSearchConfig")) {
+					searchStates.set(m.uuid, undefined);
+				}
+
 				// Canonical update payloads own only structural teardown here:
 				// `caseListConfig:null` clears the config and all of its members.
 				// Config birth is the distinct `ensureCaseListConfig` command below.
@@ -1113,8 +1131,17 @@ export function mutationTargetsInvalid(
 			case "setAppName":
 			case "setConnectType":
 			case "setAppLogo":
-			case "setAppSettings":
 				break;
+			case "setAppSettings": {
+				const edit = m.settings.projectSearch;
+				if (!edit) break;
+				if (edit.operation === "add") {
+					if (projectSearches.has(edit.uuid)) return true;
+					projectSearches.add(edit.uuid);
+				} else if (!projectSearches.has(edit.uuid)) return true;
+				else if (edit.operation === "remove") projectSearches.delete(edit.uuid);
+				break;
+			}
 			case "relabelSourceLanguage": {
 				if (languages.size !== 1) return true;
 				const tag = languageTag(m.language);

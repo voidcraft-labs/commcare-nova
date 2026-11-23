@@ -16,6 +16,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { useMemo, useState } from "react";
+import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import {
 	buildValidityIndex,
@@ -23,17 +24,18 @@ import {
 } from "@/components/builder/shared/editorContext";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
+import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	type CaseType,
 	type HiddenSearchInputDef,
-	hiddenSearchInputDef,
 	type SearchInputDef,
 	searchInputNameRefusal,
 	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
+import { projectSearchOf } from "@/lib/domain/modules";
 import {
 	NO_SEARCH_INPUTS,
 	type ResolvedRow,
@@ -63,6 +65,7 @@ export function HiddenSearchValueEditor({
 	onChange,
 }: HiddenSearchValueEditorProps) {
 	const projectProse = useProseProjection();
+	const usesProjectSearch = Boolean(projectSearchOf(useModule(moduleUuid)));
 	const resolved: ResolvedRow = useMemo(() => {
 		const rows = resolveRows(
 			siblings,
@@ -89,15 +92,7 @@ export function HiddenSearchValueEditor({
 		readonly name?: string;
 		readonly label?: string;
 		readonly value?: Expression;
-	}) =>
-		onChange(
-			hiddenSearchInputDef(
-				value.uuid,
-				patch.name ?? value.name,
-				patch.label ?? value.label,
-				patch.value ?? value.value,
-			),
-		);
+	}) => onChange({ ...value, ...patch });
 
 	/* A name outside the Search field grammar is held with the schema's
 	 * sentence instead of bouncing off the gate. */
@@ -123,6 +118,17 @@ export function HiddenSearchValueEditor({
 			validityIndex={emptyValidityIndex}
 		>
 			<div className="space-y-5">
+				{usesProjectSearch && (
+					<ToggleRow
+						label="Send this value"
+						description="The project space receives the value under its name when the worker searches."
+						checked={value.sendAnswer === true}
+						onChange={(sending) => {
+							const { sendAnswer: _old, ...field } = value;
+							onChange(sending ? { ...field, sendAnswer: true } : field);
+						}}
+					/>
+				)}
 				<p className="flex items-start gap-2 rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3 text-[13px] leading-relaxed text-nova-text-secondary">
 					<Icon
 						icon={tablerEyeOff}

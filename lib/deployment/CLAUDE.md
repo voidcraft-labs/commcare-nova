@@ -2315,3 +2315,27 @@ emitter defaults to the worker's username. HQ requires the USERCASE privilege,
 which the person confirms, and a restored record, which Nova cannot verify.
 Read-only forms can silently get blank values; writers have a native entry
 assertion. Record-scope session expressions are not worker-record reads.
+
+### Destination-bound searches
+
+`app_deployment_search_bindings` maps an app's logical search UUID to a
+positive service ID within a single deployment. The app's catalog contains
+names and logical identities. A numeric service ID first seen in HQ belongs
+to that exact space. `inspectProjectSearchDestination` reads configured and
+missing bindings under the viewer's Project access. A contributor confirms
+the current app, actor, role, target and bindings before replacing them.
+The writer rechecks edit access and refuses a conflicting open remote write.
+
+A request includes the fields the menu sends, named defaults and any keys the
+selected route adds for ownership or parent selection. The capability probe
+answers whether the space supports external search. HQ's application API does
+not expose the service's query or verify what rows it returns. Every physical
+publish write checks the planned bindings against the locked deployment.
+
+
+The first bring-in review and the saved destination review derive search contracts
+from the same logical uses and target-owned bindings. Each menu shows its request
+parameter names and the returned fields it actually reads. A source service ID
+stays on the adopted deployment. A binding whose last menu was removed remains
+visible for an editor to release explicitly. Complete paged MCP reviews bind
+continuations to the original reading and return approval on the final page.

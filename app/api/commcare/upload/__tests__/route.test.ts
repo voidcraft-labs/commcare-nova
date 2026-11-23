@@ -65,7 +65,7 @@ vi.mock("@/lib/deployment/previewSpace", () => ({
 	})),
 }));
 
-const SESSION = { user: { id: "u1" } };
+const SESSION = { user: { id: "u1" }, session: { id: "browser-session" } };
 const DOMAIN = "acme";
 
 /**

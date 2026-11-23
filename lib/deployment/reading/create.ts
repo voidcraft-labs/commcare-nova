@@ -382,6 +382,7 @@ async function createInRoom(
 		return checkFailed("bindings", [], bindingsMoved(appId, moved));
 
 	/* 7. Publish: the first write, so the room stops nothing from here on. */
+	await actor.requireOperation?.();
 	room.beginWrites();
 	let plan = gathered.media;
 	const held = heldFileCount(gathered);
@@ -492,6 +493,7 @@ async function createInRoom(
 	try {
 		outcome = await withAppTx((tx) =>
 			adoptHqAppInTransaction(tx, {
+				requireOperation: actor.requireOperation,
 				actorUserId: actor.userId,
 				runId,
 				candidate,

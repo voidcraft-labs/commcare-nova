@@ -20,6 +20,7 @@ import {
 } from "./types";
 
 export interface FormPrintContext {
+	readonly projectSearchResults?: boolean;
 	readonly graph?: FormNodeGraph;
 	readonly sourceNode?: FormNodeRef;
 	readonly contextNode?: FormNodeRef;
@@ -437,6 +438,9 @@ function printWith(
 			case "case-type":
 				literal(term.caseType, path);
 				break;
+			case "search-result-field":
+				emit(term.name);
+				break;
 			case "case-row-type":
 				emit("@case_type");
 				break;
@@ -679,7 +683,9 @@ function printWith(
 				emit(
 					node.source === "casedb"
 						? "instance('casedb')/casedb/case"
-						: "instance('results:inline')/results/case[not(commcare_is_related_case = true())]",
+						: ctx.projectSearchResults
+							? "instance('results:inline')/results/case"
+							: "instance('results:inline')/results/case[not(commcare_is_related_case = true())]",
 				);
 				predicates(node, path, ctx);
 				break;

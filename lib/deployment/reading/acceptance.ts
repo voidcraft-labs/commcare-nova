@@ -837,6 +837,7 @@ function* fixedPointCheck(
 						saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
 					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
+					knownProjectSearchNames: doc.appSettings.projectSearches,
 					knownLanguageCodes: knownLanguageCodesOf(doc),
 				},
 				input.heldExpansions === undefined

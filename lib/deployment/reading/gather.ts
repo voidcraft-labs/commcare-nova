@@ -119,6 +119,7 @@ import {
 	canonicalTargetIdentity,
 	EMPTY_TARGET_IDENTITY,
 	observedTargetIdentity,
+	projectSearchDestinationRows,
 	resolveTargetIdentity,
 	type TargetIdentity,
 } from "../targetIdentity";
@@ -1883,9 +1884,11 @@ async function checkWith(
 			accepted,
 			lookup,
 			mediaFiles,
+			searchBindings: targetIdentity.projectSearches,
 			identity: targetWireIdentity(
 				targetIdentity.entities,
 				targetIdentity.columnWords,
+				targetIdentity.projectSearches,
 			),
 		}),
 	);
@@ -1912,6 +1915,17 @@ async function checkWith(
 				`The reading ${appId} observed its menus and forms once and then found a form with no real CommCare HQ id. The two observations read one draft, so look at targetIdentity.ts::observedTargetIdentity.`,
 			);
 		return reviewDigestOf({
+			...(review.projectSearches?.length && {
+				destinationSource: {
+					...key,
+					appId,
+					actorUserId: scope.userId,
+					version: fetched.hqVersion,
+					digest: canonicalJsonDigest(
+						adoptedSourceTree(key.remoteAppId, source),
+					),
+				},
+			}),
 			v: 2,
 			review,
 			document: canonicalJsonDigest(
@@ -1967,6 +1981,7 @@ function* reviewOf(input: {
 	readonly mediaFiles: readonly AdoptedMediaFile[];
 	/** The ids and column words the birth's first import prints under. */
 	readonly identity: WireIdentity;
+	readonly searchBindings: TargetIdentity["projectSearches"];
 }): Generator<void, ReadingReview, void> {
 	const { appId, key, fetched, draft, plan, choices, accepted } = input;
 	const { source } = fetched;
@@ -2071,6 +2086,7 @@ function* reviewOf(input: {
 		mintingResolver(appId),
 	);
 
+	const searches = projectSearchDestinationRows(doc, input.searchBindings);
 	const datetimeSplit = choices.choices.find((choice) => choice.split);
 	return {
 		appName: source.name ?? "",
@@ -2099,6 +2115,7 @@ function* reviewOf(input: {
 		platformsOut,
 		kept: facts === null ? [] : keptListFor(facts),
 		tables: projectReview.tables,
+		...(searches.length > 0 && { projectSearches: searches }),
 		places: projectReview.places,
 		mediaLeftOut: mediaLeftOutOf(input.judgedPlan.claims).undrawn,
 		firstPublish: accepted.firstPublish,

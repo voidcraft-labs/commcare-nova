@@ -60,6 +60,7 @@ import {
 	toolText,
 } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import {
@@ -354,7 +355,7 @@ export function registerBringInHqChanges(
 				let outcome: HqChangesOutcome;
 				try {
 					outcome = await bringInHqChanges(
-						call.scope,
+						{ ...call.scope, requireOperation: toolWriteGrant(ctx, "bring_in_hq_changes") },
 						call.target,
 						{
 							readingId: args.reading_id,

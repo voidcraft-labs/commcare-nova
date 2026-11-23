@@ -35,6 +35,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import { registerScopedTool } from "../scopedTool";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
@@ -81,6 +82,7 @@ export function registerStopPublishing(
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation: toolWriteGrant(ctx, "stop_publishing"),
 				};
 				const stopped = await stopPublishing(
 					scope,

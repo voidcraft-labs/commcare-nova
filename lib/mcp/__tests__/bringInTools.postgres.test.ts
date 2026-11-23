@@ -29,6 +29,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { GenesisGateRejectedError } from "@/lib/db/appGenesis";
 import { softDeleteApp } from "@/lib/db/apps";
 import {
+	changedAnswer,
 	counterOf,
 	FIXTURE_DOMAIN,
 	FIXTURE_HOST,
@@ -38,6 +39,7 @@ import {
 	fixtureResource,
 	fixtureSource,
 	fixtureSourceWithXml,
+	navigationSource,
 	seedFixtureConnection,
 	serveAnswer,
 	serveFixtureApp,
@@ -60,6 +62,7 @@ import {
 } from "../tools/bringInHqApp";
 import { registerListHqApps } from "../tools/listHqApps";
 import { registerReadHqApp } from "../tools/readHqApp";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
 
@@ -150,12 +153,12 @@ beforeEach(async () => {
 type Json = Record<string, unknown>;
 
 /** The three tools, called as `userId`. */
-function withTools<T>(
+async function withTools<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
 ): Promise<T> {
+	const ctx = await installationCredential(h.db(), userId, [...new Set([...SCOPES, "nova.read", "nova.write"])]);
 	return withMcpClient((server) => {
-		const ctx = { userId, scopes: SCOPES, authKind: "api-key" as const };
 		registerListHqApps(server, ctx);
 		registerReadHqApp(server, ctx);
 		registerBringInHqApp(server, ctx);
@@ -262,6 +265,65 @@ function serveSourceHeld(
 }
 
 describe("read_hq_app", () => {
+	it("binds the reviewed search and its menu contract to the native working save", async () => {
+		const source = changedAnswer(navigationSource(), (body) => {
+			const menu = (
+				body.modules as { search_config: Record<string, unknown> }[]
+			)[0];
+			menu.search_config.case_search_endpoint_id = 17;
+			menu.search_config.default_properties = [
+				{ property: "district", defaultValue: "'north'" },
+			];
+			return body;
+		});
+		await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { app: "navigation", source });
+			await withTools(async (client) => {
+				const { body, args } = await readReview(client);
+				const reviewed = body.review as Json;
+				expect(reviewed.project_search_details).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ kind: "search", endpointId: 17 }),
+						expect.objectContaining({ kind: "menu", text: "Patients" }),
+						expect.objectContaining({ kind: "parameter", text: "district" }),
+						expect.objectContaining({
+							kind: "result",
+							text: "case_id",
+							type: "text",
+						}),
+					]),
+				);
+				expect(reviewed.review_digest).toMatch(/^[0-9a-f]{64}$/);
+				const nextSave = changedAnswer(
+					retainedReadingRead("application"),
+					(app) => ({
+						...app,
+						version: Number(app.version) + 1,
+					}),
+				);
+				serveFixtureApp(peer, {
+					app: "navigation",
+					resource: nextSave,
+					source,
+				});
+				const next = await call(client, "bring_in_hq_app", args);
+				expect(next.isError).toBe(false);
+				expect(next.body).toMatchObject({
+					status: "changed",
+					reading: {
+						review: { project_search_details: reviewed.project_search_details },
+					},
+				});
+				const nextReview = (next.body.reading as { review: Json }).review;
+				expect(nextReview.review_digest).toMatch(/^[0-9a-f]{64}$/);
+				expect(nextReview.review_digest).not.toBe(args.review_digest);
+				expect(await h.db().selectFrom("apps").select("id").execute()).toEqual(
+					[],
+				);
+			});
+		});
+	});
+
 	it("answers a review with its reading_id in one call", async () => {
 		await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer);

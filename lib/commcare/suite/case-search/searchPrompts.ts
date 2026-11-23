@@ -444,6 +444,8 @@ export function buildSearchPrompts(
  * instance, never to match a case property named after it.
  */
 export function searchInputSuppressesAutoMatch(input: SearchInputDef): boolean {
+	if (input.kind === "parameter" || input.kind === "hidden")
+		return !input.sendAnswer;
 	if (input.kind !== "simple") return true;
 	return simpleArmNeedsXPathQueryEmission(input);
 }

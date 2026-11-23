@@ -55,7 +55,7 @@ const OWNER: DeploymentScope = {
 };
 
 function signedInAs(userId: string) {
-	vi.mocked(getSession).mockResolvedValue({ user: { id: userId } } as never);
+	vi.mocked(getSession).mockResolvedValue({ user: { id: userId }, session: { id: "read-session" } } as never);
 }
 async function seed(doc: BlueprintDoc) {
 	await h.seedAppWithBlueprint(doc, {
