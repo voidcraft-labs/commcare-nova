@@ -154,7 +154,7 @@ function projectColumn(column: CatalogColumn): CatalogColumn {
  * segment without ever crossing the model-facing result ceiling. */
 export const getLookupTablesTool = {
 	description:
-		"Read the Project’s table names, IDs, details and revisions. Continue with nextCursor until complete. Tables managed in CommCare HQ are read-only here. When rowsRequireSourceAccess is true, a connected Project editor can inspect the source inventory in Project data. Each worker sees their own verified data.",
+		"Read the Project’s table names, IDs, details and revisions. Continue with nextCursor until complete. A table with `managed_in_commcare_hq` is a copy of a table that lives in CommCare HQ. Read it freely. Changing it is refused: its rows and columns change in CommCare HQ. When rowsRequireSourceAccess is true, a connected Project editor can inspect the source inventory in Project data. Each worker sees their own verified data.",
 	inputSchema: getLookupTablesInputSchema,
 	async execute(
 		input: GetLookupTablesInput,

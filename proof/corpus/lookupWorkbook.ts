@@ -61,7 +61,10 @@ function cell(obj: Cells, header: string, raw: string) {
 	}
 }
 function sheet(book: XLSX.WorkBook, name: string): Cells[] {
-	const page = Object.hasOwn(book.Sheets, name) ? book.Sheets[name] : undefined;
+	/* SheetJS stores sheets on a plain object, so a sheet a table tagged
+	 * `__proto__` names is reached through the same bracket read SheetJS's
+	 * own assignment made, and only a name the workbook lists is read. */
+	const page = book.SheetNames.includes(name) ? book.Sheets[name] : undefined;
 	if (!page) throw Error(`Fixture workbook is missing its ${name} sheet.`);
 	const [headers = [], ...rows] = XLSX.utils.sheet_to_json<string[]>(page, {
 		header: 1,

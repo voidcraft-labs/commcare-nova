@@ -262,6 +262,10 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.MANAGED_PLACES_REFRESHED_SINCE],
 	},
+	LOOKUP_DISCARD_NOTE: {
+		kind: "sentence",
+		texts: [copy.LOOKUP_DISCARD_NOTE],
+	},
 	cannotReadManagedPlaces: {
 		kind: "sentence",
 		texts: [copy.cannotReadManagedPlaces("acme-health")],

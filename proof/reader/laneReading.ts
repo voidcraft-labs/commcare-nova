@@ -395,6 +395,20 @@ function bornLookup(gathered: Gathered): LookupFixtureDataSnapshot {
 
 	return {
 		...gathered.lookup,
+		/* The production projection stamps the reading's clock. A lane birth
+		 * stamps its fixed day, so the same answers give the same document. */
+		definitions: gathered.lookup.definitions.map((definition) =>
+			born.has(definition.id) && definition.hq !== undefined
+				? {
+						...definition,
+						hq: {
+							...definition.hq,
+							broughtInAt: LANE_BROUGHT_IN_AT,
+							refreshedAt: LANE_BROUGHT_IN_AT,
+						},
+					}
+				: definition,
+		),
 		rowsByTable: new Map(
 			[...gathered.lookup.rowsByTable].map(([tableId, rows]) => [
 				tableId,

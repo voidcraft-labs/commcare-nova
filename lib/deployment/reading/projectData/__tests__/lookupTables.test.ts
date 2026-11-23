@@ -1325,6 +1325,12 @@ describe("readingLookupSnapshot", () => {
 				name: "plain",
 				tag: "plain",
 				definitionRevision: "0",
+				/* Birth keeps CommCare HQ as the custodian of a source table. */
+				hq: expect.objectContaining({
+					managedBy: "commcare-hq",
+					takenOverAt: null,
+					goneColumnIds: [],
+				}),
 				columns: [
 					{
 						id: binding.columns.code,

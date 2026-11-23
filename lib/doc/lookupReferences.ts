@@ -149,8 +149,9 @@ export interface ExtractedLookupReference {
 	readonly location: LookupReferenceValidationLocation;
 }
 
-/** One immutable structural carrier walker. */
-function readReferences(
+/** One reference per column and value detail a read names. Extractors record
+ * the read; every consumer of a column or member target expands it here. */
+export function readReferences(
 	input: ExtractedLookupReference,
 ): ExtractedLookupReference[] {
 	const read = input.read;

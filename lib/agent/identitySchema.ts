@@ -221,7 +221,8 @@ export function classifyIdentity(
 		(tool === "create_location" ||
 			tool === "update_location" ||
 			tool === "start_app_test" ||
-			tool === "move_location")
+			tool === "move_location" ||
+			(tool === "get_organization" && property === "parentId"))
 	) {
 		return "location";
 	}

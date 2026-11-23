@@ -6,7 +6,10 @@
  * `syntaxCompare.ts`. Nothing here matches text: the print proves every
  * recognition.
  */
-import { extractAstLookupReferences } from "@/lib/doc/lookupReferences";
+import {
+	extractAstLookupReferences,
+	readReferences,
+} from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -1699,15 +1702,24 @@ function boundNameRefusal(
 		ast: candidate,
 		carrierUuid: pending.ref.uuid,
 		location: { scope: pending.ref.entity },
-	})) {
+	}).flatMap(readReferences)) {
 		const table = env.lookup.get(ref.tableId);
 		if (table === undefined) continue;
 		const column = table.columns.find((one) => one.id === ref.columnId);
+		const member =
+			ref.memberId === undefined
+				? undefined
+				: (column === undefined ? table.attributes : column.properties)?.find(
+						(one) => one.id === ref.memberId,
+					);
 		const found =
 			lookupNameRefusal(table.tag, pending.ref.slot, "tag") ??
 			(column === undefined
 				? undefined
-				: lookupNameRefusal(column.wireName, pending.ref.slot, "column"));
+				: lookupNameRefusal(column.wireName, pending.ref.slot, "column")) ??
+			(member === undefined
+				? undefined
+				: lookupNameRefusal(member.wireName, pending.ref.slot, "column"));
 		if (found !== undefined)
 			return {
 				kind: "lookup-name",
