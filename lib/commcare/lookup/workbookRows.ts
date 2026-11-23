@@ -30,8 +30,32 @@ export function lookupWorkbookShape(
 			"This name is reserved for the workbook’s mandatory types sheet.";
 	if (table.columns.some((column) => column.index === "unobserved"))
 		shape.issue = "The indexed columns have not been verified.";
+	const keyword = table.columns.find(
+		(column) =>
+			(column.properties?.length ?? 0) > 0 && ROW_KEYWORDS.has(column.wireName),
+	);
+	if (keyword !== undefined)
+		shape.issue ??= `The column “${keyword.wireName}” has value details, and CommCare HQ's workbook reads a heading that starts with “${keyword.wireName}:” as its own. You can give that column another export name.`;
 	return shape;
 }
+
+/**
+ * The top-level keys CommCare HQ's workbook reader gives a data row. A column
+ * with value details heads its details `<column>: <detail> n`, and the reader
+ * (`util/workbook_json/excel.py::IteratorJSONReader.set_field_value`) nests
+ * each under `<column>`, so a column named one of these lands among the row's
+ * own fields, details, owners or UID (`fixtures/upload/workbook.py::
+ * iter_rows`, `_process_item_field`). A column without details heads its
+ * value `field: <column>` and is safe under any name.
+ */
+const ROW_KEYWORDS: ReadonlySet<string> = new Set([
+	"field",
+	"property",
+	"user",
+	"group",
+	"location",
+	"UID",
+]);
 const ownerKeys = ["users", "groups", "locations"] as const;
 
 export function observeLookupWorkbookRow(
