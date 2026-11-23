@@ -17,6 +17,7 @@ import {
 	languageTag,
 	ownRecordValue,
 	type TranslationEntry,
+	type TranslationUnitId,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import {
@@ -412,16 +413,39 @@ export function mutationTargetsInvalid(
 	const admittedPrefix: Mutation[] = [];
 	let translationDoc = doc;
 	let translationUnitsDirty = false;
-	const refreshTranslationUnits = (): void => {
-		if (!translationUnitsDirty) return;
-		const projected = produce(doc, (draft) => {
-			applyMutations(draft, admittedPrefix);
-		});
-		translationDoc = projected;
-		translationUnits = new Map(
-			collectTranslationUnits(projected).map((unit) => [unit.id, unit]),
-		);
-		translationUnitsDirty = false;
+	/* Units whose original wording an admitted mutation changed since the
+	 * inventory was last built. A generated unit's fingerprint reads its own
+	 * original and its base's, a saved original can make a system message a
+	 * unit, and a search check's default reads the shared guard, so a read
+	 * that could see one of these rebuilds; any other read keeps the
+	 * inventory, which a batch of many originals would otherwise rebuild once
+	 * per entry. */
+	const wordingChanged = new Set<TranslationUnitId>();
+	const sourceUnit = (unitId: TranslationUnitId) => {
+		if (!translationUnitsDirty && wordingChanged.size > 0) {
+			const held = translationUnits.get(unitId);
+			const base = held?.generated?.base;
+			if (
+				held === undefined ||
+				wordingChanged.has(unitId) ||
+				(base !== undefined && wordingChanged.has(base)) ||
+				held.generated?.role === "promptValidation"
+			)
+				translationUnitsDirty = true;
+		}
+		if (translationUnitsDirty) {
+			const projected = produce(doc, (draft) => {
+				applyMutations(draft, admittedPrefix);
+			});
+			translationDoc = projected;
+			translationUnits = new Map(
+				collectTranslationUnits(projected).map((unit) => [unit.id, unit]),
+			);
+			translationUnitsDirty = false;
+			wordingChanged.clear();
+		}
+		const raw = translationUnits.get(unitId);
+		return raw && wordingSourceUnit(translationDoc, raw);
 	};
 	for (const m of mutations) {
 		switch (m.kind) {
@@ -1210,9 +1234,7 @@ export function mutationTargetsInvalid(
 				break;
 			}
 			case "setTranslation": {
-				refreshTranslationUnits();
-				const raw = translationUnits.get(m.unitId);
-				const unit = raw && wordingSourceUnit(translationDoc, raw);
+				const unit = sourceUnit(m.unitId);
 				const target = translations.get(m.language);
 				if (
 					!unit ||
@@ -1222,7 +1244,7 @@ export function mutationTargetsInvalid(
 					return true;
 				if (m.entry === null) {
 					if (!target.delete(m.unitId)) return true;
-					if (m.language === sourceLanguage) translationUnitsDirty = true;
+					if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
 					break;
 				}
 				const { workerFallback, ...saved } = m.entry;
@@ -1262,13 +1284,11 @@ export function mutationTargetsInvalid(
 				)
 					return true;
 				target.set(m.unitId, m.entry);
-				if (m.language === sourceLanguage) translationUnitsDirty = true;
+				if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
 				break;
 			}
 			case "reviewTranslation": {
-				refreshTranslationUnits();
-				const raw = translationUnits.get(m.unitId);
-				const unit = raw && wordingSourceUnit(translationDoc, raw);
+				const unit = sourceUnit(m.unitId);
 				if (
 					unit === undefined ||
 					!translationSourceFingerprintsEqual(
@@ -1293,7 +1313,7 @@ export function mutationTargetsInvalid(
 					return true;
 				}
 				const { workerFallback: _fallback, ...saved } = entry;
-				if (m.language === sourceLanguage) translationUnitsDirty = true;
+				if (m.language === sourceLanguage) wordingChanged.add(m.unitId);
 				target.set(m.unitId, {
 					...saved,
 					sourceFingerprint: m.sourceFingerprint,
