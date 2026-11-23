@@ -18,6 +18,7 @@ import {
 import { caseWriteIdOf } from "./caseWriteKeys";
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
+import { entryCaseCreationsLeftBy } from "./entryCaseCreationCascade";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupValidationContext,
@@ -1032,6 +1033,7 @@ export function removeCaseOperationMutation(
 				patch: {},
 				caseOperationChange: { operation: "remove", uuid },
 			},
+			...entryCaseCreationsLeftBy(form, prospective.caseOperations ?? []),
 		],
 	};
 }
