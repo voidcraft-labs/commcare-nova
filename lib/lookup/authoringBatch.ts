@@ -112,6 +112,12 @@ interface TableWork {
 	definitionChanged: boolean;
 	rowsChanged: boolean;
 	deleted: boolean;
+	/** Each kept row or value detail whose export name this batch changes. */
+	memberRenames: {
+		columnId?: LookupColumnId;
+		memberId: LookupMemberId;
+		name: string;
+	}[];
 }
 
 function compareAscii(left: string, right: string): number {
@@ -698,6 +704,7 @@ async function loadWork(
 		definitionChanged: false,
 		rowsChanged: false,
 		deleted: false,
+		memberRenames: [],
 	};
 }
 
@@ -723,6 +730,15 @@ async function editMembers(
 		};
 	});
 	const afterById = new Map(after.map((member) => [member.id, member]));
+	for (const member of before) {
+		const renamed = afterById.get(member.id);
+		if (renamed !== undefined && renamed.wireName !== member.wireName)
+			work.memberRenames.push({
+				...(columnId !== null && { columnId }),
+				memberId: member.id,
+				name: renamed.wireName,
+			});
+	}
 	if (
 		before.some(
 			(member) => afterById.get(member.id)?.wireName !== member.wireName,
@@ -1720,6 +1736,11 @@ async function applyBatch(
 					? [{ columnId: column.id, name: column.wireName }]
 					: [];
 			}),
+			...work.memberRenames.filter(
+				({ columnId }) =>
+					columnId === undefined ||
+					work.columns.some((column) => column.id === columnId),
+			),
 		]);
 		if (!work.columns.length && !work.attributes.length)
 			invalid("A table needs at least one column or row detail.");

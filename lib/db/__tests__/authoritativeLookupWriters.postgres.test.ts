@@ -799,6 +799,79 @@ describe("lookup materialization versus resource deletion", () => {
 		expect((await loadApp(choices.appId))?.app_name).toBe("District visit");
 	});
 
+	it("refuses renaming a row detail an app reads where the new name won't work there", async () => {
+		const scope = {
+			projectId: PROJECT_A,
+			actorId: ACTOR,
+			role: "owner",
+		} as const;
+		const table = await createLookupTable(scope, {
+			name: "District details",
+			tag: "district_details",
+			attributes: [{ wireName: "district", label: "District" }],
+			columns: [{ wireName: "name", label: "Name", dataType: "text" }],
+		});
+		const detail = table.attributes?.[0];
+		if (detail === undefined) throw new Error("Expected a row detail.");
+		const menu = await createExplicitBlankApp(
+			ACTOR,
+			PROJECT_A,
+			crypto.randomUUID(),
+			{ name: "District menu", status: "complete" },
+		);
+		await commitGuardedBatch({
+			appId: menu.appId,
+			expectedProjectId: PROJECT_A,
+			batchId: crypto.randomUUID(),
+			mutations: [
+				setModuleDisplayConditionMutation(
+					menu.starter.moduleUuid,
+					eq(
+						tableLookup(table.id, { attributeId: detail.id }, matchAll()),
+						literal("north"),
+					),
+				),
+			],
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+		const current = await getLookupTable(scope, table.id);
+		const rename = (wireName: string) =>
+			h.withTransaction(async (tx) =>
+				applyLookupAuthoringBatchInTransaction(
+					tx,
+					await authorizeLookupWriteInTransaction(tx, scope, "delete"),
+					{
+						updateTables: [
+							{
+								tableId: table.id,
+								expectedTableRevision: current.tableRevision,
+								attributes: [{ id: detail.id, wireName, label: "District" }],
+								reviewed: {
+									projectRevision: current.projectRevision,
+									readerAppIds: [menu.appId],
+								},
+							},
+						],
+					},
+				),
+			);
+		/* The menu's condition is one HQ rewrites periods in. */
+		await expect(rename("district.code")).rejects.toMatchObject({
+			code: "referenced",
+			blockingApps: [
+				{ appId: menu.appId, appName: "District menu", deleted: false },
+			],
+		});
+		expect(await getLookupTable(scope, table.id)).toEqual(current);
+		await rename("district_code");
+		expect(
+			(await getLookupTable(scope, table.id)).attributes?.map(
+				(member) => member.wireName,
+			),
+		).toEqual(["district_code"]);
+	});
+
 	it("checks a waiting app writer against the Project name that committed first", async () => {
 		const scope = {
 			projectId: PROJECT_A,
