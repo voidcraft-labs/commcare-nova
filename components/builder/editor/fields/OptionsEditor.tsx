@@ -43,6 +43,7 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
+import { useStoredField } from "@/lib/doc/hooks/useEntity";
 import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useOptionRemovalBlockers } from "@/lib/doc/hooks/useOptionRemovalBlockers";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -68,6 +69,7 @@ import {
 	replaceOptionMedia,
 	replaceOptionPlainLabel,
 	settleDraft,
+	withStoredOptionMedia,
 } from "./optionsDraftModel";
 
 export interface OptionsEditorWidgetProps {
@@ -551,6 +553,15 @@ export function OptionsEditor<F extends Field>(
 	 * a person who sees only that one would think their own edit was the
 	 * problem. Cleared on the next save that lands. */
 	const [rejection, setRejection] = useState<string | null>(null);
+	/* The rows show the worker language's files; the write keeps every
+	 * choice's stored files (`withStoredOptionMedia`). */
+	const stored = useStoredField(field.uuid);
+	const storedOptions =
+		stored !== undefined &&
+		"optionsSource" in stored &&
+		stored.optionsSource.kind === "inline"
+			? stored.optionsSource.options
+			: undefined;
 	if (source.kind !== "inline") {
 		return (
 			<div
@@ -575,7 +586,7 @@ export function OptionsEditor<F extends Field>(
 				onSave={(next) => {
 					const outcome = onChange({
 						kind: "inline",
-						options: next,
+						options: withStoredOptionMedia(storedOptions, next),
 					} as F["optionsSource" & keyof F]);
 					setRejection(
 						outcome.ok || outcome.messages.length === 0
