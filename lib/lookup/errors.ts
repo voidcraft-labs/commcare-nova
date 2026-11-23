@@ -67,6 +67,20 @@ export class LookupError extends Error {
 	}
 }
 
+/**
+ * A managed copy past one inline copy's bounds (rows, columns, a value, a
+ * row, or the bytes Postgres measured once written): nothing was written,
+ * and only a paged refresh into a generation takes a table this size. A
+ * `storage_limit`, told apart from the Project's own storage running out so
+ * each caller can say which next step reaches the table.
+ */
+export class LookupPastInlineCopyError extends LookupError {
+	constructor(message: string) {
+		super("storage_limit", message);
+		this.name = "LookupPastInlineCopyError";
+	}
+}
+
 export function lookupFailure(error: LookupError): LookupFailure {
 	return {
 		success: false,

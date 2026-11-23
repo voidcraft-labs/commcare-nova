@@ -10,6 +10,7 @@ import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__
  */
 
 import { sql } from "kysely";
+import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -34,9 +35,11 @@ import {
 	managedColumnGoneItem,
 	managedDataPassed,
 	managedDataUnreadablePermission,
+	managedHandBackPastInlineRead,
 	managedTableGone,
 	managedTablePastInlineRead,
 	managedTableUnrepresentable,
+	managedTakeOverPastInlineRead,
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import {
@@ -787,6 +790,58 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			ok: false,
 			reason: "unsupported",
 			message: MANAGED_TABLE_NO_COLUMNS,
+		});
+		expect(await copyOf(copy)).toEqual(before);
+	});
+
+	/** CommCare HQ's first page of `facilities`' rows, naming more rows than one inline read takes. */
+	function servePastInlineRead(peer: MockAgent) {
+		serveTableList(peer, DOMAIN, [facilities]);
+		peer
+			.get(HOST)
+			.intercept({ path: ROWS, method: "GET" })
+			.reply(200, {
+				objects: facilities.rows.map((fields, index) => ({
+					id: `row-${index}`,
+					fixture_type: facilities.tag,
+					fields,
+				})),
+				meta: { next: "more", offset: 0, total_count: 5_001 },
+			});
+	}
+
+	it("refuses the hand-back of a table past one inline read in CommCare HQ without sending the person to sign in or refresh", async () => {
+		const { copy } = await seedApp();
+		const taken = await manageAsReviewed(ADMIN_LOOKUP, copy.tableId);
+		if (!taken.ok) throw new Error(taken.message);
+		const before = await copyOf(copy);
+		const outcome = await withManagedPeer(async (peer) => {
+			servePastInlineRead(peer);
+			return handBackAsReviewed(ADMIN_LOOKUP, copy.tableId);
+		});
+		expect(outcome).toEqual({
+			ok: false,
+			reason: "unsupported",
+			message: managedHandBackPastInlineRead,
+		});
+		expect(await copyOf(copy)).toEqual(before);
+	});
+
+	it("refuses a takeover of a copy whose table grew past one inline read by sending the person to refresh it first", async () => {
+		const { copy } = await seedApp();
+		const before = await copyOf(copy);
+		const outcome = await withManagedPeer(async (peer) => {
+			servePastInlineRead(peer);
+			return manageLookupTableInNova(
+				ADMIN_LOOKUP,
+				copy.tableId,
+				await reviewDigestOf(copy.tableId),
+			);
+		});
+		expect(outcome).toEqual({
+			ok: false,
+			reason: "needs-paged-refresh",
+			message: managedTakeOverPastInlineRead,
 		});
 		expect(await copyOf(copy)).toEqual(before);
 	});

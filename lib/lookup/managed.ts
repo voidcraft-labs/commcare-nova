@@ -23,7 +23,7 @@ import {
 import { validateLookupRowValues } from "./coercion";
 import { LOOKUP_MAX_CHANGE_BYTES, LOOKUP_MAX_COLUMNS } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
-import { LookupError } from "./errors";
+import { LookupError, LookupPastInlineCopyError } from "./errors";
 import { formatLookupBytesOverCap } from "./format";
 import { availableBulkSlot, lockLookupBudget } from "./generations/budget";
 import { materializeGeneration } from "./generations/materialize";
@@ -520,8 +520,7 @@ async function holdCaps(
 		await measureWith(tx, rows, contents),
 	);
 	if (excess.length > 0) {
-		throw new LookupError(
-			"storage_limit",
+		throw new LookupPastInlineCopyError(
 			managedLookupInlineCopyRefusal(tag, excess),
 		);
 	}
@@ -530,8 +529,7 @@ async function holdCaps(
 /** The copy Postgres measured once written is more than one inline copy
  * writes: the transaction rolls back, and a paged refresh takes the table. */
 function pastInlineCopy(tag: string, dataBytes: number): never {
-	throw new LookupError(
-		"storage_limit",
+	throw new LookupPastInlineCopyError(
 		managedLookupInlineCopyRefusal(tag, [
 			`${formatLookupBytesOverCap(dataBytes)} of rows`,
 		]),
@@ -1113,8 +1111,7 @@ export async function refreshManagedLookupTableInTransaction(
 	}
 	const columnCount = content.fields.length + kept.length;
 	if (!generation && columnCount > LOOKUP_MAX_COLUMNS) {
-		throw new LookupError(
-			"storage_limit",
+		throw new LookupPastInlineCopyError(
 			managedLookupInlineCopyRefusal(table.tag, [
 				`${columnCount.toLocaleString("en-US")} columns with the ones apps still read`,
 			]),

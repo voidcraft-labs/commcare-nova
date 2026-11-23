@@ -116,6 +116,29 @@ export function managedTableUnsupported(holds: string): string {
 export const managedTablePastInlineRead =
 	"This table is larger than Nova copies in one read, so Nova reads it in pages, and that needs your current sign-in. Nova kept its copy as it was. You can sign in again and refresh it.";
 
+/**
+ * A takeover of a copy whose table in CommCare HQ grew past one inline read:
+ * a refresh from the table's page reads it in pages, and the takeover then
+ * takes the table it stored.
+ */
+export const managedTakeOverPastInlineRead =
+	"This table has grown in CommCare HQ past what Nova reads in one go, so nothing changed. You can refresh it in Project data, then take it over.";
+
+/**
+ * A hand-back of a table Nova manages whose table in CommCare HQ is past one
+ * inline read: a hand-back reads CommCare HQ's table in one go, and has no
+ * paged path.
+ */
+export const managedHandBackPastInlineRead =
+	"This table in CommCare HQ is larger than Nova reads in one go, and Nova can't hand back a table that large yet. Nothing changed, and Nova still manages it.";
+
+/**
+ * Use the table from CommCare HQ, where CommCare HQ's table is past one
+ * inline read: the change reads it in one go, and has no paged path.
+ */
+export const useHqTablePastInlineRead =
+	"This table in CommCare HQ is larger than Nova reads in one go, so Nova can't use it in place of this table yet. Nothing changed, and this table stays as it is.";
+
 /** A refresh that finds the table holds no column in CommCare HQ. */
 export const MANAGED_TABLE_NO_COLUMNS =
 	"This table now has no columns in CommCare HQ, and Nova holds a lookup table only with at least one. Nova kept its copy as it was. You can add a column there, then refresh.";

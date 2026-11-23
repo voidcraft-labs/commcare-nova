@@ -86,6 +86,18 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.managedTablePastInlineRead],
 	},
+	managedTakeOverPastInlineRead: {
+		kind: "sentence",
+		texts: [copy.managedTakeOverPastInlineRead],
+	},
+	managedHandBackPastInlineRead: {
+		kind: "sentence",
+		texts: [copy.managedHandBackPastInlineRead],
+	},
+	useHqTablePastInlineRead: {
+		kind: "sentence",
+		texts: [copy.useHqTablePastInlineRead],
+	},
 	managedLookupTableRefusal: {
 		kind: "sentence",
 		texts: [managedLookupTableRefusal("Districts", "acme-health")],

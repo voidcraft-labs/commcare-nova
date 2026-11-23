@@ -58,7 +58,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { LOOKUP_MAX_COLUMNS } from "@/lib/lookup/constants";
-import { LookupError } from "@/lib/lookup/errors";
+import { LookupError, LookupPastInlineCopyError } from "@/lib/lookup/errors";
 import {
 	type InventoryAccess,
 	lockInventoryScope,
@@ -116,6 +116,7 @@ import {
 	MANAGEMENT_NEEDS_ADMIN,
 	MANAGEMENT_REVIEW_MOVED,
 	managedColumnGoneItem,
+	managedHandBackPastInlineRead,
 	managedPlaceNotHoldable,
 	managedPlacesPastInventory,
 	managedTableGone,
@@ -129,6 +130,7 @@ import {
 	managedTableUnrepresentableItem,
 	managedTableUnsupported,
 	managedTableUnsupportedItem,
+	managedTakeOverPastInlineRead,
 	REFRESH_NEEDS_EDITOR,
 	TABLE_HAS_HQ_ORIGIN,
 	TABLE_TAKEN_OVER_MEANWHILE,
@@ -137,6 +139,7 @@ import {
 	takeHqTableSourceMoved,
 	takeHqTableTitle,
 	USE_HQ_TABLE_NO_SOURCE,
+	useHqTablePastInlineRead,
 } from "@/lib/publish/managedData";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
@@ -1121,13 +1124,36 @@ async function manifestEntry(
 }
 
 /**
- * Read CommCare HQ's table for a refresh or a hand-back, with the actor's
- * connection on the origin's server, and judge what stops the copy taking
- * it, the first in the order a publish lists them.
+ * What a read of CommCare HQ's table is for: each says the table past one
+ * inline read with the next step that reaches it from there. Only a refresh
+ * has a paged path; a takeover reaches one through a refresh, and a hand-back
+ * or Use the table from CommCare HQ has none.
+ */
+type CopyPurpose = "refresh" | "take-over" | "hand-back" | "use-hq-table";
+
+/** The refusal of `purpose` for a table past one inline read. */
+function pastInlineReadRefusal(purpose: CopyPurpose): Refused {
+	switch (purpose) {
+		case "refresh":
+			return refusedTable("needs-paged-refresh", managedTablePastInlineRead);
+		case "take-over":
+			return refusedTable("needs-paged-refresh", managedTakeOverPastInlineRead);
+		case "hand-back":
+			return refusedTable("unsupported", managedHandBackPastInlineRead);
+		case "use-hq-table":
+			return refusedTable("unsupported", useHqTablePastInlineRead);
+	}
+}
+
+/**
+ * Read CommCare HQ's table for `purpose`, with the actor's connection on the
+ * origin's server, and judge what stops the copy taking it, the first in the
+ * order a publish lists them.
  */
 async function readForCopy(
 	scope: LookupScope,
 	stored: StoredManagedTable,
+	purpose: CopyPurpose,
 ): Promise<
 	| {
 			readonly ok: true;
@@ -1153,17 +1179,18 @@ async function readForCopy(
 	const read = await readTable(credentials.creds, stored.domain, list, stored);
 	if (read.kind === "failed") return failed(read.failure);
 	const [change] = await managedTableChanges(stored, read, []);
-	if (change !== undefined) return changeRefusal(stored, change);
+	if (change !== undefined) return changeRefusal(stored, change, purpose);
 	if (read.kind !== "read") {
 		throw new Error("A table read as gone came back with no change.");
 	}
 	return { ok: true, table: read.table, rows: read.rows };
 }
 
-/** The refusal of a refresh or a hand-back for the first change that stops it. */
+/** The refusal of `purpose` for the first change that stops it. */
 function changeRefusal(
 	stored: StoredManagedTable,
 	change: ManagedTableChange,
+	purpose: CopyPurpose,
 ): Refused {
 	switch (change.kind) {
 		case "table-gone":
@@ -1184,7 +1211,7 @@ function changeRefusal(
 				managedTableUnsupported(HOLDS_MORE_THAN_ONE_VALUE),
 			);
 		case "past-inline-read":
-			return refusedTable("needs-paged-refresh", managedTablePastInlineRead);
+			return pastInlineReadRefusal(purpose);
 		case "name":
 			return refusedTable(
 				"name",
@@ -1359,7 +1386,7 @@ export async function refreshManagedLookupTable(
 			return landed(scope, stored.id, result.receipt);
 		};
 		if (stored.sourceInventory) return await stream();
-		const read = await readForCopy(scope, stored);
+		const read = await readForCopy(scope, stored, "refresh");
 		if (!read.ok)
 			return read.reason === "needs-paged-refresh" && grant
 				? await stream()
@@ -1377,11 +1404,7 @@ export async function refreshManagedLookupTable(
 		} catch (error) {
 			/* Postgres measured more than one inline copy writes: the same table
 			 * is read again in pages, where no size is past what Nova holds. */
-			if (
-				error instanceof LookupError &&
-				error.code === "storage_limit" &&
-				grant
-			)
+			if (error instanceof LookupPastInlineCopyError && grant)
 				return await stream();
 			throw error;
 		}
@@ -1397,10 +1420,15 @@ export async function refreshManagedLookupTable(
  * The outcome for a write of the copy that the copy's own transaction
  * refused, or null for a fault: the table taken over or handed back
  * meanwhile (`conflict`, worded by `conflictMessage`), removed meanwhile, a
- * cap Postgres measured, or content the copy's own rules refuse. Each
- * leaves the table as it was.
+ * cap Postgres measured (one inline copy's, said for `purpose`, or the
+ * Project's storage), or content the copy's own rules refuse. Each leaves
+ * the table as it was.
  */
-function refusedWrite(error: unknown, conflictMessage: string): Refused | null {
+function refusedWrite(
+	error: unknown,
+	conflictMessage: string,
+	purpose: CopyPurpose = "refresh",
+): Refused | null {
 	if (!(error instanceof LookupError)) return null;
 	/* The member's role, read on the write's transaction: removed from the
 	 * Project finds nothing, and a role that fell names who can. */
@@ -1422,7 +1450,11 @@ function refusedWrite(error: unknown, conflictMessage: string): Refused | null {
 		case "not_found":
 			return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
 		case "storage_limit":
-			return refusedTable("needs-paged-refresh", error.message);
+			if (!(error instanceof LookupPastInlineCopyError))
+				return refusedTable("unsupported", error.message);
+			return purpose === "refresh"
+				? refusedTable("needs-paged-refresh", error.message)
+				: pastInlineReadRefusal(purpose);
 		case "managed_in_hq":
 		case "referenced":
 		case "accepted_design":
@@ -1532,7 +1564,7 @@ export async function manageLookupTableInNova(
 	const initial = access
 		? await withAppTx((tx) => lockInventoryScope(tx, access, "transfer"))
 		: undefined;
-	const source = await readForCopy(scope, stored);
+	const source = await readForCopy(scope, stored, "take-over");
 	if (!source.ok) return source;
 	const cannotTransfer = () =>
 		refusedTable(
@@ -1628,7 +1660,11 @@ export async function manageLookupTableInNova(
 		/* Removed since it was read: the page answers as for any table that
 		 * is not there. A member removed or demoted, or a review that moved,
 		 * is said as `refusedWrite` says it. */
-		const refused = refusedWrite(error, TABLE_TAKEN_OVER_MEANWHILE);
+		const refused = refusedWrite(
+			error,
+			TABLE_TAKEN_OVER_MEANWHILE,
+			"take-over",
+		);
 		if (refused !== null) return refused;
 		throw error;
 	}
@@ -1658,7 +1694,7 @@ export async function letHqManageLookupTable(
 	if (stored === null) return refusedTable("not-found", LOOKUP_TABLE_NOT_FOUND);
 	if (stored.managedBy === "commcare-hq") return landed(scope, stored.id, null);
 	const at = new Date();
-	const read = await readForCopy(scope, stored);
+	const read = await readForCopy(scope, stored, "hand-back");
 	if (!read.ok) return read;
 	try {
 		const receipt = await refreshTable(
@@ -1674,6 +1710,7 @@ export async function letHqManageLookupTable(
 		const refused = refusedWrite(
 			error,
 			error instanceof Error ? error.message : "",
+			"hand-back",
 		);
 		if (refused !== null) return refused;
 		throw error;
@@ -1878,7 +1915,7 @@ async function readUseHqTable(
 		managedBy: "commcare-hq",
 		columns: [],
 	};
-	const read = await readForCopy(scope, stored);
+	const read = await readForCopy(scope, stored, "use-hq-table");
 	if (!read.ok) return read;
 	const fields = new Set(read.table.fields);
 	const kept = new Set(
@@ -2058,6 +2095,7 @@ export async function takeHqTableForLookupTable(
 		const refused = refusedWrite(
 			error,
 			error instanceof Error ? error.message : "",
+			"use-hq-table",
 		);
 		if (refused !== null) return refused;
 		throw error;
