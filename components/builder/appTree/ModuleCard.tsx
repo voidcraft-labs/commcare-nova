@@ -231,7 +231,9 @@ export const ModuleCard = memo(function ModuleCard({
 						locked={locked}
 						onPlacementCommitted={onPlacementCommitted}
 					/>
-					{!locked && (
+					{/* A submenu under a menu listing another menu's forms follows
+					 *  its source's submenu, so it leaves only with that one. */}
+					{!locked && !parentModule?.formsFromMenu && (
 						<TreeRowDelete label="Delete module" onDelete={handleDelete} />
 					)}
 					<PeerBadge uuid={moduleUuid} />

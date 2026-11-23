@@ -127,6 +127,23 @@ it("preserves a listed child and its edited columns on reorder, removes it with 
 			expect.objectContaining({ code: "MENU_FORM_SOURCE_INVALID" }),
 		]),
 	});
+	// Deleting the generated child alone names the steps a person can take.
+	expect(
+		mutationCommitVerdict(
+			renamed,
+			withListedMenuHierarchy(renamed, [{ kind: "removeModule", uuid: child }]),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		),
+	).toMatchObject({
+		ok: false,
+		findings: expect.arrayContaining([
+			expect.objectContaining({
+				code: "MENU_FORM_SOURCE_INVALID",
+				message:
+					"“Neighborhood” appears in “Clinic” because “Patients” has it. Hide its forms in “Clinic”, or remove “Neighborhood” from “Patients”.",
+			}),
+		]),
+	});
 	const remove = withListedMenuHierarchy(renamed, [
 		{ kind: "removeModule", uuid: scaffold.moduleUuid },
 	]);

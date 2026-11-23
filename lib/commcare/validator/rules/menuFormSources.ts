@@ -70,13 +70,16 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 		const generated = new Set(
 			actual.map((child) => child.formsFromMenu?.menuUuid),
 		);
+		const missing = expected.find((child) => !generated.has(child.uuid));
 		if (
 			generated.size !== actual.length ||
 			actual.length !== expected.length ||
-			expected.some((child) => !generated.has(child.uuid))
+			missing
 		)
 			issue(
-				`Update the child menus of “${route.name}” to match the children of “${owner.name}”.`,
+				missing
+					? `“${missing.name}” appears in “${route.name}” because “${owner.name}” has it. Hide its forms in “${route.name}”, or remove “${missing.name}” from “${owner.name}”.`
+					: `Update the child menus of “${route.name}” to match the children of “${owner.name}”.`,
 			);
 		const available = new Set(menuFormUuidsOf(doc, owner.uuid));
 		const excluded = source.excludedFormUuids ?? [];
