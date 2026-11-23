@@ -113,6 +113,21 @@ written, so `*`, `#` and numbered lines stay as you typed them. A label's
 beside the choice. Web Apps still formats a choice, and the builder notes it where
 you turn formatting off.
 
+A question's label can also carry three more texts, which you can add from
+the inspector under **Extended text**, **QR code** and **Spoken text**, each
+translated like the label:
+
+- **Extended text** shows in place of the label wherever the label's
+  **Format text** is off.
+- **QR code** is the text Android draws as a QR code beside the question, in
+  place of the label's image. Web Apps shows no QR code.
+- **Spoken text** is what Android reads aloud from a speaker button beside a
+  question whose label has no audio. Web Apps shows no speaker button.
+
+Each can show an answer or a calculated value, like the label. In Preview,
+Android shows the QR code's text and a speaker button that reads the spoken
+text aloud.
+
 You can type `<`, `>` and `&` directly in your wording. With formatting off,
 spellings such as `&amp;` and `&#65;` also stay as written. With formatting on,
 the platform’s Markdown renderer interprets supported character references.

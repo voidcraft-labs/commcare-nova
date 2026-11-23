@@ -184,10 +184,10 @@ describe("the forms of a text", () => {
 					<value form="video-inline">jr://file/v.mp4</value><value form="mine">M</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-video-inline"), Q("long-form")].sort(),
-		);
+		expect(codes(reading)).toEqual([Q("label-video-inline")]);
 		expect(unclaimedText(reading)).toEqual([]);
+		// A label's `long` form is its extended text.
+		expect(field(reading, "q").extended_text).toEqual(proseText("L"));
 	});
 });
 
@@ -361,17 +361,17 @@ describe("more forms of a text", () => {
 			);
 		});
 
-	it("refuses a big image, a QR code and a spoken form on a label", async () => {
+	it("refuses a big image on a label, and holds its QR code and spoken text", async () => {
 		const reading = await readForm(
 			oneLabel("l", {
 				en: `<text id="l"><value>A</value><value form="big-image">jr://file/b.png</value>
 					<value form="qrcode">code</value><value form="tts">say</value></text>`,
 			}),
 		);
-		expect(codes(reading).sort()).toEqual(
-			[Q("label-big-image"), Q("label-qrcode"), Q("label-tts")].sort(),
-		);
+		expect(codes(reading)).toEqual([Q("label-big-image")]);
 		expect(unclaimedText(reading)).toEqual([]);
+		expect(field(reading, "q").qr_code).toEqual(proseText("code"));
+		expect(field(reading, "q").spoken_text).toEqual(proseText("say"));
 	});
 
 	it("reads a choice's and a help text's forms by their own rows", async () => {
