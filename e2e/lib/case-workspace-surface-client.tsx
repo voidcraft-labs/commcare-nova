@@ -55,6 +55,8 @@ const nameId = uuidSchema.parse("00000000-0000-7000-8000-000000006001"),
 	dobId = uuidSchema.parse("00000000-0000-7000-8000-000000006002"),
 	searchId = uuidSchema.parse("00000000-0000-7000-8000-000000006003");
 const siblingId = uuidSchema.parse("00000000-0000-7000-8000-000000006004");
+const registerFormId = uuidSchema.parse("00000000-0000-7000-8000-000000006005");
+const viewer = scenario.endsWith("-viewer");
 const caseTypes: CaseType[] = [
 	{
 		name: "patient",
@@ -189,6 +191,18 @@ const source = buildDoc({
 								: {},
 					}
 				: {}),
+			...(scenario.startsWith("list-action") && {
+				caseListRegistrationForm: {
+					kind: "always" as const,
+					formUuid: registerFormId,
+					...(scenario === "list-action-viewer" && {
+						showWhen: {
+							kind: "condition" as const,
+							condition: eq(sessionContext("username"), literal("ada")),
+						},
+					}),
+				},
+			}),
 			forms: [
 				{
 					name: "Visit",
@@ -214,6 +228,33 @@ const source = buildDoc({
 				},
 			],
 		},
+		// A menu holding the registration a list action offers on Clients.
+		...(scenario.startsWith("list-action")
+			? [
+					{
+						name: "Registration",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: registerFormId,
+								name: "Register client",
+								type: "registration" as const,
+								fields: [
+									{
+										kind: "text" as const,
+										id: "client_name",
+										label: proseText("Client name"),
+										caseWrite: { caseType: "patient", property: "case_name" },
+									},
+								],
+							},
+						],
+					},
+				]
+			: []),
 	],
 });
 const gate = evaluateCommit({
@@ -408,13 +449,13 @@ createRoot(root).render(
 			appId,
 			projectId: "native-project",
 			role: "owner",
-			canEdit: scenario !== "selection-viewer",
+			canEdit: !viewer,
 		}}
 	>
 		<BlueprintDocProvider
 			initialDoc={persisted}
 			appId={appId}
-			canEdit={scenario !== "selection-viewer"}
+			canEdit={!viewer}
 		>
 			<CaseListWorkspaceProvider
 				controllerComponent={CaseListWorkspaceControllerBridge}

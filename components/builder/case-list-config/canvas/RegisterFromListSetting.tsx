@@ -93,6 +93,14 @@ export function RegisterFromListSetting({
 		HeldRegisterRefusal | undefined
 	>(undefined);
 	const refusal = shownRegisterRefusal(heldRefusal, moduleUuid, revision);
+	/* Choosing "When a condition is met" stores nothing until the author
+	 * writes a condition: a condition that holds everywhere would show the
+	 * button as before while asking the project space for conditional list
+	 * actions. Held per menu, since this setting stays mounted across lists. */
+	const [conditionDraft, setConditionDraft] = useState<
+		| { readonly moduleUuid: Uuid; readonly condition: Expression | undefined }
+		| undefined
+	>(undefined);
 
 	const plan = useCallback(
 		(doc: BlueprintDoc) => {
@@ -123,6 +131,12 @@ export function RegisterFromListSetting({
 		if (stored === undefined) return;
 		commit(slotWith(stored, stored.formUuid, update));
 	};
+	const draft =
+		conditionDraft?.moduleUuid === moduleUuid && stored?.showWhen === undefined
+			? conditionDraft
+			: undefined;
+	const visibility =
+		stored?.showWhen?.kind ?? (draft !== undefined ? "condition" : "always");
 
 	/* Every way of offering a form is refused, and nothing is offered now:
 	 * the host itself can't offer one, which the first sentence says. */
@@ -304,7 +318,7 @@ export function RegisterFromListSetting({
 								{canEdit && (
 									<SegmentedRow<"always" | "empty-search" | "condition">
 										legend="Show the form button"
-										value={stored.showWhen?.kind ?? "always"}
+										value={visibility}
 										options={[
 											{ value: "always", label: "Whenever the list opens" },
 											...(facts.formsReadSearch
@@ -317,22 +331,22 @@ export function RegisterFromListSetting({
 												: []),
 											{ value: "condition", label: "When a condition is met" },
 										]}
-										onChange={(next) =>
+										onChange={(next) => {
+											setConditionDraft(
+												next === "condition"
+													? { moduleUuid, condition: undefined }
+													: undefined,
+											);
+											if (next === "condition") {
+												if (stored.showWhen !== undefined)
+													change({ showWhen: undefined });
+												return;
+											}
 											change({
 												showWhen:
-													next === "always"
-														? undefined
-														: next === "empty-search"
-															? { kind: next }
-															: {
-																	kind: "condition",
-																	condition:
-																		stored.showWhen?.kind === "condition"
-																			? stored.showWhen.condition
-																			: { kind: "match-all" },
-																},
-											})
-										}
+													next === "always" ? undefined : { kind: next },
+											});
+										}}
 									/>
 								)}
 								{!canEdit && (
@@ -341,7 +355,7 @@ export function RegisterFromListSetting({
 										visibility={stored.showWhen}
 									/>
 								)}
-								{stored.showWhen?.kind === "condition" &&
+								{visibility === "condition" &&
 									canEdit &&
 									expressionContext !== undefined && (
 										<PredicateSlotCard
@@ -354,15 +368,30 @@ export function RegisterFromListSetting({
 											addLabel="Add condition"
 											clearLabel="Clear"
 											clearAriaLabel="Clear form button condition"
-											value={stored.showWhen.condition}
-											onChange={(condition) =>
-												change({
-													showWhen:
+											value={
+												stored.showWhen?.kind === "condition"
+													? stored.showWhen.condition
+													: draft?.condition
+											}
+											onChange={(condition) => {
+												if (
+													condition === undefined ||
+													condition.kind === "match-all"
+												) {
+													setConditionDraft(
 														condition === undefined
 															? undefined
-															: { kind: "condition", condition },
-												})
-											}
+															: { moduleUuid, condition },
+													);
+													if (stored.showWhen !== undefined)
+														change({ showWhen: undefined });
+													return;
+												}
+												setConditionDraft(undefined);
+												change({
+													showWhen: { kind: "condition", condition },
+												});
+											}}
 										/>
 									)}
 								<div className="flex flex-wrap gap-6">

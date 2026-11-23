@@ -180,6 +180,44 @@ test("native selection viewer describes saved behavior without editing controls"
 		maximum: 8,
 	});
 });
+test("native list action viewer reads the form button's condition once", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=list-action-viewer`);
+	const setting = page.locator("[data-register-from-list-setting]");
+	await expect(
+		setting.getByRole("heading", { name: "Form button on the list" }),
+	).toBeVisible();
+	await expect(setting.getByText(/^The form button appears/)).toHaveCount(1);
+	await expect(
+		setting.getByRole("button", { name: "When a condition is met" }),
+	).toHaveCount(0);
+});
+test("native list action keeps the button's visibility unsaved until a condition is written", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=list-action`);
+	const setting = page.locator("[data-register-from-list-setting]");
+	const conditional = setting.getByRole("button", {
+		name: "When a condition is met",
+	});
+	await conditional.click();
+	await expect(conditional).toHaveAttribute("aria-pressed", "true");
+	await setting.getByRole("button", { name: "Add condition" }).click();
+	await expect(conditional).toHaveAttribute("aria-pressed", "true");
+	const slot = (await savedModule(page)).caseListRegistrationForm;
+	expect(slot).toMatchObject({ kind: "always" });
+	expect(slot).not.toHaveProperty("showWhen");
+	await setting
+		.getByRole("button", { name: "Whenever the list opens" })
+		.click();
+	await expect(
+		setting.getByRole("button", { name: "Add condition" }),
+	).toHaveCount(0);
+	expect((await savedModule(page)).caseListRegistrationForm).not.toHaveProperty(
+		"showWhen",
+	);
+});
 test("native Search chooser filters, recovers focus, and creates the selected typed field", async ({
 	page,
 }) => {
