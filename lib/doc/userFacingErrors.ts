@@ -84,7 +84,11 @@ import {
 	questionIdProblemSentence,
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
-import { standardCasePropertyDisplayLabel } from "@/lib/domain/standardCaseProperties";
+import {
+	isWritableStandardCaseProperty,
+	standardCasePropertyDisplayLabel,
+	WRITABLE_STANDARD_CASE_PROPERTY_WORDS,
+} from "@/lib/domain/standardCaseProperties";
 import {
 	valueKindPhrase,
 	valueKindPluralPhrase,
@@ -126,6 +130,12 @@ const fieldName = (e: ValidationError): string =>
 /** A `details` value, or the fallback. */
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
+
+/** How a person reads a writable standard case value, "name" otherwise. */
+const standardValueWords = (property: string): string =>
+	isWritableStandardCaseProperty(property)
+		? WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property]
+		: "name";
 
 /** The last sentence of a choice list's row finding: the remedy in Project
  * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
@@ -1467,7 +1477,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_CREATE_NAME_MISSING: (e) =>
 		`${q(formName(e))} creates a case, so its case needs a name. You can choose the question that names it.`,
 	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: (e) =>
-		`${q(opName(e))} in ${q(formName(e))} saves the link to a captured file as the case's ${det(e, "property", "") === "external_id" ? "external id" : "name"}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
+		`${q(opName(e))} in ${q(formName(e))} saves the link to a captured file as the case's ${standardValueWords(det(e, "property", ""))}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
 		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form, a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
 	OPEN_CONDITION_WRONG_TYPE: (e) =>

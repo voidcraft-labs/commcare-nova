@@ -290,11 +290,25 @@ export const FORBIDDEN_CASE_WRITE_PROPERTIES: ReadonlySet<string> = new Set([
 export const FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES: ReadonlySet<string> =
 	new Set([...FORBIDDEN_CASE_WRITE_PROPERTIES, "case_name"]);
 
+export type WritableStandardCaseProperty =
+	| "case_name"
+	| "external_id"
+	| "location_id";
+
 export function isWritableStandardCaseProperty(
 	property: string,
-): property is "case_name" | "external_id" {
+): property is WritableStandardCaseProperty {
 	return WRITABLE_STANDARD_CASE_PROPERTIES.has(property);
 }
+
+/** How a person reads each writable standard value: "the case's name". */
+export const WRITABLE_STANDARD_CASE_PROPERTY_WORDS: Readonly<
+	Record<WritableStandardCaseProperty, string>
+> = {
+	case_name: "name",
+	external_id: "external id",
+	location_id: "location ID",
+};
 
 /** Core exposes these stored instants as calendar-only DateData in casedb. */
 export function isCalendarCaseProperty(name: string): boolean {

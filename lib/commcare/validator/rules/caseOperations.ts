@@ -90,6 +90,10 @@ import {
 	caseOperationNameSentence,
 	freeCaseOperationName,
 } from "@/lib/domain/questionId";
+import {
+	WRITABLE_STANDARD_CASE_PROPERTY_WORDS,
+	type WritableStandardCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
 	entryDatumIdResolver,
@@ -785,10 +789,10 @@ function captureStandardPropertyError(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	fieldUuid: Uuid,
-	property: "case_name" | "external_id",
+	property: WritableStandardCaseProperty,
 ): ValidationError {
 	const fieldId = ctx.doc.fields[fieldUuid]?.id ?? "a capture question";
-	const what = property === "case_name" ? "name" : "external id";
+	const what = WRITABLE_STANDARD_CASE_PROPERTY_WORDS[property];
 	return opError(
 		ctx,
 		operation,
