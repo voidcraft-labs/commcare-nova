@@ -28,9 +28,12 @@ data can take beyond one plain value a field.
 3. A survey menu "Crop survey" (``views/modules.py::new_module``) whose one form's source is written by HQ's own
    form writer (``xform_builder.py::XFormBuilder``) and uploaded on the form page: a select ``crop`` whose choices
    are the table's rows, each saved as the row's ``code`` and labelled with its Hindi name; and a select
-   ``bare_crop`` whose choices are the rows whose ``note`` is empty, saved as the row's ``code`` and labelled with
-   its English name. The second list is where the three ``note`` states show to a worker: a row with an empty
-   ``note`` element is offered, a row with no ``note`` element is not, and one with a note is not.
+   ``bare_crop`` whose choices are the rows whose ``note`` reads empty (``note = ''``), saved as the row's
+   ``code`` and labelled with its English name. Core compares a missing element and an empty one alike
+   (``XPathNodeset.unpack`` reads an empty node set as ``XPathPathExpr.unpackValue(null)``, the empty string), so
+   that list offers the row of no value, the row without the field and the empty row;
+   ``proof/hq/test_lookup_fixtures.py`` holds Nova's fixture of the table to HQ's element for element, which is
+   where the three states differ.
 
 Its configuration is the lane's floor with ``LOOKUP_TABLES``, which a form that reads a table needs
 (``helpers/validators.py::ApplicationValidator._validate_fixtures``), and ``CLOUDCARE`` for Web Apps.

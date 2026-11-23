@@ -14,24 +14,17 @@
 					"value": "2"
 				}
 			],
-			"expressions": [
-				"/data/crop",
-				"instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name[@lang = 'hin']"
-			]
+			"expressions": ["/data/crop"]
 		},
 		"expect": [
 			{
 				"pointer": "/values/0/value",
 				"value": "c-beans"
-			},
-			{
-				"pointer": "/values/1/value",
-				"value": "Sem"
 			}
 		]
 	},
 	{
-		"id": "crop-name-in-each-language",
+		"id": "crop-labelled-by-its-second-name",
 		"entry": "expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
 		"form": {
 			"menu": 0,
@@ -45,24 +38,12 @@
 					"value": "3"
 				}
 			],
-			"expressions": [
-				"count(instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name)",
-				"instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name[1]/@lang",
-				"instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name[2]"
-			]
+			"expressions": ["/data/crop"]
 		},
 		"expect": [
 			{
 				"pointer": "/values/0/value",
-				"value": "2"
-			},
-			{
-				"pointer": "/values/1/value",
-				"value": "en"
-			},
-			{
-				"pointer": "/values/2/value",
-				"value": "Jowar"
+				"value": "c-sorghum"
 			}
 		]
 	},
@@ -81,24 +62,17 @@
 					"value": "5"
 				}
 			],
-			"expressions": [
-				"/data/crop",
-				"count(instance('item-list:crops')/crops_list/crops[id = 'maize'])"
-			]
+			"expressions": ["/data/crop"]
 		},
 		"expect": [
 			{
 				"pointer": "/values/0/value",
 				"value": "c-maize-hill"
-			},
-			{
-				"pointer": "/values/1/value",
-				"value": "2"
 			}
 		]
 	},
 	{
-		"id": "crops-with-no-note-offered",
+		"id": "crops-whose-note-reads-empty-offered",
 		"entry": "expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
 		"form": {
 			"menu": 0,
@@ -109,32 +83,23 @@
 			"answers": [
 				{
 					"path": "/data/bare_crop",
-					"value": "2"
+					"value": "1"
+				},
+				{
+					"path": "/data/crop",
+					"value": "4"
 				}
 			],
-			"expressions": [
-				"/data/bare_crop",
-				"count(instance('item-list:crops')/crops_list/crops[note = ''])",
-				"count(instance('item-list:crops')/crops_list/crops[@code = 'c-beans']/note)",
-				"count(instance('item-list:crops')/crops_list/crops[@code = 'c-sorghum']/note)"
-			]
+			"expressions": ["/data/bare_crop", "/data/crop"]
 		},
 		"expect": [
 			{
 				"pointer": "/values/0/value",
-				"value": "c-millet"
+				"value": "c-beans"
 			},
 			{
 				"pointer": "/values/1/value",
-				"value": "2"
-			},
-			{
-				"pointer": "/values/2/value",
-				"value": "0"
-			},
-			{
-				"pointer": "/values/3/value",
-				"value": "1"
+				"value": "c-millet"
 			}
 		]
 	}

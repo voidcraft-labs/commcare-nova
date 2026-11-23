@@ -5303,7 +5303,7 @@
 		],
 		"valueClass": "cell-absence",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, the device fixture writes each as HQ's restore does, and the workbook refuses a row HQ's reader would not reconstruct. The `hq-lookup-data` base holds all three in one field; a choice list filtered on the empty value offers the absent and the empty row and not the row of no value",
+		"dispositionCell": "**HELD**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, the device fixture writes each as HQ's restore does, and the workbook refuses a row HQ's reader would not reconstruct. The `hq-lookup-data` base holds all three in one field, and its device fixture matches HQ's restore element for element (`proof/hq/test_lookup_fixtures.py`); Core compares a missing element and an empty one alike, so its choice list filtered on the empty value offers all three rows",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

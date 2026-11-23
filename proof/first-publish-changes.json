@@ -186,6 +186,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/_attachments/*/data/*/:control/itemset/label/@ref/:respelled"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/_attachments/*/data/*/:itext/hint/*/markdown"
 			},
 			{
