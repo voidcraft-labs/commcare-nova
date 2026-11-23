@@ -407,6 +407,9 @@ export const PLATFORM_CELLS: Readonly<
 		outside(
 			"A profile property Android doesn't read; Preview reads no profile.",
 		),
+	"application-and-settings/31-features-dependencies@web-apps": outside(
+		"Web Apps runs in a browser and installs no other app; Preview as Web Apps asks for none, and only an App Test on Android checks the apps the app needs.",
+	),
 	"application-and-settings/20-properties-cc-show-saved@web-apps": outside(
 		"Web Apps has no saved-forms list; Preview's Android home shows the setting's button.",
 	),
