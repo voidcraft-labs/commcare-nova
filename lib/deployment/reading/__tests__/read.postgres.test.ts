@@ -1083,9 +1083,17 @@ describe("readHqAppForReview", () => {
 				(form) => form.caseOperations ?? [],
 			);
 			expect(operations.length).toBeGreaterThan(0);
+			/* Every case the rule gave to a place is the submitting worker's. */
 			expect(
-				operations.filter((operation) => operation.owner !== undefined),
+				operations.filter(
+					(operation) =>
+						operation.owner !== undefined &&
+						operation.owner.kind !== "acting-user",
+				),
 			).toEqual([]);
+			expect(
+				operations.some((operation) => operation.owner?.kind === "acting-user"),
+			).toBe(true);
 		});
 	});
 

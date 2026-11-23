@@ -6,8 +6,15 @@
  * in the form, and the document under it holds no rule the places refuse.
  */
 
+import AdmZip from "adm-zip";
+import { isTag } from "domhandler";
+import { findAll } from "domutils";
+import { parseDocument } from "htmlparser2";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
+import { compileCcz } from "@/lib/commcare/compiler";
+import { expandDoc } from "@/lib/commcare/expander";
 import type { HqLocation } from "@/lib/commcare/hq/locations";
 import {
 	LOCATION_LEVELS,
@@ -115,13 +122,32 @@ describe("managedPlacesOwnerRules", () => {
 });
 
 describe("workerOwnerMutations", () => {
-	it("leaves the rule's case changes with no owner, so the places ask nothing", () => {
+	it("gives a case the rule changes to the worker who fills in the form, so the places ask nothing", () => {
 		expect(owners(doc)).toBeGreaterThan(0);
 		const answered = produce(doc, (draft) => {
 			applyMutations(draft, workerOwnerMutations(doc, ["clinic"]));
 		});
-		expect(owners(answered)).toBe(0);
 		expect(managedPlacesOwnerRules(answered, twoClinics)).toEqual([]);
+		/* The rule's case is one the form changes, which keeps its owner where
+		 * the form says none: the form now sets it to the submitting worker. */
+		const form = parseDocument(
+			new AdmZip(
+				compileCcz(expandDoc(answered), answered.appName, answered, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			).readAsText("modules-0/forms-0.xml"),
+			{ xmlMode: true },
+		);
+		const owner = findAll(
+			(node) =>
+				node.name === "bind" &&
+				node.attribs.nodeset ===
+					"/data/nova_operations/transfer/case/update/owner_id",
+			form.children.filter(isTag),
+		);
+		expect(owner.map((node) => node.attribs.calculate)).toEqual([
+			"/data/meta/userID",
+		]);
 	});
 
 	it("changes nothing for no level, or for a level no rule names", () => {

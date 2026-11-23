@@ -10,7 +10,8 @@
  * run here over the planned places, each a live place whose id is its site
  * code. Where it does not hold, the review names the level and the zero or
  * two places it met, and offers the one explicit rule Nova can give without
- * choosing a place: the worker who fills in the form owns the case. The other
+ * choosing a place: the worker who fills in the form owns each case it
+ * creates or changes. The other
  * remedy is to change the places in CommCare HQ and read the app again. Nova
  * never chooses a candidate place.
  *
@@ -25,6 +26,7 @@ import {
 	organizationLevelsOf,
 	type Uuid,
 } from "@/lib/domain";
+import { actingUser } from "@/lib/domain/expression/builders";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { ownRecordValue } from "@/lib/domain/records";
 import type { ManagedPlacePlan } from "@/lib/organization/managed";
@@ -142,8 +144,9 @@ export function managedPlacesOwnerRules(
 
 /**
  * The mutations that give every case change whose owner rule finds a place
- * at one of `levelCodes` no owner rule, so the worker who fills in the form
- * owns the case. Applied to the document the review read, before the gate,
+ * at one of `levelCodes` to the worker who fills in the form, by the rule
+ * that names that worker (`acting-user`); no rule at all would leave a case
+ * the form changes with the owner it had. Applied to the document the review read, before the gate,
  * by the create and by the bring-in of changes. Empty for no level.
  */
 export function workerOwnerMutations(
@@ -161,9 +164,13 @@ export function workerOwnerMutations(
 	for (const formUuid of formsInOrder(doc)) {
 		for (const operation of doc.forms[formUuid]?.caseOperations ?? []) {
 			if (!ownerReachesLevel(operation, levels)) continue;
-			const { owner: _dropped, ...withoutOwner } = operation;
+			/* The rule names the worker in so many words: a case a form changes
+			 * with no owner rule keeps the owner it had. */
 			mutations.push(
-				...caseOperationChangesForUpdate(formUuid, operation, withoutOwner),
+				...caseOperationChangesForUpdate(formUuid, operation, {
+					...operation,
+					owner: actingUser(),
+				}),
 			);
 		}
 	}
