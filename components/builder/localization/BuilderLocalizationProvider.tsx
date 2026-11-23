@@ -20,6 +20,7 @@ import {
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
+	authoredTranslationValueMode,
 	type CommitOutcome,
 	effectiveAppLocalization,
 	type Field,
@@ -221,6 +222,7 @@ export function useTranslationUnitEditor(
 				unitId,
 				entry: {
 					value,
+					...authoredTranslationValueMode(unit, value),
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "human",
 					review: "reviewed",

@@ -147,14 +147,14 @@ languages and clean those values up explicitly.
 
 ## References and runtime fallback
 
-Some labels contain references to fields or other app values. The translation
-editor represents those parts as protected tokens. They can move to a natural
-place in the translated sentence, but cannot be deleted, duplicated, or changed
-into plain text. Prefix a token-looking literal or a literal backslash with a
-backslash so it remains ordinary text rather than becoming structure. Save stays
-disabled while the visible token form is invalid. If an inline Builder edit is
-rejected by the same guardrail, the draft remains open with the reason rather
-than disappearing.
+A question can show different answers in each language. For example, an
+English prompt might show a person's first name while its French translation
+shows their family name. Choose the worker language, then edit the answer
+chips in the question, choice, hint, help text or validation message. You can
+also edit them in **Languages**. The picker shows the answers available at
+that question. Automatic translation keeps the values already in the source,
+and leaves a translation that shows its own values as it is, so a change to
+its source waits for your review instead of being translated over.
 
 Every configured language always has a complete runtime projection. A missing
 or out-of-date target uses the current source value, so the app remains valid

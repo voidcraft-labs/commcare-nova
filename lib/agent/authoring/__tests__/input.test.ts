@@ -782,4 +782,32 @@ it("uses each translation unit's own form and preserves inserted identities", as
 	).toMatchObject({
 		items: [{ status: "ready", effective: "Salut {{name}}" }],
 	});
+	const wording = {
+		operation: "set",
+		unitId: unit.id,
+		expectedSourceFingerprint: current.sourceFingerprint,
+		value: "Salut {{name}}, {{name}}",
+	};
+	const setTarget = (changeShownValues: boolean) =>
+		h.call("updateTranslations", {
+			language: { language: "fra" },
+			updates: [{ ...wording, changeShownValues }],
+		});
+	await expect(setTarget(false)).rejects.toThrow();
+	await setTarget(true);
+	expect(h.currentDoc().localization?.translations.fra[unit.id]).toMatchObject({
+		valueMode: "independent-values",
+		review: "needs-review",
+	});
+	await h.call("editField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "hello",
+		updates: { label: "Hello {{name}}, {{name}}" },
+	});
+	const matching = await readRevision();
+	await reviewCall(matching.revision);
+	expect(
+		h.currentDoc().localization?.translations.fra[unit.id],
+	).not.toHaveProperty("valueMode");
 });

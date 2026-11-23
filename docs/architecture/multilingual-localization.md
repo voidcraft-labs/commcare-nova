@@ -325,19 +325,18 @@ test failure.
 
 ### Reference-bearing prose
 
-`ProseTemplate` remains structured. Translation input exposes its reference
-atoms as protected tokens with friendly renderings, for example `REF_1`
-alongside “the Patient name answer.” Translation output may reorder tokens for
-the target grammar but must contain each token exactly as many times as the
-source. Human editing uses a reversible backslash escape for literal backslashes
-and text that exactly resembles a protected token, so every literal remains
-representable without confusing it for structure. The server maps the tokens
-back to the original typed field, case, user property, or external-user
-reference.
+`ProseTemplate` carries typed answer, case and worker references and calculated
+values. In a question, help, hint, constraint message or choice, Builder and an
+explicit `updateTranslations` edit can choose what that language shows. An
+entry stores `valueMode: "independent-values"` when its reference multiset
+differs from the source. Its expressions resolve at the original question or
+option, and participate in validation, rename, deletion, capability checks
+and runtime resource discovery at that site. Automatic translation protects
+the source value identities and multiplicities, and never translates over an
+out-of-date entry that holds its own values: it reports how many it kept. Text outside a form keeps
+its existing reference contract.
 
-The inventory review editor owns the validity of the text currently visible in
-its textarea, not merely the last parseable draft. It disables commit while a
-protected token is missing or duplicated. A Missing unit may commit an explicit
+A Missing unit may commit an explicit
 source-identical human value, because equality does not mean the fallback was
 reviewed. Inline Builder editors likewise retain a rejected target draft and
 surface the commit-gate reason. Inventory search matches source, effective

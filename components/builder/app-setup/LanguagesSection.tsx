@@ -6,6 +6,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -73,6 +74,11 @@ import {
 	languageEnglishName,
 } from "@/lib/domain/languageRegistry";
 import type { LanguageRegistrySearch } from "@/lib/domain/languageRegistry/load";
+import {
+	authoredTranslationValueMode,
+	translationUnitProseSlot,
+} from "@/lib/domain/translationUnits";
+import { CurrentFormScope } from "@/lib/references/ReferenceContext";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
@@ -816,6 +822,7 @@ function AddLanguageDialog({
 				unitId: unit.id,
 				entry: {
 					value: structuredClone(unit.effective),
+					...authoredTranslationValueMode(unit, unit.effective),
 					sourceFingerprint: unit.sourceFingerprint,
 					origin: "copied",
 					review: "needs-review",
@@ -1143,6 +1150,7 @@ function TranslationUnitRow({
 			? undefined
 			: projectValue(filledFrom.effective);
 	const { direction, sourceDirection } = useBuilderLanguage();
+	const proseSlot = translationUnitProseSlot(unit);
 	const initial = unit.explicit?.value ?? unit.effective;
 	const [draft, setDraft] = useState<LocalizedValue>(() =>
 		structuredClone(initial),
@@ -1280,15 +1288,33 @@ function TranslationUnitRow({
 				)}
 				{editable && (
 					<div dir={direction}>
-						<p className="mb-1.5 text-xs font-medium text-nova-text-secondary">
-							{generated ? "Worker wording" : "Translation"}
-						</p>
+						{(proseSlot === undefined || generated) && (
+							<p className="mb-1.5 text-xs font-medium text-nova-text-secondary">
+								{generated ? "Worker wording" : "Translation"}
+							</p>
+						)}
 						{typeof draft === "string" ? (
 							<Textarea
 								value={draft}
 								onChange={(event) => setDraft(event.target.value)}
 								aria-label={`Translation for ${unit.breadcrumb.join(" › ")}`}
 							/>
+						) : proseSlot !== undefined &&
+							(unit.owner.kind === "field" ||
+								unit.owner.kind === "select-option") ? (
+							<CurrentFormScope formUuid={unit.owner.formUuid}>
+								<RefLabelInput
+									label="Translation"
+									value={draft}
+									multiline
+									proseSlot={proseSlot}
+									onChange={setDraft}
+									onSave={(value) => {
+										setDraft(value);
+										return undefined;
+									}}
+								/>
+							</CurrentFormScope>
 						) : (
 							<ProtectedProseEditor
 								projectValue={projectValue}
