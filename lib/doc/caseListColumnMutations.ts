@@ -7,7 +7,9 @@
 
 import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import type { CaseListConfig, Column } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig, Column } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import type { LanguageTag } from "@/lib/domain/localization";
 
 type ColumnContent = NonNullable<
 	Extract<Mutation, { kind: "updateColumn" }>["column"]
@@ -221,4 +223,66 @@ function stripGranularSlots(column: Column): unknown {
 		...content
 	} = column;
 	return content;
+}
+
+/**
+ * The translations an edit in place carries from a mapping row's old text unit to its new one.
+ * A row saved before rows carried identities is keyed by its saved value
+ * (`caseMappingRows.ts::caseMappingTextUnit`), so giving it an identity (as it becomes a
+ * condition) or changing that value moves its label, and an image row's description, to
+ * another unit; the row is the same row, and so are its words in every language. Rows are
+ * paired by place, and only where both lists hold the same number of rows and neither unit is
+ * another row's. `before` clears each old entry while its unit still exists; `after` writes it
+ * under the new unit once the column's update has made that unit, so the batch is
+ * `[...before, ...columnSnapshotMutations(...), ...after]`.
+ */
+export function mappingRowTranslationCarry(
+	doc: BlueprintDoc,
+	current: Column,
+	next: Column,
+): { readonly before: Mutation[]; readonly after: Mutation[] } {
+	const before: Mutation[] = [];
+	const after: Mutation[] = [];
+	if (
+		(current.kind !== "id-mapping" && current.kind !== "image-map") ||
+		next.kind !== current.kind ||
+		next.mapping.length !== current.mapping.length
+	)
+		return { before, after };
+	const role = current.kind === "image-map" ? "image-description" : "mapping";
+	const was = current.mapping.map((row) =>
+		caseMappingTextUnit(current.uuid, row, role),
+	);
+	const now = next.mapping.map((row) =>
+		caseMappingTextUnit(current.uuid, row, role),
+	);
+	const translations = doc.localization?.translations ?? {};
+	for (const [index, from] of was.entries()) {
+		const to = now[index];
+		if (
+			to === undefined ||
+			from === to ||
+			now.includes(from) ||
+			was.includes(to)
+		)
+			continue;
+		for (const [language, entries] of Object.entries(translations)) {
+			const entry = entries?.[from];
+			if (entry === undefined) continue;
+			const tag = language as LanguageTag;
+			before.push({
+				kind: "setTranslation",
+				language: tag,
+				unitId: from,
+				entry: null,
+			});
+			after.push({
+				kind: "setTranslation",
+				language: tag,
+				unitId: to,
+				entry: structuredClone(entry),
+			});
+		}
+	}
+	return { before, after };
 }

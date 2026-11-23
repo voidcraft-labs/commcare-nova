@@ -64,6 +64,7 @@ import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	columnSnapshotBatchMutations,
 	columnSnapshotMutations,
+	mappingRowTranslationCarry,
 } from "@/lib/doc/caseListColumnMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
@@ -1069,13 +1070,22 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			});
 			return;
 		}
-		commitFieldChanges(
-			columnSnapshotMutations(
+		// A mapping row keyed by its saved value keeps its translations as it
+		// gains an identity or a new value.
+		const carry = mappingRowTranslationCarry(
+			docApi.getState(),
+			current,
+			replacement,
+		);
+		commitFieldChanges([
+			...carry.before,
+			...columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
 				current,
 				replacement,
 			),
-		);
+			...carry.after,
+		]);
 	};
 	const saveMapLayer = ({ column, location, geometry }: MapLayerSetup) => {
 		if (!pendingMapLayer || pendingMapLayer.moduleUuid !== moduleUuid) return;

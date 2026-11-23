@@ -3,20 +3,30 @@
  * the real gate, including a row saved before rows carried identities (an app brought in from
  * HQ, or a document saved earlier), and turning it back keeps its saved value. The plausible
  * failure: the patch carries no identity, and the gate refuses a condition row with none
- * (CASE_LIST_MAPPING_CONDITION), so the author can't convert the row in place.
+ * (CASE_LIST_MAPPING_CONDITION), so the author can't convert the row in place. A row keyed by its
+ * saved value keeps its translations under the unit it moves to as it gains an identity or a new
+ * value (`mappingRowTranslationCarry`); without the carry the old entry would name a unit that
+ * no longer exists, and the author's translation would be lost or the edit refused.
  */
+
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mappingRowTranslationCarry } from "@/lib/doc/caseListColumnMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type Column,
+	collectTranslationUnits,
 	idMappingColumn,
 	idMappingEntry,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { proseText } from "@/lib/domain/prose";
 import { mappingComparisonPatch } from "../mappingRowComparison";
 
@@ -84,14 +94,60 @@ function patched(column: Column, patch: object): Column {
 	};
 }
 
-function commit(doc: BlueprintDoc, column: Column) {
+function commit(
+	doc: BlueprintDoc,
+	column: Column,
+	carry: { before: Mutation[]; after: Mutation[] } = { before: [], after: [] },
+) {
 	const moduleUuid = doc.moduleOrder[0] as Uuid;
 	const { uuid: _uuid, ...content } = column;
 	return mutationCommitVerdict(
 		doc,
-		[{ kind: "updateColumn", moduleUuid, uuid: WATER, column: content }],
+		[
+			...carry.before,
+			{ kind: "updateColumn", moduleUuid, uuid: WATER, column: content },
+			...carry.after,
+		],
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
+}
+
+function waterColumn(doc: BlueprintDoc) {
+	const column = doc.modules[
+		doc.moduleOrder[0] as Uuid
+	]?.caseListConfig?.columns.find((one) => one.uuid === WATER);
+	if (column?.kind !== "id-mapping") throw new Error("Expected a mapping.");
+	return column;
+}
+
+/** `app()` with Spanish, and the row's label translated. */
+function translated(): { doc: BlueprintDoc; unitId: string } {
+	const base = produce(app(), (draft) => {
+		applyMutations(draft, [
+			{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+		]);
+	});
+	const [row] = waterColumn(base).mapping;
+	const unitId = caseMappingTextUnit(WATER, row ?? {}, "mapping");
+	const unit = collectTranslationUnits(base).find((one) => one.id === unitId);
+	if (unit === undefined) throw new Error("The row's label has no unit.");
+	const doc = produce(base, (draft) => {
+		applyMutations(draft, [
+			{
+				kind: "setTranslation",
+				language: "spa",
+				unitId: unit.id,
+				entry: {
+					value: "Grifo",
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
+				},
+			},
+		]);
+	});
+	return { doc, unitId };
 }
 
 describe("a mapping row's comparison", () => {
@@ -119,5 +175,26 @@ describe("a mapping row's comparison", () => {
 			value: "",
 			when: undefined,
 		});
+	});
+	it("carries a row's translation as it gains an identity or a new value", () => {
+		const { doc, unitId } = translated();
+		const column = waterColumn(doc);
+		const [row] = column.mapping;
+		for (const patch of [
+			mappingComparisonPatch(row ?? {}, "condition", false),
+			{ value: "piped" },
+		]) {
+			const next = patched(column, patch);
+			const carry = mappingRowTranslationCarry(doc, column, next);
+			expect(carry.after).toHaveLength(1);
+			const verdict = commit(doc, next, carry);
+			if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+			const [moved] = waterColumn(verdict.nextDoc).mapping;
+			const to = caseMappingTextUnit(WATER, moved ?? {}, "mapping");
+			expect(to).not.toBe(unitId);
+			const spanish = verdict.nextDoc.localization?.translations.spa ?? {};
+			expect(spanish[to]?.value).toBe("Grifo");
+			expect(spanish[unitId]).toBeUndefined();
+		}
 	});
 });
