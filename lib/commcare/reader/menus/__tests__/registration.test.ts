@@ -383,18 +383,14 @@ describe("a stored registration block, read by the first rule that matches", () 
 	});
 
 	it.each([
-		[
-			"keeps HQ's six rules",
-			"own",
-			`${M}/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`,
-		],
+		["keeps HQ's six rules", "own", undefined],
 		[
 			"breaks HQ's six rules",
 			"other",
 			`${F}/advanced-forms-in-a-module-whose-case-list-offers-a-registration`,
 		],
 	] as const)(
-		"refuses a block on an advanced host that %s by that row",
+		"reads a block on an advanced host that %s only where its forms keep them",
 		async (_, details, code) => {
 			const ctx = await stagesOver(
 				always(),
@@ -424,11 +420,16 @@ describe("a stored registration block, read by the first rule that matches", () 
 				THROUGH_MENUS,
 			);
 			const codes = ctx.close().findings.map((finding) => finding.code);
-			expect(codes).toContain(code);
+			// An advanced host whose forms load the same cases, each under the
+			// one before, ending with this list's own, offers registration as
+			// HQ's `AdvancedModuleValidator` admits it.
+			if (code !== undefined) expect(codes).toContain(code);
+			else
+				expect(codes).not.toContain(
+					`${F}/advanced-forms-in-a-module-whose-case-list-offers-a-registration`,
+				);
 			expect(codes).not.toContain(
-				code.startsWith(F)
-					? `${M}/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`
-					: `${F}/advanced-forms-in-a-module-whose-case-list-offers-a-registration`,
+				`${M}/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`,
 			);
 		},
 	);
@@ -562,7 +563,7 @@ describe("the rows a block meets after its own registration", () => {
 		).toMatchObject({ kind: "case-list", name: "Follow up" });
 	});
 
-	it("refuses a block naming a form whose menu is advanced, the host basic", async () => {
+	it("reads a block naming a registration form whose menu is advanced, the host basic", async () => {
 		const ctx = await stagesOver(
 			always(),
 			(app) => {
@@ -592,7 +593,10 @@ describe("the rows a block meets after its own registration", () => {
 			THROUGH_MENUS,
 		);
 		const codes = ctx.close().findings.map((finding) => finding.code);
-		expect(codes).toContain(
+		// HQ's validator asks only that the named form register the host's
+		// case type (`Form.is_registration_form`), which an advanced form's
+		// root open of that type does.
+		expect(codes).not.toContain(
 			`${M}/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`,
 		);
 		expect(codes).not.toContain(

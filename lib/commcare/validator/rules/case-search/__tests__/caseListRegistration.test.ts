@@ -1028,20 +1028,13 @@ describe("caseListRegistrationApp: the always arm", () => {
 		expect(registrationFindings(several("case-list"))).toEqual([]);
 	});
 
-	it("refuses an advanced host, and a form of an advanced menu", () => {
+	it("admits an advanced host whose forms end with its own list's choice, and a registration form of an advanced menu", () => {
 		const host = alwaysDoc({
 			configure: (draft) => {
 				draft.modules[CLINIC].heldKind = "advanced";
 			},
 		});
-		expect(registrationFindings(host)).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
-				moduleUuid: CLINIC,
-				reason: "host",
-				message: `"Clinic" is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering "Register patient" there.`,
-			},
-		]);
+		expect(registrationFindings(host)).toEqual([]);
 		const form = alwaysDoc({
 			configure: (draft) => {
 				draft.modules[INTAKE].heldKind = "advanced";
@@ -1051,12 +1044,34 @@ describe("caseListRegistrationApp: the always arm", () => {
 			registrationFindings(form).filter(
 				(finding) => finding.code === "CASE_LIST_REGISTRATION_ADVANCED_MENU",
 			),
-		).toEqual([
+		).toEqual([]);
+	});
+
+	it("refuses an advanced host one of whose forms ends with a choice from another list", () => {
+		const host = alwaysDoc({
+			configure: (draft) => {
+				draft.modules[CLINIC].heldKind = "advanced";
+				draft.forms[CHECKUP] = {
+					...draft.forms[CHECKUP],
+					caseSelections: [
+						{
+							uuid: testUuid("registration-other-list-choice"),
+							name: "Patient",
+							caseType: "patient",
+							tag: "patient",
+							source: { kind: "choose", module: INTAKE },
+						},
+					],
+				};
+			},
+		});
+		expect(registrationFindings(host)).toEqual([
 			{
 				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
 				moduleUuid: CLINIC,
-				reason: "form",
-				message: `"Register patient" is in "Intake", which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
+				reason: "host",
+				message:
+					"“Clinic” offers registration from its case list. Its forms need the same record types, each narrowed by the preceding record, ending with the same choice from this list. You can review “Checkup” or stop offering registration here.",
 			},
 		]);
 	});

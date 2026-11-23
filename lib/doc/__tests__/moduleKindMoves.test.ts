@@ -100,17 +100,6 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 			],
 		},
 		{
-			blocker: "case-list-menu-item-narrowed",
-			module: DIRECTORY,
-			edit: () => [
-				{
-					kind: "setCaseListMeta",
-					uuid: DIRECTORY,
-					patch: { filter: isBlank(prop("household", "size")) },
-				} as Mutation,
-			],
-		},
-		{
 			blocker: "chain-index",
 			module: MEMBERS,
 			edit: () => memberUnderTwoNames,
@@ -177,6 +166,27 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 				"advanced",
 			);
 		});
+
+	it("keeps a held advanced kind when its list gains a filter, since HQ lists every open case at an advanced menu's case list item", () => {
+		const doc = publishedAdvanced(kindFixture(), DIRECTORY);
+		const edit: Mutation[] = [
+			{
+				kind: "setCaseListMeta",
+				uuid: DIRECTORY,
+				patch: { filter: isBlank(prop("household", "size")) },
+			} as Mutation,
+		];
+		expect(refusalCodes(doc, edit)).toEqual([]);
+		expect(
+			planModuleKindMoves(doc, verdictCandidate(doc, edit, { stranded: false }))
+				.moves,
+		).toEqual([]);
+		const result = verdict(doc, edit);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.nextDoc.modules[DIRECTORY].heldKind).toBe("advanced");
+		expect(emittedModuleKind(result.nextDoc, DIRECTORY)).toBe("advanced");
+	});
 
 	it("states that a parent selection's forms read their chosen cases under new names", () => {
 		const doc = publishedAdvanced(kindFixture(), MEMBERS);
