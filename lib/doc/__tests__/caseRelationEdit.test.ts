@@ -92,6 +92,13 @@ describe("a named link edit", () => {
 		expect(visitOf(two)?.parent_type).toBe("clinic");
 		const back = committed(edit(two, "remove", toClinic));
 		expect(declaredCaseRelations(visitOf(back) ?? never())).toEqual([toHome]);
+		// The lone parent left behind takes the default slot.
+		expect(visitOf(back)).toEqual({
+			name: "visit",
+			properties: [],
+			parent_type: "home",
+			relationship: "extension",
+		});
 		expect(edit(back, "remove", toClinic)).toMatchObject({ ok: true });
 	});
 
