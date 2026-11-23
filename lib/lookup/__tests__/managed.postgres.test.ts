@@ -706,7 +706,7 @@ describe("the create arm", () => {
 		});
 	});
 
-	it("refuses a cell over the cap with the cap's phrase, its size above the cap's", async () => {
+	it("refuses a cell past one inline copy with its phrase, its size above the bound, and offers the paged refresh", async () => {
 		const content: ManagedLookupContent = {
 			fields: ["name"],
 			rows: [{ name: "x".repeat(64 * 1024 + 1) }],
@@ -736,7 +736,7 @@ describe("the create arm", () => {
 		expect(error).toMatchObject({
 			code: "storage_limit",
 			message:
-				"The lookup table wide_cells has a value of 64.1 KB (Nova takes 64 KB in one cell) in CommCare HQ, so Nova can't hold a copy of it.",
+				"The lookup table wide_cells has a value of 64.1 KB in CommCare HQ, more than Nova copies in one read, so nothing was written. Nova reads a table this size in pages when you refresh it from Project data.",
 		});
 		expect(await getLookupManifest(SCOPE)).toEqual(before);
 	});
@@ -1105,7 +1105,7 @@ describe("the refresh arm", () => {
 		]);
 	});
 
-	it("refuses a cell over the cap with the cap's phrase before any column is written", async () => {
+	it("refuses a cell past one inline copy with its phrase before any column is written", async () => {
 		const table = await createManaged();
 		const content: ManagedLookupContent = {
 			fields: [...CONTENT.fields, "notes"],
@@ -1116,7 +1116,7 @@ describe("the refresh arm", () => {
 		expect(error).toMatchObject({
 			code: "storage_limit",
 			message:
-				"The lookup table districts has a value of 64.1 KB (Nova takes 64 KB in one cell) in CommCare HQ, so Nova can't hold a copy of it.",
+				"The lookup table districts has a value of 64.1 KB in CommCare HQ, more than Nova copies in one read, so nothing was written. Nova reads a table this size in pages when you refresh it from Project data.",
 		});
 		expect(await getLookupTable(SCOPE, table.id)).toEqual(table);
 	});

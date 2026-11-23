@@ -290,7 +290,11 @@ describe("a table managed in the target", () => {
 					method: "GET",
 				})
 				.reply(200, {
-					objects: [],
+					objects: facilities.rows.map((fields, index) => ({
+						id: `row-${index}`,
+						fixture_type: facilities.tag,
+						fields,
+					})),
 					meta: { next: "more", offset: 0, total_count: 5_001 },
 				});
 			return readOf(await reRead([copy]));

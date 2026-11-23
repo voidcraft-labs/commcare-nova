@@ -2047,9 +2047,22 @@ strings are the contract, not labels: a mandatory `types` sheet
 definition, and one data sheet per table NAMED BY ITS TAG (`UID`,
 `Delete(Y/N)`, `field: <wireName>`…). `IteratorJSONReader.set_field_value` is
 the header grammar (`a N` is a list, `a: b` nests, `a?` is a boolean). Because
-the types sheet carries the definition, CommCare HQ's JSON `lookup_table`
-resource is not on the write path at all. `lib/commcare/hq/lookupTables.ts`
+the types sheet carries the definition, the workbook needs CommCare HQ's JSON
+`lookup_table` resource only to read. `lib/commcare/hq/lookupTables.ts`
 drives both endpoints; `lib/deployment` owns what may be written over.
+
+`lib/commcare/hq/lookupJson.ts` is the second carrier, for what a workbook
+cannot hold: a table tagged `types`, a row past the workbook's 500,000, a
+value with surrounding spaces or a repeated empty value. It writes one
+definition or one row per request through `lookup_table/v1/` and
+`lookup_table_item/v2/` and answers each as `applied`, `not-applied` or
+`uncertain`, which a journaled caller resumes from; it never retries. Its
+resources carry no index and no row owner (`LookupTableResource`'s schema
+admits a field's name and properties only, and a PUT of `fields` resets every
+`is_indexed`), so only a global table with no index takes it. The plan of its
+writes is `lib/deployment/lookupJsonPlan.ts`, which keys every row by the
+destination ledger's mapping of a Nova row UUID to CommCare HQ's row id,
+never by its values.
 
 `searchWireShape.ts` is the authored workflow's spelling, one three-flag `WireShape` for every platform an app declares: `auto_launch` unless list first, `default_search` for skip to results, `inline_search` for forms that read the search (`caseSearchConfig.workflow`, absent search first, and `formsReadSearch`; list first beside Forms read the search is unrepresentable). The case list's filter and inputs choose none of the flags. Android reads no `auto_launch` and opens the list first, which the platform table states (`search-first`, `skip-to-results`). The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute, HQ's `AUTO_LAUNCH_EXPRESSIONS` expression wherever `auto_launch` is on: the multi-select one for a list that selects several cases (`module.is_multi_select()`), which reads the chosen cases as `instance('next_input')`, the instance a multi-select screen builds into the condition's own context and no suite element declares (the suite oracle admits it in `<action auto_launch>` alone), and the single-select one otherwise. Both export paths send a match-all filter for a zero-input search (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 

@@ -70,7 +70,7 @@ describe("lookupInlineCopyExcess", () => {
 
 	it("offers the paged refresh, never a shorter table, when one inline copy cannot carry it", () => {
 		expect(managedLookupInlineCopyRefusal("districts", ["5,001 rows"])).toBe(
-			"The lookup table districts has 5,001 rows in CommCare HQ, more than Nova copies in one read. Nova kept its copy as it was. You can refresh it from its Project data page, which reads it in pages.",
+			"The lookup table districts has 5,001 rows in CommCare HQ, more than Nova copies in one read, so nothing was written. Nova reads a table this size in pages when you refresh it from Project data.",
 		);
 	});
 
