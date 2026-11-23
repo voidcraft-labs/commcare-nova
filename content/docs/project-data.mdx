@@ -61,7 +61,14 @@ A table has columns and rows. Each column carries three things:
 
 You can give a table an export tag like `locations` even if the app also uses
 worker locations. Nova gives the form a separate name for reading that table.
-A tag can hold up to 32 characters. CommCare treats the lowercase words
+A tag can hold up to 32 characters, and an export name up to 255. Both start with
+a letter or an underscore and go on with letters, digits, underscores, hyphens
+and periods, so `site_code`, `école` and `site.name` all work. A name can't
+start with lowercase `xml`, and a row or value detail can't be named `xmlns`.
+Some places in an app read only plain names: CommCare HQ changes a period in a
+case list filter or a display condition, a menu reads a table only by a tag of
+letters, digits, underscores and hyphens, and Android reads a narrower set of
+characters than Web Apps. A name like `site_code` works everywhere. CommCare treats the lowercase words
 `casedb` and `ledgerdb` anywhere in a tag as a request for case or stock data.
 You can use `case_db`, `ledger_db` or a spelling such as `CaseDB` for your table.
 Nova names a conflict when you create or rename a table. If an older table has a conflicting
@@ -148,7 +155,9 @@ still removes only your local copy.
 
 ## How much a table can hold
 
-A single CSV import accepts up to 8 MB. Project data shows the row count and stored size of each table.
+One CSV import or replacement takes up to 5,000 rows and 8 MB. A table can grow
+past that as you add rows. Project data shows the row count and stored size of
+each table.
 
 ## Replace every row from a CSV
 
@@ -228,6 +237,14 @@ change stays blocked and offers **Check references again**.
 If the table changes while that confirmation is open, Nova refreshes the table
 and checks its app references again before you can confirm the change.
 
+Renaming a table's export tag, or the export name of a column, row detail or
+value detail, is checked against every app and accepted app design that uses
+it. Where an app reads it somewhere the new name won't work, such as a period
+in a case list filter, Nova refuses the rename, names the app and the place,
+and suggests a name like `district_code`. You can use that name, or change how
+the app uses the data first. Removing a row detail or value detail an app reads
+is refused the same way.
+
 ## What happens to a table when you publish
 
 Nova prepares each table for the place your app will run.
@@ -290,7 +307,7 @@ changes it there.
 
 Project data distinguishes the complete source inventory from the rows an individual worker receives. A table can stay linked to its project space while a large inventory is refreshed. If a source read stops partway, Nova keeps the last completed inventory and labels it with the time it was read.
 
-Project editors can open **Check source access** and enter a mobile worker’s username to read that worker’s current fixture with their own approved HQ connection. Leaving it blank checks the connected account. A web account receives every row of a global table and no assigned rows. A mobile worker’s rows follow their own assignments, groups and primary place, including its ancestors. A worker check reports a time, complete row count and a small sample. A protected table needs fresh worker data before a dependent action can run.
+Project editors can open **Check source access** and enter a mobile worker’s username to read the data that worker’s device currently receives with their own approved HQ connection. Leaving it blank checks the connected account. A web account receives every row of a global table and no assigned rows. A mobile worker’s rows follow their own assignments, groups and primary place, including its ancestors. A worker check reports a time, complete row count and a small sample. A protected table needs fresh worker data before a dependent action can run.
 
 In the same dialog, **Check and record workbook** accepts an HQ download containing this table alone, up to 768 KiB. Nova compares the table definition, row identities, order and workbook values to the source. It checks named workers, groups and places in that project space. The resulting historical receipt records the indexed columns and how many rows had assignments at the time of the check. A new check is needed when a destination or management change depends on current assignments.
 
@@ -309,7 +326,7 @@ and each publish to that project space replaces the table there with Nova's
 columns and rows. If someone changes it in CommCare HQ after that, your next
 publish there stops and shows you what changed before it sends anything. A
 Project admin can choose this, and Nova names the apps that read the table
-before you confirm. For a large global table, the admin first refreshes the source inventory with their current connection. Nova checks the full table and its indexed columns against a fresh device fixture. After transfer, the same rows and columns can be edited in Project data, including text larger than one screen.
+before you confirm. For a large global table, the admin first refreshes the source inventory with their current connection. Nova checks the full table and its indexed columns against what a device receives from the table right now. After transfer, the same rows and columns can be edited in Project data, including text larger than one screen.
 
 **Let CommCare HQ manage it again** hands it back. Nova takes CommCare HQ's
 columns and rows as they are right then and stops changing the table there.
