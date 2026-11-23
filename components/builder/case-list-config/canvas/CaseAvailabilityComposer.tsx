@@ -291,9 +291,11 @@ export function CaseAvailabilityComposer({
 							onChange={proposeFilter}
 							onRemoveRoot={() => proposeFilter(undefined)}
 							removeRootLabel={
-								hasAssignedCaseRule
-									? "Remove these conditions"
-									: "Show all cases"
+								surface === "search"
+									? "Search all cases"
+									: hasAssignedCaseRule
+										? "Remove these conditions"
+										: "Show all cases"
 							}
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}
@@ -397,14 +399,18 @@ export function CaseAvailabilityComposer({
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display tracking-tighter">
-							{hasAssignedCaseRule
-								? "Remove these conditions?"
-								: "Show all cases in Results?"}
+							{surface === "search"
+								? "Let online search find every case?"
+								: hasAssignedCaseRule
+									? "Remove these conditions?"
+									: "Show all cases in Results?"}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							{hasAssignedCaseRule
-								? "Cases hidden by these conditions can appear in Results. Your assigned cases setting won't change. You can undo this change."
-								: "Your current conditions will be removed. You can undo this change."}
+							{surface === "search"
+								? "Your online search conditions will be removed. Your device list conditions won't change. You can undo this change."
+								: hasAssignedCaseRule
+									? "Cases hidden by these conditions can appear in Results. Your assigned cases setting won't change. You can undo this change."
+									: "Your current conditions will be removed. You can undo this change."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -420,7 +426,11 @@ export function CaseAvailabilityComposer({
 								}
 							}}
 						>
-							{hasAssignedCaseRule ? "Remove" : "Show all cases"}
+							{surface === "search"
+								? "Search all cases"
+								: hasAssignedCaseRule
+									? "Remove"
+									: "Show all cases"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
