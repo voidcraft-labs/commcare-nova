@@ -311,6 +311,11 @@ for the current page. `pageNext` and `pagePrevious` turn form pages while
 `continue` remain accepted route actions. Forward page turns validate earlier
 pages, and answers on a later page need that page to be open.
 
+On a Search screen, `clearSearch` empties the fields as the Clear button does.
+It searches again only where the menu's `searchOnClear` applies, on a desktop
+Web Apps screen, and a required field left blank then stops that search without
+showing an error.
+
 `continue_app_test` accepts `actions: [{sessionId?, action, expect?}, ...]` with up to eight
 ordered actions. Each produces its own step. Optional expectations can name the
 screen, module, form or whether a submission occurred. The call stops on a
@@ -1001,7 +1006,7 @@ Case search is the search experience that surrounds the case list: the screen ti
 | Tool | What it does |
 |---|---|
 | `set_case_search_display` | Set the search-screen title, subtitle, and the predicate that decides when to show the search button. |
-| `set_case_search_advanced` | Set the excluded-owner rule, what the menu opens on, and whether its forms read the search, all three in one call. `excludedOwnerIds` is an expression naming owner ids whose cases are left out of Results, or `null`. `searchWorkflow` is required: `searchFirst` opens on Search in Web Apps, with Results showing what the search finds; `skipToResults` opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; `listFirst` opens on the case list with Search from it, and only an app that runs only on Android can use it. Android opens a menu that searches on its case list under every choice. `formsReadSearch: true` runs the search again as each form in the menu opens, so the forms can read `#search/<name>` and what the search found, and a case the worker found is claimed when a form is chosen; it needs `searchFirst` or `skipToResults` in a menu whose forms all work on an existing case, or a case list with no forms, it refuses a Search button display condition and `previous` after submit, and it runs only in Web Apps. `null` turns it off. |
+| `set_case_search_advanced` | Set the excluded-owner rule, what the menu opens on, whether its forms read the search, and whether Search runs again after Clear, in one call. `excludedOwnerIds` is an expression naming owner ids whose cases are left out of Results, or `null`. `searchWorkflow` is required: `searchFirst` opens on Search in Web Apps, with Results showing what the search finds; `skipToResults` opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; `listFirst` opens on the case list with Search from it, and only an app that runs only on Android can use it; `listFirstWithDefaultResults` opens the same way and also requests default results for Search when the app is published. Android opens a menu that searches on its case list under every choice. `formsReadSearch: true` runs the search again as each form in the menu opens, so the forms can read `#search/<name>` and what the search found, and a case the worker found is claimed when a form is chosen; it needs `searchFirst` or `skipToResults` in a menu whose forms all work on an existing case, or a case list with no forms, it refuses a Search button display condition and `previous` after submit, and it runs only in Web Apps. `null` turns it off. The optional `searchOnClear: true` searches again when a worker clears Search on a desktop Web Apps screen; smaller screens and Android keep manual search, `null` turns it off, and leaving it out keeps the current setting. |
 
 ## Working with deep links
 
