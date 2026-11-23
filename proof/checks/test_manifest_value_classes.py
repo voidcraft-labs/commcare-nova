@@ -2994,14 +2994,6 @@ def _search_and_menus():
     def search(*modules, **fields):
         return _app(list(modules), **fields)
 
-    def auto_selecting(module):
-        """``module`` whose case list chooses its case by itself, as HQ reads it (its short detail's ``auto_select``,
-        multi-select or not)."""
-        return {
-            **module,
-            "case_details": {"doc_type": "DetailPair", "short": {"doc_type": "Detail", "auto_select": True}},
-        }
-
     def details(*modules):
         return _app(list(modules))
 
@@ -3440,34 +3432,6 @@ def _search_and_menus():
                 ("schema:CaseSearch.custom_sort_properties", "custom_sort_properties"),
                 ("schema:CaseSearchCustomSortProperty.property_name", "custom_sort_properties/0/property_name"),
             )
-        ),
-        "case-search/search-on-clear": (
-            refused(
-                "app",
-                search(_search_module(properties=[_prompt("dob")], search_on_clear=True)),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            # HQ reads a list's auto select from its short detail, never from ``auto_select_case``
-            refused(
-                "app",
-                search({**_search_module(properties=[_prompt("dob")], search_on_clear=True), "auto_select_case": True}),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            # beside the case list's auto select, multi-select or not, the bar's refusal
-            accepted(
-                "app",
-                search(auto_selecting(_search_module(properties=[_prompt("dob")], search_on_clear=True))),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
-            accepted(
-                "app",
-                search(_search_module(search_on_clear=True)),
-                "schema:CaseSearch.search_on_clear",
-                f"{config}/search_on_clear",
-            ),
         ),
         "case-search/search-button-label-any-other-value": (
             refused(

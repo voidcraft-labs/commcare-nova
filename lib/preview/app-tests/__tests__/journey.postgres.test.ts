@@ -314,14 +314,25 @@ it.each([false, true])(
 	},
 );
 
-it.each([false, true])(
+it.each([
+	["off", false, false],
+	["on", true, false],
+	["on with a required field", true, true],
+] as const)(
 	"clears a completed search and refreshes its records only when enabled (%s)",
-	async (searchOnClear) => {
+	async (_label, searchOnClear, required) => {
 		const doc = noMatchesDoc();
 		const mod = doc.modules[HOST_MODULE];
 		if (!mod?.caseSearchConfig || "searchActionEnabled" in mod.caseSearchConfig)
 			throw new Error("The worker journey needs an ordinary search.");
 		if (searchOnClear) mod.caseSearchConfig.searchOnClear = true;
+		/* Web Apps skips the search after Clear while a required field is
+		 * blank, and shows no error for it (`query.js::updateSearchResults`). */
+		if (required && mod.caseListConfig)
+			mod.caseListConfig.searchInputs = mod.caseListConfig.searchInputs.map(
+				(input) =>
+					input.kind === "hidden" ? input : { ...input, required: {} },
+			);
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {
 			id: scope.appId,
@@ -360,7 +371,7 @@ it.each([false, true])(
 		});
 		const cleared = await step({ kind: "clearSearch" });
 		expect(cleared).toMatchObject({ search: { answers: [] } });
-		if (searchOnClear) {
+		if (searchOnClear && !required) {
 			expect(cleared).toMatchObject({
 				screen: "results",
 				results: {
@@ -373,6 +384,7 @@ it.each([false, true])(
 		} else {
 			expect(cleared).toMatchObject({ screen: "search" });
 			expect(cleared.results).toBeUndefined();
+			expect(cleared).toMatchObject({ search: { answers: [], errors: {} } });
 		}
 	},
 );

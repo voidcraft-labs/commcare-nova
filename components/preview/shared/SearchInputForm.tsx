@@ -279,7 +279,7 @@ export function SearchInputForm({
 	// responsive; one debounced effect emits upward.
 	const [draft, setDraft] = useState<SearchInputValues>(value);
 	const validateSubmission = useCallback(
-		async (candidate: SearchInputValues) => {
+		async (candidate: SearchInputValues, quiet = false) => {
 			const request = ++validationRequestRef.current;
 			const superseded = () => request !== validationRequestRef.current;
 			const caseListConfig = {
@@ -325,11 +325,15 @@ export function SearchInputForm({
 			lastValidatedDraftRef.current = candidate;
 			setValidationFailure(undefined);
 			setCheckRefusal(undefined);
-			setValidationState({
-				scopeKey,
-				attempted: errors.size > 0,
-				errors,
-			});
+			/* A quiet judgment (the search Web Apps runs after Clear) paints
+			 * nothing: Web Apps' `query.js::updateSearchResults` skips the
+			 * request while a required field is blank and shows no error, and
+			 * Clear has already removed every earlier one. */
+			setValidationState(
+				quiet
+					? { scopeKey, attempted: false, errors: new Map() }
+					: { scopeKey, attempted: errors.size > 0, errors },
+			);
 			return errors;
 		},
 		[
@@ -359,9 +363,9 @@ export function SearchInputForm({
 	 * the Search runtime being unavailable. Reported once per attempt and
 	 * cleared by the next judged pass. */
 	const judgeSubmission = useCallback(
-		async (candidate: SearchInputValues) => {
+		async (candidate: SearchInputValues, quiet = false) => {
 			try {
-				return await validateSubmission(candidate);
+				return await validateSubmission(candidate, quiet);
 			} catch (error) {
 				lastValidatedDraftRef.current = candidate;
 				const refused = previewDataRefusalOf(error);
@@ -556,11 +560,11 @@ export function SearchInputForm({
 			return updated;
 		});
 	};
-	const submit = async (candidate: SearchInputValues) => {
+	const submit = async (candidate: SearchInputValues, quiet = false) => {
 		if (onSubmit === undefined || awaitingWorker) return;
 		setValidating(true);
 		// Only the newest validation can retire the busy state.
-		const judged = judgeSubmission(candidate);
+		const judged = judgeSubmission(candidate, quiet);
 		const request = validationRequestRef.current;
 		try {
 			const errors = await judged;
@@ -581,7 +585,7 @@ export function SearchInputForm({
 			setCheckRefusal(undefined);
 			setValidationFailure(undefined);
 			setValidating(false);
-			if (alsoSearch) void submit(cleared);
+			if (alsoSearch) void submit(cleared, true);
 		},
 	}));
 	const submitAvailable = onSubmit !== undefined;

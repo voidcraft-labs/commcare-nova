@@ -26303,7 +26303,29 @@
 		"change": {
 			"op": "named",
 			"name": "search_on_display_only_menu"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/formsInMenuAbove",
+				"value": true
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/0/name",
+				"value": "village"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/submenus-turned-on",
@@ -37260,7 +37282,19 @@
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/search_on_clear",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/searchOnClear",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-search/search-on-clear-with-auto-select",

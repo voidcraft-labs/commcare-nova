@@ -1177,7 +1177,24 @@ async function advanceAppTestOnScreen(
 				cleared,
 				alsoSearch ? [] : undefined,
 			);
-			next = read.state;
+			/* The search Web Apps runs after Clear is quiet: a blank required
+			 * field stops it without an error (`query.js::updateSearchResults`),
+			 * so the cleared screen shows none. */
+			next =
+				read.state.screen.kind === "records" &&
+				read.state.screen.searchAnswers === undefined
+					? {
+							...read.state,
+							screen: {
+								...read.state.screen,
+								searchEntry: {
+									cleared: true as const,
+									draft: read.state.screen.searchEntry?.draft ?? [],
+									errors: {},
+								},
+							},
+						}
+					: read.state;
 			extra = { completed: true };
 			break;
 		}

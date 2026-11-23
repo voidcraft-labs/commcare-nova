@@ -9348,36 +9348,6 @@ def custom_sort_on_an_offered_search(use, manifest):
     return offered
 
 
-def _hq_auto_selects(module):
-    """``models/modules.py::Module.is_auto_select``: a menu's short detail's ``auto_select``, whether or not the
-    list is multi-select, since the method tests ``is_multi_select`` itself, a bound method and so always true; an
-    advanced menu never (``AdvancedModule.is_auto_select``). A shadow menu's is its source menu's
-    (``ShadowModule.is_auto_select``), another menu's than its own: None."""
-    if module.get("doc_type") == "ShadowModule":
-        return None
-    if module.get("doc_type") == "AdvancedModule":
-        return False
-    return bool(((module.get("case_details") or {}).get("short") or {}).get("auto_select"))
-
-
-def search_on_clear_without_auto_select(use, manifest):
-    """``case-search/search-on-clear``: ``search_on_clear`` on a search the menu offers, whose case list does not
-    choose its case by itself (``_hq_auto_selects``). HQ's build reads it only on such a search
-    (``remote_requests.py``); beside the list's auto select it is the bar's refusal, whether or not the menu
-    searches (``helpers/validators.py::validate_search_config``), and on a menu that offers no search otherwise it
-    is part of the search configuration HQ stores and builds nothing of."""
-    config, offered = _offered_search_config(use)
-    if config is None:
-        return None
-    module = _json(use).nearest(*MODULES)
-    if module is None:
-        return None
-    if not offered:
-        return False
-    auto_selects = _hq_auto_selects(module)
-    return None if auto_selects is None else not auto_selects
-
-
 def default_on_date_range(use, manifest):
     """``case-search/default-value-on-a-date-range-input``: a ``default_value`` that holds text on a prompt shown as
     a date range (``input_: daterange`` on a prompt that is not hidden; ``prompts.ts``, ``defaultOnRange``). A blank
@@ -9960,7 +9930,6 @@ VALUE_CLASSES = {
     "case-search/default-value-on-a-date-range-input": default_on_date_range,
     "case-search/case-search-endpoint-id": endpoint_on_an_offered_search,
     "case-search/custom-sort-properties-property-name-sort-type-exact-date": custom_sort_on_an_offered_search,
-    "case-search/search-on-clear": search_on_clear_without_auto_select,
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,

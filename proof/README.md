@@ -298,7 +298,7 @@ the lane runs (`proof/ci/__tests__/manifestReaders.test.ts`). A use whose key on
 entries name is held-new: Nova emits an item the manifest says it does not
 hold yet, so the entry's disposition or the emitter is wrong, and the register
 refuses to hold it too. A HELD-NEW class with a value-class reader takes its
-uses wherever its key is named (nineteen classes, `VALUE_CLASSES`): where
+uses wherever its key is named (eighteen classes, `VALUE_CLASSES`): where
 such an entry cuts one value of a key an allowing entry also names by that
 value's grammar or bound, the reader decides by the use's own value, and a use it
 takes is held-new whatever allowing class names the key. Such a reader is
