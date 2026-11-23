@@ -1373,18 +1373,24 @@ const updateCalculatedSort: KindGenerator = (ctx) =>
 		]);
 	});
 
+/** A list with no order calculation yet gets one in the same batch, as
+ *  `updateCalculatedSort` does, so the removal has a target on every list. */
 const removeCalculatedSort: KindGenerator = (ctx) =>
 	forTargets(ctx, caseListModules(ctx.doc), (module) => {
-		const before = module.caseListConfig?.calculatedSorts ?? [];
+		const existing = module.caseListConfig?.calculatedSorts ?? [];
+		const before = existing.length
+			? existing
+			: [freshCalculatedSort(ctx, module)];
 		const selected = ctx.rng.shuffle(before)[0];
 		if (!selected) return undefined;
-		return batch(
-			calculatedSortMutations(
+		return batch([
+			...calculatedSortMutations(module.uuid, existing, before),
+			...calculatedSortMutations(
 				module.uuid,
 				before,
 				before.filter((rule) => rule.uuid !== selected.uuid),
 			),
-		);
+		]);
 	});
 
 const updateColumn: KindGenerator = (ctx) =>
@@ -3129,7 +3135,7 @@ export const EDIT_KIND_GENERATORS = {
 	updateAutomationSchedule: hosted(CASE_MODULE_HOST, updateAutomationSchedule),
 	addCalculatedSort: hosted(CASE_LIST_HOST, addCalculatedSort),
 	updateCalculatedSort: hosted(CASE_LIST_HOST, updateCalculatedSort),
-	removeCalculatedSort,
+	removeCalculatedSort: hosted(CASE_LIST_HOST, removeCalculatedSort),
 	addColumn: hosted(CASE_LIST_HOST, addColumn),
 	updateColumn: hosted(CASE_LIST_HOST, updateColumn),
 	removeColumn,

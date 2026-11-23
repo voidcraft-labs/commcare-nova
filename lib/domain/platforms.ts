@@ -298,12 +298,12 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: {
 			reading: "unavailable",
-			note: "Web Apps cannot order cases from the worker’s current location.",
+			note: "the worker's current location isn't known there, so cases can't be ordered by their distance from it",
 		},
 		android: { reading: "runs" },
 		refusal: {
 			what: "orders cases by distance from the worker",
-			why: "Web Apps doesn’t know the worker’s current location.",
+			why: "Web Apps doesn't know the worker's current location.",
 			alternative:
 				"choose a different default order or run this app on Android",
 		},

@@ -15,7 +15,7 @@ export function patients(
 		readonly searchInputs?: SearchInputDef[];
 		readonly search?: CaseSearchConfig;
 		readonly list?: Partial<
-			Pick<CaseListConfig, "filter" | "tile" | "selection">
+			Pick<CaseListConfig, "filter" | "tile" | "selection" | "calculatedSorts">
 		>;
 	} = {},
 ) {

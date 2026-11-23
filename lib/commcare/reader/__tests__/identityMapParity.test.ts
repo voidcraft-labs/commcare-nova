@@ -384,6 +384,17 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 							},
 						],
 						search: {},
+						list: {
+							calculatedSorts: [
+								{
+									uuid: uuid(20),
+									expression: term(literal("a")),
+									direction: "asc",
+									priority: 0,
+									label: "Priority",
+								},
+							],
+						},
 					},
 				),
 		},

@@ -220,8 +220,8 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "This case list is set up in a way Nova can't hold yet.",
 	},
 	"case-list-sorting": {
-		"not-yet":
-			"This uses a way of ordering the case list, which Nova can't hold yet.",
+		never:
+			"This orders the case list by a value whose kind Nova can't tell, which Nova doesn't bring in.",
 	},
 	"case-list-text": {
 		"not-yet":

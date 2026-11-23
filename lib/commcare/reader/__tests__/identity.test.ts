@@ -82,6 +82,7 @@ describe("mintEntityUuid", () => {
 			externalKey.field(XMLNS, ["q"]),
 			externalKey.selectOption(XMLNS, ["q"], "v"),
 			externalKey.caseListColumn("m", "calculated", "", 0),
+			externalKey.caseListSort("m", "priority", 0),
 			externalKey.searchInput("m", "name"),
 			externalKey.caseOperation(XMLNS, ["basic", "subcase", 2], "create", 1),
 			externalKey.formLink(XMLNS, ["this-form"], 0),

@@ -1663,8 +1663,19 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].sort.direction": "config",
 	"caseListConfig.columns[].sort.priority": "config",
 	"caseListConfig.columns[].sort.blanks": "config",
+	"caseListConfig.columns[].sort.comparator": "config",
+	"caseListConfig.columns[].sort.menuPosition": "config",
 	// The name a hidden column's sort rule gives it in Sort by.
 	"caseListConfig.columns[].sort.label": "display-text",
+	// An independent default-order calculation: its expression is the
+	// `case_list_sort_expression` reference slot; the rest is its identity,
+	// its place and comparison in the order, and its Sort by name.
+	"caseListConfig.calculatedSorts[].uuid": "identity",
+	"caseListConfig.calculatedSorts[].priority": "config",
+	"caseListConfig.calculatedSorts[].direction": "config",
+	"caseListConfig.calculatedSorts[].blanks": "config",
+	"caseListConfig.calculatedSorts[].comparator": "config",
+	"caseListConfig.calculatedSorts[].label": "display-text",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
 	"caseListConfig.columns[].notOnList": "config",

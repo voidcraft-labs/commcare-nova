@@ -93,6 +93,7 @@ const REGISTER = testUuid("parity-register");
 const CASE_PICK = testUuid("parity-case-pick");
 const TABLE_PICK = testUuid("parity-table-pick");
 const COLUMN_UUID = testUuid("parity-column");
+const SORT_UUID = testUuid("parity-sort");
 const TEXT_INPUT = testUuid("parity-text-input");
 const ADVANCED_INPUT = testUuid("parity-advanced-input");
 const HIDDEN_INPUT = testUuid("parity-hidden-input");
@@ -158,6 +159,14 @@ function fixture(): BlueprintDoc {
 					columns: [calculatedColumn(COLUMN_UUID, "Value", term(literal("")))],
 					listColumnOrder: [COLUMN_UUID],
 					detailColumnOrder: [COLUMN_UUID],
+					calculatedSorts: [
+						{
+							uuid: SORT_UUID,
+							expression: term(literal("a")),
+							direction: "asc",
+							priority: 0,
+						},
+					],
 					searchInputs: [
 						simpleSearchInputDef(
 							TEXT_INPUT,
@@ -301,6 +310,12 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 		uuid: CASE_FIRST,
 		slot: "case_list_column_expression",
 		member: { columnUuid: COLUMN_UUID },
+	},
+	{
+		entity: "module",
+		uuid: CASE_FIRST,
+		slot: "case_list_sort_expression",
+		member: { sortUuid: SORT_UUID },
 	},
 	{
 		entity: "module",
