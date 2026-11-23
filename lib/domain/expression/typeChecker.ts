@@ -1039,6 +1039,19 @@ function admission(
 			chosenCaseProject(expression, ctx) !== undefined
 		)
 			return undefined;
+		// The list action runs on the device with its own casedb, before a
+		// worker chooses a row. Explicit case queries use that snapshot.
+		if (
+			ctx.slot.slot === "case_list_action_condition" &&
+			((expression.kind === "cases" && expression.source === "casedb") ||
+				(expression.kind === "count" &&
+					expression.via.kind === "cases" &&
+					expression.via.source === "casedb") ||
+				(expression.kind === "project" &&
+					expression.of.kind === "cases" &&
+					expression.of.source === "casedb"))
+		)
+			return undefined;
 		// A server search reads a query of the device's data in a value the
 		// device works out before the search runs: held for import, and
 		// admitted only there (`csqlFindings`).
@@ -1416,6 +1429,16 @@ function termAdmission(
 	if (
 		term.kind === "input" &&
 		ctx.ruleSet === "form" &&
+		ctx.form?.opensFromAnotherList
+	)
+		return refusal(
+			"search-answer-unavailable",
+			"Another case list opens this form without running the search that supplies this answer. You can ask for the value in the form or stop offering it from that list.",
+			"another-list",
+		);
+	if (
+		term.kind === "input" &&
+		ctx.ruleSet === "form" &&
 		!ctx.form?.caseListRegistrationForm &&
 		!(ctx.form?.formsReadSearchModule === true && profile.scope === "form")
 	)
@@ -1481,6 +1504,7 @@ export function chosenCaseCarrier(
 ): "case-list" | "search" | "form-display-condition" | undefined {
 	switch (ctx.slot.slot) {
 		case "case_list_filter":
+		case "case_list_action_condition":
 			return "case-list";
 		case "search_input_predicate":
 			return "search";

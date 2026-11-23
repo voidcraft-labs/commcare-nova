@@ -133,6 +133,7 @@ export async function serverRecordsRead(
 		},
 		{
 			identity: world.identity,
+			session: { appId: world.appId, menuSelections: world.selections },
 			device: world.device,
 			cases: world.deviceCases,
 			lookup: world.lookup,

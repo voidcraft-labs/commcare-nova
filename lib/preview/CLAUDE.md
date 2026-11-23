@@ -2247,7 +2247,7 @@ resuming that form, are on it), whatever moved there, and `FormScreen` ends
 it when the submission lands; the form reads it only where it names that form
 in that menu. So the same form reached later by any route, the app tree and
 browser history included, is an ordinary form. After submit,
-`alwaysOfferedRegistrationReturn` decides the landing before ordinary routing
+`caseListActionReturn` decides the landing before ordinary routing
 (`FormScreen.dispatchAfterSubmit`, `app-tests/submission.ts`): undefined, which
 is ordinary routing, where there is no launch, where the host no longer offers
 the form, or where the form's own after-submit is in force

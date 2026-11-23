@@ -22,12 +22,13 @@ import { createHash } from "node:crypto";
 import { Immer } from "immer";
 import { v7 } from "uuid";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	type HqAlignedModule,
 	type HqAppReading,
 	readHqAppForReading,
 } from "@/lib/commcare/hq/appReading";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import { hqReadCircumstance } from "@/lib/commcare/hq/failure";
 import {
 	publishedCaseBlocks,
@@ -132,7 +133,8 @@ export interface LaneReadInput {
 	 *  source holds a write saved only if changed. */
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
-		readonly flagged: RetainedHqAnswer;
+		readonly flagged?: RetainedHqAnswer;
+		readonly caseListActions?: RetainedHqAnswer;
 	};
 	/** Required for `identity: "mint"`: HQ's own project data answers, and its files. */
 	readonly projectData?: {
@@ -879,9 +881,18 @@ async function readBack(
 	if (reading.kind !== "read") return account(readingStop(reading));
 	const { source, modules } = reading;
 
+	const readFlag = createHqSourceFlagReader(creds, LANE_TARGET.domain);
+	let caseListActionsApplied: boolean | undefined;
+	if (sourceUsesCaseListActionSetting(source.raw)) {
+		const flag = await readFlag("FOLLOWUP_FORMS_AS_CASE_LIST_FORM");
+		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
+		if (flag.kind === "failed")
+			return account(atApp(hqReadCircumstance(flag.failure)));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (sourceHoldsEditMode(publishedCaseBlocks(source.raw))) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, LANE_TARGET.domain);
+		const flag = await readFlag("SAVE_ONLY_EDITED_FORM_FIELDS");
 		if (flag.kind === "not-a-member") return account(atApp("not-a-member"));
 		if (flag.kind === "failed")
 			return account(atApp(hqReadCircumstance(flag.failure)));
@@ -909,6 +920,7 @@ async function readBack(
 		appStrings: readingAppStrings(stored.lookup),
 		recordDialect: recordDialectRoundTrip,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		knownCaseTypes: knownCaseTypesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};

@@ -943,11 +943,20 @@ export function updateCaseOperationMutations(
 	];
 }
 
+export type CaseOperationRemovalPlan =
+	| CaseOperationMutationPlan
+	| {
+			readonly ok: false;
+			readonly reason: "case-list-action";
+			readonly message: string;
+			readonly dependentUuids: readonly Uuid[];
+	  };
+
 export function removeCaseOperationMutation(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	uuid: Uuid,
-): CaseOperationMutationPlan {
+): CaseOperationRemovalPlan {
 	const form = doc.forms[formUuid];
 	if (
 		form === undefined ||
@@ -964,6 +973,24 @@ export function removeCaseOperationMutation(
 			ok: false,
 			reason: "own-case",
 			message: OWN_CASE_REMOVAL_MESSAGE,
+			dependentUuids: [],
+		};
+	}
+	const actionHost = doc.moduleOrder.find((moduleUuid) => {
+		const slot = doc.modules[moduleUuid]?.caseListRegistrationForm;
+		return (
+			slot?.kind === "always" &&
+			slot.formUuid === formUuid &&
+			slot.target?.kind === "created-case" &&
+			slot.target.operationUuid === uuid
+		);
+	});
+	if (actionHost !== undefined) {
+		const menu = doc.modules[actionHost]?.name ?? "";
+		return {
+			ok: false,
+			reason: "case-list-action",
+			message: `The case list in “${menu}” uses the record this change creates. You can choose another form on that list or stop offering this one before removing the change.`,
 			dependentUuids: [],
 		};
 	}

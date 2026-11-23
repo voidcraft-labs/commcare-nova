@@ -6,6 +6,7 @@
  * `syntaxCompare.ts`. Nothing here matches text: the print proves every
  * recognition.
  */
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -1073,6 +1074,16 @@ function printSlotWith(
 						expressions({ slot: ref.slot }),
 						naming,
 						rewrites,
+					),
+				);
+			case "case_list_action_condition":
+				return text(
+					caseListActionCondition(
+						doc,
+						ref.uuid,
+						{ kind: "condition", condition: expression },
+						"hq-json",
+						naming,
 					),
 				);
 			case "case_list_filter":

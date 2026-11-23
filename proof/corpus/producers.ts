@@ -29,6 +29,7 @@ import {
 	caseCaptureFixture,
 	caseCaptureScenarios,
 } from "@/lib/commcare/__tests__/caseCaptureFixture";
+import { caseListActionRolesFixture } from "@/lib/commcare/__tests__/caseListActionRolesFixture";
 import {
 	caseListEmissionFixture,
 	caseListEmissionScenarios,
@@ -423,6 +424,16 @@ function produced(): Produced[] {
 
 	add("xml", "unicode", xmlUnicodeDoc());
 	add("xpath", "xpath-context", xpathContextDoc());
+	add(
+		"case-list-action",
+		"basic",
+		caseListActionRolesFixture(false, { saveParentNote: true }),
+	);
+	add(
+		"case-list-action",
+		"advanced",
+		caseListActionRolesFixture(true, { saveParentNote: true }),
+	);
 	// Built last: a fixture without a fixed id mints it from one counter in
 	// build order, and CommCare HQ's retained answers for navigation-base hold
 	// the ids the documents before these took.

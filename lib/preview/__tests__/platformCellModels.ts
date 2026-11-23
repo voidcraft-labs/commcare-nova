@@ -60,7 +60,7 @@ import {
 } from "../engine/__tests__/fixtures/previewDevices";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import {
-	alwaysOfferedRegistrationReturn,
+	caseListActionReturn,
 	selectionsAfterRegistrationReturn,
 } from "../engine/caseListRegisterAction";
 import { DataInstance } from "../engine/dataInstance";
@@ -420,7 +420,7 @@ function firstMenuRegistrationDoc() {
  *  return frame leaves for the next command that reads it. */
 function firstMenuRegistration(platform: Platform) {
 	const doc = firstMenuRegistrationDoc();
-	const landing = alwaysOfferedRegistrationReturn(
+	const landing = caseListActionReturn(
 		doc,
 		FIRST_MENU_REGISTER,
 		{ hostModuleUuid: FIRST_MENU_HOST },

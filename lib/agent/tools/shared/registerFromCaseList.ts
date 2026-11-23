@@ -10,13 +10,27 @@ import { z } from "zod";
 import {
 	type AlwaysOfferedRegistration,
 	CASE_LIST_REGISTRATION_RETURNS,
+	caseListActionTargetSchema,
+	caseListActionVisibilitySchema,
 	uuidSchema,
 } from "@/lib/domain";
 
 export const registerFromCaseListInputSchema = z.strictObject({
 	formUuid: uuidSchema.describe(
-		"A registration form of this module's case type in another module. It stays on its own menu.",
+		"The form to offer from this list. It stays in the menu which owns it.",
 	),
+	target: caseListActionTargetSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Which record the form works with. Omit to keep this form's existing choice. Use null for a form that registers its own case. For a child it creates, name its case operation UUID. For a follow-up on the selected parent, name the menu that selected that parent.",
+		),
+	show_when: caseListActionVisibilitySchema
+		.nullable()
+		.optional()
+		.describe(
+			"Show the form button when a completed search found nothing or when the condition you give is true. The condition can read worker data and choices made before the list. Null shows the button whenever the list opens. Omit to keep the current rule.",
+		),
 	label: z
 		.string()
 		.min(1)
@@ -41,7 +55,7 @@ export type RegisterFromCaseListInput = z.infer<
 >;
 
 export const REGISTER_FROM_CASE_LIST_DESCRIPTION =
-	"Offers a registration form on this module's case list, so a worker can look for a case and add one from the same screen. Every form of this module must open an existing case. after_submit applies while the form's own after submit is Home; a form with its own destination or links goes there from the list too. null stops offering it. Set the button's icon and spoken label with set_menu_media, target case-list-registration. To offer a form only after a search finds nothing, use case_list_registration on the form instead.";
+	"Offer a form on this menu’s case list. Pick the registration to continue with, or offer a follow-up on the parent record the worker chose. Every form on this menu must open an existing case. A registration follows after_submit unless the form has its own destination or links. A parent follow-up uses its own After submit. Use show_when to control whether the button appears and set_menu_media to change its icon and spoken label. Null removes the button.";
 
 /**
  * The stored arm for what the SA gave. The arm's icon and spoken label are
@@ -53,9 +67,17 @@ export function alwaysOfferedRegistrationFromInput(
 	input: RegisterFromCaseListInput,
 	stored: AlwaysOfferedRegistration | undefined,
 ): AlwaysOfferedRegistration {
+	const target =
+		input.target === undefined && stored?.formUuid === input.formUuid
+			? stored.target
+			: input.target;
+	const showWhen =
+		input.show_when === undefined ? stored?.showWhen : input.show_when;
 	return {
 		kind: "always",
+		...(showWhen != null && { showWhen }),
 		formUuid: input.formUuid,
+		...(target != null && { target }),
 		...(input.label != null && { label: input.label }),
 		...(stored?.icon !== undefined && { icon: stored.icon }),
 		...(stored?.audioLabel !== undefined && { audioLabel: stored.audioLabel }),

@@ -1150,6 +1150,7 @@ export type ModuleExpressionSlotRef =
 			readonly slot:
 				| "module_display_condition"
 				| "case_list_filter"
+				| "case_list_action_condition"
 				| "search_button_display_condition"
 				| "excluded_owner_ids";
 	  }

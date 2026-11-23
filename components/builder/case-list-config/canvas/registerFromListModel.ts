@@ -1,5 +1,5 @@
 /**
- * The pure model of a case list's "Register from this list" setting: the
+ * The pure model of a case list's "Form button on the list" setting: the
  * copy it shows for the host's shape, the whole slot each change writes, and
  * the note that names the form's own after-submit where that is in force.
  * The component (`RegisterFromListSetting.tsx`) renders it and commits the
@@ -15,8 +15,8 @@ import type {
 } from "@/lib/domain";
 
 export const REGISTER_FROM_LIST_COPY = {
-	heading: "Register from this list",
-	lede: "Offer a registration form on the case list, so workers can look for a case before adding a new one.",
+	heading: "Form button on the list",
+	lede: "Workers can open a form without choosing a record from this list.",
 	pickerLabel: "Form",
 	pickerNone: "Don't offer one",
 	buttonTextLabel: "Button text",
@@ -36,8 +36,14 @@ export function registerChoiceLabel(
 }
 
 /** The empty state, where no other menu has a registration form of the type. */
-export function registerFromListEmptyState(caseType: string): string {
-	return `Once another menu has a registration form for ${caseType}, you can offer it here.`;
+export function registerFromListEmptyState(
+	caseType: string,
+	parentListName?: string,
+): string {
+	const create = `A form in another menu can appear here when it creates one ${caseType} record.`;
+	return parentListName
+		? `${create} A follow-up can also open the record chosen in ${parentListName}.`
+		: create;
 }
 
 /** While the host offers its own form after an empty search. */
@@ -68,6 +74,7 @@ export function afterRegisteringHelpers(
  */
 export function ownAfterSubmitNote(
 	own: RegisterFromListFacts["ownAfterSubmit"],
+	parentFollowUp = false,
 ): { readonly text: string; readonly buttonLabel: string } | undefined {
 	if (own === undefined) return undefined;
 	const destination =
@@ -75,7 +82,9 @@ export function ownAfterSubmitNote(
 			? "its after-submit links"
 			: destinationLabel(own.destination);
 	return {
-		text: `${own.formName} has its own After submit (${destination}), so it goes there from this list too. You can set ${own.formName}'s After submit to Home to use the choice above.`,
+		text: parentFollowUp
+			? `After ${own.formName}, the worker goes to ${destination}.`
+			: `${own.formName} has its own After submit (${destination}), so it goes there from this list too. You can set ${own.formName}'s After submit to Home to use the choice above.`,
 		buttonLabel: `Open ${own.formName}'s After submit`,
 	};
 }
@@ -90,6 +99,8 @@ export function slotWith(
 ): AlwaysOfferedRegistration {
 	const merged = {
 		label: stored?.label,
+		target: stored?.formUuid === formUuid ? stored.target : undefined,
+		showWhen: stored?.showWhen,
 		icon: stored?.icon,
 		audioLabel: stored?.audioLabel,
 		afterSubmit: stored?.afterSubmit ?? ("case-list" as const),
@@ -102,6 +113,8 @@ export function slotWith(
 	return {
 		kind: "always",
 		formUuid,
+		...(merged.target !== undefined && { target: merged.target }),
+		...(merged.showWhen !== undefined && { showWhen: merged.showWhen }),
 		...(label !== undefined && { label }),
 		...(merged.icon !== undefined && { icon: merged.icon }),
 		...(merged.audioLabel !== undefined && { audioLabel: merged.audioLabel }),

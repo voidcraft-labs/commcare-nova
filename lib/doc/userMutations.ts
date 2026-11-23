@@ -374,6 +374,7 @@ function describeUserPropertyReference(
 			search_input_validation_rule: "search field check",
 			search_input_hidden_value: "hidden search value",
 			search_button_display_condition: "Search button condition",
+			case_list_action_condition: "form button condition",
 			excluded_owner_ids: "Assigned cases setting",
 			module_display_condition: "display condition",
 		};

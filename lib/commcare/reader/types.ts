@@ -61,6 +61,8 @@ export interface ReaderInput {
 	/** Whether the source project space applies "save only if changed", as the probe of it
 	 *  answered; absent where the source holds no `update_mode: "edit"` and no probe was made. */
 	readonly saveOnlyEditedApplied?: boolean;
+	/** Authenticated source setting for case-list action conditions and parent follow-ups. */
+	readonly caseListActionsApplied?: boolean;
 	/** What Nova already holds about this app's case types that no export carries: the case type
 	 *  each index of a type reaches, consulted only where the app itself fixes none (no child
 	 *  link, no parent selection, no open action's index), and the type its catalog declares for

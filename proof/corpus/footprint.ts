@@ -110,8 +110,8 @@ import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
-	alwaysOfferedReturnFrames,
-	alwaysOfferedTarget,
+	caseListActionReturnFrames,
+	caseListActionTarget,
 	caseListSessionDatums,
 	commonPrefixById,
 	entryFrameDatums,
@@ -410,10 +410,10 @@ function wireSide(
 	return {
 		wire,
 		layout: wireLayout(doc),
-		links: formLinkProjectionContext(
-			wire,
-			lookupNaming === undefined ? {} : { lookupNaming },
-		),
+		links: formLinkProjectionContext(wire, {
+			expressionDoc: doc,
+			...(lookupNaming !== undefined && { lookupNaming }),
+		}),
 		lookupNaming,
 	};
 }
@@ -984,13 +984,17 @@ const commonFrameDatums: ModuleDerivation = {
  * that form stands in a menu of the projection.
  */
 const offeredRegistrationForms: Holders = (side, moduleUuid) => {
-	const target = alwaysOfferedTarget(side.wire, side.links, moduleUuid as Uuid);
+	const target = caseListActionTarget(
+		side.wire,
+		side.links,
+		moduleUuid as Uuid,
+	);
 	return target === undefined ? [] : [target.formUuid];
 };
 
 /**
  * The return frames the module's case list registration writes into the
- * entry of the form it always offers (`alwaysOfferedReturnFrames`, as
+ * entry of the form it always offers (`caseListActionReturnFrames`, as
  * `CaseListFormWorkflow.case_list_forms_frames` writes them): its arm's
  * form and After registering, the form's own after-submit, and the commands
  * and datums of the module and its parent the frames carry. Read through
@@ -1000,9 +1004,9 @@ const offeredRegistrationForms: Holders = (side, moduleUuid) => {
  */
 const registrationReturnFrames: ModuleDerivation = {
 	settings: (side, _module, moduleUuid) => {
-		const target = alwaysOfferedTarget(side.wire, side.links, moduleUuid);
+		const target = caseListActionTarget(side.wire, side.links, moduleUuid);
 		if (target === undefined) return undefined;
-		const frames = alwaysOfferedReturnFrames(
+		const frames = caseListActionReturnFrames(
 			side.wire,
 			side.links,
 			moduleUuid,

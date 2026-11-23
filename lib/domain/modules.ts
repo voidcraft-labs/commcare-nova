@@ -2990,17 +2990,37 @@ export type CaseListRegistrationReturn =
 
 const afterEmptySearchRegistrationSchema = z.strictObject({
 	kind: z.literal("after-empty-search"),
+	/** Continue in the menu with the newly registered case. Absent returns to the list. */
+	afterSubmit: z.literal("new-case").optional(),
 	/** A registration form of this module, on no menu. */
 	formUuid: uuidSchema,
 	/** The Register action's label. Absent is the form's name. */
 	label: z.string().min(1).optional(),
 });
 
+export const caseListActionTargetSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("created-case"),
+		operationUuid: uuidSchema,
+	}),
+	z.strictObject({ kind: z.literal("chosen-parent"), moduleUuid: uuidSchema }),
+]);
+export type CaseListActionTarget = z.infer<typeof caseListActionTargetSchema>;
+
+export const caseListActionVisibilitySchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("empty-search") }),
+	z.strictObject({ kind: z.literal("condition"), condition: conditionSchema }),
+]);
+
 const alwaysOfferedRegistrationSchema = z.strictObject({
 	kind: z.literal("always"),
-	/** A registration form of this module's case type in another menu. It
-	 *  stays on its own menu. */
+	/** A form held in its own menu, also offered on this list. */
 	formUuid: uuidSchema,
+	/** Absent registers the form's own case. Other targets name the created case
+	 * or the menu which supplies the selected parent, independently of their names. */
+	target: caseListActionTargetSchema.optional(),
+	/** The action is offered whenever the list opens unless the list narrows it. */
+	showWhen: caseListActionVisibilitySchema.optional(),
 	/** The Register action's label. Absent is the form's name. */
 	label: z.string().min(1).optional(),
 	/** The action's image. Web Apps shows the label alone. */

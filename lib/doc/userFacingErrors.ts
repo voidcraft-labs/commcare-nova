@@ -394,6 +394,10 @@ function alwaysNotRegistrationSentence(e: ValidationError): string {
 	const form = q(registrationFormName(e));
 	const caseType = q(det(e, "caseType", ""));
 	switch (det(e, "reason", "")) {
+		case "action-target":
+			return `${form} needs one case change that creates a ${caseType} record outside a repeat. You can choose that change or another form on ${host}.`;
+		case "selected-parent":
+			return `${form} needs the parent record chosen before ${host}. You can choose the parent list that supplies it or choose another form.`;
 		case "form-type":
 			return `${host} offers ${form} on its case list, so ${form} needs to register a new ${caseType} case, and it is a ${det(e, "formType", "")} form. You can choose a registration form, or stop offering it there.`;
 		case "case-type":
@@ -403,7 +407,7 @@ function alwaysNotRegistrationSentence(e: ValidationError): string {
 		case "several-registrations":
 			return `${host} offers ${form} on its case list, but ${form} registers more than one ${caseType} case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other ${caseType} case into a repeat or to another form, or stop offering ${form} there.`;
 		default:
-			return `${host} offers ${form} on its case list, but ${form} opens only after a search finds nothing in ${q(det(e, "formModuleName", ""))}, so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`;
+			return `${host} needs a form that registers a ${caseType} case. You can choose a different form for this list.`;
 	}
 }
 
@@ -1436,6 +1440,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} opens on its case list first, so its forms can't read the search. You can open it on Search first or on its results, or turn off Forms read the search.`,
 	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: (e) =>
 		`${q(modName(e))} offers ${q(registrationFormName(e))} when a search finds nothing, but its forms don't read the search. You can turn on Forms read the search, or stop offering the form there.`,
+	CASE_LIST_ACTION_CONDITION_INVALID: (e) => e.message,
 	CASE_LIST_REGISTRATION_NOT_REGISTRATION: (e) =>
 		det(e, "kind", "") === "always"
 			? alwaysNotRegistrationSentence(e)
@@ -1902,6 +1907,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	INVALID_SEARCH_REF: (e) => {
 		switch (e.details?.reason) {
+			case "another-list":
+				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer its other case list cannot supply. You can ask for the value in the form or stop offering the form from that list.`;
 			case "not-forms-read-search":
 				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form in a menu whose forms read the search can read that menu's Search fields. You can turn Forms read the search back on, or read a question or a case property instead.`;
 			case "form-link":

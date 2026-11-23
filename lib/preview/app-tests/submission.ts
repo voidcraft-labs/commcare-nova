@@ -1,5 +1,6 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import type { Uuid } from "@/lib/domain";
+import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
 import {
 	afterSubmitPath,
@@ -7,8 +8,7 @@ import {
 	completeAfterSubmitWithOwnFrame,
 } from "../afterSubmitStack";
 import {
-	alwaysOfferedRegistrationReturn,
-	caseListRegistrationPostSubmit,
+	caseListActionReturn,
 	registeredCaseOnDevice,
 	selectionsAfterRegistrationReturn,
 } from "../caseListRegistration";
@@ -145,63 +145,38 @@ export async function submitAppTest(
 				: (state.selections[moduleUuid]?.cases.map((row) => row.caseId) ?? []),
 	});
 	try {
-		const registrationReturn =
-			mutation.kind === "registration"
-				? caseListRegistrationPostSubmit(context.doc, screen.formUuid)
-				: undefined;
-		if (registrationReturn) {
-			/* The return frame is pushed and opens like any other frame, so
-			 * what was pending stays only while the worker is still on its
-			 * path. */
-			const afterSubmitStack = completeAfterSubmitWithOwnFrame(
-				state.afterSubmitStack,
-				submittedPath,
-				registrationReturn === "firstMenu"
-					? []
-					: afterSubmitPath(context.doc, { moduleUuid: screen.moduleUuid }, []),
-				context.rules.afterSubmitFrames,
-			);
-			return {
-				state: {
-					...state,
-					deviceCases,
-					afterSubmitStack,
-					history: [],
-					screen:
-						registrationReturn === "firstMenu"
-							? { kind: "home" as const }
-							: {
-									kind: "records" as const,
-									moduleUuid: screen.moduleUuid,
-									searchAnswers: screen.searchAnswers,
-									registeredCaseId: result.primaryCaseIds[0],
-								},
-				},
-				identity,
-				effects: result,
-				validation: undefined,
-			};
-		}
-		/* A form the record list always offers, opened from its Register
-		 * action, returns where that list's frame lands, as the browser's form
-		 * does (`alwaysOfferedRegistrationReturn`); its own after-submit, or
-		 * an opening any other way, routes as any form does. */
 		const launch = screen.caseListRegistrationLaunch;
 		const hostCaseType =
 			launch === undefined
 				? undefined
 				: context.doc.modules[launch.hostModuleUuid]?.caseType;
+		const slot =
+			launch &&
+			context.doc.modules[launch.hostModuleUuid]?.caseListRegistrationForm;
+		const target = slot?.kind === "always" ? slot.target : undefined;
+		const operation =
+			target?.kind === "created-case"
+				? target.operationUuid
+				: context.doc.forms[screen.formUuid]?.caseOperations?.find(
+						(op) => op.action === "own",
+					)?.uuid;
+		const entryKey =
+			operation === undefined
+				? undefined
+				: built.program?.entryCaseKeys?.get(operation);
+		const registeredCaseId =
+			entryKey === undefined
+				? undefined
+				: entryDatumCaseId(scope.appId, screen.entry.entryKey, entryKey);
 		const createdCase =
-			mutation.kind === "registration" &&
-			launch !== undefined &&
-			result.primaryCaseIds[0] !== undefined
+			registeredCaseId !== undefined && launch !== undefined
 				? registeredCaseOnDevice(
 						result.caseDatabasePatch,
-						result.primaryCaseIds[0],
+						registeredCaseId,
 						hostCaseType,
 					)
 				: undefined;
-		const registrationLanding = alwaysOfferedRegistrationReturn(
+		const registrationLanding = caseListActionReturn(
 			context.doc,
 			screen.formUuid,
 			launch,
@@ -244,8 +219,6 @@ export async function submitAppTest(
 			 * landing's own list is that read; a menu the frame passes
 			 * through on its way holds it as the screen Back returns to,
 			 * which its forms read what the search found from. */
-			const registeredCaseId =
-				mutation.kind === "registration" ? result.primaryCaseIds[0] : undefined;
 			const keyedRecords = (
 				moduleUuid: Uuid,
 				caseId: string,
@@ -335,7 +308,10 @@ export async function submitAppTest(
 					? { ...cases, locations: formContext.cases.locations }
 					: cases,
 				lookup: context.lookup,
-				session: { appId: scope.appId, menuSelections: state.selections },
+				session: {
+					appId: scope.appId,
+					menuSelections: launch?.selections ?? state.selections,
+				},
 				...(formContext.searchResults === undefined
 					? {}
 					: { searchResults: formContext.searchResults }),

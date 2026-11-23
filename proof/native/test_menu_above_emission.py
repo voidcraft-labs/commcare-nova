@@ -25,6 +25,8 @@ DOCUMENTS = (
     "forms-in-menu-above-nested",
     "forms-in-menu-above-one-case",
     "forms-in-menu-above-registration-only",
+    "case-list-action-roles-basic",
+    "case-list-action-roles-advanced",
     "register-from-case-list",
     "register-from-case-list-web-apps",
     "register-from-case-list-other-returns",

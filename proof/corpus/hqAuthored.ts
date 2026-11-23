@@ -97,7 +97,8 @@ export interface RetainedHqApp {
 	/** `project-spaces.json` and `project-spaces-flag.json`, where the reading asks for them. */
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
-		readonly flagged: RetainedHqAnswer;
+		readonly flagged?: RetainedHqAnswer;
+		readonly caseListActions?: RetainedHqAnswer;
 	};
 	/** `media.json`, one row a mapped path whose file HQ holds, each with its file read from `media/`. */
 	readonly media: readonly {
@@ -244,6 +245,10 @@ export function loadRetainedHqApp(
 	if (base?.id !== id) fail(directory, `holds a base.json naming ${base?.id}`);
 	const all = optionalAnswer(directory, "project-spaces.json");
 	const flagged = optionalAnswer(directory, "project-spaces-flag.json");
+	const caseListActions = optionalAnswer(
+		directory,
+		"project-spaces-case-list-actions.json",
+	);
 	const mediaRows = (optionalJson(directory, "media.json") ?? []) as readonly {
 		readonly path: string;
 		readonly file: string;
@@ -271,8 +276,13 @@ export function loadRetainedHqApp(
 		source: answer(directory, "app-source.json"),
 		application: answer(directory, "application.json"),
 		currentVersion: answer(directory, "current-version.json"),
-		...(all !== undefined &&
-			flagged !== undefined && { projectSpaces: { all, flagged } }),
+		...(all !== undefined && {
+			projectSpaces: {
+				all,
+				...(flagged !== undefined && { flagged }),
+				...(caseListActions !== undefined && { caseListActions }),
+			},
+		}),
 		media: mediaRows.map((row) => ({
 			...row,
 			bytes: mediaBytes(directory, row.file),

@@ -662,6 +662,24 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_action_condition",
+		path: "caseListRegistrationForm.showWhen.condition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_list_action_created_case",
+		path: "caseListRegistrationForm.target.operationUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_list_action_chosen_parent",
+		path: "caseListRegistrationForm.target.moduleUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "module_display_condition",
 		path: "displayCondition",
 		kind: "expression",
@@ -967,6 +985,7 @@ function expressionRefForEntry(
 		if (mod === undefined) return undefined;
 		switch (entry.slot) {
 			case "module_display_condition":
+			case "case_list_action_condition":
 			case "case_list_filter":
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
@@ -1655,6 +1674,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	// are media, `afterSubmit` is where a worker goes after registering, and
 	// `formUuid` is the `module_case_list_registration_form` reference slot.
 	"caseListRegistrationForm.kind": "discriminator",
+	"caseListRegistrationForm.target.kind": "discriminator",
+	"caseListRegistrationForm.showWhen.kind": "discriminator",
 	"caseListRegistrationForm.label": "display-text",
 	"caseListRegistrationForm.icon": "media",
 	"caseListRegistrationForm.audioLabel": "media",

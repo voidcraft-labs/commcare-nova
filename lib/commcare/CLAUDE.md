@@ -2177,12 +2177,21 @@ one form. `compiler.ts` and `expander.ts` consume the plan, so `m{N}` /
 `unique_id` / `owningModuleOf` agree on both paths. The lowering is emitted
 only when `hostLowersCaseListRegistration(host)` (the host's forms read the
 search and it has a case type); a slot whose module fails that is a validator
-finding, not a partial emission. The `always` arm writes the block for a form
-that stays on its own menu, with no synthetic module and no
-`relevancy_expression`, the Register action on both short details, and one
-return frame for `case-list` or two for `new-case`, only where the form's own
-after-submit is Home. `formLinkProjection.ts::caseListFormReturnFrames` builds
-them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
+finding, not a partial emission. An ordinary list action names the form in the physical menu that holds it. A
+second host may name a form already lifted for its first host. The host
+keeps its own button text, media, visibility and return destination.
+`case-list/actionCondition.ts` prints a typed condition in the list step’s
+scope. An empty-search rule reads the completed query. Confirm the source
+space’s `FOLLOWUP_FORMS_AS_CASE_LIST_FORM` before interpreting either a
+nonblank condition or a selected parent’s follow-up. HQ ignores a condition
+with that setting off. A pure parent follow-up gets the selected parent from
+the host’s first entry when exactly one selection has that type. It uses the
+target’s own navigation after submit. A registration by a child open binds
+the actual operation UUID on read and derives its physical datum from the
+form’s held placement on export. `formLinkProjection.ts::caseListFormReturnFrames`
+builds one return frame for `case-list` and two for `new-case`, only where
+the form follows its host. The hidden empty-search placement can choose
+either return. The compiler builds them in HQ's two passes (`CaseListFormWorkflow._add_stack_children_for_target`):
 a submenu host's parent's `get_frame_children`, then the host's, each pass
 matched on its own and each adding to the cut frame up to its first matched
 selection; in `new-case` the host pass drops every id the frame carrying the

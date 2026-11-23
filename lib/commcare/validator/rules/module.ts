@@ -46,7 +46,10 @@ import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeC
 import { sortLabel } from "./case-list/sortLabel";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { sortPropertyOwnership } from "./case-list/sortPropertyOwnership";
-import { caseListRegistrationForm } from "./case-search/caseListRegistration";
+import {
+	caseListActionVisibility,
+	caseListRegistrationForm,
+} from "./case-search/caseListRegistration";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import {
@@ -304,6 +307,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
 	// markerless inputs receive the same validation as the remote request they
 	// still emit.
+	caseListActionVisibility,
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
 	searchRelatedCalculationCompatibility,

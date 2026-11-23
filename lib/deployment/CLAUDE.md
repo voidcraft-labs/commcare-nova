@@ -432,6 +432,8 @@ parents never become roots. All pages of one pass of an inventory share one
 `HQ_LOCATION_LIST_MAX_BYTES`; past either it is `too-large`, never a short
 list.
 
+An HQ source with a conditional case-list form button or a form working on the selected parent requires the source project’s authenticated case-list button setting. The read asks for it only when the source uses it, through the unfiltered membership and filtered project lists. Both initial adoption and a later review of HQ changes carry the answer with the source. A failed read cannot stand in for the setting being off.
+
 Project-space compatibility is derived from what the app actually uses. A
 missing or unverified required capability blocks before Nova writes any remote
 resource, because the imported app would not run as authored. The Search

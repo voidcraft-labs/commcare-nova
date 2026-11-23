@@ -463,7 +463,7 @@ function summarizeCaseListRegistration(
 	const form = doc.forms[slot.formUuid];
 	const formName = form?.name ?? slot.formUuid;
 	if (slot.kind === "after-empty-search")
-		return `    case list registration: ${formName} ("${slot.label ?? formName}")`;
+		return `    case list registration: ${formName} ("${slot.label ?? formName}")${slot.afterSubmit === "new-case" ? (form?.postSubmit === "firstMenu" ? "; after registering: first menu" : "; after registering: continue with the new case") : ""}`;
 	const formModuleUuid = moduleUuidOfForm(doc, slot.formUuid);
 	const menuName =
 		formModuleUuid === undefined
@@ -476,7 +476,19 @@ function summarizeCaseListRegistration(
 			: returnTo?.kind === "new-case"
 				? "on with the new case"
 				: "back to the list";
-	return `    case list offers "${formName}" (in "${menuName}"); after registering: ${after}`;
+	const target =
+		slot.target?.kind === "created-case"
+			? ` for the record created by ${slot.target.operationUuid}`
+			: slot.target?.kind === "chosen-parent"
+				? ` for the parent selected in "${doc.modules[slot.target.moduleUuid]?.name ?? ""}"`
+				: "";
+	const visibility =
+		slot.showWhen?.kind === "empty-search"
+			? " after an empty search"
+			: slot.showWhen?.kind === "condition"
+				? " when its button condition is met"
+				: "";
+	return `    case list offers "${formName}" (in "${menuName}")${target}${visibility}; after submit: ${after}`;
 }
 
 /** Where a module that shows its forms in the menu above lists them. */

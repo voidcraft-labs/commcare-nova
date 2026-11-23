@@ -178,32 +178,51 @@ def menu_screens(session):
     # declares a menu's instances on the menu itself rather than on each of its entries
     # (``feature_support.py::supports_menu_instances``, ``post_process/instances.py::InstancesHelper.update_suite``),
     # which is where Nova's local suite declares them, and Nova publishes at 2.57 and above.
-    with native_check(
-        ENDPOINT_DOMAIN, flags=flags, commcare_version=DEFAULT_COMMCARE_VERSION, server_origin=NOVA_SERVER_ORIGIN
-    ):
-        from corehq.apps.app_manager.helpers.validators import ModuleValidator
+    from corehq.apps.app_manager.helpers.validators import ModuleValidator
+    from corehq.apps.app_manager.views.modules import _case_list_form_options
 
-        for source in app_sources(exports):
-            if source.name.endswith((".screens.json", ".offers.json", ".tiles.json")):
-                continue
-            raw = source.read_bytes()
-            app = _target(import_source(raw, ENDPOINT_DOMAIN), "menu-screens-evidence")
-            suite = hand_assembled_suite(app, endpoints=True)
-            source.with_suffix(".hq-suite.xml").write_bytes(suite)
-            records.append(
-                {
+    sources = [
+        source for source in app_sources(exports)
+        if not source.name.endswith((".screens.json", ".offers.json", ".tiles.json"))
+    ]
+    for followups in (False, True):
+        enabled = flags | ({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM"} if followups else set())
+        with native_check(
+            ENDPOINT_DOMAIN, flags=enabled, commcare_version=DEFAULT_COMMCARE_VERSION, server_origin=NOVA_SERVER_ORIGIN
+        ):
+            for source in sources:
+                roles = source.stem.startswith("case-list-action-roles-")
+                # Run the same source with the flag disabled through the actual
+                # editor option finder and build validator as the paired control.
+                if followups and not roles:
+                    continue
+                raw = source.read_bytes()
+                app = _target(import_source(raw, ENDPOINT_DOMAIN), "menu-screens-evidence")
+                errors = sorted(
+                    error["type"]
+                    for module in app.get_modules()
+                    if module.doc_type == "Module"
+                    for error in ModuleValidator(module).validate_case_list_form()
+                )
+                if roles:
+                    hosts = [app.get_module(1), app.get_module(2)]
+                    offered = [
+                        module.case_list_form.form_id in _case_list_form_options(app, module)["options"]
+                        for module in hosts
+                    ]
+                    assert offered == [True, followups], (source.stem, followups, offered)
+                    if not followups:
+                        assert errors == ["case list form not registration"], (source.stem, errors)
+                        continue
+                suite = hand_assembled_suite(app, endpoints=True)
+                source.with_suffix(".hq-suite.xml").write_bytes(suite)
+                records.append({
                     "scenario": source.stem,
                     "sourceSha256": sha256(raw),
                     "local": source.with_suffix(".suite.xml").read_bytes(),
                     "native": suite,
-                    "caseListFormErrors": sorted(
-                        error["type"]
-                        for module in app.get_modules()
-                        if module.doc_type == "Module"
-                        for error in ModuleValidator(module).validate_case_list_form()
-                    ),
-                }
-            )
+                    "caseListFormErrors": errors,
+                })
     return records
 
 

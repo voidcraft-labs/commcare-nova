@@ -707,6 +707,8 @@ function collectModuleConfigReferences(
 			case "unlisted_source_form":
 			case "listed_form_link":
 			case "module_case_list_registration_form":
+			case "case_list_action_created_case":
+			case "case_list_action_chosen_parent":
 				// Entity parentage and the registration form's identity are
 				// unrelated to the case-type catalog.
 				break;
@@ -763,6 +765,20 @@ function collectModuleConfigReferences(
 							concise: `calculated information "${col.header || "Calculated value"}" in Results on ${where} uses "${caseType}" information`,
 						});
 					}
+				}
+				break;
+			}
+			case "case_list_action_condition": {
+				const slot = mod.caseListRegistrationForm;
+				if (
+					slot?.kind === "always" &&
+					slot.showWhen?.kind === "condition" &&
+					expressionRefsCaseType(slot.showWhen.condition, caseType)
+				) {
+					out.push({
+						verbose: `the form offered on ${where} uses "${caseType}" information in its condition`,
+						concise: `the form offered on ${where} uses "${caseType}" information in its condition`,
+					});
 				}
 				break;
 			}

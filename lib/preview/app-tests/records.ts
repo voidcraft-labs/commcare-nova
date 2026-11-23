@@ -8,6 +8,7 @@ import {
 } from "@/lib/domain";
 import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
+import { searchOutcomeFromLoad } from "../engine/searchPhase";
 import {
 	type ServerSearchWorld,
 	serverRecordsRead,
@@ -120,6 +121,12 @@ export async function appTestRecords(
 		candidateUuid === undefined ? undefined : context.doc.forms[candidateUuid];
 	// Each action serializes a completed read, so its launch and search share
 	// this one attempt. No caller can provide a stale or privileged launch.
+	const outcome = result && searchOutcomeFromLoad(result);
+	const emptySearch =
+		search.hasSubmitted &&
+		outcome?.kind === "completed" &&
+		outcome.matchCount === 0 &&
+		screen.registeredCaseId === undefined;
 	const admission = caseListRegistrationAdmission({
 		doc: context.doc,
 		formUuid: candidateUuid,
@@ -128,8 +135,7 @@ export async function appTestRecords(
 			? { moduleUuid: screen.moduleUuid, attempt: 0 }
 			: undefined,
 		searchState:
-			search.hasSubmitted &&
-			(result?.kind === "empty" || result?.kind === "rows")
+			search.hasSubmitted && outcome?.kind === "completed"
 				? {
 						kind: "completed",
 						attempt: 0,
@@ -137,10 +143,15 @@ export async function appTestRecords(
 						answers: Object.fromEntries(
 							(search.submitted ?? []).map(({ name, value }) => [name, value]),
 						),
-						matchCount: result.kind === "empty" ? 0 : result.rows.length,
+						matchCount: outcome.matchCount,
 					}
 				: undefined,
 	});
+	const regular = alwaysOfferedRegistrationOf(context.doc, screen.moduleUuid);
+	const offerVisible =
+		regular?.showWhen?.kind === "empty-search"
+			? emptySearch
+			: search.formActionRelevant;
 	return {
 		state: next,
 		search,
@@ -153,7 +164,9 @@ export async function appTestRecords(
 						moduleUuid: screen.moduleUuid,
 						arm: "after-empty-search",
 					}
-				: alwaysOfferedRegistrationForm(context, screen.moduleUuid),
+				: offerVisible
+					? alwaysOfferedRegistrationForm(context, screen.moduleUuid)
+					: undefined,
 	};
 }
 

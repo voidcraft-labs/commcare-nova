@@ -32,7 +32,11 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { advancedLoadListMenus, parentStepRead } from "../../hq/entryFacts";
+import {
+	advancedLoadListMenus,
+	formChoosesCase,
+	parentStepRead,
+} from "../../hq/entryFacts";
 import { hiddenMenuEntryPoints } from "../../validator/rules/hiddenFromMenu";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
@@ -704,20 +708,6 @@ export function selectsSeveral(module: JsonObject): boolean {
 /** The stored forms of a menu. */
 export function rawForms(module: JsonObject): readonly JsonObject[] {
 	return objectMembers(module.forms) ?? [];
-}
-
-/** Whether a stored form's entry asks for a case first: a basic form's
- *  `requires`, an advanced form's load chosen from a list. */
-export function formChoosesCase(form: JsonObject): boolean {
-	if (form.doc_type === "AdvancedForm") {
-		const actions = isJsonObject(form.actions) ? form.actions : NO_ENTRIES;
-		const loads = objectMembers(actions.load_update_cases) ?? [];
-		return loads.some((load) => {
-			const select = isJsonObject(load.auto_select) ? load.auto_select : null;
-			return select === null;
-		});
-	}
-	return form.requires === "case";
 }
 
 // ── The reading's state ─────────────────────────────────────────────────

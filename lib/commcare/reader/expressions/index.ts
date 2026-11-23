@@ -1358,7 +1358,10 @@ export function* readExpressionsSteps(
 					detail: { name },
 				});
 			}
-		} else if (outcome.resolution.kind === "unrecognized")
+		} else if (
+			outcome.resolution.kind === "unrecognized" ||
+			outcome.resolution.entryId === "unrecognized"
+		)
 			circumstances.push({
 				source: index,
 				code: "unrecognized",

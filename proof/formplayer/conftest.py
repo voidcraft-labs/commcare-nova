@@ -15,6 +15,7 @@ import pytest
 
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
+    "case-list-action-basic",
     "case-capture-multiple",
     "case-capture-repeat",
     "case-extension-registration",
@@ -24,6 +25,8 @@ DOCUMENTS = (
     "case-operation-sequence",
     "media-rich",
     "navigation-base",
+    "no-matches-basic",
+    "no-matches-new-case",
     "prompt-widgets",
     "search-hidden-link",
     "search-remote-defaults",

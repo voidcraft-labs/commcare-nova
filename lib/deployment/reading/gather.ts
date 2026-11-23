@@ -1,5 +1,7 @@
 import "server-only";
 
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
+
 /**
  * The one function both bring-in requests call: read one app of CommCare HQ
  * under the bracketed read, read the Project's data it may read, run the
@@ -20,7 +22,7 @@ import "server-only";
 
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
-import { readHqSaveOnlyEditedAnswers } from "@/lib/commcare/client";
+import { createHqSourceFlagReader } from "@/lib/commcare/client";
 import {
 	type HqAlignedModule,
 	readHqAppForReading,
@@ -204,6 +206,7 @@ export interface Fetched {
 	/** The flag answer where the source holds a write saved only if changed; absent where it
 	 *  holds none. */
 	readonly saveOnlyEditedApplied?: boolean;
+	readonly caseListActionsApplied?: boolean;
 }
 
 /** A clean read, held in memory for the length of one request and never stored. */
@@ -595,7 +598,11 @@ function readerInputFor(
 	key: ReadingKey,
 	fetched: Pick<
 		Fetched,
-		"source" | "modules" | "data" | "saveOnlyEditedApplied"
+		| "source"
+		| "modules"
+		| "data"
+		| "saveOnlyEditedApplied"
+		| "caseListActionsApplied"
 	>,
 	plan: ReadingMediaPlan | null,
 ): ReaderInput {
@@ -615,6 +622,9 @@ function readerInputFor(
 		recordDialect: recordDialectRoundTrip,
 		...(fetched.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: fetched.saveOnlyEditedApplied,
+		}),
+		...(fetched.caseListActionsApplied !== undefined && {
+			caseListActionsApplied: fetched.caseListActionsApplied,
 		}),
 	};
 }
@@ -1321,6 +1331,15 @@ async function gatherFromHqWith(
 	if (!(await formsWithinReading(pieces, source)))
 		return answer(accountOf([atApp("too-large")], appName, false));
 
+	const readFlag = createHqSourceFlagReader(creds, key.domain, { cancel });
+	let caseListActionsApplied: boolean | undefined;
+	if (sourceUsesCaseListActionSetting(source.raw)) {
+		const flag = await readFlag("FOLLOWUP_FORMS_AS_CASE_LIST_FORM");
+		if (flag.kind === "not-a-member")
+			return answer(stopOf(atApp("not-a-member")));
+		if (flag.kind === "failed") return answer(failedRead(flag.failure));
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	const holdsEditMode = await editModeTest(pieces, [source]);
 	if (holdsEditMode === "fault")
@@ -1330,9 +1349,7 @@ async function gatherFromHqWith(
 			}),
 		);
 	if (holdsEditMode) {
-		const flag = await readHqSaveOnlyEditedAnswers(creds, key.domain, {
-			cancel,
-		});
+		const flag = await readFlag("SAVE_ONLY_EDITED_FORM_FIELDS");
 		if (flag.kind === "not-a-member")
 			return answer(stopOf(atApp("not-a-member")));
 		if (flag.kind === "failed") return answer(failedRead(flag.failure));
@@ -1371,6 +1388,7 @@ async function gatherFromHqWith(
 		readAt,
 		data: current,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 	});
 	let run = await runReader(
 		pieces,
@@ -1832,6 +1850,9 @@ async function checkWith(
 				recordDialect: reader.recordDialect,
 				...(reader.saveOnlyEditedApplied !== undefined && {
 					saveOnlyEditedApplied: reader.saveOnlyEditedApplied,
+				}),
+				...(reader.caseListActionsApplied !== undefined && {
+					caseListActionsApplied: reader.caseListActionsApplied,
 				}),
 			},
 			choices,

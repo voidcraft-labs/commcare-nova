@@ -55,6 +55,7 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
 import { EMPTY_CASE_LIST_TEXT } from "@/lib/commcare/suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
@@ -658,7 +659,10 @@ export function* expandDocSteps(
 						noMatches.formUuid,
 					),
 				),
-				post_form_workflow: "case_list",
+				post_form_workflow:
+					mod.caseListRegistrationForm?.afterSubmit === "new-case"
+						? "default"
+						: "case_list",
 				relevancy_expression: hqXPath(NO_MATCHES_RELEVANCY),
 			};
 		}
@@ -673,6 +677,13 @@ export function* expandDocSteps(
 				? undefined
 				: formUniqueIdOf.get(alwaysOffered.formUuid);
 		if (alwaysOffered !== undefined && alwaysOfferedFormId !== undefined) {
+			const condition = caseListActionCondition(
+				authoredDoc,
+				moduleUuid,
+				alwaysOffered.showWhen,
+				"hq-json",
+				opts.lookupNaming,
+			);
 			const media = buildNavMediaDicts(
 				alwaysOffered.icon,
 				alwaysOffered.audioLabel,
@@ -683,6 +694,9 @@ export function* expandDocSteps(
 			shell.case_list_form = {
 				doc_type: "CaseListForm",
 				form_id: alwaysOfferedFormId,
+				...(condition !== undefined && {
+					relevancy_expression: hqXPath(condition),
+				}),
 				label: localization.textMap(
 					caseListFormLabelUnit(
 						authoredDoc,

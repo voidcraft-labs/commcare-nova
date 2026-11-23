@@ -58,7 +58,11 @@ import {
 	withReadTranslations,
 } from "./modules";
 import { shownBlockMedia } from "./navMedia";
-import { readCaseListRegistration, settleRegistrations } from "./registration";
+import {
+	readCaseListRegistration,
+	settleCaseListActionConditions,
+	settleRegistrations,
+} from "./registration";
 import { readSharedFormMenus } from "./sharedForms";
 
 export { registerLinkExpressions } from "./afterSubmit";
@@ -255,6 +259,7 @@ export function* settleMenusSteps(
 	app: DraftApp,
 ): Generator<void, void, void> {
 	if (ctx.doc === undefined) return;
+	settleCaseListActionConditions(ctx);
 	settleModules(ctx, storedReturns(ctx));
 	settleEntryCaseCreations(ctx, app);
 	for (const module of app.modules)

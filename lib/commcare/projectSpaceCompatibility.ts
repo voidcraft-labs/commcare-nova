@@ -451,6 +451,24 @@ export function projectSpaceCompatibilityProbePlan(
 			: []) {
 			addReason("related-case-search", reason);
 		}
+		if (
+			module.caseListRegistrationForm?.kind === "always" &&
+			module.caseListRegistrationForm.showWhen !== undefined
+		) {
+			addReason(
+				"registration-after-empty-search",
+				"A case list shows its form button when a condition holds.",
+			);
+		}
+		if (
+			module.caseListRegistrationForm?.kind === "always" &&
+			module.caseListRegistrationForm.target?.kind === "chosen-parent"
+		) {
+			addReason(
+				"registration-after-empty-search",
+				"A case list offers a form for its selected parent record.",
+			);
+		}
 		if (moduleRequiresCaseListRegistration(doc, module)) {
 			addReason(
 				"registration-after-empty-search",

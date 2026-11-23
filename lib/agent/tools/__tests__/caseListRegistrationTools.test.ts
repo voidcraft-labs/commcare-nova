@@ -141,6 +141,35 @@ describe("registration from the case list", () => {
 		]);
 	});
 
+	it("changes the destination independently of the button label and preserves it on a label edit", async () => {
+		const h = await fixture();
+		const change = (registration: {
+			label?: string;
+			after_submit?: "new-case" | "case-list" | null;
+		}) =>
+			h.call("updateForm", {
+				formUuid: "Register",
+				case_list_registration: registration,
+			});
+		expect(
+			await change({ label: "Add patient", after_submit: "new-case" }),
+		).toMatchObject({ ok: true });
+		expect(await change({ label: "Add person" })).toMatchObject({ ok: true });
+		expect(await h.call("getModule", { moduleUuid: "Patients" })).toMatchObject(
+			{
+				caseListRegistrationForm: {
+					label: "Add person",
+					afterSubmit: "new-case",
+					followsFormAfterSubmit: false,
+				},
+			},
+		);
+		expect(await change({ after_submit: null })).toMatchObject({ ok: true });
+		expect(
+			moduleNamed(h.currentDoc(), "Patients").caseListRegistrationForm,
+		).not.toHaveProperty("afterSubmit");
+	});
+
 	it("restores a menu form with null, turning Forms read the search off and removing Search-based starting values", async () => {
 		const h = await fixture();
 		expect(

@@ -65,7 +65,6 @@ import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 
 import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
-	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type CaseListRegistrationReturn,
@@ -2170,6 +2169,45 @@ export function caseListFormReturnFrames(
 	];
 }
 
+/** The values pushed by a list action. HQ computes both generic form datum
+ * lists before add_remote_query_datums inserts queries in actual entries.
+ * Selection matches consider every datum of the host's first form. */
+export function caseListActionDatums(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	hostUuid: Uuid,
+	target: { readonly moduleUuid: Uuid; readonly formUuid: Uuid },
+): readonly { target: FrameDatum; source?: FrameDatum; value: WireExpr }[] {
+	const first = ctx.formOrder[hostUuid]?.[0];
+	const source =
+		first === undefined
+			? []
+			: entryFrameDatums(doc, ctx, hostUuid, first).filter(
+					(datum) => !datum.query,
+				);
+	return entryFrameDatums(doc, ctx, target.moduleUuid, target.formUuid).flatMap(
+		(datum) => {
+			if (datum.query) return [];
+			if (!datum.requiresSelection)
+				return datum.function === undefined
+					? []
+					: [{ target: datum, value: datum.function }];
+			const matches = source.filter(
+				(candidate) => candidate.caseType === datum.caseType,
+			);
+			return matches.length === 1
+				? [
+						{
+							target: datum,
+							source: matches[0],
+							value: sessionDataRef(matches[0].id),
+						},
+					]
+				: [];
+		},
+	);
+}
+
 /** The entry's new-case datum for `caseType` (`case_id_new_<type>_0`): the
  *  session value a registration's own new case, or a basic child of that
  *  type, takes. Undefined where the entry gives the form no new case of the
@@ -2192,12 +2230,12 @@ export function entryNewCaseDatumId(
  * stands in a menu of the projection. Elsewhere the slot is a validator
  * finding, and the emitter, being total, writes no action.
  */
-export function alwaysOfferedTarget(
+export function caseListActionTarget(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	hostModuleUuid: Uuid,
 ): { readonly moduleUuid: Uuid; readonly formUuid: Uuid } | undefined {
-	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
+	const slot = doc.modules[hostModuleUuid]?.caseListRegistrationForm;
 	const host = doc.modules[hostModuleUuid];
 	if (
 		slot === undefined ||
@@ -2220,22 +2258,37 @@ export function alwaysOfferedTarget(
  * action, or where the entry (`entryDatums`, the offered form's own) gives
  * the form no new case of the host's type.
  */
-export function alwaysOfferedReturnFrames(
+export function caseListActionReturnFrames(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	hostUuid: Uuid,
 	entryDatums: readonly SessionDatum[],
 ): readonly CaseListFormReturnFrame[] {
-	const returnTo = caseListRegistrationReturnOf(doc, hostUuid);
+	const returnTo = caseListRegistrationReturnOf(ctx.expressionDoc, hostUuid);
 	const hostCaseType = doc.modules[hostUuid]?.caseType;
 	if (
 		returnTo === undefined ||
 		returnTo.kind === "own" ||
 		!hostCaseType ||
-		alwaysOfferedTarget(doc, ctx, hostUuid) === undefined
+		caseListActionTarget(doc, ctx, hostUuid) === undefined
 	)
 		return [];
-	const newCaseId = entryNewCaseDatumId(entryDatums, hostCaseType);
+	const slot = doc.modules[hostUuid]?.caseListRegistrationForm;
+	if (!slot) return [];
+	const chosen = slot.kind === "always" ? slot.target : undefined;
+	const supplier = ctx
+		.newCaseDatums(slot.formUuid)
+		.find((created) =>
+			chosen?.kind === "created-case"
+				? created.operationUuid === chosen.operationUuid
+				: created.ref.kind === "new-case" && created.caseType === hostCaseType,
+		);
+	// HQ reads the operation's planned datum id, including where alignment
+	// moved its uuid() to a placeholder that retained that id.
+	const newCaseId =
+		supplier && entryDatums.some((datum) => datum.id === supplier.id)
+			? supplier.id
+			: undefined;
 	return newCaseId === undefined
 		? []
 		: caseListFormReturnFrames(

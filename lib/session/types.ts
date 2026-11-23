@@ -298,12 +298,14 @@ export interface PreviewSearchLaunch {
 /** Which case list's Register action opened a form it always offers. */
 export interface PreviewCaseListRegistrationLaunch {
 	readonly hostModuleUuid: Uuid;
+	/** Exactly the earlier selections the invoking list maps into this entry. */
+	readonly selections?: Readonly<Record<string, PreviewMenuCaseSelection>>;
 }
 
 /**
  * The one entry of a form that a case list's Register action opened, which
  * after submit returns where that list's choice says
- * (`lib/preview/engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`).
+ * (`lib/preview/engine/caseListRegisterAction.ts::caseListActionReturn`).
  * It names the form it opened, in its own menu, so a form screen reached any
  * other way is by construction not this launch, and it lasts while the
  * running app stays on that launch's own path

@@ -252,3 +252,16 @@ def test_a_deep_link_returns_to_the_first_menu_with_the_patient_still_chosen(and
     assert returned["session"]["selectedCase"] == "patient-2", returned
     fresh = _steps(navs["path:m1-f0"])
     assert any(step["screen"] == LIST for step in fresh), fresh
+
+
+def test_list_actions_open_the_parent_form_or_the_form_creating_a_member(android_documents, hq):
+    paths = [
+        ["m2", "@case:household-2", "@action:0"],
+        ["m1", "@case:household-2", "@action:0"],
+    ]
+    navs = _navs(android_documents["case-list-action-basic"], "list-action-roles", paths=paths)
+    for path, command in zip(paths, ("m3-f0","m3-f1"), strict=True):
+        steps = _steps(navs["path:"+"/".join(path)])
+        forms = [step for step in steps if step["screen"] == FORM_ENTRY]
+        assert forms and forms[0]["session"]["command"] == command, steps
+        assert any((step.get("list") or {}).get("took") == 0 for step in steps), steps

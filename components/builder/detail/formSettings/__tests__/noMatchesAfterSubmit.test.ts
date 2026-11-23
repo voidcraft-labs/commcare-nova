@@ -12,6 +12,7 @@ describe("no-matches registration destinations", () => {
 		expect(model.destination).toBe("Results showing the registered case");
 		expect(model.options.map((option) => option.value)).toEqual([
 			"return",
+			"new-case",
 			"firstMenu",
 		]);
 	});
@@ -45,6 +46,7 @@ describe("no-matches registration destinations", () => {
 		expect(model.destination).toBe("First menu");
 		expect(model.options).toStrictEqual([
 			{ value: "return", label: "Results showing the registered case" },
+			{ value: "new-case", label: "Continue with the new case" },
 			{ value: "firstMenu", label: "First menu" },
 		]);
 	});

@@ -182,10 +182,18 @@ export type GetModuleResult =
  *  form's own after-submit is in force from the list, and the Register
  *  button's media. */
 export type CaseListRegistrationRead =
-	| { kind: "after-empty-search"; formUuid: Uuid; label: string | null }
+	| {
+			kind: "after-empty-search";
+			formUuid: Uuid;
+			label: string | null;
+			afterSubmit: CaseListRegistrationReturn;
+			followsFormAfterSubmit: boolean;
+	  }
 	| {
 			kind: "always";
 			formUuid: Uuid;
+			target?: import("@/lib/domain").CaseListActionTarget;
+			showWhen?: import("@/lib/domain").AlwaysOfferedRegistration["showWhen"];
 			label: string | null;
 			afterSubmit: CaseListRegistrationReturn;
 			followsFormAfterSubmit: boolean;
@@ -204,12 +212,17 @@ function caseListRegistrationRead(
 			kind: slot.kind,
 			formUuid: slot.formUuid,
 			label: slot.label ?? null,
+			afterSubmit: slot.afterSubmit ?? "case-list",
+			followsFormAfterSubmit:
+				caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "own",
 		};
 	return {
 		kind: slot.kind,
 		formUuid: slot.formUuid,
 		label: slot.label ?? null,
 		afterSubmit: slot.afterSubmit,
+		...(slot.target && { target: slot.target }),
+		...(slot.showWhen && { showWhen: slot.showWhen }),
 		followsFormAfterSubmit:
 			caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "own",
 		icon: slot.icon ?? null,

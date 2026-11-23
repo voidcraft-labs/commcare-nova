@@ -15,11 +15,16 @@ import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import { appTestNamespace } from "@/lib/case-store/appTestNamespace";
 import {
+	actionRoleIds,
+	caseListActionRolesFixture,
+} from "@/lib/commcare/__tests__/caseListActionRolesFixture";
+import {
 	admitNoMatchesDoc,
 	FOLLOWUP_FORM,
 	HOST_MODULE,
 	NAME_INPUT,
 	noMatchesDoc,
+	noMatchesWireFixture,
 	REGISTER_FORM,
 } from "@/lib/commcare/__tests__/noMatchesWireFixture";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -241,16 +246,15 @@ function sharedJourneyCalls(doc: import("@/lib/domain").BlueprintDoc) {
 	};
 }
 
-it.each([false, true])(
-	"admits registration only after an empty search, preserving its return behavior (first menu: %s)",
+it.each(["basic", "home", "new-case"] as const)(
+	"admits registration only after an empty search and continues from the submitted case (%s)",
 	// Seven persisted steps, each its own locked transaction and evaluation,
 	// and each one part of the contract (the refused Register before the
 	// search, the search, the prefilled form, the answer the return shows,
 	// the submit), so give it the budget of the file's other journeys.
 	{ timeout: 15_000 },
-	async (home) => {
-		const doc = noMatchesDoc();
-		if (home) doc.forms[REGISTER_FORM].postSubmit = "firstMenu";
+	async (destination) => {
+		const doc = noMatchesWireFixture(destination);
 		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 		await h.seedAppWithBlueprint(doc, {
 			id: scope.appId,
@@ -300,8 +304,29 @@ it.each([false, true])(
 		});
 		const saved = await step({ kind: "submit" });
 		expect(saved.savedInTest).toBe(true);
-		if (home) expect(saved.screen).toBe("home");
-		else {
+		if (destination === "home") {
+			expect(saved.screen).toBe("home");
+		} else if (destination === "new-case") {
+			const selection = [
+				expect.objectContaining({ caseName: "Corrected name" }),
+			];
+			expect(saved).toMatchObject({ screen: "menu", selected: selection });
+			expect(
+				await step({ kind: "form", formUuid: FOLLOWUP_FORM }),
+			).toMatchObject({
+				screen: "form",
+			});
+			expect(await step({ kind: "back" })).toMatchObject({
+				screen: "menu",
+				selected: selection,
+			});
+			expect(await step({ kind: "back" })).toMatchObject({
+				screen: "results",
+				results: {
+					rows: [expect.objectContaining({ case_name: "Corrected name" })],
+				},
+			});
+		} else {
 			expect(saved).toMatchObject({
 				screen: "results",
 				results: {
@@ -4246,6 +4271,95 @@ it("runs both destinations in turn on Android and opens only the first on Web Ap
 		WHERE id = ${current.testId}`.execute(h.db());
 	expect(await step({ kind: "submit" })).toMatchObject({
 		screen: "device-home",
+	});
+	await step({ kind: "finish" });
+});
+
+it("uses the parent chosen on this visit for a conditional list action and follows the target form’s own return", async () => {
+	const doc = caseListActionRolesFixture();
+	const id = actionRoleIds;
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "family-rows",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Open the right household from its member list",
+			scenario: {
+				records: [
+					{
+						id: "closed-to-new-members",
+						caseType: "household",
+						name: "Closed household",
+					},
+					{
+						id: "open-to-new-members",
+						caseType: "household",
+						name: "Open household",
+					},
+				],
+			},
+		},
+	});
+	let n = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `family-row-${++n}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid: id.registerList });
+	const closed = await step({
+		kind: "select",
+		caseIds: ["closed-to-new-members"],
+	});
+	expect(closed.name).toBe("New members");
+	expect(closed.registration).toBeUndefined();
+	await step({ kind: "back" });
+	const available = await step({
+		kind: "select",
+		caseIds: ["open-to-new-members"],
+	});
+	expect(available.registration).toMatchObject({ uuid: id.register });
+	await step({ kind: "form", formUuid: id.register });
+	await step({
+		kind: "answer",
+		answers: [
+			{ path: "household_name", value: "Second household" },
+			{ path: "member_name", value: "New member" },
+		],
+	});
+	const registered = await step({ kind: "submit" });
+	expect(registered).toMatchObject({
+		savedInTest: true,
+		screen: "menu",
+		name: "New members",
+	});
+	await step({ kind: "home" });
+	await step({ kind: "menu", moduleUuid: id.parentList });
+	const parentAction = await step({
+		kind: "select",
+		caseIds: ["closed-to-new-members"],
+	});
+	expect(parentAction.registration).toMatchObject({ uuid: id.edit });
+	expect(await step({ kind: "form", formUuid: id.edit })).toMatchObject({
+		screen: "form",
+		name: "Edit household",
+	});
+	await step({
+		kind: "answer",
+		answers: [{ path: "note", value: "Visited the household" }],
+	});
+	expect(await step({ kind: "submit" })).toMatchObject({
+		savedInTest: true,
+		screen: "home",
 	});
 	await step({ kind: "finish" });
 });

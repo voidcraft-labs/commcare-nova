@@ -127,6 +127,14 @@ export function caseDatabaseRequirements(
 	const searchReference = Object.values(doc.modules).some(
 		moduleSearchReadsCaseDatabase,
 	);
+	const listActionReference = Object.values(doc.modules).some((module) => {
+		const action = module.caseListRegistrationForm;
+		return (
+			action?.kind === "always" &&
+			action.showWhen?.kind === "condition" &&
+			expressionReadsCaseDatabase(action.showWhen.condition, doc)
+		);
+	});
 	/* After-submit routing can carry an existing case, select an unchanged
 	 * related case, or walk an unchanged ancestor even when none of its authored
 	 * XPath mentions `instance('casedb')`. The transaction patch contains only
@@ -160,6 +168,7 @@ export function caseDatabaseRequirements(
 		explicitReference ||
 		proseReference ||
 		navigationReference ||
+		listActionReference ||
 		searchReference ||
 		(hasAfterSubmitTask && hasCaseBearingModule);
 	const caseTypes = required

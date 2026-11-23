@@ -5,6 +5,7 @@ import {
 	profileUniqueId,
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
+import { caseListActionCondition } from "@/lib/commcare/suite/case-list/actionCondition";
 import {
 	menuFormUuidsOf,
 	menuWithInheritedCaseSettings,
@@ -74,15 +75,13 @@ import {
 	requireExpressionContext,
 } from "@/lib/commcare/expressionContext";
 import {
-	alwaysOfferedReturnFrames,
-	alwaysOfferedTarget,
-	caseListFormReturnFrames,
+	caseListActionDatums,
+	caseListActionReturnFrames,
+	caseListActionTarget,
 	caseListSessionDatums,
 	caseListStepDatumId,
 	entryDatumIdResolver,
 	entryDatumIds,
-	entryFrameDatums,
-	entryNewCaseDatumId,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
 	formCommandId,
@@ -161,7 +160,7 @@ import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
-	caseListsOffering,
+	caseListActionHosts,
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	makeTranslationUnitId,
@@ -246,21 +245,6 @@ export interface CompileOptions {
 	identity?: WireIdentity;
 }
 
-/** The entry's new-case datum for `caseType`, which a form offered after an
- *  empty search always has. */
-function newCaseDatumId(
-	datums: readonly SessionDatum[],
-	caseType: string,
-): string {
-	const id = entryNewCaseDatumId(datums, caseType);
-	if (id === undefined) {
-		throw new Error(
-			`Cannot build the no-matches return frame: the registration entry has no new-case datum for "${caseType}"`,
-		);
-	}
-	return id;
-}
-
 /**
  * The Register action of a host module, HQ's
  * `DetailContributor.get_case_list_form_action`: the target form's own
@@ -280,35 +264,26 @@ function registerActionFor(
 	hostModuleUuid: Uuid,
 	target: { readonly moduleUuid: Uuid; readonly formUuid: Uuid },
 ): RegisterActionContext {
-	const targetDatums = entryFrameDatums(
-		doc,
-		linkContext,
-		target.moduleUuid,
-		target.formUuid,
-	);
-	const [firstMenuForm] = linkContext.formOrder[hostModuleUuid] ?? [];
-	const source =
-		firstMenuForm === undefined
-			? []
-			: entryFrameDatums(doc, linkContext, hostModuleUuid, firstMenuForm);
 	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
+	const relevant =
+		slot === undefined
+			? NO_MATCHES_RELEVANCY
+			: caseListActionCondition(
+					linkContext.expressionDoc,
+					hostModuleUuid,
+					slot.showWhen,
+					"suite",
+					linkContext.lookupNaming,
+				);
 	return {
 		commandId: formCommandId(linkContext, target.moduleUuid, target.formUuid),
-		datums: targetDatums.flatMap((datum) => {
-			if (!datum.requiresSelection) {
-				return datum.function === undefined
-					? []
-					: [{ id: datum.id, value: datum.function }];
-			}
-			const matches = source.filter(
-				(candidate) =>
-					candidate.requiresSelection && candidate.caseType === datum.caseType,
-			);
-			return matches.length === 1
-				? [{ id: datum.id, value: sessionDataRef(matches[0].id) }]
-				: [];
-		}),
-		...(slot === undefined && { relevant: NO_MATCHES_RELEVANCY }),
+		datums: caseListActionDatums(doc, linkContext, hostModuleUuid, target).map(
+			({ target, value }) => ({
+				id: target.id,
+				value,
+			}),
+		),
+		...(relevant !== undefined && { relevant }),
 		labelLocaleId: `case_list_form.m${moduleIndexOf(linkContext, hostModuleUuid)}`,
 		...(slot?.icon !== undefined && { icon: slot.icon }),
 		...(slot?.audioLabel !== undefined && { audioLabel: slot.audioLabel }),
@@ -584,7 +559,6 @@ export function compileCczParts(
 				: (hqMod.case_type ?? "");
 		const hqForms = hqModules[sourceIndex].forms;
 		const caseSearchConfig = effectiveCaseSearchConfig(mod);
-		const noMatches = plan.caseListRegistrationOf.get(moduleUuid);
 		// Owner exclusion belongs to case availability, not to the presence of
 		// a remote Search action. Read the raw authored slot so an owner-only
 		// module still narrows its ordinary `casedb` list even when
@@ -679,10 +653,7 @@ export function compileCczParts(
 		// form offered after an empty search opens from its hidden module and
 		// is relevant only when the inline search found nothing; a form the
 		// list always offers opens from its own menu.
-		const registerTarget =
-			noMatches !== undefined
-				? { moduleUuid: noMatches.moduleUuid, formUuid: noMatches.formUuid }
-				: alwaysOfferedTarget(doc, linkContext, moduleUuid);
+		const registerTarget = caseListActionTarget(doc, linkContext, moduleUuid);
 		const registerAction =
 			registerTarget === undefined
 				? undefined
@@ -1008,26 +979,15 @@ export function compileCczParts(
 			// registered; an explicit `firstMenu` returns to the app's first menu
 			// instead. A form case lists always offer carries each host's frames,
 			// in module order, where its own after-submit writes no frame.
-			const returnFrames =
-				synthetic !== undefined
-					? form.postSubmit === "firstMenu"
-						? []
-						: caseListFormReturnFrames(
-								doc,
-								linkContext,
-								synthetic.hostModuleUuid,
-								newCaseDatumId(projectedSessionDatums, synthetic.caseType),
-								synthetic.caseType,
-								"case-list",
-							)
-					: caseListsOffering(doc, formUuid).flatMap((hostUuid) =>
-							alwaysOfferedReturnFrames(
-								doc,
-								linkContext,
-								hostUuid,
-								projectedSessionDatums,
-							),
-						);
+			const returnFrames = caseListActionHosts(authoredDoc, formUuid).flatMap(
+				(hostUuid) =>
+					caseListActionReturnFrames(
+						doc,
+						linkContext,
+						hostUuid,
+						projectedSessionDatums,
+					),
+			);
 			const commandInstances = new InstanceSink();
 			const menuCommand = xel(
 				"command",

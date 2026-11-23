@@ -8784,10 +8784,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "follow-up-form-of-the-parent-case-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm` follow-up arm (offered only where the module selects its parent through `parent_select`, `views/modules.py::get_parent_select_followup_forms`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the list action names the earlier parent selection, binds the form to its supplied record and follows the ordinary form workflow",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8871,7 +8870,7 @@
 		],
 		"valueClass": "default-or-case-list",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `case_list` for the `after-empty-search` arm; the `always` arm's `afterSubmit` (`case-list` is `case_list`, `new-case` is `default`), stored also where the form's own end-of-form navigation overrides it",
+		"dispositionCell": "**HELD**: both list actions hold the destination (`case-list` is `case_list`, `new-case` is `default`), including where the form has its own overriding navigation",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -8902,10 +8901,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "default-on-the-hidden-module-shape",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `default` beside a form in an always-hidden module of a host whose forms read the search: Nova's `after-empty-search` arm returns to Results, and `default` goes on with the new case chosen (`CaseListFormWorkflow._get_stack_frames`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the empty-search action continues with the new case when it was created. With no case created, the worker returns to the list. A form with its own First menu destination keeps that navigation.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8964,10 +8962,9 @@
 			"schema:CaseListForm.relevancy_expression"
 		],
 		"valueClass": "with-followup-forms-as-case-list-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm.displayCondition` (Predicate, else the typed expression model)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the list has a typed condition on its form button, evaluated against this entry before choosing a record; a completed empty search has its own setting",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9263,10 +9260,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "form-registering-the-type-as-a-root-child-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a form whose one registration of the list's type is a root child case (`Form.get_registration_actions`): its action may carry a selection and its return reads a subcase datum (`session_var_for_action` of the subcase); Nova's `always` arm names a registration form of the list's type",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the action names the stable creation operation and returns with that child when it exists",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9296,10 +9292,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "form-of-another-list-s-empty-search",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: one form offered after an empty search by one list and always by another: the form is on no menu and Preview admits it from one launch",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: both hosts offer the same hidden form and each list retains its own return and action settings. A form can only read a search answer supplied through all its entries.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

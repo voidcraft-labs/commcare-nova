@@ -22,7 +22,7 @@ import static org.junit.Assert.*;
  * that always offers another menu's registration form (`<document>.offers.json`), the action on the host's short
  * detail opens the form in its own menu with `return_to` naming the host, and on finishing the form, with the case
  * created and without, the worker lands where Preview lands them
- * (`caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`, the return frame whose guard holds read by
+ * (`caseListRegisterAction.ts::caseListActionReturn`, the return frame whose guard holds read by
  * `frameLanding.ts::screenOfFrame`): on that frame's screen, with the new case chosen exactly where that frame
  * selects in the host; where the form's own after-submit is in force, where that frame lands, since HQ writes no
  * return frame then. The new case is written to Core's in-memory case storage to stand for the submitted form's; no
@@ -49,6 +49,9 @@ public class RegisterFromListRuntimeTest {
   * selection, an inline search answered with an empty result set as `MenuScreensRuntimeTest.fill` answers it), until
   * the selection it needs is the host's list. */
  private static void openHostList(SessionWrapper session,Suite suite,String host,String label)throws Exception{
+  openHostList(session, suite, host, label, null);
+ }
+ private static void openHostList(SessionWrapper session, Suite suite, String host, String label, String parentId) throws Exception {
   String list=host+"_case_short";TreeSet<String> listing=new TreeSet<>();
   for(Entry entry:suite.getEntries().values())for(SessionDatum datum:entry.getSessionDataReqs())
    if(datum instanceof EntityDatum&&list.equals(((EntityDatum)datum).getShortDetail()))listing.add(entry.getCommandId());
@@ -68,9 +71,62 @@ public class RegisterFromListRuntimeTest {
     assertNotNull(label+": "+results.second,results.first);
     session.setQueryDatum(results.first);
    }
-   else if(needed.equals(SessionFrame.STATE_DATUM_VAL))session.setEntityDatum(datum.getDataId(),"chosen-"+datum.getDataId());
+   else if(needed.equals(SessionFrame.STATE_DATUM_VAL))session.setEntityDatum(datum.getDataId(),parentId == null ? "chosen-"+datum.getDataId() : parentId);
    else if(needed.equals(SessionFrame.STATE_DATUM_COMPUTED))session.setComputedDatum(context);
    else fail(label+" needs "+needed+" before "+list);
+  }
+ }
+ @Test public void exactCreatedMemberAndChosenHouseholdDriveTheirOwnListActions() throws Exception {
+  for (String shape : new String[]{"basic","advanced"}) for (boolean hq : new boolean[]{false,true}) {
+   Suite suite = MenuScreensRuntimeTest.suite("case-list-action-roles-"+shape, hq);
+   for (boolean followUp : new boolean[]{false,true}) for (boolean wroteMember : new boolean[]{false,true}) {
+    String host = followUp ? "m2" : "m1", command = followUp ? "m3-f0" : "m3-f1";
+    String label = shape+" hq="+hq+" host="+host+" wrote="+wroteMember;
+    MockUserDataSandbox sandbox = MockDataUtils.getStaticStorage();
+    SessionWrapper session = MenuScreensRuntimeTest.session(suite,sandbox);
+    if (!followUp) {
+     SessionWrapper closed = MenuScreensRuntimeTest.session(suite, sandbox);
+     openHostList(closed,suite,host,label,"closed-to-new-members");
+     EvaluationContext blocked = closed.getEvaluationContext();
+     assertTrue(label+" the selected household hides the action",
+       opening(suite.getDetail(host+"_case_short").getCustomActions(blocked),command,blocked).isEmpty());
+    }
+    openHostList(session,suite,host,label);
+    List<String> previous = new ArrayList<>();
+    for (String value : session.getData().values()) if (value.startsWith("chosen-")) previous.add(value);
+    assertEquals(label,1,previous.size());
+    EvaluationContext context = session.getEvaluationContext();
+    List<Action> shown = opening(suite.getDetail(host+"_case_short").getCustomActions(context),command,context);
+    assertEquals(label,1,shown.size());
+    session.executeStackOperations(shown.get(0).getStackOperations(),context);
+    assertEquals(label,host,session.getData().get("return_to"));
+    assertNull(label,session.getNeededData(session.getEvaluationContext()));
+    if (followUp) {
+     for (SessionDatum datum : suite.getEntry(command).getSessionDataReqs())
+      if (datum instanceof EntityDatum) assertEquals(label,previous.get(0),session.getData().get(datum.getDataId()));
+     session.finishExecuteAndPop(session.getEvaluationContext());
+     assertNull(label+" the form finishes at Home",session.getCommand());
+     continue;
+    }
+    String member = null;
+    for (SessionDatum datum : suite.getEntry(command).getSessionDataReqs()) {
+     if (!(datum instanceof ComputedDatum)) continue;
+     String key = datum.getDataId(), id = session.getData().get(key);
+     boolean person = key.contains("person");
+     assertTrue(label+" "+key, person || key.contains("household"));
+     if (person) member = id;
+     // The other created case exists even where the chosen case was skipped.
+     if (!person || wroteMember) {
+      Case record = new Case(key,person ? "person" : "household");
+      record.setCaseId(id);
+      sandbox.getCaseStorage().write(record);
+     }
+    }
+    assertNotNull(label,member);
+    session.finishExecuteAndPop(session.getEvaluationContext());
+    assertEquals(label,host,session.getCommand());
+    assertEquals(label,wroteMember,session.getData().containsValue(member));
+   }
   }
  }
  @Test public void registerOpensTheFormAndReturnsWhereItsHostSays()throws Exception{

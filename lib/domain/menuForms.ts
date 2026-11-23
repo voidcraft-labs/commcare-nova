@@ -61,6 +61,16 @@ export function caseListsOffering(
 	);
 }
 
+/** Every list action opening this form, in the order its entry writes return frames. */
+export function caseListActionHosts(
+	doc: Pick<BlueprintDoc, "modules" | "moduleOrder">,
+	formUuid: Uuid,
+): Uuid[] {
+	return doc.moduleOrder.filter(
+		(moduleUuid) => offeredRegistrationFormOf(doc, moduleUuid) === formUuid,
+	);
+}
+
 /** The form the module's case list offers under either arm. */
 export function offeredRegistrationFormOf(
 	doc: Pick<BlueprintDoc, "modules">,
@@ -69,7 +79,7 @@ export function offeredRegistrationFormOf(
 	return doc.modules[moduleUuid]?.caseListRegistrationForm?.formUuid;
 }
 
-/** Where a worker goes after registering from an `always` host's case list. */
+/** Where a worker goes after submitting a form from a case list. */
 export type CaseListRegistrationReturnOf =
 	| { readonly kind: "own" }
 	| { readonly kind: CaseListRegistrationReturn };
@@ -79,18 +89,23 @@ export type CaseListRegistrationReturnOf =
  * the form's own after-submit writes a frame (it holds links, or its
  * after-submit is anything but Home), since CommCare HQ then writes no return
  * frame (`workflow.py::WorkflowHelper._get_stack_frames`); else the arm's
- * `afterSubmit`. Undefined for a host with no `always` arm, or whose form is
+ * `afterSubmit`. Undefined for a host with no list action, or whose form is
  * not in the app.
  */
 export function caseListRegistrationReturnOf(
 	doc: Pick<BlueprintDoc, "forms" | "formOrder" | "modules" | "moduleOrder">,
 	hostUuid: Uuid,
 ): CaseListRegistrationReturnOf | undefined {
-	const slot = alwaysOfferedRegistrationOf(doc, hostUuid);
+	const slot = doc.modules[hostUuid]?.caseListRegistrationForm;
 	if (slot === undefined) return undefined;
 	const form = doc.forms[slot.formUuid];
 	if (form === undefined) return undefined;
+	if (slot.kind === "after-empty-search")
+		return form.postSubmit === "firstMenu"
+			? { kind: "own" }
+			: { kind: slot.afterSubmit ?? "case-list" };
 	if (
+		slot.target?.kind === "chosen-parent" ||
 		form.formLinks !== undefined ||
 		effectivePostSubmit(doc, slot.formUuid) !== "app_home"
 	)

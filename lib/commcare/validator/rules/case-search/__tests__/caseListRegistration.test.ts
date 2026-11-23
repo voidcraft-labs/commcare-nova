@@ -837,7 +837,7 @@ describe("caseListRegistrationApp: the always arm", () => {
 		}
 	});
 
-	it("refuses a form another menu offers after a search finds nothing", () => {
+	it("allows a second list to open the same hidden form and blocks reading answers from the wrong list", () => {
 		const doc = alwaysDoc({
 			intake: {
 				caseListConfig: searchList(),
@@ -850,14 +850,35 @@ describe("caseListRegistrationApp: the always arm", () => {
 			registrationFindings(doc).filter(
 				(finding) => finding.moduleUuid === CLINIC,
 			),
-		).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_NOT_REGISTRATION",
-				moduleUuid: CLINIC,
-				reason: "after-empty-search-form",
-				message: `"Clinic" offers "Register patient" on its case list, but "Register patient" opens only after a search finds nothing in "Intake", so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`,
+		).toEqual([]);
+		const field = Object.values(doc.fields).find(
+			(one) =>
+				one.id === "case_name" && doc.fieldOrder[REG]?.includes(one.uuid),
+		);
+		if (field === undefined) throw new Error("missing registration name field");
+		const withRead = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[field.uuid]: {
+					...field,
+					default_value: {
+						kind: "term" as const,
+						term: { kind: "input" as const, searchInputUuid: NAME_INPUT },
+					},
+				},
 			},
-		]);
+		};
+		expect(runValidation(withRead, LOOKUP_CONTEXT_UNAVAILABLE)).toContainEqual(
+			expect.objectContaining({
+				code: "INVALID_SEARCH_REF",
+				details: expect.objectContaining({ reason: "another-list" }),
+				location: expect.objectContaining({
+					formUuid: REG,
+					fieldUuid: field.uuid,
+				}),
+			}),
+		);
 	});
 
 	it("refuses a host with no case type", () => {
@@ -1021,7 +1042,7 @@ describe("caseListRegistrationApp: the always arm", () => {
 		expect(registrationFindings(several("case-list"))).toEqual([]);
 	});
 
-	it("refuses an advanced host, and a form of an advanced menu", () => {
+	it("holds the advanced host restriction while admitting a registration in an advanced menu", () => {
 		const host = alwaysDoc({
 			configure: (draft) => {
 				draft.modules[CLINIC].heldKind = "advanced";
@@ -1040,18 +1061,7 @@ describe("caseListRegistrationApp: the always arm", () => {
 				draft.modules[INTAKE].heldKind = "advanced";
 			},
 		});
-		expect(
-			registrationFindings(form).filter(
-				(finding) => finding.code === "CASE_LIST_REGISTRATION_ADVANCED_MENU",
-			),
-		).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
-				moduleUuid: CLINIC,
-				reason: "form",
-				message: `"Register patient" is in "Intake", which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
-			},
-		]);
+		expect(registrationFindings(form)).toEqual([]);
 	});
 
 	it("is reported by a run scoped to the form's menu, as by the full run", () => {

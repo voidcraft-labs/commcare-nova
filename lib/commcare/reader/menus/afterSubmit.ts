@@ -42,6 +42,7 @@ import {
 	sessionDataRef,
 	targetFrameChildren,
 } from "../../formLinkProjection";
+import { formChoosesCase } from "../../hq/entryFacts";
 import { entryPlanContext, runFormRules } from "../../validator/rules/form";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FormSyntax } from "../../xpath/formSyntax";
@@ -70,7 +71,6 @@ import { sameSyntax } from "../syntaxCompare";
 import {
 	draftFormByReadId,
 	draftModuleById,
-	formChoosesCase,
 	rawForms,
 	rawModuleById,
 	rawModules,

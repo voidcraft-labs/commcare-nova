@@ -139,7 +139,10 @@ import {
 	caseListScreenStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
-import { previewRegisterAction } from "@/lib/preview/caseListRegistration";
+import {
+	caseListActionChoices,
+	previewRegisterAction,
+} from "@/lib/preview/caseListRegistration";
 import {
 	type CaseListPlace,
 	caseListPlaceOnReturn,
@@ -192,6 +195,7 @@ import {
 	formDisplayVisibility,
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
+import { expressionReadsCaseDatabase } from "@/lib/preview/engine/expressionCaseReads";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
 	awaitsPreviewIdentity,
@@ -209,7 +213,10 @@ import {
 import { searchOutcomeFromLoad } from "@/lib/preview/engine/searchPhase";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
-import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
+import {
+	useDeviceCaseDatabaseLoad,
+	useNavigationDeviceCases,
+} from "@/lib/preview/engine/useNavigationDeviceCases";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
@@ -596,6 +603,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	);
 	const lookupStatus = usePreviewLookupStatus();
 	const navigationDeviceCases = useNavigationDeviceCases(menuSource.caseTypes);
+	const deviceCaseLoad = useDeviceCaseDatabaseLoad();
 	/* The session at this list's step: the datums chosen before it, which
 	 * its Search screen reads, and the cases chosen in earlier menus, which
 	 * a browse filter reads. */
@@ -753,42 +761,67 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	/* A condition that reads data the device lacks (a place key of a worker
 	 * assigned nowhere) is Core's refusal of the list whose action it gates,
 	 * held as the screen's state (`readPreviewScreen`). */
-	const searchActionRead = readPreviewScreen((): boolean | "undecided" => {
-		if (searchConfig === undefined) return false;
-		if (searchButtonCondition === undefined) return true;
-		/* A session still waiting for its worker decides nothing
-		 * (`awaitsPreviewIdentity`): the condition is undecided until the
-		 * worker arrives, as it is while lookups load. */
-		if (awaitsPreviewIdentity(searchSession)) return "undecided";
-		/* A condition whose carriers the held snapshot doesn't cover (still
-		 * loading, or a valid edit the stale snapshot predates) is undecided:
-		 * the Search pane stays withheld, and a step that depends on it waits
-		 * (`caseListScreenStep`), rather than flashing a surface the decided
-		 * value may retract. A lookup load that failed decides it false. */
-		if (
-			!predicateLookupsCovered(
-				searchButtonCondition,
-				lookupStatus.kind === "data" ? lookupStatus.data : undefined,
+	const readAction = (
+		condition: typeof searchButtonCondition,
+		slot: "search_button_display_condition" | "case_list_action_condition",
+	) =>
+		readPreviewScreen((): boolean | "undecided" => {
+			if (condition === undefined) return true;
+			/* A session still waiting for its worker decides nothing
+			 * (`awaitsPreviewIdentity`): the condition is undecided until the
+			 * worker arrives, as it is while lookups load. */
+			if (awaitsPreviewIdentity(searchSession)) return "undecided";
+			/* A condition whose carriers the held snapshot doesn't cover (still
+			 * loading, or a valid edit the stale snapshot predates) is undecided:
+			 * the Search pane stays withheld, and a step that depends on it waits
+			 * (`caseListScreenStep`), rather than flashing a surface the decided
+			 * value may retract. A lookup load that failed decides it false. */
+			if (
+				!predicateLookupsCovered(
+					condition,
+					lookupStatus.kind === "data" ? lookupStatus.data : undefined,
+				)
 			)
-		)
-			return lookupStatus.kind === "error" ? false : "undecided";
-		return evaluatePreviewSearchPredicate(
-			searchButtonCondition,
-			previewExpressionContext(
-				menuSource.doc,
-				{
-					entity: "module",
-					uuid: moduleUuid,
-					slot: "search_button_display_condition",
-				},
-				searchEnvironment.lookup,
-			),
-			searchEnvironment,
-			config?.searchInputs ?? [],
-			searchSession,
-			EMPTY_SEARCH_INPUT_VALUES,
-		);
-	});
+				return lookupStatus.kind === "error" ? false : "undecided";
+			return evaluatePreviewSearchPredicate(
+				condition,
+				previewExpressionContext(
+					menuSource.doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot,
+					},
+					searchEnvironment.lookup,
+				),
+				searchEnvironment,
+				slot === "case_list_action_condition"
+					? []
+					: (config?.searchInputs ?? []),
+				searchSession,
+				EMPTY_SEARCH_INPUT_VALUES,
+			);
+		});
+	const searchActionRead =
+		searchConfig === undefined
+			? { kind: "read" as const, value: false }
+			: readAction(searchButtonCondition, "search_button_display_condition");
+	const formActionRule =
+		mod?.caseListRegistrationForm?.kind === "always"
+			? mod.caseListRegistrationForm.showWhen
+			: undefined;
+	const actionWaitsForCases =
+		formActionRule?.kind === "condition" &&
+		navigationDeviceCases.snapshot === null &&
+		expressionReadsCaseDatabase(formActionRule.condition, menuSource.doc);
+	const formActionRead = actionWaitsForCases
+		? { kind: "read" as const, value: "undecided" as const }
+		: readAction(
+				formActionRule?.kind === "condition"
+					? formActionRule.condition
+					: undefined,
+				"case_list_action_condition",
+			);
 	const searchActionIsRelevant =
 		searchActionRead.kind === "read" && searchActionRead.value === true;
 	/* The menu's forms read the search (CommCare's inline search): the
@@ -1663,7 +1696,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		focusNextFrame(() => resultsTitleRef.current);
 	}, [focusNextFrame, reloadCases]);
 	const retryDeviceCases =
-		deviceValues.kind === "unavailable" ? deviceValues.retry : undefined;
+		deviceValues.kind === "unavailable"
+			? deviceValues.retry
+			: actionWaitsForCases && deviceCaseLoad.status === "error"
+				? deviceCaseLoad.retry
+				: undefined;
 	const retryDeviceCasesWithFocus = useCallback(async () => {
 		const pending = retryDeviceCases?.();
 		focusNextFrame(() => resultsTitleRef.current);
@@ -2223,6 +2260,11 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			label: registerLabel,
 			onClick: () => {
 				setOpenCase(null);
+				setPreviewCaseListRegistrationEntry({
+					hostModuleUuid: moduleUuid,
+					moduleUuid,
+					formUuid: registrationForm.uuid,
+				});
 				setPreviewCaseTarget({
 					formUuid: registrationForm.uuid,
 					searchLaunch: { moduleUuid, attempt },
@@ -2237,14 +2279,20 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		registerLabel,
 		registrationForm,
 		searchState,
+		setPreviewCaseListRegistrationEntry,
 		setPreviewCaseTarget,
 		navigate,
 	]);
+	const showListForm =
+		formActionRule?.kind === "empty-search"
+			? noMatchesActionAvailable(searchState)
+			: formActionRead.kind === "read" && formActionRead.value === true;
 	const alwaysRegisterAction = useMemo(() => {
 		if (
 			!previewing ||
 			moduleUuid === undefined ||
 			registerAction?.arm !== "always" ||
+			!showListForm ||
 			registerLabel === undefined
 		)
 			return undefined;
@@ -2254,12 +2302,17 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			icon,
 			onClick: () => {
 				setOpenCase(null);
-				/* A registration form opens with no case; the launch is its
-				 * own fact, naming the entry it opens, so it ends with that
-				 * entry rather than with whatever next sets the case target. */
-				setPreviewCaseTarget(undefined);
+				const selections = caseListActionChoices(
+					menuSource.doc,
+					moduleUuid,
+					formUuid,
+					menuCaseSelections,
+				);
+				const cases = selections[formModuleUuid]?.cases;
+				setPreviewCaseTarget({ formUuid, ...(cases && { cases }) });
 				setPreviewCaseListRegistrationEntry({
 					hostModuleUuid: moduleUuid,
+					selections,
 					moduleUuid: formModuleUuid,
 					formUuid,
 				});
@@ -2271,6 +2324,9 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		moduleUuid,
 		registerAction,
 		registerLabel,
+		menuSource.doc,
+		menuCaseSelections,
+		showListForm,
 		setPreviewCaseTarget,
 		setPreviewCaseListRegistrationEntry,
 		navigate,
@@ -3495,7 +3551,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				state={
 					/* The device's cases the search reads didn't load: the
 					 * Results can't be read until they do. */
-					deviceValues.kind === "unavailable" ? CASES_LOAD_FAILED : state
+					deviceValues.kind === "unavailable" ||
+					(actionWaitsForCases && deviceCaseLoad.status === "error")
+						? CASES_LOAD_FAILED
+						: state
 				}
 				unfilteredCountState={unfilteredCountState}
 				authoredMatchingCount={authoredMatchingCount}
@@ -3503,11 +3562,14 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				previewWorker={previewWorker}
 				fetching={fetching}
 				onRetryCases={
-					deviceValues.kind === "unavailable"
+					retryDeviceCases !== undefined
 						? retryDeviceCasesWithFocus
 						: retryCasesWithFocus
 				}
-				deviceCasesFailed={deviceValues.kind === "unavailable"}
+				deviceCasesFailed={
+					deviceValues.kind === "unavailable" ||
+					(actionWaitsForCases && deviceCaseLoad.status === "error")
+				}
 				onRetryCount={retryCountWithFocus}
 				onSignIn={() => void signIn()}
 				rows={filteredRows}
@@ -3623,13 +3685,15 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * menu that opens on its search or its results meets at once. A list that
 	 * opens first keeps its cases, and its Search pane shows the refusal. */
 	const screenRefusal =
-		searchActionRead.kind === "refused"
-			? { surface: "list" as const, refusal: searchActionRead.refusal }
-			: searchRun.refusal !== undefined &&
-					step !== "browse" &&
-					step !== "waiting"
-				? { surface: "search" as const, refusal: searchRun.refusal }
-				: undefined;
+		step !== "search" && formActionRead.kind === "refused"
+			? { surface: "list" as const, refusal: formActionRead.refusal }
+			: searchActionRead.kind === "refused"
+				? { surface: "list" as const, refusal: searchActionRead.refusal }
+				: searchRun.refusal !== undefined &&
+						step !== "browse" &&
+						step !== "waiting"
+					? { surface: "search" as const, refusal: searchRun.refusal }
+					: undefined;
 	if (screenRefusal !== undefined)
 		return (
 			<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">

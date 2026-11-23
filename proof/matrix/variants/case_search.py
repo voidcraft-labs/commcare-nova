@@ -385,8 +385,8 @@ def fields_grouped(authoring, app_id):
 
 
 def registration_after_an_empty_search_to_home(authoring, app_id):
-    """Visits offering Clients' Registration Form, from a hidden menu, once its search found nothing, the worker going
-    home after it rather than back to the list."""
+    """Visits offering Clients' Registration Form, from a hidden menu, once its search found nothing, the worker continuing
+    with the new case selected when the form created one."""
     _registration_after_an_empty_search(authoring, app_id, "default")
 
 

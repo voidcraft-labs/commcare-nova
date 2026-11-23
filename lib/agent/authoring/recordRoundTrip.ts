@@ -126,6 +126,8 @@ function moduleReadSite(
 	const list = module.caseListConfig;
 	const search = module.caseSearchConfig;
 	switch (ref.slot) {
+		case "case_list_action_condition":
+			return site(module.caseListRegistrationForm, ["showWhen", "condition"]);
 		case "module_display_condition":
 			return site(module.displayCondition, []);
 		case "case_list_filter":

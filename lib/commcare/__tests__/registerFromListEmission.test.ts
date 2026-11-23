@@ -20,6 +20,7 @@ import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { parseXml } from "@/lib/commcare/xmlParse";
+import { removeCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type {
@@ -27,8 +28,17 @@ import type {
 	BlueprintDoc,
 	PostSubmitDestination,
 } from "@/lib/domain";
+import { eligibleCaseListAction } from "@/lib/domain/caseListActionTargets";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
+import {
+	caseListActionChoices,
+	caseListActionCreatedDatum,
+} from "@/lib/preview/caseListRegistration";
+import {
+	caseListActionRolesFixture,
+	actionRoleIds as roleIds,
+} from "./caseListActionRolesFixture";
 import { manifestFor } from "./compilerEvidence";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
@@ -503,3 +513,61 @@ describe("a submenu's list under a menu that chooses a case first", () => {
 		]);
 	});
 });
+
+it.each([false, true])(
+	"offers the exact created child and opens the chosen parent through its own entry, advanced = %s",
+	(advanced) => {
+		const doc = caseListActionRolesFixture(advanced);
+		const id = roleIds;
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const { suiteDoc, hq } = compiled(doc);
+		expect(hq.modules[1]?.case_list_form?.form_id).toBe(
+			hq.modules[3]?.forms[1]?.unique_id,
+		);
+		expect(hq.modules[2]?.case_list_form?.form_id).toBe(
+			hq.modules[3]?.forms[0]?.unique_id,
+		);
+		const childId = caseListActionCreatedDatum(
+			doc,
+			id.registerList,
+			id.register,
+		);
+		const homeId = caseListActionCreatedDatum(doc, id.parentList, id.edit);
+		expect(childId).toBeTruthy();
+		expect(homeId).toBeUndefined();
+		expect(
+			frames(entry(suiteDoc, "m3-f1")).some((frame) =>
+				frame.if?.includes(`/session/data/${childId}`),
+			),
+		).toBe(true);
+		expect(
+			frames(entry(suiteDoc, "m3-f0")).some((frame) =>
+				frame.if?.includes("return_to"),
+			),
+		).toBe(false);
+		const chosen = { caseType: "household", cases: [{ caseId: "house-A" }] };
+		expect(
+			caseListActionChoices(doc, id.parentList, id.edit, {
+				[id.households]: chosen,
+				[id.parentList]: {
+					caseType: "person",
+					cases: [{ caseId: "unrelated" }],
+				},
+			}),
+		).toEqual({ [id.householdForms]: chosen });
+		expect(
+			eligibleCaseListAction(doc, id.registerList, id.register)?.target,
+		).toEqual({ kind: "created-case", operationUuid: id.newPerson });
+		expect(
+			removeCaseOperationMutation(doc, id.register, id.newPerson),
+		).toMatchObject({
+			ok: false,
+			reason: "case-list-action",
+			message: expect.stringContaining("New members"),
+		});
+		delete doc.modules[id.registerList].caseListRegistrationForm;
+		expect(
+			removeCaseOperationMutation(doc, id.register, id.newPerson),
+		).toMatchObject({ ok: true });
+	},
+);

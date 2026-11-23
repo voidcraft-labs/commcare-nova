@@ -108,6 +108,7 @@ import { gunzipSync } from "node:zlib";
 import type { HqApplication, HqApplicationProfile } from "@/lib/commcare";
 import {
 	type CommCareCredentials,
+	createHqSourceFlagReader,
 	importApp,
 	type MediaBundleUploadResult,
 	probeHqProjectSpaceCompatibility,
@@ -123,6 +124,7 @@ import {
 	readHqAppSourceAtVersion,
 } from "@/lib/commcare/hq/appSourceAtVersion";
 import { HQ_LOOKUP_TABLE_ROWS_MAX_BYTES } from "@/lib/commcare/hq/bounds";
+import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
 import {
 	type HqFixtureRow,
 	type HqLookupTable,
@@ -2964,6 +2966,23 @@ async function reviewOverPeer(input: {
 
 	/* The flag a write saved only if changed needs. */
 	const baseSource = sourceFromBaseline(baseline.source);
+	let caseListActionsApplied: boolean | undefined;
+	if (
+		sourceUsesCaseListActionSetting(source.raw) ||
+		sourceUsesCaseListActionSetting(baseSource.raw)
+	) {
+		const flag = await createHqSourceFlagReader(
+			CREDENTIALS,
+			domain,
+		)("FOLLOWUP_FORMS_AS_CASE_LIST_FORM");
+		if (flag.kind === "not-a-member")
+			throw new Error(
+				"The project space was inaccessible for the case-list action check.",
+			);
+		if (flag.kind === "failed")
+			throw new Error("The case-list action setting could not be read.");
+		caseListActionsApplied = flag.kind === "applied";
+	}
 	let saveOnlyEditedApplied: boolean | undefined;
 	if (
 		sourceHoldsEditMode(publishedCaseBlocks(source.raw)) ||
@@ -3012,6 +3031,7 @@ async function reviewOverPeer(input: {
 			},
 		},
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		data: projectData.data,
 	};
 
@@ -3023,6 +3043,7 @@ async function reviewOverPeer(input: {
 		now: { source, modules: alignment.modules },
 		data: projectData.data,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
+		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		reference,
 		overrides: input.targetIdentity.entities,
 		media: { published, base: null, now: null },

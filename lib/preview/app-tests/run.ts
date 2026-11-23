@@ -27,6 +27,7 @@ import type {
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemDetailAction } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
+import { caseListActionChoices } from "../caseListRegistration";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
@@ -194,7 +195,11 @@ async function appTestFormContext(
 			lookup: context.lookup,
 			entry: screen.entry,
 			captureEntry: true,
-			session: { appId: scope.appId, menuSelections: state.selections },
+			session: {
+				appId: scope.appId,
+				menuSelections:
+					screen.caseListRegistrationLaunch?.selections ?? state.selections,
+			},
 			...(searchResults === undefined ? {} : { searchResults }),
 		},
 	};
@@ -1025,6 +1030,12 @@ async function advanceAppTestOnScreen(
 					throw new AppTestActionError(
 						"This form is not offered by the current record list.",
 					);
+				const supplied = caseListActionChoices(
+					context.doc,
+					screen.moduleUuid,
+					action.formUuid,
+					state.selections,
+				);
 				/* A form offered after an empty search reads that search; a form
 				 * the list always offers opens in its own menu, carrying the
 				 * launch that decides where it returns. */
@@ -1039,15 +1050,21 @@ async function advanceAppTestOnScreen(
 									caseIds: [],
 									entryCases: state.deviceCases,
 									searchAnswers: read.search.submitted,
+									caseListRegistrationLaunch: {
+										hostModuleUuid: screen.moduleUuid,
+									},
 								}
 							: {
 									kind: "form",
 									moduleUuid: registration.moduleUuid,
 									formUuid: action.formUuid,
-									caseIds: [],
+									caseIds: (supplied[registration.moduleUuid]?.cases ?? []).map(
+										(choice) => choice.caseId,
+									),
 									entryCases: state.deviceCases,
 									caseListRegistrationLaunch: {
 										hostModuleUuid: screen.moduleUuid,
+										selections: supplied,
 									},
 								},
 					history: [

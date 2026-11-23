@@ -25,7 +25,7 @@
  * registration form also writes `<name>.offers.json`: each host's menu, the
  * offered form's command, and where Preview lands a worker who registered
  * from the list, with a case created and without
- * (`engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`).
+ * (`engine/caseListRegisterAction.ts::caseListActionReturn`).
  * `MenuScreensRuntimeTest` and `RegisterFromListRuntimeTest` hold Core to
  * them.
  *
@@ -76,6 +76,7 @@ import AdmZip from "adm-zip";
 import { testUuid } from "../../../__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "../../../lib/__tests__/docHelpers";
 import type { CaseRow } from "../../../lib/case-store";
+import { caseListActionRolesFixture } from "../../../lib/commcare/__tests__/caseListActionRolesFixture";
 import { twoMenus } from "../../../lib/commcare/__tests__/menuFormRoutesFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
@@ -125,7 +126,7 @@ import {
 	sessionUser,
 	term,
 } from "../../../lib/domain/expression";
-import { alwaysOfferedRegistrationReturn } from "../../../lib/preview/engine/caseListRegisterAction";
+import { caseListActionReturn } from "../../../lib/preview/engine/caseListRegisterAction";
 import { previewDataRefusalOf } from "../../../lib/preview/engine/dataRefusal";
 import {
 	type NavigationDeviceCases,
@@ -992,7 +993,7 @@ function offersOf(doc: BlueprintDoc, ctx: FormLinkProjectionContext) {
 		 * frame whose guard holds, or, where the form's own after-submit is
 		 * in force, that after-submit's frame. */
 		const landed = (created: boolean) => {
-			const landing = alwaysOfferedRegistrationReturn(
+			const landing = caseListActionReturn(
 				doc,
 				slot.formUuid,
 				{ hostModuleUuid: host },
@@ -1151,6 +1152,14 @@ for (const [name, make] of [
 			otherReturns(name, doc, document.lookup),
 			ROLES,
 		);
+}
+
+for (const advanced of [false, true]) {
+	write(
+		`case-list-action-roles-${advanced ? "advanced" : "basic"}`,
+		caseListActionRolesFixture(advanced),
+		NONE,
+	);
 }
 
 /** Both siblings sharing the chosen case type and the otherwise identical

@@ -5,17 +5,19 @@
  * (`lib/commcare/formLinkProjection.ts::caseListFormReturnFrames`).
  */
 
-import { caseListFormLabelUnit } from "@/lib/commcare/emissionPlan";
 import {
-	caseListFormReturnFrames,
+	caseListFormLabelUnit,
+	emissionPlan,
+} from "@/lib/commcare/emissionPlan";
+import {
+	caseListActionDatums,
+	caseListActionReturnFrames,
 	entryFrameDatums,
-	entryNewCaseDatumId,
 	entrySessionDatums,
 	formLinkProjectionContext,
 	sourceOfFrameSelection,
 } from "@/lib/commcare/formLinkProjection";
 import {
-	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
 	caseListRegistrationReturnOf,
 	type FormIconRef,
@@ -113,7 +115,7 @@ export interface RegistrationReturnLanding extends FrameLanding {
  * second; with the menus whose search that frame keys to the registered
  * case.
  */
-export function alwaysOfferedRegistrationReturn(
+export function caseListActionReturn(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	launch: PreviewCaseListRegistrationLaunch | undefined,
@@ -121,11 +123,12 @@ export function alwaysOfferedRegistrationReturn(
 ): RegistrationReturnLanding | undefined {
 	if (launch === undefined) return undefined;
 	const hostUuid = launch.hostModuleUuid;
-	if (alwaysOfferedRegistrationOf(doc, hostUuid)?.formUuid !== formUuid)
+	if (doc.modules[hostUuid]?.caseListRegistrationForm?.formUuid !== formUuid)
 		return undefined;
 	const returnTo = caseListRegistrationReturnOf(doc, hostUuid);
 	const caseType = doc.modules[hostUuid]?.caseType;
-	const formModuleUuid = moduleUuidOfForm(doc, formUuid);
+	const projectedDoc = emissionPlan(doc).doc;
+	const formModuleUuid = moduleUuidOfForm(projectedDoc, formUuid);
 	if (
 		returnTo === undefined ||
 		returnTo.kind === "own" ||
@@ -133,26 +136,27 @@ export function alwaysOfferedRegistrationReturn(
 		formModuleUuid === undefined
 	)
 		return undefined;
-	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
-	const newCaseId = entryNewCaseDatumId(
-		entrySessionDatums(doc, ctx, formModuleUuid, formUuid),
-		caseType,
-	);
-	if (newCaseId === undefined) return undefined;
-	const frames = caseListFormReturnFrames(
-		doc,
+	const ctx = formLinkProjectionContext(projectedDoc, {
+		entryMetadataOnly: true,
+		expressionDoc: doc,
+	});
+	const frames = caseListActionReturnFrames(
+		projectedDoc,
 		ctx,
 		hostUuid,
-		newCaseId,
-		caseType,
-		returnTo.kind,
+		entrySessionDatums(projectedDoc, ctx, formModuleUuid, formUuid),
 	);
 	const frame =
 		returnTo.kind === "new-case" && createdCaseId === undefined
 			? frames[1]
 			: frames[0];
 	if (frame === undefined) return undefined;
-	const submitting = entryFrameDatums(doc, ctx, formModuleUuid, formUuid);
+	const submitting = entryFrameDatums(
+		projectedDoc,
+		ctx,
+		formModuleUuid,
+		formUuid,
+	);
 	const earlierSelections = frame.target.flatMap((child) => {
 		if (
 			child.type !== "datum" ||
@@ -178,6 +182,64 @@ export function alwaysOfferedRegistrationReturn(
 		...(earlierSelections.length > 0 && { earlierSelections }),
 		newCaseSearchModuleUuids: frame.newCaseSearchModuleUuids,
 	};
+}
+
+/** The concrete record this action's return reads from the just-completed
+ * form. Root alignment and the case block both use the operation's id. */
+export function caseListActionCreatedDatum(
+	doc: BlueprintDoc,
+	hostUuid: Uuid,
+	formUuid: Uuid,
+): string | undefined {
+	const slot = doc.modules[hostUuid]?.caseListRegistrationForm;
+	if (slot?.formUuid !== formUuid) return undefined;
+	const target = slot.kind === "always" ? slot.target : undefined;
+	if (target?.kind === "chosen-parent") return undefined;
+	const projection = emissionPlan(doc).doc;
+	const ctx = formLinkProjectionContext(projection, {
+		entryMetadataOnly: true,
+		expressionDoc: doc,
+	});
+	return ctx
+		.newCaseDatums(formUuid)
+		.find((datum) =>
+			target?.kind === "created-case"
+				? datum.operationUuid === target.operationUuid
+				: datum.ref.kind === "new-case" &&
+					datum.caseType === doc.modules[hostUuid]?.caseType,
+		)?.id;
+}
+
+/** The choices already supplied when the worker opens the list action.
+ * Only the invoking list's earlier selections can fill a target selector.
+ * Its current list is still on screen, so a previous visit's choice there
+ * cannot fill the form. */
+export function caseListActionChoices(
+	doc: BlueprintDoc,
+	hostUuid: Uuid,
+	formUuid: Uuid,
+	held: Readonly<Record<string, PreviewMenuCaseSelection>>,
+): Record<string, PreviewMenuCaseSelection> {
+	const projection = emissionPlan(doc).doc;
+	const targetModule = moduleUuidOfForm(projection, formUuid);
+	if (!targetModule) return {};
+	const ctx = formLinkProjectionContext(projection, {
+		entryMetadataOnly: true,
+		expressionDoc: doc,
+	});
+	const supplied: Record<string, PreviewMenuCaseSelection> = {};
+	for (const datum of caseListActionDatums(projection, ctx, hostUuid, {
+		moduleUuid: targetModule,
+		formUuid,
+	})) {
+		const from = datum.source?.selectionSourceModuleUuid;
+		const to = datum.target.selectionSourceModuleUuid;
+		if (from === undefined || to === undefined || from === hostUuid) continue;
+		const chosen = held[from];
+		if (chosen && chosen.caseType === datum.target.caseType)
+			supplied[to] = chosen;
+	}
+	return supplied;
 }
 
 /** The case a registration created, as the device holds it after the

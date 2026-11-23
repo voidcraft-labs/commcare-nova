@@ -140,6 +140,7 @@ export interface AcceptReadingInput {
 		| "appStrings"
 		| "recordDialect"
 		| "saveOnlyEditedApplied"
+		| "caseListActionsApplied"
 	>;
 	/**
 	 * The declarations to judge and to offer: the draft's, less each choice
@@ -835,6 +836,9 @@ function* fixedPointCheck(
 					recordDialect: input.reader.recordDialect,
 					...(input.reader.saveOnlyEditedApplied !== undefined && {
 						saveOnlyEditedApplied: input.reader.saveOnlyEditedApplied,
+					}),
+					...(input.reader.caseListActionsApplied !== undefined && {
+						caseListActionsApplied: input.reader.caseListActionsApplied,
 					}),
 					knownCaseTypes: knownCaseTypesOf(doc),
 					knownLanguageCodes: knownLanguageCodesOf(doc),

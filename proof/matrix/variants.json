@@ -17052,16 +17052,17 @@
 		"id": "hq-case-management/registration-by-a-parent-follow-up",
 		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "named",
 			"name": "registration_by_a_parent_follow_up"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListRegistrationForm/target/kind",
+				"value": "chosen-parent"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/registration-closing-its-case",
@@ -17115,19 +17116,20 @@
 		"id": "hq-case-management/registration-of-a-child-case",
 		"base": "hq-case-management",
 		"entry": "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Members"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/case_list_form/form_id",
 			"value": {
 				"$form": [0, 0]
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListRegistrationForm/target/kind",
+				"value": "created-case"
+			}
+		]
 	},
 	{
 		"id": "hq-case-management/registration-preload",
@@ -26227,17 +26229,18 @@
 		"id": "hq-menus/registration-shown-when",
 		"base": "hq-menus",
 		"entry": "menus-and-case-lists/case-list-form-relevancy-expression-with-followup-forms-as-case",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Households"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1/case_list_form/relevancy_expression",
 			"value": "count(instance('casedb')/casedb/case[@case_type = 'household']) = 0"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListRegistrationForm/showWhen/kind",
+				"value": "condition"
+			}
+		]
 	},
 	{
 		"id": "hq-menus/registration-under-a-display-only-menu-sharing-its-case",
@@ -36471,31 +36474,38 @@
 		"id": "hq-search/registration-after-an-empty-search-offered-again",
 		"base": "hq-search",
 		"entry": "menus-and-case-lists/case-list-form-naming-a-form-another-list-offers-after-an-empty-search",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Active clients"
-		},
 		"change": {
 			"op": "named",
 			"name": "registration_after_an_empty_search_offered_again"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "always"
+			},
+			{
+				"key": ["module", { "$menu": 2 }],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "after-empty-search"
+			}
+		]
 	},
 	{
 		"id": "hq-search/registration-after-an-empty-search-to-home",
 		"base": "hq-search",
 		"entry": "menus-and-case-lists/case-list-form-post-form-workflow-default-on-the-hidden-module-shape",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 2,
-			"name": "Visits"
-		},
 		"change": {
 			"op": "named",
 			"name": "registration_after_an_empty_search_to_home"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 2 }],
+				"pointer": "/caseListRegistrationForm/afterSubmit",
+				"value": "new-case"
+			}
+		]
 	},
 	{
 		"id": "hq-search/registry-workflow-with-no-registry",

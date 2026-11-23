@@ -59,6 +59,10 @@ export type SlotName = SlotContextRef["slot"];
  * for INERT, `refuse` for HELD-NEW and REFUSED.
  */
 export const EXPRESSION_CLAIMS = defineClaims("expressions", {
+	"case-list-action-condition": take(
+		"menus-and-case-lists/case-list-form-relevancy-expression-with-followup-forms-as-case",
+		"schema:CaseListForm.relevancy_expression",
+	),
 	"search-button-display-condition-lifting-into-predicate": take(
 		"case-search/search-button-display-condition-lifting-into-predicate",
 		"schema:CaseSearch.search_button_display_condition",
@@ -1698,6 +1702,10 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 	case_list_column_expression: fixed(
 		C["usexpathexpression-field-xpath-lifting-into-valueexpression"].entry,
 		C["usexpathexpression-field-xpath-outside-valueexpression"].entry,
+	),
+	case_list_action_condition: fixed(
+		C["case-list-action-condition"].entry,
+		"unrecognized",
 	),
 	search_button_display_condition: fixed(
 		C["search-button-display-condition-lifting-into-predicate"].entry,

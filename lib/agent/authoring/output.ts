@@ -562,6 +562,17 @@ const readProjectors: {
 				data.caseListRegistrationForm?.kind === "always"
 					? {
 							...data.caseListRegistrationForm,
+							...(data.caseListRegistrationForm.showWhen?.kind ===
+								"condition" && {
+								showWhen: {
+									kind: "condition",
+									condition: project(
+										conditionSchema,
+										data.caseListRegistrationForm.showWhen.condition,
+										options,
+									),
+								},
+							}),
 							icon: project(
 								formIconRefSchema.nullable(),
 								data.caseListRegistrationForm.icon,

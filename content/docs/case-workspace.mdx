@@ -493,9 +493,11 @@ yet. The form opens with that search's answers, so a field can start from what
 the worker typed: a default value of `#search/patient_name` seeds the name from
 the name search field, and a hidden search field's value, such as a search
 time, can be saved to a case property as a record that the search happened.
-After submit, choose **First menu**, or let the form return to Results showing
-the case it just registered (a menu with no forms of its own returns to Search,
-or to its automatic Results). A menu with multiple-case selection requires
+After submit, choose **Continue with the new case** to open the menu’s forms
+with that case selected. If the form creates no case, the worker returns to
+Results. You can also choose **First menu** or return to Results showing the
+registered case. A menu with no forms of its own returns to Search or to its
+automatic Results. A menu with multiple-case selection requires
 **First menu** because CommCare cannot return the newly registered case as a
 multiple-case selection. The form has no after-submit links and no display
 condition, and no other form can link to it. One such form per menu. Offering a
@@ -504,6 +506,11 @@ as it opens. Making it a menu form again (in Nova's tools,
 `case_list_registration: null`) turns **Forms read the search** off with it,
 because a form on the menu can't open from the search, and removes the
 starting values its fields read from the search; the fields themselves stay.
+
+You can offer this same form on another menu’s case list under **Register from
+this list**. Each list keeps its own button text and return destination. If the
+form reads an answer from the first menu’s search, Nova names the question to
+change before the second menu can offer it.
 
 **Add a new registration form**, beside the menu's registration forms, adds one
 named after the case type, with a field for each search field filled in from
@@ -648,7 +655,7 @@ Search action by itself.
 ### Register from the list
 
 A case list can offer a registration form at any time, so people look for a
-case before adding a new one. In Results, under **Register from this list**,
+case before adding a new one. In Results, under **Form button on the list**,
 choose a registration form from another menu. It stays on its own menu too. You
 can choose where people go after registering from the list: **Back to this
 list**, or **Continue with the new case**, which goes on to this menu's forms
@@ -657,6 +664,12 @@ to the menu's forms where people choose a form first there. A form that has its
 own After submit goes there instead. Nova offers this on a list whose menu's
 forms all open an existing case. In Nova's tools this is
 `register_from_case_list` on the menu.
+
+A form can create more than one kind of record. For example, if a form registers a household and its first member, a member list can offer the form and continue with the new member. The setting shows the name of the case change that creates that record. If the form skips that change, the worker returns to the list.
+
+A list that starts by choosing a parent can offer a follow-up on that parent. For example, a worker looking at a household’s members can open **Edit household** directly from the list. The form opens with the chosen household and uses its own After submit setting.
+
+Under **Show the form button**, choose when the button appears. A condition can use information about the worker or a record chosen before the list. A menu whose forms read its search can show the button only after a completed search finds nothing. The destination project space must support conditional list buttons and parent follow-ups to publish either setting.
 
 ### The case list in the menu
 

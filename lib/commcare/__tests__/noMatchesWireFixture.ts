@@ -33,7 +33,11 @@ export const HOUSEHOLD_MODULE = testUuid(
  * the case list as the menu's entry.
  */
 export function noMatchesDoc(
-	options: { readonly label?: string; readonly bareCaseList?: boolean } = {},
+	options: {
+		readonly label?: string;
+		readonly bareCaseList?: boolean;
+		readonly secondList?: boolean;
+	} = {},
 ): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = [
@@ -56,7 +60,7 @@ export function noMatchesDoc(
 				id: "case_name",
 				label: proseText("Name"),
 				caseWrite: { caseType: "patient", property: "case_name" },
-				default_value: term(input(NAME_INPUT)),
+				...(!options.secondList && { default_value: term(input(NAME_INPUT)) }),
 			}),
 		],
 	};
@@ -96,6 +100,28 @@ export function noMatchesDoc(
 							],
 						}),
 			},
+			...(options.secondList
+				? [
+						{
+							uuid: "second-list",
+							name: "Walk-in patients",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									uuid: "walk-in-visit",
+									name: "Walk-in visit",
+									type: "followup" as const,
+									fields: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
+								},
+							],
+						},
+					]
+				: []),
 		],
 		caseTypes: [
 			{
@@ -115,12 +141,15 @@ export const noMatchesWireScenarios = [
 	"parent-bare",
 	"home",
 	"multiple-home",
+	"new-case",
+	"second-list",
 ] as const;
 export function noMatchesWireFixture(
 	scenario: (typeof noMatchesWireScenarios)[number],
 ) {
 	let doc = noMatchesDoc({
 		bareCaseList: scenario === "bare" || scenario === "parent-bare",
+		secondList: scenario === "second-list",
 	});
 	if (scenario === "parent" || scenario === "parent-bare") {
 		const base = doc;
@@ -168,6 +197,40 @@ export function noMatchesWireFixture(
 				[REGISTER_FORM]: {
 					...base.forms[REGISTER_FORM],
 					postSubmit: "firstMenu",
+				},
+			},
+		};
+	}
+	if (scenario === "second-list") {
+		const second = testUuid("second-list");
+		doc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[second]: {
+					...doc.modules[second],
+					caseListRegistrationForm: {
+						kind: "always",
+						formUuid: REGISTER_FORM,
+						afterSubmit: "new-case",
+					},
+				},
+			},
+		};
+	}
+	if (scenario === "new-case") {
+		const host = doc.modules[HOST_MODULE];
+		doc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[HOST_MODULE]: {
+					...host,
+					caseListRegistrationForm: {
+						kind: "after-empty-search",
+						formUuid: REGISTER_FORM,
+						afterSubmit: "new-case",
+					},
 				},
 			},
 		};

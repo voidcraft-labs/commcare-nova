@@ -8,6 +8,7 @@ import { InlineField } from "@/components/builder/detail/formSettings/InlineFiel
 import { SegmentedRow } from "@/components/builder/inspector/inspectorChrome";
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
+import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { Button } from "@/components/shadcn/button";
 import {
 	Select,
@@ -17,12 +18,18 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { alwaysOfferedRegistrationChoices } from "@/lib/doc/alwaysOfferedRegistration";
+import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import {
 	useRegisterFromList,
 	useSetAlwaysOfferedRegistration,
 } from "@/lib/doc/hooks/useRegisterFromList";
-import { useExpressionScopeRevision } from "@/lib/doc/hooks/useXPathSlots";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
+import {
+	useExpressionProjection,
+	useExpressionScopeRevision,
+} from "@/lib/doc/hooks/useXPathSlots";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type {
 	AlwaysOfferedRegistration,
@@ -47,7 +54,7 @@ import {
 const NONE = "none";
 
 /**
- * Register from this list: a registration form of another menu the case
+ * Form button on the list: a registration form of another menu the case
  * list always offers (`Module.caseListRegistrationForm`, the `always` arm),
  * its button text, icon and spoken label, and where the worker goes after
  * registering. Every change commits the whole slot through
@@ -69,6 +76,13 @@ export function RegisterFromListSetting({
 	const navigate = useNavigate();
 	const setSlot = useSetAlwaysOfferedRegistration(moduleUuid);
 	const facts = useRegisterFromList(moduleUuid);
+	const caseTypes = useEffectiveCaseTypes();
+	const workerProperties = useUserProperties();
+	const expressionContext = useExpressionSlotContext({
+		entity: "module",
+		uuid: moduleUuid,
+		slot: "case_list_action_condition",
+	});
 	const headingId = useId();
 	const pickerId = useId();
 	/* The document and lookup definitions a refusal was given over: the
@@ -119,7 +133,8 @@ export function RegisterFromListSetting({
 			? gate[choices[0].formUuid]
 			: undefined;
 	const helpers = afterRegisteringHelpers(facts);
-	const note = ownAfterSubmitNote(facts.ownAfterSubmit);
+	const parentFollowUp = stored?.target?.kind === "chosen-parent";
+	const note = ownAfterSubmitNote(facts.ownAfterSubmit, parentFollowUp);
 	const afterSubmit: CaseListRegistrationReturn =
 		stored?.afterSubmit ?? "case-list";
 
@@ -173,7 +188,7 @@ export function RegisterFromListSetting({
 					</div>
 				) : choices.length === 0 && stored === undefined ? (
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						{registerFromListEmptyState(facts.caseType)}
+						{registerFromListEmptyState(facts.caseType, facts.parentListName)}
 					</p>
 				) : (
 					<>
@@ -193,7 +208,13 @@ export function RegisterFromListSetting({
 										commit(null);
 										return;
 									}
-									commit(slotWith(stored, next as Uuid, {}));
+									const choice = choices.find((item) => item.formUuid === next);
+									if (choice)
+										commit(
+											slotWith(stored, choice.formUuid, {
+												target: choice.target,
+											}),
+										);
 								}}
 							>
 								<SelectTrigger id={pickerId} wrapValue>
@@ -240,6 +261,18 @@ export function RegisterFromListSetting({
 									})}
 								</SelectContent>
 							</Select>
+							{stored?.target?.kind === "created-case" && (
+								<p className="mt-1 text-[13px] text-nova-text-secondary">
+									The “{facts.targetName}” case change creates the{" "}
+									{facts.caseType} record the worker returns to.
+								</p>
+							)}
+							{stored?.target?.kind === "chosen-parent" && (
+								<p className="mt-1 text-[13px] text-nova-text-secondary">
+									This form opens with the record the worker chose in “
+									{facts.targetName}”.
+								</p>
+							)}
 							{hostRefusal !== undefined && (
 								<p className="mt-2 text-[13px] leading-relaxed text-nova-text-muted">
 									{hostRefusal}
@@ -268,6 +301,77 @@ export function RegisterFromListSetting({
 										{stored.label ?? facts.storedFormName}
 									</p>
 								)}
+								{canEdit && (
+									<SegmentedRow<"always" | "empty-search" | "condition">
+										legend="Show the form button"
+										value={stored.showWhen?.kind ?? "always"}
+										options={[
+											{ value: "always", label: "Whenever the list opens" },
+											...(facts.formsReadSearch
+												? [
+														{
+															value: "empty-search" as const,
+															label: "When search finds nothing",
+														},
+													]
+												: []),
+											{ value: "condition", label: "When a condition is met" },
+										]}
+										onChange={(next) =>
+											change({
+												showWhen:
+													next === "always"
+														? undefined
+														: next === "empty-search"
+															? { kind: next }
+															: {
+																	kind: "condition",
+																	condition:
+																		stored.showWhen?.kind === "condition"
+																			? stored.showWhen.condition
+																			: { kind: "match-all" },
+																},
+											})
+										}
+									/>
+								)}
+								{!canEdit && (
+									<ReadOnlyButtonVisibility
+										moduleUuid={moduleUuid}
+										visibility={stored.showWhen}
+									/>
+								)}
+								{stored.showWhen?.kind === "condition" &&
+									canEdit &&
+									expressionContext !== undefined && (
+										<PredicateSlotCard
+											expressionContext={expressionContext}
+											caseTypes={caseTypes}
+											currentCaseType={facts.caseType}
+											userProperties={workerProperties}
+											title="Button condition"
+											description="The worker sees the form button when this is true."
+											addLabel="Add condition"
+											clearLabel="Clear"
+											clearAriaLabel="Clear form button condition"
+											value={stored.showWhen.condition}
+											onChange={(condition) =>
+												change({
+													showWhen:
+														condition === undefined
+															? undefined
+															: { kind: "condition", condition },
+												})
+											}
+										/>
+									)}
+								{!canEdit && stored.showWhen !== undefined && (
+									<p className="text-[13px] text-nova-text-secondary">
+										{stored.showWhen.kind === "empty-search"
+											? "The form button appears when a search finds nothing."
+											: "The form button appears when its condition is met."}
+									</p>
+								)}
 								<div className="flex flex-wrap gap-6">
 									<div>
 										<span className="mb-1 block text-xs text-nova-text-muted">
@@ -278,7 +382,7 @@ export function RegisterFromListSetting({
 											kind="image"
 											iconLibrary="form"
 											slotKey={`register:${moduleUuid}:icon`}
-											ariaLabel="Register button icon"
+											ariaLabel="Form button icon"
 											onChange={(icon) => change({ icon })}
 										/>
 									</div>
@@ -290,7 +394,7 @@ export function RegisterFromListSetting({
 											value={stored.audioLabel}
 											kind="audio"
 											slotKey={`register:${moduleUuid}:audioLabel`}
-											ariaLabel="Register button spoken label"
+											ariaLabel="Form button spoken label"
 											onChange={(audioLabel) => change({ audioLabel })}
 										/>
 									</div>
@@ -302,31 +406,36 @@ export function RegisterFromListSetting({
 									/>
 								)}
 								<div data-register-after-submit={afterSubmit}>
-									<span className="mb-1 block text-xs text-nova-text-muted">
-										{COPY.choiceGroupLabel}
-									</span>
-									{canEdit ? (
-										<SegmentedRow<CaseListRegistrationReturn>
-											legend={COPY.choiceGroupLabel}
-											options={[
-												{ value: "case-list", label: COPY.choiceCaseList },
-												{ value: "new-case", label: COPY.choiceNewCase },
-											]}
-											value={afterSubmit}
-											onChange={(next) => {
-												if (next !== afterSubmit) change({ afterSubmit: next });
-											}}
-										/>
-									) : (
-										<p className="text-[13px] text-nova-text-secondary">
-											{afterSubmit === "case-list"
-												? COPY.choiceCaseList
-												: COPY.choiceNewCase}
-										</p>
+									{!parentFollowUp && (
+										<>
+											<span className="mb-1 block text-xs text-nova-text-muted">
+												{COPY.choiceGroupLabel}
+											</span>
+											{canEdit ? (
+												<SegmentedRow<CaseListRegistrationReturn>
+													legend={COPY.choiceGroupLabel}
+													options={[
+														{ value: "case-list", label: COPY.choiceCaseList },
+														{ value: "new-case", label: COPY.choiceNewCase },
+													]}
+													value={afterSubmit}
+													onChange={(next) => {
+														if (next !== afterSubmit)
+															change({ afterSubmit: next });
+													}}
+												/>
+											) : (
+												<p className="text-[13px] text-nova-text-secondary">
+													{afterSubmit === "case-list"
+														? COPY.choiceCaseList
+														: COPY.choiceNewCase}
+												</p>
+											)}
+											<p className="mt-2 text-[13px] leading-relaxed text-nova-text-muted">
+												{helpers[afterSubmit]}
+											</p>
+										</>
 									)}
-									<p className="mt-2 text-[13px] leading-relaxed text-nova-text-muted">
-										{helpers[afterSubmit]}
-									</p>
 									{note !== undefined && facts.ownAfterSubmit !== undefined && (
 										<div
 											className="mt-3 space-y-2"
@@ -359,5 +468,31 @@ export function RegisterFromListSetting({
 				)}
 			</div>
 		</section>
+	);
+}
+
+function ReadOnlyButtonVisibility({
+	moduleUuid,
+	visibility,
+}: {
+	moduleUuid: Uuid;
+	visibility: AlwaysOfferedRegistration["showWhen"];
+}) {
+	const projection = useExpressionProjection(
+		visibility?.kind === "condition" ? visibility.condition : undefined,
+		{ entity: "module", uuid: moduleUuid, slot: "case_list_action_condition" },
+	);
+	return (
+		<p className="text-[13px] text-nova-text-secondary">
+			{visibility?.kind === "condition" ? (
+				<>
+					The form button appears when <code>{projection.text}</code> is true.
+				</>
+			) : visibility?.kind === "empty-search" ? (
+				"The form button appears when a completed search finds no records."
+			) : (
+				"The form button appears whenever the list opens."
+			)}
+		</p>
 	);
 }

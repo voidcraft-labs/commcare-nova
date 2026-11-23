@@ -64,6 +64,9 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+from lxml import etree
+
 from proof.formplayer import apps
 from proof.formplayer.walk import screen_kind
 from proof.hq.operations import with_runtime_app_id
@@ -291,3 +294,77 @@ def test_formplayer_runs_the_default_search_unless_search_again_forces_its_scree
     assert screen_kind(searched) == "entities", searched
     assert len(sent_when_searched) == 2
     assert _carries(sent_when_searched[1], TYPED)
+
+
+@pytest.mark.parametrize(("scenario", "landing"), [("basic", "entities"), ("new-case", "commands")])
+def test_empty_search_registration_returns_to_its_results_or_selects_its_created_case(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence, scenario, landing
+):
+    """The two case-list settings on the same hidden physical form, through real submission and HQ's case fixture."""
+    with apps.published(formplayer_documents[f"no-matches-{scenario}"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served, served.run("empty-search"):
+            web = apps.web(formplayer_runner, served)
+            search = web.navigate(SEARCH)
+            assert screen_kind(search) == "query", search
+            given = "Empty search patient"
+            data = _query_data(search["queryKey"], {"patient_name": given})
+            results = web.navigate(SEARCH, query_data=data)
+            assert screen_kind(results) == "entities" and results["entities"] == [], results
+            assert len(results["actions"]) == 1, results
+            form = web.navigate([*results["selections"], "action 0"], query_data=data)
+            assert screen_kind(form) == "form" and form["title"] == "Register patient", form
+            (name,) = [node for node in form["tree"] if node.get("caption") == "Name"]
+            assert name.get("answer") == given, name
+            corrected = "Name on the case"
+            submitted = web.submit(form["session_id"], {name["ix"]: corrected})
+            assert submitted["status"] == "success", submitted
+            (receipt,) = served.hq.submissions
+            case_ns = "{http://commcarehq.org/case/transaction/v2}"
+            (created,) = etree.fromstring(receipt.instance).findall(f"{case_ns}case")
+            assert created.findtext(f"{case_ns}create/{case_ns}case_name") == corrected
+            case_id = created.attrib["case_id"]
+            next_screen = submitted["nextScreen"]
+            assert screen_kind(next_screen) == landing, next_screen
+            if landing == "entities":
+                assert [row["id"] for row in next_screen["entities"]] == [case_id], next_screen
+            else:
+                assert case_id in next_screen["selections"], next_screen
+                assert [command["displayText"] for command in next_screen["commands"]] == ["Visit"], next_screen
+            fixture_reads = [asked.status for asked in served.hq.exchanges if asked.url_name == "case_fixture"]
+            assert fixture_reads and all(status == 200 for status in fixture_reads), fixture_reads
+            evidence("registered-case", {"case": case_id, "landing": landing, "caseFixture": fixture_reads})
+
+
+def test_a_list_button_updates_the_selected_household_and_a_second_button_creates_the_member(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    case_ns = "{http://commcarehq.org/case/transaction/v2}"
+    with apps.published(formplayer_documents["case-list-action-basic"], core_runner) as published:
+        with apps.served(published, formplayer_runner) as served:
+            records = {}
+            for index, title in [("2", "Edit household"), ("1", "Register household and member")]:
+                with served.run(title):
+                    web = apps.web(formplayer_runner, served)
+                    parents = web.navigate([index])
+                    assert screen_kind(parents) == "entities", parents
+                    assert any(row["id"] == "household-2" for row in parents["entities"]), parents
+                    members = web.navigate([*parents["selections"], "household-2"])
+                    assert screen_kind(members) == "entities" and len(members["actions"]) == 1, members
+                    form = web.navigate([*members["selections"], "action 0"])
+                    assert screen_kind(form) == "form" and form["title"] == title, form
+                    answers = {node["ix"]: node["caption"] for node in form["tree"] if node["type"] == "question"}
+                    posted = len(served.hq.submissions)
+                    result = web.submit(form["session_id"], answers)
+                    assert result["status"] == "success", result
+                    (saved,) = served.hq.submissions[posted:]
+                    cases = list(etree.fromstring(saved.instance).iter(f"{case_ns}case"))
+                    records[title] = [row.attrib["case_id"] for row in cases]
+                    if index == "2":
+                        assert records[title] == ["household-2"], records
+                        assert cases[0].findtext(f"{case_ns}update/{case_ns}last_note") == "Note"
+                        assert cases[0].find(f"{case_ns}create") is None
+                    else:
+                        types = {row.findtext(f"{case_ns}create/{case_ns}case_type"):row.attrib["case_id"] for row in cases}
+                        assert set(types) == {"household","person"}, types
+                        assert types["person"] in result["nextScreen"]["selections"], result
+            evidence("list-action-records", records)

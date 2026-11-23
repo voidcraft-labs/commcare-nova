@@ -79,7 +79,6 @@ import type {
 	HqProjectSpaceCapabilityProbePlan,
 	HqProjectSpaceCompatibilityProbePlan,
 } from "./projectSpaceCompatibility";
-import { hqPrivateFeatureFlag } from "./projectSpaceCompatibility";
 import { domainFeatureFlag } from "./surface/gates";
 
 /* The HQ wire primitives live in `./hq/http` so every driver shares one
@@ -587,8 +586,8 @@ function notAMemberProjectSpaceResult(
 	};
 }
 
-/** Whether CommCare HQ's builds in a project space save an answer only when the worker changed it. */
-export type HqSaveOnlyEditedAnswers =
+/** Whether CommCare HQ applies the named feature to this source project. */
+export type HqSourceProjectFlag =
 	/** The project space holds the flag: CommCare HQ's build compares before it saves. */
 	| { readonly kind: "applied" }
 	/** The project space does not hold it: CommCare HQ's build saves every time. */
@@ -615,8 +614,21 @@ export async function readHqSaveOnlyEditedAnswers(
 	creds: CommCareCredentials,
 	domain: string,
 	options: { readonly cancel?: AbortSignal } = {},
-): Promise<HqSaveOnlyEditedAnswers> {
-	const failed = (error: CommCareApiError): HqSaveOnlyEditedAnswers => ({
+): Promise<HqSourceProjectFlag> {
+	return createHqSourceFlagReader(
+		creds,
+		domain,
+		options,
+	)("SAVE_ONLY_EDITED_FORM_FIELDS");
+}
+
+/** A reading proves membership once when its first source setting needs it. */
+export function createHqSourceFlagReader(
+	creds: CommCareCredentials,
+	domain: string,
+	options: { readonly cancel?: AbortSignal } = {},
+) {
+	const failed = (error: CommCareApiError): HqSourceProjectFlag => ({
 		kind: "failed",
 		failure: classifyHqFailure(error, "project-spaces"),
 	});
@@ -627,25 +639,31 @@ export async function readHqSaveOnlyEditedAnswers(
 			undefined,
 			options.cancel,
 		);
-	const visible = await list(undefined);
-	if (!Array.isArray(visible)) return failed(visible);
-	if (!visible.some((candidate) => candidate.name === domain))
-		return { kind: "not-a-member" };
-	const flag = hqPrivateFeatureFlag("save-only-edited-answers");
-	const flagged = await list(flag.slug);
-	if (!Array.isArray(flagged)) {
-		/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
-		if (flagged.status === 400 && flagged.cause === undefined)
-			log.error("[commcare] feature flag list refused", undefined, {
-				domain,
-				request: "project-spaces",
-				status: flagged.status,
-			});
-		return failed(flagged);
-	}
-	return flagged.some((candidate) => candidate.name === domain)
-		? { kind: "applied" }
-		: { kind: "not-applied" };
+	let membership: ReturnType<typeof list> | undefined;
+	return async (
+		symbol: "SAVE_ONLY_EDITED_FORM_FIELDS" | "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+	): Promise<HqSourceProjectFlag> => {
+		membership ??= list(undefined);
+		const visible = await membership;
+		if (!Array.isArray(visible)) return failed(visible);
+		if (!visible.some((candidate) => candidate.name === domain))
+			return { kind: "not-a-member" };
+		const flag = domainFeatureFlag(symbol);
+		const flagged = await list(flag.slug);
+		if (!Array.isArray(flagged)) {
+			/* A slug HQ no longer knows answers 400, which is Nova's to fix. */
+			if (flagged.status === 400 && flagged.cause === undefined)
+				log.error("[commcare] feature flag list refused", undefined, {
+					domain,
+					request: "project-spaces",
+					status: flagged.status,
+				});
+			return failed(flagged);
+		}
+		return flagged.some((candidate) => candidate.name === domain)
+			? { kind: "applied" }
+			: { kind: "not-applied" };
+	};
 }
 
 /** A compatibility check must never hold open the publish preflight. */
