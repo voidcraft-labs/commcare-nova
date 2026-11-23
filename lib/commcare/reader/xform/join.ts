@@ -922,6 +922,25 @@ export function joinForm(input: JoinInput): JoinedForm {
 			if (read.kind === "model-iteration") {
 				modelIterations.set(field, read);
 				roles.set(read.row, { kind: "query-row", repeat: field });
+				// The repeat's condition stands on its row's bind, where the
+				// form builder writes a model-iteration repeat's display
+				// condition and Nova's export writes it (`buildQueryRepeat`).
+				// One beside a condition on the wrapper's own bind is left
+				// unclaimed: the repeat holds one condition.
+				const rowRelevant = input.binds.get(read.row);
+				const condition = rowRelevant?.logic.relevant;
+				if (
+					rowRelevant !== undefined &&
+					condition !== undefined &&
+					input.binds.get(at)?.logic.relevant === undefined
+				)
+					field.expressions.push({
+						slot: "relevant",
+						text: condition,
+						at: { element: rowRelevant.element, attribute: "relevant" },
+						key: "xform:model/bind@relevant",
+						mode: XFORM,
+					});
 			}
 			if (read.kind === "count") counted.push({ field, control, read });
 			if (queryCounted && placement !== undefined)

@@ -315,6 +315,8 @@ function queryDoc(
 		readonly nested?: boolean;
 		readonly outerCount?: string;
 		readonly relevant?: string;
+		/** When the query runs, where the author chose. */
+		readonly rowTiming?: "on-open" | "as-answers-change";
 		/** A display condition on a group around the repeat. */
 		readonly groupRelevant?: string;
 		/** The asked question's default. */
@@ -328,6 +330,9 @@ function queryDoc(
 		repeat_mode: "query_bound",
 		data_source: { ids_query: options.query ?? "'a b'" },
 		...(options.relevant === undefined ? {} : { relevant: options.relevant }),
+		...(options.rowTiming === undefined
+			? {}
+			: { rowTiming: options.rowTiming }),
 		children: [f({ kind: "text", id: "note" })],
 	});
 	const repeat =
@@ -406,6 +411,35 @@ describe("a model-iteration repeat Nova writes", () => {
 				Q("repeat-model-iteration-vellum-role-repeat-ids-count-current")
 			],
 		).toBeGreaterThan(0);
+	});
+
+	it("reads a row condition back from the row's bind, where the export writes it", async () => {
+		const doc = queryDoc({
+			relevant: "#form/asked = 'yes'",
+			rowTiming: "on-open",
+		});
+		const source = buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], {
+			xmlns: XMLNS,
+		});
+		expect(source).toContain('nodeset="/data/visits/item" relevant=');
+		const reading = await readForm(source);
+		const visits = readFields(reading.xform ?? ({} as never)).find(
+			(field) => field.id === "visits",
+		);
+		expect(visits?.field).toMatchObject({
+			repeat_mode: "query_bound",
+			placement: "model-iteration",
+		});
+		expect(visits?.expressions.map((one) => [one.slot, one.text])).toEqual([
+			["ids_query", "'a b'"],
+			["relevant", "/data/asked = 'yes'"],
+		]);
+		// The query's own text is claimed once the form's expressions bind,
+		// past this stage, as for the repeat with no condition above.
+		expect(unrecognizedAt(reading, "visits")).toEqual(["xform:setvalue@value"]);
+		expect(
+			codesAt(reading, "visits").filter((code) => code !== "unrecognized"),
+		).toEqual([]);
 	});
 
 	it("leaves a wrapper missing a setvalue unclaimed", async () => {
