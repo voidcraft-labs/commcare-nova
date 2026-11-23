@@ -295,18 +295,10 @@ def project_data_reads(authoring, app_id, credential):
             listed = operations.fixture_rows_read(state, table["id"], credential)
             found[f"fixtureRows:{table['tag']}"] = listed
         rows = _body(listed).get("objects", []) if listed.status == 200 else []
-        if not (table.get("item_attributes") or any(field.get("properties") for field in table["fields"])
-                or any(isinstance(value, list) for row in rows for value in row["fields"].values())):
-            continue
-        for name, resource, remote_id in (
-            [("lookupDefinition", "lookup_table", table["id"])]
-            + [("fixtureDetail", "lookup_table_item", row["id"]) for row in rows]
-        ):
+        for name, resource, remote_id in operations.lookup_detail_targets(table, rows):
             key = f"{name}:{remote_id}"
             with authoring.step("reads", key.encode()):
-                found[key] = operations.api_request(
-                    state, "GET", f"/a/{state.domain}/api/{resource}/v1/{remote_id}/", credential=credential,
-                )
+                found[key] = operations.lookup_detail_read(state, resource, remote_id, credential)
     with authoring.step("reads", b"locationTypes"):
         found["locationTypes"] = operations.location_types_read(state, credential)
     with authoring.step("reads", b"locations"):

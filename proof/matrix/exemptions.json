@@ -47,10 +47,6 @@
 		"reason": "only-in-a-build",
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
 	},
-	"expressions-and-data/absent-field-vs-zero-values-vs-empty-string": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/commcare/__tests__/hqLookupRestore.test.ts reads a zero-occurrence field from CommCare HQ's row details and its absence from the device fixture."
-	},
 	"expressions-and-data/audio-3gp": {
 		"reason": "stated-by-its-part",
 		"note": "Part 11 decided it (its section 2.1): CommCare HQ files an audio 3GP as video, so an audio slot naming one is refused from the source under the M4A entry before any file is fetched."
@@ -71,10 +67,6 @@
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; no API-key read shows whether a field is indexed, and lib/commcare/__tests__/hqLookupRestore.test.ts reads the indexed fields from a verified global restore's schema."
 	},
-	"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
 	"expressions-and-data/image-svg": {
 		"reason": "hq-never-serves-the-value",
 		"note": "CommCare HQ stores a picture only once Pillow opens it (CommCareImage.attach_data raises BadMediaFileException for an SVG), so no app's map names one; the row hq-media/svg-picture holds that outcome."
@@ -86,10 +78,6 @@
 	"expressions-and-data/is-synced-last-modified": {
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds, and HQ's lookup table resource serves neither field; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
-	"expressions-and-data/item-attributes-and-per-row-attribute-values": {
-		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
 	},
 	"expressions-and-data/lookup-table-rows-in-the-local-archive-suite": {
 		"reason": "only-in-a-build",

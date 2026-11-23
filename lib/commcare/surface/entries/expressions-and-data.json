@@ -5126,10 +5126,9 @@
 			"lookup-workbook:field"
 		],
 		"valueClass": "field-properties",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: held in Project data as a column's value details (`LookupColumn.properties`) and repeated text columns with ordered occurrences (`lib/lookup`), read from CommCare HQ's row details (`lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`), edited in the rich table editor and the shared tools, and written to the device fixture and to a workbook wherever HQ's workbook reader keeps every occurrence (`lib/commcare/lookup/workbookRows.ts`); it moves once an HQ-authored base with properties and repeated values passes proofs 1 to 6 and a native walk shows the worker's choices",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a column's value details (`LookupColumn.properties`) and repeated text columns with ordered occurrences (`lib/lookup`), read from CommCare HQ's row details (`lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`), edited in the rich table editor and the shared tools, written to the device fixture one element a value with its details as attributes, as HQ's restore writes them (`fixturegenerators.py::ItemListsProvider.to_xml`), and to a workbook wherever HQ's workbook reader keeps every occurrence (`lib/commcare/lookup/workbookRows.ts`). The `hq-lookup-data` base holds a field with a property and two values a row; a choice labelled by the Hindi value shows it to a worker",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5157,10 +5156,9 @@
 			"lookup-workbook:property"
 		],
 		"valueClass": "row-attributes",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: held as a table's row details (`LookupTableDefinition.attributes`, every row's attribute text kept exactly), read from CommCare HQ's row details, edited in Project data and the shared tools, and written to the fixture and the workbook's `property:` columns; it moves once an HQ-authored base with row attributes passes proofs 1 to 6 and a native walk",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a table's row details (`LookupTableDefinition.attributes`, every row's attribute text kept exactly), read from CommCare HQ's row details, edited in Project data and the shared tools, written as attributes of each row's fixture element and to the workbook's `property:` columns. The `hq-lookup-data` base saves each choice as its row's attribute, which keeps a duplicate-looking pair of rows apart",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5304,10 +5302,9 @@
 			"lookup-code:corehq/apps/fixtures/fixturegenerators.py::ItemListsProvider.to_xml"
 		],
 		"valueClass": "cell-absence",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, and the workbook refuses a row HQ's reader would not reconstruct; it moves once an HQ-authored base with each state passes proofs 1 to 6 and a native walk counts the elements",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, the device fixture writes each as HQ's restore does, and the workbook refuses a row HQ's reader would not reconstruct. The `hq-lookup-data` base holds all three in one field; a choice list filtered on the empty value offers the absent and the empty row and not the row of no value",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

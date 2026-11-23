@@ -140,7 +140,10 @@ import {
 	readingProjectDataFindingsFor,
 	unreadPlacesFailure,
 } from "./projectData";
-import { boundAsItStands } from "./projectData/lookupTables";
+import {
+	boundAsItStands,
+	type HqLookupTableRead,
+} from "./projectData/lookupTables";
 import {
 	adoptedMediaFiles,
 	type HqMediaClaim,
@@ -742,6 +745,15 @@ const SETTLED = {
 	unicodeName: "expressions-and-data/tag-or-field-name-with-non-ascii-letters",
 	aliasedTableTag:
 		"expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+	/** A field's properties and the several values a row holds of one field (`<name lang="en">`). */
+	fieldValues:
+		"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
+	/** The row attributes a table names and each row's value of them (`<row code="…">`). */
+	rowAttributes:
+		"expressions-and-data/item-attributes-and-per-row-attribute-values",
+	/** A field a row does not hold, or holds no value of, which a device tells apart from an empty value. */
+	cellAbsence:
+		"expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
 	/** CommCare HQ's ids of a table and its rows, for each table the document reads. */
 	tableIds:
 		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
@@ -852,12 +864,79 @@ function lookupNameClass(name: string): string | undefined {
 }
 
 /**
+ * The content claims of one global table whose rows the reading holds, each at
+ * the place in CommCare HQ's definition it stands for: a field's properties
+ * where the definition names some or a row holds several values of the field
+ * (`/fields/<i>/properties`), the definition's row attributes
+ * (`/item_attributes`), and a field some row does not hold or holds no value
+ * of (`/fields/<i>`). A table the reading holds no rows of (one CommCare HQ
+ * keeps per owner, or one whose rows it could not read whole) settles none:
+ * its rows stay CommCare HQ's, so nothing the reading kept stands for them.
+ */
+function lookupContentRecords(
+	read: HqLookupTableRead,
+	at: string,
+): ClaimRecord[] {
+	if (
+		read.kind !== "read" ||
+		!read.table.isGlobal ||
+		read.canonical.source?.inventory === "unavailable"
+	)
+		return [];
+	const { table, rows } = read;
+	const records: ClaimRecord[] = [];
+	for (const [index, field] of table.fields.entries()) {
+		const values = rows.map((row) =>
+			Object.hasOwn(row.fields, field) ? row.fields[field] : undefined,
+		);
+		const properties = Object.hasOwn(table.fieldProperties, field)
+			? table.fieldProperties[field]
+			: [];
+		if (
+			properties.length > 0 ||
+			values.some((value) => typeof value === "object" && value.length > 1)
+		)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/fields/${index}/properties`,
+					SETTLED.fieldValues,
+				),
+			);
+		if (
+			values.some(
+				(value) =>
+					value === undefined ||
+					(typeof value === "object" && value.length === 0),
+			)
+		)
+			records.push(
+				settledRecord(
+					LOOKUP_TABLES_ARTIFACT,
+					`${at}/fields/${index}`,
+					SETTLED.cellAbsence,
+				),
+			);
+	}
+	if (table.itemAttributes.length > 0)
+		records.push(
+			settledRecord(
+				LOOKUP_TABLES_ARTIFACT,
+				`${at}/item_attributes`,
+				SETTLED.rowAttributes,
+			),
+		);
+	return records;
+}
+
+/**
  * The claims a reading settles that no key of the source holds, each recorded
  * where the reading met what its entry states, with no surface key but a held
  * file's class: the app's id and save counter (the application resource), the
  * project space HQ's build writes the target's profile properties from, for
- * each table the document reads with nothing Nova cannot hold of it its tag and
- * CommCare HQ's ids, for each held file the entry of its format, the media
+ * each table the document reads with nothing Nova cannot hold of it its tag,
+ * the content classes its definition and rows hold (`lookupContentRecords`)
+ * and CommCare HQ's ids, for each held file the entry of its format, the media
  * suite's resource HQ's build writes for it, each of its paths under
  * `jr://file/`, and the class each of its map items files it under, at that
  * item's `media_type` under its key (`mediaClassRecord`), a Connect app the
@@ -914,6 +993,7 @@ export function settledClaims(settled: SettledReads): readonly ClaimRecord[] {
 					),
 				);
 		}
+		records.push(...lookupContentRecords(table.read, at));
 		records.push(
 			settledRecord(LOOKUP_TABLES_ARTIFACT, `${at}/id`, SETTLED.tableIds),
 		);

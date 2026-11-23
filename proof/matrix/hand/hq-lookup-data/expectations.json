@@ -1,0 +1,141 @@
+[
+	{
+		"id": "crop-saved-as-its-row-code",
+		"entry": "questions/itemset-refs-to-attr-or-property-qualified-fields",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "2"
+				}
+			],
+			"expressions": [
+				"/data/crop",
+				"instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name[@lang = 'hin']"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "c-beans"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "Sem"
+			}
+		]
+	},
+	{
+		"id": "crop-name-in-each-language",
+		"entry": "expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "3"
+				}
+			],
+			"expressions": [
+				"count(instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name)",
+				"instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name[1]/@lang",
+				"instance('item-list:crops')/crops_list/crops[@code = /data/crop]/name[2]"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "2"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "en"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "Jowar"
+			}
+		]
+	},
+	{
+		"id": "duplicate-looking-crops-kept-apart-by-code",
+		"entry": "expressions-and-data/item-attributes-and-per-row-attribute-values",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/crop",
+					"value": "5"
+				}
+			],
+			"expressions": [
+				"/data/crop",
+				"count(instance('item-list:crops')/crops_list/crops[id = 'maize'])"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "c-maize-hill"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "2"
+			}
+		]
+	},
+	{
+		"id": "crops-with-no-note-offered",
+		"entry": "expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/bare_crop",
+					"value": "2"
+				}
+			],
+			"expressions": [
+				"/data/bare_crop",
+				"count(instance('item-list:crops')/crops_list/crops[note = ''])",
+				"count(instance('item-list:crops')/crops_list/crops[@code = 'c-beans']/note)",
+				"count(instance('item-list:crops')/crops_list/crops[@code = 'c-sorghum']/note)"
+			]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "c-millet"
+			},
+			{
+				"pointer": "/values/1/value",
+				"value": "2"
+			},
+			{
+				"pointer": "/values/2/value",
+				"value": "0"
+			},
+			{
+				"pointer": "/values/3/value",
+				"value": "1"
+			}
+		]
+	}
+]
