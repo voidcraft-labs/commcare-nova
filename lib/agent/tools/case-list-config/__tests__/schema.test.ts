@@ -3,6 +3,7 @@
  * optional-count or native wire claim. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { authoringJsonSchema } from "@/lib/agent/authoring/schema";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { configureCaseSelectionTool } from "../configureCaseSelection";
@@ -16,6 +17,7 @@ import {
 	caseTileLayoutInputSchema,
 	columnInputSchema,
 	columnUpdateInputSchema,
+	SEARCH_FOR_BLANK_DESCRIPTION,
 	stampColumnUuid,
 	tileCellFromInput,
 	tileCellInputSchema,
@@ -24,6 +26,22 @@ import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { updateSearchInputTool } from "../updateSearchInput";
 
 const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
+
+// The search for blank is admitted on every visible arm, so its one
+// description tells the model what an advanced field's condition receives.
+it.each([
+	["add_search_inputs", addSearchInputsTool.inputSchema],
+	["update_search_input", updateSearchInputTool.inputSchema],
+])(
+	"%s describes the search for blank an advanced field receives",
+	(_, schema) => {
+		const served = JSON.stringify(authoringJsonSchema(schema));
+		expect(served).toContain(JSON.stringify(SEARCH_FOR_BLANK_DESCRIPTION));
+		expect(SEARCH_FOR_BLANK_DESCRIPTION).toContain(
+			"An advanced field's condition receives the blank joined before the answer (#,#answer",
+		);
+	},
+);
 
 describe("case-list author command boundaries", () => {
 	// ── Representative-payload smoke tests ────────────────────────────

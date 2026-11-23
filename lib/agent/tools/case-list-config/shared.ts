@@ -542,6 +542,14 @@ function refineSearchInputBoundary(
 	}
 }
 
+/** What a search for blank does on each kind of visible field. A simple field
+ * sends the blank beside the answer to CommCare HQ's own match; an advanced
+ * field's condition reads the answer as the device holds it, the blank joined
+ * before it (`#,#answer`, or empty with the box alone), and finds nothing
+ * unless it reads that spelling. */
+export const SEARCH_FOR_BLANK_DESCRIPTION =
+	"Web Apps also lets people find cases where this is blank; Android shows the field without the box. Use it on a simple field with exact or range matching (or matching project-space) on its own property under the same name. An advanced field's condition receives the blank joined before the answer (#,#answer, or an empty value when only the box is ticked), so a condition comparing the answer finds nothing; leave it off there unless the condition reads that spelling.";
+
 /**
  * The three prompt slots every visible arm shares. The descriptions are
  * shared by all visible input kinds. The tool description explains their
@@ -559,12 +567,7 @@ const visibleSearchInputSlots = {
 	validation: searchInputValidationSchema
 		.optional()
 		.describe("One rule a nonblank answer must pass, with its message."),
-	allowBlank: z
-		.literal(true)
-		.optional()
-		.describe(
-			"Web Apps also lets people find cases where this is blank. A simple field needs exact or range matching (or matching project-space) on its own property under the same name.",
-		),
+	allowBlank: z.literal(true).optional().describe(SEARCH_FOR_BLANK_DESCRIPTION),
 };
 
 const searchInputUuidSlot = {
