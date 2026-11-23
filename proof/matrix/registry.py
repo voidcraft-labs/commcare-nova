@@ -303,10 +303,21 @@ def _refused_reference(row_id, error):
     )
 
 
+def project_files_in(value):
+    """Every Project file ``value`` names (``{"$projectFile": path}``), at any depth, in document order."""
+    from proof.matrix.ops import project_file_of
+
+    path = project_file_of(value)
+    if path is not None:
+        return [path]
+    children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else ()
+    return [one for child in children for one in project_files_in(child)]
+
+
 def _check_references(row_id, row):
     """Each reference a row holds well formed, and only where the lane resolves one: a set-json value, and a menu or a
     form's xmlns in a list key of a ``holds`` fragment."""
-    from proof.matrix.ops import ValueNotSet, references_in
+    from proof.matrix.ops import PROJECT_FILE, ValueNotSet, project_file_of, references_in
 
     allowed = []
     for change in (
@@ -332,6 +343,14 @@ def _check_references(row_id, row):
         raise _refused_reference(row_id, str(error)) from None
     if everywhere != sum(len(references_in(value)) for _, value in allowed):
         raise _refused_reference(row_id, "a place, a holds value or an hqNeverServes holds one.")
+    held_files = sum(
+        project_file_of(hold.get("value")) is not None for hold in row.get("holds") or () if isinstance(hold, Mapping)
+    )
+    if len(project_files_in(dict(row))) != held_files:
+        raise VariantsRefused(
+            f"The variant {row_id} names a Project file ({{{PROJECT_FILE!r}: <path>}}) where the lane reads none: a"
+            " holds value names one as the whole value, and nothing else does."
+        )
 
 
 def _check_change(row_id, change, named):

@@ -655,11 +655,14 @@ def hold_value(value, app_id, files):
     Reauthoring a registered source mints new HQ media IDs for the same files.
     The first-read planner keys its temporary file by (app, class, HQ media ID).
     """
-    if not isinstance(value, dict) or set(value) != {"$projectFile"}:
+    from proof.matrix.ops import project_file_of
+
+    path = project_file_of(value)
+    if path is None:
         return value
     from uuid import UUID, uuid5
 
-    (row,) = [item for item, _ in files if item["path"] == value["$projectFile"] and item["status"] == 200]
+    (row,) = [item for item, _ in files if item["path"] == path and item["status"] == 200]
     identity = json.dumps([app_id, row["mediaType"], row["multimediaId"]], separators=(",", ":"), ensure_ascii=False)
     return str(uuid5(UUID("4374916f-4ced-42c6-b00d-f7fb7b45aaaf"), identity))
 
