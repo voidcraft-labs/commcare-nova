@@ -123,6 +123,16 @@ export interface PreviewPlatformRules {
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
+	/** A Details tile's layout. Web Apps draws the long detail's own grid
+	 *  (`formplayer` `EntityDetailResponse` carries each field's style, and
+	 *  `case-layout.js` reads its grid area); Android draws a long detail's
+	 *  fields as ordinary labeled rows (`views/EntityDetailView.java`). */
+	readonly detailTile: "laid-out" | "rows";
+	/** A Search Only field placed on a custom tile. Web Apps hides a field
+	 *  whose header width is zero; Android draws every placed cell of its
+	 *  list tile unless the cell's coordinate is negative
+	 *  (`EntityViewTile.java`). */
+	readonly searchOnlyTileCell: "hidden" | "drawn";
 	/** A search's title, description and field hints (manifest
 	 *  `case-search/title-label-lang-non-empty`, `description-lang-markdown`,
 	 *  `hint-lang`, which Android ignores). */
@@ -417,6 +427,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
 		linkColumnInList: "link",
+		detailTile: "laid-out",
+		searchOnlyTileCell: "hidden",
 		searchScreenText: true,
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
@@ -487,6 +499,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
 		linkColumnInList: "raw-text",
+		detailTile: "rows",
+		searchOnlyTileCell: "drawn",
 		searchScreenText: false,
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,

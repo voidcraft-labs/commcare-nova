@@ -6587,6 +6587,14 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/attachment-name-with-any-other-format",
         "menus-and-case-lists/callout-with-no-extras-or-no-responses",
         "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist",
+        # A Details tab's rows or condition, and the case context above a form, are refused by what their typed
+        # expression resolves to (a row scope, a case scope, the source menu's tile), which only Nova's reader and
+        # gate decide; no value-class reader states that yet, so a use of these keys is undecided in the lane.
+        "menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+        "menus-and-case-lists/form-context-expression-outside-its-case-scope",
+        "menus-and-case-lists/form-context-without-a-compatible-case-tile",
+        "menus-and-case-lists/tab-display-condition-outside-its-case-scope",
+        "menus-and-case-lists/two-different-values-for-the-same-form-context",
         "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
         "menus-and-case-lists/detail-custom-variables-dict-non-empty",
         "menus-and-case-lists/detail-custom-xml-non-empty",

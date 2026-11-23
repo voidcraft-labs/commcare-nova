@@ -214,6 +214,8 @@ export function classifyIdentity(
 	if (
 		property === "columnUuid" ||
 		property === "columnUuids" ||
+		// A named tile position holds the field placed there.
+		property === "namedSlots" ||
 		property === "resultsColumnOrder" ||
 		property === "detailsColumnOrder"
 	) {

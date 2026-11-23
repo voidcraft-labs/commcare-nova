@@ -294,7 +294,9 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}plain-tab-header-starting-index`,
 		"schema:DetailTab.starting_index",
 	),
-	tabEditorFlag: derived(`${A}a-stored-tab-without-istab`, null),
+	// `isTab` is the Case Detail page's state, no field of HQ's schema, so the
+	// claim stands on the tab itself.
+	tabEditorFlag: derived(`${A}a-stored-tab-without-istab`, "schema:DetailTab"),
 	tabChildEnabled: take(
 		`${A}data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset`,
 		"schema:DetailTab.has_nodeset",
@@ -1537,14 +1539,18 @@ export function readCaseDetails(
 	// Each property a column or a sort element reads is a property of the catalog: of the case
 	// type its walk reaches, for a column read through a relation.
 	const caseType = module.module.caseType;
-	const typesOf = (column: JoinedColumn) => [
-		...new Set([
+	// The case types whose properties a column shows: the list's own on
+	// Results, and a Details tab's child type on Details. A column on neither
+	// detail (a sort's carrier) reads the list's own type.
+	const typesOf = (column: JoinedColumn) => {
+		const types = new Set([
 			...(column.short !== undefined ? [caseType] : []),
 			...(column.long !== undefined
 				? [childTypeAt(column.long) ?? caseType]
 				: []),
-		]),
-	];
+		]);
+		return [...(types.size > 0 ? types : [caseType])];
+	};
 	const properties = joined.columns.flatMap((column) => {
 		const body = column.proposal.column;
 		if (body.kind === "calculated" || typeof body.field !== "string") return [];
@@ -1872,6 +1878,8 @@ export function readCaseDetails(
 						children ? D.tabChildType : D.tabSearchChildren,
 						String,
 					).value;
+					// The type a tab names, its rows' or a search's related
+					// children, is a type of the catalog.
 					if (
 						ctx.draft.caseTypes &&
 						!ctx.draft.caseTypes.some((type) => type.name === relatedType)

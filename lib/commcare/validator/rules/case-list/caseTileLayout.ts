@@ -126,7 +126,7 @@ export function caseTileLayout(
 							"module",
 							problem,
 							location,
-							{ columnUuid: column.uuid },
+							{ columnUuid: column.uuid, reason: problem },
 						),
 					);
 				prior.push(cell);
@@ -142,6 +142,10 @@ export function caseTileLayout(
 					"module",
 					"This menu needs each tile row to belong to one tab. You can move the fields of different tabs onto separate rows.",
 					location,
+					{
+						reason:
+							"This menu needs each tile row to belong to one tab. You can move the fields of different tabs onto separate rows.",
+					},
 				),
 			);
 	}
@@ -211,7 +215,38 @@ export function caseTileLayout(
 		}
 	}
 
-	if (config.tile === undefined || config.tile.namedSlots) return errors;
+	// A named layout's positions each show a different field of Results: a
+	// removed, hidden or repeated field leaves a position HQ's
+	// `CaseTileHelper._get_matched_detail_column` cannot fill.
+	const named = config.tile?.namedSlots;
+	if (named) {
+		const shown = new Set(
+			columns
+				.filter(
+					(column) =>
+						column.visibleInList !== false && column.notOnList !== true,
+				)
+				.map((column) => column.uuid),
+		);
+		const seen = new Set<Uuid>();
+		for (const [slot, uuid] of Object.entries(named)) {
+			const repeated = seen.has(uuid);
+			seen.add(uuid);
+			if (shown.has(uuid) && !repeated) continue;
+			errors.push(
+				validationError(
+					"CASE_LIST_NAMED_TILE_SLOT_INVALID",
+					"module",
+					repeated
+						? `Two positions on the "${mod.name}" case tile show the same field. Choose a different Results field for each position.`
+						: `A position on the "${mod.name}" case tile shows a field that isn't in Results anymore. Choose a Results field for it, or turn the named tile off.`,
+					location,
+					{ slot, columnUuid: uuid },
+				),
+			);
+		}
+	}
+	if (config.tile === undefined || named) return errors;
 
 	for (const [index, column] of columns.entries()) {
 		if (column.tile !== undefined) continue;

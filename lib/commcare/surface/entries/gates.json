@@ -595,9 +595,10 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Detail tabs data tabs)",
+		"content": "HELD (Detail tabs data tabs)",
 		"contentEntries": [
 			"menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
+			"menus-and-case-lists/related-child-type-beside-an-explicit-tab-collection",
 			"menus-and-case-lists/data-tab-over-a-custom-nodeset-xpath"
 		],
 		"platforms": "n/a",

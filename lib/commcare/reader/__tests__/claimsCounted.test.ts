@@ -395,30 +395,35 @@ describe("the claims a reading counts", () => {
 			nodeset_filter: "#parent/village = 'x'",
 			...fields,
 		});
-		const outcome = await readEdited(doc, (app) => {
-			const details = (
-				app.modules[0] as unknown as {
-					case_details: { long: { tabs?: unknown[] } };
-				}
-			).case_details;
-			details.long.tabs = [
-				tab({}),
-				tab({ nodeset: "instance('casedb')/casedb/case" }),
-			];
-		});
-		const at = (index: number) =>
+		// Each tab in a detail of its own: two tabs cannot both start the detail.
+		const read = (one: object) =>
+			readEdited(doc, (app) => {
+				const details = (
+					app.modules[0] as unknown as {
+						case_details: {
+							short: { columns: unknown[] };
+							long: { columns: unknown[]; tabs?: unknown[] };
+						};
+					}
+				).case_details;
+				// The tab starts at the detail's first field, as HQ's page saves it.
+				details.long.columns = [structuredClone(details.short.columns[0])];
+				details.long.tabs = [tab(one)];
+			});
+		const children = await read({});
+		const own = await read({ nodeset: "instance('casedb')/casedb/case" });
+		const at = (outcome: Awaited<ReturnType<typeof read>>) =>
 			records(outcome)
 				.filter(
 					(one) =>
-						one.where ===
-						`/modules/0/case_details/long/tabs/${index}/nodeset_filter`,
+						one.where === "/modules/0/case_details/long/tabs/0/nodeset_filter",
 				)
 				.map((one) => one.key);
 		// HQ's build interpolates the filter (`details.py::_get_detail_tab_nodeset`), and Core
 		// refuses the raw text's hashtag, so its uses are its shorthand alone.
-		expect(at(0)).toContain("hashtag:#parent");
-		expect(at(0)).not.toContain("xpath-token:STR");
-		expect(at(1)).not.toContain("hashtag:#parent");
+		expect(at(children)).toContain("hashtag:#parent");
+		expect(at(children)).not.toContain("xpath-token:STR");
+		expect(at(own)).not.toContain("hashtag:#parent");
 	});
 });
 

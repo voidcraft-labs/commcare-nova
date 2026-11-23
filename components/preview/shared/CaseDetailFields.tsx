@@ -14,7 +14,7 @@ import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
-import { usePreviewPlatform } from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { CaseTile } from "./CaseTile";
 
 export function CaseDetailFields({
@@ -28,7 +28,7 @@ export function CaseDetailFields({
 	row: CaseRowWithCalculated;
 	displayContext: ColumnDisplayContext;
 }) {
-	const platform = usePreviewPlatform();
+	const platformRules = usePreviewPlatformRules();
 	const detailSpans = availableDetailTabs(
 		config,
 		detailColumns,
@@ -46,7 +46,7 @@ export function CaseDetailFields({
 		openCase: NonNullable<typeof displayedOpenCase>,
 	) => {
 		const tile = config?.detailTile;
-		if (tile && platform === "web-apps") {
+		if (tile && platformRules.detailTile === "laid-out") {
 			const placed = columns.map((column) => ({
 				...column,
 				tile: tile.cells[column.uuid],

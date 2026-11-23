@@ -161,6 +161,14 @@ function everyKindDoc(): BlueprintDoc {
 				calculated.uuid,
 				mapping.uuid,
 			],
+			// A Details tab is named by the least key among its fields.
+			detailTabs: [
+				{
+					uuid: testUuid("map-tab"),
+					title: "Scores",
+					startColumnUuid: calculated.uuid,
+				},
+			],
 			searchInputs: [
 				{
 					uuid: testUuid("map-search-name"),
@@ -248,6 +256,14 @@ describe("externalIdentityMap's keys", () => {
 		expectKey(
 			testUuid("map-sort"),
 			externalKey.caseListSort(menu, recordSyntaxKey("'north'"), 0),
+		);
+		expect(keys.get(testUuid("map-tab"))).toBe(
+			externalKeyText(
+				externalKey.caseDetailTab(
+					externalKey.caseListColumn(menu, "calculated", "", 0),
+					[externalKey.caseListColumn(menu, "id-mapping", "region", 0)],
+				),
+			),
 		);
 		expectKey(
 			testUuid("map-search-name"),

@@ -24,10 +24,7 @@ import {
 import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import { columnRawText } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
-import {
-	usePreviewPlatform,
-	usePreviewPlatformRules,
-} from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 
 /**
  * Where the tile is drawn. The geometry is identical either way; the
@@ -80,7 +77,6 @@ export function CaseTile({
 	className,
 }: CaseTileProps) {
 	const platformRules = usePreviewPlatformRules();
-	const platform = usePreviewPlatform();
 	const byUuid = new Map<string, TileResultsColumn>(
 		columns.map((entry) => [entry.column.uuid, entry]),
 	);
@@ -118,7 +114,8 @@ export function CaseTile({
 						{/* A hidden column that still orders the list holds its square
 						 *  and shows nothing: the device's zero-width sort carrier. */}
 						{!entry.valueHidden &&
-							(!entry.column.tile?.androidOnly || platform === "android") && (
+							(!entry.column.tile?.androidOnly ||
+								platformRules.searchOnlyTileCell === "drawn") && (
 								<>
 									{entry.prefixLabel ? (
 										<span>

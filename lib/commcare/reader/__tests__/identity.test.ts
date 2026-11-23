@@ -83,6 +83,10 @@ describe("mintEntityUuid", () => {
 			externalKey.selectOption(XMLNS, ["q"], "v"),
 			externalKey.caseListColumn("m", "calculated", "", 0),
 			externalKey.caseListSort("m", "priority", 0),
+			externalKey.caseDetailTab(
+				externalKey.caseListColumn("m", "calculated", "", 0),
+				[],
+			),
 			externalKey.caseMappingRow(
 				uuidSchema.parse("378c6a63-9d66-56ad-b0f2-06b79ad46109"),
 				JSON.stringify(["selected", "a"]),

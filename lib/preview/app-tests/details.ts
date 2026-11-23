@@ -37,6 +37,7 @@ import {
 	previewSelectionsBefore,
 } from "../menuProjection";
 import { previewPinnedCaseTile } from "../pinnedCaseTile";
+import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { readingSurface } from "./dataRefusal";
@@ -240,7 +241,8 @@ export async function appTestFormCaseContext(
 		if (
 			!value ||
 			!column.tile ||
-			(column.tile.androidOnly && state.platform === "web-apps")
+			(column.tile.androidOnly &&
+				previewPlatformRules(state.platform).searchOnlyTileCell === "hidden")
 		)
 			return [];
 		return [{ ...value, placement: column.tile }];

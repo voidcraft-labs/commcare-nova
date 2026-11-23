@@ -1792,6 +1792,28 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.calculatedSorts[].blanks": "config",
 	"caseListConfig.calculatedSorts[].comparator": "config",
 	"caseListConfig.calculatedSorts[].label": "display-text",
+	// A Details tab: its identity, its title (a translation unit of its own),
+	// and the column uuids it starts at and orders by, which are identity
+	// like the two display sequences. Its condition, row source and child
+	// types are reference slots.
+	"caseListConfig.detailTabs[].uuid": "identity",
+	"caseListConfig.detailTabs[].title": "display-text",
+	"caseListConfig.detailTabs[].startColumnUuid": "identity",
+	"caseListConfig.detailTabs[].orderFields[]": "identity",
+	"caseListConfig.detailTabs[].rowSource.kind": "discriminator",
+	// The Details tile's cells and the named Results positions, each keyed
+	// by a column uuid or naming one; their geometry is closed config.
+	"caseListConfig.detailTile.cells": "config",
+	"caseListConfig.tile.namedSlots": "identity",
+	"caseListConfig.tile.rawSlots[]": "config",
+	// Which source shows the selected case above a form and whether it
+	// expands; its menu and its line are reference slots.
+	"caseListConfig.contextAboveForm.kind": "discriminator",
+	"caseListConfig.contextAboveForm.expandDetails": "config",
+	// A table or place field shown as HQ's direct property field, and a
+	// placed cell only Android draws.
+	"caseListConfig.columns[].rowField": "config",
+	"caseListConfig.columns[].tile.androidOnly": "config",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
 	"caseListConfig.columns[].notOnList": "config",

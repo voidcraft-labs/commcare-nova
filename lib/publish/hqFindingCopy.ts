@@ -192,8 +192,8 @@ export const FINDING_COPY: Readonly<
 			"This uses pictures or files saved on a case itself, which Nova doesn't bring in.",
 	},
 	"case-detail-tabs": {
-		"not-yet":
-			"This uses tabs on the case detail screen, which Nova can't hold yet.",
+		never:
+			"A tab on the case detail screen here lists records, or shows under a condition, that doesn't lead to one kind of record, which Nova doesn't bring in.",
 	},
 	"case-list-callout": {
 		"not-yet":
@@ -240,6 +240,8 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "This uses case sharing, which Nova can't hold yet.",
 	},
 	"case-tiles": {
+		never:
+			"A case tile here is missing a field one of its positions needs, or shows the case above a form in a way CommCare can't settle, which Nova doesn't bring in.",
 		"not-yet": "This uses a case tile layout, which Nova can't hold yet.",
 	},
 	"case-types": {},

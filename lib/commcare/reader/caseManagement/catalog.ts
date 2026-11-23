@@ -1066,6 +1066,23 @@ export function catalogAsRead(
 					draft.push({ name: one.caseType, properties: [] });
 				noteProperty(draft, one.caseType, one.property);
 			}
+			// A Details tab's child type, and the related type a search requests
+			// beside a tab's own rows, are types the list reader declares
+			// (`caseList/details.ts`).
+			for (const tab of module.caseListConfig?.detailTabs ?? []) {
+				const source = tab.rowSource;
+				const named =
+					source?.kind === "children"
+						? source.caseType
+						: source?.includeChildrenOfType;
+				if (
+					named !== undefined &&
+					CASE_TYPE_PATTERN.test(named) &&
+					!NOT_CATALOGUED.has(named) &&
+					!draft.some((type) => type.name === named)
+				)
+					draft.push({ name: named, properties: [] });
+			}
 		}
 		for (const read of reads) noteProperty(draft, read.caseType, read.property);
 		// A walk to the cases under a case names the child type and its parent

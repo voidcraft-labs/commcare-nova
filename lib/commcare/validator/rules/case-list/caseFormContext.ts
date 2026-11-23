@@ -35,10 +35,13 @@ export function caseFormContext(
 	const source = config?.contextAboveForm;
 	if (!source) return [];
 	const invalid = (reason: string) => [
-		validationError("CASE_FORM_CONTEXT_INVALID", "module", reason, {
-			moduleUuid: uuid,
-			moduleName: mod.name,
-		}),
+		validationError(
+			"CASE_FORM_CONTEXT_INVALID",
+			"module",
+			reason,
+			{ moduleUuid: uuid, moduleName: mod.name },
+			{ reason },
+		),
 	];
 	if (moduleCaseTypeForActions(doc, uuid) === "")
 		return invalid(

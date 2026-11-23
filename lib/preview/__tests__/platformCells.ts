@@ -297,6 +297,17 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/plain-label-containing-html-text@web-apps": stated("plain-text"),
 	"expressions-and-data/json-property@web-apps": stated("json-property"),
 	"menus-and-case-lists/8-address@web-apps": stated("case-map-location"),
+	// A named tile's icon positions, a Details tile and a raw field on a
+	// custom tile read differently on Android; each feature's note states it
+	// where the builder offers the layout.
+	"menus-and-case-lists/detail-case-tile-template-icon-text-grid@android":
+		stated("named-case-tile"),
+	"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid@android":
+		stated("named-case-tile"),
+	"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile@android":
+		stated("details-tile"),
+	"menus-and-case-lists/invisible-or-address-column-in-a-custom-tile@android":
+		stated("raw-custom-tile-field"),
 	"menus-and-case-lists/11-geo-boundary@web-apps": stated("case-map-layers"),
 	"menus-and-case-lists/12-geo-boundary-color-on-the-case-list-only-needs-an-address@web-apps":
 		stated("case-map-layers"),

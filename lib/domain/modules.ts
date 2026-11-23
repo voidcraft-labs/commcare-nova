@@ -2771,7 +2771,11 @@ export const NAMED_TILE_SLOTS = [
 ] as const;
 export type NamedTileSlot = (typeof NAMED_TILE_SLOTS)[number];
 export const namedTileSlotsSchema = z.record(
-	z.enum(NAMED_TILE_SLOTS),
+	z
+		.enum(NAMED_TILE_SLOTS)
+		.describe(
+			"a named tile position: topLeftImage, topLeftText, topRightImage, topRightText, middleLeftImage, middleLeftText, middleRightImage, middleRightText, bottomLeftImage or bottomLeftText, each holding the field placed there",
+		),
 	uuidSchema,
 );
 

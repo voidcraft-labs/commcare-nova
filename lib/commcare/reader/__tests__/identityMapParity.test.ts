@@ -398,6 +398,10 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 									label: "Priority",
 								},
 							],
+							detailTabs: [
+								{ uuid: uuid(21), title: "Patient", startColumnUuid: uuid(1) },
+								{ uuid: uuid(22), title: "Contact", startColumnUuid: uuid(4) },
+							],
 						},
 					},
 				),

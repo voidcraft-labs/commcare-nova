@@ -49,27 +49,33 @@ export function tileFixture(scenario: TileScenario) {
 				}))
 			: [];
 	const config = caseListConfig([...columns, ...extras]);
+	// A named layout places each field by its position's name, never by a
+	// cell, so its fields hold none (HQ's icon_text_grid template reads no
+	// grid keys).
+	const placed = scenario !== "named-layout";
 	config.columns = config.columns.map((column, index) => ({
 		...column,
-		tile: [
-			tileCell(0, 0, 4, headerRows, {
-				verticalAlign: "top",
-				horizontalAlign: "left",
-				fontSize: "large",
-				...(scenario === "boxed"
-					? { showBorder: true, showShading: true }
-					: {}),
-			}),
-			tileCell(0, headerRows, 2, 1, {
-				verticalAlign: "middle",
-				horizontalAlign: "center",
-			}),
-			tileCell(2, headerRows, 2, 1, {
-				verticalAlign: "bottom",
-				horizontalAlign: "right",
-			}),
-			tileCell(4, 0, 6, 4, { showBorder: true, showShading: true }),
-		][index],
+		tile: !placed
+			? undefined
+			: [
+					tileCell(0, 0, 4, headerRows, {
+						verticalAlign: "top",
+						horizontalAlign: "left",
+						fontSize: "large",
+						...(scenario === "boxed"
+							? { showBorder: true, showShading: true }
+							: {}),
+					}),
+					tileCell(0, headerRows, 2, 1, {
+						verticalAlign: "middle",
+						horizontalAlign: "center",
+					}),
+					tileCell(2, headerRows, 2, 1, {
+						verticalAlign: "bottom",
+						horizontalAlign: "right",
+					}),
+					tileCell(4, 0, 6, 4, { showBorder: true, showShading: true }),
+				][index],
 		...(index === 3
 			? {
 					visibleInList: false,
@@ -109,7 +115,12 @@ export function tileFixture(scenario: TileScenario) {
 						rows: {
 							kind: "cases" as const,
 							source: "casedb" as const,
-							where: [eq({ kind: "case-row-type" }, literal("visit"))],
+							where: [
+								eq(
+									{ kind: "case-row-type" },
+									{ kind: "case-type", caseType: "visit" },
+								),
+							],
 						},
 						includeChildrenOfType: "contact",
 					},
@@ -217,9 +228,6 @@ export function tileFixture(scenario: TileScenario) {
 				: []),
 		],
 		caseTypes: [
-			...(scenario === "conditional-search-children"
-				? [{ name: "contact", properties: [] }]
-				: []),
 			{
 				name: "visit",
 				properties: [...columns, ...extras]
@@ -230,6 +238,11 @@ export function tileFixture(scenario: TileScenario) {
 						data_type: "text" as const,
 					})),
 			},
+			// The search's related child type, after the type the reader meets
+			// first, as a reading lists them.
+			...(scenario === "conditional-search-children"
+				? [{ name: "contact", properties: [] }]
+				: []),
 		],
 	});
 }

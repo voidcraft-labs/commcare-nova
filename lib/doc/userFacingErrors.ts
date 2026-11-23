@@ -1149,8 +1149,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_DETAIL_TAB_ROWS_INVALID: (e) =>
 		recordFindingCopy(
 			e,
-			`The rows on ${q(String(e.details?.tabTitle ?? "this tab"))}`,
-		) ?? e.message,
+			`The records on ${q(String(e.details?.tabTitle ?? "this tab"))}`,
+		) ??
+		`The records on ${q(String(e.details?.tabTitle ?? "a Details tab"))} in ${q(modName(e))} can't be shown here. You can choose them again in Details.`,
 	CASE_DETAIL_TAB_CONDITION_INVALID: (e) =>
 		recordFindingCopy(
 			e,
@@ -1220,12 +1221,19 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} has a value label for ${q(det(e, "value", "a saved value"))}, and a saved value there can't hold &, <, >, " or '. You can change the value or remove its label.`,
 	CASE_LIST_DATE_PATTERN_APOSTROPHE: (e) =>
 		`A date style in ${q(modName(e))} holds a straight apostrophe ('), and CommCare HQ's date column has no way to store one. You can use a curved one (’).`,
-	CASE_DETAIL_TILE_LAYOUT_INVALID: (e) => e.message,
-	CASE_FORM_CONTEXT_INVALID: (e) => e.message,
+	// Each refusal states its own reason, in Nova's words, beside the finding.
+	CASE_DETAIL_TILE_LAYOUT_INVALID: (e) =>
+		e.details?.reason ??
+		`A field on the Details tile of ${q(modName(e))} doesn't fit its layout. You can move or resize it in Details.`,
+	CASE_FORM_CONTEXT_INVALID: (e) =>
+		e.details?.reason ??
+		`The case shown above the forms of ${q(modName(e))} can't be shown that way. You can choose what to show again in its case list settings.`,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
 		`An item on ${q(modName(e))}'s tile runs off the edge of the layout. Move it back inside, or make it narrower or shorter.`,
 	CASE_LIST_TILE_CELLS_OVERLAP: (e) =>
 		`Two items on ${q(modName(e))}'s tile sit on top of each other. Move or resize one of them so they don't share the same space.`,
+	CASE_LIST_NAMED_TILE_SLOT_INVALID: (e) =>
+		`A position on ${q(modName(e))}'s tile needs its own field shown in Results. Choose one for it, or turn the named tile off.`,
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: (e) =>
 		`An item shown in ${q(modName(e))} has no place on the tile yet. Put it on the layout, or hide it from the case list.`,
 	CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE: (e) =>

@@ -108,7 +108,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"named-case-tile": [
 		"menus-and-case-lists/detail-case-tile-template-icon-text-grid",
 		"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid",
+		// An image column differs only in a named tile's image position.
 		"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a",
+		"menus-and-case-lists/19-enum-image-whose-keys-are-plain-values",
+		"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot",
 	],
 	"details-tile": [
 		"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
@@ -207,14 +210,6 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"The local archive's embedded tables; Web Apps installs no archive.",
 	"forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case":
 		"The missing worker-record notice; no author chooses its screen.",
-	"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a":
-		"Differs only in an icon-text-grid tile, which Nova never writes.",
-	"menus-and-case-lists/19-enum-image-whose-keys-are-plain-values":
-		"Differs only in an icon-text-grid tile, which Nova never writes.",
-	"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot":
-		"Differs only in an icon-text-grid tile, which Nova never writes.",
-	"menus-and-case-lists/enum-mappingitem-alt-text-lang":
-		"Nova writes blank alt text; no author sets it yet.",
 	"questions/hq-generated-meta-deviceid-timestart-timeend-username-userid":
 		"The submission's meta block; authored reads go through the session context features.",
 	"questions/h-title-and-data-name-whatever-their-text":
