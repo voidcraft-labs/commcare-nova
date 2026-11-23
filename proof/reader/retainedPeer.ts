@@ -6,8 +6,10 @@
  * native `fetch` (the dispatch path Nova's client uses) reaches it and
  * nothing else: the agent refuses every connection, and each request Nova's
  * client makes is answered from the retained answer for it, status, headers
- * and body as HQ gave them, once. A request with no retained answer, or a
- * second request of one already given, is refused by the agent; the reading
+ * and body as HQ gave them, once (a table's list, definition and row details
+ * excepted, which a rich table's read asks twice, `REREAD_ANSWER`). A request
+ * with no retained answer, or a second request of any other already given,
+ * is refused by the agent; the reading
  * then ends naming that request's path (`RetainedAnswerMissing`). No socket
  * is opened.
  */
@@ -229,6 +231,13 @@ function answerFor(
 	return undefined;
 }
 
+/** Answers a reading may ask for again. Nova reads a table whose definition
+ * or rows carry more than plain text between two identical observations
+ * (`lookupSource.ts::streamHqLookupTable`): its row list, its definition
+ * and each row's detail, each asked again of a table that did not change,
+ * which HQ answers the same. Every other answer is given once. */
+const REREAD_ANSWER = /^(?:fixtureRows|fixtureDetail|lookupDefinition):/;
+
 /** Answers native `fetch` from `answers` for the length of `run`, and nothing else. */
 export async function withRetainedHq<T>(
 	answers: Answers,
@@ -252,9 +261,10 @@ export async function withRetainedHq<T>(
 					? answerFor(answers, request.path, asked)
 					: undefined;
 			const path = new URL(request.path, ORIGIN).pathname;
-			if (found === undefined || asked.includes(found.name))
-				return refuse(path);
-			asked.push(found.name);
+			if (found === undefined) return refuse(path);
+			if (asked.includes(found.name)) {
+				if (!REREAD_ANSWER.test(found.name)) return refuse(path);
+			} else asked.push(found.name);
 			return {
 				statusCode: found.answer.status,
 				data: found.answer.body,

@@ -196,6 +196,25 @@ describe("withRetainedHq", () => {
 		await expect(run).rejects.toThrow(new RetainedAnswerMissing(path));
 	});
 
+	it("gives a table's rows again, as an unchanged HQ answers a rich table's second observation", async () => {
+		const plainId = (
+			retainedBodyJson(retainedGroupRead("lookups/lookup-tables")).objects as {
+				id: string;
+				tag: string;
+			}[]
+		).find((table) => table.tag === "plain")?.id;
+		const path = `/a/${LANE_TARGET.domain}/api/fixture/v1/?fixture_type_id=${plainId}`;
+		const { bodies, asked } = await withRetainedHq(ANSWERS, async (peer) => {
+			const seen = [];
+			for (let read = 0; read < 3; read++)
+				seen.push(await (await fetch(`${ORIGIN}${path}`)).text());
+			return { bodies: seen, asked: peer.asked() };
+		});
+		const body = ANSWERS.projectData.fixtureRows.plain.body;
+		expect(bodies).toEqual([body, body, body]);
+		expect(asked).toEqual(["fixtureRows:plain"]);
+	});
+
 	it("refuses a request to any other host", async () => {
 		const run = withRetainedHq(ANSWERS, async () => {
 			await fetch("https://india.commcarehq.org/api/user_domains/v1/").catch(
