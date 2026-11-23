@@ -18,10 +18,7 @@ import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
-import {
-	usePreviewPlatform,
-	usePreviewPlatformRules,
-} from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -79,9 +76,9 @@ export function GroupField({
 	const state = useEngineStateAt(field.uuid, path);
 	const textForm = useFieldTextForm(field.uuid);
 	const [toggled, setToggled] = useState(false);
-	const platform = usePreviewPlatform();
-	const collapse = platform === "web-apps" ? field.collapse : undefined;
-	const border = platform === "web-apps" && field.border;
+	const { groupFrame } = usePreviewPlatformRules();
+	const collapse = groupFrame === "as-authored" ? field.collapse : undefined;
+	const border = groupFrame === "as-authored" && field.border;
 	const collapsed = !!collapse && toggled !== (collapse === "closed");
 	const headerId = useId();
 	const contentId = useId();

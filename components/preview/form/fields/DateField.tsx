@@ -18,7 +18,7 @@ import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { androidCalendarCanBeEmpty } from "@/lib/preview/workerCalendar";
-import { usePreviewPlatform } from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { formatClockTime, parseClockTime } from "@/lib/ui/clockTime";
 import { ValidationError } from "./ValidationError";
 
@@ -111,7 +111,8 @@ export function DateField({
 	onChange,
 	onBlur,
 }: DateFieldProps) {
-	const platform = usePreviewPlatform();
+	const rules = usePreviewPlatformRules();
+	const clearable = rules.datePicker === "clearable";
 	const { language } = useBuilderLanguage();
 	const showError = state.touched && !state.valid;
 	const stored = state.value;
@@ -124,8 +125,9 @@ export function DateField({
 		const displayed = stored || state.androidPickerDay || "";
 		const usesCalendar =
 			calendar === "ethiopian"
-				? platform === "web-apps" || !hasOtherDisplay(field, "calendar")
-				: !!calendar && platform === "android";
+				? rules.alternateCalendar === "ethiopian" ||
+					!hasOtherDisplay(field, "calendar")
+				: !!calendar && rules.alternateCalendar === "authored";
 		if (usesCalendar && calendar)
 			return (
 				<div>
@@ -135,7 +137,7 @@ export function DateField({
 						}
 						showClearButton={calendar === "gregorian-with-clear"}
 						canClearInCalendar={
-							platform === "web-apps" || androidCalendarCanBeEmpty(calendar)
+							clearable || androidCalendarCanBeEmpty(calendar)
 						}
 						value={displayed}
 						onChange={onChange}
@@ -150,10 +152,10 @@ export function DateField({
 		return (
 			<div>
 				<WorkerDatePicker
-					clearable={platform === "web-apps"}
+					clearable={clearable}
 					value={displayed}
 					onValueChange={(next) => {
-						if (!next && platform === "android") return;
+						if (!next && !clearable) return;
 						onChange(next);
 						onBlur();
 					}}
@@ -172,12 +174,14 @@ export function DateField({
 			<div>
 				<ClockTimeField
 					placeholder={
-						platform === "web-apps" && !field.clock ? "14:30" : "2:30 PM"
+						rules.timeClock === "as-authored" && !field.clock
+							? "14:30"
+							: "2:30 PM"
 					}
 					value={
 						formatClockTime(
 							stored,
-							platform === "android" || field.clock === "twelve-hour",
+							rules.timeClock === "device" || field.clock === "twelve-hour",
 						) ?? stored
 					}
 					onValueChange={onChange}

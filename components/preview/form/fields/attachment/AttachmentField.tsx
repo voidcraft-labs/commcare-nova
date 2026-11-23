@@ -254,7 +254,7 @@ function AttachmentControl({
 	const limits = CAPTURE_LIMITS[platform];
 	const drawsSignature =
 		field.kind === "signature" ||
-		(field.kind === "image" && field.webSignature && platform === "web-apps");
+		(field.kind === "image" && field.webSignature && rules.combinedSignature);
 	const projectProse = useProseProjection();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const inputId = useId();

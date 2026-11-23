@@ -1,4 +1,4 @@
-import type { Field, SingleSelectField } from "@/lib/domain";
+import type { Field, Platform, SingleSelectField } from "@/lib/domain";
 import { proseTemplateText } from "@/lib/domain";
 import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
 import type { FieldState } from "./engine/types";
@@ -15,6 +15,9 @@ export function receivedAnswer(
 	field: Field & { receiveFrom?: { channel: string; field: string } },
 	state: FieldState,
 	message: QuestionMessage,
+	/** The platform whose entry receives: one that reads channels
+	 *  (`lib/preview/platform.ts`, `questionChannels`). */
+	platform: Platform,
 ): string | undefined {
 	if (!field.receiveFrom) return undefined;
 	const property = field.receiveFrom.field;
@@ -25,7 +28,7 @@ export function receivedAnswer(
 	)
 		return message && Object.hasOwn(message, property) ? message[property] : "";
 	if (field.kind !== "single_select") return undefined;
-	return receivedChoice(field, state, property, message);
+	return receivedChoice(field, state, property, message, platform);
 }
 
 function receivedChoice(
@@ -33,8 +36,9 @@ function receivedChoice(
 	state: FieldState,
 	property: string,
 	message: QuestionMessage,
+	platform: Platform,
 ): string | undefined {
-	const layout = choiceLayoutForPlatform(field, "web-apps");
+	const layout = choiceLayoutForPlatform(field, platform);
 	if (layout && layout.kind !== "search") return undefined;
 	// SingleSelectEntry.receiveMessage passes a numeric index to the writer
 	// of rawAnswer, which searches an array of string labels for that number.

@@ -60,7 +60,7 @@ export function BarcodeField({
 					type="text"
 					inputMode={usesNumberKeypad(field, platform) ? "tel" : undefined}
 					placeholder={
-						platform === "web-apps" &&
+						rules.hintPlacement === "as-authored" &&
 						field.hintPlacement === "placeholder" &&
 						field.hint
 							? (state.resolvedHint ?? project(field.hint))

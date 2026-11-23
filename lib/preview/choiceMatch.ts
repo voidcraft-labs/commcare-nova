@@ -1,6 +1,6 @@
 import type { ChoiceLayout } from "@/lib/domain/choicePresentation";
-import type { Platform } from "@/lib/domain/platforms";
 import { fuzzyMatch, levenshteinDistance } from "./listFilterMatch";
+import type { PreviewPlatformRules } from "./platform";
 
 type MatchWords = Extract<ChoiceLayout, { kind: "search" }>["matchWords"];
 
@@ -10,14 +10,12 @@ export function choiceMatches(
 	text: string,
 	entered: string,
 	mode: MatchWords,
-	platform: Platform,
+	rule: PreviewPlatformRules["choiceSearch"],
 ): boolean {
 	const choice = text.toLowerCase();
-	const query = (
-		platform === "web-apps" ? entered.trim() : entered
-	).toLowerCase();
-	if (!query || (platform === "web-apps" && !choice)) return true;
-	if (platform === "android") {
+	const query = (rule === "combobox" ? entered.trim() : entered).toLowerCase();
+	if (!query || (rule === "combobox" && !choice)) return true;
+	if (rule === "filter-rule") {
 		if (mode === "multiword" || mode === "android-multiword")
 			return query.split(" ").every((word) => choice.includes(word));
 		if (mode === "fuzzy" || mode === "android-fuzzy") {

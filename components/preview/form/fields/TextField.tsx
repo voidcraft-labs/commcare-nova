@@ -3,7 +3,10 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { SecretField, TextField as TextFieldEntity } from "@/lib/domain";
 import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { usePreviewPlatform } from "@/lib/session/hooks";
+import {
+	usePreviewPlatform,
+	usePreviewPlatformRules,
+} from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 import { workerKeyboard } from "./WorkerKeyboard";
 
@@ -25,10 +28,12 @@ export function TextField({
 	onBlur,
 }: TextFieldProps) {
 	const platform = usePreviewPlatform();
+	const rules = usePreviewPlatformRules();
 	const project = useProseProjection();
 	const numberKeypad = usesNumberKeypad(field, platform);
 	const inputType =
-		field.kind === "secret" && !(platform === "web-apps" && numberKeypad)
+		field.kind === "secret" &&
+		!(rules.secretKeypad === "visible" && numberKeypad)
 			? "password"
 			: "text";
 	const showError = state.touched && !state.valid;
@@ -36,7 +41,7 @@ export function TextField({
 	return (
 		<div>
 			<input
-				{...workerKeyboard(field, platform)}
+				{...workerKeyboard(field, rules.keyboardAction)}
 				type={inputType}
 				inputMode={numberKeypad ? "tel" : undefined}
 				aria-labelledby={labelledBy}
@@ -45,7 +50,7 @@ export function TextField({
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}
 				placeholder={
-					platform === "web-apps" &&
+					rules.hintPlacement === "as-authored" &&
 					field.hintPlacement === "placeholder" &&
 					field.hint
 						? (state.resolvedHint ?? project(field.hint))

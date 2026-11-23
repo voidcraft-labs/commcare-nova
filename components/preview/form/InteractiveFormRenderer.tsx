@@ -148,7 +148,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	// out through the bottom edge into the surrounding rail / close cap.
 	const containerClass = `flow-root pointer-events-auto${leadingGap ? " pt-6" : ""}`;
 
-	const platform = usePreviewPlatform();
+	const { questionsPerRow } = usePreviewPlatformRules();
 	const counts = usePresentationSelector(
 		(doc) =>
 			fieldUuids.map((uuid) => {
@@ -177,11 +177,11 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 				accessibleContext={accessibleContext}
 				position={index + 1}
 				siblingCount={fieldUuids.length}
-				repeatsPerRow={platform === "web-apps" ? parentRepeatCount : undefined}
+				repeatsPerRow={questionsPerRow ? parentRepeatCount : undefined}
 			/>
 		);
 	};
-	if (platform !== "web-apps" || !counts.some((count) => count !== null))
+	if (!questionsPerRow || !counts.some((count) => count !== null))
 		return <div className={containerClass}>{fieldUuids.map(render)}</div>;
 	const rows = questionRows(
 		fieldUuids.map((uuid, index) => ({ uuid, index })),
@@ -249,6 +249,9 @@ const InteractiveField = memo(function InteractiveField({
 	const { language } = useBuilderLanguage();
 	const rules = usePreviewPlatformRules();
 	const platform = usePreviewPlatform();
+	/* Web Apps places or hides a hint by its setting; Android keeps it below
+	 * the question (`lib/preview/platform.ts`, `hintPlacement`). */
+	const readsHintPlacement = rules.hintPlacement === "as-authored";
 	const inCompactGroup = useContext(AndroidCompactGroup);
 	const screen = useFormScreenScope();
 	const advance = useAdvanceOnChoice();
@@ -518,7 +521,7 @@ const InteractiveField = memo(function InteractiveField({
 				questionLabelId={labelId}
 				questionLabelledBy={questionLabelledBy}
 				questionDescriptionIds={
-					field.hint && !(platform === "web-apps" && field.hintPlacement)
+					field.hint && !(readsHintPlacement && field.hintPlacement)
 						? hintId
 						: ""
 				}
@@ -540,7 +543,6 @@ const InteractiveField = memo(function InteractiveField({
 					if (
 						applied &&
 						field.kind === "single_select" &&
-						platform === "android" &&
 						advance &&
 						controller.entryKey === entryKey
 					) {
@@ -631,7 +633,7 @@ const InteractiveField = memo(function InteractiveField({
 							 *  in `GroupField`. */}
 							<div
 								id={questionLabelId}
-								className={`flex items-center gap-1 px-[5px] py-[5px] ${platform === "web-apps" && field.textAlignment === "center" ? "justify-center text-center" : platform === "web-apps" && field.textAlignment === "right" ? "justify-end text-right" : ""}`}
+								className={`flex items-center gap-1 px-[5px] py-[5px] ${rules.questionAlignment && field.textAlignment === "center" ? "justify-center text-center" : rules.questionAlignment && field.textAlignment === "right" ? "justify-end text-right" : ""}`}
 							>
 								<span className="sr-only">
 									{runtimeMessage(language, "questionPosition", {
@@ -682,7 +684,7 @@ const InteractiveField = memo(function InteractiveField({
 						</span>
 					)}
 					{field.hint &&
-						!(platform === "web-apps" && field.hintPlacement) &&
+						!(readsHintPlacement && field.hintPlacement) &&
 						(rules.hint === "markdown" ? (
 							<div id={hintId} className="px-[5px] py-[5px]">
 								<LabelContent
@@ -721,7 +723,7 @@ const InteractiveField = memo(function InteractiveField({
 					)}
 					<div
 						className={
-							platform === "web-apps" && "inputWidth" in field
+							rules.inputWidth && "inputWidth" in field
 								? field.inputWidth === "short"
 									? "md:w-1/6"
 									: field.inputWidth === "medium"
@@ -745,7 +747,7 @@ const InteractiveField = memo(function InteractiveField({
 			);
 	}
 
-	if (platform === "android" && field.kind === "label" && field.banner)
+	if (rules.questionBanner && field.kind === "label" && field.banner)
 		return null;
 
 	return (

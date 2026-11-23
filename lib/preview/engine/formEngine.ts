@@ -1275,7 +1275,7 @@ export class FormEngine {
 					current.androidPickerDay !== value))
 		) {
 			const cleared =
-				value === "" && this.device.platform === "android"
+				value === "" && this.rules.datePicker === "shows-a-day"
 					? this.findField(path)
 					: undefined;
 			updates[path] = withKeypadRefused(
@@ -2298,7 +2298,7 @@ export class FormEngine {
 	 * ask the widget for that day. A fresh control after a return or a
 	 * relevance change is constructed again from the instance. */
 	private drawAndroidDates(screenPath: string | undefined): void {
-		if (this.device.platform !== "android") return;
+		if (this.rules.datePicker !== "shows-a-day") return;
 		this.fieldPathsByUuid();
 		if (this.datePathTemplates.length === 0) return;
 		const onScreen =
@@ -2328,7 +2328,8 @@ export class FormEngine {
 	/** Day suggestions are owned by the live screen. Materializing the
 	 * blueprint's date paths excludes removed fields and removed repeat rows. */
 	pendingScreenDays(): { path: string; day: string }[] {
-		if (this.device.platform !== "android" || !this.activeScreenPath) return [];
+		if (this.rules.datePicker !== "shows-a-day" || !this.activeScreenPath)
+			return [];
 		this.fieldPathsByUuid();
 		this.drawAndroidDates(this.activeScreenPath);
 		const onScreen = screenIncludes(this.activeScreenPath);
@@ -3142,7 +3143,7 @@ export class FormEngine {
 		senderPath: string,
 		message: QuestionMessage,
 	): { path: string; value: string }[] {
-		if (this.device.platform !== "web-apps") return [];
+		if (!this.rules.questionChannels) return [];
 		const sender = this.findField(senderPath);
 		if (!sender || !("sendTopics" in sender) || !sender.sendTopics) return [];
 		const scope = questionChannelScope(senderPath);
@@ -3152,7 +3153,12 @@ export class FormEngine {
 				const receiver = this.findField(path);
 				if (!receiver || !("receiveFrom" in receiver) || !receiver.receiveFrom)
 					return [];
-				const value = receivedAnswer(receiver, state, message);
+				const value = receivedAnswer(
+					receiver,
+					state,
+					message,
+					this.device.platform,
+				);
 				return value === undefined
 					? []
 					: [{ path, value, channel: receiver.receiveFrom.channel }];

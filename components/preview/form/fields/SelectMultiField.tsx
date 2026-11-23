@@ -98,7 +98,7 @@ export function SelectMultiField({
 	}
 	const layout = choiceLayoutForPlatform(field, platform);
 
-	if (layout?.kind === "grid" && platform === "android")
+	if (layout?.kind === "grid")
 		return (
 			<div>
 				<AndroidChoiceGrid
@@ -119,9 +119,7 @@ export function SelectMultiField({
 				)}
 			</div>
 		);
-	const row =
-		layout?.kind === "row-without-label" ||
-		(layout?.kind === "row" && platform === "android");
+	const row = layout?.kind === "row-without-label" || layout?.kind === "row";
 	const hideChoiceLabels = layout?.kind === "row-without-label";
 	if (layout && (layout.kind === "dropdown" || layout.kind === "headings")) {
 		return (
@@ -131,7 +129,7 @@ export function SelectMultiField({
 					options={options}
 					labelledBy={labelledBy}
 					placeholder={
-						platform === "web-apps" &&
+						rules.hintPlacement === "as-authored" &&
 						field.hintPlacement === "placeholder" &&
 						field.hint
 							? (state.resolvedHint ?? projectProse(field.hint))

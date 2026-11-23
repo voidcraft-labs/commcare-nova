@@ -1,12 +1,13 @@
 import type { FocusEvent, KeyboardEvent } from "react";
-import type { Field, Platform } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
 import { hasOtherDisplay } from "@/lib/domain/questionDisplay";
 
 /** Android's QuestionsView marks the final StringWidget on its current screen.
  * Integer and Decimal always expose the action, and other text boxes expose
- * it inside a compact group or for the single short display setting. */
-export function workerKeyboard(field: Field, platform: Platform) {
-	if (platform !== "android") return {};
+ * it inside a compact group or for the single short display setting. Web
+ * Apps sets no keyboard action (`lib/preview/platform.ts`, `keyboardAction`). */
+export function workerKeyboard(field: Field, keyboardAction: boolean) {
+	if (!keyboardAction) return {};
 	function action(input: HTMLInputElement) {
 		const eligible =
 			field.kind === "int" ||

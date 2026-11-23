@@ -13,7 +13,7 @@ import {
 import type { ChoiceLayout } from "@/lib/domain";
 import { choiceMatches } from "@/lib/preview/choiceMatch";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import { usePreviewPlatform } from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 
 type Choice = { key: string; value: string; label: string };
 interface ChoicePresentationProps {
@@ -39,7 +39,7 @@ export function ChoicePresentation({
 	placeholder,
 	multiple,
 }: ChoicePresentationProps) {
-	const platform = usePreviewPlatform();
+	const { choiceSearch } = usePreviewPlatformRules();
 	const { language } = useBuilderLanguage();
 	const id = useId();
 	if (layout.kind === "headings")
@@ -115,18 +115,18 @@ export function ChoicePresentation({
 				a?.key === b?.key
 			}
 			filter={(option: Choice, query: string) =>
-				choiceMatches(option.label, query, layout.matchWords, platform)
+				choiceMatches(option.label, query, layout.matchWords, choiceSearch)
 			}
 			autoHighlight
 			onInputValueChange={(query, event) => {
 				// Android rejects an edit that leaves an empty suggestion list.
 				// Its fuzzy rule accepts partial spellings while a worker types.
 				if (
-					platform === "android" &&
+					choiceSearch === "filter-rule" &&
 					query &&
 					!layout.matchWords?.endsWith("fuzzy") &&
 					!options.some((option) =>
-						choiceMatches(option.label, query, layout.matchWords, platform),
+						choiceMatches(option.label, query, layout.matchWords, choiceSearch),
 					)
 				)
 					event.cancel();

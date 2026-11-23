@@ -3068,7 +3068,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 						onClick={() => proceedWithCase(displayedOpenCase)}
 						className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
-						{platform === "web-apps" && selectWording ? (
+						{platformRules.caseListDetailTexts && selectWording ? (
 							selectWording
 						) : (
 							<WorkerText message="continue" />
@@ -3549,7 +3549,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				columnDisplayContext={resultsDisplayContext}
 				emptyResultContext={resultsContext}
 				workerEmptyMessage={
-					platform === "web-apps" ? noItemsWording : undefined
+					platformRules.caseListDetailTexts ? noItemsWording : undefined
 				}
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}

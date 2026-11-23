@@ -95,7 +95,7 @@ export function SelectOneField({
 	}
 	const layout = choiceLayoutForPlatform(field, platform);
 
-	if (layout?.kind === "grid" && platform === "android")
+	if (layout?.kind === "grid")
 		return (
 			<div>
 				<AndroidChoiceGrid
@@ -115,16 +115,14 @@ export function SelectOneField({
 				)}
 			</div>
 		);
-	const row =
-		layout?.kind === "row-without-label" ||
-		(layout?.kind === "row" && platform === "android");
+	const row = layout?.kind === "row-without-label" || layout?.kind === "row";
 	const hideChoiceLabels = layout?.kind === "row-without-label";
 	if (
 		layout &&
 		(layout.kind === "dropdown" ||
 			layout.kind === "headings" ||
 			layout.kind === "search" ||
-			(layout.kind === "buttons" && platform === "web-apps"))
+			layout.kind === "buttons")
 	) {
 		return (
 			<div>
@@ -133,7 +131,7 @@ export function SelectOneField({
 					options={options}
 					labelledBy={labelledBy}
 					placeholder={
-						platform === "web-apps" &&
+						rules.hintPlacement === "as-authored" &&
 						field.hintPlacement === "placeholder" &&
 						field.hint
 							? (state.resolvedHint ?? projectProse(field.hint))

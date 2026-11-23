@@ -10,10 +10,7 @@ import {
 	useScreenBanners,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { LabelContent } from "@/lib/references/LabelContent";
-import {
-	usePreviewPlatform,
-	usePreviewPlatformRules,
-} from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 
 function BannerLabel({ banner }: { banner: QuestionBanner }) {
 	const field = usePresentationField(banner.uuid);
@@ -40,9 +37,9 @@ const colors = {
 /** FormNavigationUI.updateFloatingLabels puts pairs of short labels first,
  * borrowing the first question's color. Odd short labels follow longer ones. */
 export function QuestionBanners({ uuid, path }: { uuid: Uuid; path: string }) {
-	const platform = usePreviewPlatform();
+	const { questionBanner } = usePreviewPlatformRules();
 	const banners = useScreenBanners(uuid, path);
-	if (platform !== "android" || !banners.length) return null;
+	if (!questionBanner || !banners.length) return null;
 	return <AndroidBanners banners={banners} />;
 }
 

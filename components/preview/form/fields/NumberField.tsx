@@ -2,7 +2,7 @@
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { DecimalField, IntField } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { usePreviewPlatform } from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { ValidationError } from "./ValidationError";
 import { workerKeyboard } from "./WorkerKeyboard";
 
@@ -23,14 +23,14 @@ export function NumberField({
 	onChange,
 	onBlur,
 }: NumberFieldProps) {
-	const platform = usePreviewPlatform();
+	const rules = usePreviewPlatformRules();
 	const project = useProseProjection();
 	const showError = state.touched && !state.valid;
 
 	return (
 		<div>
 			<input
-				{...workerKeyboard(field, platform)}
+				{...workerKeyboard(field, rules.keyboardAction)}
 				type="text"
 				inputMode={field.kind === "int" ? "numeric" : "decimal"}
 				aria-labelledby={labelledBy}
@@ -41,7 +41,7 @@ export function NumberField({
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}
 				placeholder={
-					platform === "web-apps" &&
+					rules.hintPlacement === "as-authored" &&
 					field.hintPlacement === "placeholder" &&
 					field.hint
 						? (state.resolvedHint ?? project(field.hint))

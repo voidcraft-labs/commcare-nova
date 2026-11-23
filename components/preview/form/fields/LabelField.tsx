@@ -11,11 +11,7 @@ import type {
 import { PREVIEW_LABEL_RENDERING } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
-import {
-	useEditMode,
-	usePreviewPlatform,
-	usePreviewPlatformRules,
-} from "@/lib/session/hooks";
+import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
 import { useLabelFormatText } from "../useLabelFormatText";
@@ -38,10 +34,11 @@ export function LabelField({
 }) {
 	const mode = useEditMode();
 	const isEditMode = mode === "edit";
-	const android = usePreviewPlatform() === "android";
 	/* The running preview renders the label as the runtime it plays does
 	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
-	const labelRendering = usePreviewPlatformRules().labelMarkdown;
+	const rules = usePreviewPlatformRules();
+	const labelRendering = rules.labelMarkdown;
+	const selectionBySetting = rules.labelTextSelection === "by-setting";
 	const { updateField } = useBlueprintMutations();
 	const labelFormatText = useLabelFormatText(field);
 	/* Inline save callback: null in preview mode so the TextEditable
@@ -65,7 +62,7 @@ export function LabelField({
 
 	return (
 		<div
-			className={`py-1 ${android && !isEditMode ? (field.selectableText ? "select-text" : "select-none") : ""}`}
+			className={`py-1 ${selectionBySetting && !isEditMode ? (field.selectableText ? "select-text" : "select-none") : ""}`}
 		>
 			{/* Label media above the text: same `MediaDisplay` the input fields
 			    use, so a display-only label shows its image/audio/video too. */}
