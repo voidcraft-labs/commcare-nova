@@ -909,7 +909,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 | Tool | What it does |
 |---|---|
 | `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, set what the menu opens on with `searchWorkflow` and whether its forms read the search with `formsReadSearch` (both as `set_case_search_advanced` takes them), and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. Use `calculatedSorts` to add or update independent order calculations. Each calculation supplies an expression, priority and direction, and may give a `comparator` (`text`, `integer` or `decimal`) to compare its values other than as their own type does. `removeCalculatedSorts` accepts the identities to remove. |
-| `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / link / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. A column that is not calculated may give `via`, the links to walk to a case above the listed one (`[{"identifier":"parent"}]`, or another link with the `throughCaseType` it reaches), to show that case's property. A column's `sort` may give a `comparator` (`text`, `integer`, `decimal`, or `distance` from the worker on an app that runs only on Android, over a value that can hold a location) and, on a sort-only property, a `menuPosition` among the extra choices workers pick in Sort by. |
+| `add_case_list_columns` | Add one or more columns to the case list (plain / date / date-count / overdue-marker / formatted-text / worker-distance / map-location / map-layer / phone / id-mapping / image-map / interval / link / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. A column that is not calculated may give `via`, the links to walk to a case above the listed one (`[{"identifier":"parent"}]`, or another link with the `throughCaseType` it reaches), to show that case's property. In a menu that offers Search, a link, an interval, or a plain column showing a choice's label can't read through `via`: show the saved value instead. A column's `sort` may give a `comparator` (`text`, `integer`, `decimal`, or `distance` from the worker on an app that runs only on Android, over a value that can hold a location) and, on a sort-only property, a `menuPosition` among the extra choices workers pick in Sort by. |
 | `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. Its `sort` takes the same `comparator` and `menuPosition` as `add_case_list_columns`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
 | `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
@@ -970,6 +970,24 @@ an `assetId` and can include `altText`. It matches `value` among the saved
 choices, compares the whole value with `match: "exact"`, or evaluates its
 `when` condition. Keep a row’s `uuid` when editing its rule or order so its
 translations follow it.
+
+A plain column over a choice property shows the option label; give it
+`showChoice: "saved-value"` to show the saved value instead. A property column
+with `readFrom: "worker-record"` shows a field of the signed-in worker's own
+record, and one over `owner_id` with `showOwner: "name"` shows the name of the
+group or worker who owns the case. A `date-count` column shows the whole number
+of periods since or until a saved date (`period`, such as `years-since` or
+`days-until`), and an `overdue-marker` shows an asterisk when the date is
+missing or more than `afterDays` days have passed. A `formatted-text` column
+shows a saved value with its formatting marks. A `worker-distance` column shows
+how far the case is from the worker, which only Android can show. A
+`map-location` column holds the coordinates a case list map places the case
+at, and a `map-layer` adds a `boundary`, `points` or color layer over it: each
+layer needs a map location in Results, and a color layer needs its boundary or
+points layer, so add them together in one call. A calculated column's `texts`
+holds reusable wording, each piece with its own `uuid` and label, which the
+calculation reads with `case-text('UUID')`; keep each `uuid` when editing its
+wording, so its translations follow it.
 
 A tile cell's `horizontalAlign` (`left`, `center` or `right`), `verticalAlign`
 (`top`, `middle` or `bottom`) and `fontSize` (`small`, `medium` or `large`) may
