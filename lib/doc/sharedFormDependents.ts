@@ -1,5 +1,6 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { entityTargetKey } from "@/lib/domain/referenceIndex";
 import { listWithAnd } from "./caseListRegistrationDependents";
 import { descendantFieldUuids } from "./fieldWalk";
@@ -7,7 +8,7 @@ import {
 	type FormLinkRemovalTarget,
 	planFormLinkDependentsOnRemove,
 } from "./formLinkDependents";
-import { referencingCarrierUuids } from "./referenceIndex";
+import { referencingCarrierUuids, referencingSlotsOf } from "./referenceIndex";
 
 /** Every surviving entry opening one of these forms, in the order the author sees it. */
 function sharedEntriesOf(doc: BlueprintDoc, parents: ReadonlySet<Uuid>) {
@@ -104,4 +105,47 @@ export function sharedQuestionRemovalRefusal(
 		: entries.filter((entry) => carriers.has(entry.uuid));
 	if (!affected.length) return;
 	return `“${doc.fields[field].id}” is used when workers open ${listed(affected)}. You can change what reads or saves this answer, then remove the question.`;
+}
+
+/**
+ * What reads one of `formUuid`'s opening choices, by the name a person sees.
+ * A shared entry's replacement of its parent's choice is an edge to that
+ * choice with the entry as carrier, which keeps the parent's choice from
+ * being removed under it; it is no reader, so the entry is listed only where
+ * something else of it reads the choice: another choice that follows it, or
+ * an expression.
+ */
+export function choiceReaderNames(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	choice: Uuid,
+): string[] {
+	const key = entityTargetKey(choice);
+	const form = doc.forms[formUuid];
+	const replacesOnly = (carrier: string): boolean => {
+		if (carrier !== formUuid || !form?.shadowOf) return false;
+		if (
+			!form.shadowOf.selections.some(
+				(row) => row.kind === "replace" && row.selection === choice,
+			)
+		)
+			return false;
+		const slots = referencingSlotsOf(doc, key).get(carrier) ?? [];
+		if (slots.some((slot) => slot !== "form_selection_source")) return false;
+		return !(entrySelectionSettings(form) ?? []).some(
+			(row) =>
+				(row.source.kind === "choose" &&
+					row.source.under?.selection === choice) ||
+				(row.source.kind === "index" && row.source.selection === choice),
+		);
+	};
+	return referencingCarrierUuids(doc, key)
+		.filter((carrier) => !replacesOnly(carrier))
+		.map(
+			(id) =>
+				doc.fields[id as Uuid]?.id ??
+				doc.forms[id as Uuid]?.name ??
+				doc.modules[id as Uuid]?.name,
+		)
+		.filter((name): name is string => name !== undefined);
 }

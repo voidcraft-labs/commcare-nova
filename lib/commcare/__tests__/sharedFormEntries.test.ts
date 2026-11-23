@@ -19,7 +19,10 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { sharedFormMutations } from "@/lib/doc/scaffolds";
-import { planFormDependentsOnRemove } from "@/lib/doc/sharedFormDependents";
+import {
+	choiceReaderNames,
+	planFormDependentsOnRemove,
+} from "@/lib/doc/sharedFormDependents";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -797,5 +800,41 @@ describe("removing a menu whose forms shared entries open", () => {
 		expect(removal.userMessage).toContain("open forms in this menu");
 		expect(removal.userMessage).not.toContain("open this form");
 		expect(removal.userMessage).toContain(`(opens “${doc.forms[visit].name}”)`);
+	});
+});
+
+describe("what reads a shared entry's choice", () => {
+	it("leaves out the entry's own replacement of its parent's choice", () => {
+		const { doc, evening, destination } = sharedEntries();
+		expect(choiceReaderNames(doc, evening, destination.uuid)).not.toContain(
+			doc.forms[evening].name,
+		);
+	});
+
+	it("lists the entry where another of its choices follows the replaced one", () => {
+		const { doc, morning, destination, helper } = sharedEntries();
+		const followed = produce(doc, (d) => {
+			applyMutations(d, [
+				{
+					kind: "updateForm",
+					uuid: morning,
+					patch: {},
+					entryChange: {
+						operation: "edit-choice",
+						uuid: helper.uuid,
+						patch: {
+							source: {
+								kind: "index",
+								selection: destination.uuid,
+								identifier: "parent",
+							},
+						},
+					},
+				},
+			]);
+		});
+		expect(choiceReaderNames(followed, morning, destination.uuid)).toContain(
+			followed.forms[morning].name,
+		);
 	});
 });

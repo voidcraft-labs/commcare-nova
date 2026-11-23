@@ -16,10 +16,9 @@ import {
 import type { FormOpeningAssignment } from "@/lib/domain/forms";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { proseTemplateText } from "@/lib/domain/prose";
-import { entityTargetKey } from "@/lib/domain/referenceIndex";
 import { asUuid, type Uuid } from "@/lib/domain/uuid";
 import type { FormEntryChange } from "../formEntryMutations";
-import { referencingCarrierUuids } from "../referenceIndex";
+import { choiceReaderNames } from "../sharedFormDependents";
 import {
 	useBlueprintDoc,
 	useBlueprintDocApi,
@@ -79,13 +78,7 @@ export function useFormEntryChoices(formUuid: Uuid) {
 			...menus.map((menu) => menu.caseType),
 		]),
 	];
-	const dependents = (uuid: Uuid) =>
-		referencingCarrierUuids(doc, entityTargetKey(uuid))
-			.map(
-				(id) =>
-					doc.fields[id]?.id ?? doc.forms[id]?.name ?? doc.modules[id]?.name,
-			)
-			.filter((name): name is string => name !== undefined);
+	const dependents = (uuid: Uuid) => choiceReaderNames(doc, formUuid, uuid);
 	const commit = (entryChange: FormEntryChange) =>
 		inline.commitMany([
 			{ kind: "updateForm", uuid: formUuid, patch: {}, entryChange },
