@@ -1,5 +1,6 @@
 {
 	"hq-advanced": [
+		"hq-advanced/auto-capture-location",
 		"hq-advanced/auto-select-case",
 		"hq-advanced/auto-select-case-on-a-load-s-basic-list",
 		"hq-advanced/auto-select-without-case-type",
