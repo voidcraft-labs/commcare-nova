@@ -362,8 +362,13 @@ describe("read_hq_app", () => {
 							);
 					} while (page);
 					expect(count).toBeGreaterThan(1);
+					/* A removal names the file's path within the app. */
 					for (const [name] of files)
-						expect(paths.some((line) => line.includes(name))).toBe(true);
+						expect(
+							paths.some((line) =>
+								line.includes(name.slice("jr://file/".length)),
+							),
+						).toBe(true);
 					expect(tables).toContain("district");
 				}),
 			);
