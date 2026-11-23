@@ -80,8 +80,14 @@ interface FileRequest {
 }
 
 /**
- * Reads each moved or unrecorded file from HQ, and during a publish, each
- * recorded file as well. It hashes the bytes once per id:
+ * Asks CommCare HQ for the file of each `moved` and each `unrecorded` path,
+ * once per id, and hashes its bytes with SHA-256. A `recorded` path is never
+ * read: CommCare HQ keys a file document by the hash of its bytes and never
+ * replaces the attachment of one it holds (`hqmedia/models.py::
+ * CommCareMultimedia.get_by_data`, `attach_data`), so the id Nova recorded
+ * still names the bytes it recorded. A path whose published file states its
+ * size is hashed as it streams, never held whole, unless the caller retains
+ * it within the kind's limit:
  *
  * - bytes of the path's own `contentHash`: `recorded`, and `learned` gains
  *   the path under that id;
@@ -108,16 +114,11 @@ export async function settleHqMedia(
 	options: {
 		readonly cancel?: AbortSignal;
 		readonly retain?: boolean;
-		readonly verifyRecorded?: boolean;
 	},
 ): Promise<SettledHqMedia> {
 	const requests = new Map<string, FileRequest>();
 	for (const path of paths) {
-		if (
-			!needsHqMediaRead(path.standing, options.verifyRecorded) ||
-			path.hq === null
-		)
-			continue;
+		if (!isCandidate(path.standing) || path.hq === null) continue;
 		const cap = ASSET_SIZE_CAPS_BYTES[path.kind];
 		const held = requests.get(path.hq.multimediaId);
 		requests.set(path.hq.multimediaId, {
@@ -245,11 +246,7 @@ export async function settleHqMedia(
 
 	const learned: Record<string, string> = {};
 	const settled = paths.map((path): HqMediaPath => {
-		if (
-			!needsHqMediaRead(path.standing, options.verifyRecorded) ||
-			path.hq === null
-		)
-			return path;
+		if (!isCandidate(path.standing) || path.hq === null) return path;
 		const verdict = verdicts.get(path.hq.multimediaId);
 		if (verdict === undefined)
 			throw new Error(
@@ -265,16 +262,9 @@ export async function settleHqMedia(
 	return { kind: "settled", paths: settled, learned, reads };
 }
 
-/** A fresh publish also verifies the bytes behind previously recorded ids. */
-export function needsHqMediaRead(
-	standing: HqMediaStanding,
-	verifyRecorded = false,
-): boolean {
-	return (
-		standing === "moved" ||
-		standing === "unrecorded" ||
-		(verifyRecorded && standing === "recorded")
-	);
+/** A standing an id alone cannot settle. */
+function isCandidate(standing: HqMediaStanding): boolean {
+	return standing === "moved" || standing === "unrecorded";
 }
 
 /** Include the physical identity of two undecodable entries. Their typed

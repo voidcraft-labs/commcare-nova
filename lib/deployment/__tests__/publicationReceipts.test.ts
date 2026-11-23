@@ -101,7 +101,6 @@ it.each([
 			expect(result).toEqual({
 				files: test.accepted ? { [wirePath]: remoteId } : {},
 				missing: test.accepted ? [] : [wirePath],
-				absent: [],
 			});
 			expect(
 				peer

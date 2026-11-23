@@ -1513,9 +1513,16 @@ read or an extra save gives an `unread` drift baseline and a warning
 that the publish landed. An extra save with a verified source at the acknowledged
 version retains that source for the target's kept settings. Before any HQ write, direct publication checks each Project file's full
 SHA-256 and length from a pinned GCS generation. It sends the same
-generation on upload. Each file already on the destination is also verified
-by its class, mapped ID and bytes before Nova changes the app. Once the
-media job settles, Nova reads the current app map and the mapped file,
+generation on upload. A file already on the destination is accounted for by
+its class and the mapped ID Nova recorded, never by a fresh read of its bytes:
+CommCare HQ keys a file document by the hash of its bytes and never replaces the
+attachment of one it holds (`hqmedia/models.py::CommCareMultimedia.get_by_data`,
+`attach_data`), so a path that still names the recorded ID is reused and sent
+nothing (`mediaReceipt.ts::prepareMediaBatch`). Only a path whose ID moved or
+that Nova holds no record for is settled by its bytes, before the publish and
+again per batch after the import (`hqMediaSettle.ts::verifyHqMediaBatch`); a
+batch Nova cannot account for is not sent, and the publish lands with its media
+warning and records no media for it. Once the media job settles, Nova reads the current app map and the mapped file,
 compares the job's exact ID where supplied, and records only a matching
 media class, length and digest. These reads use the connected account at
 the selected server. The HQ file URL alone grants no access to Nova's

@@ -2849,9 +2849,6 @@ describe("a publish over an app Nova brought in", () => {
 			serve(peer, SOURCE, "source-live");
 			accepted(peer, 200, HQ_APP, bodies);
 			serve(peer, SOURCE, "source-live");
-			/* The caller's document predates the placements the first publish
-			 * recorded, so preflight reads the app once more over the head. */
-			serve(peer, SOURCE, "source-live");
 			mediaTaken(peer, heldPath);
 			const sent = requests(peer).length;
 			const outcome = await publish(doc);
@@ -2863,7 +2860,6 @@ describe("a publish over an app Nova brought in", () => {
 				refusal: null,
 				members: [heldPath],
 				requests: [
-					`GET ${SOURCE}`,
 					`GET ${SOURCE}`,
 					`GET ${SOURCE}`,
 					`POST ${IMPORT}`,

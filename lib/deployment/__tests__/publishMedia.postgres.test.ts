@@ -1,4 +1,3 @@
-import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * A publish over a file a person replaced in CommCare HQ: the record of which
  * CommCare HQ file stands at each path the app publishes, the stop it gives,
@@ -70,6 +69,7 @@ import {
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { appMappingToken, birthAdoptedApp } from "./adoptedBirth";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
+import { publishFromSession as publishAppToHq } from "./publishWithGrant";
 import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -302,6 +302,7 @@ function mediaTaken(
 			return body;
 		});
 	} else request(peer, STATUS).reply(200, body);
+	/* Nova reads back where each file it sent landed, and the file itself. */
 	if (!options.errors?.length) {
 		serveWithMap(
 			peer,
@@ -411,20 +412,19 @@ async function publishFirst(
 	accepted(peer, 200);
 	serve(peer, "source-live");
 	mediaTaken(peer, reported);
-	expect((await publish(doc)).landed).toBe(reported !== null);
+	expect((await publish(doc)).landed).toBe(true);
 }
 
 /** A republish over an app whose map holds `map`, which lands. */
 function republishLands(
 	peer: MockAgent,
 	map: Readonly<Record<string, string>>,
+	reported: string | null,
 ) {
 	serveWithMap(peer, "source-live", map);
-	for (const id of Object.values(map)) file(peer, id, PNG);
 	accepted(peer, 200);
 	serve(peer, "source-live");
-	serveWithMap(peer, "source-live", map);
-	for (const id of Object.values(map)) file(peer, id, PNG);
+	mediaTaken(peer, reported);
 }
 
 /** The same verified baseline, mapping claim and source bytes a review reads
@@ -588,8 +588,7 @@ it.each(["remove", "replace"] as const)(
 					);
 				},
 			});
-			const outcome = await publish(doc);
-			expect(outcome.landed, JSON.stringify(outcome)).toBe(true);
+			expect((await publish(doc)).landed).toBe(true);
 			checkPoll();
 			expect(await openMediaWrites()).toEqual([]);
 			expect(await record()).toEqual({ [WIRE]: "late-upload-report" });
@@ -627,7 +626,7 @@ it.each([
 			if (interleaving === "different file at the acknowledged save")
 				file(peer, "foreign-after-import", PERSONS_FILE);
 			const result = await publish(doc);
-			expect(result.landed, JSON.stringify(result)).toBe(true);
+			expect(result.landed).toBe(true);
 			expect(requests(peer, from)).toContain(`POST ${IMPORT}`);
 			expect(requests(peer, from)).not.toContain(`POST ${MEDIA}`);
 			expect(result.warnings.join(" ")).toMatch(
@@ -670,7 +669,6 @@ it("checks a file placed in a parked app before retrying its first content impor
 		expect(requests(peer, from)).not.toContain(`POST ${MEDIA}`);
 	});
 });
-
 it("refuses different Project bytes before creating the remote shell", async () => {
 	const doc = await seed(withImage(clinicVisitsDocument()));
 	const changed = Buffer.from(PNG);
@@ -688,27 +686,6 @@ it("refuses different Project bytes before creating the remote shell", async () 
 });
 
 describe("a file replaced in CommCare HQ", () => {
-	it("checks file contents again before updating an app whose mapped file id is unchanged", async () => {
-		const doc = await seed(withImage(clinicVisitsDocument()));
-		await withPeer(async (peer) => {
-			await publishFirst(peer, doc);
-			const sent = sentCount(peer);
-			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
-			const changed = Buffer.from(PNG);
-			changed[changed.length - 1] ^= 1;
-			file(peer, "doc-nova", changed);
-			expect(refusal(await publish(doc))).toMatchObject({
-				phase: "preflight",
-				failure: { code: "hq_changed" },
-			});
-			expect(requests(peer, sent)).toEqual([
-				`GET ${SOURCE}`,
-				"GET /hq/multimedia/file/CommCareImage/doc-nova/",
-			]);
-			expect(await openMediaWrites()).toEqual([]);
-		});
-	});
-
 	it("stops the publish with one media part before anything is sent, and keeps the record", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
 		await withPeer(async (peer) => {
@@ -803,7 +780,7 @@ describe("a file replaced in CommCare HQ", () => {
 });
 
 describe("a path Nova holds no record for", () => {
-	it("reconciles unrecorded bytes and reuses a previously matched path after verifying its current contents", async () => {
+	it("is settled by its content with one file request and recorded, and the next publish asks for no file", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
 		await withPeer(async (peer) => {
 			/* An upload whose report names no ids leaves the path unrecorded. */
@@ -811,29 +788,50 @@ describe("a path Nova holds no record for", () => {
 			expect(await record()).toEqual({});
 
 			let sent = sentCount(peer);
-			republishLands(peer, { [WIRE]: "doc-nova" });
+			republishLands(peer, { [WIRE]: "doc-nova" }, null);
+			file(peer, "doc-nova", PNG);
 			expect((await publish(doc)).landed).toBe(true);
 			expect(
 				requests(peer, sent).filter((line) =>
 					line.includes("/multimedia/file/"),
 				),
-			).toEqual(
-				Array(2).fill("GET /hq/multimedia/file/CommCareImage/doc-nova/"),
-			);
+			).toEqual(["GET /hq/multimedia/file/CommCareImage/doc-nova/"]);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 
 			sent = sentCount(peer);
-			republishLands(peer, { [WIRE]: "doc-nova" });
+			republishLands(peer, { [WIRE]: "doc-nova" }, null);
 			expect((await publish(doc)).landed).toBe(true);
 			expect(
 				requests(peer, sent).filter((line) =>
 					line.includes("/multimedia/file/"),
 				),
-			).toEqual(
-				Array(2).fill("GET /hq/multimedia/file/CommCareImage/doc-nova/"),
-			);
-			expect(requests(peer, sent)).not.toContain(`POST ${MEDIA}`);
+			).toEqual([]);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+		});
+	});
+
+	it("reuses a file CommCare HQ still maps under the recorded id, reading and sending nothing for it", async () => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			await publishFirst(peer, doc);
+			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+
+			/* An update writes no media map, so HQ keeps the path at Nova's
+			 * file. HQ keys a file by its bytes, so the id stands for them. */
+			const sent = sentCount(peer);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			accepted(peer, 200);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			const outcome = await publish(doc);
+			expect(outcome.landed).toBe(true);
+			expect(outcome.warnings).toEqual([]);
+			expect(requests(peer, sent)).toEqual([
+				`GET ${SOURCE}`,
+				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
+			]);
+			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+			expect(await openMediaWrites()).toEqual([]);
 		});
 	});
 
@@ -846,7 +844,8 @@ describe("a path Nova holds no record for", () => {
 				.updateTable("app_deployment_baselines")
 				.set({ media_files: null })
 				.execute();
-			republishLands(peer, { [WIRE]: "doc-nova" });
+			republishLands(peer, { [WIRE]: "doc-nova" }, null);
+			file(peer, "doc-nova", PNG);
 			expect((await publish(doc)).landed).toBe(true);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 		});
@@ -976,31 +975,21 @@ describe("the record after an upload", () => {
 			await publishFirst(peer, doc);
 
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
-			file(peer, "doc-nova", PNG);
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			// The app still needs these bytes after the import cleared its file map.
-			serveWithMap(peer, "source-live", {});
 			request(peer, MEDIA, "POST").reply(504, "");
-			expect(refusal(await publish(doc)).failure.code).toBe(
-				"hq_rejected_resource_push",
-			);
+			expect((await publish(doc)).landed).toBe(true);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 			/* HQ may have accepted the bundle, but its gateway gave us no job id. */
 			expect(await openMediaWrites()).toEqual([{ hq_job_id: null }]);
 
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
-			file(peer, "doc-nova", PNG);
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			// The app still needs these bytes after the import cleared its file map.
-			serveWithMap(peer, "source-live", {});
 			mediaTaken(peer, "doc-unsaved", {
 				errors: ["Error while processing zip: the app could not be saved"],
 			});
-			expect(refusal(await publish(doc)).failure.code).toBe(
-				"hq_rejected_resource_push",
-			);
+			expect((await publish(doc)).landed).toBe(true);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
 		});
 	});
@@ -1011,11 +1000,8 @@ describe("the record after an upload", () => {
 			await publishFirst(peer, doc);
 
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
-			file(peer, "doc-nova", PNG);
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			// The app still needs these bytes after the import cleared its file map.
-			serveWithMap(peer, "source-live", {});
 			/* The status poll's clock is faked from the moment CommCare HQ takes
 			 * the upload, and its one status answer never comes inside it. */
 			request(peer, MEDIA, "POST").reply(() => {
@@ -1041,7 +1027,8 @@ describe("the record after an upload", () => {
 				await vi.advanceTimersByTimeAsync(45_000);
 				vi.useRealTimers();
 				const outcome = await pending;
-				expect(refusal(outcome).failure.details).toContain(
+				expect(outcome.landed).toBe(true);
+				expect(outcome.warnings).toContain(
 					"The app was published and CommCare HQ accepted its media. Nova could not confirm whether processing finished. Check the app’s media in CommCare HQ, or publish again to retry.",
 				);
 			} finally {
@@ -1057,7 +1044,7 @@ describe("the record after an upload", () => {
 			/* The next publish reads the job by its id before it reads the app,
 			 * and settles it where HQ reports it done. */
 			request(peer, STATUS).reply(200, statusAnswer("doc-late", []));
-			republishLands(peer, { [WIRE]: "doc-nova" });
+			republishLands(peer, { [WIRE]: "doc-nova" }, "doc-nova");
 			expect((await publish(doc)).landed).toBe(true);
 			expect(await openMediaWrites()).toEqual([]);
 		});
@@ -1069,11 +1056,8 @@ describe("the record after an upload", () => {
 		await withPeer(async (peer) => {
 			await publishFirst(peer, doc);
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
-			file(peer, "doc-nova", PNG);
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			// The app still needs these bytes after the import cleared its file map.
-			serveWithMap(peer, "source-live", {});
 			request(peer, MEDIA, "POST").reply(async () => {
 				await stopHere(
 					{ ...SCOPE, actorUserId: "admin", role: "admin" },
@@ -1085,8 +1069,6 @@ describe("the record after an upload", () => {
 				};
 			});
 			request(peer, STATUS).reply(200, statusAnswer("doc-after-stop", []));
-			serveWithMap(peer, "source-live", { [WIRE]: "doc-after-stop" });
-			file(peer, "doc-after-stop", PNG);
 			expect((await publish(doc)).landed).toBe(true);
 		});
 		expect(await record()).toEqual({ [WIRE]: "doc-nova" });
@@ -1178,7 +1160,6 @@ describe("the record after an upload", () => {
 					.execute();
 				const sent = sentCount(peer);
 				serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
-				file(peer, "doc-nova", PNG);
 				let acknowledged = 0;
 				request(peer, IMPORT, "POST").reply(async () => {
 					await lose();
@@ -1251,7 +1232,6 @@ describe("the record after an upload", () => {
 			await publishFirst(peer, doc);
 			const sent = sentCount(peer);
 			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
-			file(peer, "doc-nova", PNG);
 			request(peer, IMPORT, "POST").reply(async () => {
 				const earlier = saves.save(HQ_APP);
 				const later = saves.save(HQ_APP);
@@ -1360,11 +1340,8 @@ describe("the record after an upload", () => {
 		 * verified file stays and an older report cannot change it. */
 		await withPeer(async (peer) => {
 			serveWithMap(peer, "source-live", { [WIRE]: "new-response" });
-			file(peer, "new-response", PNG);
 			accepted(peer, 200);
 			request(peer, SOURCE).reply(500, "");
-			serveWithMap(peer, "source-live", { [WIRE]: "doc-unread" });
-			file(peer, "doc-unread", PNG);
 			const start = sentCount(peer);
 			expect((await publish(doc)).landed).toBe(true);
 			expect(requests(peer, start)).not.toContain(`POST ${MEDIA}`);
@@ -1486,7 +1463,6 @@ describe("a file whose id moved while the Project's data went", () => {
 		tablesAfterPush(peer);
 		tableRows(peer);
 		serveWithMap(peer, "source-live", first);
-		for (const id of Object.values(first)) file(peer, id, PNG);
 		workbookTaken(peer);
 		tablesAfterPush(peer);
 		tableRows(peer);
@@ -1687,8 +1663,7 @@ describe("a file whose id moved while the Project's data went", () => {
 			file(peer, "doc-late", PNG);
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			serveWithMap(peer, "source-live", { [WIRE]: "doc-late" });
-			file(peer, "doc-late", PNG);
+			mediaTaken(peer, null);
 			expect((await publish(doc)).landed).toBe(true);
 		});
 		expect(await record()).toEqual({ [WIRE]: "doc-late" });

@@ -117,7 +117,7 @@ import {
 	hqMediaStandings,
 	publishedMediaFiles,
 } from "./hqMedia";
-import { needsHqMediaRead, settleHqMedia } from "./hqMediaSettle";
+import { settleHqMedia } from "./hqMediaSettle";
 import {
 	ABSENT_RESOURCE_DIGEST,
 	baselinePlaceKeys,
@@ -1928,10 +1928,12 @@ export async function runDeploymentPreflight(
 				record: appBaseline?.mediaFiles ?? null,
 				now: map ?? [],
 			});
-			if (standings.some((path) => needsHqMediaRead(path.standing, true))) {
-				const settled = await settleHqMedia(creds, standings, {
-					verifyRecorded: true,
-				});
+			if (
+				standings.some(
+					(path) => path.standing === "moved" || path.standing === "unrecorded",
+				)
+			) {
+				const settled = await settleHqMedia(creds, standings, {});
 				if (settled.kind === "failed") {
 					const failure = hqMediaReadFailure(domain);
 					checks.push({

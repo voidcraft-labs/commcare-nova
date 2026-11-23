@@ -17,7 +17,6 @@ import { verifyHqMediaBatch } from "./hqMediaSettle";
 export interface MediaReceipt {
 	files: HqMediaRecord;
 	missing: string[];
-	absent: string[];
 }
 
 /** An HQ job acknowledges matching names. The current app map proves where
@@ -34,7 +33,6 @@ export async function readMediaReceipt(
 	);
 	const unresolved = (): MediaReceipt => ({
 		files: {},
-		absent: [],
 		missing: [...expected.keys()],
 	});
 	if (report?.timedOut || report?.errors.length) return unresolved();
@@ -72,12 +70,9 @@ export async function readMediaReceipt(
 	);
 	const files: Record<string, string> = Object.create(null);
 	const missing: string[] = [];
-	const absent: string[] = [];
 	for (const [path, asset] of expected) {
-		const entry = mapped.get("jr://file/" + path);
+		const entry = mapped.get(`jr://file/${path}`);
 		const size = asset.byteSource?.size ?? asset.bytes?.length;
-		if (!entry || (!entry.unreadable && entry.multimediaId === null))
-			absent.push(path);
 		if (
 			excluded.has(path) ||
 			(report?.matchedFiles != null && !ids.has(path)) ||
@@ -98,13 +93,16 @@ export async function readMediaReceipt(
 		}
 		files[path] = entry.multimediaId;
 	}
-	return { files, missing, absent };
+	return { files, missing };
 }
 
-/** The import has just landed. Recheck previously recorded files against the
- * destination before deciding which paths this physical batch may send. The
- * native counter and map check runs last: the authenticated reads of recorded
- * files may have spanned another app save. */
+/** The import has just landed. Decide which paths this physical batch still
+ * sends. The batch's destinations are checked against the source compared for
+ * the import, at HQ's save counter now (`verifyHqMediaBatch`): a path that
+ * moved since is settled by its bytes, and anything Nova cannot account for
+ * leaves the whole batch unsent. A path that still names the file Nova
+ * recorded is reused without a read, since CommCare HQ binds a file id to one
+ * content (`hqmedia/models.py::CommCareMultimedia.get_by_data`). */
 export async function prepareMediaBatch(
 	creds: CommCareCredentials,
 	domain: string,
@@ -119,50 +117,38 @@ export async function prepareMediaBatch(
 	readonly needed: AssetManifest;
 	readonly settled: readonly HqMediaPath[];
 }> {
-	const recorded: AssetManifest = new Map(
-		[...batch].filter(
-			([, asset]) => settled.get(asset.wirePath)?.standing === "recorded",
-		),
-	);
-	const prior =
-		recorded.size > 0
-			? await readMediaReceipt(creds, domain, appId, recorded)
-			: { files: {}, missing: [], absent: [] };
-	const absent = new Set(prior.absent);
-	const changed = prior.missing.filter((path) => !absent.has(path));
 	const files = publishedMediaFiles(batch);
-	const checked =
-		changed.length > 0
-			? null
-			: await verifyHqMediaBatch(
-					creds,
-					domain,
-					appId,
-					compared,
-					readBack,
-					files,
-				).catch((error: unknown) => {
-					log.error(
-						"[deployment] could not verify the media destinations before dispatch",
-						error,
-						{ domain, hqAppId: appId },
-					);
-					return null;
-				});
+	const checked = await verifyHqMediaBatch(
+		creds,
+		domain,
+		appId,
+		compared,
+		readBack,
+		files,
+	).catch((error: unknown) => {
+		log.error(
+			"[deployment] could not verify the media destinations before dispatch",
+			error,
+			{ domain, hqAppId: appId },
+		);
+		return null;
+	});
 	if (checked === null) {
 		return {
 			verified: {},
-			changed:
-				changed.length > 0 ? changed : files.map((file) => file.wirePath),
+			changed: files.map((file) => file.wirePath),
 			needed: batch,
 			settled: [],
 		};
 	}
-	const verified: Record<string, string> = Object.assign(
-		Object.create(null),
-		prior.files,
-	);
-	for (const path of checked.paths) delete verified[path.wirePath];
+	const now = new Map(settled);
+	for (const path of checked.paths) now.set(path.wirePath, path);
+	const verified: Record<string, string> = Object.create(null);
+	for (const file of files) {
+		const path = now.get(file.wirePath);
+		if (path?.standing === "recorded" && path.hq !== null)
+			verified[file.wirePath] = path.hq.multimediaId;
+	}
 	Object.assign(verified, checked.learned);
 	return {
 		verified,
