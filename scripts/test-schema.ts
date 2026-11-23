@@ -121,6 +121,7 @@ import {
 	updateLocationTool,
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
+import { setCaseTypeParentTool } from "../lib/agent/tools/setCaseTypeParent";
 import { setFieldOptionsSourceTool } from "../lib/agent/tools/setFieldOptionsSource";
 import { setFormSectionsTool } from "../lib/agent/tools/setFormSections";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
@@ -237,6 +238,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: moveCaseOperationTool.inputSchema,
 		prompt:
 			"Use moveCaseOperation with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to move the case change 33333333-3333-4333-8333-333333333333 after the case change 44444444-4444-4444-8444-444444444444.",
+	},
+	{
+		name: "setCaseTypeParent",
+		description: setCaseTypeParentTool.description,
+		schema: setCaseTypeParentTool.inputSchema,
+		prompt:
+			"Use setCaseTypeParent to add the supervisor link from visit to worker.",
 	},
 	{
 		name: "updateCaseProperty",

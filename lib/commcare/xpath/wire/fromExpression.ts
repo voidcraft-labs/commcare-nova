@@ -525,6 +525,14 @@ function term(input: Term, ctx: Context): WireExpr {
 			const self = input.via === undefined || input.via.kind === "self";
 			if (self && bindings.emitSelfProperty !== undefined)
 				return bindings.emitSelfProperty(input);
+			if (input.readReached && input.via?.kind === "ancestor")
+				return w.append(
+					buildAncestorJoinNodeset(
+						input.via.via.map(({ identifier }) => ({ identifier })),
+						root,
+					),
+					[casePropertyStep(input.property)],
+				);
 			const anchored = bindings.caseProperty?.(
 				input,
 				root,

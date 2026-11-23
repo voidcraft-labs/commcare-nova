@@ -6,6 +6,7 @@ import {
 	entryPointInventory,
 	suffixUntilFree,
 } from "@/lib/domain";
+import { declaredCaseRelations } from "@/lib/domain/caseRelations";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
 /**
@@ -564,7 +565,47 @@ function firstMenuSharedCaseEntryPointMessage(
 	return `The entry point on "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${above}" its own screen again (forms_in_menu_above null), or remove the entry point.`;
 }
 
+/** Catalog declarations can also be edited without a form or menu naming
+ * them. Admission checks these references at the whole-batch boundary. */
+function validCaseRelations(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const names = new Set(doc.caseTypes?.map((type) => type.name));
+	for (const type of doc.caseTypes ?? []) {
+		const seen = new Set<string>();
+		for (const edge of declaredCaseRelations(type)) {
+			const key = JSON.stringify([
+				edge.identifier,
+				edge.targetType,
+				edge.relationship,
+			]);
+			let message: string | undefined;
+			if (!names.has(edge.targetType))
+				message = `The ${edge.identifier} link on ${type.name} uses a case type the app no longer has. Choose a related case type or remove the link.`;
+			else if (seen.has(key))
+				message = `The ${edge.identifier} link on ${type.name} names ${edge.targetType} twice with the same relationship. Keep one copy of that link.`;
+			if (message !== undefined)
+				errors.push(
+					validationError(
+						"CASE_RELATION_INVALID",
+						"app",
+						message,
+						{},
+						{
+							caseType: type.name,
+							identifier: edge.identifier,
+							target: edge.targetType,
+							reason: names.has(edge.targetType) ? "duplicate" : "missing",
+						},
+					),
+				);
+			seen.add(key);
+		}
+	}
+	return errors;
+}
+
 export const APP_RULES = [
+	validCaseRelations,
 	authoredXmlText,
 	validEntryPoints,
 	// A link or a built-in `module` destination that opens through the first

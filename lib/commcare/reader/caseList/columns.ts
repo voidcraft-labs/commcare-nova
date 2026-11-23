@@ -15,10 +15,7 @@ import type {
 	ColumnVia,
 	LanguageTag,
 } from "@/lib/domain";
-import {
-	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
-	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
-} from "@/lib/domain/casePropertyName";
+import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
 import { COMMCARE_DATE_PATTERN_REGEX } from "@/lib/domain/commCareDatePattern";
 import {
 	INTERVAL_DISPLAYS,
@@ -93,8 +90,12 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}field-failing-details-utils-js-isvalidpropertyname-non`,
 		"schema:DetailColumn.field",
 	),
-	fieldOutsideGrammar: refuse(
-		`${A}column-field-outside-nova-s-property-grammar`,
+	longProperty: take(
+		`${A}column-reading-a-property-name-over-255-characters`,
+		"schema:DetailColumn.field",
+	),
+	hashProperty: refuse(
+		`${A}column-reading-an-unknown-hash-property`,
 		"schema:DetailColumn.field",
 	),
 	fieldCalculated: take(
@@ -125,7 +126,7 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}name-date-opened-external-id-status-owner-id-hq-renames-to-case`,
 		"detail-field-type:property",
 	),
-	relationPath: refuse(
+	relationPath: take(
 		`${A}idx-prop-in-a-menu-that-offers-search-or-through-an-index`,
 		"detail-field-type:property",
 	),
@@ -944,22 +945,20 @@ export function classifyField(field: string): FieldClass {
 			kind: "finding",
 			claim: field.split("/").length > 2 ? C.userSteps : C.userProp,
 		};
-	if (field.includes("/")) return { kind: "finding", claim: C.relationPath };
+	if (field.includes("/") && isHqDetailField(field))
+		return classifyField(field.slice(field.lastIndexOf("/") + 1));
 	if (!isHqDetailField(field))
 		return { kind: "finding", claim: C.fieldInvalid };
 	// HQ's page accepts a `#` before the last word and a name of any length;
-	// Nova's property grammar takes neither.
+	// Core accepts the long child name. Only #owner_name has a native rewrite.
 	const renamed = HQ_PROPERTY_RENAMES.get(field) ?? field;
 	// HQ's build reads a property field through `CASE_PROPERTY_MAP`, which maps `status` and
 	// `owner_id` to their attributes and has no entry for `case_id`, so it reads the child element
 	// `case_id`, which no case holds (Core holds the id as the attribute alone,
 	// `CaseChildElement`): the column is blank for every case.
 	if (renamed === "case_id") return { kind: "finding", claim: C.caseIdElement };
-	if (
-		!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(renamed) ||
-		renamed.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-	)
-		return { kind: "finding", claim: C.fieldOutsideGrammar };
+	if (!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(renamed))
+		return { kind: "finding", claim: C.hashProperty };
 	return { kind: "property", name: renamed };
 }
 
@@ -1266,20 +1265,12 @@ export interface ColumnOptions {
 	 *  the type it reaches; undefined where a step reaches no type. */
 	readonly relationVia?: (
 		steps: readonly string[],
-	) => { readonly via: ColumnVia; readonly caseType: string } | undefined;
+	) => { readonly via: ColumnVia; readonly caseType?: string } | undefined;
 }
 
-/** A relation step Nova's walk can name: an XML name (`expression/types.ts::relationStepSchema`). */
-const RELATION_STEP = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-/**
- * A property column's field of indices and a property, as Nova reads it: the walk its indices
- * name and the property it reads there (`modules.ts::columnViaSchema`), the property's last word
- * renamed as HQ's build reads it (`CASE_PROPERTY_MAP`). A field HQ's page would not accept, an
- * index Nova's walk cannot name, a step that reaches no type, a property read as an attribute
- * (`case_id`, `status`, `owner_id`, which Nova writes as an expression), and a menu that offers
- * Search, whose results HQ reads such a column through, stay the field's finding.
- */
+/** The last word of a native field is mapped by HQ before it joins each saved
+ * index. The case roster comes from the detail and can be the Search results.
+ * A historical link that no current form writes still reads its reached case. */
 export function readRelationField(
 	field: string,
 	options: Pick<ColumnOptions, "offersSearch" | "relationVia">,
@@ -1288,28 +1279,27 @@ export function readRelationField(
 			readonly kind: "property";
 			readonly name: string;
 			readonly via: ColumnVia;
-			readonly caseType: string;
+			readonly caseType?: string;
 	  }
 	| { readonly kind: "finding"; readonly claim: Claim<"refuse"> }
 	| undefined {
 	if (!isRelationPath(field) || field.startsWith("user/")) return undefined;
 	if (!isHqDetailField(field))
 		return { kind: "finding", claim: C.fieldInvalid };
-	const finding = { kind: "finding", claim: C.relationPath } as const;
-	if (options.offersSearch || options.relationVia === undefined) return finding;
 	const parts = field.split("/");
 	const last = parts.pop() as string;
-	if (parts.some((step) => !RELATION_STEP.test(step))) return finding;
-	const name = HQ_PROPERTY_RENAMES.get(last) ?? last;
-	if (
-		ATTRIBUTE_PROPERTIES.has(name) ||
-		!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(name) ||
-		name.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-	)
-		return finding;
-	const walk = options.relationVia(parts);
-	if (walk === undefined) return finding;
-	return { kind: "property", name, via: walk.via, caseType: walk.caseType };
+	const classified = classifyField(last);
+	if (classified.kind === "finding") return classified;
+	const walk = options.relationVia?.(parts) ?? {
+		via: parts.map((identifier) => ({ identifier })) as ColumnVia,
+	};
+	const name = classified.name;
+	return {
+		kind: "property",
+		name,
+		via: walk.via,
+		...(walk.caseType !== undefined && { caseType: walk.caseType }),
+	};
 }
 
 /** HQ's word for a column's property a relation path reads: `parent/prop`, `host/prop`. */
@@ -1569,9 +1559,19 @@ function readColumn(
 		column.take("useXpathExpression", C.fieldAttribute, Boolean).value;
 		column.take("field", C.fieldAttributeField, String).value;
 	} else if (relation?.kind === "property")
-		column.take("field", C.relationField, String).value;
+		column.take(
+			"field",
+			options.offersSearch || relation.caseType === undefined
+				? C.relationPath
+				: C.relationField,
+			String,
+		).value;
 	else {
-		column.take("field", C.field, String).value;
+		column.take(
+			"field",
+			field.text.length > 255 ? C.longProperty : C.field,
+			String,
+		).value;
 		const type = HQ_RENAMED_FIELDS.has(field.text)
 			? C.renamedType
 			: field.text === "last_modified"

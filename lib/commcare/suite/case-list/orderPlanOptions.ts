@@ -20,7 +20,6 @@ import {
 	type Column,
 	caseListOrderPlan,
 	casePropertyShowsOptionLabels,
-	columnPropertyCaseType,
 	EMPTY_CASE_LIST_ORDER_PLAN,
 	EXPRESSION_ONLY_COLUMN_PROPERTIES,
 	effectiveCaseSearchConfig,
@@ -28,6 +27,7 @@ import {
 	type Module,
 	moduleFormsReadSearch,
 } from "@/lib/domain";
+import { propertiesReachedByColumn } from "@/lib/domain/columnRelation";
 import {
 	checkExpression,
 	type Expression,
@@ -195,10 +195,12 @@ export function columnProperty(
 	mod: Pick<Module, "caseType">,
 	caseTypes: readonly CaseType[],
 ): CaseType["properties"][number] | undefined {
-	const caseType = columnPropertyCaseType(column, mod.caseType, caseTypes);
-	return caseTypes
-		.find((type) => type.name === caseType)
-		?.properties.find((candidate) => candidate.name === column.field);
+	return propertiesReachedByColumn(
+		column,
+		mod.caseType,
+		caseTypes,
+		column.field,
+	).find((candidate) => candidate.name === column.field);
 }
 
 /** The canonical HQ print used to join an expression column to its sort rule. */
@@ -279,10 +281,8 @@ export function caseListOrderOptions(
 	const caseTypes = effectiveCaseTypes(doc);
 	return {
 		mediaOn,
-		relatedProperties: (via) => {
-			const reached = columnPropertyCaseType({ via }, mod.caseType, caseTypes);
-			return caseTypes.find((type) => type.name === reached)?.properties;
-		},
+		relatedProperties: (via) =>
+			propertiesReachedByColumn({ via }, mod.caseType, caseTypes),
 		sortType: (sort) =>
 			orderValueType(
 				sort.expression,

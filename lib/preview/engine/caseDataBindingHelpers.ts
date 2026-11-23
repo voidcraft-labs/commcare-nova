@@ -92,7 +92,6 @@ import {
 	caseSortDistanceValue,
 	caseWriteValueField,
 	columnPropertyCaseType,
-	columnRelationPath,
 	type Form,
 	type FormType,
 	isCaptureFieldKind,
@@ -220,20 +219,20 @@ function runtimeCalculatedColumns(config: CaseListConfig | undefined) {
 function runtimeRelatedReads(
 	config: CaseListConfig | undefined,
 	caseType: string,
-	caseTypeSchemas: ReadonlyMap<string, CaseType> | undefined,
 ): RelatedRead[] | undefined {
 	if (config === undefined) return undefined;
-	const types = [...(caseTypeSchemas?.values() ?? [])];
 	return config.columns.flatMap((column): RelatedRead[] => {
 		if (column.kind === "calculated" || column.via === undefined) return [];
-		const reached = columnPropertyCaseType(column, caseType, types);
-		if (reached === undefined) return [];
 		return [
 			{
 				uuid: column.uuid,
-				expression: term(
-					prop(reached, column.field, columnRelationPath(column)),
-				),
+				expression: term({
+					kind: "prop",
+					caseType,
+					property: column.field,
+					via: { kind: "ancestor", via: column.via },
+					readReached: true,
+				}),
 			},
 		];
 	});
@@ -506,11 +505,7 @@ export async function readCases(
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
 			calculated: runtimeCalculatedColumns(args.caseListConfig),
-			related: runtimeRelatedReads(
-				args.caseListConfig,
-				args.caseType,
-				args.caseTypeSchemas,
-			),
+			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 			limit: page?.limit ?? cap,
 			offset: page === undefined ? undefined : offset,
 		});
@@ -620,11 +615,7 @@ async function readGroupedCases(
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
 			calculated: runtimeCalculatedColumns(args.caseListConfig),
-			related: runtimeRelatedReads(
-				args.caseListConfig,
-				args.caseType,
-				args.caseTypeSchemas,
-			),
+			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 			indexIdentifier: grouping.identifier,
 			groupOffset,
 			groupLimit: page.limit,
@@ -1006,11 +997,7 @@ export async function readFilterPreview(
 	const rows = await store.query({
 		...caseReadCore(args, predicate),
 		calculated: runtimeCalculatedColumns(args.caseListConfig),
-		related: runtimeRelatedReads(
-			args.caseListConfig,
-			args.caseType,
-			args.caseTypeSchemas,
-		),
+		related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 		sort: buildCaseStoreSortKeys(args.order, args.caseType),
 		limit,
 	});
@@ -1163,13 +1150,18 @@ function sortKeysForRule(
 	const reachedType = (via: ColumnVia | undefined) =>
 		via === undefined
 			? caseType
-			: (columnPropertyCaseType({ via }, caseType, order.caseTypes) ??
-				caseType);
+			: columnPropertyCaseType({ via }, caseType, order.caseTypes);
 	/** A property read, through a column's walk where it has one. */
 	const read = (property: string, via: ColumnVia | undefined) =>
 		via === undefined
 			? prop(caseType, property)
-			: prop(reachedType(via), property, { kind: "ancestor", via });
+			: ({
+					kind: "prop",
+					caseType,
+					property,
+					via: { kind: "ancestor", via },
+					readReached: true,
+				} as const);
 	const linkDisplayValue = (column: Extract<Column, { kind: "link" }>) => {
 		const raw = read(column.field, column.via);
 		return ifExpr(
@@ -1292,7 +1284,7 @@ function sortKeysForRule(
 			kind: "interval-text",
 			property: column.field,
 			...(column.via !== undefined && {
-				relation: { caseType: reachedType(column.via), via: column.via },
+				relation: { via: column.via },
 			}),
 			display: column.display,
 			thresholdDays: column.threshold * divisorDays,
@@ -1384,11 +1376,7 @@ export async function readCaseData(
 		),
 		parentCases: args.parentCase,
 		calculated: runtimeCalculatedColumns(args.caseListConfig),
-		related: runtimeRelatedReads(
-			args.caseListConfig,
-			args.caseType,
-			args.caseTypeSchemas,
-		),
+		related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 		limit: 1,
 		includeHeld: args.includeHeld,
 	});

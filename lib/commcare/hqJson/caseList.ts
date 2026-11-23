@@ -249,15 +249,20 @@ function projectColumnToDetail(
 				),
 				headerRecord,
 			);
-	const propertyCaseType =
-		columnPropertyCaseType(column, mod.caseType, ctx.caseTypes) ??
-		mod.caseType ??
-		"";
+	const propertyCaseType = columnPropertyCaseType(
+		column,
+		mod.caseType,
+		ctx.caseTypes,
+	);
 
 	switch (column.kind) {
 		case "plain": {
 			const property = columnProperty(column, mod, ctx.caseTypes);
-			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
+			if (
+				propertyCaseType === undefined ||
+				property === undefined ||
+				!casePropertyShowsOptionLabels(property)
+			) {
 				return base;
 			}
 			const options = property.options ?? [];

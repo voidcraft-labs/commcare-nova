@@ -219,7 +219,7 @@ const DETAIL_LOCALE_TYPE: Readonly<
  * a no-op for them — same as the calc-column emission when the
  * expression contains no relation walk.
  */
-function instanceRootFor(
+export function instanceRootFor(
 	ctx: Pick<CaseListEmitContext, "target" | "caseSource">,
 ): "casedb" | "results" | "results:inline" {
 	if (ctx.target === "search") return "results";
@@ -943,7 +943,7 @@ function imageMapAltText(
 	) {
 		return undefined;
 	}
-	const field = columnPropertyPath(column);
+	const field = columnPropertyPath(column, instanceRootFor(ctx));
 	const idBase = detailColumnLocaleBase(
 		ctx.target,
 		ctx.detailKind,
@@ -1059,7 +1059,10 @@ function propertyDisplayProjection(
 	ctx: CaseListEmitContext,
 	position: number,
 ): LocalizedDisplayProjection {
-	const field = columnPropertyPath(column);
+	const field = columnPropertyPath(
+		column,
+		hqStoresAsExpression(column, ctx) ? "casedb" : instanceRootFor(ctx),
+	);
 	const plain = (xpath: WireExpr): LocalizedDisplayProjection => ({
 		xpath,
 		variables: [],
@@ -1100,9 +1103,12 @@ function propertyDisplayProjection(
 		case "plain": {
 			// The property's catalog entry and options are those of the case
 			// the column's walk reaches.
-			const caseType =
-				columnPropertyCaseType(column, ctx.caseType, ctx.caseTypes) ??
-				ctx.caseType;
+			const caseType = columnPropertyCaseType(
+				column,
+				ctx.caseType,
+				ctx.caseTypes,
+			);
+			if (caseType === undefined) return plain(plainDisplayXpath(field));
 			const property = (
 				column.via === undefined
 					? ctx.caseProperties
@@ -1376,7 +1382,10 @@ export function buildColumnField(args: {
 		});
 
 	if (hidden) {
-		const raw = columnPropertyPath(column);
+		const raw = columnPropertyPath(
+			column,
+			columnStoredAsExpression(column) ? "casedb" : instanceRootFor(ctx),
+		);
 		const header =
 			sortLabel === undefined
 				? undefined
@@ -1652,10 +1661,11 @@ export function buildCarrierField(
 	locale: {
 		readonly target: DetailTarget;
 		readonly moduleIndex: number;
+		readonly caseSource?: CaseListEmitContext["caseSource"];
 	},
 	context: WireElementContext,
 ): CaseListFieldEmission {
-	const raw = columnPropertyPath(carrier);
+	const raw = columnPropertyPath(carrier, instanceRootFor(locale));
 	const header =
 		carrier.label === undefined || directive.order === undefined
 			? undefined

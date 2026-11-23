@@ -412,6 +412,7 @@ function narrowed(
 			case "updateUserProperty":
 			case "removeLocationProperty":
 			case "updateLocationProperty":
+			case "moveCaseProperty":
 			case "removeCaseProperty":
 			case "setCaseProperty":
 				break;
@@ -704,6 +705,7 @@ export function touchedBy(
 			case "retireCaseType":
 			case "addCaseProperty":
 			case "setCaseProperty":
+			case "moveCaseProperty":
 			case "removeCaseProperty":
 			case "setCaseTypeMeta":
 			case "addUserProperty":

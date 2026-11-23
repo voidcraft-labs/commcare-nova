@@ -10,6 +10,8 @@ import {
 	type TranslationUnitId,
 } from "@/lib/domain";
 
+import { propertiesReachedByColumn } from "@/lib/domain/columnRelation";
+
 /** Project option labels through the same selected-language lens as the rest
  * of Preview while retaining the effective catalog's structural data type. */
 export function projectLocalizedCaseProperties(
@@ -59,8 +61,12 @@ export function relatedColumnProperties(
 	for (const column of config?.columns ?? []) {
 		if (column.kind === "calculated" || column.via === undefined) continue;
 		const reached = columnPropertyCaseType(column, listCaseType, caseTypes);
-		const properties =
-			caseTypes.find((type) => type.name === reached)?.properties ?? [];
+		const properties = propertiesReachedByColumn(
+			column,
+			listCaseType,
+			caseTypes,
+			column.field,
+		);
 		out.set(
 			column.uuid,
 			projectLocalizedCaseProperties(reached, properties, localizedValues).find(

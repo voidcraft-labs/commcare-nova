@@ -8,6 +8,7 @@
  * and a type only where a reader needs it to write the same wire, or, for an
  * app Nova holds, where its document declares one (`ReaderInput.knownCaseTypes`).
  */
+
 import { type Draft, produce } from "immer";
 import {
 	type CasePropertyDataType,
@@ -16,6 +17,10 @@ import {
 } from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
+import {
+	CaseRelationCatalog,
+	relationMetadata,
+} from "@/lib/domain/caseRelations";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import {
 	concreteCasePropertyWriterTypes,
@@ -117,49 +122,55 @@ interface ReadLink {
 	readonly relationship: "child" | "extension";
 }
 
-/** `parent_type` and `relationship` of each child type where every link
- *  out of it under `parent` agrees, else neither key. A parent selection
- *  gives its menu's case type a parent where no link says otherwise. A type
- *  no link and no selection gives a parent takes the one `known` names, and
- *  that parent is a type of the catalog. */
+/** Bind the declared catalog after all case writers and selections have been
+ * read. HQ's index name is scoped to the source type and can reach several
+ * different target types, including child and extension relationships. */
 function noteParents(
 	caseTypes: Catalog,
 	links: readonly ReadLink[],
 	selections: readonly { readonly child: string; readonly parent: string }[],
 	known: ReaderKnownCaseTypes | undefined,
 ): void {
-	// The catalog grows by the parents `known` names, which are walked in turn.
+	const graph = new CaseRelationCatalog([]);
+	for (const link of links)
+		graph.note(link.child, {
+			identifier: link.identifier,
+			targetType: link.parent,
+			relationship: link.relationship,
+		});
+	for (const selected of selections) {
+		const existing = graph.edges(selected.child, "parent");
+		if (!existing.some((edge) => edge.targetType === selected.parent))
+			graph.note(selected.child, {
+				identifier: "parent",
+				targetType: selected.parent,
+				relationship: "child",
+			});
+	}
 	for (let at = 0; at < caseTypes.length; at++) {
-		const type = caseTypes[at] as CatalogType;
-		const out = links.filter(
-			(link) => link.child === type.name && link.identifier === "parent",
-		);
-		const parents = new Set(out.map((link) => link.parent));
-		const relationships = new Set(out.map((link) => link.relationship));
-		if (out.length > 0) {
-			if (parents.size === 1 && relationships.size === 1) {
-				type.parent_type = [...parents][0] as string;
-				type.relationship = [...relationships][0] as "child" | "extension";
-			}
-			continue;
+		const type = caseTypes[at];
+		for (const edge of known?.relationsOf?.(type.name) ?? [])
+			graph.note(type.name, edge);
+		if (
+			known?.relationsOf === undefined &&
+			graph.edges(type.name, "parent").length === 0
+		) {
+			const parent = known?.targetOf(type.name, "parent");
+			if (parent !== undefined)
+				graph.note(type.name, {
+					identifier: "parent",
+					targetType: parent.caseType,
+					...(parent.relationship !== undefined && {
+						relationship: parent.relationship,
+					}),
+				});
 		}
-		const selected = new Set(
-			selections
-				.filter((one) => one.child === type.name)
-				.map((one) => one.parent),
+		const edges = graph.edges(type.name);
+		for (const edge of edges) noteType(caseTypes, edge.targetType);
+		const held = edges.filter((edge) =>
+			caseTypes.some((one) => one.name === edge.targetType),
 		);
-		if (selected.size === 1) {
-			type.parent_type = [...selected][0] as string;
-			type.relationship = "child";
-		}
-		if (selected.size > 0) continue;
-		const parent = known?.targetOf(type.name, "parent");
-		if (parent === undefined) continue;
-		noteType(caseTypes, parent.caseType);
-		if (!caseTypes.some((one) => one.name === parent.caseType)) continue;
-		type.parent_type = parent.caseType;
-		if (parent.relationship !== undefined)
-			type.relationship = parent.relationship;
+		Object.assign(type, relationMetadata(held));
 	}
 }
 
@@ -538,13 +549,16 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 						...(boundDateTime(form, field) && { dateTime: true }),
 					});
 				}
-				for (const link of block.links)
+				for (const link of block.links) {
+					noteType(caseTypes, link.targetType);
+					if (link.target === null) continue;
 					links.push({
-						child: caseType,
+						child: destination,
 						identifier: link.identifier,
 						parent: link.targetType,
 						relationship: link.relationship,
 					});
+				}
 			}
 			// A preload is a default reading the case's property.
 			const xform = form.xform;
@@ -998,21 +1012,16 @@ export function catalogAsRead(
 							}),
 					});
 				}
-				for (const link of (
-					op as {
-						links?: readonly {
-							identifier: string;
-							targetType: string;
-							relationship: "child" | "extension";
-						}[];
-					}
-				).links ?? [])
+				for (const link of op.links ?? []) {
+					noteType(caseTypes, link.targetType);
+					if (link.target === null) continue;
 					links.push({
-						child: caseType,
+						child: destination,
 						identifier: link.identifier,
 						parent: link.targetType,
 						relationship: link.relationship,
 					});
+				}
 			}
 		}
 	}

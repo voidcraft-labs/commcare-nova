@@ -229,10 +229,8 @@ export type SortKey =
 	| {
 			readonly kind: "interval-text";
 			readonly property: string;
-			/** The walk to the case whose property it reads, and that case's
-			 *  type; absent for the row's own. */
+			/** An interval column follows these index names from each listed row. */
 			readonly relation?: {
-				readonly caseType: string;
 				readonly via: readonly [RelationStep, ...RelationStep[]];
 			};
 			readonly display: "always" | "flag";

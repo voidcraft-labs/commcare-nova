@@ -32,7 +32,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
-import { propertyExists } from "./shared";
+import { propertyExists, validationContextFor } from "./shared";
 
 export function columnReferences(
 	mod: Module,
@@ -54,7 +54,7 @@ export function columnReferences(
 		const caseType = columnPropertyCaseType(
 			col,
 			mod.caseType,
-			doc.caseTypes ?? [],
+			validationContextFor(doc).augmentedCaseTypes,
 		);
 		if (caseType === undefined) continue;
 		if (propertyExists(doc, caseType, col.field)) continue;

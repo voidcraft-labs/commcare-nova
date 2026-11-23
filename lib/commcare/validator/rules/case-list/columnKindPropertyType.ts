@@ -30,6 +30,7 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
+import { reachedPropertyType } from "@/lib/domain/columnRelation";
 import { type ValidationError, validationError } from "../../errors";
 import { validationContextFor } from "./shared";
 
@@ -59,19 +60,17 @@ export function columnKindPropertyType(
 		const caseType = columnPropertyCaseType(
 			col,
 			mod.caseType,
-			doc.caseTypes ?? [],
+			augmentedCaseTypes,
 		);
 		const properties = augmentedCaseTypes.find(
 			(ct) => ct.name === caseType,
 		)?.properties;
-		if (properties === undefined) continue;
-		// Raw `data_type` off the effective view, NOT
-		// `effectiveDataType(...)` — absent must stay absent (unknown
-		// is permissive here), and an unresolvable property is
-		// `columnReferences`' finding, not a second one here.
-		const resolvedType = properties.find(
-			(p) => p.name === col.field,
-		)?.data_type;
+		// A unique destination can have a genuinely undeclared property type.
+		// A native walk to alternative destinations needs a common effective type.
+		const resolvedType =
+			caseType !== undefined
+				? properties?.find((property) => property.name === col.field)?.data_type
+				: reachedPropertyType(col, mod.caseType, augmentedCaseTypes);
 		if (resolvedType === undefined) continue;
 		if (columnKindAcceptsPropertyType(col.kind, resolvedType)) continue;
 		errors.push(

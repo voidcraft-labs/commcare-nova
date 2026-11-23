@@ -6,6 +6,7 @@
  * What the pass decides is written into the menu's draft; what the second
  * pass compares is kept in the reading (`caseListReading`).
  */
+
 import { type Draft, produce } from "immer";
 import {
 	type BlueprintDoc,
@@ -25,7 +26,10 @@ import {
 } from "@/lib/domain";
 import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
-import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
+import {
+	type CaseRelation,
+	CaseRelationCatalog,
+} from "@/lib/domain/caseRelations";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
 	caseListColumnTextShows,
@@ -465,59 +469,43 @@ function fieldTextOf(proposal: ColumnProposal): string | undefined {
 	return body.kind === "calculated" ? undefined : columnFieldText(body);
 }
 
-/** The type a read walk reaches from `caseType`: `parent` by the catalog's parent, any other step
- *  by the type it names, whether or not the catalog holds it yet. */
-function walkedType(
-	via: ColumnVia | undefined,
-	caseType: string | undefined,
-	catalog: readonly { readonly name: string; readonly parent_type?: string }[],
-): string | undefined {
-	let at = caseType;
-	for (const step of via ?? []) {
-		if (at === undefined) return undefined;
-		at =
-			step.identifier === "parent"
-				? catalog.find((one) => one.name === at)?.parent_type
-				: step.throughCaseType;
-	}
-	return at;
-}
-
-/**
- * The walk a column's indices name from `caseType`, each step typed as Nova types it: `parent`
- * by the catalog's parent (no type stated on the step, since the catalog gives it), any other
- * index by the type the app links it to (`caseManagement/basicActions.ts::indexTarget`), which
- * the step names. Undefined where a step reaches no type, or a type outside the case type grammar.
- * A type the walk reaches that the catalog holds nowhere else is declared where the column's
- * property is noted.
- */
+/** The detail field carries only index names. Preserve the native path, even
+ * when several known target types or a historical row outside the app may
+ * supply the value. A uniquely known custom destination keeps its existing
+ * Nova type hint for callers that inspect that catalog identity. */
 export function readColumnVia(
 	ctx: ReadContext,
 	caseType: string | undefined,
 	steps: readonly string[],
-): { readonly via: ColumnVia; readonly caseType: string } | undefined {
-	if (caseType === undefined || steps.length === 0) return undefined;
-	const catalog = ctx.draft.caseTypes ?? [];
-	const declared = (name: string | undefined) =>
-		name !== undefined && CASE_TYPE_PATTERN.test(name);
+): { readonly via: ColumnVia; readonly caseType?: string } | undefined {
+	if (caseType === undefined || !steps.length) return undefined;
+	const graph = new CaseRelationCatalog(ctx.draft.caseTypes ?? []);
 	const via: ColumnVia[number][] = [];
-	let at = caseType;
+	let current: string | undefined = caseType;
 	for (const identifier of steps) {
-		if (identifier === "parent") {
-			const parent =
-				catalog.find((one) => one.name === at)?.parent_type ??
-				indexTarget(ctx, at, "parent");
-			if (!declared(parent)) return undefined;
-			via.push({ identifier });
-			at = parent as string;
-			continue;
-		}
-		const reached = indexTarget(ctx, at, identifier);
-		if (!declared(reached)) return undefined;
-		via.push({ identifier, throughCaseType: reached as string });
-		at = reached as string;
+		const edges: readonly CaseRelation[] =
+			current === undefined ? [] : graph.edges(current, identifier);
+		const names = new Set(edges.map((edge) => edge.targetType));
+		const next: string | undefined =
+			names.size === 1
+				? [...names][0]
+				: names.size === 0 && current !== undefined
+					? indexTarget(ctx, current, identifier)
+					: undefined;
+		via.push(
+			next !== undefined && identifier !== "parent"
+				? { identifier, throughCaseType: next }
+				: { identifier },
+		);
+		current = next;
 	}
-	return { via: via as ColumnVia, caseType: at };
+	const scope = graph.reached(caseType, via);
+	const only =
+		!scope.open && scope.types.length === 1 ? scope.types[0] : current;
+	return {
+		via: via as ColumnVia,
+		...(only !== undefined && { caseType: only }),
+	};
 }
 
 /**
@@ -1510,8 +1498,11 @@ export function readCaseDetails(
 	const properties = joined.columns.flatMap((column) => {
 		const body = column.proposal.column;
 		if (body.kind === "calculated" || typeof body.field !== "string") return [];
-		const owner = walkedType(body.via, caseType, ctx.draft.caseTypes ?? []);
-		return owner === undefined ? [] : [[owner, body.field] as const];
+		if (caseType === undefined) return [];
+		const graph = new CaseRelationCatalog(ctx.draft.caseTypes ?? []);
+		return graph
+			.reached(caseType, body.via ?? [])
+			.types.map((owner) => [owner, body.field] as const);
 	});
 	if (
 		caseType !== undefined &&

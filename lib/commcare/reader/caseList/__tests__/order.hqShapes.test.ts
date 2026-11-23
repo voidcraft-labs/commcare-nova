@@ -829,8 +829,8 @@ describe("a text comparison over a whole-number property", () => {
 describe("a sort element's field that is no one word", () => {
 	for (const [field, entry] of [
 		[
-			"parent/village",
-			"menus-and-case-lists/idx-prop-in-a-menu-that-offers-search-or-through-an-index",
+			"parent/case_id",
+			"menus-and-case-lists/case-id-as-a-property-column-s-field",
 		],
 		["user/district", "menus-and-case-lists/user-prop-usercase"],
 		["#owner_name", "menus-and-case-lists/owner-name"],

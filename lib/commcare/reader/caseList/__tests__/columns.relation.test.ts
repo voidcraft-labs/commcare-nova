@@ -179,7 +179,7 @@ describe("the gate over a column read through a relation", () => {
 		expect(relationFindings(doc)).toEqual([]);
 	});
 
-	it("refuses each walk HQ's field cannot say, by its reason", () => {
+	it("keeps unrestricted index walks and refuses type qualifiers or the worker spelling HQ cannot preserve", () => {
 		const doc = app([
 			plainColumn(uuid(1), "address", "Above the village", {
 				via: [
@@ -199,10 +199,8 @@ describe("the gate over a column read through a relation", () => {
 			}),
 		]);
 		expect(relationFindings(doc)).toEqual([
-			["CASE_LIST_COLUMN_RELATION_INVALID", "unresolved"],
 			["CASE_LIST_COLUMN_RELATION_INVALID", "parent-type"],
 			["CASE_LIST_COLUMN_RELATION_INVALID", "worker"],
-			["CASE_LIST_COLUMN_RELATION_INVALID", "unresolved"],
 		]);
 	});
 
@@ -251,16 +249,19 @@ describe("the gate over a column read through a relation", () => {
 		}
 	});
 
-	it("refuses a related column in a menu that offers Search", () => {
+	it("publishes a native supporting-case path for a menu that offers Search", () => {
 		const doc = app(
 			[plainColumn(uuid(1), "address", "Address", { via: PARENT })],
 			{
 				search: true,
 			},
 		);
-		expect(relationFindings(doc)).toEqual([
-			["CASE_LIST_COLUMN_RELATION_INVALID", "search"],
-		]);
+		expect(relationFindings(doc)).toEqual([]);
+		expect(
+			expandDoc(doc).modules[1].case_details.short.columns.map(
+				(column) => column.field,
+			),
+		).toContain("parent/address");
 	});
 
 	it("checks the property against the type the walk reaches", () => {
@@ -464,7 +465,7 @@ describe("Nova's export of a related column reads back as itself", () => {
 		);
 	});
 
-	it("leaves a walk to no type its finding", async () => {
+	it("keeps the wire path to a historical case without inventing a destination type", async () => {
 		const doc = app([
 			plainColumn(uuid(1), "address", "Address", { via: PARENT }),
 		]);
@@ -477,8 +478,12 @@ describe("Nova's export of a related column reads back as itself", () => {
 							column.field = "nowhere/address";
 			},
 		});
-		expect(codes(reading)).toContain(
-			"menus-and-case-lists/idx-prop-in-a-menu-that-offers-search-or-through-an-index",
+		expect(codes(reading)).toEqual([]);
+		expect(listOf(reading, 1).columns).toContainEqual(
+			expect.objectContaining({
+				field: "address",
+				via: [{ identifier: "nowhere" }],
+			}),
 		);
 	});
 });

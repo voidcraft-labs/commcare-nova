@@ -503,7 +503,7 @@ function compileSortKey(
 			: key.kind === "interval-text"
 				? compileIntervalText(
 						{
-							caseType: key.relation?.caseType ?? caseType,
+							caseType,
 							...(key.relation !== undefined && { via: key.relation.via }),
 							property: key.property,
 							display: key.display,

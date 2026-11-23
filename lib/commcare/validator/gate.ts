@@ -174,6 +174,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	LOCATION_PROPERTY_REQUIRED_CAPACITY: "soundness",
 	PERSONA_LOCATION_PRIMARY_REPEATED: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
+	CASE_RELATION_INVALID: "soundness",
 	NO_CASE_TYPE: "soundness",
 	CASE_PARENT_SELECTION_INVALID: "soundness",
 	CASE_PARENT_SELECTION_CONFLICT: "soundness",

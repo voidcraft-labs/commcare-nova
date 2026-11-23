@@ -39,6 +39,7 @@ import type {
 	SortDirection,
 	Uuid,
 } from "@/lib/domain";
+import type { InstanceRoot } from "../../xpath/wire/rowScope";
 import { columnPropertyPath } from "../wire";
 
 // ============================================================
@@ -168,6 +169,7 @@ function keyDirective(
 	key: CaseListSortKey,
 	column: Column,
 	attributes: SortRuleAttributes,
+	root: InstanceRoot,
 ): ResolvedSortDirective {
 	switch (key.kind) {
 		case "independent-calculation":
@@ -179,7 +181,7 @@ function keyDirective(
 				...attributes,
 				kind: "property",
 				xpath: distanceSortXpath(
-					columnPropertyPath({ field: key.property, via: key.via }),
+					columnPropertyPath({ field: key.property, via: key.via }, root),
 				),
 			};
 		case "distance-calculated":
@@ -188,7 +190,7 @@ function keyDirective(
 			return {
 				...attributes,
 				kind: "property",
-				xpath: columnPropertyPath({ field: key.property, via: key.via }),
+				xpath: columnPropertyPath({ field: key.property, via: key.via }, root),
 			};
 		case "mapping-position": {
 			if (column.kind !== "id-mapping" && column.kind !== "image-map") {
@@ -199,7 +201,10 @@ function keyDirective(
 			return {
 				...attributes,
 				kind: "property",
-				xpath: idMappingSortXpath(columnPropertyPath(column), column.mapping),
+				xpath: idMappingSortXpath(
+					columnPropertyPath(column, root),
+					column.mapping,
+				),
 			};
 		}
 		case "option-label":
@@ -217,16 +222,24 @@ function keyDirective(
  * the plan gives a hidden field no key of its own (rule 3), and the key of a
  * rule that lands on it is the stored value.
  */
-export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
+export function planSortNodes(
+	plan: CaseListOrderPlan,
+	root: InstanceRoot = "casedb",
+): PlannedSortNodes {
 	const byUuid = new Map<Uuid, ResolvedSortDirective>();
 	for (const field of plan.fields) {
 		if (field.key === undefined) continue;
 		byUuid.set(
 			field.column.uuid,
-			keyDirective(field.key, field.column, {
-				type: field.comparator,
-				...ruleAttributes(field.rule),
-			}),
+			keyDirective(
+				field.key,
+				field.column,
+				{
+					type: field.comparator,
+					...ruleAttributes(field.rule),
+				},
+				root,
+			),
 		);
 	}
 	const carriers = plan.carriers.map((carrier) => ({
@@ -238,8 +251,8 @@ export function planSortNodes(plan: CaseListOrderPlan): PlannedSortNodes {
 			kind: "property" as const,
 			xpath:
 				carrier.key.kind === "distance-property"
-					? distanceSortXpath(columnPropertyPath(carrier))
-					: columnPropertyPath(carrier),
+					? distanceSortXpath(columnPropertyPath(carrier, root))
+					: columnPropertyPath(carrier, root),
 			type: carrier.comparator,
 			...ruleAttributes(carrier.rule),
 		},

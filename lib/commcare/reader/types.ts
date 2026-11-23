@@ -16,6 +16,7 @@ import type {
 	Uuid,
 	WireStringSource,
 } from "@/lib/domain";
+import type { CaseRelation } from "@/lib/domain/caseRelations";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import type { HqAlignedModule } from "../hq/appReading";
@@ -86,6 +87,8 @@ export interface ReaderKnownCaseTypes {
 	 *  typed step of the document through that identifier from `caseType` agrees on. Undefined
 	 *  where Nova holds none, or where those steps disagree. */
 	targetOf(caseType: string, identifier: string): KnownIndexTarget | undefined;
+	/** All known index targets on this type, including alternative destinations. */
+	relationsOf?(caseType: string): readonly CaseRelation[];
 	/** The `data_type` the document's catalog declares for `property` of `caseType`: the type
 	 *  every print of a read of it lowers by (a sort's comparator, `datetime-coerce`,
 	 *  `format-date`, a comparison of dates and times), which no print tells a reading.

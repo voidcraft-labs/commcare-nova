@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { editCaseRelation } from "@/lib/doc/caseRelationEdit";
+import { caseRelationSchema } from "@/lib/domain/caseRelations";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
@@ -10,6 +12,15 @@ import type { MutationSuccess } from "./shared/toolCallSummary";
 export const setCaseTypeParentInputSchema = z.strictObject({
 	caseType: z.string().min(1),
 	parentType: z.string().min(1).nullable(),
+	link: z
+		.strictObject({
+			name: caseRelationSchema.shape.identifier,
+			change: z.enum(["add", "remove"]),
+		})
+		.optional()
+		.describe(
+			"Use a named link to add or remove one destination, preserving the others. The same record type can link to several parent types.",
+		),
 	relationship: z
 		.enum(["child", "extension"])
 		.optional()
@@ -18,7 +29,7 @@ export const setCaseTypeParentInputSchema = z.strictObject({
 
 export const setCaseTypeParentTool = {
 	description:
-		"Set or clear a record type's parent relationship. Existing records keep their saved links. This does not change module navigation; parentCaseModuleUuid chooses a parent before showing a module's records.",
+		"Set or clear the default parent of a record type, or add or remove one named link to another record type. Existing records keep their saved links. This does not change module navigation; parentCaseModuleUuid chooses a parent before showing a module's records.",
 	inputSchema: setCaseTypeParentInputSchema,
 	async execute(
 		input: z.infer<typeof setCaseTypeParentInputSchema>,
@@ -46,6 +57,36 @@ export const setCaseTypeParentTool = {
 					mutations: [],
 					result: { error: "A cleared parent has no relationship kind." },
 				};
+			if (input.link !== undefined) {
+				if (input.parentType === null)
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							error: "Choose the destination record type for this link.",
+						},
+					};
+				const edge = {
+					identifier: input.link.name,
+					targetType: input.parentType,
+					relationship: input.relationship ?? "child",
+				} as const;
+				const mutations = editCaseRelation(current, input.link.change, edge);
+				if (mutations.length === 0)
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: { ok: true, summary: { noop: true } },
+					};
+				const change = await guardedMutate(ctx, mutations, "case-type:link");
+				return change.ok
+					? {
+							kind: "mutate",
+							mutations: change.mutations,
+							result: { ok: true, summary: { subject: input.caseType } },
+						}
+					: { kind: "mutate", mutations: [], result: { error: change.error } };
+			}
 			const parent_type = input.parentType;
 			const relationship =
 				parent_type === null ? null : (input.relationship ?? "child");

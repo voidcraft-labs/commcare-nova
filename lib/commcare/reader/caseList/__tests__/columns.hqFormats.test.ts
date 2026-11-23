@@ -181,9 +181,9 @@ describe("CommCare HQ's column formats", () => {
 		],
 		["a product column", { model: "product" }, `${M}model-product`],
 		[
-			"a relation path",
-			{ field: "parent/notes" },
-			`${M}idx-prop-in-a-menu-that-offers-search-or-through-an-index`,
+			"a related case ID read as a missing child element",
+			{ field: "parent/case_id" },
+			`${M}case-id-as-a-property-column-s-field`,
 		],
 		["the owner's name", { field: "#owner_name" }, `${M}owner-name`],
 		[
@@ -570,9 +570,9 @@ describe("every column's other keys", () => {
 	});
 
 	it("claims the plain format of a column refused for its field, so its one finding is the field's", async () => {
-		const reading = await readFormat({ field: "parent/name" }, ["long"]);
+		const reading = await readFormat({ field: "parent/case_id" }, ["long"]);
 		expect(closedCodes(reading)).toEqual([
-			`${M}idx-prop-in-a-menu-that-offers-search-or-through-an-index`,
+			`${M}case-id-as-a-property-column-s-field`,
 		]);
 	});
 

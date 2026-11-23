@@ -2,7 +2,10 @@ import type { ColumnVia } from "@/lib/domain/modules";
 import { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
 import { type SourceTable, tableOf } from "../sourceKeys";
 import { w } from "../xpath/wire/builders";
-import { buildAncestorJoinNodeset } from "../xpath/wire/rowScope";
+import {
+	buildAncestorJoinNodeset,
+	type InstanceRoot,
+} from "../xpath/wire/rowScope";
 import type { WireExpr, WirePath } from "../xpath/wire/tree";
 
 /** A case-row property, with standard metadata kept on its attribute axis. */
@@ -105,18 +108,21 @@ export function isHqDetailField(field: string): boolean {
  * property of the case the column's walk reaches, read as CommCare HQ's build
  * reads a `field` of indices and a property
  * (`detail_screen.py::PropertyXpathGenerator.xpath`): each index joined by
- * case id over `casedb` from `current()`, with no case-type test, since HQ's
+ * case id over the detail's worker roster from `current()`, with no case-type test, since HQ's
  * field carries no type, then the property.
  */
-export function columnPropertyPath(column: {
-	readonly field: string;
-	readonly via?: ColumnVia;
-}): WirePath {
+export function columnPropertyPath(
+	column: {
+		readonly field: string;
+		readonly via?: ColumnVia;
+	},
+	root: InstanceRoot = "casedb",
+): WirePath {
 	if (column.via === undefined) return casePropertyPath(column.field);
 	return w.append(
 		buildAncestorJoinNodeset(
 			column.via.map((step) => ({ identifier: step.identifier })),
-			"casedb",
+			root,
 		),
 		casePropertyPath(column.field).steps,
 	);

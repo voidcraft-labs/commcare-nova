@@ -117,6 +117,7 @@ import {
 	buildCalculatedSortField,
 	buildCarrierField,
 	buildColumnField,
+	instanceRootFor,
 	mergeFieldStrings,
 } from "./columns";
 import {
@@ -361,7 +362,10 @@ export function buildShortDetail(args: {
 		args.assets !== undefined,
 		args.lookupNaming,
 	);
-	const sortNodes = planSortNodes(plan);
+	const sortNodes = planSortNodes(
+		plan,
+		instanceRootFor({ target, caseSource: args.caseSource }),
+	);
 	const ctx: CaseListEmitContext = {
 		wire,
 		moduleIndex,
@@ -408,7 +412,7 @@ export function buildShortDetail(args: {
 		const emission = buildCarrierField(
 			carrier,
 			carrier.directive,
-			{ target, moduleIndex },
+			{ target, moduleIndex, caseSource: args.caseSource },
 			wire,
 		);
 		fields.push(emission.element);
