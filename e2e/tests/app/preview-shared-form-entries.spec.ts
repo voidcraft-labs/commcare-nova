@@ -40,7 +40,7 @@ test("a referral opens the shared questions and submits to the first chosen pers
 	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
-	await main.getByRole("button", { name: "People", exact: true }).click();
+	await main.getByRole("button", { name: /^People\b/ }).click();
 	await main
 		.getByRole("button", { name: "Follow a referral", exact: true })
 		.click();

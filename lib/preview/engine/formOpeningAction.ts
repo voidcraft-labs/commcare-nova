@@ -16,6 +16,7 @@ import {
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { uuidSchema } from "@/lib/domain/uuid";
 import { getLookupDefinitions } from "@/lib/lookup/service";
@@ -396,7 +397,7 @@ export async function readFormOpeningAction(
 		if (
 			!reached.nextSelection &&
 			caseForm &&
-			owner.caseSelections === undefined &&
+			entrySelectionSettings(owner) === undefined &&
 			!ownCaseId &&
 			bound.length === 0
 		)
@@ -407,10 +408,16 @@ export async function readFormOpeningAction(
 			carried: [...carried.values()],
 			...(Object.keys(parentChoices).length && { parentChoices }),
 			primaryCaseIds: ownCaseId ? [ownCaseId] : bound,
-			sessionData: reached.data,
-			datums: reached.datumsByRef ?? {},
-			resolvedEntries: reached.resolvedEntryValues ?? {},
+			// The session keeps its records without a prototype; a Server
+			// Action answers only with plain objects, so each is copied into one.
+			sessionData: { ...reached.data },
+			datums: { ...reached.datumsByRef },
+			resolvedEntries: { ...reached.resolvedEntryValues },
 			complete: !reached.nextSelection,
+		};
+		const next = reached.nextSelection && {
+			...reached.nextSelection,
+			chosenCaseIds: { ...reached.nextSelection.chosenCaseIds },
 		};
 		const evidence: SignedFormOpening = await signFormOpening(
 			secret,
@@ -422,7 +429,7 @@ export async function readFormOpeningAction(
 			kind: "opening",
 			evidence,
 			projection,
-			next: reached.nextSelection,
+			next,
 		} as const;
 	} catch (error) {
 		if (error instanceof AppAccessError)

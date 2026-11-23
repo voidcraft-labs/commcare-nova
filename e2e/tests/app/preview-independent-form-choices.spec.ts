@@ -10,7 +10,7 @@ test("returning to two choices from one list submits only the replacement pair",
 	const main = page.locator("main");
 	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
-	await main.getByRole("button", { name: "People", exact: true }).click();
+	await main.getByRole("button", { name: /^People\b/ }).click();
 	await main
 		.getByRole("button", { name: "Visit two people", exact: true })
 		.click();
@@ -77,7 +77,7 @@ test("a link installs both named choices from the same list", {
 	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
-	await main.getByRole("button", { name: "Notes", exact: true }).click();
+	await main.getByRole("button", { name: /^Notes\b/ }).click();
 	await main
 		.getByRole("button", { name: "Open the assigned pair", exact: true })
 		.click();
@@ -117,7 +117,7 @@ test("Back skips a single matching contact that opened without confirmation", {
 	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
-	await main.getByRole("button", { name: "People", exact: true }).click();
+	await main.getByRole("button", { name: /^People\b/ }).click();
 	await main
 		.getByRole("button", { name: "Visit with assigned contact", exact: true })
 		.click();
