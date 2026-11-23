@@ -5067,7 +5067,7 @@
 		"surfaceKeys": ["lookup-model:LookupTable.tag"],
 		"valueClass": "types",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no workbook can carry it (Nova refuses it, `lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`, and a reading raises this entry, `lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`), though HQ's table editor accepts the tag; the JSON resource carrier that would publish it is planned (`lib/deployment/lookupJsonPlan.ts`) but writes nothing yet",
+		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no workbook can carry it (Nova refuses it, `lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`, and a reading raises this entry, `lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`), though HQ's table editor accepts the tag; a direct publish carries a global table with no index under it through CommCare HQ's JSON resources (`lib/deployment/lookupJsonExecutor.ts`), held over a peer that answers as `fixtures/resources/v0_1.py` does (`lib/deployment/__tests__/lookupJsonExecutor.postgres.test.ts`), while the HQ app file, whose data is a workbook, still refuses it; held until a native witness shows HQ's own resources taking that publish",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {

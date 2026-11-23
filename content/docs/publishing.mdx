@@ -174,6 +174,24 @@ when its upload finishes.
 If Nova cannot reliably read the tables already on your project space, it
 stops before sending data. Check your CommCare HQ connection, then publish again.
 
+Most tables go in one workbook upload. A table a workbook can't carry exactly,
+such as one whose export tag is `types`, a value that starts or ends with a
+space, or a value list with an empty entry, goes through CommCare HQ's table
+and row resources instead, one change at a time. That way works for a table
+shared with every worker that has no indexed columns. Nova remembers which row
+on CommCare HQ is which of yours, so publishing again sends only the rows you
+added, changed, moved or removed, and nothing at all when the table is
+unchanged. Every app in your Project that reads the table shares that record.
+
+If a change's answer gets lost on the way back, Nova reads that row in CommCare
+HQ before it sends anything else to the table, and waits a few minutes where
+the change could still arrive. If a row someone else added or changed is there,
+or a new row appeared that Nova can't name, the publish stops and names the
+table so nothing is written over it. Changing a table's columns after it's
+there isn't something these resources can do safely, so Nova asks you to give
+the table a new export tag instead. The CommCare HQ app file can't carry these
+tables, since it uploads a workbook: publish from Nova to put them there.
+
 A publish stops before it sends anything when a lookup table with the same tag
 in CommCare HQ holds something Nova can't keep yet: field properties, row
 attributes or rows limited to certain users. Giving your table a new export tag

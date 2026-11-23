@@ -302,8 +302,14 @@ describe("a direct upload of a table CommCare HQ manages", () => {
 		for (const sentence of [managed.message, userFacingError(managed)])
 			expect(sentence).not.toContain("Project data");
 
-		const [plain] = await refused("hq-upload", [VISITS], {
+		/* A plain table goes through CommCare HQ's JSON resources on a direct
+		 * upload, which keep the space; the HQ app file's workbook cannot. */
+		const direct = await prepared("hq-upload", [VISITS], {
 			lookupTarget: HERE,
+			label: "South ",
+		});
+		expect(direct.jsonLookupTables?.map((t) => t.tag)).toEqual(["visits"]);
+		const [plain] = await refused("hq-json", [VISITS], {
 			label: "South ",
 		});
 		expect(plain.code).toBe("LOOKUP_CELL_TEXT_CHANGED_BY_HQ");

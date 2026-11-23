@@ -258,7 +258,10 @@ Nova prepares each table for the place your app will run.
   content goes, and replaces their rows with the rows in Nova every time you publish.
   If a table was edited in CommCare HQ since Nova last published it, the next
   publish stops and asks before it replaces the edit, so the values you keep
-  here stay the ones your app reads.
+  here stay the ones your app reads. A table a workbook can't carry exactly,
+  such as one tagged `types` or with a value that starts or ends with a space,
+  goes row by row instead and keeps every value as you typed it
+  ([Publishing](/docs/publishing) has the details).
   A table managed in CommCare HQ is different: Nova never writes it in the
   project space that manages it, and checks before each publish that it still
   holds what your app reads. When several of your Project's apps read one
@@ -275,7 +278,9 @@ Nova prepares each table for the place your app will run.
   an admin can use CommCare HQ’s current export of the selected table to prepare its
   tag, indexes, rows and worker assignments, then verify the intended workers’ rows.
   If you want a different design, create a table in Project data and connect the
-  app’s fields to it before downloading a new app file.
+  app’s fields to it before downloading a new app file. A table only a publish
+  from Nova can carry exactly, such as one tagged `types`, keeps an app from
+  coming as an app file; Nova names it, and you can publish from Nova instead.
 
 If a cell contains a character CommCare cannot preserve, Nova stops the export
 and names the table and column. You can remove the character or retype the

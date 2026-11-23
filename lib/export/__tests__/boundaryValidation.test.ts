@@ -778,35 +778,140 @@ describe("prepareExportBoundary", () => {
 	);
 
 	it.each(["types", "Types"] as const)(
-		"refuses an HQ export whose tag is %s, the name CommCare HQ keeps",
+		"carries a table tagged %s through CommCare HQ's JSON resources on a direct upload, and refuses it in the HQ app file",
 		async (tag) => {
-			/* Every upload carries a mandatory sheet named `types` listing the
+			/* Every workbook carries a mandatory sheet named `types` listing the
 			 * tables in it, so a table tagged the same has nowhere to put its
-			 * rows: Nova would throw appending the second sheet and CommCare
-			 * HQ would read the wrong one. Nothing in Nova's tag rules blocks
-			 * it, so the boundary is what keeps the emitter total. */
+			 * rows there: the HQ app file, whose data is a workbook, refuses it
+			 * so the emitter stays total. A direct upload sends a global table
+			 * with no index through the JSON resources instead, and leaves it
+			 * out of the workbook. */
 			vi.mocked(getLookupFixtureData).mockResolvedValue({
 				...carrierFixtureSnapshot(),
 				definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag }],
 			});
 
-			const result = await prepareExportBoundary({
+			const direct = await prepareExportBoundary({
 				mode: "hq-upload",
 				access: ACCESS,
 				doc: lookupCarrierDoc(),
 				compiledAtSeq: 15,
 				attachmentTarget: null,
 			});
+			if (!direct.ok) throw new Error("expected a prepared direct upload");
+			expect(
+				direct.prepared.jsonLookupTables?.map((table) => table.tag),
+			).toEqual([tag]);
+			expect(direct.prepared.lookupWorkbook).toBeUndefined();
 
-			expect(result.ok).toBe(false);
-			if (result.ok) throw new Error("expected a reserved-tag rejection");
-			const finding = result.violations.find(
+			const file = await prepareExportBoundary({
+				mode: "hq-json",
+				access: ACCESS,
+				doc: lookupCarrierDoc(),
+				compiledAtSeq: 15,
+				attachmentTarget: null,
+			});
+			expect(file.ok).toBe(false);
+			if (file.ok) throw new Error("expected a reserved-tag rejection");
+			const finding = file.violations.find(
 				(candidate) => candidate.code === "LOOKUP_TAG_RESERVED_BY_HQ",
 			);
 			expect(finding?.details).toMatchObject({ tag, reservedTag: "types" });
-			expect(resolveMediaManifest).not.toHaveBeenCalled();
 		},
 	);
+
+	it("keeps an indexed table tagged types out of every HQ carrier", async () => {
+		/* The JSON resources cannot carry an index, so neither carrier can
+		 * hold this table as Nova does. */
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...carrierFixtureSnapshot(),
+			definitions: [
+				{
+					...CARRIER_SNAPSHOT.definitions[0],
+					tag: "types",
+					columns: [
+						{ ...CARRIER_SNAPSHOT.definitions[0].columns[0], index: "indexed" },
+						CARRIER_SNAPSHOT.definitions[0].columns[1],
+					],
+				},
+			],
+		});
+		const result = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected a reserved-tag rejection");
+		expect(
+			result.violations.some(
+				(candidate) => candidate.code === "LOOKUP_TAG_RESERVED_BY_HQ",
+			),
+		).toBe(true);
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
+	});
+
+	it("sends a table with values the workbook would trim through the JSON resources, and keeps a table with a destination there", async () => {
+		const trimmed = carrierFixtureSnapshot();
+		const [first, second] = trimmed.rowsByTable.get(CARRIER_TABLE) ?? [];
+		if (!first || !second) throw new Error("expected two rows");
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...trimmed,
+			rowsByTable: new Map([
+				[
+					CARRIER_TABLE,
+					[
+						{
+							...first,
+							values: { ...first.values, [CARRIER_LABEL_COLUMN]: " Active " },
+						},
+						second,
+					],
+				],
+			]),
+		});
+		const trimmedUpload = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+		});
+		if (!trimmedUpload.ok) throw new Error("expected a prepared direct upload");
+		expect(
+			trimmedUpload.prepared.jsonLookupTables?.map((table) => table.tableId),
+		).toEqual([CARRIER_TABLE]);
+
+		/* An ordinary table goes in the workbook, unless Nova already put it
+		 * there through the JSON resources, whose ledger a workbook would
+		 * leave naming rows that are gone. */
+		vi.mocked(getLookupFixtureData).mockResolvedValue(carrierFixtureSnapshot());
+		const plain = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+		});
+		if (!plain.ok) throw new Error("expected a prepared direct upload");
+		expect(plain.prepared.jsonLookupTables).toBeUndefined();
+		expect(plain.prepared.lookupWorkbook).toBeDefined();
+		const kept = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+			jsonDestinationTableIds: new Set([CARRIER_TABLE]),
+		});
+		if (!kept.ok) throw new Error("expected a prepared direct upload");
+		expect(
+			kept.prepared.jsonLookupTables?.map((table) => table.tableId),
+		).toEqual([CARRIER_TABLE]);
+		expect(kept.prepared.lookupWorkbook).toBeUndefined();
+	});
 
 	it("still embeds a types-tagged table in a ccz, whose fixtures are addressed by element name", async () => {
 		vi.mocked(getLookupFixtureData).mockResolvedValue({
@@ -1174,7 +1279,7 @@ it.each(["ccz", "hq-json", "hq-upload"] as const)(
 );
 
 it.each(["ccz", "hq-json", "hq-upload"] as const)(
-	"%s preserves stored lookup padding or refuses the lossy HQ carrier before resolving bytes",
+	"%s preserves stored lookup padding, or refuses the lossy HQ carrier before resolving bytes where no other carries it",
 	async (mode) => {
 		const snapshot = carrierFixtureSnapshot();
 		const table = snapshot.definitions[0];
@@ -1219,7 +1324,15 @@ it.each(["ccz", "hq-json", "hq-upload"] as const)(
 			attachmentTarget: null,
 		});
 		expect(fixtureData).toEqual(before);
-		if (mode === "ccz") {
+		if (mode === "hq-upload") {
+			/* A direct upload sends the table through CommCare HQ's JSON
+			 * resources, which keep every value as stored. */
+			if (!result.ok) throw new Error(JSON.stringify(result.violations));
+			expect(
+				result.prepared.jsonLookupTables?.map((json) => json.tableId),
+			).toEqual([table.id]);
+			expect(result.prepared.lookupWorkbook).toBeUndefined();
+		} else if (mode === "ccz") {
 			if (!result.ok) throw new Error(JSON.stringify(result.violations));
 			const xml = result.prepared.lookupWire?.fixtures.fixtures[0].xml;
 			if (!xml) throw new Error("Missing prepared fixture");

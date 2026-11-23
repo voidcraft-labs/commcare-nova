@@ -1749,6 +1749,14 @@ authority take too, for a live app whose caller may edit it
   handed back to CommCare HQ from this project space refuses it with
   `managed_table_handed_back`, nothing sent; a hand-back of a table an open
   workbook carries waits, refused with `handBackWhilePublishing`.
+- Each JSON request for a table (`store.ts::admitLookupJsonWrite`, write kind
+  `lookup-json`) takes the same locks as a workbook for its one table,
+  rechecks the publisher's grant and the table's revisions
+  (`workbookAuthorityMatches`), and journals the operation in the same
+  transaction. CommCare HQ's lookup resources check no lookup permission
+  (`fixtures/resources/v0_1.py` overrides `obj_*` without calling the
+  resource's authorization), so this admission is the only check on each
+  request.
 
 An admission stays open while HQ may still be finishing a write. A lost
 reply, a deadline or a 5xx that an intermediary could have sent leaves a
@@ -2626,6 +2634,49 @@ Global transfer obtains a full authenticated restore and independent details for
 
 Promoting a verified generation reconciles the current HQ field, row-attribute and value-property definitions through the same identity and reference governance as inline refresh. An admin transferring a complete global generation rechecks its exact active generation, original source grant, ordered administrative digest and two complete native fixture observations. Transfer binds index flags from those fixtures, materializes stable editable rows and lexical value slots under the table lock, and rechecks the grant before changing custody. The previous generation retires in the same transaction.
 
+
+### Lookup tables through CommCare HQ's JSON resources
+
+A direct publish sends a table through `lookup_table/v1/` and
+`lookup_table_item/v2/` (`lib/commcare/hq/lookupJson.ts`) where the workbook
+cannot carry it exactly and the table is global with no index
+(`lib/export/boundaryFindings.ts::travelsAsJson`): the tag `types`, a value
+CommCare HQ's workbook reader would trim, an occurrence count or empty
+occurrence it would lose. A table that already has a JSON destination on the
+target keeps going that way. The HQ app file cannot carry such a table and
+says so (`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table
+held in a paged generation does not travel this way yet.
+
+The destination ledger (`lookupJsonLedger.ts`, tables
+`lookup_json_destinations`, `lookup_json_destination_rows`,
+`lookup_json_operations`) is keyed by Project, server, domain and Nova table
+UUID, shared by every app of the Project: the remote table id, the tag, the
+definition digest, each Nova row UUID's remote row id (unique per Project
+and project space), rank and content digest, and a revision every
+acknowledged write moves. The executor (`lookupJsonExecutor.ts`) reads the
+table list and every row's detail twice over, plans
+(`lookupJsonPlan.ts`), and sends one request at a time, each admitted over
+the revision it was planned against (a moved revision makes the plan again)
+and settled with its remote write and the ledger in one transaction
+(`store.ts::settleLookupJsonWrite`). At most one operation per destination
+is open (a unique index over `admitted`, `uncertain`, `review`), so a
+second publisher of the table, from any app of the Project, stops `busy`
+rather than sending over the first.
+
+An operation whose outcome is unknown is settled by reading what it named
+before anything else goes to that table: an update or delete by its row id,
+a table create by its tag (unique in a project space; the 201 names no
+id), a row create by any row the ledger does not know. The intended state
+advances the ledger; the state before, once the write's hold has passed
+(`LOOKUP_JSON_HOLD_MS`), lets it be sent again; anything else, and every
+row create that left a row Nova did not see acknowledged, stays open in
+`review` and stops each later publish of that table. No row is ever
+identified by its values or rank. A definition change of a table already
+there is never planned (a field PUT resets every index, which no read
+shows), nor is a table Nova put there through a workbook taken over. After
+the writes the whole table is read back and held to the ledger in Nova's
+order. Each table found there gets a `nova-created` mapping, recorded
+`partial` and retained by the resources phase's complete record.
 
 ### Lookup workbooks, media receipts and device downloads
 

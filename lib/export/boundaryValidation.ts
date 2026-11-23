@@ -19,7 +19,10 @@ import { requiresLookupProjection } from "@/lib/lookup/source";
 import "server-only";
 
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
-import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import type {
+	LookupTableWireNaming,
+	LookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import {
 	type ValidationError,
@@ -131,6 +134,12 @@ export interface PrepareExportBoundaryInput {
 	 * left out of the workbook, so Nova never writes it there.
 	 */
 	readonly lookupTarget?: LookupTarget;
+	/**
+	 * `hq-upload`'s tables that already have a JSON destination on
+	 * `lookupTarget`, which keep travelling through CommCare HQ's JSON
+	 * resources (`boundaryFindings.ts::ExportCarrierFindingsInput`).
+	 */
+	readonly jsonDestinationTableIds?: ReadonlySet<string>;
 }
 
 /**
@@ -196,6 +205,13 @@ export interface PreparedExportBoundary {
 	 * everywhere else.
 	 */
 	readonly managedLookupWorkbooks: readonly ManagedLookupWorkbook[];
+	/**
+	 * `hq-upload`'s tables that travel through CommCare HQ's JSON resources
+	 * rather than `lookupWorkbook`, their rows in `lookupSnapshot`
+	 * (`boundaryFindings.ts::ExportCarrierFindings.jsonLookupTables`). Absent
+	 * where none does.
+	 */
+	readonly jsonLookupTables?: readonly LookupTableWireNaming[];
 }
 
 export type PrepareExportBoundaryResult =
@@ -447,6 +463,7 @@ async function prepareWithRegistry(
 					describeLookupCarrierAlternative(
 						item.table.definition.name,
 						item.carrier,
+						input.mode === "hq-json" ? "file" : "direct",
 					),
 					{},
 					{
@@ -469,6 +486,9 @@ async function prepareWithRegistry(
 		restoreTableIds: new Set(restoreIds),
 		...(input.lookupTarget !== undefined && {
 			lookupTarget: input.lookupTarget,
+		}),
+		...(input.jsonDestinationTableIds !== undefined && {
+			jsonDestinationTableIds: input.jsonDestinationTableIds,
 		}),
 	});
 	const {
@@ -533,6 +553,9 @@ async function prepareWithRegistry(
 			...(lookupWorkbook !== undefined && { lookupWorkbook }),
 			managedLookupTables,
 			managedLookupWorkbooks,
+			...(carrier.jsonLookupTables.length > 0 && {
+				jsonLookupTables: carrier.jsonLookupTables,
+			}),
 		},
 	};
 }

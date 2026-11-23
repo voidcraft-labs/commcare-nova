@@ -38,11 +38,23 @@ export function alternativeLookupCarrier(
 	return { kind: "json", reason };
 }
 
+/**
+ * What a person reads about a table its carrier cannot take. A table the JSON
+ * resources can carry travels that way on a direct publish
+ * (`lib/deployment/lookupJsonExecutor.ts`), which the HQ app file cannot do:
+ * it holds no credentials and installs nothing itself, so for that file the
+ * sentence names the direct publish. A direct publish sends through the JSON
+ * resources only a table it holds whole in one snapshot, so a larger one is
+ * named as what Nova can't carry yet.
+ */
 export function describeLookupCarrierAlternative(
 	name: string,
 	alternative: LookupCarrierAlternative,
+	carriedBy: "file" | "direct",
 ) {
-	return alternative.kind === "json"
-		? `“${name}” needs an authenticated table installation. ${alternative.reason} You can review its destination and ownership in Project data.`
-		: `“${name}” needs a verified table in its destination project space. ${alternative.reason} You can connect that table in Project data.`;
+	if (alternative.kind === "source-reference")
+		return `“${name}” needs a verified table in its destination project space. ${alternative.reason} You can connect that table in Project data.`;
+	return carriedBy === "file"
+		? `“${name}” can't travel in the HQ app file. ${alternative.reason} A direct publish to CommCare HQ from Nova carries it exactly, so you can publish there instead.`
+		: `Nova can't carry “${name}” exactly to CommCare HQ yet: it is larger than Nova sends through CommCare HQ's table resources in one publish. ${alternative.reason} You can keep it smaller in Project data.`;
 }

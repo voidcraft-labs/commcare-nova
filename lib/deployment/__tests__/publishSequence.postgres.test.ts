@@ -34,7 +34,10 @@ import {
 	isSaveCounterPath,
 	withHqPeer,
 } from "@/__tests__/helpers/hqSaveCounter";
-import { readMultipartRequest } from "@/__tests__/helpers/httpPeer";
+import {
+	readHttpRequestBody,
+	readMultipartRequest,
+} from "@/__tests__/helpers/httpPeer";
 import {
 	type RetainedPublishRead,
 	replyRetained,
@@ -3588,6 +3591,288 @@ describe("the save counter a publish's reads are bound to", () => {
 			expect(leftBehindResources(view, new Map())).toEqual([
 				expect.objectContaining({ kind: "app", remoteId: shell }),
 			]);
+		});
+	});
+});
+
+// ── Tables that travel through CommCare HQ's JSON resources ─────────────
+
+/**
+ * CommCare HQ's lookup resources for the project space, kept as state and
+ * answered as `fixtures/resources/v0_1.py` and `v0_6.py` answer: the table
+ * list and detail with each field's properties, a create answered 201 with
+ * no body, a row create appended at the largest rank plus one and answered
+ * with the saved row, `FixtureResource`'s rows in rank order (one value per
+ * field as a string where every field holds one, else `field_list`), and
+ * each row's detail.
+ */
+function jsonLookupPeer(peer: MockAgent) {
+	type Row = {
+		id: string;
+		table: string;
+		sortKey: number;
+		fields: Record<
+			string,
+			{ field_value: string; properties: Record<string, string> }[]
+		>;
+		attributes: Record<string, string>;
+	};
+	const tables = new Map<string, Record<string, unknown>>();
+	const rows = new Map<string, Row>();
+	const writes: string[] = [];
+	let minted = 0;
+	const mint = () => (++minted).toString(16).padStart(32, "0");
+	const api = "/a/clinic/api/";
+	const ordered = (table: string) =>
+		[...rows.values()]
+			.filter((row) => row.table === table)
+			.sort((a, b) => a.sortKey - b.sortKey || (a.id < b.id ? -1 : 1));
+	peer
+		.get(HOST)
+		.intercept({
+			path: (path) =>
+				path.startsWith(`${api}lookup_table`) ||
+				path.startsWith(`${api}fixture/v1/`),
+			method: /^(GET|POST|PUT|DELETE)$/,
+		})
+		.reply(async (opts) => {
+			const url = new URL(opts.path, HOST);
+			const path = url.pathname;
+			const sent = await readHttpRequestBody(opts);
+			const body = sent.length === 0 ? undefined : JSON.parse(sent.toString());
+			if (opts.method !== "GET") writes.push(`${opts.method} ${path}`);
+			if (path === `${api}lookup_table/v1/` && opts.method === "GET")
+				return {
+					statusCode: 200,
+					data: { objects: [...tables.values()], meta: { next: null } },
+				};
+			if (path === `${api}lookup_table/v1/` && opts.method === "POST") {
+				if ([...tables.values()].some((t) => t.tag === body.tag))
+					return { statusCode: 400, data: "" };
+				const id = mint();
+				tables.set(id, { id, ...body });
+				return { statusCode: 201, data: "" };
+			}
+			const tableDetail = path.match(/lookup_table\/v1\/([a-f0-9]{32})\/$/);
+			if (tableDetail && opts.method === "GET") {
+				const table = tables.get(tableDetail[1] ?? "");
+				return table
+					? { statusCode: 200, data: table }
+					: { statusCode: 404, data: "" };
+			}
+			if (path === `${api}lookup_table_item/v2/` && opts.method === "POST") {
+				const ranks = ordered(body.data_type_id).map((row) => row.sortKey);
+				const row: Row = {
+					id: mint(),
+					table: body.data_type_id,
+					sortKey: ranks.length === 0 ? 0 : Math.max(...ranks) + 1,
+					fields: Object.fromEntries(
+						Object.entries(
+							body.fields as Record<
+								string,
+								{ field_list: Row["fields"][string] }
+							>,
+						).map(([name, value]) => [name, value.field_list]),
+					),
+					attributes: body.item_attributes,
+				};
+				rows.set(row.id, row);
+				return {
+					statusCode: 201,
+					data: {
+						id: row.id,
+						data_type_id: row.table,
+						sort_key: row.sortKey,
+						fields: body.fields,
+						item_attributes: row.attributes,
+					},
+				};
+			}
+			const rowDetail = path.match(
+				/lookup_table_item\/v[12]\/([a-f0-9]{32})\/$/,
+			);
+			if (rowDetail && opts.method === "GET") {
+				const row = rows.get(rowDetail[1] ?? "");
+				if (!row) return { statusCode: 404, data: "" };
+				return {
+					statusCode: 200,
+					data: {
+						id: row.id,
+						data_type_id: row.table,
+						sort_key: row.sortKey,
+						item_attributes: row.attributes,
+						fields: Object.fromEntries(
+							Object.entries(row.fields).map(([name, list]) => [
+								name,
+								{ field_list: list },
+							]),
+						),
+					},
+				};
+			}
+			if (path === `${api}fixture/v1/` && opts.method === "GET") {
+				const table = tables.get(url.searchParams.get("fixture_type_id") ?? "");
+				const held = table ? ordered(table.id as string) : [];
+				return {
+					statusCode: 200,
+					data: {
+						meta: { next: null, total_count: held.length },
+						objects: held.map((row) => {
+							const scalar = Object.values(row.fields).every(
+								(list) => list.length === 1,
+							);
+							return {
+								id: row.id,
+								fixture_type: table?.tag,
+								fields: Object.fromEntries(
+									Object.entries(row.fields).map(([name, list]) => [
+										name,
+										scalar ? list[0]?.field_value : { field_list: list },
+									]),
+								),
+							};
+						}),
+					},
+				};
+			}
+			return { statusCode: 404, data: "" };
+		})
+		.persist();
+	return { tables, rows, writes };
+}
+
+async function typesDocument(): Promise<BlueprintDoc> {
+	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const table = await createLookupTable(scope, {
+		name: "Kinds",
+		tag: "types",
+		columns: [
+			{ wireName: "code", label: "Code", dataType: "text" },
+			{ wireName: "name", label: "Name", dataType: "text" },
+		],
+	});
+	const [code, name] = table.columns;
+	await replaceLookupRows(scope, {
+		tableId: table.id,
+		expectedTableRevision: table.tableRevision,
+		rows: [
+			{ [code.id]: "001", [name.id]: " Clinic " },
+			{ [code.id]: "002", [name.id]: "Hospital" },
+		],
+	});
+	return buildDoc({
+		appName: "Facility kinds",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							{
+								id: "kind",
+								kind: "single_select",
+								optionsSource: {
+									kind: "lookup",
+									tableId: table.id,
+									valueColumnId: code.id,
+									labelColumnId: name.id,
+								},
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+describe("a table only CommCare HQ's JSON resources can carry", () => {
+	it("puts a table tagged types there row by row with its exact values, records it as Nova's, and writes nothing to it on the next publish", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const first = await publish(doc);
+			expect(first.landed ? null : first.refusal).toBeNull();
+			/* No workbook: the table, then each row, through the JSON resources. */
+			expect(requests(peer).some((line) => line.includes("fixapi"))).toBe(
+				false,
+			);
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+			]);
+			const [table] = hq.tables.values();
+			expect(table).toMatchObject({ tag: "types", is_global: true });
+			expect(
+				[...hq.rows.values()].map((row) => row.fields.name?.[0]?.field_value),
+			).toEqual([" Clinic ", "Hospital"]);
+
+			const view = (await state()) ?? fail();
+			expect(
+				view.active.filter((resource) => resource.kind === "lookup-table"),
+			).toEqual([
+				expect.objectContaining({
+					remoteId: table?.id,
+					ownership: "nova-created",
+					pushedIdentity: "types",
+				}),
+			]);
+			/* Every JSON request was admitted as the publisher's write, and settled. */
+			const jsonWrites = await h
+				.db()
+				.selectFrom("hq_remote_writes")
+				.select(["write_kind", "actor_user_id", "settled_at"])
+				.where("write_kind", "=", "lookup-json")
+				.execute();
+			expect(jsonWrites).toHaveLength(3);
+			for (const write of jsonWrites) {
+				expect(write.actor_user_id).toBe(ACTOR);
+				expect(write.settled_at).not.toBeNull();
+			}
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-after-create-then-update");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const second = await publish(doc);
+			expect(second.landed).toBe(true);
+			expect(hq.writes).toEqual([]);
+			expect(
+				((await state()) ?? fail()).active.filter(
+					(resource) => resource.kind === "lookup-table",
+				),
+			).toHaveLength(1);
+		});
+	});
+
+	it("stops before the app's content where CommCare HQ holds a table under the tag that Nova didn't make", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			hq.tables.set("f".repeat(32), {
+				id: "f".repeat(32),
+				tag: "types",
+				is_global: true,
+				fields: [{ field_name: "code", properties: [] }],
+				item_attributes: [],
+			});
+			const outcome = await publish(doc);
+			expect(refusal(outcome)).toMatchObject({
+				failure: { code: "hq_resource_conflict" },
+			});
+			expect(hq.writes).toEqual([]);
+			expect(requests(peer).some((line) => line.startsWith("POST"))).toBe(
+				false,
+			);
 		});
 	});
 });
