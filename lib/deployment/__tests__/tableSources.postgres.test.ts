@@ -36,6 +36,8 @@ import {
 	REFRESH_NEEDS_EDITOR,
 	SEPARATE_TABLE_ASSIGNED,
 	SEPARATE_TABLE_INDEXES,
+	SEPARATE_TABLE_NO_ROOM,
+	SEPARATE_TABLE_ROWS_UNAVAILABLE,
 	takeHqTableBody,
 	USE_HQ_TABLE_NO_SOURCE,
 	USE_HQ_TABLE_OFFERED,
@@ -758,6 +760,54 @@ describe("Create a separate table", () => {
 				],
 			},
 		});
+	});
+
+	it("refuses a copy whose current rows Nova doesn't hold by sending the person to refresh it, not as rows for certain workers", async () => {
+		await members();
+		const copy = await makeManagedCopy(h, EDITOR_LOOKUP, facilities, {
+			server: "india",
+			domain: "north",
+		});
+		await seedReader(readerOf([copy]), APP);
+		/* Every worker receives the table, but the copy's inventory is not
+		 * current, as a source read without its rows leaves it. */
+		await sql`UPDATE lookup_tables SET hq_canonical = jsonb_set(hq_canonical, '{source,inventory}', '"unavailable"') WHERE id = ${copy.tableId}`.execute(
+			h.db(),
+		);
+		expect(await reviewSeparateTable(EDITOR_LOOKUP, copy.tableId)).toEqual({
+			ok: false,
+			reason: "unsupported",
+			message: SEPARATE_TABLE_ROWS_UNAVAILABLE,
+		});
+	});
+
+	it("says the Project has no room for the copy, writing nothing, where its lookup storage would run out", async () => {
+		const { copy } = await shared();
+		const review = await reviewSeparateTable(EDITOR_LOOKUP, copy.tableId);
+		if (!review.ok) throw new Error(review.message);
+		const full =
+			await sql`UPDATE lookup_storage_budgets SET capacity_bytes = used_bytes WHERE project_id = ${PROJECT}`.execute(
+				h.db(),
+			);
+		expect(full.numAffectedRows).toBe(1n);
+		expect(
+			await separateLookupTable(EDITOR_LOOKUP, copy.tableId, {
+				name: "Clinic facilities",
+				tag: "clinic_facilities",
+				appIds: [APP],
+				reviewDigest: review.review.reviewDigest,
+			}),
+		).toEqual({
+			ok: false,
+			reason: "unsupported",
+			message: SEPARATE_TABLE_NO_ROOM,
+		});
+		const tables = await h
+			.db()
+			.selectFrom("lookup_tables")
+			.select("tag")
+			.execute();
+		expect(tables.map((table) => table.tag)).toEqual(["facilities"]);
 	});
 
 	it("refuses a table whose rows go to certain workers", async () => {

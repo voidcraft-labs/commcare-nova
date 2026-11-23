@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain/lookupIds";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { LookupError } from "@/lib/lookup/errors";
+import { lookupStorageRefusal } from "@/lib/lookup/generations/budget";
 import { readLookupTableReviewSnapshot } from "@/lib/lookup/managed";
 import { readTableMembers } from "@/lib/lookup/members";
 import { getLookupManifest, getLookupTable } from "@/lib/lookup/service";
@@ -41,7 +42,9 @@ import {
 	SEPARATE_TABLE_INDEXES,
 	SEPARATE_TABLE_NO_APPS,
 	SEPARATE_TABLE_NO_READERS,
+	SEPARATE_TABLE_NO_ROOM,
 	SEPARATE_TABLE_OWNED,
+	SEPARATE_TABLE_ROWS_UNAVAILABLE,
 	SEPARATE_TABLE_TOO_LARGE,
 	separateTableAppChanged,
 	separateTableBody,
@@ -192,6 +195,19 @@ async function copyableTable(
 ): Promise<
 	{ readonly ok: true; readonly table: LookupTableSnapshot } | Refused
 > {
+	/* A table CommCare HQ manages says, by its source, why no copy of its rows
+	 * is at hand: each answer names the next step that reaches one. */
+	const source = (await getLookupManifest(scope)).tables.find(
+		(entry) => entry.id === tableId,
+	)?.hq;
+	if (source?.managedBy === "commcare-hq" && source.source !== undefined) {
+		if (source.source.distribution === "assigned")
+			return refused("unsupported", SEPARATE_TABLE_ASSIGNED);
+		if (source.source.storage === "generation")
+			return refused("unsupported", SEPARATE_TABLE_TOO_LARGE);
+		if (source.source.inventory !== "complete")
+			return refused("unsupported", SEPARATE_TABLE_ROWS_UNAVAILABLE);
+	}
 	let table: LookupTableSnapshot;
 	try {
 		table = await getLookupTable(scope, tableId);
@@ -201,8 +217,8 @@ async function copyableTable(
 			return refused("not-found", LOOKUP_TABLE_NOT_FOUND);
 		if (error.code === "storage_limit")
 			return refused("unsupported", SEPARATE_TABLE_TOO_LARGE);
-		/* A source whose rows Nova holds only per worker, or whose inventory
-		 * is not current, has no rows one copy could take. */
+		/* A source whose rows Nova holds only per worker has no rows one copy
+		 * could take; the other sources were answered above. */
 		if (error.code === "managed_in_hq")
 			return refused("unsupported", SEPARATE_TABLE_ASSIGNED);
 		throw error;
@@ -498,6 +514,10 @@ export async function separateLookupTable(
 			return refused("not-found", LOOKUP_TABLE_NOT_FOUND);
 		return { ok: true, table: entry, appIds };
 	} catch (error) {
+		/* The Project's lookup storage would run past what it holds once the
+		 * copy's rows land: Postgres's own ledger refuses the insert. */
+		if (lookupStorageRefusal(error) !== null)
+			return refused("unsupported", SEPARATE_TABLE_NO_ROOM);
 		if (error instanceof AppMovedError)
 			return refused("app-changed", separateTableAppChanged(error.appName));
 		if (error instanceof LookupAuthorityError)
