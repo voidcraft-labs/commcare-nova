@@ -372,8 +372,18 @@ test("Create a separate table points the chosen app at a new Nova table and leav
 		.getByRole("checkbox", { name: seed.appName, exact: true })
 		.click();
 	await expect(confirm).toBeEnabled();
+	/* The app this builder holds is one the change rebinds, so the builder
+	 * reloads it once the change lands; the page is left only after that. */
+	const appId = new URL(page.url()).pathname.split("/")[2];
+	const reloaded = page.waitForResponse(
+		(response) =>
+			new URL(response.url()).pathname === `/api/apps/${appId}` &&
+			response.request().method() === "GET",
+		{ timeout: 20_000 },
+	);
 	await confirm.click();
 	await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+	expect((await reloaded).ok()).toBe(true);
 
 	await openBuilder(page, routes.tables);
 	await expect(
