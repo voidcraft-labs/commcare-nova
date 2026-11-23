@@ -74,6 +74,7 @@ import {
 	sameCaseListActionTarget,
 } from "@/lib/domain/caseListActionTargets";
 import { checkExpression, slotContext } from "@/lib/domain/expression";
+import { advancedFormLoads } from "../../../advancedSelections";
 import { emittedModuleKind } from "../../../moduleKind";
 import { type ValidationError, validationError } from "../../errors";
 import {
@@ -507,16 +508,99 @@ function alwaysFindings(
 		);
 	}
 
-	if (emittedModuleKind(doc, hostUuid) === "advanced") {
+	const broken =
+		emittedModuleKind(doc, hostUuid) === "advanced"
+			? advancedCaseListHostBreak(doc, hostUuid)
+			: undefined;
+	if (broken !== undefined) {
+		const offending = doc.forms[broken.formUuid]?.name ?? "";
 		errors.push(
 			validationError(
 				"CASE_LIST_REGISTRATION_ADVANCED_MENU",
 				"module",
-				`"${host.name}" is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering "${form.name}" there.`,
+				advancedHostMessage(host.name, form.name, offending, broken.rule),
 				loc,
-				{ ...details, reason: "host" },
+				{
+					...details,
+					reason: broken.rule,
+					offendingFormUuid: broken.formUuid,
+					offendingFormName: offending,
+				},
 			),
 		);
 	}
 	return errors;
+}
+
+/** Which of CommCare HQ's case-list-module rules a form of an advanced host
+ *  breaks, in the order `AdvancedModuleValidator.validate_with_raise` checks
+ *  them. */
+export type AdvancedCaseListHostRule =
+	| "same-records"
+	| "requires-case"
+	| "parent-chain"
+	| "host-type"
+	| "same-tag"
+	| "host-details";
+
+/**
+ * The first form of an advanced host whose loads break one of the six rules
+ * CommCare HQ's build holds a case-list module to
+ * (`helpers/validators.py::AdvancedModuleValidator.validate_with_raise`, read
+ * where the module's `case_list_form.form_id` is set): over each form's loads
+ * that select no case on their own, every form loads the same case types,
+ * loads at least one, each load after the first is indexed to the one before
+ * it, the last is the host's case type, every form keeps the last under one
+ * case tag, and the last chooses from the host's own list. The loads are the
+ * ones the export writes (`advancedSelections.ts::advancedFormLoads`), so a
+ * form moved into the host or a tag a publish keeps is checked as HQ will
+ * check it. Undefined where every form holds them.
+ */
+export function advancedCaseListHostBreak(
+	doc: BlueprintDoc,
+	hostUuid: Uuid,
+):
+	| { readonly formUuid: Uuid; readonly rule: AdvancedCaseListHostRule }
+	| undefined {
+	const caseType = doc.modules[hostUuid]?.caseType;
+	let loadedTypes: string | undefined;
+	let tag: string | undefined;
+	for (const formUuid of doc.formOrder[hostUuid] ?? []) {
+		const loads = advancedFormLoads(doc, formUuid).filter(
+			(load) => !load.worker,
+		);
+		const types = JSON.stringify(
+			[...new Set(loads.map((load) => load.caseType))].sort(),
+		);
+		const breaks = (rule: AdvancedCaseListHostRule) => ({ formUuid, rule });
+		if (loadedTypes === undefined) loadedTypes = types;
+		else if (loadedTypes !== types) return breaks("same-records");
+		const last = loads.at(-1);
+		if (last === undefined) return breaks("requires-case");
+		for (let index = 1; index < loads.length; index++)
+			if (loads[index].index?.tag !== loads[index - 1].tag)
+				return breaks("parent-chain");
+		if (last.caseType !== caseType) return breaks("host-type");
+		tag ??= last.tag;
+		if (last.tag !== tag) return breaks("same-tag");
+		if (last.listModule !== hostUuid) return breaks("host-details");
+	}
+	return undefined;
+}
+
+function advancedHostMessage(
+	hostName: string,
+	formName: string,
+	offending: string,
+	rule: AdvancedCaseListHostRule,
+): string {
+	const why: Record<AdvancedCaseListHostRule, string> = {
+		"same-records": `"${offending}" chooses different records than the menu's other forms`,
+		"requires-case": `"${offending}" opens without choosing a record`,
+		"parent-chain": `"${offending}" chooses a record that is not the parent of the next one it chooses`,
+		"host-type": `"${offending}" ends by choosing a record of another type than "${hostName}" lists`,
+		"same-tag": `CommCare HQ keeps the record "${offending}" chooses under another name than the menu's other forms use`,
+		"host-details": `"${offending}" chooses its record from another menu's list`,
+	};
+	return `"${hostName}" offers "${formName}" on its case list, but ${why[rule]}. CommCare HQ keeps "${hostName}" as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move "${offending}" to another menu, or stop offering "${formName}" there.`;
 }

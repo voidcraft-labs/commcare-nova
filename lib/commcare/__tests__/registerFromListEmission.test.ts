@@ -467,6 +467,80 @@ describe("a case list that always offers another menu's registration form", () =
 	});
 });
 
+describe("an advanced menu's list offering another advanced menu's registration form", () => {
+	/** HQ's `test_case_list_registration_form_advanced`
+	 *  (`tests/data/case_list_form/case-list-form-advanced.xml`): both menus
+	 *  advanced, the follow-up menu's list offering the other's registration. */
+	function advancedDoc(afterSubmit: AlwaysOfferedRegistration["afterSubmit"]) {
+		const basic = registerFromListDoc({ afterSubmit });
+		const doc: BlueprintDoc = {
+			...basic,
+			modules: Object.fromEntries(
+				Object.entries(basic.modules).map(([uuid, mod]) => [
+					uuid,
+					{ ...mod, heldKind: "advanced" as const },
+				]),
+			),
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		return doc;
+	}
+
+	/** The datum the host's form asks its case under: HQ's `case_id_<tag>`. */
+	function hostLoadDatum(suiteDoc: ReturnType<typeof parseXml>): string {
+		const session = childElements(entry(suiteDoc, "m0-f0"), "session")[0];
+		const [datum] = childElements(session as Element, "datum");
+		const id = datum?.attribs.id;
+		if (id === undefined) throw new Error("The host's form asks no case.");
+		return id;
+	}
+
+	it("writes HQ's case_list_form on the advanced host", () => {
+		const { hq } = compiled(advancedDoc("new-case"));
+		const [host, registration] = hq.modules;
+		expect(host?.doc_type).toBe("AdvancedModule");
+		expect(host?.case_list_form).toMatchObject({
+			form_id: registration?.forms[0]?.unique_id,
+			post_form_workflow: "default",
+		});
+	});
+
+	it("pushes the advanced registration's own command and new case id, as HQ's fixture does", () => {
+		const { suiteDoc } = compiled(advancedDoc("new-case"));
+		const actions = childElements(detail(suiteDoc, "m0_case_short"), "action");
+		expect(actions).toHaveLength(1);
+		expect(registerAction(actions[0] as Element).push).toEqual([
+			{ name: "command", value: "'m1-f0'" },
+			{ name: "datum", id: "case_id_new_patient_0", value: "uuid()" },
+			{ name: "datum", id: "return_to", value: "'m0'" },
+		]);
+	});
+
+	it("returns into the host's load with the new case, or to its command without one", () => {
+		const { suiteDoc } = compiled(advancedDoc("new-case"));
+		expect(frames(entry(suiteDoc, "m1-f0"))).toEqual([
+			{
+				if: `${RETURN_TO} and ${NEW_CASE_ROW} > 0`,
+				children: [
+					{ name: "command", value: "'m0'" },
+					{ name: "datum", id: hostLoadDatum(suiteDoc), value: NEW_CASE },
+				],
+			},
+			{
+				if: `${RETURN_TO} and ${NEW_CASE_ROW} = 0`,
+				children: [{ name: "command", value: "'m0'" }],
+			},
+		]);
+	});
+
+	it("writes one `case_list` frame back to the host's list", () => {
+		const { suiteDoc } = compiled(advancedDoc("case-list"));
+		expect(frames(entry(suiteDoc, "m1-f0"))).toEqual([
+			{ if: RETURN_TO, children: [{ name: "command", value: "'m0'" }] },
+		]);
+	});
+});
+
 describe("a submenu's list under a menu that chooses a case first", () => {
 	const RETURN_TO_PEOPLE =
 		"count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm1'";

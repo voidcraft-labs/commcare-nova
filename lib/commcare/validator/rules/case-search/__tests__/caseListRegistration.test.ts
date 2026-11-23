@@ -1042,26 +1042,63 @@ describe("caseListRegistrationApp: the always arm", () => {
 		expect(registrationFindings(several("case-list"))).toEqual([]);
 	});
 
-	it("holds the advanced host restriction while admitting a registration in an advanced menu", () => {
+	it("offers a registration from an advanced menu's list whose forms choose one record the same way", () => {
 		const host = alwaysDoc({
+			clinic: { forms: [checkup(), checkup(SECOND, "Second visit")] },
 			configure: (draft) => {
 				draft.modules[CLINIC].heldKind = "advanced";
 			},
 		});
-		expect(registrationFindings(host)).toEqual([
-			{
-				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
-				moduleUuid: CLINIC,
-				reason: "host",
-				message: `"Clinic" is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering "Register patient" there.`,
-			},
-		]);
+		expect(registrationFindings(host)).toEqual([]);
 		const form = alwaysDoc({
 			configure: (draft) => {
 				draft.modules[INTAKE].heldKind = "advanced";
 			},
 		});
 		expect(registrationFindings(form)).toEqual([]);
+	});
+
+	it("refuses an advanced menu's list action where a form keeps its record under another tag, naming that form", () => {
+		// HQ's AdvancedModuleValidator: 'all forms in case list module must
+		// have same case management'. A publish keeps each form's own tag.
+		const host = alwaysDoc({
+			clinic: {
+				forms: [
+					checkup(),
+					{
+						...checkup(SECOND, "Second visit"),
+						fields: [
+							f({
+								kind: "text",
+								id: "name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+			configure: (draft) => {
+				draft.modules[CLINIC].heldKind = "advanced";
+			},
+		});
+		const second = host.forms[SECOND];
+		second.caseOperations = (second.caseOperations ?? []).map((operation) =>
+			operation.action === "own"
+				? {
+						...operation,
+						placement: { kind: "advanced", tag: "load_patient_kept" },
+					}
+				: operation,
+		);
+		expect(registrationFindings(host)).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
+				moduleUuid: CLINIC,
+				reason: "same-tag",
+				message: `"Clinic" offers "Register patient" on its case list, but CommCare HQ keeps the record "Second visit" chooses under another name than the menu's other forms use. CommCare HQ keeps "Clinic" as an advanced menu, and offers a form from such a menu's case list only where every form of the menu chooses the same records the same way. You can move "Second visit" to another menu, or stop offering "Register patient" there.`,
+			},
+		]);
 	});
 
 	it("is reported by a run scoped to the form's menu, as by the full run", () => {

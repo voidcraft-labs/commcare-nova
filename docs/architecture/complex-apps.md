@@ -1783,8 +1783,25 @@ returns to Home (`menuForms.ts::caseListRegistrationReturnOf`).
 (`CASE_LIST_REGISTRATION_FORM_NOT_FOUND`); a form that is no registration form of the host's
 type, or holds more than one registration of it (`CASE_LIST_REGISTRATION_NOT_REGISTRATION`);
 a host that shows its forms above (`CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE`); a host
-some form of which needs no case (`CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST`); and a host
-or a named form in an advanced menu (`CASE_LIST_REGISTRATION_ADVANCED_MENU`).
+some form of which needs no case (`CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST`); and an
+advanced host one of whose forms breaks a case-list-module rule
+(`CASE_LIST_REGISTRATION_ADVANCED_MENU`, naming that form).
+
+**Advanced menus.** A named form in an advanced menu is offered like any other: its one open of
+the host's type outside a repeat is the action's case, and the return frame reads that open's
+`case_session_var` (`workflow.py::CaseListFormWorkflow._get_source_session_var`). An advanced host
+offers only a registration, since an `AdvancedModule` has no parent selection to follow up on
+(`views/modules.py::_case_list_form_options`). CommCare HQ's build holds such a host to six rules
+over each form's loads that select no case on their own
+(`helpers/validators.py::AdvancedModuleValidator.validate_with_raise`): every form loads the same
+case types, loads at least one, each load after the first is indexed to the one before it, the
+last is the host's type, every form keeps the last under one case tag, and the last chooses from
+the host's own list. `caseListRegistration.ts::advancedCaseListHostBreak` checks them over the
+loads Nova's export writes (`advancedSelections.ts::advancedFormLoads`), so a form moved into the
+host, or a tag a publish keeps, is refused with that form named. The Register action and both
+return frames are HQ's for the shape (`tests/data/case_list_form/case-list-form-advanced.xml`):
+the action pushes the form's command and its new case's `uuid()` datum, and the `default` frame
+puts the new case into the host's load datum (`case_id_<tag>`).
 
 **A label with no text.** Where a block made in CommCare HQ holds a label that yields no text
 in a language, HQ's build writes "Create a new Case" there

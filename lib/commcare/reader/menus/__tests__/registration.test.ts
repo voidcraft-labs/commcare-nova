@@ -622,6 +622,30 @@ describe("the rows a block meets after its own registration", () => {
 		});
 	});
 
+	it.each(["Patients", "Registration"] as const)(
+		"reads back a list action where %s is an advanced menu, as Nova publishes it",
+		async (name) => {
+			const basic = always();
+			const doc = produce(basic, (draft) => {
+				const menu = Object.values(draft.modules).find(
+					(one) => one.name === name,
+				);
+				if (menu !== undefined) menu.heldKind = "advanced";
+			});
+			const reading = await readMenusOf(doc);
+			expect(codesOf(reading)).toEqual([]);
+			const saved = reading.doc as BlueprintDoc;
+			expect(moduleNamed(saved, name).heldKind).toBe("advanced");
+			expect(
+				moduleNamed(saved, "Patients").caseListRegistrationForm,
+			).toMatchObject({
+				kind: "always",
+				formUuid: formNamed(saved, "Register").uuid,
+				afterSubmit: "case-list",
+			});
+		},
+	);
+
 	it("opens the advanced target form from its basic host", async () => {
 		const ctx = await stagesOver(
 			always(),

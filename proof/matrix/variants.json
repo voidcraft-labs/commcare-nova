@@ -12065,12 +12065,6 @@
 		"id": "hq-case-lists/registration-on-an-advanced-list",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Follow-ups"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/1",
@@ -12452,7 +12446,19 @@
 				"use_default_audio_for_all": false,
 				"comment": ""
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/heldKind",
+				"value": "advanced"
+			},
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListRegistrationForm/kind",
+				"value": "always"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/registration-returning-with-a-new-case-to-a-multi-select-list",

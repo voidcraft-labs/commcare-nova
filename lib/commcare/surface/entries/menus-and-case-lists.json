@@ -9227,10 +9227,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "advanced-host-or-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a host or a named form in an advanced menu: HQ's six rules bind every form of the host to one case tag and one detail module, and an advanced form registers through `case_session_var`, a second return-frame source (`AdvancedModuleValidator`); Nova's `always` arm needs both menus basic (`CASE_LIST_REGISTRATION_ADVANCED_MENU`)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a host or a named form in an advanced menu. The named form's one registration of the list's type is the action's case, and its return frame reads that action's `case_session_var`. An advanced host's forms keep HQ's six case-list-module rules (`AdvancedModuleValidator.validate_with_raise`) over the loads Nova's export writes: the same records, a parent chain, the host's type, one case tag and the host's own list; a form that breaks one is named (`CASE_LIST_REGISTRATION_ADVANCED_MENU`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
