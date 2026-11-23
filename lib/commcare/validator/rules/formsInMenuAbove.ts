@@ -350,7 +350,7 @@ export function entryPointSharesFirstMenuCase(
 		return undefined;
 	let frame: readonly FrameChild[];
 	try {
-		frame = projectEntryPoint(doc, target, projection.ctx).frame;
+		frame = projectEntryPoint(doc, target, projection.ctx).homeFrame;
 	} catch {
 		// The destination's own placed finding names an unbuildable entry.
 		return undefined;

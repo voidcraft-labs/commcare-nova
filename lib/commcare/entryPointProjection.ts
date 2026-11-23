@@ -12,12 +12,14 @@ import {
 	entryDatumIds,
 	entryFrameDatums,
 	type FormLinkProjectionContext,
+	type FrameBuilder,
 	type FrameChild,
 	formFrameChildren,
 	formLinkProjectionContext,
 	moduleFrameChildren,
 } from "./formLinkProjection";
 import { homeSelectionConsumers } from "./previousTaskProjection";
+import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { rethrowWorkStop } from "./workMeter";
 
 export interface EntryPointRequiredSelection {
@@ -44,7 +46,13 @@ export function availableEntryCaseCreations(
 	doc: BlueprintDoc,
 	target: Extract<EntryPointTarget, { kind: "form" }>,
 	ctx: FormLinkProjectionContext,
-	frame = formFrameChildren(doc, ctx, target.moduleUuid, target.formUuid),
+	frame = formFrameChildren(
+		doc,
+		ctx,
+		target.moduleUuid,
+		target.formUuid,
+		"endpoint",
+	),
 ): readonly EntryPointCaseCreationArgument[] {
 	const identities = new Map(
 		entryDatumIds(doc, ctx, target.moduleUuid, target.formUuid).map((row) => [
@@ -110,6 +118,16 @@ export interface EntryPointProjection {
 		| EntryPointCaseCreationArgument
 	)[];
 	readonly frame: readonly FrameChild[];
+	/**
+	 * The frame whose selections before its first command Android keeps on
+	 * Home after Back. Where the endpoint claims its selections, each claim
+	 * push puts its datum ahead of every command, and a claim already posted
+	 * is not relevant again, so Back pops through the claim command to Home
+	 * with that case still collected (`CommCareSession.stepBack`): the
+	 * selections Home keeps are the ones the entry's own workflow frame leads
+	 * with. With inline search nothing is claimed, so it is `frame` itself.
+	 */
+	readonly homeFrame: readonly FrameChild[];
 }
 /** One synchronous projection batch shares lowering and cached form actions.
  * Create a fresh projector for each document read; no cross-mutation cache. */
@@ -148,44 +166,22 @@ export function projectEntryPoint(
 	const context = ctx;
 	const mod = doc.modules[target.moduleUuid];
 	if (!mod) throw new Error("The entry point destination is missing.");
-	let frame: FrameChild[];
-	if (target.kind === "form") {
-		if (
-			!doc.forms[target.formUuid] ||
-			!context.formOrder[target.moduleUuid]?.includes(target.formUuid)
-		)
-			throw new Error("The entry point form is missing.");
-		frame = formFrameChildren(doc, context, target.moduleUuid, target.formUuid);
-	} else {
-		const prefix = moduleFrameChildren(doc, context, target.moduleUuid);
-		const preceding = new Set(
-			prefix.flatMap((c) => (c.type === "datum" ? [c.datum.id] : [])),
-		);
-		const common = commonPrefixById(
-			(context.formOrder[target.moduleUuid] ?? []).map((uuid) =>
-				entryFrameDatums(doc, context, target.moduleUuid, uuid),
-			),
-		);
-		frame = [
-			...prefix,
-			...common
-				.filter((d) => !preceding.has(d.id))
-				.map((datum) => ({ type: "datum" as const, datum })),
-		];
-		if (target.kind === "case-list") {
-			const last = frame.at(-1);
-			if (
-				last?.type !== "datum" ||
-				!last.datum.requiresSelection ||
-				last.datum.query
-			)
-				throw new Error(
-					"This destination opens a module menu. Choose a module entry point.",
-				);
-			frame = frame.slice(0, -1);
-		}
-	}
-	const homeCases = homeSelectionConsumers(doc, context, frame);
+	if (
+		target.kind === "form" &&
+		(!doc.forms[target.formUuid] ||
+			!context.formOrder[target.moduleUuid]?.includes(target.formUuid))
+	)
+		throw new Error("The entry point form is missing.");
+	const frame = entryPointFrame(doc, context, target, "endpoint");
+	const homeFrame = moduleUsesInlineSearch(doc.modules[target.moduleUuid])
+		? frame
+		: entryPointFrame(doc, context, target, "workflow");
+	// The two frames are built apart, so their datums are matched by id.
+	const homeCases = new Map(
+		[...homeSelectionConsumers(doc, context, homeFrame)].map(
+			([datum, consumers]) => [datum.id, consumers],
+		),
+	);
 	const requiredSelections = frame.flatMap((child) => {
 		if (
 			child.type !== "datum" ||
@@ -196,7 +192,7 @@ export function projectEntryPoint(
 		const d = child.datum;
 		if (!d.selectionSourceModuleUuid || !d.caseType)
 			throw new Error("The entry point has an unresolved case selection.");
-		const home = homeCases.get(d);
+		const home = homeCases.get(d.id);
 		const destinationConsumers = home && [...home.destinationModules];
 		return [
 			{
@@ -267,7 +263,52 @@ export function projectEntryPoint(
 		availableCreations,
 		orderedArguments,
 		frame,
+		homeFrame,
 	};
+}
+
+/** HQ's `EndpointsHelper.get_frame_children` for the target, as `builder`'s
+ *  `WorkflowHelper` builds it. */
+function entryPointFrame(
+	doc: BlueprintDoc,
+	context: FormLinkProjectionContext,
+	target: EntryPointTarget,
+	builder: FrameBuilder,
+): FrameChild[] {
+	if (target.kind === "form")
+		return formFrameChildren(
+			doc,
+			context,
+			target.moduleUuid,
+			target.formUuid,
+			builder,
+		);
+	const prefix = moduleFrameChildren(doc, context, target.moduleUuid, builder);
+	const preceding = new Set(
+		prefix.flatMap((c) => (c.type === "datum" ? [c.datum.id] : [])),
+	);
+	const common = commonPrefixById(
+		(context.formOrder[target.moduleUuid] ?? []).map((uuid) =>
+			entryFrameDatums(doc, context, target.moduleUuid, uuid),
+		),
+	);
+	const frame = [
+		...prefix,
+		...common
+			.filter((d) => !preceding.has(d.id))
+			.map((datum) => ({ type: "datum" as const, datum })),
+	];
+	if (target.kind !== "case-list") return frame;
+	const last = frame.at(-1);
+	if (
+		last?.type !== "datum" ||
+		!last.datum.requiresSelection ||
+		last.datum.query
+	)
+		throw new Error(
+			"This destination opens a module menu. Choose a module entry point.",
+		);
+	return frame.slice(0, -1);
 }
 export function entryPointProjectionIssue(
 	doc: BlueprintDoc,

@@ -155,6 +155,47 @@ describe("entry points", () => {
 			"visit",
 		);
 	});
+	it("opens a first-menu form's endpoint as HQ's endpoint builder does: no root prefix once any form selects a case", () => {
+		// HQ's EndpointsHelper builds its WorkflowHelper over the
+		// `app.get_modules()` generator, which the entry pass's detail lookup
+		// reads to its end before `_root_module_datums` reads it.
+		const doc = endpointWireFixture("first-menu");
+		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
+		expect(normalized(serializeXml(result.endpoints[0]))).toEqual(
+			normalized(
+				`<endpoint id="visit"><argument id="case_id"/><stack><push><datum id="case_id" value="$case_id"/><command value="'claim_command.visit.case_id'"/></push><push><command value="'m0-f0'"/><datum id="case_id" value="$case_id"/></push></stack></endpoint>`,
+			),
+		);
+		const projection = projectEntryPoint(doc, {
+			kind: "form",
+			moduleUuid: M,
+			formUuid: F,
+		});
+		// Android keeps the claimed case on Home after Back, so the menus that
+		// consume it there still come from the frame the workflow builds.
+		expect(projection.homeFrame[0]).toMatchObject({
+			type: "datum",
+			datum: { id: "case_id" },
+		});
+		expect(projection.requiredSelections[0]?.firstMenuConsumers).toEqual([
+			M,
+			testUuid("endpoint-second-patient-menu"),
+		]);
+		// With no form selecting a case, the generator is still whole: the
+		// root prefix stays ahead of the form's command.
+		const supplied = endpointWireFixture("registration-supplied");
+		supplied.modules[M].formsInMenuAbove = true;
+		admitted(supplied);
+		const wire = buildEntryPointSuite(
+			supplied,
+			formLinkProjectionContext(supplied),
+		);
+		expect(normalized(serializeXml(wire.endpoints[0]))).toEqual(
+			normalized(
+				`<endpoint id="visit" respect-relevancy="false"><argument id="case_id_new_patient_0"/><stack><push><datum id="case_id_new_patient_0" value="$case_id_new_patient_0"/><command value="'m0-f0'"/></push></stack></endpoint>`,
+			),
+		);
+	});
 	it("preserves multiple selection cardinality and maximum", () => {
 		const p = projectEntryPoint(fixture(true), {
 			kind: "form",

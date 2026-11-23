@@ -1467,18 +1467,64 @@ function moduleFormDatumLists(
 	);
 }
 
+/**
+ * Which `WorkflowHelper` builds a frame. `workflow`: the post-processor
+ * that writes every entry's stack, built over the generator's module list.
+ * `endpoint`: the one `EndpointsHelper.get_frame_children` builds for each
+ * session endpoint, over `app.get_modules()`, which is a generator
+ * (`IndexedSchema.Getter`). That helper's `EntriesHelper` and its
+ * `DetailsHelper` hold the same generator, and `get_module_datums` runs
+ * before `_root_module_datums`: the first detail id it asks for
+ * (`DetailsHelper.active_details`) reads the generator to its end, so the
+ * root lists come out empty (`rootListsSeenBy`).
+ */
+export type FrameBuilder = "workflow" | "endpoint";
+
+const endpointRootListsSeen = new WeakMap<FormLinkProjectionContext, boolean>();
+
+/**
+ * Whether the frame `builder` builds sees the root lists. An endpoint's does
+ * only where no form entry of the app selects a case: HQ's entry pass
+ * (`_get_entries_datums` → `_add_missing_case_types` → `_form_datums`)
+ * derives every form entry's datums, and a case selection's datum asks the
+ * details helper for its list's detail id
+ * (`EntriesHelper.get_datum_meta_module`, `get_manual_datum`), which
+ * exhausts the shared generator. A computed datum (a new case, an
+ * auto-selected load) asks for none.
+ */
+function rootListsSeenBy(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	builder: FrameBuilder,
+): boolean {
+	if (builder === "workflow") return true;
+	const memo = endpointRootListsSeen.get(ctx);
+	if (memo !== undefined) return memo;
+	const seen = !ctx.moduleOrder.some((moduleUuid) =>
+		moduleFormDatumLists(doc, ctx, moduleUuid).some((datums) =>
+			datums.some((datum) => datum.requiresSelection && !datum.query),
+		),
+	);
+	endpointRootListsSeen.set(ctx, seen);
+	return seen;
+}
+
 /** The datum lists `get_frame_children` takes the common prefix of: the
  *  module's own form entries, or, where its menu id is `root`, the form
  *  entries of every module that shows its forms above, in module then form
- *  order (`WorkflowHelper._root_module_datums`). */
+ *  order (`WorkflowHelper._root_module_datums`), none where the builder
+ *  does not see them (`rootListsSeenBy`). */
 function frameDatumLists(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
+	builder: FrameBuilder,
 ): (readonly FrameDatum[])[] {
-	return menuScreenOf(doc, moduleUuid).kind === "first-menu"
+	if (menuScreenOf(doc, moduleUuid).kind !== "first-menu")
+		return moduleFormDatumLists(doc, ctx, moduleUuid);
+	return rootListsSeenBy(doc, ctx, builder)
 		? rootFrameDatumLists(doc, ctx)
-		: moduleFormDatumLists(doc, ctx, moduleUuid);
+		: [];
 }
 
 /** The module command, or nothing where the menu id is `root`. The command
@@ -1563,9 +1609,10 @@ function frameChildrenOf(
 	moduleUuid: Uuid,
 	formUuid?: Uuid,
 	includeRootModule = false,
+	builder: FrameBuilder = "workflow",
 ): FrameChild[] {
 	const children: FrameChild[] = [];
-	const lists = [...frameDatumLists(doc, ctx, moduleUuid)];
+	const lists = [...frameDatumLists(doc, ctx, moduleUuid, builder)];
 	if (menuScreenOf(doc, moduleUuid).kind !== "first-menu") {
 		const parentUuid = moduleParent(doc, moduleUuid);
 		if (includeRootModule && parentUuid !== undefined && parentUuid !== null) {
@@ -1596,12 +1643,13 @@ export function moduleFrameChildren(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
+	builder: FrameBuilder = "workflow",
 ): FrameChild[] {
 	const parentUuid = moduleParent(doc, moduleUuid);
 	return [
 		...(parentUuid === undefined || parentUuid === null
 			? []
-			: frameChildrenOf(doc, ctx, parentUuid)),
+			: frameChildrenOf(doc, ctx, parentUuid, undefined, false, builder)),
 		...menuCommand(doc, ctx, moduleUuid),
 	];
 }
@@ -1621,11 +1669,19 @@ export function formFrameChildren(
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
+	builder: FrameBuilder = "workflow",
 ): FrameChild[] {
-	const base = frameChildrenOf(doc, ctx, moduleUuid, formUuid);
+	const base = frameChildrenOf(doc, ctx, moduleUuid, formUuid, false, builder);
 	const parentUuid = moduleParent(doc, moduleUuid);
 	if (parentUuid === undefined || parentUuid === null) return base;
-	const prefix = frameChildrenOf(doc, ctx, parentUuid);
+	const prefix = frameChildrenOf(
+		doc,
+		ctx,
+		parentUuid,
+		undefined,
+		false,
+		builder,
+	);
 	const prefixedIds = new Set(prefix.map(frameChildId));
 	return [
 		...prefix,
