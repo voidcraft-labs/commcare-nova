@@ -10,15 +10,13 @@
  * Pure.
  */
 
-import {
-	expectedXmlnsOf,
-	type HqAlignedModule,
-} from "@/lib/commcare/hq/appReading";
+import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import {
 	type HqAppSource,
 	parseHqAppSource,
 } from "@/lib/commcare/hq/appSource";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
+import { expectedXmlnsOf } from "@/lib/commcare/hq/sharedFormSource";
 import type { WireIdentity } from "@/lib/commcare/wireIdentity";
 import type { BlueprintDoc } from "@/lib/domain";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";

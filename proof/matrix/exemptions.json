@@ -155,10 +155,6 @@
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."
 	},
-	"forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
 	"forms-and-case-writes/a-shadow-s-own-extra-actions-load-update-cases-case-properties": {
 		"reason": "stated-by-its-part",
 		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
@@ -171,15 +167,7 @@
 		"reason": "no-surface-key",
 		"note": "The entry names no surface key, and it allows what it describes."
 	},
-	"forms-and-case-writes/extra-actions-load-update-cases-repeating-a-parent-tag-overrides": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
 	"forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"forms-and-case-writes/extra-actions-load-update-cases-with-a-tag-absent-from-the": {
 		"reason": "stated-by-its-part",
 		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
 	},
@@ -200,10 +188,6 @@
 		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
 	},
 	"forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform": {
-		"reason": "stated-by-its-part",
-		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
-	},
-	"forms-and-case-writes/shadow-parent-form-id-naming-an-advancedform-that-is-not-a": {
 		"reason": "stated-by-its-part",
 		"note": "Part 06 decided it (its section 7.1): a shadow form is refused whole under its type's one finding, whatever it holds, never one per key, so no reading names this class on its own."
 	},

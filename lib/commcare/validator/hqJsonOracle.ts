@@ -662,7 +662,7 @@ function checkForm(
 		);
 	}
 
-	if (form.doc_type !== "Form") {
+	if (form.doc_type === "AdvancedForm" || form.doc_type === "ShadowForm") {
 		if (Object.hasOwn(form, "requires") || Object.hasOwn(form, "schedule")) {
 			errors.push(
 				validationError(

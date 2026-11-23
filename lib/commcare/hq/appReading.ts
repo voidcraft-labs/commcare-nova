@@ -47,6 +47,7 @@ import {
 	type CommCareCredentials,
 	HQ_MALFORMED_ANSWER,
 } from "./http";
+import { expectedXmlnsOf } from "./sharedFormSource";
 
 /** The deadline of each of the two reads of a bring-in whose body is the app. */
 export const HQ_APP_BODY_DEADLINE_MS = 60_000;
@@ -153,28 +154,6 @@ export function alignHqForms(
 		});
 	}
 	return { kind: "aligned", modules: aligned };
-}
-
-/**
- * The `xmlns` the resource reports for each source form: its stored one, or
- * where that is null, its shadow parent's, followed for at most as many
- * steps as the app has forms. Null where there is none, the parent is not
- * among the read's forms, or the steps run out.
- */
-export function expectedXmlnsOf(
-	source: Pick<HqAppSource, "modules">,
-): (form: HqAppSourceForm) => string | null {
-	const forms = source.modules.flatMap((menu) => menu.forms);
-	const byReadId = new Map(forms.map((form) => [form.readUniqueId, form]));
-	return (form) => {
-		let current: HqAppSourceForm | undefined = form;
-		for (let step = 0; step <= forms.length && current !== undefined; step++) {
-			if (current.xmlns !== null) return current.xmlns;
-			if (current.shadowParentReadId === null) return null;
-			current = byReadId.get(current.shadowParentReadId);
-		}
-		return null;
-	};
 }
 
 /** The source `doc_type`s of the menus HQ's summary is expected to hold. */

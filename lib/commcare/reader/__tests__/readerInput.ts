@@ -16,9 +16,10 @@ import {
 	retainedBodyJson,
 	retainedGroupRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { expectedXmlnsOf, type HqAlignedModule } from "../../hq/appReading";
+import type { HqAlignedModule } from "../../hq/appReading";
 import { type HqAppSource, readHqAppSource } from "../../hq/appSource";
 import type { HqLocationType } from "../../hq/locations";
+import { expectedXmlnsOf } from "../../hq/sharedFormSource";
 import { inventoryIndex } from "../../surface/inventory";
 import { applicationReading } from "../appShell";
 import { createReadContext, type ReadContext } from "../context";

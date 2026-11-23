@@ -404,9 +404,7 @@ export const FINDING_COPY: Readonly<
 		never: "This uses a search setting, which Nova doesn't bring in.",
 		"not-yet": "This uses a search setting, which Nova can't hold yet.",
 	},
-	"shadow-forms": {
-		"not-yet": "This uses a shadow form, which Nova can't hold yet.",
-	},
+	"shadow-forms": {},
 	"supply-features": {
 		never: "This uses CommCare Supply features, which Nova doesn't bring in.",
 	},

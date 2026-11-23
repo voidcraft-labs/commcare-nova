@@ -4118,6 +4118,12 @@ export function readSharedEntries(ctx: ReadContext) {
 			}
 			ctx.writeDraft(() => {
 				form.form.type = parent.type;
+				// Each tag CommCare HQ keeps for this entry is held, as an ordinary
+				// advanced form's are, so a later edit that would rename one shows.
+				const held = [...(choices?.values() ?? [])].map(
+					(row) => [row.uuid, row.tag] as [Uuid, string],
+				);
+				if (held.length) form.form.heldSelectionTags = recordFromEntries(held);
 				form.form.shadowOf = {
 					form: parent.uuid,
 					selections: [...(choices?.values() ?? [])].map((row) =>

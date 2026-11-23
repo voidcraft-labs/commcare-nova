@@ -96,6 +96,18 @@ export function sharedFormDependencies(
 		)
 			needChoice(own);
 	}
+	// A starting value reads its record's id when the form opens, so the
+	// entry supplies the choice it reads as the parent's own entry does.
+	for (const assignment of parent.openingAssignments ?? []) {
+		const source = assignment.source;
+		needChoice(
+			source.kind === "own"
+				? own
+				: source.kind === "worker-record"
+					? parentRows.findIndex((row) => row.source.kind === "worker-record")
+					: parentRows.findIndex((row) => row.uuid === source.selection),
+		);
+	}
 	const parentDatums = entryDatumIds(doc, context, parentMenu, parent.uuid);
 	const entryDatums = entryDatumIds(doc, context, menu, entry.uuid);
 	const messages = new Set<string>();

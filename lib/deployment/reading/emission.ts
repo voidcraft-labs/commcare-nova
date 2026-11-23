@@ -18,15 +18,13 @@ import {
 	expandDoc,
 	expandDocSteps,
 } from "@/lib/commcare/expander";
-import {
-	expectedXmlnsOf,
-	type HqAlignedModule,
-} from "@/lib/commcare/hq/appReading";
+import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type {
 	HqAppSource,
 	HqAppSourceModule,
 } from "@/lib/commcare/hq/appSource";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
+import { expectedXmlnsOf } from "@/lib/commcare/hq/sharedFormSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type {
 	AssetManifest,

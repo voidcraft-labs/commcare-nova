@@ -1570,7 +1570,12 @@ export type NonReferenceReason =
 	 *  through and the property it copies). `referenceIndex.extractFormEdges`
 	 *  follows each under the `opening_assignment` slot, and a property
 	 *  rename rewrites it (`casePropertyRenames.ts`). */
-	| "opening-assignment";
+	| "opening-assignment"
+	/** The ordinary form a second entry opens (`Form.shadowOf.form`).
+	 *  `referenceIndex.extractFormEdges` follows it under the `shared_form`
+	 *  slot, so removing that form names every entry that opens it
+	 *  (`lib/doc/sharedFormDependents.ts`). */
+	| "shared-form";
 
 export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	Record<string, NonReferenceReason>
@@ -1622,6 +1627,30 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseSelections[].source.property.userPropertyUuid": "selection-source",
 	"caseSelections[].source.table": "selection-source",
 	"caseSelections[].source.column": "selection-source",
+	// A second entry: the form it opens, and its ordered choices, each a
+	// replacement naming one of that form's choices or an extra choice of
+	// its own, classified as a form's own choices are.
+	"shadowOf.form": "shared-form",
+	"shadowOf.selections[].kind": "discriminator",
+	"shadowOf.selections[].selection": "selection-source",
+	"shadowOf.selections[].uuid": "identity",
+	"shadowOf.selections[].name": "display-text",
+	"shadowOf.selections[].tag": "wire-token",
+	"shadowOf.selections[].caseType": "selection-source",
+	"shadowOf.selections[].source.kind": "discriminator",
+	"shadowOf.selections[].source.module": "selection-source",
+	"shadowOf.selections[].source.selection": "selection-source",
+	"shadowOf.selections[].source.identifier": "wire-token",
+	"shadowOf.selections[].source.under.selection": "selection-source",
+	"shadowOf.selections[].source.under.identifier": "wire-token",
+	"shadowOf.selections[].source.under.relationship": "config",
+	"shadowOf.selections[].source.under.relationship.question":
+		"selection-source",
+	"shadowOf.selections[].source.property.kind": "discriminator",
+	"shadowOf.selections[].source.property.field": "selection-source",
+	"shadowOf.selections[].source.property.userPropertyUuid": "selection-source",
+	"shadowOf.selections[].source.table": "selection-source",
+	"shadowOf.selections[].source.column": "selection-source",
 	"computedDatums[].uuid": "identity",
 	"computedDatums[].key": "wire-token",
 	heldSelectionTags: "wire-token",

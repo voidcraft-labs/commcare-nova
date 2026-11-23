@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseRow } from "@/lib/case-store/store";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
+import { sharedVisitsBlueprint } from "@/proof/targeted/documents/sharedVisitEntries";
 import { buildEngineInput } from "../engineInput";
 import { FormEngine } from "../formEngine";
 import { openingCaseAssignments } from "../openingCaseAssignments";
@@ -120,4 +121,33 @@ it("runs dependent calculations and relevance before the next load, then inserts
 	expect(engine.getRepeatCount("/data/zero")).toBe(0);
 	expect(engine.getRepeatCount("/data/one")).toBe(1);
 	expect(values.get("/data/one[0]/copy") ?? "").toBe("");
+});
+
+it("gives a second entry its parent's starting values from the record it chose", () => {
+	const doc = sharedVisitsBlueprint("shared");
+	const visit = Object.values(doc.forms).find((row) => row.name === "Visit");
+	const callback = Object.values(doc.forms).find(
+		(row) => row.name === "Return a call",
+	);
+	const patient = visit?.caseSelections?.find((row) => row.tag === "patient");
+	if (!visit || !callback?.shadowOf || !patient)
+		throw new Error("The shared visits fixture lacks its entries");
+	const note = doc.fieldOrder[visit.uuid][0];
+	visit.openingAssignments = [
+		{
+			uuid: testUuid("patient-name"),
+			field: note,
+			source: { kind: "selection", selection: patient.uuid },
+			property: "case_name",
+		},
+	];
+	const opening = openingCaseAssignments(
+		doc,
+		callback.uuid,
+		new Map([[patient.uuid, "second"]]),
+		{ rows: [person("second", "Second person")], indices: [] },
+	);
+	expect(opening.map((row) => [row.field, row.value])).toEqual([
+		[note, "Second person"],
+	]);
 });

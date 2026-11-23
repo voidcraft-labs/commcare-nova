@@ -316,6 +316,30 @@ describe("two entries opening the same questions", () => {
 		expect(needs(repaired, evening)).toEqual([]);
 	});
 
+	it("needs the choice a parent's starting value reads, as its own entry does", () => {
+		const { doc, morning, evening, parent, origin } = sharedEntries();
+		const needs = (d: BlueprintDoc, id: Uuid) =>
+			sharedFormDependencies(
+				d,
+				d.forms[id],
+				HOUSEHOLDS,
+				formLinkProjectionContext(d),
+			);
+		const fills = produce(doc, (d) => {
+			d.forms[parent].openingAssignments = [
+				{
+					uuid: testUuid("origin-name"),
+					field: d.fieldOrder[parent][0],
+					source: { kind: "selection", selection: origin.uuid },
+					property: "case_name",
+				},
+			];
+		});
+		// Morning keeps the referring household; evening left it out.
+		expect(needs(fills, morning)).toEqual([]);
+		expect(needs(fills, evening).join(" ")).toContain("Evening visit");
+	});
+
 	it("restores each sibling’s original deployment id from a baseline with scrubbed source ids", () => {
 		const { doc, parent, morning, evening } = sharedEntries();
 		const identity = targetWireIdentity([

@@ -15,7 +15,7 @@ import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbov
 import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection";
 import { rethrowWorkStop } from "../../workMeter";
 import { type Claim, defineClaims, refuse } from "../claims";
-import type { DraftApp, ReadContext } from "../context";
+import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl } from "../expressions/printLevel";
 import { printSlot, sameSlotText } from "../expressions/readExpression";
@@ -263,7 +263,19 @@ export function* settleMenusSteps(
 	}
 	const moduleOf = (uniqueId: string) =>
 		menusById.get(uniqueId) as HqApplication["modules"][number] | undefined;
-	const formOf = (xmlns: string) => formsByXmlns.get(xmlns);
+	/* A second entry shares its parent's namespace, so it is found where the
+	 * expansion writes it: at its position in its own menu. */
+	const formOf = (form: DraftForm): JsonObject | undefined => {
+		if (form.docType !== "ShadowForm") return formsByXmlns.get(form.xmlns);
+		const owner = app.modules.find((module) => module.forms.includes(form));
+		const position =
+			owner === undefined
+				? -1
+				: (doc.formOrder[owner.uuid] ?? []).indexOf(form.uuid);
+		const menu =
+			owner === undefined ? undefined : menusById.get(owner.uniqueId);
+		return position < 0 ? undefined : objectMembers(menu?.forms)?.[position];
+	};
 	settleRegistrations(ctx, moduleOf);
 	acceptMenus(
 		ctx,
@@ -272,8 +284,7 @@ export function* settleMenusSteps(
 		formOf,
 	);
 	for (const module of app.modules)
-		for (const form of module.forms)
-			acceptAfterSubmit(ctx, form, formOf(form.xmlns));
+		for (const form of module.forms) acceptAfterSubmit(ctx, form, formOf(form));
 	settleEntryPoints(ctx);
 	for (const error of firstMenuSharedCaseFrames(ctx.doc as BlueprintDoc)) {
 		if (error.code !== "FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE") continue;
@@ -296,7 +307,7 @@ function acceptMenus(
 	ctx: ReadContext,
 	app: DraftApp,
 	moduleOf: (uniqueId: string) => JsonObject | undefined,
-	formOf: (xmlns: string) => JsonObject | undefined,
+	formOf: (form: DraftForm) => JsonObject | undefined,
 ): void {
 	const doc = ctx.doc as BlueprintDoc;
 	const langs = appLanguageCodes(ctx);
@@ -418,7 +429,7 @@ function acceptMenus(
 		for (const form of module.forms) {
 			if (ctx.accounting.hasFindingAt(form.place)) continue;
 			const ownForm = doc.forms[form.uuid];
-			const ourForm = formOf(form.xmlns);
+			const ourForm = formOf(form);
 			if (ownForm === undefined || ourForm === undefined) continue;
 			const formUnrecognized = (name: string) =>
 				ctx.accounting.circumstance("unrecognized", form.place, { name });

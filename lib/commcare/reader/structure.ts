@@ -1109,7 +1109,9 @@ export function readStructure(ctx: ReadContext): void {
 						parent.form.docType !== "AdvancedForm"
 					)
 						form.refuseWhole(FORM_TYPE.parentIneligible);
-					else if (aligned?.kind === "aligned" && parent.form.xmlns) {
+					// The parent's source is the entry's: a parent with none refuses both.
+					else if (!parent.form.xmlns) form.refuseWhole(FORM_TYPE.blankSource);
+					else if (aligned?.kind === "aligned") {
 						const sharedId = aligned.forms[formIndex]?.uniqueId;
 						if (sharedId) {
 							read(form.takeClass(FORM_TYPE.shadow));

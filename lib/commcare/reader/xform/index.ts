@@ -824,8 +824,10 @@ const FORMS_PER_STEP = 100;
 export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 	const attachments = applicationReading(ctx)?.attachments?.value;
 	let read = 0;
+	const refused = new Map<Uuid, RefusedSource>();
 	for (const module of ctx.draft.modules)
 		for (const form of [...module.forms]) {
+			// A second entry reads its parent's source; it has none of its own.
 			if (form.docType === "ShadowForm") continue;
 			if (read > 0 && read % FORMS_PER_STEP === 0) yield;
 			read += 1;
@@ -846,6 +848,19 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 				// A source refused whole refuses its form whole, as a form whose `xmlns` is blank
 				// is (`structure.ts`): nothing else of it is read, so the one finding stands alone.
 				form.json.refuseWhole(reading.refused, reading.detail);
+				module.forms.splice(module.forms.indexOf(form), 1);
+				refused.set(form.uuid, reading);
+			});
+		}
+	// A second entry opens its parent's source, so a source refused whole
+	// refuses each entry that opens it under the same refusal.
+	for (const module of ctx.draft.modules)
+		for (const form of [...module.forms]) {
+			const parent = form.form.shadowOf?.form;
+			const refusal = parent === undefined ? undefined : refused.get(parent);
+			if (form.docType !== "ShadowForm" || refusal === undefined) continue;
+			ctx.writeDraft(() => {
+				form.json.refuseWhole(refusal.refused, refusal.detail);
 				module.forms.splice(module.forms.indexOf(form), 1);
 			});
 		}

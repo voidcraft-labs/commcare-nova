@@ -54,12 +54,23 @@ export function readOriginalSelectionTags(
 	}
 	const source = sourceFromBaseline(normalizedSource);
 	const facts = hqEntryFacts(source.raw);
+	// Entry facts are keyed by the source's own form id; an ordinary form's
+	// namespace names one. A revision before this release holds no second
+	// entry, so no form here shares its namespace.
+	const sourceIds = new Map(
+		source.modules.flatMap((menu) =>
+			menu.forms.flatMap((form) =>
+				form.xmlns === null ? [] : [[form.xmlns, form.readUniqueId] as const],
+			),
+		),
+	);
 	const choices: RecordedSelection[] = [];
 	for (const owner of published.moduleOrder) {
 		if (!menuEmittedAdvanced(published, owner)) continue;
 		for (const form of published.formOrder[owner] ?? []) {
 			const rows = formCaseSelections(published, form);
-			const forms = facts.forms.get(identity.formXmlns(published.forms[form]));
+			const readId = sourceIds.get(identity.formXmlns(published.forms[form]));
+			const forms = readId === undefined ? undefined : facts.forms.get(readId);
 			if (
 				forms?.moduleKind !== "AdvancedModule" ||
 				forms.loads.length !== rows.length
