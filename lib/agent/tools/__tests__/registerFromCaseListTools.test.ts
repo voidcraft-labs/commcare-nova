@@ -15,7 +15,7 @@ import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain";
-import { eq, literal, term } from "@/lib/domain/expression/builders";
+import { gt, literal } from "@/lib/domain/expression/builders";
 import { createFormTool } from "../createForm";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
@@ -107,9 +107,11 @@ async function readModule(h: ReturnType<typeof harness>, moduleUuid: string) {
 describe("register_from_case_list on update_module", () => {
 	it("offers an eligible form under a saved condition, rejects an empty-search rule without an inline search and clears it explicitly", async () => {
 		const h = harness();
-		const condition = eq(
-			term({ kind: "session-context", field: "username" }),
-			literal("supervisor"),
+		// A count of the worker's records reads the casedb the list loads; a read
+		// of the session here would read an instance HQ's build leaves undeclared.
+		const condition = gt(
+			{ kind: "count", via: { kind: "cases", source: "casedb", where: [] } },
+			literal(0),
 		);
 		const offered = await h.runTool(updateModuleTool, {
 			moduleUuid: HOST,

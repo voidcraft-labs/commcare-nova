@@ -31,6 +31,7 @@ import {
 	and,
 	dateLiteral,
 	eq,
+	gt,
 	input,
 	literal,
 	lt,
@@ -248,7 +249,14 @@ if (scenario.startsWith("list-action"))
 		...(scenario === "list-action-viewer" && {
 			showWhen: {
 				kind: "condition" as const,
-				condition: eq(sessionContext("username"), literal("ada")),
+				// The list reads the worker's records, so its button may count them.
+				condition: gt(
+					{
+						kind: "count",
+						via: { kind: "cases", source: "casedb", where: [] },
+					},
+					literal(0),
+				),
 			},
 		}),
 	};
