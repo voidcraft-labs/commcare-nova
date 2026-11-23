@@ -126,6 +126,7 @@ import {
 	sessionUser,
 	term,
 } from "../../../lib/domain/expression";
+import { menuWithInheritedCaseSettings } from "../../../lib/domain/listedForms";
 import { caseListActionReturn } from "../../../lib/preview/engine/caseListRegisterAction";
 import { previewDataRefusalOf } from "../../../lib/preview/engine/dataRefusal";
 import {
@@ -278,7 +279,7 @@ function chosenFirst(doc: BlueprintDoc, screen: MenuScreen): boolean {
 function deviceCasesOf(doc: BlueprintDoc): DeviceCase[] {
 	const types = new Set<string>();
 	for (const moduleUuid of doc.moduleOrder) {
-		const caseType = doc.modules[moduleUuid]?.caseType;
+		const caseType = menuWithInheritedCaseSettings(doc, moduleUuid)?.caseType;
 		if (
 			caseType !== undefined &&
 			moduleHasOwnScreen(doc, moduleUuid) &&
@@ -306,7 +307,8 @@ function readingsOf(
 	if (screen.kind !== "menu" || !chosenFirst(doc, screen))
 		return workers.map((user) => ({ user }));
 	const { moduleUuid } = screen;
-	const caseType = doc.modules[moduleUuid]?.caseType;
+	// A menu listing another menu's forms chooses its source's case type.
+	const caseType = menuWithInheritedCaseSettings(doc, moduleUuid)?.caseType;
 	const chosen = cases.filter((held) => held.type === caseType);
 	if (chosen.length === 0)
 		throw new Error(
@@ -1365,6 +1367,9 @@ function submenuOnFirstMenu(registration: boolean): BlueprintDoc {
 							uuid: "first-menu-registration",
 							name: "Registration",
 							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
 							forms: [
 								{
 									uuid: "first-menu-register",

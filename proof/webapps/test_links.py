@@ -274,7 +274,8 @@ def test_web_apps_displays_the_full_badges_formplayer_returns(
         with project.released(formplayer_runner) as release:
             run = Session(release, editor_driver).run([
                 *steps.open_app("Field rounds"), *steps.arrive(any_screen=True), steps.SCREEN,
-                *steps.choose("Visit forms"), *steps.arrive(any_screen=True), steps.SCREEN,
+                # A row's text is its badge, then its name (``partials/menu/row.html``).
+                *steps.choose("New Visit forms"), *steps.arrive(any_screen=True), steps.SCREEN,
             ])
     home, forms = run.screens
     assert run.page_errors == [] and run.dialogs == []
