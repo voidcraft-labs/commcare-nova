@@ -95,6 +95,7 @@
 		"questions/h-title-and-data-name-whatever-their-text",
 		"questions/help-text-markdown-form",
 		"questions/help-text-with-no-markdown-form",
+		"questions/hidden-value-bound-a-type-nova-would-not-write",
 		"questions/hidden-value-data-node-bind-no-control-with-calculate-or-default",
 		"questions/hint-markdown-form",
 		"questions/hint-text",
@@ -134,6 +135,7 @@
 		"list-settings-respelled",
 		"incomplete-forms-tile-hidden",
 		"date-and-time-questions-split",
-		"form-text-characters-written-as-outputs"
+		"form-text-characters-written-as-outputs",
+		"hidden-answer-types-respelled"
 	]
 }

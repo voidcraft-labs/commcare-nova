@@ -255,11 +255,13 @@ def kinds_source(name):
     _question(xform, "document", "Land document", tag="upload", bind_type="binary", mediatype="application/*,text/*")
     xform.new_question("double_age", None, None, calculate="/data/age * 2")
     # The advanced bind attributes on a no-control value survive Vellum's
-    # editor. Core's "integer" is the same data class as "int".
+    # editor, which respells only "xsd:integer" (as "xsd:int",
+    # `parser.js::parseBindElement`). Core's "decimal" is the data class of "double"
+    # (`XFormParser.initTypeMappings`), which Nova's export writes for it.
     count_path = xform.get_data_ref("opening_count")
     parent, name = _node(xform, count_path)
     etree.SubElement(parent, name)
-    xform._model.append(etree.Element(_x(xform, "bind"), {"nodeset": count_path, "type": "xsd:integer", "calculate": "1"}))
+    xform._model.append(etree.Element(_x(xform, "bind"), {"nodeset": count_path, "type": "xsd:decimal", "calculate": "1"}))
 
     xform.new_group("details", "Details")
     _group_body(xform, "details").set("appearance", "field-list")
