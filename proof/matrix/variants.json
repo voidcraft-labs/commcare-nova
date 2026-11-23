@@ -29380,13 +29380,6 @@
 		"id": "hq-plain/submit-label",
 		"base": "hq-plain",
 		"entry": "forms-and-case-writes/submit-label-non-default",
-		"place": {
-			"kind": "form",
-			"menu": 0,
-			"form": 1,
-			"menuName": "Households",
-			"name": "Followup Form"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/forms/1/submit_label",
