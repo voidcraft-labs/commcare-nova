@@ -200,6 +200,7 @@ describe("engine → builder → executor acceptance", () => {
 			const store = makeStore();
 			await seedSessionCase(store, doc);
 			const engine = engineFor(doc, formUuid);
+			engine.addRepeat("/data/visits");
 			engine.setValue("/data/external_code", participates ? "yes" : "no");
 			const result = await submit(doc, engine, store);
 			expect((await loadCase(store, SESSION_CASE))?.properties).toEqual({
@@ -624,6 +625,7 @@ describe("engine → builder → executor acceptance", () => {
 		await seedSessionCase(store, doc);
 
 		const engine = engineFor(doc, formUuid);
+		engine.addRepeat("/data/visits");
 		engine.addRepeat("/data/visits");
 		engine.setValue("/data/visits[0]/visit_note", "first visit");
 		engine.setValue("/data/visits[1]/visit_note", "second visit");

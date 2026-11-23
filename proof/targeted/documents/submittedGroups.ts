@@ -58,6 +58,7 @@ export function submittedGroups() {
 						type: "survey",
 						fields: [
 							f({
+								uuid: uuid("include"),
 								kind: "text",
 								id: "include_details",
 								label: proseText("Include details?"),
@@ -71,6 +72,7 @@ export function submittedGroups() {
 								relevant: "#form/include_details = 'yes'",
 								children: [
 									f({
+										uuid: uuid("result"),
 										kind: "text",
 										id: "result",
 										label: proseText("Review result"),
@@ -81,6 +83,7 @@ export function submittedGroups() {
 										},
 									}),
 									f({
+										uuid: uuid("notice"),
 										kind: "label",
 										id: "notice",
 										label: proseText("Read the visit notes"),
@@ -92,6 +95,7 @@ export function submittedGroups() {
 								],
 							}),
 							f({
+								uuid: uuid("finding"),
 								kind: "text",
 								id: "finding",
 								label: proseText("Finding"),

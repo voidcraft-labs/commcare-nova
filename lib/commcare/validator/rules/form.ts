@@ -1285,11 +1285,17 @@ function duplicateFieldIds(
 	for (const [uuid, reason] of layout.problems) {
 		const field = doc.fields[uuid];
 		errors.push(
-			validationError("FIELD_SUBMISSION_PLACEMENT", "field", reason, {
-				...baseLocation(ctx),
-				fieldUuid: uuid,
-				fieldId: field.id,
-			}),
+			validationError(
+				"FIELD_SUBMISSION_PLACEMENT",
+				"field",
+				reason,
+				{
+					...baseLocation(ctx),
+					fieldUuid: uuid,
+					fieldId: field.id,
+				},
+				{ reason },
+			),
 		);
 	}
 	const walk = (parentUuid: Uuid, parentPath: string): void => {

@@ -383,7 +383,7 @@ describe("a row read from a source written for it", () => {
 });
 
 describe("a question's id", () => {
-	it("refuses a question named registration in any case under the reserved-name entry", async () => {
+	it("reads a question named registration in any case as an answer only Android keeps, and refuses one named case", async () => {
 		for (const name of ["registration", "Registration"]) {
 			const reading = await readForm(
 				xformSource({
@@ -393,9 +393,23 @@ describe("a question's id", () => {
 				}),
 			);
 			const codes = codesAt(reading, name);
-			expect(codes).toContain(Q("question-id-case-registration-script"));
+			expect(codes).not.toContain(Q("submitted-node-consumed-as-case"));
 			expect(codes).not.toContain(
 				Q("question-id-failing-the-grammar-or-meta-in-any-case"),
+			);
+			const [field] = readFields(reading.xform ?? ({} as never));
+			expect(field?.standIn).toBe(false);
+		}
+		for (const name of ["case", "Case"]) {
+			const reading = await readForm(
+				xformSource({
+					data: `<${name}/>`,
+					model: `<bind nodeset="/data/${name}" type="xsd:string"/>`,
+					body: `<input ref="/data/${name}"/>`,
+				}),
+			);
+			expect(codesAt(reading, name)).toContain(
+				Q("submitted-node-consumed-as-case"),
 			);
 			const [field] = readFields(reading.xform ?? ({} as never));
 			expect(field?.standIn).toBe(true);

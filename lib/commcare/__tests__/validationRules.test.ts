@@ -448,7 +448,6 @@ describe("strict field shape and semantic backstops", () => {
 			proseText("Wrong"),
 			"VALIDATION_ON_NON_INPUT_KIND",
 		],
-		["label", "validate", matchAll(), "VALIDATION_ON_NON_INPUT_KIND"],
 		["group", "validate", matchAll(), "VALIDATION_ON_NON_INPUT_KIND"],
 		["text", "calculate", term(literal(1)), "CALCULATE_ON_VISIBLE_INPUT"],
 	] as const)(

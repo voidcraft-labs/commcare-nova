@@ -391,16 +391,16 @@ export const PLATFORM_MODEL_CHECKS = {
 			);
 			engine.addRepeat("/data/rows");
 			const inserted = {
-				value: engine.getState("/data/rows[1]/value").value,
-				seen: engine.getState("/data/rows[1]/seen").value,
+				value: engine.getState("/data/rows[0]/value").value,
+				seen: engine.getState("/data/rows[0]/seen").value,
 			};
 			engine.setValue("/data/unrelated", "u");
-			const afterUnrelated = engine.getState("/data/rows[1]/value").value;
-			engine.setValue("/data/rows[1]/note", "ab");
+			const afterUnrelated = engine.getState("/data/rows[0]/value").value;
+			engine.setValue("/data/rows[0]/note", "ab");
 			return {
 				inserted,
 				afterUnrelated,
-				afterRead: engine.getState("/data/rows[1]/value").value,
+				afterRead: engine.getState("/data/rows[0]/value").value,
 			};
 		};
 		expect(run("web-apps")).toEqual({

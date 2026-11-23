@@ -1675,7 +1675,8 @@ const USER_MESSAGE_BY_CODE: Record<
 				: "";
 		return `${q(fieldName(e))} and a CommCare Connect block of ${q(formName(e))} share one name, so the form would hold two items CommCare can't tell apart. You can rename the field, or give the block another ID.${offer}`;
 	},
-	FIELD_SUBMISSION_PLACEMENT: (e) => e.message,
+	FIELD_SUBMISSION_PLACEMENT: (e) =>
+		`The submitted answer of ${q(fieldName(e))} is placed where ${q(formName(e))} can't keep it. ${det(e, "reason", "Choose a group in this form that sits in the same repeat entry as its question.")}`,
 	DUPLICATE_FIELD_ID: (e) =>
 		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
 	CASE_OPERATION_DUPLICATE_UUID: () =>
@@ -1822,8 +1823,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The timing for ${q(fieldName(e))} in ${q(formName(e))} changes where your published app keeps each row's record ID. You can review that change to use the new timing.`,
 	QUERY_REPEAT_MODEL_ITERATION_SHAPE: (e) =>
 		queryRepeatModelIterationSentence(e),
-	SUBMITTED_ANSWER_NAMESPACE: (e) => e.message,
-	SUBMITTED_CASE_CHANGE_WRAPPER: (e) => e.message,
+	SUBMITTED_ANSWER_NAMESPACE: (e) =>
+		`The receiving namespace of ${q(fieldName(e))} can't be used. ${det(e, "problem", "")}${e.details?.problem ? " " : ""}You can enter the receiving service’s namespace, or clear it to use the namespace of ${q(formName(e))}.`,
+	SUBMITTED_CASE_CHANGE_WRAPPER: (e) =>
+		`A group around a saved case change in ${q(formName(e))} has the ID case, so workers would read that group as a second case change. You can move the change to a group with another ID.`,
 	INVALID_FIELD_ID: (e) => {
 		const sentence = questionIdSentence(e, fieldName(e), "question");
 		return sentence === undefined

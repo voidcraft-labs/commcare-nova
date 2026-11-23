@@ -268,7 +268,7 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: {
 			reading: "unavailable",
-			note: "Web Apps would read this answer as an instruction",
+			note: "it would read this answer as an instruction",
 			remedy: "Give the answer a different ID.",
 		},
 		android: { reading: "runs" },
@@ -595,7 +595,7 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: {
 			reading: "different",
-			note: "Web Apps confirms the message when the worker submits the form",
+			note: "the message is confirmed when the worker submits the form",
 		},
 		android: {
 			reading: "runs",

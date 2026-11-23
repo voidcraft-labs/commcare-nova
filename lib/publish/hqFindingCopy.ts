@@ -563,6 +563,8 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 	"question-ids": {
 		"hq-refuses":
 			"A question ID here is one CommCare HQ's form builder can't keep.",
+		"breaks-when-run":
+			"An answer here is named case, so workers' devices read it as a case change. Renaming it in the form designer, such as case_note, keeps it an answer.",
 	},
 	"text-backslashes": {
 		"breaks-when-run":

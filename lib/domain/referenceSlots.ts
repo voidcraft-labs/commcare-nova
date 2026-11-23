@@ -1532,6 +1532,19 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	plainHelp: "config",
 	keypad: "config",
 	maxDimension: "config",
+	// A message's Android confirmation box and a question's HQ form
+	// designer lock: literals, naming nothing.
+	askForConfirmation: "config",
+	lockedInHq: "config",
+	// The namespace a receiving service identifies a hidden value by: a
+	// literal URI, naming nothing in the document.
+	answerNamespace: "config",
+	// Where the answer is submitted, apart from its screen. The parent is a
+	// group's UUID resolved by `submissionLayout.ts`, whose invalid-reference
+	// finding gates a change that leaves it naming nothing; no expression
+	// reads it.
+	"submissionPlacement.parent": "config",
+	"submissionPlacement.position": "config",
 	"optionsSource.options[].plainLabel": "config",
 	label_media: "media",
 	help_media: "media",
@@ -1551,6 +1564,9 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"entryPoint.ignoreDisplayConditions": "config",
 	id: "declaration",
 	name: "display-text",
+	// The submitted answer envelope's element name: the name every absolute
+	// answer path starts with, never a reference to another entity.
+	dataRootName: "declaration",
 	type: "discriminator",
 	purpose: "display-text",
 	postSubmit: "config",

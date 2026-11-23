@@ -295,6 +295,9 @@ export function ordinaryAuthorityMutation(
 	engine.setValue("/data/age", "37");
 	engine.setValue("/data/visit_name", "First visit");
 	engine.setValue("/data/visit_notes", "Checkup");
+	// A repeat opens with no entry, as Core opens a repeat written as a
+	// template.
+	engine.addRepeat("/data/orders");
 	engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 	engine.addRepeat("/data/orders");
 	engine.setValue("/data/orders[1]/medication_name", "Aspirin");

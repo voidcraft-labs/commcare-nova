@@ -144,13 +144,13 @@ describe("toolSchemaGenerator", () => {
 				plain_help: true,
 			}).success,
 		).toBe(true);
-		const onLabel = generated.editFieldUpdatesSchema.safeParse({
-			kind: "label",
+		const onHidden = generated.editFieldUpdatesSchema.safeParse({
+			kind: "hidden",
 			plain_help: true,
 		});
-		expect(onLabel.success).toBe(false);
-		expect(onLabel.error?.issues.map((issue) => issue.message)).toEqual([
-			'kind "label" carries no help text, so leave plain_help out.',
+		expect(onHidden.success).toBe(false);
+		expect(onHidden.error?.issues.map((issue) => issue.message)).toEqual([
+			'kind "hidden" carries no help text, so leave plain_help out.',
 		]);
 	});
 

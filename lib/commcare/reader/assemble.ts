@@ -45,6 +45,7 @@ import {
 	proseText,
 } from "@/lib/domain/prose";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import {
 	snapshotTranslationUnits,
 	type TranslationUnit,
@@ -263,7 +264,88 @@ function flagPrintsNothing(
 	return !carriesMedia(media) && blankEverywhere(doc, template, unit);
 }
 
+/**
+ * A form's controls and submitted answers as the reader returns them
+ * (`xform/join.ts::order`). The export keeps only the submitted order of a
+ * bodyless field (a Hidden Value, which has no control), so the reader puts it
+ * in its submitted slot among its screen siblings, the visible ones filling
+ * the other slots in the worker's order. Where a group's submitted children
+ * then differ from its screen children, every one of them carries its
+ * submitted position; elsewhere none does.
+ */
+function placementAsRead(doc: BlueprintDoc, form: Uuid): BlueprintDoc {
+	const layout = submissionLayout(form, doc.fields, doc.fieldOrder);
+	if (!layout.independent || layout.problems.size > 0) return doc;
+	const dataIndex = new Map<Uuid, number>();
+	const visit = (parent: Uuid): void => {
+		for (const uuid of layout.children.get(parent) ?? []) {
+			dataIndex.set(uuid, dataIndex.size);
+			visit(uuid);
+		}
+	};
+	visit(form);
+	const screens = new Map<Uuid, Uuid[]>();
+	for (const parent of [form, ...layout.controlParents.keys()]) {
+		const list = doc.fieldOrder[parent];
+		if (list === undefined) continue;
+		const sorted = [...list].sort(
+			(a, b) => (dataIndex.get(a) ?? 0) - (dataIndex.get(b) ?? 0),
+		);
+		const visible = list.filter((uuid) => doc.fields[uuid]?.kind !== "hidden");
+		let slot = 0;
+		screens.set(
+			parent,
+			sorted.map((uuid) =>
+				doc.fields[uuid]?.kind === "hidden" ? uuid : (visible[slot++] as Uuid),
+			),
+		);
+	}
+	const placed = new Map<Uuid, { parent: Uuid; position: number }>();
+	for (const [parent, siblings] of layout.children) {
+		const shown = screens.get(parent) ?? [];
+		if (
+			shown.length === siblings.length &&
+			siblings.every((uuid, index) => shown[index] === uuid)
+		)
+			continue;
+		for (const [position, uuid] of siblings.entries())
+			placed.set(uuid, { parent, position });
+	}
+	const unchanged =
+		[...screens].every(([parent, list]) =>
+			sameJson(list, doc.fieldOrder[parent]),
+		) &&
+		[...dataIndex.keys()].every((uuid) =>
+			sameJson(placed.get(uuid), doc.fields[uuid]?.submissionPlacement),
+		);
+	if (unchanged) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [parent, list] of screens) draft.fieldOrder[parent] = list;
+		for (const uuid of dataIndex.keys()) {
+			const field = draft.fields[uuid] as {
+				submissionPlacement?: { parent: Uuid; position: number };
+			};
+			const placement = placed.get(uuid);
+			if (placement === undefined) delete field.submissionPlacement;
+			else field.submissionPlacement = placement;
+		}
+	});
+}
+
 export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
+	{
+		/** A form whose answers are submitted apart from their screens: a
+		 *  bodyless field's screen position, and which answers name their
+		 *  submitted place, are what the export prints of them, as the reader
+		 *  returns them (`placementAsRead`). */
+		id: "submitted-placement-as-read",
+		kind: "one-wire",
+		apply: (doc) =>
+			Object.keys(doc.forms).reduce(
+				(next, form) => placementAsRead(next, form as Uuid),
+				doc,
+			),
+	},
 	{
 		/** A Hidden Value whose chosen answer type is the class Nova's automatic
 		 *  type already writes (`xsd:string`, or `xsd:dateTime` where its write or

@@ -347,6 +347,8 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"search-field-multiple-choice": "multiple-choice search fields",
 	"window-width": "reads of the window's width",
 	"connect-app": "CommCare Connect",
+	"answer-name-requires-android":
+		"answers whose IDs Web Apps reads as instructions",
 };
 
 /** Cause ids a stored notice row may carry that no current feature reads

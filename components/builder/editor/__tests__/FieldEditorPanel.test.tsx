@@ -177,7 +177,9 @@ describe("the default value entry", () => {
 		expect(defaultValuePlacement(preloaded, ONE_CASE_FOLLOWUP)).toBe("row");
 	});
 
-	it("does not exist on the capture kinds", () => {
+	// A capture's starting value is a file name it submits as text until the
+	// worker attaches a file, so an empty capture offers one to add.
+	it("is offered to add on the capture kinds", () => {
 		for (const kind of captureFieldKinds) {
 			const field = {
 				kind,
@@ -185,7 +187,7 @@ describe("the default value entry", () => {
 				id: "capture",
 				label: proseText("Capture"),
 			} as Field;
-			expect(defaultValuePlacement(field, ONE_CASE_FOLLOWUP)).toBe("absent");
+			expect(defaultValuePlacement(field, ONE_CASE_FOLLOWUP)).toBe("pill");
 		}
 	});
 });

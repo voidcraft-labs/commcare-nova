@@ -34,6 +34,7 @@ function receivingAnswers(android: boolean) {
 						fields: [
 							f({
 								kind: "group",
+								uuid: uuid("visit"),
 								id: "visit",
 								label: proseText("Visit"),
 								children: [
@@ -59,6 +60,7 @@ function receivingAnswers(android: boolean) {
 										? [
 												f({
 													kind: "text",
+													uuid: uuid("registration"),
 													id: "Registration",
 													label: proseText("Registration reference"),
 												}),

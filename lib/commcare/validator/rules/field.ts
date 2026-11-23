@@ -402,31 +402,9 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
  * siblings.
  */
 function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
-	if (field.kind === "hidden" && field.answerNamespace !== undefined) {
-		const problem =
-			answerNamespaceProblem(field.answerNamespace) ??
-			(submittedAction(field.id, field.answerNamespace) === "stock"
-				? "Workers use this namespace for stock transactions."
-				: undefined);
-		if (problem)
-			return [
-				validationError(
-					"SUBMITTED_ANSWER_NAMESPACE",
-					"field",
-					`For hidden value "${field.id}", ${problem[0].toLowerCase()}${problem.slice(1)} Enter the receiving service’s namespace or clear it to use the form’s namespace.`,
-					{
-						moduleUuid: ctx.moduleUuid,
-						moduleName: ctx.moduleName,
-						formUuid: ctx.formUuid,
-						formName: ctx.formName,
-						fieldUuid: field.uuid,
-						fieldId: field.id,
-					},
-				),
-			];
-	}
+	const namespaceFindings = invalidAnswerNamespace(field, ctx);
 	const problem = questionIdProblem(field.id);
-	if (problem === undefined) return [];
+	if (problem === undefined) return namespaceFindings;
 	const layout = submissionLayout(
 		ctx.formUuid,
 		ctx.doc.fields,
@@ -449,6 +427,7 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 		for (const id of formConnectIds(ctx.doc, ctx.formUuid)) siblings.add(id);
 	const suggestedId = freeQuestionId(field.id, siblings);
 	return [
+		...namespaceFindings,
 		validationError(
 			"INVALID_FIELD_ID",
 			"field",
@@ -464,6 +443,38 @@ function invalidFieldId(field: Field, ctx: FieldContext): ValidationError[] {
 			{ fieldUuid: field.uuid, problem, suggestedId },
 		),
 	];
+}
+
+/** A Hidden Value's receiving namespace that XML reserves, that no URI
+ * spells, or that workers read as a stock transaction. */
+function invalidAnswerNamespace(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind !== "hidden" || field.answerNamespace === undefined) return [];
+	const problem =
+		answerNamespaceProblem(field.answerNamespace) ??
+		(submittedAction(field.id, field.answerNamespace) === "stock"
+			? "Workers use this namespace for stock transactions."
+			: undefined);
+	if (problem)
+		return [
+			validationError(
+				"SUBMITTED_ANSWER_NAMESPACE",
+				"field",
+				`For hidden value "${field.id}", ${problem[0].toLowerCase()}${problem.slice(1)} Enter the receiving service’s namespace or clear it to use the form’s namespace.`,
+				{
+					moduleUuid: ctx.moduleUuid,
+					moduleName: ctx.moduleName,
+					formUuid: ctx.formUuid,
+					formName: ctx.formName,
+					fieldUuid: field.uuid,
+					fieldId: field.id,
+				},
+				{ problem },
+			),
+		];
+	return [];
 }
 
 /**

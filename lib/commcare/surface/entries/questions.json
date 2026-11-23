@@ -58,7 +58,7 @@
 			"cell": "UNAVAILABLE on Web Apps / RUNS on Android",
 			"webApps": {
 				"reading": "unavailable",
-				"note": "Web Apps would read this answer as an instruction"
+				"note": "it would read this answer as an instruction"
 			},
 			"android": {
 				"reading": "runs"

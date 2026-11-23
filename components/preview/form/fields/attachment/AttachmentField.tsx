@@ -252,7 +252,7 @@ function AttachmentControl({
 	const rules = usePreviewPlatformRules();
 	const limits = CAPTURE_LIMITS[platform];
 	const androidImageLimit =
-		platform === "android" && field.kind === "image"
+		rules.capture === "device" && field.kind === "image"
 			? field.maxDimension
 			: undefined;
 	const projectProse = useProseProjection();
@@ -468,7 +468,7 @@ function AttachmentControl({
 								context.signal,
 							);
 				if (!context.isCurrent() || !hasWriteAuthority()) return "canceled";
-				if (platform === "android" && upload.size > limits.maxBytes)
+				if (rules.capture === "device" && upload.size > limits.maxBytes)
 					throw new AttachmentRejected(
 						`This file is bigger than ${Math.floor(limits.maxBytes / 1_000_000)} MB. You can choose a smaller one.`,
 					);
@@ -508,7 +508,7 @@ function AttachmentControl({
 						adopted = true;
 						setStaged(next);
 						if (
-							platform === "android" &&
+							rules.capture === "device" &&
 							(field.kind === "image" ||
 								field.kind === "audio" ||
 								field.kind === "video")
@@ -589,6 +589,7 @@ function AttachmentControl({
 			platform,
 			androidImageLimit,
 			limits,
+			rules.capture,
 		],
 	);
 

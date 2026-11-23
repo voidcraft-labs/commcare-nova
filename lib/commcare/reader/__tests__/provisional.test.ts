@@ -103,8 +103,8 @@ function survey(): BlueprintDoc {
 	});
 }
 
-/** Renames the question `q1` to an id the question id grammar refuses, everywhere it is named. */
-const refuseQ1 = (xml: string) => xml.replaceAll("q1", "script");
+/** Renames the question `q1` to an id a worker's submission reads as a case change, everywhere it is named. */
+const refuseQ1 = (xml: string) => xml.replaceAll("q1", "Case");
 
 /** A survey whose group `boxed` holds `q1`, which `q2`'s condition reads, beside a text `q3`. */
 function boxed(): BlueprintDoc {
@@ -138,10 +138,10 @@ function boxed(): BlueprintDoc {
 	});
 }
 
-/** Renames the group `boxed` to an id the grammar refuses, and binds `q3` as a Long, a kind
+/** Renames the group `boxed` to an id a submission reads as a case change, and binds `q3` as a Long, a kind
  *  Nova refuses. */
 function refuseBoxedAndQ3(xml: string): string {
-	const renamed = xml.replaceAll("boxed", "script");
+	const renamed = xml.replaceAll("boxed", "Case");
 	const at = renamed.indexOf('nodeset="/data/q3"');
 	const open = renamed.lastIndexOf("<bind", at);
 	const close = renamed.indexOf(">", at);
@@ -172,7 +172,7 @@ describe("the provisional document", () => {
 			true,
 		);
 		const standIn = Object.values(doc.fields).find(
-			(field) => field.id === "script",
+			(field) => field.id === "Case",
 		);
 		expect(standIn?.kind).toBe("hidden");
 		bindExpressions(ctx);
@@ -199,7 +199,7 @@ describe("the provisional document", () => {
 		expect(provisional.moduleOrder).toHaveLength(1);
 		const byId = (id: string) =>
 			Object.values(provisional.fields).find((field) => field.id === id);
-		const group = byId("script");
+		const group = byId("Case");
 		expect(group?.kind).toBe("group");
 		expect(
 			provisional.fieldOrder[group?.uuid as Uuid]?.map(
@@ -218,7 +218,7 @@ describe("the provisional document", () => {
 		if (outcome.kind !== "account") return;
 		const places = outcome.findings.map((finding) => finding.place);
 		expect(places).toContainEqual(
-			expect.objectContaining({ kind: "question", path: "script" }),
+			expect.objectContaining({ kind: "question", path: "Case" }),
 		);
 		expect(places).toContainEqual(
 			expect.objectContaining({ kind: "question", path: "q3" }),

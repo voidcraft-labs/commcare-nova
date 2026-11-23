@@ -1052,7 +1052,7 @@ export function buildXFormSource(
 
 	// The form's text formatting switch, read beside each text's own setting.
 	const textForm: Pick<Form, "plainText"> = doc.forms[formUuid] ?? {};
-	const controls = new Map<Uuid, Element>();
+	const controls = new Map<Uuid, readonly Element[]>();
 	for (const fieldUuid of expressions.form.fieldOrder.get(formUuid) ?? []) {
 		const ownBody: Element[] = [];
 		buildFieldParts(
@@ -1075,7 +1075,7 @@ export function buildXFormSource(
 			textForm,
 			controls,
 		);
-		if (ownBody[0] !== undefined) controls.set(fieldUuid, ownBody[0]);
+		if (ownBody.length > 0) controls.set(fieldUuid, ownBody);
 	}
 	bodyElements.push(...orderedControls(doc, formUuid, controls));
 
@@ -1285,7 +1285,7 @@ function buildFieldParts(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
-	controls: Map<Uuid, Element>,
+	controls: Map<Uuid, readonly Element[]>,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -2199,7 +2199,7 @@ function buildContainer(
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
 	textForm: Pick<Form, "plainText">,
-	controls: Map<Uuid, Element>,
+	controls: Map<Uuid, readonly Element[]>,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -2243,7 +2243,7 @@ function buildContainer(
 			textForm,
 			controls,
 		);
-		if (ownBody[0] !== undefined) controls.set(childUuid, ownBody[0]);
+		if (ownBody.length > 0) controls.set(childUuid, ownBody);
 	}
 
 	const query =
@@ -2406,11 +2406,13 @@ function buildContainer(
 function orderedControls(
 	doc: BlueprintDoc,
 	parent: Uuid,
-	controls: ReadonlyMap<Uuid, Element>,
+	controls: ReadonlyMap<Uuid, readonly Element[]>,
 ): Element[] {
 	const children: Element[] = [];
 	for (const uuid of orderedFieldUuids(doc, parent)) {
-		const element = controls.get(uuid);
+		// A field's own control comes first; a protected validation
+		// message's carrier follows it directly.
+		const [element, ...following] = controls.get(uuid) ?? [];
 		if (element === undefined) continue;
 		const field = doc.fields[uuid];
 		if (isContainer(field)) {
@@ -2422,7 +2424,7 @@ function orderedControls(
 				throw new Error(`The repeat ${field.id} has no row control.`);
 			appendChildren(holder, orderedControls(doc, uuid, controls));
 		}
-		children.push(element);
+		children.push(element, ...following);
 	}
 	return children;
 }

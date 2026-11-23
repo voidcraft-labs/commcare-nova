@@ -168,6 +168,8 @@ describe("computeOperationAnswers", () => {
 		expect(valuesOf(answers?.root ?? [])).toEqual({
 			[testUuid("form.name") as string]: "Ada",
 			[testUuid("form.symptoms") as string]: ["fever", "cough"],
+			// A message is an answer too, blank until it is confirmed.
+			[testUuid("form.note") as string]: "",
 		});
 		expect(answers?.repeats).toEqual([]);
 	});
