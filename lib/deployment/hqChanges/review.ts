@@ -1,5 +1,6 @@
 import {
 	androidRequirementsComparisonSource,
+	androidRequirementsPrivilegeLost,
 	changesUnownedAndroidApps,
 } from "@/lib/commcare/androidAppDependencies";
 import "server-only";
@@ -83,6 +84,7 @@ import type { DriftReference } from "@/lib/publish/driftReference";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import { firstPublishLines } from "@/lib/publish/firstPublishCopy";
 import {
+	ANDROID_APPS_PRIVILEGE_LOST_LINE,
 	caseDataLine,
 	caseTypesLine,
 	whereHqKeepsLines,
@@ -410,6 +412,10 @@ export interface FetchedHqChanges extends HqChangesBasis {
 		): Promise<readonly Pick<MediaAssetRecord, "id" | "contentHash">[]>;
 	};
 	readonly comparisonSource?: unknown;
+	/** CommCare HQ dropped the baseline's Android apps with the project space's
+	 *  App Dependencies, so the comparison source holds none either
+	 *  (`androidRequirementsPrivilegeLost`). */
+	readonly androidPrivilegeLost?: true;
 	readonly saveOnlyEditedApplied?: boolean;
 	/** The Project's data, bound with no answer of the person's. */
 	readonly data: ReadingProjectData;
@@ -1164,6 +1170,12 @@ async function computeWith(
 			source.profile.features,
 			head.doc.appSettings.requiredAndroidApps,
 		);
+	/* CommCare HQ deleting the selection with the privilege is no person's
+	 * edit, so the app keeps its Android apps: both readings hold none. */
+	const androidPrivilegeLost = androidRequirementsPrivilegeLost(
+		baseline.source,
+		normalized.normalized,
+	);
 	const languageNames = live.ownership === "adopted" ? "target" : "nova";
 
 	/* 5. The reference document, whose files the publish sends. */
@@ -1311,7 +1323,9 @@ async function computeWith(
 				baseline.source,
 				reference.doc.appSettings.requiredAndroidApps,
 			)
-		: baseline.source;
+		: androidPrivilegeLost
+			? androidRequirementsComparisonSource(baseline.source, undefined)
+			: baseline.source;
 	const baseSource = await pieces
 		.at("the base source")
 		.run(() => sourceFromBaseline(comparisonSource));
@@ -1373,6 +1387,7 @@ async function computeWith(
 				findReadyAssetIdsByProjectAndHashes(scope.projectId, hashes),
 		},
 		comparisonSource,
+		...(androidPrivilegeLost && { androidPrivilegeLost: true }),
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		data: projectData.data,
 	};
@@ -1985,8 +2000,11 @@ export async function checkHqChanges(
 		);
 	const whereHqKeeps = await pieces
 		.at("where HQ keeps")
-		.run(() =>
-			whereHqKeepsLines(
+		.run(() => [
+			...(fetched.androidPrivilegeLost
+				? [ANDROID_APPS_PRIVILEGE_LOST_LINE]
+				: []),
+			...whereHqKeepsLines(
 				targetIdentityChanges(
 					receipt.read,
 					receipt.next,
@@ -1995,7 +2013,7 @@ export async function checkHqChanges(
 					assetNames,
 				),
 			),
-		);
+		]);
 	if (
 		!requiresReview &&
 		(plan.kind === "nothing" ||

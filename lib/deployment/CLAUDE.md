@@ -1093,6 +1093,20 @@ reader does cancels, and the difference is ordinary mutations keyed by Nova's
 UUIDs (`diffDocsToMutations` under `HQ_READING_DELTA`, a delta that moves no
 saved case rows). Nothing is ever rebuilt from CommCare HQ's app.
 
+The Android apps workers need (`profile.features.dependencies`) are the one
+setting whose baseline side a review may project before reading it
+(`androidAppDependencies.ts::androidRequirementsComparisonSource`). Where the
+baseline does not own the setting and CommCare HQ holds a selection the
+document lacks, the baseline side takes the document's selection, so the take
+brings HQ's in. Where the baseline holds a selection and the source now lacks
+the key outright, CommCare HQ deleted it because the project space lost App
+Dependencies (`views/settings.py::edit_commcare_profile` deletes it on every
+settings save there, while the settings page saves a cleared picker as `[]`;
+`androidRequirementsPrivilegeLost`): the baseline side drops it too, so no one
+clears the document's selection, and the review says why
+(`ANDROID_APPS_PRIVILEGE_LOST_LINE`). A present `[]` is a person's clear and
+comes in as one.
+
 It is offered only over a usable pair (`hqChanges/reference.ts::usablePair`):
 a baseline that holds a source that verifies (origin `push`, `read` or
 `changes`) and names a `nova_revision`, a `push` baseline's revision equal to

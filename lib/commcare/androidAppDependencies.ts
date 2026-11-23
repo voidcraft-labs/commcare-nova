@@ -81,6 +81,39 @@ export function requiredAndroidPackages(
 	}));
 }
 
+/** The `profile.features` object a source holds, or null where it holds none. */
+function profileFeaturesOf(source: unknown): Record<string, unknown> | null {
+	if (!source || typeof source !== "object" || Array.isArray(source))
+		return null;
+	const profile = (source as Record<string, unknown>).profile;
+	if (!profile || typeof profile !== "object" || Array.isArray(profile))
+		return null;
+	const features = (profile as Record<string, unknown>).features;
+	if (!features || typeof features !== "object" || Array.isArray(features))
+		return null;
+	return features as Record<string, unknown>;
+}
+
+/**
+ * Whether CommCare HQ dropped the Android apps `earlier` named because the
+ * project space lost App Dependencies, rather than a person emptying them.
+ * Every settings save in a project space without the privilege deletes the
+ * key (`app_manager/views/settings.py::edit_commcare_profile`), while the
+ * settings page saves a cleared picker as `[]` (`commcare_settings.js`'s
+ * `valueToSave` posts the multiSelect's empty list, which the same view
+ * writes as given). So a selection the earlier read held, whose key the read
+ * now lacks, is a lost privilege; a present `[]` is a person's choice.
+ */
+export function androidRequirementsPrivilegeLost(
+	earlier: unknown,
+	now: unknown,
+): boolean {
+	const before = profileFeaturesOf(earlier)?.dependencies;
+	if (!Array.isArray(before) || before.length === 0) return false;
+	const after = profileFeaturesOf(now);
+	return after === null || !Object.hasOwn(after, "dependencies");
+}
+
 /** Before Nova owned this profile selection, the raw HQ baseline could
  * already name worker apps absent from the published document. A take
  * compares this one setting to that document. The original HQ observation

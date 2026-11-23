@@ -80,7 +80,10 @@ import { readManagedTableReview } from "@/lib/lookup/managed";
 import { getLookupTable, updateLookupTableTag } from "@/lib/lookup/service";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
-import { hqChangesPublishingStoppedLine } from "@/lib/publish/hqChangesCopy";
+import {
+	ANDROID_APPS_PRIVILEGE_LOST_LINE,
+	hqChangesPublishingStoppedLine,
+} from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { TargetPeer } from "@/proof/corpus/targetPeer";
@@ -2935,6 +2938,83 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			expect(baseline.ownership?.profileFeatures).toContain("dependencies");
 		},
 	);
+
+	/** `doc`'s emission at save 3, with CommCare HQ's `profile.features` rewritten by `change`. */
+	function withFeatures(
+		doc: BlueprintDoc,
+		change: (features: Record<string, unknown>) => Record<string, unknown>,
+	) {
+		const served = emission(doc, 3);
+		return {
+			...served,
+			source: changedAnswer(served.source, (body) => {
+				const profile = (body.profile ?? {}) as Record<string, unknown>;
+				const features = (profile.features ?? {}) as Record<string, unknown>;
+				return {
+					...body,
+					profile: { ...profile, features: change({ ...features }) },
+				};
+			}),
+		};
+	}
+
+	it("keeps the Android apps CommCare HQ dropped with the project space's App Dependencies", async () => {
+		const doc = clinic({});
+		doc.appSettings.requiredAndroidApps = ["simprints-id"];
+		const appId = await broughtIn(doc);
+		// Every settings save in a project space without the privilege deletes
+		// the key outright (`views/settings.py::edit_commcare_profile`).
+		const served = withFeatures(doc, ({ dependencies: _, ...rest }) => rest);
+		const listed = await withHttpPeer(async (peer) => {
+			serveEmission(peer, served);
+			return reviewHqChanges(scope(appId), KEY_TARGET, { onEvent: () => {} });
+		});
+		if (
+			(listed.kind !== "nothing" && listed.kind !== "changes") ||
+			listed.readingId === null ||
+			listed.reviewDigest === null
+		)
+			throw new Error(`The review answered ${JSON.stringify(listed)}`);
+		const { readingId, reviewDigest } = listed;
+		const outcome = await withHttpPeer(async (peer) => {
+			serveEmission(peer, served);
+			return bringInHqChanges(
+				scope(appId),
+				KEY_TARGET,
+				{
+					readingId,
+					reviewDigest,
+					tableChoices: {},
+				},
+				{ onEvent: () => {} },
+			);
+		});
+		expect((await headDocOf(appId)).appSettings.requiredAndroidApps).toEqual([
+			"simprints-id",
+		]);
+		// Nothing a person changed, so the review settles with nothing to take.
+		expect({ review: listed.kind, outcome: outcome.kind }).toEqual({
+			review: "nothing",
+			outcome: "recorded",
+		});
+		expect(listed.hqChanges).toContain(ANDROID_APPS_PRIVILEGE_LOST_LINE);
+	});
+
+	it("takes the Android apps a person emptied in CommCare HQ's settings as a change", async () => {
+		const doc = clinic({});
+		doc.appSettings.requiredAndroidApps = ["simprints-id"];
+		const appId = await broughtIn(doc);
+		// The settings page saves a cleared picker as an empty list.
+		const { listed } = await reviewAndBringIn(
+			appId,
+			doc,
+			withFeatures(doc, (features) => ({ ...features, dependencies: [] })),
+		);
+		expect(listed.hqChanges).not.toContain(ANDROID_APPS_PRIVILEGE_LOST_LINE);
+		expect(
+			(await headDocOf(appId)).appSettings.requiredAndroidApps ?? [],
+		).toEqual([]);
+	});
 
 	it("brings in a case type CommCare HQ added, and leaves its schema synced at the commit", async () => {
 		const appId = await broughtIn(clinic({}));

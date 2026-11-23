@@ -250,6 +250,15 @@ export function whereHqKeepsLines(changes: {
 	return lines;
 }
 
+/**
+ * The line a review says where CommCare HQ no longer lists the Android apps
+ * the app needs because the project space lost App Dependencies
+ * (`androidAppDependencies.ts::androidRequirementsPrivilegeLost`). Nova keeps
+ * them, since no one chose to remove them.
+ */
+export const ANDROID_APPS_PRIVILEGE_LOST_LINE =
+	"CommCare HQ no longer lists the Android apps workers need, as it does when a project space loses App Dependencies. Nova keeps them in the app, since no one chose to remove them.";
+
 /** The panel's lead over what the next publish changes, each line the register's own sentence. */
 export const NEXT_PUBLISH_LEAD =
 	"Nova writes a few things its own way, so your next publish changes these in CommCare HQ:";
