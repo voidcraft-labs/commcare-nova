@@ -4,9 +4,15 @@
  * rule Nova offers, and the other way through. The bring-in review, the
  * HQ-changes panel and MCP's two projections all say it in these words.
  *
- * Client-safe, and it imports nothing: the review's schema
+ * Client-safe: the review's schema
  * (`lib/deployment/reading/projectData/reviewTypes.ts`) holds these types.
+ * Every name CommCare HQ supplies is cut as a finding's name is, and a rule
+ * names a few of its forms and counts the rest, so the question's text is
+ * bounded however many forms use the rule (MCP holds it whole in a page's
+ * shell).
  */
+
+import { cutFindingName } from "./hqFindings";
 
 /** Why one level's owner rule names no one place, as the places CommCare HQ holds say. */
 export type OwnerRuleConflict =
@@ -40,37 +46,51 @@ export interface ReviewOwnerRule {
 	readonly forms: readonly string[];
 }
 
-/** `“a”`, `“a” and “b”`, `“a”, “b” and “c”`. */
-function quotedList(names: readonly string[]): string {
-	const quoted = names.map((name) => `“${name}”`);
+/** How many forms a rule's body names before it counts the rest. */
+const NAMED_FORMS = 3;
+
+/**
+ * `“a”`, `“a” and “b”`, `“a”, “b” and “c”`, and past `NAMED_FORMS` names
+ * `“a”, “b”, “c” and 4 other forms`, each name cut as a finding's is, so a
+ * rule many forms use, or a form with a very long name, says it in a bounded
+ * sentence.
+ */
+function quotedForms(names: readonly string[]): string {
+	const quoted = names
+		.slice(0, NAMED_FORMS)
+		.map((name) => `“${cutFindingName(name)}”`);
+	const others = names.length - quoted.length;
+	if (others > 0)
+		return `${quoted.join(", ")} and ${others} other ${others === 1 ? "form" : "forms"}`;
 	if (quoted.length <= 1) return quoted.join("");
 	return `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}`;
 }
 
 /** The question's title. */
 export function ownerRuleTitle(rule: ReviewOwnerRule): string {
-	return `Who owns the cases for ${rule.levelName}`;
+	return `Who owns the cases for ${cutFindingName(rule.levelName)}`;
 }
 
 /** What the rule does and why the places in `domain` give it no one place. */
 export function ownerRuleBody(rule: ReviewOwnerRule, domain: string): string {
 	const forms =
 		rule.forms.length === 1
-			? `The form ${quotedList(rule.forms)} gives`
-			: `The forms ${quotedList(rule.forms)} give`;
-	const lead = `${forms} each case to the ${rule.levelName} below the place that owns it.`;
+			? `The form ${quotedForms(rule.forms)} gives`
+			: `The forms ${quotedForms(rule.forms)} give`;
+	const level = cutFindingName(rule.levelName);
+	const lead = `${forms} each case to the ${level} below the place that owns it.`;
 	const { conflict } = rule;
 	switch (conflict.kind) {
 		case "two-places":
-			return `${lead} In ${domain}, both ${conflict.places[0]} and ${conflict.places[1]} are below ${conflict.source}, so the rule can't tell which one to use.`;
+			return `${lead} In ${domain}, both ${cutFindingName(conflict.places[0])} and ${cutFindingName(conflict.places[1])} are below ${cutFindingName(conflict.source)}, so the rule can't tell which one to use.`;
 		case "no-place":
-			return `${lead} In ${domain}, no ${rule.levelName} is below ${conflict.source}, so the rule finds no place.`;
+			return `${lead} In ${domain}, no ${level} is below ${cutFindingName(conflict.source)}, so the rule finds no place.`;
 		case "level-owns-no-cases":
-			return `${lead} In ${domain}, places at the ${rule.levelName} level don't own cases.`;
+			return `${lead} In ${domain}, places at the ${level} level don't own cases.`;
 		case "no-owning-level-above":
-			return `${lead} In ${domain}, no level above ${rule.levelName} owns cases.`;
+			return `${lead} In ${domain}, no level above ${level} owns cases.`;
 		case "outside-address-book":
-			return `${lead} In ${domain}, the rule can find ${conflict.place}, which workers of the type ${conflict.persona} don't carry on their phones.`;
+			return `${lead} In ${domain}, the rule can find ${cutFindingName(conflict.place)}, which workers of the type ${cutFindingName(conflict.persona)} don't carry on their phones.`;
 	}
 }
 
@@ -91,7 +111,7 @@ export const OWNER_RULE_ONE_PLACE_REASON =
 
 /** What the question says once Bring it in found it unanswered. */
 export const OWNER_RULE_NEEDS_ANSWER =
-	"Choose who owns these cases before Nova brings this in.";
+	"Who owns these cases needs your choice before Nova can bring this in.";
 
 /** The other way through. */
 export const OWNER_RULE_OTHERWISE =

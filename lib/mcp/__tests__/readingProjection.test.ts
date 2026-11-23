@@ -514,6 +514,34 @@ describe("describeReading", () => {
 		]);
 	});
 
+	it("serves each owner-rule question by its level with the one answer, in a page however many forms use the rule", () => {
+		const LONG = "Ž".repeat(255);
+		const levels = ["clinic", "district", "ward"];
+		const body: ReadingReview = {
+			...review(),
+			ownerRules: levels.map((level) => ({
+				level,
+				levelName: `${level}${LONG}`,
+				conflict: {
+					kind: "two-places",
+					source: `East${LONG}`,
+					places: [`East A${LONG}`, `East B${LONG}`],
+				},
+				forms: Array.from({ length: 600 }, (_, form) => `${form}${LONG}`),
+			})),
+		};
+		const projection = served(
+			describeReading(reviewAnswer(body), KEY, FIRST_PAGE),
+		);
+		expect(JSON.stringify(projection).length).toBeLessThan(PAGE_LIMIT_CHARS);
+		const rules = projection.review?.owner_rules ?? [];
+		expect(rules.map((rule) => rule.level)).toEqual(levels);
+		for (const rule of rules) {
+			expect(rule.answer.value).toBe("worker");
+			expect(rule.body).toContain("and 597 other forms");
+		}
+	});
+
 	it("says what the first upload asks under the preselected way to run", () => {
 		const body = review();
 		const androidFirst: ReadingReview = {
