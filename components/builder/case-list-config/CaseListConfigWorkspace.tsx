@@ -64,6 +64,7 @@ import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	columnSnapshotBatchMutations,
 	columnSnapshotMutations,
+	fasterLoadingFollowsColumn,
 	mappingRowTranslationCarry,
 } from "@/lib/doc/caseListColumnMutations";
 import {
@@ -1062,26 +1063,17 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		if (current === undefined) return;
 		const preserved = withPreservedIdentity(current, next);
 		// A column that can no longer keep a load behavior drops it in the same
-		// save, and the list's faster loading follows whether any column holds one.
+		// save, and the list's faster loading follows the column's choice.
 		const replacement =
 			"loadBehavior" in preserved && !columnSupportsLoadBehavior(preserved)
 				? (({ loadBehavior: _dropped, ...rest }) => rest as Column)(preserved)
 				: preserved;
-		const holdsBehavior = (column: Column) =>
-			"loadBehavior" in column && column.loadBehavior !== undefined;
-		const anyAfter = config.columns.some((column) =>
-			holdsBehavior(column.uuid === uuid ? replacement : column),
+		const loading = fasterLoadingFollowsColumn(
+			requireRetainedModuleUuid(moduleUuid),
+			config,
+			current,
+			replacement,
 		);
-		const optimizations: Mutation[] =
-			anyAfter === (config.optimizations === true)
-				? []
-				: [
-						{
-							kind: "setCaseListMeta",
-							uuid: requireRetainedModuleUuid(moduleUuid),
-							patch: { optimizations: anyAfter ? true : null },
-						},
-					];
 		if (
 			replacement.kind === "map-layer" &&
 			(current.kind !== "map-layer" || current.layer !== replacement.layer)
@@ -1102,13 +1094,13 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		);
 		commitFieldChanges([
 			...carry.before,
-			...(anyAfter ? optimizations : []),
+			...loading.before,
 			...columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
 				current,
 				replacement,
 			),
-			...(anyAfter ? [] : optimizations),
+			...loading.after,
 			...carry.after,
 		]);
 	};
@@ -1319,12 +1311,20 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			...(column.visibleInList !== false ? ["Results"] : []),
 			...(column.visibleInDetail !== false ? ["Details"] : []),
 		];
+		// Removing the last column that chooses how a phone loads it turns the
+		// list's faster loading off in the same save.
 		const outcome = commitFieldChanges([
 			{
 				kind: "removeColumn",
 				moduleUuid: requireRetainedModuleUuid(moduleUuid),
 				uuid: column.uuid,
 			},
+			...fasterLoadingFollowsColumn(
+				requireRetainedModuleUuid(moduleUuid),
+				config,
+				column,
+				undefined,
+			).after,
 		]);
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;

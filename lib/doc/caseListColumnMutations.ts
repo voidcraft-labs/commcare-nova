@@ -318,3 +318,55 @@ export function mappingRowUnitMoves(
 	}
 	return moves;
 }
+
+function holdsLoadBehavior(column: Column | undefined): boolean {
+	return (
+		column !== undefined &&
+		"loadBehavior" in column &&
+		column.loadBehavior !== undefined
+	);
+}
+
+/**
+ * The case list's faster loading as the Builder's column edits keep it: one column's first load
+ * behavior turns it on in the same save (`before` the column's update, so the column commits
+ * with it on), and the edit or removal (`next` undefined) that clears the last behavior any
+ * column holds turns it off (`after`). An edit that neither gives nor takes a behavior leaves the
+ * setting as it is, so a list that holds faster loading with no column's choice (an app brought
+ * in from CommCare HQ, or one a tool turned on) keeps it.
+ */
+export function fasterLoadingFollowsColumn(
+	moduleUuid: Uuid,
+	config: CaseListConfig,
+	current: Column,
+	next: Column | undefined,
+): { readonly before: Mutation[]; readonly after: Mutation[] } {
+	const had = holdsLoadBehavior(current);
+	const has = holdsLoadBehavior(next);
+	if (has && config.optimizations !== true)
+		return {
+			before: [
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { optimizations: true },
+				},
+			],
+			after: [],
+		};
+	const othersHold = config.columns.some(
+		(column) => column.uuid !== current.uuid && holdsLoadBehavior(column),
+	);
+	if (had && !has && !othersHold && config.optimizations === true)
+		return {
+			before: [],
+			after: [
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { optimizations: null },
+				},
+			],
+		};
+	return { before: [], after: [] };
+}
