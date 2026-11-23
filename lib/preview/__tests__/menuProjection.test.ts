@@ -1498,8 +1498,9 @@ describe("a parent selection naming a menu that lists another menu's forms", () 
 	}
 
 	it("asks for the listing menu's case first, then holds the clinics to the chosen patient", () => {
-		const doc = clinicsUnderRoute();
-		assertAdmittedPreviewDoc(doc);
+		const built = clinicsUnderRoute();
+		assertAdmittedPreviewDoc(built);
+		const doc = { ...built, caseTypes: built.caseTypes ?? [] };
 		expect(previewMenuCaseContext(doc, CLINICS, {}).requiredParentCase).toEqual(
 			{ caseType: "patient", moduleUuid: ROUTE },
 		);
