@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import {
 	ConditionSlotEditor,
@@ -8,6 +8,7 @@ import {
 } from "@/components/builder/shared/ExpressionSlotEditors";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import {
 	Dialog,
 	DialogBody,
@@ -67,6 +68,7 @@ export function DetailTabEditor({
 	onSave,
 }: Props) {
 	const [draft, setDraft] = useState<DetailTabGroup[] | null>(null);
+	const id = useId();
 	const [error, setError] = useState("");
 	const firstFocus = useRef<Uuid | null>(null);
 	const original = useRef<{
@@ -304,14 +306,16 @@ export function DetailTabEditor({
 																(column.kind === "plain" ||
 																	column.kind === "calculated"),
 														) && (
-															<label className="flex items-center gap-2 text-xs">
-																<input
-																	type="checkbox"
+															<label
+																htmlFor={`${id}-order-${field}`}
+																className="flex items-center gap-2 text-xs"
+															>
+																<Checkbox
+																	id={`${id}-order-${field}`}
 																	checked={
 																		group.orderFields?.includes(field) ?? false
 																	}
-																	onChange={(event) => {
-																		const checked = event.target.checked;
+																	onCheckedChange={(checked) => {
 																		setDraft(
 																			draft.map((one) =>
 																				one.uuid !== group.uuid

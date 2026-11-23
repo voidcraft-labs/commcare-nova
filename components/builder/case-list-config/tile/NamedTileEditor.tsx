@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import {
 	Dialog,
 	DialogBody,
@@ -50,6 +51,7 @@ export function NamedTileEditor({
 		rawSlots: NamedTileSlot[],
 	) => string | undefined;
 }) {
+	const id = useId();
 	const columns = orderedColumns(config, "list").filter(
 		(column) => column.visibleInList !== false && !column.notOnList,
 	);
@@ -126,13 +128,16 @@ export function NamedTileEditor({
 										))}
 									</SelectContent>
 								</Select>
-								<label className="col-span-2 flex items-center gap-2">
-									<input
-										type="checkbox"
+								<label
+									htmlFor={`${id}-raw-${slot}`}
+									className="col-span-2 flex items-center gap-2"
+								>
+									<Checkbox
+										id={`${id}-raw-${slot}`}
 										checked={raw.includes(slot)}
-										onChange={(event) =>
+										onCheckedChange={(checked) =>
 											setRaw(
-												event.target.checked
+												checked
 													? [...raw, slot]
 													: raw.filter((item) => item !== slot),
 											)

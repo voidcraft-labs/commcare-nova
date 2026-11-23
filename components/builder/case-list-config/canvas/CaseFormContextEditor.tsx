@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
 import {
 	Dialog,
 	DialogBody,
@@ -54,6 +55,7 @@ export function CaseFormContextEditor({
 	onSave,
 }: Props) {
 	const sources = useCaseFormContextMenus(moduleUuid);
+	const id = useId();
 	const [open, setOpen] = useState(false);
 	const [error, setError] = useState("");
 	const [draft, setDraft] = useState<CaseFormContextChoice | null>(null);
@@ -155,16 +157,17 @@ export function CaseFormContextEditor({
 								</Select>
 							</div>
 							{draft?.kind === "menu-tile" && (
-								<label className="flex items-center gap-2 text-sm">
-									<input
-										type="checkbox"
+								<label
+									htmlFor={`${id}-fallback`}
+									className="flex items-center gap-2 text-sm"
+								>
+									<Checkbox
+										id={`${id}-fallback`}
 										checked={!!expression}
-										onChange={(event) => {
+										onCheckedChange={(checked) => {
 											const { expression: old, ...rest } = draft;
 											setDraft(
-												event.target.checked
-													? { ...rest, expression: makeLine() }
-													: rest,
+												checked ? { ...rest, expression: makeLine() } : rest,
 											);
 										}}
 									/>
@@ -188,17 +191,18 @@ export function CaseFormContextEditor({
 								/>
 							)}
 							{draft && draft.kind !== "line" && (
-								<label className="flex items-center gap-2 text-sm">
-									<input
-										type="checkbox"
+								<label
+									htmlFor={`${id}-expand`}
+									className="flex items-center gap-2 text-sm"
+								>
+									<Checkbox
+										id={`${id}-expand`}
 										checked={draft.expandDetails === true}
 										disabled={!canExpand && !draft.expandDetails}
-										onChange={(event) => {
+										onCheckedChange={(checked) => {
 											const { expandDetails: old, ...rest } = draft;
 											setDraft(
-												event.target.checked
-													? { ...rest, expandDetails: true }
-													: rest,
+												checked ? { ...rest, expandDetails: true } : rest,
 											);
 										}}
 									/>
