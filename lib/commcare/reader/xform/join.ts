@@ -645,7 +645,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 			)
 				inertAppearances.push(node.path.join("/"));
 		}
-		if (control.tag === "upload") readImageDimension(control, row, place);
+		if (control.tag === "upload") readImageDimension(control, field, place);
 		if (control.tag === "select" || control.tag === "select1") {
 			const proposal = readChoices({
 				control,
@@ -667,7 +667,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 	/** `jr:imageDimensionScaledMax` on an upload. */
 	const readImageDimension = (
 		control: ControlNode,
-		row: FieldKindRow,
+		field: DraftField,
 		place: HqPlace,
 	) => {
 		const name = attributeNameIn(
@@ -682,7 +682,7 @@ export function joinForm(input: JoinInput): JoinedForm {
 		const digits = written.endsWith("px") ? written.slice(0, -2) : written;
 		// Core reads the value with `Integer.parseInt`, which takes one leading sign.
 		const number = /^[+-]?\d+$/.test(digits) ? Number(digits) : undefined;
-		const image = row.kind === "image";
+		const image = field.kind === "image";
 		if (
 			number === undefined ||
 			number > 2147483647 ||
@@ -690,8 +690,10 @@ export function joinForm(input: JoinInput): JoinedForm {
 			(image && (number === 0 || number < -1))
 		)
 			cursor.refuse(node, X.imageMaxDimensionInvalid, place, { name: written });
-		else if (image && number > 0)
-			cursor.refuse(node, X.imageMaxDimension, place, { name: written });
+		else if (image && number > 0) {
+			cursor.take(node, X.imageMaxDimension).value;
+			field.field.maxDimension = number;
+		}
 		// Any integer on another upload, and `-1` on an image, Android's own no-limit value
 		// (`ImageWidget`), the state with none.
 		else cursor.account(node, X.imageMaxDimensionElsewhere, place);

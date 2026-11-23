@@ -29,6 +29,7 @@ DOCUMENTS = (
     "navigation-base",
     "targeted-worker-messages",
     "targeted-repeat-invitations",
+    "targeted-capture-widgets",
     "targeted-form-link-hidden-target",
     "targeted-hidden-column",
     "targeted-hidden-from-menu",

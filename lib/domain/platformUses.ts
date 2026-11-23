@@ -663,6 +663,12 @@ function fieldUses(
 			(field.kind === "group" && field.fieldList === true))
 	)
 		uses.push(slotUse("question-pages", owner, "kind"));
+	if (
+		field.kind === "image" &&
+		field.maxDimension !== undefined &&
+		wanted("image-size")
+	)
+		uses.push(slotUse("image-size", owner, "maxDimension"));
 	// Every display setting whose value a platform reads differently, found
 	// through the one registry, so a new setting needs no detector here.
 	for (const { key, row } of fieldDisplayValues(field)) {

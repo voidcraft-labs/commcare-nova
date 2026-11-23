@@ -1283,6 +1283,8 @@ the visible message on submission. Messages and capture questions can carry
 a starting answer, help, and a validation rule with its message. A starting
 filename supplies text. Choosing or recording a file supplies the bytes.
 
+An `image` question can set `maxDimension` to the longest side in pixels for JPEG and PNG photos sent from Android. A positive whole number sets the limit, up to 2147483647. On an edit, `null` restores original size. Web Apps sends the original file.
+
 A capture field (`image`, `audio`, `video`, `signature`, `file`) saves a link
 to its file, with the same `caseWrite` as any other field. In a case change,
 the value `capture-link(#form/<question>)` saves a capture's file as a link.

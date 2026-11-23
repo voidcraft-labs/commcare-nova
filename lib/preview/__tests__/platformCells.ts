@@ -238,6 +238,8 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/phone-number-xsd-string-appearance-numeric@web-apps": browser(
 		"number-keypad-web-apps",
 	),
+	"questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive@web-apps":
+		browser("image-size-web-apps"),
 	"questions/image-capture-upload-image@web-apps": browser(
 		"image-attach-web-apps",
 	),

@@ -556,6 +556,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 	"location-question": fieldKindPair("location-question", "geopoint"),
 	"barcode-question": fieldKindPair("barcode-question", "barcode"),
 	"image-question": fieldKindPair("image-question", "image"),
+	"image-size": {
+		with: () =>
+			oneField({
+				kind: "image",
+				id: "photo",
+				label: proseText("Photo"),
+				maxDimension: 731,
+			}),
+		without: () =>
+			oneField({ kind: "image", id: "photo", label: proseText("Photo") }),
+		use: slotUse("image-size", FIELD_OWNER, "maxDimension"),
+	},
 	"audio-question": fieldKindPair("audio-question", "audio"),
 	"video-question": fieldKindPair("video-question", "video"),
 	"question-pages": {

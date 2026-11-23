@@ -55,7 +55,12 @@ import {
 	hiddenFieldMetadata,
 	hiddenFieldSchema,
 } from "./hidden";
-import { type ImageField, imageFieldMetadata, imageFieldSchema } from "./image";
+import {
+	type ImageField,
+	imageDimensionSchema,
+	imageFieldMetadata,
+	imageFieldSchema,
+} from "./image";
 import { type IntField, intFieldMetadata, intFieldSchema } from "./int";
 import { type LabelField, labelFieldMetadata, labelFieldSchema } from "./label";
 import {
@@ -812,4 +817,4 @@ export type {
 	UserControlledRepeatField,
 	VideoField,
 };
-export { groupBornFieldList, TEXT_KEYPADS };
+export { groupBornFieldList, imageDimensionSchema, TEXT_KEYPADS };

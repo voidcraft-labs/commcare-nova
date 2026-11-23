@@ -196,6 +196,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"location-question",
 	"barcode-question",
 	"image-question",
+	"image-size",
 	"audio-question",
 	"video-question",
 	"question-pages",
@@ -480,6 +481,15 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "runs",
 			note: "the worker takes a picture with the camera or chooses one, up to 15 MB",
+		},
+	},
+	"image-size": {
+		label: "Photo size",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the original file is sent" },
+		android: {
+			reading: "runs",
+			note: "larger JPEG and PNG photos are resized before sending",
 		},
 	},
 	"audio-question": {

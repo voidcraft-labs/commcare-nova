@@ -2408,10 +2408,9 @@
 			"vellum-feature:image_resize"
 		],
 		"valueClass": "image-max-dimension",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `image.maxDimension`",
-		"subject": "question-types",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `image.maxDimension`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",

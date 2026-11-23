@@ -745,7 +745,7 @@ export const X = {
 		),
 	},
 	imageMaxDimension: one(
-		"refuse",
+		"take",
 		Q("jr-imagedimensionscaledmax-250-500-1000px-or-another-positive"),
 		"jr-extension:UploadQuestionExtensionParser",
 	),

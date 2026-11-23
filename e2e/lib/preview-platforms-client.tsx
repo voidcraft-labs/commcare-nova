@@ -244,7 +244,13 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 		case "media":
 			return [
 				inSection("Media", [
-					{ uuid: IDS.image, kind: "image", id: "photo", label: "Photo" },
+					{
+						uuid: IDS.image,
+						kind: "image",
+						id: "photo",
+						label: "Photo",
+						...(scenarioId?.startsWith("image-size-") && { maxDimension: 15 }),
+					},
 					{ kind: "audio", id: "voice", label: "Voice" },
 					{ kind: "video", id: "clip", label: "Clip" },
 					{

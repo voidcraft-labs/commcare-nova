@@ -2143,6 +2143,8 @@ function buildLeafControl(
 			mediatype: UPLOAD_MEDIATYPE_BY_CAPTURE_KIND[field.kind],
 			...attributes,
 		};
+		if (field.kind === "image" && field.maxDimension !== undefined)
+			uploadAttribs["jr:imageDimensionScaledMax"] = `${field.maxDimension}px`;
 		return xel(
 			"upload",
 			{ attributes: uploadAttribs, xpath: { ref } },

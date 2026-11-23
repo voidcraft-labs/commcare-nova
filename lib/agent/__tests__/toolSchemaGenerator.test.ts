@@ -68,6 +68,42 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
+	it("sets and clears the Android photo size on image questions", () => {
+		for (const pixels of [1, 731, 2147483647]) {
+			expect(
+				generated.addFieldsItemSchema.safeParse({
+					...validAddPayload("image"),
+					maxDimension: pixels,
+				}).success,
+			).toBe(true);
+			expect(
+				generated.editFieldUpdatesSchema.safeParse({
+					kind: "image",
+					maxDimension: pixels,
+				}).success,
+			).toBe(true);
+		}
+		for (const pixels of [0, -1, 3.5, 2147483648])
+			expect(
+				generated.editFieldUpdatesSchema.safeParse({
+					kind: "image",
+					maxDimension: pixels,
+				}).success,
+			).toBe(false);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "image",
+				maxDimension: null,
+			}).success,
+		).toBe(true);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "signature",
+				maxDimension: 500,
+			}).success,
+		).toBe(false);
+	});
+
 	it("takes a number keypad on a Text question alone, on both tools", () => {
 		const keypad = { ...validAddPayload("text"), keypad: "numbers" };
 		expect(generated.addFieldsItemSchema.safeParse(keypad).success).toBe(true);

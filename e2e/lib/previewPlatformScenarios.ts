@@ -48,6 +48,17 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		describe:
 			"a Text question with a number keypad keeps 0712 and +254712, and refuses 12 34 with its message while keeping the earlier answer",
 	},
+	"image-size-web-apps": {
+		platform: "web-apps",
+		fixture: "media",
+		describe: "a photo keeps its original bytes when an Android size is set",
+	},
+	"image-size-android": {
+		platform: "android",
+		fixture: "media",
+		describe:
+			"JPEG photos keep their orientation and are resized before upload",
+	},
 	"image-attach-web-apps": {
 		platform: "web-apps",
 		fixture: "media",

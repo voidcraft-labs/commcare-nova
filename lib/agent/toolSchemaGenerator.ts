@@ -76,6 +76,7 @@ import {
 	fieldKinds,
 	fieldRegistry,
 	formLogicSchema,
+	imageDimensionSchema,
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
@@ -133,6 +134,8 @@ const FIELD_DOCS = {
 		"true shows the help text exactly as typed on Android. Web Apps formats every help text either way. false or null returns it to Markdown.",
 	answerType:
 		"Hidden questions only. Choose the type of answer an assignment holds. Omit to infer it, or use null to return to automatic.",
+	maxDimension:
+		"Image questions only. Longest side in pixels for JPEG and PNG photos on Android. Web Apps keeps the original file. Leave out for no change, or set null to keep original size.",
 	keypad:
 		'Text questions only. "numbers" gives the worker a number keypad and keeps the answer as text, for a phone number or an ID that may start with 0 or +. Use int or decimal for a quantity. null returns the full keyboard.',
 	repeat_mode:
@@ -461,6 +464,7 @@ const ADD_GATED_KEYS = [
 	"keypad",
 	"answerType",
 	"askForConfirmation",
+	"maxDimension",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -516,6 +520,10 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			keypad: keypadField(),
 			answerType: hiddenAnswerTypeField(),
 			askForConfirmation: confirmationField(),
+			maxDimension: imageDimensionSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.maxDimension),
 			hint: hintField(),
 			help: helpField(),
 			addFirstLabel: proseTemplateSchema
@@ -645,6 +653,10 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			keypad: keypadField(),
 			answerType: hiddenAnswerTypeField(),
 			askForConfirmation: confirmationField(),
+			maxDimension: imageDimensionSchema
+				.nullable()
+				.optional()
+				.describe(FIELD_DOCS.maxDimension),
 			hint: hintField(),
 			help: helpField(),
 			addFirstLabel: proseTemplateSchema

@@ -1242,6 +1242,28 @@ def other_upload_mediatype(use, manifest):
     return element.get("mediatype") not in UPLOAD_MEDIATYPES
 
 
+def invalid_image_dimension(use, manifest):
+    """The numeric extension is consumed on every upload. Only ordinary ImageWidget
+    and FaceCaptureWidget use a positive setting to resize a photo."""
+    form, element = _form_element(use)
+    if form is None or _local(element) != "upload":
+        return None
+    raw = element.get(f"{{{JAVAROSA}}}imageDimensionScaledMax")
+    if raw is None:
+        return False
+    digits = raw.removesuffix("px")
+    if not re.fullmatch(r"[+-]?[0-9]+", digits):
+        return True
+    significant = digits.lstrip("+-").lstrip("0") or "0"
+    if len(significant) > 10:
+        return True
+    value = (-1 if digits.startswith("-") else 1) * int(significant)
+    image = element.get("mediatype") == "image/*" and element.get("appearance") != "signature"
+    if value < -2147483648 or value > 2147483647 or (image and (value == 0 or value < -1)):
+        return True
+    return False
+
+
 # Setvalues ----------------------------------------------------------------------
 
 
@@ -9861,6 +9883,7 @@ VALUE_CLASSES = {
     "questions/long-xsd-long": long_input,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
+    "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater": invalid_image_dimension,
     "questions/upload-with-any-other-mediatype-or-none": other_upload_mediatype,
     "questions/a-default-value-s-setvalue-whose-event-does-not-match-where-the": default_event_mismatching_placement,
     "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate": form_level_setvalue,

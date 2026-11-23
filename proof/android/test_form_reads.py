@@ -161,6 +161,23 @@ def _entries(form, reference):
     ]
 
 
+def test_an_image_question_sends_the_resized_photo_to_hq(android_documents, hq):
+    """Inspect the binary part received with the Android submission. The raw image
+    shown by the ImageWidget is 32 by 24. The submitted JPEG has longest side 15."""
+    from io import BytesIO
+    from PIL import Image
+
+    submissions = []
+    with _served(android_documents["targeted-capture-widgets"]) as (served, archive):
+        _app(served, archive, "resized-photo", commands=[FORM], submissions=submissions)
+    (posted,) = submissions
+    name = _child(etree.fromstring(posted.instance), "photo").text
+    assert name, posted.instance
+    with Image.open(BytesIO(dict(posted.files)[name])) as photo:
+        assert (photo.format, photo.size) == ("JPEG", (15, 11))
+        assert (photo.getexif()[256], photo.getexif()[257]) == (15, 11)
+
+
 def test_a_registration_forms_read_of_its_own_id_is_its_create_blocks_id(android_documents, hq):
     """The form "Register" calculates ``tracking_code`` as ``P-`` and its own new case's id. The instance the
     device sends holds that value with the create block's ``case_id`` after it, on a form completed in one go and

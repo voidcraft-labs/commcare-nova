@@ -438,14 +438,28 @@ describe("jr:imageDimensionScaledMax", () => {
 	}
 
 	it("reads the value as Core's Integer.parseInt does, and -1 on an image as none", async () => {
-		const held = Q(
-			"jr-imagedimensionscaledmax-250-500-1000px-or-another-positive",
-		);
 		const invalid = Q(
 			"jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater",
 		);
-		expect(await codesFor("500px")).toEqual([held]);
-		expect(await codesFor("+500")).toEqual([held]);
+		expect(await codesFor("500px")).toEqual([]);
+		expect(await codesFor("+500")).toEqual([]);
+		for (const [size, pixels] of [
+			["500px", 500],
+			["+731", 731],
+			["2147483647", 2147483647],
+			["-1px", undefined],
+		] as const) {
+			const reading = await readForm(
+				xformSource({
+					data: "<photo/>",
+					model: '<bind nodeset="/data/photo" type="binary"/>',
+					body: `<upload ref="/data/photo" mediatype="image/*" jr:imageDimensionScaledMax="${size}"/>`,
+				}),
+			);
+			expect(reading.xform).toBeTruthy();
+			if (reading.xform)
+				expect(readFields(reading.xform)[0]?.field.maxDimension).toBe(pixels);
+		}
 		expect(await codesFor("-1")).toEqual([]);
 		expect(await codesFor("0")).toEqual([invalid]);
 		expect(await codesFor("-2px")).toEqual([invalid]);

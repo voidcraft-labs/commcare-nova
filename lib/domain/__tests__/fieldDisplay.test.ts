@@ -39,6 +39,7 @@ import { NON_REFERENCE_FIELD_PATHS } from "@/lib/domain/referenceSlots";
  *  question's control is drawn, written as its `appearance`. */
 const NOT_DISPLAY_SETTINGS: Readonly<Record<string, string>> = {
 	placement: "a query repeat's held placement, an identity no author chooses",
+	maxDimension: "the maximum pixel size of the submitted image file",
 	fieldList: "a group's screen layout, written on the group and not a control",
 	plainLabel: "a label's text formatting, read by plainText.ts",
 	plainHelp: "a help text's formatting, read by plainText.ts",

@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
+import sharp from "sharp";
 import { buildUrl } from "@/lib/routing/location";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
@@ -134,7 +135,7 @@ function answer(page: Page, uuid: string) {
 
 /** The attachments transport, answered in process: the upload is staged and
  *  confirmed without reaching a server. */
-async function acceptAttachments(page: Page) {
+async function acceptAttachments(page: Page, contentType = "image/png") {
 	const origin = platformsPeer.origin;
 	await page.route(
 		`${origin}/api/apps/native-platforms/attachments**`,
@@ -152,7 +153,7 @@ async function acceptAttachments(page: Page) {
 						attachmentId: "platforms-capture",
 						attachmentName: "large.png",
 						uploadUrl: `${origin}/capture-upload`,
-						uploadContentType: "image/png",
+						uploadContentType: contentType,
 						uploadHeaders: {},
 					},
 				});
@@ -256,6 +257,55 @@ async function attachOnly(run: Run, label: string) {
 		);
 }
 
+async function photoSize(page: Page, android: boolean) {
+	await openScenario(
+		page,
+		android ? "image-size-android" : "image-size-web-apps",
+	);
+	await acceptAttachments(page, "image/jpeg");
+	const original = await sharp("proof/core/captures/proof-image.jpg")
+		.withExif({
+			IFD0: {
+				Orientation: "6",
+				ImageDescription: "Synthetic visit",
+				Make: "Private camera make",
+			},
+		})
+		.withMetadata({ orientation: 6 })
+		.jpeg()
+		.toBuffer();
+	const sent = page.waitForRequest(
+		(request) =>
+			request.method() === "PUT" && request.url().endsWith("/capture-upload"),
+	);
+	await page
+		.getByRole("button", {
+			name: android ? "Photo Choose image" : "Photo Attach file",
+		})
+		.setInputFiles({
+			name: "visit.jpg",
+			mimeType: "image/jpeg",
+			buffer: original,
+		});
+	const uploaded = (await sent).postDataBuffer();
+	expect(uploaded).toBeTruthy();
+	if (!uploaded) throw new Error("The capture upload had no bytes.");
+	if (android) {
+		const metadata = await sharp(uploaded).metadata();
+		expect(metadata).toMatchObject({
+			format: "jpeg",
+			width: 15,
+			height: 11,
+			orientation: 6,
+		});
+		expect(metadata.exif?.includes(Buffer.from("Synthetic visit"))).toBe(true);
+		expect(metadata.exif?.includes(Buffer.from("Private camera make"))).toBe(
+			false,
+		);
+	} else expect(uploaded).toEqual(original);
+	await expect.poll(() => answer(page, PLATFORM_IDS.image)).toBe("large.png");
+}
+
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
@@ -308,6 +358,12 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(phone).toHaveValue("12 34");
 		await expect(phone).toHaveAttribute("aria-invalid", "true");
 		expect(await answer(page, PLATFORM_IDS.phoneHeld)).toBe("+254712");
+	},
+	async "image-size-web-apps"(page) {
+		await photoSize(page, false);
+	},
+	async "image-size-android"(page) {
+		await photoSize(page, true);
 	},
 	async "image-attach-web-apps"(page) {
 		await attachOnly(

@@ -30787,19 +30787,17 @@
 		"id": "hq-questions/image-max-dimension",
 		"base": "hq-questions",
 		"entry": "questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Questions",
-			"formName": "Survey",
-			"path": "photo"
-		},
 		"change": {
 			"op": "named",
 			"name": "image_max_dimension"
-		}
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["photo"]],
+				"pointer": "/maxDimension",
+				"value": 500
+			}
+		]
 	},
 	{
 		"id": "hq-questions/image-max-dimension-invalid",

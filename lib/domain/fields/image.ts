@@ -18,8 +18,11 @@ import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import { checkedInputFieldBaseSchema } from "./base";
 
+export const imageDimensionSchema = z.int32().positive();
+
 export const imageFieldSchema = checkedInputFieldBaseSchema.extend({
 	kind: z.literal("image"),
+	maxDimension: imageDimensionSchema.optional(),
 });
 
 export type ImageField = z.infer<typeof imageFieldSchema>;

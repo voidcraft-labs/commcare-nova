@@ -45,6 +45,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"location-question": ["questions/gps-geopoint"],
 	"barcode-question": ["questions/barcode-barcode"],
+	"image-size": [
+		"questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive",
+	],
 	"image-question": ["questions/image-capture-upload-image"],
 	"audio-question": ["questions/audio-capture-audio"],
 	"video-question": ["questions/video-capture-video"],

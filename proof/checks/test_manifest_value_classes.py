@@ -1490,6 +1490,12 @@ def _questions():
     uploads = form(
         data="<a/><b/>", body='<upload ref="/data/a" mediatype="IMAGE/*"/><upload ref="/data/b" mediatype="image/*"/>'
     )
+    image_sizes = form(
+        data="<a/><b/>",
+        model='<bind nodeset="/data/a" type="binary"/><bind nodeset="/data/b" type="binary"/>',
+        body='<upload ref="/data/a" mediatype="image/*" jr:imageDimensionScaledMax="0px"/>'
+        '<upload ref="/data/b" mediatype="image/*" jr:imageDimensionScaledMax="731px"/>',
+    )
     setvalue = "jr-action:setvalue"
     group = "body[1]/group[{}]/repeat[1]"
     return {
@@ -1556,6 +1562,10 @@ def _questions():
         "questions/input-readonly-true-control-attribute": (
             refused("form", labels, "jr-control:input", "body[1]/input[1]"),
             accepted("form", labels, "mug:Trigger", "data[1]/{http://example.org/t}t[1]", readings=True),
+        ),
+        "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater": (
+            refused("form", image_sizes, "jr-extension:UploadQuestionExtensionParser", "body[1]/upload[1]"),
+            accepted("form", image_sizes, "jr-extension:UploadQuestionExtensionParser", "body[1]/upload[2]"),
         ),
         "questions/upload-with-any-other-mediatype-or-none": (
             refused("form", uploads, "jr-control:upload", "body[1]/upload[1]"),
@@ -6610,7 +6620,6 @@ KNOWN_GAPS = frozenset(
         "questions/bare-repeat-with-no-group-wrapper",
         "questions/intent-id-naming-an-odkx-intent-that-no-callout-question-writes",
         "questions/intent-id-on-any-input-naming-no-odkx-intent-in-the-form",
-        "questions/jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater",
         "questions/send-submission",
         "questions/several-connect-assessment-blocks-in-one-form-or-one-inside-a",
         "questions/unknown-body-control-vellum-readonly-e-g-range",

@@ -1531,6 +1531,7 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	plainLabel: "config",
 	plainHelp: "config",
 	keypad: "config",
+	maxDimension: "config",
 	"optionsSource.options[].plainLabel": "config",
 	label_media: "media",
 	help_media: "media",

@@ -71,6 +71,7 @@ import type {
 } from "@/lib/domain/kinds";
 import { HiddenAnswerNamespaceEditor } from "./fields/HiddenAnswerNamespaceEditor";
 import { HiddenAnswerTypeEditor } from "./fields/HiddenAnswerTypeEditor";
+import { ImageSizeEditor } from "./fields/ImageSizeEditor";
 import { requiredEntry } from "./requiredEntry";
 
 function EditorLoading() {
@@ -521,6 +522,11 @@ const imageFieldEditorSchema: FieldEditorSchema<ImageField> = {
 		defaultValueEntry<ImageField>(),
 	],
 	ui: [
+		{
+			key: "maxDimension",
+			component: ImageSizeEditor,
+			label: "Longest side in pixels",
+		},
 		mediaEntry<ImageField, "label_media">("label_media", "Label media"),
 		hintEntry<ImageField>(),
 		textEntry<ImageField, "help">("help", "Help"),
