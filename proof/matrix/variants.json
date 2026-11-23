@@ -41,6 +41,22 @@
 		}
 	},
 	{
+		"id": "hq-advanced/advanced-menu-whose-forms-read-the-search",
+		"base": "hq-advanced",
+		"entry": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
+		"standing": "not-yet",
+		"place": {
+			"kind": "menu",
+			"menu": 1,
+			"name": "Member visits"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/inline_search",
+			"value": true
+		}
+	},
+	{
 		"id": "hq-advanced/advanced-menu-with-a-narrowed-case-list-item",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",
@@ -359,6 +375,29 @@
 					}
 				}
 			]
+		}
+	},
+	{
+		"id": "hq-advanced/automatic-load-in-an-unknown-mode",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/automatic-choice-with-an-unknown-mode",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/auto_select",
+			"value": {
+				"doc_type": "AutoSelectCase",
+				"mode": "location",
+				"value_source": "",
+				"value_key": "commtrack-supply-point"
+			}
 		}
 	},
 	{
@@ -3840,6 +3879,24 @@
 		}
 	},
 	{
+		"id": "hq-advanced/two-actions-share-a-tag",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/case-actions-using-the-same-tag",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/case_tag",
+			"value": "load_household0"
+		}
+	},
+	{
 		"id": "hq-advanced/two-address-columns-in-an-advanced-list",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/more-than-one-address-column-in-a-detail-of-an-advanced-module",
@@ -4175,6 +4232,29 @@
 				"value": "choose"
 			}
 		]
+	},
+	{
+		"id": "hq-advanced/worker-record-load-of-another-type",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/worker-record-selection-with-another-case-type",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/actions/load_update_cases/1/auto_select",
+			"value": {
+				"doc_type": "AutoSelectCase",
+				"mode": "usercase",
+				"value_source": "",
+				"value_key": ""
+			}
+		}
 	},
 	{
 		"id": "hq-case-lists/address-column",

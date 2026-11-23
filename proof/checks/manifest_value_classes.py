@@ -2813,6 +2813,120 @@ its loads and open actions alike), each an error the page marks (``advanced/acti
 blank tag is ``blank-tag``'s."""
 
 
+def _same_tag(at, form, loads, opens, action, index):
+    tag = action.get("case_tag")
+    return bool(tag) and sum(1 for other in (*loads, *opens) if other.get("case_tag") == tag) > 1
+
+
+case_actions_using_the_same_tag = _advanced_reader(_same_tag)
+case_actions_using_the_same_tag.__doc__ = """``forms-and-case-writes/case-actions-using-the-same-tag``: a nonblank
+``case_tag`` another of the form's loads or open actions also holds, whatever the editor checks of either; HQ's
+build resolves an index or a connection by tag (``actions_meta_by_tag``), so the second action is lost."""
+
+
+# The automatic modes the advanced editor offers (``advanced/case_config_ui.js::getAutoSelectModes``): ``case``
+# only after the first load, which ``auto-select-mode-case-naming-itself-a-later-load-or-an-open`` reads.
+EDITOR_AUTO_SELECT_MODES = frozenset({"raw", "user", "fixture", "usercase", "case"})
+
+
+def _auto_select(action, loads):
+    """A load's ``auto_select`` object, or None for an open action or a load that chooses its case."""
+    if not _is_load(action, loads) or not _auto_selected(action):
+        return None
+    return action["auto_select"]
+
+
+def _worker_mode_with_another_type(at, form, loads, opens, action, index):
+    auto = _auto_select(action, loads)
+    return auto is not None and auto.get("mode") == "usercase" and action.get("case_type") != "commcare-user"
+
+
+worker_mode_with_another_type = _advanced_reader(_worker_mode_with_another_type)
+worker_mode_with_another_type.__doc__ = """``forms-and-case-writes/worker-record-selection-with-another-case-type``:
+a load selected in the ``usercase`` mode whose ``case_type`` is not ``commcare-user``, which the editor sets as it
+chooses that mode (``advanced/actions.js``)."""
+
+
+def _unknown_auto_mode(at, form, loads, opens, action, index):
+    auto = _auto_select(action, loads)
+    mode = auto.get("mode") if auto is not None else None
+    return bool(mode) and mode not in EDITOR_AUTO_SELECT_MODES
+
+
+unknown_auto_mode = _advanced_reader(_unknown_auto_mode)
+unknown_auto_mode.__doc__ = """``forms-and-case-writes/automatic-choice-with-an-unknown-mode``: a load's nonblank
+``auto_select.mode`` the editor does not offer (``EDITOR_AUTO_SELECT_MODES``), ``location`` among them. A blank mode
+is ``an-auto-select-load-with-a-blank-mode-or-a-blank-case-type``'s."""
+
+
+def _table_choice_without_its_source(at, form, loads, opens, action, index):
+    auto = _auto_select(action, loads)
+    if auto is None or auto.get("mode") != "fixture":
+        return False
+    return not auto.get("value_source") or not auto.get("value_key")
+
+
+table_choice_without_its_source = _advanced_reader(_table_choice_without_its_source)
+table_choice_without_its_source.__doc__ = """
+``forms-and-case-writes/automatic-table-choice-without-its-table-or-column``: a ``fixture`` load with no table tag
+(``value_source``) or no field (``value_key``). A table the project space holds is read where the reading resolves
+the tag against its lookup catalog; the app's JSON alone names it and says nothing of whether it is there, so a
+named table and field are read as present here."""
+
+
+def _opening_ids(form, loads, opens):
+    """The session ids an advanced form's entry writes before parent alignment, in HQ's order
+    (``EntriesHelper.configure_entry_advanced_form``): each load's ``case_id_<tag>``, each computed datum's id, and
+    each root open action's ``case_id_new_<type>_<i>``."""
+    ids = [f"case_id_{load.get('case_tag')}" for load in loads if load.get("case_tag")]
+    ids += [datum.get("datum_id") for datum in form.get("arbitrary_datums") or [] if isinstance(datum, dict)]
+    ids += [
+        f"case_id_new_{action.get('case_type')}_{i}"
+        for i, action in enumerate(opens)
+        if not action.get("repeat_context")
+    ]
+    return [value for value in ids if value]
+
+
+def _aligned(at):
+    """Whether the form's menu sits under another menu, whose first form's datums HQ aligns the form's own to
+    (``EntriesHelper.add_parent_datums``)."""
+    module = at.nearest("AdvancedModule", "Module")
+    return isinstance(module, dict) and bool(module.get("root_module_id"))
+
+
+def opening_values_sharing_a_session_name(use, manifest):
+    """``forms-and-case-writes/opening-values-sharing-a-physical-session-name``: an advanced form two of whose
+    opening values (a load, a computed datum, a root open action's new case) take one session id. Read from the ids
+    before alignment; where they are distinct and the form's menu sits under another, alignment may rename a load
+    onto another's id, which the app's JSON alone does not settle: None there."""
+    at, form = _form(use)
+    if form is None or form.get("doc_type") != "AdvancedForm":
+        return False if form is not None else None
+    loads, opens = _advanced_lists(form)
+    ids = _opening_ids(form, loads, opens)
+    if len(set(ids)) < len(ids):
+        return True
+    return None if _aligned(at) and loads else False
+
+
+def automatic_connection_renamed_by_parent(use, manifest):
+    """``forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent``: a load selected in the
+    ``case`` mode from an earlier load, in a form whose menu sits under another, where alignment may give that
+    earlier load the root's id while the connection still names ``case_id_<tag>``. A form in a menu of its own
+    holds none; under another menu, whether the earlier load keeps its id is the alignment's: None there."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    loads, _ = _advanced_lists(form)
+    connected = any(
+        isinstance(load.get("auto_select"), dict) and load["auto_select"].get("mode") == "case" for load in loads
+    )
+    if not connected:
+        return False
+    return None if _aligned(at) else False
+
+
 def _slash_property_on_indexed_load(at, form, loads, opens, action, index):
     if not _is_load(action, loads) or not _indices(action, loads):
         return False
@@ -9727,6 +9841,12 @@ VALUE_CLASSES = {
     "forms-and-case-writes/a-load-or-open-action-s-case-tag-containing-which-the-advanced": tag_with_slash,
     "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action": blank_tag,
     "forms-and-case-writes/case-tag-of-a-non-auto-select-action-failing-actions-js": tag_failing_editor_check,
+    "forms-and-case-writes/case-actions-using-the-same-tag": case_actions_using_the_same_tag,
+    "forms-and-case-writes/worker-record-selection-with-another-case-type": worker_mode_with_another_type,
+    "forms-and-case-writes/automatic-choice-with-an-unknown-mode": unknown_auto_mode,
+    "forms-and-case-writes/automatic-table-choice-without-its-table-or-column": table_choice_without_its_source,
+    "forms-and-case-writes/opening-values-sharing-a-physical-session-name": opening_values_sharing_a_session_name,
+    "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent": automatic_connection_renamed_by_parent,
     "forms-and-case-writes/loadupdateaction-preload-or-case-properties-property-with-on-a": (
         slash_property_on_indexed_load
     ),
