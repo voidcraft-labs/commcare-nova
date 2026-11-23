@@ -207,6 +207,20 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 							},
 						],
 					},
+					{
+						kind: "group",
+						id: "tally",
+						label: "Tally",
+						compact: true,
+						children: [
+							{
+								kind: "int",
+								id: "people",
+								label: "People at the visit",
+								hint: "Count adults and children",
+							},
+						],
+					},
 				]),
 				{
 					kind: "section",

@@ -268,6 +268,17 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			"text",
 		);
 		await question("pin").getByRole("textbox").fill("007");
+		/* Web Apps' address search: with no map provider set up, Preview
+		 * makes up no address, and it names what the project space needs. */
+		const address = question("address").getByRole("textbox");
+		await expect(address).toHaveAttribute("readonly", "");
+		await expect(address).toHaveValue("");
+		await expect(question("address")).toContainText(
+			"no map provider is set up",
+		);
+		await expect(question("address")).toContainText("Geocoder plan feature");
+		/* Web Apps ignores a compact group: the hint shows under its label. */
+		await expect(question("people")).toContainText("Count adults and children");
 		await expect(question("place").getByRole("textbox")).toHaveAttribute(
 			"placeholder",
 			"Building name",
@@ -330,6 +341,22 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			"type",
 			"password",
 		);
+		await expect(question("address")).not.toContainText("Geocoder");
+		/* A number question under a compact group: its label's one line
+		 * beside the answer box, with no hint. */
+		const people = question("people");
+		await expect(people.locator("[data-android-compact]")).toHaveCount(1);
+		await expect(people).not.toContainText("Count adults and children");
+		const label = await people
+			.getByText("People at the visit", { exact: true })
+			.boundingBox();
+		const box = await people.locator("input").boundingBox();
+		if (label === null || box === null)
+			throw new Error("Expected the compact question's label and answer box.");
+		expect(box.x).toBeGreaterThan(label.x);
+		expect(
+			Math.abs(box.y + box.height / 2 - (label.y + label.height / 2)),
+		).toBeLessThan(box.height);
 		await expect(question("place").getByRole("textbox")).not.toHaveAttribute(
 			"placeholder",
 			"Building name",
