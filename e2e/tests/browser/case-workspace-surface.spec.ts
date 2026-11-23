@@ -1074,7 +1074,7 @@ test("a worker list can show a blank value label and a signed overdue marker", a
 		.poll(
 			async () => (await savedModule(page)).caseListConfig.columns[0].mapping,
 		)
-		.toEqual([{ value: "", label: "Unspecified" }]);
+		.toEqual([{ uuid: expect.any(String), value: "", label: "Unspecified" }]);
 	await page
 		.getByRole("button", { name: "Close properties", exact: true })
 		.click();

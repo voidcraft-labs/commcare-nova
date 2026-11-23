@@ -6013,8 +6013,8 @@ def _held_new():
         group = {"doc_type": "CaseTileGroupConfig", "index_identifier": identifier, "header_rows": 2}
         return columns(_column(), case_tile_template=template, case_tile_group=group)
 
-    def mapped(fmt, alt_text):
-        item = {"doc_type": "MappingItem", "key": "a", "value": {"en": "A"}, "alt_text": alt_text}
+    def keyed(fmt, key):
+        item = {"doc_type": "MappingItem", "key": key, "value": {"en": "A"}}
         return columns(_column(fmt=fmt, enum=[item]))
 
     profiled = _app([], build_profiles={"french": {"doc_type": "BuildProfile", "name": "French", "langs": ["fra"]}})
@@ -6221,41 +6221,13 @@ def _held_new():
                 f"{short}/max_select_value",
             ),
         ),
-        "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": (
-            refused(
-                "app",
-                mapped("enum-image", {"en": "A photo"}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
-            accepted(
-                "app",
-                mapped("enum-image", {"en": " "}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
-            # An ID mapping builds no image, so no alternative text is read.
-            accepted(
-                "app",
-                mapped("enum", {"en": "A photo"}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
-            # Which of a blank text and a shown one HQ's build writes turns on the app's languages, which the map
-            # alone does not say.
-            unsettled(
-                "app",
-                mapped("enum-image", {"en": "", "fra": "Photo"}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
-            # A null text is skipped for the map's least key, whose value prints as ``None``.
-            refused(
-                "app",
-                mapped("enum-image", {"en": None}),
-                "schema:MappingItem.alt_text",
-                f"{short}/columns/0/enum/0/alt_text",
-            ),
+        "menus-and-case-lists/mapping-condition-outside-predicate": (
+            refused("app", keyed("conditional-enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
+            # A key that parses may still read a value Nova has no binding for, so its class is not the key's alone.
+            unsettled("app", keyed("conditional-enum", ". > 3"), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
+            # A plain value is no condition, and an ID mapping's key is compared as a value.
+            accepted("app", keyed("conditional-enum", "urgent"), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
+            accepted("app", keyed("enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
         ),
         "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
             refused(

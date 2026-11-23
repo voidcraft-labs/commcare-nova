@@ -2813,10 +2813,20 @@ it("shows a worker's case map as map markers and layers, separate from the ordin
 				},
 			},
 		});
+		// Android opens on the device's home screen, and the app's menus follow.
+		const entered =
+			platform === "android"
+				? await continueAppTest(scope, {
+						testId: started.testId,
+						requestId: `enter-rounds-${platform}`,
+						expectedStep: started.step,
+						action: { kind: "continue" },
+					})
+				: started;
 		const opened = await continueAppTest(scope, {
 			testId: started.testId,
 			requestId: `open-rounds-${platform}`,
-			expectedStep: started.step,
+			expectedStep: entered.step,
 			action: { kind: "menu", moduleUuid: doc.moduleOrder[0] },
 		});
 		expect(opened.observation).toMatchObject({

@@ -4619,15 +4619,6 @@ enum_xml_special_key.__doc__ = (
     """``menus-and-case-lists/5p-enum-key-containing``: an ``enum`` key holding ``& < > " '``."""
 )
 
-enum_key_with_spaces = _column_reader(
-    lambda at, column, detail, kind, module: (
-        _format(column) == "enum"
-        and any(isinstance(key, str) and (not key or any(ch.isspace() for ch in key)) for key in _keys_of(column))
-    )
-)
-enum_key_with_spaces.__doc__ = """An enum mapping whose selected() operand is blank or contains whitespace."""
-
-
 MAPPING_FORMATS = frozenset({"enum", "enum-image", "conditional-enum", "translatable-enum"})
 
 mapping_with_shared_key = _column_reader(
@@ -4680,28 +4671,6 @@ def _interval_offered(value):
     except (TypeError, ValueError):
         return False
     return number in TIME_AGO_INTERVALS
-
-
-def late_flag_threshold(positive):
-    def matches(at, column, detail, kind, module):
-        days = column.get("late_flag", 30)
-        return _format(column) == "late-flag" and type(days) is int and (days > 0) == positive
-
-    return _column_reader(matches)
-
-
-markdown_property = _column_reader(
-    lambda at, column, detail, kind, module: _format(column) == "markdown" and not column.get("useXpathExpression")
-)
-markdown_property.__doc__ = """A markdown property has no link-constructor calculation."""
-
-
-time_ago_with_editor_interval = _column_reader(
-    lambda at, column, detail, kind, module: (
-        _format(column) == "time-ago" and _interval_offered(column.get("time_ago_interval", 365.25))
-    )
-)
-time_ago_with_editor_interval.__doc__ = """A relative date measured in one of HQ's seven editor intervals."""
 
 
 time_ago_with_another_interval = _column_reader(
@@ -9565,62 +9534,8 @@ def max_select_value_above_100(use, manifest):
     return value > 100
 
 
-# The column formats HQ's build writes an image's alternative text for (``app_strings.py``: ``column.format in
-# ('enum-image', 'clickable-icon')``), the only ones the alternative text is read on.
-ALT_TEXT_FORMATS = frozenset({"enum-image", "clickable-icon"})
 # The characters Core trims from the end of a line it reads of an app strings file: every one up to U+0020.
 CORE_LINE_END_TRIMMED = "".join(chr(code) for code in range(0x21))
-
-
-def _shown_text(text):
-    """Whether a device shows a text HQ's build writes as an app string as other than blank
-    (``lib/commcare/reader/heldText.ts::hqDeviceText``): HQ writes a text Python reads as blank as one non-breaking
-    space, Core reads its line up to a carriage return and trims what ends it up to U+0020."""
-    if not text.strip():
-        return False
-    return text.split("\r", 1)[0].rstrip(CORE_LINE_END_TRIMMED) != ""
-
-
-def _python_str(value):
-    """Python's ``str`` of a JSON value, where the parsed value fixes it (``lib/commcare/reader/hqText.ts::
-    pythonStr``); None for a number, whose printed digits the parse does not keep."""
-    if isinstance(value, str):
-        return value
-    if value is None:
-        return "None"
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    return None
-
-
-def alt_text_holding_text(use, manifest):
-    """``menus-and-case-lists/enum-mappingitem-alt-text-non-blank``: a mapping entry's ``alt_text`` on an image map
-    or a clickable icon (``ALT_TEXT_FORMATS``) whose text HQ's build writes (``app_strings.py``,
-    ``clean_trans(item.alt_text, langs)``) a device shows as other than blank in some app language
-    (``lib/commcare/reader/caseList/columns.ts::claimAltText``, ``hqText.ts::shownText``). Which text HQ's build
-    shows in a language turns on the app's languages, which a HELD-NEW class's reader does not read, so the class is
-    decided only where the map alone settles it: every text ``clean_trans`` can choose (each value that is not
-    ``None``, and ``None`` printed as ``None`` where the least key holds it) shown, or none of them. A map holding
-    both, such as ``{"en": "", "fra": "Photo"}``, is not settled, nor is a value whose printed text the parse does not
-    fix. On another format it is read nowhere, which is another class."""
-    at = _json(use)
-    if at is None or at.key != "alt_text" or at.scope[-1][0] != "MappingItem":
-        return None
-    column = at.nearest("DetailColumn")
-    if column is None or column.get("format") not in ALT_TEXT_FORMATS:
-        return False
-    texts = at.value
-    if not isinstance(texts, dict):
-        return None
-    if not texts:
-        return False
-    chosen = [_python_str(text) for text in texts.values() if text is not None]
-    if texts[min(texts)] is None:
-        chosen.append("None")
-    if any(text is None for text in chosen):
-        return None
-    shown = {_shown_text(text) for text in chosen}
-    return shown.pop() if len(shown) == 1 else None
 
 
 def case_tag_with_a_hyphen(use, manifest):
@@ -9981,13 +9896,8 @@ VALUE_CLASSES = {
         translatable_enum_over_relation
     ),
     "menus-and-case-lists/5p-enum-key-containing": enum_xml_special_key,
-    "menus-and-case-lists/5pp-enum-key-that-is-empty-or-holds-whitespace": enum_key_with_spaces,
     "menus-and-case-lists/an-enum-enum-image-conditional-enum-or-translatable-enum-column": mapping_with_shared_key,
     "menus-and-case-lists/2p-date-any-other-date-format": date_with_another_pattern,
-    "menus-and-case-lists/3-time-ago-time-ago-interval-the-7-menu-values-years-months": time_ago_with_editor_interval,
-    "menus-and-case-lists/6-late-flag-late-flag-1": late_flag_threshold(True),
-    "menus-and-case-lists/6p-late-flag-late-flag-0": late_flag_threshold(False),
-    "menus-and-case-lists/10-markdown-outside-the-link-shape": markdown_property,
     "menus-and-case-lists/3p-time-ago-other-interval": time_ago_with_another_interval,
     "menus-and-case-lists/a-geo-column-without-the-column-it-depends-on": geo_without_dependency,
     "menus-and-case-lists/24p-filter-otherwise": filter_changes_the_build,
@@ -10098,7 +10008,6 @@ VALUE_CLASSES = {
     "questions/choice-value-holding-both-an-apostrophe-and-a-double-quote": choice_value_with_both_quote_marks,
     "questions/data-root-element-named-other-than-data": data_root_named_other_than_data,
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
-    "menus-and-case-lists/enum-mappingitem-alt-text-non-blank": alt_text_holding_text,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),

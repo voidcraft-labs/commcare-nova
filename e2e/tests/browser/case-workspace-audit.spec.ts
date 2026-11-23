@@ -95,6 +95,8 @@ test("an author can use a translated phrase in a case calculation and keep its i
 		})
 		.click();
 	await page.getByRole("menuitem", { name: /^Translated text/ }).click();
+	// Replacing the saved property asks first, as any kind change does.
+	await page.getByRole("button", { name: "Replace", exact: true }).click();
 	await expect(saved).toContainText(`"textUuid":"${piece}"`);
 	await expect(
 		page.getByRole("button", { name: "Remove text 1" }),
