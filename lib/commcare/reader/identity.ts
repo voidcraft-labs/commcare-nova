@@ -231,6 +231,15 @@ export interface IdentityResolver {
 export interface IdentityClaims {
 	/** `place` is where in HQ's app the entity was read, in the finding's place vocabulary. */
 	claim(key: ExternalKey, place: string): IdentityClaim;
+	/**
+	 * A key whose entity's UUID the document derives rather than the resolver
+	 * gives: a form's implicit opening record, which Nova names from the form
+	 * and its list (`implicitFormSelectionId`). The map holds it as
+	 * `externalIdentityMap` spells it, so a later reading that finds the same
+	 * record made explicit in HQ gives it back that UUID. Claimed twice, it
+	 * answers as `claim` does.
+	 */
+	record(key: ExternalKey, uuid: Uuid, place: string): IdentityClaim;
 	/** Every key claimed so far, ordered by `externalKeyText`. */
 	entries(): readonly IdentityMapEntry[];
 }
@@ -269,6 +278,15 @@ export function claimsUnder(resolver: IdentityResolver): IdentityClaims {
 				return { ok: false, key, firstPlace: first.place };
 			const parts = key.parts.map(copyPart);
 			const uuid = resolver.uuidOf({ kind: key.kind, parts });
+			claimed.set(text, { entry: { kind: key.kind, parts, uuid }, place });
+			return { ok: true, uuid };
+		},
+		record(key, uuid, place) {
+			const text = externalKeyText(key);
+			const first = claimed.get(text);
+			if (first !== undefined)
+				return { ok: false, key, firstPlace: first.place };
+			const parts = key.parts.map(copyPart);
 			claimed.set(text, { entry: { kind: key.kind, parts, uuid }, place });
 			return { ok: true, uuid };
 		},

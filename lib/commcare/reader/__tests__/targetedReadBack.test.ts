@@ -38,6 +38,7 @@ import type {
 	MediaKind,
 	Uuid,
 } from "@/lib/domain";
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import {
 	effectiveAppLocalization,
 	makeTranslationUnitId,
@@ -359,6 +360,9 @@ async function readBack(
 			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 		),
 		knownCaseTypes: knownCaseTypesOf(doc),
+		// HQ keeps no name for an opening record; a re-read takes the names
+		// the published document gave its records, as a bring-in does.
+		knownFormEntryChoices: knownFormEntryChoicesOf(doc),
 		// A publish of a document that saves an answer only where the worker
 		// changed it reaches a project space that applies "save only if
 		// changed", which a bring-in's probe of that project space reads.

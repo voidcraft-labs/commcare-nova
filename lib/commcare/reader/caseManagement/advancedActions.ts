@@ -3054,26 +3054,39 @@ export function writeAdvancedOperations(
 		reading.closesAlways === true
 			? matchAll()
 			: conditionOf(form, reading.closeCondition);
+	// A read records each actual source tag, including a load that writes nothing.
+	const tags: Array<[Uuid, string]> =
+		form.form.caseSelections?.map((row) => [row.uuid, row.tag]) ??
+		(reading.chain ?? []).flatMap((menu, i) => {
+			const load = reading.chosen[i];
+			return load
+				? [
+						[implicitFormSelectionId(form.uuid, menu), load.tag] as [
+							Uuid,
+							string,
+						],
+					]
+				: [];
+		});
+	if (form.form.caseSelections === undefined && reading.worker)
+		tags.push([
+			implicitFormSelectionId(form.uuid, "worker-record"),
+			reading.worker.tag,
+		]);
+	// An implicit record's UUID is the form's own derivation; the map
+	// holds its key under that UUID, as `externalIdentityMap` spells it.
+	if (form.form.caseSelections === undefined)
+		for (const [uuid, tag] of tags)
+			ctx.accounting.identity(
+				ctx.identities.record(
+					externalKey.formSelection(form.uuid, tag),
+					uuid,
+					whereText(form.place),
+				),
+				form.place,
+				"schema:LoadUpdateAction.case_tag",
+			);
 	ctx.writeDraft(() => {
-		// A read records each actual source tag, including a load that writes nothing.
-		const tags: Array<[Uuid, string]> =
-			form.form.caseSelections?.map((row) => [row.uuid, row.tag]) ??
-			(reading.chain ?? []).flatMap((menu, i) => {
-				const load = reading.chosen[i];
-				return load
-					? [
-							[implicitFormSelectionId(form.uuid, menu), load.tag] as [
-								Uuid,
-								string,
-							],
-						]
-					: [];
-			});
-		if (form.form.caseSelections === undefined && reading.worker)
-			tags.push([
-				implicitFormSelectionId(form.uuid, "worker-record"),
-				reading.worker.tag,
-			]);
 		if (tags.length) form.form.heldSelectionTags = recordFromEntries(tags);
 		for (const row of form.form.caseSelections ?? []) {
 			const supplied = reading.choiceRelationshipQuestions?.get(row.uuid);

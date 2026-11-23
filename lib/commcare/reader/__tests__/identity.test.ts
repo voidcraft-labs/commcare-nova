@@ -11,7 +11,11 @@
  * its keys taken.
  */
 import { describe, expect, it } from "vitest";
-import { BLUEPRINT_AUTHORED_IDENTITY_KINDS, uuidSchema } from "@/lib/domain";
+import {
+	asUuid,
+	BLUEPRINT_AUTHORED_IDENTITY_KINDS,
+	uuidSchema,
+} from "@/lib/domain";
 import {
 	claimsUnder,
 	EXTERNAL_ENTITY_KINDS,
@@ -26,6 +30,8 @@ import {
 } from "../identity";
 
 const APP_ID = "3f2c9a1e-5b7d-4c8e-9f10-2a3b4c5d6e7f";
+/** A form's UUID, which an opening record's and value's keys name. */
+const FORM_UUID = "8b1f6c2e-4d3a-4e5f-9a0b-1c2d3e4f5a6b";
 const XMLNS =
 	"http://openrosa.org/formdesigner/1A2B3C4D-0000-4000-8000-ABCDEF012345";
 
@@ -89,6 +95,8 @@ describe("mintEntityUuid", () => {
 			externalKey.userProperty("slug"),
 			externalKey.organizationLevel("district"),
 			externalKey.locationProperty("slug"),
+			externalKey.formSelection(asUuid(FORM_UUID), "household"),
+			externalKey.entryValue(asUuid(FORM_UUID), "visit_day"),
 		];
 		expect(new Set(keys.map((key) => key.kind))).toEqual(
 			new Set(EXTERNAL_ENTITY_KINDS),

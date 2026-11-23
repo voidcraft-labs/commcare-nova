@@ -102,6 +102,8 @@ const LEVEL = testUuid("map-level");
 const LOCATION_PROPERTY = testUuid("map-location-property");
 const USER_PROPERTY = testUuid("map-user-property");
 const USER_TYPE = testUuid("map-user-type");
+const VISIT_CHOICE = testUuid("map-visit-choice");
+const VISIT_DAY = testUuid("map-visit-day");
 
 /** The placement fixture with one entity of every external kind, and a user
  *  type, which has none. */
@@ -161,6 +163,28 @@ function everyKindDoc(): BlueprintDoc {
 			uuid: testUuid("map-link-otherwise"),
 			target: { type: "this-form" },
 		},
+	};
+	// A form that names the records and values it opens with.
+	const visitsModule = doc.moduleOrder[2];
+	const visitForm = doc.formOrder[visitsModule][0];
+	doc.forms[visitForm] = {
+		...doc.forms[visitForm],
+		caseSelections: [
+			{
+				uuid: VISIT_CHOICE,
+				name: "Visit",
+				caseType: "visit",
+				tag: "visit",
+				source: { kind: "choose", module: visitsModule },
+			},
+		],
+		computedDatums: [
+			{
+				uuid: VISIT_DAY,
+				key: "visit_day",
+				value: { kind: "term", term: { kind: "literal", value: "1" } },
+			},
+		],
 	};
 	return {
 		...doc,
@@ -277,6 +301,9 @@ describe("externalIdentityMap's keys", () => {
 				0,
 			),
 		);
+		const visitForm = doc.formOrder[doc.moduleOrder[2]][0];
+		expectKey(VISIT_CHOICE, externalKey.formSelection(visitForm, "visit"));
+		expectKey(VISIT_DAY, externalKey.entryValue(visitForm, "visit_day"));
 		expectKey(USER_PROPERTY, externalKey.userProperty("district"));
 		expectKey(LEVEL, externalKey.organizationLevel("district"));
 		expectKey(LOCATION_PROPERTY, externalKey.locationProperty("district"));

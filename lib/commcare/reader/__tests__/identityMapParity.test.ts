@@ -47,6 +47,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { concat, literal, term } from "@/lib/domain/expression";
+import { independentChoicesBlueprint } from "@/proof/targeted/documents/independentFormChoices";
 import type { HqLocationType } from "../../hq/locations";
 import {
 	targetWireIdentity,
@@ -388,6 +389,9 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 				),
 		},
 	"a deep link to a menu, its case list and a form": { doc: entryPoints },
+	"two choices from one list, an automatic record and a value made at entry": {
+		doc: () => independentChoicesBlueprint("parity-independent-choices"),
+	},
 	"two links to one menu, a link to a form and a link otherwise": {
 		doc: () =>
 			buildShape(
