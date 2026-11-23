@@ -186,9 +186,11 @@ export function hqExpressionField(
 }
 
 /**
- * The catalog entry of the property a property column shows, from the type
- * its walk reaches (`columnPropertyCaseType`); undefined where the walk
- * reaches no type or the type holds no such property.
+ * The catalog entry of the property a property column shows, over the types
+ * its walk reaches (`columnRelation.ts::propertiesReachedByColumn`): a lone
+ * destination's own entry, or one merged over several destinations or an
+ * open link, typed as text unless they agree; undefined where a lone
+ * destination holds no such property.
  */
 export function columnProperty(
 	column: Exclude<Column, { kind: "calculated" }>,

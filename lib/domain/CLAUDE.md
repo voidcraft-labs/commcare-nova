@@ -279,6 +279,22 @@ unknown rows. The first link cannot be `user`, which HQ gives a different
 meaning. The Search result detail and the device case detail each follow
 links in their own instance.
 
+The relation catalog (`caseRelations.ts::CaseRelationCatalog`) is keyed by
+origin case type and index name, and one index can reach several types, child
+or extension. `parent_type`/`relationship` stay the compact spelling of a lone
+default `parent` edge; `CaseType.relations` holds only what that slot cannot
+say (`relationMetadata` is the canonical split, `declaredCaseRelations` the
+union). An index name is one Core name step (`CASE_INDEX_NAME_PATTERN`: a
+letter or underscore, then letters, digits, `_`, `.`, `-`), which a read and a
+catalog declaration take; a form's link writer keeps its own narrower check.
+A native property column reads through `PropertyRef.readReached`: the walk
+prints and compiles with no case-type predicate, and its value is text unless
+every known destination agrees on a type and no hop is open. Property names
+have two grammars: `readCasePropertyNameSchema` (no length bound, for reads,
+catalog declarations and the identity of an existing property in a removal,
+move or rename source) and `authoredCasePropertyNameSchema` (255 at most, for
+every name an author or a case write introduces).
+
 Default order can use a column's own value or an independent calculation in
 `caseListConfig.calculatedSorts`. Each calculation has its own UUID, checked
 case expression, direction, priority, blank placement and optional localized
