@@ -2709,6 +2709,61 @@ describe("FormEngine", () => {
 			);
 		});
 
+		it.each([false, true])(
+			"resolves a label's extended text, QR code and spoken text as the answer they read changes (worker: %s)",
+			async (stagedAsync) => {
+				const name = {
+					kind: "field-ref",
+					uuid: testUuid("form.name"),
+				} as const;
+				const input = dTree(
+					[
+						{ id: "name", kind: "text", label: proseText("Name") },
+						{
+							id: "card",
+							kind: "label",
+							label: proseText("Card"),
+							extended_text: prose({ kind: "text", text: "Card for " }, name),
+							qr_code: prose({ kind: "text", text: "ID-" }, name),
+							spoken_text: prose({ kind: "text", text: "Say " }, name),
+						},
+					],
+					"survey",
+				);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync, device: androidDevice() },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					"label-texts",
+				);
+				try {
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					expect(engine.getState("/data/card").resolvedLabelTexts).toEqual({
+						extended_text: "Card for ",
+						qr_code: "ID-",
+						spoken_text: "Say ",
+					});
+					if (stagedAsync)
+						await engine.setValueAsync("/data/name", "Ada", evaluateAsync);
+					else engine.setValue("/data/name", "Ada");
+					expect(engine.getState("/data/card").resolvedLabelTexts).toEqual({
+						extended_text: "Card for Ada",
+						qr_code: "ID-Ada",
+						spoken_text: "Say Ada",
+					});
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
+
 		it("resolves multi-segment hashtag refs to fields nested in groups", () => {
 			// A re-anchored ref (`#form/demographics/name` after a move into a
 			// group) must keep resolving in preview — label AND calculate.
