@@ -219,6 +219,7 @@ export const PLATFORM_CELLS: Readonly<
 	),
 	"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset@android":
 		model("hidden-search-field-android"),
+	"case-search/allow-blank-value@android": model("search-for-blank-android"),
 	"case-search/the-generated-search-round-trip-remote-request-query-results@android":
 		model("search-android"),
 	"case-search/workflow-skip-to-default-results-auto-launch-true-default-search@android":

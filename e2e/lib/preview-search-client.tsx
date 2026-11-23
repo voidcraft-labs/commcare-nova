@@ -42,6 +42,10 @@ const platformRules =
 	platform === undefined ? undefined : previewPlatformRules(platform);
 
 const rangeSpelling = new URLSearchParams(window.location.search).get("range");
+/* `?blank` lets the name field search for blank too. */
+const searchesForBlank = new URLSearchParams(window.location.search).has(
+	"blank",
+);
 const inputs = [
 	simpleSearchInputDef(
 		testUuid("search-barcode"),
@@ -56,7 +60,10 @@ const inputs = [
 		"Patient name",
 		"text",
 		"case_name",
-		platform === undefined ? undefined : { hint: "First or last name" },
+		{
+			...(platform !== undefined && { hint: "First or last name" }),
+			...(searchesForBlank && { allowBlank: true as const }),
+		},
 	),
 	simpleSearchInputDef(
 		testUuid("search-period"),

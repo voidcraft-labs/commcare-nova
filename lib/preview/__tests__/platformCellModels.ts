@@ -677,6 +677,15 @@ export const PLATFORM_MODEL_CHECKS = {
 		expect(drawnSearchInputs([hidden], WEB_APPS)).toEqual([]);
 	},
 
+	/* Android reads no `allow_blank_value`: its Search screen draws the field
+	 * alone, so no blank is ever ticked or sent; Web Apps draws the box
+	 * (`SearchInputForm`'s row reads this rule; the browser witness is
+	 * `preview-search-audit.spec.ts`). */
+	"search-for-blank-android": () => {
+		expect(ANDROID.searchForBlank).toBe(false);
+		expect(WEB_APPS.searchForBlank).toBe(true);
+	},
+
 	/* A search that found nothing keeps the search screen on Android, and a
 	 * claim is followed by a sync. */
 	"search-android": () => {

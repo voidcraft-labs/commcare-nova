@@ -355,3 +355,31 @@ test("workers can replace a readable three-date starting value on the search scr
 		await peer.close();
 	}
 });
+
+test("Web Apps offers a search for blank under a field that allows it, and Android shows the field alone", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.goto(`${peer.origin}/?platform=web-apps&blank`);
+		const box = page.getByRole("checkbox", {
+			name: "Include results where 'Patient name' is blank",
+		});
+		await expect(box).toBeVisible();
+		await page.getByLabel("Patient name", { exact: true }).fill("Amina");
+		await box.check();
+		await page.getByRole("button", { name: "Search", exact: true }).click();
+		await expect
+			.poll(async () =>
+				JSON.parse(await page.getByLabel("Submitted search").innerText()),
+			)
+			.toEqual({ case_name: "Amina", "case_name:blank": "true" });
+		await page.goto(`${peer.origin}/?platform=android&blank`);
+		await expect(
+			page.getByLabel("Patient name", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByText(/Include results where/)).toHaveCount(0);
+	} finally {
+		await peer.close();
+	}
+});
