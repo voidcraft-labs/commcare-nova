@@ -125,6 +125,7 @@ import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
 import { type AnyNode, type Element, isTag } from "domhandler";
 import { beforeAll, describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { HqApplication } from "@/lib/commcare";
 import { TEST_RUNTIME_TARGET } from "@/lib/commcare/__tests__/runtimeTargetFixture";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -181,7 +182,13 @@ import {
 	publishFindings,
 } from "../editBatches";
 import { docAfter, uuidTokensOf } from "../editContext";
-import { batchFootprint, type WireModule, wireLayout } from "../footprint";
+import { EDIT_KIND_GENERATORS, type GenContext } from "../editKinds";
+import {
+	batchFootprint,
+	type WireModule,
+	wireLanguages,
+	wireLayout,
+} from "../footprint";
 import { producerDocuments } from "../producers";
 import { workforceDocuments } from "../workforce";
 
@@ -2077,5 +2084,36 @@ describe("the footprint's derivations", () => {
 			expect(diff.app).toBe(derivation.app);
 			expect(footprint.app).toBe(derivation.app);
 		}
+	});
+});
+
+describe("a recoded language", () => {
+	/* A language's code changes only where HQ's Languages page renamed it, and
+	 * Nova brings that in. The corpus's recode is that one: a spelling a
+	 * person can give there, never a code minted as if the language's own were
+	 * someone else's (`eng-`), and the identity check pairs the language by
+	 * its tag through the batch's footprint. */
+	const before = buildDoc({ appName: "Visits" });
+	const plain = (doc: BlueprintDoc) => ({ doc }) as unknown as GenContext;
+
+	it("takes another spelling HQ accepts, and the footprint holds the language and no other", () => {
+		const [candidate] = EDIT_KIND_GENERATORS.rebindLanguageCodes(plain(before));
+		if (candidate === undefined || !("mutations" in candidate))
+			throw new Error("The recode drew no batch for an English app.");
+		expect(candidate.mutations).toEqual([
+			{
+				kind: "rebindLanguageCodes",
+				changes: [{ language: "eng", from: "en", to: "eng" }],
+			},
+		]);
+		const after = docAfter(before, candidate.mutations);
+		expect(wireLanguages(after)).toEqual([{ tag: "eng", code: "eng" }]);
+		expect(
+			batchFootprint(before, after, candidate.mutations).entities,
+		).toContain("eng");
+		const renamed: Mutation[] = [{ kind: "setAppName", name: "Clinic" }];
+		expect(
+			batchFootprint(before, docAfter(before, renamed), renamed).entities,
+		).not.toContain("eng");
 	});
 });
