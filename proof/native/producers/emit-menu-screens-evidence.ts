@@ -1001,10 +1001,19 @@ function offersOf(doc: BlueprintDoc, ctx: FormLinkProjectionContext) {
 				{ hostModuleUuid: host },
 				created ? "registered-case" : undefined,
 			);
+			/* The host's list is passed with the case chosen where the frame
+			 * makes the host's selection, or holds a case on the first menu
+			 * that the host's entries read under the same datum
+			 * (`frameLanding.ts::firstMenuCases`): Core finds that datum set
+			 * and asks for no case on the host. */
 			if (landing !== undefined)
 				return {
 					command: commandOfLanding(doc, ctx, landing),
-					selectsHost: landing.selectingModuleUuids.includes(host),
+					selectsHost:
+						landing.selectingModuleUuids.includes(host) ||
+						(landing.firstMenuCases ?? []).some((held) =>
+							held.consumers.includes(host),
+						),
 				};
 			const own = formLanding(doc, ctx, formModule, slot.formUuid);
 			if (returnTo.kind !== "own" || own === undefined)
