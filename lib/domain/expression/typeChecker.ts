@@ -1049,6 +1049,21 @@ function admission(
 			chosenCaseProject(expression, ctx) !== undefined
 		)
 			return undefined;
+		// One value read from a query of the device's records: Core stops at
+		// a node-set of two or more where one value is wanted
+		// (`XPathNodeset.unpack`), and an action whose condition stops takes
+		// the list it sits on with it (`Detail.getCustomActions`,
+		// `Action.isRelevant`). The case chosen in an earlier menu is
+		// admitted above.
+		if (
+			ctx.slot.slot === "case_list_action_condition" &&
+			expression.kind === "project"
+		)
+			return refusal(
+				"arm-unavailable",
+				"A list button's condition reads one value here, and these records can hold several, which stops the list for that worker. You can count them with count(...), or read the record chosen before the list.",
+				"list-action-several-values",
+			);
 		// The list action runs on the device with its own casedb, before a
 		// worker chooses a row. Explicit case queries use that snapshot.
 		if (
@@ -1056,10 +1071,7 @@ function admission(
 			((expression.kind === "cases" && expression.source === "casedb") ||
 				(expression.kind === "count" &&
 					expression.via.kind === "cases" &&
-					expression.via.source === "casedb") ||
-				(expression.kind === "project" &&
-					expression.of.kind === "cases" &&
-					expression.of.source === "casedb"))
+					expression.via.source === "casedb"))
 		)
 			return undefined;
 		// A server search reads a query of the device's data in a value the

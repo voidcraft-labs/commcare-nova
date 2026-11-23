@@ -198,10 +198,11 @@ holds: `count(device-records(record-type() = 'household'))` counts the worker's
 restored households, and `count(table-rows('Clinics'))` counts a Project data
 table's rows, with conditions after the table name to count only some.
 `row-value(rows, value)` reads one value from those records or rows in a form's
-questions. A menu or form condition and a badge refuse it, because the records
-or rows can hold several and CommCare then stops the whole menu for that worker:
-count them, read one table row with a table lookup, or read the worker's record
-with `worker-record(...)` instead.
+questions. A menu or form condition, a badge and the condition on a case list's
+form button refuse it, because the records or rows can hold several and
+CommCare then stops the whole menu or list for that worker: count them, read one
+table row with a table lookup, or read the worker's record with
+`worker-record(...)` instead.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
 filter, `#row/column` reads the current row. A case-list filter, an advanced

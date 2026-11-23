@@ -34,6 +34,7 @@ import {
 	eq,
 	gt,
 	literal,
+	prop,
 	sessionContext,
 } from "@/lib/domain/expression";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
@@ -698,5 +699,38 @@ describe("a list action's condition and the instances the list loads", () => {
 			afterSubmit: "case-list",
 		};
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("refuses one value read from the worker's records, which Core stops at when several match", () => {
+		const doc = caseListActionRolesFixture();
+		const households = {
+			kind: "cases" as const,
+			source: "casedb" as const,
+			where: [],
+		};
+		doc.modules[roleIds.households].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: roleIds.register,
+			showWhen: {
+				kind: "condition",
+				condition: eq(
+					{
+						kind: "project",
+						of: households,
+						value: prop("household", "case_name"),
+					},
+					literal("North"),
+				),
+			},
+			afterSubmit: "case-list",
+		};
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings).toMatchObject([
+			{
+				code: "CASE_LIST_ACTION_CONDITION_INVALID",
+				location: { moduleUuid: roleIds.households },
+			},
+		]);
+		expect(findings[0]?.message).toContain("can hold several");
 	});
 });
