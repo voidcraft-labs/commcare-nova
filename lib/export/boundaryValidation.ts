@@ -140,6 +140,12 @@ export interface PrepareExportBoundaryInput {
 	 * resources (`boundaryFindings.ts::ExportCarrierFindingsInput`).
 	 */
 	readonly jsonDestinationTableIds?: ReadonlySet<string>;
+	/**
+	 * `hq-upload`'s tables the Project already has on `lookupTarget` through
+	 * a workbook, with the tags they are there under, which stay in the
+	 * workbook (`boundaryFindings.ts::ExportCarrierFindingsInput`).
+	 */
+	readonly workbookLookupTags?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /**
@@ -460,10 +466,12 @@ async function prepareWithRegistry(
 				validationError(
 					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
 					"app",
+					/* Only a table held as a streamed generation reaches here, and
+					 * no carrier takes one exactly yet, the direct publish included. */
 					describeLookupCarrierAlternative(
 						item.table.definition.name,
 						item.carrier,
-						input.mode === "hq-json" ? "file" : "direct",
+						"too-large",
 					),
 					{},
 					{
@@ -489,6 +497,9 @@ async function prepareWithRegistry(
 		}),
 		...(input.jsonDestinationTableIds !== undefined && {
 			jsonDestinationTableIds: input.jsonDestinationTableIds,
+		}),
+		...(input.workbookLookupTags !== undefined && {
+			workbookLookupTags: input.workbookLookupTags,
 		}),
 	});
 	const {

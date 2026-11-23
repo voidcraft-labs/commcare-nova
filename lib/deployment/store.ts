@@ -1160,6 +1160,55 @@ export async function writeTargetIdentityInTransaction(
 			.execute();
 }
 
+/**
+ * The tags under which the Project's lookup tables are on a project space
+ * through a workbook, by table id: each live mapping any of the Project's
+ * apps holds there with its pushed name, and each table taken over from
+ * there under the tag CommCare HQ held it by. A direct upload keeps such a
+ * table under such a tag in its workbook
+ * (`lib/export/boundaryFindings.ts::travelsAsJson`); a table that also has
+ * a JSON destination there goes on through the JSON resources. `view`.
+ */
+export async function readWorkbookLookupTags(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const [mapped, takenOver] = await Promise.all([
+		db
+			.selectFrom("app_deployment_resources as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select(["r.nova_resource_id", "r.pushed_identity"])
+			.where("d.project_id", "=", scope.projectId)
+			.where("d.server", "=", target.server)
+			.where("d.domain", "=", target.domain)
+			.where("r.kind", "=", "lookup-table")
+			.where("r.superseded_at", "is", null)
+			.where("r.pushed_identity", "is not", null)
+			.execute(),
+		db
+			.selectFrom("lookup_tables")
+			.select(["id", "hq_canonical"])
+			.where("project_id", "=", scope.projectId)
+			.where("hq_server", "=", target.server)
+			.where("hq_domain", "=", target.domain)
+			.where("hq_taken_over_at", "is not", null)
+			.execute(),
+	]);
+	const tags = new Map<string, Set<string>>();
+	const add = (tableId: string, tag: string | null | undefined) => {
+		if (typeof tag !== "string") return;
+		const held = tags.get(tableId) ?? new Set<string>();
+		held.add(tag);
+		tags.set(tableId, held);
+	};
+	for (const row of mapped) add(row.nova_resource_id, row.pushed_identity);
+	for (const row of takenOver)
+		add(row.id, (row.hq_canonical as { tag?: unknown } | null)?.tag as string);
+	return tags;
+}
+
 /** One live lookup-table mapping another app of the Project holds on a project space. */
 export interface SiblingLookupMapping {
 	readonly tableId: string;

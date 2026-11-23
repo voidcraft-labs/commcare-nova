@@ -83,6 +83,16 @@ export interface ExportCarrierFindingsInput {
 	 * them, since a workbook would replace the rows the ledger names.
 	 */
 	readonly jsonDestinationTableIds?: ReadonlySet<string>;
+	/**
+	 * `hq-upload`'s tables the Project already has on `lookupTarget` through
+	 * a workbook, by table id, each with the tags it is there under: a live
+	 * mapping of any of the Project's apps, or a table taken over from there
+	 * (`lib/deployment/store.ts::readWorkbookLookupTags`). Such a table under
+	 * such a tag stays in the workbook, since the JSON resources cannot take
+	 * over rows that carry no Nova identity; its findings name what the
+	 * workbook cannot carry.
+	 */
+	readonly workbookLookupTags?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** A project space by its server and domain, as a table's origin names one. */
@@ -253,6 +263,8 @@ export function exportCarrierFindings(
 							table,
 							fixtureData.rowsByTable.get(definition.id) ?? [],
 							input.jsonDestinationTableIds?.has(definition.id) ?? false,
+							input.workbookLookupTags?.get(definition.id)?.has(table.tag) ??
+								false,
 						)
 						? [table]
 						: [];
@@ -338,7 +350,10 @@ export function exportCarrierFindings(
 					describeLookupCarrierAlternative(
 						definition.name,
 						carrier,
-						mode === "hq-json" ? "file" : "direct",
+						/* On a direct upload a table the JSON resources could carry is
+						 * in the workbook only because the Project put it there by
+						 * one (`travelsAsJson`). */
+						mode === "hq-json" ? "file" : "workbook-there",
 					),
 					{},
 					{
@@ -420,16 +435,21 @@ export function exportCarrierFindings(
  * workbook cannot carry its rows exactly (`lookupWorkbookShape`: the tag
  * `types`, a value CommCare HQ's reader would trim, an occurrence count or
  * an empty occurrence it would lose) or the table already has a JSON
- * destination there, whose rows a workbook would replace.
+ * destination there, whose rows a workbook would replace. A table the
+ * Project already put there under its tag by a workbook stays in the
+ * workbook: its rows there carry no Nova identity the JSON resources could
+ * reconcile by.
  */
 function travelsAsJson(
 	definition: LookupTableDefinition,
 	table: LookupTableWireNaming,
 	rows: readonly LookupFixtureRow[],
 	hasDestination: boolean,
+	inWorkbookThere: boolean,
 ): boolean {
 	if (alternativeLookupCarrier(definition, "").kind !== "json") return false;
 	if (hasDestination) return true;
+	if (inWorkbookThere) return false;
 	const shape = lookupWorkbookShape(table);
 	for (const row of rows) {
 		if (shape.issue !== undefined) break;

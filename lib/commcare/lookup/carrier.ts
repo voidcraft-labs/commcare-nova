@@ -43,18 +43,27 @@ export function alternativeLookupCarrier(
  * resources can carry travels that way on a direct publish
  * (`lib/deployment/lookupJsonExecutor.ts`), which the HQ app file cannot do:
  * it holds no credentials and installs nothing itself, so for that file the
- * sentence names the direct publish. A direct publish sends through the JSON
- * resources only a table it holds whole in one snapshot, so a larger one is
- * named as what Nova can't carry yet.
+ * sentence names the direct publish (`file`). A direct publish keeps a table
+ * the Project already put on its project space by a workbook in a workbook
+ * (`workbook-there`), since the JSON resources cannot take over rows that
+ * carry no Nova identity; a new export tag makes it a new table there. And
+ * the JSON resources carry only a table held whole in one snapshot, so a
+ * larger one (`too-large`, on either mode) is named as what Nova can't carry
+ * yet.
  */
 export function describeLookupCarrierAlternative(
 	name: string,
 	alternative: LookupCarrierAlternative,
-	carriedBy: "file" | "direct",
+	carriedBy: "file" | "workbook-there" | "too-large",
 ) {
 	if (alternative.kind === "source-reference")
 		return `“${name}” needs a verified table in its destination project space. ${alternative.reason} You can connect that table in Project data.`;
-	return carriedBy === "file"
-		? `“${name}” can't travel in the HQ app file. ${alternative.reason} A direct publish to CommCare HQ from Nova carries it exactly, so you can publish there instead.`
-		: `Nova can't carry “${name}” exactly to CommCare HQ yet: it is larger than Nova sends through CommCare HQ's table resources in one publish. ${alternative.reason} You can keep it smaller in Project data.`;
+	switch (carriedBy) {
+		case "file":
+			return `“${name}” can't travel in the HQ app file. ${alternative.reason} A direct publish to CommCare HQ from Nova carries it exactly, so you can publish there instead.`;
+		case "workbook-there":
+			return `“${name}” is on this project space through a workbook, which can't carry its rows exactly any more. ${alternative.reason} You can change those rows in Project data, or give the table a new export tag so it goes there as a new table.`;
+		case "too-large":
+			return `Nova can't carry “${name}” exactly to CommCare HQ yet: it is larger than Nova sends through CommCare HQ's table resources in one publish. ${alternative.reason} You can keep it smaller in Project data.`;
+	}
 }

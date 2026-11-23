@@ -884,6 +884,38 @@ describe("prepareExportBoundary", () => {
 			trimmedUpload.prepared.jsonLookupTables?.map((table) => table.tableId),
 		).toEqual([CARRIER_TABLE]);
 
+		/* A table the Project already put there by a workbook under its tag
+		 * stays in the workbook, whose finding names the column and the way
+		 * out; under a new export tag it goes there as a new table. */
+		const tag = CARRIER_SNAPSHOT.definitions[0].tag;
+		const inWorkbook = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+			workbookLookupTags: new Map([[CARRIER_TABLE, new Set([tag])]]),
+		});
+		if (inWorkbook.ok) throw new Error("expected the whitespace finding");
+		expect(inWorkbook.violations).toContainEqual(
+			expect.objectContaining({
+				code: "LOOKUP_CELL_TEXT_CHANGED_BY_HQ",
+				details: expect.objectContaining({ tableId: CARRIER_TABLE }),
+			}),
+		);
+		const retagged = await prepareExportBoundary({
+			mode: "hq-upload",
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+			workbookLookupTags: new Map([[CARRIER_TABLE, new Set(["before"])]]),
+		});
+		if (!retagged.ok) throw new Error("expected a prepared direct upload");
+		expect(
+			retagged.prepared.jsonLookupTables?.map((table) => table.tableId),
+		).toEqual([CARRIER_TABLE]);
+
 		/* An ordinary table goes in the workbook, unless Nova already put it
 		 * there through the JSON resources, whose ledger a workbook would
 		 * leave naming rows that are gone. */
