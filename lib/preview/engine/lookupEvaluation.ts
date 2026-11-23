@@ -206,10 +206,17 @@ export function formLogicLookupsCovered(
 	formUuid: Uuid,
 	data: PreviewLookupData | undefined,
 ): boolean {
-	return formExpressionSlotValues(doc, formUuid).every(
-		({ ref, expression }) =>
-			ref.slot === "lookup_options_source" ||
-			expressionLookupsCovered(expression, data),
+	const collector = identityCollector(data);
+	for (const { source } of doc.forms[formUuid]?.caseSelections ?? []) {
+		if (source.kind === "table") collector.check(source.table, source.column);
+	}
+	return (
+		collector.covered &&
+		formExpressionSlotValues(doc, formUuid).every(
+			({ ref, expression }) =>
+				ref.slot === "lookup_options_source" ||
+				expressionLookupsCovered(expression, data),
+		)
 	);
 }
 

@@ -319,6 +319,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_OTHERWISE_NOT_OFFERED: "soundness",
 	FORM_OTHERWISE_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
+	FORM_ENTRY_SETUP: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
 	FORM_LINK_DATUM_TARGET_COLLISION: "soundness",
 	// A link hands its target a new case that no session value carries

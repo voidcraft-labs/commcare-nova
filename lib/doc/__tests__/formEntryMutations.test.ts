@@ -1,0 +1,129 @@
+import { produce } from "immer";
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	advancedFixture,
+	HOUSEHOLDS,
+} from "@/lib/commcare/__tests__/advancedPlacementFixture";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
+import { literal, term } from "@/lib/domain/expression/builders";
+import type { FormCaseSelection } from "@/lib/domain/formEntryCases";
+import { diffDocsToMutations } from "../diffDocsToMutations";
+import type { FormEntryChange } from "../formEntryMutations";
+import { applyMutations } from "../mutations";
+import { mutationTargetsInvalid } from "../mutationTargetAdmission";
+import type { Mutation } from "../types";
+
+const choice = (tag: string): FormCaseSelection => ({
+	uuid: testUuid(tag),
+	tag,
+	name: tag,
+	caseType: "household",
+	source: { kind: "choose", module: HOUSEHOLDS },
+});
+const supply = (form: Uuid, entryChange: FormEntryChange): Mutation => ({
+	kind: "updateForm",
+	uuid: form,
+	patch: {},
+	entryChange,
+});
+const apply = (doc: BlueprintDoc, changes: Mutation[]) =>
+	produce(doc, (draft) => {
+		applyMutations(draft, changes);
+	});
+
+describe("editing a form's incoming records and values", () => {
+	it("keeps an implied menu choice's identity, checks stale anchors and edits each row without disturbing its neighbor", () => {
+		const { doc, formUuid } = advancedFixture({
+			formType: "followup",
+			operations: () => [],
+		});
+		const [original] = formCaseSelections(doc, formUuid);
+		const extra = choice("additional");
+		const add = supply(formUuid, {
+			operation: "add-choice",
+			value: extra,
+			after: original.uuid,
+		});
+		const rename = supply(formUuid, {
+			operation: "edit-choice",
+			uuid: original.uuid,
+			patch: { name: "First visit" },
+		});
+		const reorder = supply(formUuid, {
+			operation: "move-choice",
+			uuid: extra.uuid,
+			after: null,
+		});
+		expect(mutationTargetsInvalid(doc, [add, rename, reorder])).toBe(false);
+		const edited = apply(doc, [add, rename, reorder]);
+		expect(edited.forms[formUuid].caseSelections).toEqual([
+			extra,
+			{ ...original, name: "First visit" },
+		]);
+		expect(
+			mutationTargetsInvalid(edited, [
+				supply(formUuid, {
+					operation: "move-choice",
+					uuid: extra.uuid,
+					after: testUuid("retired"),
+				}),
+			]),
+		).toBe(true);
+		expect(
+			mutationTargetsInvalid(edited, [
+				supply(formUuid, {
+					operation: "add-value",
+					value: {
+						uuid: extra.uuid,
+						key: "duplicate",
+						value: term(literal("hi")),
+					},
+				}),
+			]),
+		).toBe(true);
+		expect(apply(edited, [add]).forms[formUuid].caseSelections).toEqual(
+			edited.forms[formUuid].caseSelections,
+		);
+	});
+
+	it("round trips a simultaneous arrival, reorder and changed source through the same granular history used for adoption and undo", () => {
+		const { doc, formUuid } = advancedFixture({ formType: "followup" });
+		const a = choice("first"),
+			b = choice("second"),
+			c = choice("third"),
+			d = choice("fourth");
+		const withRows = (rows: FormCaseSelection[]) => ({
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: {
+					...doc.forms[formUuid],
+					caseSelections: rows,
+					computedDatums: rows.map((row) => ({
+						uuid: testUuid(`formula-${row.tag}`),
+						key: `value_${row.tag}`,
+						value: term(literal(row.name)),
+					})),
+				},
+			},
+		});
+		const before = withRows([a, b, c]),
+			after = withRows([c, d, { ...b, name: "Updated" }, a]);
+		for (const [from, to] of [
+			[before, after],
+			[after, before],
+		] as const) {
+			const diff = diffDocsToMutations(from, to);
+			expect(diff.length).toBeGreaterThan(0);
+			expect(
+				diff.every(
+					(m) => m.kind === "updateForm" && m.entryChange !== undefined,
+				),
+			).toBe(true);
+			expect(mutationTargetsInvalid(from, diff)).toBe(false);
+			expect(apply(from, diff).forms[formUuid]).toEqual(to.forms[formUuid]);
+		}
+	});
+});

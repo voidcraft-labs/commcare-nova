@@ -330,6 +330,10 @@ function entryFirstDatumKey(
 		return advancedDatumKey(
 			`case_${doc.modules[entry.module]?.caseType ?? ""}`,
 		);
+	if (entry.kind === "form") {
+		const choices = doc.forms[entry.form]?.caseSelections;
+		if (choices && choices[0]?.source.kind !== "choose") return undefined;
+	}
 	const [first] = entrySelections(doc, entry);
 	if (first === undefined) return undefined;
 	const alignment = rootSelectionAlignment(doc, entry);
@@ -346,7 +350,9 @@ function entryFirstDatumKey(
 	}
 	if (entry.kind === "browse" || !menuEmittedAdvanced(doc, entry.module))
 		return first.key;
-	const [tag] = advancedLoadTags(doc, entry.form);
+	const tag =
+		doc.forms[entry.form]?.caseSelections?.[0]?.tag ??
+		advancedLoadTags(doc, entry.form)[0];
 	return tag === undefined ? first.key : advancedDatumKey(tag);
 }
 
@@ -400,7 +406,11 @@ export function screenShapeBlocker(
 		const formUuid = menuFormUuidsOf(doc, moduleUuid, prepared).find((uuid) => {
 			const type = formTypeOf(doc, uuid, prepared);
 			return (
-				!hasCaseType || type === undefined || !CASE_LOADING_FORM_TYPES.has(type)
+				!hasCaseType ||
+				type === undefined ||
+				(doc.forms[uuid]?.caseSelections === undefined
+					? !CASE_LOADING_FORM_TYPES.has(type)
+					: doc.forms[uuid].caseSelections?.[0]?.source.kind !== "choose")
 			);
 		});
 		if (formUuid !== undefined)

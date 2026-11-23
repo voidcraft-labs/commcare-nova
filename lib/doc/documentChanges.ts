@@ -140,6 +140,7 @@ export interface DocumentChanges {
  * where it is no change, and one a change moved has its line.
  */
 export const MENU_KEY_PARTS = {
+	autoSelectSingle: "case-list",
 	entryPoint: "settings",
 	caseListEntryPoint: "case-list",
 	uuid: null,
@@ -182,6 +183,8 @@ export const CASE_LIST_KEY_PARTS = {
  * of its own close are what it saves to cases.
  */
 export const FORM_KEY_PARTS = {
+	caseSelections: "case-changes",
+	computedDatums: "settings",
 	submitLabel: "settings",
 	entryPoint: "settings",
 	uuid: null,

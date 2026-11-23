@@ -132,7 +132,7 @@
 		],
 		"valueClass": "advanced-module",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived, never chosen: a module is emitted as advanced where a create one of its forms makes is carried by an after-submit link into a form of the new case's type and a basic form would give that case no session value, or where its kind is held (`Module.heldKind`, which the publish that first sends it advanced records, so a module that no longer needs it stays advanced), and no kind blocker holds (`lib/domain/advancedModule.ts::advancedKindBlockers`: several cases chosen, forms reading the search, a narrowed case list menu item, a parent selection linked under two index names); no `parent_select`",
+		"dispositionCell": "**HELD**: derived, never chosen: a module is emitted as advanced where a create one of its forms makes is carried by an after-submit link into a form of the new case's type and a basic form would give that case no session value, or where its kind is held (`Module.heldKind`, which the publish that first sends it advanced records, so a module that no longer needs it stays advanced), and no kind blocker holds (`lib/domain/advancedModule.ts::advancedKindBlockers`: several cases chosen, forms reading the search, a parent selection linked under two index names); no `parent_select`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -154,7 +154,7 @@
 		"id": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
 		"area": "menus-and-case-lists",
 		"section": "Module types",
-		"item": "`AdvancedModule` whose forms read the search, whose case list menu item is narrowed, or whose chain no one index name follows",
+		"item": "`AdvancedModule` whose forms read the search or whose implicit parent chain no one index name follows",
 		"surfaceKeys": [
 			"parser:MenuParser/command",
 			"parser:MenuParser/command@id",
@@ -786,10 +786,9 @@
 		"item": "`case_type` = `commcare-user` on an AdvancedModule",
 		"surfaceKeys": ["schema:AdvancedModule.case_type"],
 		"valueClass": "commcare-user-on-an-advanced-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: usercase list module (Usercase)",
-		"subject": "worker-record",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The advanced menu lists worker records through the worker's authorized device population.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1229,10 +1228,9 @@
 			"schema:AdvancedModule.auto_select_case"
 		],
 		"valueClass": "true-on-an-advanced-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.autoSelectSingle` on the list module: HQ applies it to each advanced form's selected-case datum whose case list comes from this module (`suite_xml/sections/entries.py::get_target_module`, `get_manual_datum`); the module's own case list menu item never auto-selects (`AdvancedModule.is_auto_select` returns false)",
-		"subject": "auto-select",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Manual form selections using this list choose its only available record. The menu's own list item opens the list.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE when exactly one row matches and the datum has `detail-confirm` (null payload, `title.trim()` throws) / RUNS",

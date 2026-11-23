@@ -51,9 +51,11 @@ import {
 	type AdvancedKindBlocker,
 	advancedKindBlockers,
 	type BlueprintDoc,
+	moduleHasCaseListMenuItem,
 	ownRecordValue,
 	type Uuid,
 } from "@/lib/domain";
+import { caseListNarrowing } from "@/lib/domain/advancedModule";
 
 /** Why a menu's kind moves: the first blocker that keeps a held advanced
  *  menu from staying advanced, or `advanced-change`, a form of a published
@@ -94,6 +96,12 @@ export function moduleKindMove(
 		reason: {
 			source: "module-kind",
 			reason,
+			...(to === "advanced" &&
+				after.modules[moduleUuid] &&
+				moduleHasCaseListMenuItem(after.modules[moduleUuid]) &&
+				caseListNarrowing(after, moduleUuid) !== undefined && {
+					expandsCaseList: true as const,
+				}),
 			chosenCasesRenamed:
 				ownRecordValue(after.modules, moduleUuid)?.parentCaseModuleUuid !==
 				undefined,
@@ -191,7 +199,11 @@ export function moduleAdvancedKindLine(
 	if (reason === undefined) return undefined;
 	if (reason.kind === "held")
 		return "CommCare HQ keeps this as an advanced menu, as your published app has it.";
+	if (reason.kind === "list-entry")
+		return "CommCare HQ uses an advanced menu for this list’s choice of records.";
 	const form = ownRecordValue(doc.forms, reason.formUuid);
+	if (reason.kind === "form-entry")
+		return `CommCare HQ uses an advanced menu so ${form?.name ?? "this form"} can open with its own cases and values.`;
 	const operation = form?.caseOperations?.find(
 		(op) => op.uuid === reason.operationUuid,
 	);

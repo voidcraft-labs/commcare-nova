@@ -82,6 +82,7 @@ import {
 } from "@/lib/domain/placements";
 import { proseTemplateSchema } from "@/lib/domain/prose";
 import { queryRepeatPlacementSchema } from "@/lib/domain/queryRepeatPlacement";
+import { formEntryChangeSchema } from "./formEntryMutations";
 
 /**
  * The two field message slots a `Media` bundle attaches to: the ones a
@@ -509,6 +510,8 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: z.null().optional(),
 	});
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
+	caseSelections: true,
+	computedDatums: true,
 	entryPoint: true,
 	id: true,
 	name: true,
@@ -1181,13 +1184,17 @@ function createMutationSchema({
 				kind: z.literal("updateForm"),
 				uuid: uuidSchema,
 				patch: mutationFormUpdatePatchSchema,
+				entryChange: formEntryChangeSchema.optional(),
 				caseOperationChange: mutationCaseOperationChangeSchema.optional(),
 				caseOperationPatch: mutationCaseOperationPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
 				if (
-					mutation.caseOperationChange !== undefined &&
-					mutation.caseOperationPatch !== undefined
+					[
+						mutation.caseOperationChange,
+						mutation.caseOperationPatch,
+						mutation.entryChange,
+					].filter((value) => value !== undefined).length > 1
 				) {
 					ctx.addIssue({
 						code: "custom",

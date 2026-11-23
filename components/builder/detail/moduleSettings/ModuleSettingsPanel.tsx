@@ -7,6 +7,7 @@ import { Button } from "@/components/shadcn/button";
 import { PopoverTitle } from "@/components/shadcn/popover";
 import { useAdvancedKindLine } from "@/lib/doc/hooks/useAdvancedKindReasons";
 import type { Uuid } from "@/lib/doc/types";
+import { AutomaticRecordSection } from "./AutomaticRecordSection";
 import { CaseListMenuItemSection } from "./CaseListMenuItemSection";
 import { MenuPlacementSection } from "./MenuPlacementSection";
 import { MenuScreenSection } from "./MenuScreenSection";
@@ -70,6 +71,7 @@ export function ModuleSettingsPanel({
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 				<CaseListMenuItemSection moduleUuid={moduleUuid} />
+				<AutomaticRecordSection moduleUuid={moduleUuid} />
 				<DisplayConditionSection
 					target={{ kind: "module", moduleUuid }}
 					onNavigateAway={onClose}

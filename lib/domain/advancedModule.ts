@@ -396,7 +396,7 @@ function parentSelectionChain(
 /** How the menu's own case list, shown as a menu item, is narrowed, the
  *  first of filter, hidden owners and a case chosen before it; `undefined`
  *  where it lists every open case of its type. */
-function caseListNarrowing(
+export function caseListNarrowing(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): "filter" | "hidden-owners" | "chosen-before" | undefined {
@@ -436,7 +436,18 @@ export function advancedKindBlockers(
 		blockers.push({ kind: "several-cases" });
 	if (moduleFormsReadSearch(module))
 		blockers.push({ kind: "forms-read-search" });
-	if (moduleHasCaseListMenuItem(module)) {
+	const formEntryList =
+		module.heldKind === "advanced" ||
+		module.autoSelectSingle ||
+		module.caseType === "commcare-user" ||
+		(doc.formOrder[moduleUuid] ?? []).some((id) => {
+			const form = doc.forms[id];
+			return (
+				form !== undefined &&
+				(form.caseSelections !== undefined || !!form.computedDatums?.length)
+			);
+		});
+	if (moduleHasCaseListMenuItem(module) && !formEntryList) {
 		const why = caseListNarrowing(doc, moduleUuid);
 		if (why !== undefined)
 			blockers.push({ kind: "case-list-menu-item-narrowed", why });

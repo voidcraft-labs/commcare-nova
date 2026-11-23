@@ -264,9 +264,13 @@ export function requiredPlanPrivileges(
 	 * and a worker's record is made only under the privilege
 	 * (`callcenter/sync_usercase.py::_iter_sync_usercase_helpers`), so every
 	 * value a form reads from it is blank. */
-	add(
-		"user_case",
-		formsUsingWorkerRecord(doc, connect).map(
+	add("user_case", [
+		...doc.moduleOrder.flatMap((uuid) =>
+			doc.modules[uuid]?.caseType === "commcare-user"
+				? [`${doc.modules[uuid].name} lists worker records.`]
+				: [],
+		),
+		...formsUsingWorkerRecord(doc, connect).map(
 			(form) =>
 				`${form.name} ${
 					form.reads && form.writes
@@ -276,7 +280,7 @@ export function requiredPlanPrivileges(
 							: "reads"
 				} worker information.`,
 		),
-	);
+	]);
 
 	/* `lookup_tables`: the build fails for a form whose source reads a table
 	 * (`helpers/validators.py::ApplicationBaseValidator._validate_fixtures`,
@@ -433,7 +437,9 @@ export function formEntrySyncReasons(doc: BlueprintDoc): string[] {
 		const form = doc.forms[formUuid];
 		if (
 			effectiveCaseSearchConfig(module) === undefined ||
-			!CASE_LOADING_FORM_TYPES.has(form.type)
+			!(form.caseSelections === undefined
+				? CASE_LOADING_FORM_TYPES.has(form.type)
+				: form.caseSelections.some((row) => row.source.kind === "choose"))
 		) {
 			return [];
 		}

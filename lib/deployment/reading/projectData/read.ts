@@ -8,7 +8,10 @@ import "server-only";
  */
 
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	entryLookupTableTags,
+	type HqAppSource,
+} from "@/lib/commcare/hq/appSource";
 import { classifyHqFailure, type HqFailure } from "@/lib/commcare/hq/failure";
 import type { CommCareCredentials } from "@/lib/commcare/hq/http";
 import {
@@ -322,6 +325,10 @@ export async function readReadingProjectData(input: {
 		creds,
 		domain,
 		sourceText,
+		entryTableTags: new Set([
+			...entryLookupTableTags(input.source),
+			...(input.alsoSource ? entryLookupTableTags(input.alsoSource) : []),
+		]),
 		cancel,
 	});
 	if ("success" in lookups) {

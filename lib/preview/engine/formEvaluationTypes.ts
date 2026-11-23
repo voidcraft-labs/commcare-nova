@@ -91,6 +91,8 @@ export interface FormEvaluationContext {
 	 * records alone. */
 	session?: {
 		readonly appId: string;
+		readonly entryChoices?: readonly import("@/lib/session/types").PreviewEntryChoice[];
+		readonly heldEntryValues?: Readonly<Record<string, string>>;
 		readonly menuSelections: Readonly<
 			Record<string, import("@/lib/session/types").PreviewMenuCaseSelection>
 		>;

@@ -179,13 +179,26 @@ function typedHashtagNamespace(text: string): string | undefined {
 // ── Completion sources ─────────────────────────────────────────────────
 
 /** XPath function completions — uses NameTest/FunctionName tree nodes. */
-function functionSource(ctx: CompletionContext): CompletionResult | null {
+function functionSource(
+	ctx: CompletionContext,
+	reads: ExpressionReads | undefined,
+): CompletionResult | null {
+	const options = reads?.openingSupplies?.length
+		? [
+				...functionCompletions,
+				...reads.openingSupplies.map((supply) => ({
+					label: supply.formula,
+					detail: supply.label,
+					type: "variable",
+				})),
+			]
+		: functionCompletions;
 	const node = syntaxTree(ctx.state).resolveInner(ctx.pos, -1);
 	if (is(node, T.NameTest) || is(node, T.FunctionName)) {
-		return { from: node.from, options: functionCompletions };
+		return { from: node.from, options };
 	}
 	// Explicit trigger (Ctrl+Space) at an arbitrary position
-	return ctx.explicit ? { from: ctx.pos, options: functionCompletions } : null;
+	return ctx.explicit ? { from: ctx.pos, options } : null;
 }
 
 /**
@@ -1061,7 +1074,7 @@ export function xpathAutocomplete(
 	// quoted text, a quote not yet closed included.
 	const wrappedFunctionSource = ifNotIn(
 		["StringLiteral", "HashtagRef", "Child", "Descendant"],
-		outsideQuotedValue(functionSource),
+		outsideQuotedValue((ctx) => functionSource(ctx, getReads())),
 	);
 	const wrappedHashtagSource = ifNotIn(
 		["StringLiteral"],

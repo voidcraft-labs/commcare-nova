@@ -630,6 +630,11 @@ const FACT_FIELDS: Readonly<
 	autoSelectCase: [
 		"Module.auto_select_case",
 		"AdvancedModule.auto_select_case",
+		// This setting affects a list only when a manual load uses its
+		// details. Refusing that load also removes this effective value.
+		"AdvancedFormActions.load_update_cases",
+		"LoadUpdateAction",
+		"CaseIndex",
 	],
 	caseListShown: [
 		"Module.case_list",

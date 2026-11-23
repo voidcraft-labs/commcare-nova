@@ -584,6 +584,7 @@ function extractRegisteredExpressions(
 					if ("datum" in member) subpath = ["datum", datumRefKey(member.datum)];
 				} else if ("columnUuid" in member) carrierUuid = member.columnUuid;
 				else if ("optionUuid" in member) carrierUuid = member.optionUuid;
+				else if ("supplyUuid" in member) carrierUuid = member.supplyUuid;
 				else carrierUuid = member.searchInputUuid;
 			}
 			if (
@@ -608,6 +609,31 @@ function extractRegisteredExpressions(
 		}
 	}
 	return references;
+}
+
+/** A record taken from a lookup table reads its real Project column on entry. */
+function extractFormEntryTableSources(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return Object.values(doc.forms).flatMap((form) =>
+		(form.caseSelections ?? []).flatMap((choice) => {
+			const source = choice.source;
+			return source.kind === "table"
+				? [
+						{
+							carrierUuid: choice.uuid,
+							subpath: ["source", "column"],
+							tableId: source.table,
+							columnId: source.column,
+							location: {
+								...formLocation(doc, form),
+								field: `caseSelections[${choice.uuid}].source`,
+							},
+						},
+					]
+				: [];
+		}),
+	);
 }
 
 function productionExtractor(
@@ -650,6 +676,9 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 						: entry.slot === "search_input_options"
 							? extractSearchInputOptions(doc)
 							: []),
+					...(entry.slot === "form_selection_source"
+						? extractFormEntryTableSources(doc)
+						: []),
 					...extractRegisteredExpressions(
 						doc,
 						entry.entity,

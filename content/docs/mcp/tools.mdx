@@ -98,6 +98,13 @@ that you can refine with the case-list tools. After adding questions, use `updat
 or expression, such as `#form/name` or `concat(#form/borrower, ' - ', #form/tool)`.
 Nova creates the underlying writer and preserves other saved answers. Advanced
 create operations use their `name` expression for the same purpose.
+Use `edit_form_entry` to add, rename, reorder or remove a record or value
+supplied when a form opens. Each record has its own UUID, even when two come
+from the same list. `get_form` shows the current supplies. A calculation can
+read an earlier record with `opening-record('Receiving household')` or an
+earlier value with `opening-value('visit_day')`. When a change would leave a
+reference without its source, the result names the dependent setting.
+
 `get_form` returns the current naming rule, navigation, and `recordContext` for
 reading the selected record and its ancestors. In form expressions,
 `#household/region` reads the selected record’s household ancestor;

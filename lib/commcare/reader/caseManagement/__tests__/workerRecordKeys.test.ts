@@ -524,9 +524,7 @@ describe("a Save to Case update of the worker's record beside another update of 
 			expect(outcome.findings.map((one) => one.code)).toEqual([TWICE]);
 		});
 
-	// Two loads of the worker's record hold no block: the second load is
-	// refused where it is read, and this entry's finding is not given.
-	it("leaves a second load of the worker's record to the load's own refusal", async () => {
+	it("keeps distinct worker-record selection identities and the writes on each", async () => {
 		const doc = advancedApp();
 		const body = exportedBody(doc, {
 			modules: (modules) =>
@@ -565,12 +563,26 @@ describe("a Save to Case update of the worker's record beside another update of 
 			}),
 		);
 		expect(outcome.defects).toEqual([]);
-		if (outcome.kind !== "account")
-			throw new Error("A second load of the worker's record was read.");
-		const codes = outcome.findings.map((one) => one.code);
-		expect(codes).toContain(
-			"forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain",
+		if (outcome.kind !== "read")
+			throw new Error("The app must retain both worker record choices.");
+		const selections = Object.values(outcome.draft.doc.forms)
+			.flatMap((form) => form.caseSelections ?? [])
+			.filter((row) => row.source.kind === "worker-record");
+		expect(selections).toHaveLength(2);
+		expect(new Set(selections.map((row) => row.uuid)).size).toBe(2);
+		const targets = Object.values(outcome.draft.doc.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.flatMap((op) =>
+				op.action === "update" &&
+				op.target.kind === "expression" &&
+				op.target.expr.kind === "term" &&
+				op.target.expr.term.kind === "session-datum" &&
+				op.target.expr.term.datum.kind === "form-selection"
+					? [op.target.expr.term.datum.selection]
+					: [],
+			);
+		expect(targets).toEqual(
+			expect.arrayContaining(selections.map((row) => row.uuid)),
 		);
-		expect(codes).not.toContain(TWICE);
 	});
 });

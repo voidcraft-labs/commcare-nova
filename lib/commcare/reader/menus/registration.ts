@@ -33,6 +33,7 @@ import {
 	caseListRegistrationFormInModule,
 } from "../../validator/rules/case-search/caseListRegistration";
 import { serializeWire } from "../../xpath/wire/serialize";
+import { registrationOpenIndex } from "../caseManagement/advancedRegistration";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import {
@@ -235,9 +236,9 @@ function registrationsOf(
 	const atRoot = (one: JsonObject) => blank(one.repeat_context);
 	if (form.doc_type === "AdvancedForm") {
 		const opens = objectMembers(actions.open_cases) ?? [];
-		return opens
-			.filter((open) => open.case_type === caseType && atRoot(open))
-			.map(() => "own" as const);
+		const loads = objectMembers(actions.load_update_cases) ?? [];
+		const root = registrationOpenIndex(opens, loads, caseType);
+		return root >= 0 ? [caseType === formMenuType ? "own" : "child"] : [];
 	}
 	const found: ("own" | "child")[] = [];
 	if (active(actions.open_case) && formMenuType === caseType) found.push("own");
@@ -603,19 +604,22 @@ export function readCaseListRegistration(
 		const formMenu = stored[named.module.index] ?? NO_ENTRIES;
 		const form = rawForms(formMenu)[named.form.index] ?? NO_ENTRIES;
 		const parentType = hostParentType(ctx, json);
-		if (formChoosesCase(form)) {
-			if (parentType !== undefined && textOf(formMenu.case_type) === parentType)
-				refuseBlock(REGISTRATION.parentFollowUp);
-			else refuseBlock(REGISTRATION.missing);
-			continue;
-		}
 		const registrations = registrationsOf(
 			form,
 			textOf(formMenu.case_type),
 			caseType,
 		);
-		if (registrations.length !== 1) {
-			refuseBlock(REGISTRATION.missing);
+		if (
+			registrations.length !== 1 ||
+			(form.doc_type !== "AdvancedForm" && formChoosesCase(form))
+		) {
+			if (
+				formChoosesCase(form) &&
+				parentType !== undefined &&
+				textOf(formMenu.case_type) === parentType
+			)
+				refuseBlock(REGISTRATION.parentFollowUp);
+			else refuseBlock(REGISTRATION.missing);
 			continue;
 		}
 		if (json.put_in_root === true) {
@@ -633,15 +637,13 @@ export function readCaseListRegistration(
 			refuseBlock(REGISTRATION.notCaseFirst);
 			continue;
 		}
-		if (cls === "AdvancedModule" || named.module.docType === "AdvancedModule") {
-			if (cls === "AdvancedModule" && caseListModuleRulesBreak(json))
-				host.json.refuse(
-					"case_list_form",
-					REGISTRATION.advancedRulesBroken,
-					undefined,
-					listPlace,
-				);
-			else refuseBlock(REGISTRATION.advanced);
+		if (cls === "AdvancedModule" && caseListModuleRulesBreak(json)) {
+			host.json.refuse(
+				"case_list_form",
+				REGISTRATION.advancedRulesBroken,
+				undefined,
+				listPlace,
+			);
 			continue;
 		}
 		if (registrations[0] === "child") {

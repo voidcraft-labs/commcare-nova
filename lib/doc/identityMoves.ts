@@ -113,6 +113,7 @@ export type IdentityMoveReason =
 			/** The menu selects a parent case, so once its kind moves its
 			 *  forms read the cases chosen through it under new names. */
 			readonly chosenCasesRenamed: boolean;
+			readonly expandsCaseList?: true;
 	  };
 
 export interface IdentityMove {

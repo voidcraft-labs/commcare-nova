@@ -46,6 +46,7 @@ import {
 	sessionContext,
 	term,
 } from "@/lib/domain/expression";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -450,6 +451,36 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				module: { caseSearchConfig: {} },
 			}),
 		use: slotUse("list-first", MODULE_OWNER, "caseSearchConfig.workflow"),
+	},
+	"form-submit-wording": {
+		with: () => {
+			const doc = caseApp();
+			doc.forms[FIXTURE_FORM].submitLabel = { text: "Finish visit" };
+			return doc;
+		},
+		without: () => caseApp(),
+		use: slotUse("form-submit-wording", FORM_OWNER, "submitLabel"),
+	},
+	"auto-select-confirm": {
+		with: () => {
+			const doc = caseApp();
+			doc.modules[FIXTURE_MODULE].autoSelectSingle = true;
+			return doc;
+		},
+		without: () => {
+			const doc = caseApp({
+				list: (config) => {
+					for (const column of config.columns) column.visibleInDetail = false;
+				},
+			});
+			doc.modules[FIXTURE_MODULE].autoSelectSingle = true;
+			return doc;
+		},
+		use: slotUse(
+			"auto-select-confirm",
+			FORM_OWNER,
+			`caseSelections[${implicitFormSelectionId(FIXTURE_FORM, FIXTURE_MODULE)}]`,
+		),
 	},
 	"several-cases": {
 		with: () =>

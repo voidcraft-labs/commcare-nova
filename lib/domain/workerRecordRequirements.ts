@@ -1,13 +1,14 @@
 import type { BlueprintDoc } from "./blueprint";
 import { isExpression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
-import type { Form } from "./forms";
+import type { CaseOperation, Form } from "./forms";
 import { isProseTemplate } from "./prose";
 import {
 	FORM_REFERENCE_SLOTS,
 	fieldReferenceSlotsFor,
 	readSlotValues,
 } from "./referenceSlots";
+import { USERCASE_CASE_TYPE } from "./usercase";
 
 /** One form that reads or saves to the worker's own record. */
 export interface WorkerRecordRequirement {
@@ -40,14 +41,42 @@ function readsWorkerRecord(value: unknown): boolean {
 	return reads;
 }
 
+/** An explicit selection uses the worker property catalog when its declared
+ * type is the worker record. Its ID still comes from the entry and must be
+ * resolved against the authenticated worker's actual cases at submission. */
+export function addressesWorkerRecord(
+	form: Pick<Form, "caseSelections">,
+	operation: CaseOperation,
+	menuCaseType?: string,
+): boolean {
+	if (operation.action === "own") return menuCaseType === USERCASE_CASE_TYPE;
+	const target = operation.target;
+	if (target.kind === "worker-record") return true;
+	if (
+		operation.caseType !== USERCASE_CASE_TYPE ||
+		target.kind !== "expression" ||
+		target.expr.kind !== "term" ||
+		target.expr.term.kind !== "session-datum"
+	)
+		return false;
+	const ref = target.expr.term.datum;
+	return (
+		ref.kind === "form-selection" &&
+		!!form.caseSelections?.some(
+			(row) =>
+				row.uuid === ref.selection && row.caseType === USERCASE_CASE_TYPE,
+		)
+	);
+}
+
 /** Whether one of the form's case operations saves to the worker's record. */
 export function savesToWorkerRecord(
-	form: Pick<Form, "caseOperations">,
+	form: Pick<Form, "caseOperations" | "caseSelections">,
 ): boolean {
 	return (form.caseOperations ?? []).some(
 		(operation) =>
 			operation.action === "update" &&
-			operation.target.kind === "worker-record" &&
+			addressesWorkerRecord(form, operation) &&
 			(operation.writes?.length ?? 0) > 0,
 	);
 }
@@ -88,6 +117,14 @@ export function workerRecordRequirements(
 			const form = doc.forms[formUuid];
 			if (!form) continue;
 			const reads =
+				module.caseType === USERCASE_CASE_TYPE ||
+				Boolean(
+					form.caseSelections?.some(
+						(row) =>
+							row.source.kind === "worker-record" ||
+							row.caseType === USERCASE_CASE_TYPE,
+					),
+				) ||
 				fieldsRead(formUuid) ||
 				FORM_REFERENCE_SLOTS.filter((slot) => slot.kind === "expression").some(
 					(slot) =>
@@ -95,7 +132,13 @@ export function workerRecordRequirements(
 							readsWorkerRecord(value),
 						),
 				);
-			const writes = savesToWorkerRecord(form);
+			const writes =
+				savesToWorkerRecord(form) ||
+				(module.caseType === USERCASE_CASE_TYPE &&
+					form.caseOperations?.some(
+						(operation) =>
+							operation.action === "own" && (operation.writes?.length ?? 0) > 0,
+					) === true);
 			if (reads || writes)
 				requirements.push({
 					formUuid,

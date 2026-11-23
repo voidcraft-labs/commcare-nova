@@ -38,6 +38,7 @@ export * from "./externalUserProperty";
 export * from "./fieldDisplay";
 export * from "./fieldForm";
 export * from "./fields";
+export * from "./formEntryCases";
 export * from "./formLinkTargets";
 export * from "./formSubmitLabel";
 export * from "./forms";

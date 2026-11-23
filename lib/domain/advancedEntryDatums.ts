@@ -52,6 +52,10 @@ import { CASE_TYPE_PATTERN, type Expression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
 import { isCaptureField, isContainer } from "./fields";
 import {
+	type FormCaseSelection,
+	implicitFormSelectionId,
+} from "./formEntryCases";
+import {
 	type ResolvedFormLinkTarget,
 	resolveFormLinkTarget,
 } from "./formLinkTargets";
@@ -62,6 +66,7 @@ import {
 	formLinkEntries,
 	orderedCaseOperations,
 } from "./forms";
+import { uniqueSlug } from "./idSlug";
 import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
 import type { AdvancedIneligibility } from "./placements";
 import { USERCASE_CASE_TYPE } from "./usercase";
@@ -145,31 +150,105 @@ function computeChain(doc: BlueprintDoc, formUuid: Uuid): readonly ChainLoad[] {
 	});
 }
 
-/** The selected case of a module, read exactly as a session datum. */
-function selectedCaseModule(expression: Expression): Uuid | undefined {
-	if (expression.kind !== "term") return undefined;
-	const term = expression.term;
-	return term.kind === "session-datum" && term.datum.kind === "selected-case"
-		? term.datum.module
-		: undefined;
+/** The manual load of the owning menu's type that supplies its own case. */
+export function ownFormSelectionIndex(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): number | undefined {
+	if (doc.forms[formUuid]?.type === "registration") return undefined;
+	const explicit = doc.forms[formUuid]?.caseSelections;
+	if (explicit !== undefined) {
+		const menu = owningModule(doc, formUuid);
+		const type = menu === undefined ? undefined : doc.modules[menu]?.caseType;
+		const index = explicit.findLastIndex(
+			(row) => row.source.kind === "choose" && row.caseType === type,
+		);
+		return index < 0 ? undefined : index;
+	}
+	const count = advancedLoadChain(doc, formUuid).length;
+	return count === 0 ? undefined : count - 1;
 }
 
-/** The chain load a case target names: the own case (`session`) is the
- *  last; an expression that is exactly a chain module's selection is that
- *  module's. */
+/** The exact ordered entries a person sees before a form opens. The first edit
+ * can store this projection as-is, keeping the allocated tags and UUIDs. */
+export function formCaseSelections(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): readonly FormCaseSelection[] {
+	const form = doc.forms[formUuid];
+	if (!form) return [];
+	if (form.caseSelections !== undefined) return form.caseSelections;
+	const chain = advancedLoadChain(doc, formUuid);
+	const tags = advancedLoadTags(doc, formUuid);
+	const result: FormCaseSelection[] = chain.map((row, index) => {
+		const previous = chain[index - 1];
+		const tag = tags[index];
+		if (!tag)
+			throw new Error("An implicit case choice needs its allocated tag.");
+		return {
+			uuid: implicitFormSelectionId(formUuid, row.moduleUuid),
+			name: doc.modules[row.moduleUuid]?.name ?? row.caseType,
+			caseType: row.caseType,
+			tag,
+			source: {
+				kind: "choose",
+				module: row.moduleUuid,
+				...(previous &&
+					row.identifier && {
+						under: {
+							selection: implicitFormSelectionId(formUuid, previous.moduleUuid),
+							identifier: row.identifier,
+						},
+					}),
+			},
+		};
+	});
+	const workerTag = tags[chain.length];
+	if (workerTag)
+		result.push({
+			uuid: implicitFormSelectionId(formUuid, "worker-record"),
+			name: "Worker’s record",
+			caseType: USERCASE_CASE_TYPE,
+			tag: workerTag,
+			source: { kind: "worker-record" },
+		});
+	return result;
+}
+
+/** A placement target names a form selection by UUID. Legacy menu references can
+ * identify a selection only when exactly one choice uses that list. */
 export function chainLoadOfTarget(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	target: CaseOperation["target"] | null | undefined,
 ): number | undefined {
-	const chain = advancedLoadChain(doc, formUuid);
-	if (chain.length === 0 || target === undefined || target === null)
+	if (target?.kind === "session") return ownFormSelectionIndex(doc, formUuid);
+	if (
+		target?.kind !== "expression" ||
+		target.expr.kind !== "term" ||
+		target.expr.term.kind !== "session-datum"
+	)
 		return undefined;
-	if (target.kind === "session") return chain.length - 1;
-	if (target.kind !== "expression") return undefined;
-	const module = selectedCaseModule(target.expr);
-	if (module === undefined) return undefined;
-	const index = chain.findIndex((load) => load.moduleUuid === module);
+	const ref = target.expr.term.datum;
+	const explicit = doc.forms[formUuid]?.caseSelections;
+	if (explicit) {
+		const positions = explicit.flatMap((row, index) =>
+			(ref.kind === "form-selection" && row.uuid === ref.selection) ||
+			(ref.kind === "selected-case" &&
+				row.source.kind === "choose" &&
+				row.source.module === ref.module)
+				? [index]
+				: [],
+		);
+		return positions.length === 1 ? positions[0] : undefined;
+	}
+	const chain = advancedLoadChain(doc, formUuid);
+	const index = chain.findIndex((row) =>
+		ref.kind === "selected-case"
+			? row.moduleUuid === ref.module
+			: ref.kind === "form-selection" &&
+				implicitFormSelectionId(formUuid, row.moduleUuid) === ref.selection,
+	);
 	return index < 0 ? undefined : index;
 }
 
@@ -187,11 +266,20 @@ export function advancedLoadOf(
 	f: CaseSlotFacts,
 	operation: CaseOperation,
 ): AdvancedLoadRef | undefined {
-	const chain = advancedLoadChain(f.doc, f.formUuid);
-	if (operation.action === "own")
-		return chain.length > 0 && !f.registration
-			? { kind: "chain", index: chain.length - 1 }
+	if (operation.action === "own") {
+		const index = ownFormSelectionIndex(f.doc, f.formUuid);
+		return !f.registration && index !== undefined
+			? { kind: "chain", index }
 			: undefined;
+	}
+	if (isWorkerRecordUpdate(operation) && f.form.caseSelections !== undefined) {
+		const positions = f.form.caseSelections.flatMap((row, index) =>
+			row.source.kind === "worker-record" ? [index] : [],
+		);
+		return positions.length === 1 && positions[0] !== undefined
+			? { kind: "chain", index: positions[0] }
+			: undefined;
+	}
 	if (isWorkerRecordUpdate(operation))
 		return f.operations.find(isWorkerRecordUpdate)?.uuid === operation.uuid
 			? { kind: "worker" }
@@ -284,7 +372,10 @@ export function loadClause(
 		return "condition-not-stateable";
 	if (
 		load.kind === "chain" &&
-		load.index > 0 &&
+		(f.form.caseSelections === undefined
+			? load.index > 0
+			: f.form.caseSelections[load.index]?.source.kind === "choose" &&
+				"under" in (f.form.caseSelections[load.index]?.source ?? {})) &&
 		writes.some((write) => write.via !== undefined)
 	)
 		return "via-on-indexed-load";
@@ -358,7 +449,9 @@ export function openActionClause(
 	const links = operation.links ?? [];
 	const chain = advancedLoadChain(f.doc, f.formUuid);
 	const linkLoad = (target: CaseOperation["target"] | null) =>
-		f.registration ? undefined : chainLoadOfTarget(f.doc, f.formUuid, target);
+		f.registration && f.form.caseSelections === undefined
+			? undefined
+			: chainLoadOfTarget(f.doc, f.formUuid, target);
 	for (const link of links) {
 		const target = link.target;
 		if (target === null) return "link-target";
@@ -678,6 +771,8 @@ function givesBasicDatum(
  *  statements. */
 export type AdvancedKindReason =
 	| { readonly kind: "held" }
+	| { readonly kind: "form-entry"; readonly formUuid: Uuid }
+	| { readonly kind: "list-entry" }
 	| {
 			readonly kind: "carried-create";
 			readonly formUuid: Uuid;
@@ -720,8 +815,13 @@ function computeKindTriggers(
 	if (module === undefined) return [];
 	const found: AdvancedKindReason[] = [];
 	if (module.heldKind === "advanced") found.push({ kind: "held" });
+	if (module.autoSelectSingle || module.caseType === USERCASE_CASE_TYPE)
+		found.push({ kind: "list-entry" });
 	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-		if (doc.forms[formUuid] === undefined) continue;
+		const form = doc.forms[formUuid];
+		if (!form) continue;
+		if (form.caseSelections !== undefined || form.computedDatums?.length)
+			found.push({ kind: "form-entry", formUuid });
 		const links = carriedCreates(doc, formUuid);
 		if (links.size === 0) continue;
 		const carriedSet = new Set(links.keys());
@@ -958,6 +1058,8 @@ export function advancedLoadTags(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): readonly string[] {
+	const explicit = doc.forms[formUuid]?.caseSelections;
+	if (explicit) return explicit.map((row) => row.tag);
 	let forms = tagsByDoc.get(doc);
 	if (forms === undefined) {
 		forms = new Map();
@@ -996,4 +1098,115 @@ export function advancedLoadTags(
 	}).loads;
 	forms.set(formUuid, tags);
 	return tags;
+}
+
+/** HQ's advanced entry confirms the record when its list has a long detail
+ * and the last action referring to this choice is not another load. HQ
+ * builds the load rows first and the opens next, so an open wins. */
+export function formSelectionShowsConfirm(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	index: number,
+): boolean {
+	const rows = formCaseSelections(doc, formUuid);
+	const choice = rows[index];
+	if (choice?.source.kind !== "choose") return false;
+	const list = doc.modules[choice.source.module];
+	if (
+		!(list?.caseListConfig?.columns ?? []).some(
+			(row) => row.visibleInDetail !== false,
+		)
+	)
+		return false;
+	const narrowed = rows.some(
+		(row) =>
+			row.source.kind === "choose" &&
+			row.source.under?.selection === choice.uuid,
+	);
+	if (!narrowed) return true;
+	const opens = new Set(
+		advancedEntryActions(doc, formUuid).opens.map((row) => row.operationUuid),
+	);
+	return (doc.forms[formUuid]?.caseOperations ?? []).some(
+		(op) =>
+			opens.has(op.uuid) &&
+			(op.links ?? []).some(
+				(link) => chainLoadOfTarget(doc, formUuid, link.target) === index,
+			),
+	);
+}
+
+/** Ordinary form formulas name the same supply the picker shows. A stable UUID
+ * disambiguates two identical labels and can also be pasted into a formula. */
+export function namedEntrySupplies(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): readonly {
+	ref: Extract<
+		import("./expression/types").DatumRef,
+		{ kind: "form-selection" | "entry-value" }
+	>;
+	name: string;
+	uuid: Uuid;
+}[] {
+	return [
+		...formCaseSelections(doc, formUuid).map((row) => ({
+			ref: { kind: "form-selection" as const, selection: row.uuid },
+			name: row.name,
+			uuid: row.uuid,
+		})),
+		...(doc.forms[formUuid]?.computedDatums ?? []).map((row) => ({
+			ref: { kind: "entry-value" as const, datum: row.uuid },
+			name: row.key,
+			uuid: row.uuid,
+		})),
+	];
+}
+
+export function namedEntrySupplyRead(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	ref: import("./expression/types").DatumRef,
+): string | undefined {
+	if (ref.kind !== "form-selection" && ref.kind !== "entry-value")
+		return undefined;
+	const uuid = ref.kind === "form-selection" ? ref.selection : ref.datum;
+	const supplies = namedEntrySupplies(doc, formUuid).filter(
+		(row) => row.ref.kind === ref.kind,
+	);
+	const supply = supplies.find((row) => row.uuid === uuid);
+	if (!supply) return undefined;
+	const name = supply.name;
+	const safeName =
+		supplies.filter((row) => row.name === name || row.uuid === name).length ===
+			1 && !(name.includes("'") && name.includes('"'))
+			? name
+			: uuid;
+	const quote = safeName.includes("'") ? '"' : "'";
+	return (
+		(ref.kind === "form-selection" ? "opening-record" : "opening-value") +
+		"(" +
+		quote +
+		safeName +
+		quote +
+		")"
+	);
+}
+
+/** Allocate a selection tag once. Subsequent edits use this stored tag. */
+export function newFormSelectionTag(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	name: string,
+): string {
+	const form = doc.forms[formUuid];
+	const taken = new Set(
+		formCaseSelections(doc, formUuid).map((row) => row.tag),
+	);
+	for (const op of form?.caseOperations ?? [])
+		if (op.placement?.kind === "advanced") taken.add(op.placement.tag);
+	for (const row of form?.computedDatums ?? [])
+		if (row.key.startsWith("case_id_"))
+			taken.add(row.key.slice("case_id_".length));
+	return uniqueSlug(`use_${name}`, "use_record", taken);
 }

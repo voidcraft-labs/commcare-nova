@@ -478,6 +478,7 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 }
 
 interface FormScreenProps {
+	heldEntryValues?: Readonly<Record<string, string>>;
 	/** Stable identity passed by PreviewShell so an Activity-retained form never
 	 * starts reading a newer route's module, form, or selected case. */
 	screen: Extract<PreviewScreen, { type: "form" }>;
@@ -520,7 +521,7 @@ function stringArrayValuesEqual(
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
-export function FormScreen({ screen }: FormScreenProps) {
+export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 	const explicitCases = screen.cases;
 	const loc = useLocation();
 	const navigate = useNavigate();
@@ -802,6 +803,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		mode === "preview" &&
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		form.caseSelections === undefined &&
 		mod?.caseListConfig?.selection === undefined &&
 		explicitCases === undefined &&
 		menuCaseContext.selectedCase === undefined;
@@ -1021,6 +1023,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/* The running session the entry starts from: its bound cases and the
 	 * menu's choices. The controller builds the entry's session map, which
 	 * the form reads as `session/data` and its links read after submit. */
+	const entryChoices =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.entryChoices
+			: undefined;
 	const entrySession = useMemo(
 		() =>
 			appId === undefined || mode !== "preview"
@@ -1028,6 +1034,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 				: {
 						appId,
 						boundCases: effectiveCases ?? [],
+						heldEntryValues,
+						entryChoices,
 						menuSelections: menuCaseSelections,
 						...(searchResultsSnapshot === undefined
 							? {}
@@ -1038,6 +1046,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 			appId,
 			mode,
 			effectiveCases,
+			heldEntryValues,
+			entryChoices,
 			menuCaseSelections,
 			searchResultsSnapshot,
 			caseListSearchText,

@@ -43,6 +43,7 @@ import {
 } from "@/lib/commcare/wireIdentity";
 import type { FormParseIssueCode } from "@/lib/commcare/xpath/formParseIssues";
 import type { CheckErrorCode } from "@/lib/domain/expression/typeChecker";
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import { isMediaKind } from "@/lib/domain/multimedia";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import type { Finding } from "@/lib/publish/hqFindings";
@@ -319,6 +320,7 @@ export function* makeHqChangeReadingsSteps(
 		appStrings: readingAppStrings(readerLookupContext(data)),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
+		knownFormEntryChoices: knownFormEntryChoicesOf(reference.doc),
 		knownLanguageCodes: knownLanguageCodesOf(reference.doc),
 		...(input.saveOnlyEditedApplied !== undefined && {
 			saveOnlyEditedApplied: input.saveOnlyEditedApplied,

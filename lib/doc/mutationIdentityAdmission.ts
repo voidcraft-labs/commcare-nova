@@ -61,6 +61,16 @@ function nestedFormIdentities(
 					},
 				]
 			: []),
+		...(form.caseSelections ?? []).map((row) => ({
+			uuid: row.uuid,
+			kind: "formSelection" as const,
+			ownerUuid: form.uuid,
+		})),
+		...(form.computedDatums ?? []).map((row) => ({
+			uuid: row.uuid,
+			kind: "entryValue" as const,
+			ownerUuid: form.uuid,
+		})),
 		...(form.caseOperations ?? []).map((operation) => ({
 			uuid: operation.uuid,
 			kind: "caseOperation" as const,
@@ -431,6 +441,20 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 				preserveIfOwnedBy: mutation.uuid,
 			}));
 		case "updateForm":
+			if (
+				mutation.entryChange?.operation === "add-choice" ||
+				mutation.entryChange?.operation === "add-value"
+			)
+				return createClaims([
+					{
+						uuid: mutation.entryChange.value.uuid,
+						kind:
+							mutation.entryChange.operation === "add-choice"
+								? "formSelection"
+								: "entryValue",
+						ownerUuid: mutation.uuid,
+					},
+				]);
 			return mutation.caseOperationChange?.operation === "add"
 				? createClaims([
 						{

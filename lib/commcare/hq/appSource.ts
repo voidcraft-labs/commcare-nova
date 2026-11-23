@@ -180,6 +180,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Advanced entries store a table tag directly. Its generated fixture URI
+ * appears only in the built suite. A shadow stores its replacement and
+ * additional choices in its own action list. */
+export function entryLookupTableTags(source: HqAppSource): ReadonlySet<string> {
+	const tags = new Set<string>();
+	const modules = source.raw.modules;
+	if (!Array.isArray(modules)) return tags;
+	for (const menu of modules) {
+		if (!isRecord(menu) || !Array.isArray(menu.forms)) continue;
+		for (const form of menu.forms) {
+			if (!isRecord(form)) continue;
+			const actions =
+				form.doc_type === "ShadowForm"
+					? form.extra_actions
+					: form.doc_type === "AdvancedForm"
+						? form.actions
+						: undefined;
+			if (!isRecord(actions) || !Array.isArray(actions.load_update_cases))
+				continue;
+			for (const load of actions.load_update_cases) {
+				const auto = isRecord(load) && load.auto_select;
+				if (
+					isRecord(auto) &&
+					auto.mode === "fixture" &&
+					typeof auto.value_source === "string"
+				)
+					tags.add(auto.value_source);
+			}
+		}
+	}
+	return tags;
+}
+
 /** An object of language entries, each an object of strings. */
 function isStringBagByLanguage(
 	value: unknown,

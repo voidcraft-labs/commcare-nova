@@ -81,8 +81,7 @@ export interface ConditionalCaseUpdate {
 
 /**
  * HQ's `CaseIndex`. `relationship` is a `choices=` slot (`child`,
- * `extension`, `question`); Nova writes the first two, and no
- * `relationship_question`, so that slot is its default `""`.
+ * `extension`, `question`); a question supplies its connection kind at runtime.
  */
 export interface CaseIndex {
 	doc_type: "CaseIndex";
@@ -90,16 +89,16 @@ export interface CaseIndex {
 	tag: string;
 	/** The index's name; HQ's default `"parent"` where `tag` is `""`. */
 	reference_id: string;
-	relationship: "child" | "extension";
-	relationship_question: "";
+	relationship: "child" | "extension" | "question";
+	relationship_question: string;
 }
 
 /** HQ's `AutoSelectCase`, in the one mode Nova writes: the worker's own record. */
 export interface AutoSelectCase {
 	doc_type: "AutoSelectCase";
-	mode: "usercase";
-	value_source: "";
-	value_key: "";
+	mode: "usercase" | "user" | "fixture" | "case" | "raw";
+	value_source: string;
+	value_key: string;
 }
 
 /** HQ's `LoadUpdateAction`: a case the form loads, and what it writes to it. */
@@ -630,7 +629,11 @@ export interface HqAdvancedForm<XPath = string, LinkXPath = XPath>
 	doc_type: "AdvancedForm";
 	form_type: "advanced_form";
 	actions: AdvancedFormActions;
-	arbitrary_datums: [];
+	arbitrary_datums: {
+		doc_type: "ArbitraryDatum";
+		datum_id: string;
+		datum_function: string;
+	}[];
 }
 
 /** The keys a basic and an advanced module share (HQ's `ModuleBase` and its mixins). */

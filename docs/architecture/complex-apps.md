@@ -21,6 +21,15 @@ doc both speak, the subtree doc and the code are the authority for how.
 
 ### Canonical authored identity
 
+A form can have multiple opening records from one list, with a stable identity
+for each choice. `formCaseSelections` materializes the derived menu choices
+on first edit. A choice can come from a list, a worker record or worker
+property, a table column, a named connection, or an earlier calculated
+expression. Opening calculations and form expressions resolve these identities
+at their actual position in the entry. The same selection UUID can survive a
+display rename, move, publish and read-back. The listing menu remains the
+owner of the screen a worker sees.
+
 A Nova UUID has exactly one spelling: lowercase, hyphenated, RFC version 1–8,
 with the RFC variant (`lib/domain/uuid.ts::CANONICAL_UUID_PATTERN` — a string
 regex rather than a Zod refinement, because `z.toJSONSchema()` carries a

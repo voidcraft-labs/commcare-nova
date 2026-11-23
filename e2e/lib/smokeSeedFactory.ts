@@ -77,6 +77,7 @@ import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitInteg
 import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
+import { independentChoicesBlueprint } from "../../proof/targeted/documents/independentFormChoices";
 import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
 import { seedBringIn } from "./bringInSeed";
 import {
@@ -1391,6 +1392,31 @@ export async function createSmokeBuilders(
 					opensCaseId: opens.caseId,
 				},
 			};
+		},
+		"independent-form-choices": async () => {
+			const appId = await seedRuntimeApp(
+				"Visit two people",
+				independentChoicesBlueprint,
+			);
+			const people = [
+				"Ada",
+				"Bea",
+				"Chen",
+				"Dara",
+				"Standalone list only",
+			] as const;
+			for (const name of people) {
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: "person",
+						case_name: name,
+						status: "open",
+						properties: {},
+					},
+				});
+			}
+			return { appId, people };
 		},
 		"menu-held-case": async () => {
 			const seed = MENU_HELD_CASE_SEED;

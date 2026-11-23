@@ -632,6 +632,12 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} opens on its case list first, which CommCare HQ no longer offers in Web Apps.`,
 		alternative: "open it on Search first",
 	},
+	"auto-select-confirm": {
+		lead: (subject) =>
+			`${subject} opens a record's details automatically when exactly one record matches. Web Apps stops before the form opens.`,
+		alternative:
+			"let workers choose the record or remove its confirmation screen",
+	},
 	"several-cases": {
 		lead: (subject) =>
 			`${subject} lets workers choose several cases, which Android can't do.`,
@@ -669,15 +675,17 @@ const PLATFORM_REFUSAL_FALLBACK =
 	"This isn't available where this app runs. You can change where it runs in App settings.";
 
 /** The owner of a platform finding as the builder names it: a Search field,
- * a question, or a module. */
+ * a question, a form, or a module. */
 const platformFindingSubject = (e: ValidationError): string | undefined =>
 	e.details?.inputName !== undefined
 		? `Search field ${q(e.details.inputName)}`
 		: e.location.fieldId !== undefined
 			? q(e.location.fieldId)
-			: e.location.moduleName !== undefined
-				? q(e.location.moduleName)
-				: undefined;
+			: e.location.formName !== undefined
+				? q(e.location.formName)
+				: e.location.moduleName !== undefined
+					? q(e.location.moduleName)
+					: undefined;
 
 /**
  * A platform refusal (`PLATFORM_FEATURE_UNAVAILABLE`, or the checker's
@@ -1504,6 +1512,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination whose forms read the search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination whose forms read their own case.`,
+	FORM_ENTRY_SETUP: (e) => e.message,
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.`,
 	FORM_LINK_DATUM_TARGET_COLLISION: (e) =>

@@ -828,6 +828,28 @@ function extractFormEdges(
 	form: Form,
 	ctx: CarrierContext,
 ): void {
+	for (const choice of form.caseSelections ?? []) {
+		const slot = "form_selection_source";
+		sink.edge(caseTypeTargetKey(choice.caseType), slot);
+		const src = choice.source;
+		if (src.kind === "choose") {
+			sink.edge(entityTargetKey(src.module), slot);
+			if (src.under) {
+				sink.edge(entityTargetKey(src.under.selection), slot);
+				if (typeof src.under.relationship === "object")
+					sink.edge(entityTargetKey(src.under.relationship.question), slot);
+			}
+		} else if (src.kind === "index")
+			sink.edge(entityTargetKey(src.selection), slot);
+		else if (src.kind === "worker-data") {
+			sink.edge(
+				src.property.kind === "session-user-property"
+					? userPropertyTargetKey(src.property.userPropertyUuid)
+					: workerFieldNameTargetKey(src.property.field),
+				slot,
+			);
+		}
+	}
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		switch (slot.kind) {
 			case "expression":
@@ -999,6 +1021,12 @@ function datumEdges(
 	ctx: CarrierContext,
 ): void {
 	switch (datum.kind) {
+		case "form-selection":
+			sink.edge(entityTargetKey(datum.selection), slot);
+			break;
+		case "entry-value":
+			sink.edge(entityTargetKey(datum.datum), slot);
+			break;
 		case "selected-case":
 		case "tile-group-parents":
 			sink.edge(entityTargetKey(datum.module), slot);

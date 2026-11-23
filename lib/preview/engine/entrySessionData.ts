@@ -25,11 +25,8 @@ import {
 } from "@/lib/commcare/formLinkProjection";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "@/lib/commcare/sessionContext";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
-import {
-	type BlueprintDoc,
-	materializableCaseTypes,
-	type Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { entryCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	entryDatumCaseId,
 	entryDatumCaseKey,
@@ -38,19 +35,24 @@ import {
 import type { DatumRef } from "@/lib/domain/expression/types";
 import type {
 	PreviewCaseChoice,
+	PreviewEntryChoice,
 	PreviewMenuCaseSelection,
 } from "@/lib/session/types";
 import { previewMenuCaseContext } from "../menuProjection";
-import { xpathToString } from "../xpath/coerce";
+import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
+import type { XPathInstance } from "../xpath/runtimeValues";
 import { dayNumberEpochOf, type EvalContext } from "../xpath/types";
+import { PreviewDataRefusal } from "./dataRefusal";
 import type { SessionDatumValue } from "./formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "./identity";
+import type { PreviewLookupData } from "./lookupEvaluation";
 import {
 	type CaseDatabaseSnapshot,
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
+	lookupXPathInstances,
 	type SearchResultsSnapshot,
 } from "./xpathInstances";
 
@@ -61,6 +63,9 @@ export interface EntrySessionInput {
 	readonly appId: string | undefined;
 	/** The cases the form is bound to, in selection order: the case target. */
 	readonly boundCases: readonly PreviewCaseChoice[];
+	/** Ordered input from this form's own entry. Two input positions may use the same menu. */
+	readonly entryChoices?: readonly PreviewEntryChoice[];
+	readonly heldEntryValues?: Readonly<Record<string, string>>;
 	/** The menu's case selections, keyed by the module that chose them. */
 	readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	/** What the search of the form's search-first module returned, which
@@ -73,6 +78,22 @@ export interface EntrySessionInput {
 }
 
 export interface EntrySessionData {
+	readonly reachedCaseIds: ReadonlyMap<Uuid, string>;
+	/** Calculations already executed, keyed by immutable supply identity. */
+	readonly resolvedEntryValues?: Readonly<Record<string, string>>;
+	/** At a manual boundary the remaining datums have not run. */
+	readonly nextSelection?: {
+		readonly selectionUuid: Uuid;
+		readonly moduleUuid: Uuid;
+		readonly name: string;
+		readonly confirms: boolean;
+		readonly autoSelectSingle: boolean;
+		readonly under?: {
+			readonly caseId: string;
+			readonly caseType: string;
+			readonly identifier: string;
+		};
+	};
 	/** `session/data/<id>` → value, for the session instance. */
 	readonly data: Readonly<Record<string, string>>;
 	/** The same values with the name of each case a datum names, keyed by
@@ -100,14 +121,24 @@ export function entrySessionData(
 	formUuid: Uuid,
 	args: EntrySessionInput & {
 		readonly entryKey: string;
+		readonly lookupData?: PreviewLookupData | null;
 		readonly caseDatabase: CaseDatabaseSnapshot | null;
 		readonly session: PreviewSearchSessionValues;
 	},
 ): EntrySessionData {
-	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const ctx = formLinkProjectionContext(doc, {
+		entryMetadataOnly: true,
+		renderEntryValues: true,
+		lookupNaming: args.lookupData?.naming,
+	});
 	const moduleUuid = owningModuleOf(ctx, formUuid);
 	if (moduleUuid === undefined || doc.forms[formUuid] === undefined)
-		return { data: {}, values: new Map(), selectedCases: {} };
+		return {
+			data: {},
+			values: new Map(),
+			selectedCases: {},
+			reachedCaseIds: new Map(),
+		};
 	const datums = entrySessionDatums(doc, ctx, moduleUuid, formUuid);
 	const ids = entryDatumIds(doc, ctx, moduleUuid, formUuid);
 	if (ids.length !== datums.length)
@@ -120,12 +151,22 @@ export function entrySessionData(
 	);
 	const casedb = caseDatabaseXPathInstance(
 		args.caseDatabase,
-		materializableCaseTypes(doc),
+		entryCaseTypes(doc),
 	);
-	const data: Record<string, string> = {};
+	const data: Record<string, string> = Object.create(null);
 	const values = new Map<string, SessionDatumValue>();
-	const selectedCases: Record<string, readonly string[]> = {};
+	const selectedCases: Record<string, readonly string[]> = Object.create(null);
 	let newCaseId: string | undefined;
+	let nextSelection: EntrySessionData["nextSelection"];
+	let manualIndex = 0;
+	const held = args.heldEntryValues ?? args.entryChoices?.at(-1)?.earlierValues;
+	const resolvedEntryValues: Record<string, string> = Object.create(null);
+	const selectionsById = new Map(
+		(doc.forms[formUuid].caseSelections ?? []).map(
+			(row) => [row.uuid, row] as const,
+		),
+	);
+	const reached = new Map<Uuid, string>();
 	const newCaseKey = entryNewCaseKeyNumbering();
 	const hold = (id: string, value: SessionDatumValue) => {
 		data[id] = value.value;
@@ -148,6 +189,85 @@ export function entrySessionData(
 				"The entry's datum identities are out of order with its session datums.",
 			);
 		if (datum.query !== undefined) continue;
+		const supply = row.refs.find((ref) => ref.kind === "form-selection");
+		const choice = supply && selectionsById.get(supply.selection);
+		if (choice?.source.kind === "choose") {
+			const source = choice.source;
+			const selected = args.entryChoices?.[manualIndex];
+			if (selected?.selectionUuid !== choice.uuid) {
+				const parentId = source.under && reached.get(source.under.selection);
+				nextSelection = {
+					selectionUuid: choice.uuid,
+					moduleUuid: source.module,
+					name: choice.name,
+					confirms: datum.detailConfirm !== undefined,
+					autoSelectSingle: datum.autoselect === true,
+					...(source.under &&
+						parentId !== undefined && {
+							under: {
+								caseId: parentId,
+								caseType: rowsById.get(parentId)?.case_type ?? "",
+								identifier: source.under.identifier,
+							},
+						}),
+				};
+				break;
+			}
+			const name = caseNameOf(selected.caseId, selected);
+			hold(datum.id, {
+				value: selected.caseId,
+				...(name !== undefined && { caseName: name }),
+			});
+			reached.set(choice.uuid, selected.caseId);
+			manualIndex++;
+			continue;
+		}
+		if (
+			datum.function &&
+			(choice || datum.entryValueUuid || datum.inheritedEntryFunction)
+		) {
+			const identity =
+				choice?.uuid ?? datum.entryValueUuid ?? datum.inheritedEntryFunction;
+			if (!identity)
+				throw new Error("An entry function needs its supply identity.");
+			const previous =
+				held && Object.hasOwn(held, identity) ? held[identity] : undefined;
+			if (previous !== undefined) {
+				const caseName = choice && caseNameOf(previous);
+				hold(datum.id, {
+					value: previous,
+					...(caseName !== undefined && { caseName }),
+				});
+				resolvedEntryValues[identity] = previous;
+				if (choice) reached.set(choice.uuid, previous);
+				continue;
+			}
+			const world = {
+				session: args.session,
+				data,
+				casedb,
+				lookupData: args.lookupData,
+			};
+			for (const assertion of datum.assertions ?? []) {
+				const test = serializeWire(assertion.test, { target: "preview" }).text;
+				if (choice && !toBoolean(evaluateSessionExpression(test, world))) {
+					throw new PreviewDataRefusal({
+						kind: "entry-record",
+						selection: choice.name,
+						source: choice.source.kind,
+					});
+				}
+			}
+			const value = evaluateDatumFunction(
+				serializeWire(datum.function, { target: "preview" }).text,
+				world,
+			);
+			const name = choice && caseNameOf(value);
+			hold(datum.id, { value, ...(name !== undefined && { caseName: name }) });
+			resolvedEntryValues[identity] = value;
+			if (choice) reached.set(choice.uuid, value);
+			continue;
+		}
 		const selection = row.refs.filter(
 			(ref): ref is Extract<DatumRef, { kind: "selected-case" }> =>
 				ref.kind === "selected-case",
@@ -167,6 +287,7 @@ export function entrySessionData(
 				.map((ref) => chosenCases(ref.module)[0])
 				.find((candidate) => candidate !== undefined);
 			if (chosen === undefined) continue;
+			if (supply) reached.set(supply.selection, chosen.caseId);
 			const caseName = caseNameOf(chosen.caseId, chosen);
 			hold(datum.id, {
 				value: chosen.caseId,
@@ -189,6 +310,8 @@ export function entrySessionData(
 							serializeWire(datum.function, { target: "preview" }).text,
 							{ session: args.session, data, casedb },
 						);
+			if (supply && ref.kind === "worker-record")
+				reached.set(supply.selection, value);
 			const caseName =
 				ref.kind === "worker-record" ? caseNameOf(value) : undefined;
 			hold(datum.id, {
@@ -213,6 +336,9 @@ export function entrySessionData(
 	return {
 		data,
 		values,
+		reachedCaseIds: reached,
+		...(nextSelection && { nextSelection }),
+		...(Object.keys(resolvedEntryValues).length && { resolvedEntryValues }),
 		selectedCases,
 		...(newCaseId === undefined ? {} : { newCaseId }),
 		...(args.searchResults === undefined
@@ -269,9 +395,9 @@ export function caseListStepSession(
 	const menuSource = { ...doc, caseTypes: doc.caseTypes ?? [] };
 	const casedb = caseDatabaseXPathInstance(
 		args.caseDatabase,
-		materializableCaseTypes(doc),
+		entryCaseTypes(doc),
 	);
-	const data: Record<string, string> = {};
+	const data: Record<string, string> = Object.create(null);
 	const chosenCaseIds: Record<string, string> = {};
 	const chosenCases = (module: Uuid): readonly PreviewCaseChoice[] =>
 		previewMenuCaseContext(menuSource, module, args.menuSelections).selectedCase
@@ -384,21 +510,32 @@ export function entryCreatedCaseKeys(
 
 /** Evaluate one datum function as Core does when the session reaches it: in
  *  the session's scope, over the device's casedb and the datums before it. */
+interface EntryExpressionWorld {
+	readonly session: PreviewSearchSessionValues;
+	readonly data: Readonly<Record<string, string>>;
+	readonly casedb: XPathInstance;
+	readonly lookupData?: PreviewLookupData | null;
+}
 function evaluateDatumFunction(
 	source: string,
-	world: {
-		readonly session: PreviewSearchSessionValues;
-		readonly data: Readonly<Record<string, string>>;
-		readonly casedb: ReturnType<typeof caseDatabaseXPathInstance>;
-	},
+	world: EntryExpressionWorld,
 ): string {
-	const instances = new Map([
+	return xpathToString(evaluateSessionExpression(source, world));
+}
+function evaluateSessionExpression(
+	source: string,
+	world: EntryExpressionWorld,
+) {
+	const instances = new Map<string, XPathInstance>([
 		[
 			"commcaresession",
 			commcareSessionXPathInstance(world.session, { ...world.data }),
 		],
 		["casedb", world.casedb],
-	] as const);
+		...lookupXPathInstances(world.lookupData ?? null, {
+			includeFixtureAliases: true,
+		}),
+	]);
 	const context: EvalContext = {
 		contextPath: "",
 		position: undefined,
@@ -407,12 +544,11 @@ function evaluateDatumFunction(
 				`A session datum cannot read "${path}": a datum is valued before its form opens, so it reads only the session and the device's cases.`,
 			);
 		},
-		resolveXPathInstance: (instanceId) =>
-			instances.get(instanceId as "commcaresession" | "casedb"),
+		resolveXPathInstance: (instanceId) => instances.get(instanceId),
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 		dayNumberEpoch: dayNumberEpochOf(world.session),
 	};
-	return xpathToString(evaluate(source, context));
+	return evaluate(source, context);
 }
 
 /** Whether the selection a grouped tile's companion reads chooses several

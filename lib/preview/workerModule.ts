@@ -1,6 +1,7 @@
 import {
 	type BlueprintDoc,
 	effectiveCaseSearchConfig,
+	type Module,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -73,4 +74,45 @@ export function projectWorkerModule(
 		mod.caseSearchConfig = search;
 	}
 	return mod;
+}
+
+/** The advanced menu's list item has an unfiltered datum. A manual form
+ * choice uses the target list's filter and exactly one selection. Both use
+ * the short detail, including its standalone Search and Register actions. */
+export type WorkerListPurpose = "form-selection" | "advanced-list-item";
+export function workerListFor(
+	module: Module | undefined,
+	purpose?: WorkerListPurpose,
+): Module | undefined {
+	if (!module || !purpose) return module;
+	const search = effectiveCaseSearchConfig(module);
+	const standalone = search !== undefined && !search.formsReadSearch;
+	return {
+		...module,
+		caseSearchConfig: standalone
+			? { ...search, excludedOwnerIds: undefined }
+			: undefined,
+		caseListConfig: module.caseListConfig && {
+			...module.caseListConfig,
+			searchInputs: standalone ? module.caseListConfig.searchInputs : [],
+			...(purpose === "form-selection"
+				? { selection: undefined }
+				: { filter: undefined }),
+		},
+	};
+}
+
+/** The list read validates its configuration against its owning module.
+ * Carry its real physical datum's configuration on both sides of that
+ * check, including filters that a standalone menu item does not apply. */
+export function workerListDocument(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	purpose?: WorkerListPurpose,
+): BlueprintDoc {
+	if (!purpose) return doc;
+	const module = workerListFor(doc.modules[moduleUuid], purpose);
+	return module
+		? { ...doc, modules: { ...doc.modules, [moduleUuid]: module } }
+		: doc;
 }

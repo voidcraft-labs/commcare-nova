@@ -33,6 +33,7 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CasePlacement,
+	type FormCaseSelection,
 	formConnectIds,
 	type PlacementIneligibility,
 	type SaveToCasePlacement,
@@ -47,6 +48,7 @@ import {
 	loadClause,
 	openActionClause,
 	opensCase,
+	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
 import {
 	appendedNameTaken,
@@ -592,13 +594,23 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			readonly worker: boolean;
 			readonly listModule: Uuid | null;
 			readonly identifier?: string;
+			readonly selection?: FormCaseSelection;
 		}
-	> = chain.map((load) => ({
-		caseType: load.caseType,
-		worker: false,
-		listModule: load.moduleUuid,
-		...(load.identifier !== undefined && { identifier: load.identifier }),
-	}));
+	> =
+		f.form.caseSelections?.map((selection) => ({
+			caseType: selection.caseType,
+			worker: selection.source.kind === "worker-record",
+			listModule:
+				selection.source.kind === "choose" ? selection.source.module : null,
+			held: selection.tag,
+			selection,
+		})) ??
+		chain.map((load) => ({
+			caseType: load.caseType,
+			worker: false,
+			listModule: load.moduleUuid,
+			...(load.identifier !== undefined && { identifier: load.identifier }),
+		}));
 	const opens: Array<
 		ActionState & {
 			readonly operationUuid: Uuid;
@@ -611,7 +623,7 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		Uuid,
 		{ readonly repeat: Uuid | undefined; readonly indexed: boolean }
 	>();
-	const usedHeld = new Set<string>();
+	const usedHeld = new Set(f.form.caseSelections?.map((row) => row.tag));
 	const onAction = new Map<
 		Uuid,
 		{ readonly slot: AdvancedSlot; readonly sharesWith?: Uuid }
@@ -733,18 +745,31 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		...(open.repeat !== undefined && { repeat: open.repeat }),
 		row: open.repeat !== undefined && (indexedIn.get(open.repeat) ?? 0) < 2,
 	}));
+	const ownIndex = ownFormSelectionIndex(f.doc, f.formUuid);
 	const plannedLoads: PlannedLoad[] = loads.map((load, index) => {
+		const source = load.selection?.source;
+		const under = source?.kind === "choose" ? source.under : undefined;
 		const previous =
-			index > 0 && !load.worker ? tags.loads[index - 1] : undefined;
+			load.selection === undefined
+				? index > 0 && !load.worker
+					? tags.loads[index - 1]
+					: undefined
+				: loads.find((row) => row.selection?.uuid === under?.selection)?.held;
+		const identifier = under?.identifier ?? load.identifier;
 		return {
 			tag: tags.loads[index] ?? "",
 			caseType: load.caseType,
 			listModule: load.listModule,
+			...(load.selection && { selection: load.selection }),
 			...(previous !== undefined &&
-				load.identifier !== undefined && {
-					index: { tag: previous, identifier: load.identifier },
+				identifier !== undefined && {
+					index: {
+						tag: previous,
+						identifier,
+						...(under?.relationship && { relationship: under.relationship }),
+					},
 				}),
-			own: !load.worker && index === chain.length - 1,
+			own: index === ownIndex,
 			worker: load.worker,
 		};
 	});

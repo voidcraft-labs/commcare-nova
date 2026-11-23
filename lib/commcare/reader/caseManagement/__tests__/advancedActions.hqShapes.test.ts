@@ -20,6 +20,7 @@ import {
 	proseText,
 	type Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { formField, term, unowned } from "@/lib/domain/expression/builders";
 import {
 	advancedFixture,
@@ -36,6 +37,7 @@ import { planFormCaseWire } from "../../../casePlacementPlan";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import {
 	codesOf,
+	formNamed,
 	type AppJson as MenuAppJson,
 	readMenusOf as readMenusOfDoc,
 } from "../../menus/__tests__/menuReading";
@@ -846,7 +848,7 @@ describe("an advanced form's loads and open actions", () => {
 		});
 	});
 
-	it("refuses an auto-selected load in a mode Nova does not hold", async () => {
+	it("reaches the record named by a worker data key and keeps its write on that record", async () => {
 		const { doc } = memberFollowup([
 			{
 				uuid: OP("worker"),
@@ -872,7 +874,29 @@ describe("an advanced form's loads and open actions", () => {
 				};
 			},
 		});
-		expect(findingCodes(reading)).toContain(`${F}/auto-select-mode-user`);
+		expect(
+			reading.whole?.kind === "account" ? reading.whole.findings : [],
+		).toEqual([]);
+		if (reading.whole?.kind !== "read") throw new Error("Expected a held read");
+		const opened = formNamed(reading.whole.draft.doc, "Under test");
+		const selected = opened.caseSelections?.find(
+			(row) => row.source.kind === "worker-data",
+		);
+		expect(selected?.source).toEqual({
+			kind: "worker-data",
+			property: { kind: "session-user", field: "district" },
+		});
+		const change = opened.caseOperations?.find((row) =>
+			row.writes?.some((write) => write.property === "last_household"),
+		);
+		if (!selected) throw new Error("Expected the worker's record supply");
+		expect(change?.target).toEqual({
+			kind: "expression",
+			expr: term({
+				kind: "session-datum",
+				datum: { kind: "form-selection", selection: selected.uuid },
+			}),
+		});
 	});
 
 	it("claims every key of the worker's load Nova writes, and refuses one indexed to another load", async () => {
@@ -1007,17 +1031,19 @@ describe("an advanced form's loads and open actions", () => {
 		]);
 	});
 
-	for (const [why, change] of [
+	for (const [why, change, expected] of [
 		[
 			"whose forms read the search",
 			{ caseSearchConfig: { formsReadSearch: true } },
+			["menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one"],
 		],
 		[
 			"whose case list menu item is narrowed (its cases are chosen after a parent's)",
 			{ caseListMenuItem: {} },
+			[],
 		],
 	] as const)
-		it(`raises one finding at an advanced menu ${why}`, async () => {
+		it(`accounts for the independent list item on an advanced menu ${why}`, async () => {
 			const { doc } = memberFollowup();
 			const reading = await readCases(doc);
 			const members = reading.ctx.draft.modules.find(
@@ -1035,12 +1061,7 @@ describe("an advanced form's loads and open actions", () => {
 			const before = reading.ctx.accounting.findings().length;
 			settleAdvancedMenu(reading.ctx, blocked, { ...members, uuid: MEMBERS });
 			const raised = reading.ctx.accounting.findings().slice(before);
-			expect(raised.map((one) => [one.code, one.place.kind])).toEqual([
-				[
-					"menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
-					"menu",
-				],
-			]);
+			expect(raised.map((one) => one.code)).toEqual(expected);
 		});
 
 	it("reads an open action with a close back with the close sharing its place", async () => {
@@ -1071,7 +1092,36 @@ describe("an advanced form's loads and open actions", () => {
 		);
 	});
 
-	it("raises the tag entry for a load that changes no case tagged after the menu's case type", async () => {
+	it("keeps a manual list's stored connection question through minting and a rebuild", async () => {
+		const { doc } = memberFollowup();
+		const reading = await readMenusOf(doc, (app) => {
+			const second = actionsOf(app as unknown as AppJson).load_update_cases[1];
+			if (!second) throw new Error("Expected the member load");
+			Object.assign(second.case_index as Record<string, unknown>, {
+				relationship: "question",
+				relationship_question: "/data/age",
+			});
+		});
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a read");
+		const form = formNamed(reading.doc, "Under test");
+		const field = Object.values(reading.doc.fields).find(
+			(question) => question.id === "age",
+		);
+		expect(field).toBeDefined();
+		expect(form.caseSelections?.[1]?.source).toMatchObject({
+			under: { relationship: { question: field?.uuid } },
+		});
+		const wire = planFormCaseWire(reading.doc, form.uuid);
+		expect(
+			wire.kind === "advanced" && wire.actions.load_update_cases[1]?.case_index,
+		).toMatchObject({
+			relationship: "question",
+			relationship_question: "/data/age",
+		});
+	});
+
+	it("keeps a tag on a selection that writes no case and the following selection that uses it", async () => {
 		const { doc } = memberFollowup();
 		const reading = await readMenusOf(doc, (app) => {
 			const loads = actionsOf(app as unknown as AppJson).load_update_cases;
@@ -1086,15 +1136,23 @@ describe("an advanced form's loads and open actions", () => {
 				throw new Error("The own load names the parent's tag.");
 			index.tag = "load_member0";
 		});
-		expect(menuCodes(reading)).toContain(
-			`${F}/load-changing-no-case-with-a-tag-nova-does-not-derive`,
-		);
-		expect(menuCodes(reading)).not.toContain(
-			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
-		);
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a held read");
+		const form = formNamed(reading.doc, "Under test");
+		const [first, second] = formCaseSelections(reading.doc, form.uuid);
+		expect(first?.tag).toBe("load_member0");
+		expect(second?.source).toMatchObject({
+			kind: "choose",
+			under: { selection: first?.uuid, identifier: "parent" },
+		});
+		const wire = planFormCaseWire(reading.doc, form.uuid);
+		expect(
+			wire.kind === "advanced" &&
+				wire.actions.load_update_cases[1]?.case_index.tag,
+		).toBe("load_member0");
 	});
 
-	it("raises the chain entry where two forms of one menu load different chains", async () => {
+	it("keeps independent selections for two forms in one menu", async () => {
 		const { doc } = memberFollowup();
 		const reading = await readMenusOf(doc, (app) => {
 			const module = app.modules.find((one) =>
@@ -1135,9 +1193,22 @@ describe("an advanced form's loads and open actions", () => {
 			).load_update_cases = [own];
 			module.forms.push(copy);
 		});
-		expect(menuCodes(reading)).toContain(
-			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
-		);
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a held read");
+		const original = formNamed(reading.doc, "Under test"),
+			copy = formNamed(reading.doc, "Second");
+		const originalSteps = formCaseSelections(reading.doc, original.uuid);
+		const copySteps = formCaseSelections(reading.doc, copy.uuid);
+		expect(originalSteps.map((step) => step.caseType)).toEqual([
+			"household",
+			"member",
+		]);
+		expect(copySteps.map((step) => step.caseType)).toEqual(["member"]);
+		expect(copySteps[0]?.uuid).not.toBe(originalSteps[1]?.uuid);
+		expect(copySteps[0]?.source).not.toHaveProperty("under");
+		expect(originalSteps[1]?.source).toMatchObject({
+			under: { selection: originalSteps[0]?.uuid },
+		});
 	});
 });
 
@@ -1283,7 +1354,7 @@ function memberOpen(
 }
 
 describe("an open action's index beside the menus' parent selection", () => {
-	it("refuses a parent index to another type or as an extension once, at the form", async () => {
+	it("keeps each registration link independent of the menu parent with its actual target and relationship", async () => {
 		const { doc } = memberFollowup();
 		for (const relationship of ["child", "extension"] as const) {
 			const reading = await readMenusOf(doc, (app) => {
@@ -1297,14 +1368,25 @@ describe("an open action's index beside the menus' parent selection", () => {
 				actions.open_cases = [memberOpen(tag, relationship)];
 			});
 			expect(reading.outcome.defects, relationship).toEqual([]);
-			expect(codesOf(reading), relationship).toEqual([
-				`${F}/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`,
+			expect(codesOf(reading), relationship).toEqual([]);
+			if (!reading.doc) throw new Error("Expected a held read");
+			const form = formNamed(reading.doc, "Under test");
+			const own = form.caseOperations?.find(
+				(operation) => operation.action === "own",
+			);
+			const targetType = relationship === "child" ? "member" : "household";
+			expect(own?.links).toMatchObject([
+				{ identifier: "parent", relationship, targetType },
 			]);
-			expect(reading.findings[0]?.place.kind).toBe("form");
+			const wire = planFormCaseWire(reading.doc, form.uuid);
+			const sourceIndices = actionsOf(reading.app).open_cases[0]?.case_indices;
+			expect(
+				wire.kind === "advanced" && wire.actions.open_cases[0]?.case_indices,
+			).toEqual(sourceIndices);
 		}
 	});
 
-	it("stands an index to a refused load under that load's finding", async () => {
+	it("retains a registration linked to one selection of a different type", async () => {
 		const { doc } = memberFollowup();
 		const reading = await readMenusOf(doc, (app) => {
 			const actions = actionsOf(app);
@@ -1313,10 +1395,29 @@ describe("an open action's index beside the menus' parent selection", () => {
 			actions.open_cases = [memberOpen(String(household?.case_tag), "child")];
 		});
 		expect(reading.outcome.defects).toEqual([]);
-		expect(codesOf(reading)).toContain(
-			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
+		expect(codesOf(reading)).toEqual([]);
+		if (!reading.doc) throw new Error("Expected a held read");
+		const form = formNamed(reading.doc, "Under test");
+		expect(form.type).toBe("registration");
+		const steps = formCaseSelections(reading.doc, form.uuid);
+		expect(steps.map((step) => step.caseType)).toEqual(["household"]);
+		const own = form.caseOperations?.find(
+			(operation) => operation.action === "own",
 		);
-		expect(codesOf(reading)).not.toContain("unrecognized:schema:CaseIndex.tag");
+		const selected = steps[0];
+		if (!selected) throw new Error("Expected the household choice");
+		expect(own?.links).toMatchObject([
+			{
+				targetType: "household",
+				target: {
+					kind: "expression",
+					expr: term({
+						kind: "session-datum",
+						datum: { kind: "form-selection", selection: selected.uuid },
+					}),
+				},
+			},
+		]);
 	});
 });
 

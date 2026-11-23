@@ -404,6 +404,9 @@ function mutationFootprint(
 				scope.formUuids.add(mutation.uuid);
 				break;
 			case "updateForm": {
+				// A form's first or last explicit supply can change the whole menu's emitted kind
+				// and the aligned entries of child menus, links and display conditions.
+				if (mutation.entryChange) return undefined;
 				/* A type change moves the form between the case-loading and the
 				 * other forms, which decides whether its module lands on its case
 				 * list (`isCaseFirstModule`), what a child menu selecting through it

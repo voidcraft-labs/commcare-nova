@@ -19,6 +19,7 @@ export type AuthorableIdentityFamily =
 	| "location"
 	| "case-operation"
 	| "form-link"
+	| "form-entry-supply"
 	| "entry-point"
 	| "automation"
 	| "automation-criterion"
@@ -109,6 +110,20 @@ export function classifyIdentity(
 	} = occurrence;
 	if (tool === "start_app_test" && pointer === "/places/*/uuid")
 		return "location";
+	if (
+		(property === "selection" &&
+			(tool === "edit_form_entry" ||
+				discriminators.includes("form-selection"))) ||
+		(property === "datum" && discriminators.includes("entry-value"))
+	)
+		return "form-entry-supply";
+	if (pointer.endsWith("/source/under/relationship/question")) return "field";
+	if (tool === "edit_form_entry") {
+		if (property === "uuid" || property === "after") return "form-entry-supply";
+		if (property === "module") return "module";
+		if (property === "table") return "lookup-table";
+		if (property === "column") return "lookup-column";
+	}
 	if (property === "tableId") return "lookup-table";
 	if (
 		property === "columnId" ||

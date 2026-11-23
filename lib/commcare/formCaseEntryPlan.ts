@@ -5,7 +5,6 @@ import {
 	orderedCaseOperations,
 	type Uuid,
 } from "@/lib/domain";
-import { chainLoadOfTarget } from "@/lib/domain/advancedEntryDatums";
 import type { PlannedLoad } from "./advancedSelections";
 import type { PlannedNewCaseDatum } from "./casePlacementPlan";
 import { validateCaseType } from "./identifierValidation";
@@ -16,7 +15,6 @@ import { planBasicSubcases, planPlacements } from "./placement";
 export interface FormCaseEntryPlan {
 	readonly kind: "basic" | "advanced";
 	readonly loads: readonly PlannedLoad[];
-	readonly indexedByOpen: ReadonlySet<string>;
 	readonly datums: readonly PlannedNewCaseDatum[];
 	readonly writesWorker: boolean;
 }
@@ -46,14 +44,10 @@ export function formCaseEntryPlan(
 		moduleKind === undefined ? undefined : { moduleKind },
 	);
 	const datums: PlannedNewCaseDatum[] = [];
-	const indexedByOpen = new Set<string>();
 	const loads = advanced?.loads ?? [];
 	if (formKind === "advanced") {
 		if (advanced === undefined)
 			throw new Error(`Advanced entry ${formUuid} has no placement plan.`);
-		const openTags = new Map(
-			advanced.opens.map((open) => [open.operationUuid, open.tag]),
-		);
 		advanced.opens.forEach((open, index) => {
 			const op = byUuid.get(open.operationUuid);
 			if (!op)
@@ -70,16 +64,6 @@ export function formCaseEntryPlan(
 							? { kind: "new-case" }
 							: { kind: "new-child-case", caseType: open.caseType },
 				});
-			for (const link of op.action === "create" ? (op.links ?? []) : []) {
-				const chain = chainLoadOfTarget(doc, formUuid, link.target);
-				const tag =
-					chain === undefined
-						? link.target?.kind === "op"
-							? openTags.get(link.target.opUuid)
-							: undefined
-						: loads[chain]?.tag;
-				if (tag !== undefined) indexedByOpen.add(tag);
-			}
 		});
 	} else {
 		const module = moduleUuidOfForm(doc, formUuid);
@@ -120,7 +104,7 @@ export function formCaseEntryPlan(
 			)
 		);
 	});
-	const result = { kind: formKind, loads, indexedByOpen, datums, writesWorker };
+	const result = { kind: formKind, loads, datums, writesWorker };
 	cache.set(key, result);
 	return result;
 }

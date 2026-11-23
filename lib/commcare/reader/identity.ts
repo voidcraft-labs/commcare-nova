@@ -38,6 +38,8 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"caseListColumn",
 	"searchInput",
 	"caseOperation",
+	"formSelection",
+	"entryValue",
 	"formLink",
 	"entryPoint",
 	"userProperty",
@@ -101,6 +103,12 @@ export type EntryPointOwnerKey =
  *   counting `formLinks` in order and then the `otherwise` link.
  */
 export const externalKey = {
+	formSelection(formUuid: Uuid, tag: string): ExternalKey {
+		return { kind: "formSelection", parts: [formUuid, tag] };
+	},
+	entryValue(formUuid: Uuid, key: string): ExternalKey {
+		return { kind: "entryValue", parts: [formUuid, key] };
+	},
 	module(uniqueId: string): ExternalKey {
 		return { kind: "module", parts: [uniqueId] };
 	},

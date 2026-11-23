@@ -15,6 +15,11 @@
 // uses and its fields depth first), then each entry point. Within one owner,
 // uses follow `PLATFORM_FEATURE_IDS` order.
 
+import {
+	formCaseSelections,
+	formSelectionShowsConfirm,
+	menuEmittedAdvanced,
+} from "./advancedEntryDatums";
 import { afterSubmitCanGoHome } from "./afterSubmit";
 import type { BlueprintDoc } from "./blueprint";
 import { type EntryPointTarget, entryPointInventory } from "./entryPoints";
@@ -306,6 +311,9 @@ export function platformFeatureUses(
 	};
 
 	const out: PlatformFeatureUse[] = [];
+	const checksAutomaticLists =
+		wanted("auto-select-confirm") &&
+		Object.values(doc.modules).some((module) => module.autoSelectSingle);
 	const app: PlatformFeatureOwner = { kind: "app" };
 	const appUses: PlatformFeatureUse[] = [];
 	if (doc.connectType !== null) {
@@ -337,6 +345,27 @@ export function platformFeatureUses(
 				formUuid,
 			};
 			const formUses: PlatformFeatureUse[] = [];
+			if (wanted("form-submit-wording") && form.submitLabel !== undefined)
+				formUses.push(slotUse("form-submit-wording", formOwner, "submitLabel"));
+			if (checksAutomaticLists && menuEmittedAdvanced(doc, moduleUuid)) {
+				for (const [index, choice] of formCaseSelections(
+					doc,
+					formUuid,
+				).entries()) {
+					if (
+						choice.source.kind === "choose" &&
+						doc.modules[choice.source.module]?.autoSelectSingle &&
+						formSelectionShowsConfirm(doc, formUuid, index)
+					)
+						formUses.push(
+							slotUse(
+								"auto-select-confirm",
+								formOwner,
+								`caseSelections[${choice.uuid}]`,
+							),
+						);
+				}
+			}
 			if (wanted("after-submit-home") && afterSubmitCanGoHome(doc, formUuid))
 				formUses.push(
 					slotUse(

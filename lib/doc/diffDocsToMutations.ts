@@ -2,6 +2,7 @@ import type {
 	EntryPointTarget,
 	FormEntryPoint,
 } from "@/lib/domain/entryPoints";
+
 /**
  * Diff two `BlueprintDoc`s into the minimal-enough `Mutation[]` whose
  * replay on the FIRST doc reproduces the SECOND. It supports endpoint-only
@@ -169,7 +170,9 @@ import {
 	ownRecordValue,
 	parseLanguageTag,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import type { FormEntryChange } from "./formEntryMutations";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -444,6 +447,8 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"name",
 	"order",
 	"caseOperations",
+	"caseSelections",
+	"computedDatums",
 	// Links diff granularly (`diffFormLinks`); the form patch never carries
 	// the whole array.
 	"formLinks",
@@ -921,6 +926,7 @@ function* diffGranularSteps(
 			});
 		}
 		updates.push(...diffCaseOperations(prevForm, nextForm, uuid));
+		updates.push(...diffEntrySupplies(prev, prevForm, nextForm));
 		const otherwise = diffFormOtherwise(prevForm, nextForm, uuid);
 		updates.push(
 			...otherwise.beforeLinks,
@@ -2498,6 +2504,82 @@ function diffFormOtherwise(
  * moves that turn the previous sequence into the next one, then removals —
  * the `diffSearchInputs` shape, one collection down.
  */
+function diffEntrySupplies(
+	doc: BlueprintDoc,
+	before: Form,
+	after: Form,
+): Mutation[] {
+	const changes: FormEntryChange[] = [];
+	if (before.caseSelections !== undefined && after.caseSelections === undefined)
+		changes.push({ operation: "use-menu-choices" });
+	else if (after.caseSelections !== undefined) {
+		if (before.caseSelections === undefined)
+			changes.push({ operation: "use-form-choices" });
+		const old = formCaseSelections(doc, before.uuid);
+		const next = after.caseSelections;
+		for (const row of old)
+			if (!next.some((other) => other.uuid === row.uuid))
+				changes.push({ operation: "remove-choice", uuid: row.uuid });
+		for (const [i, row] of next.entries()) {
+			const existing = old.find((other) => other.uuid === row.uuid);
+			if (!existing) {
+				changes.push({
+					operation: "add-choice",
+					value: row,
+					after: next[i - 1]?.uuid ?? null,
+				});
+				continue;
+			}
+			const patch = propertyPatch(existing, row, new Set(["uuid"]));
+			if (Object.keys(patch).length)
+				changes.push({ operation: "edit-choice", uuid: row.uuid, patch });
+		}
+		changes.push(
+			...sequenceMovesTo(
+				arrivalsProjected(
+					old.map((row) => row.uuid),
+					next.map((row) => row.uuid),
+				),
+				next.map((row) => row.uuid),
+			).map((move) => ({ operation: "move-choice" as const, ...move })),
+		);
+	}
+	const old = before.computedDatums ?? [];
+	const next = after.computedDatums ?? [];
+	for (const row of old)
+		if (!next.some((other) => other.uuid === row.uuid))
+			changes.push({ operation: "remove-value", uuid: row.uuid });
+	for (const [i, row] of next.entries()) {
+		const existing = old.find((other) => other.uuid === row.uuid);
+		if (!existing) {
+			changes.push({
+				operation: "add-value",
+				value: row,
+				after: next[i - 1]?.uuid ?? null,
+			});
+			continue;
+		}
+		const patch = propertyPatch(existing, row, new Set(["uuid"]));
+		if (Object.keys(patch).length)
+			changes.push({ operation: "edit-value", uuid: row.uuid, patch });
+	}
+	changes.push(
+		...sequenceMovesTo(
+			arrivalsProjected(
+				old.map((row) => row.uuid),
+				next.map((row) => row.uuid),
+			),
+			next.map((row) => row.uuid),
+		).map((move) => ({ operation: "move-value" as const, ...move })),
+	);
+	return changes.map((entryChange) => ({
+		kind: "updateForm",
+		uuid: after.uuid,
+		patch: {},
+		entryChange,
+	}));
+}
+
 function diffFormLinks(
 	prev: readonly FormLink[],
 	next: readonly FormLink[],

@@ -15,6 +15,7 @@ import type { StoredLocation } from "@/lib/organization/types";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
 import type {
 	PreviewCaseListRegistrationLaunch,
+	PreviewEntryChoice,
 	PreviewMenuCaseSelection,
 } from "@/lib/session/types";
 import type { AfterSubmitStackState } from "../afterSubmitStack";
@@ -322,6 +323,16 @@ export type AppTestScreen =
 			 *  route (`caseListMenuItemSelection`) instead of opening a form. A
 			 *  bare case list's landing is the same list without the mark. */
 			openedFrom?: "case-list-menu-item";
+			formEntry?: {
+				readonly moduleUuid: Uuid;
+				readonly formUuid: Uuid;
+				readonly choices: readonly PreviewEntryChoice[];
+				readonly next: NonNullable<
+					import("../engine/entrySessionData").EntrySessionData["nextSelection"]
+				>;
+				readonly values?: Readonly<Record<string, string>>;
+				readonly sessionData: Readonly<Record<string, string>>;
+			};
 			formUuid?: Uuid;
 			returnModules?: readonly Uuid[];
 			/** The saved entry retains this command; selection completes it
@@ -348,6 +359,8 @@ export type AppTestScreen =
 			caseIds: readonly string[];
 			entry?: FormEvaluationEntry;
 			entryCases: CaseDatabaseSnapshot;
+			entryChoices?: readonly PreviewEntryChoice[];
+			heldEntryValues?: Readonly<Record<string, string>>;
 			searchAnswers?: readonly { name: string; value: string }[];
 			/** What the module's search returned to this entry, taken once
 			 * when the entry opens and read by every step and the submission

@@ -678,7 +678,10 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 								}
 								return;
 							}
-							if (launch.kind === "select-case-first") {
+							if (form.caseSelections !== undefined) {
+								setPreviewCaseTarget({ formUuid: form.uuid, entryChoices: [] });
+								navigate.openForm(formModuleUuid, form.uuid);
+							} else if (launch.kind === "select-case-first") {
 								if (formMenuCase) {
 									void openFormWithMenuCase(
 										formModuleUuid,

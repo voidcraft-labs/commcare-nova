@@ -1,3 +1,4 @@
+import { produce } from "immer";
 import { z } from "zod";
 import {
 	formLinkProjectionContext,
@@ -5,6 +6,10 @@ import {
 } from "@/lib/commcare/formLinkProjection";
 import type { FormParseScope } from "@/lib/commcare/xpath/formParseScope";
 import { parseAuthoredFormExpression } from "@/lib/doc/expressionText";
+import {
+	applyFormEntryChange,
+	formEntryChangeSchema,
+} from "@/lib/doc/formEntryMutations";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import {
 	type BlueprintDoc,
@@ -18,6 +23,8 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { newFormSelectionTag } from "@/lib/domain/advancedEntryDatums";
+import { literal, term } from "@/lib/domain/expression/builders";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import {
 	type FormStructure,
@@ -351,12 +358,56 @@ export function prepareFormAuthoring(args: {
 }) {
 	const { toolName, input, ctx } = args;
 	const formUuid = args.formUuid;
-	const doc = withPendingCaseListRegistration(
+	const baseline = withPendingCaseListRegistration(
 		toolName,
 		input,
 		ctx.snapshot.doc,
 		formUuid,
 	);
+	// Read an incoming formula in its final ordered slot. Its value isn't
+	// needed to bind references; earlier choices and their identities are.
+	let doc = baseline;
+	let incomingSlot: FormSlot | undefined;
+	if (toolName === "editFormEntry" && formUuid) {
+		const edit = structuredClone(object.parse(input.edit));
+		if (
+			edit.operation === "add-choice" ||
+			edit.operation === "edit-choice" ||
+			edit.operation === "add-value" ||
+			edit.operation === "edit-value"
+		) {
+			const adding =
+				edit.operation === "add-choice" || edit.operation === "add-value";
+			const field = adding ? "value" : "patch";
+			const row = object.parse(edit[field]);
+			const choice =
+				edit.operation === "add-choice" || edit.operation === "edit-choice";
+			if (choice && adding)
+				row.tag = newFormSelectionTag(
+					doc,
+					formUuid,
+					z.string().parse(row.name),
+				);
+			if (choice && row.source != null) {
+				const source = object.parse(row.source);
+				if (source.kind === "expression")
+					row.source = { ...source, value: term(literal("")) };
+			}
+			if (!choice && row.value !== undefined) row.value = term(literal(""));
+			edit[field] = row;
+			const change = formEntryChangeSchema.parse(edit);
+			doc = produce(doc, (draft) =>
+				applyFormEntryChange(draft, formUuid, change),
+			);
+			const supplyUuid = uuidSchema.parse(adding ? row.uuid : edit.uuid);
+			incomingSlot = {
+				entity: "form",
+				uuid: formUuid,
+				slot: choice ? "form_selection_source" : "form_entry_value",
+				member: { supplyUuid },
+			};
+		}
+	}
 	const connect = stageConnect(toolName, input, doc);
 	const forms = new Map<Uuid, FormStructure>();
 	const sources = new Map<
@@ -676,6 +727,12 @@ export function prepareFormAuthoring(args: {
 	}
 
 	function slotAt(path: AuthoringPath): FormSlot | undefined {
+		if (
+			toolName === "editFormEntry" &&
+			path[0] === "edit" &&
+			path.at(-1) === "value"
+		)
+			return incomingSlot;
 		if (
 			toolName === "addFields" &&
 			path[0] === "fields" &&

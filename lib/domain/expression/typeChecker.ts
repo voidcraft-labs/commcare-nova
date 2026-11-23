@@ -1539,7 +1539,8 @@ function chosenCaseAdmission(
 		ctx.slot.slot === "case_operation_target_expression" ||
 		ctx.slot.slot === "case_operation_link_target_expression"
 	)
-		return datum.kind === "selected-case" &&
+		return (datum.kind === "selected-case" ||
+			datum.kind === "form-selection") &&
 			ctx.supplies.refs.some(
 				(supply) =>
 					supply.scalar && datumRefKey(supply.ref) === datumRefKey(datum),

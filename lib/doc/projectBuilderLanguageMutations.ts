@@ -198,6 +198,7 @@ export function projectBuilderLanguageMutations(
 				const next = structuredClone(mutation);
 				if (
 					Object.keys(next.patch).length > 0 ||
+					next.entryChange !== undefined ||
 					next.caseOperationChange !== undefined ||
 					next.caseOperationPatch !== undefined
 				) {

@@ -153,10 +153,9 @@
 		"item": "session `data/supply_point_id`, in an advanced form whose computed datum has that id (`arbitrary_datums`, which HQ's advanced editor offers under any id, `case_config_advanced.html`)",
 		"surfaceKeys": ["session-path:session/data/*"],
 		"valueClass": "supply-point-id-computed-datum",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference to the form's computed datum (`Form.computedDatums`); the source still contains HQ's CommTrack substring, so defect 20's confirmation applies (executed: HQ builds the form's datum, and adds its own after it only under CommTrack)",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form's expression references its computed opening value by UUID. Publishing asks the person to confirm that CommTrack is off, because HQ otherwise appends its own datum after the form's (defect 20).",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

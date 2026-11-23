@@ -68,6 +68,7 @@ import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "../standardCaseProperties";
+import { USERCASE_CASE_TYPE, usercaseCaseType } from "../usercase";
 import type { Uuid } from "../uuid";
 import {
 	type ExpressionFacts,
@@ -599,6 +600,7 @@ const propertyKey = (caseType: string, property: string): string =>
 	`${caseType}\u0000${property}`;
 
 class Inference {
+	private readonly declaredTypes: readonly CaseType[];
 	private readonly untyped: ReturnType<typeof untypedExpressionFacts>;
 	private readonly fieldWriters: readonly FieldWriter[];
 	private readonly hiddenSites: readonly HiddenWriterSite[];
@@ -645,6 +647,15 @@ class Inference {
 
 	constructor(private readonly doc: BlueprintDoc) {
 		this.untyped = untypedExpressionFacts(doc);
+		const declared = doc.caseTypes ?? [];
+		this.declaredTypes = Object.values(doc.modules).some(
+			(menu) => menu.caseType === USERCASE_CASE_TYPE,
+		)
+			? [
+					...declared.filter((type) => type.name !== USERCASE_CASE_TYPE),
+					usercaseCaseType(doc),
+				]
+			: declared;
 		const fieldWriters: FieldWriter[] = [];
 		const hiddenWrites = new Map<
 			Uuid,
@@ -1401,7 +1412,7 @@ class Inference {
 		};
 		for (const { caseType, property } of this.written.values())
 			resolve(caseType, property);
-		for (const caseType of this.doc.caseTypes ?? [])
+		for (const caseType of this.declaredTypes)
 			for (const property of caseType.properties)
 				resolve(caseType.name, property.name);
 		return result;
@@ -1442,7 +1453,7 @@ class Inference {
 		caseType: string,
 		property: string,
 	): CaseProperty | undefined {
-		return (this.doc.caseTypes ?? [])
+		return this.declaredTypes
 			.find((type) => type.name === caseType)
 			?.properties.find((candidate) => candidate.name === property);
 	}
@@ -1470,7 +1481,7 @@ class Inference {
 		properties: ReadonlyMap<string, PropertyAgreement>,
 	): readonly CaseType[] {
 		const result: CaseType[] = [];
-		for (const caseType of this.doc.caseTypes ?? []) {
+		for (const caseType of this.declaredTypes) {
 			const declaredNames = new Set(
 				caseType.properties.map((property) => property.name),
 			);
@@ -1607,7 +1618,7 @@ class Inference {
 		const named = new Map<string, { caseType: string; property: string }>(
 			this.written,
 		);
-		for (const caseType of this.doc.caseTypes ?? [])
+		for (const caseType of this.declaredTypes)
 			for (const property of caseType.properties)
 				named.set(propertyKey(caseType.name, property.name), {
 					caseType: caseType.name,

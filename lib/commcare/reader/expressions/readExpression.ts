@@ -6,6 +6,7 @@
  * `syntaxCompare.ts`. Nothing here matches text: the print proves every
  * recognition.
  */
+
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -35,6 +36,7 @@ import { NO_ENTRIES } from "@/lib/domain/records";
 import { userPropertySlugsByUuid } from "@/lib/domain/users";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+import { entryValueWire } from "../../advancedEntryValues";
 import { caseOptionsNodeset } from "../../caseOptions";
 import { caseTypeHopMap } from "../../caseTypeDepths";
 import { searchAnswersOf } from "../../emissionPlan";
@@ -171,6 +173,8 @@ export function slotReadMode(
 							: "no-case",
 				};
 			}
+			case "form_entry_value":
+			case "form_selection_source":
 			case "form_link_condition":
 			case "form_link_datum_xpath":
 				return { target: "hq-json", interpolation: "none" };
@@ -1190,6 +1194,27 @@ function printSlotWith(
 					own?.id,
 					entryDatumIdResolver(entryDatumIds(doc, links, moduleUuid, formUuid)),
 					print.rewrites,
+				),
+			);
+		}
+		if (
+			ref.slot === "form_selection_source" ||
+			ref.slot === "form_entry_value"
+		) {
+			const menu = moduleUuidOfForm(doc, formUuid);
+			if (!menu) throw new Error(`The form ${formUuid} has no menu.`);
+			const datumId = entryDatumIdResolver(
+				entryDatumIds(doc, linkContextOf(doc, naming), menu, formUuid),
+			);
+			return text(
+				entryValueWire(
+					doc,
+					formUuid,
+					ref.member.supplyUuid,
+					ref.slot,
+					expression,
+					datumId,
+					naming,
 				),
 			);
 		}

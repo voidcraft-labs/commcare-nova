@@ -89,6 +89,7 @@ import {
 	caseOperationNameSentence,
 	freeCaseOperationName,
 } from "@/lib/domain/questionId";
+import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
@@ -349,7 +350,7 @@ function validateOperation(
 		validateOwnOperation(ctx, operation, errors);
 		return;
 	}
-	const workerRecord = operation.target.kind === "worker-record";
+	const workerRecord = addressesWorkerRecord(ctx.form, operation);
 	if (!workerRecord || operation.caseType !== USERCASE_CASE_TYPE)
 		validateCaseType(ctx, operation, operation.caseType, errors);
 	// A retype of the worker's record is refused as a facet it can't carry
@@ -634,8 +635,33 @@ function validateOwnOperation(
 	const caseType = operationCaseType(ctx.doc, ctx.formUuid, operation);
 	// An own arm in a module without a case type is refused at the form
 	// (`CASE_OWN_OPERATION`, reason `form-type`); its writes save nowhere.
-	if (caseType !== undefined)
-		validateWrites(ctx, operation, caseType, false, errors);
+	if (caseType !== undefined) {
+		const worker = caseType === USERCASE_CASE_TYPE;
+		validateWrites(ctx, operation, caseType, worker, errors);
+		if (worker && ctx.form.type === "followup") {
+			for (const [facet, words] of [
+				["name", "rename it"],
+				["owner", "change its owner"],
+				["links", "link it to another case"],
+			] as const) {
+				const value = operation[facet];
+				if (value === undefined || (Array.isArray(value) && value.length === 0))
+					continue;
+				errors.push(
+					opError(
+						ctx,
+						operation,
+						"CASE_OPERATION_TARGET_INVALID",
+						`The worker's record belongs to their profile. This form can save a worker detail, but it can't ${words}.`,
+						{
+							reason: "worker-record-facet" satisfies WorkerRecordReason,
+							facet,
+						},
+					),
+				);
+			}
+		}
+	}
 	validateLinks(ctx, operation, new Map(), errors);
 }
 
@@ -1169,7 +1195,7 @@ function workerRecordFindings(
 	let first: CaseOperation | undefined;
 	for (const operation of operations) {
 		if (operation.action === "own") continue;
-		if (operation.target.kind !== "worker-record") continue;
+		if (!addressesWorkerRecord(ctx.form, operation)) continue;
 		if (
 			operation.action !== "update" ||
 			operation.caseType !== USERCASE_CASE_TYPE
@@ -1185,7 +1211,7 @@ function workerRecordFindings(
 			);
 			continue;
 		}
-		if (first !== undefined) {
+		if (operation.target.kind === "worker-record" && first !== undefined) {
 			errors.push(
 				opError(
 					ctx,
@@ -1198,7 +1224,7 @@ function workerRecordFindings(
 					},
 				),
 			);
-		} else first = operation;
+		} else if (operation.target.kind === "worker-record") first = operation;
 		for (const [facet, words] of WORKER_RECORD_FACETS) {
 			const value = operation[facet];
 			if (value === undefined || (Array.isArray(value) && value.length === 0))

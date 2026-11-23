@@ -1170,8 +1170,7 @@ describe("CommCare Supply", () => {
 		"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.";
 	const formReason = (name: string) =>
 		`${name} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`;
-	/** The codes of the gate's findings: a form's name holding the text is
-	 *  refused, so only a document the gate refuses gives a form reason. */
+	/** The gate rejects plain-text form names that would introduce an instance read. */
 	const findingCodes = (
 		doc: BlueprintDoc,
 		context = LOOKUP_CONTEXT_UNAVAILABLE,
@@ -1212,6 +1211,29 @@ describe("CommCare Supply", () => {
 			'Your place is instance<output value="&apos;(&apos;"/>&apos;commcaresession&apos;)/session/data/supply_point_id',
 		);
 		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
+	});
+
+	it("asks about CommCare Supply when a question reads its form's own computed supply point", () => {
+		const datum = testUuid("stock-count-opening-place");
+		const doc = supplyDoc({
+			menuItem: false,
+			fields: [
+				f({
+					id: "service_point",
+					kind: "hidden",
+					calculate: term({
+						kind: "session-datum",
+						datum: { kind: "entry-value", datum },
+					}),
+				}),
+			],
+		});
+		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+		form.computedDatums = [
+			{ uuid: datum, key: "supply_point_id", value: term(literal("depot")) },
+		];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(commtrackReasons(doc, undefined)).toEqual([formReason(form.name)]);
 	});
 
 	it("names a form whose source holds the text, after the menu, from a document the gate refuses", () => {

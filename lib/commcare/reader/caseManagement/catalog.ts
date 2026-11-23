@@ -64,8 +64,8 @@ import { saveToCaseReading } from "./saveToCase";
 type Catalog = NonNullable<BlueprintDoc["caseTypes"]>;
 type CatalogType = Catalog[number];
 
-/** The two case types no menu of a reading may hold: the worker's record
- *  and HQ's owner mapping. */
+/** System-owned schemas do not become authored case-type declarations. A menu
+ *  that lists worker records reads the derived worker schema. */
 const NOT_CATALOGUED: ReadonlySet<string> = new Set([
 	"commcare-user",
 	"user-owner-mapping-case",

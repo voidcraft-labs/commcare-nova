@@ -63,6 +63,13 @@ export function enclosingAuthoringTable(
 		if (enclosing !== null && typeof enclosing === "object") {
 			if ("tableId" in enclosing && typeof enclosing.tableId === "string")
 				tableId = enclosing.tableId;
+			else if (
+				"kind" in enclosing &&
+				enclosing.kind === "table" &&
+				"table" in enclosing &&
+				typeof enclosing.table === "string"
+			)
+				tableId = enclosing.table;
 			enclosing = (enclosing as Record<string | number, unknown>)[segment];
 		}
 	}

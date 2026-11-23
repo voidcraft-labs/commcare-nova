@@ -1081,6 +1081,8 @@ export async function executeSubmissionEnvelope(
 			.where("project_id", "=", host.projectId)
 			.where("case_type", "=", USERCASE_CASE_TYPE)
 			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
+			.orderBy("case_id")
+			.forUpdate()
 			.limit(2)
 			.execute();
 		if (rows.length > 1)
@@ -2005,6 +2007,14 @@ async function resolveOperationProgram(
 	};
 }
 
+/** Every route to a worker record uses the same eligibility as its direct
+ * worker-record supply. A typed list, a raw ID or an earlier connection
+ * can supply an ID but cannot grant access to another worker's record. */
+function workerRowAvailable(actingUserId: string) {
+	return sql<boolean>`(c.case_type <> ${USERCASE_CASE_TYPE} or
+		(c.status = 'open' and c.owner_id = ${actingUserId} and c.properties->>'hq_user_id' = ${actingUserId}))`;
+}
+
 async function loadSelectedCaseAnchors(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -2019,6 +2029,9 @@ async function loadSelectedCaseAnchors(
 		.where("c.app_id", "=", appId)
 		.where("c.case_id", "in", caseIds)
 		.where("c.project_id", "=", host.projectId)
+		.where(workerRowAvailable(host.actingUserId))
+		.orderBy("c.case_id")
+		.forUpdate("c")
 		.execute();
 	const byId = new Map(
 		rows.map((row) => [
@@ -2075,7 +2088,10 @@ async function loadTargetRows(
 			.select(["c.case_id", "c.case_type"])
 			.where("c.app_id", "=", appId)
 			.where("c.project_id", "=", host.projectId)
-			.where("c.case_id", "in", distinct);
+			.where(workerRowAvailable(host.actingUserId))
+			.where("c.case_id", "in", distinct)
+			.orderBy("c.case_id")
+			.forUpdate("c");
 		if (excludeHeld) {
 			qb = qb.where(({ not, exists, selectFrom }) =>
 				not(

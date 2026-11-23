@@ -87,17 +87,23 @@ import {
  * a table's instance `jr://fixture/item-list:<tag>` whatever id it gave the
  * instance, and a suite expression names `instance('item-list:<tag>')`. A test
  * of names CommCare HQ gave, which reads no expression: it can only name too
- * many (a tag that begins another tag is named with it).
+ * many (a tag that begins another tag is named with it). Advanced loads
+ * supply exact stored tags separately because they generate these URIs at build.
  */
 export function candidateLookupTags(
 	sourceText: string,
 	tables: readonly HqLookupTable[],
+	entryTableTags?: ReadonlySet<string>,
 ): readonly string[] {
 	const tags: string[] = [];
 	const seen = new Set<string>();
 	for (const table of tables) {
 		if (seen.has(table.tag)) continue;
-		if (!sourceText.includes(`item-list:${table.tag}`)) continue;
+		if (
+			!entryTableTags?.has(table.tag) &&
+			!sourceText.includes(`item-list:${table.tag}`)
+		)
+			continue;
 		seen.add(table.tag);
 		tags.push(table.tag);
 	}

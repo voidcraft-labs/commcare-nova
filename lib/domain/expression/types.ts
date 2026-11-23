@@ -112,6 +112,8 @@ export const sessionContextSchema = z.strictObject({
 });
 export type SessionContextRef = z.infer<typeof sessionContextSchema>;
 export const datumRefSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("form-selection"), selection: uuidSchema }),
+	z.strictObject({ kind: z.literal("entry-value"), datum: uuidSchema }),
 	z.strictObject({ kind: z.literal("selected-case"), module: uuidSchema }),
 	z.strictObject({ kind: z.literal("new-case") }),
 	z.strictObject({
@@ -129,6 +131,10 @@ export const formLinkDatumNameSchema = z.strictObject({
 });
 export function datumRefKey(datum: DatumRef): string {
 	switch (datum.kind) {
+		case "form-selection":
+			return `form-selection:${datum.selection}`;
+		case "entry-value":
+			return `entry-value:${datum.datum}`;
 		case "selected-case":
 		case "tile-group-parents":
 			return `${datum.kind}:${datum.module}`;
@@ -1083,6 +1089,12 @@ export type FieldExpressionSlotRef = {
 		| "lookup_options_source";
 };
 export type FormExpressionSlotRef =
+	| {
+			readonly entity: "form";
+			readonly uuid: Uuid;
+			readonly slot: "form_selection_source" | "form_entry_value";
+			readonly member: { readonly supplyUuid: Uuid };
+	  }
 	| {
 			readonly entity: "form";
 			readonly uuid: Uuid;

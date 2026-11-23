@@ -1639,6 +1639,19 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					if (
 						current?.formUuid === target?.formUuid &&
 						previewCaseChoicesEqual(current?.cases, target?.cases) &&
+						previewCaseChoicesEqual(
+							current?.entryChoices,
+							target?.entryChoices,
+						) &&
+						(current?.entryChoices ?? []).every(
+							(row, index) =>
+								row.selectionUuid ===
+									target?.entryChoices?.[index]?.selectionUuid &&
+								stringRecordsEqual(
+									row.earlierValues,
+									target?.entryChoices?.[index]?.earlierValues,
+								),
+						) &&
 						current?.caseData === target?.caseData &&
 						current?.caseDatabase === target?.caseDatabase &&
 						current?.searchLaunch?.moduleUuid ===

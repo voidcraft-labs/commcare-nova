@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -79,6 +80,7 @@ import {
 	projectedModulePreorder,
 	type Uuid,
 } from "@/lib/domain";
+import { advancedActionsWithEntry } from "./advancedEntryValues";
 import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
 import { buildConnectSlugMap } from "./connectSlugs";
 import {
@@ -91,6 +93,7 @@ import { buildCaseReferencesLoad } from "./formActions";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
+	entrySessionDatums,
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
@@ -108,6 +111,7 @@ import {
 } from "./hqJson/xpath";
 import { emittedModuleKind } from "./moduleKind";
 import { buildXFormSource } from "./xform/builder";
+import { serializeWire } from "./xpath/wire/serialize";
 
 /**
  * One projected link in HQ's `FormLink` shape. `xpath` carries the `if` the
@@ -458,6 +462,33 @@ export function* expandDocSteps(
 						postFormWorkflowFallback,
 						hqFormLinks,
 					);
+			if (formShellObj.doc_type === "AdvancedForm") {
+				const datums = entrySessionDatums(
+					doc,
+					linkContext,
+					moduleUuid,
+					formUuid,
+				);
+				formShellObj.actions = advancedActionsWithEntry(
+					formShellObj.actions,
+					datums,
+				);
+				formShellObj.arbitrary_datums = (form.computedDatums ?? []).map(
+					(row) => {
+						const datum = datums.find((d) => d.entryValueUuid === row.uuid);
+						if (!datum?.function)
+							throw new Error(
+								"A calculated entry value needs its session function.",
+							);
+						return {
+							doc_type: "ArbitraryDatum",
+							datum_id: row.key,
+							datum_function: serializeWire(datum.function, { target: "suite" })
+								.text,
+						};
+					},
+				);
+			}
 			if (form.submitLabel !== undefined)
 				formShellObj.submit_label = localization.formSubmitLabels(formUuid);
 			// Whether the form's entry asks for a case first: a basic form's
@@ -598,6 +629,8 @@ export function* expandDocSteps(
 			}
 			shell.root_module_id = rootModuleId;
 		}
+		if (mod.autoSelectSingle && shell.doc_type === "AdvancedModule")
+			shell.auto_select_case = true;
 		// A hidden module is never on a menu (`menus.py::_generate_menu`
 		// lowers the filter to `<menu relevant>`); the Register action reaches
 		// it through a stack push, which ignores relevance.

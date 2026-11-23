@@ -6,12 +6,12 @@ import {
 	caseSelectionCardinality,
 	isContainer,
 	type LanguageTag,
-	materializableCaseTypes,
 	moduleUuidOfForm,
 	projectLocalizedFields,
 	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
+import { entryCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { formWireName } from "@/lib/domain/formWireName";
 import type { FormEngineInput } from "./formEngine";
 
@@ -48,7 +48,7 @@ export function buildEngineInput(
 				? doc.fields
 				: projectLocalizedFields(doc, resolved, { filled: true }),
 		fieldOrder: doc.fieldOrder,
-		caseTypes: materializableCaseTypes(doc),
+		caseTypes: entryCaseTypes(doc),
 		caseSelectionCardinality: module
 			? caseSelectionCardinality(module)
 			: "single",

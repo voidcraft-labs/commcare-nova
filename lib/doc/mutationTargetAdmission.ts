@@ -18,6 +18,7 @@ import {
 	type TranslationEntry,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { assertNever } from "@/lib/utils/assertNever";
 import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
@@ -45,6 +46,7 @@ export function mutationTargetsInvalid(
 	if (
 		mutations.some(
 			(m) =>
+				(m.kind === "updateForm" && m.entryChange !== undefined) ||
 				m.kind === "addEntryPoint" ||
 				m.kind === "updateEntryPoint" ||
 				m.kind === "removeEntryPoint",
@@ -56,7 +58,31 @@ export function mutationTargetsInvalid(
 			return true;
 		let current = doc;
 		for (const mutation of mutations) {
-			if (mutation.kind === "addEntryPoint") {
+			if (mutation.kind === "updateForm" && mutation.entryChange) {
+				const form = ownRecordValue(current.forms, mutation.uuid);
+				if (!form) return true;
+				const change = mutation.entryChange;
+				const members = change.operation.endsWith("-value")
+					? (form.computedDatums ?? [])
+					: formCaseSelections(current, form.uuid);
+				if (
+					"uuid" in change &&
+					!members.some((row) => row.uuid === change.uuid)
+				)
+					return true;
+				if (
+					"value" in change &&
+					members.some((row) => row.uuid === change.value.uuid)
+				)
+					return true;
+				if (
+					"after" in change &&
+					change.after != null &&
+					(("uuid" in change && change.uuid === change.after) ||
+						!members.some((row) => row.uuid === change.after))
+				)
+					return true;
+			} else if (mutation.kind === "addEntryPoint") {
 				const target = mutation.target;
 				if (
 					!ownRecordValue(current.modules, target.moduleUuid) ||

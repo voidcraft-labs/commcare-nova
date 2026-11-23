@@ -7,6 +7,7 @@ import {
 	moduleUuidOfForm,
 	uuidSchema,
 } from "@/lib/domain";
+import { namedEntrySupplies } from "@/lib/domain/advancedEntryDatums";
 import {
 	type AuthoringScopeOptions,
 	enclosingAuthoringTable,
@@ -172,6 +173,11 @@ export function bindNamedIdentity(args: {
 				scope.inputs ?? module?.caseListConfig?.searchInputs ?? [],
 				(item) => [item.name],
 			);
+			break;
+		case "form-entry-supply":
+			candidates = formUuid
+				? named(namedEntrySupplies(doc, formUuid), (row) => [row.name])
+				: [];
 			break;
 		case "case-operation":
 			candidates = named(scope.operations ?? [], (item) => [item.name]);

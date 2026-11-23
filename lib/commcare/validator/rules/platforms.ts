@@ -81,6 +81,22 @@ function platformFeatureError(
 				base,
 			);
 		}
+		case "form": {
+			const moduleName = doc.modules[owner.moduleUuid]?.name ?? "";
+			const formName = doc.forms[owner.formUuid]?.name ?? "";
+			return validationError(
+				"PLATFORM_FEATURE_UNAVAILABLE",
+				"form",
+				message(`Form "${formName}"`),
+				{
+					moduleUuid: owner.moduleUuid,
+					moduleName,
+					formUuid: owner.formUuid,
+					formName,
+				},
+				{ ...base, ...(use.site.kind === "slot" && { slot: use.site.slot }) },
+			);
+		}
 		case "field": {
 			const moduleName = doc.modules[owner.moduleUuid]?.name ?? "";
 			const formName = doc.forms[owner.formUuid]?.name ?? "";

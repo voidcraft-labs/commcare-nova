@@ -10,7 +10,11 @@ import type { LanguageTag } from "@/lib/domain/localization";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import { caseListStep } from "../caseListPhase";
 import { previewPlatformRules } from "../platform";
-import { projectWorkerModule } from "../workerModule";
+import {
+	projectWorkerModule,
+	type WorkerListPurpose,
+	workerListFor,
+} from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -38,6 +42,7 @@ import {
 import { readingSurfaceNow, surfacedRefusal } from "./surfacedDataRefusal";
 
 export interface SearchEvaluationInput {
+	readonly listPurpose?: WorkerListPurpose;
 	language?: LanguageTag;
 	moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
@@ -75,7 +80,8 @@ async function searchSnapshot(
 	context: FormEvaluationContext,
 ) {
 	const language = resolveAppLanguage(doc.localization, input.language);
-	const mod = projectWorkerModule(doc, language, input.moduleUuid);
+	const menu = projectWorkerModule(doc, language, input.moduleUuid);
+	const mod = workerListFor(menu, input.listPurpose);
 	if (!mod) throw new FormEvaluationInputError("Menu not found.");
 	const config = mod.caseListConfig;
 	const inputs = config?.searchInputs ?? [];

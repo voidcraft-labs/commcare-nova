@@ -1,5 +1,6 @@
 /** Creation slots only. References and anchors never allocate an identity. */
 export type CreationEntityKind =
+	| "form_entry_supply"
 	| "entry_point"
 	| "module"
 	| "form"
@@ -89,6 +90,7 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 > = {
 	startAppTest: [spec(["places", "*", "uuid"], "location")],
 	/* Shared structural creation tools. */
+	editFormEntry: [spec(["edit", "value", "uuid"], "form_entry_supply")],
 	addEntryPoint: [spec(["entryPointUuid"], "entry_point")],
 	createModule: [spec(["moduleUuid"], "module")],
 	createForm: [spec(["formUuid"], "form")],

@@ -10,6 +10,7 @@
 import { type BlueprintDoc, placementLabelWords } from "@/lib/domain";
 import { deepEqual } from "../deepEqual";
 import {
+	caseListMoveSentence,
 	identityMoveReasonSentence,
 	identityMoveRenamesChosenCases,
 	identitySubjectName,
@@ -51,7 +52,8 @@ function identityMoveRowTitle(doc: BlueprintDoc, move: IdentityMove): string {
 			const parentCase = identityMoveRenamesChosenCases(move)
 				? ", and its forms read the cases chosen through its parent case under new names"
 				: "";
-			return `${name}: becomes ${kind} in CommCare HQ, so every form in it keeps its case changes in a new place${parentCase}`;
+			const caseList = caseListMoveSentence(move);
+			return `${name}: becomes ${kind} in CommCare HQ, so every form in it keeps its case changes in a new place${parentCase}${caseList && `.${caseList}`}`;
 		}
 		default: {
 			const _exhaustive: never = move.subject;

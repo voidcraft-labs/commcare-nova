@@ -107,7 +107,15 @@ export interface PreviewCaseChoice {
 	readonly claimable?: true;
 }
 
+/** One manual choice in a form's entry, in execution order. */
+export interface PreviewEntryChoice extends PreviewCaseChoice {
+	readonly selectionUuid: Uuid;
+	/** Functions already valued before this manual input retain their values on replay. */
+	readonly earlierValues?: Readonly<Record<string, string>>;
+}
+
 export interface PreviewCaseTarget {
+	entryChoices?: readonly PreviewEntryChoice[];
 	formUuid: Uuid;
 	cases?: readonly PreviewCaseChoice[];
 	/** The Register action that opened a case list registration form: the

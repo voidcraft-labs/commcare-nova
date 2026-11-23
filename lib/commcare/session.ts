@@ -42,6 +42,7 @@ import type {
 } from "@/lib/domain";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import type { EntryAssertion } from "./advancedEntryValues";
 import type { ModuleExpressionContexts } from "./expressionContext";
 import type { MatchedChild, ProjectedAfterSubmit } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
@@ -150,6 +151,12 @@ export interface SessionDatum {
 	 * gives it (`_create_casexml_advanced`'s `adjusted_datums`). Not rendered.
 	 */
 	advancedLoadTag?: string;
+	entryValueUuid?: import("@/lib/domain").Uuid;
+	/** Original identity of a computed supply copied from a parent entry. The
+	 * child replays the function without exposing it as a local form choice. */
+	inheritedEntryFunction?: import("@/lib/domain").Uuid;
+	autoConfiguration?: import("./types").AutoSelectCase;
+	assertions?: readonly EntryAssertion[];
 	/**
 	 * The assertion the entry carries for this datum, after `<session>`: an
 	 * advanced form's load of the worker's record is stopped at the door
@@ -331,7 +338,7 @@ export interface EntryDefinition {
 	 * carries no usercase is stopped at the door rather than submitting a write
 	 * that lands nowhere.
 	 */
-	assertions?: Array<{ test: WireExpr; localeId: string }>;
+	assertions?: EntryAssertion[];
 	stack?: { operations: StackOperation[] };
 }
 
@@ -707,6 +714,8 @@ export interface SessionDatumsInput {
 
 /** One load of an advanced form, as its datum needs it. */
 export interface AdvancedLoadDatumInput {
+	/** Its function is resolved after the frame has aligned its datum IDs. */
+	readonly automatic?: "worker-record" | "other";
 	readonly tag: string;
 	readonly caseType: string;
 	/** Where the case is chosen from; absent for the worker's own record,
@@ -720,6 +729,7 @@ export interface AdvancedLoadDatumInput {
 		readonly lookupNaming?: LookupWireNaming;
 		readonly persistentDetailId?: string;
 		/** Whether the entry shows the case's details before going on. */
+		readonly autoSelectSingle?: boolean;
 		readonly detailConfirm: boolean;
 		readonly entryMetadataOnly?: boolean;
 		readonly datumId?: (ref: DatumRef) => string | undefined;
@@ -748,6 +758,16 @@ export function deriveAdvancedLoadDatums(
 	const datums: SessionDatum[] = [];
 	for (const load of loads) {
 		const id = advancedLoadDatumId(load.tag);
+		if (load.automatic !== undefined) {
+			datums.push({
+				id,
+				function: w.str(""),
+				alignmentSuffix: "None",
+				advancedLoadTag: load.tag,
+				...(load.automatic === "worker-record" && { workerRecord: true }),
+			});
+			continue;
+		}
 		if (load.list === undefined) {
 			datums.push({
 				id,
@@ -784,6 +804,7 @@ export function deriveAdvancedLoadDatums(
 				}),
 		});
 		datum.parentSelection = parent;
+		if (load.list.autoSelectSingle) datum.autoselect = true;
 		datum.advancedLoadTag = load.tag;
 		datums.push(datum);
 	}
@@ -1186,8 +1207,10 @@ export function deriveEntryDefinition(
 					},
 				]
 			: []),
-		...datums.flatMap((datum) =>
-			datum.assertion === undefined ? [] : [datum.assertion],
+		...datums.flatMap(
+			(datum) =>
+				datum.assertions ??
+				(datum.assertion === undefined ? [] : [datum.assertion]),
 		),
 	];
 	const assertions = entryAssertions.length > 0 ? entryAssertions : undefined;
@@ -1346,6 +1369,7 @@ function buildDatumElement(
 		{
 			attributes: {
 				id: d.id,
+				...(d.autoselect === true && { autoselect: "true" }),
 				...(d.detailSelect === undefined
 					? {}
 					: { "detail-select": d.detailSelect }),
@@ -1541,7 +1565,15 @@ export function buildEntryElement(
 				{},
 				entry.assertions.map((assertion) =>
 					xel("assert", { xpath: { test: assertion.test } }, context, [
-						el("text", {}, [el("locale", { id: assertion.localeId })]),
+						el("text", {}, [
+							el(
+								"locale",
+								{ id: assertion.localeId },
+								assertion.arguments?.map((value) =>
+									el("argument", {}, [text(value)]),
+								),
+							),
+						]),
 					]),
 				),
 			),

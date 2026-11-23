@@ -124,6 +124,7 @@ export function ModuleCaseTypeSection({
 					Case type
 				</span>
 				<CaseTypePicker
+					offerWorkerRecord
 					triggerRef={pickerTriggerRef}
 					value={module.caseType}
 					onChange={chooseCaseType}

@@ -37,6 +37,7 @@ import {
 	plainColumn,
 	proseText,
 	type TextField,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
@@ -185,7 +186,11 @@ export function declareCaseTypeMutations(
 	caseType: string,
 ): Mutation[] {
 	const existing = doc.caseTypes ?? [];
-	if (existing.some((ct) => ct.name === caseType)) return [];
+	if (
+		caseType === USERCASE_CASE_TYPE ||
+		existing.some((ct) => ct.name === caseType)
+	)
+		return [];
 	return [{ kind: "declareCaseType", caseType }];
 }
 
@@ -229,7 +234,7 @@ export function catalogMutationsForOperations(
 	);
 	const mutations: Mutation[] = [];
 	const ensureType = (caseType: string) => {
-		if (declared.has(caseType)) return;
+		if (caseType === USERCASE_CASE_TYPE || declared.has(caseType)) return;
 		declared.set(caseType, new Set());
 		mutations.push({ kind: "declareCaseType", caseType });
 	};
@@ -251,7 +256,8 @@ export function catalogMutationsForOperations(
 				writtenType,
 				caseTypes,
 			);
-			if (!destination.ok) continue;
+			if (!destination.ok || destination.caseType === USERCASE_CASE_TYPE)
+				continue;
 			ensureType(destination.caseType);
 			const properties = declared.get(destination.caseType) as Set<string>;
 			if (properties.has(write.property)) continue;
@@ -295,6 +301,7 @@ export function caseTypeCatalogMutations(
 	const existing = doc.caseTypes ?? [];
 	const isNew =
 		typeof nextCaseType === "string" &&
+		nextCaseType !== USERCASE_CASE_TYPE &&
 		!existing.some((ct) => ct.name === nextCaseType);
 	const mutations: Mutation[] = [];
 	if (retirement.kind === "retire") {

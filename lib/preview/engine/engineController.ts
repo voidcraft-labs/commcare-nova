@@ -916,6 +916,7 @@ export class EngineController {
 				? undefined
 				: entrySessionData(state, formUuid, {
 						...input,
+						lookupData: this.lookupData,
 						entryKey,
 						caseDatabase: caseDatabase ?? null,
 						session: previewSessionValues(

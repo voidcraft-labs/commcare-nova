@@ -90,7 +90,9 @@ export function caseDatabaseRequirements(
 	].some((owner) =>
 		expressionSlotValues(doc, owner).some(
 			({ ref, expression }) =>
-				slotContext(doc, ref, new Map())?.ruleSet === "form" &&
+				(ref.slot === "form_entry_value" ||
+					ref.slot === "form_selection_source" ||
+					slotContext(doc, ref, new Map())?.ruleSet === "form") &&
 				expressionReadsCaseDatabase(expression, doc),
 		),
 	);
@@ -145,7 +147,11 @@ export function caseDatabaseRequirements(
 			(field.kind === "single_select" || field.kind === "multi_select") &&
 			field.optionsSource.kind === "cases",
 	);
+	const entryRecords = Object.values(doc.forms).some(
+		(form) => form.caseSelections?.length,
+	);
 	const required =
+		entryRecords ||
 		caseChoices ||
 		explicitReference ||
 		proseReference ||

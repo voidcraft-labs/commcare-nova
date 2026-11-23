@@ -696,11 +696,10 @@ from such a list while CommCare Supply is on, so publish asks a person to
 confirm it is off (`commtrack-off`). It also names each form whose emitted
 source, decoded, holds the text
 `instance('commcaresession')/session/data/supply_point_id`, which HQ's build
-gates to workers assigned a supply point. That half is a guard over the
-emission: an itext text's `instance(` is written with its bracket as an
-output, a literal is split there, a form's name and Connect texts holding
-it are refused, and so is a choice's value by its own grammar, so no admitted
-document's source holds the text.
+gates to workers assigned a supply point. A form can read a computed opening
+value named `supply_point_id`. That one emitted reference requires confirmation
+even when the form supplies the value itself. Ordinary labels and literal
+strings are escaped so they cannot accidentally trigger this setting.
 
 A download checks no project space, so its compatibility is `not_checked`: the HQ import file has no target, and a `.ccz` is made for a project space the app is already published to, whose publish made the check.
 Upstream drift reaches the probe through the weekly pin pull request
@@ -1497,6 +1496,17 @@ quantity/matcher values, and around relation/count filters), and `printCsql`
 prints it. Never repair this by parsing or rewriting emitted text.
 
 ### Case-management scaffolding emission
+
+Explicit form opening choices use their stable tags in ordered advanced loads.
+A manual choice names its listing menu and, where present, an earlier supply
+and the direct index name. The index's stored relationship survives a round
+trip. The suite filters the list by index name. A worker-record load selects
+by worker and type. The raw, worker-data, table and index modes check that
+exactly the required row or value exists. A record whose stored type differs
+from the expected type can satisfy those checks. Computed values follow the
+loads in the suite's physical order and expressions resolve against completed
+supplies. An advanced menu's own case-list item separately lists all open
+records of its type. Its forms' manual lists retain their configured filter.
 
 `xform/caseBlocks.ts::addCaseBlocks` emits the local case scaffolding for HQ's basic `FormActions`. Sharing an action input does not itself establish parity: HQ accepts fields its basic builder does not consume. HQ's basic case builder ignores `OpenSubCaseAction.relationship`, so a basic child case is always `child`. An extension case is a case operation: a Save to Case block whose case id is `uuid()` (or the id an answer keys it by), or an advanced open action where an after-submit link carries the new case, which makes its module advanced; in a form of a menu already advanced, an extension create that an open action can express takes one whether or not a link carries it (`placement.ts::planPlacements`). A `nova_subcases` group is written only where a published Save to Case placement names it. The native proof in `proof/native/` executes HQ's import, case builder, datum allocator, and navigation matcher; the six export regressions check mixed relationships, repeat scopes, required names, guarded property writes, and exact ID joins. Every `<case>` element carries the cx2 namespace (`http://commcarehq.org/case/transaction/v2`) — without it CommCare's submission processor treats the element as inert data, not a case transaction. The three `<case>` attributes (`case_id` / `date_modified` / `user_id`) wire to:
 - **case-create**: `case_id` setvalues at `xforms-ready` from the per-entry session datum `case_id_new_<casetype>_0` (a `function="uuid()"` datum `session.ts::deriveSessionDatums` emits). `date_modified` / `user_id` calculate off the meta block at `/data/meta/timeEnd` / `/data/meta/userID` (the compiler injects the meta block on the same `.ccz` path, after the case block, so both resolve). Core's `CaseXmlParser` trims a submitted case name or external id. HQ's SQL case processor checks its length and keeps the submitted text (`form_processor/backends/sql/update_strategy.py::_validate_length`). Nova trims the value before it reaches either consumer. Each question a basic action reads as a case name or an external id has one sibling Hidden Value, `nova_trimmed_<question>` (its calculate the `replace()` trim, its `relevant` `count(<question>) > 0`), and the action names that node (`placement.ts::readsTrimmedSibling`; a several-case form's shared update reads it too, and a Save to Case block of the form's own case, which trims its own value, takes none while its question keeps the check below): HQ's build binds the leaf to the path the action names, so the trim lives where both export paths read it and the local archive binds the leaf to that path with no trim of its own. `required="true()"` is stamped on the node a create's name action names, as HQ's build stamps it, where it is inert; what keeps a name required of the worker is `required="true()"` on the question's own bind, which replaces an authored required condition there as HQ's build always did. A visible source question's constraint gains the guard, conjoined with the authored validation: for a case name, not blank after the trim and at most 255 characters; for an external id, the length alone. A Hidden Value source takes neither. The guarded set is `lib/domain/caseScalarTextGuard.ts::caseScalarTextGuards`, which Preview reads too.

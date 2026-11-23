@@ -19,6 +19,16 @@ date and time copied to another property is written again in the device's time
 zone, so it can land a day off when that zone's date differs from the date
 that was saved.
 
+## Choose the records a form opens with
+
+Open the form’s settings, select **Edit case changes**, and expand **Cases this form uses**. A form can ask for more than one record. To transfer a member between households, add the household list twice and name the choices **Current household** and **Receiving household**. Each choice keeps its own identity when you rename it or change its position.
+
+A worker can choose from a list or use a record ID from their worker information, a data table, an earlier record’s named connection, or a formula. An automatic choice stops if its source does not identify one available record. After correcting the source or choosing another record, the worker can try again. Use **Earlier** or **Later** to put a source before a choice that needs it.
+
+Expand **Values calculated when the form opens** to give a calculation a name. For example, `opening-record('Receiving household')` reads the chosen record’s ID. Other form logic can use `opening-value('opening_date')` to read the opening date. In Preview, going back to change a choice asks for every later choice again.
+
+In a menu’s settings, **Open a single match automatically** can save a tap when a form asks for a record from its list. Android can open the confirmation screen for that single match. A form running in Web Apps can use this setting when the choice proceeds directly.
+
 ## Forms that open an existing case
 
 When a question saves to the case the form opened, Nova gives it a starting

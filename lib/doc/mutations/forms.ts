@@ -3,6 +3,7 @@ import { caseWriteIdOf, caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { caseOperationSchema, type Form } from "@/lib/domain";
+import { applyFormEntryChange } from "../formEntryMutations";
 import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
 
@@ -264,6 +265,8 @@ export function applyFormMutation(
 			return;
 		}
 		case "updateForm": {
+			if (mut.entryChange)
+				applyFormEntryChange(draft, mut.uuid, mut.entryChange);
 			const form = draft.forms[mut.uuid];
 			if (!form) return;
 			// Apply the patch key-by-key: a `null` (the wire representation of a

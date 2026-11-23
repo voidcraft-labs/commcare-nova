@@ -82,6 +82,7 @@ import {
 	blueprintDocSchema,
 	type MediaKind,
 } from "@/lib/domain";
+import { knownFormEntryChoicesOf } from "@/lib/domain/formEntryCases";
 import type { LookupRowId } from "@/lib/domain/lookupIds";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
@@ -910,6 +911,7 @@ async function readBack(
 		recordDialect: recordDialectRoundTrip,
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		knownCaseTypes: knownCaseTypesOf(doc),
+		knownFormEntryChoices: knownFormEntryChoicesOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};
 	const outcome = readHqApp(readerInput, { claims: input.claims });

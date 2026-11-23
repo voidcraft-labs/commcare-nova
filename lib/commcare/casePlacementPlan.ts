@@ -385,6 +385,7 @@ function buildPlan(
 			advanced,
 			identity,
 			nodes,
+			fieldPath,
 			questionPath,
 			condition,
 			updateMap,
@@ -558,6 +559,7 @@ interface AdvancedPlanInput {
 	};
 	readonly identity: WireIdentity;
 	readonly nodes: ReturnType<typeof planGeneratedNodes>;
+	readonly fieldPath: (uuid: Uuid) => FormPath;
 	readonly questionPath: (value: Expression, property: string) => string | null;
 	readonly condition: (
 		expression: Expression | undefined,
@@ -595,6 +597,7 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 		advanced,
 		identity,
 		nodes,
+		fieldPath,
 		questionPath,
 		condition,
 		updateMap,
@@ -670,8 +673,14 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 							doc_type: "CaseIndex",
 							tag: load.index.tag,
 							reference_id: load.index.identifier,
-							relationship: "child",
-							relationship_question: "",
+							relationship:
+								typeof load.index.relationship === "object"
+									? "question"
+									: (load.index.relationship ?? "child"),
+							relationship_question:
+								typeof load.index.relationship === "object"
+									? fieldPath(load.index.relationship.question).toXPath()
+									: "",
 						},
 			auto_select: load.worker
 				? {
@@ -752,7 +761,7 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 		}
 		const close = openClose.get(i);
 		if (close !== undefined) Object.assign(caseProperties, updateMap(close));
-		const caseIndices = (op.action === "create" ? (op.links ?? []) : []).map(
+		const caseIndices = (op.links ?? []).map(
 			(link): CaseIndex => ({
 				doc_type: "CaseIndex",
 				tag: indexTag(link, op),

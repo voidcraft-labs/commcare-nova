@@ -23,6 +23,10 @@ export function expressionSlotLabel(slot: SlotContextRef["slot"]): string {
 			return "case query";
 		case "lookup_options_source":
 			return "choice filter";
+		case "form_selection_source":
+			return "case to open with";
+		case "form_entry_value":
+			return "value calculated at form entry";
 		case "form_open_condition":
 			return "condition for creating the case";
 		case "form_close_condition":

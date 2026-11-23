@@ -10,7 +10,10 @@ import { projectFormExpression } from "@/lib/doc/expressionText";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
-import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import {
+	computeFieldPath,
+	findContainingForm,
+} from "@/lib/doc/mutations/helpers";
 import {
 	appLanguageIdentitySchema,
 	automationSchema,
@@ -34,6 +37,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { automationMessageTemplateSchema } from "@/lib/domain/automations";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { printFormExpression } from "@/lib/domain/expression/print";
@@ -146,6 +150,22 @@ export function authoringEncoders(
 		}
 		if (options.formUuid !== undefined) {
 			const uuid = options.formUuid;
+			if (
+				(path[0] === "caseSelections" || path[0] === "computedDatums") &&
+				typeof path[1] === "number"
+			) {
+				const member = records.parse(content[path[0]])[path[1]];
+				if (member)
+					return {
+						entity: "form",
+						uuid,
+						slot:
+							path[0] === "caseSelections"
+								? "form_selection_source"
+								: "form_entry_value",
+						member: { supplyUuid: uuidSchema.parse(member.uuid) },
+					};
+			}
 			if (path[0] === "connect") {
 				if (path[1] === "assessment" && path[2] === "user_score")
 					return { entity: "form", uuid, slot: "assessment_user_score" };
@@ -384,12 +404,32 @@ interface ReadProjection {
 /** A projected form's after-submit as getForm reads it: its links as
  * `destinations`, in the order they run, and an otherwise link addressed by
  * `linkUuid` as a destination is. */
-function afterSubmitRead(form: Record<string, unknown>) {
-	const { formLinks, otherwise, ...rest } = form;
+function afterSubmitRead(form: Record<string, unknown>, doc: BlueprintDoc) {
+	const { formLinks, otherwise, caseSelections, ...rest } = form;
 	const read = otherwise === undefined ? undefined : record.parse(otherwise);
 	const { uuid, ...link } = read ?? {};
 	return {
 		...rest,
+		...(caseSelections !== undefined && {
+			caseSelections: records
+				.parse(caseSelections)
+				.map(({ tag: _tag, ...selection }) => {
+					const source = record.parse(selection.source);
+					if (source.kind !== "choose" || !source.under) return selection;
+					const under = record.parse(source.under);
+					if (!under.relationship || typeof under.relationship !== "object")
+						return selection;
+					const { question } = record.parse(under.relationship);
+					const path = computeFieldPath(doc, uuidSchema.parse(question));
+					return {
+						...selection,
+						source: {
+							...source,
+							under: { ...under, relationship: { question: path ?? question } },
+						},
+					};
+				}),
+		}),
 		...(formLinks !== undefined && { destinations: formLinks }),
 		...(read !== undefined && {
 			otherwise:
@@ -484,12 +524,14 @@ const readProjectors: {
 		// A held placement is an identity no author chooses: no edit accepts
 		// it, so the read leaves it out, and getCaseOperations states where
 		// each change is kept.
+		const selections = formCaseSelections(doc, form.uuid);
 		const operations = form.caseOperations?.map(
 			({ placement: _held, ...operation }) => operation,
 		);
 		return {
 			...data,
 			recordContext: formRecordContext(doc, form.uuid),
+			openingChoicesFrom: form.caseSelections === undefined ? "menu" : "form",
 			...(data.recordName !== undefined && {
 				recordName: recordName(form.uuid, data.recordName),
 			}),
@@ -500,11 +542,13 @@ const readProjectors: {
 							formSchema,
 							{
 								...form,
+								caseSelections: [...selections],
 								...(operations !== undefined && { caseOperations: operations }),
 							},
 							scope(form.uuid),
 						),
 					),
+					doc,
 				),
 				...(form.submitLabel !== undefined && {
 					submitLabel: form.submitLabel.text ?? null,

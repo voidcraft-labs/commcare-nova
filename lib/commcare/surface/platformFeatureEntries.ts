@@ -26,6 +26,10 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
 	"list-first": ["case-search/list-first-where-web-apps-is-declared"],
+	"form-submit-wording": ["forms-and-case-writes/submit-label-non-default"],
+	"auto-select-confirm": [
+		"menus-and-case-lists/auto-select-case-on-an-advanced-module",
+	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",

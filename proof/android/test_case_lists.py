@@ -172,3 +172,38 @@ def test_a_tile_cell_takes_only_middle_vertical_alignment(android_documents, hq)
             "Riverside": "center_vertical",
             "open": "top",
         }, (name, gravities)
+
+
+def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(android_documents, hq):
+    from dataclasses import replace
+
+    from proof.android.navigation import nav
+    from proof.observe import casedata
+    from proof.observe.record import Blobs
+
+    doc = android_documents["targeted-independent-form-choices"]
+    database = casedata.document_case_database(doc)
+    ordinary = [record for record in database.cases if record.case_type == "person"]
+    only = replace(ordinary[0], case_id="proof-standalone-list", name="Standalone list only")
+    database = replace(database, cases=(*database.cases, only))
+    own = ["m0", "m0-case-list"]
+    first = ["m0", "m0-f0"]
+    second = [*first, "@case:" + ordinary[0].case_id]
+    with _archives(doc, database) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            answer = nav(served, blobs, label="independent-choices-" + name, archive=archive,
+                         paths=[own, first, second])
+            navs = blobs.get_json(answer["answer"])["navs"]
+
+            def last_list(path):
+                walk = navs["path:" + "/".join(path)]
+                assert "raised" not in walk, walk
+                last = walk["steps"][-1]
+                assert last["screen"] == LIST, (name, path, last)
+                return set(last["list"]["order"])
+
+            expected = {record.case_id for record in ordinary}
+            assert last_list(own) == expected | {only.case_id}, name
+            assert last_list(first) == expected, name
+            assert last_list(second) == expected, name

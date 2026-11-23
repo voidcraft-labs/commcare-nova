@@ -200,6 +200,9 @@ export async function evaluateFormSnapshot(
 	const entryKey = context.entry?.entryKey ?? randomUUID();
 	const session = entrySessionData(doc, input.formUuid, {
 		appId: context.session?.appId,
+		entryChoices: context.session?.entryChoices,
+		heldEntryValues: context.session?.heldEntryValues,
+		lookupData: previewLookupData(context.lookup),
 		entryKey,
 		boundCases: ids.map((caseId) => {
 			const caseName = context.cases.rows.find(

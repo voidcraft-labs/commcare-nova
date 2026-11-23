@@ -64,6 +64,7 @@ import {
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import {
 	registrationMintsOwnCaseId,
 	rootBasicSubcaseCreates,
@@ -371,7 +372,14 @@ function alwaysFindings(
 	} else {
 		const blockingFormUuid = menuFormUuidsOf(doc, hostUuid).find((uuid) => {
 			const type = doc.forms[uuid]?.type;
-			return type === undefined || !CASE_LOADING_FORM_TYPES.has(type);
+			return (
+				type === undefined ||
+				(doc.forms[uuid].caseSelections === undefined
+					? !CASE_LOADING_FORM_TYPES.has(type)
+					: !doc.forms[uuid].caseSelections?.some(
+							(row) => row.source.kind === "choose",
+						))
+			);
 		});
 		if (blockingFormUuid !== undefined) {
 			const blockingFormName = doc.forms[blockingFormUuid]?.name ?? "";
@@ -439,26 +447,43 @@ function alwaysFindings(
 	}
 
 	if (emittedModuleKind(doc, hostUuid) === "advanced") {
-		errors.push(
-			validationError(
-				"CASE_LIST_REGISTRATION_ADVANCED_MENU",
-				"module",
-				`"${host.name}" is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering "${form.name}" there.`,
-				loc,
-				{ ...details, reason: "host" },
-			),
-		);
-	} else if (emittedModuleKind(doc, formModuleUuid) === "advanced") {
-		const formModuleName = doc.modules[formModuleUuid]?.name ?? "";
-		errors.push(
-			validationError(
-				"CASE_LIST_REGISTRATION_ADVANCED_MENU",
-				"module",
-				`"${form.name}" is in "${formModuleName}", which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
-				loc,
-				{ ...details, reason: "form", formModuleName },
-			),
-		);
+		let expected: { types: string; tag: string } | undefined;
+		for (const uuid of doc.formOrder[hostUuid] ?? []) {
+			const chosen = formCaseSelections(doc, uuid).filter(
+				(row) => row.source.kind === "choose",
+			);
+			const last = chosen.at(-1);
+			const types = JSON.stringify(
+				[...new Set(chosen.map((row) => row.caseType))].sort(),
+			);
+			const linked = chosen.every(
+				(row, i) =>
+					i === 0 ||
+					(row.source.kind === "choose" &&
+						row.source.under?.selection === chosen[i - 1].uuid),
+			);
+			if (
+				!last ||
+				last.caseType !== host.caseType ||
+				last.source.kind !== "choose" ||
+				last.source.module !== hostUuid ||
+				!linked ||
+				(expected && (types !== expected.types || last.tag !== expected.tag))
+			) {
+				errors.push(
+					validationError(
+						"CASE_LIST_REGISTRATION_ADVANCED_MENU",
+						"module",
+						`“${host.name}” offers registration from its case list. Its forms need the same record types, each narrowed by the preceding record, ending with the same choice from this list. You can review “${doc.forms[uuid]?.name}” or stop offering registration here.`,
+						loc,
+						{ ...details, reason: "host", blockingFormUuid: uuid },
+					),
+				);
+				break;
+			}
+			expected = { types, tag: last.tag };
+		}
 	}
+
 	return errors;
 }

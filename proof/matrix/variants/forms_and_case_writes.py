@@ -431,10 +431,24 @@ def _visit_loads(authoring, app_id):
     return [json.loads(json.dumps(load.to_json())) for load in form.actions.load_update_cases]
 
 
+def household_chosen_by_a_stored_table(authoring, app_id):
+    """The visit's last load takes its household id from one real global table row."""
+    from proof.matrix.bases.lookups import make_tables
+
+    make_tables(authoring, [{"tag": "villages", "fields": ["household_id"],
+                             "rows": [["4b4d8b1b-052a-400b-9a47-9ce477ddcf08"]]}])
+    loads = _visit_loads(authoring, app_id)
+    automatic = dict(loads[0], case_tag="load_household2", details_module=None,
+                     preload={}, case_properties={},
+                     auto_select={"doc_type": "AutoSelectCase", "mode": "fixture",
+                                  "value_source": "villages", "value_key": "household_id"})
+    ops.set_json(authoring, app_id, _VISIT_LOADS, [*loads, automatic])
+
+
 def worker_load_stored_first(authoring, app_id):
     """``hq-advanced``'s Member visits form with the worker's record's auto-selected load stored before the
     household and the member it chooses, which HQ's page keeps where a person drags it: HQ's entry computes the
-    worker's datum in stored order, and Nova writes it after every chosen load."""
+    worker's datum in stored order, before the first chosen case."""
     ops.set_json(authoring, app_id, _VISIT_LOADS, [_worker_load(), *_visit_loads(authoring, app_id)])
 
 

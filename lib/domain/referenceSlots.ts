@@ -380,6 +380,21 @@ export const FIELD_REFERENCE_SLOTS = [
 export const FORM_REFERENCE_SLOTS = [
 	{
 		entity: "form",
+		slot: "form_selection_source",
+		path: "caseSelections[].source.value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "form_entry_value",
+		path: "computedDatums[].value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+
+	{
+		entity: "form",
 		slot: "form_display_condition",
 		path: "displayCondition",
 		kind: "expression",
@@ -901,6 +916,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 		]);
 	}
 	if ("linkUuid" in member) return JSON.stringify([...base, member.linkUuid]);
+	if ("supplyUuid" in member)
+		return JSON.stringify([...base, member.supplyUuid]);
 	if ("property" in member) {
 		// A write's key is its property through its `via`: two writes of one
 		// property, one through `via`, are two slots.
@@ -989,6 +1006,22 @@ function expressionRefForEntry(
 	const form = ownRecordValue(doc.forms, uuid);
 	if (form === undefined) return undefined;
 	switch (entry.slot) {
+		case "form_entry_value":
+		case "form_selection_source": {
+			const row = (
+				entry.slot === "form_entry_value"
+					? form.computedDatums
+					: form.caseSelections
+			)?.[indices[0] ?? -1];
+			return row
+				? {
+						entity: "form",
+						uuid,
+						slot: entry.slot,
+						member: { supplyUuid: row.uuid },
+					}
+				: undefined;
+		}
 		case "form_display_condition":
 		case "form_open_condition":
 		case "form_close_condition":

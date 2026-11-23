@@ -89,6 +89,7 @@ import {
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideState } from "./documents/hqSideState";
 import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
+import { independentFormChoices } from "./documents/independentFormChoices";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
 import { keptValues } from "./documents/keptValues";
@@ -264,6 +265,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	commtrackAdvanced,
 	formLinkChain,
 	formLinkCarriedCase,
+	independentFormChoices,
 	formLinkOtherwise,
 	hyphenatedQuestionIds,
 	caseTypeNames,

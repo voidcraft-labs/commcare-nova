@@ -13,6 +13,10 @@ import {
 	relationStepSchema,
 	valueSchema,
 } from "./expression/types";
+import {
+	computedEntryValueSchema,
+	formCaseSelectionSchema,
+} from "./formEntryCases";
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
@@ -793,6 +797,9 @@ export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
 export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
+	/** Absent derives the ordinary menu choices. An empty list explicitly opens without a selection. */
+	caseSelections: z.array(formCaseSelectionSchema).optional(),
+	computedDatums: z.array(computedEntryValueSchema).optional(),
 	/** The finish button on Web Apps. An absent source uses the platform's
 	 * default; an explicitly empty source is a button with no text. Other
 	 * languages use the form's submit-label translation unit. */

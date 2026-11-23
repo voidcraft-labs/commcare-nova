@@ -98,7 +98,7 @@ const MENU = {
 		`${M}/case-type-commcare-user-or-user-owner-mapping-case-on-a-basic`,
 		"schema:Module.case_type",
 	),
-	caseTypeWorkerAdvanced: refuse(
+	caseTypeWorkerAdvanced: take(
 		`${M}/case-type-commcare-user-on-an-advancedmodule`,
 		"schema:AdvancedModule.case_type",
 	),
@@ -733,7 +733,6 @@ function menuClass(module: DraftModule): MenuClass {
 const KEPT_REFUSED_CASE_TYPES: ReadonlySet<string> = new Set([
 	...Object.values(MENU.caseTypeGrammar).map((claim) => claim.entry),
 	MENU.caseTypeReservedBasic.entry,
-	MENU.caseTypeWorkerAdvanced.entry,
 ]);
 
 /**
@@ -760,9 +759,7 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 					(caseType === "commcare-user" ||
 						caseType === "user-owner-mapping-case")
 				? MENU.caseTypeReservedBasic
-				: module.docType === "AdvancedModule" && caseType === "commcare-user"
-					? MENU.caseTypeWorkerAdvanced
-					: undefined;
+				: undefined;
 		if (refused !== undefined) {
 			json.refuse("case_type", refused);
 			ctx.writeDraft(() => {
@@ -772,7 +769,9 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 		}
 		const value = json.take(
 			"case_type",
-			MENU.caseType[menuClass(module)],
+			module.docType === "AdvancedModule" && caseType === "commcare-user"
+				? MENU.caseTypeWorkerAdvanced
+				: MENU.caseType[menuClass(module)],
 			textOf,
 		).value;
 		ctx.writeDraft(() => {

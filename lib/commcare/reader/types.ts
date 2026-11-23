@@ -67,6 +67,12 @@ export interface ReaderInput {
 	 *  each property, which every property the reading holds takes unless a question that writes
 	 *  it gives values that type cannot hold. Absent for an app Nova has never held. */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+	/** Names chosen in Nova, which HQ holds only as record tags. The presence
+	 * of a form here also retains an intentionally empty set of choices. */
+	readonly knownFormEntryChoices?: ReadonlyMap<
+		Uuid,
+		ReadonlyMap<string, string>
+	>;
 	/** What Nova already holds about this app's languages that no export carries: the language
 	 *  each CommCare HQ code it published names, from the held document's `localization.wireCodes`
 	 *  (`languages.ts::knownLanguageCodesOf`). A code it holds is read as that language whatever

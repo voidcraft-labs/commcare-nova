@@ -5189,19 +5189,24 @@
 			"schema:AdvancedFormActions.load_update_cases"
 		],
 		"valueClass": "loads-outside-one-chain",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: stored case selections per form",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A form keeps its own ordered, named record choices.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "Ordered load_update_cases belonging to the form.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/loadupdateaction-case-tag-without",
@@ -5239,19 +5244,24 @@
 			"schema:LoadUpdateAction.auto_select"
 		],
 		"valueClass": "underived-tag-on-a-load-changing-no-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a held tag on a selection that changes no case (`placement.ts::planAdvancedCore` holds a tag only on an operation)",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Every named choice keeps its stable submission tag, including a read-only choice and a read-only worker record.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "case_tag on the retained load.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/case-tag-holding-a-hyphen",
@@ -5269,8 +5279,12 @@
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
-			"webApps": { "reading": "runs" },
-			"android": { "reading": "runs" }
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
 			"cell": "`case_tag`",
@@ -5772,19 +5786,24 @@
 		"item": "`LoadUpdateAction.case_index` on the first chosen load naming the worker's record's auto-selected load stored before it",
 		"surfaceKeys": ["schema:LoadUpdateAction.case_index"],
 		"valueClass": "index-to-the-worker-record-load",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a chosen case narrowed to the worker's record's children: HQ's editor offers the index on every load stored after the first that does not auto-select (`case_config_advanced.html`, `advanced/actions.js` `subcase`), and HQ's build filters the chosen list by the worker's record's id (`entries.py::EntriesHelper.get_datum_meta_assertions_advanced`, `get_parent_filter_by_ref_id`)",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A worker record can supply the connection used by the next chosen record.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "case_index.tag names the preceding worker-record datum.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/the-worker-s-record-s-auto-selected-load-stored-before-a-chosen-load",
@@ -5796,19 +5815,24 @@
 			"schema:AdvancedFormActions.load_update_cases"
 		],
 		"valueClass": "worker-load-before-a-chosen-load",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the worker's record's load in its stored place: HQ's entry gives each load's datum in stored order (`entries.py::EntriesHelper.get_datum_meta_assertions_advanced`), so the worker's computed `usercase_id` stands before the chosen loads' selections, and Nova writes the worker's load after every chosen load",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The worker record is resolved in the position the form gives it.",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "load_update_cases keeps the worker record before the manual choice.",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "forms-and-case-writes/auto-select-mode-raw-value-key",
@@ -5818,13 +5842,13 @@
 		"surfaceKeys": [
 			"schema:LoadUpdateAction.auto_select",
 			"schema:AutoSelectCase.mode",
+			"schema:AutoSelectCase.value_source",
 			"schema:AutoSelectCase.value_key"
 		],
 		"valueClass": "auto-select-raw",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSelections[].autoSelect {kind: expression}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form evaluates its opening expression in the ordered entry and requires one reached record.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5852,10 +5876,9 @@
 			"schema:AutoSelectCase.value_key"
 		],
 		"valueClass": "auto-select-user",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: userData, key}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form reaches the record named by the worker's data key.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5884,10 +5907,9 @@
 			"schema:AutoSelectCase.value_source"
 		],
 		"valueClass": "auto-select-fixture",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: lookupRow, table, column}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A Project table and column supply the record ID. The entry checks that the table has one row and the device holds the record.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5947,10 +5969,9 @@
 			"schema:AutoSelectCase.value_source"
 		],
 		"valueClass": "auto-select-case-index",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: index, selection, index}`",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The form follows the named connection of its earlier record selection.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6895,10 +6916,9 @@
 			"schema:ArbitraryDatum.datum_function"
 		],
 		"valueClass": "computed-datum",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.computedDatums[] {id, expression}`. The class takes a non-empty list, on an advanced form or a shadow form; the empty list is HQ's default, which the shadow own fields row holds on a shadow form",
-		"subject": "advanced-forms",
-		"owner": "forms-and-case-management",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an entry value has its own UUID, saved session key and expression over the preceding supplies. It is emitted after the case choices and before the new-case ids.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7624,6 +7644,123 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/case-actions-using-the-same-tag",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "Two actions in a form use the same nonblank case tag",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.case_tag",
+			"schema:AdvancedOpenCaseAction.case_tag"
+		],
+		"valueClass": "case-actions-using-the-same-tag",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The advanced case editor requires each action to have a different name (actions.js::validate).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The advanced case editor requires each action to have a different name (actions.js::validate)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/worker-record-selection-with-another-case-type",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A worker-record mode stores another case type",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:LoadUpdateAction.case_type"
+		],
+		"valueClass": "worker-record-selection-with-another-case-type",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The worker-record mode sets the type to commcare-user (advanced/actions.js).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The worker-record mode sets the type to commcare-user (advanced/actions.js)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/automatic-table-choice-without-its-table-or-column",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A table selection names a missing table or field",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:AutoSelectCase.value_source",
+			"schema:AutoSelectCase.value_key"
+		],
+		"valueClass": "automatic-table-choice-without-its-table-or-column",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The device cannot find the configured table field to supply a record ID (EntriesHelper.get_auto_select_datums_and_assertions).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The device cannot find the configured table field to supply a record ID (EntriesHelper.get_auto_select_datums_and_assertions)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/automatic-choice-with-an-unknown-mode",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "An automatic selection stores an unrecognized nonblank mode",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:AutoSelectCase.mode"
+		],
+		"valueClass": "automatic-choice-with-an-unknown-mode",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The advanced case page offers the configured automatic selection modes (case_config_ui.js::getAutoSelectModes).",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "The advanced case page offers the configured automatic selection modes (case_config_ui.js::getAutoSelectModes)."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	}

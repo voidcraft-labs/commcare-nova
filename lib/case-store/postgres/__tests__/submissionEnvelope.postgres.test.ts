@@ -3499,6 +3499,69 @@ describe("the form's own case", () => {
 		expect(result.caseDatabasePatch?.rows.map((row) => row.case_id)).toEqual([
 			WORKER_RECORD_ID,
 		]);
+
+		// The case type or spelling of a source ID cannot turn another worker’s
+		// record into an eligible target. Exercise each conjunct separately.
+		const writeById = (caseId: string) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: {
+					...rootProgram(
+						[
+							envOp(
+								operation({
+									uuid: OP_A,
+									id: "update_by_id",
+									action: "update",
+									caseType: USERCASE_CASE_TYPE,
+									target: { kind: "expression", expr: term(literal(caseId)) },
+									writes: [{ property: "visits", value: term(literal("3")) }],
+								}),
+								{
+									expressionSnapshotTypes: {
+										target: USERCASE_CASE_TYPE,
+										links: new Map(),
+									},
+								},
+							),
+						],
+						{ sessionCaseId: null },
+					),
+					caseTypeSchemas: workerSchemas,
+				},
+			});
+		expect((await writeById(WORKER_RECORD_ID)).operations).toEqual([
+			expect.objectContaining({ caseId: WORKER_RECORD_ID, executed: true }),
+		]);
+		for (const [owner, profile, status] of [
+			["another-worker", ACTOR, "open"],
+			[ACTOR, "another-worker", "open"],
+			[ACTOR, ACTOR, "closed"],
+		] as const) {
+			const other = await makeStore(PROJECT_A, ACTOR, owner).insert({
+				appId: APP_ID,
+				row: {
+					case_type: USERCASE_CASE_TYPE,
+					case_name: "Other record",
+					status,
+					properties: JSON.stringify({ hq_user_id: profile, visits: "1" }),
+				},
+			});
+			expect(
+				(await rejection(writeById(other.caseId))).rejection,
+			).toMatchObject({
+				kind: "target",
+				reason: "not-found-or-out-of-scope",
+			});
+			const held = await (dbHandle.db as Kysely<Database>)
+				.selectFrom("cases")
+				.select("properties")
+				.where("case_id", "=", other.caseId)
+				.where("app_id", "=", APP_ID)
+				.executeTakeFirstOrThrow();
+			expect(held.properties).toMatchObject({ visits: "1" });
+		}
 	});
 });
 

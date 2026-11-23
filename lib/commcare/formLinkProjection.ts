@@ -1,5 +1,8 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
+import { formSelectionShowsConfirm } from "@/lib/domain/advancedEntryDatums";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { automaticCase, entryValueWire } from "./advancedEntryValues";
 import type { RewriteControl } from "./emissionRewrites";
 import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 /**
@@ -232,6 +235,8 @@ export interface FormLinkProjectionContext {
 	readonly expressionDoc: BlueprintDoc;
 	/** Neutral task reads do not compile selector or query expressions. */
 	readonly entryMetadataOnly: boolean;
+	/** A running form needs its entry functions even when it already has the list selections. */
+	readonly renderEntryValues: boolean;
 	readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
 	/** Export-only observer of an HQ root alignment that would bypass a bound. */
 	readonly onHqSelectionBoundMismatch?: (
@@ -319,6 +324,7 @@ export function formLinkProjectionContext(
 	opts: {
 		readonly expressionDoc?: BlueprintDoc;
 		readonly entryMetadataOnly?: boolean;
+		readonly renderEntryValues?: boolean;
 		readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
 		readonly onHqSelectionBoundMismatch?: (
 			issue: HqSelectionBoundMismatch,
@@ -359,6 +365,8 @@ export function formLinkProjectionContext(
 	return {
 		expressionDoc: opts.expressionDoc ?? doc,
 		entryMetadataOnly: opts.entryMetadataOnly === true,
+		renderEntryValues:
+			opts.renderEntryValues ?? opts.entryMetadataOnly !== true,
 		...(opts.onParentSelectionConflict && {
 			onParentSelectionConflict: opts.onParentSelectionConflict,
 		}),
@@ -793,7 +801,24 @@ function alignWithRootMenu(
 		if (parentDatum.query !== undefined) continue;
 		if (!sessionDatumRequiresSelection(parentDatum)) {
 			// The copy is a placeholder: HQ asserts only the form's own loads.
-			const { assertion: _rootAssertion, ...inherited } = parentDatum;
+			const {
+				assertion: _rootAssertion,
+				assertions: _rootAssertions,
+				entryValueUuid: _rootEntryValue,
+				...inherited
+			} = parentDatum;
+			const rootRows =
+				parent.kind === "form"
+					? doc.forms[parent.form]?.caseSelections
+					: undefined;
+			inherited.inheritedEntryFunction =
+				_rootEntryValue ??
+				inherited.inheritedEntryFunction ??
+				rootRows?.find(
+					(row) =>
+						row.tag === parentDatum.advancedLoadTag &&
+						row.source.kind !== "choose",
+				)?.uuid;
 			ctx.fromParentModuleDatums.add(inherited);
 			const grouping = ctx.tileGroupingSources.get(parentDatum);
 			if (grouping !== undefined)
@@ -802,8 +827,16 @@ function alignWithRootMenu(
 			continue;
 		}
 		const source = ctx.selectionSourceModules.get(parentDatum);
+		const sourceChoice =
+			parent.kind === "form"
+				? doc.forms[parent.form]?.caseSelections?.find(
+						(row) => row.tag === parentDatum.advancedLoadTag,
+					)?.uuid
+				: undefined;
 		const pair = alignment.matches.find(
-			(match) => match.sourceModuleUuid === source,
+			(match) =>
+				match.sourceModuleUuid === source &&
+				match.sourceChoice === sourceChoice,
 		);
 		if (pair === undefined) continue;
 		const matched = remaining[0];
@@ -943,13 +976,20 @@ function advancedEntrySessionDatums(
 	plan: FormCaseEntryPlan,
 ): readonly SessionDatum[] {
 	const { loads } = plan;
-	const indexedByOpen = plan.indexedByOpen;
+
 	const position = new Map(loads.map((load, index) => [load.tag, index]));
 	// The load datums, the chain's at their chain positions, as they stand:
 	// read when a filter that reads a case chosen
 	// earlier in the chain renders, which is again after root alignment.
 	let made: readonly SessionDatum[] = [];
 	const inputs = loads.map((load, index): AdvancedLoadDatumInput => {
+		if (load.selection && load.selection.source.kind !== "choose") {
+			const automatic =
+				load.selection.source.kind === "worker-record"
+					? "worker-record"
+					: "other";
+			return { tag: load.tag, caseType: load.caseType, automatic };
+		}
 		const list =
 			load.listModule === null ? undefined : doc.modules[load.listModule];
 		const indexed =
@@ -965,10 +1005,6 @@ function advancedEntrySessionDatums(
 				...(chosenUnder !== undefined && { index: chosenUnder }),
 			};
 		const listModule = load.listModule;
-		const indexedByLater = loads.some((other) => other.index?.tag === load.tag);
-		const hasDetailScreen = (list.caseListConfig?.columns ?? []).some(
-			(column) => column.visibleInDetail !== false,
-		);
 		const listIndex = moduleIndexOf(ctx, listModule);
 		const datumId = (ref: DatumRef): string | undefined => {
 			if (ref.kind !== "selected-case") return undefined;
@@ -1003,8 +1039,8 @@ function advancedEntrySessionDatums(
 				...(list.caseListConfig?.tile?.persistOnForms === true && {
 					persistentDetailId: `m${listIndex}_case_short`,
 				}),
-				detailConfirm:
-					hasDetailScreen && (!indexedByLater || indexedByOpen.has(load.tag)),
+				autoSelectSingle: list.autoSelectSingle === true,
+				detailConfirm: formSelectionShowsConfirm(doc, formUuid, index),
 				entryMetadataOnly: ctx.entryMetadataOnly,
 				datumId,
 			},
@@ -1024,12 +1060,88 @@ function advancedEntrySessionDatums(
 		ctx.selectionSourceModules.set(datum, load.listModule);
 		ctx.chainDatumIds.set(datum, datum.id);
 	});
+	const computed: SessionDatum[] = (
+		doc.forms[formUuid]?.computedDatums ?? []
+	).map((row) => ({
+		id: row.key,
+		function: w.str(""),
+		alignmentSuffix: "None",
+		entryValueUuid: row.uuid,
+	}));
 	const aligned = alignWithRootMenu(
 		doc,
 		ctx,
 		{ kind: "form", module: moduleUuid, form: formUuid },
-		loadDatums,
+		[...loadDatums, ...computed],
 	);
+	// HQ adjusts only the nodesets and functions of actions whose case_index names
+	// the renamed load. User expressions in raw choices and calculated datums
+	// must therefore be printed under the final ids the worker's frame exposes.
+	if (
+		ctx.renderEntryValues &&
+		(computed.length ||
+			loads.some(
+				(load) => load.selection && load.selection.source.kind !== "choose",
+			))
+	) {
+		const refs = (ref: DatumRef): string | undefined => {
+			if (ref.kind === "entry-value")
+				return computed.find((row) => row.entryValueUuid === ref.datum)?.id;
+			const found = aligned.filter((datum) => {
+				if (ctx.fromParentModuleDatums.has(datum)) return false;
+				if (ref.kind === "selected-case")
+					return (
+						ctx.selectionSourceModules.get(datum) === ref.module ||
+						ctx.alignedSelectionSources.get(datum) === ref.module
+					);
+				if (ref.kind === "worker-record") return datum.workerRecord === true;
+				if (ref.kind !== "form-selection") return false;
+				if (!doc.forms[formUuid]?.caseSelections) {
+					const source =
+						ctx.selectionSourceModules.get(datum) ??
+						(datum.workerRecord ? "worker-record" : undefined);
+					return (
+						source !== undefined &&
+						implicitFormSelectionId(formUuid, source) === ref.selection
+					);
+				}
+				return loads.some(
+					(load) =>
+						load.selection?.uuid === ref.selection &&
+						load.tag === datum.advancedLoadTag,
+				);
+			});
+			return found.length === 1 ? found[0]?.id : undefined;
+		};
+		for (const [index, load] of loads.entries()) {
+			const datum = loadDatums[index];
+			if (!datum || !load.selection) continue;
+			const auto = automaticCase(
+				doc,
+				formUuid,
+				load.selection,
+				refs,
+				ctx.lookupNaming,
+			);
+			if (!auto) continue;
+			datum.function = auto.value;
+			datum.assertions = auto.assertions;
+			datum.autoConfiguration = auto.configuration;
+		}
+		for (const [index, row] of (
+			doc.forms[formUuid]?.computedDatums ?? []
+		).entries()) {
+			computed[index].function = entryValueWire(
+				doc,
+				formUuid,
+				row.uuid,
+				"form_entry_value",
+				row.value,
+				refs,
+				ctx.lookupNaming,
+			);
+		}
+	}
 	const newCases = ctx.newCaseDatums(formUuid);
 	const created = newCaseFunctionDatums(newCases);
 	return withInlineSearchQueries(doc, ctx, [...aligned, ...created]);
@@ -1080,13 +1192,30 @@ export function entryDatumIds(
 					.newCaseDatums(formUuid)
 					.map((created) => [created.id, created.ref] as const),
 	);
+	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
+	const selections = form?.caseSelections;
 	const rows = datums.map((datum): EntryDatumId => {
 		const refs: DatumRef[] = [];
+		const selection =
+			datum.advancedLoadTag === undefined ||
+			ctx.fromParentModuleDatums.has(datum)
+				? undefined
+				: selections?.find((row) => row.tag === datum.advancedLoadTag);
+		if (selection)
+			refs.push({ kind: "form-selection", selection: selection.uuid });
+		if (datum.entryValueUuid)
+			refs.push({ kind: "entry-value", datum: datum.entryValueUuid });
 		const source = ctx.selectionSourceModules.get(datum);
 		const aligned = ctx.alignedSelectionSources.get(datum);
 		const grouping = ctx.tileGroupingSources.get(datum);
 		if (sessionDatumRequiresSelection(datum) && source !== undefined) {
-			refs.push({ kind: "selected-case", module: source });
+			if (
+				!selections ||
+				selections.filter(
+					(row) => row.source.kind === "choose" && row.source.module === source,
+				).length === 1
+			)
+				refs.push({ kind: "selected-case", module: source });
 			if (aligned !== undefined && aligned !== source)
 				refs.push({ kind: "selected-case", module: aligned });
 		} else if (datum.id === USERCASE_DATUM_ID || datum.workerRecord === true) {
@@ -1096,6 +1225,18 @@ export function entryDatumIds(
 		} else {
 			const created = newCaseRefs.get(datum.id);
 			if (created !== undefined) refs.push(created);
+		}
+		if (formUuid && !selections && !ctx.fromParentModuleDatums.has(datum)) {
+			const supplier = sessionDatumRequiresSelection(datum)
+				? source
+				: datum.workerRecord
+					? "worker-record"
+					: undefined;
+			if (supplier)
+				refs.push({
+					kind: "form-selection",
+					selection: implicitFormSelectionId(formUuid, supplier),
+				});
 		}
 		const queryNext = ctx.queryNextDatums.get(datum);
 		const queryModule =
@@ -1312,6 +1453,7 @@ export interface EntrySelectionDatumSource {
 	readonly id: string;
 	readonly caseType: string;
 	readonly moduleUuid: Uuid;
+	readonly selectionUuid?: Uuid;
 }
 
 export function entrySelectionDatumSources(
@@ -1324,6 +1466,9 @@ export function entrySelectionDatumSources(
 		if (!sessionDatumRequiresSelection(datum) || datum.caseType === undefined)
 			return [];
 		const sourceModuleUuid = ctx.selectionSourceModules.get(datum);
+		const selection = doc.forms[formUuid]?.caseSelections?.find(
+			(row) => row.tag === datum.advancedLoadTag,
+		);
 		return sourceModuleUuid === undefined
 			? []
 			: [
@@ -1331,6 +1476,7 @@ export function entrySelectionDatumSources(
 						id: datum.id,
 						caseType: datum.caseType,
 						moduleUuid: sourceModuleUuid,
+						...(selection && { selectionUuid: selection.uuid }),
 					},
 				];
 	});

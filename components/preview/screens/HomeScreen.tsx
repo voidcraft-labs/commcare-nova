@@ -314,7 +314,13 @@ function ModuleListHome() {
 											menuSource.modules[entry.moduleUuid]?.caseType !==
 											undefined,
 									});
-									if (launch.kind === "select-case-first") {
+									if (form.caseSelections !== undefined) {
+										setPreviewCaseTarget({
+											formUuid: form.uuid,
+											entryChoices: [],
+										});
+										navigate.openForm(entry.moduleUuid, form.uuid);
+									} else if (launch.kind === "select-case-first") {
 										setPreviewCaseTarget({ formUuid: form.uuid });
 										navigate.openCaseList(entry.moduleUuid);
 									} else {

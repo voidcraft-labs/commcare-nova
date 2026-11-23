@@ -60,8 +60,10 @@ import {
 import { slotContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import { datumRefKey } from "@/lib/domain/expression/types";
+import { validateFormEntryCases } from "@/lib/domain/formEntryValidation";
 import { freeQuestionId } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { type ValidationError, validationError } from "../errors";
 import {
 	checkErrorDetails,
@@ -396,6 +398,20 @@ function ownCaseConditionValidation(
 				`Only registration and close forms close their own case, and “${ctx.formName}” is a ${typeName} form. You can remove the close condition or make it a close form.`,
 				{ ...loc, field: "closeCondition" },
 				{ formType: form.type },
+			),
+		);
+	}
+
+	if (
+		mod.caseType === USERCASE_CASE_TYPE &&
+		(form.type === "registration" || form.type === "close")
+	) {
+		errors.push(
+			validationError(
+				"CASE_OPERATION_RESERVED_CASE_TYPE",
+				"form",
+				`"${ctx.formName}" would ${form.type === "registration" ? "create" : "close"} a worker’s own record. A follow-up form can save answers to an existing worker’s record.`,
+				loc,
 			),
 		);
 	}
@@ -1375,6 +1391,11 @@ export function runFormRules(
 	};
 
 	const errors: ValidationError[] = [];
+	errors.push(
+		...validateFormEntryCases(doc, form, lookupTables).map((message) =>
+			validationError("FORM_ENTRY_SETUP", "form", message, baseLocation(ctx)),
+		),
+	);
 	errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...formSections(doc, ctx));
 	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid, lookupTables));

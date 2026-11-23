@@ -416,7 +416,7 @@ describe("a parse issue's entry, by what the text and the form hold", () => {
 		);
 	});
 
-	it("reads supply_point_id by whether the advanced form computes it", () => {
+	it("distinguishes an unavailable computed supply point from a CommTrack-only reference", () => {
 		const text = "instance('commcaresession')/session/data/supply_point_id";
 		const issue = {
 			code: "unknown-datum" as const,
@@ -431,9 +431,7 @@ describe("a parse issue's entry, by what the text and the form hold", () => {
 				computedDatums: new Set(["supply_point_id"]),
 				operationIdPaths: new Map(),
 			}).entryId,
-		).toBe(
-			"expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed",
-		);
+		).toBe("expressions-and-data/session-data-datum-the-entry-does-not-supply");
 		expect(parseIssueEntry(issue, doc, reading).entryId).toBe(
 			"expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
 		);

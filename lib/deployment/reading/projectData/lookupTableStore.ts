@@ -114,6 +114,7 @@ export async function readHqLookupTablesForReading(input: {
 	readonly creds: CommCareCredentials;
 	readonly domain: string;
 	readonly sourceText: string;
+	readonly entryTableTags?: ReadonlySet<string>;
 	readonly cancel?: AbortSignal;
 }): Promise<
 	| {
@@ -125,7 +126,9 @@ export async function readHqLookupTablesForReading(input: {
 	const { creds, domain, cancel } = input;
 	const list = await listHqLookupTables(creds, domain, { cancel });
 	if ("success" in list) return { ...list, request: "lookup-tables" };
-	const candidates = new Set(candidateLookupTags(input.sourceText, list));
+	const candidates = new Set(
+		candidateLookupTags(input.sourceText, list, input.entryTableTags),
+	);
 	const tables: HqLookupTableRead[] = [];
 	/* What remains of the request's bound on the rows it keeps. */
 	let remaining = HQ_LOOKUP_ROWS_REQUEST_MAX_BYTES;

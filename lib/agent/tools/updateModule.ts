@@ -111,7 +111,13 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.min(1)
 			.optional()
 			.describe(
-				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. Leave it out to keep it.',
+				'The record type this menu lists (for example, "patient"). Use commcare-user for the worker’s own record. A follow-up can save answers there. Leave it out to keep the current type.',
+			),
+		auto_select_single: z
+			.boolean()
+			.optional()
+			.describe(
+				"Choose the only available record automatically when a form asks the worker to choose from this list.",
 			),
 		case_list_columns: z
 			.array(columnInputSchema)
@@ -189,6 +195,7 @@ export const updateModuleTool = {
 			displayCondition,
 			hiddenFromMenu,
 			parentCaseModuleUuid,
+			auto_select_single,
 			forms_in_menu_above,
 			case_list_menu_item,
 			register_from_case_list,
@@ -200,6 +207,7 @@ export const updateModuleTool = {
 				displayCondition === undefined &&
 				hiddenFromMenu === undefined &&
 				parentCaseModuleUuid === undefined &&
+				auto_select_single === undefined &&
 				forms_in_menu_above === undefined &&
 				case_list_menu_item === undefined &&
 				register_from_case_list === undefined
@@ -378,6 +386,13 @@ export const updateModuleTool = {
 				/* Omission keeps the flag; true takes the module off the menu and
 				 * null puts it back. The reducer moves the after-submit
 				 * destinations its forms and its child modules' forms lose. */
+				...(auto_select_single === undefined
+					? []
+					: [
+							updateModuleMutation(moduleUuid, {
+								autoSelectSingle: auto_select_single ? true : null,
+							}),
+						]),
 				...(hiddenFromMenu === undefined
 					? []
 					: [

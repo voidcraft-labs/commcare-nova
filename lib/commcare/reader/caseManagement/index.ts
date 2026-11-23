@@ -11,6 +11,7 @@
  * where it was read, and each scalar check folded out of a constraint
  * written back.
  */
+
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { planCaseRetype } from "@/lib/domain/caseRetype";
 import {
@@ -19,6 +20,7 @@ import {
 } from "@/lib/domain/caseScalarTextGuard";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
+import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import { planFormCaseWire } from "../../casePlacementPlan";
 import {
 	entryFactsDifference,
@@ -32,8 +34,6 @@ import {
 	activeActions,
 	isMultiSelectMenu,
 	menuMayLoadRegistryCase,
-	type PublishedCaseBlocks,
-	publishedCaseBlocks,
 } from "../../hq/publishedCaseBlocks";
 import {
 	type PlacementSubject,
@@ -61,7 +61,7 @@ import { readerDefect } from "../defects";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { keepsRefusedCaseType } from "../menus/modules";
-import { appPlace, whereText } from "../place";
+import { appPlace } from "../place";
 import { readExpansionSteps, readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
 import { heldWorkerSlugs, holdsWorkerRecordWrite } from "../worldEntities";
@@ -172,10 +172,7 @@ function refuseWritesOfFoldedWorkerNames(ctx: ReadContext): void {
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms)
 			for (const operation of form.form.caseOperations ?? [])
-				if (
-					operation.action !== "own" &&
-					operation.target.kind === "worker-record"
-				)
+				if (addressesWorkerRecord(form.form, operation, module.module.caseType))
 					for (const write of operation.writes ?? [])
 						if (
 							holdsWorkerRecordWrite(write.property) &&
@@ -208,10 +205,7 @@ export function workerRecordWriteSlugs(ctx: ReadContext): string[] {
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms)
 			for (const operation of form.form.caseOperations ?? [])
-				if (
-					operation.action !== "own" &&
-					operation.target.kind === "worker-record"
-				)
+				if (addressesWorkerRecord(form.form, operation, module.module.caseType))
 					for (const write of operation.writes ?? [])
 						if (holdsWorkerRecordWrite(write.property))
 							slugs.push(write.property);
@@ -1097,7 +1091,6 @@ export function* compareEntryFactsSteps(
 		);
 		return;
 	}
-	let blocks: PublishedCaseBlocks | undefined;
 	const raise = (
 		place: DraftForm["place"],
 		menu: number,
@@ -1132,75 +1125,14 @@ export function* compareEntryFactsSteps(
 			const key = entryFactsDifference(facts, ours);
 			if (key === undefined) continue;
 			if (key === "loads") {
-				// Loads that differ only in tags, each on a load for which HQ's build
-				// writes no block, carry tags Nova would not derive; any other
-				// difference is not the menu's one chain.
-				const sameButTags =
-					facts.loads.length === ours.loads.length &&
-					facts.loads.every((load, i) => {
-						const other = ours.loads[i];
-						return (
-							other !== undefined &&
-							sameJson(
-								{ ...load, tag: "", indexTag: null },
-								{ ...other, tag: "", indexTag: null },
-							)
-						);
-					});
-				const differing = facts.loads.filter(
-					(load, i) => load.tag !== ours.loads[i]?.tag,
-				);
-				blocks ??= publishedCaseBlocks(ctx.input.source.raw);
-				const written = new Set(
-					(blocks.forms.get(form.xmlns)?.blocks ?? []).flatMap((block) =>
-						block.kind === "advanced" && block.action === "load"
-							? [block.tag]
-							: [],
-					),
-				);
-				const underived =
-					sameButTags &&
-					differing.length > 0 &&
-					differing.every((load) => !written.has(load.tag));
-				// The same loads where only the worker's record's stands elsewhere: HQ's entry
-				// computes its datum in stored order, Nova's after every chosen load.
-				const worker = (load: (typeof facts.loads)[number]) =>
-					load.autoSelect === "usercase";
-				const workerMoved =
-					facts.loads.some(worker) &&
-					sameJson(
-						facts.loads.filter((load) => !worker(load)),
-						ours.loads.filter((load) => !worker(load)),
-					) &&
-					sameJson(facts.loads.filter(worker), ours.loads.filter(worker));
-				const claim = underived
-					? ADVANCED_CLAIMS.underivedTag
-					: workerMoved
-						? ADVANCED_CLAIMS.workerLoadFirst
-						: ADVANCED_CLAIMS.notOneChain;
-				// One class is one finding: pass 1 may have raised it at the form.
-				// A form whose stored actions pass 1 refused part of has that
-				// finding at the form, and the document leaves the refused loads
-				// out, so the loads the entry carries differ for that one cause.
-				const standing =
-					(advancedCaseReading(form)?.refused === true &&
-						ctx.accounting.hasFindingAt(form.place)) ||
-					listFormRulesPlace(ctx, module) !== undefined ||
-					ctx.accounting
-						.findings()
-						.some(
-							(one) =>
-								one.code === claim.entry &&
-								whereText(one.place) === whereText(form.place),
-						);
-				if (!standing)
-					ctx.accounting.finding(claim, form.place, {
-						name:
-							(workerMoved
-								? facts.loads.find(worker)?.tag
-								: differing[0]?.tag) ??
-							facts.loads[facts.loads.length - 1]?.tag ??
-							"",
+				if (
+					!ctx.accounting.hasFindingAt(form.place) &&
+					listFormRulesPlace(ctx, module) === undefined
+				)
+					differencesOf(ctx).push({
+						place: form.place,
+						menu: module.index,
+						key,
 					});
 			} else if (key === "moduleKind") {
 				if (!ctx.accounting.hasFindingAt(module.place))

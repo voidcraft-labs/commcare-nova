@@ -76,6 +76,7 @@ import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { CaseOperationRow } from "./CaseOperationRow";
 import { operationFormFieldDecls } from "./formFieldScope";
 import { planKeyboardMove, type ReorderKey } from "./keyboardMove";
+import { OpeningCasesSection } from "./OpeningCasesSection";
 import { moveRefusalReason } from "./refusalCopy";
 import {
 	seedCaseOperation,
@@ -269,6 +270,8 @@ export function CaseOperationsCanvas({
 					a later change can use a case an earlier one made.
 				</p>
 			</header>
+
+			<OpeningCasesSection formUuid={formUuid} />
 
 			<p
 				role="status"

@@ -79,6 +79,7 @@ import { configureConnectTool } from "../lib/agent/tools/configureConnect";
 import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
 import { editFieldTool } from "../lib/agent/tools/editField";
+import { editFormEntryTool } from "../lib/agent/tools/editFormEntry";
 import {
 	addEntryPointTool,
 	updateEntryPointTool,
@@ -258,6 +259,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: updateModuleInputSchema,
 		prompt:
 			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to rename it to "Patients", give it its own screen (forms_in_menu_above null), and offer the registration form 22222222-2222-4222-8222-222222222222 on its case list with the button text "Register a new patient", going on with the new case after registering.',
+	},
+	{
+		name: "editFormEntry",
+		description: editFormEntryTool.description,
+		schema: editFormEntryTool.inputSchema,
+		prompt:
+			"Use editFormEntry to add a manual choice named Receiving household to the Visits form in the Visits menu. The worker chooses a household from the Households list.",
 	},
 	{
 		name: "updateForm",
