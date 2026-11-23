@@ -438,7 +438,7 @@ async function observeScreen(
 					/* What `continue` presses here: Android's Done on a case list
 					 * menu entry's detail, which returns to the list. */
 					continueLabel:
-						(state.platform === "web-apps"
+						(context.rules.caseListDetailWording
 							? controlText(context, screen.moduleUuid, "selectCase", true)
 							: undefined) ??
 						runtimeMessage(

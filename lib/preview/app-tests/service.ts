@@ -13,6 +13,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ownRecordValue } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
+import { previewPlatformRules } from "../platform";
 import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
 import { captureAppTestSnapshot } from "./capture";
 import {
@@ -166,10 +167,12 @@ export async function startAppTest(
 				input.locationFix &&
 				!sessionInputs.some(
 					(sessionInput) =>
-						appTestPlatform(
-							snapshot,
-							sessionInput.platform ?? input.platform,
-						) === "android",
+						previewPlatformRules(
+							appTestPlatform(
+								snapshot,
+								sessionInput.platform ?? input.platform,
+							),
+						).automaticLocation,
 				)
 			)
 				throw new AppTestActionError(
@@ -182,13 +185,15 @@ export async function startAppTest(
 				);
 				/* A session's own fix belongs to an Android session; the test's
 				 * fix is the default every Android session takes. */
-				if (sessionInput.locationFix && platform !== "android")
+				const automaticLocation =
+					previewPlatformRules(platform).automaticLocation;
+				if (sessionInput.locationFix && !automaticLocation)
 					throw new AppTestActionError(
 						"Automatic location is available on Android. Choose an Android session or leave out its device location.",
 					);
 				const locationFix =
 					sessionInput.locationFix ??
-					(platform === "android" ? input.locationFix : undefined);
+					(automaticLocation ? input.locationFix : undefined);
 				const initial: AppTestSessionState = {
 					language: appTestLanguage(
 						snapshot,

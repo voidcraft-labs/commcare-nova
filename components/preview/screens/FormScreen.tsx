@@ -2794,7 +2794,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * dropping it here would quietly give a persona's work to the
 				 * signed-in member while every read still looked persona-scoped. */
 				const recordFix =
-					previewDevice.platform === "android" &&
+					platformRules.automaticLocation &&
 					sensor.entryKey === submittedEntryKey &&
 					sensor.fix !== undefined &&
 					capturesDeviceLocation(finalDoc, finalDoc.forms[mutation.formUuid]);

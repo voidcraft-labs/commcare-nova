@@ -1,7 +1,3 @@
-import {
-	capturesDeviceLocation,
-	deviceLocationSchema,
-} from "@/lib/domain/locationCapture";
 // lib/preview/engine/caseDataBindingHelpers.ts
 //
 // Server-only I/O helpers the running-app view's data binding wraps
@@ -147,6 +143,10 @@ import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { isExpression } from "@/lib/domain/expression/types";
+import {
+	capturesDeviceLocation,
+	deviceLocationSchema,
+} from "@/lib/domain/locationCapture";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
@@ -157,6 +157,7 @@ import {
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
 import type { CaseListSortChoice } from "../caseListSortMenu";
+import { previewPlatformRules } from "../platform";
 import { javaTrim } from "../xpath/javaString";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
@@ -1772,7 +1773,7 @@ export async function buildSubmissionOperationProgram(args: {
 	if (
 		fix !== undefined &&
 		(!capture ||
-			args.device.platform !== "android" ||
+			!previewPlatformRules(args.device.platform).automaticLocation ||
 			!deviceLocationSchema.safeParse(fix).success)
 	)
 		throw new CaptureSubmissionRejectedError(

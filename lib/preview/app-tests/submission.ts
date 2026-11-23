@@ -73,7 +73,7 @@ export async function submitAppTest(
 		};
 	const mutation =
 		state.locationFix !== undefined &&
-		state.platform === "android" &&
+		context.rules.automaticLocation &&
 		capturesDeviceLocation(context.doc, context.doc.forms[screen.formUuid])
 			? { ...evaluated.submission, locationFix: state.locationFix }
 			: evaluated.submission;
