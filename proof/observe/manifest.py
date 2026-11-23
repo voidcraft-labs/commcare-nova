@@ -34,7 +34,9 @@ The record holds:
   load-time setvalue's value, each repeat count and each bind calculate of
   a form (and each relevance of one that holds a model iteration), each
   expression Core's parse reads a call, step or comparison in whose parts a
-  value class reads (``structure_read``), and what a required condition
+  value class reads (``structure_read``), each independent sort
+  calculation of an app JSON, whose value's type a sort class reads
+  (``sort_calculations``), and what a required condition
   Vellum reads is compared with (the ``required`` beside it, the XPath each
   of the form's hashtags stands for), by its text (``expression_tree``,
   ``structure_tables``); ``conditions``, that grammar's structure of each
@@ -820,13 +822,15 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
         if root is not None:
             attribute_values(root, texts)
             suite_queries(root, queries)
+    orders = set()
     for app in apps:
         app_queries(app, queries)
         app_expressions(app, texts)
+        sort_calculations(app, orders)
     strings = _runner_reading(core_runner, "xpathStrings", sorted(queries), hole=CSQL_HOLE, dateHole=CSQL_DATE_HOLE)
     sent = sorted({string for result in strings.values() for string in result.get("strings", ())})
     expressions = _runner_reading(core_runner, "xpathParse", sorted(texts))
-    trees, conditions = structure_tables(roots, expressions)
+    trees, conditions = structure_tables(roots, expressions, orders)
     return {
         "questions": questions,
         "expressions": expressions,
@@ -841,15 +845,32 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
     }
 
 
-def structure_tables(roots, expressions):
+def sort_calculations(value, found):
+    """Each independent sort calculation an app JSON holds (a ``SortElement`` with no ``field``), at any depth, into
+    ``found``: the sort classes read the type of its value whatever Core's parse holds of it
+    (``manifest_value_classes.independent_sort_without_scalar``)."""
+    if isinstance(value, dict):
+        text = value.get("sort_calculation")
+        if value.get("doc_type") == "SortElement" and not value.get("field") and isinstance(text, str) and text.strip():
+            found.add(text)
+        for child in value.values():
+            sort_calculations(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            sort_calculations(child, found)
+
+
+def structure_tables(roots, expressions, orders=()):
     """The ``trees`` and ``conditions`` readings: the structure of each expression the judge reads it of, by its
-    text, from the forms (``roots``: each form's parsed root; ``tree_texts``, ``vellum_condition_texts``) and from
-    Core's parse of every expression (``expressions``, ``structure_read``)."""
+    text, from the forms (``roots``: each form's parsed root; ``tree_texts``, ``vellum_condition_texts``), from
+    Core's parse of every expression (``expressions``, ``structure_read``) and of each independent sort calculation
+    Core parses (``orders``, ``sort_calculations``)."""
     found, conditions = set(), set()
     for root in roots:
         tree_texts(root, found)
         vellum_condition_texts(root, conditions, found)
     found.update(text for text, parsed in expressions.items() if structure_read(parsed))
+    found.update(text for text in orders if "error" not in expressions.get(text, {"error": None}))
     return (
         {text: expression_tree(text) for text in sorted(found)},
         {text: hashtag_tree(text) for text in sorted(conditions)},

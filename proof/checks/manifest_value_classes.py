@@ -9646,26 +9646,24 @@ def tile_group_identifier_outside_an_xml_name(use, manifest):
     return isinstance(identifier, str) and identifier != "" and XML_ELEMENT_NAME.fullmatch(identifier) is None
 
 
-# The words HQ's case list page takes as a column's property that Nova reads under another name
-# (``lib/commcare/reader/caseList/columns.ts::HQ_PROPERTY_RENAMES``).
-HQ_PROPERTY_RENAMES = {
-    "external-id": "external_id",
-    "date-opened": "date_opened",
-    "status": "status",
-    "name": "case_name",
-    "owner_id": "owner_id",
-}
-
-
 def column_hash_property(use, manifest):
-    """HQ's property-name editor admits a hash prefix; its build only rewrites #owner_name."""
+    """``menus-and-case-lists/column-reading-an-unknown-hash-property``: a property column's ``field`` (HQ's
+    ``PROPERTY_NAME``, with no prefix and not the worker's ``user/``) whose last word starts with ``#`` and is not
+    ``#owner_name``. HQ's page takes it (``details/utils.js::isValidPropertyName``); its build rewrites
+    ``#owner_name`` alone (``PropertyXpathGenerator.xpath``) and writes any other word into the step, which Core's
+    lexer refuses (``Lexer.matchNCName``), so the column breaks on both workers. A name past 255 characters is a
+    read (``column-reading-a-property-name-over-255-characters``), and a calculated column's field is an
+    expression."""
     at = _json(use)
     if at is None or at.key != "field" or at.scope[-1][0] != "DetailColumn":
         return None
     field = at.value
-    return (not at.owner.get("useXpathExpression") and isinstance(field, str) and ":" not in field and not field.startswith("user/")
-            and field.split("/")[-1].startswith("#") and field.split("/")[-1] != "#owner_name" and PROPERTY_NAME.fullmatch(field) is not None)
-
+    if at.owner.get("useXpathExpression") or not isinstance(field, str):
+        return False
+    if ":" in field or field.startswith("user/") or PROPERTY_NAME.fullmatch(field) is None:
+        return False
+    last = field.split("/")[-1]
+    return last.startswith("#") and last != "#owner_name"
 
 
 def build_profiles_held(use, manifest):
