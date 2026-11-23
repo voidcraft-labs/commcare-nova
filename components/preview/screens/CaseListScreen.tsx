@@ -62,6 +62,7 @@ import {
 	previewParentCaseStepBack,
 	previewTargetKeptForParentCase,
 } from "@/components/preview/screens/moduleScreenNavigation";
+import { CaseDetailFields } from "@/components/preview/shared/CaseDetailFields";
 import { CaseListSortMenu } from "@/components/preview/shared/CaseListSortMenu";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
@@ -123,6 +124,7 @@ import {
 	searchScreenTitleText,
 	visibleSearchInputs,
 } from "@/lib/domain";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { Expression } from "@/lib/domain/expression/types";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
@@ -1877,11 +1879,15 @@ export function CaseListScreen({
 					}),
 				})
 			: undefined;
+	const inlineDetails =
+		moduleUuid &&
+		resolveCaseFormContext(menuSource.doc.modules, moduleUuid)
+			?.inlineModuleUuid;
 	const rowAction = caseSelectionRowAction({
 		hasDetails:
-			parentListHasDetails !== undefined
-				? parentListHasDetails && detailColumns.length > 0
-				: detailColumns.length > 0,
+			!inlineDetails &&
+			parentListHasDetails !== false &&
+			detailColumns.length > 0,
 		multiple: multipleSelection !== undefined,
 		canContinue,
 	});
@@ -1891,7 +1897,7 @@ export function CaseListScreen({
 	 * (`caseSelectionNavigation.ts::caseSelectionRouteCaseAction`). */
 	const routeCaseAction = caseSelectionRouteCaseAction({
 		rowAction,
-		selectsForParentRequest,
+		selectsForParentRequest: selectsForParentRequest || !!inlineDetails,
 	});
 	const routeCaseGoesOnRef = useRef<
 		((row: CaseRowWithCalculated) => void) | null
@@ -2987,6 +2993,7 @@ export function CaseListScreen({
 	const menuItemDetailAction = openedFromCaseListMenuItem
 		? caseListMenuItemDetailAction(platformRules)
 		: undefined;
+
 	const detailPane = displayedOpenCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
 			<Button
@@ -3005,31 +3012,12 @@ export function CaseListScreen({
 			>
 				{displayedOpenCase.case_name || message("case")}
 			</h1>
-			<dl
-				data-case-detail="responsive"
-				className="@container/detail overflow-hidden rounded-lg border border-pv-input-border bg-pv-surface"
-			>
-				{detailColumns.map((col, i) => {
-					const label = caseColumnLabel(col, caseType.properties, projectProse);
-					return (
-						<div
-							key={col.uuid}
-							data-case-detail-field={col.uuid}
-							className={`grid grid-cols-1 items-start gap-1 px-4 py-3 @sm/detail:grid-cols-[minmax(110px,0.38fr)_minmax(0,1fr)] @sm/detail:gap-3 ${i > 0 ? "border-t border-nova-violet/[0.08]" : ""}`}
-						>
-							<dt className="break-words text-xs font-medium text-nova-text-muted">
-								{label}
-							</dt>
-							<dd
-								data-case-detail-value
-								className="min-w-0 break-words text-[14px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
-							>
-								{renderColumnCell(col, displayedOpenCase, columnDisplayContext)}
-							</dd>
-						</div>
-					);
-				})}
-			</dl>
+			<CaseDetailFields
+				config={config}
+				columns={detailColumns}
+				row={displayedOpenCase}
+				displayContext={columnDisplayContext}
+			/>
 			{/* The running app's confirm step ends in Continue: on to the
 			 *  case-loading form (or the form menu, when the module has more
 			 *  than one). A module with no case-loading form has nowhere to

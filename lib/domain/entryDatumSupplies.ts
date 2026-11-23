@@ -636,3 +636,19 @@ export function entryDatumSupplies(
 	byPoint.set(key, result);
 	return result;
 }
+
+/** A Details screen observes the selection and its inline query. The case
+ * steps preceding it have the same entry alignment as this menu's list. */
+export function detailEntrySupplies(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): EntryDatumSupplies {
+	const earlier = entryDatumSupplies(doc, {
+		kind: "case-list",
+		module: moduleUuid,
+	});
+	const module = doc.modules[moduleUuid];
+	return module && moduleFormsReadSearch(module)
+		? { ...earlier, searchResults: { module: moduleUuid } }
+		: earlier;
+}

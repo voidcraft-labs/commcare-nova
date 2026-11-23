@@ -59,6 +59,8 @@ import {
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { calculatedSortMutations } from "@/lib/doc/calculatedSortMutations";
+import { planDetailTabGroups } from "@/lib/doc/caseDetailTabMutations";
+import { retireCaseFormContextTile } from "@/lib/doc/caseFormContextMutations";
 import {
 	columnSnapshotBatchMutations,
 	columnSnapshotMutations,
@@ -79,6 +81,7 @@ import {
 	planCaseSelectionTransition,
 } from "@/lib/doc/caseSelectionMutations";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { withDetailFieldLayout } from "@/lib/doc/detailFieldVisibility";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type StructuredCommitFinding,
@@ -120,6 +123,7 @@ import {
 	type TileCell,
 	visibleSearchInputs,
 } from "@/lib/domain";
+import { formContextPatch } from "@/lib/domain/caseFormContext";
 import {
 	type Expression,
 	effectiveFilterForEmission,
@@ -1040,6 +1044,14 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		return place === null ? null : ({ ...column, tile: place } as Column);
 	};
 
+	const commitFieldChanges = (changes: readonly Mutation[]) =>
+		commitMany(
+			withDetailFieldLayout(
+				requireRetainedModuleUuid(moduleUuid),
+				config,
+				changes,
+			),
+		);
 	const replaceColumn = (uuid: string, next: Column) => {
 		// Carry identity and tile placement forward; display sequence lives in
 		// the two config arrays.
@@ -1057,7 +1069,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			});
 			return;
 		}
-		commitMany(
+		commitFieldChanges(
 			columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
 				current,
@@ -1155,7 +1167,12 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				],
 			};
 		}
-		if (commitMany(mutations).ok) setPendingMapLayer(null);
+		if (
+			commitMany(
+				withDetailFieldLayout(pendingMapLayer.moduleUuid, config, mutations),
+			).ok
+		)
+			setPendingMapLayer(null);
 	};
 	const addSeededColumn = (surface: CaseDisplaySurface, seedColumn: Column) => {
 		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
@@ -1169,7 +1186,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			surface,
 			seed,
 		);
-		const outcome = commitMany([mutation]);
+		const outcome = commitFieldChanges([mutation]);
 		if (outcome.ok) {
 			setWorkspaceAnnouncement(
 				`${columnDisplayLabel(seed)} added to ${surfaceDisplayName(surface)}`,
@@ -1218,7 +1235,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		calculations?: readonly import("@/lib/domain").CalculatedSort[],
 	) => {
 		const owner = requireRetainedModuleUuid(moduleUuid);
-		commitMany([
+		commitFieldChanges([
 			...columnSnapshotBatchMutations(owner, config, next),
 			...(calculations === undefined
 				? []
@@ -1242,7 +1259,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			surface,
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (hidden === undefined) return;
-		const outcome = commitMany(
+		const outcome = commitFieldChanges(
 			columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
 				column,
@@ -1267,7 +1284,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			...(column.visibleInList !== false ? ["Results"] : []),
 			...(column.visibleInDetail !== false ? ["Details"] : []),
 		];
-		const outcome = commitMany([
+		const outcome = commitFieldChanges([
 			{
 				kind: "removeColumn",
 				moduleUuid: requireRetainedModuleUuid(moduleUuid),
@@ -1298,11 +1315,12 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		/* The saved definition is already fully valid. The same gate still
 		 * adjudicates the visibility/placement batch, so a malformed external
 		 * snapshot can never be revealed. */
+		const id = requireRetainedModuleUuid(moduleUuid);
 		const outcome = inline.commitMany(
-			columnSnapshotMutations(
-				requireRetainedModuleUuid(moduleUuid),
-				column,
-				target,
+			withDetailFieldLayout(
+				id,
+				config,
+				columnSnapshotMutations(id, column, target),
 			),
 		);
 		if (!outcome.ok) {
@@ -1623,6 +1641,10 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			if (
 				commitMany([
 					...planTileLayoutDisable(requireRetainedModuleUuid(moduleUuid)),
+					...retireCaseFormContextTile(
+						docApi.getState(),
+						requireRetainedModuleUuid(moduleUuid),
+					),
 				]).ok
 			) {
 				// Every cell survives, but the tile's own setting cannot: with no
@@ -1635,7 +1657,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				);
 			}
 		},
-		[commitMany, config.columns, config.tile, moduleUuid, config],
+		[commitMany, config.columns, config.tile, moduleUuid, config, docApi],
 	);
 
 	const closeSelectionReviewForNavigation = useCallback(() => {
@@ -2207,6 +2229,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 
 	return {
 		active,
+		commitLayout: inline.commitMany,
 		moduleUuid,
 		tab,
 		announcement: workspaceAnnouncement,
@@ -2445,6 +2468,7 @@ export function CaseListWorkspaceCanvas() {
 	}
 	const workspaceModuleUuid = ws.moduleUuid;
 	const {
+		commitLayout,
 		tab,
 		errorAreas,
 		isBareCaseList,
@@ -2620,6 +2644,23 @@ export function CaseListWorkspaceCanvas() {
 							onReturnToSearchField={returnToInputRemovalReview}
 							tileIssues={tileIssues}
 							tileDisabledReason={tileDisabledReason}
+							onNamedTileChange={(namedSlots, rawSlots) => {
+								const { rawSlots: prior, ...tile } = config.tile ?? {};
+								const result = commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: {
+											tile: {
+												...tile,
+												namedSlots,
+												...(rawSlots.length > 0 && { rawSlots }),
+											},
+										},
+									},
+								]);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
 							onArrangementChange={setArrangement}
 							onPlaceTileCell={placeTileCell}
 							onPutColumnOnTile={putColumnOnTile}
@@ -2639,6 +2680,42 @@ export function CaseListWorkspaceCanvas() {
 						className="h-full overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
 					>
 						<DetailCanvas
+							moduleUuid={requireRetainedModuleUuid(moduleUuid)}
+							caseTypes={caseTypes}
+							userProperties={userProperties}
+							onSaveContext={(choice) => {
+								const plan = formContextPatch(config, choice);
+								if ("error" in plan && plan.error) return plan.error;
+								if (!plan.patch) return;
+								const result = commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: plan.patch,
+									},
+								]);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
+							onSaveTile={(detailTile) => {
+								const result = commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { detailTile },
+									},
+								]);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
+							onSaveTabs={(groups) => {
+								const plan = planDetailTabGroups(
+									requireRetainedModuleUuid(moduleUuid),
+									config,
+									groups,
+								);
+								if ("error" in plan) return plan.error;
+								const result = commitLayout(plan.mutations);
+								return result.ok ? undefined : result.messages.join(" ");
+							}}
 							config={config}
 							caseType={ct}
 							brokenColumns={brokenColumns}

@@ -27,6 +27,7 @@ import type { WireElementContext } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { InstanceDecl } from "@/lib/commcare/xpath/wire/instances";
 import type {
+	CaseListConfig,
 	CaseProperty,
 	CaseTileLayout,
 	CaseType,
@@ -37,6 +38,7 @@ import type {
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
+import type { WireTermBindings } from "../../xpath/wire/fromExpression";
 import type { ResolvedSortDirective } from "./sortKeys";
 
 /**
@@ -155,6 +157,7 @@ export type DetailTarget = "case" | "search";
  *     `instance('casedb')` to `instance('results')`.
  */
 export interface CaseListEmitContext {
+	readonly detailBindings?: WireTermBindings;
 	/** Prints contribute their reads to the detail's owning scope. */
 	readonly wire: WireElementContext;
 	readonly moduleIndex: number;
@@ -190,6 +193,7 @@ export interface CaseListEmitContext {
 	 * and columns keep any stored cells without emitting them.
 	 */
 	readonly tileLayout?: CaseTileLayout;
+	readonly detailTile?: CaseListConfig["detailTile"];
 	/** The actual owning column slot supplies every expression fact. */
 	readonly expressions: ModuleExpressionContexts;
 	/**

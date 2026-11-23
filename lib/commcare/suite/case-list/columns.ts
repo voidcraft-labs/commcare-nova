@@ -4,6 +4,7 @@ import {
 	caseTextKeyPadding,
 	caseTextWireKey,
 } from "./calculationText";
+
 // lib/commcare/suite/case-list/columns.ts
 //
 // Per-`Column` `<field>` block emission for the suite-XML case-list
@@ -156,8 +157,8 @@ import {
 	requireAssetRef,
 } from "../../multimedia/assetWirePath";
 import { escapeRegex } from "../../xml";
-import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { columnPropertyPath, hqColumnFieldText, normalizeSpace } from "../wire";
+import { fixtureRowFieldName } from "./fixtureRowField";
 import { hqMappingKeyIsExpression, keyAsVariable } from "./keyVariable";
 import { CASE_MAP_FORMATS } from "./mapLayers";
 import {
@@ -251,11 +252,7 @@ function lookupTermContext(
 	ctx: CaseListEmitContext,
 ): NonNullable<WireBuildContext["bindings"]> {
 	return {
-		// The list of a menu whose forms read the search is the inline query's results, which
-		// keep the Search answers beside them.
-		...(ctx.caseSource === "results:inline"
-			? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
-			: {}),
+		...ctx.detailBindings,
 		...(ctx.lookupNaming === undefined
 			? {}
 			: {
@@ -394,6 +391,31 @@ function buildHeaderBlock(localeId: string, width?: string): Element {
 	return el("header", width === undefined ? {} : { width }, [
 		el("text", {}, [el("locale", { id: localeId })]),
 	]);
+}
+
+/** The named Results template always prints its assigned column's locale,
+ * including positions that display the stored value. A stored-value field
+ * uses HQ's raw property or calculated field spelling. */
+export function rawColumnHeaderLocale(
+	column: Column,
+	position: number,
+	ctx: CaseListEmitContext,
+) {
+	return column.kind === "calculated" || columnStoredAsExpression(column)
+		? detailCalculatedHeaderLocaleId(
+				ctx.target,
+				ctx.detailKind,
+				ctx.moduleIndex,
+				position,
+			)
+		: detailHeaderLocaleId(
+				ctx.target,
+				ctx.detailKind,
+				ctx.moduleIndex,
+				columnFieldText(column),
+				position,
+				heldWord(column, ctx),
+			);
 }
 
 /**
@@ -1444,7 +1466,6 @@ function resolveSortElement(
 		readonly variables: readonly Element[];
 	},
 ): Element | undefined {
-	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
 	return buildSortBlock(
@@ -1496,22 +1517,10 @@ function tileStyleChildren(
 	column: Column,
 	ctx: CaseListEmitContext,
 ): readonly Element[] {
-	// Which detail surface this is stays here — tiles apply to the short
-	// detail, and the case-detail screen is a plain field list whatever the
-	// case list does. WHETHER the column contributes a cell at all is
-	// `tileCellFor`'s single decision, shared with the HQ JSON writer and the
-	// preview renderer so the three cannot disagree.
-	//
-	// Long-detail tiles are out of scope by contract — see
-	// `docs/architecture/contracts.md`, deliberate target gaps:
-	// "Tiles apply to the short and search details; the case-detail view emits
-	// a plain field list." CommCare would accept a `custom` tile there, so
-	// nothing upstream forbids it; this branch is what makes the excluded case
-	// unrepresentable rather than merely unreached. `longDetail.ts` also never
-	// puts a `tileLayout` on its context, but that is the same rule applied a
-	// second time, not the reason for this one.
-	if (ctx.detailKind !== "short") return [];
-	const cell = tileCellFor(column, ctx.tileLayout);
+	const cell =
+		ctx.detailKind === "long"
+			? ctx.detailTile?.cells[column.uuid]
+			: tileCellFor(column, ctx.tileLayout);
 	if (cell === undefined) return [];
 	return [buildTileStyleBlock(cell)];
 }
@@ -1583,6 +1592,7 @@ export function buildColumnField(args: {
 						sortLabel,
 					);
 		const fieldChildren: Element[] = [
+			...tileStyleChildren(column, ctx),
 			header?.element ?? buildHiddenHeaderBlock(),
 			buildTemplateBlock(raw, ctx.wire, undefined, "0"),
 		];
@@ -1769,6 +1779,47 @@ function buildCalculatedField(args: {
 			translationUnits,
 		};
 	}
+	const direct =
+		ctx.detailKind === "long" &&
+		fixtureRowFieldName(column, calcXpath, heldWord(column, ctx));
+	if (direct) {
+		const headerId = detailHeaderLocaleId(
+			ctx.target,
+			ctx.detailKind,
+			ctx.moduleIndex,
+			direct,
+			position,
+			direct,
+		);
+		const sort = ctx.sortByUuid.get(column.uuid);
+		return {
+			element: el("field", {}, [
+				...tileStyleChildren(column, ctx),
+				hidden ? buildHiddenHeaderBlock() : buildHeaderBlock(headerId),
+				buildTemplateBlock(
+					calcXpath,
+					ctx.wire,
+					undefined,
+					hidden ? "0" : undefined,
+				),
+				...(sort
+					? [
+							buildSortBlock(
+								sort,
+								{ xpath: calcXpath, variables: [] },
+								ctx.wire,
+							),
+						]
+					: []),
+			]),
+			strings: hidden ? {} : { [headerId]: column.header },
+			translationUnits: hidden
+				? {}
+				: {
+						[headerId]: makeTranslationUnitId("column", column.uuid, "header"),
+					},
+		};
+	}
 	return buildExpressionField({
 		column,
 		position,
@@ -1813,6 +1864,7 @@ function buildExpressionField(args: {
 						sortLabel,
 					);
 		const fieldChildren: Element[] = [
+			...tileStyleChildren(column, ctx),
 			header?.element ?? buildHiddenHeaderBlock(),
 			buildCalculatedTemplateBlock(calcXpath, ctx.wire, "0"),
 		];

@@ -445,6 +445,12 @@ function moduleUses(
 					: "caseListRegistrationForm.audioLabel",
 			),
 		);
+	if (list?.tile?.namedSlots && wanted("named-case-tile"))
+		own.push(
+			slotUse("named-case-tile", owner, "caseListConfig.tile.namedSlots"),
+		);
+	if (list?.detailTile && wanted("details-tile"))
+		own.push(slotUse("details-tile", owner, "caseListConfig.detailTile"));
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	// A search with no title holds no text for Android to leave out, so only
@@ -527,6 +533,10 @@ function moduleUses(
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
 		const cell = tileCellFor(column, list?.tile);
+		if (cell?.androidOnly && wanted("raw-custom-tile-field"))
+			uses.push(
+				slotUse("raw-custom-tile-field", target, slot("tile.androidOnly")),
+			);
 		if (
 			cell !== undefined &&
 			cell.verticalAlign !== "middle" &&

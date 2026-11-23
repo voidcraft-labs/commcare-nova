@@ -1413,6 +1413,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/*/tabs/*/header/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/case_details/*/columns/*/header/*"
 			},
 			{

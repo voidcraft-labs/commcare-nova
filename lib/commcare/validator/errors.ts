@@ -83,6 +83,9 @@ export type ValidationErrorCode =
 	| "CASE_LIST_COLUMN_UNKNOWN_FIELD"
 	| "CASE_LIST_COLUMN_RELATION_INVALID"
 	| "CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH"
+	| "CASE_DETAIL_TAB_MOVE_NEEDS_GROUP"
+	| "CASE_DETAIL_TAB_ROWS_INVALID"
+	| "CASE_DETAIL_TAB_CONDITION_INVALID"
 	| "CASE_LIST_FILTER_TYPE_ERROR"
 	| "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR"
 	| "CASE_LIST_MAPPING_CONDITION"
@@ -133,6 +136,8 @@ export type ValidationErrorCode =
 	// be rejected for a cell the author cannot currently see. The
 	// coverage rule runs only while the layout is on, and only for
 	// columns the tile shows.
+	| "CASE_DETAIL_TILE_LAYOUT_INVALID"
+	| "CASE_FORM_CONTEXT_INVALID"
 	| "CASE_LIST_TILE_CELL_OUT_OF_GRID"
 	| "CASE_LIST_TILE_CELLS_OVERLAP"
 	| "CASE_LIST_TILE_COLUMN_NOT_PLACED"

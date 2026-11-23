@@ -1167,8 +1167,18 @@ export type ModuleExpressionSlotRef =
 			readonly slot:
 				| "module_display_condition"
 				| "case_list_filter"
+				| "case_form_context_line"
 				| "search_button_display_condition"
 				| "excluded_owner_ids";
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot:
+				| "case_detail_tab_condition"
+				| "case_detail_tab_filter"
+				| "case_detail_tab_rows";
+			readonly member: { readonly tabUuid: Uuid };
 	  }
 	| {
 			readonly entity: "module";

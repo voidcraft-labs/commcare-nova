@@ -45,7 +45,7 @@ import { assertXml } from "./xmlParse";
 // only literal — `serializeXml` does not emit XML declarations, so
 // the compiler prepends one before each rendered tree.
 
-import type { Element } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import {
 	emptyFormActions,
 	type FormActions,
@@ -173,6 +173,11 @@ import {
 	caseListMenuItemLabelUnit,
 	emissionPlan,
 } from "./emissionPlan";
+import { detailBindings } from "./suite/case-list/detailBindings";
+import {
+	caseContextDetailIds,
+	caseContextLineDetail,
+} from "./suite/case-list/formContext";
 import { w } from "./xpath/wire/builders";
 import { type InstanceDecl, InstanceSink } from "./xpath/wire/instances";
 
@@ -341,6 +346,29 @@ export interface CczParts {
 	readonly appStringUnits: Readonly<Record<string, WireStringSource>>;
 }
 
+/** HQ's instance post-processor walks the actual entry and the fields and
+ * nodesets of its selected, confirming and persistent details. A condition
+ * may consume only a dependency declared on this very entry. */
+function assertDetailConditionData(
+	entry: Element,
+	reads: readonly InstanceDecl[],
+): void {
+	if (!reads.length) return;
+	const declared = new Map(
+		entry.children.flatMap((child) =>
+			isTag(child) && child.name === "instance"
+				? [[child.attribs.id, child.attribs.src] as const]
+				: [],
+		),
+	);
+	for (const read of reads) {
+		if (declared.get(read.id) !== read.src)
+			throw new Error(
+				`The case screen's entry does not load '${read.id}' for its tab condition. Choose a condition using the selected case or data loaded on that route.`,
+			);
+	}
+}
+
 /**
  * Compile an HQ application JSON (already expanded from a domain doc)
  * into a .ccz archive `Buffer`.
@@ -486,33 +514,39 @@ export function compileCczParts(
 	// keeps the rendered suite.xml structurally local.
 	const suiteRemoteRequests: Element[] = [];
 	const detailInstances = new Map<string, readonly InstanceDecl[]>();
+	const detailConditionReads = new Map<string, readonly InstanceDecl[]>();
 	const rememberDetail = (emission: {
 		element: Element;
 		instances: readonly InstanceDecl[];
+		conditionReads?: readonly InstanceDecl[];
 	}): void => {
 		const id = emission.element.attribs.id;
 		if (id === undefined)
 			throw new Error("A rendered case detail needs its wire id.");
 		detailInstances.set(id, emission.instances);
+		if (emission.conditionReads?.length)
+			detailConditionReads.set(id, emission.conditionReads);
 	};
-	const instancesForDatums = (
-		datums: readonly SessionDatum[],
-	): readonly InstanceDecl[] => {
-		const sink = new InstanceSink();
-		for (const datum of datums) {
-			for (const id of [
+	const detailIdsFor = (datums: readonly SessionDatum[]) =>
+		datums.flatMap((datum) =>
+			[
 				datum.detailSelect,
 				datum.detailConfirm,
 				datum.detailPersistent,
-			]) {
-				if (id === undefined) continue;
-				const declarations = detailInstances.get(id);
-				if (declarations === undefined)
-					throw new Error(
-						`A session datum names detail '${id}', but the suite contains no such detail.`,
-					);
-				sink.add(declarations);
-			}
+				datum.detailInline,
+			].filter((id): id is string => id !== undefined),
+		);
+	const instancesForDetails = (
+		ids: readonly string[],
+	): readonly InstanceDecl[] => {
+		const sink = new InstanceSink();
+		for (const id of ids) {
+			const declarations = detailInstances.get(id);
+			if (declarations === undefined)
+				throw new Error(
+					`A session datum names detail '${id}', but the suite contains no such detail.`,
+				);
+			sink.add(declarations);
 		}
 		return sink.declarations();
 	};
@@ -618,10 +652,11 @@ export function compileCczParts(
 		// attribute rides the case list menu entry, matching CCHQ
 		// (`commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`
 		// is consulted for the form entry and the case-list command alike).
-		const persistentTileDetailId =
-			mod.caseListConfig?.tile?.persistOnForms === true
-				? `m${mIdx}_case_short`
-				: undefined;
+		const { persistentDetailId: persistentTileDetailId } = caseContextDetailIds(
+			doc,
+			moduleUuid,
+			(id) => moduleIndexOf(linkContext, id),
+		);
 
 		// The grouped-tile companion datum rides every case-loading FORM
 		// entry in a grouped module, and nothing else. CCHQ's gate is
@@ -753,6 +788,10 @@ export function compileCczParts(
 						})
 					: undefined;
 			if (remoteRequestEmission !== undefined) {
+				assertDetailConditionData(
+					remoteRequestEmission.element,
+					searchLong?.conditionReads ?? [],
+				);
 				suiteRemoteRequests.push(remoteRequestEmission.element);
 				mergeLocalizedStrings(remoteRequestEmission);
 			}
@@ -797,6 +836,17 @@ export function compileCczParts(
 			});
 			rememberDetail(longEmission);
 			suiteDetails.push(longEmission.element);
+			const line = caseContextLineDetail(
+				mod,
+				mIdx,
+				expressions,
+				lookupNaming,
+				detailBindings(doc, mod),
+			);
+			if (line) {
+				rememberDetail(line);
+				suiteDetails.push(line.element);
+			}
 			mergeLocalizedStrings(longEmission);
 
 			// Search-target dual emission. Same `caseListConfig` walked
@@ -1283,11 +1333,17 @@ export function compileCczParts(
 	const suiteEntries = suiteEntryDefinitions.map(
 		({ definition, commandDisplay }) => {
 			const instances = new InstanceSink(definition.instances);
-			instances.add(instancesForDatums(definition.session?.datums ?? []));
-			return buildEntryElement(
+			const ids = detailIdsFor(definition.session?.datums ?? []);
+			instances.add(instancesForDetails(ids));
+			const entry = buildEntryElement(
 				{ ...definition, instances: instances.declarations() },
 				commandDisplay,
 			);
+			assertDetailConditionData(
+				entry,
+				ids.flatMap((id) => detailConditionReads.get(id) ?? []),
+			);
+			return entry;
 		},
 	);
 

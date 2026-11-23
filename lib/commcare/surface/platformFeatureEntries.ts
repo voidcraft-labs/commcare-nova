@@ -105,6 +105,17 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-registration-media": [
 		"menus-and-case-lists/case-list-form-media-image-media-audio",
 	],
+	"named-case-tile": [
+		"menus-and-case-lists/detail-case-tile-template-icon-text-grid",
+		"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid",
+		"menus-and-case-lists/19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a",
+	],
+	"details-tile": [
+		"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
+	],
+	"raw-custom-tile-field": [
+		"menus-and-case-lists/invisible-or-address-column-in-a-custom-tile",
+	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
 	],
@@ -202,6 +213,8 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"Differs only in an icon-text-grid tile, which Nova never writes.",
 	"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot":
 		"Differs only in an icon-text-grid tile, which Nova never writes.",
+	"menus-and-case-lists/enum-mappingitem-alt-text-lang":
+		"Nova writes blank alt text; no author sets it yet.",
 	"questions/hq-generated-meta-deviceid-timestart-timeend-username-userid":
 		"The submission's meta block; authored reads go through the session context features.",
 	"questions/h-title-and-data-name-whatever-their-text":

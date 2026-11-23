@@ -2,6 +2,8 @@ import {
 	caseTextKeyPadding,
 	caseTextWireKey,
 } from "../suite/case-list/calculationText";
+import { detailBindings } from "../suite/case-list/detailBindings";
+
 // lib/commcare/hqJson/caseList.ts
 //
 // Per-module case-list HQ JSON projection. Translates a domain
@@ -45,7 +47,10 @@ import {
 //     stay consistent with the suite-XML side via the shared
 //     `PROMPT_ATTRIBUTE_MAPPINGS` table.
 
-import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import {
+	type LookupWireNaming,
+	lookupTypeIndexFromNaming,
+} from "@/lib/commcare/lookup/naming";
 import type {
 	BlueprintDoc,
 	CaseListComparator,
@@ -62,6 +67,7 @@ import type {
 	CaseSearchConfig as DomainCaseSearchConfig,
 	Module,
 	SearchInputDef,
+	TileCell,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -85,12 +91,19 @@ import {
 	tileCellFor,
 	translatedDistanceProperty,
 } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
+import {
+	detailTabForColumn,
+	detailTabSearchChildType,
+	detailTabSpans,
+} from "@/lib/domain/detailTabs";
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
 	substituteUnansweredSearchInputs,
 } from "@/lib/domain/expression";
+import { detailColumnRowScope } from "@/lib/domain/expression/detailRowScope";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import type { CalculatedSort } from "@/lib/domain/modules";
 import { type RewriteControl, rewriteWithheld } from "../emissionRewrites";
@@ -109,8 +122,13 @@ import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
+import { detailTabConditionWire } from "../suite/case-list/detailTabCondition";
+import { detailTabOrderField } from "../suite/case-list/detailTabOrder";
+import { detailRowExpressionWire } from "../suite/case-list/detailTabRows";
+import { fixtureRowFieldName } from "../suite/case-list/fixtureRowField";
 import { CASE_MAP_FORMATS } from "../suite/case-list/mapLayers";
 import { nativeMappingKeys } from "../suite/case-list/mappingCondition";
+import { namedTileWireSlot } from "../suite/case-list/namedTile";
 import {
 	emitExcludedOwnerFilterExpression,
 	emitNormalizedExcludedOwnerIdsExpression,
@@ -150,7 +168,11 @@ import type {
 	CaseSearchConfig as WireCaseSearchConfig,
 	DetailColumn as WireDetailColumn,
 } from "../types";
-import type { ColumnFieldWordOf, ColumnScreen } from "../wireIdentity";
+import {
+	type ColumnFieldWordOf,
+	type ColumnScreen,
+	DERIVED_WIRE_IDENTITY,
+} from "../wireIdentity";
 import { w } from "../xpath/wire/builders";
 import { toWire } from "../xpath/wire/fromExpression";
 import type { WireExpr } from "../xpath/wire/tree";
@@ -236,32 +258,40 @@ function projectColumnToDetail(
 	const headerRecord = localization.textMap(
 		makeTranslationUnitId("column", column.uuid, "header"),
 	);
-	const expressionField = () =>
-		hqXPath(
-			hqExpressionField(
-				column,
-				mod,
-				doc,
-				screen,
-				ctx.lookupNaming,
-				ctx.expressions,
-				ctx.columnRewrites?.(column.uuid),
-			),
+	const expressionWire = () =>
+		hqExpressionField(
+			column,
+			mod,
+			doc,
+			screen,
+			ctx.lookupNaming,
+			ctx.expressions,
+			ctx.columnRewrites?.(column.uuid),
 		);
-
+	const expressionField = () => hqXPath(expressionWire());
 	if (column.kind === "calculated") {
-		const field = expressionField();
+		const wire = expressionWire();
+		const field = hqXPath(wire);
+		const direct =
+			screen === "details"
+				? fixtureRowFieldName(
+						column,
+						wire,
+						ctx.columnFieldWord?.(column.uuid, "long"),
+					)
+				: undefined;
 		const source = translatedDistanceProperty(column);
 		const base = detailColumn(
-			source
-				? hqColumnFieldText(
-						columnFieldText(source),
-						ctx.columnFieldWord?.(
-							column.uuid,
-							screen === "results" ? "short" : "long",
-						),
-					)
-				: field,
+			direct ??
+				(source
+					? hqColumnFieldText(
+							columnFieldText(source),
+							ctx.columnFieldWord?.(
+								column.uuid,
+								screen === "results" ? "short" : "long",
+							),
+						)
+					: field),
 			headerRecord,
 		);
 		if (column.texts !== undefined) {
@@ -1267,6 +1297,7 @@ export function projectCaseListForHq(
 	searchRewrites?: SearchConfigRewrites,
 	listRewrites?: CaseListRewrites,
 	columnFieldWord?: ColumnFieldWordOf,
+	moduleUniqueId: (uuid: Uuid) => string = DERIVED_WIRE_IDENTITY.moduleUniqueId,
 ): CaseListHqProjection {
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
@@ -1317,8 +1348,45 @@ export function projectCaseListForHq(
 		plan.fields.length > 0
 			? plan.fields.map((field) => projectColumnForShortDetail(field, ctx))
 			: emptyShortListColumns(localization.languages);
-	const longColumns = longSourceColumns.map((column) =>
-		projectColumnToDetail(column, ctx, "details"),
+	const lookupTypes = lookupTypeIndexFromNaming(lookupNaming);
+	const longColumns = longSourceColumns.map(
+		(column): WireDetailColumn<HqXPath> => {
+			const owner = detailTabForColumn(caseListConfig, column.uuid);
+			const row = detailColumnRowScope(doc, mod, column, lookupTypes);
+			const child = row?.kind === "case" ? row.caseType : undefined;
+			if (owner?.orderFields?.includes(column.uuid)) {
+				const field = detailTabOrderField(
+					column,
+					mod,
+					doc,
+					lookupNaming,
+					columnFieldWord,
+				);
+				const header = localization.textMap(
+					makeTranslationUnitId("column", column.uuid, "header"),
+				);
+				return {
+					...detailColumn(
+						typeof field === "string" ? field : hqXPath(field),
+						header,
+					),
+					format: "invisible" satisfies DetailColumnFormat,
+				};
+			}
+			return projectColumnToDetail(
+				column,
+				child
+					? {
+							...ctx,
+							mod: { ...mod, caseType: child },
+							caseProperties:
+								ctx.caseTypes.find((type) => type.name === child)?.properties ??
+								[],
+						}
+					: ctx,
+				"details",
+			);
+		},
 	);
 	// HQ's build writes this filter into each chain datum's nodeset before
 	// it aligns a child entry with its root menu, then renames session
@@ -1343,6 +1411,90 @@ export function projectCaseListForHq(
 	// comes from the raw config because disabling Search must not widen the
 	// ordinary case list.
 	const pair = detailPair(shortColumns, longColumns);
+	const context = caseListConfig?.contextAboveForm;
+	if (context?.kind === "menu-tile")
+		pair.short.persistent_case_tile_from_module = moduleUniqueId(
+			context.moduleUuid,
+		);
+	if (context && context.kind !== "line" && context.expandDetails)
+		pair.short.pull_down_tile = true;
+	const expression = caseContextLine(context);
+	if (expression) {
+		pair.short.persist_case_context = true;
+		pair.short.persistent_case_context_xml = hqXPath(
+			toWire(expression, {
+				target: "hq-json",
+				root: "casedb",
+				types: expressions({ slot: "case_form_context_line" }),
+				bindings: {
+					...detailBindings(doc, mod),
+					...(lookupNaming && {
+						lookup: { naming: lookupNaming, instanceScope: "suite" },
+					}),
+				},
+			}),
+		);
+	}
+	if (caseListConfig?.detailTabs) {
+		const spans = detailTabSpans(caseListConfig.detailTabs, longSourceColumns);
+		if (!spans)
+			throw new Error("The detail tabs do not cover the fields shown.");
+		pair.long.tabs = spans.map(({ tab, start }) => ({
+			doc_type: "DetailTab",
+			isTab: true,
+			header: localization.textMap(
+				makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+			),
+			starting_index: start,
+			has_nodeset: tab.rowSource !== undefined,
+			...(detailTabSearchChildType(tab) && {
+				nodeset_case_type: detailTabSearchChildType(tab),
+			}),
+			...(tab.rowSource?.kind === "children" && {
+				...(tab.rowSource.condition && {
+					nodeset_filter: hqXPath(
+						detailRowExpressionWire(
+							tab.rowSource.condition,
+							tab.uuid,
+							"case_detail_tab_filter",
+							"hq-json",
+							"casedb",
+							expressions,
+							lookupNaming,
+							detailBindings(doc, mod),
+						),
+					),
+				}),
+			}),
+			...(tab.rowSource?.kind === "records" && {
+				nodeset: hqXPath(
+					detailRowExpressionWire(
+						tab.rowSource.rows,
+						tab.uuid,
+						"case_detail_tab_rows",
+						"hq-json",
+						"casedb",
+						expressions,
+						lookupNaming,
+						detailBindings(doc, mod),
+					),
+				),
+			}),
+			...(tab.displayCondition && {
+				relevant: hqXPath(
+					detailTabConditionWire(
+						tab.displayCondition,
+						tab.uuid,
+						expressions,
+						"hq-json",
+						"casedb",
+						lookupNaming,
+						detailBindings(doc, mod),
+					),
+				),
+			}),
+		}));
+	}
 	pair.short.sort_elements = projectSortElements(
 		plan,
 		localization,
@@ -1361,6 +1513,7 @@ export function projectCaseListForHq(
 				hqCalculatedSortExpression(
 					sort,
 					mod,
+					doc,
 					expressions,
 					lookupNaming,
 					listRewrites?.sort?.(sort.uuid),
@@ -1373,6 +1526,13 @@ export function projectCaseListForHq(
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
 	applyTileLayoutToShortDetail(pair.short, caseListConfig?.tile, plan.fields);
+	if (caseListConfig?.detailTile) {
+		pair.long.case_tile_template = "custom";
+		for (const [i, column] of longSourceColumns.entries()) {
+			const cell = caseListConfig.detailTile.cells[column.uuid];
+			if (cell) writeTileCell(pair.long.columns[i], cell);
+		}
+	}
 
 	const searchConfig = buildSearchConfigDocument(
 		caseSearchConfig,
@@ -1436,7 +1596,9 @@ function applyTileLayoutToShortDetail(
 	fields: readonly CaseListShortField[],
 ): void {
 	if (tile === undefined) return;
-	shortDetail.case_tile_template = "custom";
+	shortDetail.case_tile_template = tile.namedSlots
+		? "icon_text_grid"
+		: "custom";
 	if (tile.persistOnForms === true) shortDetail.persist_tile_on_forms = true;
 	if (tile.grouping !== undefined) {
 		shortDetail.case_tile_group = {
@@ -1446,19 +1608,31 @@ function applyTileLayoutToShortDetail(
 		};
 	}
 	for (const [index, field] of fields.entries()) {
-		const cell = tileCellFor(field.column, tile);
 		const target = shortDetail.columns[index];
+		if (tile.namedSlots && target) {
+			target.case_tile_field =
+				namedTileWireSlot(tile.namedSlots, field.column.uuid) ?? null;
+			continue;
+		}
+		const cell = tileCellFor(field.column, tile);
 		if (cell === undefined || target === undefined) continue;
-		target.grid_x = cell.x;
-		target.grid_y = cell.y;
-		target.width = cell.width;
-		target.height = cell.height;
-		target.horizontal_align = cell.horizontalAlign;
-		target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
-		target.font_size = cell.fontSize;
-		if (cell.showBorder !== undefined) target.show_border = cell.showBorder;
-		if (cell.showShading !== undefined) target.show_shading = cell.showShading;
+		writeTileCell(target, cell);
 	}
+}
+
+function writeTileCell(
+	target: WireDetailColumn<HqXPath>,
+	cell: TileCell,
+): void {
+	target.grid_x = cell.x;
+	target.grid_y = cell.y;
+	target.width = cell.width;
+	target.height = cell.height;
+	target.horizontal_align = cell.horizontalAlign;
+	target.vertical_align = TILE_VERTICAL_ALIGN_WIRE[cell.verticalAlign];
+	target.font_size = cell.fontSize;
+	if (cell.showBorder !== undefined) target.show_border = cell.showBorder;
+	if (cell.showShading !== undefined) target.show_shading = cell.showShading;
 }
 
 // Re-export the per-column projection so tests can pin per-kind

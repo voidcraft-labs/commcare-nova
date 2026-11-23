@@ -1,6 +1,8 @@
+import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
 /** A native detail reads its saved index names from the local or Search
  * roster. The menu needs a case, HQ must keep the path in the field editor,
- * and the default parent step carries no per-column type annotation. */
+ * and the default parent step carries no per-column type annotation. A field
+ * of a Details tab over child cases walks from that child type. */
 
 import {
 	type BlueprintDoc,
@@ -40,18 +42,28 @@ export function columnRelation(
 					Object.values(doc.userProperties ?? {}),
 				)
 			: undefined;
-		const reason =
+		const own =
 			binding?.uuid !== column.workerPropertyUuid
 				? "worker-info"
 				: column.showOwner && column.field !== "owner_id"
 					? "owner-field"
 					: column.readFrom && column.via
 						? "worker-walk"
-						: column.via
-							? relationReason(column, column.via, mod, doc)
-							: undefined;
-		if (reason !== undefined)
-			errors.push(relationError(mod, moduleUuid, index, column, reason));
+						: undefined;
+		if (own !== undefined) {
+			errors.push(relationError(mod, moduleUuid, index, column, own));
+			continue;
+		}
+		if (column.via === undefined) continue;
+		const origins = columnCaseScopes(doc, mod, column);
+		const reasons = new Set(
+			(origins.length > 0 ? origins : [undefined]).map((origin) =>
+				relationReason(column, column.via as ColumnVia, origin, doc),
+			),
+		);
+		for (const reason of reasons)
+			if (reason !== undefined)
+				errors.push(relationError(mod, moduleUuid, index, column, reason));
 	}
 	return errors;
 }
@@ -59,7 +71,7 @@ export function columnRelation(
 function relationReason(
 	column: Exclude<Column, { kind: "calculated" }>,
 	via: ColumnVia,
-	mod: Module,
+	origin: string | undefined,
 	doc: BlueprintDoc,
 ): RelationReason | undefined {
 	if (via[0].identifier === "user") return "worker";
@@ -75,8 +87,8 @@ function relationReason(
 	// HQ builds a native case-property path without a type filter. The
 	// stored case index determines the reached row, including in Search.
 	if (
-		mod.caseType === undefined ||
-		!doc.caseTypes?.some((one) => one.name === mod.caseType)
+		origin === undefined ||
+		!doc.caseTypes?.some((one) => one.name === origin)
 	)
 		return "unresolved";
 	if (

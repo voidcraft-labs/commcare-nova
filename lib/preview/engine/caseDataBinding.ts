@@ -65,6 +65,7 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
@@ -1201,6 +1202,7 @@ export async function loadCaseDataAction(
 	 *  detail columns read as `#search/<name>`. */
 	searchAnswers?: Readonly<Record<string, string>>,
 	language?: string,
+	selectionMenuUuid?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1224,6 +1226,28 @@ export async function loadCaseDataAction(
 			});
 			if (!candidate.ok) return { kind: "error", message: candidate.message };
 			environment = candidate.environment;
+		}
+		let selectionOwner = environment?.moduleUuid;
+		if (
+			selectionMenuUuid !== undefined &&
+			selectionMenuUuid !== selectionOwner
+		) {
+			const choosing = environment?.doc.modules[selectionMenuUuid];
+			const source =
+				choosing &&
+				environment &&
+				resolveCaseFormContext(environment.doc.modules, choosing.uuid);
+			if (
+				!source ||
+				(environment?.moduleUuid !== source.sourceModuleUuid &&
+					environment?.moduleUuid !== source.inlineModuleUuid)
+			)
+				return {
+					kind: "error",
+					message:
+						"The case context has changed. Open the case again to see its current details.",
+				};
+			selectionOwner = choosing?.uuid;
 		}
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
@@ -1255,6 +1279,7 @@ export async function loadCaseDataAction(
 							.sourceLanguage,
 				),
 			}),
+			contextModuleUuid: environment?.moduleUuid,
 			appId,
 			caseType,
 			caseId,
@@ -1282,7 +1307,7 @@ export async function loadCaseDataAction(
 				: runningRead(
 						readsSearchPopulation(
 							environment?.doc ?? context.blueprint,
-							moduleUuid,
+							selectionOwner ?? moduleUuid,
 							search === true,
 						),
 						context.restoreScope,

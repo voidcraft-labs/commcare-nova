@@ -1,4 +1,5 @@
 import { suiteMappingCondition } from "./columns";
+
 // lib/commcare/suite/case-list/shortDetail.ts
 //
 // Suite-XML emission for the case-list short detail —
@@ -99,6 +100,7 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type BlueprintDoc,
 	type CaseTileGrouping,
+	type Column,
 	effectiveCaseTypes,
 	type Module,
 	type TranslationUnitId,
@@ -106,11 +108,14 @@ import {
 import type { FormIconRef } from "@/lib/domain/builtinIcons";
 import { simplifyForEmission } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
+import { makeTranslationUnitId } from "@/lib/domain/localization";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
 } from "../../expressionContext";
+import { projectColumnToDetail } from "../../hqJson/caseList";
+import { commCareLocalization } from "../../localization";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
@@ -120,13 +125,16 @@ import {
 	buildColumnField,
 	instanceRootFor,
 	mergeFieldStrings,
+	rawColumnHeaderLocale,
 } from "./columns";
+import { detailBindings } from "./detailBindings";
 import {
 	EMPTY_CASE_LIST_TEXT,
 	emptyCaseListTextLocaleId,
 	SELECT_TEXT,
 	selectTextLocaleId,
 } from "./detailTexts";
+import { buildNamedTileFields } from "./namedTile";
 import { moduleCaseListOrderPlan } from "./orderPlanOptions";
 import { planSortNodes } from "./sortKeys";
 import { buildTileGroupElement } from "./tileGroup";
@@ -365,6 +373,7 @@ export function buildShortDetail(args: {
 	);
 
 	const ctx: CaseListEmitContext = {
+		detailBindings: detailBindings(doc, mod),
 		wire,
 		moduleIndex,
 		sortByUuid: new Map(),
@@ -389,6 +398,13 @@ export function buildShortDetail(args: {
 	);
 	const fieldContext = { ...ctx, sortByUuid: sortNodes.byUuid };
 	const fields: Element[] = [];
+	const namedFields: {
+		uuid?: Column["uuid"];
+		element: Element;
+		format: string;
+		rawHeader?: string;
+	}[] = [];
+	const localization = config.tile?.namedSlots && commCareLocalization(doc);
 	const strings: Record<string, string> = {
 		...texts.strings,
 		...register?.strings,
@@ -409,6 +425,45 @@ export function buildShortDetail(args: {
 			...(field.hidden &&
 				field.rule?.label !== undefined && { sortLabel: field.rule.label }),
 		});
+		if (localization) {
+			const format = projectColumnToDetail(
+				field.column,
+				{
+					doc,
+					mod,
+					localization,
+					expressions,
+					caseTypes,
+					caseProperties,
+					assets: args.assets,
+					mediaOn: args.assets !== undefined,
+					lookupNaming: args.lookupNaming,
+					columnFieldWord: args.columnFieldWord,
+				},
+				"results",
+			).format;
+			const rawHeader =
+				field.hidden &&
+				config.tile?.rawSlots?.some(
+					(slot) => config.tile?.namedSlots?.[slot] === field.column.uuid,
+				)
+					? rawColumnHeaderLocale(field.column, field.position + 1, ctx)
+					: undefined;
+			if (rawHeader && !field.rule?.label) {
+				strings[rawHeader] = field.column.header;
+				translationUnits[rawHeader] = makeTranslationUnitId(
+					"column",
+					field.column.uuid,
+					"header",
+				);
+			}
+			namedFields.push({
+				...(rawHeader && { rawHeader }),
+				uuid: field.column.uuid,
+				element: emission.element,
+				format: field.hidden ? "invisible" : format,
+			});
+		}
 		fields.push(emission.element);
 		mergeFieldStrings(strings, translationUnits, emission);
 	}
@@ -419,6 +474,8 @@ export function buildShortDetail(args: {
 			{ target, moduleIndex, caseSource: args.caseSource },
 			wire,
 		);
+		if (localization)
+			namedFields.push({ element: emission.element, format: "invisible" });
 		fields.push(emission.element);
 		mergeFieldStrings(strings, translationUnits, emission);
 	}
@@ -432,7 +489,9 @@ export function buildShortDetail(args: {
 	return {
 		element: buildDetailShell(
 			detailId,
-			fields,
+			config.tile?.namedSlots
+				? buildNamedTileFields(config.tile.namedSlots, namedFields)
+				: fields,
 			searchAction,
 			register?.element,
 			config.tile?.grouping,

@@ -227,11 +227,19 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}7-invisible-search-only-on-the-case-list-outside-a-custom-tile`,
 		"schema:DetailColumn.format",
 	),
+	dataTabOrder: take(
+		`${A}7pp-invisible-inside-a-data-tab-over-a-nodeset`,
+		"schema:DetailColumn.format",
+	),
 	invisibleLong: take(
 		`${A}7p-invisible-on-the-case-detail-outside-a-data-tab-over-a`,
 		"schema:DetailColumn.format",
 	),
-	invisibleInTile: refuse(
+	namedInvisible: take(
+		`${A}raw-value-in-a-named-case-tile`,
+		"schema:DetailColumn.format",
+	),
+	invisibleInTile: take(
 		`${A}invisible-or-address-column-in-a-custom-tile`,
 		"schema:DetailColumn.format",
 	),
@@ -1226,11 +1234,13 @@ function claimOtherKeys(
 	column: JsonCursor,
 	format: string,
 	screen: "short" | "long",
+	namedTile: boolean,
 ): boolean {
 	let ok = true;
 	column.drop("filter_xpath", C.filterXpath);
 	column.drop("advanced", C.advanced);
-	column.drop("case_tile_field", C.tileFieldInert);
+	if (!namedTile || !column.used("case_tile_field"))
+		column.drop("case_tile_field", C.tileFieldInert);
 	// A configuration at HQ's default (an empty graph) is of neither class, so it is left unclaimed.
 	if (column.peek("graph_configuration") === null)
 		column.drop("graph_configuration", C.graphNull);
@@ -1304,6 +1314,9 @@ export interface ColumnOptions {
 	readonly selectProperty: SelectProperty;
 	/** Whether the short detail is a custom tile. */
 	readonly inTile: boolean;
+	readonly namedTile?: boolean;
+	readonly dataRows?: boolean;
+	readonly fixtureRow?: boolean;
 	/** How many columns of each format the detail holds. */
 	readonly formats: ReadonlyMap<string, number>;
 	/** Whether the menu is an advanced module. */
@@ -1676,7 +1689,9 @@ function readColumn(
 		typeof column.peek("format") === "string"
 			? (column.peek("format") as string)
 			: "plain";
-	const others = claimOtherKeys(column, format, screen) && header !== undefined;
+	const others =
+		claimOtherKeys(column, format, screen, options.namedTile === true) &&
+		header !== undefined;
 	const field = fieldOf(column);
 	const base = { header: sourceText(ctx, header ?? NO_ENTRIES) };
 	// The walk of a property column read through a relation, once its field is read.
@@ -1712,8 +1727,9 @@ function readColumn(
 	// A calculated field: an expression column, an attribute, or one of Nova's two projections.
 	// An `invisible` short column outside a custom tile reads its expression as a `plain` one does,
 	// and stands on the list hidden: Nova writes a hidden calculated or attribute-backed field so.
-	const hiddenOnList =
-		format === "invisible" && screen === "short" && !options.inTile;
+	const hiddenOnList = format === "invisible" && screen === "short";
+	const rowOrder =
+		format === "invisible" && screen === "long" && options.dataRows;
 	if (
 		field.xpath &&
 		!options.searchInstancesRead &&
@@ -1722,12 +1738,50 @@ function readColumn(
 		column.refuse("field", C.fieldSearchInstances);
 		return undefined;
 	}
+	if (
+		!field.xpath &&
+		options.fixtureRow &&
+		(format === "plain" || rowOrder) &&
+		!field.text.includes("/") &&
+		isHqDetailField(field.text)
+	) {
+		const name = renamedField(field.text);
+		const text = ["status", "owner_id"].includes(name) ? `@${name}` : name;
+		if (column.used("useXpathExpression"))
+			column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
+		column.take("format", rowOrder ? C.dataTabOrder : C.plain, String).value;
+		return proposal(
+			{
+				kind: "calculated",
+				rowField: true,
+				...base,
+				expression: pendingPlaceholder("value"),
+			},
+			{
+				expression: {
+					text,
+					at: { json: column, key: "field" },
+					mode: { target: "hq-json", interpolation: "none" },
+					place,
+					key: "schema:DetailColumn.field",
+				},
+			},
+		);
+	}
 	if (field.xpath) {
 		const tree = parse(field.text);
 		const attribute = oneAttribute(tree);
-		const formatClaim = hiddenOnList ? C.invisible : C.plain;
+		const formatClaim = rowOrder
+			? C.dataTabOrder
+			: hiddenOnList
+				? options.namedTile
+					? C.namedInvisible
+					: options.inTile
+						? C.invisibleInTile
+						: C.invisible
+				: C.plain;
 		if (
-			(format === "plain" || hiddenOnList) &&
+			(format === "plain" || hiddenOnList || rowOrder) &&
 			attribute !== undefined &&
 			ATTRIBUTE_PROPERTIES.has(attribute)
 		) {
@@ -1745,7 +1799,7 @@ function readColumn(
 		}
 		const authoredMarkdown =
 			format === "markdown" && linkCandidate(field.text, options) === undefined;
-		if (format === "plain" || hiddenOnList || authoredMarkdown) {
+		if (format === "plain" || hiddenOnList || authoredMarkdown || rowOrder) {
 			column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
 			column.take(
 				"format",
@@ -1796,10 +1850,10 @@ function readColumn(
 		);
 
 	if (format === "invisible" && screen === "long") {
-		column.take("format", C.invisibleLong, String).value;
-	} else if (format === "invisible" && options.inTile) {
-		column.refuse("format", C.invisibleInTile, formatName(format));
-		return undefined;
+		column.take("format", rowOrder ? C.dataTabOrder : C.invisibleLong, String)
+			.value;
+	} else if (format === "invisible" && options.inTile && options.namedTile) {
+		column.take("format", C.namedInvisible, String).value;
 	}
 
 	// A column of any other format over the case's id: Nova writes a column over `case_id` as the
@@ -1878,7 +1932,16 @@ function readColumn(
 			} as ColumnProposal["column"]);
 		}
 		case "invisible": {
-			if (screen === "short") column.take("format", C.invisible, String).value;
+			if (screen === "short")
+				column.take(
+					"format",
+					options.namedTile
+						? C.namedInvisible
+						: options.inTile
+							? C.invisibleInTile
+							: C.invisible,
+					String,
+				).value;
 			return proposal(
 				{ kind: "plain", field: name, ...base } as ColumnProposal["column"],
 				{

@@ -320,123 +320,30 @@
 		"id": "hq-advanced/case-detail-tile-row-across-two-tabs",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-detail",
-			"menu": 1,
-			"name": "Member visits"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/case_details/long/columns",
-			"value": [
-				{
-					"model": "case",
-					"field": "name",
-					"header": {
-						"en": "Name"
-					},
-					"format": "plain",
-					"useXpathExpression": false,
-					"grid_x": 0,
-					"grid_y": 0,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"width": 6,
-					"height": 1,
-					"horizontal_align": "left",
-					"vertical_align": "start",
-					"font_size": "medium",
-					"show_border": false,
-					"show_shading": false
-				},
-				{
-					"model": "case",
-					"field": "date_opened",
-					"header": {
-						"en": "Opened"
-					},
-					"format": "date",
-					"useXpathExpression": false,
-					"grid_x": 6,
-					"grid_y": 0,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"width": 6,
-					"height": 1,
-					"horizontal_align": "left",
-					"vertical_align": "start",
-					"font_size": "medium",
-					"show_border": false,
-					"show_shading": false
-				}
-			]
+			"op": "named",
+			"name": "advanced_detail_tabs_sharing_a_tile_row"
 		},
-		"second": {
-			"entry": "menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
-			"standing": "not-yet",
-			"place": {
-				"kind": "case-detail",
-				"menu": 1,
-				"name": "Member visits"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/1/case_details/long/case_tile_template",
-				"value": "custom"
-			}
-		},
-		"also": [
+		"holds": [
 			{
-				"entry": "menus-and-case-lists/plain-tab-header-starting-index",
-				"standing": "not-yet",
-				"place": {
-					"kind": "case-detail",
-					"menu": 1,
-					"name": "Member visits"
-				},
-				"change": {
-					"op": "set-json",
-					"pointer": "/modules/1/case_details/long/tabs",
-					"value": [
-						{
-							"doc_type": "DetailTab",
-							"header": {
-								"en": "Member"
-							},
-							"starting_index": 0,
-							"has_nodeset": false
-						},
-						{
-							"doc_type": "DetailTab",
-							"header": {
-								"en": "More"
-							},
-							"starting_index": 1,
-							"has_nodeset": false
-						}
-					]
-				}
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/0/title",
+				"value": "Member"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/title",
+				"value": "More"
 			}
 		]
 	},
@@ -5383,17 +5290,22 @@
 		"id": "hq-case-lists/case-detail-custom-tile",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-detail",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/long/case_tile_template",
-			"value": "custom"
-		}
+			"op": "named",
+			"name": "placed_case_detail_tile"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/header",
+				"value": "Name"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/case-detail-template-tile",
@@ -5422,178 +5334,9 @@
 			"name": "Patients"
 		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/long/columns",
-			"value": [
-				{
-					"model": "case",
-					"field": "name",
-					"header": {
-						"en": "Name"
-					},
-					"format": "plain",
-					"useXpathExpression": false,
-					"grid_x": 0,
-					"grid_y": 0,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"width": 6,
-					"height": 1,
-					"horizontal_align": "left",
-					"vertical_align": "start",
-					"font_size": "medium",
-					"show_border": false,
-					"show_shading": false
-				},
-				{
-					"model": "case",
-					"field": "dob",
-					"header": {
-						"en": "Born"
-					},
-					"format": "date",
-					"useXpathExpression": false,
-					"grid_x": 6,
-					"grid_y": 0,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"width": 6,
-					"height": 1,
-					"horizontal_align": "left",
-					"vertical_align": "start",
-					"font_size": "medium",
-					"show_border": false,
-					"show_shading": false
-				},
-				{
-					"model": "case",
-					"field": "phone",
-					"header": {
-						"en": "Phone"
-					},
-					"format": "phone",
-					"useXpathExpression": false,
-					"grid_x": 0,
-					"grid_y": 1,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"width": 6,
-					"height": 1,
-					"horizontal_align": "left",
-					"vertical_align": "start",
-					"font_size": "medium",
-					"show_border": false,
-					"show_shading": false
-				},
-				{
-					"model": "case",
-					"field": "notes",
-					"header": {
-						"en": "Notes"
-					},
-					"format": "plain",
-					"useXpathExpression": false,
-					"grid_x": 6,
-					"grid_y": 1,
-					"enum": [],
-					"graph_configuration": {
-						"config": {},
-						"locale_specific_config": {},
-						"annotations": [],
-						"series": [],
-						"doc_type": "GraphConfiguration"
-					},
-					"late_flag": 30,
-					"time_ago_interval": 365.25,
-					"date_format": "%d/%m/%y",
-					"doc_type": "DetailColumn",
-					"width": 6,
-					"height": 1,
-					"horizontal_align": "left",
-					"vertical_align": "start",
-					"font_size": "medium",
-					"show_border": false,
-					"show_shading": false
-				}
-			]
-		},
-		"second": {
-			"entry": "menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
-			"standing": "not-yet",
-			"place": {
-				"kind": "case-detail",
-				"menu": 0,
-				"name": "Patients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/case_details/long/case_tile_template",
-				"value": "custom"
-			}
-		},
-		"also": [
-			{
-				"entry": "menus-and-case-lists/plain-tab-header-starting-index",
-				"standing": "not-yet",
-				"place": {
-					"kind": "case-detail",
-					"menu": 0,
-					"name": "Patients"
-				},
-				"change": {
-					"op": "set-json",
-					"pointer": "/modules/0/case_details/long/tabs",
-					"value": [
-						{
-							"doc_type": "DetailTab",
-							"header": {
-								"en": "Patient"
-							},
-							"starting_index": 0,
-							"has_nodeset": false
-						},
-						{
-							"doc_type": "DetailTab",
-							"header": {
-								"en": "More"
-							},
-							"starting_index": 1,
-							"has_nodeset": false
-						}
-					]
-				}
-			}
-		]
+			"op": "named",
+			"name": "basic_detail_tabs_sharing_a_tile_row"
+		}
 	},
 	{
 		"id": "hq-case-lists/case-id-column",
@@ -7027,8 +6770,8 @@
 	{
 		"id": "hq-case-lists/columns-above-the-first-tab",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/plain-tab-header-starting-index",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-detail",
 			"menu": 0,
@@ -7043,24 +6786,10 @@
 					"header": {
 						"en": "More"
 					},
-					"starting_index": 0,
+					"starting_index": 2,
 					"has_nodeset": false
 				}
 			]
-		},
-		"second": {
-			"entry": "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist",
-			"standing": "fix-in-hq",
-			"place": {
-				"kind": "case-detail",
-				"menu": 0,
-				"name": "Patients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/case_details/long/tabs/0/starting_index",
-				"value": 2
-			}
 		}
 	},
 	{
@@ -7561,65 +7290,68 @@
 		"id": "hq-case-lists/detail-tab-over-an-expression",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/data-tab-over-a-custom-nodeset-xpath",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-detail",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/long/tabs",
-			"value": [
-				{
-					"doc_type": "DetailTab",
-					"header": {
-						"en": "Visits"
-					},
-					"starting_index": 0,
-					"has_nodeset": true,
-					"nodeset": "instance('casedb')/casedb/case[@case_type = 'visit']"
-				}
-			]
-		}
+			"op": "named",
+			"name": "explicit_visit_rows"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/rowSource/kind",
+				"value": "records"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/rowSource/rows/kind",
+				"value": "cases"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/detail-tab-over-child-cases",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-detail",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/long/tabs",
-			"value": [
-				{
-					"doc_type": "DetailTab",
-					"header": {
-						"en": "Visits"
-					},
-					"starting_index": 0,
-					"has_nodeset": true,
-					"nodeset_case_type": "visit",
-					"nodeset_filter": ""
-				}
-			]
-		}
+			"op": "named",
+			"name": "child_visit_rows"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/rowSource/kind",
+				"value": "children"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/rowSource/caseType",
+				"value": "visit"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/detail-tab-shown-when",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/plain-tab-header-starting-index",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-detail",
-			"menu": 0,
-			"name": "Patients"
-		},
+		"entry": "menus-and-case-lists/tab-relevant-lifts-into-predicate-not",
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/long/tabs",
@@ -7630,35 +7362,38 @@
 						"en": "Patient"
 					},
 					"starting_index": 0,
-					"has_nodeset": false
+					"has_nodeset": false,
+					"relevant": "visits > 1"
 				}
 			]
 		},
-		"second": {
-			"entry": "menus-and-case-lists/tab-relevant-lifts-into-predicate-not",
-			"standing": "not-yet",
-			"place": {
-				"kind": "case-detail",
-				"menu": 0,
-				"name": "Patients"
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/0/title",
+				"value": "Patient"
 			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/case_details/long/tabs/0/relevant",
-				"value": "visits > 1"
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/0/displayCondition/kind",
+				"value": "gt"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-case-lists/detail-tabs",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/plain-tab-header-starting-index",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-detail",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/long/tabs",
@@ -7680,7 +7415,29 @@
 					"has_nodeset": false
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/0/title",
+				"value": "Patient"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/title",
+				"value": "More"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/distance-column",
@@ -8704,7 +8461,28 @@
 		"id": "hq-case-lists/icon-text-grid-tile",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-case-tile-template-icon-text-grid",
-		"standing": "not-yet",
+		"change": {
+			"op": "named",
+			"name": "all_named_tile_positions"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/header",
+				"value": "Top Left Image"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/image-and-text-tile-missing-positions",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/named-case-tile-missing-a-required-slot",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 0,
@@ -11240,35 +11018,44 @@
 		"id": "hq-case-lists/persistent-case-context",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-persist-case-context-persistent-case-context-xml",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/persist_case_context",
 			"value": true
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/contextAboveForm/kind",
+				"value": "line"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/persistent-tile-from-another-menu",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-persistent-case-tile-from-module",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Follow-ups"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/1/case_details/short/persistent_case_tile_from_module",
-			"value": {
-				"$menu": 0
+			"op": "named",
+			"name": "use_other_case_tile"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/contextAboveForm/kind",
+				"value": "menu-tile"
 			}
-		}
+		]
 	},
 	{
 		"id": "hq-case-lists/person-simple-tile",
@@ -11812,17 +11599,22 @@
 		"id": "hq-case-lists/pull-down-tile",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-pull-down-tile",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
-			"op": "set-json",
-			"pointer": "/modules/0/case_details/short/pull_down_tile",
-			"value": true
-		}
+			"op": "named",
+			"name": "expand_own_case_tile"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/contextAboveForm/kind",
+				"value": "own-tile"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/registration-on-a-display-only-tile-list",
@@ -12439,16 +12231,22 @@
 		"id": "hq-case-lists/search-only-column-in-a-tile",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/invisible-or-address-column-in-a-custom-tile",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 1,
-			"name": "Follow-ups"
-		},
 		"change": {
 			"op": "named",
 			"name": "search_only_column_in_a_tile"
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/tile/androidOnly",
+				"value": true
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/sort-by-distance",
@@ -38025,5 +37823,317 @@
 				"name": "unknown_function_call"
 			}
 		}
+	},
+	{
+		"id": "hq-case-lists/pull-down-without-a-case-tile",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/form-context-without-a-compatible-case-tile",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/short/pull_down_tile",
+			"value": true
+		}
+	},
+	{
+		"id": "hq-case-lists/form-context-menu-without-a-tile",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/existing-form-context-source-with-no-tile",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/case_details/short/persistent_case_tile_from_module",
+			"value": {
+				"$menu": 0
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseListConfig/contextAboveForm",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/child-visit-ordered-by-hidden-field",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/7pp-invisible-inside-a-data-tab-over-a-nodeset",
+		"change": {
+			"op": "named",
+			"name": "hidden_child_visit_order"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/rowSource/caseType",
+				"value": "visit"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/orderFields/length",
+				"value": 1
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/different-lines-above-a-form",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/two-different-values-for-the-same-form-context",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-detail",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "different_persistent_lines"
+		}
+	},
+	{
+		"id": "hq-case-lists/named-tile-field-assignment",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid",
+		"change": {
+			"op": "named",
+			"name": "all_named_tile_positions"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/1/header",
+				"value": "Top Left Text"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/named-tile-extra-field",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/unused-slot-of-a-named-case-tile",
+		"change": {
+			"op": "named",
+			"name": "named_tile_with_an_unselected_slot"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/header",
+				"value": "Top Left Image"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/tile/namedSlots/unused_position",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/raw-text-on-named-tile",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/raw-value-in-a-named-case-tile",
+		"change": {
+			"op": "named",
+			"name": "named_tile_using_raw_value"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/tile/rawSlots/0",
+				"value": "topLeftText"
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/long-detail-pull-down-setting",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/form-context-setting-outside-a-case-selection",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/long/pull_down_tile",
+			"value": true
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/contextAboveForm",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/unavailable-case-context-line",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/form-context-expression-outside-its-case-scope",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-list",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "named",
+			"name": "unreadable_form_context_line"
+		}
+	},
+	{
+		"id": "hq-case-lists/tab-predicate-outside-its-menu",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/tab-display-condition-outside-its-case-scope",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-detail",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/long/tabs",
+			"value": [
+				{
+					"doc_type": "DetailTab",
+					"header": {
+						"en": "Patient"
+					},
+					"starting_index": 0,
+					"relevant": "instance('unknown-roster')/rows/row"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-case-lists/inactive-collection-on-a-tab",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/inactive-detail-tab-row-settings",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/long/tabs",
+			"value": [
+				{
+					"doc_type": "DetailTab",
+					"header": {
+						"en": "Patient"
+					},
+					"starting_index": 0,
+					"has_nodeset": false,
+					"nodeset": "'unused'",
+					"nodeset_case_type": "unused",
+					"nodeset_filter": "no-such-function()"
+				}
+			]
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/0/rowSource",
+				"value": null
+			}
+		]
+	},
+	{
+		"id": "hq-case-lists/scalar-in-place-of-tab-records",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "case-detail",
+			"menu": 0,
+			"name": "Patients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/long/tabs",
+			"value": [
+				{
+					"doc_type": "DetailTab",
+					"header": {
+						"en": "Patient"
+					},
+					"starting_index": 0,
+					"has_nodeset": true,
+					"nodeset": "'a scalar'"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-case-lists/explicit-tab-rows-with-related-cases",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/related-child-type-beside-an-explicit-tab-collection",
+		"change": {
+			"op": "named",
+			"name": "explicit_visit_rows_with_related_cases"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/rowSource/kind",
+				"value": "records"
+			},
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/detailTabs/1/rowSource/includeChildrenOfType",
+				"value": "contact"
+			}
+		]
 	}
 ]

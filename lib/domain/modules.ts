@@ -34,6 +34,7 @@
 
 import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
+import { caseFormContextSchema } from "./caseFormContext";
 import { uniqueCaseMappingRows } from "./caseMappingRows";
 import {
 	authoredCasePropertyNameSchema,
@@ -41,6 +42,7 @@ import {
 } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
+import { detailTabSpans, detailTabsSchema } from "./detailTabSchema";
 import { entryPointSchema } from "./entryPoints";
 import type {
 	Expression,
@@ -415,6 +417,7 @@ export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
  * off the wire when unset.
  */
 export const tileCellSchema = z.strictObject({
+	androidOnly: z.literal(true).optional(),
 	x: persistableJsonNonnegativeIntegerSchema,
 	y: persistableJsonNonnegativeIntegerSchema,
 	width: persistableJsonPositiveIntegerSchema,
@@ -426,6 +429,9 @@ export const tileCellSchema = z.strictObject({
 	showShading: z.boolean().optional(),
 });
 export type TileCell = z.infer<typeof tileCellSchema>;
+export const detailTileSchema = z.strictObject({
+	cells: z.record(uuidSchema, tileCellSchema),
+});
 
 /** The alignment and size a cell takes when its maker states none: HQ's own
  *  defaults, which its first Case List save would write. */
@@ -466,6 +472,7 @@ export function tileCell(
 			presentation.verticalAlign ?? TILE_CELL_DEFAULTS.verticalAlign,
 		fontSize: presentation.fontSize ?? TILE_CELL_DEFAULTS.fontSize,
 	};
+	if (presentation.androidOnly) out.androidOnly = true;
 	if (presentation.showBorder !== undefined)
 		out.showBorder = presentation.showBorder;
 	if (presentation.showShading !== undefined)
@@ -533,11 +540,17 @@ export function tileCellsOverlap(a: TileCell, b: TileCell): boolean {
  * case-detail screen is a plain field list whatever the case list does.
  */
 export function tileCellFor(
-	column: Pick<Column, "tile" | "visibleInList">,
+	column: Pick<Column, "tile" | "visibleInList"> & { uuid?: Uuid },
 	layout: CaseTileLayout | undefined,
 ): TileCell | undefined {
 	if (layout === undefined) return undefined;
 	if (column.visibleInList === false) return undefined;
+	if (layout.namedSlots) {
+		const slot = NAMED_TILE_SLOTS.find(
+			(slot) => layout.namedSlots?.[slot] === column.uuid,
+		);
+		return slot ? namedTileCell(slot) : undefined;
+	}
 	return column.tile;
 }
 
@@ -956,6 +969,9 @@ const linkColumnSchema = columnBase.extend({
  * from the expression's resolved result type.
  */
 const calculatedColumnSchema = columnBase.extend({
+	/** An individual value picked from the tab's records. An authored calculation
+	 * over a record uses the ordinary calculation control. */
+	rowField: z.literal(true).optional(),
 	kind: z.literal("calculated"),
 	header: z.string(),
 	texts: z
@@ -2741,7 +2757,45 @@ export function tileGroupHeaderRowChoices(
 	return choices;
 }
 
+export const NAMED_TILE_SLOTS = [
+	"topLeftImage",
+	"topLeftText",
+	"topRightImage",
+	"topRightText",
+	"middleLeftImage",
+	"middleLeftText",
+	"middleRightImage",
+	"middleRightText",
+	"bottomLeftImage",
+	"bottomLeftText",
+] as const;
+export type NamedTileSlot = (typeof NAMED_TILE_SLOTS)[number];
+export const namedTileSlotsSchema = z.record(
+	z.enum(NAMED_TILE_SLOTS),
+	uuidSchema,
+);
+
+export function namedTileCell(slot: NamedTileSlot): TileCell {
+	const i = NAMED_TILE_SLOTS.indexOf(slot);
+	const image = i % 2 === 0;
+	const x = (Math.floor(i / 2) % 2) * 6;
+	return tileCell(
+		x + (image ? 0 : 1),
+		Math.floor(i / 4),
+		image ? 1 : 5,
+		1,
+		image
+			? { fontSize: "small", horizontalAlign: "center", verticalAlign: "top" }
+			: {
+					fontSize: "medium",
+					horizontalAlign: "left",
+					verticalAlign: "middle",
+				},
+	);
+}
 export const caseTileLayoutSchema = z.strictObject({
+	namedSlots: namedTileSlotsSchema.optional(),
+	rawSlots: z.array(z.enum(NAMED_TILE_SLOTS)).min(1).optional(),
 	/**
 	 * Keep the tile on screen once a case is chosen from this list: above
 	 * the menu its case opens, the forms and every screen after it while the
@@ -2861,6 +2915,9 @@ export const caseListConfigSchema = z
 		 */
 		listColumnOrder: z.array(uuidSchema),
 		detailColumnOrder: z.array(uuidSchema),
+		detailTabs: detailTabsSchema.optional(),
+		detailTile: detailTileSchema.optional(),
+		contextAboveForm: caseFormContextSchema.optional(),
 		filter: conditionSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
@@ -2876,6 +2933,16 @@ export const caseListConfigSchema = z
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		if (
+			config.tile?.rawSlots &&
+			(!config.tile.namedSlots ||
+				new Set(config.tile.rawSlots).size !== config.tile.rawSlots.length)
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["tile", "rawSlots"],
+				message: "Choose a raw value only once for a named tile position.",
+			});
 		const columnUuids = config.columns.map((column) => column.uuid);
 		const columnSet = new Set(columnUuids);
 		if (columnSet.size !== columnUuids.length) {
@@ -2929,6 +2996,87 @@ export const caseListConfigSchema = z
 		};
 		checkOrder(config.listColumnOrder, "listColumnOrder");
 		checkOrder(config.detailColumnOrder, "detailColumnOrder");
+		if (config.tile?.namedSlots) {
+			const assignments = Object.values(config.tile.namedSlots);
+			const eligible = new Set(
+				config.columns
+					.filter(
+						(column) =>
+							column.visibleInList !== false && column.notOnList !== true,
+					)
+					.map((column) => column.uuid),
+			);
+			if (
+				new Set(assignments).size !== assignments.length ||
+				assignments.some((id) => !eligible.has(id))
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["tile", "namedSlots"],
+					message:
+						"Choose a different Results field for each image and text position.",
+				});
+		}
+		if (config.detailTile) {
+			const shown = config.columns.filter(
+				(column) => column.visibleInDetail !== false,
+			);
+			const printed = new Set(shown.map((column) => column.uuid));
+			const cells = Object.keys(config.detailTile.cells) as Uuid[];
+			if (
+				!cells.length ||
+				cells.length !== shown.length ||
+				cells.some((id) => !printed.has(id))
+			)
+				ctx.addIssue({
+					code: "custom",
+					path: ["detailTile", "cells"],
+					message: "Give each field shown in Details a place on its tile.",
+				});
+		}
+		if (config.detailTabs) {
+			const shown = new Set(
+				config.columns
+					.filter((col) => col.visibleInDetail !== false)
+					.map((col) => col.uuid),
+			);
+			const fields = config.detailColumnOrder
+				.filter((uuid) => shown.has(uuid))
+				.map((uuid) => ({ uuid }));
+			const spans = detailTabSpans(config.detailTabs, fields);
+			if (!spans)
+				ctx.addIssue({
+					code: "custom",
+					path: ["detailTabs"],
+					message:
+						"Each tab needs a different first field in Details order, starting with the first field shown.",
+				});
+			for (const { tab, start, end } of spans ?? []) {
+				if (!tab.orderFields) continue;
+				const own = fields
+					.slice(start, end)
+					.filter(({ uuid }) => tab.orderFields?.includes(uuid));
+				if (
+					!tab.rowSource ||
+					own.length !== tab.orderFields.length ||
+					own.some((field, i) => field.uuid !== tab.orderFields?.[i]) ||
+					own.some(
+						({ uuid }) =>
+							!config.columns.some(
+								(c) =>
+									c.uuid === uuid &&
+									(c.kind === "plain" || c.kind === "calculated"),
+							),
+					)
+				)
+					ctx.addIssue({
+						code: "custom",
+						path: ["detailTabs"],
+						message:
+							"A tab of records can order its rows by text or calculated fields in that tab, in Details order.",
+					});
+			}
+		}
 	});
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 

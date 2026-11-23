@@ -39,6 +39,11 @@ function nestedModuleIdentities(
 			kind: "caseListSort" as const,
 			ownerUuid: module.uuid,
 		})),
+		...(module.caseListConfig?.detailTabs ?? []).map((tab) => ({
+			uuid: tab.uuid,
+			kind: "caseDetailTab" as const,
+			ownerUuid: module.uuid,
+		})),
 		...(module.caseListConfig?.columns ?? []).map((column) => ({
 			uuid: column.uuid,
 			kind: "caseListColumn" as const,
@@ -244,6 +249,16 @@ function ownedIdentityReplacementBy(
 	mutation: Mutation,
 ): OwnedIdentityReplacement | undefined {
 	switch (mutation.kind) {
+		case "setCaseListMeta":
+			return mutation.patch.detailTabs === undefined
+				? undefined
+				: {
+						kind: "caseDetailTab",
+						ownerUuid: mutation.uuid,
+						retainedUuids: new Set(
+							(mutation.patch.detailTabs ?? []).map((tab) => tab.uuid),
+						),
+					};
 		case "updateField": {
 			if (!("optionsSource" in mutation.patch)) return undefined;
 			return {
@@ -366,6 +381,15 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 					ownerUuid: mutation.moduleUuid,
 				},
 			]);
+		case "setCaseListMeta":
+			return (mutation.patch.detailTabs ?? []).map((tab) => ({
+				identity: {
+					uuid: tab.uuid,
+					kind: "caseDetailTab",
+					ownerUuid: mutation.uuid,
+				},
+				preserveIfOwnedBy: mutation.uuid,
+			}));
 		case "addColumn":
 			return createClaims([
 				{
@@ -509,7 +533,6 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "moveCaseProperty":
 		case "removeCaseProperty":
 		case "setCaseTypeMeta":
-		case "setCaseListMeta":
 		case "updateFormLink":
 		case "removeFormLink":
 		case "moveFormLink":

@@ -1,3 +1,7 @@
+import {
+	columnCaseScopes,
+	detailColumnRowScope,
+} from "@/lib/domain/expression/detailRowScope";
 /**
  * Rule: every saved non-calculated column on
  * `caseListConfig.columns` carries a `field` that resolves to a property the
@@ -53,14 +57,27 @@ export function columnReferences(
 		if (col.kind === "calculated" || col.readFrom === "worker-record") continue;
 		// A worker record can carry additional values maintained by its project
 		// space. Like a form's worker-record read, an absent property reads blank.
-		const caseType = columnPropertyCaseType(
-			col,
-			mod.caseType,
-			validationContextFor(doc).augmentedCaseTypes,
-		);
-		if (caseType === undefined) continue;
-		if (propertyExists(doc, caseType, col.field)) continue;
-		errors.push(buildUnknownFieldError(mod, moduleUuid, caseType, index, col));
+		const row = detailColumnRowScope(doc, mod, col);
+		if (row && row.kind !== "case") {
+			errors.push(
+				validationError(
+					"CASE_DETAIL_TAB_ROWS_INVALID",
+					"module",
+					`Choose a value from the tab's rows for "${col.header}".`,
+					{ moduleUuid, moduleName: mod.name },
+					{ columnUuid: col.uuid },
+				),
+			);
+			continue;
+		}
+		const { augmentedCaseTypes } = validationContextFor(doc);
+		for (const origin of columnCaseScopes(doc, mod, col)) {
+			const caseType = columnPropertyCaseType(col, origin, augmentedCaseTypes);
+			if (caseType !== undefined && !propertyExists(doc, caseType, col.field))
+				errors.push(
+					buildUnknownFieldError(mod, moduleUuid, caseType, index, col),
+				);
+		}
 	}
 
 	return errors;

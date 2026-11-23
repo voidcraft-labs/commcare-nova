@@ -217,7 +217,7 @@ interface DetailColumnBase<XPath> {
 	isTab: boolean;
 	graph_configuration: null;
 	relevant: XPath | "";
-	case_tile_field: null;
+	case_tile_field: string | null;
 	/**
 	 * Custom-tile placement, zero-based. CCHQ's own names are
 	 * `grid_x` / `grid_y` for the origin and the unprefixed
@@ -282,6 +282,18 @@ export interface SortElement<XPath = string> {
 	sort_calculation: XPath | "";
 }
 
+export interface DetailTab<XPath = string> {
+	doc_type: "DetailTab";
+	isTab: true;
+	header: Record<string, string>;
+	starting_index: number;
+	has_nodeset: boolean;
+	relevant?: XPath;
+	nodeset?: XPath;
+	nodeset_case_type?: string;
+	nodeset_filter?: XPath;
+}
+
 export interface DetailBase<XPath = string> {
 	/**
 	 * CommCare's case-list cardinality. These fields are written only on the
@@ -299,7 +311,7 @@ export interface DetailBase<XPath = string> {
 	 * page's language.
 	 */
 	no_items_text?: LocalizedString;
-	tabs: unknown[];
+	tabs: DetailTab<XPath>[];
 	/** Always-on filter applied to the case list nodeset, before user
 	 *  search. The bare on-device XPath wire string lands here per
 	 *  CCHQ's `Detail.filter = StringProperty(exclude_if_none=True)`.
@@ -316,7 +328,7 @@ export interface DetailBase<XPath = string> {
 	lookup_field_header: Record<string, never>;
 	lookup_extras: unknown[];
 	lookup_responses: unknown[];
-	persist_case_context: null;
+	persist_case_context: true | null;
 	persistent_case_context_xml: XPath;
 	/**
 	 * Keeps the short detail on screen once a case is chosen from the list,
@@ -327,8 +339,8 @@ export interface DetailBase<XPath = string> {
 	 * (`suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`).
 	 */
 	persist_tile_on_forms: boolean | null;
-	persistent_case_tile_from_module: null;
-	pull_down_tile: null;
+	persistent_case_tile_from_module: string | null;
+	pull_down_tile: true | null;
 	/**
 	 * Which tile vocabulary CCHQ regenerates this detail with. Nova emits
 	 * only `"custom"` — the arm where every column carries its own grid
@@ -346,7 +358,7 @@ export interface DetailBase<XPath = string> {
 	 * which is exactly why it bypasses the per-template slot-mapping
 	 * validators.
 	 */
-	case_tile_template: "custom" | null;
+	case_tile_template: "custom" | "icon_text_grid" | null;
 	/**
 	 * Grouping for a tile-laid-out short detail: which case index keys
 	 * the groups, and how many of the tile's top rows are the group

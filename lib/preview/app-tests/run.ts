@@ -58,7 +58,11 @@ import {
 	appTestRefusalSentence,
 	readingSurface,
 } from "./dataRefusal";
-import { appTestCellProjector, appTestDetails } from "./details";
+import {
+	appTestCellProjector,
+	appTestDetails,
+	appTestFormCaseContext,
+} from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
 	appTestCanContinue,
@@ -436,6 +440,7 @@ async function observeScreen(
 					record: read.result.kind === "row" ? read.result.row : undefined,
 					unavailable: read.result.kind !== "row",
 					fields: read.fields,
+					...(read.tabs && { tabs: read.tabs }),
 					canContinue:
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source),
@@ -478,6 +483,7 @@ async function observeScreen(
 			 * on Web Apps, so no page turn is offered there. */
 			const pages = availablePages(evaluated.screens);
 			const currentPage = pages.findIndex((page) => page.current);
+			const caseContext = await appTestFormCaseContext(context, scope, state);
 			return {
 				state: {
 					...state,
@@ -485,6 +491,7 @@ async function observeScreen(
 				},
 				observation: {
 					screen: "form",
+					...(caseContext && { caseContext }),
 					worker,
 					name: projectLocalizedForm(
 						context.doc,
@@ -565,10 +572,21 @@ async function observeAppTestWithEvaluation(
 			actions.push("select", "page");
 		if (result.observation.registration) actions.push("form");
 	}
+	if (
+		screen.kind === "details" &&
+		Array.isArray(result.observation.tabs) &&
+		result.observation.tabs.length > 1
+	)
+		actions.push("detailTab");
 	if (screen.kind === "details" && result.observation.canContinue)
 		actions.push("continue", "routeContinue");
 	if (screen.kind === "form") {
 		actions.push("answer", "section");
+		if (
+			(result.observation.caseContext as { expandable?: boolean } | undefined)
+				?.expandable
+		)
+			actions.push("caseContext");
 		const pageNavigation = result.observation.pageNavigation as {
 			canNext: boolean;
 			canPrevious: boolean;
@@ -747,6 +765,50 @@ async function advanceAppTestOnScreen(
 		case "language":
 		case "observe":
 			break;
+		case "caseContext": {
+			if (screen.kind !== "form")
+				throw new AppTestActionError("Open a form with case context first.");
+			const candidate = {
+				...state,
+				screen: {
+					...screen,
+					contextExpanded: action.expanded ? (true as const) : undefined,
+					contextTabUuid: action.tabUuid,
+				},
+			};
+			const contextView = await appTestFormCaseContext(
+				context,
+				scope,
+				candidate,
+			);
+			if (
+				!contextView?.expandable ||
+				(action.tabUuid &&
+					(!action.expanded ||
+						!("details" in contextView) ||
+						!contextView.details?.tabs?.some(
+							(tab) => tab.uuid === action.tabUuid,
+						)))
+			)
+				throw new AppTestActionError(
+					"This form has no matching expandable case detail.",
+				);
+			next = candidate;
+			break;
+		}
+		case "detailTab": {
+			if (screen.kind !== "details")
+				throw new AppTestActionError(
+					"Open case details before choosing a tab.",
+				);
+			const read = await appTestDetails(context, scope, state);
+			if (!read.tabs?.some((tab) => tab.uuid === action.tabUuid))
+				throw new AppTestActionError(
+					"This tab is unavailable for the selected case.",
+				);
+			next = { ...state, screen: { ...screen, tabUuid: action.tabUuid } };
+			break;
+		}
 		case "routeBack":
 		case "back": {
 			next = appTestStepBack(state);

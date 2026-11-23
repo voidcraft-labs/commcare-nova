@@ -57,10 +57,14 @@ import {
 import {
 	type HqInterpolation,
 	type HqXPath,
+	hqXPath,
 	hqXPathText,
 } from "../../hqJson/xpath";
 import { type LookupWireNaming, lookupWireNaming } from "../../lookup/naming";
 import { lookupOptionsNodeset } from "../../lookupOptions";
+import { detailBindings } from "../../suite/case-list/detailBindings";
+import { detailTabConditionWire } from "../../suite/case-list/detailTabCondition";
+import { detailRowExpressionWire } from "../../suite/case-list/detailTabRows";
 import { mappingCondition } from "../../suite/case-list/mappingCondition";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../../suite/case-list/nodesetFilter";
 import {
@@ -218,6 +222,7 @@ function moduleSlotMode(
 	switch (slot) {
 		case "module_display_condition":
 		case "search_input_required_when":
+		case "case_detail_tab_filter":
 			return { interpolation: "no-case" };
 		case "case_list_filter":
 			return { interpolation: "case" };
@@ -1137,9 +1142,56 @@ function printSlotWith(
 					hqCalculatedSortExpression(
 						{ uuid: ref.member.sortUuid, expression },
 						mod,
+						doc,
 						expressions,
 						naming,
 						rewrites,
+					),
+				);
+			case "case_form_context_line":
+				return hq(
+					hqXPath(
+						toWire(expression, {
+							target: "hq-json",
+							root: "casedb",
+							types: expressions({ slot: "case_form_context_line" }),
+							bindings: {
+								...detailBindings(doc, mod),
+								...(naming && {
+									lookup: { naming: naming, instanceScope: "suite" },
+								}),
+							},
+						}),
+					),
+				);
+			case "case_detail_tab_rows":
+			case "case_detail_tab_filter":
+				return hq(
+					hqXPath(
+						detailRowExpressionWire(
+							expression,
+							ref.member.tabUuid,
+							ref.slot,
+							"hq-json",
+							"casedb",
+							expressions,
+							naming,
+							detailBindings(doc, mod),
+						),
+					),
+				);
+			case "case_detail_tab_condition":
+				return hq(
+					hqXPath(
+						detailTabConditionWire(
+							expression,
+							ref.member.tabUuid,
+							expressions,
+							"hq-json",
+							"casedb",
+							naming,
+							detailBindings(doc, mod),
+						),
 					),
 				);
 			case "case_list_column_expression": {

@@ -21,6 +21,10 @@ import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 
 /** A whole pending entity; partial source/type patches cannot invent context. */
 export type ExpressionSlotCandidate =
+	| {
+			readonly entity: "detail-tab";
+			readonly value: import("@/lib/domain/detailTabs").DetailTab;
+	  }
 	| { readonly entity: "field"; readonly value: Field }
 	| { readonly entity: "search-input"; readonly value: SearchInputDef }
 	| { readonly entity: "column"; readonly value: Column }
@@ -37,6 +41,36 @@ export function expressionCandidateDoc(
 ): BlueprintDoc | undefined {
 	if (candidate === undefined) return doc;
 	const value = candidate.value;
+	if (candidate.entity === "detail-tab") {
+		if (
+			slot.entity !== "module" ||
+			!("member" in slot) ||
+			!("tabUuid" in slot.member) ||
+			slot.member.tabUuid !== candidate.value.uuid
+		)
+			return undefined;
+		const module = doc.modules[slot.uuid];
+		const list = module?.caseListConfig;
+		if (!list) return undefined;
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[slot.uuid]: {
+					...module,
+					caseListConfig: {
+						...list,
+						detailTabs: [
+							...(list.detailTabs ?? []).filter(
+								(tab) => tab.uuid !== candidate.value.uuid,
+							),
+							candidate.value,
+						],
+					},
+				},
+			},
+		};
+	}
 	if (candidate.entity === "field") {
 		if (
 			slot.entity !== "field" ||

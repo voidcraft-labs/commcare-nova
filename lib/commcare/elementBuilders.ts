@@ -59,7 +59,7 @@ const XPATH_ATTRIBUTES = {
 	command: ["relevant", "if", "value"],
 	action: ["relevant", "auto_launch"],
 	field: ["relevant"],
-	detail: ["relevant"],
+	detail: ["relevant", "nodeset"],
 	menu: ["relevant"],
 } as const;
 
@@ -72,6 +72,9 @@ type RawAttributes<Name extends string> = Record<string, string> &
 export interface WireElementContext {
 	readonly mode: WireMode;
 	readonly instances: InstanceSink;
+	/** A nested detail's visibility expression consumes a declaration made
+	 * by its physical entry. HQ does not declare an instance from it. */
+	readonly detailConditionReads?: InstanceSink;
 }
 
 export interface WireElementSpec<Name extends XPathElementName> {
@@ -142,7 +145,11 @@ export function xel<const Name extends XPathElementName>(
 		);
 		if (printed === undefined) continue;
 		attributes[attribute] = printed.text;
-		context.instances.add(printed.instances);
+		// HQ collects a nested detail's nodeset, variables and field expressions.
+		// Its relevance can only read instances already supplied by the entry.
+		if (name === "detail" && attribute === "relevant")
+			context.detailConditionReads?.add(printed.instances);
+		else context.instances.add(printed.instances);
 	}
 	return new Element(name, attributes, children);
 }

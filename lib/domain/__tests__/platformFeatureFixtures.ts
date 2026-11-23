@@ -51,6 +51,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { NAMED_TILE_SLOTS, namedTileSlotsSchema } from "../modules";
 
 export interface PlatformFeatureFixture {
 	/** A document holding exactly one use of the feature. */
@@ -827,6 +828,58 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"case-list-registration-media",
 			MODULE_OWNER,
 			"caseListRegistrationForm.icon",
+		),
+	},
+	"named-case-tile": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					const columns = NAMED_TILE_SLOTS.map((slot) => ({
+						...config.columns[0],
+						uuid: testUuid(slot),
+					}));
+					config.columns = columns;
+					config.listColumnOrder = columns.map((column) => column.uuid);
+					config.detailColumnOrder = [...config.listColumnOrder];
+					config.tile = {
+						namedSlots: namedTileSlotsSchema.parse(
+							Object.fromEntries(
+								NAMED_TILE_SLOTS.map((slot, i) => [slot, columns[i].uuid]),
+							),
+						),
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse(
+			"named-case-tile",
+			MODULE_OWNER,
+			"caseListConfig.tile.namedSlots",
+		),
+	},
+	"details-tile": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.detailTile = {
+						cells: Object.fromEntries(
+							config.columns
+								.filter((c) => c.visibleInDetail !== false)
+								.map((c, i) => [c.uuid, tileCell(0, i, 12, 1)]),
+						),
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse("details-tile", MODULE_OWNER, "caseListConfig.detailTile"),
+	},
+	"raw-custom-tile-field": {
+		with: () => caseApp({ list: tiled({ androidOnly: true }) }),
+		without: () => caseApp({ list: tiled({}) }),
+		use: slotUse(
+			"raw-custom-tile-field",
+			COLUMN_OWNER,
+			"caseListConfig.columns[0].tile.androidOnly",
 		),
 	},
 	"tile-grouping": {

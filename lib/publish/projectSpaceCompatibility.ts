@@ -22,6 +22,8 @@ export type ProjectSpaceCapabilityId =
 	| "related-case-search"
 	| "case-tiles"
 	| "calculated-case-order"
+	| "detail-tab-rows"
+	| "case-form-context"
 	| "save-only-edited-answers"
 	| "same-type-child-links";
 
@@ -82,6 +84,18 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Search across related cases",
 		description:
 			"Lets a search filter on, or show, cases related to the ones it lists.",
+	},
+	"detail-tab-rows": {
+		id: "detail-tab-rows",
+		label: "Records in a detail tab",
+		description:
+			"Shows related cases or a collection of records in case details.",
+	},
+	"case-form-context": {
+		id: "case-form-context",
+		label: "Case context above forms",
+		description:
+			"Shows a one-line value from the case while workers fill out a form.",
 	},
 	"case-tiles": {
 		id: "case-tiles",
@@ -426,6 +440,8 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"related-case-search",
 	"case-tiles",
 	"calculated-case-order",
+	"detail-tab-rows",
+	"case-form-context",
 	"save-only-edited-answers",
 	"same-type-child-links",
 ]);

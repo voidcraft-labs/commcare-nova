@@ -72,13 +72,16 @@ import {
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseFormContextSchema } from "@/lib/domain/caseFormContext";
 import { caseRelationSchema } from "@/lib/domain/caseRelations";
+import { detailTabsSchema } from "@/lib/domain/detailTabs";
 import {
 	entryPointIdSchema,
 	entryPointTargetSchema,
 	formEntryPointSchema,
 } from "@/lib/domain/entryPoints";
 import { conditionSchema } from "@/lib/domain/expression/types";
+import { detailTileSchema } from "@/lib/domain/modules";
 import {
 	casePlacementSchema,
 	ownClosePlacementSchema,
@@ -1711,6 +1714,9 @@ function createMutationSchema({
 				filter: mutationConditionSchema.nullable().optional(),
 				selection: caseSelectionSchema.nullable().optional(),
 				tile: caseTileLayoutSchema.nullable().optional(),
+				detailTabs: detailTabsSchema.nullable().optional(),
+				detailTile: detailTileSchema.nullable().optional(),
+				contextAboveForm: caseFormContextSchema.nullable().optional(),
 			}),
 		}),
 		// The module's case list as its own menu entry, set whole as

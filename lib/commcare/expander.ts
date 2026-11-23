@@ -522,6 +522,7 @@ export function* expandDocSteps(
 			undefined,
 			undefined,
 			identity.columnFieldWord,
+			identity.moduleUniqueId,
 		);
 		// A menu with no case list of its own (a survey menu, the hidden menu
 		// of a no-matches form) still holds the one `name` column every new

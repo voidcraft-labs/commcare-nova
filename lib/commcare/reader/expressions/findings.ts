@@ -1285,6 +1285,38 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/module-filter-failing-hq-s-validate-xpath",
 		"parser:MenuParser/menu@relevant",
 	),
+	"form-context-value": take(
+		"menus-and-case-lists/detail-persist-case-context-persistent-case-context-xml",
+		"schema:Detail.persistent_case_context_xml",
+	),
+	"form-context-value-outside": refuse(
+		"menus-and-case-lists/form-context-expression-outside-its-case-scope",
+		"schema:Detail.persistent_case_context_xml",
+	),
+	"tab-child-filter": take(
+		"menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
+		"schema:DetailTab.nodeset_filter",
+	),
+	"tab-custom-rows": take(
+		"menus-and-case-lists/data-tab-over-a-custom-nodeset-xpath",
+		"schema:DetailTab.nodeset",
+	),
+	"tab-child-filter-outside": refuse(
+		"menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"schema:DetailTab.nodeset_filter",
+	),
+	"tab-custom-rows-outside": refuse(
+		"menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
+		"schema:DetailTab.nodeset",
+	),
+	"tab-condition": take(
+		"menus-and-case-lists/tab-relevant-lifts-into-predicate-not",
+		"schema:DetailTab.relevant",
+	),
+	"tab-condition-outside-scope": refuse(
+		"menus-and-case-lists/tab-display-condition-outside-its-case-scope",
+		"schema:DetailTab.relevant",
+	),
 	"detail-filter-value-lifts-into-predicate": take(
 		"menus-and-case-lists/detail-filter-value-lifts-into-predicate",
 		"schema:Detail.filter",
@@ -1711,6 +1743,22 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["module-filter-value-lifts-into-predicate"].entry,
 		C["module-filter-false-or-false-and-rest-menu-reached-only-by-links"].entry,
 		C["module-filter-value-outside-predicate-any-xpath-hq-s-validator"].entry,
+	),
+	case_form_context_line: fixed(
+		C["form-context-value"].entry,
+		C["form-context-value-outside"].entry,
+	),
+	case_detail_tab_filter: fixed(
+		C["tab-child-filter"].entry,
+		C["tab-child-filter-outside"].entry,
+	),
+	case_detail_tab_rows: fixed(
+		C["tab-custom-rows"].entry,
+		C["tab-custom-rows-outside"].entry,
+	),
+	case_detail_tab_condition: fixed(
+		C["tab-condition"].entry,
+		C["tab-condition-outside-scope"].entry,
 	),
 	case_list_filter: fixed(
 		C["detail-filter-value-lifts-into-predicate"].entry,

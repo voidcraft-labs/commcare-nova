@@ -23,6 +23,7 @@ import type {
 	CaseType,
 	Column,
 	CommitOutcome,
+	NamedTileSlot,
 	TileCell,
 	UserProperty,
 	Uuid,
@@ -35,6 +36,7 @@ import {
 	representedColumnProperties,
 	unrepresentedColumnProperties,
 } from "../seeds";
+import { NamedTileEditor } from "../tile/NamedTileEditor";
 import { TileLayoutCanvas } from "../tile/TileLayoutCanvas";
 import {
 	type CaseListArrangement,
@@ -89,6 +91,10 @@ export interface CaseListCanvasProps {
 	readonly tileIssues: ReadonlyMap<Uuid, readonly string[]>;
 	/** Present when the case list cannot be laid out as a tile right now. */
 	readonly tileDisabledReason: string | undefined;
+	readonly onNamedTileChange: (
+		slots: Record<NamedTileSlot, Uuid>,
+		rawSlots: NamedTileSlot[],
+	) => string | undefined;
 	readonly onArrangementChange: (next: CaseListArrangement) => void;
 	readonly onPlaceTileCell: (uuid: Uuid, cell: TileCell) => void;
 	readonly onPutColumnOnTile: (uuid: Uuid) => void;
@@ -127,6 +133,7 @@ export function CaseListCanvas({
 	onReturnToSearchField,
 	tileIssues,
 	tileDisabledReason,
+	onNamedTileChange,
 	onArrangementChange,
 	onPlaceTileCell,
 	onPutColumnOnTile,
@@ -200,9 +207,11 @@ export function CaseListCanvas({
 								<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
 									{!canEdit
 										? "People use this information to compare cases"
-										: tile !== undefined
-											? "Drag a field to move it on the tile. Select one to change its place or how it looks."
-											: "Drag to reorder. Select an item to change its label or appearance."}
+										: tile?.namedSlots
+											? "Each pair shows its fields together on the case tile."
+											: tile !== undefined
+												? "Drag a field to move it on the tile. Select one to change its place or how it looks."
+												: "Drag to reorder. Select an item to change its label or appearance."}
 								</p>
 							</div>
 							{canEdit && (
@@ -219,6 +228,9 @@ export function CaseListCanvas({
 							)}
 						</div>
 
+						{canEdit && (
+							<NamedTileEditor config={config} onSave={onNamedTileChange} />
+						)}
 						{projection.listVisible.length === 0 ? (
 							<div className="overflow-hidden rounded-xl border border-dashed border-nova-border-bright">
 								<CanvasNotice tone="muted" title="No case information is shown">

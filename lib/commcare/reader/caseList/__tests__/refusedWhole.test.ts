@@ -158,11 +158,16 @@ describe("a refused column", () => {
 		);
 	});
 
-	it("raises a Search Only column in a custom tile as one finding, its cell with it", async () => {
+	it("retains a Search Only field at its placed Android tile cell", async () => {
 		const reading = await readColumn({ format: "invisible" }, "short", true);
-		expect(closedCodes(reading)).toEqual([
-			`${M}invisible-or-address-column-in-a-custom-tile`,
-		]);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).columns[1]?.tile).toMatchObject({
+			x: 0,
+			y: 1,
+			width: 6,
+			height: 1,
+			androidOnly: true,
+		});
 	});
 
 	it("leaves an address column’s unused tile keys to their own row", async () => {

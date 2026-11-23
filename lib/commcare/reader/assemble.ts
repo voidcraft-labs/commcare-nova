@@ -1208,6 +1208,16 @@ function sourceTextSlot(
 				draft.modules[owner.moduleUuid].caseListRegistrationForm;
 			if (registration !== undefined) registration.label = value;
 		};
+	if (found?.role === "case-detail-tab-title" && owner?.kind === "module") {
+		return (draft, value) => {
+			const tab = draft.modules[
+				owner.moduleUuid
+			]?.caseListConfig?.detailTabs?.find(
+				(tab) => tab.uuid === found.context.detailTabUuid,
+			);
+			if (tab) tab.title = value;
+		};
+	}
 	if (found?.role === "case-list-header" && owner?.kind === "case-list-column")
 		return (draft, value) => {
 			const column = draft.modules[

@@ -8,7 +8,9 @@ import {
 	reachableCaseTypes,
 	toReachableIndex,
 } from "../caseTypes";
+import { detailConditionFixtures, detailTabForColumn } from "../detailTabs";
 import {
+	detailEntrySupplies,
 	type EntryDatumSupplies,
 	entryDatumSupplies,
 	formLinkTargetSupplies,
@@ -64,6 +66,7 @@ import { inferExpressionTypes } from "./inference";
 import { type RuleSet, type SlotProfile, slotProfile } from "./profiles";
 import { resolveRelationDestination } from "./relationDestination";
 import type { Held, ScalarHeld, ScalarType } from "./typeChecker";
+import { expressionRowScope } from "./typeChecker";
 import { datumRefKey, type FormNodeRef, type SlotContextRef } from "./types";
 
 export type LookupTypeIndex = ReadonlyMap<
@@ -216,6 +219,7 @@ export interface ExpressionContext {
 	readonly lookupTables: LookupTypeIndex;
 	readonly supplies: EntryDatumSupplies;
 	readonly targetSupplies?: EntryDatumSupplies;
+	readonly detailConditionFixtures?: ReadonlySet<LookupTableId | "places">;
 	/** A value of a server search condition that a device works out before
 	 * the search runs (`searchRuntimeValues.ts`): the slot names no device
 	 * target, yet Core evaluates this expression. */
@@ -1078,8 +1082,20 @@ export function slotContext(
 			slot.slot === "case_list_sort_expression" ||
 			slot.slot === "case_list_mapping_condition" ||
 			slot.slot === "case_list_column_expression";
+		const tabUuid =
+			"member" in slot && "tabUuid" in slot.member
+				? slot.member.tabUuid
+				: undefined;
+		const tab =
+			tabUuid &&
+			module.caseListConfig?.detailTabs?.find((tab) => tab.uuid === tabUuid);
+		if ("member" in slot && "tabUuid" in slot.member && !tab) return undefined;
 		const caseSlot = [
 			"case_list_mapping_condition",
+			"case_form_context_line",
+			"case_detail_tab_filter",
+			"case_detail_tab_rows",
+			"case_detail_tab_condition",
 			"case_list_filter",
 			"case_list_column_expression",
 			"case_list_sort_expression",
@@ -1088,6 +1104,8 @@ export function slotContext(
 		if (caseSlot && module.caseType === undefined) return undefined;
 		const condition = [
 			"case_list_mapping_condition",
+			"case_detail_tab_filter",
+			"case_detail_tab_condition",
 			"module_display_condition",
 			"case_list_filter",
 			"search_button_display_condition",
@@ -1110,19 +1128,24 @@ export function slotContext(
 		const targets: readonly import("./profiles").ExpressionTarget[] =
 			slot.slot === "case_list_mapping_condition"
 				? ["SU", "HQ", "PG", "PV"]
-				: slot.slot === "search_input_predicate"
-					? ["CS", "PG"]
-					: slot.slot === "case_list_filter"
-						? searchable
-							? ["SU", "HQ", "CS", "PG"]
-							: ["SU", "HQ", "PG"]
-						: orderValue
+				: slot.slot === "case_detail_tab_rows" ||
+						slot.slot === "case_detail_tab_filter" ||
+						slot.slot === "case_detail_tab_condition" ||
+						slot.slot === "case_form_context_line"
+					? ["HQ", "SU", "PV", "PG"]
+					: slot.slot === "search_input_predicate"
+						? ["CS", "PG"]
+						: slot.slot === "case_list_filter"
 							? searchable
-								? ["SU", "HQ", "CS", "PG", "PV"]
-								: ["SU", "HQ", "PG", "PV"]
-							: slot.slot === "excluded_owner_ids"
-								? ["SU", "CS", "PG"]
-								: ["SU", "HQ", "PV"];
+								? ["SU", "HQ", "CS", "PG"]
+								: ["SU", "HQ", "PG"]
+							: orderValue
+								? searchable
+									? ["SU", "HQ", "CS", "PG", "PV"]
+									: ["SU", "HQ", "PG", "PV"]
+								: slot.slot === "excluded_owner_ids"
+									? ["SU", "CS", "PG"]
+									: ["SU", "HQ", "PV"];
 		profile = slotProfile(
 			"record",
 			caseSlot ? "case" : "global",
@@ -1146,6 +1169,58 @@ export function slotContext(
 					caseType: module.caseType,
 				},
 			];
+		if (slot.slot === "case_detail_tab_rows")
+			profile = { ...profile, expectation: { kind: "value", many: true } };
+		if (slot.slot === "case_detail_tab_filter") {
+			if (tab?.rowSource?.kind !== "children") return undefined;
+			rows = [
+				{ kind: "case", root: "casedb", caseType: tab.rowSource.caseType },
+			];
+		}
+		if (slot.slot === "case_list_column_expression") {
+			const tab = detailTabForColumn(
+				module.caseListConfig,
+				slot.member.columnUuid,
+			);
+			const source = tab?.rowSource;
+			if (source?.kind === "children")
+				rows = [{ kind: "case", root: "casedb", caseType: source.caseType }];
+			if (tab && source?.kind === "records") {
+				const context = slotContext(
+					doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_detail_tab_rows",
+						member: {
+							tabUuid: tab.uuid,
+						},
+					},
+					lookupTables,
+					options,
+				);
+				const row = context && expressionRowScope(source.rows, context);
+				if (row) {
+					rows = [row];
+					profile = {
+						...profile,
+						...(row.kind !== "case" && {
+							targets: new Set<import("./profiles").ExpressionTarget>([
+								"HQ",
+								"SU",
+								"PV",
+							]),
+						}),
+						scope:
+							row.kind === "table"
+								? "table"
+								: row.kind === "location"
+									? "global"
+									: "case",
+					};
+				}
+			}
+		}
 		// The case list filter and an advanced search input's condition run at
 		// the module's case list step, after the selections before its own
 		// (`lib/domain/entryDatumSupplies.ts`).
@@ -1154,6 +1229,19 @@ export function slotContext(
 				kind: "case-list",
 				module: moduleUuid,
 			});
+		if (
+			slot.slot === "case_detail_tab_rows" ||
+			slot.slot === "case_detail_tab_filter" ||
+			slot.slot === "case_detail_tab_condition" ||
+			slot.slot === "case_form_context_line" ||
+			(slot.slot === "case_list_column_expression" &&
+				detailTabForColumn(module.caseListConfig, slot.member.columnUuid))
+		) {
+			// The earlier selections are available on every path into this
+			// selector. An inline search also supplies the rows from which its
+			// worker just chose a case on every path into its detail.
+			supplies = detailEntrySupplies(doc, moduleUuid);
+		}
 		if (slot.slot === "search_input_predicate")
 			supplies = entryDatumSupplies(doc, {
 				kind: "search",
@@ -1212,6 +1300,11 @@ export function slotContext(
 	};
 	return {
 		slot,
+		...(slot.entity === "module" &&
+			slot.slot === "case_detail_tab_condition" &&
+			module.caseListConfig && {
+				detailConditionFixtures: detailConditionFixtures(doc, module),
+			}),
 		ruleSet: profile.ruleSet,
 		...(caseTexts !== undefined && { caseTexts }),
 		...(slot.slot === "case_list_mapping_condition" &&

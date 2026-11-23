@@ -1,3 +1,4 @@
+import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
 /**
  * Reference-index construction, per-mutation maintenance, and queries —
  * the machinery behind `BlueprintDoc.refIndex`
@@ -931,7 +932,8 @@ function extractModuleEdges(
 				}
 				break;
 			case "case-type-ref":
-				if (mod.caseType) sink.edge(caseTypeTargetKey(mod.caseType), slot.slot);
+				for (const value of readSlotStrings(mod, slot.path))
+					if (value.text) sink.edge(caseTypeTargetKey(value.text), slot.slot);
 				break;
 			case "worker-property-ref":
 				for (const value of readSlotStrings(mod, slot.path))
@@ -947,9 +949,12 @@ function extractModuleEdges(
 						// A column read through a relation names a property of the
 						// case its walk reaches, and the walk names that type
 						// (the walk's own hints are `case_list_column_via`'s).
-						for (const caseType of column.via === undefined
-							? [mod.caseType]
-							: columnPropertyBindings(column, mod.caseType, relationTypes())) {
+						for (const caseType of columnCaseScopes(doc, mod, column).flatMap(
+							(origin) =>
+								column.via === undefined
+									? [origin]
+									: columnPropertyBindings(column, origin, relationTypes()),
+						)) {
 							sink.edge(
 								casePropertyTargetKey(caseType, column.field),
 								slot.slot,

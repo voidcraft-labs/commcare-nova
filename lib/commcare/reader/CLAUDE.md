@@ -221,8 +221,8 @@ Four rules hold everywhere here:
   refuses, is used for its hashtags alone (`expressions/surfaceUses.ts::xpathUses`). The slots
   HQ's build reads through `xpath.py::interpolate_xpath` are a menu's and a form's display
   condition, the case list's filter, a detail tab's filter over a case type's children (a tab
-  with `has_nodeset`, a `nodeset_case_type` and no `nodeset` of its own, registered for its uses
-  alone, `caseList/details.ts::registerTabFilter`) and a Search field's required and validation
+  with `has_nodeset`, a `nodeset_case_type` and no `nodeset` of its own, bound to its child row and registered
+  for its uses on a refused enclosing span by `caseList/details.ts::registerTabFilter`) and a Search field's required and validation
   conditions; in each, every pattern HQ replaces that the text holds, inside a string too
   (`#session/`, `#user`, `#case`, `#parent`, `#host`, and `$fixture_value` in a form's
   condition where its menu's lookup table selection is active), is a use under its own key,
@@ -266,6 +266,13 @@ Four rules hold everywhere here:
 - **No content in a finding or a log line.** A finding names a surface key, and the app's own
   value only in `detail.name`; a defect and its log line name places, codes and shapes, never an
   app's text.
+
+A Details tab is identified by its least external column key among its members.
+Read its offset and title independently. Reordering the fields or renaming the
+group in HQ preserves its identity. An explicit collection can name a separate
+child case type to include in a Search result. HQ's `get_child_case_types`
+reads the stored child type even when `DetailContributor` renders the explicit
+collection instead. Conditions use the enclosing selected case for every tab.
 
 ## The bar and the canonical rows
 

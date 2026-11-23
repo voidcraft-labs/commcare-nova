@@ -54,6 +54,7 @@ export const translationUnitRoles = [
 	"field-help",
 	"field-validation-message",
 	"select-option-label",
+	"case-detail-tab-title",
 	"case-list-header",
 	"case-list-sort-label",
 	"case-list-calculation-text",
@@ -129,6 +130,7 @@ export interface TranslationUnitContext {
 	readonly fieldId?: string;
 	readonly fieldKind?: Field["kind"];
 	readonly columnKind?: string;
+	readonly detailTabUuid?: Uuid;
 	readonly optionValue?: string;
 	readonly caseType?: string;
 	readonly caseProperty?: string;
@@ -156,6 +158,7 @@ export type TranslationStatus =
 	| "ready";
 
 const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
+	"case-detail-tab-title",
 	"app-name",
 	"module-name",
 	"form-name",
@@ -668,6 +671,19 @@ export function collectTranslationUnits(
 						context: { moduleName: module.name },
 					}),
 				);
+		}
+		for (const tab of list?.detailTabs ?? []) {
+			out.push(
+				unit({
+					id: makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+					role: "case-detail-tab-title",
+					valueKind: "text",
+					source: tab.title,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Cases", "Details", tab.title],
+					context: { moduleName: module.name, detailTabUuid: tab.uuid },
+				}),
+			);
 		}
 		for (const column of list?.columns ?? []) {
 			// A sort rule's name in the list's Sort by menu, on a column hidden

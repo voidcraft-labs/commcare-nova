@@ -584,6 +584,7 @@ function extractRegisteredExpressions(
 					if ("datum" in member) subpath = ["datum", datumRefKey(member.datum)];
 				} else if ("columnUuid" in member) carrierUuid = member.columnUuid;
 				else if ("sortUuid" in member) carrierUuid = member.sortUuid;
+				else if ("tabUuid" in member) carrierUuid = member.tabUuid;
 				else if ("optionUuid" in member) carrierUuid = member.optionUuid;
 				else carrierUuid = member.searchInputUuid;
 			}

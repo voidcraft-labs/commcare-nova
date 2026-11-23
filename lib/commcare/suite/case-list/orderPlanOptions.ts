@@ -25,7 +25,6 @@ import {
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	type Module,
-	moduleFormsReadSearch,
 } from "@/lib/domain";
 import { propertiesReachedByColumn } from "@/lib/domain/columnRelation";
 import {
@@ -43,7 +42,6 @@ import { w } from "../../xpath/wire/builders";
 import { toWire } from "../../xpath/wire/fromExpression";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
-import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
 import { columnPropertyPath } from "../wire";
 import { bindCaseTextVariables, caseTextKeyPadding } from "./calculationText";
@@ -52,6 +50,7 @@ import {
 	linkColumnDisplayXpath,
 	plainSelectDisplayXpath,
 } from "./columns";
+import { detailBindings } from "./detailBindings";
 
 /**
  * HQ's `XPathEnum` builder discovers a `translatable-enum` column's variables
@@ -81,6 +80,7 @@ export function columnStoredAsExpression(column: Column): boolean {
 export function hqCalculatedSortExpression(
 	sort: Pick<CalculatedSort, "uuid" | "expression">,
 	mod: Module,
+	doc: BlueprintDoc,
 	expressions: ModuleExpressionContexts,
 	naming?: LookupWireNaming,
 	rewrites?: RewriteControl,
@@ -102,9 +102,9 @@ export function hqCalculatedSortExpression(
 				naming: naming ?? identityLookupWireNaming(),
 				instanceScope: "suite",
 			},
-			...(moduleFormsReadSearch(mod)
-				? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
-				: {}),
+			// The suite's sort field binds the same prior selections and
+			// search answers (`columns.ts::lookupTermContext`).
+			...detailBindings(doc, mod),
 		},
 	});
 }
@@ -158,9 +158,7 @@ export function hqExpressionField(
 					naming: lookupNaming ?? identityLookupWireNaming(),
 					instanceScope: "suite",
 				},
-				...(moduleFormsReadSearch(mod)
-					? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
-					: {}),
+				...detailBindings(doc, mod),
 			},
 			...(rewrites === undefined ? {} : { rewrites }),
 		});

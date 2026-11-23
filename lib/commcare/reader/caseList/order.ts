@@ -336,7 +336,8 @@ export function readSortElements(
 	shortColumns: readonly JsonCursor[],
 	relation: Pick<ColumnOptions, "offersSearch" | "relationVia">,
 ): SortReading {
-	const tileList = short.peek("case_tile_template") === "custom";
+	const template = short.peek("case_tile_template");
+	const tileList = template === "custom" || template === "icon_text_grid";
 	const stored = short.peek("sort_elements");
 	const elements = Array.isArray(stored) ? stored : [];
 	const numeric = new Map<number, string>();

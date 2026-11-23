@@ -1625,9 +1625,14 @@ shows the popped visit's.
 A `caseListConfig.tile` turns each Results row into a grid. `caseTileLayout.ts`
 resolves the geometry and `caseTileRendering.ts` turns it into declarations;
 `components/preview/shared/CaseTile.tsx` is the only renderer, shared by the
-Results rows and the pinned tile, so the two cannot draw one case
-differently. Both files carry the CommCare citations — read them before changing
+Results rows, the pinned tile and Web Apps Details. Each surface passes its own layout. Both files carry the CommCare citations — read them before changing
 a number.
+
+Web Apps draws an independent Details grid when configured. Android draws ordinary
+labeled Details fields. A conditional tab reads the selected record, then its
+fields read the row supplied to that tab. A signed app test can open an available
+tab by identity and expand the case context above a form. The selecting menu
+and case identify the data even when a different menu supplies the display.
 
 **The pinned tile is one rule over the session's held cases**
 (`pinnedCaseTile.ts::previewPinnedCaseTile`, drawn by

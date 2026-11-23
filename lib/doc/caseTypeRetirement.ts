@@ -710,6 +710,7 @@ function collectModuleConfigReferences(
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
 			case "module_parent":
+			case "case_form_context_menu":
 			case "module_case_parent":
 			case "module_case_list_registration_form":
 				// Entity parentage and the registration form's identity are
@@ -785,6 +786,40 @@ function collectModuleConfigReferences(
 							concise: `a rule in "${col.header}" on ${where} uses "${caseType}" information`,
 						});
 				}
+				break;
+			}
+			case "case_detail_tab_child_type":
+			case "case_detail_tab_search_child_type": {
+				for (const tab of list?.detailTabs ?? []) {
+					const source = tab.rowSource;
+					const type =
+						slot.slot === "case_detail_tab_child_type" &&
+						source?.kind === "children"
+							? source.caseType
+							: slot.slot === "case_detail_tab_search_child_type" &&
+									source?.kind === "records"
+								? source.includeChildrenOfType
+								: undefined;
+					if (type === caseType)
+						out.push(
+							sameRef(
+								`the Details tab "${tab.title}" on ${where} uses child cases of type "${caseType}"`,
+							),
+						);
+				}
+				break;
+			}
+			case "case_form_context_line":
+			case "case_detail_tab_rows":
+			case "case_detail_tab_filter":
+			case "case_detail_tab_condition": {
+				for (const { value } of readSlotValues(mod, slot.path))
+					if (value && expressionRefsCaseType(value as Expression, caseType))
+						out.push(
+							sameRef(
+								`a Details setting on ${where} uses "${caseType}" information`,
+							),
+						);
 				break;
 			}
 			case "case_list_column_expression": {

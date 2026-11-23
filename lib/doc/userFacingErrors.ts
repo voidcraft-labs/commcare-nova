@@ -1144,6 +1144,19 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `A calculated value in ${q(modName(e))}`) ??
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
+	CASE_DETAIL_TAB_MOVE_NEEDS_GROUP: () =>
+		"This move would change which tab shows a field. Open Edit tabs to choose where it belongs.",
+	CASE_DETAIL_TAB_ROWS_INVALID: (e) =>
+		recordFindingCopy(
+			e,
+			`The rows on ${q(String(e.details?.tabTitle ?? "this tab"))}`,
+		) ?? e.message,
+	CASE_DETAIL_TAB_CONDITION_INVALID: (e) =>
+		recordFindingCopy(
+			e,
+			`The display condition for ${q(String(e.details?.tabTitle ?? "this tab"))}`,
+		) ??
+		`The display condition for ${q(String(e.details?.tabTitle ?? "this tab"))} can't be used here. You can edit it in Details.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The Cases available setting in ${q(modName(e))}`) ??
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
@@ -1207,6 +1220,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} has a value label for ${q(det(e, "value", "a saved value"))}, and a saved value there can't hold &, <, >, " or '. You can change the value or remove its label.`,
 	CASE_LIST_DATE_PATTERN_APOSTROPHE: (e) =>
 		`A date style in ${q(modName(e))} holds a straight apostrophe ('), and CommCare HQ's date column has no way to store one. You can use a curved one (’).`,
+	CASE_DETAIL_TILE_LAYOUT_INVALID: (e) => e.message,
+	CASE_FORM_CONTEXT_INVALID: (e) => e.message,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
 		`An item on ${q(modName(e))}'s tile runs off the edge of the layout. Move it back inside, or make it narrower or shorter.`,
 	CASE_LIST_TILE_CELLS_OVERLAP: (e) =>

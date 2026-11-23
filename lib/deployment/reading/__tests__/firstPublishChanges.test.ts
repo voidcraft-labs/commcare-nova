@@ -3301,6 +3301,7 @@ const SOURCE_FOLD_ROLES: ReadonlySet<string> = new Set([
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"case-list-header",
+	"case-detail-tab-title",
 	"search-input-label",
 	"search-input-hint",
 ]);
@@ -3414,6 +3415,19 @@ function caseListTextsDoc(): BlueprintDoc {
 	return inSpanish(
 		produce(doc, (draft) => {
 			const menu = draft.modules[draft.moduleOrder[0] ?? ""];
+			if (menu?.caseListConfig)
+				menu.caseListConfig.detailTabs = [
+					{
+						uuid: testUuid("patient-overview"),
+						title: "Overview",
+						startColumnUuid: uuid(1),
+					},
+					{
+						uuid: testUuid("patient-notes"),
+						title: "Notes",
+						startColumnUuid: uuid(2),
+					},
+				];
 			if (menu !== undefined) menu.caseListMenuItem = { label: "All patients" };
 		}),
 		new Map(),
@@ -3502,6 +3516,7 @@ const FOLD_CASES: Readonly<Record<string, FoldCase>> = {
 				"modules.m#",
 				"forms.m#f#",
 				"case_lists.m#",
+				"m#.*.tab.#.title",
 				"m#.*.*_*_#.header",
 				"m#.*.*_*_*.enum.*",
 				"search_property.m#.*.validation.#.text",
@@ -3539,6 +3554,13 @@ describe("the text a folded translation key names", () => {
 					FIRST_PUBLISH_CHANGES["translation-overrides-folded"].paths,
 				).toContain(path);
 		}
+	});
+
+	it("places the title of the second tab on its long detail for case and search", () => {
+		for (const screen of ["case", "search"])
+			expect(placesOfGeneratedKey(`m2.${screen}_long.tab.2.title`)).toEqual([
+				"/menu/2/case_details/long/tabs/1/header",
+			]);
 	});
 
 	it("places each key's text at the positions it spells: a column's header on its screen, and its sort element's name", () => {

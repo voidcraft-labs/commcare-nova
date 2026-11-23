@@ -239,3 +239,52 @@ def test_android_map_uses_locations_shapes_and_colors_from_both_installed_archiv
                 "label": "Bea", "invalid": True, "location": [28, 44],
                 "boundary": [], "points": [[28, 44], [30, 46]],
             }, name
+
+
+@pytest.mark.parametrize("scenario", ["detail-tabs", "detail-layout", "named-layout"])
+def test_details_and_named_results_on_each_android_archive(android_documents, hq, scenario):
+    from proof.observe.visit_layout_data import visits
+
+    document = android_documents[f"tile-{scenario}"]
+    with _archives(document, visits()) as (served, archives):
+        for name, archive in archives.items():
+            selected = _list(served, archive, name, "m0-f0", [])
+            if scenario == "named-layout":
+                text = _texts(selected["rows"][0])
+                assert "Amina" in text and "Village\u2005West" in text, (name, text)
+                assert "Visit part 7\u2005Amina 7" in text, (name, text)
+                continue
+            detail = selected["detail"]["tabs"]
+            values = [[s for field in tab["fields"] for s in field["texts"]] for tab in detail]
+            if scenario == "detail-tabs":
+                assert [tab["title"] for tab in detail] == ["Visit", "Follow-up"], (name, detail)
+                assert "Amina" in values[0] and "West" in values[0]
+                assert "Monday" not in values[0] and "Monday" in values[1]
+            else:
+                # The Android long-detail adapter lays out ordinary labeled
+                # fields even though the same long detail has Web Apps grid positions.
+                assert len(detail) == 1
+                assert all(label in values[0] for label in ["Name", "Amina", "Village", "West", "Last visit", "Monday"])
+
+
+@pytest.mark.parametrize(
+    ("scenario", "values", "expanded"),
+    [("persistent-line", ["West"], None), ("persistent-inline", ["Amina", "West", "Monday"], "Village"),
+     ("persistent-external", ["Monday"], "Previous visit")],
+)
+def test_selected_case_context_in_android_form_entry(android_documents, hq, scenario, values, expanded):
+    from proof.android import observe
+    from proof.observe.record import Blobs
+    from proof.observe.visit_layout_data import visits
+
+    with _archives(android_documents[f"tile-{scenario}"], visits()) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            found = observe.app(served, blobs, label=name, archive=archive, commands=["m0-f0"], views=True)
+            walk = blobs.get_json(found["answer"])["walks"]["m0-f0"]
+            (opened,) = [step["form"] for step in walk["steps"] if "form" in step]
+            tile = opened["caseContext"]
+            assert tile["values"] == values, (name, tile)
+            assert tile["expands"] is bool(expanded)
+            if expanded:
+                assert expanded in tile["detail"] and "Monday" in tile["detail"], (name, tile)

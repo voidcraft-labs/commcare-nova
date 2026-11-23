@@ -43,6 +43,7 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"caseListColumn",
 	"caseMappingRow",
 	"caseListSort",
+	"caseDetailTab",
 	"searchInput",
 	"caseOperation",
 	"formLink",
@@ -157,6 +158,23 @@ export const externalKey = {
 			kind: "caseListSort",
 			parts: [moduleUniqueId, expressionKey, ordinal(n)],
 		};
+	},
+	/** HQ has no tab id. The least physical column key in a populated group
+	 * survives renaming, moving the group, and reordering its member fields. */
+	caseDetailTab(
+		first: ExternalKey,
+		others: readonly ExternalKey[],
+	): ExternalKey {
+		let least = first;
+		let text = externalKeyText(first);
+		for (const column of others) {
+			const candidate = externalKeyText(column);
+			if (candidate < text) {
+				least = column;
+				text = candidate;
+			}
+		}
+		return { kind: "caseDetailTab", parts: least.parts };
 	},
 	searchInput(moduleUniqueId: string, name: string): ExternalKey {
 		return { kind: "searchInput", parts: [moduleUniqueId, name] };

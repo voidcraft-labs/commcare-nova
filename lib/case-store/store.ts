@@ -71,7 +71,10 @@ import type {
  * (`__nova_calc__<uuid>`); the `expression` is the per-row
  * `DomainExpression` the SQL emitter compiles into a projection.
  */
-export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
+type CalculatedDisplayColumn = Extract<Column, { kind: "calculated" }>;
+export type CalculatedColumn =
+	| CalculatedDisplayColumn
+	| Pick<CalculatedDisplayColumn, "uuid" | "expression">;
 
 /** One value a case list reads off another case (`QueryArgs.related`). */
 export interface RelatedRead {

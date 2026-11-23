@@ -54,6 +54,8 @@ const english = {
 	showCaseAddress: "Show address",
 	pageFilterScope:
 		"This filter checks the {count} on this page. Go to another page to check more cases.",
+	expandCaseDetails: "Show case details",
+	collapseCaseDetails: "Hide case details",
 	viewCaseDetails: "View details for {name}",
 	continueWithCase: "Continue with {name}",
 	chooseCase: "Choose {name}",
@@ -385,6 +387,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	showCaseAddress: "Mostrar dirección",
 	pageFilterScope:
 		"Este filtro busca en esta página ({count}). Puede ir a otra página para buscar más registros.",
+	expandCaseDetails: "Mostrar detalles del caso",
+	collapseCaseDetails: "Ocultar detalles del caso",
 	viewCaseDetails: "Ver detalles de {name}",
 	continueWithCase: "Continuar con {name}",
 	chooseCase: "Seleccionar {name}",

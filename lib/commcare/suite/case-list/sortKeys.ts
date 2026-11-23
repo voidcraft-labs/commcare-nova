@@ -171,7 +171,7 @@ export function distanceSortXpath(value: WireExpr): WireExpr {
 	]);
 }
 
-function keyDirective(
+export function keyDirective(
 	key: CaseListSortKey,
 	column: Column,
 	attributes: SortRuleAttributes,

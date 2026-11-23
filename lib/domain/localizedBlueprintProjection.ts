@@ -100,6 +100,11 @@ export function projectLocalizedModule(
 					rule.label,
 				);
 		}
+		for (const tab of localized.caseListConfig.detailTabs ?? [])
+			tab.title = text(
+				makeTranslationUnitId("detail-tab", tab.uuid, "title"),
+				tab.title,
+			);
 		localized.caseListConfig.columns = localized.caseListConfig.columns.map(
 			(column) => {
 				const next = {

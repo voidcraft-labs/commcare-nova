@@ -1,11 +1,3 @@
-/**
- * The case list stages: every menu's two details read into its case list
- * (`readCaseLists`), and accepted over the bound document by the production
- * projection (`settleCaseLists`): one call of
- * `hqJson/caseList.ts::projectCaseListForHq` per menu, whose short and long
- * details, sort elements, filter and tile keys must equal the stored ones
- * after the inert claims and the same-state rows.
- */
 import { produce } from "immer";
 import type {
 	BlueprintDoc,
@@ -14,6 +6,15 @@ import type {
 	Module,
 	Uuid,
 } from "@/lib/domain";
+/**
+ * The case list stages: every menu's two details read into its case list
+ * (`readCaseLists`), and accepted over the bound document by the production
+ * projection (`settleCaseLists`): one call of
+ * `hqJson/caseList.ts::projectCaseListForHq` per menu, whose short and long
+ * details, sort elements, filter and tile keys must equal the stored ones
+ * after the inert claims and the same-state rows.
+ */
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
@@ -32,6 +33,8 @@ import { withCandidate } from "../candidate";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
+import { sameSlotText } from "../expressions/readExpression";
+import { detailSourceSpans } from "../fixtureRows";
 import { hqDeviceText } from "../heldText";
 import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
@@ -91,14 +94,23 @@ function choiceProperties(ctx: ReadContext, app: DraftApp): Set<string> {
 		for (const screen of ["short", "long"] as const) {
 			const detail = isJsonObject(pair) ? pair[screen] : undefined;
 			const columns = isJsonObject(detail) ? detail.columns : undefined;
-			for (const column of Array.isArray(columns) ? columns : []) {
+			if (!Array.isArray(columns)) continue;
+			// A field of a Details tab over other records shows a property of
+			// that tab's rows: a child case type's, or none for a table's rows.
+			const rows =
+				screen === "long" && isJsonObject(detail)
+					? detailSourceSpans(objectMembers(detail.tabs) ?? [], columns.length)
+					: [];
+			for (const [i, column] of columns.entries()) {
+				if (rows[i]?.fixture) continue;
+				const origin = rows[i]?.caseType ?? caseType;
 				const read = labelShownProperty(column, (steps) =>
-					readColumnVia(ctx, caseType, steps),
+					readColumnVia(ctx, origin, steps),
 				);
 				if (read === undefined) continue;
 				const owner = columnPropertyCaseType(
 					read,
-					caseType,
+					origin,
 					ctx.draft.caseTypes ?? [],
 				);
 				if (owner !== undefined)
@@ -718,6 +730,10 @@ function listDifference(
 		inputs.lookupNaming,
 		undefined,
 		heldListLevels(ctx, mod),
+		undefined,
+		(uuid) =>
+			ctx.draft.modules.find((menu) => menu.uuid === uuid)?.uniqueId ??
+			String(uuid),
 	);
 	const pair = printed(projected.caseDetails) as {
 		short: JsonObject;
@@ -750,6 +766,61 @@ function listDifference(
 		reading.long.peek("columns"),
 		reading.dropped.long,
 	).map(({ column, index }) => ({ column: asPrinted(column), index }));
+	const storedTabs = objects(reading.long.peek("tabs"));
+	const projectedTabs = objects(pair.long.tabs);
+	if (storedTabs.length !== projectedTabs.length) return "schema:Detail.tabs";
+	for (const [i, tab] of storedTabs.entries()) {
+		const projected = projectedTabs[i];
+		if (
+			!projected ||
+			!sameHeldTexts(
+				codes,
+				sourceCode(ctx),
+				"case-detail-tab-title",
+				tab.header,
+				projected.header,
+			)
+		)
+			return "schema:DetailTab.header";
+		if (
+			longStored[Number(projected.starting_index)]?.index !== tab.starting_index
+		)
+			return "schema:DetailTab.starting_index";
+		if (Boolean(tab.has_nodeset) !== Boolean(projected.has_nodeset))
+			return "schema:DetailTab.has_nodeset";
+		if (tab.has_nodeset) {
+			const custom = typeof tab.nodeset === "string" && tab.nodeset !== "";
+			if (!custom && tab.nodeset_case_type !== projected.nodeset_case_type)
+				return "schema:DetailTab.nodeset_case_type";
+			const key = custom ? "nodeset" : "nodeset_filter";
+			const original = tab[key],
+				next = projected[key],
+				owner = mod.caseListConfig?.detailTabs?.[i];
+			if (
+				(original || next) &&
+				(!owner ||
+					typeof original !== "string" ||
+					typeof next !== "string" ||
+					!sameSlotText(
+						doc,
+						{
+							entity: "module",
+							uuid: mod.uuid,
+							slot: custom ? "case_detail_tab_rows" : "case_detail_tab_filter",
+							member: { tabUuid: owner.uuid },
+						},
+						original,
+						next,
+					))
+			)
+				return `schema:DetailTab.${key}`;
+		}
+		const stored = typeof tab.relevant === "string" ? tab.relevant : "";
+		const printed =
+			typeof projected.relevant === "string" ? projected.relevant : "";
+		if ((stored || printed) && !sameXPathText(stored, printed))
+			return "schema:DetailTab.relevant";
+	}
 	const shortOurs = objects(pair.short.columns);
 	const longOurs = objects(pair.long.columns);
 	const tile = mod.caseListConfig?.tile !== undefined;
@@ -760,7 +831,7 @@ function listDifference(
 			sourceCode(ctx),
 			column,
 			longOurs[position] as JsonObject,
-			false,
+			mod.caseListConfig?.detailTile !== undefined,
 			"long",
 			handed.long.has(index),
 		);
@@ -782,11 +853,18 @@ function listDifference(
 			sourceCode(ctx),
 			column,
 			shortOurs[position] as JsonObject,
-			tile,
+			tile && !mod.caseListConfig?.tile?.namedSlots,
 			"short",
 			handed.short.has(index),
 		);
 		if (key !== undefined) return key;
+	}
+	if (mod.caseListConfig?.tile?.namedSlots) {
+		for (const [i, stored] of shortStored.entries()) {
+			const slot = shortOurs[i]?.case_tile_field;
+			if (slot && slot !== stored.column.case_tile_field)
+				return "schema:DetailColumn.case_tile_field";
+		}
 	}
 	const sortKey = sortDifference(
 		ctx,
@@ -821,11 +899,35 @@ function listDifference(
 	// `false` is the off switch HQ's Case List page writes on every save of a short detail, which
 	// every reader tests by truth (`details.ts`, `detail-persistence-switches-false`).
 	const off = (value: unknown) => blank(value) || value === false;
-	for (const key of ["case_tile_template", "persist_tile_on_forms"] as const) {
+	if (
+		!sameJson(
+			reading.long.peek("case_tile_template") || null,
+			pair.long.case_tile_template || null,
+		)
+	)
+		return "schema:Detail.case_tile_template";
+	for (const key of [
+		"case_tile_template",
+		"persist_tile_on_forms",
+		"persistent_case_tile_from_module",
+		"pull_down_tile",
+	] as const) {
 		const a = reading.short.peek(key);
 		const b = pair.short[key];
 		if ((a ?? null) !== (b ?? null) && !(off(a) && off(b)))
 			return `schema:Detail.${key}`;
+	}
+	if (caseContextLine(mod.caseListConfig?.contextAboveForm)) {
+		if (pair.short.persist_case_context !== true)
+			return "schema:Detail.persist_case_context";
+		const source =
+			reading.short.peek("persistent_case_context_xml") ?? "case_name";
+		if (
+			typeof source !== "string" ||
+			typeof pair.short.persistent_case_context_xml !== "string" ||
+			!sameXPathText(source, pair.short.persistent_case_context_xml)
+		)
+			return "schema:Detail.persistent_case_context_xml";
 	}
 	const groupA = reading.short.peek("case_tile_group");
 	const groupB = pair.short.case_tile_group;

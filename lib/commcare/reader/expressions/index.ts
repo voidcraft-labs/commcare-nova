@@ -321,6 +321,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"columnUuid",
 		"sortUuid",
 		"rowUuid",
+		"tabUuid",
 		"searchInputUuid",
 		"optionUuid",
 	])

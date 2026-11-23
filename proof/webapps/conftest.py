@@ -48,6 +48,12 @@ DOCUMENTS = (
     "targeted-survey-menu",
     "targeted-tile-group-filter",
     "targeted-tile-hidden-order",
+    "tile-detail-layout",
+    "tile-detail-tabs",
+    "tile-named-layout",
+    "tile-persistent-external",
+    "tile-persistent-inline",
+    "tile-persistent-line",
 )
 # Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.
 CONTROLS = ("case-operation-query",)

@@ -377,6 +377,9 @@ function describeUserPropertyReference(
 	if (module !== undefined) {
 		const setting: Partial<Record<string, string>> = {
 			case_list_mapping_condition: "mapping condition",
+			case_detail_tab_condition: "detail tab display condition",
+			case_detail_tab_filter: "child record condition",
+			case_detail_tab_rows: "detail tab records",
 			case_list_column_expression: "calculated value",
 			case_list_column_worker_information: "case view column",
 			case_list_sort_expression: "default order calculation",

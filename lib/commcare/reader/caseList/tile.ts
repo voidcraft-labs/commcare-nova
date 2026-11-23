@@ -10,6 +10,8 @@ import {
 	type BlueprintDoc,
 	type Column,
 	makeTranslationUnitId,
+	NAMED_TILE_SLOTS,
+	type NamedTileSlot,
 	orderedColumns,
 	plainColumn,
 	type Uuid,
@@ -24,6 +26,7 @@ import {
 	type TileVerticalAlign,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
+import { readNamedTileSlot } from "../../suite/case-list/namedTile";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../../suite/case-list/tileStyle";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { withCandidate } from "../candidate";
@@ -55,9 +58,21 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}detail-case-tile-template-custom`,
 		"schema:Detail.case_tile_template",
 	),
-	iconTextGrid: refuse(
+	iconTextGrid: take(
 		`${A}detail-case-tile-template-icon-text-grid`,
 		"schema:Detail.case_tile_template",
+	),
+	namedSlot: take(
+		`${A}case-tile-field-template-slot-on-icon-text-grid`,
+		"schema:DetailColumn.case_tile_field",
+	),
+	incompleteNamedTile: refuse(
+		`${A}named-case-tile-missing-a-required-slot`,
+		"schema:Detail.case_tile_template",
+	),
+	inactiveNamedSlot: drop(
+		`${A}unused-slot-of-a-named-case-tile`,
+		"schema:DetailColumn.case_tile_field",
 	),
 	personSimple: refuse(
 		`${A}detail-case-tile-template-person-simple`,
@@ -67,7 +82,7 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}detail-case-tile-template-other-than-custom-person-simple-or`,
 		"schema:Detail.case_tile_template",
 	),
-	longCustom: refuse(
+	longCustom: take(
 		`${A}long-detail-custom-tile-case-detail-laid-out-as-a-tile`,
 		"schema:Detail.case_tile_template",
 	),
@@ -163,6 +178,8 @@ export interface TileReading {
 	readonly config?: NonNullable<CaseListConfig["tile"]>;
 	/** Each placed column's cell, by its index in the join. */
 	readonly cells: ReadonlyMap<number, TileCell>;
+	readonly detailCells?: ReadonlyMap<number, TileCell>;
+	readonly slots?: ReadonlyMap<NamedTileSlot, number>;
 }
 
 /** HQ's vertical words read back to Nova's, by the table the projection writes them with. */
@@ -280,33 +297,74 @@ export function readTile(
 	let ok = true;
 	const cells = new Map<number, TileCell>();
 	const longTemplate = long.peek("case_tile_template");
-	if (typeof longTemplate === "string" && longTemplate !== "") {
-		long.refuse(
-			"case_tile_template",
-			longTemplate === "custom" ? T.longCustom : T.longOther,
-		);
-		ok = false;
+	let detailCells: Map<number, TileCell> | undefined;
+	if (longTemplate === "custom") {
+		long.take("case_tile_template", T.longCustom, String).value;
+		detailCells = new Map();
+		for (const [index, column] of joined.columns.entries()) {
+			if (column.long === undefined) continue;
+			const cursor = longColumns[column.long];
+			const cell = readCell(ctx, cursor, `${long.pointer}/case_tile_template`);
+			if (cell === "finding") ok = false;
+			else detailCells.set(index, cell);
+		}
+	} else {
+		if (typeof longTemplate === "string" && longTemplate !== "") {
+			long.refuse("case_tile_template", T.longOther);
+			ok = false;
+		}
+		for (const column of longColumns) dropCells(column);
 	}
-	for (const column of longColumns) dropCells(column);
 	const template = short.peek("case_tile_template");
 	if (template === null || template === undefined || template === "") {
 		for (const column of shortColumns) dropCells(column);
-		return { ok, cells };
+		return { ok, cells, detailCells };
 	}
-	if (template !== "custom") {
+	if (template !== "custom" && template !== "icon_text_grid") {
 		short.refuse(
 			"case_tile_template",
-			template === "icon_text_grid"
-				? T.iconTextGrid
-				: template === "person_simple"
-					? T.personSimple
-					: T.otherTemplate,
+			template === "person_simple" ? T.personSimple : T.otherTemplate,
 		);
 		for (const column of shortColumns) dropCells(column);
-		return { ok: false, cells };
+		return { ok: false, cells, detailCells };
 	}
-	short.take("case_tile_template", T.custom, String).value;
+	const named = template === "icon_text_grid";
+	const slots = new Map<NamedTileSlot, number>();
+	if (named) {
+		const assignments = new Map<NamedTileSlot, number>();
+		shortColumns.forEach((cursor, i) => {
+			const slot = readNamedTileSlot(cursor.peek("case_tile_field"));
+			if (slot) assignments.set(slot, i);
+		});
+		shortColumns.forEach((cursor, i) => {
+			if (!cursor.used("case_tile_field")) return;
+			const slot = readNamedTileSlot(cursor.peek("case_tile_field"));
+			if (slot && assignments.get(slot) === i)
+				cursor.take("case_tile_field", T.namedSlot, String).value;
+			else cursor.drop("case_tile_field", T.inactiveNamedSlot);
+		});
+		for (const [i, col] of joined.columns.entries()) {
+			if (col.short === undefined) continue;
+			const slot = readNamedTileSlot(
+				shortColumns[col.short].peek("case_tile_field"),
+			);
+			if (slot && assignments.get(slot) === col.short) slots.set(slot, i);
+		}
+		if (assignments.size !== NAMED_TILE_SLOTS.length) {
+			short.refuse("case_tile_template", T.incompleteNamedTile);
+			ok = false;
+		} else short.take("case_tile_template", T.iconTextGrid, String).value;
+	} else short.take("case_tile_template", T.custom, String).value;
 	const config: NonNullable<CaseListConfig["tile"]> = {};
+	const rawSlots = [...slots]
+		.filter(([, i]) => {
+			const key = joined.columns[i]?.short;
+			return (
+				key !== undefined && shortColumns[key].peek("format") === "invisible"
+			);
+		})
+		.map(([slot]) => slot);
+	if (rawSlots.length) config.rawSlots = rawSlots;
 	if (short.peek("persist_tile_on_forms") === true) {
 		short.take("persist_tile_on_forms", T.persist, Boolean).value;
 		config.persistOnForms = true;
@@ -340,20 +398,35 @@ export function readTile(
 		if (column.short === undefined) return;
 		const cursor = shortColumns[column.short];
 		if (cursor === undefined) return;
-		if (column.visibleInList === false) {
+		if (
+			named ||
+			(column.visibleInList === false && cursor.peek("format") !== "invisible")
+		) {
 			dropCells(cursor);
 			return;
 		}
 		const cell = readCell(ctx, cursor, `${short.pointer}/case_tile_template`);
 		if (cell === "finding") ok = false;
-		else cells.set(index, cell);
+		else
+			cells.set(
+				index,
+				cursor.peek("format") === "invisible"
+					? { ...cell, androidOnly: true }
+					: cell,
+			);
 	});
 	// A column an inert row dropped writes no field, so no cell (`detail_screen.py::Filter`).
 	for (const index of dropped) {
 		const cursor = shortColumns[index];
 		if (cursor !== undefined) dropCells(cursor);
 	}
-	return { ok, config, cells };
+	return {
+		ok,
+		config,
+		cells,
+		detailCells,
+		...(named && slots.size === NAMED_TILE_SLOTS.length && { slots }),
+	};
 }
 
 /**
@@ -513,6 +586,8 @@ function carriersAsPlainColumns(
 	const rename = (one: Uuid) => renamed.get(one) ?? one;
 	config.listColumnOrder = config.listColumnOrder.map(rename);
 	config.detailColumnOrder = config.detailColumnOrder.map(rename);
+	for (const tab of config.detailTabs ?? [])
+		tab.startColumnUuid = rename(tab.startColumnUuid);
 	return renamed;
 }
 

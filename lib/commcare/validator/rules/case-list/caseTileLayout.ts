@@ -75,13 +75,18 @@ import {
 	tileCellsOverlap,
 	type Uuid,
 } from "@/lib/domain";
+import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
+import {
+	detailTabSpans,
+	detailTileSharesRowAcrossTabs,
+} from "@/lib/domain/detailTabs";
 import { type ValidationError, validationError } from "../../errors";
 import { describeColumn, describeColumnAtSentenceStart } from "./shared";
 
 export function caseTileLayout(
 	mod: Module,
 	moduleUuid: Uuid,
-	_doc: BlueprintDoc,
+	doc: BlueprintDoc,
 ): ValidationError[] {
 	const config = mod.caseListConfig;
 	if (config === undefined) return [];
@@ -93,6 +98,53 @@ export function caseTileLayout(
 
 	const errors: ValidationError[] = [];
 	const location = { moduleUuid, moduleName: mod.name };
+
+	if (config.detailTile) {
+		const fields = orderedColumns(config, "detail").filter(
+			(column) => column.visibleInDetail !== false,
+		);
+		const groups = config.detailTabs
+			? (detailTabSpans(config.detailTabs, fields) ?? [])
+			: [{ start: 0, end: fields.length }];
+		for (const { start, end } of groups) {
+			const prior: TileCell[] = [];
+			for (const column of fields.slice(start, end)) {
+				const cell = config.detailTile.cells[column.uuid];
+				if (!cell) continue;
+				const problem = cell.androidOnly
+					? "Only a Results tile supports an Android-only value. Show this Details field on both platforms."
+					: tileCellRightEdge(cell) > TILE_GRID_COLUMNS ||
+							tileCellBottomEdge(cell) > TILE_GRID_ROWS
+						? "This field reaches past the edge of the Details tile. You can move it back inside or make it smaller."
+						: prior.some((other) => tileCellsOverlap(other, cell))
+							? "Two fields overlap on the same Details tile. You can move one field to a free space."
+							: undefined;
+				if (problem)
+					errors.push(
+						validationError(
+							"CASE_DETAIL_TILE_LAYOUT_INVALID",
+							"module",
+							problem,
+							location,
+							{ columnUuid: column.uuid },
+						),
+					);
+				prior.push(cell);
+			}
+		}
+		if (
+			detailTileSharesRowAcrossTabs(config) &&
+			!menuEmittedAdvanced(doc, moduleUuid)
+		)
+			errors.push(
+				validationError(
+					"CASE_DETAIL_TILE_LAYOUT_INVALID",
+					"module",
+					"This menu needs each tile row to belong to one tab. You can move the fields of different tabs onto separate rows.",
+					location,
+				),
+			);
+	}
 
 	for (const [index, column] of columns.entries()) {
 		const cell = column.tile;
@@ -159,7 +211,7 @@ export function caseTileLayout(
 		}
 	}
 
-	if (config.tile === undefined) return errors;
+	if (config.tile === undefined || config.tile.namedSlots) return errors;
 
 	for (const [index, column] of columns.entries()) {
 		if (column.tile !== undefined) continue;

@@ -4,17 +4,24 @@
  * format Nova cannot write back read as held. Each case edits Nova's emission at the keys HQ's
  * Case List page (`static/app_manager/js/details/bootstrap5/column.js`) writes.
  */
+
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	calculatedColumn,
 	columnFieldText,
 	plainColumn,
 } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { matchingResolver } from "../../identity";
+import { externalIdentityMap } from "../../identityMap";
 import { readProjectionInputs } from "../../projectionInputs";
 import { patients, uuid } from "./fixtures";
 import {
@@ -760,17 +767,19 @@ describe("clickable icons", () => {
 });
 
 describe("a custom tile", () => {
-	for (const format of ["invisible"])
-		it(`raises a ${format} column in it`, async () => {
-			const reading = await readDetails((short) => {
-				short.case_tile_template = "custom";
-				Object.assign(short.columns[1] ?? {}, { format });
+	it("requires physical cells for its placed Search Only information", async () => {
+		const reading = await readDetails((short) => {
+			short.case_tile_template = "custom";
+			Object.assign(short.columns[1] ?? {}, {
+				format: "invisible",
+				grid_x: null,
+				grid_y: null,
 			});
-			expect(codes(reading)).toContain(
-				`${M}invisible-or-address-column-in-a-custom-tile`,
-			);
-			expect(codes(reading)).not.toContain(`${M}8-address`);
 		});
+		expect(codes(reading)).toContain(
+			`${M}custom-tile-column-with-grid-null-unplaced`,
+		);
+	});
 });
 
 describe("filter columns", () => {
@@ -925,11 +934,227 @@ describe("a detail's callout and tabs", () => {
 			});
 		});
 		const found = closedCodes(reading);
-		expect(found).toContain(`${M}detail-case-tile-template-icon-text-grid`);
+		expect(found).toContain(`${M}named-case-tile-missing-a-required-slot`);
 		expect(found.filter((one) => one.includes("lookup"))).toEqual([]);
 	});
 
-	it("raises every kind of tab the detail holds", async () => {
+	it("brings in populated case detail tabs and keeps each title on its first field", async () => {
+		const reading = await readDetails((_short, long) => {
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					header: { en: "Visit" },
+					starting_index: 0,
+				},
+				{ doc_type: "DetailTab", header: { en: "Notes" }, starting_index: 1 },
+			];
+		}, false);
+		expect(closedCodes(reading)).toEqual([]);
+		const config = listOf(reading);
+		expect(
+			config.detailTabs?.map((tab) => [tab.title, tab.startColumnUuid]),
+		).toEqual([
+			["Visit", config.detailColumnOrder[0]],
+			["Notes", config.detailColumnOrder[1]],
+		]);
+	});
+
+	it("keeps the adopted tab identity when HQ reorders its fields and renames the group", async () => {
+		const doc = patients(
+			[
+				plainColumn(uuid(1), "notes", "Notes"),
+				plainColumn(uuid(2), "case_name", "Name"),
+				plainColumn(uuid(3), "phone", "Phone"),
+			],
+			{
+				list: {
+					detailTabs: [
+						{ uuid: uuid(41), title: "Review", startColumnUuid: uuid(1) },
+						{ uuid: uuid(42), title: "Contact", startColumnUuid: uuid(3) },
+					],
+				},
+			},
+		);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const detail = app.modules[0].case_details.long;
+				const [notes, name, phone] = detail.columns;
+				if (!notes || !name || !phone)
+					throw new Error("The fixture needs three emitted fields.");
+				detail.columns = [name, notes, phone];
+				const tabs = detail.tabs as { header: Record<string, string> }[];
+				tabs[0].header = { en: "Summary" };
+			},
+			input: (input) => ({
+				...input,
+				resolver: matchingResolver(
+					doc.appId,
+					externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+				),
+			}),
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).detailTabs).toEqual([
+			{ uuid: uuid(41), title: "Summary", startColumnUuid: uuid(2) },
+			{ uuid: uuid(42), title: "Contact", startColumnUuid: uuid(3) },
+		]);
+	});
+	it("binds a tab display condition to the selected case and reads it back", async () => {
+		const reading = await readDetails((_short, long) => {
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					header: { en: "Visit" },
+					starting_index: 0,
+					relevant: "notes = 'review'",
+				},
+			];
+		}, false);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).detailTabs?.[0]?.displayCondition?.kind).toBe("eq");
+	});
+	it("reads a child-record tab with its row filter and physical hidden ordering field", async () => {
+		const result = await readDetails((_short, long) => {
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					starting_index: 0,
+					header: { en: "Visits" },
+					has_nodeset: true,
+					nodeset_case_type: "visit",
+					nodeset_filter: "notes = 'due'",
+				},
+			];
+			Object.assign(long.columns[1], { format: "invisible" });
+		}, false);
+		expect(closedCodes(result)).toEqual([]);
+		const config = listOf(result);
+		expect(config.detailTabs?.[0]).toMatchObject({
+			rowSource: {
+				kind: "children",
+				caseType: "visit",
+				condition: { kind: "eq" },
+			},
+			orderFields: [config.detailColumnOrder[1]],
+		});
+	});
+	it("reads a record collection and keeps its independent search child type", async () => {
+		const result = await readDetails((_short, long) => {
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					starting_index: 0,
+					header: { en: "Roster" },
+					has_nodeset: true,
+					nodeset: "instance('casedb')/casedb/case[@case_type='patient']",
+					nodeset_case_type: "other",
+					nodeset_filter: "unknown-function()",
+				},
+			];
+		}, false);
+		expect(closedCodes(result)).toEqual([]);
+		expect(listOf(result).detailTabs?.[0]?.rowSource).toMatchObject({
+			kind: "records",
+			includeChildrenOfType: "other",
+			rows: { kind: "cases" },
+		});
+	});
+	it("reads a table field and a calculated value over the same rows with their distinct header identities", async () => {
+		const tableId = lookupTableIdSchema.parse(
+			"01890000-0000-7000-8000-000000000301",
+		);
+		const columnId = lookupColumnIdSchema.parse(
+			"01890000-0000-7000-8000-000000000302",
+		);
+		const table = {
+			id: tableId,
+			tag: "visits",
+			name: "Visits",
+			columns: [
+				{
+					id: columnId,
+					wireName: "label",
+					label: "Visit label",
+					dataType: "text" as const,
+				},
+			],
+		};
+		const reading = await readLists(twoColumns(), {
+			edit: (app) => {
+				const { long } = app.modules[0].case_details;
+				long.tabs = [
+					{
+						doc_type: "DetailTab",
+						isTab: true,
+						header: { en: "Visits" },
+						starting_index: 0,
+						has_nodeset: true,
+						nodeset: "instance('item-list:visits')/visits_list/visits",
+					},
+				];
+				Object.assign(long.columns[0], {
+					field: "label",
+					useXpathExpression: false,
+				});
+				Object.assign(long.columns[1], {
+					field: "label",
+					useXpathExpression: true,
+				});
+			},
+			input: (input) => ({
+				...input,
+				lookup: {
+					definitions: new Map([[table.id, table]]),
+					table: (tag) =>
+						tag === table.tag
+							? {
+									tableId,
+									column: (name) => (name === "label" ? columnId : undefined),
+								}
+							: undefined,
+				},
+			}),
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const config = listOf(reading);
+		const shown = config.detailColumnOrder
+			.map((uuid) => config.columns.find((c) => c.uuid === uuid))
+			.filter((c) => c && c.visibleInDetail !== false);
+		expect(shown).toHaveLength(2);
+		for (const c of shown)
+			expect(c).toMatchObject({
+				kind: "calculated",
+				expression: {
+					kind: "term",
+					term: { kind: "table-column", tableId, columnId },
+				},
+			});
+		expect(
+			shown.map((c) => c?.kind === "calculated" && c.rowField === true),
+		).toEqual([true, false]);
+	});
+	it("places a refusal on a scalar that cannot supply records for a tab", async () => {
+		const result = await readDetails((_short, long) => {
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					header: { en: "Roster" },
+					starting_index: 0,
+					has_nodeset: true,
+					nodeset: "'a scalar'",
+				},
+			];
+		}, false);
+		expect(closedCodes(result)).toContain(
+			`${M}detail-tab-without-a-resolvable-row-source`,
+		);
+	});
+	it("refuses columns above the first tab without reporting supported child tabs", async () => {
 		const reading = await readDetails((_short, long) => {
 			long.tabs = [
 				{ header: { en: "Main" }, starting_index: 1, relevant: "notes != ''" },
@@ -943,11 +1168,11 @@ describe("a detail's callout and tabs", () => {
 		});
 		const found = codes(reading);
 		expect(found).toContain(`${M}columns-above-the-first-tab-when-tabs-exist`);
-		expect(found).toContain(`${M}plain-tab-header-starting-index`);
-		expect(found).toContain(
+		expect(found).not.toContain(`${M}plain-tab-header-starting-index`);
+		expect(found).not.toContain(
 			`${M}data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset`,
 		);
-		expect(found).toContain(`${M}tab-relevant-lifts-into-predicate-not`);
+		expect(found).not.toContain(`${M}tab-relevant-lifts-into-predicate-not`);
 	});
 });
 

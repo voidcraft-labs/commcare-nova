@@ -54,6 +54,7 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import { itemsetSource } from "../fixtureRows";
 import {
 	holdText,
 	recordTextRewrite,
@@ -360,40 +361,6 @@ function fieldName(text: unknown): string | undefined {
 	)
 		return node.step.name;
 	return undefined;
-}
-
-/** An itemset's nodeset as `instance('item-list:<tag>')/<tag>_list/<tag>[filter]`: the tag and the
- *  filter's text, where it is that shape. */
-function itemsetSource(
-	text: unknown,
-): { tag: string; filter?: string } | undefined {
-	if (typeof text !== "string") return undefined;
-	let node = parse(text);
-	let filter: string | undefined;
-	if (node?.kind === "filter") {
-		filter = text.slice(node.where.from, node.where.to);
-		node = node.base;
-	}
-	if (node?.kind !== "child" || node.step.kind !== "name") return undefined;
-	const item = node.step.name;
-	const list = node.left;
-	if (
-		list?.kind !== "child" ||
-		list.step.kind !== "name" ||
-		list.step.name !== `${item}_list`
-	)
-		return undefined;
-	const root = list.left;
-	if (
-		root?.kind !== "call" ||
-		root.name !== "instance" ||
-		root.args.length !== 1
-	)
-		return undefined;
-	const id = root.args[0];
-	if (id?.kind !== "string" || id.value !== `item-list:${item}`)
-		return undefined;
-	return filter === undefined ? { tag: item } : { tag: item, filter };
 }
 
 /**

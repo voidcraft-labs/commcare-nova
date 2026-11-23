@@ -44,6 +44,7 @@ import {
 	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import {
 	type Expression,
 	effectiveFilterForEmission,
@@ -54,6 +55,8 @@ import type { ValidationError } from "../../errors";
 
 export type ModuleWireSlotSurface =
 	| "filter"
+	| "detail-tab"
+	| "case-form-context"
 	| "calculated-column"
 	| "mapping-condition"
 	| "calculated-sort"
@@ -131,6 +134,67 @@ export function collectModuleWireSlotFindings(
 		);
 	}
 
+	const context = mod.caseListConfig?.contextAboveForm;
+	const line = caseContextLine(context);
+	if (line)
+		collect(
+			judge.judgeExpression(line, {
+				mod,
+				moduleUuid,
+				slot: "caseListConfig.contextAboveForm.expression",
+				ref: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_form_context_line",
+				},
+				slotLabel: "the case context above the form",
+				surface: "case-form-context",
+			}),
+		);
+	for (const [index, tab] of (mod.caseListConfig?.detailTabs ?? []).entries()) {
+		if (tab.displayCondition)
+			collect(
+				judge.judgePredicate(tab.displayCondition, {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.detailTabs[${index}].displayCondition`,
+					ref: {
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_detail_tab_condition",
+						member: { tabUuid: tab.uuid },
+					},
+					slotLabel: `the display condition for tab "${tab.title}"`,
+					surface: "detail-tab",
+				}),
+			);
+		const source = tab.rowSource;
+		if (source) {
+			const isChild = source.kind === "children";
+			const expr = isChild ? source.condition : source.rows;
+			if (expr) {
+				const ref = {
+					entity: "module",
+					uuid: moduleUuid,
+					slot: isChild ? "case_detail_tab_filter" : "case_detail_tab_rows",
+					member: { tabUuid: tab.uuid },
+				} as const;
+				const site = {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.detailTabs[${index}].rowSource.${isChild ? "condition" : "rows"}`,
+					ref,
+					slotLabel: `the records in tab "${tab.title}"`,
+					surface: "detail-tab" as const,
+				};
+				collect(
+					isChild
+						? judge.judgePredicate(expr, site)
+						: judge.judgeExpression(expr, site),
+				);
+			}
+		}
+	}
 	const columns = mod.caseListConfig?.columns ?? [];
 	for (let index = 0; index < columns.length; index += 1) {
 		const column = columns[index];

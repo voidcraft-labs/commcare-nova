@@ -298,13 +298,14 @@ export function placesOfMediaReference(
 /** A step of a stored text's slot that the key spells: the menu's or the form's position, the
  *  detail's word, the column's position. */
 interface KeyStep {
-	readonly spelled: "menu" | "form" | "detail" | "column";
+	readonly spelled: "menu" | "form" | "detail" | "column" | "tab";
 }
 
 const MENU: KeyStep = { spelled: "menu" };
 const FORM: KeyStep = { spelled: "form" };
 const DETAIL: KeyStep = { spelled: "detail" };
 const COLUMN: KeyStep = { spelled: "column" };
+const TAB: KeyStep = { spelled: "tab" };
 
 /** A step of a slot of CommCare HQ's stored app: a key, `*` for any position or language, or a
  *  step the key spells. */
@@ -341,7 +342,7 @@ const SEARCH_PROPERTY: readonly SlotStep[] = [
  * (`hqJson/caseList.ts`, `expander.ts`). A key folds only where that id's source is one unit
  * (`generatedTranslationKeys.ts::classifyGeneratedTranslationKeys`), so every other generated
  * key, a media key, a constant (the Search button's label, a detail's empty-list and select
- * texts, a form's submit label), a string Nova never writes (a detail tab's title, a graph's
+ * texts, a form's submit label), a string Nova never writes (a graph's
  * texts, an alt text, a callout header) and `homescreen.title`, which the app shell reads and
  * never folds, is no row. A more exact pattern stands before a wider one that also spells its
  * keys (a Search field's hint before its label).
@@ -370,6 +371,13 @@ export const FOLDED_TEXT_SLOTS: readonly FoldedTextSlots[] = [
 	{
 		pattern: "case_list_form.m#",
 		slots: [["modules", MENU, "case_list_form", "label", "*"]],
+	},
+	// HQ's title key numbers populated tabs from one; its model stores their headers in order.
+	{
+		pattern: "m#.*.tab.#.title",
+		slots: [
+			["modules", MENU, "case_details", DETAIL, "tabs", TAB, "header", "*"],
+		],
 	},
 	// A column's header, and a sort-only field's (`app_strings.py`, `create_temp_sort_column`),
 	// which is its sort element's name in Sort by.
@@ -519,7 +527,10 @@ function slotStepsOf(key: string, slot: readonly SlotStep[]): string[] {
 			at = owner.kind === "form" ? String(owner.form) : undefined;
 		else if (step.spelled === "detail")
 			at = DETAIL_OF_KEY.get(key.split(".")[1] ?? "");
-		else {
+		else if (step.spelled === "tab") {
+			const n = Number(key.split(".")[3]);
+			at = Number.isSafeInteger(n) && n >= 1 ? String(n - 1) : undefined;
+		} else {
 			const column = detailColumnIndex(key);
 			at = column === undefined ? undefined : String(column);
 		}

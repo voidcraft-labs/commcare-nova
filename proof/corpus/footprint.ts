@@ -126,8 +126,17 @@ import {
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
 import type { SessionDatum } from "@/lib/commcare/session";
+import { detailBindings } from "@/lib/commcare/suite/case-list/detailBindings";
+import { detailTabRowNodes } from "@/lib/commcare/suite/case-list/detailTabRows";
+import {
+	caseContextDetailIds,
+	caseContextLineDetail,
+} from "@/lib/commcare/suite/case-list/formContext";
+import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
+import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { moduleUsesInlineSearch } from "@/lib/commcare/suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
+import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
@@ -167,6 +176,10 @@ import {
 	type Uuid,
 	userPropertyTargetKey,
 } from "@/lib/domain";
+import {
+	caseContextLine,
+	resolveCaseFormContext,
+} from "@/lib/domain/caseFormContext";
 import {
 	type ExpressionContext,
 	substituteUnansweredSearchInputs,
@@ -604,16 +617,20 @@ const ownCaseType: ModuleDerivation = {
  *   input dependency substituted away first
  *   (`lib/commcare/suite/case-list/nodesetFilter.ts::emitNodesetFilter` and
  *   `emitExcludedOwnerFilterExpression`);
- * - `caseListConfig.tile.persistOnForms`: the datum's `detail-persistent`.
+ * - the selected record's form context: its persistent detail and any inline
+ *   expansion, resolved from the local and referenced menu. A line's text
+ *   affects the detail itself; only the reference reaches the datum.
  *
  * The instances the filter and owner exclusion reach are declared by the
  * module's case-loading entries (`ownEntryInstances`).
  */
 const selectionDatum: ModuleDerivation = {
-	settings: (_side, module) => ({
+	settings: (side, module) => ({
 		filter: module.caseListConfig?.filter,
 		excludedOwnerIds: module.caseSearchConfig?.excludedOwnerIds,
-		persistOnForms: module.caseListConfig?.tile?.persistOnForms,
+		formContext: caseContextDetailIds(side.wire, module.uuid, (uuid) =>
+			side.layout.findIndex((held) => held.uuid === uuid),
+		),
 	}),
 	holders: selectionForms,
 	framed: false,
@@ -802,18 +819,19 @@ const ownEntryInstances: ModuleDerivation = {
 		const instances = (
 			expression: Parameters<typeof toWire>[0],
 			types: ExpressionContext,
+			bindings?: WireTermBindings,
 		) =>
 			new InstanceSink(
 				serializeWire(
 					toWire(expression, {
 						target: "suite",
 						types,
-						bindings:
-							naming === undefined
-								? {}
-								: {
-										lookup: { naming, instanceScope: "suite" },
-									},
+						bindings: {
+							...bindings,
+							...(naming && {
+								lookup: { naming, instanceScope: "suite" as const },
+							}),
+						},
 					}),
 					{ target: "suite" },
 				).instances,
@@ -823,6 +841,7 @@ const ownEntryInstances: ModuleDerivation = {
 		const searchButton = moduleUsesInlineSearch(module)
 			? undefined
 			: effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition;
+		const bindings = detailBindings(side.wire, module);
 		const calculated = new Set<string>();
 		for (const column of module.caseListConfig?.columns ?? []) {
 			if (
@@ -837,11 +856,38 @@ const ownEntryInstances: ModuleDerivation = {
 					slot: "case_list_column_expression",
 					member: { columnUuid: column.uuid },
 				}),
+				bindings,
 			)) {
 				calculated.add(id);
 			}
 		}
+		const tabSources = new Set<string>();
+		for (const tab of module.caseListConfig?.detailTabs ?? []) {
+			const nodes = detailTabRowNodes(
+				tab,
+				moduleUsesInlineSearch(module) ? "results:inline" : "casedb",
+				expressions,
+				naming,
+				bindings,
+			);
+			if (nodes)
+				for (const decl of serializeWire(nodes, { target: "suite" }).instances)
+					tabSources.add(decl.id);
+		}
+		const context = resolveCaseFormContext(side.wire.modules, module.uuid);
+		const line =
+			context?.kind === "line"
+				? caseContextLine(module.caseListConfig?.contextAboveForm)
+				: undefined;
 		return {
+			tabSources: [...tabSources],
+			formContext: line
+				? instances(
+						line,
+						expressions({ slot: "case_form_context_line" }),
+						bindings,
+					)
+				: [],
 			filter:
 				filter === undefined
 					? []
@@ -1139,6 +1185,81 @@ interface DerivedForms {
 	readonly framed: ReadonlySet<string>;
 }
 
+/** The source of a persistent tile may be a different menu anywhere in the
+ * app. Its physical short/long detail decides which instances the consuming
+ * form's entry declares. A shared earlier selection can carry a context too. */
+function formContextInstances(side: WireSide): Map<string, readonly string[]> {
+	const byForm = new Map<string, readonly string[]>();
+	if (
+		!Object.values(side.wire.modules).some(
+			(module) =>
+				module.caseListConfig?.contextAboveForm ||
+				module.caseListConfig?.tile?.persistOnForms,
+		)
+	)
+		return byForm;
+	const details = new Map<string, () => readonly string[]>();
+	for (const [index, held] of side.layout.entries()) {
+		const module = side.wire.modules[held.uuid as Uuid];
+		if (!module?.caseListConfig) continue;
+		const args = {
+			doc: side.wire,
+			moduleIndex: index,
+			module,
+			lookupNaming: side.lookupNaming,
+			...(moduleUsesInlineSearch(module) && {
+				caseSource: "results:inline" as const,
+			}),
+		};
+		details.set(`m${index}_case_short`, () =>
+			buildShortDetail(args).instances.map((d) => d.id),
+		);
+		details.set(`m${index}_case_long`, () =>
+			buildLongDetail(args).instances.map((d) => d.id),
+		);
+		details.set(`m${index}_persistent_case_context`, () => {
+			const expressions = moduleExpressionContexts(
+				side.wire,
+				module.uuid,
+				side.lookupNaming,
+			);
+			return (
+				caseContextLineDetail(
+					module,
+					index,
+					expressions,
+					side.lookupNaming,
+					detailBindings(side.wire, module),
+				)?.instances.map((d) => d.id) ?? []
+			);
+		});
+	}
+	const cached = new Map<string, readonly string[]>();
+	for (const held of side.layout)
+		for (const form of held.forms) {
+			const ids = new Set<string>();
+			for (const datum of entrySessionDatums(
+				side.wire,
+				side.links,
+				held.uuid as Uuid,
+				form as Uuid,
+			)) {
+				for (const id of [datum.detailPersistent, datum.detailInline]) {
+					if (!id) continue;
+					const decls = cached.get(id) ?? details.get(id)?.();
+					if (!decls)
+						throw new Error(
+							`Form context references a missing detail '${id}'.`,
+						);
+					cached.set(id, decls);
+					for (const instance of decls) ids.add(instance);
+				}
+			}
+			if (ids.size) byForm.set(form, [...ids].sort());
+		}
+	return byForm;
+}
+
 /**
  * The forms whose wire Nova derives from what the batch changed in its
  * modules (`MODULE_DERIVATIONS`, each reaching the holders of the setting
@@ -1155,6 +1276,14 @@ function moduleDerivedForms(
 	const sides = [wireSide(before, lookupNaming), wireSide(after, lookupNaming)];
 	const forms = new Set<string>();
 	const framed = new Set<string>();
+	const [beforeContext, afterContext] = sides.map(formContextInstances);
+	for (const uuid of new Set([
+		...beforeContext.keys(),
+		...afterContext.keys(),
+	])) {
+		if (!isDeepStrictEqual(beforeContext.get(uuid), afterContext.get(uuid)))
+			forms.add(uuid);
+	}
 	const reach = (moduleUuid: string, holders: Holders, isFramed: boolean) => {
 		for (const side of sides) {
 			if (side.wire.modules[moduleUuid as Uuid] === undefined) continue;

@@ -12,6 +12,7 @@ import {
 	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
+import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
@@ -482,6 +483,11 @@ export function appTestRecordsHaveDetails(
 	screen: AppTestRecordsScreen,
 	listHasDetails: boolean,
 ): boolean {
+	if (
+		resolveCaseFormContext(context.doc.modules, screen.moduleUuid)
+			?.inlineModuleUuid
+	)
+		return false;
 	const request = appTestParentRequestOf(screen);
 	return request === undefined
 		? listHasDetails

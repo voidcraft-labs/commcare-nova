@@ -40,6 +40,12 @@ DOCUMENTS = (
     "targeted-preview-android-renders",
     "targeted-styled-value",
     "targeted-tile-hidden-order",
+    "tile-detail-layout",
+    "tile-detail-tabs",
+    "tile-named-layout",
+    "tile-persistent-external",
+    "tile-persistent-inline",
+    "tile-persistent-line",
 )
 
 

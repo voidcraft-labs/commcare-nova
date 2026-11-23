@@ -26,6 +26,7 @@ import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import "server-only";
 
 import { workerDistanceValueId } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
@@ -258,6 +259,11 @@ function runtimeCalculatedColumns(
 			expression: rule.expression,
 			deviceText: true as const,
 		})),
+		...(config.detailTabs ?? []).flatMap((tab) =>
+			tab.displayCondition
+				? [{ uuid: tab.uuid, expression: tab.displayCondition }]
+				: [],
+		),
 	];
 }
 
@@ -1486,6 +1492,7 @@ export async function readCaseData(
 		parentCase?: ParentCaseSelection;
 		caseListConfig?: CaseListConfig;
 		locale?: CaseListOrderLocale;
+		contextModuleUuid?: Uuid;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
 		lookupTableSchemas?: LookupTableSchemas;
@@ -1508,13 +1515,19 @@ export async function readCaseData(
 		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCaseDataResult> {
+	const contextLine = caseContextLine(args.caseListConfig?.contextAboveForm);
 	const rows = await store.query({
 		...caseReadCore(
 			args,
 			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		),
 		parentCases: args.parentCase,
-		calculated: runtimeCalculatedColumns(args.caseListConfig, args.locale),
+		calculated: [
+			...(runtimeCalculatedColumns(args.caseListConfig, args.locale) ?? []),
+			...(args.contextModuleUuid && contextLine
+				? [{ uuid: args.contextModuleUuid, expression: contextLine }]
+				: []),
+		],
 		related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 		limit: 1,
 		includeHeld: args.includeHeld,

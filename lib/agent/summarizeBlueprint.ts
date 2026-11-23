@@ -1,3 +1,7 @@
+import {
+	detailTabForColumn,
+	detailTabSearchChildType,
+} from "@/lib/domain/detailTabs";
 /**
  * Compact blueprint-summary renderer. Walks `BlueprintDoc` directly and
  * emits domain-vocabulary text (`field`, `kind`, `caseWrite`) — no
@@ -15,7 +19,6 @@ import {
 import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
-	CaseTileLayout,
 	Column,
 	Expression,
 	FormLinkTarget,
@@ -217,6 +220,20 @@ function summarizeCaseList(mod: Module): string | undefined {
 		return undefined;
 	}
 	const lines: string[] = ["    case_list:"];
+	const context = config.contextAboveForm;
+	if (context) {
+		const source =
+			context.kind === "line"
+				? "one line from the chosen case"
+				: context.kind === "own-tile"
+					? "this Results tile"
+					: `Results tile of menu ${context.moduleUuid}`;
+		lines.push(
+			`      above forms: ${source}${context.kind !== "line" && context.expandDetails ? " with expandable Details" : ""}`,
+		);
+	}
+	if (config.detailTile)
+		lines.push("      Details layout: tile in Web Apps, rows on Android");
 	if (config.selection !== undefined) {
 		lines.push(
 			`      selection: workers choose up to ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
@@ -224,7 +241,7 @@ function summarizeCaseList(mod: Module): string | undefined {
 	}
 	if (config.tile !== undefined) {
 		lines.push(
-			`      layout: tile${config.tile.persistOnForms === true ? " (kept on screen once its case is chosen)" : ""}`,
+			`      layout: tile${config.tile.namedSlots ? " with named image and text positions" : ""}${config.tile.persistOnForms === true ? " (kept on screen once its case is chosen)" : ""}`,
 		);
 		// Grouping changes what a placement MEANS — a cell in the header band
 		// is drawn once per group, from the group's first case — so a read
@@ -255,17 +272,33 @@ function summarizeCaseList(mod: Module): string | undefined {
 			// cell the layout does not draw is deliberately silent: telling the
 			// model a field sits at 4,0 when nothing renders there makes it reason
 			// around an obstacle that is not on the grid.
-			lines.push(`        - ${formatColumn(col, tilePlace(col, config.tile))}`);
+			lines.push(
+				`        - ${formatColumn(col, tilePlace(tileCellFor(col, config.tile)))}`,
+			);
 		}
 	}
 	if (details.length > 0) {
 		lines.push("      details:");
 		for (const col of details) {
-			// Details is never a tile — long-detail tiles are out of scope by
-			// contract — so no placement is reported here even when the column
-			// carries one for Results. A column the detail alone holds says so.
+			const tab = detailTabForColumn(config, col.uuid);
+			if (tab?.startColumnUuid === col.uuid) {
+				const row = tab.rowSource;
+				const type = detailTabSearchChildType(tab);
+				const records =
+					row?.kind === "children"
+						? ` (open ${type} children)`
+						: row
+							? ` (records from ${row.rows.kind})`
+							: "";
+				lines.push(
+					`        tab ${tab.title}${records}${tab.displayCondition ? " (shown conditionally)" : ""}`,
+				);
+			}
+			const use = tab?.orderFields?.includes(col.uuid)
+				? " (orders tab rows; hidden)"
+				: "";
 			lines.push(
-				`        - ${formatColumn(col, "")}${columnOnList(col) ? "" : " (not on the list)"}`,
+				`        - ${formatColumn(col, tilePlace(config.detailTile?.cells[col.uuid]))}${columnOnList(col) ? "" : " (not on the list)"}${use}`,
 			);
 		}
 	}
@@ -367,8 +400,7 @@ function summarizeCaseList(mod: Module): string | undefined {
  * A case list with no drawn placements renders byte-identically to before,
  * which keeps every untiled app's prompt prefix cacheable.
  */
-function tilePlace(col: Column, layout: CaseTileLayout | undefined): string {
-	const cell = tileCellFor(col, layout);
+function tilePlace(cell: ReturnType<typeof tileCellFor>): string {
 	return cell === undefined
 		? ""
 		: ` @ ${cell.x},${cell.y} ${cell.width}x${cell.height} ${cell.horizontalAlign} ${cell.verticalAlign} ${cell.fontSize}`;

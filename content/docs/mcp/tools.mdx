@@ -296,6 +296,13 @@ for the current page. `pageNext` and `pagePrevious` turn form pages while
 `continue` remain accepted route actions. Forward page turns validate earlier
 pages, and answers on a later page need that page to be open.
 
+On a case Details screen, a `detailTab` action opens a tab by its offered
+`tabUuid` or title. A condition can make different tabs available for two
+cases from the same menu. During a form with expandable case information,
+`{"kind":"caseContext","expanded":true}` opens the selected case’s Details.
+Include `tabUuid` to choose a tab there, or send `expanded:false` to collapse it
+and return to the same form page.
+
 `continue_app_test` accepts `actions: [{sessionId?, action, expect?}, ...]` with up to eight
 ordered actions. Each produces its own step. Optional expectations can name the
 screen, module, form or whether a submission occurred. The call stops on a
@@ -912,6 +919,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
 | `configure_case_selection` | Pass `selection: { kind: "multiple", maximum: N }` to let workers choose several cases, where `N` is 1 through 100. Pass `selection: null` to return to opening one case at a time. A several-case module needs a follow-up or close form that can consume the batch. Questions saved to the selected case start without one case's value; each nonblank answer is saved to every selected case, while blank preserves their existing values. A capture destination updates only when the runtime submission provides a file, and each case then stores the link to that file. Preview creates none. `applied` and `unchanged` are complete outcomes. `needs_changes` applies no mutations. For `needs: "confirmation"`, review the returned effects, then repeat the same request with `confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids` and `confirmationToken` copied unchanged from that same result. The token binds the approval to the requested source selection and every reviewed module effect. If that effect changed, no mutation is applied and the result supplies the current review and a new token. For `needs: "repair"`, fix the UUID-owned blockers before retrying. For `needs: "refresh"`, call again without either confirmation field to review the current effects. `unavailable` also applies nothing and returns the reason the request cannot run against the current app. |
+| `set_case_detail_tabs` | Group the fields shown in Details into named tabs. Supply all visible fields once, in the order workers should see them. An existing tab keeps its identity and translations when you move it. A tab can have a display condition evaluated on the selected case. An empty tab list shows the fields together. |
 | `set_case_list_tile` | Lay the case list out as a tile — a 12 x 12 grid where each field shown in Results occupies a rectangle — and place its fields on that grid. `tile` turns the layout on or off (`null` turns it off and keeps every placement), `placements` moves fields, and both may ride one call. While the tile is on, every field shown in Results needs a place and no two fields may share a square, so the whole layout lands in one call. |
 
 A column's `sort` is one order rule; the rule with the lowest `priority` decides
@@ -968,6 +976,24 @@ A tile cell's `horizontalAlign` (`left`, `center` or `right`), `verticalAlign`
 be left out of a placement or a born-placed column: Nova gives each `left`,
 `top` and `medium`, and every saved cell holds all three. A tile's text has its
 own three sizes and never follows the rest of the list.
+
+Use `get_module` to read `detail_tabs`, including each title, tab UUID and ordered field UUIDs. Pass those groups to `set_case_detail_tabs` with each tab’s existing fields in `columnUuids`.
+A tab can show its own records. For example, setting `rowSource` to
+`{"kind":"children","caseType":"visit"}` shows the open visits linked to the
+chosen parent. A `records` source holds a typed collection of cases, table
+rows or places. Use `addFields` to add a header and row expression for each new
+field in the same edit. An `orderFields` entry names a field in that tab to use
+as a hidden sort key. The tab’s `displayCondition` reads the selected case.
+
+An explicit `records` source may also carry `includeChildrenOfType`. A search-enabled menu then includes those child cases in its search results for the app to read, while the tab continues to show its chosen collection.
+
+Use `set_case_list_tile` with `tile.namedSlots` to put existing Results fields
+in named image or text positions. Use `detailPlacements` to lay out the fields
+shown after opening a case in Web Apps. Android shows those fields in rows.
+Pass `contextAboveForm` to keep a line or a tile above a form. For example,
+`{"kind":"menu-tile","moduleUuid":"<menu UUID>","expandDetails":true}`
+uses that menu’s layout for the selected case and lets the worker open
+its Details. Both menus need the same case type.
 
 `set_case_list_tile` also carries **grouping**, through `tile.grouping`. It shows
 the cases that share a connection together, under one heading:

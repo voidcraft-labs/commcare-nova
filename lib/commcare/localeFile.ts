@@ -61,6 +61,7 @@ const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"form-name",
 		"case-list-menu-item-label",
 		"case-list-registration-label",
+		"case-detail-tab-title",
 		"case-list-header",
 		"case-list-sort-label",
 		"case-list-calculation-text",

@@ -1,10 +1,12 @@
 // Pure projections of lookup references used to choose each preview data snapshot.
+
 import {
 	extractLookupReferenceOccurrences,
 	lookupReferenceTargetsFromOccurrences,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
+import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 
@@ -49,6 +51,16 @@ export function collectConfigLookupTableIds(
 	if (caseListConfig !== undefined) {
 		if (caseListConfig.filter !== undefined) {
 			walkExpressionNodes(caseListConfig.filter, collect);
+		}
+		const contextLine = caseContextLine(caseListConfig.contextAboveForm);
+		if (contextLine) walkExpressionNodes(contextLine, collect);
+		for (const tab of caseListConfig.detailTabs ?? []) {
+			if (tab.rowSource?.kind === "children" && tab.rowSource.condition)
+				walkExpressionNodes(tab.rowSource.condition, collect);
+			if (tab.rowSource?.kind === "records")
+				walkExpressionNodes(tab.rowSource.rows, collect);
+			if (tab.displayCondition)
+				walkExpressionNodes(tab.displayCondition, collect);
 		}
 		for (const column of caseListConfig.columns) {
 			if (column.kind === "calculated") {

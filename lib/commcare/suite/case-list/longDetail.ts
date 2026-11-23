@@ -51,7 +51,7 @@
 // table. Core has no ambient mapping for this id.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import { el, xel } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
@@ -66,11 +66,29 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
+import { caseColumnRestingKey } from "@/lib/domain/caseListOrder";
+import { detailTabForColumn, detailTabSpans } from "@/lib/domain/detailTabs";
+import { detailColumnRowScope } from "@/lib/domain/expression/detailRowScope";
+import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { moduleExpressionContexts } from "../../expressionContext";
+import { detailTabVariableNames } from "../../formLinkProjection";
+import { lookupTypeIndexFromNaming } from "../../lookup/naming";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
-import { buildColumnField, mergeFieldStrings } from "./columns";
-import type { ResolvedSortDirective } from "./sortKeys";
+import { w } from "../../xpath/wire/builders";
+import { serializeWire } from "../../xpath/wire/serialize";
+import { columnPropertyPath } from "../wire";
+import {
+	buildColumnField,
+	mergeFieldStrings,
+	suiteMappingCondition,
+} from "./columns";
+import { detailBindings } from "./detailBindings";
+import { detailTabConditionWire } from "./detailTabCondition";
+import { detailTabOrderPriorities } from "./detailTabOrder";
+import { detailTabRowNodes } from "./detailTabRows";
+import { columnProperty, columnStoredAsExpression } from "./orderPlanOptions";
+import { keyDirective, type ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
 	CaseListEmitContext,
@@ -122,7 +140,7 @@ export function buildLongDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: CaseListEmitContext["caseSource"];
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
 	/** The word the archive's target keeps each column's property under (`CaseListEmitContext.columnFieldWord`). */
@@ -132,11 +150,13 @@ export function buildLongDetail(args: {
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, TranslationUnitId>;
 	readonly instances: readonly InstanceDecl[];
+	readonly conditionReads: readonly InstanceDecl[];
 } {
 	const { module: mod, moduleIndex } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_long`;
 	const instances = new InstanceSink();
+	const detailConditionReads = new InstanceSink();
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -149,6 +169,7 @@ export function buildLongDetail(args: {
 			strings: {},
 			translationUnits: {},
 			instances: [],
+			conditionReads: [],
 		};
 	}
 
@@ -157,10 +178,12 @@ export function buildLongDetail(args: {
 	const caseProperties =
 		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [];
 	const ctx: CaseListEmitContext = {
+		detailBindings: detailBindings(args.doc, mod),
 		wire: { mode: { target: "suite" }, instances },
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
+		detailTile: config.detailTile,
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
@@ -190,22 +213,143 @@ export function buildLongDetail(args: {
 	const shownColumns = orderedColumns(config, "detail").filter(
 		(column) => column.visibleInDetail !== false,
 	);
+	const lookupTypes = lookupTypeIndexFromNaming(args.lookupNaming);
+	const priorities = new Map(
+		config.detailTabs?.map((tab) => [
+			tab.uuid,
+			detailTabOrderPriorities(
+				tab,
+				mod,
+				args.doc,
+				args.lookupNaming,
+				args.columnFieldWord,
+			),
+		]),
+	);
 	for (let i = 0; i < shownColumns.length; i++) {
 		const column = shownColumns[i];
+		const owner = detailTabForColumn(config, column.uuid);
+		const row = detailColumnRowScope(args.doc, mod, column, lookupTypes);
+		const child = row?.kind === "case" ? row.caseType : undefined;
+		const onDataTab = owner?.rowSource !== undefined && !config.detailTile;
+		const hidden = !!(onDataTab && owner.orderFields?.includes(column.uuid));
+		const priority = onDataTab
+			? priorities.get(owner.uuid)?.get(column.uuid)
+			: undefined;
+		const { restingKey, restingComparator } = caseColumnRestingKey(
+			column,
+			!onDataTab || hidden,
+			(c) => columnProperty(c, { caseType: child ?? mod.caseType }, caseTypes),
+			args.assets !== undefined,
+		);
+		const directive =
+			priority === undefined
+				? restingKey &&
+					// A data tab's rows are cases of the device's case database.
+					keyDirective(
+						restingKey,
+						column,
+						{ type: restingComparator },
+						"casedb",
+						(uuid, entry, field) =>
+							suiteMappingCondition(uuid, entry, field, ctx),
+					)
+				: {
+						...(column.kind === "calculated" || columnStoredAsExpression(column)
+							? { kind: "calculated" as const }
+							: {
+									kind: "property" as const,
+									xpath: columnPropertyPath(column),
+								}),
+						type: "text" as const,
+						direction: "asc" as const,
+						order: priority,
+					};
 		const emission = buildColumnField({
 			column,
 			position: i + 1,
-			ctx,
+			hidden,
+			ctx: {
+				...ctx,
+				...(child && {
+					caseType: child,
+					caseProperties:
+						caseTypes.find((type) => type.name === child)?.properties ?? [],
+				}),
+				...(directive && { sortByUuid: new Map([[column.uuid, directive]]) }),
+			},
 		});
+
 		fields.push(emission.element);
 		mergeFieldStrings(strings, translationUnits, emission);
 	}
 
+	let children = fields;
+	if (config.detailTabs) {
+		const spans = detailTabSpans(config.detailTabs, shownColumns);
+		if (!spans)
+			throw new Error("The detail tabs do not cover the fields shown.");
+		children = spans.map(({ tab, start, end }, index) => {
+			const locale = `m${moduleIndex}.${target}_long.tab.${index + 1}.title`;
+			strings[locale] = tab.title;
+			translationUnits[locale] = makeTranslationUnitId(
+				"detail-tab",
+				tab.uuid,
+				"title",
+			);
+			const relevant =
+				tab.displayCondition &&
+				detailTabConditionWire(
+					tab.displayCondition,
+					tab.uuid,
+					ctx.expressions,
+					"suite",
+					target === "search" ? "results" : (ctx.caseSource ?? "casedb"),
+					args.lookupNaming,
+					ctx.detailBindings,
+				);
+			return xel(
+				"detail",
+				{
+					xpath: {
+						relevant,
+						nodeset: detailTabRowNodes(
+							tab,
+							ctx.caseSource ?? (target === "search" ? "results" : "casedb"),
+							ctx.expressions,
+							args.lookupNaming,
+							ctx.detailBindings,
+						),
+					},
+				},
+				{ mode: { target: "suite" }, instances, detailConditionReads },
+				[
+					el("title", {}, [el("text", {}, [el("locale", { id: locale })])]),
+					...fields.slice(start, end),
+				],
+			);
+		});
+		const names = detailTabVariableNames(args.doc, mod.uuid);
+		if (names.length > 0) {
+			const relativeId = serializeWire(
+				w.context([w.self(), w.attr("case_id")]),
+				{ target: "suite" },
+			).text;
+			children.push(
+				el(
+					"variables",
+					{},
+					names.map((name) => el(name, { function: relativeId })),
+				),
+			);
+		}
+	}
 	return {
-		element: buildDetailShell(detailId, fields),
+		element: buildDetailShell(detailId, children),
 		strings,
 		translationUnits,
 		instances: instances.declarations(),
+		conditionReads: detailConditionReads.declarations(),
 	};
 }
 

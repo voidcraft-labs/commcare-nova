@@ -10,6 +10,7 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"caseListColumn",
 	"caseMappingRow",
 	"caseListSort",
+	"caseDetailTab",
 	"searchInput",
 	"caseOperation",
 	"formLink",
@@ -99,6 +100,13 @@ export function authoredBlueprintIdentities(
 				kind: "caseListSort",
 				ownerUuid: module.uuid,
 			});
+		for (const tab of module.caseListConfig?.detailTabs ?? []) {
+			identities.push({
+				uuid: tab.uuid,
+				kind: "caseDetailTab",
+				ownerUuid: module.uuid,
+			});
+		}
 		for (const input of module.caseListConfig?.searchInputs ?? []) {
 			identities.push({
 				uuid: input.uuid,

@@ -627,6 +627,18 @@ export const FORM_REFERENCE_SLOTS = [
 export const MODULE_REFERENCE_SLOTS = [
 	{
 		entity: "module",
+		slot: "case_form_context_menu",
+		path: "caseListConfig.contextAboveForm.moduleUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "case_form_context_line",
+		path: "caseListConfig.contextAboveForm.expression",
+		kind: "expression",
+	},
+	{
+		entity: "module",
 		slot: "module_case_parent",
 		path: "parentCaseModuleUuid",
 		kind: "entity-uuid",
@@ -723,6 +735,36 @@ export const MODULE_REFERENCE_SLOTS = [
 			"interval",
 			"link",
 		],
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_child_type",
+		path: "caseListConfig.detailTabs[].rowSource.caseType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_search_child_type",
+		path: "caseListConfig.detailTabs[].rowSource.includeChildrenOfType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_filter",
+		path: "caseListConfig.detailTabs[].rowSource.condition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_rows",
+		path: "caseListConfig.detailTabs[].rowSource.rows",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_detail_tab_condition",
+		path: "caseListConfig.detailTabs[].displayCondition",
+		kind: "expression",
 	},
 	{
 		entity: "module",
@@ -973,6 +1015,7 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	}
 	if ("rowUuid" in member)
 		return JSON.stringify([...base, member.columnUuid, member.rowUuid]);
+	if ("tabUuid" in member) return JSON.stringify([...base, member.tabUuid]);
 	if ("columnUuid" in member) {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
@@ -1000,6 +1043,7 @@ function expressionRefForEntry(
 		switch (entry.slot) {
 			case "module_display_condition":
 			case "case_list_filter":
+			case "case_form_context_line":
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
 				return { entity: "module", uuid, slot: entry.slot };
@@ -1027,6 +1071,19 @@ function expressionRefForEntry(
 							slot: entry.slot,
 							member: { sortUuid: sort.uuid },
 						};
+			}
+			case "case_detail_tab_filter":
+			case "case_detail_tab_rows":
+			case "case_detail_tab_condition": {
+				const tab = mod.caseListConfig?.detailTabs?.[indices[0] ?? -1];
+				return (
+					tab && {
+						entity: "module",
+						uuid,
+						slot: entry.slot,
+						member: { tabUuid: tab.uuid },
+					}
+				);
 			}
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns[indices[0] ?? -1];

@@ -28,6 +28,7 @@ import {
 	caseMappingComparison,
 	caseMappingRowUuid,
 } from "@/lib/domain/caseMappingRows";
+import { detailTabMembership } from "@/lib/domain/detailTabs";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	type FormStructure,
@@ -177,6 +178,7 @@ export function externalIdentityMap(
 					const wire = hqCalculatedSortExpression(
 						rule,
 						module,
+						doc,
 						expressions,
 						lookupNaming,
 					);
@@ -191,6 +193,8 @@ export function externalIdentityMap(
 					);
 				}
 			}
+			const membership = config.detailTabs && detailTabMembership(config);
+			const tabColumns = new Map<Uuid, ExternalKey[]>();
 			const columnCounts = new Map<string, number>();
 			for (const column of orderedColumns(config, "list")) {
 				// A calculated column that reads one attribute alone is read as the
@@ -203,7 +207,14 @@ export function externalIdentityMap(
 				const field =
 					attribute ?? (column.kind === "calculated" ? "" : column.field);
 				const n = nextOrdinal(columnCounts, JSON.stringify([kind, field]));
-				add(externalKey.caseListColumn(uniqueId, kind, field, n), column.uuid);
+				const key = externalKey.caseListColumn(uniqueId, kind, field, n);
+				add(key, column.uuid);
+				const tab = membership?.get(column.uuid);
+				if (tab !== undefined) {
+					const group = tabColumns.get(tab.uuid);
+					if (group) group.push(key);
+					else tabColumns.set(tab.uuid, [key]);
+				}
 				if (column.kind === "calculated" && column.texts?.length) {
 					const namable =
 						!lookupNaming ||
@@ -276,6 +287,8 @@ export function externalIdentityMap(
 					}
 				}
 			}
+			for (const [tabUuid, [first, ...others]] of tabColumns)
+				if (first) add(externalKey.caseDetailTab(first, others), tabUuid);
 			for (const input of config.searchInputs)
 				add(externalKey.searchInput(uniqueId, input.name), input.uuid);
 		}

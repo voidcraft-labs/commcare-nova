@@ -63,6 +63,7 @@ import { removeCaseListColumnTool } from "../lib/agent/tools/case-list-config/re
 import { removeSearchInputTool } from "../lib/agent/tools/case-list-config/removeSearchInput";
 import { reorderCaseListColumnsTool } from "../lib/agent/tools/case-list-config/reorderCaseListColumns";
 import { reorderSearchInputsTool } from "../lib/agent/tools/case-list-config/reorderSearchInputs";
+import { setCaseDetailTabsTool } from "../lib/agent/tools/case-list-config/setCaseDetailTabs";
 import { setCaseListFilterTool } from "../lib/agent/tools/case-list-config/setCaseListFilter";
 import { setCaseListTileTool } from "../lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
@@ -378,6 +379,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: setCaseListFilterTool.inputSchema,
 		prompt:
 			"Use setCaseListFilter with moduleUuid 11111111-1111-4111-8111-111111111111 to set a comparison: the patient case status property equals the literal string open.",
+	},
+	{
+		name: "setCaseDetailTabs",
+		description: setCaseDetailTabsTool.description,
+		schema: setCaseDetailTabsTool.inputSchema,
+		prompt:
+			"Use setCaseDetailTabs on module 11111111-1111-4111-8111-111111111111 to put field 33333333-3333-4333-8333-333333333333 in a new tab called Visit.",
 	},
 	{
 		name: "setCaseListTile",

@@ -468,7 +468,7 @@ function infer(
 	// being validated. The dependency checker reports the cycle; inference
 	// remains unknown rather than recursively manufacturing a type.
 	byPosition.set(key, { type: undefined, errors: [] });
-	const refusal = admission(expression, ctx, position);
+	const refusal = admission(expression, ctx, position, whole);
 	if (refusal !== undefined) {
 		const outcome = { type: undefined, errors: [refusal] };
 		byPosition.set(key, outcome);
@@ -756,6 +756,21 @@ export function checkExpression(
 		...csqlFindings(expression, ctx),
 	];
 	const slot = ctx.slot;
+	if (slot.entity === "module" && slot.slot === "case_detail_tab_rows") {
+		const row = expressionRowScope(expression, ctx);
+		if (
+			!["cases", "table-rows", "locations"].includes(expression.kind) ||
+			!row ||
+			(row.kind === "case" && !row.caseType)
+		)
+			errors.push(
+				refusal(
+					"incompatible-values",
+					"Choose an ordered collection of cases of one type, rows of a data table, or places for this detail tab.",
+					"unresolved-detail-tab-rows",
+				),
+			);
+	}
 	if (
 		slot.entity === "form" &&
 		slot.slot === "form_link_datum_xpath" &&
@@ -924,6 +939,7 @@ function admission(
 	expression: Expression,
 	ctx: TypingContext,
 	position?: RecordPosition,
+	whole = false,
 ): CheckError | undefined {
 	if (!("profile" in ctx)) return undefined;
 	const profile = ctx.profile;
@@ -1041,6 +1057,27 @@ function admission(
 			"This record expression has no form expression spelling.",
 			expression.kind,
 		);
+	if (
+		expression.kind === "locations" &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has("places")
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition needs places on every route that opens it. Show a place value on those screens or choose a condition based on the selected case.",
+			"detail-condition-places-unavailable",
+		);
+	if (
+		(expression.kind === "table-lookup" || expression.kind === "table-rows") &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has(expression.tableId)
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition reads a table the case screen does not load. Show a value from that table in Results or Details, or choose a condition based on the selected case.",
+			"detail-condition-table-unavailable",
+		);
+
 	if (ctx.ruleSet === "record") {
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
@@ -1062,13 +1099,18 @@ function admission(
 				(expression.kind === "count" && !isRelationPath(expression.via)))
 		)
 			return undefined;
+		const tabCollection =
+			whole &&
+			ctx.slot.entity === "module" &&
+			ctx.slot.slot === "case_detail_tab_rows";
 		// Places reach the device as the `locations` fixture, which an XForm
 		// or a form link's source entry declares; no menu, case list or
 		// search setting declares it, so none of them can read places.
 		if (
-			expression.kind === "locations" ||
-			(expression.kind === "count" && expression.via.kind === "locations") ||
-			(expression.kind === "project" && expression.of.kind === "locations")
+			!tabCollection &&
+			(expression.kind === "locations" ||
+				(expression.kind === "count" && expression.via.kind === "locations") ||
+				(expression.kind === "project" && expression.of.kind === "locations"))
 		)
 			return refusal(
 				"arm-unavailable",
@@ -1076,7 +1118,9 @@ function admission(
 				"places-unavailable",
 			);
 		if (
-			["call", "cases", "table-rows", "project"].includes(expression.kind) ||
+			["call", "project"].includes(expression.kind) ||
+			(!tabCollection &&
+				(expression.kind === "cases" || expression.kind === "table-rows")) ||
 			(expression.kind === "count" && !isRelationPath(expression.via))
 		)
 			return refusal(
@@ -1361,13 +1405,17 @@ function termAdmission(
 		ctx.ruleSet === "record" &&
 		((term.kind === "form-case" &&
 			!(profile.scope === "case" && profile.formAnswers)) ||
-			[
-				"form-node",
-				"repeat-row",
-				"case-index",
-				"location-field",
-				"location-level",
-			].includes(term.kind) ||
+			["form-node", "repeat-row", "case-index", "location-level"].includes(
+				term.kind,
+			) ||
+			(term.kind === "location-field" &&
+				!(
+					activeRowScope(ctx)?.kind === "location" &&
+					ctx.slot.entity === "module" &&
+					(ctx.slot.slot === "case_detail_tab_rows" ||
+						(ctx.slot.slot === "case_list_column_expression" &&
+							!profile.targets.has("PG")))
+				)) ||
 			// A case's type is read where a case row is in scope.
 			((term.kind === "case-type" || term.kind === "case-row-type") &&
 				activeRowScope(ctx)?.kind !== "case") ||
@@ -1442,6 +1490,16 @@ function termAdmission(
 					"not-forms-read-search",
 				);
 
+	if (
+		term.kind === "owner-location-at-level" &&
+		ctx.detailConditionFixtures &&
+		!ctx.detailConditionFixtures.has("places")
+	)
+		return refusal(
+			"arm-unavailable",
+			"This tab’s condition needs places on every route that opens it. Show a place value on those screens or choose a condition based on the selected case.",
+			"detail-condition-places-unavailable",
+		);
 	if (term.kind === "session-datum") {
 		const datum = term.datum;
 		if ("module" in term.datum && !ctx.facts.moduleUuids.has(term.datum.module))

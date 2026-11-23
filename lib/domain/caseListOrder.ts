@@ -451,6 +451,72 @@ interface FieldDraft {
 	readonly restingComparator: CaseListComparator;
 }
 
+/** The sort inherent in a displayed format on a list or a tab over records. */
+export function caseColumnRestingKey(
+	column: Column,
+	hidden: boolean,
+	propertyOf: (
+		column: Extract<Column, { field: string }>,
+	) => CaseListOrderProperty | undefined,
+	mediaOn: boolean,
+): Pick<FieldDraft, "restingKey" | "restingComparator"> {
+	const none = { restingComparator: "text" as const };
+	if (hidden) return none;
+	switch (column.kind) {
+		case "calculated":
+			return column.texts !== undefined
+				? {
+						restingKey: { kind: "calculated", column: column.uuid },
+						restingComparator: "text",
+					}
+				: none;
+		case "worker-distance":
+			return {
+				restingKey: propertyKey("distance-property", column),
+				restingComparator: "decimal",
+			};
+		case "date":
+		case "date-count":
+			return {
+				restingKey: propertyKey("property", column),
+				restingComparator: "text",
+			};
+		case "id-mapping":
+			return {
+				restingKey: {
+					kind:
+						column.behavior === "first-match"
+							? "mapping-label"
+							: "mapping-position",
+					column: column.uuid,
+				},
+				restingComparator: "text",
+			};
+		case "image-map":
+			return imageMapShowsImages(column, mediaOn)
+				? {
+						restingKey: { kind: "mapping-position", column: column.uuid },
+						restingComparator: "text",
+					}
+				: none;
+		case "plain":
+			return column.showChoice !== "saved-value" &&
+				casePropertyShowsOptionLabels(propertyOf(column))
+				? {
+						restingKey: propertyKey("option-label", column),
+						restingComparator: "text",
+					}
+				: none;
+		case "interval":
+			return {
+				restingKey: { kind: "interval-text", column: column.uuid },
+				restingComparator: "text",
+			};
+		default:
+			return none;
+	}
+}
+
 interface Pending {
 	/** Position in the rule sequence. */
 	readonly sequence: number;
@@ -495,8 +561,17 @@ export function caseListOrderPlan(
 	const fields: FieldDraft[] = [];
 	for (const column of results) {
 		if (!columnOnList(column)) continue;
-		const hidden = column.visibleInList === false;
-		if (tiled && hidden) continue;
+		const placedOnlyOnAndroid =
+			tiled &&
+			!config.tile?.namedSlots &&
+			column.tile?.androidOnly === true &&
+			column.visibleInList !== false;
+		const rawNamed = !!config.tile?.rawSlots?.some(
+			(slot) => config.tile?.namedSlots?.[slot] === column.uuid,
+		);
+		const hidden =
+			column.visibleInList === false || placedOnlyOnAndroid || rawNamed;
+		if (tiled && hidden && !placedOnlyOnAndroid && !rawNamed) continue;
 		fields.push(fieldDraft(column, fields.length, hidden));
 	}
 
@@ -511,7 +586,7 @@ export function caseListOrderPlan(
 			hidden,
 			wire: "expression",
 			joinText: options.expressionText(column),
-			...restingKeyOf(column, hidden),
+			...caseColumnRestingKey(column, hidden, propertyOf, options.mediaOn),
 		});
 		const property = (): FieldDraft => ({
 			column,
@@ -519,7 +594,7 @@ export function caseListOrderPlan(
 			hidden,
 			wire: "property",
 			joinText: column.kind === "calculated" ? "" : columnFieldText(column),
-			...restingKeyOf(column, hidden),
+			...caseColumnRestingKey(column, hidden, propertyOf, options.mediaOn),
 		});
 		if (column.kind === "calculated") {
 			const source = translatedDistanceProperty(column);
@@ -549,67 +624,6 @@ export function caseListOrderPlan(
 			case "id-mapping":
 			case "image-map":
 				return property();
-		}
-	}
-
-	function restingKeyOf(
-		column: Column,
-		hidden: boolean,
-	): Pick<FieldDraft, "restingKey" | "restingComparator"> {
-		const none = { restingComparator: "text" as const };
-		if (hidden) return none;
-		switch (column.kind) {
-			case "calculated":
-				return column.texts !== undefined
-					? {
-							restingKey: { kind: "calculated", column: column.uuid },
-							restingComparator: "text",
-						}
-					: none;
-			case "worker-distance":
-				return {
-					restingKey: propertyKey("distance-property", column),
-					restingComparator: "decimal",
-				};
-			case "date":
-			case "date-count":
-				return {
-					restingKey: propertyKey("property", column),
-					restingComparator: "text",
-				};
-			case "id-mapping":
-				return {
-					restingKey: {
-						kind:
-							column.behavior === "first-match"
-								? "mapping-label"
-								: "mapping-position",
-						column: column.uuid,
-					},
-					restingComparator: "text",
-				};
-			case "image-map":
-				return imageMapShowsImages(column, options.mediaOn)
-					? {
-							restingKey: { kind: "mapping-position", column: column.uuid },
-							restingComparator: "text",
-						}
-					: none;
-			case "plain":
-				return column.showChoice !== "saved-value" &&
-					casePropertyShowsOptionLabels(propertyOf(column))
-					? {
-							restingKey: propertyKey("option-label", column),
-							restingComparator: "text",
-						}
-					: none;
-			case "interval":
-				return {
-					restingKey: { kind: "interval-text", column: column.uuid },
-					restingComparator: "text",
-				};
-			default:
-				return none;
 		}
 	}
 

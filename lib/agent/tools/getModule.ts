@@ -1,3 +1,4 @@
+import { detailTabSpans } from "@/lib/domain/detailTabs";
 /**
  * SA tool: `getModule` — read one module's metadata + menu media + case
  * list config + case search config + form summary by stable UUID.
@@ -148,6 +149,7 @@ export type GetModuleResult =
 			 *  A column's `field` is its case property and is a different identity. */
 			results_column_order: Uuid[];
 			details_column_order: Uuid[];
+			detail_tabs?: { tabUuid: Uuid; title: string; columnUuids: Uuid[] }[];
 			case_search_config: CaseSearchConfig | null;
 			/** What the menu opens on, or `null` where it has no search. */
 			searchWorkflow: SearchWorkflow | null;
@@ -252,6 +254,9 @@ export const getModuleTool = {
 			caseListConfig === undefined
 				? []
 				: orderedColumns(caseListConfig, "detail");
+		const shownDetails = detailsColumns.filter(
+			(column) => column.visibleInDetail !== false,
+		);
 		return {
 			kind: "read",
 			data: {
@@ -268,12 +273,19 @@ export const getModuleTool = {
 				hidden_from_menu: mod.hiddenFromMenu === true,
 				advanced: moduleAdvancedRead(doc, moduleUuid),
 				case_list_config: caseListConfig ?? null,
+				...(caseListConfig?.detailTabs && {
+					detail_tabs: (
+						detailTabSpans(caseListConfig.detailTabs, shownDetails) ?? []
+					).map(({ tab, start, end }) => ({
+						tabUuid: tab.uuid,
+						title: tab.title,
+						columnUuids: shownDetails.slice(start, end).map((c) => c.uuid),
+					})),
+				}),
 				results_column_order: resultsColumns
 					.filter((column) => column.visibleInList !== false)
 					.map((column) => column.uuid),
-				details_column_order: detailsColumns
-					.filter((column) => column.visibleInDetail !== false)
-					.map((column) => column.uuid),
+				details_column_order: shownDetails.map((column) => column.uuid),
 				case_search_config: caseSearchConfig ?? null,
 				searchWorkflow: moduleSearchWorkflow(mod) ?? null,
 				formsReadSearch: moduleFormsReadSearch(mod),

@@ -152,6 +152,10 @@ function recordSlotSubject(doc: BlueprintDoc, error: ValidationError): string {
 			return `A display rule in ${module}`;
 		case "CASE_LIST_CALCULATED_SORT_TYPE_ERROR":
 			return `The default order calculation of ${module}`;
+		case "CASE_DETAIL_TAB_ROWS_INVALID":
+			return `The records in detail tab "${error.details?.tabTitle ?? ""}" of ${module}`;
+		case "CASE_DETAIL_TAB_CONDITION_INVALID":
+			return `The display condition for the detail tab "${error.details?.tabTitle ?? ""}" of ${module}`;
 		case "CASE_LIST_FILTER_TYPE_ERROR":
 			return `The case list filter of ${module}`;
 		case "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR":

@@ -48,6 +48,7 @@ import type { BlueprintDoc } from "./blueprint";
 import { hasSeveralCaseMapLocations } from "./caseMap";
 import { caseWriteValueField } from "./caseWriteViews";
 import { formConnectIds } from "./connectIds";
+import { detailTileSharesRowAcrossTabs } from "./detailTabs";
 import { entrySelections, rootSelectionAlignment } from "./entryDatumSupplies";
 import { CASE_TYPE_PATTERN, type Expression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
@@ -680,6 +681,7 @@ function givesBasicDatum(
 export type AdvancedKindReason =
 	| { readonly kind: "held" }
 	| { readonly kind: "several-map-locations" }
+	| { readonly kind: "detail-tile-tabs" }
 	| {
 			readonly kind: "carried-create";
 			readonly formUuid: Uuid;
@@ -724,6 +726,8 @@ function computeKindTriggers(
 	if (hasSeveralCaseMapLocations(module.caseListConfig))
 		found.push({ kind: "several-map-locations" });
 	if (module.heldKind === "advanced") found.push({ kind: "held" });
+	if (detailTileSharesRowAcrossTabs(module.caseListConfig))
+		found.push({ kind: "detail-tile-tabs" });
 	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 		if (doc.forms[formUuid] === undefined) continue;
 		const links = carriedCreates(doc, formUuid);

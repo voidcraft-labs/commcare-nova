@@ -232,6 +232,7 @@ const MODULE_SLOT_PHRASES: Readonly<
 	Record<ReadPhraseAudience, Readonly<Record<string, string>>>
 > = {
 	agent: {
+		case_detail_tab_condition: "a detail tab rule on module",
 		case_list_filter: "the case-list filter on module",
 		case_list_column_field: "a case-list column of module",
 		case_list_column_via: "a case-list column of module",
@@ -246,6 +247,7 @@ const MODULE_SLOT_PHRASES: Readonly<
 		excluded_owner_ids: "the owner filter on module",
 	} satisfies Partial<Record<ModuleSlotId, string>>,
 	builder: {
+		case_detail_tab_condition: "a detail tab rule in module",
 		case_list_filter: "a Cases available condition in module",
 		case_list_column_field: "case information in module",
 		case_list_column_via: "case information in module",

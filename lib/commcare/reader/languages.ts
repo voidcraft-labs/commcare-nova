@@ -598,6 +598,17 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 							option.label = value as typeof option.label;
 					}
 				: undefined;
+		case "case-detail-tab-title":
+			return owner.kind === "module"
+				? (draft, value) => {
+						const tab = draft.modules[
+							owner.moduleUuid
+						]?.caseListConfig?.detailTabs?.find(
+							(item) => item.uuid === unit.context.detailTabUuid,
+						);
+						if (tab) tab.title = text(value);
+					}
+				: undefined;
 		case "case-list-header":
 		case "case-list-interval-text":
 		case "case-list-calculation-text":

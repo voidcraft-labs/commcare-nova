@@ -219,6 +219,9 @@ export const PLATFORM_FEATURE_IDS = [
 	"entry-points",
 	"case-list-menu-item",
 	"case-list-registration-media",
+	"named-case-tile",
+	"details-tile",
+	"raw-custom-tile-field",
 	"tile-grouping",
 	"tile-alignment",
 	"tile-border-and-shading",
@@ -722,6 +725,30 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: { reading: "ignored", note: "the button shows its text only" },
 		android: { reading: "runs" },
+	},
+	"named-case-tile": {
+		label: "Named image and text positions",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "icon fields show the stored image path",
+		},
+	},
+	"details-tile": {
+		label: "Tile layout in Details",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: { reading: "ignored", note: "the fields appear in ordinary rows" },
+	},
+	"raw-custom-tile-field": {
+		label: "A raw field in a Results tile",
+		channel: "structure",
+		webApps: { reading: "runs", note: "the field stays hidden" },
+		android: {
+			reading: "different",
+			note: "the cell displays the stored value",
+		},
 	},
 	"tile-grouping": {
 		label: "Grouped tiles",

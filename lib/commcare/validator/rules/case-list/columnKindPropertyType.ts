@@ -1,3 +1,4 @@
+import { columnCaseScopes } from "@/lib/domain/expression/detailRowScope";
 /**
  * Rule: a column kind with a property-type requirement (`date` /
  * `interval` need a date-typed property; `phone` needs a text-shaped
@@ -57,32 +58,31 @@ export function columnKindPropertyType(
 		const requirement = columnKindPropertyRequirement(col.kind);
 		if (requirement === null) continue; // universal kinds accept everything
 		// The property is one of the case the column's walk reaches.
-		const caseType = columnPropertyCaseType(
-			col,
-			mod.caseType,
-			augmentedCaseTypes,
-		);
-		const properties = augmentedCaseTypes.find(
-			(ct) => ct.name === caseType,
-		)?.properties;
-		// A unique destination can have a genuinely undeclared property type.
-		// A native walk to alternative destinations needs a common effective type.
-		const resolvedType =
-			caseType !== undefined
-				? properties?.find((property) => property.name === col.field)?.data_type
-				: reachedPropertyType(col, mod.caseType, augmentedCaseTypes);
-		if (resolvedType === undefined) continue;
-		if (columnKindAcceptsPropertyType(col.kind, resolvedType)) continue;
-		errors.push(
-			buildMismatchError(
-				mod,
-				moduleUuid,
-				index,
-				col,
-				resolvedType,
-				requirement,
-			),
-		);
+		for (const origin of columnCaseScopes(doc, mod, col)) {
+			const caseType = columnPropertyCaseType(col, origin, augmentedCaseTypes);
+			const properties = augmentedCaseTypes.find(
+				(ct) => ct.name === caseType,
+			)?.properties;
+			// A unique destination can have a genuinely undeclared property type.
+			// A native walk to alternative destinations needs a common effective type.
+			const resolvedType =
+				caseType !== undefined
+					? properties?.find((property) => property.name === col.field)
+							?.data_type
+					: reachedPropertyType(col, origin, augmentedCaseTypes);
+			if (resolvedType === undefined) continue;
+			if (columnKindAcceptsPropertyType(col.kind, resolvedType)) continue;
+			errors.push(
+				buildMismatchError(
+					mod,
+					moduleUuid,
+					index,
+					col,
+					resolvedType,
+					requirement,
+				),
+			);
+		}
 	}
 	return errors;
 }

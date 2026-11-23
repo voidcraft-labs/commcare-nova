@@ -200,6 +200,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_COLUMN_RELATION_INVALID: "soundness",
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_FILTER_TYPE_ERROR: "soundness",
+	// A field move that would change which Details tab shows it is refused
+	// before validation, so the author regroups the field explicitly.
+	CASE_DETAIL_TAB_MOVE_NEEDS_GROUP: "soundness",
+	CASE_DETAIL_TAB_CONDITION_INVALID: "soundness",
+	CASE_DETAIL_TAB_ROWS_INVALID: "soundness",
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: "soundness",
 	CASE_LIST_MAPPING_CONDITION: "soundness",
 	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: "soundness",
@@ -250,6 +255,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// cells on one square, or a shown field with nowhere to sit each
 	// produce a layout the running app draws differently from the one the
 	// author arranged.
+	CASE_DETAIL_TILE_LAYOUT_INVALID: "soundness",
+	CASE_FORM_CONTEXT_INVALID: "soundness",
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: "soundness",
 	CASE_LIST_TILE_CELLS_OVERLAP: "soundness",
 	CASE_LIST_TILE_COLUMN_NOT_PLACED: "soundness",

@@ -514,6 +514,9 @@ export const tileCellInputSchema = tileCellSchema.extend({
 		.describe(
 			"Text size for this field: small, medium or large. Leave it out for medium. A tile's text has its own three sizes and never follows the rest of the list, so set small or large only where a field should recede or stand out.",
 		),
+	androidOnly: tileCellSchema.shape.androidOnly.describe(
+		"Show the raw value in this Results tile cell only on Android. Web Apps keeps its geometry and hides the value. Details tiles use normal rows on Android.",
+	),
 	showBorder: tileCellSchema.shape.showBorder.describe(
 		"Draw a box around this field. Turning it on for ANY field puts the WHOLE tile into boxed layout, which re-spaces every other field on the tile too — so decide it for the tile, not for one field.",
 	),

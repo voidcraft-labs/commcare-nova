@@ -74,6 +74,7 @@ export interface TileCellInspectorProps {
 	readonly config: CaseListConfig;
 	/** Whether the case list is currently laid out as a tile. */
 	readonly tileOn: boolean;
+	readonly details?: boolean;
 	/** This field's tile problems, in the words the canvas shows. */
 	readonly issues: readonly string[];
 	readonly canEdit: boolean;
@@ -87,6 +88,7 @@ export function TileCellInspector({
 	column,
 	config,
 	tileOn,
+	details,
 	issues,
 	canEdit,
 	onPlace,
@@ -232,6 +234,16 @@ export function TileCellInspector({
 							/>
 						</div>
 
+						{!details && (
+							<ToggleRow
+								label="Show this tile value only on Android"
+								checked={cell.androidOnly === true}
+								onChange={(value) => {
+									const { androidOnly: old, ...rest } = cell;
+									onPlace(value ? { ...rest, androidOnly: true } : rest);
+								}}
+							/>
+						)}
 						<ToggleRow
 							label="Border"
 							checked={cell.showBorder === true}

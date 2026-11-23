@@ -2578,6 +2578,9 @@ function diffCaseListMeta(
 		filter?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
+		detailTabs?: CaseListConfig["detailTabs"] | null;
+		detailTile?: CaseListConfig["detailTile"] | null;
+		contextAboveForm?: CaseListConfig["contextAboveForm"] | null;
 	} = {};
 	if (!deepEqual(prev.filter, next.filter)) {
 		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
@@ -2586,6 +2589,14 @@ function diffCaseListMeta(
 		patch.selection =
 			next.selection === undefined ? null : cloneEntity(next.selection);
 	}
+	if (!deepEqual(prev.contextAboveForm, next.contextAboveForm))
+		patch.contextAboveForm = next.contextAboveForm
+			? cloneEntity(next.contextAboveForm)
+			: null;
+	if (!deepEqual(prev.detailTile, next.detailTile))
+		patch.detailTile = next.detailTile ? cloneEntity(next.detailTile) : null;
+	if (!deepEqual(prev.detailTabs, next.detailTabs))
+		patch.detailTabs = next.detailTabs ? cloneEntity(next.detailTabs) : null;
 	const tileChanged = !deepEqual(prev.tile, next.tile);
 	if (tileChanged) {
 		patch.tile = next.tile === undefined ? null : cloneEntity(next.tile);

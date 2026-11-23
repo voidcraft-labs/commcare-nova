@@ -2,6 +2,7 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import type { RewriteControl } from "./emissionRewrites";
 import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
+import { caseContextDetailIds } from "./suite/case-list/formContext";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
@@ -591,6 +592,26 @@ function parentSelectChain(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
 	return reverse.reverse();
 }
 
+function basicSelectionDatumName(multiple: boolean, remaining: number): string {
+	if (multiple) return `${"parent_".repeat(remaining)}selected_cases`;
+	return remaining === 0 ? "case_id" : `${"parent_".repeat(remaining)}id`;
+}
+
+/** The Case Detail builder reads the basic chain before entry alignment. Advanced modules have no basic chain. */
+export function detailTabVariableNames(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): string[] {
+	if (emittedModuleKind(doc, moduleUuid) !== "basic") return [];
+	const chain = [...parentSelectChain(doc, moduleUuid), moduleUuid];
+	return chain.map((uuid, i) =>
+		basicSelectionDatumName(
+			doc.modules[uuid]?.caseListConfig?.selection?.kind === "multiple",
+			chain.length - i - 1,
+		),
+	);
+}
+
 function selectableDatums(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
@@ -611,12 +632,10 @@ function selectableDatums(
 		if (selectedModule === undefined || !selectedModule.caseType) continue;
 		const remaining = chain.length - index - 1;
 		const multiple = selectedModule.caseListConfig?.selection;
-		const id =
-			multiple?.kind === "multiple"
-				? `${"parent_".repeat(remaining)}selected_cases`
-				: remaining === 0
-					? "case_id"
-					: `${"parent_".repeat(remaining)}id`;
+		const id = basicSelectionDatumName(
+			multiple?.kind === "multiple",
+			remaining,
+		);
 		const parentSelection = datums.at(-1);
 		const moduleIndex = moduleIndexOf(ctx, selectedModuleUuid);
 		// A case chosen earlier in this chain prints under the id its datum
@@ -646,9 +665,9 @@ function selectableDatums(
 				ctx.lookupNaming,
 			),
 			lookupNaming: ctx.lookupNaming,
-			...(selectedModule.caseListConfig?.tile?.persistOnForms === true && {
-				persistentDetailId: `m${moduleIndex}_case_short`,
-			}),
+			...caseContextDetailIds(doc, selectedModuleUuid, (id) =>
+				moduleIndexOf(ctx, id),
+			),
 			...(selectedModuleUuid === moduleUuid &&
 			(selectedModule.caseListConfig?.columns ?? []).some(
 				(column) => column.visibleInDetail !== false,
@@ -1000,9 +1019,9 @@ function advancedEntrySessionDatums(
 				...(ctx.lookupNaming !== undefined && {
 					lookupNaming: ctx.lookupNaming,
 				}),
-				...(list.caseListConfig?.tile?.persistOnForms === true && {
-					persistentDetailId: `m${listIndex}_case_short`,
-				}),
+				...caseContextDetailIds(doc, listModule, (id) =>
+					moduleIndexOf(ctx, id),
+				),
 				detailConfirm:
 					hasDetailScreen && (!indexedByLater || indexedByOpen.has(load.tag)),
 				entryMetadataOnly: ctx.entryMetadataOnly,
@@ -1247,9 +1266,7 @@ export function caseListSessionDatums(
 			hasDetailScreen: (mod.caseListConfig?.columns ?? []).some(
 				(column) => column.visibleInDetail !== false,
 			),
-			...(mod.caseListConfig?.tile?.persistOnForms === true && {
-				persistentDetailId: `m${moduleIndex}_case_short`,
-			}),
+			...caseContextDetailIds(doc, moduleUuid, (id) => moduleIndexOf(ctx, id)),
 			entryMetadataOnly: ctx.entryMetadataOnly,
 		});
 		ctx.selectionSourceModules.set(datum, moduleUuid);
@@ -1278,7 +1295,7 @@ function basicCaseListSessionDatums(
 	const hasDetailScreen = (
 		doc.modules[moduleUuid]?.caseListConfig?.columns ?? []
 	).some((column) => column.visibleInDetail !== false);
-	if (own !== undefined && hasDetailScreen) {
+	if (own !== undefined && hasDetailScreen && !own.detailInline) {
 		own.detailConfirm = `m${moduleIndexOf(ctx, moduleUuid)}_case_long`;
 	}
 	return withInlineSearchQueries(

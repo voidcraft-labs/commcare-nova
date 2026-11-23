@@ -67,6 +67,7 @@ import {
 	CASE_LIST_ORDER_RULES,
 	MODULE_RULES,
 } from "@/lib/commcare/validator/rules/module";
+import { implicitTabMembershipChange } from "@/lib/doc/caseDetailTabMutations";
 import {
 	type CasePropertyRenamePlan,
 	type CasePropertyRenamePlanIssue,
@@ -492,6 +493,7 @@ export interface PreparedMutationCandidate {
 	readonly mutations: AdmittedMutationBatch;
 	readonly nextDoc: BlueprintDoc;
 	readonly results: MutationResult[];
+	readonly detailTabMoveIssue?: Uuid;
 	readonly identityAdmissionIssue?: MutationIdentityAdmissionIssue;
 	readonly sequenceAdmissionIssue?: MutationSequenceAdmissionIssue;
 	readonly targetAdmissionIssue?: true;
@@ -614,6 +616,14 @@ export function* prepareMutationCandidateSteps(
 	const nextDoc = produce(prevDoc, (draft) => {
 		results = applyMutations(draft, mutations);
 	});
+	const moveIssue = implicitTabMembershipChange(prevDoc, nextDoc, mutations);
+	if (moveIssue)
+		return {
+			mutations,
+			nextDoc: prevDoc,
+			results: [],
+			detailTabMoveIssue: moveIssue,
+		};
 	return {
 		mutations,
 		nextDoc,
@@ -635,6 +645,7 @@ export function preparedCandidateHasAdmissionIssue(
 	prepared: PreparedMutationCandidate,
 ): boolean {
 	return (
+		prepared.detailTabMoveIssue !== undefined ||
 		prepared.identityAdmissionIssue !== undefined ||
 		prepared.sequenceAdmissionIssue !== undefined ||
 		prepared.targetAdmissionIssue === true ||
@@ -673,6 +684,19 @@ export function evaluatePreparedMutationCandidate(
 function admissionIssueVerdict(
 	prepared: PreparedMutationCandidate,
 ): RefusedCommitVerdict | undefined {
+	if (prepared.detailTabMoveIssue)
+		return {
+			ok: false,
+			nextDoc: prepared.nextDoc,
+			findings: [
+				validationError(
+					"CASE_DETAIL_TAB_MOVE_NEEDS_GROUP",
+					"module",
+					"This move would change which tab shows a field. Open Edit tabs to choose where it belongs.",
+					{ moduleUuid: prepared.detailTabMoveIssue },
+				),
+			],
+		};
 	if (prepared.identityAdmissionIssue !== undefined) {
 		const issue = prepared.identityAdmissionIssue;
 		return {

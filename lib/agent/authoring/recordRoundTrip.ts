@@ -158,6 +158,28 @@ function moduleReadSite(
 				? undefined
 				: site(list, ["columns", columnIndex, "mapping", index, "when"]);
 		}
+		case "case_form_context_line":
+			return site(list, ["contextAboveForm", "expression"]);
+		case "case_detail_tab_filter":
+		case "case_detail_tab_rows":
+		case "case_detail_tab_condition": {
+			const tab = (list?.detailTabs ?? []).findIndex(
+				(tab) => tab.uuid === ref.member.tabUuid,
+			);
+			return tab < 0
+				? undefined
+				: site(
+						list,
+						ref.slot === "case_detail_tab_condition"
+							? ["detailTabs", tab, "displayCondition"]
+							: [
+									"detailTabs",
+									tab,
+									"rowSource",
+									ref.slot === "case_detail_tab_filter" ? "condition" : "rows",
+								],
+					);
+		}
 		case "case_list_column_expression": {
 			const column = (list?.columns ?? []).findIndex(
 				(candidate) => candidate.uuid === ref.member.columnUuid,

@@ -5,6 +5,10 @@ import {
 	slotContext,
 	walkExpressionNodes,
 } from "@/lib/domain/expression";
+import {
+	columnRunsOnResults,
+	detailColumnRowScope,
+} from "@/lib/domain/expression/detailRowScope";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -114,8 +118,21 @@ export function calculatedColumnTypeCheck(
 			lookupTables ?? new Map(),
 		);
 		if (ctx === undefined) continue;
-		const typeErrors = semanticCheckErrors(
-			checkExpression(column.expression, ctx),
+		const scopes = [ctx];
+		const row = detailColumnRowScope(doc, mod, column, lookupTables);
+		if (
+			row &&
+			columnRunsOnResults(mod, column) &&
+			(row.kind !== "case" || row.caseType !== mod.caseType)
+		) {
+			scopes.push({
+				...ctx,
+				profile: { ...ctx.profile, scope: "case" },
+				rows: [{ kind: "case", caseType: mod.caseType, root: "casedb" }],
+			});
+		}
+		const typeErrors = scopes.flatMap((scope) =>
+			semanticCheckErrors(checkExpression(column.expression, scope)),
 		);
 		if (typeErrors.length === 0) continue;
 
