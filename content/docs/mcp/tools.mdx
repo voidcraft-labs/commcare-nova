@@ -102,7 +102,10 @@ Use `edit_form_entry` to add, rename, reorder or remove a record or value
 supplied when a form opens. Each record has its own UUID, even when two come
 from the same list. `get_form` shows the current supplies. A calculation can
 read an earlier record with `opening-record('Receiving household')` or an
-earlier value with `opening-value('visit_day')`. When a change would leave a
+earlier value with `opening-value('visit_day')`. Its `add-assignment` operation
+fills a question from a record property once the form's ordinary starting
+answers have run, from the form's record, the worker's record or a named
+opening record, through any named connections. When a change would leave a
 reference without its source, the result names the dependent setting.
 
 `get_form` returns the current naming rule, navigation, and `recordContext` for
