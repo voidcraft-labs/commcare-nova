@@ -267,6 +267,7 @@ function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
 			? {}
 			: { localization: draft.localization }),
 		appSettings: {
+			...(draft.appSettings.captureLocation && { captureLocation: true }),
 			showSavedForms:
 				draft.appSettings.showSavedForms ?? NEW_APP_SETTINGS.showSavedForms,
 			showIncompleteForms:

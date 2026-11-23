@@ -921,12 +921,10 @@ export function compileCczParts(
 			if (xform) {
 				const form = parseXForm(xform);
 				addMetaBlockTo(form, {
-					/* HQ's build captures location on every form where the
-					 * app's `auto_gps_capture` is on: a Connect app's, which
-					 * Nova sets, or another app's where the project space
-					 * holds it (`xform.py::XForm._add_meta_2`). */
+					/* HQ builds from the independent app and form switches. */
 					captureLocation:
-						authoredDoc.connectType !== null || facts?.autoGpsCapture === true,
+						hqJson.auto_gps_capture === true ||
+						hqForm.auto_gps_capture === true,
 				});
 				stripVellumAttributesFrom(form);
 				setFormVersionOn(form, sequence);

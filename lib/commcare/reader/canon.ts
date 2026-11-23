@@ -311,6 +311,16 @@ export const CANONICALIZATIONS: readonly Canonicalization[] = [
 		}),
 	),
 	{
+		id: "connect-requires-app-location",
+		kind: "one-wire",
+		apply: (doc) =>
+			doc.connectType !== null && doc.appSettings.captureLocation === true
+				? withCandidate(doc, (draft) => {
+						delete draft.appSettings.captureLocation;
+					})
+				: doc,
+	},
+	{
 		/** Two trees of one slot that print the same bytes there
 		 *  (`expressions/canonical.ts::PRINT_COLLISIONS`): the reader returns the
 		 *  canonical one, and no case list filter and no menu's or form's

@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -466,6 +467,7 @@ export function* expandDocSteps(
 					? formShellObj.requires === "case"
 					: caseWire.kind === "advanced" &&
 						caseWire.loads.some((load) => !load.worker);
+			formShellObj.auto_gps_capture = form.captureLocation === true;
 			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
 			formShellObj.respect_relevancy =
 				form.entryPoint?.ignoreDisplayConditions !== true;
@@ -823,7 +825,7 @@ function appLevelValues(
 	doc: BlueprintDoc,
 	localization: CommCareLocalization,
 ): {
-	readonly autoGpsCapture?: boolean;
+	readonly autoGpsCapture: boolean;
 	readonly langs: string[];
 	readonly translations: Record<string, Record<string, string>>;
 } {
@@ -834,7 +836,7 @@ function appLevelValues(
 		// A Connect app captures location on every form. Over an app brought
 		// in from CommCare HQ that left it off, the first-publish register
 		// declares the change (`connect-app-captures-location`).
-		...(doc.connectType && { autoGpsCapture: true }),
+		autoGpsCapture: capturesDeviceLocation(doc),
 		langs: [...localization.languages],
 		translations: Object.fromEntries(
 			localization.languages.map((language) => {
@@ -889,8 +891,7 @@ export type HqAppShell = Pick<HqApplication, AppShellKey>;
  * fills it: no menus, no attachments, no `add_ons`, no `profile` and no
  * `location_fixture_restore`, which the update writes over the shell's
  * source read, and no `build_spec`, `logo_refs` or `multimedia_map`, which
- * Nova never sends. `auto_gps_capture` is there only
- * for a Connect app. With no form there is
+ * Nova never sends. The shell carries the app-wide location choice. With no form there is
  * no form id for HQ to re-mint, and HQ refuses to build an app with no menus
  * (`helpers/validators.py::ApplicationValidator._check_modules`), so no
  * build can hold an id the update did not write.

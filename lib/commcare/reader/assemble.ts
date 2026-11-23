@@ -156,8 +156,8 @@ const AUTO_GPS = "schema:Application.auto_gps_capture";
 const CLAIMS = defineClaims("assemble", {
 	/** `auto_gps_capture` on a Connect app: Nova writes `true` from `connectType`. */
 	autoGpsConnect: derived(`${A}/45-hq-auto-gps-capture`, AUTO_GPS),
-	/** `auto_gps_capture` on any other app: kept at the project space's value. */
-	autoGpsOther: account(
+	/** On an ordinary app the author chooses the app-wide setting. */
+	autoGpsOther: take(
 		`${A}/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app`,
 		AUTO_GPS,
 	),
@@ -1964,7 +1964,22 @@ export function* assembleDocumentSteps(
 	// 1. The claims that waited for every form.
 	if (ctx.draft.connectType !== null)
 		ctx.app.derived("auto_gps_capture", CLAIMS.autoGpsConnect);
-	else ctx.app.account("auto_gps_capture", CLAIMS.autoGpsOther);
+	else {
+		const capture = ctx.app.take(
+			"auto_gps_capture",
+			CLAIMS.autoGpsOther,
+			(value) => value === true,
+		).value;
+		if (capture) {
+			ctx.writeDraft(() => {
+				ctx.draft.appSettings.captureLocation = true;
+			});
+			if (ctx.doc !== undefined)
+				ctx.doc = withCandidate(ctx.doc, (draft) => {
+					draft.appSettings.captureLocation = true;
+				});
+		}
+	}
 
 	// 2. The declaration, over the document as it stands, in every reading.
 	const working = ctx.doc ?? provisionalDocument(ctx);
