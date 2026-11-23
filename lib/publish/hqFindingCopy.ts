@@ -213,6 +213,8 @@ export const FINDING_COPY: Readonly<
 			"This uses a case list speed setting, which Nova can't hold yet.",
 	},
 	"case-list-registration": {
+		never:
+			"The form offered from a case list here returns through the first menu with a case the form doesn't give, or one another form reads as a different kind of case, which Nova doesn't bring in.",
 		"not-yet":
 			"This uses a way of offering a form from the case list, which Nova can't hold yet.",
 	},
@@ -269,17 +271,15 @@ export const FINDING_COPY: Readonly<
 	},
 	"deep-links": {
 		never:
-			"A deep link ID on a mirror menu here has a space at its start or end, which Nova can't keep exactly.",
-		"not-yet":
-			"This uses a deep link with its own arguments, which Nova can't hold yet.",
+			"A deep link here has an ID with a space at its start or end, or an argument that names no case its form creates, which Nova can't keep exactly.",
 	},
 	"display-conditions": {
 		"not-yet":
 			"A display condition here is more than Nova can read as a condition yet.",
 	},
 	"display-only-forms": {
-		"not-yet":
-			"A form here goes back to, or opens through, the menu above in a way Nova can't hold yet.",
+		never:
+			"A case chosen on the first menu here would reach a form or case list that reads a different kind of case, or a different number of them, under the same name, which Nova doesn't bring in.",
 	},
 	expressions: {
 		never:
@@ -339,7 +339,6 @@ export const FINDING_COPY: Readonly<
 	"menu-structure": {
 		never:
 			"The menus here are in an order that separates a menu from the one above it.",
-		"not-yet": "How this menu is nested is something Nova can't hold yet.",
 	},
 	"mirror-menus": {
 		never:
@@ -352,7 +351,6 @@ export const FINDING_COPY: Readonly<
 	"parent-selection": {
 		never:
 			"This uses a first case that is no parent of the second, which Nova doesn't bring in.",
-		"not-yet": "This chooses a parent case first in a way Nova can't hold yet.",
 	},
 	"print-templates": {
 		never: "This uses a print template, which Nova doesn't bring in.",

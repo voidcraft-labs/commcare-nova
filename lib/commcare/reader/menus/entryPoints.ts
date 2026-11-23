@@ -74,7 +74,7 @@ const ENTRY_POINTS = {
 		"schema:ShadowFormEndpoint.session_endpoint_id",
 	),
 	sharedFirstMenu: refuse(
-		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		`${F}/first-menu-selection-used-for-different-records`,
 		"schema:ShadowFormEndpoint.session_endpoint_id",
 	),
 	menu: byClass(MENUS, take, `${M}/session-endpoint-id`, "session_endpoint_id"),

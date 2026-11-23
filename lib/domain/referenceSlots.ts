@@ -1574,6 +1574,11 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
 	"entryPoint.ignoreDisplayConditions": "config",
+	// The form's own case creations whose IDs a deep link supplies: UUIDs of
+	// this form's case operations, like a column order's column UUIDs. No
+	// rename follows them; the commit gate places a finding on one that no
+	// longer names a creation on the form's frame.
+	"entryCaseCreations[]": "identity",
 	id: "declaration",
 	name: "display-text",
 	type: "discriminator",
