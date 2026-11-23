@@ -5973,6 +5973,29 @@ def _localized_media():
     }
 
 
+def _label_texts():
+    """The refused shape of a question label's other texts: ``q1``'s French ``long`` and ``tts`` forms the default
+    English lacks; ``q2``'s ``qrcode`` form English holds and French inherits, held."""
+    texts = _form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q1"><value>A</value></text>
+            <text id="q2"><value>B</value><value form="qrcode">B-1</value></text></translation>
+          <translation lang="fr">
+            <text id="q1"><value>A</value><value form="long">Plus long</value><value form="tts">Dire A</value></text>
+            <text id="q2"><value>B</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q1')"/></input>""",
+    )
+    return {
+        "questions/long-qrcode-or-tts-form-missing-in-default-language": (
+            refused("form", texts, "itext-form:core/long", "translation[2]/text[1]/value[2]/@form"),
+            refused("form", texts, "itext-form:android/tts", "translation[2]/text[1]/value[3]/@form"),
+            refused("form", texts, VALUE_FORM, "translation[2]/text[1]/value[2]/@form"),
+            accepted("form", texts, "itext-form:android/qrcode", "translation[1]/text[2]/value[2]/@form"),
+        ),
+    }
+
+
 def _held_new():
     """The shapes of the HELD-NEW classes beside an allowing class of their key: a use the class takes (``refused``:
     its reader says True, and the use stands held-new) and one beside it that the allowing class holds."""
@@ -6312,6 +6335,7 @@ SHAPES = {
     **_search_and_menus(),
     **_data_binds_and_itext(),
     **_localized_media(),
+    **_label_texts(),
     **_held_new(),
 }
 

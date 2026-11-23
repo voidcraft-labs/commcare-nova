@@ -948,6 +948,30 @@ def label_tts(authoring, app_id):
     _label_form(authoring, app_id, "label-tts", '<value form="tts">Say the full name</value>')
 
 
+FULL_NAME_HELP_VALUE = "<value>The name the household is known by</value>"
+MEMBERS_LABEL_VALUE = '<text id="members-label">\n\t\t\t\t\t\t<value>Members</value>'
+
+
+def long_form_on_help(authoring, app_id):
+    """A ``long`` form of ``full_name``'s help text, which no runtime asks a help text for."""
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-help",
+        (FULL_NAME_HELP_VALUE, FULL_NAME_HELP_VALUE + '<value form="long">Ask who heads the household</value>', 1),
+    )
+
+
+def long_form_on_group_label(authoring, app_id):
+    """A ``long`` form of the ``members`` repeat's label, which both runtimes show as its header."""
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-group-label",
+        (MEMBERS_LABEL_VALUE, MEMBERS_LABEL_VALUE + '<value form="long">Every member of the household</value>', 1),
+    )
+
+
 def xhtml_inside_value(authoring, app_id):
     """An XHTML ``b`` element inside the default text of ``full_name``'s label."""
     _change(authoring, app_id, "xhtml-inside-value", (FULL_NAME_LABEL_VALUE, "<value>Full <h:b>name</h:b></value>", 1))
@@ -1091,6 +1115,16 @@ def media_one_language(authoring, app_id):
         app_id,
         "media-one-language",
         (NOTE_FRA, NOTE_FRA + '<value form="image">jr://file/commcare/logo/data/hq_logo_android_home.png</value>', 1),
+    )
+
+
+def label_text_one_language(authoring, app_id):
+    """A ``long`` form of ``note``'s label in French alone, a key the English default lacks."""
+    _change(
+        authoring,
+        app_id,
+        "label-text-one-language",
+        (NOTE_FRA, NOTE_FRA + '<value form="long">Remarque de la tournée, en détail</value>', 1),
     )
 
 

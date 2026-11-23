@@ -1327,7 +1327,40 @@ export const X = {
 		Q("label-video-inline"),
 		"itext-form:android/video-inline",
 	),
-	longForm: one("refuse", Q("long-form"), "itext-form:core/long"),
+	/** A question label's other texts (`lib/domain/labelForms.ts`), by the slot each is held in. */
+	labelText: {
+		extended_text: one("take", Q("long-form"), "itext-form:core/long"),
+		qr_code: one("take", Q("label-qrcode"), "itext-form:android/qrcode"),
+		spoken_text: one("take", Q("label-tts"), "itext-form:android/tts"),
+	},
+	/** One of them held outside the form's default language, which Core refuses as that language
+	 *  loads. */
+	labelTextMissingDefault: under(
+		"refuse",
+		Q("long-qrcode-or-tts-form-missing-in-default-language"),
+		{
+			extended_text: "itext-form:core/long",
+			qr_code: "itext-form:android/qrcode",
+			spoken_text: "itext-form:android/tts",
+		},
+	),
+	/** One of them on a text no runtime reads it of: a hint, a help text, a validation message or
+	 *  a choice, and a QR code or spoken text on a group's or repeat's label. */
+	labelTextElsewhere: under(
+		"drop",
+		Q("long-qrcode-or-tts-form-on-a-text-no-runtime-reads-it-of"),
+		{
+			extended_text: "itext-form:core/long",
+			qr_code: "itext-form:android/qrcode",
+			spoken_text: "itext-form:android/tts",
+		},
+	),
+	/** A `long` form on a group's or repeat's label, which both runtimes show as its header. */
+	longFormOnContainer: one(
+		"refuse",
+		Q("long-form-on-a-group-or-repeat-label"),
+		"itext-form:core/long",
+	),
 	shortForm: one("account", Q("short-form"), "itext-form:core/short"),
 	labelBigImage: one(
 		"refuse",
@@ -1339,8 +1372,6 @@ export const X = {
 		Q("choice-big-image"),
 		"itext-form:android/big-image",
 	),
-	qrcode: one("refuse", Q("label-qrcode"), "itext-form:android/qrcode"),
-	tts: one("refuse", Q("label-tts"), "itext-form:android/tts"),
 	customForm: one(
 		"account",
 		Q("custom-form-names"),

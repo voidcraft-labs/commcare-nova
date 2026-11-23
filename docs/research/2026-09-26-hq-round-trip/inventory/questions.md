@@ -335,7 +335,8 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 |---|---|---|---|
 | label default text (itext `<value>`) | **HELD**: `Field.label` (prose + localization) | RUNS / RUNS | itext default form |
 | inline `<label>text</label>` (no itext) | **HELD**: `Field.label` (Vellum converts it to itext: same text) | RUNS / RUNS | itext |
-| `long` form | **HELD-NEW**: `labelForms.long` (preferred over the default text on both runtimes only when the label has no markdown form) | RUNS / RUNS | `form="long"` |
+| `long` form | **HELD**: `Field.extended_text` (prose + localization), shown in place of the label on both runtimes only where the label has no markdown form | RUNS / RUNS | `form="long"` in every language |
+| `long` form on a group's or repeat's label | **HELD-NEW**: an extended text on a group, repeat or section label (both runtimes show it as the group's header where the label has no markdown form: Android `QuestionsView.java` reads `getLongText()`, Formplayer sends it as `caption`) | RUNS / RUNS | `form="long"` |
 | `short` form | **INERT**: no runtime reads it | n/a | omit |
 | `markdown` form equal to the default text, on a label, a choice or a help text | **HELD**: the text with markdown on | RUNS (markdown-it) / DIFFERENT (Markwon: single newlines join, images alt-only) | `form="markdown"` copy |
 | label with no `markdown` form | **HELD**: `plainLabel` on a question, group, repeat or section label | RUNS / RUNS (as written) | no markdown form |
@@ -347,8 +348,10 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | label or option media differing by language: two files shown in two languages, or a media form only a language other than the form's default holds (a language whose text holds none shows the default's) | **HELD-NEW**: `localizedMedia` | RUNS / RUNS | per-language forms |
 | label `video-inline` | **HELD-NEW**: `label_media.videoInline` | IGNORED / RUNS (replaces the label image) | `form="video-inline"` |
 | label `big-image` | **REFUSED**: broken at runtime: HQ ships no file for a `big-image` form of its own (`FormMediaMixin.all_media` collects image, audio, video and video-inline forms; `remove_unused_mappings` prunes the rest), so Android's full-screen view opens a missing file unless another media form in the app happens to use the same path | — | — |
-| label `qrcode` | **HELD-NEW**: `labelForms.qrcode` | IGNORED / RUNS (replaces the label image unless a `video-inline` form does) | `form="qrcode"` |
-| label `tts` | **HELD-NEW**: `labelForms.speech` | IGNORED / DIFFERENT (only with no `audio`) | `form="tts"` |
+| label `qrcode` | **HELD**: `Field.qr_code` (prose + localization) | IGNORED / RUNS (replaces the label image unless a `video-inline` form does) | `form="qrcode"` in every language |
+| label `tts` | **HELD**: `Field.spoken_text` (prose + localization) | IGNORED / DIFFERENT (only with no `audio`) | `form="tts"` in every language |
+| A `long`, `qrcode` or `tts` value held only outside a form’s default language. | **REFUSED**: broken at runtime: Core’s Localizer.getLocaleData raises NoLocalizedTextException when a translation defines a key absent from the default locale. Add the text to the form’s default language in CommCare HQ, or remove the translated one. | — | — |
+| a `long`, `qrcode` or `tts` form on a hint, a help text, a validation message or a choice, or a `qrcode` or `tts` form on a group's or repeat's label | **INERT**: no runtime reads it: Core asks a hint, a help text, a validation message and a choice for no form but its text and its markdown form (`FormEntryPrompt.localizeText`, `getSelectChoiceText`), and Android asks only a question for a `qrcode` or `tts` form (`QuestionWidget.addQuestionText`) | n/a | omit |
 | custom form names | **INERT**: no runtime reads them | n/a | omit |
 | a label whose itext in the first `<translation>` has no default-form value (only `long`/custom/media; another language lacking it builds, and Core falls back per key) | **REFUSED**: not HQ-buildable: HQ's build raises 'Unrecognized value of "form" attribute' when any form other than image, audio, video, video-inline or markdown is present (`VALID_VALUE_FORMS`), and otherwise "has no <value>" (`xform.py::XForm.localize`, which checks the first `<translation>`) | — | — |
 | hint text | **HELD**: `Field.hint` | DIFFERENT (always markdown) / DIFFERENT (plain) | `<hint>` itext |

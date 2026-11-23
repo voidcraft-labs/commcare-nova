@@ -1218,15 +1218,20 @@ def print_callout(use, manifest):
 MEDIA_ITEXT_FORMS = frozenset({"image", "audio", "video"})
 
 
-def _media_itext_group(use):
-    """The media value a use sits on and every value of the same text id and form across the form's
-    translations, as ``(form, values by translation, form name)``; None where the use sits on no media value."""
+# A question label's other texts, as Core's Localizer keys them (``<id>;<form>``): ``long``, ``qrcode`` and
+# ``tts`` (``lib/domain/labelForms.ts``).
+LABEL_TEXT_ITEXT_FORMS = frozenset({"long", "qrcode", "tts"})
+
+
+def _media_itext_group(use, forms=MEDIA_ITEXT_FORMS):
+    """The value of one of ``forms`` a use sits on and every value of the same text id and form across the form's
+    translations, as ``(form, values by translation)``; None where the use sits on no such value."""
     form, element = _form_element(use)
     if form is None or _local(element) != "value":
         return None
     kind = element.get("form")
     text = element.getparent()
-    if kind not in MEDIA_ITEXT_FORMS or text is None or _local(text) != "text" or not text.get("id"):
+    if kind not in forms or text is None or _local(text) != "text" or not text.get("id"):
         return None
     text_id = text.get("id")
     values = {}
@@ -1245,6 +1250,17 @@ def media_missing_in_default(use, manifest):
     form's default translation holds without that form. Core keys each locale's forms over the default's
     (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
     group = _media_itext_group(use)
+    if group is None:
+        return None if _form_element(use)[0] is None else False
+    form, values = group
+    return form.default_translation is not None and form.default_translation not in values
+
+
+def label_text_missing_in_default(use, manifest):
+    """``questions/long-qrcode-or-tts-form-missing-in-default-language``: a ``long``, ``qrcode`` or ``tts`` value
+    whose text the form's default translation holds without that form. Core keys each locale's forms over the
+    default's (``Localizer.getLocaleData`` raises ``NoLocalizedTextException`` for a key the default lacks)."""
+    group = _media_itext_group(use, LABEL_TEXT_ITEXT_FORMS)
     if group is None:
         return None if _form_element(use)[0] is None else False
     form, values = group
@@ -9708,6 +9724,7 @@ VALUE_CLASSES = {
     "questions/a-secret-whose-bind-has-no-type-with-numeric-or-numbers-ignoring": _untyped_numeric("secret"),
     "questions/long-xsd-long": long_input,
     "questions/media-form-missing-in-default-language": media_missing_in_default,
+    "questions/long-qrcode-or-tts-form-missing-in-default-language": label_text_missing_in_default,
     "questions/empty-media-form-beside-a-translated-file": media_blank_beside_file,
     "questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc": print_callout,
     "questions/input-readonly-true-control-attribute": readonly_input,
