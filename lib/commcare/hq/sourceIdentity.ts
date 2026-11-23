@@ -33,6 +33,7 @@ import {
 	XHTML_NS,
 } from "../xmlNamespaces";
 import { heldXmlParse } from "../xmlParse";
+import { advancedFormParents, sharedFormParent } from "./sharedFormSource";
 
 /** Core's data type for a bind's `type`, by `XFormParser.java::typeMappings`. */
 export type CoreTypeClass =
@@ -173,6 +174,7 @@ export interface FormIdentity {
 /** Why a form is left out. Each is one of the reasons a form's case blocks are
  *  left out under (`publishedCaseBlocks.ts::UnreadFormReason`), by the same name. */
 export type UnreadSourceFormReason =
+	| "shadow-parent-missing-or-not-advanced"
 	| "no-xmlns"
 	| "shared-xmlns"
 	| "no-xform"
@@ -180,12 +182,15 @@ export type UnreadSourceFormReason =
 
 export interface SourceIdentity {
 	readonly languages: readonly string[];
-	/** Menus in order: id, document type, case type, and each form's `xmlns` in order. */
+	/** Menus in order: id, document type, case type, and each entry's id and content owner in order. */
 	readonly menus: readonly {
 		readonly uniqueId: string;
 		readonly docType: string;
 		readonly caseType: string | null;
-		readonly forms: readonly string[];
+		readonly forms: readonly {
+			readonly id: string;
+			readonly parent: string | null;
+		}[];
 	}[];
 	readonly forms: ReadonlyMap<string, FormIdentity>;
 	/** Each form left out, with why. A source both readers read whole has none. */
@@ -275,6 +280,7 @@ export function sourceIdentity(application: unknown): SourceIdentity {
 		: NO_ENTRIES;
 
 	const holders = new Map<string, number>();
+	const parents = advancedFormParents(modules);
 	for (const module of modules) {
 		if (!isObject(module) || !Array.isArray(module.forms)) continue;
 		for (const form of module.forms) {
@@ -287,14 +293,27 @@ export function sourceIdentity(application: unknown): SourceIdentity {
 		const moduleForms =
 			isObject(module) && Array.isArray(module.forms) ? module.forms : [];
 		moduleForms.forEach((form: unknown, position: number) => {
-			const reason = readForm(form, holders, attachments, forms);
+			const reason =
+				isObject(form) && form.doc_type === "ShadowForm"
+					? isObject(module) &&
+						module.doc_type === "AdvancedModule" &&
+						sharedFormParent(form, parents)
+						? undefined
+						: "shadow-parent-missing-or-not-advanced"
+					: readForm(form, holders, attachments, forms);
 			if (reason !== undefined) unread.push({ menu, form: position, reason });
 		});
 		return {
 			uniqueId: isObject(module) ? stringOr(module.unique_id, "") : "",
 			docType: isObject(module) ? stringOr(module.doc_type, "") : "",
 			caseType: isObject(module) ? stringOr(module.case_type, null) : null,
-			forms: moduleForms.map((form: unknown) => storedXmlns(form) ?? ""),
+			forms: moduleForms.map((form: unknown) => ({
+				id: isObject(form) ? stringOr(form.unique_id, "") : "",
+				parent:
+					isObject(form) && form.doc_type === "ShadowForm"
+						? stringOr(form.shadow_parent_form_id, null)
+						: null,
+			})),
 		};
 	});
 	return { languages, menus, forms, unread };

@@ -172,6 +172,7 @@ import {
 } from "@/lib/domain";
 import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { sharedEntryValues } from "@/lib/domain/formEntryCases";
 import type { FormEntryChange } from "./formEntryMutations";
 
 // ── Value comparison ─────────────────────────────────────────────────
@@ -448,6 +449,7 @@ const FORM_PATCH_SKIP = new Set<string>([
 	"order",
 	"caseOperations",
 	"caseSelections",
+	"shadowOf",
 	"computedDatums",
 	// Links diff granularly (`diffFormLinks`); the form patch never carries
 	// the whole array.
@@ -942,7 +944,7 @@ function* diffGranularSteps(
 				patch: {},
 				entryChange: { operation: "use-form-choices" },
 			});
-		updates.push(...diffEntrySupplies(prev, prevForm, nextForm));
+		updates.push(...diffEntrySupplies(prev, next, prevForm, nextForm));
 		const otherwise = diffFormOtherwise(prevForm, nextForm, uuid);
 		updates.push(
 			...otherwise.beforeLinks,
@@ -2546,24 +2548,61 @@ function diffFormOtherwise(
  */
 function diffEntrySupplies(
 	doc: BlueprintDoc,
+	nextDoc: BlueprintDoc,
 	before: Form,
 	after: Form,
 ): Mutation[] {
 	const changes: FormEntryChange[] = [];
+	const newParent =
+		after.shadowOf && after.shadowOf.form !== before.shadowOf?.form
+			? nextDoc.forms[after.shadowOf.form]
+			: undefined;
 	if (before.caseSelections !== undefined && after.caseSelections === undefined)
 		changes.push({ operation: "use-menu-choices" });
-	else if (after.caseSelections !== undefined) {
+	else if (after.shadowOf || after.caseSelections !== undefined) {
+		if (newParent)
+			changes.push({
+				operation: "change-shared-form",
+				parentFormUuid: newParent.uuid,
+			});
 		// A form that starts keeping its own choices took them from `doc` at
 		// the head of the batch (`entryMaterializations`), so these edits
-		// read the list `doc` derives.
-		const old = formCaseSelections(doc, before.uuid);
-		const next = after.caseSelections;
+		// read the list `doc` derives. A second entry moved to another parent
+		// starts from that parent's choices plus its own extra ones.
+		const old = newParent
+			? [
+					...formCaseSelections(nextDoc, newParent.uuid),
+					...(before.shadowOf?.selections.filter((row) => row.kind === "add") ??
+						[]),
+				]
+			: formCaseSelections(doc, before.uuid);
+		const next = formCaseSelections(nextDoc, after.uuid);
 		for (const row of old)
 			if (!next.some((other) => other.uuid === row.uuid))
 				changes.push({ operation: "remove-choice", uuid: row.uuid });
 		for (const [i, row] of next.entries()) {
 			const existing = old.find((other) => other.uuid === row.uuid);
 			if (!existing) {
+				if (
+					after.shadowOf?.selections.some(
+						(choice) =>
+							choice.kind === "replace" && choice.selection === row.uuid,
+					)
+				) {
+					changes.push(
+						{
+							operation: "restore-shared-choice",
+							uuid: row.uuid,
+							after: next[i - 1]?.uuid ?? null,
+						},
+						{
+							operation: "edit-choice",
+							uuid: row.uuid,
+							patch: { source: row.source, caseType: row.caseType },
+						},
+					);
+					continue;
+				}
 				changes.push({
 					operation: "add-choice",
 					value: row,
@@ -2585,7 +2624,9 @@ function diffEntrySupplies(
 			).map((move) => ({ operation: "move-choice" as const, ...move })),
 		);
 	}
-	const old = before.computedDatums ?? [];
+	const old = newParent
+		? sharedEntryValues(newParent, after.uuid, before.computedDatums)
+		: (before.computedDatums ?? []);
 	const next = after.computedDatums ?? [];
 	for (const row of old)
 		if (!next.some((other) => other.uuid === row.uuid))

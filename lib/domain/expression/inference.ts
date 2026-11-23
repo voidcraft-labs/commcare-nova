@@ -45,6 +45,7 @@
  *
  * Memoised per document reference; never persisted.
  */
+import { entryOperationCaseType } from "../advancedEntryDatums";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -663,7 +664,16 @@ class Inference {
 			{ readonly caseType: string; readonly property: string }
 		>();
 		const operationWrites: OperationWrite[] = [];
-		for (const [formUuid, form] of Object.entries(doc.forms)) {
+		// Process ordinary content first so a replacement writer cannot change the
+		// question's bind on the one XForm all of its entries share.
+		const forms = Object.values(doc.forms);
+		for (const entry of [
+			...forms.filter((form) => !form.shadowOf),
+			...forms.filter((form) => form.shadowOf),
+		]) {
+			const form = entry.shadowOf ? doc.forms[entry.shadowOf.form] : entry;
+			if (!form || form.shadowOf) continue;
+			const formUuid = form.uuid;
 			const moduleUuid = moduleUuidOfForm(doc, formUuid as Uuid);
 			const currentCaseType =
 				moduleUuid === undefined
@@ -673,8 +683,16 @@ class Inference {
 			for (const operation of orderedCaseOperations(form)) {
 				// The form's own change has no stored case type: it changes the
 				// case of the form's module.
-				const operationType =
+				const originalType =
 					operation.retype ?? operation.caseType ?? currentCaseType;
+				const operationType = entry.shadowOf
+					? (operation.retype ??
+						entryOperationCaseType(doc, entry.uuid, operation))
+					: originalType;
+				if (entry.shadowOf && operationType === originalType) {
+					if (operation.action === "create") operationIds.add(operation.uuid);
+					continue;
+				}
 				if (operationType === undefined) continue;
 				const writes: {
 					readonly property: string;

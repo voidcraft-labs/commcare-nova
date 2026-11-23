@@ -71,6 +71,7 @@ import {
 	slugifyId,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/expression";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -106,7 +107,7 @@ export function formSnapshot(
 	if (!form) return undefined;
 	return {
 		...form,
-		fields: buildFieldTree(doc, formUuid),
+		fields: buildFieldTree(doc, formContentUuid(doc, formUuid)),
 	};
 }
 

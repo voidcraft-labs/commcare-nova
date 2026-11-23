@@ -62,6 +62,7 @@ import {
 	type Uuid,
 	userPropertiesOf,
 } from "@/lib/domain";
+import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
@@ -176,6 +177,94 @@ export type LinkInvalidReason =
  *  a link's target is, or an expression of the operation reads that case. */
 export type SessionUnavailableReason = "target" | "link-target" | "case-read";
 
+function operationRuleContext(
+	doc: BlueprintDoc,
+	form: Form,
+	module: Module,
+	formUuid: Uuid,
+	moduleUuid: Uuid,
+	lookupTables?: LookupTypeIndex,
+): OperationRuleContext {
+	const caseTypes = effectiveCaseTypes(doc);
+	const fields = collectFormFields(doc, formUuid);
+	return {
+		doc,
+		form,
+		module,
+		formUuid,
+		moduleUuid,
+		fields,
+		caseTypes,
+		caseTypesByName: new Map(
+			caseTypes.map((caseType) => [caseType.name, caseType]),
+		),
+		sessionCaseAvailable:
+			module.caseType !== undefined && CASE_LOADING_FORM_TYPES.has(form.type),
+		writerTypes: concreteCasePropertyWriterTypes(doc),
+		lookupTables,
+	};
+}
+
+/** The one XForm keeps its expression slots. An entry that puts another case
+ * type into a slot must also admit those writes on the record that receives them. */
+export function sharedEntryWriteFindings(
+	doc: BlueprintDoc,
+	entry: Form,
+	menuUuid: Uuid,
+	lookupTables?: LookupTypeIndex,
+): ValidationError[] {
+	const shared = entry.shadowOf;
+	const parent = shared && doc.forms[shared.form];
+	if (!parent || parent.shadowOf) return [];
+	const changed = orderedCaseOperations(parent).flatMap((op) => {
+		const actual = entryOperationCaseType(doc, entry.uuid, op);
+		return actual !== undefined &&
+			actual !== operationCaseType(doc, parent.uuid, op)
+			? [{ op, actual }]
+			: [];
+	});
+	if (!changed.length) return [];
+	const ctx = operationRuleContext(
+		doc,
+		entry,
+		doc.modules[menuUuid],
+		parent.uuid,
+		menuUuid,
+		lookupTables,
+	);
+	const errors: ValidationError[] = [];
+	for (const { op, actual } of changed) {
+		const worker = actual === USERCASE_CASE_TYPE;
+		if (worker && op.action === "own") {
+			validateOwnWorkerFacets(ctx, op, errors);
+			if (entry.type === "close")
+				errors.push(
+					opError(
+						ctx,
+						op,
+						"CASE_OPERATION_TARGET_INVALID",
+						`“${entry.name}” opens the worker’s own record. You can save worker details or choose a record this form can close.`,
+					),
+				);
+		} else if (worker && op.action !== "own") {
+			errors.push(
+				...workerRecordFindings(ctx, [
+					{ ...op, caseType: actual, target: { kind: "worker-record" } },
+				]),
+			);
+		}
+		validateWrites(ctx, op, op.retype ?? actual, worker, errors);
+	}
+	return errors.map((finding) => ({
+		...finding,
+		location: {
+			...finding.location,
+			formUuid: entry.uuid,
+			formName: entry.name,
+		},
+	}));
+}
+
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -194,24 +283,14 @@ export function validateCaseOperations(
 	});
 	if (operations.length === 0) return ownFindings;
 
-	const caseTypes = effectiveCaseTypes(doc);
-	const fields = collectFormFields(doc, formUuid);
-	const ctx: OperationRuleContext = {
+	const ctx = operationRuleContext(
 		doc,
 		form,
 		module,
 		formUuid,
 		moduleUuid,
-		fields,
-		caseTypes,
-		caseTypesByName: new Map(
-			caseTypes.map((caseType) => [caseType.name, caseType]),
-		),
-		sessionCaseAvailable:
-			module.caseType !== undefined && CASE_LOADING_FORM_TYPES.has(form.type),
-		writerTypes: concreteCasePropertyWriterTypes(doc),
 		lookupTables,
-	};
+	);
 
 	const errors: ValidationError[] = [...ownFindings];
 	const seenUuids = new Set<Uuid>();
@@ -638,31 +717,38 @@ function validateOwnOperation(
 	if (caseType !== undefined) {
 		const worker = caseType === USERCASE_CASE_TYPE;
 		validateWrites(ctx, operation, caseType, worker, errors);
-		if (worker && ctx.form.type === "followup") {
-			for (const [facet, words] of [
-				["name", "rename it"],
-				["owner", "change its owner"],
-				["links", "link it to another case"],
-			] as const) {
-				const value = operation[facet];
-				if (value === undefined || (Array.isArray(value) && value.length === 0))
-					continue;
-				errors.push(
-					opError(
-						ctx,
-						operation,
-						"CASE_OPERATION_TARGET_INVALID",
-						`The worker's record belongs to their profile. This form can save a worker detail, but it can't ${words}.`,
-						{
-							reason: "worker-record-facet" satisfies WorkerRecordReason,
-							facet,
-						},
-					),
-				);
-			}
-		}
+		if (worker && ctx.form.type === "followup")
+			validateOwnWorkerFacets(ctx, operation, errors);
 	}
 	validateLinks(ctx, operation, new Map(), errors);
+}
+
+function validateOwnWorkerFacets(
+	ctx: OperationRuleContext,
+	operation: Extract<CaseOperation, { action: "own" }>,
+	errors: ValidationError[],
+): void {
+	for (const [facet, words] of [
+		["name", "rename it"],
+		["owner", "change its owner"],
+		["links", "link it to another case"],
+	] as const) {
+		const value = operation[facet];
+		if (value === undefined || (Array.isArray(value) && value.length === 0))
+			continue;
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TARGET_INVALID",
+				`The worker's record belongs to their profile. This form can save a worker detail, but it can't ${words}.`,
+				{
+					reason: "worker-record-facet" satisfies WorkerRecordReason,
+					facet,
+				},
+			),
+		);
+	}
 }
 
 /**

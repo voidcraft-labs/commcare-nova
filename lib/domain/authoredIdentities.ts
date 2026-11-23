@@ -1,3 +1,4 @@
+import { ownedFormSelections } from "@/lib/domain/formEntryCases";
 import type { BlueprintDoc } from "./blueprint";
 import type { Uuid } from "./uuid";
 
@@ -89,7 +90,7 @@ export function authoredBlueprintIdentities(
 				kind: "openingAssignment",
 				ownerUuid: form.uuid,
 			});
-		for (const selection of form.caseSelections ?? [])
+		for (const selection of ownedFormSelections(form))
 			identities.push({
 				uuid: selection.uuid,
 				kind: "formSelection",

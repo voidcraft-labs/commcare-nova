@@ -62,6 +62,7 @@ import {
 	useModuleCaseType,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
+import { useSharedFormOrigin } from "@/lib/doc/hooks/useFormEntryChoices";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { asUuid, type Uuid } from "@/lib/doc/types";
@@ -94,6 +95,7 @@ export function CaseOperationsCanvas({
 	readonly moduleUuid: Uuid;
 	readonly formUuid: Uuid;
 }) {
+	const { sharedParent, parentMenu } = useSharedFormOrigin(formUuid);
 	const view = useCaseOperations(formUuid);
 	const context = useOperationSentenceContext(formUuid);
 	const navigate = useNavigate();
@@ -244,6 +246,31 @@ export function CaseOperationsCanvas({
 		navigate.openFormOperations(moduleUuid, formUuid, operation.uuid);
 	};
 
+	if (sharedParent && parentMenu)
+		return (
+			<section className="mx-auto max-w-2xl space-y-4 p-6">
+				<h2 className="text-lg font-medium text-nova-text">Shared form</h2>
+				<p className="text-sm text-nova-text-muted">
+					“{sharedParent.name}” holds the questions and record changes for this
+					entry.
+				</p>
+				<Button
+					variant="outline"
+					onClick={() => navigate.openForm(parentMenu, sharedParent.uuid)}
+				>
+					Open shared questions
+				</Button>
+				<Button
+					variant="outline"
+					onClick={() =>
+						navigate.openFormOperations(parentMenu, sharedParent.uuid)
+					}
+				>
+					Open shared record changes
+				</Button>
+				<OpeningCasesSection formUuid={formUuid} />
+			</section>
+		);
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-6">
 			<Button

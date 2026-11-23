@@ -154,6 +154,7 @@ import {
 import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { severalCaseClose } from "./documents/severalCaseClose";
+import { sharedVisitEntries } from "./documents/sharedVisitEntries";
 import { sortBlanks } from "./documents/sortBlanks";
 import { sharedPropertySort } from "./documents/sortKeys";
 import { sortLabels } from "./documents/sortLabels";
@@ -266,6 +267,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinkChain,
 	formLinkCarriedCase,
 	independentFormChoices,
+	sharedVisitEntries,
 	formLinkOtherwise,
 	hyphenatedQuestionIds,
 	caseTypeNames,

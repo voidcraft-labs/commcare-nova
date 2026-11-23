@@ -7,7 +7,10 @@ import {
 	moduleUuidOfForm,
 	uuidSchema,
 } from "@/lib/domain";
-import { namedEntrySupplies } from "@/lib/domain/advancedEntryDatums";
+import {
+	formCaseSelections,
+	namedEntrySupplies,
+} from "@/lib/domain/advancedEntryDatums";
 import { openingAssignmentName } from "@/lib/domain/formOpeningAssignments";
 import {
 	type AuthoringScopeOptions,
@@ -120,24 +123,41 @@ export function bindNamedIdentity(args: {
 			if (toolName === "createModule")
 				candidates.push(...declarations([input], "moduleUuid", "name"));
 			break;
-		case "form":
+		case "form": {
+			const parentSlot =
+				slot.path.at(-1) === "shared_form_uuid" ||
+				slot.path.at(-1) === "parentFormUuid";
 			candidates = named(
-				Object.values(doc.forms).filter(
-					(item) =>
-						!moduleUuid || moduleUuidOfForm(doc, item.uuid) === moduleUuid,
+				Object.values(doc.forms).filter((item) =>
+					parentSlot
+						? !item.shadowOf
+						: !moduleUuid || moduleUuidOfForm(doc, item.uuid) === moduleUuid,
 				),
-				(item) => [item.name],
+				(item) => {
+					const owner = moduleUuidOfForm(doc, item.uuid);
+					return [
+						item.name,
+						...(parentSlot && owner
+							? [`${doc.modules[owner].name}/${item.name}`]
+							: []),
+					];
+				},
 			);
-			if (toolName === "createForm")
+			if (toolName === "createForm" && !parentSlot)
 				candidates.push(...declarations([input], "formUuid", "name"));
 			break;
+		}
 		case "field": {
+			const contentParent =
+				toolName === "editFormEntry" && formUuid
+					? doc.forms[formUuid]?.shadowOf?.form
+					: undefined;
 			const fields =
-				scope.fields ??
+				(contentParent ? undefined : scope.fields) ??
 				Object.values(doc.fields).flatMap((item) => {
 					if (
 						formUuid === undefined ||
-						findContainingForm(doc, item.uuid) !== formUuid
+						findContainingForm(doc, item.uuid) !== (contentParent ?? formUuid)
 					)
 						return [];
 					const path = computeFieldPath(doc, item.uuid);
@@ -183,6 +203,18 @@ export function bindNamedIdentity(args: {
 				: [];
 			break;
 		case "form-entry-supply":
+			if (
+				record(input.edit)?.operation === "restore-shared-choice" &&
+				slot.path.at(-1) === "uuid" &&
+				formUuid &&
+				doc.forms[formUuid]?.shadowOf
+			) {
+				candidates = named(
+					formCaseSelections(doc, doc.forms[formUuid].shadowOf.form),
+					(row) => [row.name],
+				);
+				break;
+			}
 			candidates = formUuid
 				? named(namedEntrySupplies(doc, formUuid), (row) => [row.name])
 				: [];

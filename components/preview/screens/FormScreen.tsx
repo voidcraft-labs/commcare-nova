@@ -62,6 +62,7 @@ import {
 	type PostSubmitDestination,
 	reachableCaseTypes,
 } from "@/lib/domain";
+import { formEntryRecord } from "@/lib/domain/advancedEntryDatums";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import type { LanguageTag } from "@/lib/domain/localization";
 import {
@@ -627,11 +628,14 @@ export function FormScreen({
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
+	const contentUuid = form?.shadowOf?.form ?? formUuid;
+	const entryRecord = formEntryRecord(menuSource.doc, formUuid);
+	const recordType = entryRecord.caseType;
 	const severalCaseForm =
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
-		mod !== undefined &&
-		caseSelectionCardinality(mod) === "multiple";
+		entryRecord.menu !== undefined &&
+		caseSelectionCardinality(entryRecord.menu) === "multiple";
 	const menuCaseContext = useMemo(
 		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
 		[menuCaseSelections, menuSource, moduleUuid],
@@ -828,8 +832,8 @@ export function FormScreen({
 	const formNameEditor = useTranslationUnitEditor(formNameUnitId);
 
 	/** Returns `false` for undefined `formUuid` so FormScreen can mount while the URL is parsing. */
-	const hasFields = useHasFieldsInForm(formUuid);
-	const presentationHasFields = usePresentationHasFields(formUuid);
+	const hasFields = useHasFieldsInForm(contentUuid);
+	const presentationHasFields = usePresentationHasFields(contentUuid);
 
 	/* Direct preview of a case-loading form with no case in hand (jumped here
 	 * from the structure tree, not walked through the case list): auto-bind
@@ -846,6 +850,7 @@ export function FormScreen({
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
 		form.caseSelections === undefined &&
+		!form.shadowOf &&
 		mod?.caseListConfig?.selection === undefined &&
 		explicitCases === undefined &&
 		menuCaseContext.selectedCase === undefined;
@@ -979,12 +984,12 @@ export function FormScreen({
 	const reachableChainKey = useMemo(
 		() =>
 			JSON.stringify(
-				reachableCaseTypes(mod?.caseType, caseTypes).map((t) => [
+				reachableCaseTypes(entryRecord.contentCaseType, caseTypes).map((t) => [
 					t.name,
 					t.depth,
 				]),
 			),
-		[mod?.caseType, caseTypes],
+		[entryRecord.contentCaseType, caseTypes],
 	);
 	const reachableChain = useMemo(
 		() =>
@@ -1000,7 +1005,7 @@ export function FormScreen({
 	 * the auto-select list query doesn't carry. */
 	const { state: caseDataState } = useCaseData({
 		appId,
-		caseType: mod?.caseType,
+		caseType: recordType,
 		caseId: openedCases ? undefined : effectiveCaseId,
 		ancestorDepth: Math.max(0, reachableChain.length - 1),
 		// A case-loading form runs on the worker's device, so it may only
@@ -1053,8 +1058,7 @@ export function FormScreen({
 		effectiveCaseId,
 	]);
 
-	const requiresCaseBinding =
-		form !== undefined && CASE_LOADING_FORM_TYPES.has(form.type);
+	const requiresCaseBinding = entryRecord.requiresCase;
 	const needsBoundCase = mode === "preview" && requiresCaseBinding;
 	// Edit uses this same engine. It must not capture one-time defaults or query
 	// membership before Preview selects a record; the canvas can render without
@@ -1071,7 +1075,7 @@ export function FormScreen({
 			caseDataState.kind === "row" &&
 			caseDataState.row.case_id === effectiveCaseId);
 
-	const editable = isReady;
+	const editable = isReady && mayWriteCaseData;
 
 	/* What the worker typed into the case list's filter before choosing the
 	 * case, which the entry's session holds as `stringquery`. */
@@ -1237,7 +1241,7 @@ export function FormScreen({
 		cases: effectiveCases,
 		formType: form?.type,
 		destination: postSubmitDestination,
-		moduleCaseType: mod?.caseType,
+		moduleCaseType: recordType,
 		links: form?.formLinks,
 		caseListRegistrationLaunch,
 	});
@@ -1252,7 +1256,7 @@ export function FormScreen({
 		cases: effectiveCases,
 		formType: form?.type,
 		destination: postSubmitDestination,
-		moduleCaseType: mod?.caseType,
+		moduleCaseType: recordType,
 		links: form?.formLinks,
 		caseListRegistrationLaunch,
 	};
@@ -2274,7 +2278,7 @@ export function FormScreen({
 								refreshedCaseDatabase,
 								route.carried.caseId,
 								reachableCaseTypes(
-									doc.modules[route.moduleUuid]?.caseType,
+									formEntryRecord(doc, route.formUuid).contentCaseType,
 									submitted.caseTypes,
 								),
 							)
@@ -2523,9 +2527,9 @@ export function FormScreen({
 	 * as titled groups; Android pages a sectioned form one section at a time
 	 * and any other form one field-list group or question at a time. The hook
 	 * is inert in edit mode, where the canvas shows every page at once. */
-	const formIsSectioned = usePresentationFormIsSectioned(formUuid);
+	const formIsSectioned = usePresentationFormIsSectioned(contentUuid);
 	const paging = useFormPaging({
-		formUuid,
+		formUuid: contentUuid,
 		mode:
 			mode !== "preview" || platformRules.formScreens === "one-screen"
 				? "none"
@@ -2538,7 +2542,7 @@ export function FormScreen({
 	/* On one screen no pager writes the remembered page, so the section in
 	 * view does, and a flip to edit mode opens on it. */
 	useScrolledSection({
-		formUuid,
+		formUuid: contentUuid,
 		enabled:
 			mode === "preview" &&
 			platformRules.formScreens === "one-screen" &&
@@ -3159,6 +3163,79 @@ export function FormScreen({
 	}, [cancelPendingFocus, focusRequest, formFrozen]);
 
 	if (!form || !formUuid || !moduleUuid) return null;
+	// Naming, translation and the entry’s menu and workflow settings apply to each entry.
+	const canEdit = mode === "edit" && editable;
+	const formHeader = (
+		<div
+			data-form-header
+			className="px-6 pt-5 pb-4 border-b border-pv-input-border"
+		>
+			<div className="flex items-center gap-2">
+				<FormTypeButton
+					moduleUuid={moduleUuid}
+					formUuid={formUuid}
+					editable={canEdit && !form.shadowOf}
+				/>
+				{canEdit ? (
+					<EditableTitle
+						value={localizedFormName ?? form.name}
+						ariaLabel="Form name"
+						/* Forward the gated dispatch's outcome: a refused rename
+						 * keeps the editor open with the draft and surfaces the
+						 * finding inline; the saved checkmark only fires on a
+						 * committed rename. */
+						onSave={(name) =>
+							formUuid
+								? language.isSource
+									? inline.updateForm(formUuid, { name })
+									: formNameEditor.saveTarget(name)
+								: undefined
+						}
+					/>
+				) : (
+					<EditableTitle
+						value={localizedFormName ?? form.name}
+						readOnly
+						ariaLabel="Form name"
+					/>
+				)}
+				{canEdit && (
+					<FormSettingsButton moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
+			</div>
+		</div>
+	);
+	if (mode === "edit" && form.shadowOf) {
+		const parentUuid = form.shadowOf.form;
+		const parent = menuSource.doc.forms[parentUuid];
+		const owner = menuSource.doc.moduleOrder.find((menu) =>
+			menuSource.doc.formOrder[menu]?.includes(parentUuid),
+		);
+		if (parent && owner)
+			return (
+				<section className="mx-auto max-w-lg space-y-4 p-6">
+					{formHeader}
+					<p className="text-sm text-nova-text-muted">
+						This entry opens the questions in “{parent.name}”. Changes to those
+						questions apply everywhere the form opens.
+					</p>
+					<button
+						type="button"
+						className={FORM_PRIMARY_ACTION_CLS}
+						onClick={() => navigate.openForm(owner, parent.uuid)}
+					>
+						Open shared questions
+					</button>
+					<button
+						type="button"
+						className={FORM_PRIMARY_ACTION_CLS}
+						onClick={() => navigate.openFormOperations(moduleUuid, formUuid)}
+					>
+						{canEdit ? "Edit opening choices" : "View opening choices"}
+					</button>
+				</section>
+			);
+	}
 
 	/* A fault here means Nova admitted a document its own runtime could not
 	 * execute. It is an internal invariant breach, never an editable invalid
@@ -3562,49 +3639,10 @@ export function FormScreen({
 		);
 	}
 
-	const canEdit = mode === "edit" && editable;
-
 	const formBody = (
 		<>
 			{/* `data-form-header` is queried by `InlineTextEditor` as the clamp floor for the floating label toolbar, preserve the attribute if this block is refactored. */}
-			<div
-				data-form-header
-				className="px-6 pt-5 pb-4 border-b border-pv-input-border"
-			>
-				<div className="flex items-center gap-2">
-					<FormTypeButton
-						moduleUuid={moduleUuid}
-						formUuid={formUuid}
-						editable={canEdit}
-					/>
-					{canEdit ? (
-						<EditableTitle
-							value={localizedFormName ?? form.name}
-							ariaLabel="Form name"
-							/* Forward the gated dispatch's outcome: a refused rename
-							 * keeps the editor open with the draft and surfaces the
-							 * finding inline; the saved checkmark only fires on a
-							 * committed rename. */
-							onSave={(name) =>
-								formUuid
-									? language.isSource
-										? inline.updateForm(formUuid, { name })
-										: formNameEditor.saveTarget(name)
-									: undefined
-							}
-						/>
-					) : (
-						<EditableTitle
-							value={localizedFormName ?? form.name}
-							readOnly
-							ariaLabel="Form name"
-						/>
-					)}
-					{canEdit && (
-						<FormSettingsButton moduleUuid={moduleUuid} formUuid={formUuid} />
-					)}
-				</div>
-			</div>
+			{formHeader}
 			{runtimeFault !== undefined ? (
 				<div
 					role="alert"
@@ -3721,7 +3759,7 @@ export function FormScreen({
 								) : (
 									<ScreenPage
 										key={paging.current.path}
-										formUuid={formUuid}
+										formUuid={contentUuid ?? formUuid}
 										page={paging.current}
 										index={paging.index}
 										takeFocusOnMount={paging.takeFocusOnMount}
@@ -3735,7 +3773,7 @@ export function FormScreen({
 								</div>
 							)
 						) : (
-							<FormRenderer parentEntityId={formUuid} />
+							<FormRenderer parentEntityId={contentUuid ?? formUuid} />
 						)
 					) : (
 						<div className="text-center text-nova-text-muted py-8">

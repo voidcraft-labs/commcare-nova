@@ -11,7 +11,9 @@ import {
 	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
+import { formEntryRecord } from "@/lib/domain/advancedEntryDatums";
 import { entryCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import { formWireName } from "@/lib/domain/formWireName";
 import type { FormEngineInput } from "./formEngine";
 
@@ -20,13 +22,15 @@ import type { FormEngineInput } from "./formEngine";
  * the form builder's fill for a blank translation applied. */
 export function buildEngineInput(
 	doc: BlueprintDoc,
-	formUuid: Uuid,
+	entryUuid: Uuid,
 	language: LanguageTag | null,
 ): FormEngineInput | undefined {
+	const formUuid = formContentUuid(doc, entryUuid);
 	const form = doc.forms[formUuid];
 	if (!form) return;
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const moduleUuid = moduleUuidOfForm(doc, entryUuid);
 	const module = moduleUuid ? doc.modules[moduleUuid] : undefined;
+	const record = formEntryRecord(doc, entryUuid);
 	const resolved =
 		language === null
 			? undefined
@@ -35,6 +39,9 @@ export function buildEngineInput(
 		doc,
 		form,
 		formUuid,
+		entryUuid,
+		entryRecordType: record.caseType,
+		requiresSelectedRecord: record.requiresCase,
 		wireName: formWireName(doc, formUuid),
 		repeatCountNames: repeatCountNamesOf(doc, formUuid),
 		caseScalarTextGuards: Object.fromEntries(
@@ -49,8 +56,8 @@ export function buildEngineInput(
 				: projectLocalizedFields(doc, resolved, { filled: true }),
 		fieldOrder: doc.fieldOrder,
 		caseTypes: entryCaseTypes(doc),
-		caseSelectionCardinality: module
-			? caseSelectionCardinality(module)
+		caseSelectionCardinality: record.menu
+			? caseSelectionCardinality(record.menu)
 			: "single",
 		userProperties: doc.userProperties,
 		...(module?.caseListConfig

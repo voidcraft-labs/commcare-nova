@@ -316,6 +316,7 @@ function ModuleListHome() {
 											undefined,
 									});
 									if (
+										form.shadowOf ||
 										form.caseSelections !== undefined ||
 										(launch.kind === "select-case-first" &&
 											entryWalksChoices(menuSource.doc, form.uuid))

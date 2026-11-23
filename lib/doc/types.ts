@@ -512,6 +512,7 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	});
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	caseSelections: true,
+	shadowOf: true,
 	computedDatums: true,
 	entryPoint: true,
 	id: true,

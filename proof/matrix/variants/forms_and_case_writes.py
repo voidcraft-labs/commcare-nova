@@ -773,3 +773,39 @@ def connection_from_a_parent_aligned_load(authoring, app_id):
                             "value_source": "child_member", "value_key": "parent"},
         },
     )
+
+
+def two_entries_opening_the_visit(authoring, app_id):
+    """Two entries created from HQ’s menu, each pointed at the ordinary parent
+    by its form settings and configured through its Advanced Case Management save."""
+    from corehq.apps.app_manager.models import AdvancedFormActions, CaseIndex, LoadUpdateAction
+    from proof.hq import operations
+    from proof.matrix.bases import _pages
+
+    app = operations.held_app(authoring.state, app_id)
+    households, visits, reviews = [app.get_module(index) for index in range(3)]
+    parent_id = visits.get_form(0).unique_id
+
+    def pick(tag, case_type, menu):
+        return LoadUpdateAction(case_type=case_type, case_tag=tag, details_module=menu.unique_id)
+
+    member = pick("load_member1", "member", visits)
+    member.case_index = CaseIndex(tag="load_household0", reference_id="parent", relationship="child")
+    for menu, name, workflow, choices in (
+        (1, "Visit from a referral", "root", [
+            pick("referring_household", "household", households),
+            pick("load_member1", "member", reviews),
+            pick("load_household0", "household", households),
+        ]),
+        (2, "Visit from a callback", "default", [pick("load_household0", "household", households), member]),
+    ):
+        _pages.new_form(authoring, app_id, menu, form_type="shadow")
+        _pages.save_form_attributes(authoring, app_id, menu, 1, [
+            ("name", name), ("shadow_parent", parent_id), ("post_form_workflow", workflow),
+        ], "shared entry")
+        actions = AdvancedFormActions(load_update_cases=choices)
+        pairs = [("actions", json.dumps(actions.to_json())), ("arbitrary_datums", "[]")]
+        with authoring.step(f"build:shared-entry-choices:{menu}", json.dumps(pairs).encode()):
+            entry = operations.held_app(authoring.state, app_id).get_module(menu).get_form(1)
+            body, content_type = ops.form_body(pairs)
+            ops.post(authoring, "edit_advanced_form_actions", [app_id, entry.unique_id], body, content_type, name)

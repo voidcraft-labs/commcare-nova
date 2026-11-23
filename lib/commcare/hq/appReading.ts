@@ -162,7 +162,7 @@ export function alignHqForms(
  * among the read's forms, or the steps run out.
  */
 export function expectedXmlnsOf(
-	source: HqAppSource,
+	source: Pick<HqAppSource, "modules">,
 ): (form: HqAppSourceForm) => string | null {
 	const forms = source.modules.flatMap((menu) => menu.forms);
 	const byReadId = new Map(forms.map((form) => [form.readUniqueId, form]));

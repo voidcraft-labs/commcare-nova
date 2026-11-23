@@ -74,7 +74,10 @@ import {
 	semanticCheckErrors,
 } from "../lookupTypeContext";
 import { formLinkNeedsNewCaseDatum } from "./advancedModule";
-import { validateCaseOperations } from "./caseOperations";
+import {
+	sharedEntryWriteFindings,
+	validateCaseOperations,
+} from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
 import { validateCasePlacements } from "./casePlacement";
 import { formDisplayCondition } from "./displayConditions";
@@ -88,6 +91,7 @@ import {
 	formLinkSelectionCardinality,
 	multiSelectFormSemantics,
 } from "./multiSelect";
+import { sharedFormDependencies } from "./sharedForm";
 import { casePropertyNameFormBuilderCannotKeep } from "./sourceCaseWrites";
 import { unwrittenValidationMessageReads } from "./validationMessageRead";
 
@@ -1446,7 +1450,22 @@ export function runFormRules(
 			);
 		}
 	}
-	errors.push(...emptyForm(doc, form, ctx));
+	if (form.shadowOf)
+		errors.push(
+			...sharedFormDependencies(doc, form, moduleUuid, entryPlan).map(
+				(message) =>
+					validationError(
+						"FORM_ENTRY_SETUP",
+						"form",
+						message,
+						baseLocation(ctx),
+						{
+							sentence: message,
+						},
+					),
+			),
+		);
+	else errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...formSections(doc, ctx));
 	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid, lookupTables));
 	if (lookupTables !== undefined) {
@@ -1468,7 +1487,9 @@ export function runFormRules(
 	errors.push(...formTextReadAsInstance(doc, ctx));
 	errors.push(...unwrittenValidationMessageReads(doc, ctx));
 	errors.push(
-		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
+		...(form.shadowOf
+			? sharedEntryWriteFindings(doc, form, moduleUuid, lookupTables)
+			: validateCaseOperations(doc, formUuid, moduleUuid, lookupTables)),
 	);
 	errors.push(...validateCasePlacements(doc, formUuid, moduleUuid));
 	errors.push(...formLinkNeedsNewCaseDatum(doc, formUuid, moduleUuid));

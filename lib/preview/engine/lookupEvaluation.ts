@@ -33,6 +33,7 @@ import {
 	mapExpressionAst,
 } from "@/lib/domain/expression/mapAst";
 import type { Expression } from "@/lib/domain/expression/types";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import type {
 	LookupColumn,
 	LookupFixtureRow,
@@ -207,12 +208,29 @@ export function formLogicLookupsCovered(
 	data: PreviewLookupData | undefined,
 ): boolean {
 	const collector = identityCollector(data);
-	for (const { source } of doc.forms[formUuid]?.caseSelections ?? []) {
+	for (const { source } of entrySelectionSettings(doc.forms[formUuid]) ?? []) {
 		if (source.kind === "table") collector.check(source.table, source.column);
 	}
 	return (
 		collector.covered &&
-		formExpressionSlotValues(doc, formUuid).every(
+		[
+			...formExpressionSlotValues(doc, formUuid),
+			...(doc.forms[formUuid]?.shadowOf
+				? formExpressionSlotValues(
+						doc,
+						doc.forms[formUuid].shadowOf.form,
+					).filter(
+						({ ref, path }) =>
+							ref.entity === "field" ||
+							[
+								"openCondition",
+								"closeCondition",
+								"caseOperations",
+								"connect",
+							].includes(String(path[0])),
+					)
+				: []),
+		].every(
 			({ ref, expression }) =>
 				ref.slot === "lookup_options_source" ||
 				expressionLookupsCovered(expression, data),

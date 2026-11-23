@@ -614,3 +614,7 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+### Several entries opening one form
+
+A shared entry has its own `Form` UUID. Its `shadowOf.form` identifies the ordinary advanced form that owns all questions, case writes and created cases. Both forms must already be in advanced menus. The entry owns its name, visibility, navigation, computed opening values and an ordered selection list. Each replacement keeps the parent choice UUID while choosing its own source and case type. Each additional choice owns a new UUID and supplies a read-only record. A parent choice can be left out when the shared questions and writes can execute without its value. `formContentUuid` resolves the question tree and `formEntryRecord` resolves the record that a particular entry selects. Entry routing, session state and submission receipts use the entry UUID.

@@ -407,8 +407,14 @@ interface ReadProjection {
  * `destinations`, in the order they run, and an otherwise link addressed by
  * `linkUuid` as a destination is. */
 function afterSubmitRead(form: Record<string, unknown>, doc: BlueprintDoc) {
-	const { formLinks, otherwise, caseSelections, openingAssignments, ...rest } =
-		form;
+	const {
+		formLinks,
+		otherwise,
+		caseSelections,
+		openingAssignments,
+		shadowOf: _shared,
+		...rest
+	} = form;
 	const read = otherwise === undefined ? undefined : record.parse(otherwise);
 	const { uuid, ...link } = read ?? {};
 	return {
@@ -538,6 +544,7 @@ const readProjectors: {
 			closeCondition,
 			ownClosePlacement: _heldClose,
 			plainText,
+			shadowOf,
 			...form
 		} = data.form;
 		// A held placement is an identity no author chooses: no edit accepts
@@ -550,9 +557,25 @@ const readProjectors: {
 		return {
 			...data,
 			recordContext: formRecordContext(doc, form.uuid),
-			openingChoicesFrom: form.caseSelections === undefined ? "menu" : "form",
+			openingChoicesFrom: shadowOf
+				? "shared-entry"
+				: form.caseSelections === undefined
+					? "menu"
+					: "form",
+			...(shadowOf && {
+				sharedForm: {
+					formUuid: shadowOf.form,
+					name: doc.forms[shadowOf.form]?.name,
+					replacements: shadowOf.selections
+						.filter((row) => row.kind === "replace")
+						.map((row) => row.selection),
+					extraChoices: shadowOf.selections
+						.filter((row) => row.kind === "add")
+						.map((row) => row.uuid),
+				},
+			}),
 			...(data.recordName !== undefined && {
-				recordName: recordName(form.uuid, data.recordName),
+				recordName: recordName(shadowOf?.form ?? form.uuid, data.recordName),
 			}),
 			form: {
 				...afterSubmitRead(
@@ -648,7 +671,7 @@ const readProjectors: {
 				project(
 					z.array(caseOperationSchema),
 					data.operations,
-					scope(data.formUuid),
+					scope(data.sharedForm?.formUuid ?? data.formUuid),
 				),
 			)
 			.map((operation, index) => {

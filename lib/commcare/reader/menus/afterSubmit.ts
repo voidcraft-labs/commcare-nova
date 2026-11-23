@@ -82,8 +82,12 @@ import {
 
 const F = "forms-and-case-writes";
 
-type FormClass = "Form" | "AdvancedForm";
-const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
+type FormClass = DraftForm["docType"];
+const FORM_CLASSES: readonly FormClass[] = [
+	"Form",
+	"AdvancedForm",
+	"ShadowForm",
+];
 
 function perClass<U extends Claim["use"]>(
 	make: (entry: string, key: string) => Claim<U>,
@@ -677,7 +681,9 @@ function readLinkTarget(
 					moduleUuid: named.module.uuid,
 					formUuid: named.form.uuid,
 				};
-		key = self ? ["this-form"] : ["form", named.form.xmlns];
+		key = self
+			? ["this-form"]
+			: ["form", named.form.entryKey ?? named.form.xmlns];
 	} else {
 		const named = draftModuleById(ctx.draft, moduleId);
 		if (named === undefined) {
@@ -1104,7 +1110,7 @@ function readOtherwiseAndLinks(
 		counts.set(target, n + 1);
 		return ctx.accounting.identity(
 			ctx.identities.claim(
-				externalKey.formLink(form.xmlns, link.key, n),
+				externalKey.formLink(form.entryKey ?? form.xmlns, link.key, n),
 				whereText(form.place),
 			),
 			form.place,

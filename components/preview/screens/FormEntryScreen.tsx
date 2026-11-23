@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/shadcn/button";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { blueprintRevisionDigest } from "@/lib/preview/engine/caseDataBindingClient";
 import { entryWalksChoices } from "@/lib/preview/engine/entrySessionData";
 import { readFormOpeningAction } from "@/lib/preview/engine/formOpeningAction";
@@ -94,7 +95,8 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 		};
 	}, []);
 	const bound =
-		doc.forms[screen.formUuid]?.caseSelections === undefined
+		// A second entry keeps its own choices, as a form with its own does.
+		entrySelectionSettings(doc.forms[screen.formUuid]) === undefined
 			? (screen.cases ?? target?.cases)
 			: undefined;
 	const linkedChoices = target?.openedByLink ? target.entryChoices : undefined;

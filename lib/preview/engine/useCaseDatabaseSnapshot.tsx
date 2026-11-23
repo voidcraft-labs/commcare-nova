@@ -11,6 +11,7 @@ import {
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { useCaseDatabaseRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
@@ -148,7 +149,7 @@ export function caseDatabaseRequirements(
 			field.optionsSource.kind === "cases",
 	);
 	const entryRecords = Object.values(doc.forms).some(
-		(form) => form.caseSelections?.length,
+		(form) => entrySelectionSettings(form)?.length,
 	);
 	const required =
 		entryRecords ||

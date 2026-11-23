@@ -399,6 +399,15 @@ export function compileCczParts(
 	const doc = plan.doc;
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
+	const ordinaryForms = new Map(
+		hqModules.flatMap((module) =>
+			module.forms.flatMap((form) =>
+				form.doc_type === "AdvancedForm"
+					? [[form.unique_id, form] as const]
+					: [],
+			),
+		),
+	);
 	const assets = opts.assets;
 	const lookupNaming = opts.lookupNaming;
 	const localization = commCareLocalization(authoredDoc);
@@ -855,7 +864,15 @@ export function compileCczParts(
 			);
 
 			const formName = form.name;
-			const xmlns = hqForm.xmlns;
+			const content =
+				hqForm.doc_type === "ShadowForm"
+					? ordinaryForms.get(hqForm.shadow_parent_form_id)
+					: hqForm;
+			if (!content)
+				throw new Error(
+					`Shared entry ${hqForm.unique_id} needs its ordinary form.`,
+				);
+			const xmlns = content.xmlns;
 			const uniqueId = hqForm.unique_id;
 			const cmdId = `m${mIdx}-f${fIdx}`;
 			const filePath = formMemberPath(mIdx, fIdx);
@@ -892,7 +909,7 @@ export function compileCczParts(
 			let xform = attachments[`${uniqueId}.xml`];
 			// An advanced form's blocks are `_create_casexml_advanced`'s, in its
 			// place (`XForm.add_case_and_meta_advanced`).
-			if (xform) {
+			if (xform && hqForm.doc_type !== "ShadowForm") {
 				xform =
 					hqForm.doc_type === "AdvancedForm"
 						? addAdvancedCaseBlocks(
@@ -1084,18 +1101,17 @@ export function compileCczParts(
 				}
 			}
 
-			files[filePath] = xform;
-
-			// XForm resource declaration in suite.xml. Constructed via
-			// nested `el(...)` calls — the serializer escapes the file
-			// path and version once at render time.
-			suiteResources.push(
-				el("xform", {}, [
-					el("resource", { id: filePath, version: String(sequence) }, [
-						el("location", { authority: "local" }, [text(`./${filePath}`)]),
+			if (hqForm.doc_type !== "ShadowForm") {
+				if (!xform) throw new Error(`Form ${uniqueId} has no XForm source.`);
+				files[filePath] = xform;
+				suiteResources.push(
+					el("xform", {}, [
+						el("resource", { id: filePath, version: String(sequence) }, [
+							el("location", { authority: "local" }, [text(`./${filePath}`)]),
+						]),
 					]),
-				]),
-			);
+				);
+			}
 
 			// Form menu-command media: the entry's `<command>` display gains
 			// `<text form="image|audio">` media locales (icon / audio label)

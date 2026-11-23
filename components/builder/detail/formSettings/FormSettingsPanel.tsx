@@ -4,6 +4,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
 import { Button } from "@/components/shadcn/button";
+import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { AfterSubmitSection } from "./AfterSubmitSection";
 import { CaseChangesSection } from "./CaseChangesSection";
@@ -40,6 +41,7 @@ export function FormSettingsPanel({
 	formUuid,
 	onClose,
 }: FormSettingsPanelProps) {
+	const shared = useForm(formUuid)?.shadowOf;
 	const noMatches = useIsCaseListRegistrationForm(moduleUuid, formUuid);
 	return (
 		<div className="w-80">
@@ -62,8 +64,12 @@ export function FormSettingsPanel({
 
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
-				<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				{!shared && (
+					<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
+				{!shared && (
+					<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
 
 				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
 				<SubmitButtonSection formUuid={formUuid} />
@@ -87,7 +93,9 @@ export function FormSettingsPanel({
 					/>
 				)}
 
-				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				{!shared && (
+					<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				)}
 
 				<FormAppearanceSection moduleUuid={moduleUuid} formUuid={formUuid} />
 

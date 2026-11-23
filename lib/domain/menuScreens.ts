@@ -18,6 +18,7 @@
 // so it takes a `BlueprintDoc` where the rest of this file takes a
 // `MenuScreenSource`.
 
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { advancedLoadTags, menuEmittedAdvanced } from "./advancedEntryDatums";
 import type { BlueprintDoc } from "./blueprint";
 import {
@@ -331,7 +332,7 @@ function entryFirstDatumKey(
 			`case_${doc.modules[entry.module]?.caseType ?? ""}`,
 		);
 	if (entry.kind === "form") {
-		const choices = doc.forms[entry.form]?.caseSelections;
+		const choices = entrySelectionSettings(doc.forms[entry.form]);
 		if (choices && choices[0]?.source.kind !== "choose") return undefined;
 	}
 	const [first] = entrySelections(doc, entry);
@@ -350,9 +351,7 @@ function entryFirstDatumKey(
 	}
 	if (entry.kind === "browse" || !menuEmittedAdvanced(doc, entry.module))
 		return first.key;
-	const tag =
-		doc.forms[entry.form]?.caseSelections?.[0]?.tag ??
-		advancedLoadTags(doc, entry.form)[0];
+	const tag = advancedLoadTags(doc, entry.form)[0];
 	return tag === undefined ? first.key : advancedDatumKey(tag);
 }
 
@@ -408,9 +407,10 @@ export function screenShapeBlocker(
 			return (
 				!hasCaseType ||
 				type === undefined ||
-				(doc.forms[uuid]?.caseSelections === undefined
+				(entrySelectionSettings(doc.forms[uuid]) === undefined
 					? !CASE_LOADING_FORM_TYPES.has(type)
-					: doc.forms[uuid].caseSelections?.[0]?.source.kind !== "choose")
+					: entrySelectionSettings(doc.forms[uuid])?.[0]?.source.kind !==
+						"choose")
 			);
 		});
 		if (formUuid !== undefined)

@@ -1,3 +1,4 @@
+import { entryOperationCaseType } from "./advancedEntryDatums";
 // lib/domain/caseWriteViews.ts
 //
 // A field's "Saves to": the writes of the form's case operations that save
@@ -173,9 +174,21 @@ export function caseWriteValueField(
 	return undefined;
 }
 
+/** The questions and physical property types a worker saves through this
+ * entry. The editor keeps one set of definitions on the parent. */
+export function entryCaseWriteViews(doc: BlueprintDoc, entryUuid: Uuid) {
+	const parent = doc.forms[entryUuid]?.shadowOf?.form;
+	return parent
+		? deriveFormViews(doc, parent, (op) =>
+				entryOperationCaseType(doc, entryUuid, op),
+			)
+		: formCaseWriteViews(doc, entryUuid);
+}
+
 function deriveFormViews(
 	doc: ViewDoc,
 	formUuid: Uuid,
+	typeOfOperation?: (operation: CaseOperation) => string | undefined,
 ): ReadonlyMap<Uuid, readonly FieldCaseWriteView[]> {
 	const views = new Map<Uuid, FieldCaseWriteView[]>();
 	const form = Object.hasOwn(doc.forms, formUuid)
@@ -192,7 +205,10 @@ function deriveFormViews(
 	};
 	for (const operation of form.caseOperations ?? []) {
 		const operationType =
-			operation.retype ?? operationCaseType(doc, formUuid, operation);
+			operation.retype ??
+			(typeOfOperation
+				? typeOfOperation(operation)
+				: operationCaseType(doc, formUuid, operation));
 		if (operationType === undefined) continue;
 		const destination = operationDestination(operation, form.type, ownUuid);
 		const slotView = (

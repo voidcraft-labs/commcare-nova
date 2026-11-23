@@ -8,6 +8,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { ownedFormSelections } from "@/lib/domain/formEntryCases";
 import { assertNever } from "@/lib/utils/assertNever";
 
 export interface MutationIdentityAdmissionIssue {
@@ -61,7 +62,7 @@ function nestedFormIdentities(
 					},
 				]
 			: []),
-		...(form.caseSelections ?? []).map((row) => ({
+		...ownedFormSelections(form).map((row) => ({
 			uuid: row.uuid,
 			kind: "formSelection" as const,
 			ownerUuid: form.uuid,

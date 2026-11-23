@@ -61,35 +61,50 @@ export type AdoptedIdentityRows =
 	/** A form of the document has no real id in the aligned read. */
 	| { readonly ok: false; readonly at: string };
 
-/** HQ's summarized menus by their id, the first of each id. */
-export function alignedMenusById(
-	aligned: readonly HqAlignedModule[],
-): ReadonlyMap<string, HqAlignedModule> {
-	const byUniqueId = new Map<string, HqAlignedModule>();
+/** Each menu and form from the bracketed read. A read id can join only
+ * within its source; HQ's application resource supplies the identity to keep. */
+export function alignedMenusById(aligned: readonly HqAlignedModule[]) {
+	const byId = new Map<
+		string,
+		Map<
+			string,
+			{ readonly uniqueId: string; readonly xmlns: string | null }
+		> | null
+	>();
 	for (const module of aligned) {
-		if (module.uniqueId !== null && !byUniqueId.has(module.uniqueId)) {
-			byUniqueId.set(module.uniqueId, module);
-		}
+		if (module.uniqueId === null || byId.has(module.uniqueId)) continue;
+		byId.set(
+			module.uniqueId,
+			module.kind === "not-summarized"
+				? null
+				: new Map(
+						module.forms.map((form) => [
+							form.source.readUniqueId,
+							{ uniqueId: form.uniqueId, xmlns: form.source.xmlns },
+						]),
+					),
+		);
 	}
-	return byUniqueId;
+	return byId;
 }
 
-/** The real id HQ's application resource gives one read form, or where none
- *  is (`adoptedIdentityRows`' `at`). */
+/** The real entry id and its own namespace. Only a content owner has a namespace. */
 export function realFormId(
 	form: Pick<
 		ReadMenuAndFormIdentities["forms"][number],
-		"moduleUniqueId" | "xmlns"
+		"moduleUniqueId" | "xmlns" | "readUniqueId"
 	>,
-	byUniqueId: ReadonlyMap<string, HqAlignedModule>,
-): { readonly uniqueId: string } | { readonly at: string } {
-	const module = byUniqueId.get(form.moduleUniqueId);
-	if (module === undefined || module.kind === "not-summarized")
-		return { at: `menu ${form.moduleUniqueId}` };
-	const real = module.forms.find((one) => one.xmlns === form.xmlns);
-	if (real === undefined)
-		return { at: `form ${form.xmlns} in menu ${form.moduleUniqueId}` };
-	return { uniqueId: real.uniqueId };
+	byId: ReturnType<typeof alignedMenusById>,
+):
+	| { readonly uniqueId: string; readonly xmlns: string | null }
+	| { readonly at: string } {
+	const entries = byId.get(form.moduleUniqueId);
+	if (!entries) return { at: `menu ${form.moduleUniqueId}` };
+	return (
+		entries.get(form.readUniqueId) ?? {
+			at: `form ${form.xmlns} in menu ${form.moduleUniqueId}`,
+		}
+	);
 }
 
 /**
@@ -118,7 +133,7 @@ export function adoptedIdentityRows(
 			entityKind: "form",
 			novaEntityUuid: form.uuid,
 			uniqueId: real.uniqueId,
-			xmlns: form.xmlns,
+			xmlns: real.xmlns,
 		});
 	}
 	rows.sort(

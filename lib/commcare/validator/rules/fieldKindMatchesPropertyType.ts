@@ -51,8 +51,8 @@ import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
+	entryCaseWriteViews,
 	type FieldKind,
-	formCaseWriteViews,
 	isWritableStandardCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
@@ -117,7 +117,7 @@ export function fieldKindMatchesPropertyType(
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
-			for (const [fieldUuid, views] of formCaseWriteViews(doc, formUuid)) {
+			for (const [fieldUuid, views] of entryCaseWriteViews(doc, formUuid)) {
 				const field = doc.fields[fieldUuid];
 				if (field === undefined) continue;
 				for (const view of views) {

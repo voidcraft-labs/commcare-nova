@@ -636,6 +636,20 @@ export interface HqAdvancedForm<XPath = string, LinkXPath = XPath>
 	}[];
 }
 
+/** A second entry of one advanced form. HQ computes its namespace and
+ * actions from its parent. Only extra_actions belongs in the upload. */
+export interface HqShadowForm<XPath = string, LinkXPath = XPath>
+	extends Omit<
+		HqAdvancedForm<XPath, LinkXPath>,
+		"actions" | "doc_type" | "form_type" | "xmlns"
+	> {
+	doc_type: "ShadowForm";
+	form_type: "shadow_form";
+	shadow_parent_form_id: string;
+	extra_actions: AdvancedFormActions;
+	xmlns: null;
+}
+
 /** The keys a basic and an advanced module share (HQ's `ModuleBase` and its mixins). */
 interface HqModuleBase<XPath> {
 	session_endpoint_id?: string;
@@ -703,7 +717,7 @@ export interface HqAdvancedModule<XPath = string, LinkXPath = XPath>
 	extends HqModuleBase<XPath> {
 	doc_type: "AdvancedModule";
 	module_type: "advanced";
-	forms: HqAdvancedForm<XPath, LinkXPath>[];
+	forms: (HqAdvancedForm<XPath, LinkXPath> | HqShadowForm<XPath, LinkXPath>)[];
 	product_details: DetailPair<XPath>;
 }
 
@@ -715,7 +729,8 @@ export type HqAnyModule<XPath = string, LinkXPath = XPath> =
 /** Either kind of form Nova writes. */
 export type HqAnyForm<XPath = string, LinkXPath = XPath> =
 	| HqForm<XPath, LinkXPath>
-	| HqAdvancedForm<XPath, LinkXPath>;
+	| HqAdvancedForm<XPath, LinkXPath>
+	| HqShadowForm<XPath, LinkXPath>;
 
 /**
  * CommCare HQ's complete profile bag on an existing app source.

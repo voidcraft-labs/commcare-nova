@@ -21,6 +21,7 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
 import type { AppDatabase } from "@/lib/db/pg";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
@@ -38,13 +39,15 @@ import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBa
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { sharedVisitEntries } from "../../../../proof/targeted/documents/sharedVisitEntries";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
 	buildSubmissionReceiptIdentity,
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
-import type { FormEngine } from "../formEngine";
+import { buildEngineInput } from "../engineInput";
+import { FormEngine } from "../formEngine";
 import type { ResolvedPreviewIdentity } from "../identity";
 import {
 	acceptanceDoc,
@@ -193,6 +196,77 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("submits a shared entry’s parent answers to the case selected by that entry", async () => {
+		const doc = hydratePersistedBlueprint(sharedVisitEntries().doc);
+		const entry = Object.values(doc.forms).find(
+			(form) => form.name === "Follow a referral",
+		);
+		if (!entry?.shadowOf) throw new Error("Expected the referral entry.");
+		const store = makeStore();
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "person",
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		for (const id of [SESSION_CASE, SECOND_SESSION_CASE]) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: id,
+					case_type: "person",
+					case_name: id,
+					external_id: "",
+					status: "open",
+					properties: {},
+				},
+			});
+		}
+		const input = buildEngineInput(doc, entry.uuid, null);
+		if (!input) throw new Error("Expected the shared visit form.");
+		const engine = new FormEngine(input);
+		engine.setValue("/data/visit_note", "Reached at home");
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [SECOND_SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		const projection = validateCaptureSubmissionProjection(mutation);
+		expect(projection.formUuid).toBe(entry.uuid);
+		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+		});
+		expect(built.program?.formUuid).toBe(entry.shadowOf.form);
+		await store.applySubmission(
+			submissionEnvelopeArgs(mutation, APP_ID, {
+				...built,
+				submissionReceipt: {
+					...buildSubmissionReceiptIdentity({
+						appId: APP_ID,
+						identity: IDENTITY,
+						mutation,
+						projection,
+					}),
+					expectedAppMutationSeq: 0,
+					blueprintDigest: "0".repeat(64),
+				},
+			}),
+		);
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "person",
+		});
+		expect(
+			rows.find((row) => row.case_id === SESSION_CASE)?.properties,
+		).toEqual({});
+		expect(
+			rows.find((row) => row.case_id === SECOND_SESSION_CASE)?.properties,
+		).toEqual({ visit_note: "Reached at home" });
+	});
+
 	it.each([false, true])(
 		"operation reads and repeated effects inherit relevance: %s",
 		async (participates) => {

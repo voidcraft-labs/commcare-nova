@@ -2059,6 +2059,8 @@ export function* assembleDocumentSteps(
 					uuid: form.uuid,
 					xmlns: form.xmlns,
 					moduleUniqueId: heldIn.get(form.uuid) ?? module.uniqueId,
+					readUniqueId:
+						ctx.input.source.modules[form.menu].forms[form.index].readUniqueId,
 				})),
 			),
 			keyedCreates: keyedCreatesRead(ctx, doc),

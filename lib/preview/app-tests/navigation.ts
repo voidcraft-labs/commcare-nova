@@ -585,6 +585,7 @@ export function enterAppTestForm(
 	 * (`entryWalksChoices`); a case this menu already chose is its own. */
 	if (
 		entry.form.caseSelections !== undefined ||
+		entry.form.shadowOf !== undefined ||
 		(selection === undefined && entryWalksChoices(context.doc, formUuid))
 	)
 		return appTestFormOpening(context, state, moduleUuid, formUuid, []);

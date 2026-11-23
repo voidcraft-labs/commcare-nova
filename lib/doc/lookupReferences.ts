@@ -30,6 +30,7 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { firstSortedModuleListingForm } from "@/lib/domain/formMembership";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
@@ -616,13 +617,18 @@ function extractFormEntryTableSources(
 	doc: BlueprintDoc,
 ): ExtractedLookupReference[] {
 	return Object.values(doc.forms).flatMap((form) =>
-		(form.caseSelections ?? []).flatMap((choice) => {
+		(entrySelectionSettings(form) ?? []).flatMap((choice) => {
 			const source = choice.source;
 			return source.kind === "table"
 				? [
 						{
-							carrierUuid: choice.uuid,
-							subpath: ["source", "column"],
+							carrierUuid: form.uuid,
+							subpath: [
+								form.shadowOf ? "sharedChoice" : "choice",
+								choice.uuid,
+								"source",
+								"column",
+							],
 							tableId: source.table,
 							columnId: source.column,
 							location: {

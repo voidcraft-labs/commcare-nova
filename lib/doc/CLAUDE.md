@@ -328,3 +328,6 @@ direct-name authoring, or second starter reconstruction.
   derived from the validator classification. Internal oracle findings use the
   generic Nova-side error. Text findings carry display labels so repair messages
   identify the affected app content or Project data table and column.
+
+
+Shared form entries have one parent form as their edit destination for questions and case changes. `formEntryMutations.ts` changes an entry’s ordered opening choices by identity. A parent type change plans the corresponding changes to its entries in the same batch. `sharedFormDependents.ts` names the entries affected by the removal of a parent, module, or referenced question, so the worker’s other routes remain editable.

@@ -214,6 +214,8 @@ export interface ReadMenuAndFormIdentities {
 		readonly uuid: Uuid;
 		readonly xmlns: string;
 		readonly moduleUniqueId: string;
+		/** One-read key into the aligned source. Never an adoption or document identity. */
+		readonly readUniqueId: string;
 	}[];
 	/** Every create the document holds whose id is keyed by an answer, read from a Save to Case
 	 *  block, with the prefix its id stands under in the source. The reading mints its own app,

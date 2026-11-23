@@ -148,6 +148,7 @@ CORE_CLASSES = {
     # targeted-advanced-module's advanced forms, from their suite sessions, on HQ's build and the local injection.
     "AdvancedFormRuntimeTest": "case",
     "IndependentFormChoicesRuntimeTest": "case",
+    "SharedFormEntryRuntimeTest": "case",
     "ArithmeticRuntimeTest": "arithmetic",
     "CaseCaptureRuntimeTest": "case",
     "CaseChoiceRuntimeTest": "case-choice",

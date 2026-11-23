@@ -76,28 +76,31 @@ def _case_parts(tree, parsed):
     }
 
 
-def _local_entry(suite, xmlns):
-    (entry,) = suite.xpath("entry[form=$xmlns]", xmlns=xmlns)
+def _local_entry(suite, xmlns, command):
+    (entry,) = suite.xpath("entry[form=$xmlns and command/@id=$command]", xmlns=xmlns, command=command)
     return entry
 
 
 def _check_form(record, suite):
-    native = etree.fromstring(record["native"])
-    local = etree.fromstring(record["local"])
-    entry = _local_entry(suite, record["xmlns"])
+    content = [etree.fromstring(record[key]) for key in ("native", "local") if key in record]
+    entry = _local_entry(suite, record["xmlns"], record["command"])
     local_datums = entry.xpath("session/datum|session/instance-datum")
     values = [
         value for datum in record["datums"] for value in (datum["nodeset"], datum["function"]) if value is not None
     ] + record["assertions"]
-    parsed = parse_xml_xpaths(native, local, *local_datums, *entry.xpath("assertions/assert"), values=values)
+    parsed = parse_xml_xpaths(*content, *local_datums, *entry.xpath("assertions/assert"), values=values)
     parsed.update(parse_xpaths(entry.xpath("assertions/assert/@test")))
 
     def structure(text):
         return None if text is None else parsed[text]["structure"]
 
-    native_parts = _case_parts(native, parsed)
-    assert native_parts["blocks"], (record["form"], "HQ's build wrote no case block")
-    assert _case_parts(local, parsed) == native_parts, record["form"]
+    blocks = []
+    if content:
+        native, local = content
+        native_parts = _case_parts(native, parsed)
+        assert native_parts["blocks"], (record["form"], "HQ's build wrote no case block")
+        assert _case_parts(local, parsed) == native_parts, record["form"]
+        blocks = sorted(native_parts["blocks"])
     hq_datums = [(datum["id"], structure(datum["nodeset"]), structure(datum["function"])) for datum in record["datums"]]
     nova_datums = [
         (datum.get("id"), structure(datum.get("nodeset")), structure(datum.get("function"))) for datum in local_datums
@@ -107,7 +110,8 @@ def _check_form(record, suite):
     assert [structure(test) for test in entry.xpath("assertions/assert/@test")] == hq_assertions, record["form"]
     return {
         "form": record["form"],
-        "blocks": sorted(native_parts["blocks"]),
+        "command": record["command"],
+        "blocks": blocks,
         "datumIds": [datum[0] for datum in hq_datums],
         "assertions": record["assertions"],
     }

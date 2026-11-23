@@ -515,14 +515,14 @@ const RETAINED_READ: readonly string[] = [
 
 /**
  * Retained app sources holding content Nova does not hold, with the finding
- * that says so: a mirror form, and a report menu and a visit schedule. Each
+ * that says so: a report menu beside a shared form, and a report menu beside a visit schedule. Each
  * is held to its account; one that comes to read moves to `RETAINED_READ`.
  */
 const RETAINED_ACCOUNT: readonly [string, () => RetainedHqAnswer, string][] = [
 	[
 		"reading/source-shadow",
 		() => retainedReadingRead("source-shadow"),
-		"forms-and-case-writes/shadowform",
+		"menus-and-case-lists/reportmodule-mobile-ucr-and-all-of-report-configs",
 	],
 	[
 		"hq-built/app-source",

@@ -63,8 +63,10 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	caseOperationRunsPerSelectedCase,
+	type Form,
 	formLinkEntries,
 	opensWithWorkerValue,
+	operationCaseType,
 	orderedCaseOperations,
 	usesFormEntryActions,
 } from "./forms";
@@ -152,13 +154,39 @@ function computeChain(doc: BlueprintDoc, formUuid: Uuid): readonly ChainLoad[] {
 	});
 }
 
+/** Ordinary advanced forms this menu can open through an additional entry. */
+export function shareableForms(doc: BlueprintDoc, menu: Uuid) {
+	if (!menuEmittedAdvanced(doc, menu)) return [];
+	return doc.moduleOrder.flatMap((owner) => {
+		if (!menuEmittedAdvanced(doc, owner)) return [];
+		return (doc.formOrder[owner] ?? []).flatMap((uuid) => {
+			const form = doc.forms[uuid];
+			return form && !form.shadowOf
+				? [{ uuid, name: form.name, menu: doc.modules[owner].name }]
+				: [];
+		});
+	});
+}
+
 /** The manual load of the owning menu's type that supplies its own case. */
 export function ownFormSelectionIndex(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): number | undefined {
+	const shared = doc.forms[formUuid]?.shadowOf;
+	if (shared) {
+		const parent = doc.forms[shared.form];
+		if (!parent || parent.shadowOf) return undefined;
+		const own = ownFormSelectionIndex(doc, parent.uuid);
+		if (own === undefined) return undefined;
+		const id = formCaseSelections(doc, parent.uuid)[own]?.uuid;
+		const index = shared.selections.findIndex(
+			(row) => row.kind === "replace" && row.selection === id,
+		);
+		return index === -1 ? undefined : index;
+	}
 	if (doc.forms[formUuid]?.type === "registration") return undefined;
-	const explicit = doc.forms[formUuid]?.caseSelections;
+	const explicit = explicitFormCaseSelections(doc, formUuid);
 	if (explicit !== undefined) {
 		const menu = owningModule(doc, formUuid);
 		const type = menu === undefined ? undefined : doc.modules[menu]?.caseType;
@@ -171,6 +199,60 @@ export function ownFormSelectionIndex(
 	return count === 0 ? undefined : count - 1;
 }
 
+/** Which record the shared questions execute against. An omitted parent choice
+ * leaves the entry without an own record. A calculated replacement is singular. */
+export function formEntryRecord(doc: BlueprintDoc, uuid: Uuid) {
+	const form = doc.forms[uuid];
+	const content = form?.shadowOf?.form ?? uuid;
+	const owner = owningModule(doc, content);
+	const menu = owner && doc.modules[owner];
+	if (!form?.shadowOf || form.type === "registration")
+		return {
+			caseType: menu?.caseType,
+			contentCaseType: menu?.caseType,
+			menu,
+			requiresCase: !!form && CASE_LOADING_FORM_TYPES.has(form.type),
+		};
+	const index = ownFormSelectionIndex(doc, uuid);
+	const row =
+		index === undefined
+			? undefined
+			: explicitFormCaseSelections(doc, uuid)?.[index];
+	const list =
+		row?.source.kind === "choose" ? doc.modules[row.source.module] : undefined;
+	return {
+		caseType: row?.caseType,
+		contentCaseType: menu?.caseType,
+		menu: list,
+		requiresCase: !!row && CASE_LOADING_FORM_TYPES.has(form.type),
+	};
+}
+
+/** Resolve each replacement from its parent's identity, which keeps its
+ * original tag when the entry moves it or chooses a different case type. */
+export function explicitFormCaseSelections(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): readonly FormCaseSelection[] | undefined {
+	const form = doc.forms[formUuid];
+	if (!form?.shadowOf) return form?.caseSelections;
+	const parent = doc.forms[form.shadowOf.form];
+	if (!parent || parent.shadowOf) return [];
+	const rows = new Map(
+		formCaseSelections(doc, parent.uuid).map((row) => [row.uuid, row]),
+	);
+	return form.shadowOf.selections.flatMap((row) => {
+		if (row.kind === "add") {
+			const { kind: _kind, ...selection } = row;
+			return [selection];
+		}
+		const original = rows.get(row.selection);
+		return original
+			? [{ ...original, caseType: row.caseType, source: row.source }]
+			: [];
+	});
+}
+
 /** The exact ordered entries a person sees before a form opens. The first edit
  * can store this projection as-is, keeping the allocated tags and UUIDs. */
 export function formCaseSelections(
@@ -179,7 +261,8 @@ export function formCaseSelections(
 ): readonly FormCaseSelection[] {
 	const form = doc.forms[formUuid];
 	if (!form) return [];
-	if (form.caseSelections !== undefined) return form.caseSelections;
+	const explicit = explicitFormCaseSelections(doc, formUuid);
+	if (explicit !== undefined) return explicit;
 	const chain = advancedLoadChain(doc, formUuid);
 	const tags = advancedLoadTags(doc, formUuid);
 	const result: FormCaseSelection[] = chain.map((row, index) => {
@@ -255,7 +338,7 @@ export function chainLoadOfTarget(
 	)
 		return undefined;
 	const ref = target.expr.term.datum;
-	const explicit = doc.forms[formUuid]?.caseSelections;
+	const explicit = explicitFormCaseSelections(doc, formUuid);
 	if (explicit) {
 		const positions = explicit.flatMap((row, index) =>
 			(ref.kind === "form-selection" && row.uuid === ref.selection) ||
@@ -275,6 +358,74 @@ export function chainLoadOfTarget(
 				implicitFormSelectionId(formUuid, row.moduleUuid) === ref.selection,
 	);
 	return index < 0 ? undefined : index;
+}
+
+/** A shared entry can load another type into a parent selection. The parent
+ * still defines every operation and how to read the answer that feeds it. */
+export function entryOperationCaseType(
+	doc: BlueprintDoc,
+	entryUuid: Uuid,
+	op: CaseOperation,
+): string | undefined {
+	const shared = doc.forms[entryUuid]?.shadowOf;
+	const contentUuid = shared?.form ?? entryUuid;
+	const original = operationCaseType(doc, contentUuid, op);
+	const parent = doc.forms[contentUuid];
+	if (!shared || !parent || parent.shadowOf || op.action === "create")
+		return original;
+	if (op.action === "own" || op.target.kind === "session")
+		return formEntryRecord(doc, entryUuid).caseType;
+	const index =
+		op.target.kind === "worker-record"
+			? sharedWorkerSelectionIndex(doc, parent, op)
+			: chainLoadOfTarget(doc, parent.uuid, op.target);
+	if (index === undefined) return original;
+	const selection = formCaseSelections(doc, parent.uuid)[index]?.uuid;
+	return shared.selections.find(
+		(row) => row.kind === "replace" && row.selection === selection,
+	)?.caseType;
+}
+
+/** The parent's worker update can be an independent XForm block, or an
+ * update of an opening choice. Only the latter follows a replacement. */
+function sharedWorkerSelectionIndex(
+	doc: BlueprintDoc,
+	parent: Form,
+	op: CaseOperation,
+): number | undefined {
+	const facts = caseSlotFacts(doc, parent.uuid);
+	if (heldWorkerBlockExpresses(facts, op)) return undefined;
+	const load = advancedLoadOf(facts, op);
+	if (!load || loadClause(facts, op, load) !== undefined) return undefined;
+	return load.kind === "chain"
+		? load.index
+		: advancedLoadChain(doc, parent.uuid).length;
+}
+
+/** The worker update in a shared XForm still reads its parent's session
+ * leaf when the entry selects another worker or another kind of record. */
+export function sharedWorkerTarget(
+	doc: BlueprintDoc,
+	entryUuid: Uuid,
+	op: CaseOperation,
+): Uuid | undefined {
+	const shared = doc.forms[entryUuid]?.shadowOf;
+	const parent = shared && doc.forms[shared.form];
+	if (!shared || !parent || parent.shadowOf || !isWorkerRecordUpdate(op))
+		return undefined;
+	const index = sharedWorkerSelectionIndex(doc, parent, op);
+	if (index === undefined) return undefined;
+	const id = formCaseSelections(doc, parent.uuid)[index]?.uuid;
+	if (
+		shared.selections.some(
+			(row) =>
+				row.kind === "replace" &&
+				row.selection === id &&
+				row.source.kind !== "worker-record",
+		)
+	)
+		return id;
+	return undefined;
 }
 
 // ── What an action can express ──────────────────────────────────────────
@@ -844,7 +995,9 @@ function computeKindTriggers(
 		found.push({ kind: "list-entry" });
 	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 		const form = doc.forms[formUuid];
-		if (!form) continue;
+		// A second entry never makes its menu advanced: it needs a menu that
+		// already is, as its own validation states.
+		if (!form || form.shadowOf) continue;
 		if (usesFormEntryActions(form))
 			found.push({ kind: "form-entry", formUuid });
 		const links = carriedCreates(doc, formUuid);
@@ -959,6 +1112,16 @@ export function advancedEntryActions(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): AdvancedEntryActions {
+	const shared = doc.forms[formUuid]?.shadowOf;
+	if (shared && doc.forms[shared.form] && !doc.forms[shared.form].shadowOf) {
+		return {
+			opens: entryActionPlan(doc, shared.form).actions.opens,
+			workerLoad:
+				explicitFormCaseSelections(doc, formUuid)?.some(
+					(row) => row.source.kind === "worker-record",
+				) ?? false,
+		};
+	}
 	return entryActionPlan(doc, formUuid).actions;
 }
 
@@ -1089,7 +1252,7 @@ export function advancedLoadTags(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): readonly string[] {
-	const explicit = doc.forms[formUuid]?.caseSelections;
+	const explicit = explicitFormCaseSelections(doc, formUuid);
 	if (explicit) return explicit.map((row) => row.tag);
 	let forms = tagsByDoc.get(doc);
 	if (forms === undefined) {
@@ -1228,7 +1391,10 @@ export function newFormSelectionTag(
 ): string {
 	const form = doc.forms[formUuid];
 	const taken = new Set(
-		formCaseSelections(doc, formUuid).map((row) => row.tag),
+		[
+			...formCaseSelections(doc, formUuid),
+			...(form?.shadowOf ? formCaseSelections(doc, form.shadowOf.form) : []),
+		].map((row) => row.tag),
 	);
 	for (const op of form?.caseOperations ?? [])
 		if (op.placement?.kind === "advanced") taken.add(op.placement.tag);

@@ -255,12 +255,16 @@ function ChoiceEditor({
 	const dependents = controls.dependents(row.uuid);
 	return (
 		<div className="grid gap-3">
-			<InlineField
-				label="Name"
-				value={row.name}
-				required
-				onChange={(name) => edit({ name })}
-			/>
+			{!controls.form?.shadowOf?.selections.some(
+				(choice) => choice.kind === "replace" && choice.selection === row.uuid,
+			) && (
+				<InlineField
+					label="Name"
+					value={row.name}
+					required
+					onChange={(name) => edit({ name })}
+				/>
+			)}
 			<Picker
 				label="Where the record comes from"
 				options={options}
@@ -752,10 +756,32 @@ export function OpeningCasesSection({ formUuid }: { formUuid: Uuid }) {
 					<span className="text-nova-text-muted">({choices.length})</span>
 				</summary>
 				<p className="mt-2 text-sm text-nova-text-muted">
-					{form.caseSelections === undefined
-						? "This form follows its menu’s case choices."
-						: "The form opens these records in order."}
+					{controls.sharedParent
+						? `This entry opens “${controls.sharedParent.name}”. Its record choices are listed in opening order.`
+						: form.caseSelections === undefined
+							? "This form follows its menu’s case choices."
+							: "The form opens these records in order."}
 				</p>
+				{canEdit && controls.sharedParent && (
+					<Picker
+						label="Form this entry opens"
+						options={controls.possibleParents.map((parent) => ({
+							value: parent.uuid,
+							label: `${parent.name} · ${parent.menu}`,
+						}))}
+						value={controls.sharedParent.uuid}
+						onChange={(id) => {
+							const parent = controls.possibleParents.find(
+								(form) => form.uuid === id,
+							);
+							if (parent)
+								save({
+									operation: "change-shared-form",
+									parentFormUuid: parent.uuid,
+								});
+						}}
+					/>
+				)}
 				<ol>
 					{choices.map((row, index) => (
 						<EntryRow key={row.uuid} title={row.name}>
@@ -788,6 +814,37 @@ export function OpeningCasesSection({ formUuid }: { formUuid: Uuid }) {
 								if (menu || id === "worker") report(controls.add(menu));
 							}}
 						/>
+						{controls.omitted.length > 0 && (
+							<Picker
+								label="Restore a shared choice"
+								value=""
+								options={[
+									{ value: "", label: "Choose a record" },
+									...controls.omitted.map((row) => ({
+										value: row.uuid,
+										label: row.name,
+									})),
+								]}
+								onChange={(id) => {
+									const row = controls.omitted.find(
+										(choice) => choice.uuid === id,
+									);
+									if (row)
+										save({
+											operation: "restore-shared-choice",
+											uuid: row.uuid,
+										});
+								}}
+							/>
+						)}
+						{!form.shadowOf && form.caseSelections === undefined && (
+							<Button
+								variant="outline"
+								onClick={() => save({ operation: "use-form-choices" })}
+							>
+								Set choices on this form
+							</Button>
+						)}
 						{form.caseSelections !== undefined && (
 							<Button
 								variant="ghost"

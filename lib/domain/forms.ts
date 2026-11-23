@@ -16,6 +16,7 @@ import {
 import {
 	computedEntryValueSchema,
 	formCaseSelectionSchema,
+	sharedFormSchema,
 } from "./formEntryCases";
 import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
@@ -817,6 +818,8 @@ export const formSchema = z.strictObject({
 	heldSelectionTags: z.record(uuidSchema, advancedTagSchema).optional(),
 	/** Absent derives the ordinary menu choices. An empty list explicitly opens without a selection. */
 	caseSelections: z.array(formCaseSelectionSchema).optional(),
+	/** A second way to open an ordinary form, in its own menu position. */
+	shadowOf: sharedFormSchema.optional(),
 	computedDatums: z.array(computedEntryValueSchema).optional(),
 	openingAssignments: z.array(formOpeningAssignmentSchema).optional(),
 	/** The opened record's saved assignment map in an adopted basic form.

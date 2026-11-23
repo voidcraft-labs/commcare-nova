@@ -24,7 +24,7 @@ const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
 type MenuClass = "Module" | "AdvancedModule";
-type FormClass = "Form" | "AdvancedForm";
+type FormClass = DraftForm["docType"];
 
 function byClass<C extends string, U extends Claim["use"]>(
 	classes: readonly C[],
@@ -38,7 +38,7 @@ function byClass<C extends string, U extends Claim["use"]>(
 }
 
 const MENUS: readonly MenuClass[] = ["Module", "AdvancedModule"];
-const FORMS: readonly FormClass[] = ["Form", "AdvancedForm"];
+const FORMS: readonly FormClass[] = ["Form", "AdvancedForm", "ShadowForm"];
 
 const ENTRY_POINTS = {
 	menu: byClass(MENUS, take, `${M}/session-endpoint-id`, "session_endpoint_id"),
@@ -358,7 +358,7 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 							(v) => v,
 						).value;
 					const uuid = mint(
-						externalKey.entryPoint("form", form.xmlns),
+						externalKey.entryPoint("form", form.entryKey ?? form.xmlns),
 						form.place,
 						`schema:${cls}.session_endpoint_id`,
 					);

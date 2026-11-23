@@ -121,6 +121,7 @@ const FORM_KINDS: Readonly<
 > = {
 	Form: { formType: "module_form", moduleDocType: "Module" },
 	AdvancedForm: { formType: "advanced_form", moduleDocType: "AdvancedModule" },
+	ShadowForm: { formType: "shadow_form", moduleDocType: "AdvancedModule" },
 };
 
 /** Each module `doc_type` Nova writes, with its `module_type`. */
@@ -443,6 +444,7 @@ interface HqIdentityTable {
 	readonly moduleIds: ReadonlySet<string>;
 	readonly modulesById: ReadonlyMap<string, HqAnyModule>;
 	readonly formIds: ReadonlySet<string>;
+	readonly advancedFormIds: ReadonlySet<string>;
 	/** Each module's form unique ids: HQ resolves a link's `form_id` INSIDE
 	 *  `form_module_id` (`get_module_by_unique_id(...).get_form_by_unique_id`),
 	 *  so the pair must agree, not merely each exist. */
@@ -660,7 +662,7 @@ function checkForm(
 		);
 	}
 
-	if (form.doc_type === "AdvancedForm") {
+	if (form.doc_type !== "Form") {
 		if (Object.hasOwn(form, "requires") || Object.hasOwn(form, "schedule")) {
 			errors.push(
 				validationError(
@@ -723,7 +725,19 @@ function checkForm(
 	}
 
 	checkFormLinks(form, formName, ids, loc, errors);
-	if (form.doc_type === "AdvancedForm") {
+	if (form.doc_type === "ShadowForm") {
+		if (!ids.advancedFormIds.has(form.shadow_parent_form_id)) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_FORM_DOC_TYPE",
+					"form",
+					`“${formName}” needs an ordinary advanced form to supply its questions.`,
+					loc,
+				),
+			);
+		}
+		checkAdvancedFormActions(form.extra_actions, formName, errors);
+	} else if (form.doc_type === "AdvancedForm") {
 		checkAdvancedFormActions(form.actions, formName, errors);
 	} else {
 		checkFormActions(form.actions, formName, errors);
@@ -1297,6 +1311,13 @@ export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 	}
 
 	const ids: HqIdentityTable = {
+		advancedFormIds: new Set(
+			hqApp.modules.flatMap((module) =>
+				module.forms.flatMap((form) =>
+					form.doc_type === "AdvancedForm" ? [form.unique_id] : [],
+				),
+			),
+		),
 		moduleIds: new Set(hqApp.modules.map((module) => module.unique_id)),
 		modulesById: new Map(
 			hqApp.modules.map((module) => [module.unique_id, module]),
@@ -1368,6 +1389,13 @@ export function checkCaseReferences(hqApp: HqApplication): string[] {
 	for (const module of hqApp.modules) {
 		for (const form of module.forms) {
 			const formName = form.name.en ?? form.unique_id;
+			if (form.doc_type === "ShadowForm") {
+				if (Object.hasOwn(hqApp._attachments, `${form.unique_id}.xml`))
+					problems.push(
+						`“${formName}” carries a second copy of its shared form.`,
+					);
+				continue;
+			}
 			const save = form.case_references_data.save;
 			const source = hqApp._attachments[`${form.unique_id}.xml`];
 			if (source === undefined) {

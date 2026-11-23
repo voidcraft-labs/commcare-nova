@@ -132,6 +132,7 @@ export function formNeedsOpeningEvidence(
 	const form = doc.forms[formUuid];
 	if (!form) return false;
 	if (
+		form.shadowOf !== undefined ||
 		form.caseSelections !== undefined ||
 		form.computedDatums?.length ||
 		form.openingAssignments?.length

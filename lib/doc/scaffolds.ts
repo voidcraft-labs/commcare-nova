@@ -41,7 +41,12 @@ import {
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
+import {
+	formCaseSelections,
+	menuEmittedAdvanced,
+} from "@/lib/domain/advancedEntryDatums";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import { sharedEntryValues } from "@/lib/domain/formEntryCases";
 import { addModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import { orderedFormUuids } from "./fieldWalk";
@@ -634,5 +639,67 @@ export function caseTypeClearPatch(): ModuleAuthoringPatch {
 		caseListMenuItem: undefined,
 		caseListConfig: undefined,
 		caseSearchConfig: undefined,
+	};
+}
+
+/** Create a second entry with the parent's opening choices. The entry stores
+ * only replacements, so editing the parent changes every shared question. */
+export function sharedFormMutations(
+	doc: BlueprintDoc,
+	menu: Uuid,
+	parentUuid: Uuid,
+	options: {
+		uuid?: Uuid;
+		name?: string;
+		index?: number;
+		purpose?: string;
+		postSubmit?: Form["postSubmit"];
+	} = {},
+): { mutations: Mutation[]; formUuid: Uuid } | undefined {
+	const parent = doc.forms[parentUuid];
+	const owner = doc.moduleOrder.find((module) =>
+		doc.formOrder[module]?.includes(parentUuid),
+	);
+	if (
+		!parent ||
+		parent.shadowOf ||
+		!owner ||
+		!menuEmittedAdvanced(doc, owner) ||
+		!menuEmittedAdvanced(doc, menu)
+	)
+		return undefined;
+	const formUuid = options.uuid ?? asUuid(uuidv4());
+	const name = options.name ?? `${parent.name} (another entry)`;
+	const computedDatums = sharedEntryValues(parent, formUuid);
+	const form: Form = {
+		uuid: formUuid,
+		name,
+		id: uniqueSlug(name, "form", existingFormIds(doc)),
+		type: parent.type,
+		...(options.purpose && { purpose: options.purpose }),
+		...(options.postSubmit && { postSubmit: options.postSubmit }),
+		...(computedDatums?.length && { computedDatums }),
+		shadowOf: {
+			form: parent.uuid,
+			selections: formCaseSelections(doc, parentUuid).map((row) => ({
+				kind: "replace",
+				selection: row.uuid,
+				caseType: row.caseType,
+				source: row.source,
+			})),
+		},
+	};
+	const after = anchorForIndex(doc.formOrder[menu] ?? [], options.index);
+	return {
+		formUuid,
+		mutations: [
+			...moduleFormHostMutations(doc, menu),
+			{
+				kind: "addForm",
+				moduleUuid: menu,
+				form,
+				...(after !== undefined && { after }),
+			},
+		],
 	};
 }

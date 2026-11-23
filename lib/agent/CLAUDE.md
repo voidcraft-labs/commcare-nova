@@ -181,6 +181,8 @@ rather than silently
 skipping it or returning an identity that did not land. Names resolve within the
 complete call scope; unresolved or ambiguous references refuse before mutation.
 
+A second entry to a shared form is created through `createForm.shared_form_uuid`. `editFormEntry` owns its choice order, replacements and extra choices. A read of the entry through `getForm` or `getCaseOperations` names the parent where the shared questions and writes are edited. The answer-write destinations in each read use the record types supplied by that particular entry.
+
 `getForm`, `createForm` and `updateForm` return resolved navigation through
 `lib/preview/engine/navigationProjection.ts`. Its `previous` read comes from
 the same owner projection as Preview and App Tests: it names the exact record

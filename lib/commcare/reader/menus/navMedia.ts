@@ -28,6 +28,7 @@ type MediaClass =
 	| "AdvancedModule"
 	| "Form"
 	| "AdvancedForm"
+	| "ShadowForm"
 	| "CaseList"
 	| "CaseListForm";
 
@@ -69,7 +70,7 @@ function menuClaims(cls: "Module" | "AdvancedModule"): ClassClaims {
 	};
 }
 
-function formClaims(cls: "Form" | "AdvancedForm"): ClassClaims {
+function formClaims(cls: "Form" | "AdvancedForm" | "ShadowForm"): ClassClaims {
 	return {
 		image: take(
 			`${F}/media-image-media-audio-same-asset-every-language`,
@@ -103,6 +104,7 @@ const CLAIMS: Readonly<Record<MediaClass, ClassClaims>> = {
 	AdvancedModule: menuClaims("AdvancedModule"),
 	Form: formClaims("Form"),
 	AdvancedForm: formClaims("AdvancedForm"),
+	ShadowForm: formClaims("ShadowForm"),
 	CaseList: {
 		image: take(
 			`${M}/module-case-list-media-image-media-audio`,

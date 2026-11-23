@@ -89,7 +89,9 @@ export interface DraftForm {
 	readonly index: number;
 	readonly xmlns: string;
 	readonly uuid: Uuid;
-	readonly docType: "Form" | "AdvancedForm";
+	readonly docType: "Form" | "AdvancedForm" | "ShadowForm";
+	/** Distinct entry key when questions come from a parent. */
+	readonly entryKey?: import("./identity").FormIdentityKey;
 	readonly json: JsonCursor;
 	readonly place: HqPlace;
 	readonly form: Partial<Form>;

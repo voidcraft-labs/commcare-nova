@@ -819,7 +819,7 @@ function* fixedPointCheck(
 		emission: ReturnType<typeof readingEmission>,
 		resolver: ReaderInput["resolver"],
 	) => {
-		const read = readerSourceOfEmission(emission, source);
+		const read = readerSourceOfEmission(emission, source, input.modules);
 		return callingSteps(
 			"readHqApp",
 			readHqAppSteps(

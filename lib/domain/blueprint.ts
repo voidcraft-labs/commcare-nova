@@ -360,6 +360,17 @@ export function blueprintTopologyIssues(
 		}
 	}
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
+		for (const [index, row] of (form.shadowOf?.selections ?? []).entries()) {
+			if (row.kind === "add")
+				registerIdentity(row.uuid, "Form selection", [
+					"forms",
+					formUuid,
+					"shadowOf",
+					"selections",
+					index,
+					"uuid",
+				]);
+		}
 		for (const [index, row] of (form.caseSelections ?? []).entries())
 			registerIdentity(row.uuid, "form selection", [
 				"forms",

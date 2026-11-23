@@ -3,7 +3,10 @@ import {
 	formCaseSelections,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
-import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import {
+	formContentUuid,
+	implicitFormSelectionId,
+} from "@/lib/domain/formEntryCases";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { xpathToString } from "../xpath/coerce";
 import type { XPathNode } from "../xpath/runtimeValues";
@@ -34,7 +37,9 @@ export function openingCaseAssignments(
 	selectedCaseIds: ReadonlyMap<Uuid, string>,
 	snapshot: CaseDatabaseSnapshot,
 ): readonly OpeningCaseAssignment[] {
-	const rows = doc.forms[formUuid]?.openingAssignments;
+	// A second entry runs its parent's starting values against its own choices,
+	// which keep the parent's identities where they replace them.
+	const rows = doc.forms[formContentUuid(doc, formUuid)]?.openingAssignments;
 	const menu = moduleUuidOfForm(doc, formUuid);
 	if (!rows?.length || menu === undefined) return [];
 	const casedb = caseDatabaseXPathInstance(snapshot, doc.caseTypes ?? []);

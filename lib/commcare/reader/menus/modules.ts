@@ -61,9 +61,13 @@ const M = "menus-and-case-lists";
 const F = "forms-and-case-writes";
 
 type MenuClass = "Module" | "AdvancedModule";
-type FormClass = "Form" | "AdvancedForm";
+type FormClass = DraftForm["docType"];
 const MENU_CLASSES: readonly MenuClass[] = ["Module", "AdvancedModule"];
-const FORM_CLASSES: readonly FormClass[] = ["Form", "AdvancedForm"];
+const FORM_CLASSES: readonly FormClass[] = [
+	"Form",
+	"AdvancedForm",
+	"ShadowForm",
+];
 
 /** One claim per class, its key the class's own spelling of the field. */
 function perClass<C extends string, U extends Claim["use"]>(

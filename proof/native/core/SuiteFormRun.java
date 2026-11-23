@@ -93,6 +93,11 @@ final class SuiteFormRun {
 
     SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns,
             java.util.function.Consumer<Case> adjust, EntryWalk walk) throws Exception {
+        this(family, name, hq, formFile, xmlns, null, adjust, walk);
+    }
+
+    SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns, String requiredCommand,
+            java.util.function.Consumer<Case> adjust, EntryWalk walk) throws Exception {
         seed("/" + family + "/" + name + ".cases.json", adjust);
         Suite suite;
         try (InputStream in = SuiteFormRun.class.getResourceAsStream("/" + family + "/" + name + (hq ? ".hq-suite.xml" : ".suite.xml"))) {
@@ -102,7 +107,12 @@ final class SuiteFormRun {
         Entry entry = null;
         String command = null;
         for (Map.Entry<String, Entry> each : suite.getEntries().entrySet()) {
-            if (xmlns.equals(each.getValue().getXFormNamespace())) { entry = each.getValue(); command = each.getKey(); }
+            if (xmlns.equals(each.getValue().getXFormNamespace()) &&
+                    (requiredCommand == null || requiredCommand.equals(each.getKey()))) {
+                assertNull("More than one command opens " + xmlns + "; choose the command for this journey.", entry);
+                entry = each.getValue();
+                command = each.getKey();
+            }
         }
         assertNotNull("The suite of " + name + " has no entry for the form " + xmlns + " (hq=" + hq + ")", entry);
         CommCarePlatform platform = new CommCarePlatform(2, 53, 0);

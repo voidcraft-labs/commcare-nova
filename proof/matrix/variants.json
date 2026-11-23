@@ -3722,8 +3722,8 @@
 	{
 		"id": "hq-advanced/shadow-form",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/shadowform",
-		"standing": "not-yet",
+		"entry": "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "form",
 			"menu": 1,
@@ -3806,6 +3806,85 @@
 				}
 			}
 		}
+	},
+	{
+		"id": "hq-advanced/shared-visit-entry",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/shadowform",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"pointer": "/name",
+				"value": "Visit from a referral"
+			},
+			{
+				"key": ["form", ["shared-form", "5ad0bea25ad0bea25ad0bea25ad0bea2"]],
+				"pointer": "/name",
+				"value": "Visit from a callback"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/shared-entry-parent",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/shadow-parent-form-id-naming-an-advancedform-that-is-not-a",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", "5ad0bea25ad0bea25ad0bea25ad0bea2"]],
+				"pointer": "/shadowOf/selections/0/kind",
+				"value": "replace"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/shared-entry-replaces-choice",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/extra-actions-load-update-cases-repeating-a-parent-tag-overrides",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"pointer": "/shadowOf/selections/1/kind",
+				"value": "replace"
+			},
+			{
+				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"pointer": "/shadowOf/selections/1/caseType",
+				"value": "member"
+			}
+		]
+	},
+	{
+		"id": "hq-advanced/shared-entry-extra-choice",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/extra-actions-load-update-cases-with-a-tag-absent-from-the",
+		"change": {
+			"op": "named",
+			"name": "two_entries_opening_the_visit"
+		},
+		"holds": [
+			{
+				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"pointer": "/shadowOf/selections/0/kind",
+				"value": "add"
+			},
+			{
+				"key": ["form", ["shared-form", "5ad0bea15ad0bea15ad0bea15ad0bea1"]],
+				"pointer": "/shadowOf/selections/0/tag",
+				"value": "referring_household"
+			}
+		]
 	},
 	{
 		"id": "hq-advanced/supply-point-id-from-a-computed-datum",

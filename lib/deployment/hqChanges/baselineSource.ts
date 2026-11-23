@@ -19,6 +19,8 @@ import {
 	parseHqAppSource,
 } from "@/lib/commcare/hq/appSource";
 import { parseHqJsonText } from "@/lib/commcare/hq/jsonText";
+import type { WireIdentity } from "@/lib/commcare/wireIdentity";
+import type { BlueprintDoc } from "@/lib/domain";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
 function notASource(key: string): string {
@@ -53,25 +55,53 @@ export function inStoredKeyOrder(source: HqAppSource): HqAppSource {
 }
 
 /**
- * One aligned menu per menu of `source`, each form keyed by its own token,
- * with the `xmlns` the application resource would report for it (a shadow
- * form's, its parent's) and no question summary: the reader reads nothing
- * of a form's questions, and a form's real id is read by the deployment's
- * identity rows, never by the reader.
+ * The normalized baseline has replaced every form id with a positional token.
+ * A shared entry has no namespace that distinguishes it from its siblings.
+ * Restore its real id from the deployment's reference revision, walking the
+ * entries of that parent in their exact saved menu order. A live HQ reading
+ * always obtains its ids from HQ's own application resource instead.
  */
 export function alignedFromSource(
 	source: HqAppSource,
+	reference?: { doc: BlueprintDoc; identity: WireIdentity },
 ): readonly HqAlignedModule[] {
 	const xmlnsOf = expectedXmlnsOf(source);
+	const entries = new Map<string, string[]>();
+	if (reference) {
+		const { doc, identity } = reference;
+		for (const module of doc.moduleOrder) {
+			for (const uuid of doc.formOrder[module] ?? []) {
+				const shared = doc.forms[uuid]?.shadowOf;
+				const content = shared && doc.forms[shared.form];
+				if (!content) continue;
+				const key = JSON.stringify([
+					identity.moduleUniqueId(module),
+					identity.formXmlns(content),
+				]);
+				let siblings = entries.get(key);
+				if (!siblings) {
+					siblings = [];
+					entries.set(key, siblings);
+				}
+				siblings.push(identity.formUniqueId(uuid));
+			}
+		}
+	}
+	const positions = new Map<string, number>();
 	return source.modules.map((menu) => ({
 		kind: "aligned",
 		uniqueId: menu.uniqueId,
 		docType: menu.docType,
-		forms: menu.forms.map((form) => ({
-			uniqueId: form.readUniqueId,
-			xmlns: xmlnsOf(form),
-			source: form,
-			questions: [],
-		})),
+		forms: menu.forms.map((form) => {
+			const xmlns = xmlnsOf(form);
+			let uniqueId = form.readUniqueId;
+			if (reference && form.docType === "ShadowForm") {
+				const key = JSON.stringify([menu.uniqueId, xmlns]);
+				const index = positions.get(key) ?? 0;
+				uniqueId = entries.get(key)?.[index] ?? uniqueId;
+				positions.set(key, index + 1);
+			}
+			return { uniqueId, xmlns, source: form, questions: [] };
+		}),
 	}));
 }

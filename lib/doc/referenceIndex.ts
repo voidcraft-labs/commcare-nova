@@ -103,6 +103,7 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
 import { openingAssignmentPropertyType } from "@/lib/domain/formOpeningAssignments";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
@@ -840,7 +841,13 @@ function extractFormEdges(
 		const type = openingAssignmentPropertyType(doc, form.uuid, assignment);
 		if (type) sink.edge(casePropertyTargetKey(type, assignment.property), slot);
 	}
-	for (const choice of form.caseSelections ?? []) {
+	if (form.shadowOf) {
+		sink.edge(entityTargetKey(form.shadowOf.form), "shared_form");
+		for (const choice of form.shadowOf.selections)
+			if (choice.kind === "replace")
+				sink.edge(entityTargetKey(choice.selection), "form_selection_source");
+	}
+	for (const choice of entrySelectionSettings(form) ?? []) {
 		const slot = "form_selection_source";
 		sink.edge(caseTypeTargetKey(choice.caseType), slot);
 		const src = choice.source;

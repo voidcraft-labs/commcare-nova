@@ -40,7 +40,7 @@ import {
 	unheldText,
 } from "./heldText";
 import { cleanTrans, shownText } from "./hqText";
-import { externalKey } from "./identity";
+import { externalKey, sharedFormKey } from "./identity";
 import { isJsonObject, type JsonCursor, objectMembers } from "./jsonCursor";
 import { formPlace, menuPlace, whereText } from "./place";
 import { levelsFromHq } from "./worldEntities";
@@ -50,7 +50,8 @@ const F = "forms-and-case-writes";
 
 const MENU_CLASSES = ["Module", "AdvancedModule"] as const;
 type MenuClass = (typeof MENU_CLASSES)[number];
-const FORM_CLASSES = ["Form", "AdvancedForm"] as const;
+const ORDINARY_FORM_CLASSES = ["Form", "AdvancedForm"] as const;
+const FORM_CLASSES = [...ORDINARY_FORM_CLASSES, "ShadowForm"] as const;
 type FormClass = (typeof FORM_CLASSES)[number];
 
 /** One claim per class: `<name>@<class>`, its key the class's own spelling of the field. */
@@ -165,14 +166,14 @@ const FORM = defineClaims("structure.form", {
 	...perClass("uniqueId", FORM_CLASSES, account, `${F}/unique-id`, "unique_id"),
 	...perClass(
 		"xmlns",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		take,
 		`${F}/xmlns-form-json-and-xform-data-node`,
 		"xmlns",
 	),
 	...perClass(
 		"sharedXmlns",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		refuse,
 		`${F}/two-non-shadow-forms-sharing-an-xmlns`,
 		"xmlns",
@@ -180,7 +181,7 @@ const FORM = defineClaims("structure.form", {
 	...perClass("name", FORM_CLASSES, take, `${F}/name-lang`, "name"),
 	...perClass(
 		"nameReadAsInstance",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		refuse,
 		`${F}/form-name-read-as-an-instance`,
 		"name",
@@ -273,14 +274,14 @@ const FORM = defineClaims("structure.form", {
 	),
 	...perClass(
 		"autoGpsCapture",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		account,
 		`${F}/auto-gps-capture-form`,
 		"auto_gps_capture",
 	),
 	...perClass(
 		"caseReferences",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		account,
 		`${F}/case-references-data-load`,
 		"case_references_data",
@@ -291,21 +292,21 @@ const FORM = defineClaims("structure.form", {
 	),
 	...perClass(
 		"putInRoot",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		account,
 		`${F}/put-in-root-on-a-form-dynamic-key`,
 		"<undeclared>",
 	),
 	...perClass(
 		"noVellum",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		account,
 		`${F}/no-vellum-removed-field-dynamic-key`,
 		"<undeclared>",
 	),
 	...perClass(
 		"otherUndeclared",
-		FORM_CLASSES,
+		ORDINARY_FORM_CLASSES,
 		refuse,
 		`${F}/any-other-undeclared-key`,
 		"<undeclared>",
@@ -314,7 +315,23 @@ const FORM = defineClaims("structure.form", {
 });
 
 const FORM_TYPE = defineClaims("structure.formType", {
-	shadow: refuse(`${F}/shadowform`, "schema:ShadowForm"),
+	shadow: take(`${F}/shadowform`, "schema:ShadowForm"),
+	parent: take(
+		`${F}/shadow-parent-form-id-naming-an-advancedform-that-is-not-a`,
+		"schema:ShadowForm.shadow_parent_form_id",
+	),
+	parentMissing: refuse(
+		`${F}/shadow-parent-form-id-missing-or-dangling`,
+		"schema:ShadowForm.shadow_parent_form_id",
+	),
+	parentIneligible: refuse(
+		`${F}/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform`,
+		"schema:ShadowForm.shadow_parent_form_id",
+	),
+	gps: account(
+		`${F}/auto-gps-capture-on-a-shadowform`,
+		"schema:ShadowForm.auto_gps_capture",
+	),
 	unknown: refuse(`${F}/unknown-form-doc-type`, "schema:FormBase.doc_type"),
 	/** HQ could not read the form's source when it was last saved: its `xmlns` is null or empty. */
 	blankSource: refuse(
@@ -682,6 +699,7 @@ export function refuseFormNameReadAsInstance(
 	form: DraftForm,
 	wireName: string,
 ): void {
+	if (form.docType === "ShadowForm") return;
 	const instance = instanceScanRead(wireName);
 	if (instance !== undefined)
 		ctx.accounting.findingAt(
@@ -872,7 +890,12 @@ function readFormKeys(
 	 * app's first language, not the source language's: CommCare HQ's build
 	 * reads `instance('…')` there as an instance read and Nova's gate refuses
 	 * it. */
-	const name = names === undefined ? "" : scanFormName(ctx, draft, unit, names);
+	const name =
+		names === undefined
+			? ""
+			: cls === "ShadowForm"
+				? names.source
+				: scanFormName(ctx, draft, unit, names);
 	ctx.writeDraft(() => {
 		Object.assign(draft.form, { uuid: draft.uuid, name });
 	});
@@ -936,6 +959,10 @@ function readFormKeys(
 	);
 	json.account("schedule_form_id", claim("scheduleFormId"));
 	json.account("custom_instances", claim("customInstances"));
+	if (cls === "ShadowForm") {
+		json.account("auto_gps_capture", FORM_TYPE.gps);
+		return;
+	}
 	json.account("auto_gps_capture", claim("autoGpsCapture"));
 	const references = json.object(
 		"case_references_data",
@@ -964,6 +991,7 @@ interface MenuCandidate {
 }
 
 interface FormCandidate {
+	readonly sharedId?: string;
 	readonly index: number;
 	readonly json: JsonCursor;
 	readonly cls: FormClass;
@@ -1006,6 +1034,13 @@ export function readStructure(ctx: ReadContext): void {
 		);
 
 	const candidates: MenuCandidate[] = [];
+	const sourceForms = new Map(
+		input.source.modules.flatMap((module) =>
+			module.forms.map(
+				(form) => [form.readUniqueId, { form, menu: module }] as const,
+			),
+		),
+	);
 	cursors.forEach((json, index) => {
 		const menu = menus[index];
 		const place = json.place;
@@ -1062,9 +1097,41 @@ export function readStructure(ctx: ReadContext): void {
 		);
 		formCursors.forEach((form, formIndex) => {
 			switch (form.cls) {
-				case "ShadowForm":
-					form.refuseWhole(FORM_TYPE.shadow);
+				case "ShadowForm": {
+					const id = form.peek("shadow_parent_form_id");
+					const parent =
+						typeof id === "string" ? sourceForms.get(id) : undefined;
+					const aligned = input.modules[index];
+					if (!parent) form.refuseWhole(FORM_TYPE.parentMissing);
+					else if (
+						cls !== "AdvancedModule" ||
+						parent.menu.docType !== "AdvancedModule" ||
+						parent.form.docType !== "AdvancedForm"
+					)
+						form.refuseWhole(FORM_TYPE.parentIneligible);
+					else if (aligned?.kind === "aligned" && parent.form.xmlns) {
+						const sharedId = aligned.forms[formIndex]?.uniqueId;
+						if (sharedId) {
+							read(form.takeClass(FORM_TYPE.shadow));
+							read(
+								form.take(
+									"shadow_parent_form_id",
+									FORM_TYPE.parent,
+									(value) => value,
+								),
+							);
+							forms.push({
+								index: formIndex,
+								json: form,
+								cls: "ShadowForm",
+								place: form.place as Extract<HqPlace, { kind: "form" }>,
+								xmlns: parent.form.xmlns,
+								sharedId,
+							});
+						}
+					}
 					return;
+				}
 				case "Form":
 				case "AdvancedForm":
 					break;
@@ -1096,7 +1163,7 @@ export function readStructure(ctx: ReadContext): void {
 	const formsByXmlns = new Map<string, FormCandidate[]>();
 	for (const menu of candidates)
 		for (const form of menu.forms) {
-			if (form.xmlns === undefined) continue;
+			if (form.xmlns === undefined || form.sharedId) continue;
 			const holders = formsByXmlns.get(form.xmlns) ?? [];
 			holders.push(form);
 			formsByXmlns.set(form.xmlns, holders);
@@ -1104,6 +1171,7 @@ export function readStructure(ctx: ReadContext): void {
 	for (const holders of formsByXmlns.values()) {
 		if (holders.length < 2) continue;
 		for (const form of holders) {
+			if (form.cls === "ShadowForm") continue;
 			form.json.refuseWhole(FORM[`sharedXmlns@${form.cls}`] as Claim<"refuse">);
 			form.xmlns = undefined;
 		}
@@ -1137,20 +1205,31 @@ export function readStructure(ctx: ReadContext): void {
 			const xmlns = form.xmlns;
 			if (xmlns === undefined) continue;
 			const formUuid = ctx.accounting.identity(
-				ctx.identities.claim(externalKey.form(xmlns), whereText(form.place)),
+				ctx.identities.claim(
+					externalKey.form(
+						form.sharedId ? sharedFormKey(form.sharedId) : xmlns,
+					),
+					whereText(form.place),
+				),
 				form.place,
-				`schema:${form.cls}.xmlns`,
+				form.sharedId
+					? "schema:ShadowForm.unique_id"
+					: `schema:${form.cls}.xmlns`,
 			);
 			if (formUuid === undefined) continue;
-			const admitted = form.json.take(
-				"xmlns",
-				FORM[`xmlns@${form.cls}`] as Claim<"take">,
-				() => xmlns,
-			);
+			const admitted =
+				form.cls === "ShadowForm"
+					? { value: xmlns }
+					: form.json.take(
+							"xmlns",
+							FORM[`xmlns@${form.cls}`] as Claim<"take">,
+							() => xmlns,
+						);
 			const formDraft: DraftForm = {
 				menu: menu.index,
 				index: form.index,
 				xmlns: admitted.value,
+				...(form.sharedId && { entryKey: sharedFormKey(form.sharedId) }),
 				uuid: formUuid,
 				docType: form.cls,
 				json: form.json,
@@ -1165,4 +1244,21 @@ export function readStructure(ctx: ReadContext): void {
 			readFormKeys(ctx, formDraft, form.cls);
 		}
 	}
+	// Resolve all shared links after every ordinary form, including later menus.
+	const parents = new Map(
+		ctx.draft.modules.flatMap((module) =>
+			module.forms
+				.filter((form) => form.docType === "AdvancedForm")
+				.map((form) => [form.xmlns, form] as const),
+		),
+	);
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms) {
+			if (form.docType !== "ShadowForm") continue;
+			const parent = parents.get(form.xmlns);
+			if (parent)
+				ctx.writeDraft(() => {
+					form.form.shadowOf = { form: parent.uuid, selections: [] };
+				});
+		}
 }

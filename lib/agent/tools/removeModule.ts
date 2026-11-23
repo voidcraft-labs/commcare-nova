@@ -36,8 +36,8 @@
 import type { z } from "zod";
 import { planCaseListRegistrationDependentsOnRemove } from "@/lib/doc/caseListRegistrationDependents";
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
-import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
+import { planFormDependentsOnRemove } from "@/lib/doc/sharedFormDependents";
 import type { Mutation } from "@/lib/doc/types";
 import { removeModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -128,7 +128,7 @@ export const removeModuleTool = {
 			 * the repair
 			 * (`lib/doc/formLinkDependents.ts`), as the builder's remove flow
 			 * does. Links on the module's own forms leave with them. */
-			const dependents = planFormLinkDependentsOnRemove(doc, {
+			const dependents = planFormDependentsOnRemove(doc, {
 				kind: "module",
 				moduleUuid,
 			});

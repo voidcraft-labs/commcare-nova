@@ -7,6 +7,7 @@ import {
 	computedEntryValueSchema,
 	type FormCaseSelection,
 	formCaseSelectionSchema,
+	sharedEntryValues,
 } from "@/lib/domain/formEntryCases";
 import { formOpeningAssignmentSchema } from "@/lib/domain/forms";
 import { type Uuid, uuidSchema } from "@/lib/domain/uuid";
@@ -30,6 +31,15 @@ export const formEntrySharedOperations = [
 	}),
 
 	z.strictObject({ operation: z.literal("use-form-choices") }),
+	z.strictObject({
+		operation: z.literal("change-shared-form"),
+		parentFormUuid: uuidSchema,
+	}),
+	z.strictObject({
+		operation: z.literal("restore-shared-choice"),
+		uuid: uuidSchema,
+		after: after.optional(),
+	}),
 	z.strictObject({ operation: z.literal("use-menu-choices") }),
 	z.strictObject({ operation: z.literal("remove-choice"), uuid: uuidSchema }),
 	z.strictObject({
@@ -87,6 +97,30 @@ export function applyFormEntryChange(
 		form.caseSelections ?? [
 			...formCaseSelections(isDraft(draft) ? current(draft) : draft, formUuid),
 		];
+	const parentRows = () =>
+		form.shadowOf
+			? formCaseSelections(
+					isDraft(draft) ? current(draft) : draft,
+					form.shadowOf.form,
+				)
+			: [];
+	const saveChoices = (rows: FormCaseSelection[]) => {
+		if (!form.shadowOf) {
+			form.caseSelections = rows;
+			return;
+		}
+		const parents = new Set(parentRows().map((row) => row.uuid));
+		form.shadowOf.selections = rows.map((row) =>
+			parents.has(row.uuid)
+				? {
+						kind: "replace",
+						selection: row.uuid,
+						caseType: row.caseType,
+						source: row.source,
+					}
+				: { kind: "add", ...row },
+		);
+	};
 	const values = (): ComputedEntryValue[] => form.computedDatums ?? [];
 	switch (change.operation) {
 		case "add-assignment": {
@@ -127,33 +161,72 @@ export function applyFormEntryChange(
 			return;
 		}
 		case "use-form-choices":
-			form.caseSelections ??= choices();
+			if (!form.shadowOf) form.caseSelections ??= choices();
 			return;
+		case "change-shared-form": {
+			if (!form.shadowOf || change.parentFormUuid === form.shadowOf.form)
+				return;
+			const parent = draft.forms[change.parentFormUuid];
+			const extras = form.shadowOf.selections.filter(
+				(row) => row.kind === "add",
+			);
+			if (parent && !parent.shadowOf) {
+				form.type = parent.type;
+				const computed = sharedEntryValues(
+					parent,
+					formUuid,
+					form.computedDatums,
+				);
+				if (computed.length) form.computedDatums = computed;
+			}
+			form.shadowOf = { form: change.parentFormUuid, selections: [] };
+			form.shadowOf.selections = [
+				...parentRows().map((row) => ({
+					kind: "replace" as const,
+					selection: row.uuid,
+					caseType: row.caseType,
+					source: row.source,
+				})),
+				...extras,
+			];
+			return;
+		}
+		case "restore-shared-choice": {
+			const row = parentRows().find((row) => row.uuid === change.uuid);
+			if (row && !choices().some((held) => held.uuid === row.uuid))
+				saveChoices(spliceEntryAfter(choices(), row, change.after));
+			return;
+		}
 		case "use-menu-choices":
+			if (form.shadowOf) return;
 			delete form.caseSelections;
 			return;
 		case "add-choice":
 			if (choices().some((row) => row.uuid === change.value.uuid)) return;
-			form.caseSelections = spliceEntryAfter(
-				choices(),
-				structuredClone(change.value),
-				change.after,
+			saveChoices(
+				spliceEntryAfter(
+					choices(),
+					structuredClone(change.value),
+					change.after,
+				),
 			);
 			return;
 		case "edit-choice":
-			form.caseSelections = choices().map((row) =>
-				row.uuid === change.uuid
-					? { ...row, ...structuredClone(change.patch) }
-					: row,
+			saveChoices(
+				choices().map((row) =>
+					row.uuid === change.uuid
+						? { ...row, ...structuredClone(change.patch) }
+						: row,
+				),
 			);
 			return;
 		case "remove-choice":
-			form.caseSelections = choices().filter((row) => row.uuid !== change.uuid);
+			saveChoices(choices().filter((row) => row.uuid !== change.uuid));
 			return;
 		case "move-choice": {
 			const list = choices();
 			const row = list.find((item) => item.uuid === change.uuid);
-			if (row) form.caseSelections = spliceEntryAfter(list, row, change.after);
+			if (row) saveChoices(spliceEntryAfter(list, row, change.after));
 			return;
 		}
 		case "add-value":

@@ -679,7 +679,7 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 								}
 								return;
 							}
-							if (form.caseSelections !== undefined) {
+							if (form.shadowOf || form.caseSelections !== undefined) {
 								setPreviewCaseTarget({ formUuid: form.uuid, entryChoices: [] });
 								navigate.openForm(formModuleUuid, form.uuid);
 							} else if (launch.kind === "select-case-first") {

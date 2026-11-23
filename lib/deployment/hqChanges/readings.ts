@@ -305,12 +305,10 @@ export function* makeHqChangeReadingsSteps(
 	input: HqChangeReadingsInput,
 ): Generator<void, HqChangeReadingsResult, void> {
 	const { appId, reference, data } = input;
+	const identity = targetWireIdentity(input.overrides);
 	const resolver = matchingResolver(
 		appId,
-		externalIdentityMap(
-			reference.identityDoc,
-			targetWireIdentity(input.overrides),
-		),
+		externalIdentityMap(reference.identityDoc, identity),
 	);
 	const baseSource = sourceFromBaseline(input.baselineSource);
 	const shared = {
@@ -334,7 +332,10 @@ export function* makeHqChangeReadingsSteps(
 	const baseInput: ReaderInput = {
 		...shared,
 		source: baseSource,
-		modules: alignedFromSource(baseSource),
+		modules: alignedFromSource(baseSource, {
+			doc: reference.identityDoc,
+			identity,
+		}),
 		media: baseIndex(
 			baseSource,
 			appId,

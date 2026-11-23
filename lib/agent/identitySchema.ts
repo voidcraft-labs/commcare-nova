@@ -118,6 +118,11 @@ export function classifyIdentity(
 		(property === "datum" && discriminators.includes("entry-value"))
 	)
 		return "form-entry-supply";
+	if (
+		(tool === "create_form" && property === "shared_form_uuid") ||
+		(tool === "edit_form_entry" && property === "parentFormUuid")
+	)
+		return "form";
 	if (pointer.endsWith("/source/under/relationship/question")) return "field";
 	if (tool === "edit_form_entry") {
 		if (

@@ -83,10 +83,16 @@ const READ = {
 		{ uuid: syntheticModuleUuid(REGISTRATION), uniqueId: "menu-hidden" },
 	],
 	forms: [
-		{ uuid: FORM, xmlns: XMLNS, moduleUniqueId: "menu-visits" },
+		{
+			uuid: FORM,
+			xmlns: XMLNS,
+			readUniqueId: "read-form-real-id",
+			moduleUniqueId: "menu-visits",
+		},
 		{
 			uuid: REGISTRATION,
 			xmlns: REGISTRATION_XMLNS,
+			readUniqueId: "read-registration-real-id",
 			moduleUniqueId: "menu-hidden",
 		},
 	],
@@ -137,6 +143,42 @@ describe("adoptedIdentityRows", () => {
 			ok: true,
 			rows: [...forms, ...modules],
 		});
+	});
+
+	it("adopts two entries of one form under their own real ids and keeps the content namespace once", () => {
+		const parent = alignedForm("parent-id", XMLNS);
+		const entries = ["north", "south"].map((id) => {
+			const entry = alignedForm(id, XMLNS);
+			return {
+				...entry,
+				source: {
+					...entry.source,
+					docType: "ShadowForm",
+					xmlns: null,
+					shadowParentReadId: parent.source.readUniqueId,
+				},
+			};
+		});
+		const aligned = [alignedMenu("visits", [entries[0], parent, entries[1]])];
+		const forms = [parent, ...entries].map((entry) => ({
+			uuid: testUuid(entry.uniqueId),
+			readUniqueId: entry.source.readUniqueId,
+			xmlns: XMLNS,
+			moduleUniqueId: "visits",
+		}));
+		const result = adoptedIdentityRows({ modules: [], forms }, aligned);
+		expect(result.ok && result.rows).toHaveLength(3);
+		for (const entry of [parent, ...entries]) {
+			expect(
+				result.ok &&
+					result.rows.find(
+						(row) => row.novaEntityUuid === testUuid(entry.uniqueId),
+					),
+			).toMatchObject({
+				uniqueId: entry.uniqueId,
+				xmlns: entry.source.xmlns,
+			});
+		}
 	});
 
 	it("names the menu HQ could not summarize, which holds no real form id", () => {

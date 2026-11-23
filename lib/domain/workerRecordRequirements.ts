@@ -1,3 +1,5 @@
+import { entrySelectionSettings } from "@/lib/domain/formEntryCases";
+import { entryOperationCaseType } from "./advancedEntryDatums";
 import type { BlueprintDoc } from "./blueprint";
 import { isExpression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
@@ -62,7 +64,7 @@ export function addressesWorkerRecord(
 	const ref = target.expr.term.datum;
 	return (
 		ref.kind === "form-selection" &&
-		!!form.caseSelections?.some(
+		!!entrySelectionSettings(form)?.some(
 			(row) =>
 				row.uuid === ref.selection && row.caseType === USERCASE_CASE_TYPE,
 		)
@@ -116,21 +118,23 @@ export function workerRecordRequirements(
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (!form) continue;
+			const parent = form.shadowOf && doc.forms[form.shadowOf.form];
 			const reads =
 				Boolean(
-					form.openingAssignments?.some(
+					// A second entry runs its parent's starting values.
+					(parent || form).openingAssignments?.some(
 						(row) => row.source.kind === "worker-record",
 					),
 				) ||
 				module.caseType === USERCASE_CASE_TYPE ||
 				Boolean(
-					form.caseSelections?.some(
+					entrySelectionSettings(form)?.some(
 						(row) =>
 							row.source.kind === "worker-record" ||
 							row.caseType === USERCASE_CASE_TYPE,
 					),
 				) ||
-				fieldsRead(formUuid) ||
+				fieldsRead(parent?.uuid ?? formUuid) ||
 				FORM_REFERENCE_SLOTS.filter((slot) => slot.kind === "expression").some(
 					(slot) =>
 						readSlotValues(form, slot.path).some(({ value }) =>
@@ -138,6 +142,13 @@ export function workerRecordRequirements(
 						),
 				);
 			const writes =
+				Boolean(
+					parent?.caseOperations?.some(
+						(op) =>
+							(op.writes?.length ?? 0) > 0 &&
+							entryOperationCaseType(doc, formUuid, op) === USERCASE_CASE_TYPE,
+					),
+				) ||
 				savesToWorkerRecord(form) ||
 				(module.caseType === USERCASE_CASE_TYPE &&
 					form.caseOperations?.some(

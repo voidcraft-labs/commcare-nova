@@ -3566,3 +3566,9 @@ ordinary choice widget can appear unanswered until another path needs the
 selection. A leading empty multi-select token fails during initialization.
 The pinned evidence and retained regression are recorded in
 `docs/research/inline-choice-starting-values.md`.
+
+### Several paths to the same form
+
+A person can add another entry to an advanced menu and select the form whose questions it opens. Editing those questions or their record changes affects every entry. Each entry chooses how to find records at launch, what it is called, when it is visible and where a worker goes next. The Builder opens the parent when a person wants to edit its questions and shows the opening choices on the entry that owns them.
+
+The wire distinguishes a command from a resource. HQ's `ShadowForm._merge_actions` walks just the extra load rows. A repeated parent tag keeps its writes and replaces the selection, and a new tag supplies an additional read-only record. Open actions come from the parent. HQ's form picker restricts the parent to an ordinary advanced form. A shared entry whose parent questions or case changes require an absent load cannot submit safely. Nova identifies the dependent entry and lets the person restore that opening choice.

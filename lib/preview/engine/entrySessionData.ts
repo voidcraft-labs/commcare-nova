@@ -26,7 +26,10 @@ import {
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "@/lib/commcare/sessionContext";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
+import {
+	explicitFormCaseSelections,
+	formCaseSelections,
+} from "@/lib/domain/advancedEntryDatums";
 import { entryCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	entryDatumCaseId,
@@ -176,7 +179,7 @@ export function entrySessionData(
 	// walks the entry choice by choice (`entryChoices`), and then only the
 	// ones a worker chooses from a list: Core asks for each at its own step,
 	// and one that opens its single match automatically never shows the list.
-	const explicit = doc.forms[formUuid].caseSelections;
+	const explicit = explicitFormCaseSelections(doc, formUuid);
 	const selectionsById = new Map(
 		(
 			explicit ??
@@ -416,7 +419,7 @@ export function entrySessionData(
 export function entryWalksChoices(doc: BlueprintDoc, formUuid: Uuid): boolean {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return false;
-	if (form.caseSelections !== undefined) return true;
+	if (form.caseSelections !== undefined || form.shadowOf) return true;
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const moduleUuid = owningModuleOf(ctx, formUuid);
 	if (moduleUuid === undefined) return false;

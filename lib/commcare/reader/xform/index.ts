@@ -826,6 +826,7 @@ export function* readFormsSteps(ctx: ReadContext): Generator<void, void, void> {
 	let read = 0;
 	for (const module of ctx.draft.modules)
 		for (const form of [...module.forms]) {
+			if (form.docType === "ShadowForm") continue;
 			if (read > 0 && read % FORMS_PER_STEP === 0) yield;
 			read += 1;
 			const readId =

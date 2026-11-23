@@ -72,9 +72,11 @@ import {
 	listFormRulesPlace,
 	readAdvancedActions,
 	readAdvancedMenu,
+	readSharedEntries,
 	refuseParentIndicesAgainstSelections,
 	settleAdvancedForm,
 	settleAdvancedMenu,
+	settleSharedEntry,
 	writeAdvancedChains,
 	writeAdvancedOperations,
 } from "./advancedActions";
@@ -154,6 +156,7 @@ export function writeCaseOperations(ctx: ReadContext, app: DraftApp): void {
 			holdWireScopeOrder(ctx, form);
 		}
 	writeAdvancedChains(ctx);
+	readSharedEntries(ctx);
 	refuseWritesOfFoldedWorkerNames(ctx);
 	readCaseCatalog(ctx, app);
 }
@@ -989,6 +992,10 @@ function* settleCaseManagementForms(
 			}
 			if (form.docType === "Form" && basicCaseReading(form) !== undefined)
 				settleBasicForm(ctx, doc, form);
+			if (form.docType === "ShadowForm") {
+				settleSharedEntry(ctx, ctx.doc ?? doc, module.uuid, form);
+				continue;
+			}
 			if (form.docType === "AdvancedForm")
 				settleAdvancedForm(ctx, ctx.doc ?? doc, form);
 			settleSaveToCase(ctx, form);
@@ -1116,8 +1123,11 @@ export function* compareEntryFactsSteps(
 			if (key !== undefined) raise(module.place, module.index, key);
 		}
 		for (const form of module.forms) {
-			const stored = source.forms.get(form.xmlns);
-			const ours = emitted.forms.get(form.xmlns);
+			const readId =
+				ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+			if (readId === undefined) continue;
+			const stored = source.forms.get(readId);
+			const ours = emitted.forms.get(readId);
 			if (stored === undefined || ours === undefined) continue;
 			// Child cases the reading dropped as no change of a case stand under that drop: HQ's
 			// entry gives them only datums nothing the form holds reads.

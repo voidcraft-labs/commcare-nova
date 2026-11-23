@@ -124,12 +124,19 @@ export function planFormTypeChange(
 	if (form === undefined || moduleUuid === undefined) {
 		return { ok: false, message: FORM_GONE_MESSAGE };
 	}
+	if (form.shadowOf)
+		return {
+			ok: false,
+			message: `This entry opens “${doc.forms[form.shadowOf.form]?.name ?? "Shared form"}”. You can change the form type there for every entry.`,
+		};
 	const from = form.type;
 	if (from === type) return { ok: true, mutations: [] };
 	const caseType = doc.modules[moduleUuid]?.caseType;
 	const own = ownOperationOf(form);
 	const patch: Extract<Mutation, { kind: "updateForm" }>["patch"] = { type };
-	const mutations: Mutation[] = [];
+	const mutations = Object.values(doc.forms)
+		.filter((entry) => entry.shadowOf?.form === form.uuid)
+		.map((entry) => updateFormPatch(entry.uuid, { type }));
 
 	if (type === "survey") {
 		if (form.openCondition !== undefined) patch.openCondition = null;

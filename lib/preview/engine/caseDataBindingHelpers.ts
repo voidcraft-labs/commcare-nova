@@ -23,6 +23,12 @@
 // layer composes both modules.
 
 import "server-only";
+import {
+	entryOperationCaseType,
+	formEntryRecord,
+	sharedWorkerTarget,
+} from "@/lib/domain/advancedEntryDatums";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import type { FormOpeningProjection } from "./formOpeningSnapshot";
 import { restoreOpeningCases } from "./formOpeningSnapshot";
 import {
@@ -98,7 +104,6 @@ import {
 	type FormType,
 	isCaptureFieldKind,
 	type Module,
-	operationCaseType,
 	orderedCaseOperations,
 	organizationLevelsOf,
 	type PersistableDoc,
@@ -1728,8 +1733,9 @@ export async function buildSubmissionOperationProgram(args: {
 	 * `locations` fixture holds, so the program carries exactly those: the
 	 * ones the form opened with, or, for an entry that carried none, the
 	 * worker's places now. */
+	const content = formContentUuid(app.blueprint, args.projection.formUuid);
 	const movesOwnerToPlace = (
-		app.blueprint.forms[args.projection.formUuid]?.caseOperations ?? []
+		app.blueprint.forms[content]?.caseOperations ?? []
 	).some(operationOwnerMovesToPlace);
 	const built = buildCaseOperationProgramFromDoc({
 		blueprint: app.blueprint,
@@ -1786,7 +1792,7 @@ export async function buildSubmissionOperationProgram(args: {
 		(field) => {
 			if (!isCaptureFieldKind(field.kind)) return [];
 			const path = committedCapturePath(app.blueprint, field.uuid);
-			if (path === undefined || path.formUuid !== validated.formUuid) return [];
+			if (path === undefined || path.formUuid !== content) return [];
 			return [
 				{
 					fieldUuid: field.uuid,
@@ -2021,8 +2027,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
-	const formUuid = args.projection.formUuid;
+	const entryUuid = args.projection.formUuid;
 	const blueprint = args.blueprint;
+	const formUuid = formContentUuid(blueprint, entryUuid);
 	// The form facts the program carries (each answer's type and what CommCare
 	// holds it as) read the form's structure, so the doc keeps its field
 	// parents, which a persisted blueprint leaves out.
@@ -2046,14 +2053,28 @@ export function buildCaseOperationProgramFromDoc(args: {
 		);
 	}
 	const caseTypeSchemas = buildCaseTypeMap(blueprint);
-	const owningModule = owningModuleForForm(doc, formUuid);
-	const ordinaryAction = committedSelection(form, owningModule, mutation);
+	const record = formEntryRecord(doc, entryUuid);
+	const ordinaryAction = committedSelection(form, record, mutation);
 	const ordinaryStructure = {
 		ordinaryAction,
 		ordinaryFormType: form.type,
 	};
 	const committed = committedProgramForm(doc, formUuid);
-	const operations = committed.operations;
+	// An unused own load may be omitted from a shared entry. Its empty
+	// follow-up arm has no case to touch. The other operations still run.
+	const operations =
+		doc.forms[entryUuid]?.shadowOf &&
+		!record.requiresCase &&
+		form.type === "followup"
+			? committed.operations.filter(
+					(op) =>
+						op.action !== "own" ||
+						op.name ||
+						op.owner ||
+						op.writes?.length ||
+						op.links?.length,
+				)
+			: committed.operations;
 	if (operations.length === 0) return ordinaryStructure;
 	/* A client that sent no answers sent none for any question: a form whose
 	 * operations read none (an own case that only touches the case it
@@ -2070,7 +2091,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	);
 	const operationsByUuid = new Map(operations.map((op) => [op.uuid, op]));
 	const own = operations.find((operation) => operation.action === "own");
-	const ownCaseType = owningModule?.caseType;
+	const ownCaseType = record.caseType;
 	const ownCase =
 		own === undefined || ownCaseType === undefined || form.type === "survey"
 			? undefined
@@ -2132,7 +2153,40 @@ export function buildCaseOperationProgramFromDoc(args: {
 			: { ...operation, writes };
 	};
 	const envelopeOperations = operations.map((committedOperation) => {
-		const operation = withoutAbsentAnswerWrites(committedOperation);
+		const actualType = entryOperationCaseType(
+			doc,
+			entryUuid,
+			committedOperation,
+		);
+		const workerSelection = sharedWorkerTarget(
+			doc,
+			entryUuid,
+			committedOperation,
+		);
+		const boundOperation: CaseOperation =
+			actualType !== undefined &&
+			workerSelection !== undefined &&
+			committedOperation.action === "update"
+				? {
+						...committedOperation,
+						caseType: actualType,
+						target: {
+							kind: "expression",
+							expr: {
+								kind: "term",
+								term: {
+									kind: "session-datum",
+									datum: { kind: "form-selection", selection: workerSelection },
+								},
+							},
+						},
+					}
+				: actualType !== undefined &&
+						committedOperation.action !== "own" &&
+						committedOperation.caseType !== actualType
+					? { ...committedOperation, caseType: actualType }
+					: committedOperation;
+		const operation = withoutAbsentAnswerWrites(boundOperation);
 		const guardConditions = [...(guards.get(operation.uuid) ?? [])]
 			.map((uuid) => operationsByUuid.get(uuid)?.condition)
 			.filter((condition): condition is Expression => condition !== undefined);
@@ -2147,7 +2201,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		const snapshot = snapshotTypes.get(operation.uuid);
 		const viaCaseTypes = viaDestinationTypes(
 			operation,
-			operationCaseType(doc, formUuid, operation),
+			actualType,
 			blueprint.caseTypes ?? [],
 		);
 		return {
@@ -2310,15 +2364,20 @@ export function buildCaseOperationProgramFromDoc(args: {
  */
 function committedSelection(
 	form: Form,
-	owningModule: Module | undefined,
+	record: ReturnType<typeof formEntryRecord>,
 	mutation: SubmissionMutation,
 ): OrdinarySubmissionAction {
 	if (form.type === "survey") return { kind: "none" };
 	if (form.type === "registration") return { kind: "registration" };
-	const caseType = owningModule?.caseType;
+	const { caseType, menu } = record;
+	if (
+		!record.requiresCase &&
+		(mutation.kind === "followup" || mutation.kind === "close") &&
+		mutation.caseIds.length === 0
+	)
+		return { kind: "none" };
 	if (
 		(mutation.kind !== "followup" && mutation.kind !== "close") ||
-		owningModule === undefined ||
 		caseType === undefined
 	) {
 		throw new CaptureSubmissionRejectedError(
@@ -2330,10 +2389,10 @@ function committedSelection(
 		caseIds: mutation.caseIds,
 		caseType,
 		selection:
-			caseSelectionCardinality(owningModule) === "multiple"
+			caseSelectionCardinality(menu ?? {}) === "multiple"
 				? {
 						kind: "multiple",
-						maximum: caseSelectionMaximum(owningModule),
+						maximum: caseSelectionMaximum(menu ?? {}),
 					}
 				: { kind: "single", maximum: 1 },
 	};

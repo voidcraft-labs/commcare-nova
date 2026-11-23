@@ -5,20 +5,52 @@ import {
 	formCaseSelections,
 	newFormSelectionTag,
 	ownFormSelectionIndex,
+	shareableForms,
 } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
+import { formContentUuid } from "@/lib/domain/formEntryCases";
 import {
 	openingAssignmentPropertyType,
 	openingAssignmentSource,
 } from "@/lib/domain/formOpeningAssignments";
 import type { FormOpeningAssignment } from "@/lib/domain/forms";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { proseTemplateText } from "@/lib/domain/prose";
 import { entityTargetKey } from "@/lib/domain/referenceIndex";
 import { asUuid, type Uuid } from "@/lib/domain/uuid";
 import type { FormEntryChange } from "../formEntryMutations";
 import { referencingCarrierUuids } from "../referenceIndex";
-import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
+import {
+	useBlueprintDoc,
+	useBlueprintDocApi,
+	useBlueprintDocEq,
+	useBlueprintDocShallow,
+} from "./useBlueprintDoc";
 import { useBlueprintMutations } from "./useBlueprintMutations";
+
+export function useShareableForms(moduleUuid: Uuid, open: boolean) {
+	return useBlueprintDocEq(
+		(doc) => (open ? shareableForms(doc, moduleUuid) : []),
+		(a, b) =>
+			a.length === b.length &&
+			a.every(
+				(row, i) =>
+					row.uuid === b[i].uuid &&
+					row.name === b[i].name &&
+					row.menu === b[i].menu,
+			),
+	);
+}
+
+export function useSharedFormOrigin(formUuid: Uuid) {
+	return useBlueprintDocShallow((doc) => {
+		const uuid = doc.forms[formUuid]?.shadowOf?.form;
+		return {
+			sharedParent: uuid ? doc.forms[uuid] : undefined,
+			parentMenu: uuid && moduleUuidOfForm(doc, uuid),
+		};
+	});
+}
 
 export function useFormEntryChoices(formUuid: Uuid) {
 	const doc = useBlueprintDoc((state) => state);
@@ -29,6 +61,12 @@ export function useFormEntryChoices(formUuid: Uuid) {
 		[doc, formUuid],
 	);
 	const form = doc.forms[formUuid];
+	const sharedParent = form?.shadowOf && doc.forms[form.shadowOf.form];
+	const owner = sharedParent && moduleUuidOfForm(doc, formUuid);
+	const possibleParents = useMemo(
+		() => (owner ? shareableForms(doc, owner) : []),
+		[doc, owner],
+	);
 	const menus = doc.moduleOrder.flatMap((uuid) => {
 		const menu = doc.modules[uuid];
 		return menu?.caseType
@@ -91,8 +129,16 @@ export function useFormEntryChoices(formUuid: Uuid) {
 						: "";
 				return { value: field.uuid, label: label || field.id };
 			}),
+		sharedParent,
+		possibleParents,
+		omitted: sharedParent
+			? formCaseSelections(doc, sharedParent.uuid).filter(
+					(row) => !choices.some((choice) => choice.uuid === row.uuid),
+				)
+			: [],
 		connectionQuestions: [
-			...(formStructure(doc, formUuid)?.fields.values() ?? []),
+			...(formStructure(doc, formContentUuid(doc, formUuid))?.fields.values() ??
+				[]),
 		]
 			.filter((field) => field.kind !== "repeat" && field.kind !== "group")
 			.map((field) => ({ value: field.uuid, label: field.id })),

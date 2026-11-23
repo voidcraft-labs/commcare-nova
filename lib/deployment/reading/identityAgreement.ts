@@ -478,7 +478,11 @@ export function* identityDifferencesSteps(
 	const doc = input.draft.doc;
 	/* The first of each `xmlns` in the draft's lists, as a search of each finds it. */
 	const factsOf = firstByXmlns(input.draft.facts.forms);
-	const identityOf = firstByXmlns(input.draft.identities.forms);
+	const identityOf = firstByXmlns(
+		input.draft.identities.forms.filter(
+			(form) => !doc.forms[form.uuid]?.shadowOf,
+		),
+	);
 	for (const [xmlns, a] of A.forms) {
 		const formPlace = places.formOf(xmlns);
 		const e = E.forms.get(xmlns);
@@ -567,24 +571,39 @@ export function* identityDifferencesSteps(
 	for (const id of factsE.menus.keys())
 		if (!factsA.menus.has(id))
 			differ(["entry-menu", "added"], places.app, `menu ${id} is written`);
-	for (const [xmlns, stored] of factsA.forms) {
-		const e = factsE.forms.get(xmlns);
+	const entries = new Map(
+		input.source.modules.flatMap((menu, menuIndex) =>
+			menu.forms.map(
+				(form, formIndex) =>
+					[
+						form.readUniqueId,
+						{ form, place: places.formAt(menuIndex, formIndex) },
+					] as const,
+			),
+		),
+	);
+	for (const [entryId, stored] of factsA.forms) {
+		const e = factsE.forms.get(entryId);
+		const entry = entries.get(entryId);
+		const xmlns = entry?.form.xmlns;
 		// Child cases the reading dropped as no change of a case (`ReadFacts.childCasesUnread`).
 		const a =
-			e !== undefined && input.draft.facts.childCasesUnread.includes(xmlns)
+			e !== undefined &&
+			typeof xmlns === "string" &&
+			input.draft.facts.childCasesUnread.includes(xmlns)
 				? { ...stored, newChildCases: e.newChildCases }
 				: stored;
 		const key = e === undefined ? "missing" : entryFactsDifference(a, e);
 		if (key !== undefined)
 			differ(
 				["entry", key],
-				places.formOf(xmlns),
-				`form ${xmlns} entry fact ${key}`,
+				entry?.place ?? places.app,
+				`form ${entryId} entry fact ${key}`,
 			);
 	}
-	for (const xmlns of factsE.forms.keys())
-		if (!factsA.forms.has(xmlns))
-			differ(["entry", "added"], places.app, `form ${xmlns} is written`);
+	for (const id of factsE.forms.keys())
+		if (!factsA.forms.has(id))
+			differ(["entry", "added"], places.app, `form ${id} is written`);
 
 	return { differences, sourceIdentity: A };
 }

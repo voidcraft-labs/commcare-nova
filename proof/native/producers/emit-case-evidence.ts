@@ -32,6 +32,7 @@ import {
 } from "../../targeted/documents/advancedModules";
 import { datetimeSaved } from "../../targeted/documents/datetimeSaved";
 import { independentFormChoices } from "../../targeted/documents/independentFormChoices";
+import { sharedVisitEntries } from "../../targeted/documents/sharedVisitEntries";
 import { caseOrderDocument, caseOrderScenarios } from "./caseOrderScenarios";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
@@ -147,6 +148,7 @@ for (const [scenario, doc, moduleIndex = 0] of [
 for (const [name, document] of [
 	["advanced-module", advancedModule()],
 	["independent-form-choices", independentFormChoices()],
+	["shared-visit-entries", sharedVisitEntries()],
 	["root-case-block-names", rootCaseBlockNames()],
 	["datetime-saved", datetimeSaved()],
 ] as const) {
@@ -168,6 +170,14 @@ for (const [name, document] of [
 		resolve(output, `${name}.cases.json`),
 		JSON.stringify([
 			...seededCases(doc),
+			...(name === "shared-visit-entries"
+				? [2, 3].map((n) => ({
+						id: `person-${n}`,
+						type: "person",
+						name: `Person ${n}`,
+						indices: [],
+					}))
+				: []),
 			...(name === "independent-form-choices"
 				? [
 						...[2, 3, 4].map((n) => ({
@@ -187,7 +197,8 @@ for (const [name, document] of [
 		]),
 	);
 	hq.modules.forEach((module, moduleIndex) => {
-		module.forms.forEach((_, formIndex) => {
+		module.forms.forEach((form, formIndex) => {
+			if (form.doc_type === "ShadowForm") return;
 			writeFileSync(
 				resolve(output, `${name}.m${moduleIndex}f${formIndex}.xml`),
 				zip.readAsText(`modules-${moduleIndex}/forms-${formIndex}.xml`),

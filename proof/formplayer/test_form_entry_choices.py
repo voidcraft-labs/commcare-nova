@@ -135,3 +135,58 @@ def test_form_link_opens_both_assigned_records_without_another_choice(
         assert CommCareCase.objects.get_case(second, served.domain).get_case_property("second_note") == value
         evidence("form-link-assigned-choices", {"first": first, "second": second, "form": paired["title"],
                                                 "instance": served.hq.submissions[-1].instance.decode("utf-8")})
+
+
+def test_reordered_shared_entries_submit_the_parents_namespace_and_write_the_selected_patient(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    from lxml import etree
+    from corehq.form_processor.models import CommCareCase
+
+    doc = formplayer_documents["targeted-shared-visit-entries"]
+    database = document_case_database(doc)
+    people = [row.case_id for row in database.cases if row.case_type == "person"]
+    assert len(people) >= 3, people
+    submitted = []
+    with apps.published(doc, core_runner) as published, apps.served(
+        published, formplayer_runner, database=database
+    ) as served, served.run("shared-visit-entries"):
+        def saved_notes():
+            return {person: CommCareCase.objects.get_case(person, served.domain).get_case_property("visit_note") for person in people}
+
+        for label, chosen, patient in (
+            ("Visit", [people[1], people[0]], people[0]),
+            ("Follow a referral", [people[1], people[2], people[0]], people[1]),
+            ("Return a call", [people[2]], people[2]),
+        ):
+            web = apps.web(formplayer_runner, served)
+            prefix = []
+            for _ in range(4):
+                screen = web.navigate(prefix)
+                prefix = list(map(str, screen.get("selections", prefix)))
+                if screen_kind(screen) == "entities":
+                    break
+                assert screen_kind(screen) == "commands", (label, screen)
+                labels = [item["displayText"] for item in screen["commands"]]
+                command = label if label in labels else "People"
+                assert command in labels, (label, labels)
+                prefix.append(str(labels.index(command)))
+            for case in chosen:
+                assert case in _people(screen), (label, screen)
+                prefix = [*map(str, screen.get("selections", prefix)), case]
+                screen = web.navigate(prefix)
+            assert screen_kind(screen) == "form", (label, screen)
+            (note,) = [q for q in questions(screen["tree"]) if q.get("type") == "question"]
+            value = "Submitted through " + label
+            before = saved_notes()
+            sent = len(served.hq.submissions)
+            answered = web.answer(screen["session_id"], note["ix"], value)
+            assert any(q.get("answer") == value for q in questions(answered["tree"])), answered
+            response = web.submit(screen["session_id"], {note["ix"]: value})
+            assert response.get("status") == "success" and len(served.hq.submissions) == sent + 1, response
+            assert saved_notes() == {**before, patient: value}
+            root = etree.fromstring(served.hq.submissions[-1].instance, etree.XMLParser(resolve_entities=False, no_network=True))
+            assert root.findtext("{*}visit_note") == value
+            submitted.append({"entry": label, "patient": patient, "namespace": etree.QName(root).namespace})
+    assert len({row["namespace"] for row in submitted}) == 1 and submitted[0]["namespace"]
+    evidence("shared-visit-entries", submitted)

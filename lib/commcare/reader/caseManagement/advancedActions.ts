@@ -27,6 +27,7 @@ import {
 	type Term,
 	type Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { advancedKindBlockers } from "@/lib/domain/advancedModule";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
@@ -60,6 +61,7 @@ import {
 	hqEntryFacts,
 } from "../../hq/entryFacts";
 import { planPlacements } from "../../placement";
+import { sharedFormDependencies } from "../../validator/rules/sharedForm";
 import { rethrowWorkStop } from "../../workMeter";
 import {
 	type GeneratedNodePurpose,
@@ -80,6 +82,7 @@ import {
 import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
+import { provisionalDocument } from "../provisional";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField } from "../xform";
 import { isAllocatedName } from "../xform/generated";
@@ -835,7 +838,9 @@ function loadDatumRenamed(
 		facts = hqEntryFacts(raw);
 		SOURCE_FACTS.set(raw, facts);
 	}
-	const own = facts.forms.get(form.xmlns);
+	const readId =
+		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
+	const own = readId === undefined ? undefined : facts.forms.get(readId);
 	if (own === undefined) return false;
 	let ids: readonly string[];
 	try {
@@ -1378,6 +1383,10 @@ function explicitFormChoices(
 	loads: readonly unknown[],
 	registration: boolean,
 	opens: readonly unknown[],
+	inherited?: {
+		rows: ReadonlyMap<string, FormCaseSelection>;
+		content: DraftForm;
+	},
 ):
 	| {
 			choices: Map<number, FormCaseSelection>;
@@ -1401,7 +1410,7 @@ function explicitFormChoices(
 	for (const [i, raw] of loads.entries()) {
 		const parsed = parseSourceChoice(
 			ctx,
-			form,
+			inherited?.content ?? form,
 			own,
 			menus,
 			raw,
@@ -1442,7 +1451,7 @@ function explicitFormChoices(
 				!row.changes &&
 				row.tag !== `load_${row.caseType.replaceAll("-", "_")}${i}`,
 		);
-	if (!needsOwnChoices) return undefined;
+	if (!inherited && !needsOwnChoices) return undefined;
 
 	const choices = new Map<number, FormCaseSelection>();
 	const questions = new Map<Uuid, DraftField>();
@@ -1456,14 +1465,16 @@ function explicitFormChoices(
 		groupSize.set(key, (groupSize.get(key) ?? 0) + 1);
 	}
 	for (const row of source) {
-		const uuid = ctx.accounting.identity(
-			ctx.identities.claim(
-				externalKey.formSelection(form.uuid, row.tag),
-				whereText(form.place),
-			),
-			form.place,
-			"schema:LoadUpdateAction.case_tag",
-		);
+		const uuid =
+			inherited?.rows.get(row.tag)?.uuid ??
+			ctx.accounting.identity(
+				ctx.identities.claim(
+					externalKey.formSelection(form.uuid, row.tag),
+					whereText(form.place),
+				),
+				form.place,
+				"schema:LoadUpdateAction.case_tag",
+			);
 		if (!uuid) return undefined;
 		const earlier = row.parentTag && byTag.get(row.parentTag);
 		if (row.parentTag && !earlier) {
@@ -1539,12 +1550,20 @@ export function readAdvancedActions(
 			json.refuse("schedule", ADVANCED_CLAIMS.scheduleMissingQuestion);
 		else json.drop("schedule", ADVANCED_CLAIMS.scheduleOff);
 	}
+	readEntryValues(ctx, form);
+	readOrdinaryAdvancedActions(ctx, module, form);
+}
+
+function readEntryValues(ctx: ReadContext, form: DraftForm) {
+	const json = form.json;
 	const datums = json.peek("arbitrary_datums");
 	if (Array.isArray(datums) && datums.length > 0) {
 		const sources = json.list(
 			"arbitrary_datums",
 			"ArbitraryDatum",
-			ADVANCED_CLAIMS.arbitraryDatums,
+			form.docType === "ShadowForm"
+				? SHARED.datums
+				: ADVANCED_CLAIMS.arbitraryDatums,
 		);
 		const values = sources.flatMap((row, index) => {
 			const raw = datums[index];
@@ -1598,7 +1617,14 @@ export function readAdvancedActions(
 			});
 		}
 	}
+}
 
+function readOrdinaryAdvancedActions(
+	ctx: ReadContext,
+	module: DraftModule,
+	form: DraftForm,
+) {
+	const json = form.json;
 	const stored = json.peek("actions");
 	const actions = isJsonObject(stored) ? stored : NO_ENTRIES;
 	const A = json.object(
@@ -1813,47 +1839,8 @@ export function readAdvancedActions(
 			)
 				L.takePart("case_tag", "read-only-name", ADVANCED_CLAIMS.underivedTag);
 		}
-		if (explicitChoice && isJsonObject(load.auto_select)) {
-			const mode = load.auto_select.mode;
-			const claim =
-				mode === "usercase"
-					? ADVANCED_CLAIMS.usercase
-					: mode === "raw"
-						? ADVANCED_CLAIMS.heldRaw
-						: mode === "user"
-							? ADVANCED_CLAIMS.heldUser
-							: mode === "fixture"
-								? ADVANCED_CLAIMS.heldFixture
-								: ADVANCED_CLAIMS.heldCase;
-			if (mode === "raw") {
-				const auto = L.object("auto_select", "AutoSelectCase", claim);
-				consume(auto.take("mode", ADVANCED_CLAIMS.heldRawMode, (v) => v));
-				if (auto.used("value_source") && load.auto_select.value_source === "")
-					consume(
-						auto.take(
-							"value_source",
-							ADVANCED_CLAIMS.heldRawUnusedSource,
-							(value) => value,
-						),
-					);
-				if (typeof load.auto_select.value_key === "string")
-					ctx.pending.register(
-						{
-							ref: {
-								entity: "form",
-								uuid: form.uuid,
-								slot: "form_selection_source",
-								member: { supplyUuid: explicitChoice.uuid },
-							},
-							text: load.auto_select.value_key,
-							mode: { target: "hq-json", interpolation: "none" },
-							place: form.place,
-							key: "schema:AutoSelectCase.value_key",
-						},
-						{ json: auto, key: "value_key" },
-					);
-			} else consume(L.take("auto_select", claim, (value) => value));
-		}
+		if (explicitChoice)
+			readExplicitAutoSource(ctx, form, L, load, explicitChoice);
 
 		const position = chosenPosition.get(i) ?? -1;
 		const last =
@@ -3903,4 +3890,262 @@ export function settleAdvancedMenu(
 		return;
 	if (advancedKindBlockers(doc, module.uuid).length > 0)
 		ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, module.place);
+}
+
+function readExplicitAutoSource(
+	ctx: ReadContext,
+	form: DraftForm,
+	L: JsonCursor,
+	load: Record<string, unknown>,
+	choice: FormCaseSelection,
+) {
+	if (isJsonObject(load.auto_select)) {
+		const mode = load.auto_select.mode;
+		const claim =
+			mode === "usercase"
+				? ADVANCED_CLAIMS.usercase
+				: mode === "raw"
+					? ADVANCED_CLAIMS.heldRaw
+					: mode === "user"
+						? ADVANCED_CLAIMS.heldUser
+						: mode === "fixture"
+							? ADVANCED_CLAIMS.heldFixture
+							: ADVANCED_CLAIMS.heldCase;
+		if (mode === "raw") {
+			const auto = L.object("auto_select", "AutoSelectCase", claim);
+			consume(auto.take("mode", ADVANCED_CLAIMS.heldRawMode, (v) => v));
+			if (auto.used("value_source") && load.auto_select.value_source === "")
+				consume(
+					auto.take(
+						"value_source",
+						ADVANCED_CLAIMS.heldRawUnusedSource,
+						(value) => value,
+					),
+				);
+			if (typeof load.auto_select.value_key === "string")
+				ctx.pending.register(
+					{
+						ref: {
+							entity: "form",
+							uuid: form.uuid,
+							slot: "form_selection_source",
+							member: { supplyUuid: choice.uuid },
+						},
+						text: load.auto_select.value_key,
+						mode: { target: "hq-json", interpolation: "none" },
+						place: form.place,
+						key: "schema:AutoSelectCase.value_key",
+					},
+					{ json: auto, key: "value_key" },
+				);
+		} else consume(L.take("auto_select", claim, (value) => value));
+	}
+}
+
+const SHARED = defineClaims("caseManagement.sharedEntry", {
+	extras: take(
+		`${F}/extra-actions-load-update-cases-repeating-a-parent-tag-overrides`,
+		"schema:ShadowForm.extra_actions",
+	),
+	loads: take(
+		`${F}/extra-actions-load-update-cases-repeating-a-parent-tag-overrides`,
+		"schema:AdvancedFormActions.load_update_cases",
+	),
+	replacement: take(
+		`${F}/extra-actions-load-update-cases-repeating-a-parent-tag-overrides`,
+		"schema:LoadUpdateAction.case_tag",
+	),
+	extra: take(
+		`${F}/extra-actions-load-update-cases-with-a-tag-absent-from-the`,
+		"schema:LoadUpdateAction.case_tag",
+	),
+	opens: drop(
+		`${F}/extra-actions-open-cases-non-empty`,
+		"schema:AdvancedFormActions.open_cases",
+	),
+	writes: drop(
+		`${F}/a-shadow-s-own-extra-actions-load-update-cases-case-properties`,
+		"schema:LoadUpdateAction.case_properties",
+	),
+	preload: drop(
+		`${F}/a-shadow-s-own-extra-actions-load-update-cases-case-properties`,
+		"schema:LoadUpdateAction.preload",
+	),
+	close: drop(
+		`${F}/a-shadow-s-own-extra-actions-load-update-cases-case-properties`,
+		"schema:LoadUpdateAction.close_condition",
+	),
+	stock: refuse(
+		`${F}/extra-actions-load-update-cases-show-product-stock-true-or-a-non`,
+		"schema:LoadUpdateAction.show_product_stock",
+	),
+	program: refuse(
+		`${F}/extra-actions-load-update-cases-show-product-stock-true-or-a-non`,
+		"schema:LoadUpdateAction.product_program",
+	),
+	scheduleOff: drop(
+		`${F}/advancedform-schedule-with-enabled-false`,
+		"schema:ShadowForm.schedule",
+	),
+	scheduleOn: refuse(
+		`${F}/advancedform-schedule-with-enabled-true-visits-transition`,
+		"schema:ShadowForm.schedule",
+	),
+	datums: take(
+		`${F}/arbitrary-datums-datum-id-datum-function`,
+		"schema:ShadowForm.arbitrary_datums",
+	),
+	missingSupply: refuse(
+		`${F}/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent`,
+		"schema:ShadowForm.extra_actions",
+	),
+});
+
+/** The parent can occur later. Its reads, placements and implicit choices
+ * are available only once case management has visited every ordinary form. */
+export function readSharedEntries(ctx: ReadContext) {
+	const doc = provisionalDocument(ctx);
+	const menus = menusById(ctx);
+	const drafts = new Map(
+		ctx.draft.modules.flatMap((module) =>
+			module.forms.map((form) => [form.uuid, form] as const),
+		),
+	);
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms) {
+			const shared = form.form.shadowOf;
+			if (!shared) continue;
+			const parent = doc.forms[shared.form];
+			const content = drafts.get(shared.form);
+			if (!parent || !content) continue;
+			const schedule = form.json.peek("schedule");
+			if (isJsonObject(schedule)) {
+				if (schedule.enabled === true)
+					form.json.refuse("schedule", SHARED.scheduleOn);
+				else form.json.drop("schedule", SHARED.scheduleOff);
+			}
+			readEntryValues(ctx, form);
+			const inherited = new Map(
+				formCaseSelections(doc, parent.uuid).map((row) => [row.tag, row]),
+			);
+			const raw = object(form.json.peek("extra_actions"));
+			const extra = form.json.object(
+				"extra_actions",
+				"AdvancedFormActions",
+				SHARED.extras,
+			);
+			extra.drop("open_cases", SHARED.opens);
+			const loads = objectMembers(raw.load_update_cases) ?? [];
+			const cursors = extra.list(
+				"load_update_cases",
+				"LoadUpdateAction",
+				SHARED.loads,
+			);
+			const parsed = explicitFormChoices(
+				ctx,
+				form,
+				module,
+				menus,
+				loads,
+				false,
+				objectMembers(object(content.json.peek("actions")).open_cases) ?? [],
+				{ rows: inherited, content },
+			);
+			const choices = parsed?.choices;
+			cursors.forEach((cursor, index) => {
+				const row = loads[index];
+				if (!row) return;
+				const unread = parsed?.unread.get(index);
+				if (unread) {
+					cursor.refuseWhole(unread.issue, { name: unread.name });
+					return;
+				}
+				const tag = typeof row.case_tag === "string" ? row.case_tag : "";
+				const invalid = tagFinding(tag, false);
+				if (invalid) cursor.refuse("case_tag", invalid);
+				else
+					consume(
+						cursor.take(
+							"case_tag",
+							inherited.has(tag) ? SHARED.replacement : SHARED.extra,
+							(value) => value,
+						),
+					);
+				for (const [key, claim] of [
+					["case_properties", SHARED.writes],
+					["preload", SHARED.preload],
+					["close_condition", SHARED.close],
+				] as const)
+					cursor.drop(key, claim);
+				if (row.show_product_stock === true)
+					cursor.refuse("show_product_stock", SHARED.stock);
+				else if (cursor.used("show_product_stock"))
+					cursor.drop("show_product_stock", ADVANCED_CLAIMS.productStockOff);
+				if (
+					typeof row.product_program === "string" &&
+					row.product_program !== ""
+				)
+					cursor.refuse("product_program", SHARED.program);
+				else if (cursor.used("product_program"))
+					cursor.drop("product_program", ADVANCED_CLAIMS.productProgramOff);
+				if (row.load_case_from_fixture)
+					cursor.refuse("load_case_from_fixture", ADVANCED_CLAIMS.fromFixture);
+				const choice = choices?.get(index);
+				if (!choice) return;
+				consume(
+					cursor.take("case_type", ADVANCED_CLAIMS.caseType, (value) => value),
+				);
+				consume(
+					cursor.take(
+						"details_module",
+						ADVANCED_CLAIMS.detailsModule,
+						(value) => value,
+					),
+				);
+				consume(
+					cursor.take(
+						"case_index",
+						ADVANCED_CLAIMS.caseIndex,
+						(value) => value,
+					),
+				);
+				readExplicitAutoSource(ctx, form, cursor, row, choice);
+			});
+			for (const choice of choices?.values() ?? []) {
+				const question = parsed?.questions.get(choice.uuid)?.uuid;
+				if (question && choice.source.kind === "choose" && choice.source.under)
+					choice.source.under.relationship = { question };
+			}
+			ctx.writeDraft(() => {
+				form.form.type = parent.type;
+				form.form.shadowOf = {
+					form: parent.uuid,
+					selections: [...(choices?.values() ?? [])].map((row) =>
+						inherited.has(row.tag)
+							? {
+									kind: "replace",
+									selection: row.uuid,
+									caseType: row.caseType,
+									source: row.source,
+								}
+							: { kind: "add", ...row },
+					),
+				};
+			});
+		}
+}
+
+/** A shadow's own actions are not rendered. Judge the parent's bound reads
+ * against the datums that this particular command supplies. */
+export function settleSharedEntry(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	menu: Uuid,
+	form: DraftForm,
+): void {
+	const entry = doc.forms[form.uuid];
+	if (!entry?.shadowOf) return;
+	const context = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const missing = sharedFormDependencies(doc, entry, menu, context);
+	if (missing.length) ctx.accounting.finding(SHARED.missingSupply, form.place);
 }

@@ -26,6 +26,7 @@ export function validateFormEntryCases(
 	const computed = new Set<Uuid>();
 	const supplied = new Set<string>();
 	if (
+		!form.shadowOf &&
 		!form.caseSelections &&
 		!form.computedDatums?.length &&
 		!form.openingAssignments?.length
@@ -42,6 +43,59 @@ export function validateFormEntryCases(
 	);
 	const note = (message: string) =>
 		errors.push(`In “${form.name}”, ${message}`);
+	if (form.shadowOf) {
+		const shared = form.shadowOf;
+		const parent = doc.forms[shared.form];
+		if (!parent || parent.shadowOf) {
+			note(
+				"the form this entry opens is missing or is itself a shared entry. You can choose an ordinary form or remove this entry.",
+			);
+			return errors;
+		}
+		const parentMenu = doc.moduleOrder.find((module) =>
+			doc.formOrder[module]?.includes(parent.uuid),
+		);
+		if (!parentMenu || !menuEmittedAdvanced(doc, parentMenu))
+			note(
+				`“${parent.name}” needs to be in a menu with advanced form settings before it can be shared. You can choose another form or change its menu first.`,
+			);
+		if (!menu || !menuEmittedAdvanced(doc, menu))
+			note(
+				"this entry needs a menu with advanced form settings. You can change its menu or move the entry.",
+			);
+		if (
+			form.caseSelections ||
+			form.caseOperations ||
+			form.openingAssignments ||
+			form.heldBasicOpening ||
+			form.ownClosePlacement ||
+			form.openCondition ||
+			form.closeCondition ||
+			form.connect ||
+			form.plainText ||
+			doc.fieldOrder[form.uuid]?.length
+		)
+			note(
+				`its questions and record changes belong to “${parent.name}”. You can edit them there.`,
+			);
+		if (form.type !== parent.type)
+			note(
+				`its form type follows “${parent.name}”. You can apply the same type to each entry sharing that form.`,
+			);
+		const parentRows = formCaseSelections(doc, parent.uuid);
+		const identities = new Set(parentRows.map((row) => row.uuid));
+		const tags = new Set(parentRows.map((row) => row.tag));
+		for (const row of shared.selections) {
+			if (row.kind === "replace" && !identities.has(row.selection))
+				note(
+					`a replacement points to a choice “${parent.name}” no longer has. You can choose another record or remove that replacement.`,
+				);
+			if (row.kind === "add" && tags.has(row.tag))
+				note(
+					`“${row.name}” uses a shared record choice’s name on the device. You can replace the shared choice or give your extra choice a different saved name.`,
+				);
+		}
+	}
 	if (
 		form.caseSelections !== undefined &&
 		(form.type === "followup" || form.type === "close") &&
@@ -52,7 +106,7 @@ export function validateFormEntryCases(
 		);
 	if (
 		menu &&
-		usesFormEntryActions(form) &&
+		(form.shadowOf !== undefined || usesFormEntryActions(form)) &&
 		advancedKindBlockers(doc, menu).length
 	)
 		note(
@@ -92,7 +146,7 @@ export function validateFormEntryCases(
 		if (
 			src.kind === "choose" &&
 			typeof src.under?.relationship === "object" &&
-			!formStructure(doc, form.uuid)?.fields.has(
+			!formStructure(doc, form.shadowOf?.form ?? form.uuid)?.fields.has(
 				src.under.relationship.question,
 			)
 		)

@@ -1,5 +1,8 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
-import { formSelectionShowsConfirm } from "@/lib/domain/advancedEntryDatums";
+import {
+	explicitFormCaseSelections,
+	formSelectionShowsConfirm,
+} from "@/lib/domain/advancedEntryDatums";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
 import { automaticCase, entryValueWire } from "./advancedEntryValues";
@@ -809,7 +812,7 @@ function alignWithRootMenu(
 			} = parentDatum;
 			const rootRows =
 				parent.kind === "form"
-					? doc.forms[parent.form]?.caseSelections
+					? explicitFormCaseSelections(doc, parent.form)
 					: undefined;
 			inherited.inheritedEntryFunction =
 				_rootEntryValue ??
@@ -829,7 +832,7 @@ function alignWithRootMenu(
 		const source = ctx.selectionSourceModules.get(parentDatum);
 		const sourceChoice =
 			parent.kind === "form"
-				? doc.forms[parent.form]?.caseSelections?.find(
+				? explicitFormCaseSelections(doc, parent.form)?.find(
 						(row) => row.tag === parentDatum.advancedLoadTag,
 					)?.uuid
 				: undefined;
@@ -1096,7 +1099,7 @@ function advancedEntrySessionDatums(
 					);
 				if (ref.kind === "worker-record") return datum.workerRecord === true;
 				if (ref.kind !== "form-selection") return false;
-				if (!doc.forms[formUuid]?.caseSelections) {
+				if (!explicitFormCaseSelections(doc, formUuid)) {
 					const source =
 						ctx.selectionSourceModules.get(datum) ??
 						(datum.workerRecord ? "worker-record" : undefined);
@@ -1255,7 +1258,9 @@ export function entryDatumIds(
 					.map((created) => [created.id, created.ref] as const),
 	);
 	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
-	const selections = form?.caseSelections;
+	const selections = form
+		? explicitFormCaseSelections(doc, form.uuid)
+		: undefined;
 	const rows = datums.map((datum): EntryDatumId => {
 		const refs: DatumRef[] = [];
 		const selection =
@@ -1528,7 +1533,7 @@ export function entrySelectionDatumSources(
 		if (!sessionDatumRequiresSelection(datum) || datum.caseType === undefined)
 			return [];
 		const sourceModuleUuid = ctx.selectionSourceModules.get(datum);
-		const selection = doc.forms[formUuid]?.caseSelections?.find(
+		const selection = explicitFormCaseSelections(doc, formUuid)?.find(
 			(row) => row.tag === datum.advancedLoadTag,
 		);
 		return sourceModuleUuid === undefined

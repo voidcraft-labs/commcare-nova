@@ -80,13 +80,22 @@ export type CaseOperationPlaceKey =
 			repeatPath: readonly string[],
 			path: readonly string[],
 	  ];
+/** Ordinary forms retain their historical namespace key. Shared entries have
+ * no namespace of their own and use the aligned application resource id. */
+export type FormIdentityKey =
+	| string
+	| readonly ["shared-form", uniqueId: string];
+export function sharedFormKey(uniqueId: string): FormIdentityKey {
+	return ["shared-form", uniqueId];
+}
+
 export type FormLinkTargetKey =
-	| readonly ["form", targetXmlns: string]
+	| readonly ["form", targetForm: FormIdentityKey]
 	| readonly ["module", targetModuleUniqueId: string]
 	| readonly ["this-form"];
 export type EntryPointOwnerKey =
 	| readonly ["module", moduleUniqueId: string, slot: "menu" | "case-list"]
-	| readonly ["form", xmlns: string];
+	| readonly ["form", form: FormIdentityKey];
 
 /**
  * One constructor per kind. Each takes its parts in the key table's order,
@@ -116,7 +125,7 @@ export const externalKey = {
 	module(uniqueId: string): ExternalKey {
 		return { kind: "module", parts: [uniqueId] };
 	},
-	form(xmlns: string): ExternalKey {
+	form(xmlns: FormIdentityKey): ExternalKey {
 		return { kind: "form", parts: [xmlns] };
 	},
 	field(xmlns: string, path: readonly string[]): ExternalKey {
@@ -154,7 +163,11 @@ export const externalKey = {
 			parts: [xmlns, copyPart(place), action, ordinal(n)],
 		};
 	},
-	formLink(xmlns: string, target: FormLinkTargetKey, n: number): ExternalKey {
+	formLink(
+		xmlns: FormIdentityKey,
+		target: FormLinkTargetKey,
+		n: number,
+	): ExternalKey {
 		return {
 			kind: "formLink",
 			parts: [xmlns, copyPart(target), ordinal(n)],

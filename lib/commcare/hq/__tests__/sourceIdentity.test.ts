@@ -276,7 +276,10 @@ describe("the app around its forms", () => {
 				uniqueId: "menu-1",
 				docType: "Module",
 				caseType: "household",
-				forms: ["urn:a", "urn:b"],
+				forms: [
+					{ id: "form-0", parent: null },
+					{ id: "form-1", parent: null },
+				],
 			},
 		]);
 		expect([...identity.forms.keys()]).toEqual(["urn:a", "urn:b"]);
@@ -353,7 +356,7 @@ describe("a form left out", () => {
 	it("names a form with no xmlns, or a blank one", () => {
 		const identity = sourceIdentity(application([{ xmlns: "  ", xml: plain }]));
 		expect(identity.unread).toEqual([{ menu: 0, form: 0, reason: "no-xmlns" }]);
-		expect(identity.menus[0]?.forms).toEqual([""]);
+		expect(identity.menus[0]?.forms).toEqual([{ id: "form-0", parent: null }]);
 	});
 
 	it("reads neither of two forms that share an xmlns", () => {

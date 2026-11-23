@@ -1938,3 +1938,6 @@ cancels wording. Suggestion keymaps precede editor commit shortcuts, which prece
 StarterKit's block splitting. Both menus show names plus full paths and empty
 results. The suggestion list keeps focus in the editor; the explicit picker
 moves it into a search input and returns it on dismissal.
+
+
+A form with several entries keeps its questions and case changes on one original form. Opening a shared entry in Edit exposes its own name, translations, menu appearance, submit button, destination and opening choices. The two links lead to its original form’s questions and writes. In Preview the same entry runs the original questions on its own ordered selections. The form tree lists the question nodes only under their original form.

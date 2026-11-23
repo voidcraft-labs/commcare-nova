@@ -14,9 +14,13 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useShareableForms } from "@/lib/doc/hooks/useFormEntryChoices";
 import {
 	CASE_FORM_TYPES,
 	FORM_TYPES,
@@ -61,7 +65,8 @@ export function AddFormMenu({
 	prominent = false,
 }: AddFormMenuProps) {
 	const [open, setOpen] = useState(false);
-	const { createForm } = useBlueprintMutations();
+	const { createForm, createSharedForm } = useBlueprintMutations();
+	const shareable = useShareableForms(moduleUuid, open);
 	const { openForm } = useNavigate();
 	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
@@ -132,6 +137,44 @@ export function AddFormMenu({
 							</DropdownMenuItem>
 						);
 					})}
+					{shareable.length === 0 ? (
+						<DropdownMenuItem disabled className="min-h-14">
+							<span>
+								<span className="block">Open an existing form</span>
+								<span className="block text-xs text-nova-text-muted">
+									Available in menus with form-specific opening choices
+								</span>
+							</span>
+						</DropdownMenuItem>
+					) : (
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>
+								Open an existing form
+							</DropdownMenuSubTrigger>
+							<DropdownMenuSubContent>
+								{shareable.map((form) => (
+									<DropdownMenuItem
+										key={form.uuid}
+										onClick={() => {
+											const result = createSharedForm(
+												moduleUuid,
+												form.uuid,
+												atIndex,
+											);
+											if (result.ok) openForm(moduleUuid, result.uuid);
+										}}
+									>
+										<span>
+											{form.name}
+											<span className="block text-xs text-nova-text-muted">
+												{form.menu}
+											</span>
+										</span>
+									</DropdownMenuItem>
+								))}
+							</DropdownMenuSubContent>
+						</DropdownMenuSub>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</li>

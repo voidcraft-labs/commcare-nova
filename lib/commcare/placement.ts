@@ -46,6 +46,7 @@ import {
 	advancedLoadChain,
 	advancedLoadOf,
 	carriedCreates,
+	explicitFormCaseSelections,
 	heldImplicitSelectionTag,
 	loadClause,
 	openActionClause,
@@ -590,6 +591,7 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 	for (const [createUuid, close] of sharers)
 		sharedBy.set(close.uuid, createUuid);
 
+	const explicit = explicitFormCaseSelections(f.doc, f.formUuid);
 	const loads: Array<
 		ActionState & {
 			readonly caseType: string;
@@ -599,7 +601,7 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			readonly selection?: FormCaseSelection;
 		}
 	> =
-		f.form.caseSelections?.map((selection) => ({
+		explicit?.map((selection) => ({
 			caseType: selection.caseType,
 			worker: selection.source.kind === "worker-record",
 			listModule:

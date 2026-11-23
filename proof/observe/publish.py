@@ -283,7 +283,8 @@ def held_ids(unit, app_id, brought_in):
         return {}
     app = operations.held_app(unit, app_id)
     modules = {module.unique_id for module in app.get_modules()}
-    forms = {form.xmlns: form.unique_id for form in app.get_forms()}
+    forms = {form.xmlns: form.unique_id for form in app.get_forms() if form.form_type != "shadow_form" and form.xmlns is not None}
+    shared = {form.unique_id for form in app.get_forms() if form.form_type == "shadow_form"}
     ids = {}
     for row in brought_in.identities:
         captured = row.get("uniqueId")
@@ -296,7 +297,7 @@ def held_ids(unit, app_id, brought_in):
                     " hold. The harness adds no menu in a person's place, so the capture read another app."
                 )
             continue
-        held = forms.get(row.get("xmlns"))
+        held = captured if captured in shared else forms.get(row.get("xmlns"))
         if held is None:
             raise operations.CapturedIdsNotHeld(
                 f"The bring-in's record names the form {captured} under {row.get('xmlns')}, and the app HQ holds"

@@ -244,6 +244,11 @@ export function incrementalValidationScope(
 	)
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);
+	// A parent edit changes every entry that opens its questions or runs its writes.
+	for (const entry of Object.values(nextDoc.forms)) {
+		if (entry.shadowOf && scope.formUuids.has(entry.shadowOf.form))
+			scope.formUuids.add(entry.uuid);
+	}
 	return {
 		...(scope.moduleUuids.size > 0 && { moduleUuids: scope.moduleUuids }),
 		...(scope.formUuids.size > 0 && { formUuids: scope.formUuids }),

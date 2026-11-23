@@ -387,6 +387,13 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "form_selection_source",
+		path: "shadowOf.selections[].source.value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "form_entry_value",
 		path: "computedDatums[].value",
 		kind: "expression",
@@ -1011,14 +1018,18 @@ function expressionRefForEntry(
 			const row = (
 				entry.slot === "form_entry_value"
 					? form.computedDatums
-					: form.caseSelections
+					: entry.path === "shadowOf.selections[].source.value"
+						? form.shadowOf?.selections
+						: form.caseSelections
 			)?.[indices[0] ?? -1];
 			return row
 				? {
 						entity: "form",
 						uuid,
 						slot: entry.slot,
-						member: { supplyUuid: row.uuid },
+						member: {
+							supplyUuid: "selection" in row ? row.selection : row.uuid,
+						},
 					}
 				: undefined;
 		}

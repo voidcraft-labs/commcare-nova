@@ -264,7 +264,7 @@ describe("readStructure", () => {
 		expect(ctx.draft.modules.flatMap((draft) => draft.forms)).toEqual([]);
 	});
 
-	it("puts a report menu's and a shadow form's findings in one account", async () => {
+	it("reports both an ineligible shared parent and a report menu", async () => {
 		const { closed } = await readMenus([
 			menu("m-one", "One", [
 				form("r1", "http://openrosa.org/formdesigner/one", "One"),
@@ -287,7 +287,7 @@ describe("readStructure", () => {
 		]);
 		expect(closed.findings).toMatchObject([
 			{
-				code: `${F}/shadowform`,
+				code: `${F}/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform`,
 				place: { kind: "form", menu: 0, form: 1 },
 			},
 			{

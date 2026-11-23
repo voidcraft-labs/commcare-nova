@@ -68,11 +68,26 @@ export function mutationTargetsInvalid(
 						: change.operation.endsWith("-assignment")
 							? (form.openingAssignments ?? [])
 							: formCaseSelections(current, form.uuid);
-				if (
+				if (change.operation === "restore-shared-choice") {
+					// A restored choice is one of the parent's this entry left out.
+					const parent = form.shadowOf?.form;
+					if (
+						parent === undefined ||
+						members.some((row) => row.uuid === change.uuid) ||
+						!formCaseSelections(current, parent).some(
+							(row) => row.uuid === change.uuid,
+						)
+					)
+						return true;
+				} else if (
 					"uuid" in change &&
 					!members.some((row) => row.uuid === change.uuid)
 				)
 					return true;
+				if (change.operation === "change-shared-form") {
+					const parent = ownRecordValue(current.forms, change.parentFormUuid);
+					if (!form.shadowOf || !parent || parent.shadowOf) return true;
+				}
 				const added =
 					"value" in change && "uuid" in change.value
 						? change.value.uuid

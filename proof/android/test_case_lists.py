@@ -241,3 +241,34 @@ def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(a
             assert [submission.findtext("{*}" + node) for node in ("earlier_value", "first_record", "starting_record")] == [
                 "Before", names[chosen], names[chosen]
             ], name
+
+
+def test_three_commands_open_the_same_shared_visit_with_their_own_lists(android_documents, hq):
+    from proof.android.navigation import nav
+    from proof.observe.casedata import document_case_database
+    from proof.observe.record import Blobs
+
+    doc = android_documents["targeted-shared-visit-entries"]
+    database = document_case_database(doc)
+    people = [row.case_id for row in database.cases if row.case_type == "person"]
+    assert len(people) >= 3, people
+    choices = [
+        ("m0-f0", [people[1], people[0]]),
+        ("m0-f1", [people[1], people[2], people[0]]),
+        ("m0-f2", [people[2]]),
+    ]
+    paths = [["m0", command, *["@case:" + person for person in picked]] for command, picked in choices]
+    with _archives(doc, database) as (served, archives):
+        for name, archive in archives.items():
+            blobs = Blobs()
+            result = nav(served, blobs, label="shared-visits-" + name, archive=archive, paths=paths)
+            navs = blobs.get_json(result["answer"])["navs"]
+            for (command, picked), path in zip(choices, paths, strict=True):
+                walk = navs["path:" + "/".join(path)]
+                assert "raised" not in walk, walk
+                steps = walk["steps"]
+                assert len([step for step in steps if step["screen"] == LIST]) == len(picked), (path, steps)
+                opened = next(step for step in steps if step["screen"] == "FormEntryActivity")
+                assert opened["session"]["command"] == command, (path, opened)
+                assert opened["form"]["loaded"] and opened["form"]["alert"] is None, (path, opened)
+                assert opened["form"]["formTitle"] == "Visit", (path, opened)

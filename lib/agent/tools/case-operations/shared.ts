@@ -35,10 +35,29 @@ export {
 	type CasePlacementRead,
 	formCasePlacementReads,
 } from "../../authoring/casePlacementWords";
-export {
-	formAddressSchema as operationAddressSchema,
-	resolveFormAddress as resolveOperationAddress,
+
+import {
+	type FormAddress,
+	type FormAddressResolution,
+	resolveFormAddress,
 } from "../shared/entityAddresses";
+
+export { formAddressSchema as operationAddressSchema } from "../shared/entityAddresses";
+
+/** A shared entry owns its choices and destinations. Editing its parent's
+ * case changes affects every entry, so the caller must address that form. */
+export function resolveOperationAddress(
+	doc: BlueprintDoc,
+	input: FormAddress,
+): FormAddressResolution {
+	const address = resolveFormAddress(doc, input);
+	if (!address.ok || !address.form.shadowOf) return address;
+	const parent = doc.forms[address.form.shadowOf.form];
+	return {
+		ok: false,
+		error: `“${address.form.name}” uses the case changes in “${parent?.name ?? "the shared form"}”. You can edit them on that form (${address.form.shadowOf.form}).`,
+	};
+}
 
 const CASE_TYPE_FORMAT_MESSAGE =
 	"A case type holds only letters, digits, underscores, or hyphens.";

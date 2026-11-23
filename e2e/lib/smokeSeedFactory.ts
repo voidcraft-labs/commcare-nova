@@ -78,6 +78,7 @@ import { writeManagedPlacesInTransaction } from "@/lib/organization/managed";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
 import { independentChoicesBlueprint } from "../../proof/targeted/documents/independentFormChoices";
+import { sharedVisitsBlueprint } from "../../proof/targeted/documents/sharedVisitEntries";
 import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
 import { seedBringIn } from "./bringInSeed";
 import {
@@ -1391,6 +1392,36 @@ export async function createSmokeBuilders(
 					refusedCaseId: refused.case_id,
 					opensCaseId: opens.caseId,
 				},
+			};
+		},
+		"shared-form-entries": async () => {
+			const appId = await seedRuntimeApp(
+				"Shared visits",
+				sharedVisitsBlueprint,
+			);
+			const people = ["Ada", "Bea", "Chen"] as const;
+			for (const name of people) {
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: "person",
+						case_name: name,
+						status: "open",
+						properties: {},
+					},
+				});
+			}
+			const doc = sharedVisitsBlueprint(appId);
+			const entry = Object.values(doc.forms).find(
+				(form) => form.name === "Follow a referral",
+			);
+			if (!entry?.shadowOf)
+				throw new Error("The referral must open the shared visit.");
+			return {
+				appId,
+				people,
+				entryUuid: entry.uuid,
+				parentUuid: entry.shadowOf.form,
 			};
 		},
 		"independent-form-choices": async () => {

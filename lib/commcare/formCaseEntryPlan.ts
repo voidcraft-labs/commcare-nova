@@ -104,7 +104,12 @@ export function formCaseEntryPlan(
 			)
 		);
 	});
-	const result = { kind: formKind, loads, datums, writesWorker };
+	const parent = form.shadowOf && doc.forms[form.shadowOf.form];
+	const opens =
+		parent && !parent.shadowOf
+			? formCaseEntryPlan(doc, parent.uuid).datums
+			: datums;
+	const result = { kind: formKind, loads, datums: opens, writesWorker };
 	cache.set(key, result);
 	return result;
 }

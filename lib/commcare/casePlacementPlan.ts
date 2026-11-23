@@ -251,7 +251,7 @@ function buildPlan(
 		moduleKind === undefined ? undefined : { moduleKind },
 	);
 	const subcases = planBasicSubcases(doc, formUuid, moduleKind);
-	const locations = collectFieldLocations(doc, formUuid);
+	const locations = collectFieldLocations(doc, form.shadowOf?.form ?? formUuid);
 	const nodes = planGeneratedNodes(doc, formUuid);
 	const caseTypes = effectiveCaseTypes(doc);
 	const writeViews = formCaseWriteViews(doc, formUuid);
