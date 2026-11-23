@@ -1,9 +1,31 @@
 import { canonicalJsonText } from "../utils/canonicalJsonText";
 import { effectiveFilterForEmission } from "./expression/simplify";
 import type { Expression } from "./expression/types";
+import { walkExpression } from "./expression/walk";
 import type { CaseListConfig } from "./modules";
 
 type Conditions = Pick<CaseListConfig, "filter" | "searchCondition">;
+
+/**
+ * Whether a condition reads a Search field: the worker's answer, or whether
+ * the worker answered it. A top-level conjunct of a Search field's own
+ * condition that reads none is a condition on the whole search, not on that
+ * field: the search sends it with the search condition's rows, ahead of every
+ * field's (`xpathQuery.ts::composeXPathQueryClauses`), and a reading of the
+ * search returns it as the search condition (`search/rows.ts`).
+ */
+export function readsSearchField(expression: Expression): boolean {
+	let reads = false;
+	walkExpression(expression, {
+		visitExpression: (node) => {
+			if (node.kind === "when-input-present") reads = true;
+		},
+		visitTerm: (term) => {
+			if (term.kind === "input") reads = true;
+		},
+	});
+	return reads;
+}
 
 export function searchConditionOf(
 	config: Conditions | undefined,

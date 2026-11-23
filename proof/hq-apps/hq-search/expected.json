@@ -75,6 +75,7 @@
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 		"case-search/xpath-query-row-reading-a-field-hq-also-matches",
 		"case-search/xpath-query-row-reading-an-excluded-field-outside-its-presence-guard",
+		"case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
 		"expressions-and-data/commcaresession-jr-instance-session",
 		"expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
 		"expressions-and-data/if",

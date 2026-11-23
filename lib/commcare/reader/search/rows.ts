@@ -37,7 +37,11 @@ import {
 	type SimpleSearchInputDef,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
-import { replaceCaseConditions } from "@/lib/domain/searchConditions";
+import {
+	readsSearchField,
+	replaceCaseConditions,
+	searchConditionOf,
+} from "@/lib/domain/searchConditions";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { advancedFormLoads } from "../../advancedSelections";
@@ -523,10 +527,9 @@ export function derivedConditionsAreSimpleFields(
  * row `match-none()` and none of its other conditions (`xpathQuery.ts::composeXPathQueryClauses`),
  * so every simple field it derives a row for reads as an advanced field, every advanced field's
  * condition as none, the list filter as the list's own filter a device reads prints it (its Search
- * fields unanswered, `deviceFilter`), and, where a field's condition sent the row, the first
- * advanced field holds it (`classifySearchRows`, which places a row that reads no field on the
- * first field it can), or the filter does on a menu whose forms read the search where joining it
- * leaves what a device prints there as it was.
+ * fields unanswered, `deviceFilter`), and the search condition as `match-none`, whichever source
+ * sent the row: it reads no field, so it is a condition on the whole search
+ * (`classifySearchRows`, kind F), and the search condition is the list's where the two are one.
  */
 export function searchesThatFindNothingAsRead(doc: BlueprintDoc): BlueprintDoc {
 	let out = doc;
@@ -536,29 +539,20 @@ export function searchesThatFindNothingAsRead(doc: BlueprintDoc): BlueprintDoc {
 		const conjuncts = emittedSearchConjuncts(out, moduleUuid);
 		const [only, ...more] = conjuncts;
 		if (only?.kind !== "match-none" || more.length > 0) continue;
-		const fromFilter =
-			effectiveFilterForEmission(config.filter)?.kind === "match-none";
 		// No row of the filter's is sent, so it prints only as a device reads
 		// it, its Search fields unanswered.
 		const device = deviceFilter(config.filter);
-		// On a menu whose forms read the search a row that reads no field joins
-		// the filter first, where a device's list filter prints the same with
-		// it joined (`classifySearchRows`, kind F).
-		const module = out.modules[moduleUuid];
-		const ownsFilter =
-			module !== undefined &&
-			moduleFormsReadSearch(module) &&
-			!listLoadedByAdvancedForm(out, moduleUuid) &&
-			joinKeepsDeviceFilter(device, { kind: "match-none" });
 		const next = withCandidate(out, (draft) => {
 			const list = draft.modules[moduleUuid]?.caseListConfig;
 			const inputs = list?.searchInputs;
 			if (list === undefined || inputs === undefined) return;
-			if (device === undefined) delete list.filter;
-			else list.filter = device;
-			if (!fromFilter && ownsFilter)
-				setFilter(draft as BlueprintDoc, moduleUuid, { kind: "match-none" });
-			let holder = fromFilter || ownsFilter;
+			// The one row reads no field, so it is the search condition's
+			// (`classifySearchRows`, kind F), whichever source sent it; the list a
+			// device runs keeps its own condition.
+			replaceCaseConditions(list, {
+				listCondition: device ?? null,
+				searchCondition: { kind: "match-none" },
+			});
 			inputs.forEach((input, at) => {
 				const excluded =
 					input.kind === "advanced" ||
@@ -579,9 +573,8 @@ export function searchesThatFindNothingAsRead(doc: BlueprintDoc): BlueprintDoc {
 				inputs[at] = {
 					...rest,
 					kind: "advanced",
-					predicate: { kind: holder ? "match-all" : "match-none" },
+					predicate: { kind: "match-all" },
 				} as SearchInputDef;
-				holder = true;
 			});
 		});
 		if (!sameJson(next, out)) out = next;
@@ -873,6 +866,70 @@ export function fieldConditionsReadingNoFieldAreTheFilters(
 					out = moved;
 			}
 		}
+	}
+	return out;
+}
+
+/**
+ * The reader's canonical choice `search-field-conditions-reading-no-field-are-the-search-s`: a
+ * top-level conjunct of an advanced Search field's condition that reads no Search field
+ * (`searchConditions.ts::readsSearchField`), and the same conjunct as the search condition's last
+ * clause, the field's condition all records where it held nothing else. Nova writes every field's
+ * conjunct that reads no field with the search condition's rows, ahead of every field's
+ * (`xpathQuery.ts::composeXPathQueryClauses`), so both print one request, and the reader returns
+ * the search condition's (`classifySearchRows`, kind F): such a conjunct is a condition on the whole
+ * search, which an author sees there. The list a device runs keeps its own condition. A move is
+ * taken only where the search's rows come out the same.
+ */
+export function fieldConditionsReadingNoFieldAreTheSearchs(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	let out = doc;
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = out.modules[moduleUuid];
+		const config = module?.caseListConfig;
+		if (
+			module === undefined ||
+			config === undefined ||
+			effectiveCaseSearchConfig(module) === undefined
+		)
+			continue;
+		const [only, ...more] = emittedSearchConjuncts(out, moduleUuid);
+		if (only?.kind === "match-none" && more.length === 0) continue;
+		const moved = withCandidate(out, (draft) => {
+			const list = draft.modules[moduleUuid]?.caseListConfig;
+			if (list === undefined) return;
+			let search = searchConditionOf(list);
+			for (const input of list.searchInputs) {
+				if (input.kind !== "advanced") continue;
+				const own = topLevel(effectiveFilterForEmission(input.predicate));
+				const wide = own.filter((clause) => !readsSearchField(clause));
+				if (wide.length === 0) continue;
+				for (const clause of wide) search = joinedFilter(search, clause);
+				const [head, ...rest] = own.filter((clause) =>
+					readsSearchField(clause),
+				);
+				input.predicate =
+					head === undefined
+						? { kind: "match-all" }
+						: rest.length === 0
+							? head
+							: { kind: "and", clauses: [head, ...rest] };
+			}
+			if (search !== undefined)
+				replaceCaseConditions(list, { searchCondition: search });
+		});
+		if (
+			!sameJson(
+				moved.modules[moduleUuid]?.caseListConfig,
+				out.modules[moduleUuid]?.caseListConfig,
+			) &&
+			sameJson(
+				emittedSearchConjuncts(moved, moduleUuid),
+				emittedSearchConjuncts(out, moduleUuid),
+			)
+		)
+			out = moved;
 	}
 	return out;
 }
@@ -2169,28 +2226,13 @@ export function classifySearchRows(
 				setFilter(draft as BlueprintDoc, module.uuid, conjunct),
 			);
 			const listHolds = deviceRunsList(doc, filterDoc, module.uuid);
-			// Every clause of the list filter is also a clause a device prints in the list's own
-			// filter (`caseList.ts::projectCaseListFilter`), so a row joins it ahead of a field only
-			// where that print stays the stored one.
-			const filterJoinKeepsList = () => {
-				const before = listFilterText(ctx, doc, module.uuid);
-				const after = listFilterText(ctx, filterDoc, module.uuid);
-				return (
-					before !== undefined &&
-					after !== undefined &&
-					(before === "" || after === ""
-						? before === after
-						: sameXPathText(before, after))
-				);
-			};
 			const filterCandidate = () => {
 				if (listHolds) candidates.push({ from: "filter", doc: filterDoc });
 			};
 			// The excluded advanced fields that can take a condition, those that hold none yet first
-			// and of those first the ones no row reads, each group in `properties` order. Nova writes one row per top-level conjunct of each
-			// field's condition, field after field, so a run of rows that read no field prints the
-			// same whichever of the fields holds each: each row is its own field's where the fields
-			// allow it.
+			// and of those first the ones no row reads, each group in `properties` order: the holders
+			// of a conjunct that reads another field outside its guard, and of a row only a field's
+			// slot admits. A conjunct that reads no field is the search's own (below).
 			const holders = () => {
 				const all = input.prompts.filter(
 					(field) =>
@@ -2263,26 +2305,17 @@ export function classifySearchRows(
 					candidates.push(undoing(derivation));
 				}
 			} else {
-				// A conjunct that reads no field: the search's own filter (F) on a menu whose forms
-				// read the search, then the condition of an excluded field, which may read no field.
-				// A join that changes what the list's own filter prints comes after every field, and
-				// one the device's list filter reads otherwise than HQ's search is no join
-				// (`joinReadsAlike`). One no list filter can hold is, after every field that can, the
-				// condition of a field an earlier row read as a simple field's derivation, read as its
-				// condition again with the conjunct joined, as kind D reads one: Nova writes such a
-				// field's condition as its rows, the derivation's beside the conjunct's, so a reading
-				// of Nova's own export gives the advanced field again
-				// (`fieldConditionsReadingNoFieldAreTheFilters` keeps it there where no list filter
-				// can hold it).
-				const joins = ownsFilter && joinReadsAlike(conjunct, doc, caseType);
-				const keeps = joins && filterJoinKeepsList();
-				if (keeps) filterCandidate();
-				for (const field of holders()) fieldCandidate(field);
-				if (!joins)
-					for (const derivation of derivations)
-						if (conjuncts[derivation.at]?.placement.kind === "C")
-							candidates.push(undoing(derivation));
-				if (joins && !keeps) filterCandidate();
+				// A conjunct that reads no field is a condition on the whole search, never on a field
+				// (`searchConditions.ts::readsSearchField`): the search's own filter joined to the list
+				// filter (F) on a menu whose forms read the search, where the device's list filter reads
+				// it as HQ's search does (`joinReadsAlike`), and else the search condition alone (F,
+				// below). Nova writes every field's conjunct that reads no field with the search
+				// condition's rows, ahead of the fields' (`xpathQuery.ts::composeXPathQueryClauses`),
+				// so a reading of Nova's export gives the search condition again, and a source that
+				// holds such a row after a field's is written in Nova's order
+				// (`search-filter-rows-recut`), which finds the same cases.
+				if (ownsFilter && joinReadsAlike(conjunct, doc, caseType))
+					filterCandidate();
 			}
 			// A conjunct that reads a field outside its presence guard is no condition Nova prints in
 			// either slot (the gate's `searchInputRefUsesWhenInputPresent`), so neither candidate holds it.

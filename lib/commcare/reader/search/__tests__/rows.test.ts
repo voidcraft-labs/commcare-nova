@@ -921,7 +921,9 @@ describe("a menu whose forms do not read the search", () => {
 		},
 	);
 
-	it("gives each row of fields whose conditions read no field its own field", async () => {
+	it("reads the rows of fields whose conditions read no field as the search condition, as the canonical document holds them", async () => {
+		// A condition that reads no Search field is a condition on the whole search: an author sees
+		// it as the search condition, never on a field it does not read.
 		const rule = (at: number, name: string, value: string): SearchInputDef => ({
 			uuid: uuid(at),
 			name,
@@ -935,19 +937,64 @@ describe("a menu whose forms do not read the search", () => {
 			rule(21, "held", "held"),
 			rule(22, "late", "late"),
 		];
-		const reading = await readLists(
-			patients([plainColumn(uuid(1), "case_name", "Name")], {
-				searchInputs: inputs,
-				search: {},
-			}),
-		);
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: inputs,
+			search: {},
+		});
+		const reading = await readLists(doc);
 		expect(codes(reading)).toEqual([]);
-		expect(authored(placements(), reading, inputs)).toEqual(
-			inputs.map((one) => ({ kind: "D", from: "field", input: one.uuid })),
+		expect(placements()).toEqual(inputs.map(() => ({ kind: "F" })));
+		const read = listOf(reading);
+		expect(read.filter).toBeUndefined();
+		expect(read.searchCondition).toEqual(
+			and(notesIs("open"), notesIs("held"), notesIs("late")),
 		);
-		expect(authored(listOf(reading).searchInputs, reading, inputs)).toEqual(
-			inputs,
+		expect(authored(read.searchInputs, reading, inputs)).toEqual(
+			inputs.map((one) => ({ ...one, predicate: { kind: "match-all" } })),
 		);
+		const canonical =
+			canonDocument(doc).modules[doc.moduleOrder[0] as Uuid]?.caseListConfig;
+		expect(authored(read.searchInputs, reading, inputs)).toEqual(
+			canonical?.searchInputs,
+		);
+		expect(read.searchCondition).toEqual(canonical?.searchCondition);
+	});
+
+	it("reads a row that reads no field, held after a field's row, as the search condition, and writes it ahead of the field's", async () => {
+		// HQ's Referrals shape: an excluded field whose own row reads its answer, then a row on the
+		// whole search. The field takes no condition it does not read; Nova writes the search's own
+		// row first, which HQ's search runs as the same filters.
+		const OWN = uuid(20);
+		const own: SearchInputDef = {
+			uuid: OWN,
+			name: "own",
+			label: "Own",
+			kind: "advanced",
+			type: "text",
+			predicate: notesDiffer(OWN),
+		};
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+			searchInputs: [own],
+			search: {},
+		});
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				rowsOf(app).push({
+					property: "_xpath_query",
+					doc_type: "DefaultCaseSearchProperty",
+					defaultValue: `"notes = 'other'"`,
+				});
+			},
+		});
+		expect(codes(reading)).toEqual([]);
+		expect(authored(placements(), reading, [own])).toEqual([
+			{ kind: "D", from: "field", input: OWN },
+			{ kind: "F" },
+		]);
+		const read = listOf(reading);
+		expect(read.searchCondition).toEqual(notesIs("other"));
+		expect(authored(read.searchInputs, reading, [own])).toEqual([own]);
+		expect(registers(reading)).toContain("search-filter-rows-recut");
 	});
 
 	it("reads an independent request condition beside existing shared clauses", async () => {
@@ -1237,10 +1284,10 @@ describe("a menu whose forms read the search", () => {
 		}
 	});
 
-	it("reads a conjunct with no field back on the advanced field whose condition holds it beside the field's derivation, as the canonical document holds it", async () => {
-		// Nova writes the field's condition as two rows, the conjunct with no field then the
-		// derivation. Reading the field as a simple one would drop the first, and joining it to the
-		// list filter would change the list a device runs.
+	it("reads a conjunct with no field beside a field's derivation as the search condition and the field as simple, as the canonical document holds it", async () => {
+		// Nova writes the field's condition as two rows, the conjunct with no field with the search
+		// condition's rows, then the derivation. The conjunct is a condition on the whole search, the
+		// field the simple field its derivation is, and the list a device runs keeps its own filter.
 		const ADV = uuid(20);
 		const advanced: SearchInputDef = {
 			uuid: ADV,
@@ -1266,10 +1313,12 @@ describe("a menu whose forms read the search", () => {
 		expect(authored(read.searchInputs, reading, [advanced], PATIENTS)).toEqual(
 			canonical?.searchInputs,
 		);
+		expect(read.searchCondition).toEqual(canonical?.searchCondition);
+		expect(read.searchInputs[0]?.kind).toBe("simple");
 		expect(authored(placements(), reading, [advanced], PATIENTS)).toEqual([
 			{ kind: "B", clause: 0 },
-			{ kind: "D", from: "field", input: ADV },
-			{ kind: "D", from: "field", input: ADV },
+			{ kind: "F" },
+			{ kind: "C", input: ADV, property: "phone" },
 		]);
 		expect(registers(reading)).not.toContain("search-filter-joined-to-list");
 	});

@@ -67,6 +67,7 @@ import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import {
+	readsSearchField,
 	searchConditionOf,
 	searchConditionSlot,
 } from "@/lib/domain/searchConditions";
@@ -380,7 +381,18 @@ export function composeXPathQueryClauses(
 				source: "derived",
 			});
 		}
-	const clauses: XPathQueryClause[] = [];
+	// The search condition's clauses come first, then every field's conjunct
+	// that reads no Search field, in the fields' order: such a conjunct is a
+	// condition on the whole search (`searchConditions.ts::readsSearchField`),
+	// so a field's condition holding it and the search condition holding it
+	// print one request, and a reading of the request returns the search
+	// condition's. Then the conjuncts that read fields, then the derived
+	// matches. HQ applies every row as its own filter of one search
+	// (`case_search/utils.py::_apply_filter`), so the order finds the same
+	// cases.
+	const leading: XPathQueryClause[] = [];
+	const hoisted: XPathQueryClause[] = [];
+	const trailing: XPathQueryClause[] = [];
 	for (const source of sources) {
 		// `effectiveFilterForEmission` drops boolean identities at every
 		// depth and folds an all-true source to `undefined`. Without it a
@@ -398,13 +410,19 @@ export function composeXPathQueryClauses(
 			];
 		for (const clause of effective.kind === "and"
 			? effective.clauses
-			: [effective])
-			clauses.push({
+			: [effective]) {
+			const placed = {
 				expression: clause,
 				context: source.context,
 				source: source.source,
-			});
+			};
+			if (source.source === "filter") leading.push(placed);
+			else if (source.source === "field" && !readsSearchField(clause))
+				hoisted.push(placed);
+			else trailing.push(placed);
+		}
 	}
+	const clauses = [...leading, ...hoisted, ...trailing];
 	return clauses.length === 0 ? undefined : clauses;
 }
 

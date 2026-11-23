@@ -4412,7 +4412,7 @@
 		],
 		"valueClass": "xpath-query-rows",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: several `_xpath_query` rows, read as one condition: their conjunction. HQ joins every row with `and` (`case_search/utils.py::_apply_filter`), so one row or several find the same cases, and Nova writes one row per top-level conjunct of what it holds (`xpathQuery.ts::composeXPathQueryEmission`): each top-level conjunct a restated clause of the case list filter, a Search field's derivation, a condition on an excluded Search field, a list filter clause that waits for a Search field, or, where the module's forms read the search, a clause the list filter gains",
+		"dispositionCell": "**HELD**: several `_xpath_query` rows, read as one condition: their conjunction. HQ joins every row with `and` (`case_search/utils.py::_apply_filter`), so one row or several find the same cases, and Nova writes one row per top-level conjunct of what it holds (`xpathQuery.ts::composeXPathQueryEmission`): each top-level conjunct a restated clause of the case list filter, a Search field's derivation, a condition on an excluded Search field, a list filter clause that waits for a Search field, or a condition that reads no Search field, which is the search's own (a clause the list filter gains where the module's forms read the search and the device reads it as HQ's search does)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4501,7 +4501,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
-		"item": "an `_xpath_query` conjunct that reads no prompt and restates no clause of `Detail.filter`, on a module whose forms do not read the search, or one an advanced form's load names as `details_module`",
+		"item": "an `_xpath_query` conjunct that reads no prompt and restates no clause of `Detail.filter`, which the list filter does not take as the search's own filter joined to it (a module whose forms do not read the search, one an advanced form's load names as `details_module`, or a conjunct the device reads otherwise than HQ's search)",
 		"surfaceKeys": [
 			"schema:CaseSearch.default_properties",
 			"schema:DefaultCaseSearchProperty",
