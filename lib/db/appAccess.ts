@@ -144,13 +144,17 @@ export async function resolveAppScopeInTransaction(
 	required: AppCapability = "view",
 	appRowLock: "share" | "update" = "share",
 ): Promise<TransactionalAppScope> {
-	const query = tx
-		.selectFrom("apps")
-		.select(["project_id", "mutation_seq", "deleted_at", "status"])
-		.where("id", "=", appId);
 	const app = await (appRowLock === "update"
-		? query.forUpdate()
-		: query.forShare()
+		? tx
+				.selectFrom("apps")
+				.select(["project_id", "mutation_seq", "deleted_at", "status"])
+				.where("id", "=", appId)
+				.forUpdate()
+		: tx
+				.selectFrom("apps")
+				.select(["project_id", "mutation_seq", "deleted_at", "status"])
+				.where("id", "=", appId)
+				.forShare()
 	).executeTakeFirst();
 	if (!app || app.deleted_at !== null) {
 		throw new AppAccessError("not_found");
