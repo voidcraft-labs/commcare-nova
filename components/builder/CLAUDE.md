@@ -166,6 +166,11 @@ they never walk `doc.localization` or implement fallback independently. The
 provider owns URL/context selection; document projections and snapshot caches
 live behind the named hooks in `lib/doc/hooks/useLocalization`. The Languages
 workspace consumes `useLocalizationWorkspace` for its immutable inventory.
+`useField` / `useModule` / `useForm` return that projection, which has already
+chosen one file per media role, so an editor of one language's own files
+(`media/FieldLanguageMedia.tsx`, `media/useNavigationFileLens.ts`'s callers)
+reads the stored entity (`useStoredField` / `useStoredModule` /
+`useStoredForm`) to tell a language's own file from an inherited one.
 
 A language renders only through the registry derivation helpers (endonym,
 English qualified name, direction); no ISO code appears in any Builder
