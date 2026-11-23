@@ -22,8 +22,10 @@ import {
 	type WebAppsChange,
 	webAppsChangeMessage,
 } from "@/lib/publish/webApps";
+import { normalizeHqAppSource } from "../hqSourceBaseline";
 import * as remoteChangesModule from "../remoteChanges";
 import {
+	appRemoteChange,
 	BASELINE_UNKNOWN_SENTENCE,
 	baselineUnknownSentence,
 	boundedParts,
@@ -512,6 +514,9 @@ const SAMPLED_FUNCTIONS: Readonly<Record<string, () => readonly string[]>> = {
 	],
 	describePlaceChange: () => [describePlaceChange({ kind: "missing" })],
 	boundedParts: () => boundedParts(["a", "b"]),
+	/* A boolean, never read by a person. */
+	fileDisclosureTruncated: () => [],
+	appRemoteChange: () => sampleAppRemoteChange(),
 	decideRemoteChanges: () => [],
 	driftReferenceOf: () => [],
 	driftDate: () => [driftReferenceModule.driftDate(BROUGHT_IN_AT)],
@@ -555,6 +560,92 @@ const SAMPLED_FUNCTIONS: Readonly<Record<string, () => readonly string[]>> = {
 		),
 	],
 };
+
+/**
+ * Every line and note `appRemoteChange` builds: a removed file with and
+ * without its CommCare HQ file id, a list too long to show whole with and
+ * without a usable pair, and a first and a next publish's required review.
+ */
+function sampleAppRemoteChange(): readonly string[] {
+	const files = (n: number) =>
+		Object.fromEntries(
+			Array.from({ length: n }, (_, i) => [
+				`jr://file/commcare/image/photo-${i}.png`,
+				i === 0
+					? { media_type: "CommCareImage" }
+					: { media_type: "CommCareImage", multimedia_id: `file${i}` },
+			]),
+		);
+	const read = (n: number) => {
+		const current = normalizeHqAppSource({
+			doc_type: "Application",
+			modules: [],
+			_attachments: {},
+			multimedia_map: files(n),
+		});
+		if ("malformed" in current) throw new Error(current.malformed);
+		return current;
+	};
+	const input = {
+		authority: {
+			actor: "editor",
+			role: "editor",
+			project: "project",
+			app: "app",
+			server: "production" as const,
+			domain: "acme",
+			remoteApp: "remote",
+			deployment: "deployment",
+			claim: "claim",
+			reviewGeneration: null,
+			headSeq: 1,
+			remoteRevision: 2,
+			baseline: null,
+		},
+		appName: "Care",
+		novaAppId: "app",
+		remoteAppId: "remote",
+		since: PUBLISHED,
+		languageNames: "target" as const,
+		mediaChanged: 0,
+		published: [],
+	};
+	const changes = [
+		appRemoteChange({
+			...input,
+			current: read(2),
+			baseline: null,
+			canBringIn: true,
+		}),
+		...[true, false].map((canBringIn) =>
+			appRemoteChange({
+				...input,
+				current: read(21),
+				baseline: null,
+				canBringIn,
+			}),
+		),
+		...[true, false].flatMap((canBringIn) =>
+			[undefined, []].map((unverifiedNextChanges) =>
+				appRemoteChange({
+					...input,
+					current: read(0),
+					baseline: {
+						origin: "unread",
+						mediaFiles: null,
+						firstPublishReview: "required",
+						...(unverifiedNextChanges && { unverifiedNextChanges }),
+					},
+					canBringIn,
+				}),
+			),
+		),
+	];
+	return changes.flatMap((change) => {
+		if (!change) throw new Error("Each sampled input is a change.");
+		return [...change.parts, ...(change.note === null ? [] : [change.note])];
+	});
+}
 
 function sampleArms(
 	say: (since: DriftReference, options?: DriftDateOptions) => string,
