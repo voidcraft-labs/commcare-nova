@@ -748,3 +748,143 @@ it("translates a blank translation beside text, which workers read in another la
 	);
 	expect(failures).toEqual([]);
 });
+
+it("leaves an out-of-date translation that shows values of its own, and counts it", {
+	// The same steps as the test above, on the shared database.
+	timeout: 20_000,
+}, async () => {
+	const f = await fixture();
+	const requests: ProviderRequest[] = [];
+	const failures: unknown[] = [];
+	await withResponsesPeer(
+		(request, response) => {
+			const chunks: Buffer[] = [];
+			request.on("data", (chunk: Buffer) => chunks.push(chunk));
+			request.on("end", () => {
+				try {
+					const wire: ProviderRequest = JSON.parse(
+						Buffer.concat(chunks).toString(),
+					);
+					requests.push(wire);
+					respondWithParts(
+						response,
+						[
+							{
+								type: "text",
+								text: JSON.stringify({
+									translations: requestBatch(wire).units.map((unit) => ({
+										unitId: unit.unitId,
+										translatedText: `Français ${unit.sourceText.replaceAll("\n", "\\n")}`,
+									})),
+								}),
+							},
+						],
+						requests.length,
+					);
+				} catch (error) {
+					failures.push(error);
+					response.writeHead(400).end();
+				}
+			});
+		},
+		async (provider) => {
+			const run = (): TranslationRun => ({
+				designSessionId: f.claim.designSessionId,
+				authority: {
+					actorUserId: f.authority.actorUserId,
+					expectedProjectId: f.authority.projectId,
+					runId: f.authority.runId,
+					holderNonce: f.authority.holderNonce,
+				},
+				signal: new AbortController().signal,
+				modelStep: productionModelStep(
+					provider(MODEL_ROLES.translator.modelId),
+					MODEL_ROLES.translator.reasoningEffort,
+					"translation-test",
+				),
+				onStep: async () => {},
+				onRecoveredUsage: () => {},
+			});
+			expect(
+				await f.session.write(call, (ctx) =>
+					translateLanguage(ctx, target, run()),
+				),
+			).toMatchObject({ ok: true });
+			const row = async (fieldId: string) => {
+				const found = collectLocalizedTranslationUnits(
+					(await f.session.snapshot()).doc,
+					tag,
+				).find(
+					(unit) =>
+						unit.context.fieldId === fieldId && unit.role === "field-label",
+				);
+				if (found === undefined) throw new Error(`Missing ${fieldId} label`);
+				return found;
+			};
+			const confirmation = await row("confirmation");
+			/* The author gives French a label that shows no borrower. */
+			expect(
+				await f.session.shared(
+					{
+						toolName: "updateTranslations",
+						toolCallId: "own-values",
+						input: {
+							language: target,
+							updates: [
+								{
+									operation: "set",
+									unitId: confirmation.id,
+									expectedSourceFingerprint: authoringFingerprint(
+										confirmation.sourceFingerprint,
+									),
+									value: "Confirmez le prêt",
+									changeShownValues: true,
+								},
+							],
+						},
+					},
+					"architect",
+				),
+			).toMatchObject({ ok: true });
+			const own = (await row("confirmation")).explicit;
+			expect(own?.valueMode).toBe("independent-values");
+			/* Both English labels change, so both French ones go out of date. */
+			for (const [fieldId, label] of [
+				["confirmation", "Confirm {{borrower}} now"],
+				["borrower", "Who borrows"],
+			] as const) {
+				expect(
+					await f.session.shared(
+						{
+							toolName: "editField",
+							toolCallId: `edit-${fieldId}`,
+							input: {
+								moduleUuid: "Loans",
+								formUuid: "Lend",
+								fieldUuid: fieldId,
+								updates: { label },
+							},
+						},
+						"architect",
+					),
+				).toMatchObject({ ok: true });
+			}
+			expect((await row("confirmation")).status).toBe("out-of-date");
+			const firstRequests = requests.length;
+			expect(
+				await f.session.write(
+					{ ...call, toolCallId: "translate-again" },
+					(ctx) => translateLanguage(ctx, target, run()),
+				),
+			).toMatchObject({ ok: true, translated: 1, keptWithOwnValues: 1 });
+			expect(
+				requests
+					.slice(firstRequests)
+					.flatMap((wire) => requestBatch(wire).units)
+					.map((unit) => unit.unitId),
+			).toEqual([(await row("borrower")).id]);
+			expect((await row("confirmation")).explicit).toEqual(own);
+		},
+	);
+	expect(failures).toEqual([]);
+});
