@@ -484,7 +484,8 @@ describe("toolSchemaGenerator", () => {
 		expect(withValue("ICD10").success).toBe(true);
 		expect(withValue("don't_know").success).toBe(true);
 		expect(withValue('say_"hi"').success).toBe(true);
-		for (const bad of ["Prefer not to say", `it's_"x"`, ""]) {
+		expect(withValue(`it's_"x"`).success).toBe(true);
+		for (const bad of ["Prefer not to say", "instance('casedb')", ""]) {
 			const result = withValue(bad);
 			expect(result.success).toBe(false);
 			expect(result.error?.issues[0]?.path).toEqual(["options", 0, "value"]);

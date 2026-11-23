@@ -500,7 +500,7 @@ describe("a question refused by its bind type", () => {
 });
 
 describe("a select's choices", () => {
-	it("refuses a choice's value without quoting it", async () => {
+	it("refuses a choice's value without quoting it, and keeps one holding both quote marks", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: "<c/>",
@@ -514,14 +514,10 @@ describe("a select's choices", () => {
 				Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
 			].includes(finding.code),
 		);
-		expect(refused.map((finding) => finding.code).sort()).toEqual([
-			Q("choice-value-holding-both-an-apostrophe-and-a-double-quote"),
+		expect(refused.map((finding) => finding.code)).toEqual([
 			Q("choice-value-with-whitespace-empty-or-duplicated"),
 		]);
-		expect(refused.map((finding) => finding.detail.name)).toEqual([
-			undefined,
-			undefined,
-		]);
+		expect(refused.map((finding) => finding.detail.name)).toEqual([undefined]);
 	});
 
 	it.each([
