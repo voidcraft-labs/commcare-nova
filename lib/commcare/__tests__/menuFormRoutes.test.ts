@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { caseListModuleMutations } from "@/lib/doc/scaffolds";
+import { sharedChildUuid } from "@/lib/doc/sharedFormChildren";
+import { withListedMenuHierarchy } from "@/lib/doc/sharedMenuHierarchy";
+import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	entryDatumSupplies,
 	entryPointInventory,
@@ -12,6 +16,7 @@ import {
 	moduleUuidOfForm,
 } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/expression";
+import { menuScreenEntries } from "@/lib/domain/menuScreens";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
@@ -20,6 +25,7 @@ import {
 	entrySessionDatums,
 	formCommandId,
 	formLinkProjectionContext,
+	menuIdOf,
 	moduleIndexOf,
 	owningModuleOf,
 	projectAfterSubmit,
@@ -34,6 +40,16 @@ import {
 	VISIT,
 } from "./menuFormRoutesFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
+
+function commit(doc: BlueprintDoc, mutations: readonly Mutation[]) {
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	return verdict.nextDoc;
+}
 
 describe("a form listed in a second menu", () => {
 	it("checks the one shared form condition against every screen that can list it", () => {
@@ -165,6 +181,142 @@ describe("a form listed in a second menu", () => {
 			]);
 		}
 	});
+	it("leaves a menu that lists no visible form out of the suite and the running screens, as HQ's build does", () => {
+		const doc = twoMenus();
+		const route = doc.modules[ROUTE].formsFromMenu;
+		if (!route) throw new Error("Missing the listed-forms source.");
+		route.excludedFormUuids = [REGISTER, VISIT];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const ctx = formLinkProjectionContext(doc);
+		const zip = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		const xml = new DOMParser().parseFromString(
+			zip.readAsText("suite.xml"),
+			"application/xml",
+		);
+		expect(
+			Array.from(xml.getElementsByTagName("menu")).map((menu) =>
+				menu.getAttribute("id"),
+			),
+		).toEqual([`m${moduleIndexOf(ctx, SOURCE)}`]);
+		expect(menuScreenEntries(doc, { kind: "first-menu" })).toEqual([
+			{ kind: "menu", moduleUuid: SOURCE },
+		]);
+		// Its own deep link waits, as its form links do, until a form shows.
+		expect(
+			Array.from(xml.getElementsByTagName("endpoint")).map((endpoint) =>
+				endpoint.getAttribute("id"),
+			),
+		).toEqual(["visit"]);
+		const linked = structuredClone(doc);
+		linked.forms[VISIT].formLinks = [
+			{
+				uuid: testUuid("open-empty-clinic"),
+				target: { type: "module", moduleUuid: ROUTE },
+			},
+		];
+		expect(
+			runValidation(linked, LOOKUP_CONTEXT_UNAVAILABLE).map(
+				(finding) => finding.message,
+			),
+		).toContain(
+			"Show a form in “Clinic” so the link after “Visit” has a menu to open.",
+		);
+	});
+
+	it("names a submenu under the listing menu with its parent's suffix in the menu and every stack that opens it, as HQ's build does", () => {
+		const twins = twoMenus();
+		const neighborhood = caseListModuleMutations(twins, {
+			caseType: "patient",
+			name: "Neighborhood",
+			parentModuleUuid: SOURCE,
+		});
+		const scaffolded = commit(
+			twins,
+			withListedMenuHierarchy(twins, neighborhood.mutations),
+		);
+		const moved = commit(scaffolded, [
+			{
+				kind: "moveForm",
+				uuid: VISIT,
+				toModuleUuid: neighborhood.moduleUuid,
+				after: null,
+			},
+			{
+				kind: "updateModule",
+				uuid: ROUTE,
+				patch: {},
+				listedForm: { sourceUuid: SOURCE, formUuid: REGISTER, included: true },
+			},
+		]);
+		const doc = structuredClone(moved);
+		const child = sharedChildUuid(ROUTE, neighborhood.moduleUuid);
+		doc.forms[REGISTER].formLinks = [
+			{
+				uuid: testUuid("open-clinic-neighborhood"),
+				target: { type: "form", moduleUuid: child, formUuid: VISIT },
+			},
+		];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const ctx = formLinkProjectionContext(doc);
+		const route = `m${moduleIndexOf(ctx, ROUTE)}`;
+		const childId = `m${moduleIndexOf(ctx, child)}.${route}`;
+		const sourceChild = `m${moduleIndexOf(ctx, neighborhood.moduleUuid)}`;
+		expect(menuIdOf(doc, ctx, child)).toBe(childId);
+		const xml = new DOMParser().parseFromString(
+			new AdmZip(
+				compileCcz(expandDoc(doc), doc.appName, doc, {
+					runtimeTarget: TEST_RUNTIME_TARGET,
+				}),
+			).readAsText("suite.xml"),
+			"application/xml",
+		);
+		const menus = Array.from(xml.getElementsByTagName("menu")).map((menu) => [
+			menu.getAttribute("id"),
+			menu.getAttribute("root"),
+		]);
+		const source = `m${moduleIndexOf(ctx, SOURCE)}`;
+		expect(menus).toContainEqual([childId, route]);
+		expect(menus).toContainEqual([sourceChild, source]);
+		const stacks = Array.from(xml.getElementsByTagName("stack"));
+		const stackCommands = stacks.flatMap((stack) =>
+			Array.from(stack.getElementsByTagName("command")).map((command) =>
+				command.getAttribute("value"),
+			),
+		);
+		expect(stackCommands).toContain(`'${childId}'`);
+
+		const hidden = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateModule",
+					uuid: ROUTE,
+					patch: {},
+					listedForm: {
+						sourceUuid: SOURCE,
+						formUuid: REGISTER,
+						included: false,
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(hidden).toMatchObject({
+			ok: false,
+			findings: expect.arrayContaining([
+				expect.objectContaining({
+					code: "MENU_FORM_SOURCE_INVALID",
+					message:
+						"Show a form in “Clinic” so workers can reach “Neighborhood” inside it.",
+				}),
+			]),
+		});
+	});
+
 	it("keeps one form, its owning menu and ordinary bypass while listing the same namespace and separate deep link through Clinic", () => {
 		const doc = twoMenus();
 		expect(menuFormUuidsOf(doc, ROUTE)).toEqual([VISIT]);

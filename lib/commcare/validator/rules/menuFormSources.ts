@@ -5,7 +5,7 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
-import { menuFormUuidsOf } from "@/lib/domain/listedForms";
+import { listedMenuIsEmpty, menuFormUuidsOf } from "@/lib/domain/listedForms";
 import { type ValidationError, validationError } from "../errors";
 
 /** The same source form can have several routes. Changes to its list, its links or its
@@ -96,6 +96,19 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 			issue(
 				`Choose a different form from “${owner.name}” for each of this menu’s form links.`,
 			);
+		// HQ's build writes no menu for a route without a command, so a
+		// submenu that keeps its own screen under it has no way in.
+		if (listedMenuIsEmpty(doc, route.uuid)) {
+			const stranded = actual.find(
+				(child) =>
+					!child.formsInMenuAbove &&
+					menuFormUuidsOf(doc, child.uuid).length > 0,
+			);
+			if (stranded)
+				issue(
+					`Show a form in “${route.name}” so workers can reach “${stranded.name}” inside it.`,
+				);
+		}
 		if (route.caseListMenuItem)
 			issue(
 				`Remove the separate case list item from “${route.name}”. Workers can open its case list by choosing a form.`,
@@ -118,6 +131,21 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 						`Include “${doc.forms[target.formUuid]?.name ?? "the linked form"}” in “${route.name}” so workers can follow the link after “${form.name}”.`,
 					);
 			}
+		}
+	}
+	for (const form of Object.values(doc.forms)) {
+		for (const { link } of formLinkEntries(form)) {
+			if (link.target.type !== "module") continue;
+			const route = doc.modules[link.target.moduleUuid];
+			if (!route || !listedMenuIsEmpty(doc, route.uuid)) continue;
+			errors.push(
+				validationError(
+					"MENU_FORM_SOURCE_INVALID",
+					"module",
+					`Show a form in “${route.name}” so the link after “${form.name}” has a menu to open.`,
+					{ moduleUuid: route.uuid, moduleName: route.name },
+				),
+			);
 		}
 	}
 	return errors;

@@ -127,7 +127,21 @@ function screensOf(doc: MenuScreenSource): Screens {
 		if (list === undefined) into.set(key, [value]);
 		else list.push(value);
 	};
-	for (const moduleUuid of projectedModulePreorder(doc)) {
+	const preorder = projectedModulePreorder(doc);
+	// A screen whose contributors list no form and no case list item has no
+	// `<menu>` on the device, as HQ's build writes none without a command
+	// (`suite_xml/sections/menus.py`), so no tile opens it.
+	const listing = new Set<string>();
+	for (const moduleUuid of preorder) {
+		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
+		if (
+			mod !== undefined &&
+			(menuFormUuidsOf(doc, moduleUuid).length > 0 ||
+				moduleHasCaseListMenuItem(mod))
+		)
+			listing.add(menuScreenKey(menuScreenOf(doc, moduleUuid)));
+	}
+	for (const moduleUuid of preorder) {
 		const own = menuScreenKey(menuScreenOf(doc, moduleUuid));
 		push(contributors, own, moduleUuid);
 		const mod = menuWithInheritedCaseSettings(doc, moduleUuid);
@@ -137,7 +151,7 @@ function screensOf(doc: MenuScreenSource): Screens {
 		if (moduleHasCaseListMenuItem(mod))
 			push(entries, own, { kind: "case-list", moduleUuid });
 		const tile = menuTileScreenOf(doc, moduleUuid);
-		if (tile !== undefined && menuScreenKey(tile) !== own)
+		if (tile !== undefined && menuScreenKey(tile) !== own && listing.has(own))
 			push(entries, menuScreenKey(tile), { kind: "menu", moduleUuid });
 	}
 	return { contributors, entries };

@@ -1296,7 +1296,12 @@ export function compileCczParts(
 					el("instance", { id: instance.id, src: instance.src }),
 				),
 		);
-		suiteMenus.push(moduleMenu);
+		// A menu with no command is left out, as HQ's build leaves it out
+		// (`suite_xml/sections/menus.py::MenuContributor.
+		// get_module_contributions`, `if len(menu.commands)`). Only a menu
+		// listing another menu's forms reaches here without one: every form it
+		// lists is hidden, or its source has none.
+		if (menuCommands.length > 0) suiteMenus.push(moduleMenu);
 	}
 
 	// A projected session can select a detail belonging to a later module.

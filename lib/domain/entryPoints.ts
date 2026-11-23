@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { BlueprintDoc } from "./blueprint";
 import { type FreeNameOffer, freeNameClause, uniqueSlug } from "./idSlug";
-import { menuFormUuidsOf } from "./listedForms";
+import { listedMenuIsEmpty, menuFormUuidsOf } from "./listedForms";
 import { ownRecordValue } from "./records";
 import { uuidSchema } from "./uuid";
 
@@ -108,14 +108,19 @@ export function entryPointAt(
 		? module.entryPoint
 		: module.caseListEntryPoint;
 }
-/** A route can keep its form link while the worker temporarily cannot open it. */
+/** A route can keep its deep links while the worker temporarily cannot open
+ * them. A route that shows none of its source's forms has no menu on the
+ * device, so its own link waits too. */
 export function listedFormLinkPause(
 	doc: BlueprintDoc,
 	target: EntryPointTarget,
 ): string | undefined {
-	if (target.kind !== "form") return;
 	const route = doc.modules[target.moduleUuid];
 	if (!route?.formsFromMenu) return;
+	if (target.kind !== "form")
+		return listedMenuIsEmpty(doc, route.uuid)
+			? `Show a form in “${route.name}” to turn on its deep link.`
+			: undefined;
 	if (!route.entryPoint)
 		return `Add a deep link for “${route.name}” to turn on its form links.`;
 	if (!menuFormUuidsOf(doc, route.uuid).includes(target.formUuid))

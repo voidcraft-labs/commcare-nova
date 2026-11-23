@@ -67,6 +67,22 @@ export function formRouteUuids(
 	];
 }
 
+/** A menu listing another menu's forms whose own screen lists nothing: it
+ * shows none of its source's forms, and no submenu shows forms in it. It has
+ * no `<menu>` on the device, as HQ's build writes none for a menu without a
+ * command (`suite_xml/sections/menus.py`), so nothing can open it. */
+export function listedMenuIsEmpty(doc: MenuFormDoc, uuid: Uuid): boolean {
+	const route = doc.modules[uuid];
+	if (!route?.formsFromMenu || route.formsInMenuAbove === true) return false;
+	if (menuFormUuidsOf(doc, uuid).length > 0) return false;
+	return !Object.values(doc.modules).some(
+		(child) =>
+			child.parentModuleUuid === uuid &&
+			child.formsInMenuAbove === true &&
+			menuFormUuidsOf(doc, child.uuid).length > 0,
+	);
+}
+
 /** The authoring menu and stable identity of a form reached from this menu. An excluded
  * form and a form stored in an unrelated menu have no route here. */
 export function sourceMenuOfListedForm(

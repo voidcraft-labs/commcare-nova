@@ -1390,7 +1390,11 @@ export const ROOT_MENU_ID = "root";
  * HQ's `id_strings.menu_id`: the id of the `<menu>` that lists the module's
  * forms. `m<M>` for a module with its own screen; for one that shows its
  * forms in the menu above, its parent's id, which is `root` where the parent
- * shows its forms above too; `root` for a top-level one.
+ * shows its forms above too; `root` for a top-level one. A submenu that keeps
+ * its screen under a menu listing another menu's forms (a `ShadowModule`)
+ * carries that parent's id as a suffix, `m<M>.<parent id>`, as HQ's build
+ * writes its `<menu>` (`menus.py::_generate_menu`) and its stack command
+ * (`workflow.py::WorkflowHelper._get_id_suffix`).
  */
 export function menuIdOf(
 	doc: BlueprintDoc,
@@ -1400,7 +1404,20 @@ export function menuIdOf(
 	const screen = menuScreenOf(doc, moduleUuid);
 	return screen.kind === "first-menu"
 		? ROOT_MENU_ID
-		: `m${moduleIndexOf(ctx, screen.moduleUuid)}`;
+		: screenMenuId(doc, ctx, screen.moduleUuid);
+}
+
+/** The menu id of a module that keeps its own screen (`menuIdOf`). */
+function screenMenuId(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	screenModuleUuid: Uuid,
+): string {
+	const id = `m${moduleIndexOf(ctx, screenModuleUuid)}`;
+	const parentUuid = moduleParent(doc, screenModuleUuid);
+	return parentUuid && doc.modules[parentUuid]?.formsFromMenu
+		? `${id}.${menuIdOf(doc, ctx, parentUuid)}`
+		: id;
 }
 
 /** The form entries of every module that shows its forms above, whichever
@@ -1452,7 +1469,14 @@ function menuCommand(
 ): FrameChild[] {
 	const screen = menuScreenOf(doc, moduleUuid);
 	if (screen.kind === "first-menu") return [];
-	return [frameCommand(ctx, screen.moduleUuid)];
+	return [
+		frameCommand(
+			ctx,
+			screen.moduleUuid,
+			undefined,
+			screenMenuId(doc, ctx, screen.moduleUuid),
+		),
+	];
 }
 
 /** Whether a selection datum stands before the frame's first command. */
@@ -1487,12 +1511,13 @@ function frameCommand(
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 	formUuid?: Uuid,
+	menuId?: string,
 ): FrameChild {
 	const child: FrameChild = {
 		type: "command",
 		id:
 			formUuid === undefined
-				? `m${moduleIndexOf(ctx, moduleUuid)}`
+				? (menuId ?? `m${moduleIndexOf(ctx, moduleUuid)}`)
 				: `m${moduleIndexOf(ctx, moduleUuid)}-f${formIndexOf(ctx, moduleUuid, formUuid)}`,
 	};
 	ctx.commandTargets.set(child, {
