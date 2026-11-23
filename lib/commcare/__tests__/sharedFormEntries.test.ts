@@ -773,3 +773,29 @@ describe("the scoped gate over a parent's shared entries", () => {
 		).toBe(true);
 	});
 });
+
+describe("removing a menu whose forms shared entries open", () => {
+	it("names the menu's forms each entry opens", () => {
+		const shared = sharedVisitEntries().doc;
+		const [people, messages] = shared.moduleOrder;
+		const visit = shared.formOrder[people][0];
+		const referral = shared.formOrder[people][1];
+		// The removal reads only where each entry stands, so the entry is
+		// placed in the other menu directly.
+		const doc = produce(shared, (d) => {
+			d.formOrder[people] = d.formOrder[people].filter(
+				(uuid) => uuid !== referral,
+			);
+			d.formOrder[messages] = [...d.formOrder[messages], referral];
+		});
+		const removal = planFormDependentsOnRemove(doc, {
+			kind: "module",
+			moduleUuid: people,
+		});
+		if (removal.kind !== "blocked")
+			throw new Error("An entry in another menu opens a form in this one.");
+		expect(removal.userMessage).toContain("open forms in this menu");
+		expect(removal.userMessage).not.toContain("open this form");
+		expect(removal.userMessage).toContain(`(opens “${doc.forms[visit].name}”)`);
+	});
+});

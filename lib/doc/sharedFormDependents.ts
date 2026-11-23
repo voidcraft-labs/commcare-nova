@@ -17,15 +17,28 @@ function sharedEntriesOf(doc: BlueprintDoc, parents: ReadonlySet<Uuid>) {
 			return entry?.shadowOf &&
 				parents.has(entry.shadowOf.form) &&
 				!parents.has(uuid)
-				? [{ uuid, name: entry.name, menuName: doc.modules[menuUuid].name }]
+				? [
+						{
+							uuid,
+							name: entry.name,
+							menuName: doc.modules[menuUuid].name,
+							opens: doc.forms[entry.shadowOf.form]?.name ?? "a form",
+						},
+					]
 				: [];
 		}),
 	);
 }
 
-function listed(entries: ReturnType<typeof sharedEntriesOf>): string {
+function listed(
+	entries: ReturnType<typeof sharedEntriesOf>,
+	naming: "entry" | "entry-and-form" = "entry",
+): string {
 	return listWithAnd(
-		entries.map((entry) => `“${entry.name}” in “${entry.menuName}”`),
+		entries.map(
+			(entry) =>
+				`“${entry.name}” in “${entry.menuName}”${naming === "entry-and-form" ? ` (opens “${entry.opens}”)` : ""}`,
+		),
 	);
 }
 
@@ -42,7 +55,10 @@ export function planFormDependentsOnRemove(
 			: (doc.formOrder[target.moduleUuid] ?? []);
 	const entries = sharedEntriesOf(doc, new Set(removed));
 	if (!entries.length) return links;
-	const shared = `The following entries open this form: ${listed(entries)}. You can choose another form for each entry or remove the entries first.`;
+	const shared =
+		target.kind === "form"
+			? `The following entries open this form: ${listed(entries)}. You can choose another form for each entry or remove the entries first.`
+			: `The following entries open forms in this menu: ${listed(entries, "entry-and-form")}. You can choose another form for each entry or remove the entries first.`;
 	const repairs = entries.map((entry) => entry.uuid).join(", ");
 	return {
 		kind: "blocked" as const,
