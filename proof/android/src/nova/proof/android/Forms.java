@@ -523,6 +523,25 @@ final class Forms {
             android.widget.EditText input = box((org.commcare.views.widgets.StringWidget)widget);
             shown.put("masked", input.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod);
             shown.put("imeAction", input.getImeOptions() & android.view.inputmethod.EditorInfo.IME_MASK_ACTION);
+            // A question under a compact group: `QuestionWidget.addToCompactLayout` puts its label and its answer
+            // box side by side in one horizontal row, in the order the widget added them.
+            Object compactRow = Screens.field(widget, "compactLayout");
+            shown.put("compact", Boolean.TRUE.equals(Screens.field(widget, "mCompact")));
+            if (compactRow instanceof android.widget.LinearLayout) {
+                android.widget.LinearLayout row = (android.widget.LinearLayout)compactRow;
+                JSONArray drawn = new JSONArray();
+                for (int index = 0; index < row.getChildCount(); index++) {
+                    View child = row.getChildAt(index);
+                    JSONObject part = new JSONObject();
+                    part.put("answerBox", child == input);
+                    if (child instanceof android.widget.TextView && child != input) {
+                        part.put("maxLines", ((android.widget.TextView)child).getMaxLines());
+                    }
+                    drawn.put(part);
+                }
+                shown.put("compactRow", drawn);
+                shown.put("compactRowHorizontal", row.getOrientation() == android.widget.LinearLayout.HORIZONTAL);
+            }
         }
         if (widget instanceof org.commcare.views.widgets.GridWidget ||
                 widget instanceof org.commcare.views.widgets.GridMultiWidget) {

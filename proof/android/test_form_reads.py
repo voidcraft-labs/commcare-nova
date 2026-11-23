@@ -484,6 +484,17 @@ def test_android_display_palette_uses_its_native_controls_and_keeps_worker_answe
     assert question("copyable_note")["control"]["canCopy"] is True
     assert question("mobile_note")["control"]["visible"] is False
     assert question("zone_code")["control"]["imeAction"] == 6  # EditorInfo.IME_ACTION_DONE
+    # A text question under a compact group draws its one-line label beside its answer box, with the keyboard
+    # action Preview's compact row gives it. The same question under a bordered group draws as anywhere.
+    compact = questions["/data/quick_summary[1]/remark[1]"]
+    assert compact["widget"] == "StringWidget", compact
+    assert compact["control"]["compact"] is True and compact["control"]["compactRowHorizontal"] is True, compact
+    assert compact["control"]["compactRow"] == [{"answerBox": False, "maxLines": 1}, {"answerBox": True}], compact
+    # A compact group is no question list, so its question is the last on its own screen.
+    assert compact["control"]["imeAction"] == 6, compact  # EditorInfo.IME_ACTION_DONE
+    bordered = questions["/data/final_details[1]/remark[1]"]
+    assert bordered["widget"] == "StringWidget", bordered
+    assert bordered["control"]["compact"] is False and "compactRow" not in bordered["control"], bordered
     for path, offered in {
         "door_photo": False, "sign_photo": True, "attachment": True,
         "access_video": False, "interview": False, "spoken_note": True,
