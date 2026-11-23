@@ -109,7 +109,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			db,
 		);
 	}
-	await sql`CREATE FUNCTION nova_account_lookup_storage() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+	// The serving revision writes the tables this trigger fires on before
+	// convergence grants it the ledger this migration creates, so the function
+	// writes that ledger as its owner, through schema-qualified names only.
+	await sql`CREATE FUNCTION nova_account_lookup_storage() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 	DECLARE
 		old_bytes bigint := 0; new_bytes bigint := 0; tenant text;
 	BEGIN

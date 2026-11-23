@@ -7,7 +7,10 @@ export async function up(db: Kysely<unknown>) {
 		key_id text PRIMARY KEY REFERENCES auth_apikey(id) ON DELETE CASCADE,
 		epoch uuid NOT NULL
 	)`.execute(db);
-	await sql`CREATE FUNCTION nova_rotate_api_key_grant() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+	// The serving revision writes the tables this trigger fires on before
+	// convergence grants it the ledger this migration creates, so the function
+	// writes that ledger as its owner, through schema-qualified names only.
+	await sql`CREATE FUNCTION nova_rotate_api_key_grant() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 	BEGIN
 		IF TG_OP='INSERT' OR ROW(OLD.key,OLD."referenceId",OLD."configId",OLD.enabled,OLD."expiresAt",OLD.permissions)
 			IS DISTINCT FROM ROW(NEW.key,NEW."referenceId",NEW."configId",NEW.enabled,NEW."expiresAt",NEW.permissions)

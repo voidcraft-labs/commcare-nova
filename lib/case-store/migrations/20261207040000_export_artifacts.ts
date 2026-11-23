@@ -13,7 +13,10 @@ const deploymentRelations = [
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await sql`CREATE TABLE export_target_versions (project_id text NOT NULL,app_id text NOT NULL,revision bigint NOT NULL DEFAULT 1,
 		PRIMARY KEY(project_id,app_id))`.execute(db);
-	await sql`CREATE FUNCTION nova_invalidate_export_target() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+	// The serving revision writes the tables this trigger fires on before
+	// convergence grants it the ledger this migration creates, so the function
+	// writes that ledger as its owner, through schema-qualified names only.
+	await sql`CREATE FUNCTION nova_invalidate_export_target() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 	DECLARE tenant text; app text; held uuid;
 	BEGIN
 		IF TG_TABLE_NAME = 'app_deployments' THEN
