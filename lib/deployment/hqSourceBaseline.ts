@@ -15,6 +15,7 @@
 
 import { translationKeyOwner } from "@/lib/commcare/appStringKeys";
 import {
+	type HqMediaMapItem,
 	readMultimediaMap,
 	unreadableMediaIdentity,
 } from "@/lib/commcare/hq/mediaMap";
@@ -473,24 +474,46 @@ export function removedHqFiles(
 	const removed: RemovedHqFile[] = [];
 	const pruned = new Set(prunedHqPaths(current, files.published));
 	for (const item of readMultimediaMap(current.multimedia_map) ?? []) {
-		const { path, multimediaId: id, mediaType } = item;
+		const { path, multimediaId: id } = item;
 		if (!pruned.has(path)) continue;
 		const recorded = path.startsWith("jr://file/")
 			? files.recorded?.[path.slice("jr://file/".length)]
 			: null;
 		if (!item.unreadable && id !== null && recorded === id) continue;
-		const binding = item.unreadable
-			? ["unreadable", unreadableMediaIdentity(current, path)]
-			: [id, mediaType];
 		removed.push({
 			path,
 			multimediaId: id,
-			digest: canonicalJsonDigest([path, binding]),
+			digest: hqFileBinding(current, item),
 		});
 	}
 	return removed.sort((a, b) =>
 		a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
 	);
+}
+
+/** The digest a removal binds: the path and the HQ file at it, or the raw
+ * identity of an entry Nova cannot read. */
+function hqFileBinding(source: unknown, item: HqMediaMapItem): string {
+	const binding = item.unreadable
+		? ["unreadable", unreadableMediaIdentity(source, item.path)]
+		: [item.multimediaId, item.mediaType];
+	return canonicalJsonDigest([item.path, binding]);
+}
+
+/**
+ * Whether the reading a removal is compared with held another file at its
+ * path: the person last accepted a reading with one file there, and HQ now
+ * holds a different one, so the line says so rather than repeating itself.
+ */
+export function removedHqFileReplaced(
+	file: Pick<RemovedHqFile, "path" | "digest">,
+	earlier: unknown,
+): boolean {
+	if (!isObject(earlier) || !isObject(earlier.multimedia_map)) return false;
+	const before = readMultimediaMap(earlier.multimedia_map)?.find(
+		(item) => item.path === file.path,
+	);
+	return before !== undefined && hqFileBinding(earlier, before) !== file.digest;
 }
 
 /**
@@ -669,11 +692,15 @@ export function hqFilePathName(path: string): string {
  */
 export function removedHqFileLine(
 	file: Pick<RemovedHqFile, "path" | "multimediaId">,
+	replaced = false,
 ): string {
 	const name = hqFilePathName(file.path);
-	return file.multimediaId
+	const line = file.multimediaId
 		? `Publishing removes the file “${name}” from the app in CommCare HQ. This app doesn't use it.`
 		: `Publishing removes the reference to “${name}” from the app in CommCare HQ. This app doesn't use it.`;
+	return replaced
+		? `${line} CommCare HQ holds a different file at that path than when Nova last read it.`
+		: line;
 }
 
 /**

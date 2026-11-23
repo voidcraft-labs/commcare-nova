@@ -112,6 +112,7 @@ import {
 	normalizeHqAppSource,
 	removalLedgerPaths,
 	removedHqFileLine,
+	removedHqFileReplaced,
 	removedHqFiles,
 	unapprovedHqFiles,
 } from "../hqSourceBaseline";
@@ -1936,7 +1937,12 @@ export async function checkHqChanges(
 						: "You can review what the first publish would change in this project space.",
 				]
 			: []),
-		...changedFiles.map(removedHqFileLine),
+		...changedFiles.map((file) =>
+			removedHqFileLine(
+				file,
+				removedHqFileReplaced(file, fetched.baseline.source),
+			),
+		),
 		...(plan.changedPublishForms ?? []).map(
 			(name) =>
 				`The next publish would rewrite another saved value in the form “${name}”.`,

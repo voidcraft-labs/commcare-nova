@@ -13,6 +13,7 @@ import {
 	diffHqAppSource,
 	hqDiscardDigest,
 	removedHqFileLine,
+	removedHqFileReplaced,
 	removedHqFiles,
 	unapprovedHqFiles,
 } from "./hqSourceBaseline";
@@ -74,7 +75,12 @@ export function appRemoteChange(input: {
 		removedHqFiles(input.current.normalized, files),
 		baseline?.approvedFileRemovals,
 	);
-	const lines = removed.map(removedHqFileLine);
+	/* The reading the person last accepted, where Nova holds one. */
+	const earlier =
+		baseline !== null && baseline.origin !== "unread" ? baseline.source : null;
+	const lines = removed.map((file) =>
+		removedHqFileLine(file, removedHqFileReplaced(file, earlier)),
+	);
 	const change = (
 		parts: readonly string[],
 		baselineKnown: boolean,

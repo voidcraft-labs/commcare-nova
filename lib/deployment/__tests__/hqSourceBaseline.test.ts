@@ -21,6 +21,8 @@ import {
 	type AppChangePart,
 	diffHqAppSource,
 	normalizeHqAppSource,
+	removedHqFileLine,
+	removedHqFileReplaced,
 	removedHqFiles,
 } from "../hqSourceBaseline";
 import { decideRemoteChanges } from "../remoteChanges";
@@ -802,5 +804,39 @@ describe("HQ's reads after its own saves", () => {
 				},
 			),
 		).toEqual([{ kind: "menu-list" }]);
+	});
+});
+
+describe("a removed file's line", () => {
+	const PATH = "jr://file/commcare/image/visit.png";
+	const holding = (id: string) => ({
+		multimedia_map: {
+			[PATH]: { media_type: "CommCareImage", multimedia_id: id },
+		},
+	});
+	const removal = (id: string) => {
+		const [file] = removedHqFiles(holding(id), {
+			published: [],
+			recorded: null,
+		});
+		if (!file) throw new Error("Expected the file the import removes.");
+		return file;
+	};
+
+	it("says the file at a path changed since the reading it is compared with, and only then", () => {
+		const later = removal("later-file");
+		expect(removedHqFileReplaced(later, holding("earlier-file"))).toBe(true);
+		expect(removedHqFileReplaced(later, holding("later-file"))).toBe(false);
+		expect(removedHqFileReplaced(later, { multimedia_map: {} })).toBe(false);
+		expect(removedHqFileReplaced(later, null)).toBe(false);
+		const accepted = removedHqFileLine(removal("earlier-file"));
+		const asked = removedHqFileLine(later, true);
+		expect(accepted).toBe(
+			"Publishing removes the file “commcare/image/visit.png” from the app in CommCare HQ. This app doesn't use it.",
+		);
+		expect(asked).toBe(
+			`${accepted} CommCare HQ holds a different file at that path than when Nova last read it.`,
+		);
+		expect(asked).not.toMatch(/\u2014|\u2026|\.\.\./);
 	});
 });

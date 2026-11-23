@@ -2025,7 +2025,7 @@ function* reviewOf(input: {
 							domain: key.domain,
 						},
 					),
-				).map(removedHqFileLine)
+				).map((file) => removedHqFileLine(file))
 			: [];
 		runsOn.push({
 			...(removesFiles.length > 0 && { removesFiles }),

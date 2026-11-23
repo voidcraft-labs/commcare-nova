@@ -4680,9 +4680,10 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 				};
 				const changed = await read(rebound);
 				expect(changed.kind).toBe("changes");
+				/* The line says the file the person approved is no longer the one there. */
 				if (changed.kind === "changes")
 					expect(changed.hqChanges).toContain(
-						"Publishing removes the file “commcare/image/data/new-two.png” from the app in CommCare HQ. This app doesn't use it.",
+						"Publishing removes the file “commcare/image/data/new-two.png” from the app in CommCare HQ. This app doesn't use it. CommCare HQ holds a different file at that path than when Nova last read it.",
 					);
 			}
 			const repeat = await read(served, false);
@@ -5086,11 +5087,20 @@ describe("a bring-in of changes made in CommCare HQ to a case app", () => {
 			expect(await baselineOfApp()).toEqual(approved);
 			const changed = await review(later);
 			if (changed.kind !== "changes") throw new Error(JSON.stringify(changed));
-			/* The line names the file's path; the later file at it is a new
-			 * review by its digest, whatever the line reads. */
-			expect(changed.hqChanges.join(" ")).toContain(
-				history === "next-card" ? "-different.png”" : UNUSED_NAME,
+			/* The later file is a new review by its digest, and its line is not
+			 * the one the person accepted: at the same path it says the file
+			 * there changed. */
+			const removal = (lines: readonly string[]) =>
+				lines.filter((line) => line.includes("This app doesn't use it"));
+			expect(removal(changed.hqChanges)).not.toEqual(
+				removal(offered.hqChanges),
 			);
+			if (history === "next-card")
+				expect(changed.hqChanges.join(" ")).toContain("-different.png”");
+			else
+				expect(removal(changed.hqChanges)).toEqual([
+					`Publishing removes the file ${UNUSED_NAME} from the app in CommCare HQ. This app doesn't use it. CommCare HQ holds a different file at that path than when Nova last read it.`,
+				]);
 			expect(changed.observedDigest).not.toBe(offered.observedDigest);
 			const staleDiscard = await publishOver(
 				appId,
