@@ -423,6 +423,9 @@ const updateAppLocation = (summary: ToolCallSummary): string | null => {
 		...(summary.formLists?.incomplete !== undefined
 			? [`Incomplete forms ${summary.formLists.incomplete ? "on" : "off"}`]
 			: []),
+		...(summary.captureLocation !== undefined
+			? [`Location for every form ${summary.captureLocation ? "on" : "off"}`]
+			: []),
 		...(summary.platforms !== undefined
 			? [UPDATE_APP_PLATFORM_PHRASES[summary.platforms]]
 			: []),

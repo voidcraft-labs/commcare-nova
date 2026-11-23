@@ -54,6 +54,11 @@ export interface ToolCallSummary {
 	 */
 	formLists?: { saved?: boolean; incomplete?: boolean };
 	/**
+	 * For a call that changed whether every form requests the device
+	 * location: the new value. Absent when it left the setting as it was.
+	 */
+	captureLocation?: boolean;
+	/**
 	 * For a call that changed where the app runs: the RESULTING declaration,
 	 * `"both"` or the one platform. Absent when it left the declaration as it
 	 * was.

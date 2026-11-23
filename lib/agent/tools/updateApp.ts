@@ -169,7 +169,7 @@ function declarationAfter(
 
 export const updateAppTool = {
 	description:
-		"Set the app's display name, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
+		"Set the app's display name, whether workers see their saved forms and their incomplete forms, whether every form requests the Android device location, and whether it runs only in Web Apps or only on Android. Anything left out keeps its value.",
 
 	inputSchema: updateAppInputSchema,
 	async execute(
@@ -225,6 +225,9 @@ export const updateAppTool = {
 			const summary: ToolCallSummary = {
 				...(input.name !== undefined && { subject: input.name, nameChange }),
 				...(platforms !== undefined && { platforms }),
+				...(settings.captureLocation !== undefined && {
+					captureLocation: settings.captureLocation === true,
+				}),
 				...(formListsChanged && {
 					formLists: {
 						...(settings.showSavedForms !== undefined && {
