@@ -9,6 +9,7 @@ import {
 	computedEntryValueSchema,
 	formCaseSelectionSchema,
 } from "@/lib/domain/formEntryCases";
+import { formOpeningAssignmentSchema } from "@/lib/domain/forms";
 import { uuidSchema } from "@/lib/domain/uuid";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -31,6 +32,13 @@ const addValue = computedEntryValueSchema
 const after = uuidSchema.nullable().optional();
 const editSchema = z.discriminatedUnion("operation", [
 	z.strictObject({
+		operation: z.literal("add-assignment"),
+		value: formOpeningAssignmentSchema
+			.omit({ uuid: true })
+			.extend({ uuid: uuidSchema.optional() }),
+		after,
+	}),
+	z.strictObject({
 		operation: z.literal("add-choice"),
 		value: addChoice,
 		after,
@@ -49,7 +57,7 @@ type Result = (MutationSuccess & { supplyUuid?: string }) | { error: string };
 
 export const editFormEntryTool = {
 	description:
-		"Change the records or calculated values a form uses when it opens. Give each record a name and its expected record type. Choose from a list, use the worker’s own record, or get the record ID from an earlier value, a worker property, a table column, or a named connection on an earlier record. Use opening-record('Record name') and opening-value('Value name') in an expression to read an earlier supply. Use get_form to read the current order. An omitted UUID on add asks Nova to make one. A move names the preceding supply, or null for first.",
+		"Change the records or calculated values a form uses when it opens. Give each record a name and its expected record type. Choose from a list, use the worker’s own record, or get the record ID from an earlier value, a worker property, a table column, or a named connection on an earlier record. Use opening-record('Record name') and opening-value('Value name') in an expression to read an earlier supply. Use add-assignment to fill a question from a record property after the form’s starting values have run. Its source can be the form’s record, the worker’s record, or a named opening record. Use get_form to read the current order. An omitted UUID on add asks Nova to make one. A move names the preceding supply, or null for first.",
 	inputSchema,
 	async execute(
 		input: Input,
@@ -85,6 +93,14 @@ export const editFormEntryTool = {
 						uuid: edit.value.uuid ?? uuidSchema.parse(crypto.randomUUID()),
 					},
 				};
+			else if (edit.operation === "add-assignment")
+				change = {
+					...edit,
+					value: {
+						...edit.value,
+						uuid: edit.value.uuid ?? uuidSchema.parse(crypto.randomUUID()),
+					},
+				};
 			else change = formEntryChangeSchema.parse(edit);
 			const commit = await guardedMutate(
 				ctx,
@@ -110,7 +126,8 @@ export const editFormEntryTool = {
 				result: {
 					ok: true,
 					summary: { location: form.name, subject: "Form entry" },
-					...("value" in change && { supplyUuid: change.value.uuid }),
+					...("value" in change &&
+						"uuid" in change.value && { supplyUuid: change.value.uuid }),
 				},
 			};
 		} catch (error) {

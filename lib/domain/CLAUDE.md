@@ -385,6 +385,8 @@ selections continue to use their stable form/menu or form/worker UUID and
 their recorded allocation. Manual link destinations use a target selection
 UUID whenever the form has configured choices.
 
+A form’s `openingAssignments` hold the destination question UUID, the existing record supply and the named connection steps and case property to read. The reader records `heldBasicOpening` when an adopted basic form already carries its opening assignments in a saved case settings slot. The ordinary editing tools choose the sources and destination questions. The order within one supply is the worker’s assignment order. The native load determines the order between supplies. Each supply can fill a question once. Two different supplies can fill the same question. The question’s own starting value and calculation keep their independent identities.
+
 A form's opening records are ordered supplies. `Form.caseSelections` gives each
 one a stable UUID, display name, expected record type, source and published
 tag. Two records chosen from the same list have different UUIDs. A missing

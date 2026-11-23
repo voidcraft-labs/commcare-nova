@@ -21,6 +21,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { type RelationStep, walkExpression } from "@/lib/domain/expression";
+import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import { operationCaseType } from "@/lib/domain/forms";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import type { KnownIndexTarget, ReaderKnownCaseTypes } from "../types";
@@ -72,6 +73,17 @@ export function knownCaseTypesOf(doc: BlueprintDoc): ReaderKnownCaseTypes {
 		types.add(reached);
 		typed.set(key(caseType, identifier), types);
 	};
+	for (const form of Object.values(doc.forms)) {
+		for (const assignment of form.openingAssignments ?? []) {
+			const origin = openingAssignmentSource(
+				doc,
+				form.uuid,
+				assignment.source,
+			).type;
+			if (origin && assignment.via)
+				noteSteps(origin, assignment.via, parentOf, note);
+		}
+	}
 	// A save through the indices above its operation's case.
 	for (const [formUuid, form] of Object.entries(doc.forms))
 		for (const operation of form.caseOperations ?? []) {

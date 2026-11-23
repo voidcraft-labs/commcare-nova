@@ -97,6 +97,11 @@ describe("mintEntityUuid", () => {
 			externalKey.locationProperty("slug"),
 			externalKey.formSelection(asUuid(FORM_UUID), "household"),
 			externalKey.entryValue(asUuid(FORM_UUID), "visit_day"),
+			externalKey.openingAssignment(
+				asUuid(FORM_UUID),
+				"own",
+				asUuid("5f6e7d8c-9b0a-4f1e-8d2c-3b4a59687766"),
+			),
 		];
 		expect(new Set(keys.map((key) => key.kind))).toEqual(
 			new Set(EXTERNAL_ENTITY_KINDS),

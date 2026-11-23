@@ -117,6 +117,11 @@ export function workerRecordRequirements(
 			const form = doc.forms[formUuid];
 			if (!form) continue;
 			const reads =
+				Boolean(
+					form.openingAssignments?.some(
+						(row) => row.source.kind === "worker-record",
+					),
+				) ||
 				module.caseType === USERCASE_CASE_TYPE ||
 				Boolean(
 					form.caseSelections?.some(

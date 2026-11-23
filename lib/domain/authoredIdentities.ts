@@ -11,6 +11,7 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"caseOperation",
 	"formSelection",
 	"entryValue",
+	"openingAssignment",
 	"formLink",
 	"entryPoint",
 	"userProperty",
@@ -80,6 +81,12 @@ export function authoredBlueprintIdentities(
 			identities.push({
 				uuid: form.entryPoint.uuid,
 				kind: "entryPoint",
+				ownerUuid: form.uuid,
+			});
+		for (const assignment of form.openingAssignments ?? [])
+			identities.push({
+				uuid: assignment.uuid,
+				kind: "openingAssignment",
 				ownerUuid: form.uuid,
 			});
 		for (const selection of form.caseSelections ?? [])

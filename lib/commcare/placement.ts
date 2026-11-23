@@ -35,6 +35,7 @@ import {
 	type CasePlacement,
 	type FormCaseSelection,
 	formConnectIds,
+	opensWithWorkerValue,
 	type PlacementIneligibility,
 	type SaveToCasePlacement,
 	sameCasePlacement,
@@ -678,6 +679,9 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		}
 		return workerLoad;
 	};
+
+	if (f.form.caseSelections === undefined && opensWithWorkerValue(f.form))
+		loadIndex({ kind: "worker" });
 
 	for (const op of f.operations) {
 		const createUuid = sharedBy.get(op.uuid);

@@ -64,7 +64,9 @@ import {
 	type CaseOperation,
 	caseOperationRunsPerSelectedCase,
 	formLinkEntries,
+	opensWithWorkerValue,
 	orderedCaseOperations,
+	usesFormEntryActions,
 } from "./forms";
 import { uniqueSlug } from "./idSlug";
 import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
@@ -843,7 +845,7 @@ function computeKindTriggers(
 	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 		const form = doc.forms[formUuid];
 		if (!form) continue;
-		if (form.caseSelections !== undefined || form.computedDatums?.length)
+		if (usesFormEntryActions(form))
 			found.push({ kind: "form-entry", formUuid });
 		const links = carriedCreates(doc, formUuid);
 		if (links.size === 0) continue;
@@ -979,7 +981,7 @@ function entryActionPlan(doc: BlueprintDoc, formUuid: Uuid): EntryActionPlan {
 		{ readonly repeat: Uuid | undefined; readonly indexed: boolean }
 	>();
 	const opens: AdvancedEntryOpen[] = [];
-	let workerLoad = false;
+	let workerLoad = opensWithWorkerValue(doc.forms[formUuid]);
 	const chainHeld: (string | undefined)[] = advancedLoadChain(
 		doc,
 		formUuid,

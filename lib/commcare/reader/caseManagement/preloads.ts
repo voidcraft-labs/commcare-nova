@@ -43,9 +43,31 @@ import {
 } from "./basicActions";
 import { conditionQuestionPath } from "./conditions";
 
+import {
+	holdsEarlierDefault,
+	recordLateAssignment,
+	settleOpeningAssignments,
+} from "./openingAssignments";
+
 const F = "forms-and-case-writes";
 
 export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
+	late: take(
+		`${F}/case-preload-into-a-question-outside-any-repeat-where-the-held`,
+		"schema:PreloadAction.preload",
+	),
+	namedPath: take(
+		`${F}/case-preload-from-any-other-index-path-host-user-a-mixed-path`,
+		"schema:PreloadAction.preload",
+	),
+	calculated: take(
+		`${F}/case-preload-into-a-question-that-holds-no-default`,
+		"schema:PreloadAction.preload",
+	),
+	repeated: take(
+		`${F}/case-preload-into-a-question-inside-a-repeat`,
+		"schema:PreloadAction.preload",
+	),
 	casePreload: take(
 		`${F}/case-preload-question-property-into-a-question-outside-any`,
 		"schema:FormActions.case_preload",
@@ -62,7 +84,7 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 		`${F}/case-preload-from-parent-paths-into-a-question-outside-any`,
 		"schema:PreloadAction.preload",
 	),
-	insideRepeat: drop(
+	insideRepeat: take(
 		`${F}/case-preload-into-a-question-inside-a-repeat`,
 		"schema:FormActions.case_preload",
 	),
@@ -79,11 +101,11 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 		"schema:PreloadAction.condition",
 	),
 	movesValues: refuse(
-		`${F}/case-preload-into-a-question-outside-any-repeat-where-the-held`,
+		`${F}/a-source-only-record-load-with-no-equivalent-editable-initial-value`,
 		"schema:PreloadAction.preload",
 	),
 	otherPath: refuse(
-		`${F}/case-preload-from-any-other-index-path-host-user-a-mixed-path`,
+		`${F}/a-source-only-record-load-with-no-equivalent-editable-initial-value`,
 		"schema:PreloadAction.preload",
 	),
 	ancestorUnknown: refuse(
@@ -103,7 +125,7 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 		"schema:FormActions.case_preload",
 	),
 	noDefault: refuse(
-		`${F}/case-preload-into-a-question-that-holds-no-default`,
+		`${F}/a-source-only-record-load-with-no-equivalent-editable-initial-value`,
 		"schema:PreloadAction.preload",
 	),
 	/** No preload beside an own case change that writes a question: the writer holds no default
@@ -385,6 +407,8 @@ export function readPreloads(
 			// The rows the map's questions read under, in the table's order; the
 			// map is claimed under the first of them.
 			const rows = new Set<PreloadRow>();
+			const sourceParts: { path: string; claim: Claim<"take"> }[] = [];
+			let folded = false;
 			for (const [path, property] of Object.entries(caseMap)) {
 				const field = fieldAt(form, path);
 				// HQ's build refuses the form, wherever the question stands: its validator holds
@@ -413,6 +437,51 @@ export function readPreloads(
 					});
 					continue;
 				}
+				const read = preloadReadOf(property);
+				// A historical newline can name a built-in case child whose plain
+				// spelling HQ refuses. The equivalent ordinary default is the
+				// existing editable representation for that class.
+				const canEmit =
+					read.name === undefined ||
+					!hqBuildRefusesProperty(
+						read.name === "case_name" ? "name" : read.name,
+					);
+				if (
+					canEmit &&
+					!holdsEarlierDefault(ctx, form, { kind: "own" }, path, property) &&
+					!(multi && topLevel)
+				) {
+					const { indices, name } = read;
+					if (!name) {
+						refuseEntry(UNNAMED_PRELOAD, field.place, {
+							name: property,
+							reason: "name:case-property",
+						});
+						continue;
+					}
+					recordLateAssignment(form, {
+						field,
+						source: { kind: "own" },
+						indices,
+						property: name,
+					});
+					sourceParts.push({ path, claim: PRELOAD_CLAIMS.late });
+					if (indices.some((id) => id !== "parent"))
+						sourceParts.push({ path, claim: PRELOAD_CLAIMS.namedPath });
+					if (!holdsDefault(form, field))
+						sourceParts.push({ path, claim: PRELOAD_CLAIMS.calculated });
+					if (repeatOfField(field) !== undefined)
+						sourceParts.push({ path, claim: PRELOAD_CLAIMS.repeated });
+					rows.add(
+						multi
+							? "multi-select-child"
+							: indices.length && indices.every((id) => id === "parent")
+								? "parent"
+								: "plain",
+					);
+					continue;
+				}
+				folded = true;
 				// An `xforms-ready` load runs before any row exists, and fills none.
 				if (repeatOfField(field) !== undefined) {
 					rows.add("repeat");
@@ -493,13 +562,18 @@ export function readPreloads(
 			}
 			const row =
 				PRELOAD_ROWS.find((one) => rows.has(one)) ?? ("plain" as const);
-			rewrite(`${A.pointer}/case_preload/preload`);
-			if (row === "repeat") A.drop("case_preload", PRELOAD_CLAIMS.insideRepeat);
+			if (folded) rewrite(`${A.pointer}/case_preload/preload`);
+			if (row === "repeat")
+				readPast(
+					A.take("case_preload", PRELOAD_CLAIMS.insideRepeat, (value) => value),
+				);
 			else {
 				const claims = PRELOAD_ROW_CLAIMS[row];
 				const P = A.object("case_preload", "PreloadAction", claims.container);
 				P.drop("condition", PRELOAD_CLAIMS.condition);
 				readPast(P.take("preload", claims.map, (value) => value));
+				for (const { path, claim } of sourceParts)
+					P.takePart("preload", JSON.stringify([path, claim.entry]), claim);
 			}
 		}
 	}
@@ -820,6 +894,7 @@ function workerRecordRead(
  * load a later load-time value reads is the finding that it would move.
  */
 export function settlePreloads(ctx: ReadContext, form: DraftForm): void {
+	settleOpeningAssignments(ctx, form);
 	const candidates = CANDIDATES.get(form);
 	if (candidates === undefined || ctx.doc === undefined) return;
 	const ownType = ctx.draft.modules.find((one) => one.forms.includes(form))

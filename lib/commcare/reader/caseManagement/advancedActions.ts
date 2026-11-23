@@ -11,6 +11,7 @@
  * placement, so a publish keeps each `case_<tag>` and `case_id_<tag>` HQ's
  * forms read.
  */
+
 import {
 	type CaseOperation,
 	type CaseOperationLink,
@@ -106,6 +107,10 @@ import {
 	repeatAtPath,
 	statedBack,
 } from "./conditions";
+import {
+	holdsEarlierDefault,
+	recordLateAssignment,
+} from "./openingAssignments";
 import {
 	addPreloadCandidate,
 	fieldAt,
@@ -351,12 +356,20 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-preload-question-property`,
 		"schema:LoadUpdateAction.preload",
 	),
-	preloadLater: refuse(
+	assignedAtOpen: take(
 		`${F}/loadupdateaction-preload-read-later-in-the-load`,
 		"schema:LoadUpdateAction.preload",
 	),
-	preloadNoDefault: refuse(
+	calculatedOpening: take(
 		`${F}/case-preload-into-a-question-that-holds-no-default`,
+		"schema:LoadUpdateAction.preload",
+	),
+	preloadLater: refuse(
+		`${F}/a-source-only-record-load-with-no-equivalent-editable-initial-value`,
+		"schema:LoadUpdateAction.preload",
+	),
+	preloadNoDefault: refuse(
+		`${F}/a-source-only-record-load-with-no-equivalent-editable-initial-value`,
 		"schema:LoadUpdateAction.preload",
 	),
 	preloadOtherCase: refuse(
@@ -1795,8 +1808,10 @@ export function readAdvancedActions(
 				operationId,
 				ordinal,
 			);
-			if (read !== undefined) worker = read;
-			else {
+			if (read !== undefined) {
+				worker = read;
+				readLoadPreloads(r, L, load, "commcare-user", false, []);
+			} else {
 				const refusal = ctx.accounting.findingRaised(before);
 				if (refusal !== undefined && typeof load.case_tag === "string")
 					refusedAutoLoads.set(load.case_tag, refusal);
@@ -2791,11 +2806,47 @@ function readLoadPreloads(
 		r.ok = false;
 		return;
 	}
-	const entries = Object.entries(preload).map(([path, property]) => ({
+	const allEntries = Object.entries(preload).map(([path, property]) => ({
 		path,
 		property,
 		field: fieldAt(r.form, path),
 	}));
+	const source = {
+		kind: "load" as const,
+		tag: typeof load.case_tag === "string" ? load.case_tag : "",
+	};
+	const late = allEntries.flatMap(({ path, property, field }) => {
+		if (
+			!field ||
+			typeof property !== "string" ||
+			holdsEarlierDefault(r.ctx, r.form, source, path, property)
+		)
+			return [];
+		const { indices, name } = preloadReadOf(property);
+		return name && !hqBuildRefusesProperty(name === "case_name" ? "name" : name)
+			? [{ field, indices, property: name, path }]
+			: [];
+	});
+	const carried = new Set(late.map((row) => row.path));
+	for (const row of late) {
+		recordLateAssignment(r.form, { ...row, source });
+		L.takePart(
+			"preload",
+			JSON.stringify([row.path, "ready"]),
+			ADVANCED_CLAIMS.assignedAtOpen,
+		);
+		if (!holdsDefault(r.form, row.field))
+			L.takePart(
+				"preload",
+				JSON.stringify([row.path, "calculated"]),
+				ADVANCED_CLAIMS.calculatedOpening,
+			);
+	}
+	const entries = allEntries.filter((row) => !carried.has(row.path));
+	if (!entries.length) {
+		consume(L.take("preload", ADVANCED_CLAIMS.preload, (value) => value));
+		return;
+	}
 	const label = entries.find(
 		({ field }) => field?.kind === "label" || field === undefined,
 	);

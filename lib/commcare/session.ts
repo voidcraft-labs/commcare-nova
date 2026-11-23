@@ -1623,6 +1623,8 @@ export function toHqWorkflow(postSubmit: PostSubmitDestination): string {
 export function basicActionsWriteWorker(actions: FormActions): boolean {
 	const update = actions.usercase_update;
 	return (
-		update.condition.type === "always" && Object.keys(update.update).length > 0
+		(update.condition.type === "always" &&
+			Object.keys(update.update).length > 0) ||
+		Object.keys(actions.usercase_preload.preload).length > 0
 	);
 }

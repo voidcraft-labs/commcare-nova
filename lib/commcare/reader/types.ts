@@ -69,6 +69,7 @@ export interface ReaderInput {
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
 	/** Names chosen in Nova, which HQ holds only as record tags. The presence
 	 * of a form here also retains an intentionally empty set of choices. */
+	readonly knownOpenings?: import("./caseManagement/openingAssignments").KnownFormOpenings;
 	readonly knownFormEntryChoices?: ReadonlyMap<
 		Uuid,
 		ReadonlyMap<string, string>

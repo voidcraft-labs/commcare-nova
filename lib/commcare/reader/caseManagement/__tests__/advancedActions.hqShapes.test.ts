@@ -636,10 +636,20 @@ describe("an advanced form's loads and open actions", () => {
 					| { readonly default_value?: unknown }
 					| undefined
 			)?.default_value;
-		const householdName = {
-			kind: "term",
-			term: { kind: "form-case", caseType: "household", property: "case_name" },
+		/** What a whole reading assigns the form under test's question `name`
+		 *  when the form opens: the load's own record and the property it
+		 *  copies (`FormOpeningAssignment`), with no starting value of its own. */
+		const nameAssignment = (doc: BlueprintDoc | undefined) => {
+			const name = Object.values(doc?.fields ?? {}).find(
+				(field) => field.id === "name",
+			);
+			const rows = Object.values(doc?.forms ?? {}).flatMap(
+				(form) => form.openingAssignments ?? [],
+			);
+			const row = rows.find((assignment) => assignment.field === name?.uuid);
+			return row && { source: row.source.kind, property: row.property };
 		};
+		const householdName = { source: "selection", property: "case_name" };
 		/** Visits chosen under Members, which holds households chosen under a household:
 		 *  the chain household, household, visit, the form's own last. */
 		const visitUnderTwoHouseholds = () =>
@@ -670,7 +680,8 @@ describe("an advanced form's loads and open actions", () => {
 			const { doc } = memberFollowup();
 			const reading = await readMenusOf(doc, preloadOn(0));
 			expect(codesOf(reading)).toEqual([]);
-			expect(nameDefault(reading.doc)).toEqual(householdName);
+			expect(nameDefault(reading.doc)).toBeUndefined();
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 		});
 
 		it("refuses a preloaded property HQ's build refuses, and reads `owner_id`, which it does not", async () => {
@@ -696,13 +707,9 @@ describe("an advanced form's loads and open actions", () => {
 				load.preload = { "/data/name": "owner_id" };
 			});
 			expect(codesOf(owner)).toEqual([]);
-			expect(nameDefault(owner.doc)).toEqual({
-				kind: "term",
-				term: {
-					kind: "form-case",
-					caseType: "household",
-					property: "owner_id",
-				},
+			expect(nameAssignment(owner.doc)).toEqual({
+				source: "selection",
+				property: "owner_id",
 			});
 		});
 
@@ -721,7 +728,7 @@ describe("an advanced form's loads and open actions", () => {
 				});
 			const named = await preloadOf("case_name\n");
 			expect(codesOf(named)).toEqual([]);
-			expect(nameDefault(named.doc)).toEqual(householdName);
+			expect(nameAssignment(named.doc)).toEqual(householdName);
 			expect(named.doc).toEqual((await preloadOf("name")).doc);
 			const UNNAMED =
 				"expressions-and-data/a-form-expression-outside-what-nova-types";
@@ -746,15 +753,18 @@ describe("an advanced form's loads and open actions", () => {
 			// The read walks one `parent` index from the visit: the household HQ reads it from.
 			const reading = await readMenusOf(doc, preloadOn(1));
 			expect(codesOf(reading)).toEqual([]);
-			expect(nameDefault(reading.doc)).toEqual(householdName);
+			expect(nameDefault(reading.doc)).toBeUndefined();
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 		});
 
-		it("refuses one on a load the read of its type does not reach, a nearer load holding that type", async () => {
+		it("holds one on a load a read of its type from the form's own record does not reach, as that load's own value", async () => {
+			// HQ reads a load's preload from that load's own case
+			// (`XForm.add_case_preloads`), so the assignment names the load and
+			// walks no index from the form's own record.
 			const { doc } = visitUnderTwoHouseholds();
 			const reading = await readMenusOf(doc, preloadOn(0));
-			expect(codesOf(reading).filter((code) => code === OTHER_CASE)).toEqual([
-				OTHER_CASE,
-			]);
+			expect(codesOf(reading)).not.toContain(OTHER_CASE);
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 			// Members holds households too: a household chosen under a household.
 			const { doc: twoHouseholds } = advancedFixture({
 				formType: "followup",
@@ -776,9 +786,8 @@ describe("an advanced form's loads and open actions", () => {
 			});
 			expect(codesOf(await readMenusOf(twoHouseholds))).toEqual([]);
 			const own = await readMenusOf(twoHouseholds, preloadOn(0));
-			expect(codesOf(own).filter((code) => code === OTHER_CASE)).toEqual([
-				OTHER_CASE,
-			]);
+			expect(codesOf(own)).not.toContain(OTHER_CASE);
+			expect(nameAssignment(own.doc)).toEqual(householdName);
 		});
 
 		it("reads one reached through an index other than `parent` where the read walks that index", async () => {
@@ -831,19 +840,27 @@ describe("an advanced form's loads and open actions", () => {
 			expect(codesOf(plain)).toEqual([]);
 			const reading = await readMenusOf(doc, preloadOn(0));
 			expect(codesOf(reading)).toEqual([]);
-			expect(nameDefault(reading.doc)).toEqual(householdName);
+			expect(nameDefault(reading.doc)).toBeUndefined();
+			expect(nameAssignment(reading.doc)).toEqual(householdName);
 		});
 
-		it("refuses one reached through an index the app's links do not name, which the read does not walk", async () => {
-			// No link of the app joins a member to its household, so a read of the household
-			// walks `index/parent`; HQ chose the member by `index/mother`.
+		it("adds no refusal of its own on a load whose index the app's links do not name", async () => {
+			// No link of the app joins a member to its household, and HQ chose the member by
+			// `index/mother`: the load itself is what the reading cannot hold. A preload on
+			// the household load reads that load's own case, so it walks no index and adds
+			// nothing to what the reading gives without it.
 			const { doc } = memberFollowup();
-			const reading = await readMenusOf(doc, (app) => {
+			const renamed = (app: MenuAppJson) => {
 				const [, own] = actionsOf(app).load_update_cases;
 				(own?.case_index as Record<string, unknown>).reference_id = "mother";
+			};
+			const plain = await readMenusOf(doc, renamed);
+			const reading = await readMenusOf(doc, (app) => {
+				renamed(app);
 				preloadOn(0)(app);
 			});
-			expect(codesOf(reading)).toContain(OTHER_CASE);
+			expect(codesOf(reading)).not.toContain(OTHER_CASE);
+			expect(codesOf(reading)).toEqual(codesOf(plain));
 			expect(reading.outcome.defects).toEqual([]);
 		});
 	});

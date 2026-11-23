@@ -24,6 +24,7 @@ import {
 	formFieldPath,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
+import { openingAssignmentSource } from "@/lib/domain/formOpeningAssignments";
 import { planPlacements } from "../placement";
 import type { WireIdentity } from "../wireIdentity";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
@@ -132,6 +133,17 @@ export function externalIdentityMap(
 		if (!form.caseSelections)
 			for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {}))
 				add(externalKey.formSelection(form.uuid, tag), uuid as Uuid);
+		for (const assignment of form.openingAssignments ?? []) {
+			const { key: source } = openingAssignmentSource(
+				doc,
+				form.uuid,
+				assignment.source,
+			);
+			add(
+				externalKey.openingAssignment(form.uuid, source, assignment.field),
+				assignment.uuid,
+			);
+		}
 		for (const row of form.caseSelections ?? [])
 			add(externalKey.formSelection(form.uuid, row.tag), row.uuid);
 		for (const row of form.computedDatums ?? [])

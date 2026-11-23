@@ -40,6 +40,7 @@ export const EXTERNAL_ENTITY_KINDS = [
 	"caseOperation",
 	"formSelection",
 	"entryValue",
+	"openingAssignment",
 	"formLink",
 	"entryPoint",
 	"userProperty",
@@ -105,6 +106,9 @@ export type EntryPointOwnerKey =
 export const externalKey = {
 	formSelection(formUuid: Uuid, tag: string): ExternalKey {
 		return { kind: "formSelection", parts: [formUuid, tag] };
+	},
+	openingAssignment(formUuid: Uuid, source: string, field: Uuid): ExternalKey {
+		return { kind: "openingAssignment", parts: [formUuid, source, field] };
 	},
 	entryValue(formUuid: Uuid, key: string): ExternalKey {
 		return { kind: "entryValue", parts: [formUuid, key] };

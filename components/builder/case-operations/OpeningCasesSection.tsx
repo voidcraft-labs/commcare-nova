@@ -20,7 +20,7 @@ import {
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
-import type { CommitOutcome, Uuid } from "@/lib/domain";
+import type { CommitOutcome, FormOpeningAssignment, Uuid } from "@/lib/domain";
 import { term } from "@/lib/domain/expression/builders";
 import type {
 	Expression,
@@ -462,6 +462,256 @@ function ChoiceEditor({
 	);
 }
 
+function OpeningAssignments({
+	controls,
+	canEdit,
+	save,
+}: {
+	controls: Controls;
+	canEdit: boolean;
+	save: (change: FormEntryChange) => CommitOutcome;
+}) {
+	const { form, choices, assignmentQuestions, ownIndex } = controls;
+	const rows = form?.openingAssignments ?? [];
+	const [adding, setAdding] = useState(false);
+	const [pickedField, setPickedField] = useState("");
+	const [pickedSource, setPickedSource] = useState("");
+	const [pickedProperty, setPickedProperty] = useState("case_name");
+	const firstWorker = choices.find(
+		(row) => row.source.kind === "worker-record",
+	);
+	const sources = [
+		...(form?.type === "followup" || form?.type === "close"
+			? [{ value: "own", label: "Form’s record" }]
+			: []),
+		...(!form?.caseSelections || firstWorker
+			? [{ value: "worker-record", label: "Worker’s record" }]
+			: []),
+		...choices.flatMap((choice, index) =>
+			index === ownIndex || firstWorker?.uuid === choice.uuid
+				? []
+				: [{ value: choice.uuid, label: choice.name }],
+		),
+	];
+	const sourceKey = (source: FormOpeningAssignment["source"]) =>
+		source.kind === "selection" ? source.selection : source.kind;
+	const sourceOf = (key: string): FormOpeningAssignment["source"] =>
+		key === "own" || key === "worker-record"
+			? { kind: key }
+			: { kind: "selection", selection: asUuid(key) };
+	const sourceOptions = (row: FormOpeningAssignment) =>
+		sources.some((option) => option.value === sourceKey(row.source))
+			? sources
+			: [
+					...sources,
+					{
+						value: sourceKey(row.source),
+						label:
+							choices.find((choice) => choice.uuid === sourceKey(row.source))
+								?.name ?? "Opening record",
+					},
+				];
+	const sourceAvailable = (field: Uuid, source: string) =>
+		!rows.some(
+			(row) =>
+				row.field === field &&
+				controls.assignmentSource(row.source).key ===
+					controls.assignmentSource(sourceOf(source)).key,
+		);
+	const availableFields = assignmentQuestions.filter((field) =>
+		sources.some((option) => sourceAvailable(field.value, option.value)),
+	);
+	const field =
+		availableFields.find((option) => option.value === pickedField) ??
+		availableFields[0];
+	const availableSources = field
+		? sources.filter((option) => sourceAvailable(field.value, option.value))
+		: [];
+	const source =
+		availableSources.find((option) => option.value === pickedSource) ??
+		availableSources[0];
+	const availableProperties = source
+		? controls.assignmentProperties({
+				source: sourceOf(source.value),
+				property: "case_name",
+			})
+		: [];
+	const property =
+		availableProperties.find((option) => option.value === pickedProperty) ??
+		availableProperties[0];
+	const add = () => {
+		if (!field || !source || !property) return;
+		const supply = sourceOf(source.value);
+		const rank = controls.assignmentSource(supply).rank;
+		const preceding = rows.findLast(
+			(row) => controls.assignmentSource(row.source).rank <= rank,
+		);
+		const outcome = save({
+			operation: "add-assignment",
+			after: preceding?.uuid ?? null,
+			value: {
+				uuid: asUuid(uuidv4()),
+				field: field.value,
+				source: supply,
+				property: property.value,
+			},
+		});
+		if (outcome.ok) setAdding(false);
+	};
+	return (
+		<details className="mt-3">
+			<summary className="cursor-pointer text-sm font-medium">
+				Starting values from records
+			</summary>
+			<ol>
+				{rows.map((row, index) => {
+					const question =
+						assignmentQuestions.find((field) => field.value === row.field)
+							?.label ?? "Question";
+					const update = (
+						patch: Partial<Omit<FormOpeningAssignment, "uuid">>,
+					) => {
+						const { uuid, ...value } = row;
+						return save({
+							operation: "edit-assignment",
+							uuid,
+							value: { ...value, ...patch },
+						});
+					};
+					return (
+						<EntryRow key={row.uuid} title={question}>
+							{canEdit ? (
+								<div className="space-y-2">
+									<Picker
+										label="Question to fill"
+										value={row.field}
+										options={assignmentQuestions}
+										onChange={(id) => update({ field: asUuid(id) })}
+									/>
+									<Picker
+										label="Record to read"
+										value={sourceKey(row.source)}
+										options={sourceOptions(row)}
+										onChange={(id) => update({ source: sourceOf(id) })}
+									/>
+									<Picker
+										label="Value to copy"
+										value={row.property}
+										options={controls.assignmentProperties(row)}
+										onChange={(property) => update({ property })}
+									/>
+									<details>
+										<summary className="cursor-pointer text-sm">
+											Other record property
+										</summary>
+										<InlineField
+											label="Property name"
+											value={row.property}
+											onChange={(property) => update({ property })}
+										/>
+									</details>
+									<InlineField
+										label="Connections to follow, in order"
+										value={
+											row.via?.map((step) => step.identifier).join(" / ") ?? ""
+										}
+										placeholder="Stay on this record"
+										onChange={(text) => {
+											const [first, ...rest] = text
+												.split("/")
+												.map((name) => name.trim())
+												.filter(Boolean);
+											return update({
+												via: first
+													? [
+															{ identifier: first },
+															...rest.map((identifier) => ({ identifier })),
+														]
+													: undefined,
+											});
+										}}
+									/>
+									<OrderActions
+										name={question}
+										ids={rows.map((row) => row.uuid)}
+										index={index}
+										move={(after) =>
+											save({
+												operation: "move-assignment",
+												uuid: row.uuid,
+												after,
+											})
+										}
+										remove={() =>
+											save({ operation: "remove-assignment", uuid: row.uuid })
+										}
+									/>
+								</div>
+							) : (
+								<p>
+									{row.property} from{" "}
+									{
+										sourceOptions(row).find(
+											(option) => option.value === sourceKey(row.source),
+										)?.label
+									}
+								</p>
+							)}
+						</EntryRow>
+					);
+				})}
+			</ol>
+			{canEdit &&
+				field &&
+				source &&
+				property &&
+				(adding ? (
+					<div className="space-y-2 pt-3">
+						<Picker
+							label="Question to fill"
+							value={field.value}
+							options={availableFields}
+							onChange={setPickedField}
+						/>
+						<Picker
+							label="Record to read"
+							value={source.value}
+							options={availableSources}
+							onChange={setPickedSource}
+						/>
+						<Picker
+							label="Value to copy"
+							value={property.value}
+							options={availableProperties}
+							onChange={setPickedProperty}
+						/>
+						<div className="flex gap-2">
+							<Button type="button" onClick={add}>
+								Add starting value
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => setAdding(false)}
+							>
+								Cancel
+							</Button>
+						</div>
+					</div>
+				) : (
+					<Button
+						type="button"
+						variant="outline"
+						className="mt-2"
+						onClick={() => setAdding(true)}
+					>
+						Fill a question from a record
+					</Button>
+				))}
+		</details>
+	);
+}
+
 function EntryRow({ title, children }: { title: string; children: ReactNode }) {
 	return (
 		<li className="border-b border-white/[0.07] py-2 last:border-0">
@@ -629,6 +879,8 @@ export function OpeningCasesSection({ formUuid }: { formUuid: Uuid }) {
 					</Button>
 				)}
 			</details>
+			<OpeningAssignments controls={controls} canEdit={canEdit} save={save} />
+
 			{refusal && (
 				<p role="alert" className="mt-2 text-sm text-nova-rose">
 					{refusal}

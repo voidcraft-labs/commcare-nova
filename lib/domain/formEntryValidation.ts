@@ -1,5 +1,6 @@
 import {
 	formCaseSelections,
+	menuEmittedAdvanced,
 	ownFormSelectionIndex,
 } from "./advancedEntryDatums";
 import { advancedKindBlockers } from "./advancedModule";
@@ -8,7 +9,8 @@ import type { LookupTypeIndex } from "./expression/context";
 import { formStructure } from "./expression/formStructure";
 import type { Expression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
-import type { Form } from "./forms";
+import { openingAssignmentSource } from "./formOpeningAssignments";
+import { type Form, usesFormEntryActions } from "./forms";
 import { USERCASE_CASE_TYPE } from "./usercase";
 import type { Uuid } from "./uuid";
 
@@ -23,7 +25,12 @@ export function validateFormEntryCases(
 	const selected = new Set<Uuid>();
 	const computed = new Set<Uuid>();
 	const supplied = new Set<string>();
-	if (!form.caseSelections && !form.computedDatums?.length) return [];
+	if (
+		!form.caseSelections &&
+		!form.computedDatums?.length &&
+		!form.openingAssignments?.length
+	)
+		return [];
 	const rows = form.caseSelections ?? formCaseSelections(doc, form.uuid);
 	const types = new Set([
 		USERCASE_CASE_TYPE,
@@ -43,7 +50,11 @@ export function validateFormEntryCases(
 		note(
 			"its own record needs a choice from a list of its menu’s record type. You can add that choice or change the form type and its record changes together.",
 		);
-	if (menu && advancedKindBlockers(doc, menu).length)
+	if (
+		menu &&
+		usesFormEntryActions(form) &&
+		advancedKindBlockers(doc, menu).length
+	)
 		note(
 			"its menu settings conflict with this form’s opening choices. You can review the menu’s record selection settings.",
 		);
@@ -121,6 +132,59 @@ export function validateFormEntryCases(
 		if (src.kind === "expression") checkInput(row.name, src.value);
 		selected.add(row.uuid);
 		supplied.add(`case_id_${row.tag}`);
+	}
+	const destinations = new Set<string>();
+	const fields = formStructure(doc, form.uuid)?.fields;
+	let previousSource = -1;
+	for (const assignment of form.openingAssignments ?? []) {
+		const destination = fields?.get(assignment.field);
+		if (
+			!destination ||
+			["group", "repeat", "section"].includes(destination.kind)
+		)
+			note(
+				"a starting record value needs a question in this form. You can choose another question.",
+			);
+		const source = assignment.source;
+		const { rank, key: sourceKey } = openingAssignmentSource(
+			doc,
+			form.uuid,
+			source,
+		);
+		if (
+			rank < 0 ||
+			(source.kind === "own" &&
+				form.type !== "followup" &&
+				form.type !== "close") ||
+			(source.kind === "worker-record" &&
+				form.caseSelections &&
+				!rows.some((row) => row.source.kind === "worker-record"))
+		)
+			note(
+				"a starting value needs a record supplied by this form. You can choose an opening record or the worker’s record.",
+			);
+		const physical = formCaseSelections(doc, form.uuid)[rank];
+		if (
+			assignment.via?.length &&
+			menu &&
+			menuEmittedAdvanced(doc, menu) &&
+			physical?.source.kind === "choose" &&
+			physical.source.under
+		)
+			note(
+				"this record choice already follows another record's connection. You can copy a property directly from this record or use its connected record as a separate opening choice.",
+			);
+		if (rank < previousSource)
+			note(
+				"starting record values follow the order of the records that supply them. You can move this value beside the others from its record.",
+			);
+		const key = `${sourceKey}:${assignment.field}`;
+		if (destinations.has(key))
+			note(
+				"one record can fill a question once when the form opens. You can update the existing starting value.",
+			);
+		previousSource = rank;
+		destinations.add(key);
 	}
 	for (const row of form.computedDatums ?? []) {
 		if (supplied.has(row.key))

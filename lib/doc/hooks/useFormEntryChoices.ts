@@ -4,8 +4,15 @@ import { v4 as uuidv4 } from "uuid";
 import {
 	formCaseSelections,
 	newFormSelectionTag,
+	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
+import {
+	openingAssignmentPropertyType,
+	openingAssignmentSource,
+} from "@/lib/domain/formOpeningAssignments";
+import type { FormOpeningAssignment } from "@/lib/domain/forms";
+import { proseTemplateText } from "@/lib/domain/prose";
 import { entityTargetKey } from "@/lib/domain/referenceIndex";
 import { asUuid, type Uuid } from "@/lib/domain/uuid";
 import type { FormEntryChange } from "../formEntryMutations";
@@ -48,6 +55,42 @@ export function useFormEntryChoices(formUuid: Uuid) {
 	return {
 		form,
 		choices,
+		ownIndex: ownFormSelectionIndex(doc, formUuid),
+		assignmentSource(source: FormOpeningAssignment["source"]) {
+			return openingAssignmentSource(doc, formUuid, source);
+		},
+		assignmentProperties(
+			assignment: Pick<FormOpeningAssignment, "source" | "via" | "property">,
+		) {
+			const type = openingAssignmentPropertyType(doc, formUuid, assignment);
+			const catalog =
+				doc.caseTypes?.find((row) => row.name === type)?.properties ?? [];
+			const options = new Map([
+				["case_name", "Record name"],
+				["owner_id", "Record owner"],
+				["external_id", "External ID"],
+			]);
+			for (const property of catalog)
+				options.set(
+					property.name,
+					proseTemplateText(property.label) || property.name,
+				);
+			if (!options.has(assignment.property))
+				options.set(assignment.property, assignment.property);
+			return [...options].map(([value, label]) => ({ value, label }));
+		},
+		assignmentQuestions: [
+			...(formStructure(doc, formUuid)?.fields.values() ?? []),
+		]
+			.filter((field) => !["group", "section", "repeat"].includes(field.kind))
+			.map((field) => {
+				const question = doc.fields[field.uuid];
+				const label =
+					question && "label" in question && question.label
+						? proseTemplateText(question.label)
+						: "";
+				return { value: field.uuid, label: label || field.id };
+			}),
 		connectionQuestions: [
 			...(formStructure(doc, formUuid)?.fields.values() ?? []),
 		]

@@ -14,7 +14,7 @@ import type { BlueprintDoc } from "./blueprint";
 import { rootSelectionAlignment } from "./entryDatumSupplies";
 import { effectiveFilterForEmission } from "./expression/simplify";
 import { substituteUnansweredSearchInputs } from "./expression/walk";
-import { operationCaseType } from "./forms";
+import { operationCaseType, usesFormEntryActions } from "./forms";
 import {
 	caseSelectionCardinality,
 	moduleFormsReadSearch,
@@ -442,10 +442,7 @@ export function advancedKindBlockers(
 		module.caseType === "commcare-user" ||
 		(doc.formOrder[moduleUuid] ?? []).some((id) => {
 			const form = doc.forms[id];
-			return (
-				form !== undefined &&
-				(form.caseSelections !== undefined || !!form.computedDatums?.length)
-			);
+			return form !== undefined && usesFormEntryActions(form);
 		});
 	if (moduleHasCaseListMenuItem(module) && !formEntryList) {
 		const why = caseListNarrowing(doc, moduleUuid);

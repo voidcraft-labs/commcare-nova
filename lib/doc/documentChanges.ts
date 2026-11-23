@@ -185,6 +185,8 @@ export const CASE_LIST_KEY_PARTS = {
 export const FORM_KEY_PARTS = {
 	heldSelectionTags: "case-changes",
 	caseSelections: "case-changes",
+	openingAssignments: "case-changes",
+	heldBasicOpening: "case-changes",
 	computedDatums: "settings",
 	submitLabel: "settings",
 	entryPoint: "settings",

@@ -8,6 +8,7 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { namedEntrySupplies } from "@/lib/domain/advancedEntryDatums";
+import { openingAssignmentName } from "@/lib/domain/formOpeningAssignments";
 import {
 	type AuthoringScopeOptions,
 	enclosingAuthoringTable,
@@ -173,6 +174,13 @@ export function bindNamedIdentity(args: {
 				scope.inputs ?? module?.caseListConfig?.searchInputs ?? [],
 				(item) => [item.name],
 			);
+			break;
+		case "form-opening-assignment":
+			candidates = formUuid
+				? named(doc.forms[formUuid]?.openingAssignments ?? [], (row) => [
+						openingAssignmentName(doc, formUuid, row),
+					])
+				: [];
 			break;
 		case "form-entry-supply":
 			candidates = formUuid

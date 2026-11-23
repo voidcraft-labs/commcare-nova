@@ -74,6 +74,7 @@ import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { caseById } from "../xpath/wire/rowScope";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
+import { caseOpeningSetvalues } from "./caseOpeningSetvalues";
 
 /**
  * CommCare case-transaction XML namespace. Every `<case>` element on the wire
@@ -217,7 +218,9 @@ function buildCaseBlocks(
 		usercaseAction.condition.type === "always" &&
 		Object.keys(usercaseAction.update).length > 0;
 
+	const ownPreload = actions.case_preload.preload;
 	if (
+		!Object.keys(ownPreload).length &&
 		!isCreate &&
 		!isUpdate &&
 		!isClose &&
@@ -547,6 +550,10 @@ function buildCaseBlocks(
 		if (!ctx) continue;
 		subcasesPerRepeatCtx.set(ctx, (subcasesPerRepeatCtx.get(ctx) ?? 0) + 1);
 	}
+
+	setvalues.push(
+		...caseOpeningSetvalues(ownPreload, selectedCaseIdRef, context),
+	);
 
 	// Subcases — each child-case creation gets a dedicated element named
 	// `subcase_{n}` (or, when it's the sole subcase in a repeat, the

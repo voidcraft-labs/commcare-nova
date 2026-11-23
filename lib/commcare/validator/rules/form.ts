@@ -66,6 +66,7 @@ import { validateFormEntryCases } from "@/lib/domain/formEntryValidation";
 import { freeQuestionId } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
+import { HQ_CASE_RESERVED_WORDS } from "../../constants";
 import { type ValidationError, validationError } from "../errors";
 import {
 	checkErrorDetails,
@@ -1430,6 +1431,21 @@ export function runFormRules(
 			}),
 		),
 	);
+	for (const assignment of form.openingAssignments ?? []) {
+		if (
+			assignment.property !== "case_name" &&
+			HQ_CASE_RESERVED_WORDS.has(assignment.property)
+		) {
+			errors.push(
+				validationError(
+					"FORM_ENTRY_SETUP",
+					"form",
+					`“${assignment.property}” cannot supply a starting record value. You can choose a record property or read this value in the question’s formula.`,
+					baseLocation(ctx),
+				),
+			);
+		}
+	}
 	errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...formSections(doc, ctx));
 	errors.push(...formDisplayCondition(doc, formUuid, moduleUuid, lookupTables));

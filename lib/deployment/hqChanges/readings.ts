@@ -27,6 +27,7 @@ import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import {
 	knownCaseTypesOf,
+	knownFormOpenings,
 	knownLanguageCodesOf,
 	type ReadDraft,
 	type ReaderInput,
@@ -311,7 +312,9 @@ export function* makeHqChangeReadingsSteps(
 			targetWireIdentity(input.overrides),
 		),
 	);
+	const baseSource = sourceFromBaseline(input.baselineSource);
 	const shared = {
+		knownOpenings: knownFormOpenings(reference.doc, baseSource),
 		appId,
 		target: input.target,
 		resolver,
@@ -327,7 +330,6 @@ export function* makeHqChangeReadingsSteps(
 		}),
 	} satisfies Omit<ReaderInput, "source" | "modules" | "media">;
 
-	const baseSource = sourceFromBaseline(input.baselineSource);
 	yield;
 	const baseInput: ReaderInput = {
 		...shared,

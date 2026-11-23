@@ -32,7 +32,11 @@ import { chainLoadOfTarget } from "@/lib/domain/advancedEntryDatums";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
-import type { CaseOperationLink } from "@/lib/domain/forms";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import type {
+	CaseOperationLink,
+	FormOpeningAssignment,
+} from "@/lib/domain/forms";
 import type { PlannedLoad } from "./advancedSelections";
 import { advancedCaseBlockName } from "./advancedTags";
 import {
@@ -76,6 +80,23 @@ import {
 	planGeneratedNodes,
 	trimmedValuePath,
 } from "./xform/generatedNodes";
+
+/** Preserve the order in which HQ appends this load's ready assignments.
+ * A dictionary can address each destination only once per physical load. */
+function openingMap(
+	assignments: readonly FormOpeningAssignment[],
+	fieldPath: (uuid: Uuid) => FormPath,
+): Record<string, string> {
+	return Object.fromEntries(
+		assignments.map((assignment) => [
+			fieldPath(assignment.field).toXPath(),
+			[
+				...(assignment.via ?? []).map((step) => step.identifier),
+				assignment.property === "case_name" ? "name" : assignment.property,
+			].join("/"),
+		]),
+	);
+}
 
 /** A Save to Case block the form's source holds. */
 export interface SaveToCaseBlock {
@@ -393,6 +414,14 @@ function buildPlan(
 		});
 	}
 
+	const assignments = form.openingAssignments?.filter(
+		(row) => row.source.kind === "own",
+	);
+	if (assignments?.length) {
+		actions.case_preload.preload = openingMap(assignments, fieldPath);
+		actions.case_preload.condition = alwaysCondition();
+	}
+
 	const own = operations.find((op) => op.action === "own");
 	const ownPlanned = own === undefined ? undefined : placements.get(own.uuid);
 	const ownBasic = ownPlanned?.placement.kind === "basic";
@@ -664,7 +693,24 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 					? null
 					: identity.moduleUniqueId(load.listModule),
 			case_properties: loadProperties[i] ?? {},
-			preload: {},
+			preload: openingMap(
+				(form.openingAssignments ?? []).filter(({ source }) => {
+					if (source.kind === "own") return load.own;
+					if (source.kind === "worker-record")
+						return (
+							i === advanced.loads.findIndex((candidate) => candidate.worker)
+						);
+					const selected =
+						load.selection?.uuid ??
+						(load.listModule
+							? implicitFormSelectionId(formUuid, load.listModule)
+							: load.worker
+								? implicitFormSelectionId(formUuid, "worker-record")
+								: undefined);
+					return source.selection === selected;
+				}),
+				fieldPath,
+			),
 			close_condition: loadClose[i] ?? neverCondition(),
 			case_index:
 				load.index === undefined

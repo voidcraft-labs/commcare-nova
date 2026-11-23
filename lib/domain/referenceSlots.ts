@@ -1553,7 +1553,13 @@ export type NonReferenceReason =
 	 *  case type). The choice's one slot, `form_selection_source`, owns
 	 *  them: `referenceIndex.extractFormEdges` and the lookup reference walk
 	 *  follow each under that slot, so no second slot names them. */
-	| "selection-source";
+	| "selection-source"
+	/** An identity a form's opening assignment reads (its destination
+	 *  question, its supplying choice, the case types its connections pass
+	 *  through and the property it copies). `referenceIndex.extractFormEdges`
+	 *  follows each under the `opening_assignment` slot, and a property
+	 *  rename rewrites it (`casePropertyRenames.ts`). */
+	| "opening-assignment";
 
 export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	Record<string, NonReferenceReason>
@@ -1608,6 +1614,15 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"computedDatums[].uuid": "identity",
 	"computedDatums[].key": "wire-token",
 	heldSelectionTags: "wire-token",
+	// A value a record supplies to a question when the form opens, and the
+	// marker that an adopted basic form keeps its saved load map.
+	"openingAssignments[].uuid": "identity",
+	"openingAssignments[].field": "opening-assignment",
+	"openingAssignments[].source.kind": "discriminator",
+	"openingAssignments[].source.selection": "opening-assignment",
+	"openingAssignments[].via": "opening-assignment",
+	"openingAssignments[].property": "opening-assignment",
+	heldBasicOpening: "config",
 	"submitLabel.text": "display-text",
 	// An owned entry point declares identity and an external name; it has no expression or foreign reference.
 	"entryPoint.uuid": "identity",

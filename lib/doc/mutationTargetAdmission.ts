@@ -62,9 +62,12 @@ export function mutationTargetsInvalid(
 				const form = ownRecordValue(current.forms, mutation.uuid);
 				if (!form) return true;
 				const change = mutation.entryChange;
-				const members = change.operation.endsWith("-value")
-					? (form.computedDatums ?? [])
-					: formCaseSelections(current, form.uuid);
+				const members: readonly { readonly uuid: string }[] =
+					change.operation.endsWith("-value")
+						? (form.computedDatums ?? [])
+						: change.operation.endsWith("-assignment")
+							? (form.openingAssignments ?? [])
+							: formCaseSelections(current, form.uuid);
 				if (
 					"uuid" in change &&
 					!members.some((row) => row.uuid === change.uuid)
@@ -72,6 +75,7 @@ export function mutationTargetsInvalid(
 					return true;
 				if (
 					"value" in change &&
+					"uuid" in change.value &&
 					members.some((row) => row.uuid === change.value.uuid)
 				)
 					return true;

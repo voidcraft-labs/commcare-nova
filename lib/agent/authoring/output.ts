@@ -52,6 +52,7 @@ import {
 	termSchema,
 	valueSchema,
 } from "@/lib/domain/expression/types";
+import { openingAssignmentName } from "@/lib/domain/formOpeningAssignments";
 import { referenceNames } from "@/lib/domain/referenceNames";
 import { log } from "@/lib/logger";
 import {
@@ -406,11 +407,28 @@ interface ReadProjection {
  * `destinations`, in the order they run, and an otherwise link addressed by
  * `linkUuid` as a destination is. */
 function afterSubmitRead(form: Record<string, unknown>, doc: BlueprintDoc) {
-	const { formLinks, otherwise, caseSelections, ...rest } = form;
+	const { formLinks, otherwise, caseSelections, openingAssignments, ...rest } =
+		form;
 	const read = otherwise === undefined ? undefined : record.parse(otherwise);
 	const { uuid, ...link } = read ?? {};
 	return {
 		...rest,
+		...(openingAssignments !== undefined && {
+			openingAssignments: records.parse(openingAssignments).map((row) => {
+				const uuid = uuidSchema.parse(form.uuid);
+				const assignment = doc.forms[uuid]?.openingAssignments?.find(
+					(one) => one.uuid === row.uuid,
+				);
+				return {
+					...row,
+					field:
+						computeFieldPath(doc, uuidSchema.parse(row.field)) ?? row.field,
+					...(assignment && {
+						name: openingAssignmentName(doc, uuid, assignment),
+					}),
+				};
+			}),
+		}),
 		...(caseSelections !== undefined && {
 			caseSelections: records
 				.parse(caseSelections)

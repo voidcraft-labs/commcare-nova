@@ -98,6 +98,7 @@ import {
 	readActionCondition,
 	statedBack,
 } from "./conditions";
+import { retainOpeningDestinations } from "./openingAssignments";
 import { inWireScopeOrder, ORDER_CLAIMS } from "./operationOrder";
 import {
 	readPreloads,
@@ -125,6 +126,7 @@ export function readCaseManagement(ctx: ReadContext, app: DraftApp): void {
 		readAdvancedMenu(ctx, module);
 		for (const form of module.forms) {
 			if (form.xform === null) continue;
+			retainOpeningDestinations(ctx, form);
 			if (form.docType === "Form") {
 				readBasicActions(ctx, module, form);
 				readPreloads(ctx, module, form);

@@ -408,6 +408,21 @@ export const caseWriteViaSchema = z.tuple(
 );
 export type CaseWriteVia = [RelationStep, ...RelationStep[]];
 
+/** A case editor's one-time assignment after the form's opening defaults.
+ * Its owning load determines when it runs and which selected record it reads. */
+export const formOpeningAssignmentSchema = z.strictObject({
+	uuid: uuidSchema,
+	field: uuidSchema,
+	source: z.discriminatedUnion("kind", [
+		z.strictObject({ kind: z.literal("own") }),
+		z.strictObject({ kind: z.literal("worker-record") }),
+		z.strictObject({ kind: z.literal("selection"), selection: uuidSchema }),
+	]),
+	via: caseWriteViaSchema.optional(),
+	property: authoredCasePropertyNameSchema,
+});
+export type FormOpeningAssignment = z.infer<typeof formOpeningAssignmentSchema>;
+
 export const caseOperationWriteSchema = z.strictObject({
 	property: authoredCasePropertyNameSchema,
 	value: valueSchema,
@@ -803,6 +818,11 @@ export const formSchema = z.strictObject({
 	/** Absent derives the ordinary menu choices. An empty list explicitly opens without a selection. */
 	caseSelections: z.array(formCaseSelectionSchema).optional(),
 	computedDatums: z.array(computedEntryValueSchema).optional(),
+	openingAssignments: z.array(formOpeningAssignmentSchema).optional(),
+	/** The opened record's saved assignment map in an adopted basic form.
+	 * Its case editor preserves that map. New forms get an editor with an
+	 * Add property control for these values. */
+	heldBasicOpening: z.literal(true).optional(),
 	/** The finish button on Web Apps. An absent source uses the platform's
 	 * default; an explicitly empty source is a button with no text. Other
 	 * languages use the form's submit-label translation unit. */
@@ -884,6 +904,25 @@ export const formSchema = z.strictObject({
 	audioLabel: mediaAssetIdSchema.optional(),
 });
 export type Form = z.infer<typeof formSchema>;
+/** A worker starting value runs on an editable worker load. HQ's basic
+ * User Properties editor can create updates, but has no starting-value control. */
+export function opensWithWorkerValue(form: Form): boolean {
+	return Boolean(
+		form.openingAssignments?.some((row) => row.source.kind === "worker-record"),
+	);
+}
+
+export function usesFormEntryActions(form: Form): boolean {
+	return (
+		form.caseSelections !== undefined ||
+		Boolean(form.computedDatums?.length) ||
+		Boolean(
+			form.openingAssignments?.some(
+				(row) => row.source.kind !== "own" || !form.heldBasicOpening,
+			),
+		)
+	);
+}
 
 export type FormKindMetadata = {
 	icon: string;

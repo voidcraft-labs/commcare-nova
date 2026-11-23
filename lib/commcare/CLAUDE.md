@@ -1497,6 +1497,8 @@ prints it. Never repair this by parsing or rewriting emitted text.
 
 ### Case-management scaffolding emission
 
+Newly authored starting values use the advanced case-load editor. An imported basic selected-case preload remains attached to its basic action, which the basic settings serializer preserves. An advanced preload belongs to the actual load tag, including a worker’s automatic load. The XForm builder appends their ordered ready assignments after authored defaults. `knownFormOpenings` compares the actual raw baseline action, destination path and source property when preserving a previously folded default. A new worker preload uses an advanced worker load, which HQ’s load editor can create. Basic User Properties’ saved-only editor retains its existing equivalent-default and refusal rules.
+
 Explicit form opening choices use their stable tags in ordered advanced loads.
 A manual choice names its listing menu and, where present, an earlier supply
 and the direct index name. The index's stored relationship survives a round

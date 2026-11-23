@@ -49,6 +49,7 @@ import { finishForms } from "./xform/afterBinding";
 import { finishText } from "./xform/prose";
 
 export { knownCaseTypesOf } from "./caseManagement/knownCaseTypes";
+export { knownFormOpenings } from "./caseManagement/openingAssignments";
 export { knownLanguageCodesOf } from "./languages";
 export type * from "./types";
 

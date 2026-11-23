@@ -110,7 +110,7 @@ export interface LoadUpdateAction {
 	details_module: string | null;
 	case_properties: Record<string, ConditionalCaseUpdate>;
 	/** Always empty: a preload is a question's default in Nova. */
-	preload: Record<string, never>;
+	preload: Record<string, string>;
 	close_condition: FormActionCondition;
 	case_index: CaseIndex;
 	auto_select: AutoSelectCase | null;

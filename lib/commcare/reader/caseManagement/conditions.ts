@@ -94,7 +94,9 @@ const PRELOAD_CONDITION_ENTRY = `${F}/preload-action-condition`;
  *   serves no null for a condition Nova leaves out;
  * - a preload action's condition stored other than `never` (the Case
  *   Management page saves `case_preload` as `always` with or without a preload),
- *   which Nova writes as `never`, recorded at the condition whole;
+ *   which Nova writes as `never`, recorded at the condition whole, except an
+ *   `always` case preload that assigns values, which Nova writes back as
+ *   stored with the form's opening assignments;
  * - a value of an action stored null where Nova writes the value a new action
  *   holds, which every reader reads alike: a `name_update` (Nova writes a
  *   `ConditionalCaseUpdate`, `casePlacementPlan.ts::planFormCaseWire`, whose
@@ -121,6 +123,16 @@ export function recordRespelledConditions(
 		const action = actions[key];
 		if (!isObject(action) || !isObject(action.condition)) continue;
 		if (conditionType(action.condition) === "never") continue;
+		// A case preload that assigns values keeps them as the form's opening
+		// assignments, which Nova writes back as an `always` load
+		// (`casePlacementPlan.ts::buildPlan`): that spelling stands as stored.
+		if (
+			key === "case_preload" &&
+			conditionType(action.condition) === "always" &&
+			isObject(action.preload) &&
+			Object.keys(action.preload).length > 0
+		)
+			continue;
 		const at = `${pointer}/${key}/condition`;
 		whole.add(at);
 		ctx.facts.sameStateRewrites.push({

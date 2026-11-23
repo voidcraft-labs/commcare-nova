@@ -8,11 +8,27 @@ import {
 	type FormCaseSelection,
 	formCaseSelectionSchema,
 } from "@/lib/domain/formEntryCases";
+import { formOpeningAssignmentSchema } from "@/lib/domain/forms";
 import { type Uuid, uuidSchema } from "@/lib/domain/uuid";
 import { spliceEntryAfter } from "./mutations/sequence";
 
 const after = uuidSchema.nullable();
 export const formEntrySharedOperations = [
+	z.strictObject({
+		operation: z.literal("edit-assignment"),
+		uuid: uuidSchema,
+		value: formOpeningAssignmentSchema.omit({ uuid: true }),
+	}),
+	z.strictObject({
+		operation: z.literal("remove-assignment"),
+		uuid: uuidSchema,
+	}),
+	z.strictObject({
+		operation: z.literal("move-assignment"),
+		uuid: uuidSchema,
+		after,
+	}),
+
 	z.strictObject({ operation: z.literal("use-form-choices") }),
 	z.strictObject({ operation: z.literal("use-menu-choices") }),
 	z.strictObject({ operation: z.literal("remove-choice"), uuid: uuidSchema }),
@@ -35,6 +51,11 @@ export const formEntrySharedOperations = [
 ] as const;
 export const formEntryChangeSchema = z.discriminatedUnion("operation", [
 	...formEntrySharedOperations,
+	z.strictObject({
+		operation: z.literal("add-assignment"),
+		value: formOpeningAssignmentSchema,
+		after: after.optional(),
+	}),
 	z.strictObject({
 		operation: z.literal("add-choice"),
 		value: formCaseSelectionSchema,
@@ -68,6 +89,43 @@ export function applyFormEntryChange(
 		];
 	const values = (): ComputedEntryValue[] => form.computedDatums ?? [];
 	switch (change.operation) {
+		case "add-assignment": {
+			const rows = form.openingAssignments ?? [];
+			if (!rows.some((row) => row.uuid === change.value.uuid))
+				form.openingAssignments = spliceEntryAfter(
+					rows,
+					structuredClone(change.value),
+					change.after,
+				);
+			return;
+		}
+		case "edit-assignment": {
+			if (form.openingAssignments)
+				form.openingAssignments = form.openingAssignments.map((row) =>
+					row.uuid === change.uuid
+						? { ...structuredClone(change.value), uuid: row.uuid }
+						: row,
+				);
+			return;
+		}
+		case "remove-assignment": {
+			const remaining = form.openingAssignments?.filter(
+				(row) => row.uuid !== change.uuid,
+			);
+			if (remaining?.length) form.openingAssignments = remaining;
+			else {
+				delete form.openingAssignments;
+				delete form.heldBasicOpening;
+			}
+			return;
+		}
+		case "move-assignment": {
+			const rows = form.openingAssignments ?? [];
+			const row = rows.find((row) => row.uuid === change.uuid);
+			if (row)
+				form.openingAssignments = spliceEntryAfter(rows, row, change.after);
+			return;
+		}
 		case "use-form-choices":
 			form.caseSelections ??= choices();
 			return;
