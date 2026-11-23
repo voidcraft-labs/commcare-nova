@@ -870,6 +870,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		use: slotUse("help-media", FIELD_OWNER, "help_media"),
 	},
+	"label-qr-code": {
+		with: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Show this card"),
+				qr_code: "PATIENT-17",
+			}),
+		without: () =>
+			oneField({
+				kind: "label",
+				id: "card",
+				label: proseText("Show this card"),
+			}),
+		use: slotUse("label-qr-code", FIELD_OWNER, "qr_code"),
+	},
+	"label-spoken-text": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+				spoken_text: "Say the answer",
+			}),
+		without: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+			}),
+		use: slotUse("label-spoken-text", FIELD_OWNER, "spoken_text"),
+	},
 	now: calculatePair("now", "now()"),
 	today: calculatePair("today", "today()"),
 	"random-and-unique-id": calculatePair("random-and-unique-id", "random()"),

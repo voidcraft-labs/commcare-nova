@@ -19,6 +19,7 @@ import {
 import { recordFromEntries } from "@/lib/domain/records";
 import {
 	hasGeneratedWording,
+	LABEL_TEXT_SLOT_OF_ROLE,
 	snapshotTranslationUnits,
 	type TranslationUnit,
 	translatedProseValueMode,
@@ -95,12 +96,16 @@ export function sourceSlotWriter(
 		case "field-label":
 		case "field-hint":
 		case "field-help":
-		case "field-validation-message": {
+		case "field-validation-message":
+		case "field-extended-text":
+		case "field-qr-code":
+		case "field-spoken-text": {
 			const slot = {
 				"field-label": "label",
 				"field-hint": "hint",
 				"field-help": "help",
 				"field-validation-message": "validate_msg",
+				...LABEL_TEXT_SLOT_OF_ROLE,
 			}[unit.role];
 			return owner.kind === "field"
 				? (draft, value) => {

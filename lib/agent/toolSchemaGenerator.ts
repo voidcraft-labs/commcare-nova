@@ -117,6 +117,12 @@ const FIELD_DOCS = {
 	label: "Visible wording. Empty labels hide group chrome or repeat titles.",
 	hint: "Short guidance below the question.",
 	help: "Longer guidance opened on demand.",
+	extended_text:
+		"Text shown in place of the label where the label shows exactly as typed (plain_label, or a form with plain_text). Android also reads it aloud where the worker turned text to speech on and the question has no spoken_text. A formatted label shows itself instead. null removes it.",
+	qr_code:
+		"Text Android draws as a QR code beside the question, in place of the label's image. Web Apps shows no QR code. null removes it.",
+	spoken_text:
+		"Text Android reads aloud from a speaker button beside the question, when the label has no audio. Web Apps shows no speaker button. null removes it.",
 	required: "Require an answer when this condition holds.",
 	validate: "Answer validation; . refers to this question's value.",
 	validate_msg: "Explanation shown when validation fails.",
@@ -198,6 +204,20 @@ const hintField = () =>
 	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.hint);
 const helpField = () =>
 	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.help);
+const labelTextFields = () => ({
+	extended_text: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.extended_text),
+	qr_code: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.qr_code),
+	spoken_text: proseTemplateSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.spoken_text),
+});
 const relevantField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
@@ -435,6 +455,9 @@ const ADD_GATED_KEYS = [
 	"webSignature",
 	"choiceLayout",
 	"label",
+	"extended_text",
+	"qr_code",
+	"spoken_text",
 	"hint",
 	"help",
 	"required",
@@ -685,6 +708,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			parentUuid: parentUuidField(),
 			label: labelField(),
 			plain_label: plainLabelField(),
+			...labelTextFields(),
 			...questionDisplayFields(),
 			hint: hintField(),
 			help: helpField(),
@@ -805,6 +829,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				.describe("New id to rename to; leave it out to keep the current id."),
 			label: labelField(),
 			plain_label: plainLabelField(),
+			...labelTextFields(),
 			...questionDisplayFields(),
 			hint: hintField(),
 			help: helpField(),

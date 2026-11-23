@@ -238,6 +238,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"plain-text",
 	"choice-media",
 	"help-media",
+	"label-qr-code",
+	"label-spoken-text",
 	"now",
 	"today",
 	"random-and-unique-id",
@@ -572,6 +574,24 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "it shows only when the help has text",
 		},
 		android: { reading: "runs" },
+	},
+	"label-qr-code": {
+		label: "QR code on a question",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the question shows no QR code" },
+		android: {
+			reading: "runs",
+			note: "it takes the place of the question's image",
+		},
+	},
+	"label-spoken-text": {
+		label: "Spoken text on a question",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the question has no speaker button" },
+		android: {
+			reading: "different",
+			note: "the speaker button shows only when the question has no audio",
+		},
 	},
 	now: {
 		label: "now()",

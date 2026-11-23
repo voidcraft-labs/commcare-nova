@@ -17,6 +17,11 @@ import {
 	generatedWordingUnits,
 } from "./generatedWording";
 import {
+	LABEL_TEXT_SLOTS,
+	type LabelTextSlot,
+	labelTextOf,
+} from "./labelForms";
+import {
 	effectiveAppLocalization,
 	type LanguageTag,
 	type LocalizedValue,
@@ -55,6 +60,9 @@ export const translationUnitRoles = [
 	"field-hint",
 	"field-help",
 	"field-validation-message",
+	"field-extended-text",
+	"field-qr-code",
+	"field-spoken-text",
 	"select-option-label",
 	"case-list-header",
 	"case-list-sort-label",
@@ -71,6 +79,23 @@ export const translationUnitRoles = [
 	"case-property-option-label",
 ] as const;
 export type TranslationUnitRole = (typeof translationUnitRoles)[number];
+
+/** The translation role of each label text slot (`labelForms.ts`). */
+export const LABEL_TEXT_ROLES = {
+	extended_text: "field-extended-text",
+	qr_code: "field-qr-code",
+	spoken_text: "field-spoken-text",
+} as const satisfies Readonly<Record<LabelTextSlot, TranslationUnitRole>>;
+export type LabelTextRole = (typeof LABEL_TEXT_ROLES)[LabelTextSlot];
+
+/** The label text slot a role translates. */
+export const LABEL_TEXT_SLOT_OF_ROLE: Readonly<
+	Record<LabelTextRole, LabelTextSlot>
+> = {
+	"field-extended-text": "extended_text",
+	"field-qr-code": "qr_code",
+	"field-spoken-text": "spoken_text",
+};
 
 export const translationUnitOwnerKinds = [
 	"app",
@@ -366,7 +391,11 @@ function fieldUnits(
 		const addProse = (
 			role: Extract<
 				TranslationUnitRole,
-				"field-label" | "field-hint" | "field-help" | "field-validation-message"
+				| "field-label"
+				| "field-hint"
+				| "field-help"
+				| "field-validation-message"
+				| LabelTextRole
 			>,
 			slot: string,
 			value: ProseTemplate | undefined,
@@ -390,6 +419,8 @@ function fieldUnits(
 			"label",
 			"label" in field ? field.label : undefined,
 		);
+		for (const slot of LABEL_TEXT_SLOTS)
+			addProse(LABEL_TEXT_ROLES[slot], slot, labelTextOf(field, slot));
 		addProse("field-hint", "hint", "hint" in field ? field.hint : undefined);
 		addProse("field-help", "help", "help" in field ? field.help : undefined);
 		addProse(
@@ -1129,6 +1160,14 @@ export function translationUnitProseSlot(
 			return { entity: "field", uuid: owner.fieldUuid, slot: "help" };
 		case "field-validation-message":
 			return { entity: "field", uuid: owner.fieldUuid, slot: "validate_msg" };
+		case "field-extended-text":
+		case "field-qr-code":
+		case "field-spoken-text":
+			return {
+				entity: "field",
+				uuid: owner.fieldUuid,
+				slot: LABEL_TEXT_SLOT_OF_ROLE[unit.role],
+			};
 		default:
 			return undefined;
 	}

@@ -55,7 +55,14 @@ function fieldProseSlot(
 	if (fieldUuid === undefined) return undefined;
 	if (local.length === 1) {
 		const [slot] = local;
-		if (slot === "label" || slot === "hint" || slot === "help")
+		if (
+			slot === "label" ||
+			slot === "hint" ||
+			slot === "help" ||
+			slot === "extended_text" ||
+			slot === "qr_code" ||
+			slot === "spoken_text"
+		)
 			return { entity: "field", uuid: fieldUuid, slot };
 		return undefined;
 	}

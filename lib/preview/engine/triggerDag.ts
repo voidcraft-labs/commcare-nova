@@ -5,6 +5,7 @@ import {
 import { formReads } from "@/lib/commcare/xpath/wire/formReads";
 import {
 	type BlueprintDoc,
+	FIELD_PROSE_SLOTS,
 	type Field,
 	fieldProseTemplate,
 	type Uuid,
@@ -920,8 +921,8 @@ export class TriggerDag {
 		add("calculate", "calculate", "trigger");
 		add("required", "required", "metadata");
 		add("validate", "validation", "settle-free");
-		const templates = (["label", "hint", "help", "validate_msg"] as const).map(
-			(slot) => fieldProseTemplate(field, slot),
+		const templates = FIELD_PROSE_SLOTS.map((slot) =>
+			fieldProseTemplate(field, slot),
 		);
 		if (
 			(field.kind === "single_select" || field.kind === "multi_select") &&
