@@ -392,6 +392,20 @@ export function webAppsWhereMissing(narrowing: PlatformNarrowing): string {
 }
 
 /**
+ * What a person can do where the project space's plan has no Geocoder: turn
+ * off Find an address on the questions named, which then take typed text,
+ * or, where the app's content allows it, run the app on Android only, where
+ * an address question takes typed text and nothing is asked of the plan.
+ */
+export function geocoderWhereMissing(narrowing: PlatformNarrowing): string {
+	const typed =
+		"Where the plan doesn't include it, you can turn off Find an address on these questions, and workers type the address as ordinary text.";
+	return narrowing.open
+		? `${typed} If this app's workers use Android alone, you can instead set it to run on Android only, in App settings, and publishing no longer asks about Geocoder.`
+		: typed;
+}
+
+/**
  * What a person can do where the project space syncs cases on form entry:
  * turn it off, or, where the app's content allows it, run the app in Web
  * Apps only, where the claim does no harm.

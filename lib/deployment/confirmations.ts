@@ -39,6 +39,7 @@ import {
 	FLAT_LOCATION_FIXTURE,
 	FORM_ENTRY_SYNC_OFF,
 	formEntrySyncWhereMissing,
+	geocoderWhereMissing,
 	isPlanFeatureId,
 	type PlanFeatureCheck,
 	type PlanFeatureId,
@@ -144,7 +145,8 @@ export function requiredConfirmations(
 /**
  * What a person can do where the project space lacks a plan feature, for the
  * features where Nova has something to offer: Web Apps, which an app can do
- * without by running on Android only, and Save to Case, whose case changes
+ * without by running on Android only; Geocoder, whose address questions can
+ * take typed text instead, or run on Android only; and Save to Case, whose case changes
  * Nova can move to Case Management where every one of them fits there.
  */
 function planFeatureWhereMissing(
@@ -155,6 +157,8 @@ function planFeatureWhereMissing(
 	switch (feature) {
 		case "web-apps":
 			return webAppsWhereMissing(narrowingTo(doc, "android"));
+		case "geocoder":
+			return geocoderWhereMissing(narrowingTo(doc, "android"));
 		case "advanced-case-actions":
 			return saveToCaseWhereMissing(
 				placementMoveOffer(doc, "save-to-case") !== null,

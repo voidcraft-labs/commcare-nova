@@ -1510,7 +1510,10 @@ describe("address search in Web Apps", () => {
 				reasons: [
 					"Visit has a question that searches for an address in Web Apps.",
 				],
-				whereMissing: null,
+				/* The question can take typed text, and the app can run on
+				 * Android alone, where publishing asks nothing of the plan. */
+				whereMissing:
+					"Where the plan doesn't include it, you can turn off Find an address on these questions, and workers type the address as ordinary text. If this app's workers use Android alone, you can instead set it to run on Android only, in App settings, and publishing no longer asks about Geocoder.",
 			});
 			expect(allRequests(peer)).toEqual([]);
 		});
