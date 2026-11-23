@@ -28,7 +28,13 @@ import {
 	type Module,
 	moduleFormsReadSearch,
 } from "@/lib/domain";
-import { checkExpression, scalarDataType } from "@/lib/domain/expression";
+import {
+	checkExpression,
+	type Expression,
+	type ExpressionContext,
+	type ScalarType,
+	scalarDataType,
+} from "@/lib/domain/expression";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -277,40 +283,24 @@ export function caseListOrderOptions(
 			const reached = columnPropertyCaseType({ via }, mod.caseType, caseTypes);
 			return caseTypes.find((type) => type.name === reached)?.properties;
 		},
-		sortType: (sort) => {
-			const context = expressions({
-				slot: "case_list_sort_expression",
-				member: { sortUuid: sort.uuid },
-			});
-			const result = checkExpression(sort.expression, context);
-			return result.errors.length
-				? undefined
-				: scalarDataType(result.type?.data);
-		},
-		calculatedType: (column) => {
-			if (column.kind !== "calculated") return undefined;
-			const context = expressions({
-				slot: "case_list_column_expression",
-				member: { columnUuid: column.uuid },
-			});
-			const outcome = checkExpression(column.expression, context);
-			// A leaf a declared platform lacks types as it does on any other,
-			// so a document whose declaration is still to be settled (a
-			// reading's) orders by the type no declaration narrows.
-			const platformOnly =
-				outcome.errors.length > 0 &&
-				outcome.errors.every(
-					(error) =>
-						error.code === "arm-unavailable" &&
-						error.reason === "platform-unavailable",
-				);
-			const typed = platformOnly
-				? checkExpression(column.expression, { ...context, platforms: [] })
-				: outcome;
-			return typed.errors.length > 0
-				? undefined
-				: scalarDataType(typed.type?.data);
-		},
+		sortType: (sort) =>
+			orderValueType(
+				sort.expression,
+				expressions({
+					slot: "case_list_sort_expression",
+					member: { sortUuid: sort.uuid },
+				}),
+			),
+		calculatedType: (column) =>
+			column.kind === "calculated"
+				? orderValueType(
+						column.expression,
+						expressions({
+							slot: "case_list_column_expression",
+							member: { columnUuid: column.uuid },
+						}),
+					)
+				: undefined,
 		expressionText: (column) =>
 			hqExpressionFieldText(
 				column,
@@ -322,6 +312,30 @@ export function caseListOrderOptions(
 				columnRewrites?.(column.uuid),
 			),
 	};
+}
+
+/**
+ * The type an order value orders by. A leaf a declared platform lacks types
+ * as it does on any other, so a document whose declaration is still to be
+ * settled (a reading's) orders by the type no declaration narrows, the one
+ * it orders by once the declaration that admits the leaf is chosen.
+ */
+function orderValueType(
+	expression: Expression,
+	context: ExpressionContext,
+): ScalarType | undefined {
+	const outcome = checkExpression(expression, context);
+	const platformOnly =
+		outcome.errors.length > 0 &&
+		outcome.errors.every(
+			(error) =>
+				error.code === "arm-unavailable" &&
+				error.reason === "platform-unavailable",
+		);
+	const typed = platformOnly
+		? checkExpression(expression, { ...context, platforms: [] })
+		: outcome;
+	return typed.errors.length > 0 ? undefined : scalarDataType(typed.type?.data);
 }
 
 /** The reader's control over one calculated column's print, by the column's UUID, asked once
