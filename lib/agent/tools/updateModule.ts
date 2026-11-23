@@ -140,8 +140,9 @@ export const updateModuleInputSchema = moduleAddressSchema
 				"true shows this module's forms, and its case list item, in the menu above with no entry for the " +
 					"module itself: on the app's first menu for a top-level module, in its parent for a submenu. null " +
 					"gives the module its own screen again, omission keeps it. A module that shows its forms above has " +
-					"no screen of its own: it takes no search and no registration from its case list, no entry point " +
-					"or case list entry point, and can be no after-submit link's target and no form's module " +
+					"no screen of its own: it keeps an ordinary search, but its case list shows no Search or Register " +
+					"button, its forms can't read the search, it takes no registration from its case list, no entry " +
+					"point or case list entry point, and can be no after-submit link's target and no form's module " +
 					"destination. A form listed on the app's first menu can't go to the previous screen after " +
 					"submit. Its submenus show on the app's first menu. Its name and icon are kept and not shown.",
 			),
