@@ -1,5 +1,46 @@
 [
 	{
+		"id": "hq-advanced/a-calculation-shares-an-opening-record-name",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/opening-values-sharing-a-physical-session-name",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/forms/0/arbitrary_datums",
+			"value": [
+				{
+					"doc_type": "ArbitraryDatum",
+					"datum_id": "case_id_load_household0",
+					"datum_function": "'ready'"
+				}
+			]
+		}
+	},
+	{
+		"id": "hq-advanced/a-connection-uses-a-name-its-parent-replaced",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent",
+		"standing": "fix-in-hq",
+		"place": {
+			"kind": "form",
+			"menu": 2,
+			"form": 0,
+			"menuName": "Member reviews",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "named",
+			"name": "connection_from_a_parent_aligned_load"
+		}
+	},
+	{
 		"id": "hq-advanced/advanced-menu-with-a-narrowed-case-list-item",
 		"base": "hq-advanced",
 		"entry": "menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",

@@ -75,6 +75,31 @@ public class IndependentFormChoicesRuntimeTest {
         assertNull(entry.getAssertions().getAssertionFailure(session.getEvaluationContext(runtime)));
     }
 
+    @Test public void backSkipsTheOnlyMatchingContactWhenTheEntryHasNoConfirmation() throws Exception {
+        JSONObject form = AdvancedFormRuntimeTest.app(NAME).getJSONArray("modules").getJSONObject(0)
+            .getJSONArray("forms").getJSONObject(1);
+        String file = NAME + ".m0f1" + (hq ? ".hq.xml" : ".xml");
+        new SuiteFormRun("case", NAME, hq, file, form.getString("xmlns"), record -> {
+            if ("person-1".equals(record.getCaseId())) record.setName("Ada");
+        }, (session, runtime, entry) -> {
+            choose(session, runtime, "case_id_person", "person-2");
+            EntityDatum contact = (EntityDatum)nextInput(session, runtime);
+            assertEquals("case_id_contact", contact.getDataId());
+            assertNull(contact.getLongDetail());
+            EvaluationContext context = session.getEvaluationContext(runtime);
+            TreeReference automatic = contact.getCurrentAutoselectableCase(context);
+            assertNotNull(automatic);
+            String id = (String)context.resolveReference(automatic).getAttribute(null, "case_id").getValue().getValue();
+            assertEquals("person-1", id);
+            session.setEntityDatum(contact.getDataId(), id);
+            assertNull(nextInput(session, runtime));
+            session.stepBack(session.getEvaluationContext(runtime));
+            assertEquals("case_id_person", session.getNeededDatum().getDataId());
+            choose(session, runtime, "case_id_person", "person-3");
+            session.setEntityDatum(contact.getDataId(), id);
+        });
+    }
+
     @Test public void backingUpClearsLaterValuesAndSubmissionUsesTheNewPair() throws Exception {
         JSONObject form = AdvancedFormRuntimeTest.app(NAME).getJSONArray("modules").getJSONObject(0)
             .getJSONArray("forms").getJSONObject(0);

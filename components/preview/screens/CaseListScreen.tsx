@@ -271,6 +271,7 @@ import {
 import {
 	type WorkerListPurpose,
 	workerListDocument,
+	workerListExcludedOwners,
 	workerListFor,
 } from "@/lib/preview/workerModule";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
@@ -360,6 +361,7 @@ interface PreviewChoiceStep {
 
 interface CaseListScreenProps {
 	entryStep?: {
+		readonly chosenCaseIds: Readonly<Record<string, string>>;
 		readonly sessionData: Readonly<Record<string, string>>;
 		readonly confirms: boolean;
 		readonly autoSelectSingle: boolean;
@@ -368,7 +370,7 @@ interface CaseListScreenProps {
 			readonly caseType: string;
 			readonly identifier: string;
 		};
-		readonly onChoose: (choice: PreviewCaseChoice) => void;
+		readonly onChoose: (choice: PreviewCaseChoice, automatic: boolean) => void;
 	};
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
@@ -641,7 +643,10 @@ export function CaseListScreen({
 	const stepSession = useMemo(
 		() =>
 			entryStep
-				? { ...ordinaryStep, data: entryStep.sessionData }
+				? {
+						chosenCaseIds: entryStep.chosenCaseIds,
+						data: entryStep.sessionData,
+					}
 				: ordinaryStep,
 		[entryStep, ordinaryStep],
 	);
@@ -952,13 +957,32 @@ export function CaseListScreen({
 	const activeSearchInputValues = searchActionIsRelevant
 		? searchRun.submitted
 		: undefined;
+	/* After the no-matches form registers a case, Results shows exactly that
+	 * case: the wire's return frame re-keys the inline search to the new
+	 * case id (`CaseListFormWorkflow`), and Search again starts over. */
+	const registeredCaseIds = useMemo(
+		() =>
+			searchState?.kind === "completed" &&
+			searchState.registeredCaseId !== undefined
+				? [searchState.registeredCaseId]
+				: undefined,
+		[searchState],
+	);
+	/* A completed or submitted search's Results read HQ's search population,
+	 * not the worker's restore; so do the reads of cases chosen from them. */
+	const readsSearchResults =
+		registeredCaseIds !== undefined || activeSearchInputValues !== undefined;
 	/* Assigned-case exclusions constrain the Results population itself. They
 	 * therefore apply on the first load, with or without a visible Search
 	 * screen, and remain active when a worker clears or removes Search fields.
 	 * Read the stored rule rather than the effective Search action: the private
 	 * `searchActionEnabled: false` provenance marker suppresses Search without
 	 * suppressing this independent Results rule. */
-	const excludedOwnerIdsExpression = mod?.caseSearchConfig?.excludedOwnerIds;
+	const excludedOwnerIdsExpression = workerListExcludedOwners(
+		mod,
+		listPurpose,
+		readsSearchResults,
+	);
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		caseType?.name,
@@ -1408,21 +1432,6 @@ export function CaseListScreen({
 						),
 		[entryStep, listPurpose, menuSource.doc, moduleUuid, selectedParentCases],
 	);
-	/* After the no-matches form registers a case, Results shows exactly that
-	 * case: the wire's return frame re-keys the inline search to the new
-	 * case id (`CaseListFormWorkflow`), and Search again starts over. */
-	const registeredCaseIds = useMemo(
-		() =>
-			searchState?.kind === "completed" &&
-			searchState.registeredCaseId !== undefined
-				? [searchState.registeredCaseId]
-				: undefined,
-		[searchState],
-	);
-	/* A completed or submitted search's Results read HQ's search population,
-	 * not the worker's restore; so do the reads of cases chosen from them. */
-	const readsSearchResults =
-		registeredCaseIds !== undefined || activeSearchInputValues !== undefined;
 	/* A search action's claim is its remote request's own post, posted as
 	 * soon as a result is chosen; a menu whose forms read the search posts
 	 * as the form opens. */
@@ -1944,7 +1953,7 @@ export function CaseListScreen({
 		selectsForParentRequest,
 	});
 	const routeCaseGoesOnRef = useRef<
-		((row: CaseRowWithCalculated) => void) | null
+		((row: CaseRowWithCalculated, automatic?: boolean) => void) | null
 	>(null);
 	const routeCaseWentOnRef = useRef<string | null>(null);
 	const displayedOpenCase = routeCaseId
@@ -2437,7 +2446,7 @@ export function CaseListScreen({
 			return;
 		automaticallyChosen.current = true;
 		if (entryStep.confirms) setOpenCase(loadedRows[0]);
-		else routeCaseGoesOnRef.current?.(loadedRows[0]);
+		else routeCaseGoesOnRef.current?.(loadedRows[0], true);
 	}, [entryStep, current, state, loadedRows, filterText]);
 
 	if (mod === undefined) {
@@ -2656,26 +2665,27 @@ export function CaseListScreen({
 	 * when there's no detail). Forms-first → straight into the tapped form;
 	 * case-first → the menu's forms, however many it shows: a menu's command
 	 * names no entry, so CommCare lists the menu (`previewRequestedForm`). */
-	const proceedWithCase = (row: CaseRowWithCalculated) => {
+	const proceedWithCase = (row: CaseRowWithCalculated, automatic = false) => {
 		const claimed = claimedAtResult(row);
 		if (claimed.length === 0) {
-			continueWithChosenCase(row, claimed);
+			continueWithChosenCase(row, claimed, automatic);
 			return;
 		}
 		/* The claim posts as the result is chosen, and the choice goes on once
 		 * it has landed; one that did not land keeps the worker on the list
 		 * with the reason shown. */
 		void postClaim(claimed).then((landed) => {
-			if (landed) continueWithChosenCase(row, claimed);
+			if (landed) continueWithChosenCase(row, claimed, automatic);
 		});
 	};
 	routeCaseGoesOnRef.current = proceedWithCase;
 	const continueWithChosenCase = (
 		row: CaseRowWithCalculated,
 		claimed: readonly string[],
+		automatic = false,
 	) => {
 		if (entryStep) {
-			entryStep.onChoose(previewCaseChoiceOf(row));
+			entryStep.onChoose(previewCaseChoiceOf(row), automatic);
 			return;
 		}
 		if (openedFromCaseListMenuItem) {

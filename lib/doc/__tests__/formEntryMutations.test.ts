@@ -5,12 +5,16 @@ import {
 	advancedFixture,
 	HOUSEHOLDS,
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
+import { placementsToHold } from "@/lib/commcare/placementHolds";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { literal, term } from "@/lib/domain/expression/builders";
 import type { FormCaseSelection } from "@/lib/domain/formEntryCases";
 import { diffDocsToMutations } from "../diffDocsToMutations";
 import type { FormEntryChange } from "../formEntryMutations";
+import { withIdentityMoves } from "../identityMoves";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 import { applyMutations } from "../mutations";
 import { mutationTargetsInvalid } from "../mutationTargetAdmission";
 import type { Mutation } from "../types";
@@ -34,6 +38,65 @@ const apply = (doc: BlueprintDoc, changes: Mutation[]) =>
 	});
 
 describe("editing a form's incoming records and values", () => {
+	it("reviews changing or dropping a published no-write choice and preserves its neighbor and ordinary labels", () => {
+		const { doc, formUuid } = advancedFixture({
+			formType: "followup",
+			operations: () => [],
+		});
+		const extra = choice("referrer");
+		const { uuid } = extra;
+		const edited = apply(doc, [
+			supply(formUuid, { operation: "add-choice", value: extra }),
+		]);
+		const published = apply(edited, [
+			{ kind: "holdPlacements", holds: [...placementsToHold(edited)] },
+		]);
+		expect(published.forms[formUuid].heldSelectionTags?.[uuid]).toBe(
+			"referrer",
+		);
+		const named = supply(formUuid, {
+			operation: "edit-choice",
+			uuid,
+			patch: { name: "Referring household" },
+		});
+		expect(withIdentityMoves(published, [named]).moves).toEqual([]);
+		const change = supply(formUuid, {
+			operation: "edit-choice",
+			uuid,
+			patch: { tag: "source" },
+		});
+		const previous = published;
+		for (const [mutation, tag] of [
+			[change, "source"],
+			[supply(formUuid, { operation: "use-menu-choices" }), undefined],
+			[supply(formUuid, { operation: "remove-choice", uuid }), undefined],
+		] as const) {
+			const unreviewed = apply(previous, [mutation]);
+			expect(
+				runValidation(unreviewed, LOOKUP_CONTEXT_UNAVAILABLE).some(
+					(error) => error.code === "HELD_PLACEMENT_INEXPRESSIBLE",
+				),
+			).toBe(true);
+			const plan = withIdentityMoves(previous, [mutation]);
+			expect(plan.moves).toHaveLength(1);
+			expect(plan.moves[0].subject).toEqual({
+				kind: "form-selection",
+				formUuid,
+				selectionUuid: uuid,
+			});
+			const after = apply(previous, [...plan.batch]);
+			expect(after.forms[formUuid].heldSelectionTags?.[uuid]).toBe(tag);
+			expect(
+				runValidation(after, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+					(error) => error.code === "HELD_PLACEMENT_INEXPRESSIBLE",
+				),
+			).toEqual([]);
+			expect(
+				apply(after, diffDocsToMutations(after, previous)).forms[formUuid],
+			).toEqual(previous.forms[formUuid]);
+		}
+	});
+
 	it("keeps an implied menu choice's identity, checks stale anchors and edits each row without disturbing its neighbor", () => {
 		const { doc, formUuid } = advancedFixture({
 			formType: "followup",

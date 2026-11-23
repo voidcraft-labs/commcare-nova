@@ -1,15 +1,13 @@
 import { produce } from "immer";
 import { z } from "zod";
-import {
-	formLinkProjectionContext,
-	formLinkTargetDatumIds,
-} from "@/lib/commcare/formLinkProjection";
+import { formLinkProjectionContext } from "@/lib/commcare/formLinkProjection";
 import type { FormParseScope } from "@/lib/commcare/xpath/formParseScope";
 import { parseAuthoredFormExpression } from "@/lib/doc/expressionText";
 import {
 	applyFormEntryChange,
 	formEntryChangeSchema,
 } from "@/lib/doc/formEntryMutations";
+import { namedFormLinkTargetDatums } from "@/lib/doc/formLinkReview";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import {
 	type BlueprintDoc,
@@ -38,6 +36,7 @@ import {
 	type FieldExpressionSlotRef,
 	type FormExpressionSlotRef,
 	formLinkDatumNameSchema,
+	formLinkSelectionName,
 } from "@/lib/domain/expression/types";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
@@ -657,16 +656,17 @@ export function prepareFormAuthoring(args: {
 				const targetNames =
 					resolved === undefined
 						? []
-						: formLinkTargetDatumIds(doc, projection, resolved);
+						: namedFormLinkTargetDatums(doc, projection, resolved);
 				const datums = objects.parse(link.datums ?? []).map((datum) => {
 					if (typeof datum.name !== "string")
 						return formLinkDatumNameSchema.parse(datum.name);
 					const matches = targetNames.filter(
-						(row) => row.id === datum.name && row.scalar,
+						(row) =>
+							(row.id === datum.name || row.name === datum.name) && row.scalar,
 					);
 					const ref =
 						matches.length === 1
-							? matches[0].refs.find((ref) => ref.kind === "selected-case")
+							? formLinkSelectionName(matches[0].refs)
 							: undefined;
 					if (ref === undefined)
 						throw new AuthoringInputError(

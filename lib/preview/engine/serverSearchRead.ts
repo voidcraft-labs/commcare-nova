@@ -70,6 +70,7 @@ export interface ServerSearchWorld {
 export interface ServerSearchRequest {
 	readonly advancedListItem?: boolean;
 	readonly formEntry?: {
+		readonly chosenCaseIds: Readonly<Record<string, string>>;
 		readonly sessionData: Readonly<Record<string, string>>;
 		readonly under?: { caseId: string; caseType: string; identifier: string };
 	};
@@ -142,6 +143,7 @@ export async function serverRecordsRead(
 		{
 			moduleUuid: request.moduleUuid,
 			listPurpose,
+			registeredResult: request.registeredCaseId !== undefined,
 			language: world.language,
 			submitted: request.submitted,
 			entry: request.entry,
@@ -284,7 +286,8 @@ export async function serverRecordsRead(
 							search.expressionValues,
 							world.timeZone,
 						),
-						chosenCaseIds: step.chosenCaseIds,
+						chosenCaseIds:
+							request.formEntry?.chosenCaseIds ?? step.chosenCaseIds,
 					},
 					lookupTableSchemas: new Map(
 						world.lookup.definitions.map((table) => [

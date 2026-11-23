@@ -452,9 +452,16 @@ export function formLinkTargetSupplies(
 	target: ResolvedFormLinkTarget,
 ): EntryDatumSupplies {
 	const refs = new Map<string, EntryDatumSupplies["refs"][number]>();
-	const addSelections = (entry: DatumEntry): void => {
+	const addSelections = (
+		entry: DatumEntry,
+		choices?: ReadonlySet<Uuid>,
+	): void => {
 		for (const row of suppliedAtEntry(doc, entry, new Set()).refs) {
-			if (row.ref.kind === "selected-case") refs.set(datumRefKey(row.ref), row);
+			if (
+				row.ref.kind === "selected-case" ||
+				(row.ref.kind === "form-selection" && choices?.has(row.ref.selection))
+			)
+				refs.set(datumRefKey(row.ref), row);
 		}
 	};
 	const ancestors: Uuid[] = [];
@@ -481,11 +488,18 @@ export function formLinkTargetSupplies(
 		target.type === "form" &&
 		doc.formOrder[target.moduleUuid]?.includes(target.formUuid)
 	)
-		addSelections({
-			kind: "form",
-			module: target.moduleUuid,
-			form: target.formUuid,
-		});
+		addSelections(
+			{
+				kind: "form",
+				module: target.moduleUuid,
+				form: target.formUuid,
+			},
+			new Set(
+				doc.forms[target.formUuid]?.caseSelections
+					?.filter((row) => row.source.kind === "choose")
+					.map((row) => row.uuid),
+			),
+		);
 	return { refs: [...refs.values()] };
 }
 

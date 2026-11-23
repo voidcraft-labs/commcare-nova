@@ -83,6 +83,7 @@ export interface EntrySessionData {
 	readonly resolvedEntryValues?: Readonly<Record<string, string>>;
 	/** At a manual boundary the remaining datums have not run. */
 	readonly nextSelection?: {
+		readonly chosenCaseIds: Readonly<Record<string, string>>;
 		readonly selectionUuid: Uuid;
 		readonly moduleUuid: Uuid;
 		readonly name: string;
@@ -158,7 +159,11 @@ export function entrySessionData(
 	const selectedCases: Record<string, readonly string[]> = Object.create(null);
 	let newCaseId: string | undefined;
 	let nextSelection: EntrySessionData["nextSelection"];
-	let manualIndex = 0;
+	// A frame may already supply a later choice while the worker still has to
+	// answer an earlier one. Core checks collected data by name at each step.
+	const suppliedChoices = new Map(
+		args.entryChoices?.map((row) => [row.selectionUuid, row] as const),
+	);
 	const held = args.heldEntryValues ?? args.entryChoices?.at(-1)?.earlierValues;
 	const resolvedEntryValues: Record<string, string> = Object.create(null);
 	const selectionsById = new Map(
@@ -193,10 +198,23 @@ export function entrySessionData(
 		const choice = supply && selectionsById.get(supply.selection);
 		if (choice?.source.kind === "choose") {
 			const source = choice.source;
-			const selected = args.entryChoices?.[manualIndex];
-			if (selected?.selectionUuid !== choice.uuid) {
+			const selected = suppliedChoices.get(choice.uuid);
+			if (!selected) {
 				const parentId = source.under && reached.get(source.under.selection);
+				// List filters identify a choice by menu. The suite resolves the
+				// first completed load for that menu, including a root-aligned alias.
+				const chosenCaseIds: Record<string, string> = Object.create(null);
+				for (const earlier of datums.slice(0, index)) {
+					if (!values.has(earlier.id)) continue;
+					for (const menu of [
+						ctx.selectionSourceModules.get(earlier),
+						ctx.alignedSelectionSources.get(earlier),
+					]) {
+						if (menu !== undefined) chosenCaseIds[menu] ??= data[earlier.id];
+					}
+				}
 				nextSelection = {
+					chosenCaseIds,
 					selectionUuid: choice.uuid,
 					moduleUuid: source.module,
 					name: choice.name,
@@ -219,7 +237,6 @@ export function entrySessionData(
 				...(name !== undefined && { caseName: name }),
 			});
 			reached.set(choice.uuid, selected.caseId);
-			manualIndex++;
 			continue;
 		}
 		if (

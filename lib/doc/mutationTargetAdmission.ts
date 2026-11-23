@@ -1249,6 +1249,13 @@ export function mutationTargetsInvalid(
 				// concatenates its steps, and a later step can take back a move
 				// an earlier one made.
 				let projected: BlueprintDoc | undefined;
+				const current = () =>
+					(projected ??=
+						admittedPrefix.length === 0
+							? doc
+							: produce(doc, (draft) => {
+									applyMutations(draft, admittedPrefix);
+								}));
 				const heldTargets = new Set<string>();
 				for (const hold of m.holds) {
 					const key = placementTargetKey(hold);
@@ -1262,17 +1269,20 @@ export function mutationTargetsInvalid(
 							fieldKinds.get(hold.fieldUuid) !== "repeat"
 						)
 							return true;
-						projected ??=
-							admittedPrefix.length === 0
-								? doc
-								: produce(doc, (draft) => {
-										applyMutations(draft, admittedPrefix);
-									});
-						const field = ownRecordValue(projected.fields, hold.fieldUuid);
+						const field = ownRecordValue(current().fields, hold.fieldUuid);
 						if (field?.kind !== "repeat" || field.repeat_mode !== "query_bound")
 							return true;
 					} else {
 						if (!forms.has(hold.formUuid)) return true;
+						if (
+							hold.target === "form-selection" &&
+							hold.placement !== null &&
+							!formCaseSelections(current(), hold.formUuid).some(
+								(row) => row.uuid === hold.selectionUuid,
+							)
+						)
+							return true;
+
 						if (
 							hold.target === "case-operation" &&
 							!caseOperationsByForm.get(hold.formUuid)?.has(hold.operationUuid)

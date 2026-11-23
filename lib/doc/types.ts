@@ -77,6 +77,7 @@ import {
 } from "@/lib/domain/entryPoints";
 import { conditionSchema } from "@/lib/domain/expression/types";
 import {
+	advancedTagSchema,
 	casePlacementSchema,
 	ownClosePlacementSchema,
 } from "@/lib/domain/placements";
@@ -526,6 +527,7 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	// Where a published app keeps the own close is held by `holdPlacements`
 	// alone; no form patch writes it.
 	ownClosePlacement: true,
+	heldSelectionTags: true,
 });
 
 /**
@@ -535,9 +537,11 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
  */
 function formHoldsPlacement(form: {
 	readonly ownClosePlacement?: unknown;
+	readonly heldSelectionTags?: unknown;
 	readonly caseOperations?: readonly { readonly placement?: unknown }[];
 }): boolean {
 	return (
+		form.heldSelectionTags !== undefined ||
 		form.ownClosePlacement !== undefined ||
 		(form.caseOperations ?? []).some(
 			(operation) => operation.placement !== undefined,
@@ -546,7 +550,7 @@ function formHoldsPlacement(form: {
 }
 
 const HELD_FORM_PLACEMENT_MESSAGE =
-	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.";
+	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `heldSelectionTags`, `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.";
 
 /**
  * `addModule`'s module: any module, holding no kind. Whether CommCare HQ
@@ -841,6 +845,16 @@ function reportHeldPlacementInPayload(
 				"This form update also sets where a published app keeps the form's own close. No edit chooses that, so leave `ownClosePlacement` out of the patch.",
 		});
 	}
+	if (
+		isPlainRecord(value.patch) &&
+		Object.hasOwn(value.patch, "heldSelectionTags")
+	)
+		ctx.addIssue({
+			code: "custom",
+			path: ["patch", "heldSelectionTags"],
+			message:
+				"A publish records the saved names of a form’s opening records. You can edit a record choice to change its name.",
+		});
 	const change = value.caseOperationChange;
 	if (
 		isPlainRecord(change) &&
@@ -915,6 +929,17 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 /** One held placement, set or cleared. `null` clears the target's held slot. */
 export const placementHoldSchema = z.discriminatedUnion("target", [
 	z.strictObject({
+		target: z.literal("form-selection"),
+		formUuid: uuidSchema,
+		selectionUuid: uuidSchema,
+		placement: z
+			.strictObject({
+				kind: z.literal("selection-tag"),
+				tag: advancedTagSchema,
+			})
+			.nullable(),
+	}),
+	z.strictObject({
 		target: z.literal("case-operation"),
 		formUuid: uuidSchema,
 		operationUuid: uuidSchema,
@@ -951,6 +976,11 @@ export function placementTargetKey(
 				readonly formUuid: string;
 				readonly operationUuid: string;
 		  }
+		| {
+				readonly target: "form-selection";
+				readonly formUuid: string;
+				readonly selectionUuid: string;
+		  }
 		| { readonly target: "own-close"; readonly formUuid: string }
 		| { readonly target: "query-repeat"; readonly fieldUuid: string }
 		| { readonly target: "module-kind"; readonly moduleUuid: string },
@@ -958,6 +988,8 @@ export function placementTargetKey(
 	switch (target.target) {
 		case "case-operation":
 			return `case-operation:${target.formUuid}:${target.operationUuid}`;
+		case "form-selection":
+			return `form-selection:${target.formUuid}:${target.selectionUuid}`;
 		case "own-close":
 			return `own-close:${target.formUuid}`;
 		case "query-repeat":

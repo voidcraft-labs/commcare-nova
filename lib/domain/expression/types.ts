@@ -124,11 +124,21 @@ export const datumRefSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("tile-group-parents"), module: uuidSchema }),
 ]);
 export type DatumRef = z.infer<typeof datumRefSchema>;
-export type FormLinkDatumName = Extract<DatumRef, { kind: "selected-case" }>;
-export const formLinkDatumNameSchema = z.strictObject({
-	kind: z.literal("selected-case"),
-	module: uuidSchema,
-});
+/** A form link can bind a manual choice of the destination or a menu's single selection. */
+export const formLinkDatumNameSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("selected-case"), module: uuidSchema }),
+	z.strictObject({ kind: z.literal("form-selection"), selection: uuidSchema }),
+]);
+export type FormLinkDatumName = z.infer<typeof formLinkDatumNameSchema>;
+/** A physical target exposes its stable form choice before a legacy menu alias. */
+export function formLinkSelectionName(
+	refs: readonly DatumRef[],
+): FormLinkDatumName | undefined {
+	return (
+		refs.find((ref) => ref.kind === "form-selection") ??
+		refs.find((ref) => ref.kind === "selected-case")
+	);
+}
 export function datumRefKey(datum: DatumRef): string {
 	switch (datum.kind) {
 		case "form-selection":

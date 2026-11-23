@@ -129,6 +129,9 @@ export function externalIdentityMap(
 				for (const option of field.choices.options)
 					add(externalKey.selectOption(xmlns, path, option.value), option.uuid);
 		}
+		if (!form.caseSelections)
+			for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {}))
+				add(externalKey.formSelection(form.uuid, tag), uuid as Uuid);
 		for (const row of form.caseSelections ?? [])
 			add(externalKey.formSelection(form.uuid, row.tag), row.uuid);
 		for (const row of form.computedDatums ?? [])

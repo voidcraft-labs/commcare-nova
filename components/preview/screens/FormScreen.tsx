@@ -71,6 +71,7 @@ import {
 	appHomeLanding,
 	automaticLinkedCaseCollection,
 	carriedCasesFromPatch,
+	carriedFormChoices,
 	type PreviewAfterSubmitFrame,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
@@ -2346,6 +2347,7 @@ export function FormScreen({ screen, heldEntryValues }: FormScreenProps) {
 					setPreviewSelectedCase(undefined);
 					setPreviewCaseTarget({
 						formUuid: route.formUuid,
+						...carriedFormChoices(route.caseSelections),
 						openedByLink: true,
 						...(linkedCaseCollection !== undefined
 							? { cases: linkedCaseCollection.cases }

@@ -13,6 +13,7 @@
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { PlacementHold } from "@/lib/doc/placementHolds";
 import { type BlueprintDoc, ownRecordValue, type Uuid } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { emittedModuleKind } from "./moduleKind";
@@ -61,11 +62,21 @@ export function placementsToHold(doc: BlueprintDoc): readonly PlacementHold[] {
 function formHolds(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	{ placements }: FormPlacements,
+	{ placements, advanced }: FormPlacements,
 	holds: PlacementHold[],
 ): void {
 	const form = ownRecordValue(doc.forms, formUuid);
 	if (form === undefined) return;
+	if (advanced)
+		for (const row of formCaseSelections(doc, formUuid)) {
+			if (form.heldSelectionTags?.[row.uuid] === undefined)
+				holds.push({
+					target: "form-selection",
+					formUuid,
+					selectionUuid: row.uuid,
+					placement: { kind: "selection-tag", tag: row.tag },
+				});
+		}
 
 	// A field-written child kept as HQ's inert subcase beside an active
 	// block in the source has two places, its `subcases` entry and its

@@ -215,6 +215,29 @@ export function formCaseSelections(
 	return result;
 }
 
+/** The declared tag a physical advanced load has in this version. */
+export function emittedSelectionTag(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	selection: Uuid,
+): string | undefined {
+	const module = owningModule(doc, formUuid);
+	if (!module || !menuEmittedAdvanced(doc, module)) return undefined;
+	return formCaseSelections(doc, formUuid).find((row) => row.uuid === selection)
+		?.tag;
+}
+
+/** A previously published choice still drawn from the menu keeps its tag. */
+export function heldImplicitSelectionTag(
+	doc: BlueprintDoc,
+	form: Uuid,
+	menu: Uuid | "worker-record",
+): string | undefined {
+	return doc.forms[form]?.heldSelectionTags?.[
+		implicitFormSelectionId(form, menu)
+	];
+}
+
 /** A placement target names a form selection by UUID. Legacy menu references can
  * identify a selection only when exactly one choice uses that list. */
 export function chainLoadOfTarget(
@@ -960,10 +983,16 @@ function entryActionPlan(doc: BlueprintDoc, formUuid: Uuid): EntryActionPlan {
 	const chainHeld: (string | undefined)[] = advancedLoadChain(
 		doc,
 		formUuid,
-	).map(() => undefined);
-	let workerHeld: string | undefined;
+	).map((load) => heldImplicitSelectionTag(doc, formUuid, load.moduleUuid));
+	let workerHeld = heldImplicitSelectionTag(doc, formUuid, "worker-record");
 	const openHeld: (string | undefined)[] = [];
-	const usedHeld = new Set<string>();
+	const usedHeld = new Set(
+		[
+			...(f.form.caseSelections ?? []).map((row) => row.tag),
+			...chainHeld,
+			workerHeld,
+		].filter((tag) => tag !== undefined),
+	);
 	const heldTagOf = (op: CaseOperation): string | undefined => {
 		const held = op.placement;
 		if (held?.kind !== "advanced" || usedHeld.has(held.tag)) return undefined;
@@ -1074,18 +1103,14 @@ export function advancedLoadTags(
 			...chain.map((load, index) => ({
 				caseType: load.caseType,
 				worker: false,
-				...(plan.chainHeld[index] !== undefined && {
-					held: plan.chainHeld[index],
-				}),
+				held: plan.chainHeld[index],
 			})),
 			...(plan.actions.workerLoad
 				? [
 						{
 							caseType: USERCASE_CASE_TYPE,
 							worker: true,
-							...(plan.workerHeld !== undefined && {
-								held: plan.workerHeld,
-							}),
+							held: plan.workerHeld,
 						},
 					]
 				: []),

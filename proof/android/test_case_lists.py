@@ -185,7 +185,14 @@ def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(a
     database = casedata.document_case_database(doc)
     ordinary = [record for record in database.cases if record.case_type == "person"]
     only = replace(ordinary[0], case_id="proof-standalone-list", name="Standalone list only")
-    database = replace(database, cases=(*database.cases, only))
+    # An owned claim restores its host onto the device even though another
+    # worker owns it. Both form choices apply their list's owner exclusion.
+    excluded = replace(ordinary[0], case_id="proof-excluded-person", name="Restored contact",
+                       owner_id="proof-excluded-person-owner")
+    claim = replace(ordinary[0], case_id="proof-contact-claim", name="Contact claim",
+                    case_type="commcare-case-claim", properties=(),
+                    indices=(("host", "person", excluded.case_id, "extension"),))
+    database = replace(database, cases=(*database.cases, only, excluded, claim))
     own = ["m0", "m0-case-list"]
     first = ["m0", "m0-f0"]
     second = [*first, "@case:" + ordinary[0].case_id]
@@ -204,6 +211,6 @@ def test_standalone_advanced_list_includes_cases_the_forms_two_choices_exclude(a
                 return set(last["list"]["order"])
 
             expected = {record.case_id for record in ordinary}
-            assert last_list(own) == expected | {only.case_id}, name
+            assert last_list(own) == expected | {only.case_id, excluded.case_id}, name
             assert last_list(first) == expected, name
             assert last_list(second) == expected, name

@@ -500,17 +500,19 @@ export function appTestRecordsHaveDetails(
 
 /** This worker has selected exactly the stored prefix. A repeated list with another
  * selection identity is a fresh screen, even when it shows the very same cases. */
-function appTestFormOpening(
+export function appTestFormOpening(
 	context: AppTestContext,
 	state: AppTestSessionState,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 	choices: readonly PreviewEntryChoice[],
+	linkedCases?: AppTestSessionState["deviceCases"],
 ): AppTestScreen {
 	const scoped =
-		state.screen.kind === "menu" || state.screen.kind === "records"
+		linkedCases ??
+		(state.screen.kind === "menu" || state.screen.kind === "records"
 			? state.screen.taskCases
-			: undefined;
+			: undefined);
 	const snapshot = scoped ?? state.deviceCases;
 	const entry = entrySessionData(context.doc, formUuid, {
 		appId: undefined,

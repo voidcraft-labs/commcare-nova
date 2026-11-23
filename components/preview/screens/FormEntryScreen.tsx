@@ -125,7 +125,7 @@ function ConfiguredFormEntry({ screen }: { screen: Screen }) {
 		);
 	const { nextSelection, resolvedEntryValues } = output.value;
 	if (nextSelection) {
-		const choose = (row: PreviewCaseChoice) => {
+		const choose = (row: PreviewCaseChoice, automatic: boolean) => {
 			const entryChoices = [
 				...prefix,
 				{
@@ -140,7 +140,7 @@ function ConfiguredFormEntry({ screen }: { screen: Screen }) {
 					? undefined
 					: form?.caseSelections?.[ownIndex]?.uuid;
 			const own = entryChoices.find((choice) => choice.selectionUuid === ownId);
-			pushBuilderHistory(window.location.href, false);
+			if (!automatic) pushBuilderHistory(window.location.href, false);
 			setTarget({
 				...target,
 				formUuid: screen.formUuid,

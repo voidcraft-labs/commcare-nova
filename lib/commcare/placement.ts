@@ -45,6 +45,7 @@ import {
 	advancedLoadChain,
 	advancedLoadOf,
 	carriedCreates,
+	heldImplicitSelectionTag,
 	loadClause,
 	openActionClause,
 	opensCase,
@@ -609,6 +610,7 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			caseType: load.caseType,
 			worker: false,
 			listModule: load.moduleUuid,
+			held: heldImplicitSelectionTag(f.doc, f.formUuid, load.moduleUuid),
 			...(load.identifier !== undefined && { identifier: load.identifier }),
 		}));
 	const opens: Array<
@@ -623,7 +625,16 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		Uuid,
 		{ readonly repeat: Uuid | undefined; readonly indexed: boolean }
 	>();
-	const usedHeld = new Set(f.form.caseSelections?.map((row) => row.tag));
+	const heldWorkerTag = heldImplicitSelectionTag(
+		f.doc,
+		f.formUuid,
+		"worker-record",
+	);
+	const usedHeld = new Set(
+		[...loads.map((load) => load.held), heldWorkerTag].filter(
+			(tag) => tag !== undefined,
+		),
+	);
 	const onAction = new Map<
 		Uuid,
 		{ readonly slot: AdvancedSlot; readonly sharesWith?: Uuid }
@@ -661,6 +672,7 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			loads.push({
 				caseType: USERCASE_CASE_TYPE,
 				worker: true,
+				held: heldWorkerTag,
 				listModule: null,
 			});
 		}

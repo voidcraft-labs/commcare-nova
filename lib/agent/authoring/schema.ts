@@ -81,7 +81,7 @@ const valueSchemas = {
 		.string()
 		.min(1)
 		.describe(
-			"The session value the target reads, usually its case id datum such as case_id.",
+			"The opening record name in the destination form. Get the form to see its choices. An ordinary menu selection can use its saved name, such as case_id.",
 		),
 	localized: z
 		.string()

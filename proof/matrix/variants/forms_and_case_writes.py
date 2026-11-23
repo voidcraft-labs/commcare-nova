@@ -748,3 +748,19 @@ def head_prefixes_naming_the_worker(authoring, app_id):
         menu=0,
         form=1,
     )
+
+def connection_from_a_parent_aligned_load(authoring, app_id):
+    """The child follows a member's parent after HQ aligns that member to the root menu's datum."""
+    path = "/modules/2/forms/0/actions/load_update_cases"
+    ops.set_json(authoring, app_id, "/modules/2/root_module_id", {"$menu": 1})
+    ops.set_json(authoring, app_id, path + "/1/case_tag", "child_member")
+    ops.set_json(
+        authoring, app_id, path + "/-",
+        {
+            "doc_type": "LoadUpdateAction", "case_type": "household", "case_tag": "connected_household",
+            "details_module": None, "case_index": _index(""), "case_properties": {}, "preload": {},
+            "close_condition": _condition("never"),
+            "auto_select": {"doc_type": "AutoSelectCase", "mode": "case",
+                            "value_source": "child_member", "value_key": "parent"},
+        },
+    )

@@ -21,6 +21,7 @@ import { firstModuleListingForm } from "./formMembership";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
+	advancedTagSchema,
 	type CasePlacement,
 	casePlacementSchema,
 	ownClosePlacementSchema,
@@ -798,6 +799,8 @@ export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z.strictObject({
 	/** Absent derives the ordinary menu choices. An empty list explicitly opens without a selection. */
+	/** Source or first-published names of the records this form opens. */
+	heldSelectionTags: z.record(uuidSchema, advancedTagSchema).optional(),
 	caseSelections: z.array(formCaseSelectionSchema).optional(),
 	computedDatums: z.array(computedEntryValueSchema).optional(),
 	/** The finish button on Web Apps. An absent source uses the platform's

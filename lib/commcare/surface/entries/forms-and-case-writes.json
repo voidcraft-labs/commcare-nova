@@ -5989,6 +5989,35 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "An automatic connection from an earlier record whose session name changes under its parent menu",
+		"surfaceKeys": [
+			"schema:LoadUpdateAction.auto_select",
+			"schema:AutoSelectCase.value_source"
+		],
+		"valueClass": "aligned-auto-select-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: The form reads the earlier record under a name its parent replaced. Matching the source tag to the parent’s tag keeps the connection available.",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The form reads the earlier record under a name its parent replaced. Matching the source tag to the parent’s tag keeps the connection available."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/auto-select-mode-case-naming-itself-a-later-load-or-an-open",
 		"area": "forms-and-case-writes",
 		"section": "Advanced form actions",
@@ -6931,6 +6960,36 @@
 		},
 		"emission": {
 			"cell": "`arbitrary_datums`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/opening-values-sharing-a-physical-session-name",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "Two form opening values that use the same final session name",
+		"surfaceKeys": [
+			"schema:AdvancedFormActions.load_update_cases",
+			"schema:AdvancedForm.arbitrary_datums",
+			"schema:LoadUpdateAction.case_tag"
+		],
+		"valueClass": "duplicate-opening-session-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare keeps the first value under this name and skips the second. Giving each opening value a distinct saved name keeps both available.",
+		"subject": "advanced-forms",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare keeps the first value under this name and skips the second. Giving each opening value a distinct saved name keeps both available."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

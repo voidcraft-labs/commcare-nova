@@ -18,6 +18,7 @@ import {
 	projectProseTemplate,
 	type Uuid,
 } from "@/lib/domain";
+import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { describeCaseOperation } from "@/lib/domain/caseOperationDescription";
 import {
 	advancedKindBlockerSentence,
@@ -68,6 +69,14 @@ export function identitySubjectName(
 	switch (subject.kind) {
 		case "case-operation":
 			return `${quoted(formWords(doc, subject.formUuid))}: ${describeCaseOperation(doc, subject.formUuid, subject.operationUuid)}`;
+		case "form-selection": {
+			const row = formCaseSelections(doc, subject.formUuid).find(
+				(choice) => choice.uuid === subject.selectionUuid,
+			);
+			return row
+				? `${quoted(formWords(doc, subject.formUuid))}, ${quoted(row.name)}`
+				: `${quoted(formWords(doc, subject.formUuid))}, an opening record`;
+		}
 		case "own-close":
 			return `${quoted(formWords(doc, subject.formUuid))}: closing its case`;
 		case "query-repeat":
@@ -92,6 +101,10 @@ export function identityMoveReasonSentence(
 	switch (reason.source) {
 		case "case-placement":
 			return placementIneligibilitySentence(reason.reason.reason);
+		case "form-selection":
+			return reason.nextTag
+				? `From your next publish, the form opens this record under the saved name ${quoted(reason.nextTag)}. Earlier versions used ${quoted(reason.previousTag)}.`
+				: `From your next publish, the form will stop opening the record it kept under the saved name ${quoted(reason.previousTag)}.`;
 		case "query-repeat": {
 			const need = reason.reason;
 			switch (need.kind) {
@@ -136,6 +149,8 @@ export function identityMoveSentence(
 	doc: BlueprintDoc,
 	move: IdentityMove,
 ): string {
+	if (move.subject.kind === "form-selection")
+		return `${identitySubjectName(doc, move.subject)}. ${identityMoveReasonSentence(doc, move)}`;
 	const renamed = identityMoveRenamesChosenCases(move)
 		? ` ${CHOSEN_CASES_RENAMED_SENTENCE}`
 		: "";

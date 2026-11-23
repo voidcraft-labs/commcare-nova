@@ -358,6 +358,7 @@ export type CarriedCase =
  * visible so the target form's own carried-case datum can be identified
  * without re-running HQ's matching algorithm. */
 export interface TargetCaseSelection {
+	readonly selectionUuid?: Uuid;
 	readonly datumId: string;
 	readonly moduleUuid: Uuid;
 	readonly caseType: string;
@@ -609,8 +610,13 @@ function targetSelectionPlan(
 	}
 	const target = resolvedEntryTarget(doc, formUuid, entry);
 	const targetChildren = targetFrameChildren(doc, ctx, target);
-	const targetDatumId = entryDatumIdResolver(
-		formLinkTargetDatumIds(doc, ctx, target),
+	const bindings = formLinkTargetDatumIds(doc, ctx, target);
+	const targetDatumId = entryDatumIdResolver(bindings);
+	const choices = new Map(
+		bindings.map((row) => [
+			row.id,
+			row.refs.find((ref) => ref.kind === "form-selection")?.selection,
+		]),
 	);
 	const targetSelections = targetChildren.flatMap((child) =>
 		child.type === "datum" &&
@@ -629,7 +635,7 @@ function targetSelectionPlan(
 					).matched.map((match) => [match.id, match.sourceId]),
 				)
 			: undefined;
-	return { targetDatumId, targetSelections, automaticMatches };
+	return { targetDatumId, targetSelections, automaticMatches, choices };
 }
 
 /** The display name the entry's session holds for `value`, when it names a
@@ -657,7 +663,7 @@ export function projectTargetCaseSelections(
 	formUuid: Uuid,
 	entry: FormLinkEntry,
 ): readonly TargetCaseSelection[] {
-	const { targetDatumId, targetSelections, automaticMatches } =
+	const { targetDatumId, targetSelections, automaticMatches, choices } =
 		targetSelectionPlan(input.doc, formUuid, entry);
 	const { link } = entry;
 	return targetSelections.flatMap((datum) => {
@@ -680,6 +686,7 @@ export function projectTargetCaseSelections(
 		return [
 			{
 				datumId: datum.id,
+				...(choices.get(datum.id) && { selectionUuid: choices.get(datum.id) }),
 				moduleUuid,
 				caseType: datum.caseType,
 				caseId: held.value,
@@ -696,7 +703,7 @@ export async function projectTargetCaseSelectionsAsync(
 	evaluateAsync: FormLinkAsyncEvaluator,
 	world?: FormLinkWorkerWorld,
 ): Promise<readonly TargetCaseSelection[]> {
-	const { targetDatumId, targetSelections, automaticMatches } =
+	const { targetDatumId, targetSelections, automaticMatches, choices } =
 		targetSelectionPlan(input.doc, formUuid, entry);
 	const { link } = entry;
 	const projected: TargetCaseSelection[] = [];
@@ -727,6 +734,7 @@ export async function projectTargetCaseSelectionsAsync(
 		}
 		projected.push({
 			datumId: datum.id,
+			...(choices.get(datum.id) && { selectionUuid: choices.get(datum.id) }),
 			moduleUuid,
 			caseType: datum.caseType,
 			caseId: held.value,

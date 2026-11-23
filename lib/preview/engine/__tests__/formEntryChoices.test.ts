@@ -147,6 +147,18 @@ function choicesFixture() {
 	return { a, b, visit, cases };
 }
 describe("a worker's ordered form entry", () => {
+	it("retains a later choice already carried by a form link while the worker supplies an earlier choice from that same list", () => {
+		const { a, b, visit } = choicesFixture();
+		const linked = { selectionUuid: b.uuid, caseId: "h-2" };
+		expect(visit([linked]).nextSelection?.selectionUuid).toBe(a.uuid);
+		const completed = visit([linked, { selectionUuid: a.uuid, caseId: "h-1" }]);
+		expect(completed.nextSelection).toBeUndefined();
+		expect(completed.data).toMatchObject({
+			case_id_from: "h-1",
+			case_id_to: "h-2",
+			destination: "h-2",
+		});
+	});
 	it("walks two independent choices from the same list and executes the suffix against their current identities", () => {
 		const { a, b, visit } = choicesFixture();
 		const id = (selection: FormCaseSelection, caseId: string) => ({
@@ -156,6 +168,7 @@ describe("a worker's ordered form entry", () => {
 		expect(visit([]).nextSelection?.selectionUuid).toBe(a.uuid);
 		const first = visit([id(a, "h-1")]);
 		expect(first.nextSelection?.selectionUuid).toBe(b.uuid);
+		expect(first.nextSelection?.chosenCaseIds).toEqual({ [HOUSEHOLDS]: "h-1" });
 		expect(first.data).toEqual({ case_id_from: "h-1" });
 		const old = visit([id(a, "h-1"), id(b, "h-2")]);
 		expect(old.nextSelection).toBeUndefined();

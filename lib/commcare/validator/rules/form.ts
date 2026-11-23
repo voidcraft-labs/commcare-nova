@@ -19,6 +19,7 @@ import {
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
 	formLinkTargetDatumIds,
+	physicalEntrySupplyProblems,
 	projectAfterSubmit,
 } from "@/lib/commcare/formLinkProjection";
 import { instanceScanRead } from "@/lib/commcare/hqInstanceScan";
@@ -57,6 +58,7 @@ import {
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
+import { emittedSelectionTag } from "@/lib/domain/advancedEntryDatums";
 import { slotContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import { datumRefKey } from "@/lib/domain/expression/types";
@@ -1391,8 +1393,38 @@ export function runFormRules(
 	};
 
 	const errors: ValidationError[] = [];
+	for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {})) {
+		if (tag === emittedSelectionTag(doc, formUuid, uuid as Uuid)) continue;
+		const subjectWords = `The opening record saved as “${tag}”`;
+		const sentence =
+			"The form now uses a different record or saved name. You can review this change to keep it.";
+		errors.push(
+			validationError(
+				"HELD_PLACEMENT_INEXPRESSIBLE",
+				"form",
+				`${subjectWords} has changed. ${sentence}`,
+				baseLocation(ctx),
+				{
+					subjectWords,
+					sentence,
+					subject: JSON.stringify({
+						kind: "form-selection",
+						selectionUuid: uuid,
+					}),
+					held: JSON.stringify({ kind: "selection-tag", tag }),
+				},
+			),
+		);
+	}
+	const entryProblems = validateFormEntryCases(doc, form, lookupTables);
+	if (!entryProblems.length)
+		entryProblems.push(
+			...physicalEntrySupplyProblems(doc, entryPlan, moduleUuid, formUuid).map(
+				(issue) => issue.message,
+			),
+		);
 	errors.push(
-		...validateFormEntryCases(doc, form, lookupTables).map((message) =>
+		...entryProblems.map((message) =>
 			validationError("FORM_ENTRY_SETUP", "form", message, baseLocation(ctx)),
 		),
 	);

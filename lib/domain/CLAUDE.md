@@ -377,6 +377,14 @@ Each field kind is one file under `fields/`, and the union (`fieldSchema`) discr
 
 ## Forms and modules
 
+A source read and the first publish hold every physical advanced opening
+record’s tag in `Form.heldSelectionTags`, keyed by its selection UUID. The
+`form-selection` placement target uses the common recording, move, undo and
+conflict protocol. Labels remain ordinary editable content. Legacy implicit
+selections continue to use their stable form/menu or form/worker UUID and
+their recorded allocation. Manual link destinations use a target selection
+UUID whenever the form has configured choices.
+
 A form's opening records are ordered supplies. `Form.caseSelections` gives each
 one a stable UUID, display name, expected record type, source and published
 tag. Two records chosen from the same list have different UUIDs. A missing

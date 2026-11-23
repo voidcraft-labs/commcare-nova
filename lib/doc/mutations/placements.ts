@@ -10,6 +10,7 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { ownRecordValue } from "@/lib/domain";
+import { recordWithoutKey, recordWithValue } from "@/lib/domain/records";
 
 type HoldPlacementsMutation = Extract<Mutation, { kind: "holdPlacements" }>;
 
@@ -27,6 +28,25 @@ export function applyHoldPlacements(
 				if (operation === undefined) break;
 				if (hold.placement === null) delete operation.placement;
 				else operation.placement = hold.placement;
+				break;
+			}
+			case "form-selection": {
+				const form = ownRecordValue(draft.forms, hold.formUuid);
+				if (!form) break;
+				if (hold.placement)
+					form.heldSelectionTags = recordWithValue(
+						form.heldSelectionTags,
+						hold.selectionUuid,
+						hold.placement.tag,
+					);
+				else if (form.heldSelectionTags) {
+					const tags = recordWithoutKey(
+						form.heldSelectionTags,
+						hold.selectionUuid,
+					);
+					if (Object.keys(tags).length) form.heldSelectionTags = tags;
+					else delete form.heldSelectionTags;
+				}
 				break;
 			}
 			case "own-close": {

@@ -457,6 +457,7 @@ const FORM_PATCH_SKIP = new Set<string>([
 	// A held placement is written by `holdPlacements` alone, never by a form
 	// patch.
 	"ownClosePlacement",
+	"heldSelectionTags",
 ]);
 
 // ── Field media diff ─────────────────────────────────────────────────
@@ -1466,7 +1467,11 @@ function unheldModule(module: Module): Module {
  * alone writes a hold.
  */
 function unheldForm(form: Form): Form {
-	const { ownClosePlacement: _held, ...rest } = cloneEntity(form);
+	const {
+		ownClosePlacement: _held,
+		heldSelectionTags: _selectionTags,
+		...rest
+	} = cloneEntity(form);
 	if (rest.caseOperations === undefined) return rest;
 	return {
 		...rest,
@@ -1515,6 +1520,13 @@ function placementTargetsOf(
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			const form = ownRecordValue(doc.forms, formUuid);
 			if (form === undefined) continue;
+			for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {}))
+				add({
+					target: "form-selection",
+					formUuid,
+					selectionUuid: uuid as Uuid,
+					placement: { kind: "selection-tag", tag },
+				});
 			for (const operation of form.caseOperations ?? []) {
 				add({
 					target: "case-operation",
@@ -1562,7 +1574,16 @@ function diffPlacementHolds(
 ): Mutation[] {
 	const before = placementTargetsOf(replayed);
 	const holds: PlacementHoldEntry[] = [];
-	for (const [key, entry] of placementTargetsOf(next)) {
+	const after = placementTargetsOf(next);
+	for (const [key, entry] of before) {
+		if (
+			entry.target === "form-selection" &&
+			!after.has(key) &&
+			ownRecordValue(next.forms, entry.formUuid)
+		)
+			holds.push({ ...entry, placement: null });
+	}
+	for (const [key, entry] of after) {
 		if (deepEqual(before.get(key)?.placement ?? null, entry.placement))
 			continue;
 		holds.push(cloneEntity(entry));

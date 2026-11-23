@@ -1,6 +1,10 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import type { Uuid } from "@/lib/domain";
-import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
+import {
+	afterSubmitFrameLanding,
+	appHomeLanding,
+	carriedFormChoices,
+} from "../afterSubmitRouting";
 import {
 	afterSubmitPath,
 	completeAfterSubmit,
@@ -27,7 +31,11 @@ import { submittedEntryPath } from "../engine/formLinkEvaluation";
 import type { AppTestContext } from "./context";
 import { appTestDataRefusal } from "./dataRefusal";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
-import { appTestHistoryEntry, enterAppTestMenu } from "./navigation";
+import {
+	appTestFormOpening,
+	appTestHistoryEntry,
+	enterAppTestMenu,
+} from "./navigation";
 import type {
 	AppTestAfterSubmitRoute,
 	AppTestScreen,
@@ -460,13 +468,24 @@ export async function submitAppTest(
 						: []);
 				nextState = {
 					...nextState,
-					screen: {
-						kind: "form",
-						moduleUuid: next.route.moduleUuid,
-						formUuid: next.route.formUuid,
-						caseIds: ids,
-						entryCases: cases,
-					},
+					screen:
+						context.doc.forms[next.route.formUuid].caseSelections !== undefined
+							? appTestFormOpening(
+									{ ...context, identity },
+									nextState,
+									next.route.moduleUuid,
+									next.route.formUuid,
+									carriedFormChoices(next.route.caseSelections).entryChoices ??
+										[],
+									cases,
+								)
+							: {
+									kind: "form",
+									moduleUuid: next.route.moduleUuid,
+									formUuid: next.route.formUuid,
+									caseIds: ids,
+									entryCases: cases,
+								},
 					history: [
 						...state.history,
 						appTestHistoryEntry(retiredScreen, state.selections),

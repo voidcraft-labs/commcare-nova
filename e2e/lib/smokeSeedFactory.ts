@@ -1405,10 +1405,11 @@ export async function createSmokeBuilders(
 				"Dara",
 				"Standalone list only",
 			] as const;
-			for (const name of people) {
+			for (const [position, name] of people.entries()) {
 				await caseStore.insert({
 					appId,
 					row: {
+						case_id: `${appId}-person-${position + 1}`,
 						case_type: "person",
 						case_name: name,
 						status: "open",

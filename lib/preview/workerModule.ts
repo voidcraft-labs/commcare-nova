@@ -90,8 +90,14 @@ export function workerListFor(
 	return {
 		...module,
 		caseSearchConfig: standalone
-			? { ...search, excludedOwnerIds: undefined }
-			: undefined,
+			? search
+			: purpose === "form-selection" &&
+					module.caseSearchConfig?.excludedOwnerIds
+				? {
+						searchActionEnabled: false,
+						excludedOwnerIds: module.caseSearchConfig.excludedOwnerIds,
+					}
+				: undefined,
 		caseListConfig: module.caseListConfig && {
 			...module.caseListConfig,
 			searchInputs: standalone ? module.caseListConfig.searchInputs : [],
@@ -100,6 +106,19 @@ export function workerListFor(
 				: { filter: undefined }),
 		},
 	};
+}
+
+/** The advanced case list item's own browse datum has no owner filter.
+ * Its separate Search action still submits the owner's expression with
+ * the remote query, as do the other screens that run that search. */
+export function workerListExcludedOwners(
+	module: Module | undefined,
+	purpose: WorkerListPurpose | undefined,
+	searchResults: boolean,
+) {
+	return purpose === "advanced-list-item" && !searchResults
+		? undefined
+		: module?.caseSearchConfig?.excludedOwnerIds;
 }
 
 /** The list read validates its configuration against its owning module.

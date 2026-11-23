@@ -13,6 +13,7 @@ import { previewPlatformRules } from "../platform";
 import {
 	projectWorkerModule,
 	type WorkerListPurpose,
+	workerListExcludedOwners,
 	workerListFor,
 } from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
@@ -43,6 +44,8 @@ import { readingSurfaceNow, surfacedRefusal } from "./surfacedDataRefusal";
 
 export interface SearchEvaluationInput {
 	readonly listPurpose?: WorkerListPurpose;
+	/** A registration return runs a remote query keyed to the new case. */
+	readonly registeredResult?: boolean;
 	language?: LanguageTag;
 	moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
@@ -233,12 +236,17 @@ async function searchSnapshot(
 		? withHiddenValues(run.submitted, run.submittedHidden)
 		: new Map<string, string>();
 	const expressionValues = withSearchInputExpressionValues(inputs, values);
+	const excludedOwners = workerListExcludedOwners(
+		mod,
+		input.listPurpose,
+		(relevant && run.hasSubmitted) || input.registeredResult === true,
+	);
 	const excluded = (answers: ReadonlyMap<string, string>) =>
-		mod.caseSearchConfig?.excludedOwnerIds === undefined
+		excludedOwners === undefined
 			? undefined
 			: parseExcludedOwnerIds(
 					evaluatePreviewSearchExpression(
-						mod.caseSearchConfig.excludedOwnerIds,
+						excludedOwners,
 						expressions({ slot: "excluded_owner_ids" }),
 						session,
 						answers,

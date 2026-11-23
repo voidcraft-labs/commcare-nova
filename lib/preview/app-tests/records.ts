@@ -70,6 +70,7 @@ export async function prepareAppTestRecords(
 				...(screen.formEntry && {
 					formEntry: {
 						sessionData: screen.formEntry.sessionData,
+						chosenCaseIds: screen.formEntry.next.chosenCaseIds,
 						under: screen.formEntry.next.under,
 					},
 				}),

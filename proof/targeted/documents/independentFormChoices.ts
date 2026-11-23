@@ -5,7 +5,14 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
-import { formField, literal, neq, prop, term } from "@/lib/domain/expression";
+import {
+	eq,
+	formField,
+	literal,
+	neq,
+	prop,
+	term,
+} from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -98,6 +105,10 @@ export function independentChoicesBlueprint(appId: string) {
 				name: "People",
 				caseType: "person",
 				caseListMenuItem: { label: "All people" },
+				caseSearchConfig: {
+					searchActionEnabled: false,
+					excludedOwnerIds: term(literal("proof-excluded-person-owner")),
+				},
 				caseListConfig: caseListOf(
 					[plainColumn(uuid("name"), "case_name", "Name")],
 					{
@@ -121,6 +132,19 @@ export function independentChoicesBlueprint(appId: string) {
 							}),
 						],
 					},
+					{
+						uuid: uuid("quick"),
+						name: "Visit with assigned contact",
+						type: "followup",
+						fields: [
+							f({
+								uuid: uuid("quick-note"),
+								kind: "text",
+								id: "quick_note",
+								label: proseText("Quick visit note"),
+							}),
+						],
+					},
 				],
 			},
 			{
@@ -140,10 +164,71 @@ export function independentChoicesBlueprint(appId: string) {
 							}),
 						],
 					},
+					{
+						uuid: uuid("start-paired"),
+						name: "Open the assigned pair",
+						type: "survey",
+						fields: [
+							f({
+								uuid: uuid("prepare"),
+								kind: "text",
+								id: "prepare",
+								label: proseText("Preparation note"),
+							}),
+						],
+						formLinks: [
+							{
+								uuid: uuid("open-pair"),
+								target: { type: "form", moduleUuid: menu, formUuid: entry },
+								datums: [
+									{
+										name: { kind: "form-selection", selection: uuid("first") },
+										xpath: term(literal(`${appId}-person-1`)),
+									},
+									{
+										name: { kind: "form-selection", selection: uuid("second") },
+										xpath: term(literal(`${appId}-person-2`)),
+									},
+								],
+							},
+						],
+					},
 				],
+			},
+			{
+				uuid: uuid("assigned-contacts"),
+				name: "Assigned contacts",
+				caseType: "person",
+				caseListMenuItem: { label: "Contacts" },
+				caseListConfig: caseListOf(
+					[
+						plainColumn(uuid("contact-name"), "case_name", "Contact", {
+							visibleInDetail: false,
+						}),
+					],
+					{ filter: eq(prop("person", "case_name"), literal("Ada")) },
+				),
+				forms: [],
 			},
 		],
 	});
+	doc.modules[uuid("assigned-contacts")].autoSelectSingle = true;
+	doc.forms[uuid("quick")].caseSelections = [
+		{
+			uuid: uuid("quick-person"),
+			name: "Person to visit",
+			tag: "person",
+			caseType: "person",
+			source: { kind: "choose", module: menu },
+		},
+		{
+			uuid: uuid("quick-contact"),
+			name: "Assigned contact",
+			tag: "contact",
+			caseType: "person",
+			source: { kind: "choose", module: uuid("assigned-contacts") },
+		},
+	];
 	doc.forms[entry].caseSelections = choices;
 	doc.forms[entry].caseOperations = operations;
 	doc.forms[entry].computedDatums = [

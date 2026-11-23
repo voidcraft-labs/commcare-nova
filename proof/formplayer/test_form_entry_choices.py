@@ -81,3 +81,42 @@ def test_two_choices_from_one_list_return_to_the_first_and_submit_the_new_pair(
         assert after == {**before, third: (value, before[third][1]), fourth: (before[fourth][0], value)}
         evidence("form-entry-choices", {"offered": available, "before": before, "after": after,
                                         "instance": served.hq.submissions[-1].instance.decode("utf-8")})
+
+
+def test_form_link_opens_both_assigned_records_without_another_choice(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    from corehq.form_processor.models import CommCareCase
+
+    doc = formplayer_documents[DOCUMENT]
+    database = document_case_database(doc)
+    sample = next(row for row in database.cases if row.case_type == "person")
+    first, second = (f"{DOCUMENT}-person-{position}" for position in (1, 2))
+    selected = (replace(sample, case_id=first, name="Assigned first"),
+                replace(sample, case_id=second, name="Assigned second"))
+    database = replace(database, cases=(*database.cases, *selected))
+    with apps.published(doc, core_runner) as published, apps.served(
+        published, formplayer_runner, database=database
+    ) as served, served.run("open-assigned-pair"):
+        web = apps.web(formplayer_runner, served)
+        selections = []
+        for title in ["Notes", "Open the assigned pair"]:
+            menu = web.navigate(selections)
+            labels = [command["displayText"] for command in menu["commands"]]
+            selections = [*map(str, menu.get("selections", selections)), str(labels.index(title))]
+        preparation = web.navigate(selections)
+        assert screen_kind(preparation) == "form" and preparation["title"] == "Open the assigned pair"
+        question, = (q for q in questions(preparation["tree"]) if q.get("type") == "question")
+        web.answer(preparation["session_id"], question["ix"], "Ready")
+        submitted = web.submit(preparation["session_id"], {question["ix"]: "Ready"})
+        paired = submitted["nextScreen"]
+        assert submitted["status"] == "success" and screen_kind(paired) == "form", submitted
+        assert paired["title"] == "Visit two people", paired
+        note, = (q for q in questions(paired["tree"]) if q.get("type") == "question")
+        value = "Both assigned records"
+        web.answer(paired["session_id"], note["ix"], value)
+        assert web.submit(paired["session_id"], {note["ix"]: value})["status"] == "success"
+        assert CommCareCase.objects.get_case(first, served.domain).get_case_property("first_note") == value
+        assert CommCareCase.objects.get_case(second, served.domain).get_case_property("second_note") == value
+        evidence("form-link-assigned-choices", {"first": first, "second": second, "form": paired["title"],
+                                                "instance": served.hq.submissions[-1].instance.decode("utf-8")})

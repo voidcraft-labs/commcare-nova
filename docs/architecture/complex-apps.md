@@ -28,7 +28,15 @@ property, a table column, a named connection, or an earlier calculated
 expression. Opening calculations and form expressions resolve these identities
 at their actual position in the entry. The same selection UUID can survive a
 display rename, move, publish and read-back. The listing menu remains the
-owner of the screen a worker sees.
+owner of the screen a worker sees. Each destination can bind manual choices by their
+target UUIDs. An ambiguous menu identity cannot bind two different choices.
+The physical frame is checked after parent alignment and new-case and search
+datum insertion. Core consumes each session name once, in order.
+A case-mode automatic index names the earlier action by its original tag.
+HQ rewrites only dependents in the earlier action’s `case_indices` when a
+parent renames a choice. Nova refuses a connection left without its source.
+The native Back operation skips a single automatically selected case when
+the choice has no confirmation. Its list still honors its excluded owners.
 
 A Nova UUID has exactly one spelling: lowercase, hyphenated, RFC version 1–8,
 with the RFC variant (`lib/domain/uuid.ts::CANONICAL_UUID_PATTERN` — a string

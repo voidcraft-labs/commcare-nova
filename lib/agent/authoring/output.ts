@@ -4,10 +4,10 @@ import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import {
 	entryDatumIdResolver,
 	formLinkProjectionContext,
-	formLinkTargetDatumIds,
 } from "@/lib/commcare/formLinkProjection";
 import { projectFormExpression } from "@/lib/doc/expressionText";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
+import { namedFormLinkTargetDatums } from "@/lib/doc/formLinkReview";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import {
@@ -312,16 +312,17 @@ export function authoringEncoders(
 			const target = resolveFormLinkTarget(options.doc, ref.uuid, link.target);
 			if (target === undefined)
 				throw new Error("The form link's form is in no menu.");
-			const id = entryDatumIdResolver(
-				formLinkTargetDatumIds(
-					options.doc,
-					formLinkProjectionContext(options.doc, { entryMetadataOnly: true }),
-					target,
-				),
-			)(formLinkDatumNameSchema.parse(value));
+			const rows = namedFormLinkTargetDatums(
+				options.doc,
+				formLinkProjectionContext(options.doc, { entryMetadataOnly: true }),
+				target,
+			);
+			const id = entryDatumIdResolver(rows)(
+				formLinkDatumNameSchema.parse(value),
+			);
 			if (id === undefined)
 				throw new Error("The form link's target no longer reads this datum.");
-			return id;
+			return rows.find((row) => row.id === id)?.name ?? id;
 		},
 		condition: (value, path) =>
 			printer(path).predicate(conditionSchema.parse(value)),

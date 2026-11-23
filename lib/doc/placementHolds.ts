@@ -32,6 +32,7 @@ import {
 	placementTargetKey,
 } from "@/lib/doc/types";
 import { type BlueprintDoc, ownRecordValue, type Uuid } from "@/lib/domain";
+import { emittedSelectionTag } from "@/lib/domain/advancedEntryDatums";
 import { heldKindExpresses } from "@/lib/domain/advancedModule";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { formOfField } from "@/lib/domain/fieldForm";
@@ -46,6 +47,11 @@ export type PlacementTarget =
 			readonly target: "case-operation";
 			readonly formUuid: Uuid;
 			readonly operationUuid: Uuid;
+	  }
+	| {
+			readonly target: "form-selection";
+			readonly formUuid: Uuid;
+			readonly selectionUuid: Uuid;
 	  }
 	| { readonly target: "own-close"; readonly formUuid: Uuid }
 	| { readonly target: "query-repeat"; readonly fieldUuid: Uuid }
@@ -94,6 +100,12 @@ export function placementTargetOf(entry: PlacementTarget): PlacementTarget {
 				formUuid: entry.formUuid,
 				operationUuid: entry.operationUuid,
 			};
+		case "form-selection":
+			return {
+				target: "form-selection",
+				formUuid: entry.formUuid,
+				selectionUuid: entry.selectionUuid,
+			};
 		case "own-close":
 			return { target: "own-close", formUuid: entry.formUuid };
 		case "query-repeat":
@@ -109,6 +121,14 @@ export function placementHoldEntry(
 	placement: HeldPlacementValue,
 ): PlacementHoldEntry {
 	switch (target.target) {
+		case "form-selection":
+			return {
+				...target,
+				placement: placement as Extract<
+					PlacementHoldEntry,
+					{ target: "form-selection" }
+				>["placement"],
+			};
 		case "case-operation":
 			return {
 				...target,
@@ -164,6 +184,7 @@ export function placementTargetExists(
 					(op) => op.uuid === target.operationUuid,
 				) === true
 			);
+		case "form-selection":
 		case "own-close":
 			return ownRecordValue(doc.forms, target.formUuid) !== undefined;
 		case "query-repeat":
@@ -186,6 +207,11 @@ export function heldPlacementOf(
 					(op) => op.uuid === target.operationUuid,
 				)?.placement ?? null
 			);
+		case "form-selection": {
+			const tag =
+				doc.forms[target.formUuid]?.heldSelectionTags?.[target.selectionUuid];
+			return tag === undefined ? null : { kind: "selection-tag", tag };
+		}
 		case "own-close":
 			return (
 				ownRecordValue(doc.forms, target.formUuid)?.ownClosePlacement ?? null
@@ -223,6 +249,13 @@ export function readPlacementHolds(
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			const form = ownRecordValue(doc.forms, formUuid);
 			if (form === undefined) continue;
+			for (const [uuid, tag] of Object.entries(form.heldSelectionTags ?? {}))
+				add({
+					target: "form-selection",
+					formUuid,
+					selectionUuid: uuid as Uuid,
+					placement: { kind: "selection-tag", tag },
+				});
 			for (const operation of form.caseOperations ?? []) {
 				if (operation.placement === undefined) continue;
 				add({
@@ -281,6 +314,11 @@ export function holdExpresses(
 				entry.formUuid,
 				{ kind: "operation", operationUuid: entry.operationUuid },
 				entry.placement,
+			);
+		case "form-selection":
+			return (
+				emittedSelectionTag(doc, entry.formUuid, entry.selectionUuid) ===
+				entry.placement.tag
 			);
 		case "own-close":
 			return placementExpresses(

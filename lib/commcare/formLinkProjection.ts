@@ -1147,6 +1147,68 @@ function advancedEntrySessionDatums(
 	return withInlineSearchQueries(doc, ctx, [...aligned, ...created]);
 }
 
+/** Check the actual frame after root alignment and creation/query insertion.
+ * Source-level tags alone cannot account for every key present on a device. */
+export function physicalEntrySupplyProblems(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): {
+	kind: "duplicate-key" | "aligned-connection";
+	name: string;
+	message: string;
+}[] {
+	const form = doc.forms[formUuid];
+	if (
+		!form ||
+		(!form.caseSelections &&
+			!form.computedDatums?.length &&
+			!doc.modules[moduleUuid]?.parentModuleUuid)
+	)
+		return [];
+	if (!moduleFrameActionsBuildable(doc, [moduleUuid], true)) return [];
+	const datums = entrySessionDatums(doc, ctx, moduleUuid, formUuid);
+	const keys = new Set<string>();
+	const errors: {
+		kind: "duplicate-key" | "aligned-connection";
+		name: string;
+		message: string;
+	}[] = [];
+	for (const datum of datums) {
+		if (keys.has(datum.id))
+			errors.push({
+				kind: "duplicate-key",
+				name: datum.id,
+				message: `In “${form.name}”, two opening values use the saved name “${datum.id}”. You can change the name of a calculated value or the saved tag of a record choice.`,
+			});
+		keys.add(datum.id);
+	}
+	// HQ resolves a case-mode source through the *local* action tag. Parent
+	// alignment rewrites case_indices references only and leaves the source's
+	// native assertion unchanged. A raw expression loses that assertion.
+	for (const row of form.caseSelections ?? []) {
+		if (row.source.kind !== "index") continue;
+		const earlierId = row.source.selection;
+		const earlier = form.caseSelections?.find(
+			(choice) => choice.uuid === earlierId,
+		);
+		if (!earlier) continue;
+		const physical = datums.find(
+			(datum) =>
+				!ctx.fromParentModuleDatums.has(datum) &&
+				datum.advancedLoadTag === earlier.tag,
+		);
+		if (physical && physical.id !== advancedLoadDatumId(earlier.tag))
+			errors.push({
+				kind: "aligned-connection",
+				name: row.name,
+				message: `In “${form.name}”, “${row.name}” follows a connection from “${earlier.name}”, whose saved name changes under its parent menu. You can choose another source for “${row.name}” or move this menu.`,
+			});
+	}
+	return errors;
+}
+
 /** A physical session datum and the domain identities it supplies. */
 export interface EntryDatumId {
 	readonly id: string;
@@ -1742,7 +1804,16 @@ export function formLinkTargetDatumIds(
 	for (const selection of selections) {
 		const refs = new Map<string, DatumRef>();
 		const source = selection.selectionSourceModuleUuid;
-		if (source !== undefined)
+		const targetChoices =
+			target.type === "form"
+				? doc.forms[target.formUuid]?.caseSelections
+				: undefined;
+		if (
+			source !== undefined &&
+			(targetChoices?.filter(
+				(row) => row.source.kind === "choose" && row.source.module === source,
+			).length ?? 0) < 2
+		)
 			refs.set(datumRefKey({ kind: "selected-case", module: source }), {
 				kind: "selected-case",
 				module: source,
@@ -1759,12 +1830,18 @@ export function formLinkTargetDatumIds(
 					: (ctx.formOrder[module] ?? []);
 			for (const form of forms) {
 				for (const row of entryDatumIds(doc, ctx, module, form)) {
+					if (row.id !== selection.id) continue;
+					const targetForm = target.type === "form" && form === target.formUuid;
+					const named =
+						targetForm && doc.forms[form]?.caseSelections !== undefined
+							? row.refs.find((ref) => ref.kind === "form-selection")
+							: undefined;
+					if (named) refs.set(datumRefKey(named), named);
 					if (
-						row.id !== selection.id ||
-						(source !== undefined &&
-							!row.refs.some(
-								(ref) => ref.kind === "selected-case" && ref.module === source,
-							))
+						source !== undefined &&
+						!row.refs.some(
+							(ref) => ref.kind === "selected-case" && ref.module === source,
+						)
 					)
 						continue;
 					for (const ref of row.refs)
@@ -2442,6 +2519,7 @@ export function formLinkActionsBuildable(
 export function moduleFrameActionsBuildable(
 	doc: BlueprintDoc,
 	roots: readonly Uuid[],
+	metadataOnly = false,
 ): boolean {
 	const projectedModules = projectedModuleSet(doc);
 	const moduleOf = (uuid: Uuid): Uuid | undefined =>
@@ -2478,6 +2556,16 @@ export function moduleFrameActionsBuildable(
 		if (form === undefined || moduleUuid === undefined) return false;
 		const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 		if (
+			!(form.caseOperations ?? []).every(
+				(operation) =>
+					operation.action === "own" || wellFormedCaseType(operation.caseType),
+			)
+		)
+			return false;
+		// Entry metadata reads topology and declared case types. A private
+		// form may still need a name question before its case actions emit.
+		if (metadataOnly) continue;
+		if (
 			ownCaseOperationFindings({
 				form,
 				formUuid: uuid,
@@ -2485,13 +2573,6 @@ export function moduleFrameActionsBuildable(
 				moduleName: doc.modules[moduleUuid]?.name ?? "",
 				caseType,
 			}).length > 0
-		)
-			return false;
-		if (
-			!(form.caseOperations ?? []).every(
-				(operation) =>
-					operation.action === "own" || wellFormedCaseType(operation.caseType),
-			)
 		)
 			return false;
 		// The wire plan names the new case from the registration's own name

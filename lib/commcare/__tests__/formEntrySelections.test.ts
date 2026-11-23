@@ -9,13 +9,138 @@ import {
 	entryDatumIds,
 	entrySessionDatums,
 	formLinkProjectionContext,
+	physicalEntrySupplyProblems,
 } from "../formLinkProjection";
 import { namingFromHqPages } from "../reader/__tests__/hqPageNames";
 import { readCases } from "../reader/caseManagement/__tests__/caseReading";
 import { serializeWire } from "../xpath/wire/serialize";
-import { advancedFixture, HOUSEHOLDS } from "./advancedPlacementFixture";
+import {
+	advancedFixture,
+	HOUSEHOLD_VISIT,
+	HOUSEHOLDS,
+	read,
+} from "./advancedPlacementFixture";
 
 describe("the supplies a worker opens a form with", () => {
+	it("protects the physical new-case datum from a calculated key and a record tag with the same spelling", () => {
+		const { doc, formUuid, moduleUuid } = advancedFixture({
+			formType: "registration",
+			operations: () => [
+				{
+					action: "own",
+					uuid: testUuid("own"),
+					id: "own_case",
+					name: read("name"),
+				},
+			],
+		});
+		const collision = "case_id_new_household_0";
+		const choice: FormCaseSelection = {
+			uuid: testUuid("choice"),
+			name: "Contact",
+			caseType: "household",
+			tag: "new_household_0",
+			source: { kind: "choose", module: HOUSEHOLDS },
+		};
+		for (const form of [
+			{ ...doc.forms[formUuid], caseSelections: [choice] },
+			{
+				...doc.forms[formUuid],
+				computedDatums: [
+					{
+						uuid: testUuid("memo"),
+						key: collision,
+						value: term(literal("ready")),
+					},
+				],
+			},
+			{
+				...doc.forms[formUuid],
+				caseSelections: [{ ...choice, tag: "contact" }],
+			},
+		]) {
+			const current = { ...doc, forms: { ...doc.forms, [formUuid]: form } };
+			const ctx = formLinkProjectionContext(current, {
+				entryMetadataOnly: true,
+			});
+			const problems = physicalEntrySupplyProblems(
+				current,
+				ctx,
+				moduleUuid,
+				formUuid,
+			);
+			if (form.caseSelections?.[0]?.tag === "contact")
+				expect(problems).toEqual([]);
+			else
+				expect(problems).toEqual([
+					{
+						kind: "duplicate-key",
+						name: collision,
+						message: expect.stringContaining(collision),
+					},
+				]);
+		}
+	});
+
+	it("follows a connection after parent alignment only when the source keeps its actual name", () => {
+		const { doc, formUuid, moduleUuid } = advancedFixture({
+			menu: "members",
+			formType: "followup",
+			nested: true,
+			operations: () => [],
+		});
+		const choose = (tag: string): FormCaseSelection => ({
+			uuid: testUuid(`parent-choice/${tag}`),
+			name: "Choose a household",
+			tag,
+			caseType: "household",
+			source: { kind: "choose", module: HOUSEHOLDS },
+		});
+		const parent = choose("household");
+		for (const tag of ["household", "different"]) {
+			const later = choose(tag);
+			const reaches: FormCaseSelection = {
+				uuid: testUuid("member-connection"),
+				name: "Assigned member",
+				tag: "assignment",
+				caseType: "member",
+				source: { kind: "index", selection: later.uuid, identifier: "member" },
+			};
+			const current = {
+				...doc,
+				modules: {
+					...doc.modules,
+					[HOUSEHOLDS]: {
+						...doc.modules[HOUSEHOLDS],
+						heldKind: "advanced" as const,
+					},
+				},
+				forms: {
+					...doc.forms,
+					[HOUSEHOLD_VISIT]: {
+						...doc.forms[HOUSEHOLD_VISIT],
+						caseSelections: [parent],
+					},
+					[formUuid]: {
+						...doc.forms[formUuid],
+						caseSelections: [later, reaches],
+					},
+				},
+			};
+			for (const options of [{ entryMetadataOnly: true }, {}]) {
+				const ctx = formLinkProjectionContext(current, options);
+				const datums = entrySessionDatums(current, ctx, moduleUuid, formUuid);
+				expect(datums.find((row) => row.advancedLoadTag === tag)?.id).toBe(
+					"case_id_household",
+				);
+				expect(
+					physicalEntrySupplyProblems(current, ctx, moduleUuid, formUuid).map(
+						(issue) => issue.kind,
+					),
+				).toEqual(tag === "household" ? [] : ["aligned-connection"]);
+			}
+		}
+	});
 	it("keeps two choices from the same list distinct, even when a value reads the first after the worker answers the second", () => {
 		const { doc, formUuid, moduleUuid } = advancedFixture({
 			formType: "followup",

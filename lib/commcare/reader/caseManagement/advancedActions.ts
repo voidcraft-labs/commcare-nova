@@ -37,7 +37,8 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import { NO_ENTRIES } from "@/lib/domain/records";
+import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -50,6 +51,7 @@ import { planFormCaseWire } from "../../casePlacementPlan";
 import {
 	entrySessionDatums,
 	formLinkProjectionContext,
+	physicalEntrySupplyProblems,
 } from "../../formLinkProjection";
 import {
 	datumIdsFromFacts,
@@ -210,6 +212,14 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	detailsModuleOther: refuse(
 		`${F}/details-module-naming-another-module-of-a-different-case-type-or`,
 		"schema:LoadUpdateAction.details_module",
+	),
+	duplicateEntryKey: refuse(
+		`${F}/opening-values-sharing-a-physical-session-name`,
+		"schema:AdvancedFormActions.load_update_cases",
+	),
+	alignedConnection: refuse(
+		`${F}/automatic-connection-to-a-load-renamed-by-its-parent`,
+		"schema:LoadUpdateAction.auto_select",
 	),
 	notOneChain: take(
 		`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
@@ -3045,6 +3055,26 @@ export function writeAdvancedOperations(
 			? matchAll()
 			: conditionOf(form, reading.closeCondition);
 	ctx.writeDraft(() => {
+		// A read records each actual source tag, including a load that writes nothing.
+		const tags: Array<[Uuid, string]> =
+			form.form.caseSelections?.map((row) => [row.uuid, row.tag]) ??
+			(reading.chain ?? []).flatMap((menu, i) => {
+				const load = reading.chosen[i];
+				return load
+					? [
+							[implicitFormSelectionId(form.uuid, menu), load.tag] as [
+								Uuid,
+								string,
+							],
+						]
+					: [];
+			});
+		if (form.form.caseSelections === undefined && reading.worker)
+			tags.push([
+				implicitFormSelectionId(form.uuid, "worker-record"),
+				reading.worker.tag,
+			]);
+		if (tags.length) form.form.heldSelectionTags = recordFromEntries(tags);
 		for (const row of form.form.caseSelections ?? []) {
 			const supplied = reading.choiceRelationshipQuestions?.get(row.uuid);
 			if (row.source.kind === "choose" && row.source.under && supplied?.uuid)
@@ -3602,6 +3632,24 @@ export function settleAdvancedForm(
 	const ownMenu = ctx.draft.modules.find((one) => one.forms.includes(form));
 	const underListFormRules =
 		ownMenu !== undefined && listFormRulesPlace(ctx, ownMenu) !== undefined;
+	if (ownMenu) {
+		const problems = physicalEntrySupplyProblems(
+			doc,
+			formLinkProjectionContext(doc, { entryMetadataOnly: true }),
+			ownMenu.uuid,
+			form.uuid,
+		);
+		for (const issue of problems)
+			ctx.accounting.finding(
+				issue.kind === "duplicate-key"
+					? ADVANCED_CLAIMS.duplicateEntryKey
+					: ADVANCED_CLAIMS.alignedConnection,
+				form.place,
+				{ name: issue.name },
+			);
+		if (problems.length) return;
+	}
+
 	const emittedActions = advancedActionsWithEntry(
 		planned.actions,
 		ownMenu
