@@ -18,10 +18,10 @@ import {
 	type CaseListOrderPlan,
 	type CaseType,
 	type Column,
-	EMPTY_CASE_LIST_ORDER_PLAN,
 	caseListOrderPlan,
 	casePropertyShowsOptionLabels,
 	columnPropertyCaseType,
+	EMPTY_CASE_LIST_ORDER_PLAN,
 	EXPRESSION_ONLY_COLUMN_PROPERTIES,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
@@ -340,8 +340,7 @@ export function moduleCaseListOrderPlan(
 	lookupNaming?: LookupWireNaming,
 ): CaseListOrderPlan {
 	const config = mod.caseListConfig;
-	if (config === undefined)
-		return EMPTY_CASE_LIST_ORDER_PLAN;
+	if (config === undefined) return EMPTY_CASE_LIST_ORDER_PLAN;
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];

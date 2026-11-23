@@ -61,7 +61,6 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
-	EMPTY_CASE_LIST_ORDER_PLAN,
 	caseListOrderPlan,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
@@ -69,6 +68,7 @@ import {
 	columnFieldText,
 	columnPropertyCaseType,
 	declaresWebApps,
+	EMPTY_CASE_LIST_ORDER_PLAN,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	imageMapShowsImages,

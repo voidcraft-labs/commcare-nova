@@ -77,6 +77,7 @@ export const PLATFORM_CELLS: Readonly<
 	// ── Refused, structural ────────────────────────────────────────────
 	"questions/date-and-time-xsd-datetime@web-apps":
 		structural("datetime-question"),
+	"menus-and-case-lists/type-distance@web-apps": structural("sort-by-distance"),
 	"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible@android":
 		structural("forms-read-search"),
 	"case-search/inline-search-default-search-on-a-module-without-visible-inputs@android":
