@@ -559,8 +559,11 @@ branching language with no script names the required choice and its options.
 English name, qualifiers, direction, isSource, isDefault,
 automatic-translation status, coverage). `add_language` is the nonblank
 product operation: it composes the raw language mutation with one explicit
-copied entry per current unit in a single commit. `update_language` sets the
-runtime default or replaces the sole source language's identity.
+copied entry per current unit in a single commit. `update_language` moves a
+language after another app language, makes one the runtime default by putting
+it first, changes a language's identity (the source's only while it is the
+app's only language), and sets a project language's writing direction
+(`set-direction`).
 `update_translations` accepts at most 50 unique units, treats
 machine-authored values as Needs review, requires a set to echo the current
 source fingerprint it translated, and requires review/keep to echo the current
