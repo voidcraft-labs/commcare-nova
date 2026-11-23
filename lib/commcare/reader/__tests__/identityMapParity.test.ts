@@ -392,6 +392,9 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 	"two choices from one list, an automatic record and a value made at entry": {
 		doc: () => independentChoicesBlueprint("parity-independent-choices"),
 	},
+	"values two opening records and the form's own record give its questions": {
+		doc: () => independentChoicesBlueprint("parity-opening-values", true),
+	},
 	"two links to one menu, a link to a form and a link otherwise": {
 		doc: () =>
 			buildShape(

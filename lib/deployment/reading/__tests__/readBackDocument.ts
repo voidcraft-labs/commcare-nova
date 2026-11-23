@@ -74,6 +74,7 @@ export function everyKindDocument(): BlueprintDoc {
 	form.formLinks = [{ uuid: U("link") }];
 	form.caseSelections = [{ uuid: U("selection") }];
 	form.computedDatums = [{ uuid: U("entry-value") }];
+	form.openingAssignments = [{ uuid: U("opening-assignment") }];
 	doc.userProperties = { [U("property")]: { uuid: U("property"), slug: "d" } };
 	doc.userPropertyOrder = [U("property")];
 	doc.userTypes = { [U("type")]: { uuid: U("type"), name: "Nurse" } };

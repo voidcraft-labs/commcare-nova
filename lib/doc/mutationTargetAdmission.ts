@@ -73,11 +73,11 @@ export function mutationTargetsInvalid(
 					!members.some((row) => row.uuid === change.uuid)
 				)
 					return true;
-				if (
-					"value" in change &&
-					"uuid" in change.value &&
-					members.some((row) => row.uuid === change.value.uuid)
-				)
+				const added =
+					"value" in change && "uuid" in change.value
+						? change.value.uuid
+						: undefined;
+				if (added !== undefined && members.some((row) => row.uuid === added))
 					return true;
 				if (
 					"after" in change &&
