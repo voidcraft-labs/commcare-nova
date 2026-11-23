@@ -3,6 +3,7 @@ import {
 	fuzzySearchPropertySchema,
 	ignoredSearchTextSchema,
 	type PreviewSearchValues,
+	playableSearchTimeZoneSchema,
 	previewSearchIssueText,
 	previewSearchValuesSchema,
 } from "./searchSettings";
@@ -31,7 +32,7 @@ function splices<T extends z.ZodType>(row: T) {
 export const previewSearchChangesSchema = z
 	.strictObject({
 		maximum: previewSearchValuesSchema.shape.maximum.optional(),
-		timeZone: previewSearchValuesSchema.shape.timeZone.optional(),
+		timeZone: playableSearchTimeZoneSchema.nullable().optional(),
 		caseListMap: previewSearchValuesSchema.shape.caseListMap.describe(
 			"Whether this destination has the Web Apps record map. Omit to keep the team’s setting, or use null when unconfirmed.",
 		),

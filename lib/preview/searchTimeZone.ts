@@ -350,10 +350,17 @@ for (const line of names.split("\n")) {
 		identities.set(name.toLowerCase(), primary);
 }
 
+/** The IANA identity of a named calendar in the pinned table, whatever this
+ * runtime's own time zone data holds. A saved setting is read by this alone,
+ * so a teammate's browser with older data still reads every other setting. */
+export function searchTimeZonePrimary(name: string): string | undefined {
+	return identities.get(name.toLowerCase());
+}
+
 /** Check that the runtime can play this named calendar, and compare its IANA
  * identity even on engines that preserve the user's spelling in Intl. */
 export function searchTimeZoneIdentity(name: string): string | undefined {
-	const primary = identities.get(name.toLowerCase());
+	const primary = searchTimeZonePrimary(name);
 	if (!primary) return undefined;
 	try {
 		new Intl.DateTimeFormat("en", { timeZone: name });

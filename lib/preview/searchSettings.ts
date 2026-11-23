@@ -4,7 +4,10 @@ import {
 	DEFAULT_SEARCH_RESULT_LIMIT,
 	INCREASED_SEARCH_RESULT_LIMIT,
 } from "@/lib/domain/searchLimits";
-import { searchTimeZoneIdentity } from "./searchTimeZone";
+import {
+	searchTimeZoneIdentity,
+	searchTimeZonePrimary,
+} from "./searchTimeZone";
 
 export const previewSearchTargetSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("local") }),
@@ -25,11 +28,19 @@ export function previewSearchTargetKey(target: PreviewSearchTarget): string {
 
 const namedZone =
 	"Choose a named time zone such as Asia/Kolkata, America/New_York or UTC. A local abbreviation can refer to more than one place.";
+/** A recorded calendar: a name in the pinned IANA table. Reading never asks
+ * this runtime's Intl, whose data can be older than the saving runtime's;
+ * `resolvePreviewSearchFacts` leaves only the time zone unconfirmed then. */
 export const searchTimeZoneSchema = z
 	.string()
 	.min(1, namedZone)
 	.max(128, namedZone)
-	.refine((name) => searchTimeZoneIdentity(name) !== undefined, namedZone);
+	.refine((name) => searchTimeZonePrimary(name) !== undefined, namedZone);
+/** A calendar being saved must also play where it is saved. */
+export const playableSearchTimeZoneSchema = searchTimeZoneSchema.refine(
+	(name) => searchTimeZoneIdentity(name) !== undefined,
+	"Nova can't use that time zone on this device yet. Choose another name for the same place, such as its nearest major city.",
+);
 
 // PostgreSQL jsonb must be able to store every admitted rule.
 function ruleText(missing: string, name: string) {

@@ -1,7 +1,8 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
 	localSearchDefaults,
 	type PreviewSearchValues,
+	resolvePreviewSearchFacts,
 } from "../searchSettings";
 import {
 	applyPreviewSearchChanges,
@@ -184,4 +185,56 @@ it("keeps each setting a person changed over a teammate's newer revision and tak
 			propertyMatchers: null,
 		}),
 	).toEqual({ ...latest, propertyMatchers: null });
+});
+
+it("reads a saved calendar this browser's time zone data lacks, and leaves only that calendar unconfirmed", () => {
+	const zone = "America/Coyhaique";
+	const catalog = {
+		projectId: "p",
+		profiles: [
+			{
+				target: { kind: "local" as const },
+				revision: "2",
+				values: {
+					...localSearchDefaults,
+					timeZone: zone,
+					maximum: 1500 as const,
+				},
+			},
+		],
+	};
+	// A browser with older ICU data refuses the zone a newer runtime saved.
+	const RealFormat = Intl.DateTimeFormat;
+	const olderData = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(((
+		locale?: string | string[],
+		options?: Intl.DateTimeFormatOptions,
+	) => {
+		if (options?.timeZone === zone)
+			throw new RangeError(`Invalid time zone specified: ${zone}`);
+		return new RealFormat(locale, options);
+	}) as typeof Intl.DateTimeFormat);
+	try {
+		const read = createPreviewSearchFrameReader();
+		let received: ReturnType<typeof read>;
+		for (const frame of previewSearchFrames(catalog))
+			received = read(JSON.stringify(frame), "p");
+		expect(received).toEqual(catalog);
+		const facts = resolvePreviewSearchFacts(received ?? null, {
+			kind: "local",
+		});
+		expect(facts.timeZone).toBeNull();
+		expect(facts.maximum).toBe(1500);
+		expect(facts.propertyMatchers).toEqual(
+			localSearchDefaults.propertyMatchers,
+		);
+		// Saving that calendar from this browser is refused in Nova's words.
+		const saving = previewSearchChangesSchema.safeParse({ timeZone: zone });
+		expect(saving.error?.issues[0]?.message).toMatch(/^Nova can't use that/);
+		// An edit to another setting keeps the saved calendar.
+		expect(
+			applyPreviewSearchChanges(catalog.profiles[0].values, { maximum: 500 }),
+		).toEqual({ values: { ...catalog.profiles[0].values, maximum: 500 } });
+	} finally {
+		olderData.mockRestore();
+	}
 });
