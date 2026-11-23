@@ -5042,7 +5042,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/columns/8/kind",
+				"pointer": "/caseListConfig/columns/9/kind",
 				"value": "link"
 			},
 			{
@@ -5052,7 +5052,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/columns/8/linkText",
+				"pointer": "/caseListConfig/columns/9/linkText",
 				"value": "Call"
 			}
 		]
@@ -13106,7 +13106,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/columns/8/kind",
+				"pointer": "/caseListConfig/columns/9/kind",
 				"value": "plain"
 			},
 			{
@@ -13116,7 +13116,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/columns/8/field",
+				"pointer": "/caseListConfig/columns/9/field",
 				"value": "case_id"
 			}
 		]
@@ -15198,7 +15198,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/columns/8/field",
+				"pointer": "/caseListConfig/columns/9/field",
 				"value": "village"
 			},
 			{
@@ -15208,7 +15208,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/columns/8/header",
+				"pointer": "/caseListConfig/columns/9/header",
 				"value": "Village name"
 			}
 		]
