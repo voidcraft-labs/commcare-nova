@@ -5,6 +5,7 @@ import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import {
 	canSetQuestionDisplay,
 	useQuestionChannels,
@@ -14,16 +15,13 @@ import {
 	type FieldDisplaySetting,
 	fieldDisplayOptionsFor,
 	fieldDisplaySettingsFor,
-	targetConditionOf,
 } from "@/lib/domain";
 
 import type { CommitOutcome } from "@/lib/domain/kinds";
 import { webShowsHintInEntry } from "@/lib/domain/questionDisplay";
 import { useSelectedFormUuid } from "@/lib/routing/hooks";
+import { addressSearchNote } from "./addressSearchNoteModel";
 import { LayoutSelect } from "./ChoiceLayoutEditor";
-
-/** What Web Apps' address search asks of a project space, from the platform table. */
-const ADDRESS_SEARCH_CONDITION = targetConditionOf("address-lookup");
 
 interface Props {
 	field: Field;
@@ -188,6 +186,7 @@ export function QuestionDisplayEditor({
 		(s) => s.key === keyName,
 	);
 	const [rejection, setRejection] = useState<string | null>(null);
+	const platforms = useDeclaredPlatforms();
 	if (!setting) return null;
 	function change(next: unknown) {
 		const result = onChange(next);
@@ -240,10 +239,7 @@ export function QuestionDisplayEditor({
 			)}
 			{setting.key === "addressLookup" && (
 				<p className="text-xs text-nova-text-muted">
-					{ADDRESS_SEARCH_CONDITION?.reason} Publishing checks the project space
-					and asks you to confirm the plan feature.
-					{field.kind === "secret" &&
-						" Web Apps shows the address as the worker searches. Android masks the answer."}
+					{addressSearchNote(platforms, field.kind)}
 				</p>
 			)}
 			<RejectionInline message={rejection} />
