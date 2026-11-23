@@ -193,7 +193,11 @@ export function requiredMessagesAsRead(doc: BlueprintDoc): BlueprintDoc {
 		if (mod === undefined || effectiveCaseSearchConfig(mod) === undefined)
 			continue;
 		for (const input of mod.caseListConfig?.searchInputs ?? [])
-			if (input.kind !== "hidden" && input.required !== undefined)
+			if (
+				input.kind !== "hidden" &&
+				input.required !== undefined &&
+				input.required.noMessage !== true
+			)
 				fields.push({ moduleUuid, input });
 	}
 	const ownSentence = fields.some(

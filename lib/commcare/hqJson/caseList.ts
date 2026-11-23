@@ -121,6 +121,7 @@ import {
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import {
 	type RuntimeCsqlPromptValidation,
+	type SearchPromptAssertion,
 	type SearchPromptSlot,
 	searchPromptWire,
 } from "../suite/case-search/searchPrompts";
@@ -775,17 +776,24 @@ function projectSearchInput(
 			sort: hqXPath(wire.itemset.sort),
 		};
 	}
+	// A check with no text of its own (`searchPrompts.ts::SearchPromptAssertion.message`) stores
+	// an empty map, as HQ's Case List page saves a blank message in every language.
+	const textOf = (message: SearchPromptAssertion["message"]) =>
+		message === undefined ||
+		(Array.isArray(message.source) && message.source.length === 0)
+			? {}
+			: localization.textMapFor(message.source);
 	if (wire.required !== undefined) {
 		property.required = {
 			test: hqXPath(wire.required.test, "no-case"),
-			text: localization.textMapFor(wire.required.message.source),
+			text: textOf(wire.required.message),
 		};
 	}
 	if (wire.validation !== undefined) {
 		property.validations = [
 			{
 				test: hqXPath(wire.validation.test, "no-dots"),
-				text: localization.textMapFor(wire.validation.message.source),
+				text: textOf(wire.validation.message),
 			},
 		];
 	}

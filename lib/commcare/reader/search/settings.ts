@@ -6,7 +6,7 @@
  * `search_config` must equal the stored one key by key after the inert
  * claims and the same-state rows.
  */
-import type { BlueprintDoc, Expression, Module } from "@/lib/domain";
+import type { BlueprintDoc, Expression, Module, Uuid } from "@/lib/domain";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
 	DEFAULT_CASE_SEARCH_TITLE,
@@ -22,6 +22,7 @@ import {
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { excludedOwnerClauseWritten } from "../../suite/case-list/nodesetFilter";
+import { searchGuardedFieldNames } from "../../suite/case-search/moduleXPathQuery";
 import { normalizeSpace } from "../../suite/wire";
 import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
@@ -92,6 +93,11 @@ export const BLANK_IS_ABSENT = `${S}a-blank-text-in-a-search-key-hq-reads-only-w
 const NO_REGISTRY = `${S}the-registry-workflow-and-cases-where-no-registry-is-named`;
 
 export const SETTING_CLAIMS = defineClaims("search.settings", {
+	/** A check with no message on a field Nova's search guards (`settleSearchSettings`). */
+	checkWithoutMessageGuarded: refuse(
+		`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
+		"schema:Assertion.text",
+	),
 	title: take(
 		`${S}title-label-lang-non-empty`,
 		"schema:CaseSearch.title_label",
@@ -1899,8 +1905,56 @@ export function settleSearchSettings(
 			"schema:Module.search_config",
 			readerDefect.emissionThrew(place, "projectCaseListForHq"),
 		);
-	else if (first !== undefined && !ctx.accounting.hasFindingAt(place))
-		ctx.accounting.circumstance("unrecognized", place, { name: first });
+	else if (first !== undefined && !ctx.accounting.hasFindingAt(place)) {
+		const guarded = checksWithoutMessageTheSearchGuards(
+			start,
+			module.uuid,
+			prompts,
+		);
+		if (guarded.length === 0)
+			ctx.accounting.circumstance("unrecognized", place, { name: first });
+		for (const prompt of guarded)
+			ctx.accounting.findingAt(
+				T.checkWithoutMessageGuarded,
+				place,
+				`${prompt.cursor.pointer}/validations`,
+				{ name: prompt.name },
+			);
+	}
+}
+
+/**
+ * The fields of `prompts` read as a check with no message of its own whose answers Nova's search
+ * guards (`moduleXPathQuery.ts::searchGuardedFieldNames`): the guard shares the field's one check
+ * and its sentence follows the field's message, so Nova's gate holds no such check
+ * (`validator/rules/case-list/searchCheckMessage.ts`), and the projection prints the guard's
+ * sentence where HQ's build printed none. A stored test that ends with Nova's guard is settled as
+ * an untold check (`index.ts::settleUntoldChecks`).
+ */
+function checksWithoutMessageTheSearchGuards(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	prompts: readonly PromptReading[],
+): readonly PromptReading[] {
+	const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
+	const messageless = prompts.filter((prompt) => {
+		const input = inputs.find((one) => one.uuid === prompt.uuid);
+		return (
+			input !== undefined &&
+			input.kind !== "hidden" &&
+			input.validation !== undefined &&
+			input.validation.message === undefined
+		);
+	});
+	if (messageless.length === 0) return [];
+	let guarded: ReadonlySet<string>;
+	try {
+		guarded = searchGuardedFieldNames(doc, moduleUuid);
+	} catch (error) {
+		rethrowWorkStop(error);
+		return [];
+	}
+	return messageless.filter((prompt) => guarded.has(prompt.name));
 }
 
 /**

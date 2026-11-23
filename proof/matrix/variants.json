@@ -36950,12 +36950,13 @@
 		"id": "hq-search/required-with-no-message",
 		"base": "hq-search",
 		"entry": "case-search/a-required-or-validation-test-with-no-message-in-any-language",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
-		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/searchInputs/1/required/noMessage",
+				"value": true
+			}
+		],
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/search_config/properties/1",

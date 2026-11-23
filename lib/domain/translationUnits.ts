@@ -793,7 +793,9 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
-			if (input.required !== undefined) {
+			// A requirement with no message at all, and a check with none of its
+			// own, which shows CommCare's sentence, have no text to translate.
+			if (input.required !== undefined && input.required.noMessage !== true) {
 				if (input.required.message === undefined) {
 					needsDefaultRequiredMessage = true;
 				} else {
@@ -814,7 +816,7 @@ export function collectTranslationUnits(
 					);
 				}
 			}
-			if (input.validation !== undefined) {
+			if (input.validation?.message !== undefined) {
 				out.push(
 					unit({
 						id: makeTranslationUnitId(

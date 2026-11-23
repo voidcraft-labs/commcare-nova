@@ -1143,6 +1143,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The search field ${q(det(e, "inputName", "in this module"))} lets people choose several values, so it needs to be named after the case information it searches on this case type. Rename it to match, or switch it to a single-choice field.`,
 	CASE_LIST_HIDDEN_SEARCH_FIELD_REFUSED: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} is hidden in Web Apps. ${det(e, "reason", "A field Web Apps hides can't carry anything a worker there would need to see.")}`,
+	CASE_LIST_SEARCH_CHECK_MESSAGE_REFUSED: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} needs a different message. ${det(e, "reason", "Give its check a message.")}`,
 	CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} can't search for blank. ${det(e, "reason", "Searching for blank needs a field that searches its own property directly.")} Turn off searching for blank, or change how the field searches.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>

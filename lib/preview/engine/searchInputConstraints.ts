@@ -31,6 +31,7 @@ import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	type SearchInputDef,
 	searchInputRequiredMessage,
+	searchInputValidationMessage,
 	type Uuid,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
@@ -328,7 +329,7 @@ function constraintChecks(
 			searchInputUuid: input.uuid,
 			slot: "search_input_validation_rule",
 			name: input.name,
-			message: input.validation.message,
+			message: searchInputValidationMessage(input) ?? "",
 			predicate: input.validation.rule,
 			fires: (holds) => holds === false,
 		});

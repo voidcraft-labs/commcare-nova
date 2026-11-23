@@ -197,7 +197,10 @@ export interface SearchPromptText {
 
 export interface SearchPromptAssertion {
 	readonly test: WireExpr;
-	readonly message: SearchPromptText;
+	/** Absent on a check with no message of its own, which carries no text and shows
+	 *  CommCare's sentence (`buildValidation`). A requirement with no message carries a
+	 *  blank text, through no translation unit (`buildRequired`). */
+	readonly message?: SearchPromptText;
 }
 
 export interface SearchPromptItemset {
@@ -382,23 +385,34 @@ export function buildSearchPrompts(
 			);
 		}
 		if (wire.required !== undefined) {
+			const message = wire.required.message;
 			children.push(
-				xel("required", { xpath: { test: wire.required.test } }, context, [
-					register(
-						composeRequiredLocaleId(moduleId, wire.key),
-						wire.required.message,
-					),
-				]),
+				xel(
+					"required",
+					{ xpath: { test: wire.required.test } },
+					context,
+					message === undefined
+						? []
+						: [register(composeRequiredLocaleId(moduleId, wire.key), message)],
+				),
 			);
 		}
 		if (wire.validation !== undefined) {
+			const message = wire.validation.message;
 			children.push(
-				xel("validation", { xpath: { test: wire.validation.test } }, context, [
-					register(
-						composeValidationLocaleId(moduleId, wire.key),
-						wire.validation.message,
-					),
-				]),
+				xel(
+					"validation",
+					{ xpath: { test: wire.validation.test } },
+					context,
+					message === undefined
+						? []
+						: [
+								register(
+									composeValidationLocaleId(moduleId, wire.key),
+									message,
+								),
+							],
+				),
 			);
 		}
 		elements.push(
@@ -613,7 +627,11 @@ function buildItemset(
  * always-required input carries the literal `true()`; a conditional
  * one carries its authored predicate lowered to on-device XPath. The
  * message is the author's sentence or Nova's default, so every runtime
- * shows the same words.
+ * shows the same words. A requirement with no message (`noMessage`) carries
+ * a blank text in every language, as CommCare HQ builds one whose text is
+ * blank (`remote_requests.py::build_query_prompts` writes the text whenever
+ * the test exists; `app_strings.py` gives it `clean_trans({})`, blank), so
+ * the worker reads nothing whichever wire built the app.
  */
 function buildRequired(
 	input: SearchInputDef,
@@ -630,13 +648,15 @@ function buildRequired(
 		message: {
 			text: message,
 			source:
-				input.required?.message === undefined
-					? makeTranslationUnitId("system", "search-required", "default")
-					: makeTranslationUnitId(
-							"search-input",
-							input.uuid,
-							"required-message",
-						),
+				input.required?.noMessage === true
+					? NO_UNITS
+					: input.required?.message === undefined
+						? makeTranslationUnitId("system", "search-required", "default")
+						: makeTranslationUnitId(
+								"search-input",
+								input.uuid,
+								"required-message",
+							),
 		},
 	};
 }
@@ -647,7 +667,11 @@ function buildRequired(
  * CSQL guard share the slot: the test ANDs both (each parenthesized),
  * and the message joins the authored sentence with the guard's. Each
  * half keeps its own translation unit; the locale table joins them per
- * language.
+ * language. A check with no message of its own carries no text, as CommCare
+ * HQ builds one (`remote_requests.py`: `if validation.has_text`), and the
+ * worker reads CommCare's sentence. The gate keeps such a check off a field
+ * the search guards (`searchCheckMessage.ts`), whose guard's sentence would
+ * have nothing to follow.
  */
 function buildValidation(
 	input: SearchInputDef,
@@ -669,10 +693,12 @@ function buildValidation(
 				emission,
 			),
 		);
-		messages.push(authored.message);
-		units.push(
-			makeTranslationUnitId("search-input", input.uuid, "validation-message"),
-		);
+		if (authored.message !== undefined) {
+			messages.push(authored.message);
+			units.push(
+				makeTranslationUnitId("search-input", input.uuid, "validation-message"),
+			);
+		}
 	}
 	if (runtimeValidation !== undefined) {
 		tests.push(runtimeValidation.test);
@@ -685,14 +711,20 @@ function buildValidation(
 			),
 		);
 	}
+	const [unit] = units;
 	return {
 		test: w.and(...tests),
-		message: {
-			text: messages.join(" "),
-			source: units.length === 1 ? units[0] : units,
-		},
+		...(unit !== undefined && {
+			message: {
+				text: messages.join(" "),
+				source: units.length === 1 ? unit : units,
+			},
+		}),
 	};
 }
+
+/** The source of a blank text: no unit, so every language reads `""`. */
+const NO_UNITS: readonly TranslationUnitId[] = [];
 
 /**
  * Lower a search-screen predicate (`required.when` / `validation.rule`)

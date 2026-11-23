@@ -104,6 +104,7 @@ import {
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
+	COMMCARE_SEARCH_INVALID_MESSAGE,
 	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
 	isSelectSearchInputType,
@@ -1394,19 +1395,14 @@ function RequiredSlot({
 				onChange(undefined);
 				return;
 			case "always":
-				onChange(
-					value?.message === undefined ? {} : { message: value.message },
-				);
+				onChange(messageOf(value));
 				return;
 			case "conditional": {
 				if (expressionContext === undefined) return;
 				const when = firstComparisonDefault(
 					summaryContextToEditContext(summaryContext, expressionContext),
 				);
-				onChange({
-					...(value?.message === undefined ? {} : { message: value.message }),
-					when,
-				});
+				onChange({ ...messageOf(value), when });
 				onEditCondition();
 				return;
 			}
@@ -1488,29 +1484,60 @@ function RequiredSlot({
 							</Button>
 						</div>
 					)}
-					<div className="flex flex-col gap-2">
-						<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
-							Message when unanswered
+					{value.noMessage === true ? (
+						<div className="flex flex-col gap-2">
+							<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+								Message when unanswered
+							</div>
+							<p className="text-[13px] leading-relaxed text-nova-text-muted">
+								No message. In Web Apps the search waits until this field is
+								answered, and people don't see why.
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									onChange(value.when === undefined ? {} : { when: value.when })
+								}
+								className="w-full"
+								aria-label={`Show a message for search field ${rowIndex + 1} when it's unanswered`}
+							>
+								Show a message
+							</Button>
 						</div>
-						<BlurCommitTextInput
-							value={value.message ?? ""}
-							onCommit={(message) =>
-								onChange({
-									...(value.when === undefined ? {} : { when: value.when }),
-									...(message === "" ? {} : { message }),
-								})
-							}
-							placeholder={SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE}
-							ariaLabel={`Search field ${rowIndex + 1} required message`}
-						/>
-						<p className="text-[13px] leading-relaxed text-nova-text-muted">
-							Leave it blank to use the standard message
-						</p>
-					</div>
+					) : (
+						<div className="flex flex-col gap-2">
+							<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+								Message when unanswered
+							</div>
+							<BlurCommitTextInput
+								value={value.message ?? ""}
+								onCommit={(message) =>
+									onChange({
+										...(value.when === undefined ? {} : { when: value.when }),
+										...(message === "" ? {} : { message }),
+									})
+								}
+								placeholder={SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE}
+								ariaLabel={`Search field ${rowIndex + 1} required message`}
+							/>
+							<p className="text-[13px] leading-relaxed text-nova-text-muted">
+								Leave it blank to use the standard message
+							</p>
+						</div>
+					)}
 				</div>
 			)}
 		</FieldRow>
 	);
+}
+
+/** A requirement's message settings, carried across a change of when it applies. */
+function messageOf(
+	required: SearchInputRequired | undefined,
+): SearchInputRequired {
+	if (required?.noMessage === true) return { noMessage: true };
+	return required?.message === undefined ? {} : { message: required.message };
 }
 
 interface CheckSlotProps {
@@ -1530,7 +1557,6 @@ function CheckSlot({
 	onChange,
 	onEditRule,
 }: CheckSlotProps) {
-	const [messageError, setMessageError] = useState<string | null>(null);
 	return (
 		<FieldRow
 			label="Check on the answer"
@@ -1582,20 +1608,19 @@ function CheckSlot({
 							Message when the check fails
 						</div>
 						<BlurCommitTextInput
-							value={value.message}
-							onCommit={(message) => {
-								if (message === "") {
-									setMessageError(
-										"Enter the message people read when the check fails",
-									);
-									return;
-								}
-								setMessageError(null);
-								onChange({ rule: value.rule, message });
-							}}
+							value={value.message ?? ""}
+							onCommit={(message) =>
+								onChange({
+									rule: value.rule,
+									...(message === "" ? {} : { message }),
+								})
+							}
+							placeholder={COMMCARE_SEARCH_INVALID_MESSAGE}
 							ariaLabel={`Search field ${rowIndex + 1} check message`}
 						/>
-						{messageError !== null && <InlineError errors={[messageError]} />}
+						<p className="text-[13px] leading-relaxed text-nova-text-muted">
+							Leave it blank to show CommCare's own message
+						</p>
 					</div>
 					<Button
 						type="button"

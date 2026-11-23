@@ -1382,8 +1382,20 @@ const searchInputBase = z.strictObject({
 /**
  * Whether a worker must answer a prompt before Search runs. `{}` is
  * "always required"; `when` makes it conditional on the Search screen's
- * own state (other answers, session values, literals). `message` replaces
- * the runtime's stock "Sorry, this response is required!".
+ * own state (other answers, session values, literals). `message` is the
+ * author's sentence; without one the worker reads Nova's
+ * (`SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`).
+ *
+ * `noMessage` is a requirement with no message at all, as CommCare HQ
+ * builds one whose text is blank in every language: its build writes the
+ * requirement's text blank (`remote_requests.py::build_query_prompts`,
+ * `app_strings.py`: `clean_trans` of an empty map), so Core reports a blank
+ * message for it (`QueryPrompt.getRequiredMessage`). Web Apps lets a blank
+ * message through its own check (`query.js::isValid`), and Formplayer runs
+ * no search while any prompt has an error
+ * (`MenuSessionRunnerService.doQuery`), so the search waits for the answer
+ * and the worker reads nothing. It never stands beside a `message`
+ * (`searchCheckMessageRefusal`).
  *
  * Evaluated on the Search screen where the worker's answers ARE loaded
  * (`RemoteQuerySessionManager.validateUserAnswers` runs `<required test>`
@@ -1394,6 +1406,7 @@ const searchInputBase = z.strictObject({
 export const searchInputRequiredSchema = z.strictObject({
 	when: conditionSchema.optional(),
 	message: z.string().min(1).optional(),
+	noMessage: z.literal(true).optional(),
 });
 export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
 
@@ -1403,11 +1416,15 @@ export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
  * (`QueryPromptParser.parse` assigns a single `validation` slot), so a list
  * here would silently drop every rule but one. `rule` evaluates in the same
  * Search-screen scope as `required.when`; `message` is what the worker reads
- * when the rule is false.
+ * when the rule is false. A check with no message of its own shows
+ * CommCare's sentence (`COMMCARE_SEARCH_INVALID_MESSAGE`): CommCare HQ
+ * builds no text for a validation whose text is blank in every language
+ * (`remote_requests.py`, `validation.has_text`), and Core then reports its
+ * own (`QueryPrompt.getValidationMessage`).
  */
 export const searchInputValidationSchema = z.strictObject({
 	rule: conditionSchema,
-	message: z.string().min(1),
+	message: z.string().min(1).optional(),
 });
 export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
 
@@ -1741,14 +1758,55 @@ export const SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE =
 
 /**
  * The message shown when this input is required and left blank: the author's
- * own sentence, else Nova's default. `undefined` when the input is never
- * required.
+ * own sentence, `""` for a requirement with no message (`noMessage`), else
+ * Nova's default. `undefined` when the input is never required.
  */
 export function searchInputRequiredMessage(
 	input: SearchInputDef,
 ): string | undefined {
 	if (input.kind === "hidden" || input.required === undefined) return undefined;
+	if (input.required.noMessage === true) return "";
 	return input.required.message ?? SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE;
+}
+
+/**
+ * The sentence Core reports for a Search field check with no message of its
+ * own (`QueryPrompt.DEFAULT_VALIDATION_ERROR`). Core asks the app strings for
+ * `case.search.answer.invalid` first, which no CommCare app string table
+ * defines, so a worker reads these words in every language.
+ */
+export const COMMCARE_SEARCH_INVALID_MESSAGE =
+	"Sorry, this response is invalid!";
+
+/**
+ * The message shown when this input's answer fails its check: the author's
+ * own sentence, else CommCare's (`COMMCARE_SEARCH_INVALID_MESSAGE`).
+ * `undefined` when the input has no check.
+ */
+export function searchInputValidationMessage(
+	input: SearchInputDef,
+): string | undefined {
+	if (input.kind === "hidden" || input.validation === undefined)
+		return undefined;
+	return input.validation.message ?? COMMCARE_SEARCH_INVALID_MESSAGE;
+}
+
+/**
+ * Why a Search field's requirement can't carry the message settings it has,
+ * or `undefined` where it can: a requirement either has no message at all or
+ * may have one of its own, never both. Shared by the commit gate and the
+ * builder.
+ */
+export function searchCheckMessageRefusal(
+	input: SearchInputDef,
+): string | undefined {
+	if (
+		input.kind !== "hidden" &&
+		input.required?.noMessage === true &&
+		input.required.message !== undefined
+	)
+		return "A requirement with no message can't have a message of its own too. Remove the message, or let it show one.";
+	return undefined;
 }
 
 /** The lookup options source of a choice input; absent on every other arm. */

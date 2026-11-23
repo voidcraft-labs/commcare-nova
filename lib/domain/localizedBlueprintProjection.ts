@@ -149,7 +149,7 @@ export function projectLocalizedModule(
 						next.hint,
 					);
 				}
-				if (next.required !== undefined) {
+				if (next.required !== undefined && next.required.noMessage !== true) {
 					// A requirement without its own message reads the system
 					// sentence, localized once for the whole app.
 					next.required = {
@@ -174,7 +174,7 @@ export function projectLocalizedModule(
 									),
 					};
 				}
-				if (next.validation !== undefined) {
+				if (next.validation?.message !== undefined) {
 					next.validation = {
 						...next.validation,
 						message: text(

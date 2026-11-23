@@ -1082,13 +1082,35 @@ function settleUntoldChecks(ctx: ReadContext, reading: SearchReading): void {
 			continue;
 		}
 		const place = searchPlace(reading.module);
-		const detail = { name: "schema:Assertion.text" };
-		ctx.accounting.circumstance("unrecognized", place, detail);
-		settleDeferredRefusal(
-			ctx,
-			index,
-			circumstanceFinding("unrecognized", place, detail),
-		);
+		// A check whose text is blank in every language has no message for Nova's guard's
+		// sentence to follow, which Nova's gate holds no check of
+		// (`validator/rules/case-list/searchCheckMessage.ts`): its own finding.
+		const blank =
+			prompt.validationText !== undefined &&
+			Object.values(prompt.validationText).every((text) => text === "");
+		if (blank) {
+			ctx.accounting.findingAt(
+				SETTING_CLAIMS.checkWithoutMessageGuarded,
+				place,
+				`${prompt.cursor.pointer}/validations`,
+				{ name: prompt.name },
+			);
+			settleDeferredRefusal(
+				ctx,
+				index,
+				manifestFindingOf(SETTING_CLAIMS.checkWithoutMessageGuarded, place, {
+					name: prompt.name,
+				}),
+			);
+		} else {
+			const detail = { name: "schema:Assertion.text" };
+			ctx.accounting.circumstance("unrecognized", place, detail);
+			settleDeferredRefusal(
+				ctx,
+				index,
+				circumstanceFinding("unrecognized", place, detail),
+			);
+		}
 		if (ending.rule !== undefined)
 			untoldRuleRefusal(ctx, doc, index, ending.rule);
 	}

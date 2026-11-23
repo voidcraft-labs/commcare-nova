@@ -72,7 +72,7 @@ import { searchPlace } from "./workflow";
 
 const S = "case-search/";
 
-/** The entry a required or validation test with no message in any language is refused under. */
+/** The entry a required or validation test with no message in any language is read under. */
 const NO_MESSAGE = `${S}a-required-or-validation-test-with-no-message-in-any-language`;
 
 export const PROMPT_CLAIMS = defineClaims("search.prompts", {
@@ -301,11 +301,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		BLANK_IS_ABSENT,
 		"schema:CaseSearchProperty.required",
 	),
-	requiredNoMessage: refuse(NO_MESSAGE, "schema:CaseSearchProperty.required"),
-	validationNoMessage: refuse(
-		NO_MESSAGE,
-		"schema:CaseSearchProperty.validations",
-	),
+	/** A requirement's or a check's text blank in every language: a requirement with no message,
+	 *  a check that shows CommCare's sentence (`readPrompt`). */
+	requiredNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
+	validationNoMessage: take(NO_MESSAGE, "schema:Assertion.text"),
 	group: refuse(`${S}is-group-group-key`, "schema:CaseSearchProperty.is_group"),
 	groupMissing: refuse(
 		`${S}groups-present-and-an-input-without-group-key`,
@@ -713,16 +712,16 @@ function readPrompt(
 			cover(prompt, ["validations"], addressRefused);
 		else refuseWith("validations", P.validationsLater);
 	}
-	// A check whose message is blank in every language: HQ's build shows the runtime's own
-	// sentence for a validation (`remote_requests.py` writes no text where `has_text` is false)
-	// and a blank one for a requirement, and Nova holds no check without a message of its own.
-	if (
-		!hiddenRefused &&
+	// A check whose message is blank in every language (a language with no text shows another's,
+	// `shownTexts`, so the source's is blank only where every one is): HQ's build writes a blank
+	// text for a requirement (`app_strings.py`, `clean_trans` of the map), which Nova holds as a
+	// requirement with no message (`noMessage`), and no text for a validation
+	// (`remote_requests.py`: `if validation.has_text`), whose worker reads Core's own sentence,
+	// which Nova holds as a check with no message of its own.
+	const requiredBlank =
 		requires &&
 		requiredRead.held !== undefined &&
-		sourceText(ctx, requiredMap) === ""
-	)
-		refuseWith("required", P.requiredNoMessage);
+		sourceText(ctx, requiredMap) === "";
 	const storedValidation = Array.isArray(validations)
 		? validations[0]
 		: undefined;
@@ -734,15 +733,10 @@ function readPrompt(
 		storedValidation,
 		validationRead?.texts ?? NO_ENTRIES,
 	);
-	if (
-		!hiddenRefused &&
-		!refusedHere("validations") &&
+	const validationBlank =
 		validation?.kind === "checked" &&
-		validation.rule !== undefined &&
 		validationRead?.held !== undefined &&
-		sourceText(ctx, validation.messages) === ""
-	)
-		refuseWith("validations", P.validationNoMessage);
+		sourceText(ctx, validation.messages) === "";
 	const readsRequired = requires && !hiddenRefused && !refusedHere("required");
 	const readsValidation = !hiddenRefused && !refusedHere("validations");
 
@@ -1126,13 +1120,14 @@ function readPrompt(
 			)
 		: undefined;
 	let requiredWhen: number | undefined;
-	let required: { message?: string } | undefined;
+	let required: { message?: string; noMessage?: true } | undefined;
 	if (readsRequired) {
 		const assertion = prompt.object("required", "Assertion", P.required);
 		const test = assertion.peek("test");
-		claimText(assertion, "text", P.requiredText, requiredRead);
+		const textClaim = requiredBlank ? P.requiredNoMessage : P.requiredText;
+		claimText(assertion, "text", textClaim, requiredRead);
 		const text = requiredMap;
-		respelled(assertion, "text", P.requiredText.entry, requiredRead.held);
+		respelled(assertion, "text", textClaim.entry, requiredRead.held);
 		required = {};
 		if (typeof test === "string" && test.trim() === "true()")
 			assertion.take("test", P.requiredAlways, String).value;
@@ -1149,7 +1144,8 @@ function readPrompt(
 		const novaSentence =
 			nova !== undefined &&
 			appCodes(ctx).every((code) => (text[code] ?? "") === nova.get(code));
-		if (!novaSentence) {
+		if (requiredBlank) required.noMessage = true;
+		else if (!novaSentence) {
 			required.message = message;
 			ctx.translations.set(
 				makeTranslationUnitId("search-input", uuid, "required-message"),
@@ -1165,13 +1161,16 @@ function readPrompt(
 		: [];
 	const first = validationList[0];
 	if (first !== undefined && validation !== undefined) {
+		const textClaim = validationBlank
+			? P.validationNoMessage
+			: P.validationText;
 		if (validationRead !== undefined)
-			claimText(first, "text", P.validationText, validationRead);
+			claimText(first, "text", textClaim, validationRead);
 		const whole = validationRead?.held;
 		respelled(
 			first,
 			"text",
-			P.validationText.entry,
+			textClaim.entry,
 			whole !== undefined &&
 				validation.kind === "checked" &&
 				validation.workersSeeAnother
@@ -1190,12 +1189,14 @@ function readPrompt(
 					// Whether the refusal is the rule's or the message's the settle tells.
 					validation.untold,
 				);
-			validationMessage = sourceText(ctx, validation.messages);
-			ctx.translations.set(
-				makeTranslationUnitId("search-input", uuid, "validation-message"),
-				"text",
-				translatedTexts(ctx, validation.messages),
-			);
+			if (!validationBlank) {
+				validationMessage = sourceText(ctx, validation.messages);
+				ctx.translations.set(
+					makeTranslationUnitId("search-input", uuid, "validation-message"),
+					"text",
+					translatedTexts(ctx, validation.messages),
+				);
+			}
 		}
 	}
 	const optionsFilter =
@@ -1233,12 +1234,13 @@ function readPrompt(
 					when: pendingPlaceholder("condition"),
 				}),
 				...(required.message !== undefined && { message: required.message }),
+				...(required.noMessage === true && { noMessage: true as const }),
 			},
 		}),
 		...(validationRule !== undefined && {
 			validation: {
 				rule: pendingPlaceholder("condition"),
-				message: validationMessage ?? "",
+				...(validationMessage !== undefined && { message: validationMessage }),
 			},
 		}),
 	};

@@ -107,6 +107,35 @@ describe("Search fields Nova emits", () => {
 		]);
 	});
 
+	// HQ's build writes a requirement with no message as a blank text, and a check with no message
+	// as no text (`remote_requests.py`, `validation.has_text`), which Nova's projection prints the
+	// same way: each reads back with no message.
+	it("reads a requirement with no message and a check with none of its own", async () => {
+		const inputs: SearchInputDef[] = [
+			{
+				uuid: uuid(9),
+				name: "notes",
+				label: "Notes",
+				required: { noMessage: true },
+				kind: "simple",
+				type: "text",
+				property: "notes",
+			},
+			{
+				uuid: uuid(10),
+				name: "code",
+				label: "Code",
+				validation: { rule: neq(input(uuid(10)), literal("none")) },
+				kind: "simple",
+				type: "text",
+				property: "code",
+			},
+		];
+		const { reading, read } = await roundTrip(inputs);
+		expect(codes(reading)).toEqual([]);
+		expect(read.searchInputs).toEqual(asRead(inputs, reading));
+	});
+
 	it("reads a barcode field and a date range field", async () => {
 		const inputs: SearchInputDef[] = [
 			{

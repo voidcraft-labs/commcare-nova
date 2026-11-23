@@ -569,10 +569,14 @@ const visibleSearchInputSlots = {
 		.describe("Helper text under the input on the Search screen."),
 	required: searchInputRequiredSchema
 		.optional()
-		.describe("`{}` always; `when` conditional on sibling inputs."),
+		.describe(
+			"`{}` always; `when` conditional on sibling inputs. Without `message`, workers read Nova's sentence. `noMessage: true` keeps a field brought in with no message at all: Web Apps then waits for the answer without saying why, so don't set it otherwise.",
+		),
 	validation: searchInputValidationSchema
 		.optional()
-		.describe("One rule a nonblank answer must pass, with its message."),
+		.describe(
+			"One rule a nonblank answer must pass, with its message. Without `message`, workers read CommCare's own 'Sorry, this response is invalid!'.",
+		),
 	allowBlank: z.literal(true).optional().describe(SEARCH_FOR_BLANK_DESCRIPTION),
 	hidden: z.literal(true).optional().describe(HIDDEN_SEARCH_FIELD_DESCRIPTION),
 };

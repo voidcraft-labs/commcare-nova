@@ -148,7 +148,7 @@ export function joinedGuardsSplitAsRead(doc: BlueprintDoc): BlueprintDoc {
 		const sentence = units.get(guardUnit)?.source;
 		if (typeof sentence !== "string") continue;
 		const messageUnits = carriers.flatMap((input) =>
-			input.kind !== "hidden" && input.validation !== undefined
+			input.kind !== "hidden" && input.validation?.message !== undefined
 				? [
 						makeTranslationUnitId(
 							"search-input",

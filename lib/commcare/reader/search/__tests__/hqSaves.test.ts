@@ -627,7 +627,7 @@ describe("a search title held in only some app languages", () => {
 });
 
 describe("a check with no message in any language", () => {
-	it("is a finding at the search for a requirement", async () => {
+	it("reads a requirement as one with no message", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				searchInputs: [{ ...NOTES, required: { message: "Fill it in" } }],
@@ -638,21 +638,14 @@ describe("a check with no message in any language", () => {
 				},
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/a-required-or-validation-test-with-no-message-in-any-language",
-		);
-		// The field stays in the provisional document, with no requirement and no property, so an
-		// expression that reads it binds (`prompts.ts::readPrompt`).
-		expect(
-			listOf(reading).searchInputs.map((one) => ({
-				name: one.name,
-				kind: one.kind,
-				required: "required" in one ? one.required : undefined,
-			})),
-		).toEqual([{ name: "notes", kind: "advanced", required: undefined }]);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).searchInputs[0]).toMatchObject({
+			name: "notes",
+			required: { noMessage: true },
+		});
 	});
 
-	it("is a finding at the search for a validation", async () => {
+	it("reads a validation as one with no message of its own", async () => {
 		const reading = await readLists(
 			patients(COLUMNS, {
 				searchInputs: [
@@ -675,9 +668,16 @@ describe("a check with no message in any language", () => {
 				},
 			},
 		);
-		expect(codes(reading)).toContain(
-			"case-search/a-required-or-validation-test-with-no-message-in-any-language",
-		);
+		expect(closedCodes(reading)).toEqual([]);
+		const [notes] = listOf(reading).searchInputs;
+		expect(
+			notes && "validation" in notes ? notes.validation : undefined,
+		).toBeDefined();
+		expect(
+			notes && "validation" in notes && notes.validation !== undefined
+				? "message" in notes.validation
+				: true,
+		).toBe(false);
 	});
 
 	it("is no finding where the message is Nova's own sentence", async () => {

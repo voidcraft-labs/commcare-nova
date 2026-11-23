@@ -388,6 +388,45 @@ it("uses readable label and required-message fallbacks without inventing a hint"
 	).toEqual(["text"]);
 });
 
+// HQ's build writes a requirement whose text is blank in every language as a blank app string
+// (`remote_requests.py::build_query_prompts` writes its `<text>` whenever the test exists;
+// `app_strings.py` gives it `clean_trans({})`), so Core reports a blank message
+// (`QueryPrompt.getRequiredMessage`); a validation with no text gets none
+// (`if validation.has_text`), and Core reports its own sentence
+// (`QueryPrompt.getValidationMessage`). Nova's suite writes each the same way.
+it("writes a requirement with no message blank and a check with none of its own with no text", () => {
+	const { doc, config, expressions } = projection("prompt-widgets");
+	const first = config.searchInputs[0];
+	if (first.kind === "hidden")
+		throw new Error("Fixture starts with a visible prompt");
+	const { hint: _hint, ...withoutHint } = first;
+	config.searchInputs = [
+		{
+			...withoutHint,
+			required: { noMessage: true },
+			validation: { rule: eq(input(first.uuid), literal("north")) },
+		},
+	];
+	expect(runValidation(doc, promptLookupContext)).toEqual([]);
+	const prompts = buildSearchPrompts(
+		config.searchInputs,
+		"m0",
+		new Map(),
+		expressions,
+	);
+	const key = `search_property.m0.${first.name}`;
+	expect(prompts.strings[`${key}.required.text`]).toBe("");
+	expect(prompts.translationUnits[`${key}.required.text`]).toEqual([]);
+	expect(prompts.strings).not.toHaveProperty(`${key}.validation.0.text`);
+	const prompt = readXmlEvidence(serializeXml(prompts.elements[0]));
+	expect(
+		onlyXml(xmlChildren(prompt, "required")).children.map(
+			(child) => child.name,
+		),
+	).toEqual(["text"]);
+	expect(onlyXml(xmlChildren(prompt, "validation")).children).toEqual([]);
+});
+
 // A field that lets workers search for blank carries HQ's `allow_blank_value`
 // on both wires: the suite prompt's attribute Core and Formplayer read
 // (`QueryPromptParser`), and the Case List page's stored flag HQ's build reads

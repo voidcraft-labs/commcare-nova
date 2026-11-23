@@ -37,6 +37,7 @@ import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCom
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
 import { nativeSearchFilters } from "./case-list/nativeSearchFilters";
 import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
+import { searchCheckMessage } from "./case-list/searchCheckMessage";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
@@ -340,6 +341,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	nativeSearchFilters,
 	searchInputViaModeCompatibility,
 	hiddenSearchField,
+	searchCheckMessage,
 	// Case-search-config rules. Slot-specific checks read authored config;
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
 	// markerless inputs receive the same validation as the remote request they

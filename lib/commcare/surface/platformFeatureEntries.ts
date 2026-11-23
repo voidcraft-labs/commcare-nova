@@ -130,6 +130,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"search-field-checks": [
 		"case-search/required-test-text",
 		"case-search/validations-0-test-text",
+		"case-search/a-required-or-validation-test-with-no-message-in-any-language",
 	],
 	"search-starting-dates": ["case-search/default-value-on-a-date-range-input"],
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],

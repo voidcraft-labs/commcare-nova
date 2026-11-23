@@ -782,7 +782,8 @@ export function resourcedDocument(
 					if (
 						input.kind === "hidden" ||
 						input.required === undefined ||
-						input.required.message !== undefined
+						input.required.message !== undefined ||
+						input.required.noMessage === true
 					)
 						continue;
 					input.required.message = message;

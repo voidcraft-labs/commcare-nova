@@ -217,6 +217,8 @@ export const PLATFORM_CELLS: Readonly<
 	"case-search/validations-0-test-text@android": model(
 		"search-field-checks-android",
 	),
+	"case-search/a-required-or-validation-test-with-no-message-in-any-language@android":
+		model("search-field-checks-android"),
 	"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset@android":
 		model("hidden-search-field-android"),
 	"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no@android":

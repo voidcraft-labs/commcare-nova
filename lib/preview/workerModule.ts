@@ -48,7 +48,8 @@ export function projectWorkerModule(
 				return input.kind !== "hidden" &&
 					input.required &&
 					source?.kind !== "hidden" &&
-					source?.required?.message === undefined
+					source?.required?.message === undefined &&
+					source?.required?.noMessage !== true
 					? {
 							...input,
 							required: {

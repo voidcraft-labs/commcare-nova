@@ -697,7 +697,13 @@ export function SearchInputForm({
 									validationAttempted
 										? (() => {
 												const source = submissionErrors.get(input.name);
-												return source === undefined
+												/* A requirement with no message keeps the
+												 * search from running and marks nothing:
+												 * Web Apps lets a blank message through its
+												 * own check (`query.js::isValid`) and
+												 * Formplayer then runs no search
+												 * (`MenuSessionRunnerService.doQuery`). */
+												return source === undefined || source === ""
 													? undefined
 													: localizeValidationMessage(source);
 											})()

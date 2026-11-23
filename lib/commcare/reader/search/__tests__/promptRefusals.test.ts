@@ -196,19 +196,6 @@ const CASES: readonly Case[] = [
 		findings: [[`${S}validations-1`, "search", "status"]],
 	},
 	{
-		title: "a requirement with no message in any language",
-		edit: (body) => {
-			(first(body).required as JsonObject).text = { es: "", en: "" };
-		},
-		findings: [
-			[
-				`${S}a-required-or-validation-test-with-no-message-in-any-language`,
-				"search",
-				"case_name",
-			],
-		],
-	},
-	{
 		title: "a field whose choices come from a mobile report",
 		edit: (body) => {
 			const prompt = first(body);
@@ -522,6 +509,81 @@ describe("a hidden Search field CommCare HQ holds", () => {
 	});
 });
 
+// HQ's build writes a requirement's text blank where it is blank in every language, and no text
+// for such a check, whose worker then reads Core's own sentence (`remote_requests.py`,
+// `validation.has_text`; `QueryPrompt.getValidationMessage`). Nova holds each as it is.
+describe("a check CommCare HQ holds with no message in any language", () => {
+	it("reads a requirement with no message, and the gate admits it", async () => {
+		const { doc } = await documentOf((body) => {
+			(first(body).required as JsonObject).text = { es: "", en: "" };
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		expect(field && "required" in field ? field.required : undefined).toEqual({
+			noMessage: true,
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("reads a check with no message of its own, and the gate admits it", async () => {
+		const { doc } = await documentOf((body) => {
+			first(body).validations = [
+				{
+					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'case_name'], ''), '^[a-z]+$')",
+					text: {},
+				},
+			];
+		});
+		const field = Object.values(doc.modules)
+			.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+			.find((one) => one.name === "case_name");
+		const validation =
+			field && "validation" in field ? field.validation : undefined;
+		expect(validation).toBeDefined();
+		expect(validation && "message" in validation).toBe(false);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	// `status`'s answer goes into the project space's search between quotes, which Nova's search
+	// guards itself, so Nova joins that guard to the field's check (`searchPrompts.ts::buildValidation`):
+	// with no message of its own, the stored check, Nova's guard and all, is its own finding.
+	it("is its own finding on a field Nova's search guards", async () => {
+		const found = await account((body) => {
+			const [validation] = third(body).validations as JsonObject[];
+			if (validation === undefined) throw new Error("status validates.");
+			validation.text = { es: "", en: "" };
+		});
+		expect(found).toEqual([
+			[
+				`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
+				"search",
+				"status",
+			],
+		]);
+	});
+
+	// HQ's own check of `status` holds no guard of Nova's: Nova's first publish would join one to
+	// it, and a check with no message has none for the guard's sentence to follow.
+	it("is the same finding where the stored check holds no guard of Nova's", async () => {
+		const found = await account((body) => {
+			third(body).validations = [
+				{
+					test: "regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'status'], ''), '^[a-z]+$')",
+					text: {},
+				},
+			];
+		});
+		expect(found).toEqual([
+			[
+				`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,
+				"search",
+				"status",
+			],
+		]);
+	});
+});
+
 describe("a Search field Nova cannot hold", () => {
 	it("is no finding where nothing was edited", async () => {
 		const outcome = readHqApp(await inputFor(exportedBody(PROMPTS)));
@@ -584,21 +646,6 @@ describe("a Search field Nova cannot hold", () => {
 				`${S}a-default-filter-and-a-search-property-sharing-one-name`,
 				"search",
 				"case_name",
-			],
-		]);
-	});
-
-	it("for a validation with no message in any language is its one finding", async () => {
-		const found = await account((body) => {
-			const [validation] = third(body).validations as JsonObject[];
-			if (validation === undefined) throw new Error("status validates.");
-			validation.text = { es: "", en: "" };
-		});
-		expect(found).toEqual([
-			[
-				`${S}a-required-or-validation-test-with-no-message-in-any-language`,
-				"search",
-				"status",
 			],
 		]);
 	});
