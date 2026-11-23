@@ -142,10 +142,35 @@ function placesDigest(places: readonly ManagedPlaceWrite[]): string {
 	);
 }
 
+/** Python's `str(Decimal)` spelling of a small magnitude: CommCare HQ's
+ *  location APIs serialize a `DecimalField(max_digits=20, decimal_places=10)`
+ *  coordinate through it, so 0 reads `0E-10` and 0.0000001 `1.000E-7`. */
+const DECIMAL_EXPONENT_FORM = /^(-?)(\d+)(?:\.(\d+))?E([+-]?\d{1,3})$/;
+
+/** The plain decimal an exponent-form coordinate spells, digit for digit,
+ *  never through a JavaScript number; any other text is returned unchanged. */
+export function plainDecimalCoordinate(raw: string): string {
+	const match = DECIMAL_EXPONENT_FORM.exec(raw);
+	if (match === null) return raw;
+	const [, sign, whole, fraction = "", exponentText] = match;
+	const digits = `${whole}${fraction}`;
+	const point = whole.length + Number(exponentText);
+	const padded =
+		point <= 0
+			? `${"0".repeat(1 - point)}${digits}`
+			: point > digits.length
+				? `${digits}${"0".repeat(point - digits.length)}`
+				: digits;
+	const at = point <= 0 ? 1 : point;
+	const integer = padded.slice(0, at).replace(/^0+(?=\d)/, "");
+	const decimals = padded.slice(at);
+	return `${sign}${integer}${decimals === "" ? "" : `.${decimals}`}`;
+}
+
 /** A coordinate as the store holds it, or `false` where it holds none such. */
 function heldCoordinate(raw: string | null): string | null | false {
 	if (raw === null) return null;
-	const parsed = coordinateSchema.safeParse(raw);
+	const parsed = coordinateSchema.safeParse(plainDecimalCoordinate(raw));
 	return parsed.success ? parsed.data : false;
 }
 

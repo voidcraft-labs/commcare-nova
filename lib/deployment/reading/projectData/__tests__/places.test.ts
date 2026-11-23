@@ -432,6 +432,35 @@ describe.each(MODES)("planManagedPlaces at a %s", (mode) => {
 		]);
 	});
 
+	it("holds a zero or tiny coordinate CommCare HQ spells in exponent form", () => {
+		const result = plan(
+			[
+				place("equator", "state", null, {
+					name: "Equator",
+					latitude: "0E-10",
+					longitude: "-0E-10",
+				}),
+				place("near", "state", null, {
+					name: "Near",
+					latitude: "1.000E-7",
+					longitude: "-5E-7",
+				}),
+			],
+			mode,
+		);
+		expect(result.findings).toEqual([]);
+		expect(
+			result.places.map(({ siteCode, latitude, longitude }) => ({
+				siteCode,
+				latitude,
+				longitude,
+			})),
+		).toEqual([
+			{ siteCode: "equator", latitude: "0", longitude: "0" },
+			{ siteCode: "near", latitude: "0.0000001", longitude: "-0.0000005" },
+		]);
+	});
+
 	it("finds a name too long and a coordinate the store refuses", () => {
 		const long = "n".repeat(256);
 		const result = plan(
