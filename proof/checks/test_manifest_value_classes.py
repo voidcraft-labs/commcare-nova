@@ -3028,6 +3028,7 @@ def _search_and_menus():
 
     def order_shape(verdict, key, *columns, readings=False, case_types=None, **sort):
         wire = {"doc_type": "SortElement", "field": "", "sort_calculation": "notes", "type": "plain", **sort}
+        wire = {name: value for name, value in wire.items() if value is not None}
         return verdict(
             "app", columns_app(*columns, case_type="patient", short={"sort_elements": [wire]}),
             f"schema:SortElement.{key}", f"{short}/sort_elements/0/{key}", readings=readings, case_types=case_types,
@@ -4331,6 +4332,9 @@ def _search_and_menus():
             order_shape(accepted, "sort_calculation", sort_calculation="'north'", readings=True),
             order_shape(accepted, "sort_calculation", sort_calculation="visits * 2", readings=True,
                         case_types={"patient": {"visits": "int"}}),
+            # Nova's publish writes a sort element with no ``doc_type``; the observation reads its calculation all
+            # the same.
+            order_shape(accepted, "sort_calculation", sort_calculation="village", doc_type=None, readings=True),
         ),
         "menus-and-case-lists/distance-sort-without-a-location-field": (
             order_shape(refused, "type", type="distance"),

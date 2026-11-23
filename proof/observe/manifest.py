@@ -902,7 +902,9 @@ def sort_calculations(value, found):
     (``manifest_value_classes.independent_sort_without_scalar``)."""
     if isinstance(value, dict):
         text = value.get("sort_calculation")
-        if value.get("doc_type") == "SortElement" and not value.get("field") and isinstance(text, str) and text.strip():
+        # Nova's publish writes a sort element without its ``doc_type`` (HQ's wrap gives it the class's own), so
+        # one is known by its calculation's key, which no other class declares.
+        if "sort_calculation" in value and not value.get("field") and isinstance(text, str) and text.strip():
             found.add(text)
         for child in value.values():
             sort_calculations(child, found)

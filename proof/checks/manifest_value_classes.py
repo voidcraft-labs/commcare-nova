@@ -4999,10 +4999,11 @@ def mapping_condition_outside_predicate(use, manifest):
     if not any(character in key for character in "{}()[]=<>.\"'/"):
         return False
     field = column.get("field")
+    properties = _case_properties(use)
     dot = None
-    if not column.get("useXpathExpression") and isinstance(field, str):
-        dot = _CASE_VALUE_TYPES.get(_case_properties(use).get(field), None)
-    return _scoped_verdict(at.app, key, lambda tree: _case_condition_type(tree, _case_properties(use), dot) == "boolean")
+    if not column.get("useXpathExpression") and isinstance(field, str) and field in properties:
+        dot = _CASE_VALUE_TYPES.get(properties[field] or "text")
+    return _scoped_verdict(at.app, key, lambda tree: _case_condition_type(tree, properties, dot) == "boolean")
 
 
 # The value a case property of a declared type gives an expression of the selected case, as Nova's type checker reads
@@ -5046,7 +5047,8 @@ def _case_condition_type(tree, properties, dot=None):
         ]:
             return dot
         prop = _bare_read(tree, "child")
-        return None if prop is None else _CASE_VALUE_TYPES.get(properties.get(prop))
+        # A declared property with no type is text, as Nova's checker reads it (``data_type ?? "text"``).
+        return None if prop is None or prop not in properties else _CASE_VALUE_TYPES.get(properties[prop] or "text")
     if kind == "negative":
         return "number" if _case_condition_type(tree[1], properties, dot) == "number" else None
     if kind == "binary":
@@ -5143,6 +5145,8 @@ def tab_condition_outside_case_scope(use, manifest):
 def _records_rows_typed(tree, app):
     """Whether a records tab's rows are the cases of one declared type, each predicate beside the type's one a
     condition of that type (``_case_predicate_scope``): ``instance('casedb')/casedb/case[@case_type = 'T'][...]``."""
+    if tree[0] != "path":
+        return False
     case_type, first, end = _case_predicate_scope(tree)
     if case_type is None or len(tree[4]) != 2:
         return False
@@ -5165,7 +5169,8 @@ def tab_without_a_resolvable_row_source(use, manifest):
     can read, as Nova's reader decides (``caseList/details.ts``, ``tabRowsMissing``, ``tabTypeInvalid`` and the
     rows' and filter's slots): rows turned on (``has_nodeset``) with neither rows (``nodeset``) nor a child type in
     the case type grammar (``nodeset_case_type``); a child type outside the grammar on a tab that lists children;
-    rows or a child filter Core's parse refuses. Rows that are one declared type's cases under conditions
+    rows or a child filter Core's parse refuses, and rows that are a literal, a value and no records. Rows that are
+    one declared type's cases under conditions
     ``_case_condition_type`` types, and a child filter it types over the child type, are out of the class, as is
     every setting of a tab whose rows are off; a records tab's child type beside a search is the search's, which
     the use alone does not settle."""
