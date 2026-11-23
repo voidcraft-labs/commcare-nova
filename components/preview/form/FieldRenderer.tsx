@@ -3,7 +3,7 @@ import { type Field, isCaptureField } from "@/lib/domain";
 import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { usePreviewPlatform } from "@/lib/session/hooks";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { assertNever } from "@/lib/utils/assertNever";
 import { AddressEntryField } from "./fields/AddressEntryField";
 import { AttachmentField } from "./fields/attachment/AttachmentField";
@@ -84,7 +84,7 @@ export function FieldRenderer({
 	onCommitCapture,
 	onDisplayMessage,
 }: FieldRendererProps) {
-	const platform = usePreviewPlatform();
+	const rules = usePreviewPlatformRules();
 	// Capture kinds route to the real attachment control. Narrowed through
 	// the domain predicate rather than a case list so the two cannot drift:
 	// a new capture kind is a capture here the moment it is one there.
@@ -111,7 +111,7 @@ export function FieldRenderer({
 	 * question whose appearance asks for it (`entries.js::getEntry`); Android
 	 * reads the question as ordinary text. */
 	if (
-		platform === "web-apps" &&
+		rules.addressQuestion === "search" &&
 		onDisplayMessage !== undefined &&
 		(field.kind === "text" ||
 			field.kind === "secret" ||

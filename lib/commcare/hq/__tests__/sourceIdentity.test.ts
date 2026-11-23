@@ -197,7 +197,15 @@ describe("a form's answers", () => {
 				appearance: null,
 				counted: true,
 			},
-			{ path: "/data/r", kind: "group", appearance: null, counted: false },
+			/* A group whose rows repeat: the Web Apps row layout for repeats
+			 * reads it. */
+			{
+				path: "/data/r",
+				kind: "group",
+				appearance: null,
+				counted: false,
+				hasRepeatingRows: true,
+			},
 			{
 				path: "/data/r/item",
 				kind: "repeat",

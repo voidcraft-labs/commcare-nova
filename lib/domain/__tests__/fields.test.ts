@@ -156,7 +156,7 @@ describe("field schema admission", () => {
 			expect(fieldSchema.parse(value)).toEqual(value);
 	});
 
-	it("admits a number keypad on a Text question only, and only the keypads it names", () => {
+	it("admits a number keypad on the questions whose control reads one, and only the keypads it names", () => {
 		const phone = { ...identity, kind: "text", label, keypad: "numbers" };
 		expect(fieldSchema.parse(phone)).toEqual(phone);
 		expect(fieldSchema.safeParse({ ...phone, keypad: "letters" }).success).toBe(
@@ -165,11 +165,25 @@ describe("field schema admission", () => {
 		expect(fieldSchema.safeParse({ ...phone, keypad: null }).success).toBe(
 			false,
 		);
-		for (const value of fixtures.filter((fixture) => fixture.kind !== "text"))
-			expect([
-				value.kind,
-				fieldSchema.safeParse({ ...value, keypad: "numbers" }).success,
-			]).toEqual([value.kind, false]);
+		/* Text and password take both keypads; a barcode takes Web Apps'
+		 * `numeric` alone, since Android's barcode widget reads no keypad
+		 * (`questionDisplayPlatforms.ts`, `barcode-text-options`). */
+		const takes: Readonly<Record<string, readonly string[]>> = {
+			text: ["numbers", "android-numbers"],
+			secret: ["numbers", "android-numbers"],
+			barcode: ["numbers"],
+		};
+		for (const value of fixtures)
+			for (const keypad of ["numbers", "android-numbers"])
+				expect([
+					value.kind,
+					keypad,
+					fieldSchema.safeParse({ ...value, keypad }).success,
+				]).toEqual([
+					value.kind,
+					keypad,
+					(takes[value.kind] ?? []).includes(keypad),
+				]);
 	});
 
 	it.each([undefined, null, "missing", "constructor", "__proto__", "toString"])(

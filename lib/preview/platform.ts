@@ -255,6 +255,16 @@ export interface PreviewPlatformRules {
 	/** Android `views/QuestionsView.java::deriveGroupText`: one header line
 	 *  per screen, the enclosing groups joined with ` > `. */
 	readonly groupLabel: "card" | "screen-header";
+	/** A text, password or barcode question that asks for address search.
+	 *  Web Apps builds its geocoder entry (`form_entry/entries.js::getEntry`,
+	 *  `AddressEntry`), under the project space's gates; Android reads the
+	 *  question as ordinary text (`WidgetFactory.buildBasicWidget`). */
+	readonly addressQuestion: "search" | "text";
+	/** A text or number question under a compact group. Android draws a
+	 *  compact widget, its label's one line beside the answer box and no
+	 *  media, hint or help (`QuestionWidget`, `WidgetFactory.buildBasicWidget`,
+	 *  `lib/preview/androidCompact.ts`); Web Apps reads no compact setting. */
+	readonly compactGroup: "ignored" | "beside-label";
 	/** Android `activities/FormEntryActivityUIController.java::createRepeatDialog`. */
 	readonly repeatAdd: "buttons" | "prompt";
 	/** Choice images, audio and video (manifest `questions/choice-image`,
@@ -429,6 +439,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		plainChoice: "markdown",
 		plainHelp: "markdown",
 		groupLabel: "card",
+		addressQuestion: "search",
+		compactGroup: "ignored",
 		repeatAdd: "buttons",
 		choiceMedia: false,
 		locationQuestion: "map",
@@ -496,6 +508,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		plainChoice: "literal",
 		plainHelp: "literal",
 		groupLabel: "screen-header",
+		addressQuestion: "text",
+		compactGroup: "beside-label",
 		repeatAdd: "prompt",
 		choiceMedia: true,
 		locationQuestion: "record-location",

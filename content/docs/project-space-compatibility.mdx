@@ -118,7 +118,14 @@ features.
 For an app you brought in from that project space, Nova doesn't ask about a
 feature the app was already using there, because publishing changes nothing
 about it. Those show on the project space's card with who brought the app in,
-and you can withdraw one like any other.
+and you can withdraw one like any other. Geocoder is the exception: CommCare HQ's form
+builder adds address search on any plan, so an app that uses it says nothing
+about the plan, and Nova asks at your first publish.
+
+A question that searches for an address in Web Apps needs two things of the
+project space: advanced Case search, which Nova checks as **Address search**,
+and the Geocoder plan feature, which you confirm. An app that runs only on
+Android needs neither, since Android workers type the answer.
 
 Four project-space settings are asked about the same way: the flat location
 list, a Connect forwarder, Sync Cases On Form Entry turned off, and CommCare

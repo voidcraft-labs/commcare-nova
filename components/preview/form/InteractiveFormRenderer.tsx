@@ -348,7 +348,7 @@ const InteractiveField = memo(function InteractiveField({
 				 *  number question out beside its label (`androidCompact.ts`),
 				 *  and the marker gives its keyboard the compact action
 				 *  (`WorkerKeyboard.ts`). */}
-				{platform === "android" && field.compact ? (
+				{rules.compactGroup === "beside-label" && field.compact ? (
 					<AndroidCompactGroup value={true}>
 						<div className="contents" data-compact-entries="">
 							{children}
@@ -567,7 +567,7 @@ const InteractiveField = memo(function InteractiveField({
 		 * its label's one line beside a fixed-width answer box, with no
 		 * media, hint or help (`androidCompact.ts`). */
 		if (
-			platform === "android" &&
+			rules.compactGroup === "beside-label" &&
 			inCompactGroup &&
 			androidDrawsCompact(field)
 		) {
