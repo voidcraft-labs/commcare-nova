@@ -33,6 +33,50 @@ describe("addCaseListColumns", () => {
 		}
 	});
 
+	it("stores the comparison and Sort by position a column's rule is sent with", async () => {
+		const h = makeCaseListFixture();
+		const result = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [
+				{
+					kind: "plain",
+					field: "alpha",
+					header: "",
+					visibleInList: false,
+					sort: {
+						direction: "asc",
+						priority: 1,
+						comparator: "integer",
+						label: "Alpha order",
+						menuPosition: 0,
+					},
+				},
+				{
+					kind: "plain",
+					field: "beta",
+					header: "",
+					visibleInList: false,
+					sort: { direction: "desc", priority: 0, label: "Beta order" },
+				},
+			],
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		const sorts = h
+			.currentDoc()
+			.modules[MOD_A]?.caseListConfig?.columns.slice(1)
+			.map((column) => column.sort);
+		expect(sorts).toEqual([
+			{
+				direction: "asc",
+				priority: 1,
+				comparator: "integer",
+				label: "Alpha order",
+				menuPosition: 0,
+			},
+			{ direction: "desc", priority: 0, label: "Beta order" },
+		]);
+	});
+
 	it("adds multiple columns in one call, in order, in one host batch", async () => {
 		const h = makeCaseListFixture();
 		const result = await h.runTool(addCaseListColumnsTool, {

@@ -106,7 +106,7 @@ test("the case list's Sort by orders the list as Web Apps and Android do", {
 	});
 });
 
-test("a builder adds an independent worker order, moves it first and opens it after a reload", {
+test("a builder adds an independent worker order, moves it first, compares a tie-breaker as numbers and opens it after a reload", {
 	tag: "@seed:sort-by",
 }, async ({ scenario, page }) => {
 	const { sortBy } = seedFor(scenario, "sort-by");
@@ -151,6 +151,23 @@ test("a builder adds an independent worker order, moves it first and opens it af
 	await commit("updateCalculatedSort", () =>
 		rule.getByRole("button", { name: /^Move / }).press("Home"),
 	);
+	// The name rule now only breaks ties; comparing it as whole numbers
+	// stores the comparison on its rule.
+	await page
+		.getByRole("button", { name: "Compare values for Name", exact: true })
+		.click();
+	const [comparison] = await Promise.all([
+		page.waitForResponse((response) => {
+			const request = response.request();
+			return (
+				request.method() === "PUT" &&
+				new URL(response.url()).pathname === `/api/apps/${sortBy.appId}` &&
+				(request.postData() ?? "").includes('"comparator":"integer"')
+			);
+		}),
+		page.getByRole("menuitemradio", { name: "Whole numbers" }).click(),
+	]);
+	expect(comparison.ok()).toBe(true);
 	await openBuilder(page, results);
 	await page
 		.getByRole("button", { name: "Change default order", exact: true })
@@ -162,6 +179,9 @@ test("a builder adds an independent worker order, moves it first and opens it af
 			.first()
 			.getByRole("textbox", { name: "Name in Sort by" }),
 	).toHaveValue("Patient alphabet");
+	await expect(
+		page.getByRole("button", { name: "Compare values for Name", exact: true }),
+	).toHaveText("Whole numbers");
 
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");

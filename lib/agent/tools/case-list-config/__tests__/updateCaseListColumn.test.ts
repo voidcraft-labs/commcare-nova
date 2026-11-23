@@ -55,6 +55,24 @@ describe("updateCaseListColumn", () => {
 		}
 	});
 
+	it("stores the comparison a replacement's rule is sent with", async () => {
+		const h = makeCaseListFixture(fixtureWithColumn());
+		const result = await h.runTool(updateCaseListColumnTool, {
+			moduleUuid: MOD_A,
+			columnUuid: SIBLING_UUID,
+			column: {
+				kind: "plain",
+				field: "phone",
+				header: "Phone",
+				sort: { direction: "asc", priority: 0, comparator: "decimal" },
+			},
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.columns[1]?.sort,
+		).toEqual({ direction: "asc", priority: 0, comparator: "decimal" });
+	});
+
 	it("leaves sibling columns untouched", async () => {
 		const doc = fixtureWithColumn();
 		const sibling = doc.modules[MOD_A]?.caseListConfig?.columns[1];

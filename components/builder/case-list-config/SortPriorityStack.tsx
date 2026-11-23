@@ -66,7 +66,6 @@ import type {
 import {
 	type CalculatedSort,
 	type CaseListConfig,
-	choicePrefixLength,
 	columnSort,
 	orderedColumns,
 	sortBlanks,
@@ -89,10 +88,13 @@ import { AuthoredDragPreviewLabel } from "./canvas/canvasChrome";
 import { seedColumnForProperty } from "./seeds";
 import { blanksAfterDirectionChange } from "./sortBlanksChoice";
 import {
+	choicesAfterMove,
 	columnsAfterRuleSequence,
+	columnsWithChoiceOrder,
 	orderChoiceColumn,
 	orderingCalculationRow,
 	resolveSortedColumns,
+	ruleWithComparison,
 } from "./sortPriority";
 import { newUuid } from "./uuid";
 
@@ -502,17 +504,18 @@ export function CaseOrderingComposer({
 	const setComparison = (uuid: Uuid, choice: SortComparison | undefined) => {
 		if (!canEdit) return;
 		applyRuleSequence(
-			sorted.map((column) => {
-				if (column.uuid !== uuid || !column.sort) return column;
-				const { comparator: _previous, ...sort } = column.sort;
-				return {
-					...column,
-					sort:
-						choice === undefined || choice === comparisons.get(uuid)
-							? sort
-							: { ...sort, comparator: choice },
-				};
-			}),
+			sorted.map((column) =>
+				column.uuid !== uuid || !column.sort
+					? column
+					: {
+							...column,
+							sort: ruleWithComparison(
+								column.sort,
+								choice,
+								comparisons.get(uuid),
+							),
+						},
+			),
 		);
 	};
 
@@ -520,30 +523,19 @@ export function CaseOrderingComposer({
 	const fieldById = new Map(value.map((column) => [column.uuid, column]));
 	const choiceGroup = (uuid: Uuid) =>
 		independent.has(uuid) ? calculatedChoices : extraFields;
-	const namedChoices = (uuid: Uuid) =>
-		choiceGroup(uuid).filter(
-			(id) =>
-				(independent.get(id)?.label ?? fieldById.get(id)?.sort?.label) !==
-				undefined,
-		);
+	const isNamed = (id: Uuid) =>
+		(independent.get(id)?.label ?? fieldById.get(id)?.sort?.label) !==
+		undefined;
+	const namedChoices = (uuid: Uuid) => choiceGroup(uuid).filter(isNamed);
 	const moveChoice = (uuid: Uuid, position: number) => {
 		if (!canEdit) return;
-		const named = namedChoices(uuid);
-		const previous = named.indexOf(uuid);
-		if (
-			previous < 0 ||
-			position < 0 ||
-			position >= named.length ||
-			previous === position
-		)
-			return;
-		const namedSlots = new Set(named);
-		named.splice(previous, 1);
-		named.splice(position, 0, uuid);
-		let next = 0;
-		const choices = choiceGroup(uuid).map((id) =>
-			namedSlots.has(id) ? named[next++] : id,
+		const choices = choicesAfterMove(
+			choiceGroup(uuid),
+			isNamed,
+			uuid,
+			position,
 		);
+		if (choices === undefined) return;
 		if (independent.has(uuid)) {
 			onChange(
 				value,
@@ -551,23 +543,7 @@ export function CaseOrderingComposer({
 			);
 			return;
 		}
-		const prefix = choicePrefixLength(
-			choices,
-			(id) => fieldById.get(id)?.sort?.priority ?? 0,
-		);
-		const positions = new Map(choices.map((id, index) => [id, index]));
-		onChange(
-			value.map((column) => {
-				const index = positions.get(column.uuid);
-				if (!column.sort || index === undefined) return column;
-				const { menuPosition: _previous, ...sort } = column.sort;
-				return {
-					...column,
-					sort: index < prefix ? { ...sort, menuPosition: index } : sort,
-				};
-			}),
-			config.calculatedSorts,
-		);
+		onChange(columnsWithChoiceOrder(value, choices), config.calculatedSorts);
 	};
 
 	const removeRule = useCallback(

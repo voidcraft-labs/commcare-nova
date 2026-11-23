@@ -8,8 +8,10 @@ import {
 	type Column,
 	type ColumnSort,
 	calculatedColumn,
+	choicePrefixLength,
 	columnSort,
 	orderedColumns,
+	type SortComparison,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -142,4 +144,75 @@ export function orderingCalculationRow(
 			),
 		},
 	);
+}
+
+/**
+ * A rule after its comparison is chosen. Choosing the field's own comparison,
+ * or "Use field order", stores none: a rule keeps a comparison only where the
+ * author chose one the field would not use by itself.
+ */
+export function ruleWithComparison(
+	sort: ColumnSort,
+	choice: SortComparison | undefined,
+	defaultComparison: SortComparison | undefined,
+): ColumnSort {
+	const { comparator: _previous, ...rest } = sort;
+	return choice === undefined || choice === defaultComparison
+		? rest
+		: { ...rest, comparator: choice };
+}
+
+/**
+ * A group of Sort by choices after one named choice moves to `position`
+ * among the named ones. An unnamed choice is not listed in Sort by, so it
+ * keeps its slot and the named ones move around it. `undefined` where the
+ * move changes nothing or names no place.
+ */
+export function choicesAfterMove(
+	choices: readonly Uuid[],
+	named: (uuid: Uuid) => boolean,
+	uuid: Uuid,
+	position: number,
+): Uuid[] | undefined {
+	const namedChoices = choices.filter(named);
+	const previous = namedChoices.indexOf(uuid);
+	if (
+		previous < 0 ||
+		position < 0 ||
+		position >= namedChoices.length ||
+		previous === position
+	)
+		return undefined;
+	namedChoices.splice(previous, 1);
+	namedChoices.splice(position, 0, uuid);
+	let next = 0;
+	return choices.map((id) => (named(id) ? namedChoices[next++] : id));
+}
+
+/**
+ * The columns after the extra fields of Sort by take the order `choices`.
+ * Workers see a sort-only property's choice in its rule's priority order
+ * unless it is introduced earlier, so only the shortest prefix that puts the
+ * choices in this order holds a `menuPosition` (`choicePrefixLength`); every
+ * other rule's is removed.
+ */
+export function columnsWithChoiceOrder(
+	columns: readonly Column[],
+	choices: readonly Uuid[],
+): Column[] {
+	const byUuid = new Map(columns.map((column) => [column.uuid, column]));
+	const prefix = choicePrefixLength(
+		choices,
+		(id) => byUuid.get(id)?.sort?.priority ?? 0,
+	);
+	const positions = new Map(choices.map((id, index) => [id, index]));
+	return columns.map((column) => {
+		const index = positions.get(column.uuid);
+		if (!column.sort || index === undefined) return column;
+		const { menuPosition: _previous, ...sort } = column.sort;
+		return {
+			...column,
+			sort: index < prefix ? { ...sort, menuPosition: index } : sort,
+		};
+	});
 }
