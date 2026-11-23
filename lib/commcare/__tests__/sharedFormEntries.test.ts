@@ -772,17 +772,18 @@ describe("the scoped gate over a parent's shared entries", () => {
 			applyMutations(d, mutations);
 		});
 		expect(
-			incrementalValidationScope(doc, mutations, next)?.formUuids.has(evening),
+			incrementalValidationScope(doc, mutations, next)?.formUuids?.has(evening),
 		).toBe(true);
 	});
 });
 
 describe("removing a menu whose forms shared entries open", () => {
 	it("names the menu's forms each entry opens", () => {
-		const shared = sharedVisitEntries().doc;
+		const shared = hydratePersistedBlueprint(sharedVisitEntries().doc);
 		const [people, messages] = shared.moduleOrder;
-		const visit = shared.formOrder[people][0];
-		const referral = shared.formOrder[people][1];
+		const [visit, referral] = shared.formOrder[people];
+		if (!people || !messages || !visit || !referral)
+			throw new Error("The shared visits document holds two menus.");
 		// The removal reads only where each entry stands, so the entry is
 		// placed in the other menu directly.
 		const doc = produce(shared, (d) => {
