@@ -17,8 +17,8 @@ import {
 	formLinkProjectionContext,
 } from "../../formLinkProjection";
 import { rethrowWorkStop } from "../../workMeter";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { instanceForRead } from "../../xpath/instanceSources";
 import { sameJson } from "../jsonCursor";
 import type { PendingExpression } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
@@ -39,6 +39,7 @@ import {
 	siblingCaseRow,
 } from "./folds";
 import type { ExpressionReadEnv } from "./index";
+import { nativeInstancePaths } from "./nativeInstancePaths";
 import {
 	instanceSourcesOf,
 	lookupTypes,
@@ -75,7 +76,6 @@ const CSQL_RELATION_FUNCTIONS: ReadonlySet<string> = new Set([
 	"subcase-exists",
 	"subcase-count",
 ]);
-const TABLE_ID = "item-list:";
 
 /** Every node of a syntax tree, in document order. */
 function nodesOf(root: FormSyntax): FormSyntax[] {
@@ -596,8 +596,9 @@ function readsScanner(
 			moduleUuid === undefined ? undefined : doc.modules[moduleUuid]?.caseType;
 		const reachable =
 			form === undefined ? [] : [...caseTypeHopMap(doc, moduleType).entries()];
-		notePresence(rowType ?? moduleType, syntax);
-		const nodes = nodesOf(syntax);
+		const native = nativeInstancePaths(syntax, sources);
+		notePresence(rowType ?? moduleType, native.syntax);
+		const nodes = nodesOf(native.syntax);
 		const inPredicate = new Set<FormSyntax>();
 		const innerStep = partsOfPaths(nodes);
 		for (const node of nodes) {
@@ -610,15 +611,14 @@ function readsScanner(
 			if (at.kind === "call" && at.name === "instance") {
 				const id = at.args[0];
 				if (id?.kind === "string") {
+					const localId = native.localIds.get(id.from) ?? id.value;
 					if (form !== undefined && sources !== undefined) {
 						const read = readIds.get(form) ?? new Set<string>();
 						readIds.set(form, read);
-						read.add(id.value);
+						read.add(localId);
 					}
-					const src = sources?.get(id.value);
-					const bound = src === undefined ? id.value : canonicalInstanceId(src);
-					if (bound?.startsWith(TABLE_ID))
-						tags.add(bound.slice(TABLE_ID.length));
+					const bound = instanceForRead(localId, sources);
+					if (bound?.kind === "table") tags.add(bound.tag);
 				}
 			}
 			if (inner) continue;
@@ -636,9 +636,7 @@ function readsScanner(
 					slugs.add(slug.name);
 				continue;
 			}
-			const rawId = instanceId(path);
-			const src = rawId === undefined ? undefined : sources?.get(rawId);
-			const instance = src === undefined ? rawId : canonicalInstanceId(src);
+			const instance = instanceId(path);
 			if (instance === "locations") {
 				const index = path.steps.findIndex(
 					(step) => step.name === "location_data" && !step.attribute,

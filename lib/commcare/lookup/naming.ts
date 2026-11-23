@@ -59,7 +59,12 @@ const runtimeInstanceIds = new Set([
 
 export function lookupXformInstanceId(tag: string): string {
 	const id = tag.toLowerCase();
-	return runtimeInstanceIds.has(id) || id.includes("selected_cases")
+	// Vellum indexes instance metadata in ordinary objects and calls each
+	// index’s own hasOwnProperty (form.js::updateKnownInstances/parseInstanceRefs).
+	return tag === "__proto__" ||
+		tag === "hasOwnProperty" ||
+		runtimeInstanceIds.has(id) ||
+		id.includes("selected_cases")
 		? lookupFixtureId(tag)
 		: tag;
 }

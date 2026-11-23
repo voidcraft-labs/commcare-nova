@@ -61,7 +61,6 @@ import {
 	hqXPathText,
 } from "../../hqJson/xpath";
 import {
-	LOOKUP_FIXTURE_ID_PREFIX,
 	type LookupWireNaming,
 	lookupWireNaming,
 	lookupXformInstanceId,
@@ -109,9 +108,12 @@ import type {
 	FormParseScope,
 	FormReadingHooks,
 } from "../../xpath/formParseScope";
-import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { JAVAROSA_NATIVE_FUNCTIONS } from "../../xpath/functionCapabilities";
+import {
+	formInstanceSources,
+	instanceForRead,
+} from "../../xpath/instanceSources";
 import { w } from "../../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
 import { InstanceSink } from "../../xpath/wire/instances";
@@ -143,6 +145,7 @@ import {
 	recordOnlyArm,
 } from "./folds";
 import type { ExpressionReadEnv } from "./index";
+import { nativeInstancePaths } from "./nativeInstancePaths";
 import {
 	holdsUntypedTemporalLiteral,
 	typedWhereRequired,
@@ -381,7 +384,14 @@ export function instanceSourcesOf(
 ): ReadonlyMap<string, string> | undefined {
 	if (pending.mode.target !== "xform") return undefined;
 	const form = slotForm(doc, pending.ref);
-	return form === undefined ? undefined : env.instanceSources.get(form);
+	const sources =
+		form === undefined ? undefined : env.formReadSources?.get(form);
+	if (sources !== undefined) return sources;
+	return formInstanceSources(
+		(form === undefined ? undefined : env.instanceSources.get(form)) ??
+			new Map(),
+		pending.text,
+	);
 }
 
 /** The scope a registration's text binds in: the slot of the real
@@ -408,6 +418,7 @@ function scopeWith(
 	withdrawn: ReadonlySet<string>,
 	sites: FoldSites,
 	root?: FormSyntax,
+	localIds?: ReadonlyMap<number, string>,
 ): FormParseScope {
 	const form = slotForm(doc, pending.ref);
 	const names = form === undefined ? undefined : env.sourceNames.get(form);
@@ -429,7 +440,10 @@ function scopeWith(
 	const reading: FormReadingHooks = {
 		functions: READ_FUNCTIONS,
 		itextUnit: (id) => itextUnits?.get(id),
-		instanceSource: (id) => instanceSources?.get(id),
+		instanceSource: (id, at) => {
+			const localId = localIds?.get(at) ?? id;
+			return { localId, source: instanceForRead(localId, instanceSources) };
+		},
 		generatedValue: (path) => generated?.get(path)?.calculate,
 		fold: (node, context, api) =>
 			proposeFold(node, context, api, {
@@ -1499,14 +1513,17 @@ export function compareOptionsFor(
 	return {
 		ruleSet,
 		instanceId: (id) => {
-			const source = sources?.get(id);
-			const canonical = source === undefined ? id : canonicalInstanceId(source);
-			if (canonical === undefined) return id;
-			return canonical.startsWith(LOOKUP_FIXTURE_ID_PREFIX)
-				? lookupXformInstanceId(
-						canonical.slice(LOOKUP_FIXTURE_ID_PREFIX.length),
-					)
-				: canonical;
+			const bound = instanceForRead(id, sources);
+			switch (bound?.kind) {
+				case "table":
+					return lookupXformInstanceId(bound.tag);
+				case "selected":
+					return bound.datum;
+				case "native":
+					return bound.id;
+				default:
+					return id;
+			}
 		},
 		itextId: (id) => {
 			const unit = units?.get(id);
@@ -1676,6 +1693,10 @@ export function bindSlot(
 		spans: new Map(),
 		plain: new Set(),
 	};
+	const native = nativeInstancePaths(
+		prepared.syntax,
+		instanceSourcesOf(doc, pending, env),
+	);
 	// A value a device works out inside a search row is no slot's whole source.
 	const scope = scopeWith(
 		doc,
@@ -1683,9 +1704,10 @@ export function bindSlot(
 		env,
 		withdrawn,
 		sites,
-		env.rowValues === true ? undefined : prepared.syntax,
+		env.rowValues === true ? undefined : native.syntax,
+		native.localIds,
 	);
-	const parsed = bindFormSyntax(prepared.text, scope, prepared.syntax);
+	const parsed = bindFormSyntax(prepared.text, scope, native.syntax);
 	if (!parsed.ok)
 		return { kind: "refused", cause: { kind: "parse", issues: parsed.issues } };
 	if (parsed.expression === undefined)

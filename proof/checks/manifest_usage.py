@@ -1464,18 +1464,6 @@ def _data_type(text):
 # Instances, hashtags and question types ------------------------------------
 
 
-# The sources HQ's factories write under an instance name, by their prefix (``suite_xml/post_process/instances.py``:
-# a fixture's ``jr://fixture/{instance_name}``, a remote search's ``jr://instance/remote/{instance_name}``, the cases a
-# list selects ``jr://instance/selected-entities/{instance_name}``, and the Search fields' answers
-# ``jr://instance/search-input/<query datum>`` under ``search-input:<query datum>``).
-SOURCE_NAMES = (
-    ("jr://fixture/", ""),
-    ("jr://instance/remote/", ""),
-    ("jr://instance/selected-entities/", ""),
-    ("jr://instance/search-input/", "search-input:"),
-)
-
-
 @cache
 def _preset_sources(manifest):
     """Each source a preset instance HQ's build declares takes, with that preset's id (``preset_instances``)."""
@@ -1489,22 +1477,31 @@ def _preset_sources(manifest):
 
 def read_scheme(manifest, instance_id, declared):
     """The declaration kept by XForm.add_missing_instances, or HQ's implicit factory for an undeclared id."""
-    scheme = instance_scheme(instance_id)
     src = declared.get(instance_id)
-    if not src:
-        return scheme
-    # HQ's locations factory and its generic commtrack factory can supply the same hierarchical tree.
+    if src is None:
+        return instance_scheme(instance_id)
     if instance_id == "locations" and src == "jr://fixture/commtrack:locations":
         return "locations"
     if src == "jr://instance/search-input":
         return "search-input"
-    named = _preset_sources(manifest).get(src)
-    for prefix, spelled in SOURCE_NAMES:
-        if named is None and src.startswith(prefix) and len(src) > len(prefix):
-            named = spelled + src[len(prefix) :]
-    if named is not None and f"instance-scheme:{instance_scheme(named)}" in manifest.items:
-        return instance_scheme(named)
-    return scheme
+    preset = _preset_sources(manifest).get(src)
+    if preset is not None:
+        return instance_scheme(preset)
+    if src.startswith("jr://instance/selected-entities/") and src.removeprefix("jr://instance/selected-entities/"):
+        return "selected_cases"
+    if src.startswith("jr://instance/search-input/") and src.removeprefix("jr://instance/search-input/"):
+        return "search-input"
+    if src.startswith("jr://instance/remote/"):
+        scheme = instance_scheme(src.removeprefix("jr://instance/remote/"))
+        return "results" if scheme == "results" else None
+    if src.startswith("jr://fixture/"):
+        scheme = instance_scheme(src.removeprefix("jr://fixture/"))
+        if src == "jr://fixture/locations":
+            return "locations"
+        if scheme in {"item-list", "commtrack", "schedule", "indicators", "case-search-fixture",
+                      "commcare-reports", "commcare-reports-filters"}:
+            return scheme
+    return None
 
 
 
@@ -2078,15 +2075,16 @@ def _expression_uses(expression, parsed, manifest, found):
     if not (isinstance(at, XmlAt) and at.document.kind == "runtime"):
         declared = dict(expression.instances)
         referenced = {path["instance"] for path in parsed["instancePaths"] if path["instance"]}
+        if isinstance(at, XmlAt) and isinstance(at.document, Form):
+            referenced &= set(declared) | at.document.scanned_instance_ids
         for instance_id in referenced:
             src = declared.get(instance_id)
-            if src and src.startswith("jr://fixture/item-list:"):
-                found.lookup_tags.add(src.removeprefix("jr://fixture/item-list:"))
-            elif src is None and instance_id.startswith("item-list:"):
-                found.lookup_tags.add(instance_id.removeprefix("item-list:"))
-        schemes = {read_scheme(manifest, instance_id, declared) for instance_id in referenced}
-        for scheme in sorted(schemes):
-            if expression.schemes is None or scheme in expression.schemes:
+            scheme = read_scheme(manifest, instance_id, declared)
+            if scheme == "item-list":
+                fixture = src.removeprefix("jr://fixture/") if src is not None else instance_id
+                if fixture.startswith("item-list:") and fixture != "item-list:":
+                    found.lookup_tags.add(fixture.removeprefix("item-list:"))
+            if scheme is not None and (expression.schemes is None or scheme in expression.schemes):
                 found.add(f"instance-scheme:{scheme}", artifact, where, at)
     if expression.schemes_only:
         return

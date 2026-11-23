@@ -12,6 +12,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import type { FormNodeProjection } from "./formNodeProjection";
 import type { FormSyntax } from "./formSyntax";
+import type { InstanceSource } from "./instanceSources";
 
 export type ResolveFieldPath = (
 	segments: readonly string[],
@@ -24,8 +25,11 @@ export interface FormReadingHooks {
 	readonly functions: ReadonlySet<string>;
 	/** HQ's itext id to the unit it names in this form. */
 	itextUnit(id: string): ItextUnit | undefined;
-	/** A declared instance id to its `src`; undefined where the form declares none. */
-	instanceSource(id: string): string | undefined;
+	/** The instance the built form or suite supplies under this local id. */
+	instanceSource(
+		id: string,
+		at: number,
+	): { localId: string; source: InstanceSource | undefined };
 	/** The calculate of a generated sibling the form reader set aside, by absolute path. */
 	generatedValue(path: string): string | undefined;
 	/** A fold's proposal for this node, or undefined to bind it plainly. */

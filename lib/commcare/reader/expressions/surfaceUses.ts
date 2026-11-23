@@ -162,7 +162,9 @@ function bare(node: FormSyntax): FormSyntax {
 
 /** The scheme an instance id is read under: the text before its first colon. */
 function scheme(id: string): string {
-	return id.split(":")[0] ?? id;
+	return !id.includes(":") && id.includes("selected_cases")
+		? "selected_cases"
+		: (id.split(":")[0] ?? id);
 }
 
 /** The path a node roots at an `instance()` call, as that call's id and the
@@ -212,6 +214,7 @@ export interface SurfaceUseFacts {
 	/** The source the slot's form declares for each instance id it names, by
 	 *  id; empty outside a form. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly formInstancesOnly?: boolean;
 	/** Whether HQ's build reads the slot's text through its shorthand
 	 *  (`xpath.py::interpolate_xpath`: a menu's and a form's display condition,
 	 *  the case list's filter, a detail tab's filter over a case type's
@@ -274,6 +277,7 @@ function sessionUse(
  *  where the slot's menu stands to a search. */
 function instanceClass(
 	id: string,
+	source: string | undefined,
 	context: ExpressionContext,
 	facts: SurfaceUseFacts,
 ): string | undefined {
@@ -291,8 +295,7 @@ function instanceClass(
 				? "typed-lookup-carrier"
 				: "other-expression";
 		case "locations":
-			return facts.instanceSources.get(id) ===
-				"jr://fixture/commtrack:locations"
+			return source === "jr://fixture/commtrack:locations"
 				? "hierarchical-locations"
 				: "flat-locations";
 		case "commtrack":
@@ -483,10 +486,19 @@ function xpathUses(
 							id.value,
 							facts.instanceSources.get(id.value),
 						);
-						uses.add(
-							`instance-scheme:${scheme(classed)}`,
-							instanceClass(classed, context, facts),
-						);
+						if (
+							classed !== undefined &&
+							(!facts.formInstancesOnly || facts.instanceSources.has(id.value))
+						)
+							uses.add(
+								`instance-scheme:${scheme(classed)}`,
+								instanceClass(
+									classed,
+									facts.instanceSources.get(id.value),
+									context,
+									facts,
+								),
+							);
 					}
 				} else if (HANDLERS.has(node.name))
 					uses.add(
@@ -565,7 +577,11 @@ function xpathUses(
 				token(node.descendant ? "DBL_SLASH" : "SLASH");
 				if (node.descendant) uses.add("xpath-axis:AXIS_DESCENDANT_OR_SELF");
 				const path = instancePath(node);
-				if (path !== undefined) {
+				if (
+					path !== undefined &&
+					classifiedInstanceId(path.id, facts.instanceSources.get(path.id)) ===
+						"commcaresession"
+				) {
 					const session = sessionUse(path.steps, context, facts);
 					if (session !== undefined) uses.add(session.key, session.valueClass);
 				}

@@ -602,7 +602,10 @@ describe("a select's choices", () => {
 				},
 			],
 		});
-		async function read(xml?: (xml: string) => string) {
+		async function read(
+			xml?: (xml: string) => string,
+			tableTag = "hq_districts",
+		) {
 			const body = exportedBody(doc, {
 				expand: { lookupNaming: naming },
 				...(xml === undefined ? {} : { xml }),
@@ -611,7 +614,7 @@ describe("a select's choices", () => {
 				await inputFor(body, {
 					lookup: {
 						table: (tag) =>
-							tag === "hq_districts"
+							tag === tableTag
 								? {
 										tableId: table,
 										column: (wire) =>
@@ -624,7 +627,7 @@ describe("a select's choices", () => {
 								{
 									id: table,
 									name: "Districts",
-									tag: "hq_districts",
+									tag: tableTag,
 									columns: [column],
 								},
 							],
@@ -656,6 +659,33 @@ describe("a select's choices", () => {
 			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 			expect(outcome.defects).toEqual([]);
 		});
+
+		it.each([true, false])(
+			"keeps the dotted fixture only when the form declares it (%s)",
+			async (declares) => {
+				const readBack = await read((xml) => {
+					const renamed = xml
+						.replaceAll("hq_districts", "meeting.1")
+						.replace(
+							"instance(&apos;meeting.1&apos;)",
+							"instance(&apos;item-list:meeting.1&apos;)",
+						)
+						.replace('id="meeting.1"', 'id="item-list:meeting.1"');
+					return declares
+						? renamed
+						: renamed.replace(
+								/<instance\b[^>]*\bsrc="jr:\/\/fixture\/item-list:meeting\.1"[^>]*\/>/,
+								"",
+							);
+				}, "meeting.1");
+				expect(readBack.defects).toEqual([]);
+				expect(readBack.kind).toBe(declares ? "read" : "account");
+				if (!declares && readBack.kind === "account")
+					expect(readBack.findings.map((finding) => finding.code)).toContain(
+						"questions/itemset-over-casedb-or-another-instance-advanced-data-source",
+					);
+			},
+		);
 
 		// The itemset is a read of the table: the read and the table's declaration stand under
 		// Nova's typed lookup carrier, never as a declaration nothing reads.

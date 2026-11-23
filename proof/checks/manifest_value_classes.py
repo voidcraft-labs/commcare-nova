@@ -29,6 +29,7 @@ HQ's build does) is the build's, in no source class.
 from __future__ import annotations
 
 import json
+import html
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -142,6 +143,16 @@ class Form:
         # The suites (their roots) whose entries open the form, where the check reads any: HQ's builds of an app
         # JSON's upload, or a local archive's own suite (``manifest_usage.link_entry_suites``).
         self.entry_suites = ()
+
+    @cached_property
+    def scanned_instance_ids(self):
+        """Names visible to HQ's get_instance_names over XForm.render(), including text outside the slot."""
+        xml = html.unescape(etree.tostring(self.root, encoding="unicode"))
+        names = set(re.findall(r"""instance\(\s*['"]([\w\-:]+)['"]\s*\)""", xml))
+        # A declared inline instance blocks a same-named missing-instance factory, too.
+        if self.model is not None:
+            names -= {element.get("id") for element in self.model if element.tag in ("instance", f"{{{XFORMS}}}instance")}
+        return names
 
     @cached_property
     def xmlns(self):

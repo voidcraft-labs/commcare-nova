@@ -15,7 +15,7 @@ import {
 	WorkLimitReached,
 	WorkMeter,
 } from "../workMeter";
-import { canonicalInstanceId } from "../xpath/formPathBinding";
+import { instanceForRead } from "../xpath/instanceSources";
 import { readApplication } from "./appShell";
 import { assembleDocument, assembleDocumentSteps } from "./assemble";
 import { readCaseLists, readCaseListsSteps, settleCaseLists } from "./caseList";
@@ -238,10 +238,8 @@ export function* readHqLookupTagsSteps(
 			}
 			const sources = instanceSourcesOf(doc, registration, env);
 			for (const id of ids) {
-				const source = sources?.get(id);
-				const actual = source === undefined ? id : canonicalInstanceId(source);
-				if (actual?.startsWith("item-list:"))
-					tags.add(actual.slice("item-list:".length));
+				const bound = instanceForRead(id, sources);
+				if (bound?.kind === "table") tags.add(bound.tag);
 			}
 		}
 	}

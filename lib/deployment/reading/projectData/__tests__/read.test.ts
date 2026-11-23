@@ -161,11 +161,16 @@ describe("readReadingProjectData", () => {
 	it("reads only the rows reached by the form's local alias, even when prose, a declaration, or a longer tag mentions another table", async () => {
 		const source = await sourceNoting(
 			"Notes about item-list:locations and item-list:unused",
-			"count(instance('item-list:locations')/locations-west_list/locations-west) > 0",
-			'<instance id="item-list:locations" src="jr://fixture/item-list:locations-west"/><instance id="optional" src="jr://fixture/item-list:unused"/>',
+			[
+				"count(instance('item-list:locations')/locations-west_list/locations-west) > 0",
+				"count(instance('selected')/unused_list/unused) > 0",
+				"count(instance('remote')/unused_list/unused) > 0",
+				"count(instance('item-list:meeting.1')/meeting.1_list/meeting.1) > 0",
+			].join(" and "),
+			'<instance id="item-list:locations" src="jr://fixture/item-list:locations-west"/><instance id="optional" src="jr://fixture/item-list:unused"/><instance id="selected" src="jr://instance/selected-entities/item-list:unused"/><instance id="remote" src="jr://instance/remote/item-list:unused"/>',
 		);
 		await withHttpPeer(async (peer) => {
-			const tables = ["locations", "locations-west", "unused"].map(
+			const tables = ["locations", "locations-west", "unused", "meeting.1"].map(
 				(tag, index) => ({
 					id: String(index + 1).padStart(32, "0"),
 					tag,
@@ -176,7 +181,7 @@ describe("readReadingProjectData", () => {
 				}),
 			);
 			serveJson(peer, LIST, {
-				meta: { limit: 100, offset: 0, next: null, total_count: 3 },
+				meta: { limit: 100, offset: 0, next: null, total_count: tables.length },
 				objects: tables,
 			});
 			const rowsPath = `/a/${DOMAIN}/api/fixture/v1/?fixture_type_id=${tables[1].id}`;

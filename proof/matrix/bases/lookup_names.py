@@ -87,7 +87,7 @@ def build(authoring):
         0,
         0,
         [
-            ("form_filter", "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland']/code.1 = 'on'"),
+            ("form_filter", "instance('item-list:ζωνες')/ζωνες_list/ζωνες[clé = 'upland'][1]/code.1 = 'on'"),
         ],
         "visit offered in the upland zone",
     )

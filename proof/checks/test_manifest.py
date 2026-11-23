@@ -1723,13 +1723,42 @@ def test_a_form_s_read_takes_its_scheme_from_its_id_or_from_the_source_it_declar
         "locations": "jr://fixture/commtrack:locations",
         "casedb": "jr://instance/casedb",
         "plain": "jr://example/plain",
+        "item-list:selected": "jr://instance/selected-entities/item-list:regions",
+        "looks_native": "jr://instance/selected-entities/locations",
+        "item-list:remote": "jr://instance/remote/item-list:regions",
+        "results": "jr://fixture/results",
     }
     read = {instance_id: manifest_usage.read_scheme(manifest, instance_id, declared) for instance_id in declared}
     assert read == {
         "regions": "item-list", "groups": "item-list", "locations": "locations", "casedb": "casedb",
-        "item-list:places": "locations", "item-list:legacy": "commtrack", "item-list:query": "search-input", "plain": "plain",
+        "item-list:places": "locations", "item-list:legacy": "commtrack", "item-list:query": "search-input", "plain": None,
+        "item-list:selected": "selected_cases", "looks_native": "selected_cases",
+        "item-list:remote": None, "results": None,
     }
     assert manifest_usage.read_scheme(manifest, "regions", {}) == "regions"
+
+
+def test_only_deliverable_form_instances_request_lookup_resources(manifest):
+    from lxml import etree
+
+    # One undeclared canonical read matches the scanner elsewhere in the whole form.
+    # Dotted IDs survive only when declared, and selected entities carry a different root.
+    root = etree.fromstring(b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml"
+        xmlns="http://www.w3.org/2002/xforms"><h:head><model>
+        <instance><data/></instance><instance id="alias" src="jr://fixture/item-list:actual.1"/>
+        <instance id="selected" src="jr://instance/selected-entities/item-list:false"/>
+        <instance id="item-list:inline"><inline/></instance>
+        <bind relevant="instance('item-list:from_elsewhere')"/>
+        </model></h:head><h:body/></h:html>""")
+    form = manifest_usage.Form(root, "form")
+    at = manifest_usage.XmlAt(form, root)
+    names = ["alias", "selected", "item-list:missing.1", "item-list:inline", "item-list:from_elsewhere"]
+    parsed = {"instancePaths": [{"instance": name} for name in names]}
+    expression = manifest_usage.Expression("form", "@condition", "", form.declared_instances, False, at, True)
+    found = manifest_usage.Uses()
+    manifest_usage._expression_uses(expression, parsed, manifest, found)
+    assert found.lookup_tags == {"actual.1", "from_elsewhere"}
+    assert {use.key for use in found.uses} == {"instance-scheme:item-list", "instance-scheme:selected_cases"}
 
 
 def test_a_profile_property_use_joins_the_reader_s_record_under_the_one_entry_naming_it(manifest):
