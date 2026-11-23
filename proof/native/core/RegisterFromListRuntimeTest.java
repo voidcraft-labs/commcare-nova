@@ -76,6 +76,18 @@ public class RegisterFromListRuntimeTest {
    else fail(label+" needs "+needed+" before "+list);
   }
  }
+ /** Where Preview lands a worker who opened the host's list action and finished the form with no case created
+  * (`<document>.offers.json`). */
+ private static String landingOf(String document,String host)throws Exception{
+  JSONArray offers=MenuScreensRuntimeTest.json("/menu-screens/"+document+".offers.json").getJSONArray("offers");
+  for(int i=0;i<offers.length();i++){
+   JSONObject offer=offers.getJSONObject(i);
+   if(!host.equals(offer.getString("hostMenuId")))continue;
+   JSONObject landing=offer.getJSONObject("notCreated");
+   return landing.isNull("command")?null:landing.getString("command");
+  }
+  fail(document+" offers no form on "+host);return null;
+ }
  @Test public void exactCreatedMemberAndChosenHouseholdDriveTheirOwnListActions() throws Exception {
   for (String shape : new String[]{"basic","advanced"}) for (boolean hq : new boolean[]{false,true}) {
    Suite suite = MenuScreensRuntimeTest.suite("case-list-action-roles-"+shape, hq);
@@ -105,7 +117,9 @@ public class RegisterFromListRuntimeTest {
      for (SessionDatum datum : suite.getEntry(command).getSessionDataReqs())
       if (datum instanceof EntityDatum) assertEquals(label,previous.get(0),session.getData().get(datum.getDataId()));
      session.finishExecuteAndPop(session.getEvaluationContext());
-     assertNull(label+" the form finishes at Home",session.getCommand());
+     // A follow-up on the chosen parent keeps its own after-submit (HQ writes no return frame for it), here
+     // Previous: its entry's frame with the last selection popped, which asks for the household again.
+     assertEquals(label+" the form lands where its own after-submit says",landingOf("case-list-action-roles-"+shape,host),session.getCommand());
      continue;
     }
     String member = null;
