@@ -426,6 +426,8 @@ describe("recordAdoptedDeploymentInTransaction", () => {
 			observedBy: ACTOR,
 			novaRevision: 1,
 			mediaFiles: MEDIA_FILES,
+			/* The birth's reviewed list stands whatever its source's bytes read. */
+			firstPublishReview: "current",
 		});
 	});
 
