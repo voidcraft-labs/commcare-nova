@@ -21,6 +21,10 @@ The builder's "where you are" and "what's focused" state lives in the URL, not i
 /build/[id]/{formUuid}/links                  → form after-submit links
 /build/[id]/{formUuid}/links/{linkUuid}       → selected after-submit link
 /build/[id]/{formUuid}/{fieldUuid}             → form with field selected
+/build/[id]/{menuUuid}/forms/{formUuid}[/...]  → a form (and any of its
+                                               sub-screens above) opened
+                                               through a menu that lists
+                                               another menu's forms
 ```
 
 `condition` is one URL noun over two `Location` kinds — `module-condition` and
@@ -33,7 +37,12 @@ All entity UUIDs are globally unique in the doc store, so a single UUID segment 
 
 Menu nesting is topology, not URL state. A child module, its case list, and its
 forms keep the same identity-only paths when that module is reordered or moved
-between root menus. Breadcrumbs derive the current parent menu from the doc and
+between root menus. The one exception is the menu a form opens through: a form
+listed in a menu that lists another menu's forms is still the source's one
+form, so its path carries the listing menu in front (`{menuUuid}/forms/...`).
+`serializePath` and `buildUrl` take the doc to decide that, and
+`parsePathToLocation` sends a form the listing menu does not show to that
+menu, and any other malformed `forms` path to home. Breadcrumbs derive the current parent menu from the doc and
 show it as a separate ancestor; they never treat the parent's case list as part
 of the child's case-loading trail. Presence therefore continues to follow the
 exact selected module, form, or field UUID rather than a positional menu path.
