@@ -488,8 +488,9 @@ translation is an explicit architect operation during an initial build.
 
 The translation workspace uses source/target rows grouped by owning screen and
 form. Context is concrete, for example “Intake → Patient name → Hint.” It has
-status filters, reference-safe prose tokens, and a jump to the owning Builder
-screen. Wide layouts show source and target side by side; narrow layouts edit
+status filters, answer chips for a question's or choice's text (which may show
+values of its own), reference-safe prose tokens for a case property option's
+label, and a jump to the owning Builder screen. Wide layouts show source and target side by side; narrow layouts edit
 one target row without compressing two columns below usability.
 
 When a target language is selected in the ordinary Builder, editing a

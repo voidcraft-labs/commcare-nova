@@ -186,8 +186,8 @@ other query.
 The global header selector stays visible while a target is active. App setup's
 Languages workspace is the authoritative source/target review surface: it owns
 catalog management, copy-from-an-existing-language, status filtering, coverage
-diagnostics, reference-safe prose-token editing, and navigation to each unit's
-owning Builder screen. Its search covers both source and selected-target text;
+diagnostics, translation editing, and navigation to each unit's owning Builder
+screen. Its search covers both source and selected-target text;
 the structure tree likewise filters and highlights the localized labels it
 actually renders. Source and target comparison panes each use their language's
 own text direction. Ordinary Builder edits to worker-facing text write the
@@ -195,9 +195,17 @@ selected target overlay; structural IDs and authoring-only metadata always edit
 their canonical slots. Preview applies the selected language's text direction
 only to worker content, never to Nova's authoring chrome.
 
-The Languages editor disables Save against the currently visible invalid
-protected-token text, and Missing units may save an explicit source-identical
-reviewed value. Inline target editors return the commit outcome: a refusal keeps
+A question's or choice's translation is edited in the Languages row with
+`RefLabelInput` chips under the unit's form scope, as a draft
+(`savesOnCommit={false}`) the row's Save button commits. Its answers may differ
+from the source's: the save stores the entry with `valueMode:
+"independent-values"` (`authoredTranslationValueMode`), so Save is never
+disabled for a reference difference, and Mark as reviewed on an out-of-date
+ordinary entry whose references its source has since changed saves it the same
+way (`translationReviewModel.ts`). The token editor (`ProtectedProseEditor`,
+`protectedProse.ts`) remains only for a case property option's label, where
+Save is disabled against the currently visible invalid protected-token text.
+Missing units may save an explicit source-identical reviewed value. Inline target editors return the commit outcome: a refusal keeps
 the draft mounted and shows the finding instead of closing and losing the edit.
 `protectedProse.ts` owns token serialization and draft validity, with reference
 equality based on canonical identity rather than object-key order. Its tests
