@@ -213,8 +213,11 @@ public class MenuScreensRuntimeTest {
   * as the signed-in worker moves between the home screen and each menu. */
  @Test public void signedInWorkersReadBadgesOnMenusAndCommands() throws Exception {
   String document="menu-badge-readings";
+  // The publisher's table goes in a localizer of this thread alone, so the static
+  // localizer the other tests of the run read is left as it was.
+  LocalizerManager.setUseThreadLocalStrategy(true);
+  try {
   for (boolean hq : new boolean[]{false,true}) {
-   LocalizerManager.clearInstance();
    LocalizerManager.init(true);
    try (InputStream input=getClass().getResourceAsStream("/menu-screens/"+document+(hq?".hq":"")+".properties")) {
     assertNotNull(document,input);
@@ -236,7 +239,11 @@ public class MenuScreensRuntimeTest {
       assertArrayEquals(new String[]{i==0?"Ready":Integer.toString(size)},menu.getBadgeText());
      }
     }
-   } finally {LocalizerManager.clearInstance();}
+   }
+  }
+  } finally {
+   LocalizerManager.init(true);
+   LocalizerManager.setUseThreadLocalStrategy(false);
   }
  }
  @Test public void aFormsFirstScreenReadsTheSignedInWorkersOwnRestoredCase() throws Exception {
