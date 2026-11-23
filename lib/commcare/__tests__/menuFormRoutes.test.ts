@@ -524,3 +524,44 @@ describe("a form listed in a second menu", () => {
 		]);
 	});
 });
+
+describe("a badge on a form listed in a second menu", () => {
+	it("names one badge text, the source menu's, on each menu's command for the form", () => {
+		const doc = twoMenus();
+		doc.forms[VISIT].badge = { kind: "text", text: "Due" };
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const ctx = formLinkProjectionContext(doc);
+		const source = moduleIndexOf(ctx, SOURCE);
+		const zip = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		const xml = new DOMParser().parseFromString(
+			zip.readAsText("suite.xml"),
+			"application/xml",
+		);
+		const badges = Array.from(xml.getElementsByTagName("entry")).flatMap(
+			(entry) => {
+				const command = entry.getElementsByTagName("command")[0];
+				return Array.from(command?.getElementsByTagName("text") ?? [])
+					.filter((text) => text.getAttribute("form") === "badge")
+					.map((text) => [
+						command?.getAttribute("id"),
+						text.getElementsByTagName("locale")[0]?.getAttribute("id"),
+					]);
+			},
+		);
+		// HQ keys a form's badge by the form's own menu (`id_strings.py::form_custom_icon_locale`
+		// reads `form.get_module()`), so the second menu's command names the source's text.
+		expect(badges).toHaveLength(2);
+		for (const [, locale] of badges)
+			expect(locale).toBe(`forms.m${source}f1.badge`);
+		expect(
+			zip
+				.readAsText("default/app_strings.txt")
+				.split("\n")
+				.filter((line) => line.startsWith(`forms.m${source}f1.badge=`)),
+		).toEqual([`forms.m${source}f1.badge=Due`]);
+	});
+});
