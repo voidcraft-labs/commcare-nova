@@ -43,6 +43,11 @@ import {
 	FINDING_NAME_MAX_LENGTH,
 	type Finding,
 } from "@/lib/publish/hqFindings";
+import {
+	OWNER_RULE_OTHERWISE,
+	OWNER_RULE_WORKER_DETAIL,
+	OWNER_RULE_WORKER_LABEL,
+} from "@/lib/publish/ownerRuleCopy";
 import { PAGE_LIMIT_CHARS, reviewedPageDigest } from "../paging";
 import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import {
@@ -188,6 +193,38 @@ describe("a review of changes made in CommCare HQ", () => {
 	 * under the limit, with each list's lines put back together from the
 	 * parts of a cut line.
 	 */
+	it("asks each owner-rule question in the changes by its level, with the one answer a client relays", () => {
+		const served = projected(
+			changes({
+				ownerRules: [
+					{
+						level: "clinic",
+						levelName: "Clinic",
+						conflict: {
+							kind: "two-places",
+							source: "East",
+							places: ["East A", "East B"],
+						},
+						forms: ["Transfer"],
+					},
+				],
+			}),
+		);
+		expect(served.owner_rules).toEqual([
+			{
+				level: "clinic",
+				title: "Who owns the cases for Clinic",
+				body: "The form “Transfer” gives each case to the Clinic below the place that owns it. In clinic, both East A and East B are below East, so the rule can't tell which one to use.",
+				answer: {
+					value: "worker",
+					label: OWNER_RULE_WORKER_LABEL,
+					detail: OWNER_RULE_WORKER_DETAIL,
+				},
+				otherwise: OWNER_RULE_OTHERWISE,
+			},
+		]);
+	});
+
 	it("explains how to recover an unread claimed target", () => {
 		const answer = projected({
 			kind: "unavailable",

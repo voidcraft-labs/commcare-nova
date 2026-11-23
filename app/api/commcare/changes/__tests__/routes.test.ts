@@ -58,6 +58,7 @@ const BRING_IN = {
 	readingId: "01936a52-7c00-7000-8000-000000000001",
 	reviewDigest: "f".repeat(64),
 	tableChoices: { districts: "use-project" },
+	ownerRuleChoices: { clinic: "worker" },
 } as const;
 const SCOPE = {
 	appId: APP,
@@ -363,6 +364,7 @@ describe("the bring-in route", () => {
 			readingId: BRING_IN.readingId,
 			reviewDigest: BRING_IN.reviewDigest,
 			tableChoices: BRING_IN.tableChoices,
+			ownerRuleChoices: BRING_IN.ownerRuleChoices,
 		});
 		expect(Object.keys(call?.[3] ?? {})).toEqual(["onEvent"]);
 	});
