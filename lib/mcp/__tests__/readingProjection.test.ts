@@ -217,6 +217,7 @@ function review(): ReadingReview {
 			},
 			CHOICE_TABLE,
 		],
+		ownerRules: [],
 		places: { count: 12, digest: "c".repeat(64) },
 		mediaLeftOut: 1,
 		firstPublish: runsOn[0]?.firstPublish as FirstPublishView,

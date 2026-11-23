@@ -37,7 +37,7 @@ import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { getHqCredentials } from "@/lib/db/settings";
 import type { Mutation } from "@/lib/doc/types";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
-import { ownRecordValue } from "@/lib/domain/records";
+import { NO_ENTRIES, ownRecordValue } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
 import { LookupError } from "@/lib/lookup/errors";
 import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
@@ -76,6 +76,8 @@ import {
 	projectMediaStaging,
 	publishStagedReadingMedia,
 } from "./projectData/mediaStore";
+import { workerOwnerMutations } from "./projectData/ownerRules";
+import { resolveOwnerRuleChoices } from "./projectData/reviewTypes";
 import type { BringInActor } from "./read";
 import { type BringInRoom, noRoomFinding, withBringInRoom } from "./room";
 import type {
@@ -379,6 +381,16 @@ async function createInRoom(
 				? "choice_not_offered"
 				: "choice_missing",
 		);
+	const ownerRules = resolveOwnerRuleChoices(
+		review.ownerRules,
+		input.ownerRuleChoices ?? NO_ENTRIES,
+	);
+	if (!ownerRules.ok)
+		return refused(
+			ownerRules.notOffered.length > 0
+				? "choice_not_offered"
+				: "choice_missing",
+		);
 	const answeredData = underTableChoices(
 		gathered.fetched.data,
 		tableChoices.choices,
@@ -463,7 +475,13 @@ async function createInRoom(
 			declaration.splitDatetime === input.splitDatetime,
 	);
 	if (chosen === undefined) return checkFailed("integrity", []);
-	const batch: Mutation[] = [...born.accepted.batch, ...chosen.mutations];
+	/* The explicit owner rule the person chose for each level the places cannot satisfy, given
+	 * before the gate, so the birth's organization check meets only rules that hold. */
+	const batch: Mutation[] = [
+		...born.accepted.batch,
+		...chosen.mutations,
+		...workerOwnerMutations(chosen.doc, ownerRules.levels),
+	];
 	if (appName !== born.draft.doc.appName)
 		batch.push({ kind: "setAppName", name: appName });
 	const candidate = prepareGenesisCandidate({

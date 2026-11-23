@@ -573,6 +573,7 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 			madeBy: [],
 			renamedInNova: moves,
 			tables: [],
+			ownerRules: [],
 			projectName: "Field team",
 		};
 		// This adapter control starts with an exact review and stale write result.

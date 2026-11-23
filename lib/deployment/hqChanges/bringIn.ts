@@ -43,6 +43,8 @@ import { MediaPublishPermissionError } from "@/lib/media/publishReadyMedia";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
 import {
 	HQ_CHANGES_FILES_NOT_PERMITTED,
+	HQ_CHANGES_OWNER_RULE_MISSING,
+	HQ_CHANGES_OWNER_RULE_NOT_OFFERED,
 	HQ_CHANGES_TABLE_CHOICE_MISSING,
 	HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED,
 	hqChangesPublishingStoppedLine,
@@ -78,7 +80,11 @@ import {
 	projectMediaStaging,
 	publishStagedReadingMedia,
 } from "../reading/projectData/mediaStore";
-import type { ReviewTable } from "../reading/projectData/reviewTypes";
+import { workerOwnerMutations } from "../reading/projectData/ownerRules";
+import {
+	type ReviewTable,
+	resolveOwnerRuleChoices,
+} from "../reading/projectData/reviewTypes";
 import {
 	type BringInRoom,
 	holdChangesReadings,
@@ -130,6 +136,8 @@ export interface HqChangesBringInInput {
 	readonly readingId: string;
 	readonly reviewDigest: string;
 	readonly tableChoices: Readonly<Record<string, string>>;
+	/** The answer for each owner rule the review asks about, by level code. Absent is none. */
+	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	/**
 	 * Whether the person agreed to lose the changes made in Nova that the
 	 * review listed. A person presses a button under the list they read and
@@ -511,6 +519,18 @@ async function bringChangesIn(
 					? HQ_CHANGES_TABLE_CHOICE_NOT_OFFERED
 					: HQ_CHANGES_TABLE_CHOICE_MISSING,
 		};
+	const ownerRules = resolveOwnerRuleChoices(
+		review.ownerRules,
+		input.ownerRuleChoices ?? NO_ENTRIES,
+	);
+	if (!ownerRules.ok)
+		return {
+			kind: "refused",
+			message:
+				ownerRules.notOffered.length > 0
+					? HQ_CHANGES_OWNER_RULE_NOT_OFFERED
+					: HQ_CHANGES_OWNER_RULE_MISSING,
+		};
 	const answeredData = underTableChoices(first.data, resolved.choices);
 	const moved = movedBindingCount(
 		first.data.gathered.tables,
@@ -622,7 +642,14 @@ async function bringChangesIn(
 			}),
 			kind: "hq-changes",
 			expectedHeadSeq: fetched.head.seq,
-			guard: { mutations: admitMutationBatch(plan.batch) },
+			/* The explicit owner rule the person chose for each level the places cannot satisfy,
+			 * given in the same batch, so the commit's gate meets only rules that hold. */
+			guard: {
+				mutations: admitMutationBatch([
+					...plan.batch,
+					...workerOwnerMutations(plan.target, ownerRules.levels),
+				]),
+			},
 			/* The tables the change newly reads are written in the commit's own
 			 * transaction, before its gate reads them: a change that is turned
 			 * back (a moved head, a refused gate, a moved baseline) creates,

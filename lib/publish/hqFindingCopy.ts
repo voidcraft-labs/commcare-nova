@@ -886,11 +886,6 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "CommCare HQ sends {name} in {space} with its entries sorted. A worker sees them in their original order.",
 		next: "You can store the intended worker text in that field in CommCare HQ, then check again.",
 	},
-	"owner-rule-needs-one-place": {
-		title: "A case owner rule needs one destination",
-		body: "{name} Nova checked the rule against the places in {space}.",
-		next: "You can choose a specific owner in the form or change the places in CommCare HQ, then check again.",
-	},
 	unrecognized: {
 		title: "Nova met something it doesn't know",
 		body: "Nova found something in this app it has no reading for yet. That gap is Nova's, and it has been reported to the team with what it was.",

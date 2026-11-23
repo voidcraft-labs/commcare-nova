@@ -12,7 +12,12 @@
  */
 
 import { broughtInOf } from "@/components/builder/app-setup/publishingSectionModel";
-import { isDeploymentServer, type LookupTableChoice } from "@/lib/deployment";
+import {
+	isDeploymentServer,
+	type LookupTableChoice,
+	type OwnerRuleChoice,
+	type ReviewOwnerRule,
+} from "@/lib/deployment";
 import type {
 	DeploymentActionResult,
 	DeploymentView,
@@ -24,6 +29,7 @@ import type {
 	HqChangesStage,
 } from "@/lib/deployment/hqChanges/types";
 import {
+	keptOwnerRuleChoices,
 	keptTableChoices,
 	type ReviewTable,
 } from "@/lib/deployment/reading/types";
@@ -169,6 +175,7 @@ export type HqChangesRequest =
 			readonly readingId: string;
 			readonly reviewDigest: string;
 			readonly tableChoices: Readonly<Record<string, LookupTableChoice>>;
+			readonly ownerRuleChoices: Readonly<Record<string, OwnerRuleChoice>>;
 	  };
 
 export interface HqChangesPanelState {
@@ -188,7 +195,14 @@ export interface HqChangesPanelState {
 	 * (`keptTableChoices`).
 	 */
 	readonly answeredTables: Readonly<Record<string, ReviewTable>>;
-	/** Set where a bring-in was pressed with a table unanswered; each press is a new nonce. */
+	/**
+	 * Each owner rule's answer, by level, with the question it was given
+	 * against: a review that comes back keeps an answer only over the same
+	 * question (`keptOwnerRuleChoices`).
+	 */
+	readonly ownerRuleChoices: Readonly<Record<string, OwnerRuleChoice>>;
+	readonly answeredOwnerRules: Readonly<Record<string, ReviewOwnerRule>>;
+	/** Set where a bring-in was pressed with a table or an owner rule unanswered; each press is a new nonce. */
 	readonly needsChoice: { readonly nonce: number } | null;
 	/** The lists opened past their first ten lines. */
 	readonly shownAll: { readonly hq: boolean; readonly nova: boolean };
@@ -227,6 +241,11 @@ export type HqChangesPanelEvent =
 			readonly tag: string;
 			readonly choice: LookupTableChoice;
 	  }
+	| {
+			readonly type: "owner-rule-chosen";
+			readonly level: string;
+			readonly choice: OwnerRuleChoice;
+	  }
 	| { readonly type: "show-all"; readonly list: "hq" | "nova" }
 	| { readonly type: "copied" }
 	| { readonly type: "copy-refused" }
@@ -240,6 +259,8 @@ export function initialHqChangesPanel(at: number): HqChangesPanelState {
 		moved: null,
 		tableChoices: {},
 		answeredTables: {},
+		ownerRuleChoices: {},
+		answeredOwnerRules: {},
 		needsChoice: null,
 		shownAll: { hq: false, nova: false },
 		copy: "idle",
@@ -313,8 +334,19 @@ function withReview(
 		review.kind === "changes" ? review.tables : [],
 		state.tableChoices,
 	);
+	const owners = keptOwnerRuleChoices(
+		Object.values(state.answeredOwnerRules),
+		review.kind === "changes" ? review.ownerRules : [],
+		state.ownerRuleChoices,
+	);
 	const base: HqChangesPanelState = {
 		...state,
+		ownerRuleChoices: owners.choices,
+		answeredOwnerRules: Object.fromEntries(
+			Object.entries(state.answeredOwnerRules).filter(([level]) =>
+				Object.hasOwn(owners.choices, level),
+			),
+		),
 		tableChoices: kept.choices,
 		answeredTables: Object.fromEntries(
 			Object.entries(state.answeredTables).filter(([tag]) =>
@@ -439,7 +471,12 @@ export function reduceHqChangesPanel(
 			const removes = review.novaChanges.length > 0;
 			if (event.discard !== removes) return state;
 			if (review.renamedInNova.length > 0) return state;
-			if (unansweredTables(review, state.tableChoices)) {
+			if (
+				unansweredTables(review, state.tableChoices) ||
+				review.ownerRules.some(
+					(rule) => !Object.hasOwn(state.ownerRuleChoices, rule.level),
+				)
+			) {
 				return {
 					...state,
 					needsChoice: { nonce: (state.needsChoice?.nonce ?? 0) + 1 },
@@ -538,6 +575,23 @@ export function reduceHqChangesPanel(
 				answeredTables: { ...state.answeredTables, [event.tag]: entry },
 			};
 		}
+		case "owner-rule-chosen": {
+			const rule = choicesOpen(state)?.ownerRules.find(
+				(entry) => entry.level === event.level,
+			);
+			if (rule === undefined) return state;
+			return {
+				...state,
+				ownerRuleChoices: {
+					...state.ownerRuleChoices,
+					[event.level]: event.choice,
+				},
+				answeredOwnerRules: {
+					...state.answeredOwnerRules,
+					[event.level]: rule,
+				},
+			};
+		}
 		case "show-all":
 			return { ...state, shownAll: { ...state.shownAll, [event.list]: true } };
 		case "copied":
@@ -613,6 +667,15 @@ export function nextRequest(
 							}),
 						)
 					: {},
+			ownerRuleChoices:
+				phase.review.kind === "changes"
+					? Object.fromEntries(
+							phase.review.ownerRules.flatMap((rule) => {
+								const choice = state.ownerRuleChoices[rule.level];
+								return choice === undefined ? [] : [[rule.level, choice]];
+							}),
+						)
+					: {},
 		};
 	}
 	return null;
@@ -659,6 +722,8 @@ export interface ListsView {
 	readonly copyBoth: boolean;
 	/** The tables that ask their choice. */
 	readonly tables: ChangesReview["tables"];
+	/** The owner rules that ask their answer. */
+	readonly ownerRules: ChangesReview["ownerRules"];
 	readonly projectName: string;
 	/**
 	 * The gate's refusal, a refusal or a request that ended, beside the lists,
@@ -868,6 +933,7 @@ function listsView(
 			: null,
 		copyBoth: removes,
 		tables: choiceTables(review),
+		ownerRules: review.ownerRules,
 		projectName: review.projectName,
 		notice:
 			notice === null

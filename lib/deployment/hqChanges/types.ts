@@ -98,6 +98,12 @@ export type HqChangesReview =
 			 * bring-in's `tableChoices`.
 			 */
 			readonly tables: ReadingReview["tables"];
+			/**
+			 * Each level whose owner rule the changed app gives cases by and
+			 * the places CommCare HQ holds cannot satisfy, answered in the
+			 * bring-in's `ownerRuleChoices`.
+			 */
+			readonly ownerRules: ReadingReview["ownerRules"];
 			/** The name of the app's Project, which a table's choice names. */
 			readonly projectName: string;
 			/** Sent back at the bring-in: the ids of a newly read table derive from it. */

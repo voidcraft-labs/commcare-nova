@@ -16,6 +16,7 @@ import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { hqPlaceUrl } from "@/lib/deployment/hqPlaceUrl";
 import type { AccountAnswer } from "@/lib/deployment/reading/answers";
 import type {
+	OwnerRuleChoice,
 	ReadingAnswer,
 	ReadingDeclarationChoice,
 	ReadingKey,
@@ -84,6 +85,14 @@ import {
 	reviewMediaLeftOut,
 	reviewSameEqualTable,
 } from "@/lib/publish/managedData";
+import {
+	OWNER_RULE_OTHERWISE,
+	OWNER_RULE_WORKER_DETAIL,
+	OWNER_RULE_WORKER_LABEL,
+	ownerRuleBody,
+	ownerRuleTitle,
+	type ReviewOwnerRule,
+} from "@/lib/publish/ownerRuleCopy";
 import { PLAN_FEATURES } from "@/lib/publish/planFeatures";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { BringInToolError } from "../errors";
@@ -230,11 +239,48 @@ export interface ReviewProjection {
 	/** The cursor of the page that holds the tables after this page's, or null on the last. */
 	readonly next_page: string | null;
 	readonly places: { readonly count: number; readonly sentence: string } | null;
+	/** Each level whose owner rule needs the user's answer before the app can be created. */
+	readonly owner_rules: readonly OwnerRuleProjection[];
 	readonly media: {
 		readonly sentence: string | null;
 		readonly left_out: string | null;
 	};
 	readonly after: readonly string[];
+}
+
+/**
+ * One owner rule a review asks about, as MCP lists it: the question, why the
+ * places give the rule no one place, the one answer and the other way through.
+ * Its answer goes in `owner_rule_choices` under `level`.
+ */
+export interface OwnerRuleProjection {
+	readonly level: string;
+	readonly title: string;
+	readonly body: string;
+	readonly answer: {
+		readonly value: OwnerRuleChoice;
+		readonly label: string;
+		readonly detail: string;
+	};
+	readonly otherwise: string;
+}
+
+/** One owner rule of a review, as `OwnerRuleProjection` says it. */
+export function ownerRuleProjection(
+	rule: ReviewOwnerRule,
+	domain: string,
+): OwnerRuleProjection {
+	return {
+		level: rule.level,
+		title: ownerRuleTitle(rule),
+		body: ownerRuleBody(rule, domain),
+		answer: {
+			value: "worker",
+			label: OWNER_RULE_WORKER_LABEL,
+			detail: OWNER_RULE_WORKER_DETAIL,
+		},
+		otherwise: OWNER_RULE_OTHERWISE,
+	};
 }
 
 export interface AccountProjection {
@@ -858,6 +904,9 @@ function reviewProjection(
 						count: review.places.count,
 						sentence: reviewManagedPlaces(review.places.count, domain),
 					},
+		owner_rules: review.ownerRules.map((rule) =>
+			ownerRuleProjection(rule, domain),
+		),
 		media: {
 			sentence:
 				review.creates.mediaFiles > 0

@@ -80,12 +80,9 @@ import {
 	resolveLookupBindings,
 	sameManagedColumnCapFinding,
 } from "./lookupTables";
-import {
-	documentReadsPlaces,
-	managedPlacesOwnerFindings,
-	planManagedPlaces,
-} from "./places";
-import type { LookupTableChoice } from "./reviewTypes";
+import { managedPlacesOwnerRules } from "./ownerRules";
+import { documentReadsPlaces, planManagedPlaces } from "./places";
+import type { LookupTableChoice, ReviewOwnerRule } from "./reviewTypes";
 
 export { resolveTableChoices } from "./lookupTables";
 export {
@@ -676,9 +673,10 @@ const UNSERVED_DECLARATION_ENTRY =
  * `table-choices-unusable` a table whose rows cannot be the choices of a
  * question or search field that reads them. Where the app reads places:
  * `place-hierarchy-inconsistent` alone where the source still disagreed with
- * itself when read again; otherwise the levels Nova cannot hold, the places it
- * cannot, and, with a document, an owner rule the copy would refuse. A value of a place is judged
- * only with a document, once the rest of the app can come in.
+ * itself when read again; otherwise the levels Nova cannot hold and the places it
+ * cannot. A value of a place is judged only with a document, once the rest of
+ * the app can come in. An owner rule the places cannot satisfy is no finding:
+ * the review asks about it (`readingOwnerRules`).
  */
 export function readingProjectDataFindingsFor(
 	data: ReadingProjectData,
@@ -760,7 +758,6 @@ export function readingProjectDataFindingsFor(
 				mode: "birth",
 			});
 			findings.push(...levels.findings, ...plan.findings);
-			if (doc !== null) findings.push(...managedPlacesOwnerFindings(doc, plan));
 		}
 	}
 	return findings;
@@ -968,3 +965,18 @@ export function bornPlaces(
 }
 
 export { readingLookupSnapshot } from "./lookupTables";
+
+/**
+ * The owner rules of `doc` the places the reading holds cannot satisfy, as
+ * the review's questions: none where the app reads no places. Called on a
+ * read with no finding, as `bornPlaces` is.
+ */
+export function readingOwnerRules(
+	data: ReadingProjectData,
+	reads: ReaderProjectDataReads,
+	doc: BlueprintDoc,
+	resolver: IdentityResolver,
+): readonly ReviewOwnerRule[] {
+	if (!reads.readsPlaces) return [];
+	return managedPlacesOwnerRules(doc, bornPlaces(data, doc, resolver));
+}

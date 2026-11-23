@@ -22,7 +22,10 @@ import type { AdoptedMediaFile } from "../adoption";
 import type { HqMediaPath, HqMediaRecord } from "../hqMedia";
 import type { appConfirmationScope } from "../hqSourceBaseline";
 import { reviewMediaId } from "../reading/mediaIds";
-import type { ReviewTable } from "../reading/projectData/reviewTypes";
+import type {
+	ReviewOwnerRule,
+	ReviewTable,
+} from "../reading/projectData/reviewTypes";
 import {
 	canonicalTargetIdentity,
 	type TargetIdentity,
@@ -61,6 +64,8 @@ export interface HqChangesDigestInput {
 	 * these, so one that changed since the review is asked about again.
 	 */
 	readonly tables: readonly ReviewTable[];
+	/** The owner rules the changed app gives cases by that the places cannot satisfy. */
+	readonly ownerRules: readonly ReviewOwnerRule[];
 }
 
 /**
@@ -109,6 +114,7 @@ export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 			]),
 		target: input.target,
 		tables: input.tables,
+		...(input.ownerRules.length > 0 && { ownerRules: input.ownerRules }),
 	});
 }
 

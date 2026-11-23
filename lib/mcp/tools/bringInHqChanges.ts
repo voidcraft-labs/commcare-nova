@@ -32,7 +32,10 @@ import {
 	HqChangesDiscardMismatchError,
 	type HqChangesOutcome,
 } from "@/lib/deployment/hqChanges";
-import { LOOKUP_TABLE_CHOICES } from "@/lib/deployment/reading/projectData/reviewTypes";
+import {
+	LOOKUP_TABLE_CHOICES,
+	OWNER_RULE_CHOICES,
+} from "@/lib/deployment/reading/projectData/reviewTypes";
 import { READING_ID_PATTERN } from "@/lib/deployment/reading/types";
 import {
 	deploymentAppIdSchema,
@@ -348,6 +351,12 @@ export function registerBringInHqChanges(
 					.describe(
 						"The user's answer for each lookup table in the review's tables whose entry has a choice, by tag. {} where none has.",
 					),
+				owner_rule_choices: z
+					.record(z.string(), z.enum(OWNER_RULE_CHOICES))
+					.optional()
+					.describe(
+						"The user's answer for each entry of the review's owner_rules, by its level. \"worker\" gives those cases to the worker who fills in the form. Omit, or send {}, where owner_rules is empty.",
+					),
 			}),
 			_meta: LARGE_RESULT_META,
 		},
@@ -367,6 +376,7 @@ export function registerBringInHqChanges(
 							readingId: args.reading_id,
 							reviewDigest: args.review_digest,
 							tableChoices: args.table_choices,
+							ownerRuleChoices: args.owner_rule_choices ?? {},
 							discardNovaChanges: args.discard_nova_changes,
 						},
 						{ onEvent: hqChangesProgress(extra) },

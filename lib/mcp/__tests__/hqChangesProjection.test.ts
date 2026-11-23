@@ -120,6 +120,7 @@ function changes(
 		observedDigest: "b".repeat(64),
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Field team",
 		readingId: READING_ID,
 		reviewDigest: DIGEST,

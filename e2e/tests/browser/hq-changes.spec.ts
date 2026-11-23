@@ -233,6 +233,7 @@ function changes(
 		observedDigest: OBSERVED_DIGEST,
 		renamedInNova: [],
 		tables: [],
+		ownerRules: [],
 		projectName: "Field team",
 		readingId: READING_ID,
 		reviewDigest: REVIEW_DIGEST,

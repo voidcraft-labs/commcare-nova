@@ -152,6 +152,7 @@ const REVIEWS: readonly [string, HqChangesReview][] = [
 			observedDigest: "a".repeat(64),
 			renamedInNova: [],
 			tables: [],
+			ownerRules: [],
 			projectName: "Field team",
 			readingId: BRING_IN.readingId,
 			reviewDigest: BRING_IN.reviewDigest,

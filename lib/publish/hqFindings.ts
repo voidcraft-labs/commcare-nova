@@ -356,7 +356,6 @@ export const READ_CIRCUMSTANCES = [
 	"place-hierarchy-inconsistent",
 	"place-field-unusable",
 	"place-value-order-unknown",
-	"owner-rule-needs-one-place",
 	"unrecognized",
 	"read-back-differs",
 ] as const;
@@ -408,7 +407,6 @@ export const CIRCUMSTANCE_STANDINGS = {
 	"place-hierarchy-inconsistent": { standing: "fix-in-hq" },
 	"place-field-unusable": { standing: "fix-in-hq", name: "body" },
 	"place-value-order-unknown": { standing: "fix-in-hq", name: "body" },
-	"owner-rule-needs-one-place": { standing: "fix-in-hq", name: "body" },
 	unrecognized: { standing: "not-yet", name: "line" },
 	"read-back-differs": { standing: "not-yet", name: "internal" },
 } as const satisfies Record<

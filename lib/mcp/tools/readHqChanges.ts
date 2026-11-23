@@ -88,6 +88,8 @@ import {
 	circumstanceContextFor,
 	type ListedAccountProjection,
 	listedAccountProjection,
+	type OwnerRuleProjection,
+	ownerRuleProjection,
 	parseAccountPage,
 	reviewTextParts,
 	type StopProjection,
@@ -279,6 +281,8 @@ export type HqChangesReviewProjection = ReviewHead &
 				readonly renamed_in_nova_line: string | null;
 				/** This page's lookup tables the changed app newly reads, as `read_hq_app` lists a review's. */
 				readonly tables: readonly TableProjection[];
+				/** Each level whose owner rule needs the user's answer before the changes can come in. */
+				readonly owner_rules: readonly OwnerRuleProjection[];
 				readonly table_parts?: readonly TableReviewPart[];
 				readonly reading_id: string;
 				readonly review_digest: string | null;
@@ -733,6 +737,9 @@ export function describeHqChangesReview(
 				nova_changes_total: review.novaChanges.length,
 				renamed_in_nova_total: review.renamedInNova.length,
 				tables_total: review.tables.length,
+				owner_rules: review.ownerRules.map((rule) =>
+					ownerRuleProjection(rule, head.domain),
+				),
 				made_by_total: review.madeBy.length,
 				restarted: options.page.restarted,
 				restarted_message: options.page.restarted

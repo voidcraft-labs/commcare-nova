@@ -128,6 +128,7 @@ import {
 	type ReaderProjectDataReads,
 	type ReadingProjectData,
 	readingLookupSnapshot,
+	readingOwnerRules,
 	readingProjectDataFindingsFor,
 } from "../reading/projectData";
 import {
@@ -277,6 +278,7 @@ export function reviewMatchingSource(
 			incomingPaths: removalLedgerPaths(basis.normalized.normalized, published),
 			target: null,
 			tables: [],
+			ownerRules: [],
 		}),
 	};
 }
@@ -1884,6 +1886,12 @@ export async function checkHqChanges(
 						draft.doc,
 						resolverOf(fetched),
 					).tables.filter((table) => newTagSet.has(table.tag));
+		/* The owner rules of what the app takes that the places now cannot satisfy: each asks
+		 * the person, as a bring-in's review does. */
+		const ownerRules =
+			plan.kind === "changes"
+				? readingOwnerRules(data, readsNow, plan.target, resolverOf(fetched))
+				: [];
 		const reviewDigest = hqChangesReviewDigest({
 			identity: receipt,
 			approvedRemovals: approved,
@@ -1914,8 +1922,9 @@ export async function checkHqChanges(
 					? contentNamedDocument(plan.target, targetFiles, ownContent)
 					: null,
 			tables,
+			ownerRules,
 		});
-		return { newTags, tables, reviewDigest };
+		return { newTags, tables, ownerRules, reviewDigest };
 	});
 	const checked: CheckedHqChanges = {
 		removedFiles: unused.map((file) => file.digest),
@@ -2042,6 +2051,7 @@ export async function checkHqChanges(
 			),
 			renamedInNova: plan.kind === "changes" ? plan.renamedInNova : [],
 			tables: built.tables,
+			ownerRules: built.ownerRules,
 			projectName: fetched.projectName,
 			readingId: fetched.readingId,
 			reviewDigest: built.reviewDigest,

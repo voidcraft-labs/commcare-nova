@@ -26,7 +26,7 @@ export const READING_REFUSAL_COPY: Readonly<Record<ReadingRefusal, string>> = {
 	choice_not_offered:
 		"One of the choices sent isn't one this review offers. The review may have changed, so you can reload it and choose again.",
 	choice_missing:
-		"A lookup table this app reads needs your choice before Nova can create the app. You can choose what to do with it in the review.",
+		"A lookup table this app reads, or a rule for who owns its cases, needs your choice before Nova can create the app. You can make that choice in the review.",
 	project_changed:
 		"A file this app uses was removed from your Project while Nova was creating the app, so Nova stopped before creating it. You can bring it in again, and Nova adds the file back.",
 	app_unavailable:

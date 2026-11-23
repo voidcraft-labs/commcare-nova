@@ -49,16 +49,25 @@ import {
 } from "@/lib/publish/hqFindings";
 import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
 import { birthAdoptedApp } from "../../__tests__/adoptedBirth";
+import { createFromReview } from "../create";
 import { sourceMayReadPlaces } from "../projectData/places";
 import { authorizeBringIn, readHqAppForReview } from "../read";
 import {
+	type BringInInput,
+	type CreateAnswer,
 	READING_ID_PATTERN,
 	type ReadingAnswer,
 	type ReadingEvent,
 	type ReadingKey,
 } from "../types";
-import { FIXTURE_PATHS, serveAnswer, serveFixtureApp } from "./adoptionFixture";
+import {
+	createInputFor,
+	FIXTURE_PATHS,
+	serveAnswer,
+	serveFixtureApp,
+} from "./adoptionFixture";
 import { servedExport } from "./novaReading";
+import { servedHqApp, serveHqApp } from "./servedHqApp";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 /* The reader runs as it is, a stage at a time as a request runs it; the spy
@@ -857,21 +866,6 @@ describe("readHqAppForReview", () => {
 				},
 			},
 			{
-				/* Two clinics below one district: the owner rule that gives a case to the clinic
-				 * below its owner names no one place. */
-				code: "owner-rule-needs-one-place",
-				serving: (peer) => {
-					serveExport(peer, locationOwnerFixture("direct"));
-					serveLevels(peer);
-					servePlaces(peer, [
-						hqPlace("north", "region", null),
-						hqPlace("north_district", "district", "north"),
-						hqPlace("first_clinic", "clinic", "north_district"),
-						hqPlace("second_clinic", "clinic", "north_district"),
-					]);
-				},
-			},
-			{
 				/* Two rows of `district` hold one value, so no question can take them as its
 				 * choices. */
 				code: "table-choices-unusable",
@@ -994,6 +988,104 @@ describe("readHqAppForReview", () => {
 			expect(READ_CIRCUMSTANCES.filter((code) => !driven.has(code))).toEqual(
 				[],
 			);
+		});
+	});
+
+	describe("an owner rule the places cannot satisfy", () => {
+		it("is a question of the review, named by its level and both places, and never a choice of one", async () => {
+			const counts = await rowCounts();
+			/* Two clinics below one district: the owner rule that gives a case to the clinic
+			 * below its owner names no one place. */
+			const { answer } = await read((peer) => {
+				serveHqApp(peer, servedHqApp(locationOwnerFixture("direct"), 1));
+				serveLevels(peer);
+				servePlaces(peer, [
+					hqPlace("north", "region", null),
+					hqPlace("north_district", "district", "north"),
+					hqPlace("first_clinic", "clinic", "north_district"),
+					hqPlace("second_clinic", "clinic", "north_district"),
+				]);
+			});
+			if (answer.kind !== "review")
+				throw new Error(`The read answered ${answer.kind}, not a review`);
+			expect(answer.review.ownerRules).toEqual([
+				{
+					level: "clinic",
+					levelName: expect.any(String),
+					conflict: {
+						kind: "two-places",
+						source: "north_district",
+						places: ["first_clinic", "second_clinic"],
+					},
+					forms: ["Transfer"],
+				},
+			]);
+			expect(await rowCounts()).toEqual(counts);
+		});
+
+		/** The two-clinic app, read and then created with `choices`, in one peer. */
+		async function readThenCreate(
+			choices: BringInInput["ownerRuleChoices"],
+		): Promise<CreateAnswer> {
+			const actor = await authorizeBringIn(ACTOR, PROJECT);
+			if (actor === null) throw new Error("The editor holds no edit.");
+			/* One emission, served to both reads: the export mints its CommCare HQ ids. */
+			const app = servedHqApp(locationOwnerFixture("direct"), 1);
+			const serving = (peer: MockAgent) => {
+				serveHqApp(peer, app);
+				serveLevels(peer);
+				servePlaces(peer, [
+					hqPlace("north", "region", null),
+					hqPlace("north_district", "district", "north"),
+					hqPlace("first_clinic", "clinic", "north_district"),
+					hqPlace("second_clinic", "clinic", "north_district"),
+				]);
+			};
+			return withHttpPeer(async (peer) => {
+				serving(peer);
+				const answer = await readHqAppForReview(actor, KEY, {
+					onEvent: () => {},
+				});
+				if (answer.kind !== "review")
+					throw new Error(`The read answered ${answer.kind}, not a review`);
+				serving(peer);
+				return createFromReview(
+					actor,
+					{
+						...createInputFor(KEY, answer),
+						...(choices !== undefined && { ownerRuleChoices: choices }),
+					},
+					{ onEvent: () => {} },
+				);
+			});
+		}
+
+		it("refuses a create that leaves the question unanswered, and creates nothing", async () => {
+			const counts = await rowCounts();
+			expect(await readThenCreate(undefined)).toEqual({
+				kind: "refused",
+				refusal: "choice_missing",
+			});
+			expect(await rowCounts()).toEqual(counts);
+		});
+
+		it("refuses an answer for a level the review does not ask about", async () => {
+			expect(
+				await readThenCreate({ clinic: "worker", region: "worker" }),
+			).toEqual({ kind: "refused", refusal: "choice_not_offered" });
+		});
+
+		it("creates the app with the worker who fills in the form owning those cases", async () => {
+			const answer = await readThenCreate({ clinic: "worker" });
+			if (answer.kind !== "created")
+				throw new Error(`The create answered ${JSON.stringify(answer)}`);
+			const operations = Object.values(answer.receipt.blueprint.forms).flatMap(
+				(form) => form.caseOperations ?? [],
+			);
+			expect(operations.length).toBeGreaterThan(0);
+			expect(
+				operations.filter((operation) => operation.owner !== undefined),
+			).toEqual([]);
 		});
 	});
 

@@ -268,6 +268,7 @@ function reviewOf(overrides: Partial<ReadingReview> = {}): ReadingReview {
 		platformsOut: [],
 		kept: [],
 		tables: [DISTRICT_TABLE],
+		ownerRules: [],
 		places: null,
 		mediaLeftOut: 0,
 		firstPublish: {

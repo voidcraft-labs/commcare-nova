@@ -136,6 +136,7 @@ import {
 	type ReaderProjectDataReads,
 	type ReadingProjectData,
 	readingLookupSnapshot,
+	readingOwnerRules,
 	readingProjectDataFindingsFor,
 	unreadPlacesFailure,
 } from "./projectData";
@@ -2088,6 +2089,12 @@ function* reviewOf(input: {
 		kept: facts === null ? [] : keptListFor(facts),
 		tables: projectReview.tables,
 		places: projectReview.places,
+		ownerRules: readingOwnerRules(
+			fetched.data,
+			input.reads,
+			doc,
+			mintingResolver(appId),
+		),
 		mediaLeftOut: mediaLeftOutOf(input.judgedPlan.claims).undrawn,
 		firstPublish: accepted.firstPublish,
 	};
