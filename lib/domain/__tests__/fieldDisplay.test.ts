@@ -42,6 +42,10 @@ const NOT_DISPLAY_SETTINGS: Readonly<Record<string, string>> = {
 	fieldList: "a group's screen layout, written on the group and not a control",
 	plainLabel: "a label's text formatting, read by plainText.ts",
 	plainHelp: "a help text's formatting, read by plainText.ts",
+	rowTiming:
+		"when a query repeat takes its rows, which the form's events carry",
+	answerType:
+		"the data class a hidden value's bind declares, which no control draws",
 };
 
 /** Every string an enum or constant inside a JSON Schema admits. */
