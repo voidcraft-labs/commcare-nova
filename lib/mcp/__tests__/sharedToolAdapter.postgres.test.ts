@@ -826,8 +826,8 @@ it("reads every destination and ordered rule through bounded MCP pages, and refu
 		(_, i) => `clinic-${String(i).padStart(2, "0")}`,
 	);
 	const rules = Array.from({ length: 97 }, (_, i) => ({
-		caseType: "\u0001".repeat(255) + "p",
-		property: "\u0002".repeat(255) + "q",
+		caseType: `${"\u0001".repeat(255)}p`,
+		property: `${"\u0002".repeat(255)}q`,
 		literal: "\u0003".repeat(251) + String(i).padStart(5, "0"),
 	}));
 	for (const domain of names) {
