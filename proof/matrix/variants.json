@@ -34088,6 +34088,26 @@
 		}
 	},
 	{
+		"id": "hq-search/date-equal-to-text",
+		"base": "hq-search",
+		"entry": "case-search/xpath-query-condition-nova-s-checker-refuses",
+		"standing": "not-yet",
+		"place": {
+			"kind": "search",
+			"menu": 1,
+			"name": "Active clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "_xpath_query",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "\"dob = 'abc'\""
+			}
+		}
+	},
+	{
 		"id": "hq-search/date-field-matched-by-hq",
 		"base": "hq-search",
 		"entry": "case-search/date-prompt-matched-by-hq-s-own-rule",
@@ -34226,51 +34246,13 @@
 		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
-			"menu": 0,
-			"name": "Clients"
+			"menu": 3,
+			"name": "Referrals"
 		},
 		"change": {
 			"op": "set-json",
-			"pointer": "/modules/0/search_config/properties/1",
-			"value": {
-				"name": "standing",
-				"label": {
-					"en": "Village"
-				},
-				"hint": {},
-				"hidden": false,
-				"allow_blank_value": false,
-				"exclude": false,
-				"required": {
-					"test": null,
-					"text": {},
-					"doc_type": "Assertion"
-				},
-				"validations": [],
-				"itemset": {
-					"doc_type": "Itemset"
-				},
-				"is_group": false,
-				"doc_type": "CaseSearchProperty"
-			}
-		},
-		"second": {
-			"entry": "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
-			"standing": "not-yet",
-			"place": {
-				"kind": "search",
-				"menu": 0,
-				"name": "Clients"
-			},
-			"change": {
-				"op": "set-json",
-				"pointer": "/modules/0/search_config/default_properties/-",
-				"value": {
-					"property": "standing",
-					"doc_type": "DefaultCaseSearchProperty",
-					"defaultValue": "'active'"
-				}
-			}
+			"pointer": "/modules/3/search_config/properties/0/name",
+			"value": "standing"
 		}
 	},
 	{
@@ -35162,7 +35144,7 @@
 							"kind": "term",
 							"term": {
 								"kind": "input",
-								"searchInputUuid": "eee708ea-4763-578f-a0a3-dc4222f1e93e"
+								"searchInputUuid": "42c253c5-315b-5211-9968-f5f523410c18"
 							}
 						},
 						"right": {
@@ -35971,7 +35953,7 @@
 					"kind": "when-input-present",
 					"input": {
 						"kind": "input",
-						"searchInputUuid": "d5c93f75-4290-5dc8-88a8-435a75702847"
+						"searchInputUuid": "0ec3ecd1-8450-58b8-9e05-30a4e2953698"
 					},
 					"clause": {
 						"kind": "eq",
@@ -37000,7 +36982,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/searchCondition/kind",
+				"pointer": "/caseListConfig/searchCondition/clauses/1/kind",
 				"value": "neq"
 			},
 			{
@@ -37010,7 +36992,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/searchCondition/left",
+				"pointer": "/caseListConfig/searchCondition/clauses/1/left",
 				"value": {
 					"kind": "term",
 					"term": {
@@ -37043,7 +37025,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/searchCondition/kind",
+				"pointer": "/caseListConfig/searchCondition/clauses/1/kind",
 				"value": "neq"
 			},
 			{
@@ -37053,7 +37035,7 @@
 						"$menu": 0
 					}
 				],
-				"pointer": "/caseListConfig/searchCondition/left",
+				"pointer": "/caseListConfig/searchCondition/clauses/1/left",
 				"value": {
 					"kind": "term",
 					"term": {
@@ -37348,7 +37330,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1",
+				"pointer": "/caseListConfig/searchCondition",
 				"value": {
 					"kind": "is-blank",
 					"left": {
@@ -37461,7 +37443,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1",
+				"pointer": "/caseListConfig/searchCondition",
 				"value": {
 					"kind": "not",
 					"clause": {
@@ -37611,7 +37593,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1",
+				"pointer": "/caseListConfig/searchCondition",
 				"value": {
 					"kind": "eq",
 					"left": {
@@ -38195,7 +38177,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1/kind",
+				"pointer": "/caseListConfig/searchCondition/kind",
 				"value": "if"
 			},
 			{
@@ -38205,7 +38187,7 @@
 						"$menu": 2
 					}
 				],
-				"pointer": "/caseListConfig/filter/clauses/1/cond/left/term/field",
+				"pointer": "/caseListConfig/searchCondition/cond/left/term/field",
 				"value": "username"
 			}
 		]
