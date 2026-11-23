@@ -2984,7 +2984,6 @@ async function reviewOverPeer(input: {
 		server: PROOF_SERVER,
 		domain,
 		appId,
-		remoteAppId: PLACEHOLDER_APP_ID,
 		readingId: CAPTURE_READING_ID,
 		source,
 		alsoSource: baseSource,
