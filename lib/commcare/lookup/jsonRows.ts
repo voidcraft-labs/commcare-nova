@@ -66,6 +66,13 @@ export function lookupJsonRowContent(
 			properties: recordFromEntries(properties),
 		});
 	}
+	/* A repeated column the row holds no list of is a field the row does not
+	 * hold, which CommCare HQ's row keeps as no key at all: its restore then
+	 * writes the one empty element the worker fixture writes for it
+	 * (`fixturegenerators.py::ItemListsProvider.to_xml`). */
+	for (const column of table.columns)
+		if (column.repeated && row.occurrences?.[column.id] === undefined)
+			fields.delete(column.wireName);
 	return {
 		fields: recordFromEntries([...fields]),
 		itemAttributes: recordFromEntries(itemAttributes),

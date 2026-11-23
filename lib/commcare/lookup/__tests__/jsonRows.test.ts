@@ -2,8 +2,10 @@
  * A Nova row as CommCare HQ's JSON row resource stores it. The plausible
  * failures: a value the workbook would trim sent trimmed, an empty list of
  * occurrences sent as one empty value (which the fixture serves as a child
- * the row does not have), a property the occurrence does not hold sent as
- * empty, and a field or detail named `__proto__` lost to the prototype.
+ * the row does not have), a repeated field the row does not hold sent as one
+ * empty value (which CommCare HQ's own row keeps as no key), a property the
+ * occurrence does not hold sent as empty, and a field or detail named
+ * `__proto__` lost to the prototype.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -94,6 +96,15 @@ describe("a lookup table in CommCare HQ's JSON shape", () => {
 		expect(
 			Object.getOwnPropertyDescriptor(none.fields, "__proto__")?.value,
 		).toEqual([]);
+	});
+
+	it("sends a repeated field the row does not hold as no key, as CommCare HQ's row keeps it", () => {
+		const absent = lookupJsonRowContent(
+			naming,
+			row({ values: { [NAME]: "" }, attributes: { [CODE]: "1" } }),
+		);
+		expect(Object.hasOwn(absent.fields, "__proto__")).toBe(false);
+		expect(absent.fields.name).toEqual([{ value: "", properties: {} }]);
 	});
 
 	it("refuses a row missing a declared detail", () => {

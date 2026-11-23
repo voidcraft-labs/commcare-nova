@@ -82,6 +82,10 @@ function retainedAnswers(base: RetainedHqApp): Map<string, string> {
 	}
 	for (const tag of Object.keys(base.fixtureRows ?? {}))
 		answers.set(`fixtureRows:${tag}`, `fixture-rows-${tag}.json`);
+	for (const id of Object.keys(base.lookupDefinitions ?? {}))
+		answers.set(`lookupDefinition:${id}`, `lookup-definition-${id}.json`);
+	for (const id of Object.keys(base.fixtureDetails ?? {}))
+		answers.set(`fixtureDetail:${id}`, `fixture-detail-${id}.json`);
 	if (base.locationTypes !== undefined)
 		answers.set("locationTypes", "location-types.json");
 	if (base.locations !== undefined) answers.set("locations", "locations.json");

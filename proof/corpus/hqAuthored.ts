@@ -117,6 +117,11 @@ export interface RetainedHqApp {
 	readonly lookupTables: RetainedHqAnswer;
 	/** Where the base holds each: the rows, location and media answers. */
 	readonly fixtureRows?: Readonly<Record<string, RetainedHqAnswer>>;
+	/** `lookup-definition-<id>.json` and `fixture-detail-<id>.json`, by CommCare HQ's id: the detail
+	 *  reads of a table whose definition or rows the plain row list cannot carry
+	 *  (`proof/hq/operations.py::lookup_detail_targets`). */
+	readonly lookupDefinitions?: Readonly<Record<string, RetainedHqAnswer>>;
+	readonly fixtureDetails?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly locationTypes?: RetainedHqAnswer;
 	readonly locationsV1?: RetainedHqAnswer;
 	readonly locations?: RetainedHqAnswer;
@@ -265,6 +270,19 @@ export function loadRetainedHqApp(
 			([tag, file]) => [tag, answer(directory, file)],
 		),
 	);
+	const details = (prefix: string) =>
+		Object.fromEntries(
+			readdirSync(directory)
+				.sort()
+				.flatMap((name) => {
+					const id = new RegExp(`^${prefix}-([0-9a-f]{32})\\.json$`).exec(
+						name,
+					)?.[1];
+					return id === undefined ? [] : [[id, answer(directory, name)]];
+				}),
+		);
+	const lookupDefinitions = details("lookup-definition");
+	const fixtureDetails = details("fixture-detail");
 	const locationTypes = optionalAnswer(directory, "location-types.json");
 	const locations = optionalAnswer(directory, "locations.json");
 	const locationsV1 = optionalAnswer(directory, "locations-v1.json");
@@ -287,6 +305,8 @@ export function loadRetainedHqApp(
 		})),
 		lookupTables: answer(directory, "lookup-tables.json"),
 		...(Object.keys(fixtureRows).length > 0 && { fixtureRows }),
+		...(Object.keys(lookupDefinitions).length > 0 && { lookupDefinitions }),
+		...(Object.keys(fixtureDetails).length > 0 && { fixtureDetails }),
 		...(locationTypes !== undefined && { locationTypes }),
 		...(locations !== undefined && { locations }),
 		...(locationsV1 !== undefined && { locationsV1 }),
@@ -335,6 +355,12 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 		projectData: {
 			lookupTables: app.lookupTables,
 			fixtureRows: app.fixtureRows ?? {},
+			...(app.lookupDefinitions !== undefined && {
+				lookupDefinitions: app.lookupDefinitions,
+			}),
+			...(app.fixtureDetails !== undefined && {
+				fixtureDetails: app.fixtureDetails,
+			}),
 			...(app.locationTypes !== undefined && {
 				locationTypes: app.locationTypes,
 			}),
