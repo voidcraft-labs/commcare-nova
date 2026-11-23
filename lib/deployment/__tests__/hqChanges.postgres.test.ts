@@ -2002,15 +2002,15 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		const scope = await broughtIn();
 		const before = await head(scope.appId);
 		const listed = changesOf(await review(scope, renamed()));
+		/* A review is its reader's: each member brings in the one they read. */
+		const other = scopeOf(scope.appId, OTHER);
+		const theirs = changesOf(await review(other, renamed()));
 		meetAtCommit(2);
 		const outcomes = await withHttpPeer(async (peer) => {
 			serveRead(peer, renamed(), { tables: true, times: 2 });
 			/* The one that lost reads CommCare HQ once more for the review as it stands. */
 			serveRead(peer, renamed(), { tables: false });
-			return Promise.all([
-				bringIn(scope, listed),
-				bringIn(scopeOf(scope.appId, OTHER), listed),
-			]);
+			return Promise.all([bringIn(scope, listed), bringIn(other, theirs)]);
 		});
 		const won = outcomes.filter((outcome) => outcome.kind === "brought-in");
 		const lost = outcomes.filter((outcome) => outcome.kind === "changed");
