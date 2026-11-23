@@ -7,6 +7,7 @@ import {
 	applyPreviewSearchChanges,
 	describePreviewSearchChanges,
 	previewSearchChangesSchema,
+	rebasePreviewSearchValues,
 } from "../searchSettingsEdit";
 import {
 	createPreviewSearchFrameReader,
@@ -118,4 +119,69 @@ it("refuses text that PostgreSQL cannot preserve before a rule edit", () => {
 				},
 			}).success,
 		).toBe(false);
+});
+
+it("keeps each setting a person changed over a teammate's newer revision and takes the rest", () => {
+	const rule = (literal: string) => ({
+		caseType: "person",
+		property: "code",
+		literal,
+	});
+	const base: PreviewSearchValues = {
+		maximum: 500,
+		timeZone: "UTC",
+		caseListMap: false,
+		propertyMatchers: {
+			fuzzyProperties: [{ caseType: "person", property: "name", fuzzy: true }],
+			ignoredText: [rule("a"), rule("b")],
+		},
+	};
+	const mine: PreviewSearchValues = {
+		...base,
+		timeZone: "Asia/Kolkata",
+		propertyMatchers: {
+			fuzzyProperties: base.propertyMatchers?.fuzzyProperties ?? [],
+			ignoredText: [rule("b"), rule("a"), rule("mine")],
+		},
+	};
+	const latest: PreviewSearchValues = {
+		maximum: 1500,
+		timeZone: "Europe/Berlin",
+		caseListMap: true,
+		propertyMatchers: {
+			fuzzyProperties: [],
+			ignoredText: [rule("team")],
+		},
+	};
+	const kept = rebasePreviewSearchValues(base, mine, latest);
+	expect(kept).toEqual({
+		maximum: 1500,
+		timeZone: "Asia/Kolkata",
+		caseListMap: true,
+		propertyMatchers: {
+			fuzzyProperties: [],
+			ignoredText: [rule("b"), rule("a"), rule("mine")],
+		},
+	});
+	// The save then sends only what differs from the team's revision.
+	expect(describePreviewSearchChanges(latest, kept)).toEqual({
+		timeZone: "Asia/Kolkata",
+		propertyMatchers: {
+			ignoredText: [
+				{ start: 0, remove: 1, insert: [rule("b"), rule("a"), rule("mine")] },
+			],
+		},
+	});
+	// Clearing confirmed matching survives a teammate's rule edit; leaving
+	// matching alone follows the team, including its own clearing.
+	expect(
+		rebasePreviewSearchValues(base, { ...base, propertyMatchers: null }, latest)
+			.propertyMatchers,
+	).toBeNull();
+	expect(
+		rebasePreviewSearchValues(base, base, {
+			...latest,
+			propertyMatchers: null,
+		}),
+	).toEqual({ ...latest, propertyMatchers: null });
 });

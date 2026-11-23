@@ -171,3 +171,48 @@ export function describePreviewSearchChanges(
 	}
 	return changes;
 }
+
+/** Carry a person's edits onto the team's newer revision. Each setting the
+ * person changed from the revision they started on keeps their value; every
+ * setting they left alone takes the team's. Each rule list is one setting,
+ * because a reordered or edited list has no meaning spliced into another. */
+export function rebasePreviewSearchValues(
+	base: PreviewSearchValues,
+	mine: PreviewSearchValues,
+	latest: PreviewSearchValues,
+): PreviewSearchValues {
+	const same = (a: unknown, b: unknown) =>
+		JSON.stringify(a) === JSON.stringify(b);
+	const pick = <T>(before: T, edited: T, team: T) =>
+		same(before, edited) ? team : edited;
+	let propertyMatchers = latest.propertyMatchers;
+	if (mine.propertyMatchers === null) {
+		if (base.propertyMatchers !== null) propertyMatchers = null;
+	} else if (!same(base.propertyMatchers, mine.propertyMatchers)) {
+		const before = base.propertyMatchers;
+		const team = latest.propertyMatchers;
+		propertyMatchers = {
+			fuzzyProperties: pick(
+				before?.fuzzyProperties ?? [],
+				mine.propertyMatchers.fuzzyProperties,
+				team?.fuzzyProperties ?? [],
+			),
+			ignoredText: pick(
+				before?.ignoredText ?? [],
+				mine.propertyMatchers.ignoredText,
+				team?.ignoredText ?? [],
+			),
+		};
+	}
+	const caseListMap = pick(
+		base.caseListMap ?? null,
+		mine.caseListMap ?? null,
+		latest.caseListMap ?? null,
+	);
+	return {
+		maximum: pick(base.maximum, mine.maximum, latest.maximum),
+		timeZone: pick(base.timeZone, mine.timeZone, latest.timeZone),
+		...(caseListMap === null ? {} : { caseListMap }),
+		propertyMatchers,
+	};
+}

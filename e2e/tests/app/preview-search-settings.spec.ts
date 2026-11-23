@@ -106,6 +106,36 @@ test("shares a confirmed local search profile across signed-in tabs and lets a s
 			viewing.getByRole("combobox", { name: "Web Apps record map" }),
 		).toHaveText("Unavailable");
 		await expect(second).toContainText("Supplied by your team");
+		// A second conflict: keeping the edits carries this editor's time zone
+		// over the teammate's record map change, and Save works again.
+		await second.getByLabel("Project space time zone").fill("Asia/Kolkata");
+		await page.getByRole("button", { name: /Running as/ }).click();
+		await page
+			.getByRole("menuitem", {
+				name: "Preview search and map settings",
+				exact: true,
+			})
+			.click();
+		await first.getByRole("combobox", { name: "Web Apps record map" }).click();
+		await page.getByRole("option", { name: "Available", exact: true }).click();
+		await first.getByRole("button", { name: "Save settings" }).click();
+		await expect(first).toBeHidden();
+		await expect(second).toContainText("A teammate updated these settings");
+		await second.getByRole("button", { name: "Keep my edits" }).click();
+		await expect(second.getByLabel("Project space time zone")).toHaveValue(
+			"Asia/Kolkata",
+		);
+		await expect(
+			second.getByRole("combobox", { name: "Web Apps record map" }),
+		).toHaveText("Available");
+		await second.getByRole("button", { name: "Save settings" }).click();
+		await expect(second).toBeHidden();
+		await expect(viewing.getByLabel("Project space time zone")).toHaveValue(
+			"Asia/Kolkata",
+		);
+		await expect(
+			viewing.getByRole("combobox", { name: "Web Apps record map" }),
+		).toHaveText("Available");
 	} finally {
 		await viewer.close();
 		await peer.close();

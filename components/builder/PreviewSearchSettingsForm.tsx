@@ -28,6 +28,7 @@ import {
 import {
 	describePreviewSearchChanges,
 	previewSearchChangesSchema,
+	rebasePreviewSearchValues,
 } from "@/lib/preview/searchSettingsEdit";
 
 const rulesPerPage = 8;
@@ -197,6 +198,22 @@ export function PreviewSearchSettingsForm({
 		setDraft(unchanged ? undefined : { base, data: next });
 		setError("");
 	}
+	/** Carry the edits onto the team's revision: each setting this person
+	 * changed keeps their value, and the rest take the team's. */
+	function keepEdits() {
+		const values = rebasePreviewSearchValues(
+			base.values,
+			persistedValues(data),
+			latest.values,
+		);
+		const next = formValues(values);
+		const unchanged =
+			JSON.stringify(persistedValues(next)) ===
+			JSON.stringify(persistedValues(formValues(latest.values)));
+		setDraft(unchanged ? undefined : { base: latest, data: next });
+		setConflictRevision(undefined);
+		setError("");
+	}
 	function editRow(row: RuleRow) {
 		change({ rows: data.rows.map((r) => (r.key === row.key ? row : r)) });
 	}
@@ -268,7 +285,10 @@ export function PreviewSearchSettingsForm({
 			</p>
 			{stale && (
 				<div role="status" className="space-y-2">
-					<p>A teammate updated these settings. Your edits are still here.</p>
+					<p>
+						A teammate updated these settings. Your edits are still here, and
+						you can keep them over the team’s settings.
+					</p>
 					{waiting ? (
 						<p>Waiting for the latest team settings.</p>
 					) : (
@@ -290,9 +310,18 @@ export function PreviewSearchSettingsForm({
 					<Button
 						type="button"
 						variant="outline"
+						disabled={waiting || !canEdit}
+						onClick={keepEdits}
+					>
+						Keep my edits
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
 						disabled={waiting}
 						onClick={() => {
 							setDraft(undefined);
+							setConflictRevision(undefined);
 							setError("");
 						}}
 					>
