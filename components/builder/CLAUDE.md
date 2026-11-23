@@ -170,7 +170,12 @@ workspace consumes `useLocalizationWorkspace` for its immutable inventory.
 chosen one file per media role, so an editor of one language's own files
 (`media/FieldLanguageMedia.tsx`, `media/useNavigationFileLens.ts`'s callers)
 reads the stored entity (`useStoredField` / `useStoredModule` /
-`useStoredForm`) to tell a language's own file from an inherited one.
+`useStoredForm`) to tell a language's own file from an inherited one. A write
+that replaces a whole carrier the projection shows (the inspector's choices
+write, `OptionsEditor` through `withStoredOptionMedia`; the case list menu
+entry, `CaseListMenuItemSection` through `caseListMenuItemWithSlot`) starts
+from the stored entity's files, never the projection's, or it drops every
+language's own files and makes the shown language's file the shared one.
 
 A language renders only through the registry derivation helpers (endonym,
 English qualified name, direction); no ISO code appears in any Builder
