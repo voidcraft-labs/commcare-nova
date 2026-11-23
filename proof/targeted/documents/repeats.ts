@@ -567,8 +567,11 @@ export function openingQueryChoices() {
 								kind: "text",
 								id: "site",
 								label: "Site",
+								// The worker's login name, which the restore's
+								// registration gives (`#user/` reads the worker's
+								// own record, which these restores hold none of).
 								default_value:
-									"if(contains(#user/username, 'east'), 'east', 'west')",
+									"if(contains(instance('commcaresession')/session/context/username, 'east'), 'east', 'west')",
 							}),
 							f({
 								uuid: targetedUuid(id, "before"),
