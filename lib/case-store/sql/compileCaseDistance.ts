@@ -1,4 +1,4 @@
-import { type AliasableExpression, sql } from "kysely";
+import { type AliasableExpression, type RawBuilder, sql } from "kysely";
 import { JAVA_TRIMMED_CHARACTERS } from "./coreSortNumber";
 
 // GeoPointData.cast parses each component with Double.parseDouble. PostgreSQL
@@ -69,6 +69,13 @@ export function compileCaseDistance(
 	// The server obtained the worker's fix from validated coordinates. Core's
 	// Math functions return NaN for nonfinite arguments or a square root outside
 	// asin's domain, where PostgreSQL would throw and lose the whole list.
+	// PostgreSQL also throws where a nonzero product or quotient rounds to zero,
+	// which Java's arithmetic flushes silently. Every component nearer zero than
+	// 1e-100 degrees enters as zero instead: then no step below can round to
+	// zero, and the change sits far below the precision of any distance that
+	// rounds to a whole metre, so the result is Core's to the metre.
+	const flushed = (component: RawBuilder<unknown>) =>
+		sql`(case when abs(${component}) < 1e-100::float8 then 0::float8 else ${component} end)`;
 	const h = sql`power(sin((latitude - fix_latitude) / 2), 2)
 		+ power(sin(delta_longitude / 2), 2) * cos(latitude) * cos(fix_latitude)`;
 	return sql<string>`(select case when coalesce(raw, '') = '' then '2147483647' else
@@ -82,7 +89,8 @@ export function compileCaseDistance(
 				from (select ${h} as hav) as distance)
 		end
 		from (select ${point} as coordinates) as parsed
-		cross join lateral (select radians(coordinates[1]) as latitude, radians(fix[1]) as fix_latitude,
-			radians(coordinates[2]) - radians(fix[2]) as delta_longitude) as angles)
+		cross join lateral (select radians(${flushed(sql`coordinates[1]`)}) as latitude,
+			radians(${flushed(sql`fix[1]`)}) as fix_latitude,
+			radians(${flushed(sql`coordinates[2]`)}) - radians(${flushed(sql`fix[2]`)}) as delta_longitude) as angles)
 		end from (select (${value})::text as raw, regexp_split_to_array(${viewerLocation}::text, ' +')::float8[] as fix) as source)`;
 }

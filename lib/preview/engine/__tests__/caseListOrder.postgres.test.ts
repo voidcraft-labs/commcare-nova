@@ -300,7 +300,7 @@ const NAME = testUuid("case-list-order-name");
 function orderedListDoc(
 	property: {
 		readonly name: string;
-		readonly data_type?: "datetime" | "geopoint";
+		readonly data_type?: "datetime" | "geopoint" | "text";
 	},
 	sort: ReturnType<typeof columnSort>,
 ): { doc: BlueprintDoc; config: CaseListConfig } {
@@ -526,6 +526,41 @@ it("orders location text that an existing case holds in Core's numeric spellings
 		"unknown",
 	]);
 });
+
+it.each(["4.9e-324 0", "1e-170 1e-170", "0 -1e-200"])(
+	"orders a location %s whose arithmetic underflows as Core does, at zero metres",
+	async (location) => {
+		const { doc, config } = orderedListDoc(
+			{ name: "location", data_type: "text" },
+			columnSort("desc", 0, "first", undefined, "distance"),
+		);
+		const store = makeStore();
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: CASE_TYPE,
+			caseTypeSchemas: buildCaseTypeMap(doc),
+		});
+		for (const [id, value] of [
+			["tiny", location],
+			["far", "0 1"],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: id,
+					case_type: CASE_TYPE,
+					case_name: id,
+					status: "open",
+					properties: { location: value },
+				},
+			});
+		}
+		expect(await previewOrder(store, doc, config, "0 0")).toEqual([
+			"far",
+			"tiny",
+		]);
+	},
+);
 
 it.each(["private-clinic-note", "0 0 0 0 0", "--Infinity 0", "0 +-NaN"])(
 	"stops a distance read with an actionable refusal that omits the stored location",
