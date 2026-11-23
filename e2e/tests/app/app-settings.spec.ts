@@ -88,9 +88,11 @@ test("a form keeps its own submit button wording after a reload", {
 	const label = page.getByRole("textbox", {
 		name: "Submit button in Web Apps",
 	});
+	// The builder saves the document with its autosave PUT.
 	const saved = page.waitForResponse(
 		(response) =>
-			response.request().method() === "POST" &&
+			new URL(response.url()).pathname === `/api/apps/${openAppId}` &&
+			response.request().method() === "PUT" &&
 			response.request().postData()?.includes("Send referral") === true &&
 			response.ok(),
 	);
