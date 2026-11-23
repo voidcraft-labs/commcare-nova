@@ -893,6 +893,34 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		without: () => caseApp({ list: tiled({ verticalAlign: "middle" }) }),
 		use: slotUse("tile-grouping", MODULE_OWNER, "caseListConfig.tile.grouping"),
 	},
+	"case-list-empty-text": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.emptyText = "No patients yet";
+				},
+			}),
+		without: () => caseApp({}),
+		use: slotUse(
+			"case-list-empty-text",
+			MODULE_OWNER,
+			"caseListConfig.emptyText",
+		),
+	},
+	"case-list-continue-label": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.selectButtonText = "Visit these patients";
+				},
+			}),
+		without: () => caseApp({}),
+		use: slotUse(
+			"case-list-continue-label",
+			MODULE_OWNER,
+			"caseListConfig.selectButtonText",
+		),
+	},
 	"tile-alignment": {
 		with: () => caseApp({ list: tiled({ verticalAlign: "top" }) }),
 		without: () => caseApp({ list: tiled({ verticalAlign: "middle" }) }),

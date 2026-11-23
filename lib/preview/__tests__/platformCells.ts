@@ -287,6 +287,14 @@ export const PLATFORM_CELLS: Readonly<
 		"search-screen-text-android",
 	),
 	"case-search/hint-lang@android": browser("search-screen-text-android"),
+	"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty@android":
+		model("case-list-own-wording"),
+	"menus-and-case-lists/detail-select-text-non-default@web-apps": model(
+		"case-list-own-wording",
+	),
+	"menus-and-case-lists/detail-select-text-non-default@android": model(
+		"case-list-own-wording",
+	),
 	"case-search/appearance-barcode-scan@web-apps": browser(
 		"barcode-search-field-web-apps",
 	),

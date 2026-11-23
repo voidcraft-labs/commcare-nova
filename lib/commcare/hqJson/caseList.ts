@@ -72,6 +72,7 @@ import type {
 } from "@/lib/domain";
 import {
 	caseListOrderPlan,
+	caseListWordingUnitId,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	casePropertyShowsOptionLabels,
@@ -1539,6 +1540,17 @@ export function projectCaseListForHq(
 		pair.short.multi_select = true;
 		pair.short.max_select_value = caseListConfig.selection.maximum;
 	}
+	// The list's own texts, which HQ's build writes as `m<N>_no_items_text`
+	// (under `USH_EMPTY_CASE_LIST_TEXT`) and `m<N>_select_text` in every
+	// language (`app_strings.py::_create_module_details_app_strings`).
+	if (caseListConfig?.emptyText !== undefined)
+		pair.short.no_items_text = localization.textMap(
+			caseListWordingUnitId(mod.uuid, "empty"),
+		);
+	if (caseListConfig?.selectButtonText !== undefined)
+		pair.short.select_text = localization.textMap(
+			caseListWordingUnitId(mod.uuid, "select"),
+		);
 	applyTileLayoutToShortDetail(pair.short, caseListConfig?.tile, plan.fields);
 	if (caseListConfig?.detailTile) {
 		pair.long.case_tile_template = "custom";

@@ -3996,10 +3996,9 @@
 			"schema:Detail.no_items_text"
 		],
 		"valueClass": "other-than-hq-s-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.emptyText`",
-		"subject": "case-list-text",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.emptyText`, each other language its unit's translation",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -4073,10 +4072,9 @@
 			"schema:Detail.select_text"
 		],
 		"valueClass": "other-than-hq-s-default",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.selectButtonText` (editor: Bulk App Translations edits the existing string; saves keep it)",
-		"subject": "case-list-text",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.selectButtonText`, each other language its unit's translation (editor: Bulk App Translations edits the existing string; saves keep it)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (labels only the multi-select Continue) / IGNORED",
@@ -4091,6 +4089,26 @@
 		"emission": {
 			"cell": "`select_text{lang}`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-texts-no-worker-reads",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.no_items_text` or `Detail.select_text` other than HQ's default on a case detail, or on a menu with no case type",
+		"surfaceKeys": ["schema:Detail.no_items_text", "schema:Detail.select_text"],
+		"valueClass": "where-no-worker-reads-it",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build writes a detail's texts only from a case list's short detail (`suite_xml/sections/details.py::add_no_items_text_to_detail`, `add_select_text_to_detail`, under `detail_type.endswith('short')`), and a menu with no case type shows no list",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},

@@ -81,7 +81,6 @@ export const SUBJECTS = [
 	"case-list-registration",
 	"case-list-setup",
 	"case-list-sorting",
-	"case-list-text",
 	"case-preloads",
 	"case-property-names",
 	"case-sharing",

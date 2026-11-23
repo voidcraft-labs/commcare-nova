@@ -30,6 +30,7 @@ import {
 	type Column,
 	calculatedSortSchema,
 	caseListMenuItemSchema,
+	caseListWordingSchema,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
@@ -1717,6 +1718,8 @@ function createMutationSchema({
 				detailTabs: detailTabsSchema.nullable().optional(),
 				detailTile: detailTileSchema.nullable().optional(),
 				contextAboveForm: caseFormContextSchema.nullable().optional(),
+				emptyText: caseListWordingSchema.nullable().optional(),
+				selectButtonText: caseListWordingSchema.nullable().optional(),
 			}),
 		}),
 		// The module's case list as its own menu entry, set whole as

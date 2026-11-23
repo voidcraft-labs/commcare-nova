@@ -122,6 +122,12 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
 	],
+	"case-list-empty-text": [
+		"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
+	],
+	"case-list-continue-label": [
+		"menus-and-case-lists/detail-select-text-non-default",
+	],
 	"tile-alignment": ["menus-and-case-lists/horizontal-align-vertical-align"],
 	"tile-border-and-shading": ["menus-and-case-lists/show-border-show-shading"],
 	"column-hidden-from-results": [

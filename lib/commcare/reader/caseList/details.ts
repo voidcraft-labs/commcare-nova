@@ -18,6 +18,7 @@ import {
 	type Column,
 	type ColumnSort,
 	type ColumnVia,
+	caseListWordingUnitId,
 	casePropertyOptionTranslationUnitId,
 	columnFieldText,
 	columnPropertyCaseType,
@@ -90,6 +91,7 @@ import {
 	type ColumnOptions,
 	type ColumnProposal,
 	type ColumnReading,
+	type HeldTexts,
 	heldTextsIn,
 	noteRespelled,
 	readDetailColumn,
@@ -269,7 +271,7 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-no-items-text-equal-to-hq-s-default`,
 		"schema:Detail.no_items_text",
 	),
-	noItemsOther: refuse(
+	noItemsOther: take(
 		`${A}detail-no-items-text-other-than-hq-s-default-en-list-is-empty`,
 		"schema:Detail.no_items_text",
 	),
@@ -277,8 +279,16 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-select-text-default-en-continue`,
 		"schema:Detail.select_text",
 	),
-	selectOther: refuse(
+	selectOther: take(
 		`${A}detail-select-text-non-default`,
+		"schema:Detail.select_text",
+	),
+	textsUnread: drop(
+		`${A}detail-texts-no-worker-reads`,
+		"schema:Detail.no_items_text",
+	),
+	selectTextUnread: drop(
+		`${A}detail-texts-no-worker-reads`,
 		"schema:Detail.select_text",
 	),
 	ownerClauseFilter: derived(
@@ -983,42 +993,78 @@ function readDetailTexts(
 	detail: JsonCursor,
 	codes: readonly string[],
 	screen: "short" | "long",
+	wording?: CaseListWordingReading,
 ): boolean {
 	let ok = true;
 	const texts = (
-		key: string,
+		key: "no_items_text" | "select_text",
 		fallback: string,
 		inert: Claim<"drop">,
-		other: Claim<"refuse">,
+		other: Claim<"take">,
 		printed: unknown,
 	) => {
 		// Each language as HQ's build shows it (`app_strings.py`, `clean_trans`): a language the
 		// map lacks or holds blank shows another's text. A text the reader cannot know (a number,
 		// an object) is left unclaimed, for the close to name at its key.
-		const shown = shownTexts(detail.peek(key), codes);
+		const stored = detail.peek(key);
+		const shown = shownTexts(stored, codes);
 		if (shown === undefined) {
 			ok = false;
 			return;
 		}
-		const texts = Object.values(shown);
-		const lineEnd = texts
+		const shownTextsList = Object.values(shown);
+		const lineEnd = shownTextsList
 			.map(keyDefinedAfterLineEnd)
 			.find((one) => one !== undefined);
 		if (lineEnd !== undefined) {
 			detail.refuse(key, LINE_END_DEFINES_KEY, { name: lineEnd });
 			ok = false;
-		} else if (texts.every((text) => hqDeviceText(text) === fallback)) {
+		} else if (
+			shownTextsList.every((text) => hqDeviceText(text) === fallback)
+		) {
 			detail.drop(key, inert);
-			if (!sameJson(detail.peek(key), printed))
+			if (!sameJson(stored, printed))
 				recordTextRewrite(
 					ctx,
 					{ entry: inert.entry, path: `${detail.pointer}/${key}` },
 					"list-settings-respelled",
 					false,
 				);
+		} else if (wording === undefined) {
+			// HQ's build writes a detail's texts only from a case list's own short detail
+			// (`details.py::add_no_items_text_to_detail`, `add_select_text_to_detail`, under
+			// `detail_type.endswith('short')`), so no worker reads this one; the first publish
+			// writes HQ's default in its place.
+			const unread =
+				key === "no_items_text" ? D.textsUnread : D.selectTextUnread;
+			detail.drop(key, unread);
+			recordTextRewrite(
+				ctx,
+				{ entry: unread.entry, path: `${detail.pointer}/${key}` },
+				"list-settings-respelled",
+				false,
+			);
 		} else {
-			detail.refuse(key, other);
-			ok = false;
+			const role =
+				key === "no_items_text"
+					? "case-list-empty-text"
+					: "case-list-select-text";
+			const held = heldTextsIn(stored, codes, sourceCode(ctx), role);
+			if (held === undefined) {
+				refuseUnheldKey(detail, key, codes, sourceCode(ctx), role);
+				ok = false;
+				return;
+			}
+			const texts = detail.take(key, other, () => held).value;
+			noteRespelled(
+				ctx,
+				other.entry,
+				`${detail.pointer}/${key}`,
+				stored,
+				texts,
+			);
+			if (key === "no_items_text") wording.empty = texts;
+			else wording.select = texts;
 		}
 	};
 	texts(
@@ -1034,6 +1080,12 @@ function readDetailTexts(
 		en: SELECT_DEFAULT,
 	});
 	return ok;
+}
+
+/** A case list's own texts as the reading of its short detail holds them, each language's. */
+interface CaseListWordingReading {
+	empty?: HeldTexts;
+	select?: HeldTexts;
 }
 
 /**
@@ -1076,6 +1128,7 @@ function readDetailKeys(
 	detail: JsonCursor,
 	screen: "short" | "long",
 	competingLine = false,
+	wording?: CaseListWordingReading,
 ): boolean {
 	let ok = true;
 	detail.drop("display", D.display);
@@ -1131,7 +1184,7 @@ function readDetailKeys(
 		detail.refuse("custom_variables_dict", D.customVariables);
 		ok = false;
 	}
-	ok = readDetailTexts(ctx, detail, appCodes(ctx), screen) && ok;
+	ok = readDetailTexts(ctx, detail, appCodes(ctx), screen, wording) && ok;
 	const stored = detail.peek("tabs");
 	const tabs = objectMembers(stored) ?? [];
 	if (tabs.length > 0) {
@@ -1410,7 +1463,8 @@ export function readCaseDetails(
 		return;
 	}
 	// Both details are read whatever the first holds, so every finding is raised in one pass.
-	const shortKeys = readDetailKeys(ctx, module, short, "short");
+	const wording: CaseListWordingReading = {};
+	const shortKeys = readDetailKeys(ctx, module, short, "short", false, wording);
 	// HQ generates a single shared detail ID for every enabled line on this
 	// menu. Core keeps the last definition. A long-only line is unreferenced,
 	// but a second, different definition shadows what the Case List editor
@@ -1640,6 +1694,12 @@ export function readCaseDetails(
 		searchInputs: [],
 		...(selection.selection !== undefined && {
 			selection: selection.selection,
+		}),
+		...(wording.empty !== undefined && {
+			emptyText: sourceText(ctx, wording.empty.texts),
+		}),
+		...(wording.select !== undefined && {
+			selectButtonText: sourceText(ctx, wording.select.texts),
 		}),
 		...(tile.config !== undefined && {
 			tile: {
@@ -2211,6 +2271,16 @@ export function readCaseDetails(
 		}
 	}
 
+	for (const [slot, held] of [
+		["empty", wording.empty],
+		["select", wording.select],
+	] as const)
+		if (held !== undefined)
+			ctx.translations.set(
+				caseListWordingUnitId(module.uuid, slot),
+				"text",
+				translatedTexts(ctx, held.texts),
+			);
 	ctx.writeDraft(() => {
 		(module.module as { caseListConfig?: CaseListConfig }).caseListConfig =
 			config;

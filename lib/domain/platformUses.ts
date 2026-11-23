@@ -452,6 +452,21 @@ function moduleUses(
 		);
 	if (list?.detailTile && wanted("details-tile"))
 		own.push(slotUse("details-tile", owner, "caseListConfig.detailTile"));
+	if (list?.emptyText !== undefined && wanted("case-list-empty-text"))
+		own.push(
+			slotUse("case-list-empty-text", owner, "caseListConfig.emptyText"),
+		);
+	if (
+		list?.selectButtonText !== undefined &&
+		wanted("case-list-continue-label")
+	)
+		own.push(
+			slotUse(
+				"case-list-continue-label",
+				owner,
+				"caseListConfig.selectButtonText",
+			),
+		);
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	// A search with no title holds no text for Android to leave out, so only

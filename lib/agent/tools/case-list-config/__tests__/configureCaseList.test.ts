@@ -95,6 +95,43 @@ describe("configureCaseList", () => {
 		expect(h.currentDoc().modules[MOD_A].caseListConfig).toEqual(original);
 	});
 
+	it("sets the list's own words, and takes the ordinary words or null as none", async () => {
+		const h = makeCaseListFixture();
+		const set = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			emptyText: " No patients yet ",
+			selectButtonText: "Visit these patients",
+		});
+		if ("error" in set.result) throw new Error(set.result.error);
+		expect(set.mutations).toEqual([
+			{
+				kind: "setCaseListMeta",
+				uuid: MOD_A,
+				patch: {
+					emptyText: "No patients yet",
+					selectButtonText: "Visit these patients",
+				},
+			},
+		]);
+		const list = () => h.currentDoc().modules[MOD_A].caseListConfig;
+		expect(list()?.emptyText).toBe("No patients yet");
+
+		const cleared = await h.runTool(configureCaseListTool, {
+			moduleUuid: MOD_A,
+			emptyText: "List is empty.",
+			selectButtonText: null,
+		});
+		if ("error" in cleared.result) throw new Error(cleared.result.error);
+		expect(list()?.emptyText).toBeUndefined();
+		expect(list()?.selectButtonText).toBeUndefined();
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				emptyText: "  ",
+			}).success,
+		).toBe(false);
+	});
+
 	it("lands one coherent configuration as granular mutations", async () => {
 		const h = makeCaseListFixture();
 		const result = await h.runTool(configureCaseListTool, {

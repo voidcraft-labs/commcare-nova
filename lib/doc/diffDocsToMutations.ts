@@ -2581,7 +2581,11 @@ function diffCaseListMeta(
 		detailTabs?: CaseListConfig["detailTabs"] | null;
 		detailTile?: CaseListConfig["detailTile"] | null;
 		contextAboveForm?: CaseListConfig["contextAboveForm"] | null;
+		emptyText?: string | null;
+		selectButtonText?: string | null;
 	} = {};
+	for (const key of ["emptyText", "selectButtonText"] as const)
+		if (prev[key] !== next[key]) patch[key] = next[key] ?? null;
 	if (!deepEqual(prev.filter, next.filter)) {
 		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
 	}

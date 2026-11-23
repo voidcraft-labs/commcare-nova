@@ -2677,6 +2677,15 @@ export function CaseListWorkspaceCanvas() {
 							onApplyTilePreset={applyTilePreset}
 							onTilePersistOnFormsChange={setTilePersistOnForms}
 							onCaseSelectionChange={setCaseSelection}
+							onWordingChange={(slot, next) =>
+								commitLayout([
+									{
+										kind: "setCaseListMeta",
+										uuid: requireRetainedModuleUuid(moduleUuid),
+										patch: { [slot]: next },
+									},
+								])
+							}
 						/>
 					</div>
 				</Activity>

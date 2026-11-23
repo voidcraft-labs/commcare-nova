@@ -2888,6 +2888,18 @@ export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
 export type CaseSelectionCardinality = "single" | "multiple";
 
+/** The text an empty case list shows where the list holds none of its own,
+ *  HQ's model default (`models/case_list.py::Detail.no_items_text`). */
+export const CASE_LIST_EMPTY_TEXT_DEFAULT = "List is empty.";
+
+/** The label of the button that carries chosen cases forward where the list
+ *  holds none of its own, HQ's model default
+ *  (`models/case_list.py::Detail.select_text`). */
+export const CASE_LIST_SELECT_TEXT_DEFAULT = "Continue";
+
+/** A case list's own wording: a worker-facing text with no blank spelling. */
+export const caseListWordingSchema = z.string().trim().min(1);
+
 /** An independent rule of Default order. Its value never becomes a Results
  * or Details column. Its optional name is the entry workers can choose in Sort by. */
 export const calculatedSortSchema = z
@@ -2959,6 +2971,21 @@ export const caseListConfigSchema = z
 		 * has one canonical representation.
 		 */
 		selection: caseSelectionSchema.optional(),
+		/**
+		 * What Results says when it holds no case, in the source language;
+		 * absent is `CASE_LIST_EMPTY_TEXT_DEFAULT`. Its other languages are the
+		 * translations of its unit (`module:<uuid>:list-empty-text`). Web Apps
+		 * shows it; Android keeps its own empty-list wording.
+		 */
+		emptyText: caseListWordingSchema.optional(),
+		/**
+		 * The label of the button that carries a worker's chosen cases forward
+		 * from Results, in the source language; absent is
+		 * `CASE_LIST_SELECT_TEXT_DEFAULT`. Its other languages are the
+		 * translations of its unit (`module:<uuid>:list-select-text`). Web Apps
+		 * labels only its several-case Continue with it; Android keeps its own.
+		 */
+		selectButtonText: caseListWordingSchema.optional(),
 		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.

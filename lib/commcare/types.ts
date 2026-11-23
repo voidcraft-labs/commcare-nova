@@ -321,6 +321,11 @@ export interface DetailBase<XPath = string> {
 	 * page's language.
 	 */
 	no_items_text?: LocalizedString;
+	/**
+	 * The Continue label, per app language, written only where the case
+	 * list holds its own; HQ's model default is `{en: "Continue"}`.
+	 */
+	select_text?: LocalizedString;
 	tabs: DetailTab<XPath>[];
 	/** Always-on filter applied to the case list nodeset, before user
 	 *  search. The bare on-device XPath wire string lands here per

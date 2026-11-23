@@ -7171,22 +7171,52 @@
 		}
 	},
 	{
+		"id": "hq-case-lists/case-detail-texts",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/detail-texts-no-worker-reads",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/case_details/long/no_items_text",
+			"value": {
+				"en": "Nothing to show."
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/columns/0/header",
+				"value": "Name"
+			}
+		]
+	},
+	{
 		"id": "hq-case-lists/continue-text",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-select-text-non-default",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/select_text",
 			"value": {
 				"en": "Choose patient"
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/selectButtonText",
+				"value": "Choose patient"
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/custom-tile-xml",
@@ -7637,19 +7667,25 @@
 		"id": "hq-case-lists/empty-list-text",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/no_items_text",
 			"value": {
 				"en": "No patients yet."
 			}
-		}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/emptyText",
+				"value": "No patients yet."
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/filter-column",

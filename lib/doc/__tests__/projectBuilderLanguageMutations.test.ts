@@ -8,6 +8,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	caseListWordingUnitId,
 	collectTranslationUnits,
 	effectiveAppLocalization,
 	isOrdinaryCaseSearchConfig,
@@ -600,6 +601,45 @@ describe("projectBuilderLanguageMutations", () => {
 			message:
 				"The selected worker language no longer belongs to this app. Choose another language and try again.",
 		});
+	});
+
+	it("writes a case list's own words edited under another language to that language alone", () => {
+		const doc = produce(fixture(), (draft) => {
+			const list = draft.modules[MODULE]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			list.emptyText = "No patients yet";
+		});
+		const unit = caseListWordingUnitId(MODULE, "empty");
+		const projected = project(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid: MODULE,
+				patch: { emptyText: "Aún no hay pacientes" },
+			},
+		]);
+		expect(projected).toEqual([
+			expect.objectContaining({
+				kind: "setTranslation",
+				language: "spa",
+				unitId: unit,
+				entry: expect.objectContaining({ value: "Aún no hay pacientes" }),
+			}),
+		]);
+		const next = apply(doc, projected);
+		expect(next.modules[MODULE]?.caseListConfig?.emptyText).toBe(
+			"No patients yet",
+		);
+		// The Continue label the source never held is the source's to add first.
+		expect(
+			projectBuilderLanguageMutations(doc, "spa", [
+				{
+					kind: "setCaseListMeta",
+					uuid: MODULE,
+					patch: { selectButtonText: "Seguir" },
+				},
+			]).ok,
+		).toBe(false);
 	});
 
 	it("requires optional worker content to be created in the source language first", () => {

@@ -9,8 +9,12 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { type BlueprintDoc, makeTranslationUnitId } from "@/lib/domain";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	type BlueprintDoc,
+	caseListWordingUnitId,
+	makeTranslationUnitId,
+} from "@/lib/domain";
 import { advancedFixture } from "../../../__tests__/advancedPlacementFixture";
 import { caseListLabelAsBuilt } from "../modules";
 import {
@@ -352,7 +356,7 @@ describe("names in two languages", () => {
 		).toBeUndefined();
 	});
 
-	it("refuses a menu with no case type whose empty list says other words", async () => {
+	it("reads past a menu with no case type whose empty list says other words, which no worker reads", async () => {
 		const reading = await readMenusOf(inSpanish(app(), new Map()), (json) => {
 			const details = json.modules[2]?.case_details as JsonObject;
 			(details.short as JsonObject).no_items_text = {
@@ -360,9 +364,99 @@ describe("names in two languages", () => {
 				es: "La lista está vacía.",
 			};
 		});
-		expect(codesOf(reading)).toContain(
-			`${M}/detail-no-items-text-other-than-hq-s-default-en-list-is-empty`,
+		expect(codesOf(reading)).toEqual([]);
+		const survey = moduleNamed(reading.doc as BlueprintDoc, "Survey");
+		expect(survey.caseListConfig).toBeUndefined();
+	});
+});
+
+describe("a case list's own words", () => {
+	/** `caseMenus` with the Patients list's own words, each with its Spanish. */
+	const worded = (): BlueprintDoc => {
+		const doc = produce(caseMenus(), (draft) => {
+			const patients = Object.values(draft.modules).find(
+				(one) => one.name === "Patients",
+			);
+			if (patients === undefined)
+				throw new Error("The fixture holds no Patients menu.");
+			patients.caseListConfig = {
+				...caseListConfig([{ field: "case_name", header: "Name" }]),
+				emptyText: "No patients yet",
+				selectButtonText: "Visit these patients",
+			};
+		});
+		const uuid = moduleNamed(doc, "Patients").uuid;
+		return inSpanish(
+			doc,
+			new Map([
+				[caseListWordingUnitId(uuid, "empty"), "Aún no hay pacientes"],
+				[caseListWordingUnitId(uuid, "select"), "Visitar a estos pacientes"],
+			]),
 		);
+	};
+
+	it("writes each language's words and reads them back as the list's own", async () => {
+		const reading = await readMenusOf(worded());
+		expect(codesOf(reading)).toEqual([]);
+		const details = reading.app.modules[0]?.case_details as JsonObject;
+		const short = details.short as JsonObject;
+		expect(short.no_items_text).toEqual({
+			en: "No patients yet",
+			es: "Aún no hay pacientes",
+		});
+		expect(short.select_text).toEqual({
+			en: "Visit these patients",
+			es: "Visitar a estos pacientes",
+		});
+		const read = reading.doc as BlueprintDoc;
+		const patients = moduleNamed(read, "Patients");
+		expect(patients.caseListConfig?.emptyText).toBe("No patients yet");
+		expect(patients.caseListConfig?.selectButtonText).toBe(
+			"Visit these patients",
+		);
+		const spanish = read.localization?.translations.spa;
+		expect(
+			spanish?.[caseListWordingUnitId(patients.uuid, "empty")]?.value,
+		).toBe("Aún no hay pacientes");
+		expect(
+			spanish?.[caseListWordingUnitId(patients.uuid, "select")]?.value,
+		).toBe("Visitar a estos pacientes");
+	});
+
+	it("reads words HQ's Case List page saved for one language, the other showing HQ's default", async () => {
+		const reading = await readMenusOf(
+			inSpanish(caseMenus(), new Map()),
+			(json) => {
+				const details = json.modules[0]?.case_details as JsonObject;
+				(details.short as JsonObject).no_items_text = {
+					en: "List is empty.",
+					es: "La lista está vacía.",
+				};
+			},
+		);
+		expect(codesOf(reading)).toEqual([]);
+		const read = reading.doc as BlueprintDoc;
+		const patients = moduleNamed(read, "Patients");
+		// The source keeps HQ's default; Spanish holds its own words.
+		expect(patients.caseListConfig?.emptyText).toBe("List is empty.");
+		expect(
+			read.localization?.translations.spa?.[
+				caseListWordingUnitId(patients.uuid, "empty")
+			]?.value,
+		).toBe("La lista está vacía.");
+	});
+
+	it("reads past a case detail's own words, which HQ's build never writes", async () => {
+		const reading = await readMenusOf(
+			inSpanish(caseMenus(), new Map()),
+			(json) => {
+				const details = json.modules[0]?.case_details as JsonObject;
+				(details.long as JsonObject).select_text = { en: "Go on" };
+			},
+		);
+		expect(codesOf(reading)).toEqual([]);
+		const patients = moduleNamed(reading.doc as BlueprintDoc, "Patients");
+		expect(patients.caseListConfig?.selectButtonText).toBeUndefined();
 	});
 });
 

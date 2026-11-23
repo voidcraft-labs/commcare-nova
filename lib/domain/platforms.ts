@@ -223,6 +223,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"details-tile",
 	"raw-custom-tile-field",
 	"tile-grouping",
+	"case-list-empty-text",
+	"case-list-continue-label",
 	"tile-alignment",
 	"tile-border-and-shading",
 	"column-hidden-from-results",
@@ -748,6 +750,27 @@ export const PLATFORM_FEATURES: Readonly<
 		android: {
 			reading: "different",
 			note: "the cell displays the stored value",
+		},
+	},
+	"case-list-empty-text": {
+		label: "Your own empty case list text",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "an empty list keeps the phone's own wording",
+		},
+	},
+	"case-list-continue-label": {
+		label: "Your own Continue label",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "the label shows only on Continue after choosing several cases",
+		},
+		android: {
+			reading: "ignored",
+			note: "the phone keeps its own wording for Continue",
 		},
 	},
 	"tile-grouping": {

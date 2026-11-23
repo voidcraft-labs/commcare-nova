@@ -73,7 +73,6 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"case-list-registration": "Registration from the case list",
 	"case-list-setup": "Case list setup",
 	"case-list-sorting": "Case list order",
-	"case-list-text": "Case list wording",
 	"case-preloads": "Loading case values into questions",
 	"case-property-names": "Case property names",
 	"case-sharing": "Case sharing",
@@ -222,10 +221,6 @@ export const FINDING_COPY: Readonly<
 	"case-list-sorting": {
 		never:
 			"This orders the case list by a value whose kind Nova can't tell, which Nova doesn't bring in.",
-	},
-	"case-list-text": {
-		"not-yet":
-			"This uses its own wording for an empty list or the Continue button, which Nova can't hold yet.",
 	},
 	"case-preloads": {
 		"not-yet":

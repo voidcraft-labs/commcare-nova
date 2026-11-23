@@ -49,6 +49,10 @@ import {
 	CaseAvailabilityComposer,
 	type CaseAvailabilityComposerProps,
 } from "./CaseAvailabilityComposer";
+import {
+	CaseListWordingSetting,
+	type CaseListWordingSlot,
+} from "./CaseListWordingSetting";
 import { CaseSelectionSetting } from "./CaseSelectionSetting";
 import { CanvasNotice } from "./canvasChrome";
 import {
@@ -105,6 +109,10 @@ export interface CaseListCanvasProps {
 		next: CaseSelection | undefined,
 		origin?: HTMLElement,
 	) => void;
+	readonly onWordingChange: (
+		slot: CaseListWordingSlot,
+		next: string | null,
+	) => void;
 }
 
 export function CaseListCanvas({
@@ -141,6 +149,7 @@ export function CaseListCanvas({
 	onTilePersistOnFormsChange,
 	onTileGroupingChange,
 	onCaseSelectionChange,
+	onWordingChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
 	const platforms = useDeclaredPlatforms();
@@ -185,6 +194,13 @@ export function CaseListCanvas({
 						canEdit={canEdit}
 						severalRefusal={severalRefusal}
 						onChange={onCaseSelectionChange}
+					/>
+					<CaseListWordingSetting
+						emptyText={config.emptyText}
+						selectButtonText={config.selectButtonText}
+						several={config.selection?.kind === "multiple"}
+						canEdit={canEdit}
+						onChange={onWordingChange}
 					/>
 					{caseType !== undefined && (
 						<RegisterFromListSetting moduleUuid={moduleUuid} />

@@ -149,10 +149,11 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | `Detail.custom_xml` non-empty | **REFUSED**: freeform + retiring (CASE_LIST_CUSTOM_XML) | — | — |
 | `Detail.custom_variables_dict` non-empty | **REFUSED**: freeform + retiring (CASE_LIST_CUSTOM_VARIABLES) | — | — |
 | legacy `Detail.custom_variables` key | **INERT**: pre-migration key with no reader | n/a | omit (Nova emits `null` today: unproducible) |
-| `Detail.no_items_text` other than HQ's default `{en: "List is empty."}` | **HELD-NEW**: `caseListConfig.emptyText` | RUNS / IGNORED | `no_items_text{lang}`; USH_EMPTY_CASE_LIST_TEXT on the target (HQ emits the text only there, `feature_support.py::supports_empty_case_list_text`) |
+| `Detail.no_items_text` other than HQ's default `{en: "List is empty."}` | **HELD**: `caseListConfig.emptyText`, each other language its unit's translation | RUNS / IGNORED | `no_items_text{lang}`; USH_EMPTY_CASE_LIST_TEXT on the target (HQ emits the text only there, `feature_support.py::supports_empty_case_list_text`) |
 | `Detail.no_items_text` a device shows as HQ's default text (`List is empty.`) in every app language, however the map spells it | **INERT**: HQ's model default (`models/case_list.py::Detail`), which HQ emits in a target with the flag whether or not the app carries it | n/a | omit |
 | `Detail.select_text` a device shows as HQ's default `Continue` in every app language, however the map spells it | **INERT**: default | n/a | omit |
-| `Detail.select_text` non-default | **HELD-NEW**: `caseListConfig.selectButtonText` (editor: Bulk App Translations edits the existing string; saves keep it) | DIFFERENT (labels only the multi-select Continue) / IGNORED | `select_text{lang}` |
+| `Detail.select_text` non-default | **HELD**: `caseListConfig.selectButtonText`, each other language its unit's translation (editor: Bulk App Translations edits the existing string; saves keep it) | DIFFERENT (labels only the multi-select Continue) / IGNORED | `select_text{lang}` |
+| `Detail.no_items_text` or `Detail.select_text` other than HQ's default on a case detail, or on a menu with no case type | **INERT**: HQ's build writes a detail's texts only from a case list's short detail (`suite_xml/sections/details.py::add_no_items_text_to_detail`, `add_select_text_to_detail`, under `detail_type.endswith('short')`), and a menu with no case type shows no list | n/a | omit |
 | `Detail.lookup_*` (callout) | → Case list callout | — | — |
 | `Detail.sort_elements` | → Sorting | — | — |
 | `Detail.tabs` | → Detail tabs | — | — |

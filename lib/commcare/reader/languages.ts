@@ -688,6 +688,17 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 							input.validation.message = text(value);
 					}
 				: undefined;
+		case "case-list-empty-text":
+		case "case-list-select-text":
+			return owner.kind === "module"
+				? (draft, value) => {
+						const list = draft.modules[owner.moduleUuid]?.caseListConfig;
+						if (list === undefined) return;
+						if (unit.role === "case-list-empty-text")
+							list.emptyText = text(value);
+						else list.selectButtonText = text(value);
+					}
+				: undefined;
 		case "search-screen-title":
 		case "search-screen-subtitle":
 			return owner.kind === "module"

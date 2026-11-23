@@ -99,11 +99,14 @@ import {
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type BlueprintDoc,
+	type CaseListConfig,
 	type CaseTileGrouping,
 	type Column,
+	caseListWordingUnitId,
 	effectiveCaseTypes,
 	type Module,
 	type TranslationUnitId,
+	type Uuid,
 } from "@/lib/domain";
 import type { FormIconRef } from "@/lib/domain/builtinIcons";
 import { simplifyForEmission } from "@/lib/domain/expression";
@@ -335,7 +338,12 @@ export function buildShortDetail(args: {
 					wire,
 					args.assets,
 				);
-	const texts = detailTexts(moduleIndex, args.emptyCaseListText === true);
+	const texts = detailTexts(
+		moduleIndex,
+		args.emptyCaseListText === true,
+		mod.caseType ? mod.caseListConfig : undefined,
+		mod.uuid,
+	);
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -357,7 +365,7 @@ export function buildShortDetail(args: {
 				args.lookupNaming,
 			),
 			strings: { ...texts.strings, ...register?.strings },
-			translationUnits: {},
+			translationUnits: { ...texts.translationUnits },
 			instances: instances.declarations(),
 		};
 	}
@@ -411,7 +419,9 @@ export function buildShortDetail(args: {
 		...texts.strings,
 		...register?.strings,
 	};
-	const translationUnits: Record<string, TranslationUnitId> = {};
+	const translationUnits: Record<string, TranslationUnitId> = {
+		...texts.translationUnits,
+	};
 
 	// Walk the plan's fields, which keep the config's exact Results UUID
 	// permutation. A shown field's header locale takes its 1-based position
@@ -529,18 +539,27 @@ export function emitShortDetail(args: {
 /**
  * The texts HQ's build gives a short detail, with their app strings: the
  * select button's on every short detail, the empty list's where the target
- * holds `USH_EMPTY_CASE_LIST_TEXT`. Nova's own system copy, so every
- * language takes it verbatim.
+ * holds `USH_EMPTY_CASE_LIST_TEXT`. A case list's own text is its unit's in
+ * each language; otherwise HQ's model default, Nova's own system copy, which
+ * every language takes verbatim.
  */
 function detailTexts(
 	moduleIndex: number,
 	emptyCaseListText: boolean,
+	config: CaseListConfig | undefined,
+	moduleUuid: Uuid,
 ): {
 	readonly elements: readonly Element[];
 	readonly strings: Readonly<Record<string, string>>;
+	readonly translationUnits: Readonly<Record<string, TranslationUnitId>>;
 } {
 	const selectId = selectTextLocaleId(moduleIndex);
 	const emptyId = emptyCaseListTextLocaleId(moduleIndex);
+	const translationUnits: Record<string, TranslationUnitId> = {};
+	if (config?.selectButtonText !== undefined)
+		translationUnits[selectId] = caseListWordingUnitId(moduleUuid, "select");
+	if (emptyCaseListText && config?.emptyText !== undefined)
+		translationUnits[emptyId] = caseListWordingUnitId(moduleUuid, "empty");
 	return {
 		elements: [
 			el("select_text", {}, [el("text", {}, [el("locale", { id: selectId })])]),
@@ -553,9 +572,12 @@ function detailTexts(
 				: []),
 		],
 		strings: {
-			[selectId]: SELECT_TEXT,
-			...(emptyCaseListText && { [emptyId]: EMPTY_CASE_LIST_TEXT }),
+			[selectId]: config?.selectButtonText ?? SELECT_TEXT,
+			...(emptyCaseListText && {
+				[emptyId]: config?.emptyText ?? EMPTY_CASE_LIST_TEXT,
+			}),
 		},
+		translationUnits,
 	};
 }
 

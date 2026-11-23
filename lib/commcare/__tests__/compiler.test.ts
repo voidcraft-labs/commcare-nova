@@ -1,4 +1,5 @@
 import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
@@ -554,6 +555,29 @@ describe("the texts HQ's build writes for a list and a form", () => {
 			expect(appStrings(zip, dir).get("m0_no_items_text")).toBe(
 				"List is empty.",
 			);
+	});
+});
+
+describe("a case list's own words on the local path", () => {
+	it("writes the list's own select and empty-list text where HQ's build writes each", () => {
+		const doc = produce(temporalSearchFixture("legacy"), (draft) => {
+			const list = draft.modules[draft.moduleOrder[0]]?.caseListConfig;
+			if (list === undefined)
+				throw new Error("The fixture holds no case list.");
+			list.emptyText = "No patients yet";
+			list.selectButtonText = "Visit these patients";
+		});
+		for (const flag of [false, true]) {
+			const { zip } = exported(doc, { emptyCaseListText: flag });
+			for (const dir of ["default", ...commCareLocalization(doc).languages]) {
+				const table = appStrings(zip, dir);
+				expect(table.get("m0_select_text")).toBe("Visit these patients");
+				// Without the flag HQ's build writes no empty-list text, the list's own included.
+				expect(table.get("m0_no_items_text")).toBe(
+					flag ? "No patients yet" : undefined,
+				);
+			}
+		}
 	});
 });
 

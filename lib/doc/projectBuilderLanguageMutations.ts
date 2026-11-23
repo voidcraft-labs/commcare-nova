@@ -5,6 +5,7 @@
 
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	caseListWordingUnitId,
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	effectiveAppLocalization,
@@ -266,6 +267,27 @@ export function projectBuilderLanguageMutations(
 					});
 				}
 				if (Object.keys(next.patch).length > 0) projected.push(next);
+				break;
+			}
+			case "setCaseListMeta": {
+				// A case list's own wording edited in a target language is that
+				// language's translation; the source keeps its text.
+				const next = structuredClone(mutation);
+				const patch = next.patch;
+				for (const [key, slot] of [
+					["emptyText", "empty"],
+					["selectButtonText", "select"],
+				] as const) {
+					if (!hasOwn(patch, key)) continue;
+					const id = caseListWordingUnitId(mutation.uuid, slot);
+					const value = patch[key];
+					if (!units.has(id)) {
+						if (value != null) refuseMissingSource();
+					} else if (value === null) redirectClear(id);
+					else if (typeof value === "string") redirect(id, value);
+					delete patch[key];
+				}
+				if (Object.keys(patch).length > 0) projected.push(next);
 				break;
 			}
 			case "updateCalculatedSort": {

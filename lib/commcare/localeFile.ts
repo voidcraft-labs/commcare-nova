@@ -68,6 +68,8 @@ const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"case-list-image-description",
 		"case-list-mapping-label",
 		"case-list-interval-text",
+		"case-list-empty-text",
+		"case-list-select-text",
 		"search-input-label",
 		"search-input-hint",
 		"search-input-required-message",

@@ -155,6 +155,7 @@ import {
 	LIST_ORDER,
 	pickCaseListSort,
 } from "@/lib/preview/caseListSortMenu";
+import { caseListOwnWording } from "@/lib/preview/caseListWording";
 import { ordinaryCaseResultCell } from "@/lib/preview/caseMap";
 import {
 	caseSelectionRouteCaseAction,
@@ -581,6 +582,7 @@ export function CaseListScreen({
 	const localizedValues = useLocalizedValues();
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
+	const ownWording = caseListOwnWording(platformRules, config);
 	const canonicalConfig = menuSource.doc.modules[moduleUuid]?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
 	const projectProse = useProseProjection();
@@ -3531,6 +3533,7 @@ export function CaseListScreen({
 				caseProperties={caseType.properties}
 				columnDisplayContext={resultsDisplayContext}
 				emptyResultContext={resultsContext}
+				workerEmptyText={ownWording.emptyText}
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
@@ -3567,6 +3570,7 @@ export function CaseListScreen({
 						);
 					}}
 					onContinue={continueWithSelectedCases}
+					continueText={ownWording.continueText}
 					validating={validatingSelection}
 				/>
 			)}
@@ -3763,7 +3767,36 @@ function CasesLoading() {
 	);
 }
 
+/** Results, with the list's own empty text above an empty result where the
+ *  platform draws it: Web Apps shows the worker that text on any empty list,
+ *  and the author's notice stays beneath it. */
 function ResultsBody({
+	workerEmptyText,
+	...props
+}: Parameters<typeof ResultsContent>[0] & {
+	readonly workerEmptyText?: string;
+}) {
+	const content = <ResultsContent {...props} />;
+	if (
+		workerEmptyText === undefined ||
+		props.state.kind !== "empty" ||
+		props.fetching
+	)
+		return content;
+	return (
+		<div className="flex flex-col gap-3">
+			<p
+				className="text-sm text-nova-text-secondary"
+				data-testid="case-list-empty-text"
+			>
+				{workerEmptyText}
+			</p>
+			{content}
+		</div>
+	);
+}
+
+function ResultsContent({
 	state,
 	unfilteredCountState,
 	authoredMatchingCount,
@@ -4054,6 +4087,7 @@ function MultiSelectionTray({
 	onReviewOpenChange,
 	onRemove,
 	onContinue,
+	continueText,
 	validating,
 }: {
 	readonly choices: readonly PreviewCaseChoice[];
@@ -4063,6 +4097,8 @@ function MultiSelectionTray({
 	readonly onReviewOpenChange: (open: boolean) => void;
 	readonly onRemove: (caseId: string) => void;
 	readonly onContinue: () => void | Promise<void>;
+	/** The list's own Continue label, where the platform draws it. */
+	readonly continueText?: string;
 	readonly validating: boolean;
 }) {
 	const message = useWorkerMessage();
@@ -4100,7 +4136,11 @@ function MultiSelectionTray({
 						onClick={() => void onContinue()}
 						className="bg-pv-accent text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
-						<WorkerText message={validating ? "checkingCases" : "continue"} />
+						{!validating && continueText !== undefined ? (
+							continueText
+						) : (
+							<WorkerText message={validating ? "checkingCases" : "continue"} />
+						)}
 					</Button>
 				</div>
 				{blocker !== undefined && (

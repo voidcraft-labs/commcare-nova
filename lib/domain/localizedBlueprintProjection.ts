@@ -18,6 +18,7 @@ import {
 } from "./modules";
 import { filledProse, translationFillSource } from "./translationFill";
 import {
+	caseListWordingUnitId,
 	localizeTranslationUnit,
 	snapshotTranslationUnits,
 	type TranslationUnit,
@@ -100,6 +101,17 @@ export function projectLocalizedModule(
 					rule.label,
 				);
 		}
+		const list = localized.caseListConfig;
+		if (list.emptyText !== undefined)
+			list.emptyText = text(
+				caseListWordingUnitId(module.uuid, "empty"),
+				list.emptyText,
+			);
+		if (list.selectButtonText !== undefined)
+			list.selectButtonText = text(
+				caseListWordingUnitId(module.uuid, "select"),
+				list.selectButtonText,
+			);
 		for (const tab of localized.caseListConfig.detailTabs ?? [])
 			tab.title = text(
 				makeTranslationUnitId("detail-tab", tab.uuid, "title"),

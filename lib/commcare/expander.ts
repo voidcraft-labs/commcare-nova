@@ -547,7 +547,8 @@ export function* expandDocSteps(
 		// page's language as an empty text, which reads blank in an app with
 		// no English. Written on both pairs a menu can take, because the save
 		// writes into a survey menu's short detail too.
-		caseDetails.short.no_items_text = repeatForLanguages(
+		// A case list's own text (`projectCaseListForHq`) keeps its place.
+		caseDetails.short.no_items_text ??= repeatForLanguages(
 			localization.languages,
 			EMPTY_CASE_LIST_TEXT,
 		);

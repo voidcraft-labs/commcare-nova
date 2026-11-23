@@ -289,6 +289,16 @@ export interface PreviewPlatformRules {
 	readonly capture: "attach" | "device";
 	/** Android's last screen reads `form.entry.finish.button`. */
 	readonly submitLabel: "submit" | "finish";
+	/** A case list's own empty-list text and Continue label, the detail's
+	 *  `no_items_text` and `select_text`. Formplayer sends both
+	 *  (`beans/menus/EntityListResponse.java`, `setNoItemsText`,
+	 *  `setSelectText`) and Web Apps draws the empty text on an empty list and
+	 *  the select text on its several-case Continue only
+	 *  (`cloudcare/js/formplayer/menus/views.js`,
+	 *  `partials/case_list/multi_select_continue_button.html`);
+	 *  commcare-android holds no reader of `Detail.getNoItemsText` or
+	 *  `getSelectText`, so its list keeps its own wording. */
+	readonly caseListDetailWording: boolean;
 	/** Manifest `application-and-settings/logo-refs-hq-logo-web-apps`
 	 *  (Android ignores it). */
 	readonly logo: boolean;
@@ -464,6 +474,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		numberKeypad: "pattern",
 		capture: "attach",
 		submitLabel: "submit",
+		caseListDetailWording: true,
 		logo: true,
 		caseListActionMedia: "text-only",
 		listFilter: Object.freeze({
@@ -536,6 +547,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		numberKeypad: "keys",
 		capture: "device",
 		submitLabel: "finish",
+		caseListDetailWording: false,
 		logo: false,
 		caseListActionMedia: "shown",
 		listFilter: Object.freeze({

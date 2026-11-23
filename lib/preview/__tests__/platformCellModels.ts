@@ -37,6 +37,7 @@ import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { previewRegisterAction } from "../caseListRegistration";
 import { caseListSortOptions, LIST_ORDER } from "../caseListSortMenu";
+import { caseListOwnWording } from "../caseListWording";
 import { projectCaseMap } from "../caseMap";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import { projectTileGrid } from "../caseTileLayout";
@@ -597,6 +598,23 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toBe("[View photo](https://example.org/x)");
 		expect(projectColumnDisplay(column, linked, DISPLAY).text).not.toBe(
 			"[View photo](https://example.org/x)",
+		);
+	},
+
+	/* A case list's own empty text and Continue label: Web Apps draws both,
+	 * the label on its several-case Continue only; Android keeps its own. */
+	"case-list-own-wording": (platform) => {
+		const wording = caseListOwnWording(previewPlatformRules(platform), {
+			emptyText: "No patients yet",
+			selectButtonText: "Visit these patients",
+		});
+		expect(wording).toEqual(
+			platform === "android"
+				? {}
+				: {
+						emptyText: "No patients yet",
+						continueText: "Visit these patients",
+					},
 		);
 	},
 

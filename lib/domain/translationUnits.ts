@@ -61,6 +61,8 @@ export const translationUnitRoles = [
 	"case-list-image-description",
 	"case-list-mapping-label",
 	"case-list-interval-text",
+	"case-list-empty-text",
+	"case-list-select-text",
 	"search-input-label",
 	"search-input-hint",
 	"search-input-required-message",
@@ -71,6 +73,15 @@ export const translationUnitRoles = [
 	"case-property-option-label",
 ] as const;
 export type TranslationUnitRole = (typeof translationUnitRoles)[number];
+
+/** The unit of a case list's own empty-list text (`"empty"`) or Continue
+ *  label (`"select"`): the module's, since the list has no identity of its own. */
+export function caseListWordingUnitId(
+	moduleUuid: Uuid,
+	slot: "empty" | "select",
+): TranslationUnitId {
+	return makeTranslationUnitId("module", moduleUuid, `list-${slot}-text`);
+}
 
 export const translationUnitOwnerKinds = [
 	"app",
@@ -165,6 +176,8 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"case-list-menu-item-label",
 	"case-list-registration-label",
 	"case-list-sort-label",
+	"case-list-empty-text",
+	"case-list-select-text",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
@@ -653,6 +666,28 @@ export function collectTranslationUnits(
 		}
 
 		const list = module.caseListConfig;
+		for (const [slot, role, source, label] of [
+			["empty", "case-list-empty-text", list?.emptyText, "empty list text"],
+			[
+				"select",
+				"case-list-select-text",
+				list?.selectButtonText,
+				"Continue button",
+			],
+		] as const) {
+			if (source === undefined) continue;
+			out.push(
+				unit({
+					id: caseListWordingUnitId(moduleUuid, slot),
+					valueKind: "text",
+					role,
+					source,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "Cases", "Results", label],
+					context: { moduleName: module.name },
+				}),
+			);
+		}
 		for (const rule of list?.calculatedSorts ?? []) {
 			if (rule.label)
 				out.push(
