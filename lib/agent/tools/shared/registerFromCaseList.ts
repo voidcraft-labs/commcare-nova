@@ -29,7 +29,7 @@ export const registerFromCaseListInputSchema = z.strictObject({
 		.nullable()
 		.optional()
 		.describe(
-			"Show the form button when a completed search found nothing or when the condition you give is true. The condition can read worker data and choices made before the list. Null shows the button whenever the list opens. Omit to keep the current rule.",
+			"Show the form button when a completed search found nothing or when the condition you give is true. The condition can read choices made before the list; it reads the worker's session, records or a data table only where the list itself reads them. Null shows the button whenever the list opens. Omit to keep the current rule.",
 		),
 	label: z
 		.string()

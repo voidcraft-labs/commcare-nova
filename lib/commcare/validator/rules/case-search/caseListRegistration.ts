@@ -76,6 +76,7 @@ import {
 import { checkExpression, slotContext } from "@/lib/domain/expression";
 import { advancedFormLoads } from "../../../advancedSelections";
 import { emittedModuleKind } from "../../../moduleKind";
+import { caseListActionUndeclaredInstances } from "../../../suite/case-list/actionCondition";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -83,6 +84,24 @@ import {
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
 import { caseListReturnFirstMenuCase } from "../formsInMenuAbove";
+
+/** What a list action's condition reads, in a person's words, by the id of
+ *  the instance the read needs. */
+function instanceWords(id: string): string {
+	if (id === "commcaresession") return "the worker's session";
+	if (id === "casedb") return "the worker's records";
+	if (id === "locations") return "the organization's places";
+	if (id.startsWith("item-list:")) return "a data table";
+	if (id.startsWith("results") || id.startsWith("search"))
+		return "the search's results";
+	return "information";
+}
+
+function joinedWords(words: readonly string[]): string {
+	return words.length < 2
+		? (words[0] ?? "")
+		: `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
 
 /** An action condition is evaluated while the list is still asking which
  * case to open. The worker and earlier selections are already available. */
@@ -117,9 +136,33 @@ export function caseListActionVisibility(
 	);
 	if (!context)
 		throw new Error("A saved list form condition has no owning menu.");
-	return semanticCheckErrors(
+	const semantic = semanticCheckErrors(
 		checkExpression(slot.showWhen.condition, context),
-	).map((error) =>
+	);
+	if (semantic.length === 0) {
+		const undeclared = caseListActionUndeclaredInstances(
+			doc,
+			moduleUuid,
+			slot.showWhen,
+		);
+		if (undeclared.length === 0) return [];
+		const reads = [...new Set(undeclared.map(instanceWords))];
+		return [
+			validationError(
+				"CASE_LIST_ACTION_CONDITION_INVALID",
+				"module",
+				`The condition for offering "${formName}" in "${mod.name}" reads ${joinedWords(reads)}, which the case list doesn't load, so the list would not open once the app is on CommCare HQ. You can base the condition on what the list itself reads, such as its filter or the record chosen before it, or clear the button condition.`,
+				loc,
+				{
+					...details,
+					reason: "instance-not-on-the-list",
+					instances: undeclared,
+					slot: "caseListRegistrationForm.showWhen.condition",
+				},
+			),
+		];
+	}
+	return semantic.map((error) =>
 		validationError(
 			"CASE_LIST_ACTION_CONDITION_INVALID",
 			"module",

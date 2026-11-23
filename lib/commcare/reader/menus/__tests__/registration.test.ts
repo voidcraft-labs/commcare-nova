@@ -405,6 +405,16 @@ describe("a stored registration block, read by the first rule that matches", () 
 		},
 	);
 
+	it("refuses a button condition reading the session on a list that loads none", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			block(app, 1).relevancy_expression =
+				"instance('commcaresession')/session/context/username = 'ada'";
+		});
+		expect(codesOf(reading)).toEqual([
+			"unrecognized:schema:CaseListForm.relevancy_expression",
+		]);
+	});
+
 	it("names the ineligible selected-parent action when the source project does not enable it", async () => {
 		const reading = await readMenusOf(
 			caseListActionRolesFixture(),

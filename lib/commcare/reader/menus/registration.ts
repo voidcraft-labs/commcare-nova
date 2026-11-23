@@ -23,6 +23,7 @@ import { emptyShortListColumns } from "../../hqJson/caseList";
 import { hqXPath, serializeHqModule } from "../../hqJson/xpath";
 import { detailPair, moduleShell } from "../../hqShells";
 import { repeatForLanguages } from "../../localization";
+import { caseListActionUndeclaredInstances } from "../../suite/case-list/actionCondition";
 import { EMPTY_CASE_LIST_TEXT } from "../../suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
@@ -934,6 +935,23 @@ export function settleCaseListActionConditions(ctx: ReadContext): void {
 				slot.showWhen = { kind: "condition", condition };
 		}
 	});
+	/* HQ's build declares no instance for what only the condition reads, so
+	 * a condition reading one fails the list on the device: no document of
+	 * Nova's holds it (`caseListActionVisibility`), and the reading stops. */
+	const doc = ctx.doc;
+	for (const host of conditions.keys()) {
+		const slot = doc.modules[host]?.caseListRegistrationForm;
+		if (slot?.kind !== "always") continue;
+		if (
+			caseListActionUndeclaredInstances(doc, host, slot.showWhen).length === 0
+		)
+			continue;
+		const block = READINGS.get(ctx)?.find((read) => read.host.uuid === host);
+		if (block === undefined) continue;
+		ctx.accounting.circumstance("unrecognized", caseListPlaceOf(block.host), {
+			name: "schema:CaseListForm.relevancy_expression",
+		});
+	}
 }
 
 // ── Acceptance ──────────────────────────────────────────────────────────

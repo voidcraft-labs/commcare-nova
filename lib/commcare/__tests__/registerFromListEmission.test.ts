@@ -29,6 +29,13 @@ import type {
 	PostSubmitDestination,
 } from "@/lib/domain";
 import { eligibleCaseListAction } from "@/lib/domain/caseListActionTargets";
+import {
+	count,
+	eq,
+	gt,
+	literal,
+	sessionContext,
+} from "@/lib/domain/expression";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -645,3 +652,51 @@ it.each([false, true])(
 		).toMatchObject({ ok: true });
 	},
 );
+
+describe("a list action's condition and the instances the list loads", () => {
+	const ada = eq(sessionContext("username"), literal("ada"));
+
+	it("admits a session read where the list's own selection reads the session", () => {
+		const doc = caseListActionRolesFixture();
+		const slot = doc.modules[roleIds.registerList].caseListRegistrationForm;
+		if (slot?.kind !== "always") throw new Error("Missing the list action.");
+		slot.showWhen = { kind: "condition", condition: ada };
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("refuses a session read on a list that loads no session, which HQ's build would leave undeclared", () => {
+		const doc = caseListActionRolesFixture();
+		doc.modules[roleIds.households].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: roleIds.register,
+			showWhen: { kind: "condition", condition: ada },
+			afterSubmit: "case-list",
+		};
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings).toMatchObject([
+			{
+				code: "CASE_LIST_ACTION_CONDITION_INVALID",
+				location: { moduleUuid: roleIds.households },
+				details: {
+					reason: "instance-not-on-the-list",
+					instances: ["commcaresession"],
+				},
+			},
+		]);
+		expect(findings[0]?.message).toContain("the worker's session");
+		// A count of the worker's records reads the casedb the list loads.
+		doc.modules[roleIds.households].caseListRegistrationForm = {
+			kind: "always",
+			formUuid: roleIds.register,
+			showWhen: {
+				kind: "condition",
+				condition: gt(
+					count({ kind: "cases", source: "casedb", where: [] }),
+					literal(0),
+				),
+			},
+			afterSubmit: "case-list",
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+});
