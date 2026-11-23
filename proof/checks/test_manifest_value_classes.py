@@ -6222,9 +6222,23 @@ def _held_new():
             ),
         ),
         "menus-and-case-lists/mapping-condition-outside-predicate": (
-            refused("app", keyed("conditional-enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
-            # A key that parses may still read a value Nova has no binding for, so its class is not the key's alone.
-            unsettled("app", keyed("conditional-enum", ". > 3"), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
+            refused(
+                "app",
+                keyed("conditional-enum", ". > ("),
+                "schema:MappingItem.key",
+                f"{short}/columns/0/enum/0/key",
+                readings=True,
+            ),
+            # A key Core parses may still read a value Nova has no binding for, so its class is not the key's alone.
+            unsettled(
+                "app",
+                keyed("conditional-enum", ". > 3"),
+                "schema:MappingItem.key",
+                f"{short}/columns/0/enum/0/key",
+                readings=True,
+            ),
+            # Without Core's parse of the key the class is not settled.
+            unsettled("app", keyed("conditional-enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
             # A plain value is no condition, and an ID mapping's key is compared as a value.
             accepted("app", keyed("conditional-enum", "urgent"), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),
             accepted("app", keyed("enum", ". > ("), "schema:MappingItem.key", f"{short}/columns/0/enum/0/key"),

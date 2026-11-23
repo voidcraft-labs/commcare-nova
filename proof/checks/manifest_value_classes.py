@@ -4927,8 +4927,11 @@ def _case_order_type(tree, properties):
 
 
 def mapping_condition_outside_predicate(use, manifest):
-    """A syntactically invalid native expression cannot become a typed case condition.
-    A valid expression may still depend on an unavailable binding or an unsupported function."""
+    """``menus-and-case-lists/mapping-condition-outside-predicate``: a mapping key of a column whose format reads
+    its keys as conditions (``observe/manifest.py::CONDITION_KEY_FORMATS``) that Core's parse refuses, so it is no
+    condition a case meets (``lib/commcare/reader/expressions/findings.ts::parseIssueEntry``). A key with none of an
+    expression's characters is a saved value, another class; a key Core parses may still read a value Nova has no
+    binding for, which the key alone does not settle, so the class is decided by the parse only where it fails."""
     at, column, _, _, _ = _column(use)
     if at is None or column is None:
         return None
@@ -4940,7 +4943,10 @@ def mapping_condition_outside_predicate(use, manifest):
     key = item["key"]
     if not any(character in key for character in "{}()[]=<>.\"'/"):
         return False
-    return True if at.app.tree(key) is None else None
+    parsed = at.app.parsed(key)
+    if parsed is None:
+        return None
+    return True if "error" in parsed else None
 
 
 def independent_sort_without_scalar(use, manifest):

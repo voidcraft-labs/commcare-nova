@@ -826,6 +826,7 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
     for app in apps:
         app_queries(app, queries)
         app_expressions(app, texts)
+        mapping_conditions(app, texts)
         sort_calculations(app, orders)
     strings = _runner_reading(core_runner, "xpathStrings", sorted(queries), hole=CSQL_HOLE, dateHole=CSQL_DATE_HOLE)
     sent = sorted({string for result in strings.values() for string in result.get("strings", ())})
@@ -843,6 +844,27 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
             path: media_facts(data, path.rsplit("/", 1)[-1]) for path, data in sorted(dict(authored_media).items())
         },
     }
+
+
+# The column formats whose mapping keys HQ's build writes as conditions (``models/case_list.py::
+# MappingItem.key_as_condition``), read by ``manifest_value_classes.mapping_condition_outside_predicate``.
+CONDITION_KEY_FORMATS = frozenset({"conditional-enum", "enum-image", "clickable-icon"})
+
+
+def mapping_conditions(value, found):
+    """Each mapping key of a column whose format reads its keys as conditions (``CONDITION_KEY_FORMATS``), at any
+    depth, into ``found``: Core's parse of it says whether the key is an expression at all."""
+    if isinstance(value, dict):
+        if value.get("doc_type") == "DetailColumn" and value.get("format") in CONDITION_KEY_FORMATS:
+            for item in value.get("enum") or ():
+                key = item.get("key") if isinstance(item, dict) else None
+                if isinstance(key, str) and key.strip():
+                    found.add(key)
+        for child in value.values():
+            mapping_conditions(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            mapping_conditions(child, found)
 
 
 def sort_calculations(value, found):
