@@ -2086,12 +2086,19 @@ through `app:select:menus` directly and only updates the field models
 (`QueryListView.updateModels`), never through `menus/controller.js::selectMenu`,
 whose `showMenu` is what calls `getMenuView`. So the Search screen writes
 its empty answers only as it is drawn (a menu that asks first, Search again,
-history returning to its address), and Clear writes nothing: it empties each
-field (`QueryListView.clearAction` over `QueryView.clear`, which fires no
-field change) and the page keeps the answers the worker last gave
+history returning to its address), and Clear on its own writes nothing: it
+empties each field (`QueryListView.clearAction` over `QueryView.clear`, which
+fires no field change) and the page keeps the answers the worker last gave
 (`searchStanding.ts::previewSearchAfterClear`, which also keeps a Search
-screen asked for again on show, never the menu's default search; Nova writes
-no `search_on_clear`). Clear is Web Apps' alone (`rules.searchClear`,
+screen asked for again on show, never the menu's default search). A menu with
+`caseSearchConfig.searchOnClear` (written as `search_on_clear`) searches again
+after Clear where `searchStanding.ts::searchAfterClear` says the platform does:
+Web Apps at a window at least `PreviewPlatformRules.searchOnClearMinWidth`
+(992px) wide, as `query.js` turns it off on a small screen. That search is
+quiet: `clearAction` calls `updateSearchResults`, which skips the submit while
+any required field is blank and never shows errors, so Preview's Search pane
+submits the emptied fields without painting errors and stays on Search when
+they don't pass. Clear is Web Apps' alone (`rules.searchClear`,
 `searchStanding.ts::previewSearchClearOffered`): Android's search screen
 holds its prompts, its search button and its error line
 (`QueryRequestUiController`), so Preview playing Android offers no Clear, and
