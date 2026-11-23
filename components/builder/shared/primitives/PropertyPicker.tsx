@@ -71,6 +71,8 @@ interface PropertyPickerProps {
 	 * the picker to the destination case type.
 	 */
 	readonly caseType?: string;
+	/** A native property column can reach several types, or a historical case. */
+	readonly sourceProperties?: readonly CaseProperty[];
 	/**
 	 * Optional filter narrowing the shown properties. Returns true
 	 * for properties whose data type is admitted by the calling
@@ -140,6 +142,7 @@ export function PropertyPicker({
 	value,
 	onChange,
 	caseType,
+	sourceProperties,
 	filter,
 	admit,
 	ariaLabel = "Case information",
@@ -165,11 +168,9 @@ export function PropertyPicker({
 	);
 
 	const properties = useMemo<readonly CaseProperty[]>(() => {
-		if (targetCaseType === undefined) return [];
-		const own =
-			filter !== undefined
-				? targetCaseType.properties.filter(filter)
-				: targetCaseType.properties;
+		const available = sourceProperties ?? targetCaseType?.properties;
+		if (available === undefined) return [];
+		const own = filter === undefined ? available : available.filter(filter);
 		const extra = extraProperties
 			.map((entry) => entry.property)
 			.filter(
@@ -178,7 +179,7 @@ export function PropertyPicker({
 					!own.some((candidate) => candidate.name === property.name),
 			);
 		return extra.length === 0 ? own : [...own, ...extra];
-	}, [targetCaseType, filter, extraProperties]);
+	}, [sourceProperties, targetCaseType, filter, extraProperties]);
 	const selectedLeading = leadingChoices.find((choice) => choice.selected);
 	const visibleLeading = useMemo(() => {
 		const normalizedQuery = query.trim().toLocaleLowerCase();

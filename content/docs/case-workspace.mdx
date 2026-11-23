@@ -113,18 +113,21 @@ Search button's display condition.
 After each update, return to the field to see the remaining uses. Once none
 remain, the dialog closes and **Remove search field** is ready for you again.
 
-## Show information of the case above
+## Show information from a linked case
 
-A column can show information of a case above the one listed, such as the
-household a member belongs to or the cooperative a farmer joined. In the
-column's properties, **From** lists this case and each case type above it. Pick
-one, then choose its information as you would for this case. Every kind of
-column works this way, from plain text to dates, phone numbers, value labels
-and images, and it sorts and matches the list's search like any other.
+A column can show information from another case, such as a household's
+address beside each member. In the column's **From** menu, choose the
+household link, then choose the address. **Follow another link** lets you
+continue from the household to another case.
 
-A case with nothing above it shows a blank cell. A case list that offers
-Search can't show such a column, since a search's results read the case above
-in a different way: add a calculated column that reads the case above instead.
+An app can also have older cases with links its current forms never create.
+**Choose another link** lets you enter the link name those cases carry.
+**Use a property by name** lets you enter the information to show when the
+destination is unknown. A missing link or property leaves the cell blank.
+
+In a menu with Search, Results reads the linked cases included in the
+search result. A worker can see a blank cell there when the related case
+is available only on the device.
 
 ## Show a link to a file
 

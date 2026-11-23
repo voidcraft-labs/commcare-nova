@@ -12,6 +12,8 @@ import {
 	type PropertyColumn,
 	sameColumnVia,
 } from "@/lib/domain";
+import { declaredCaseRelations } from "@/lib/domain/caseRelations";
+import { humanizeId } from "@/lib/domain/idSlug";
 
 /** One case a column can read from: its walk (none for this case), the case
  *  type it reaches, and what the picker calls it. */
@@ -61,6 +63,36 @@ export function columnSources(
 					: `The ${parent}, ${steps.length} steps above it`,
 		});
 		at = parent;
+	}
+	const origin = caseTypes.find((type) => type.name === currentCaseType);
+	if (origin !== undefined) {
+		const firstSteps = new Set(
+			declaredCaseRelations(origin).map((edge) => edge.identifier),
+		);
+		for (const identifier of firstSteps) {
+			if (
+				sources.some(
+					(source) =>
+						source.via?.length === 1 && source.via[0].identifier === identifier,
+				)
+			)
+				continue;
+			const via: ColumnVia = [{ identifier }];
+			const reached = columnPropertyCaseType(
+				{ via },
+				currentCaseType,
+				caseTypes,
+			);
+			sources.push({
+				key: `link-${identifier}`,
+				via,
+				caseType: reached,
+				label:
+					reached === undefined
+						? `Related case through ${identifier}`
+						: `${humanizeId(reached)} through ${identifier}`,
+			});
+		}
 	}
 	if (
 		current !== undefined &&

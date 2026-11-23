@@ -36,6 +36,8 @@ import type { Uuid } from "@/lib/doc/types";
 import { humanizeId } from "@/lib/domain";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
+import { CaseRelationsSection } from "./CaseRelationsSection";
+
 interface ModuleCaseTypeSectionProps {
 	moduleUuid: Uuid;
 }
@@ -148,6 +150,13 @@ export function ModuleCaseTypeSection({
 					</p>
 				)}
 			</div>
+
+			{module.caseType && (
+				<CaseRelationsSection
+					key={module.caseType}
+					caseType={module.caseType}
+				/>
+			)}
 
 			<AlertDialog
 				open={pendingSwitch !== null}

@@ -52,13 +52,13 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
 import {
 	ancestorPath,
 	anyRelationPath,
 	type RelationPath,
 	relationStep,
 	subcasePath,
-	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/expression";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import {
@@ -76,6 +76,7 @@ import {
 	customRelationPath,
 	DEFAULT_IDENTIFIER,
 	declaredParentCaseType,
+	forwardCaseTypes,
 	isRelationKind,
 	KIND_OPTIONS,
 	kindLabel,
@@ -189,7 +190,7 @@ export function RelationPathBuilder({
 	});
 	const customIdentifier = pendingCustomKindChange?.identifier.trim() ?? "";
 	const customIdentifierIsValid =
-		XML_ELEMENT_NAME_PATTERN.test(customIdentifier) &&
+		CASE_INDEX_NAME_PATTERN.test(customIdentifier) &&
 		customIdentifier !== DEFAULT_IDENTIFIER;
 	const customCandidate =
 		pendingCustomKindChange !== null &&
@@ -570,7 +571,7 @@ function AncestorSteps({
 			(context) =>
 				context.parentCaseType !== undefined && context.qualifierIsValid,
 		) &&
-		value.via.every((step) => XML_ELEMENT_NAME_PATTERN.test(step.identifier));
+		value.via.every((step) => CASE_INDEX_NAME_PATTERN.test(step.identifier));
 	const finalCaseType = contexts.at(-1)?.parentCaseType;
 	const nextParent =
 		pathIsValid && finalCaseType !== undefined
@@ -612,6 +613,15 @@ function AncestorSteps({
 		<div className="min-w-0 space-y-2">
 			{value.via.map((step, index) => {
 				const context = contexts[index];
+				const candidates = forwardCaseTypes(
+					context.originCaseType,
+					step.identifier,
+					caseTypes,
+				);
+				const choices =
+					candidates.length === 0 && step.identifier !== DEFAULT_IDENTIFIER
+						? caseTypes
+						: candidates;
 				const removablePath =
 					value.via.length > 1
 						? withoutAncestorStep(value, index, originCaseType, caseTypes)
@@ -669,17 +679,8 @@ function AncestorSteps({
 								id={`${id}-case-type-${index}`}
 								label="Related case type"
 								value={step.throughCaseType}
-								caseTypes={
-									step.identifier === DEFAULT_IDENTIFIER
-										? context.parentCaseType === undefined
-											? []
-											: [context.parentCaseType]
-										: caseTypes.map((caseType) => caseType.name)
-								}
-								allowAutomatic={
-									step.identifier === DEFAULT_IDENTIFIER &&
-									context.parentCaseType !== undefined
-								}
+								caseTypes={choices.map((type) => type.name)}
+								allowAutomatic={candidates.length === 1}
 								automaticLabel={
 									context.parentCaseType === undefined
 										? "Use the parent case type"
@@ -709,7 +710,7 @@ function AncestorSteps({
 						) : null}
 
 						<RelationshipSettings
-							needsRepair={!XML_ELEMENT_NAME_PATTERN.test(step.identifier)}
+							needsRepair={!CASE_INDEX_NAME_PATTERN.test(step.identifier)}
 						>
 							<RelationshipNameField
 								key={step.identifier}
@@ -933,7 +934,7 @@ function SingleRelationship({
 			) : null}
 
 			<RelationshipSettings
-				needsRepair={!XML_ELEMENT_NAME_PATTERN.test(value.identifier)}
+				needsRepair={!CASE_INDEX_NAME_PATTERN.test(value.identifier)}
 			>
 				<RelationshipNameField
 					key={value.identifier}
@@ -1137,7 +1138,7 @@ function RelationshipNameField({
 	const [draft, setDraft] = useState(value);
 	const skipNextBlurCommit = useRef(false);
 	const normalizedDraft = draft.trim();
-	const isValid = XML_ELEMENT_NAME_PATTERN.test(normalizedDraft);
+	const isValid = CASE_INDEX_NAME_PATTERN.test(normalizedDraft);
 	const admission =
 		!isValid || normalizedDraft === value
 			? ({ admitted: true } as const)

@@ -1152,3 +1152,40 @@ test("a column shows information of the case above the listed one", async ({
 		via: [{ identifier: "parent" }],
 	});
 });
+
+test("a column follows an older case link and keeps its stored property name", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=related`);
+	await page
+		.locator('[data-case-column-select="00000000-0000-7000-8000-000000006001"]')
+		.first()
+		.click();
+	const from = page.getByRole("combobox", { name: "Read information from" });
+	await from.click();
+	await page.getByRole("option", { name: "Choose another link" }).click();
+	await page.getByLabel("Link name on the case").fill("historic-site");
+	await page.getByRole("button", { name: "Use this link" }).click();
+	await expect(from).toHaveText(/historic-site/);
+	await page.getByRole("button", { name: /^Information from:/ }).click();
+	await page.getByRole("menuitem", { name: "Use a property by name" }).click();
+	await page
+		.getByLabel("Property name on the related case")
+		.fill("outreach_status");
+	await page.getByRole("button", { name: "Use this property" }).click();
+	await expect(
+		page.getByRole("button", { name: /^Information from:/ }),
+	).toContainText(/outreach status/i);
+	await page
+		.getByRole("button", { name: "Leave workspace", exact: true })
+		.click();
+	expect(
+		(await savedModule(page)).caseListConfig.columns.find(
+			(one: { uuid: string }) =>
+				one.uuid === "00000000-0000-7000-8000-000000006001",
+		),
+	).toMatchObject({
+		field: "outreach_status",
+		via: [{ identifier: "historic-site" }],
+	});
+});

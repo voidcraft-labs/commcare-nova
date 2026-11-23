@@ -33,11 +33,14 @@
 // this.
 
 "use client";
+import { useId, useState } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { useEditorVocabulary } from "@/components/builder/shared/editorContext";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
+import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
 import {
 	Select,
 	SelectContent,
@@ -47,6 +50,8 @@ import {
 } from "@/components/shadcn/select";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { type CaseProperty, type ColumnVia, sameColumnVia } from "@/lib/domain";
+import { readCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import { propertiesReachedByColumn } from "@/lib/domain/columnRelation";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { columnSources } from "../../columnSources";
 
@@ -91,24 +96,50 @@ export function ColumnFieldRow({
 	via,
 	onSourceChange,
 }: ColumnFieldRowProps) {
+	const [editingLink, setEditingLink] = useState(false);
+	const [link, setLink] = useState("");
+	const [editingName, setEditingName] = useState(false);
+	const [propertyName, setPropertyName] = useState("");
+	const id = useId();
 	const fieldInvalid = errors !== undefined && errors.length > 0;
 	const { caseTypes, currentCaseType } = useEditorVocabulary();
 	const projectProse = useProseProjection();
 	const sources = columnSources(currentCaseType, caseTypes, via);
 	const source =
 		sources.find((one) => sameColumnVia(one.via, via)) ?? sources[0];
-	const readCaseType = source?.caseType ?? currentCaseType;
-	const properties =
-		caseTypes.find((caseType) => caseType.name === readCaseType)?.properties ??
-		[];
+	const readCaseType = source.caseType;
+	const properties = propertiesReachedByColumn(
+		source,
+		currentCaseType,
+		caseTypes,
+		field,
+	);
 	const chooseSource = (key: string | null) => {
+		if (key === "add-link") {
+			setLink("");
+			setEditingLink(true);
+			return;
+		}
 		const next = sources.find((one) => one.key === key);
 		if (next === undefined || onSourceChange === undefined) return;
-		const keeps = caseTypes
-			.find((caseType) => caseType.name === next.caseType)
-			?.properties.some((property) => property.name === field);
-		onSourceChange(next.via, keeps === true ? field : "");
+		setEditingLink(false);
+		setEditingName(false);
+		const keeps = propertiesReachedByColumn(
+			next,
+			currentCaseType,
+			caseTypes,
+			field,
+		).some(
+			(property) =>
+				property.name === field &&
+				(propertyFilter === undefined || propertyFilter(property)),
+		);
+		onSourceChange(next.via, keeps ? field : "");
 	};
+	const linkValid =
+		/^[A-Za-z][A-Za-z0-9_-]*$/.test(link) &&
+		(via !== undefined || link !== "user");
+
 	const inheritedHeader = propertyDisplayLabelForName(
 		field,
 		properties,
@@ -117,7 +148,7 @@ export function ColumnFieldRow({
 	const usesInheritedHeader = header.trim() === "";
 	return (
 		<div className="space-y-4 [&_button]:!text-[14px] [&_input]:!text-[14px]">
-			{onSourceChange !== undefined && sources.length > 1 ? (
+			{onSourceChange !== undefined && currentCaseType !== undefined ? (
 				<div>
 					<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>From</div>
 					<Select value={source?.key ?? "self"} onValueChange={chooseSource}>
@@ -133,24 +164,99 @@ export function ColumnFieldRow({
 									{one.label}
 								</SelectItem>
 							))}
+							<SelectItem value="add-link">
+								{via === undefined
+									? "Choose another link"
+									: "Follow another link"}
+							</SelectItem>
 						</SelectContent>
 					</Select>
-					<p className="mt-1.5 text-[12px] leading-4 text-nova-text-muted">
-						Show information of a case above this one, such as the household a
-						member belongs to.
-					</p>
+					{editingLink && (
+						<div className="mt-2 space-y-2">
+							<label htmlFor={`${id}-link`} className="text-sm">
+								Link name on the case
+							</label>
+							<Input
+								id={`${id}-link`}
+								value={link}
+								onChange={(event) => setLink(event.target.value)}
+							/>
+							{link && !linkValid && (
+								<p className="text-xs text-nova-rose">
+									A case link starts with a letter. It can include numbers,
+									hyphens and underscores. The first link uses the name saved on
+									the case.
+								</p>
+							)}
+							<div className="flex gap-2">
+								<Button
+									disabled={!linkValid}
+									onClick={() => {
+										onSourceChange(
+											[...(via ?? []), { identifier: link }] as ColumnVia,
+											field,
+										);
+										setEditingLink(false);
+									}}
+								>
+									Use this link
+								</Button>
+								<Button variant="ghost" onClick={() => setEditingLink(false)}>
+									Cancel
+								</Button>
+							</div>
+						</div>
+					)}
 				</div>
 			) : null}
 			<div>
 				<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Information from</div>
 				<PropertyPicker
 					caseType={readCaseType}
+					sourceProperties={properties}
+					onCreateNew={
+						via === undefined || readCaseType !== undefined
+							? undefined
+							: () => {
+									setPropertyName(field);
+									setEditingName(true);
+								}
+					}
+					createNewLabel="Use a property by name"
 					value={field === "" ? undefined : field}
 					onChange={onFieldChange}
 					filter={propertyFilter}
 					invalid={fieldInvalid}
 					ariaLabel="Information from"
 				/>
+				{editingName && (
+					<div className="mt-2 space-y-2">
+						<label htmlFor={`${id}-property`} className="text-sm">
+							Property name on the related case
+						</label>
+						<Input
+							id={`${id}-property`}
+							value={propertyName}
+							onChange={(event) => setPropertyName(event.target.value)}
+						/>
+						<div className="flex gap-2">
+							<Button
+								disabled={
+									!readCasePropertyNameSchema.safeParse(propertyName).success
+								}
+								onClick={() => {
+									onFieldChange(propertyName);
+									setEditingName(false);
+								}}
+							>
+								Use this property
+							</Button>
+							<Button variant="ghost" onClick={() => setEditingName(false)}>
+								Cancel
+							</Button>
+						</div>
+					</div>
+				)}
 				<InlineError errors={errors ?? []} />
 			</div>
 			<div>
