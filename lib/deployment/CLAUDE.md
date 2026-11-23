@@ -1020,6 +1020,15 @@ cases against HQ's views (`proof/hq/test_publish.py`).
   the earlier read's less exactly the predicted keys, and every key the
   import does not write (a key the body leaves out, or one the update keeps
   from HQ's app) reads as it did before. Then the baseline is a `push`.
+  One case stays indistinguishable, and Nova accepts it: a single save in an
+  HQ editor, inside the window between the counter read right before the
+  POST and HQ loading the app, that removes exactly the predicted keys. An
+  editor clearing a menu or form icon pops its map key in that save
+  (`app_manager/models/mixins.py::set_media`); the import then finds nothing
+  to prune and saves once, so the counter moves by two. The read back shows
+  the same map, every key the import leaves alone unchanged, and the icon
+  slot as the body wrote it, since the body carries menu and form media. No
+  field the read back holds tells the editor's save from HQ's own.
 - Any other acknowledgement more than one past the counter before the final
   source read can be a concurrent edit. Nova records an `unread` baseline,
   warns that the publish landed, and asks before writing over the app on the
