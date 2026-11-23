@@ -101,7 +101,7 @@ export interface CaseAvailabilityComposerProps {
 				readonly inputLabel: string;
 		  }
 		| {
-				readonly kind: "assigned-cases";
+				readonly kind: "assigned-cases" | "search-filter";
 				readonly token: number;
 				readonly inputLabel: string;
 		  };
@@ -136,9 +136,11 @@ export function CaseAvailabilityComposer({
 	const surface =
 		dependencyReview?.kind === "cases-available"
 			? (dependencyReview.surface ?? "list")
-			: hasSearch
-				? chosenSurface
-				: undefined;
+			: dependencyReview?.kind === "search-filter"
+				? "search"
+				: hasSearch
+					? chosenSurface
+					: undefined;
 	const condition =
 		surface === "search"
 			? effectiveFilterForEmission(searchConditionOf(config))
@@ -208,7 +210,9 @@ export function CaseAvailabilityComposer({
 						is used in{" "}
 						{dependencyReview.kind === "assigned-cases"
 							? "Assigned cases"
-							: "Cases available"}
+							: dependencyReview.kind === "search-filter"
+								? "Search filters"
+								: "Cases available"}
 					</p>
 					<Button
 						type="button"

@@ -2088,6 +2088,15 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				token: inputRemovalReview.token,
 				inputLabel: inputRemovalReview.inputLabel,
 			};
+		} else if (
+			inputRemovalReview?.phase === "target" &&
+			inputRemovalReview.dependency.kind === "search-filter"
+		) {
+			resultsDependencyReview = {
+				kind: "search-filter",
+				token: inputRemovalReview.token,
+				inputLabel: inputRemovalReview.inputLabel,
+			};
 		}
 	}
 
@@ -3108,7 +3117,9 @@ function SearchInputInspectorBody({
 											? `${dependency.inputUuid}:${dependency.slot}`
 											: dependency.kind === "form-field"
 												? dependency.fieldUuid
-												: "results"
+												: dependency.kind === "search-filter"
+													? dependency.filterUuid
+													: "results"
 									}:${
 										dependency.kind === "form-field"
 											? dependency.uses

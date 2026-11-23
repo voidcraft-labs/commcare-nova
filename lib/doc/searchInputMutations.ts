@@ -56,6 +56,14 @@ export type SearchInputRemovalDependency =
 			readonly label: "Assigned cases";
 			readonly paths: SearchInputOccurrencePaths;
 	  }
+	/** A search filter whose value reads the answer, on the Online search
+	 * surface of Results' Cases available. */
+	| {
+			readonly kind: "search-filter";
+			readonly label: string;
+			readonly filterUuid: Uuid;
+			readonly paths: SearchInputOccurrencePaths;
+	  }
 	| {
 			readonly kind: "search-button-visibility";
 			readonly label: "Search button visibility";
@@ -214,6 +222,21 @@ export function searchInputRemovalDependencies(
 			kind: "search-field-default",
 			label: `“${input.label.trim() || input.name.trim() || "Another search field"}” starting value`,
 			inputUuid: input.uuid,
+			paths,
+		});
+	}
+	// A search filter's value is checked against the declared inputs
+	// (`nativeSearchFilters.ts`), so a removal that orphans a ref there would
+	// bounce off the commit gate without this entry.
+	for (const [index, filter] of (config.searchFilters ?? []).entries()) {
+		const paths = nonEmptyPaths(
+			expressionInputPaths(filter.value, target.uuid),
+		);
+		if (paths === undefined) continue;
+		dependencies.push({
+			kind: "search-filter",
+			label: `Search filter ${index + 1}`,
+			filterUuid: filter.uuid,
 			paths,
 		});
 	}
