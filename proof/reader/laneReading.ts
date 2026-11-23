@@ -303,6 +303,20 @@ export function noRetainedAnswer(path: string, base: string): string {
 	return `Nova's reader asked CommCare HQ for ${path} while it read ${base}, and the lane holds no answer for that request. The retained answers are every request Nova's client makes of an app; either the client now asks for something new, which the lane must read and keep (proof/matrix/retain.py), or it built an address HQ does not give.`;
 }
 
+/** A reading that asked for a request the lane holds no answer for: its
+ * message is `noRetainedAnswer`'s, and `path` the request. A base the lane
+ * made is set aside by it until the round authors it again; any other
+ * reading stops on it. */
+export class LaneAnswerMissing extends Error {
+	constructor(
+		readonly path: string,
+		readonly base: string,
+	) {
+		super(noRetainedAnswer(path, base));
+		this.name = "LaneAnswerMissing";
+	}
+}
+
 const MINT_WITHOUT_PROJECT_DATA =
 	"A first reading of an app CommCare HQ holds needs HQ's project data answers (projectData), since the reading asks HQ for its lookup tables before the reader runs. Look at whoever built this LaneReadInput: the lane's records or proof/hq-apps/<base>/.";
 
@@ -1021,7 +1035,7 @@ export async function readForLane(input: LaneReadInput): Promise<LaneReading> {
 		);
 	} catch (error) {
 		if (error instanceof RetainedAnswerMissing)
-			throw new Error(noRetainedAnswer(error.path, input.appId));
+			throw new LaneAnswerMissing(error.path, input.appId);
 		throw error;
 	}
 }
