@@ -74,9 +74,9 @@ const requestSchema = z.strictObject({
 	restore: z.literal(true).optional(),
 	choice: manualChoiceSchema.optional(),
 	carried: z.array(manualChoiceSchema).optional(),
-	/** The form entry whose submission opened this one (a link or the
-	 * previous task): its committed patch is on the device. */
-	afterSubmission: z.string().min(1).optional(),
+	/** The form entries the device submitted since it last synced, oldest
+	 * first: it holds each one's committed patch. */
+	afterSubmission: z.array(z.string().min(1)).max(32).optional(),
 });
 
 function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
@@ -208,26 +208,20 @@ export async function readFormOpeningAction(
 				appId: args.app,
 				restoreScope: context.restoreScope,
 			});
-			/* A device keeps what its last submission wrote until it syncs, a
-			 * case that submission closed among it, so the form a submission
-			 * opens reads the restore with that submission's committed patch,
-			 * read from this actor's own receipt, laid over it. */
-			const submitted =
-				args.afterSubmission === undefined
-					? undefined
-					: await context.store.readSubmittedCaseDatabasePatch({
-							appId: args.app,
-							entryKey: args.afterSubmission,
-						});
-			if (args.afterSubmission !== undefined && submitted === undefined)
-				return reopen;
-			const restored =
-				submitted === undefined
-					? restore
-					: overlayCaseDatabasePatch(restore, submitted);
-			submittedCaseIds = new Set(
-				submitted?.rows.map((row) => row.case_id) ?? [],
-			);
+			/* A device keeps what it submitted until it syncs, a case a
+			 * submission closed among it, so the form reads the restore with
+			 * each of those submissions' committed patches, read from this
+			 * actor's own receipts, laid over it in order. */
+			let restored = restore;
+			for (const entryKey of args.afterSubmission ?? []) {
+				const submitted = await context.store.readSubmittedCaseDatabasePatch({
+					appId: args.app,
+					entryKey,
+				});
+				if (submitted === undefined) return reopen;
+				restored = overlayCaseDatabasePatch(restored, submitted);
+				for (const row of submitted.rows) submittedCaseIds.add(row.case_id);
+			}
 			const cases = appReadsPlaces(doc)
 				? {
 						...restored,

@@ -2332,6 +2332,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 				entryDatums: new Map(Object.entries(args.opening.datums)),
 				openingReads: {
 					currentOwnerIds: args.currentOwnerIds ?? [args.identity.ownerId],
+					...(args.opening.submittedCaseIds?.length && {
+						submittedCaseIds: args.opening.submittedCaseIds,
+					}),
 					cases: restoreOpeningCases(args.opening.cases),
 					locations: args.opening.cases.locations ?? [],
 					lookupRows: Object.entries(args.opening.lookup.rowsByTable).flatMap(

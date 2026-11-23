@@ -1172,6 +1172,7 @@ export async function executeSubmissionEnvelope(
 		args.ordinary,
 		selectedCaseIds,
 		currentAccess,
+		opening?.submittedCaseIds,
 	);
 	const operationRecords: OperationEffectRecord[] = [];
 	let registeredCaseId: string | undefined;
@@ -1577,6 +1578,7 @@ async function resolveOperationProgram(
 			anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
 		},
 		currentAccess,
+		opening?.submittedCaseIds,
 	);
 
 	// Resolve every executing instance's target + links.
@@ -1981,6 +1983,7 @@ async function resolveOperationProgram(
 					appId,
 					{ unheldIds: [reached], anyIds: [] },
 					currentAccess,
+					opening?.submittedCaseIds,
 				);
 				const destination = current.get(reached);
 				const expected = instance.envelope.viaCaseTypes?.get(writeIndex);
@@ -2199,20 +2202,33 @@ async function loadSelectedCaseAnchors(
 	ordinary: ApplySubmissionArgs["ordinary"],
 	caseIds: readonly string[],
 	currentAccess?: RestoreScopeQuery,
+	submittedCaseIds: readonly string[] = [],
 ): Promise<ReadonlyMap<string, SessionAnchor>> {
 	if (caseIds.length === 0) return new Map();
-	const selected = (currentAccess?.creator ?? trx)
-		.selectFrom("cases as c")
-		.select(["c.case_id", "c.case_type"])
-		.where("c.app_id", "=", appId)
-		.where("c.case_id", "in", caseIds)
-		.where("c.project_id", "=", host.projectId)
-		.where(workerRowAvailable(host.actingUserId))
-		.orderBy("c.case_id")
-		.forUpdate("c");
-	const rows = await (
-		currentAccess?.restrict(selected, "c") ?? selected
-	).execute();
+	const select = (ids: readonly string[], restrict: boolean) => {
+		const selected = (currentAccess?.creator ?? trx)
+			.selectFrom("cases as c")
+			.select(["c.case_id", "c.case_type"])
+			.where("c.app_id", "=", appId)
+			.where("c.case_id", "in", ids)
+			.where("c.project_id", "=", host.projectId)
+			.where(workerRowAvailable(host.actingUserId))
+			.orderBy("c.case_id")
+			.forUpdate("c");
+		return (
+			(restrict ? currentAccess?.restrict(selected, "c") : undefined) ??
+			selected
+		).execute();
+	};
+	// A case the device holds from this actor's own unsynced submission is
+	// its to write though the current restore omits it (one it closed).
+	const held = new Set(submittedCaseIds);
+	const restricted = caseIds.filter((id) => !held.has(id));
+	const exempt = caseIds.filter((id) => held.has(id));
+	const rows = [
+		...(restricted.length ? await select(restricted, true) : []),
+		...(exempt.length ? await select(exempt, false) : []),
+	];
 	const byId = new Map(
 		rows.map((row) => [
 			row.case_id,
@@ -2256,13 +2272,20 @@ async function loadTargetRows(
 	appId: string,
 	ids: { unheldIds: readonly string[]; anyIds: readonly string[] },
 	currentAccess?: RestoreScopeQuery,
+	submittedCaseIds: readonly string[] = [],
 ): Promise<ReadonlyMap<string, { caseId: string; caseType: string }>> {
 	const rows = new Map<string, { caseId: string; caseType: string }>();
+	// A case the device holds from this actor's own unsynced submission is
+	// its to write though the current restore omits it (one it closed).
+	const submitted = new Set(submittedCaseIds);
 	const load = async (
 		caseIds: readonly string[],
 		excludeHeld: boolean,
+		restrict = true,
 	): Promise<void> => {
-		const distinct = [...new Set(caseIds)];
+		const distinct = [...new Set(caseIds)].filter(
+			(id) => submitted.has(id) !== restrict,
+		);
 		if (distinct.length === 0) return;
 		let qb = (currentAccess?.creator ?? trx)
 			.selectFrom("cases as c")
@@ -2273,7 +2296,7 @@ async function loadTargetRows(
 			.where("c.case_id", "in", distinct)
 			.orderBy("c.case_id")
 			.forUpdate("c");
-		if (currentAccess) qb = currentAccess.restrict(qb, "c");
+		if (currentAccess && restrict) qb = currentAccess.restrict(qb, "c");
 		if (excludeHeld) {
 			qb = qb.where(({ not, exists, selectFrom }) =>
 				not(
@@ -2292,6 +2315,8 @@ async function loadTargetRows(
 	};
 	await load(ids.unheldIds, true);
 	await load(ids.anyIds, false);
+	await load(ids.unheldIds, true, false);
+	await load(ids.anyIds, false, false);
 	return rows;
 }
 

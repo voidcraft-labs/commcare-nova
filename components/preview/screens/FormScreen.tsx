@@ -1655,6 +1655,16 @@ export function FormScreen({
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, isCurrent, settleAttempt } = args;
+		/* The device now holds what the entry wrote until it syncs, a case it
+		 * closed among it; each later signed opening of this run reads it
+		 * (`formOpeningAction.ts`). */
+		if (submitted.entryKey !== undefined)
+			session
+				.getState()
+				.notePreviewSubmission(
+					session.getState().previewSessionId,
+					submitted.entryKey,
+				);
 		/* The searches as the submission found them, which a landing that
 		 * keys a menu's search to the registered case carries on. */
 		const searchesAtSubmit = session.getState().previewSearchStates;
@@ -2357,7 +2367,6 @@ export function FormScreen({
 											? next.selectingModuleUuids
 											: [],
 									caseDatabase: route.task.caseDatabase,
-									afterSubmission: sourceEntryKey,
 								},
 					);
 					settleAttempt({ kind: "idle" });
@@ -2371,7 +2380,6 @@ export function FormScreen({
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,
 							caseDatabase: refreshedCaseDatabase,
-							afterSubmission: sourceEntryKey,
 							entryChoices: route.task.entryChoices,
 							openedByLink: true,
 						});
@@ -2380,7 +2388,6 @@ export function FormScreen({
 						setPreviewCaseTarget({
 							formUuid: next.formUuid,
 							caseDatabase: refreshedCaseDatabase,
-							afterSubmission: sourceEntryKey,
 						});
 						const [first, ...remaining] = next.selectingModuleUuids;
 						if (first === undefined)
@@ -2451,7 +2458,6 @@ export function FormScreen({
 									}
 								: {}),
 						caseDatabase: refreshedCaseDatabase,
-						afterSubmission: sourceEntryKey,
 					});
 					settleAttempt({ kind: "idle" });
 					navigate.openForm(route.moduleUuid, route.formUuid);

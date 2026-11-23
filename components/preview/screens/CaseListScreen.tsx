@@ -2548,7 +2548,6 @@ export function CaseListScreen({
 			...(filterText !== "" && { caseListSearchText: filterText }),
 			...(caseDatabase !== undefined && {
 				caseDatabase,
-				afterSubmission: taskContinuation?.afterSubmission,
 				caseData:
 					cases.length === 1
 						? caseDatabaseToFormPreloads(
@@ -2626,7 +2625,6 @@ export function CaseListScreen({
 							? (selected?.cases ?? [])
 							: [],
 						caseDatabase: taskContinuation.caseDatabase,
-						afterSubmission: taskContinuation.afterSubmission,
 						caseData:
 							selected?.cases.length === 1
 								? caseDatabaseToFormPreloads(

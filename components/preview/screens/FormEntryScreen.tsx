@@ -91,6 +91,12 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 	const current = usePreviewCaseTarget();
 	const setTarget = useSetPreviewCaseTarget();
 	const setSelectedCase = useSetPreviewSelectedCase();
+	/* The submissions this run's device holds, read when the opening is
+	 * asked for: a later submission changes no opening already loaded. */
+	const unsyncedEntries = () => {
+		const held = session.getState().previewUnsyncedEntries;
+		return held?.run === run ? [...held.keys] : [];
+	};
 	const navigate = useNavigate();
 	const session = useBuilderSessionApi();
 	const target = current?.formUuid === screen.formUuid ? current : undefined;
@@ -165,7 +171,6 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 		(autoCases.state.kind !== "loading" && autoCases.state.kind !== "idle");
 	const bound = held ?? autoBound;
 	const linkedChoices = target?.openedByLink ? target.entryChoices : undefined;
-	const afterSubmission = target?.afterSubmission;
 	const parentChoices = useMemo(() => {
 		const chosen: Record<string, string[]> = {};
 		const seen = new Set([screen.moduleUuid]);
@@ -191,7 +196,6 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 			autoSettled,
 			parentChoices,
 			linkedChoices,
-			afterSubmission,
 		}),
 		[
 			app,
@@ -204,7 +208,6 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 			autoSettled,
 			parentChoices,
 			linkedChoices,
-			afterSubmission,
 		],
 	);
 	const initial = useReloadableResource<RequestResult>({
@@ -251,7 +254,7 @@ function ConfiguredFormEntry({ screen, run }: { screen: Screen; run: string }) {
 											selection: row.selectionUuid,
 											caseId: row.caseId,
 										})),
-										afterSubmission,
+										afterSubmission: unsyncedEntries(),
 									}),
 						},
 						device,

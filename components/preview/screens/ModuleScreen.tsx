@@ -637,9 +637,6 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 									returnModuleUuid: moduleUuid,
 									selectingModuleUuids,
 									caseDatabase: continuedWorld,
-									...(taskContinuation?.afterSubmission !== undefined && {
-										afterSubmission: taskContinuation.afterSubmission,
-									}),
 								});
 								setPreviewCaseTarget({
 									formUuid: form.uuid,
@@ -647,7 +644,6 @@ export function ModuleScreen({ screen, current }: ModuleScreenProps) {
 										? formMenuCase && { cases: formMenuCase.cases }
 										: { cases: [] }),
 									caseDatabase: continuedWorld,
-									afterSubmission: taskContinuation?.afterSubmission,
 									caseData:
 										formMenuCase?.cases.length === 1
 											? caseDatabaseToFormPreloads(

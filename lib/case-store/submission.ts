@@ -165,6 +165,11 @@ export interface OwnCaseProgram {
  * reauthorizes reached targets before changing any current row. */
 export interface OpeningReadSet {
 	readonly currentOwnerIds: readonly string[];
+	/** Cases this actor's own unsynced submissions left on the device, which
+	 * the signed opening carries: the device holds them though the current
+	 * restore may not (a case one of them closed), so a write may still
+	 * reach them. */
+	readonly submittedCaseIds?: readonly string[];
 	readonly cases: DeviceCaseDatabase;
 	readonly locations?: readonly Pick<
 		import("@/lib/organization/footprint").LocationFixtureRow,

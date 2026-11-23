@@ -572,7 +572,7 @@ it("opens the next form on the device its submission left, a case the restore no
 		"record-unavailable",
 	);
 	const afterSubmission = await readFormOpeningAction(
-		{ ...following, afterSubmission: request.entry },
+		{ ...following, afterSubmission: [request.entry] },
 		device,
 	);
 	if (afterSubmission.kind !== "opening")
@@ -599,7 +599,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	expect(
 		(
 			await readFormOpeningAction(
-				{ ...following, afterSubmission: "never-submitted" },
+				{ ...following, afterSubmission: [request.entry, "never-submitted"] },
 				device,
 			)
 		).kind,

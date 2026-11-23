@@ -3474,6 +3474,10 @@ describe("the form's own case", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.properties.copy).toBe(
 			"C",
 		);
+		// A case this actor's own unsynced submission left on the device is
+		// still the device's to write, though the current restore omits it.
+		await visit("held", { ...entered, submittedCaseIds: [first] });
+		expect((await patientRow(store, first))?.properties.notes).toBe("held");
 	});
 
 	it("saves an only-if-changed write only when the answer differs from the case's value", async () => {

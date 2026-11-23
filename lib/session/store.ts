@@ -88,6 +88,10 @@ import type {
  * stand-in read, and the content hash and extension every export names the
  * file by, which Preview's list filter reads an image map's path from.
  */
+/** The submissions an opening lays over the restore, newest last
+ *  (`formOpeningAction.ts`, which takes as many). */
+export const MAX_UNSYNCED_ENTRIES = 32;
+
 export type AssetMetaRow = ExportBudgetRowView & {
 	contentHash: string;
 	extension: string;
@@ -362,6 +366,12 @@ export interface BuilderSessionState {
 	/** Epoch milliseconds of this Preview run's last sync on Android: set when
 	 *  Preview starts on Android and by Sync with server. */
 	previewDeviceSyncedAt: number | undefined;
+	/** The form entries this run's device submitted since it last synced, in
+	 *  order: it holds what each wrote, a case one closed among it, until it
+	 *  syncs. A new run is a device that holds none. */
+	previewUnsyncedEntries:
+		| { readonly run: string; readonly keys: readonly string[] }
+		| undefined;
 	/** The UUID part of Android's `deviceid` (`commcare_<uuid>`), minted when
 	 *  the store is created: one page load is one install. */
 	previewAndroidDeviceId: string;
@@ -760,6 +770,8 @@ export interface BuilderSessionState {
 	setPreviewAtDeviceHome: (atHome: boolean) => void;
 	/** Record Sync with server's time. */
 	markPreviewDeviceSynced: (at: number) => void;
+	/** Record a committed submission of this run's device. */
+	notePreviewSubmission: (run: string, entryKey: string) => void;
 	clearEntryPointLaunch: () => void;
 	/** Choose which persona Preview runs as. `undefined` = the signed-in
 	 *  member. Changing identity mid-session drops the case target: the
@@ -1034,6 +1046,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewPlatform: undefined as Platform | undefined,
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
+				previewUnsyncedEntries: undefined as
+					| { readonly run: string; readonly keys: readonly string[] }
+					| undefined,
 				/* `uuid` rather than `crypto.randomUUID`, for the reason
 				 * `newPreviewSessionId` gives: the builder opened over plain
 				 * http on a LAN address would throw making this store. */
@@ -1623,7 +1638,20 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				markPreviewDeviceSynced(at: number) {
-					set({ previewDeviceSyncedAt: at });
+					set({ previewDeviceSyncedAt: at, previewUnsyncedEntries: undefined });
+				},
+
+				notePreviewSubmission(run: string, entryKey: string) {
+					const held = get().previewUnsyncedEntries;
+					const keys = held?.run === run ? held.keys : [];
+					if (keys.includes(entryKey)) return;
+					/* The newest are kept: an opening reads at most this many. */
+					set({
+						previewUnsyncedEntries: {
+							run,
+							keys: [...keys, entryKey].slice(-MAX_UNSYNCED_ENTRIES),
+						},
+					});
 				},
 
 				setActiveFieldId(fieldId: string | undefined) {
@@ -1655,7 +1683,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								),
 						) &&
 						current?.caseData === target?.caseData &&
-						current?.afterSubmission === target?.afterSubmission &&
 						current?.caseDatabase === target?.caseDatabase &&
 						current?.searchLaunch?.moduleUuid ===
 							target?.searchLaunch?.moduleUuid &&
