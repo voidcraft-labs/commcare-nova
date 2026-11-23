@@ -155,6 +155,22 @@ function survey(
 }
 
 /** A survey whose one field is `spec`, under the fixture field's uuid. */
+/** A survey whose one repeat holds a note and the hidden value `slots` sets. */
+function inARepeat(slots: Record<string, string>): BlueprintDoc {
+	return survey([
+		f({
+			kind: "repeat",
+			id: "rows",
+			label: proseText("Rows"),
+			repeat_mode: "user_controlled",
+			children: [
+				f({ kind: "text", id: "note", label: proseText("Note") }),
+				f({ kind: "hidden", id: "value", uuid: FIXTURE_FIELD, ...slots }),
+			],
+		}),
+	]);
+}
+
 function oneField(spec: FieldSpec): BlueprintDoc {
 	return survey([f({ ...spec, uuid: FIXTURE_FIELD })]);
 }
@@ -647,6 +663,22 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				help: "Ask twice",
 			}),
 		use: slotUse("help-media", FIELD_OWNER, "help_media"),
+	},
+	"row-starting-value": {
+		with: () => inARepeat({ default_value: "'D'", calculate: "../note" }),
+		// The same pair outside every repeat: every platform runs it alike.
+		without: () =>
+			survey([
+				f({ kind: "text", id: "note", label: proseText("Note") }),
+				f({
+					kind: "hidden",
+					id: "value",
+					uuid: FIXTURE_FIELD,
+					default_value: "'D'",
+					calculate: "#form/note",
+				}),
+			]),
+		use: slotUse("row-starting-value", FIELD_OWNER, "default_value"),
 	},
 	now: calculatePair("now", "now()"),
 	today: calculatePair("today", "today()"),

@@ -55,6 +55,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"questions/groups-nested-in-a-question-list",
 	],
 	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
+	"row-starting-value": [
+		"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression",
+	],
 	"plain-text": [
 		"questions/plain-label-containing-html-text",
 		"questions/choice-label-with-no-markdown-form",

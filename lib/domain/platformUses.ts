@@ -360,7 +360,7 @@ export function platformFeatureUses(
 				...expressionUses({ entity: "form", uuid: formUuid }, () => formOwner),
 			);
 			out.push(...inFeatureOrder(formUses));
-			const walkFields = (parentUuid: Uuid) => {
+			const walkFields = (parentUuid: Uuid, inRepeat: boolean) => {
 				for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 					const field = doc.fields[fieldUuid];
 					if (field === undefined) continue;
@@ -368,14 +368,15 @@ export function platformFeatureUses(
 						...fieldUses(
 							{ kind: "field", moduleUuid, formUuid, fieldUuid },
 							field,
+							inRepeat,
 							wanted,
 							expressionUses,
 						),
 					);
-					walkFields(fieldUuid);
+					walkFields(fieldUuid, inRepeat || field.kind === "repeat");
 				}
 			};
-			walkFields(formUuid);
+			walkFields(formUuid, false);
 		}
 	}
 
@@ -617,6 +618,8 @@ function searchInputUses(
 function fieldUses(
 	owner: Extract<PlatformFeatureOwner, { kind: "field" }>,
 	field: Field,
+	/** Whether a repeat holds the field, at any depth. */
+	inRepeat: boolean,
 	wanted: (feature: PlatformFeatureId) => boolean,
 	expressionUses: ExpressionUses,
 ): PlatformFeatureUse[] {
@@ -651,6 +654,14 @@ function fieldUses(
 		wanted("help-media")
 	)
 		uses.push(slotUse("help-media", owner, "help_media"));
+	if (
+		inRepeat &&
+		field.kind === "hidden" &&
+		field.default_value !== undefined &&
+		field.calculate !== undefined &&
+		wanted("row-starting-value")
+	)
+		uses.push(slotUse("row-starting-value", owner, "default_value"));
 	uses.push(
 		...expressionUses({ entity: "field", uuid: owner.fieldUuid }, () => owner),
 	);

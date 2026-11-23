@@ -350,6 +350,71 @@ export const PLATFORM_MODEL_CHECKS = {
 		}
 	},
 
+	/* A row's starting value beside a calculation that reads a value the
+	 * row's insertion set first: a later starting value in the row reads it,
+	 * and the row keeps it on Android, while Web Apps works the calculation
+	 * out again on the next answer, so the starting value never reaches the
+	 * form Web Apps sends. Both platforms take the calculation once what it
+	 * reads changes. */
+	"row-starting-value": () => {
+		const run = (platform: Platform) => {
+			const engine = new FormEngine(
+				engineFixtureInput(
+					[
+						{ id: "unrelated", kind: "text" },
+						{
+							id: "rows",
+							kind: "repeat",
+							repeat_mode: "user_controlled",
+							children: [
+								{ id: "note", kind: "text", default_value: "'a'" },
+								{
+									id: "value",
+									kind: "hidden",
+									default_value: "'D'",
+									calculate: "concat(../note, '!')",
+								},
+								{ id: "seen", kind: "text", default_value: "../value" },
+							],
+						},
+					],
+					{ formUuid: testUuid("cell-model-row-value"), formType: "survey" },
+				),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					device: platform === "web-apps" ? webAppsDevice() : androidDevice(),
+				},
+			);
+			engine.addRepeat("/data/rows");
+			const inserted = {
+				value: engine.getState("/data/rows[1]/value").value,
+				seen: engine.getState("/data/rows[1]/seen").value,
+			};
+			engine.setValue("/data/unrelated", "u");
+			const afterUnrelated = engine.getState("/data/rows[1]/value").value;
+			engine.setValue("/data/rows[1]/note", "ab");
+			return {
+				inserted,
+				afterUnrelated,
+				afterRead: engine.getState("/data/rows[1]/value").value,
+			};
+		};
+		expect(run("web-apps")).toEqual({
+			inserted: { value: "D", seen: "D" },
+			afterUnrelated: "a!",
+			afterRead: "ab!",
+		});
+		expect(run("android")).toEqual({
+			inserted: { value: "D", seen: "D" },
+			afterUnrelated: "D",
+			afterRead: "ab!",
+		});
+	},
+
 	/* Formplayer's day numbers count from UTC's midnight: the calendar day
 	 * less one in Kiritimati, the day in Kolkata, one more twelve hours
 	 * behind; fractional days are the instant over a day; `date(n)` is the

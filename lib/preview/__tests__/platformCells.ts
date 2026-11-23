@@ -132,6 +132,8 @@ export const PLATFORM_CELLS: Readonly<
 
 	// ── Model ──────────────────────────────────────────────────────────
 	"expressions-and-data/now@web-apps": model("recalculation-every-request"),
+	"questions/hidden-value-with-both-calculate-and-a-default-by-any-expression@web-apps":
+		model("row-starting-value"),
 	"expressions-and-data/random@web-apps": model("recalculation-every-request"),
 	"expressions-and-data/uuid@web-apps": model("recalculation-every-request"),
 	"expressions-and-data/sleep@web-apps": model("recalculation-every-request"),

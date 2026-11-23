@@ -426,7 +426,7 @@ questions closes any optional editor you had just opened.
 
 **Show when** affects the question's data as well as its visibility. When its
 condition is false, the answer is omitted from submission and can read as blank
-in other expressions. A **Hidden** field carries a value without showing a question. Its **Starting value** runs when the form opens or its repeat row is added. A later question can copy that value as its own starting answer. Its **Calculation** updates the hidden value as answers change. You can use either setting, both, or leave the field blank.
+in other expressions. A **Hidden** field carries a value without showing a question. Its **Starting value** runs when the form opens or its repeat row is added. A later question can copy that value as its own starting answer. Its **Calculation** updates the hidden value as answers change. You can use either setting, both, or leave the field blank. In a repeat, a hidden value with both runs differently on each platform. In Web Apps, the worker's next answer works out the calculation again, so the starting value is gone before the form is sent. On Android, the starting value stays, and is sent, until the calculation runs again.
 
 A starting value can read another answer in the form. Renaming that question in
 Nova keeps the starting value reading it; renaming it in CommCare HQ's form

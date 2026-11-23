@@ -202,6 +202,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"plain-text",
 	"choice-media",
 	"help-media",
+	"row-starting-value",
 	"now",
 	"today",
 	"random-and-unique-id",
@@ -534,6 +535,32 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "it shows only when the help has text",
 		},
 		android: { reading: "runs" },
+	},
+	/**
+	 * A Hidden Value in a repeat that holds both a starting value and a
+	 * calculation. The row's insertion sets the starting value, and Core runs
+	 * the row's calculations without the ones that insertion already
+	 * triggered (`FormDef.java::createNewRepeat`, `initTriggerablesRootedBy`).
+	 * Formplayer loads the form again on each request and runs every
+	 * calculation (`FormSession.initialize`); Android keeps the value until
+	 * the calculation runs again (`FormEntryActivity.saveAnswersForCurrentScreen`).
+	 */
+	"row-starting-value": {
+		label: "Starting value beside a calculation in a repeat",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note:
+				"the worker's next answer works out the calculation again, so the " +
+				"starting value is gone before the form is sent",
+		},
+		android: {
+			reading: "runs",
+			note:
+				"the starting value stays, and is sent, until the calculation runs " +
+				"again: when something it reads changes, or a screen holding an " +
+				"answer is saved",
+		},
 	},
 	now: {
 		label: "now()",
