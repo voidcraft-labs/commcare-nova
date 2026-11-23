@@ -402,24 +402,24 @@ export function caseListReturnFirstMenuCase(
 		host.caseType,
 	);
 	if (newCaseId === undefined) return undefined;
-	const frames = caseListFormReturnFrames(
-		doc,
-		ctx,
-		hostModuleUuid,
-		newCaseId,
-		host.caseType,
-		returnTo.kind,
-	);
-	const roots = frames.flatMap((frame) => [
-		...homeSelectionConsumers(doc, ctx, frame.target),
-	]);
-	if (roots.length === 0) return undefined;
 	const submitting = entryFrameDatums(
 		doc,
 		ctx,
 		formModuleUuid,
 		offered.formUuid,
 	);
+	const frames = caseListFormReturnFrames(
+		doc,
+		ctx,
+		hostModuleUuid,
+		newCaseId,
+		submitting,
+		returnTo.kind,
+	);
+	const roots = frames.flatMap((frame) => [
+		...homeSelectionConsumers(doc, ctx, frame.target),
+	]);
+	if (roots.length === 0) return undefined;
 	const conflict = roots.some(
 		([datum, row]) =>
 			(doc.appSettings?.runsOnlyOn === "web-apps"

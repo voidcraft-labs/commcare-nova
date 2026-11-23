@@ -22,6 +22,7 @@ import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
 	caseListFormReturnFrames,
+	entryFrameDatums,
 	entryNewCaseDatumId,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
@@ -634,7 +635,7 @@ function writtenFrames(doc: BlueprintDoc): {
 					ctx,
 					hostUuid,
 					newCaseId,
-					host.caseType,
+					entryFrameDatums(emitted, ctx, moduleUuid, formUuid),
 					returnTo.kind,
 				).entries()) {
 					registerReturns++;

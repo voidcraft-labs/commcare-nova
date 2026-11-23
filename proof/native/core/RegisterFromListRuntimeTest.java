@@ -122,13 +122,13 @@ public class RegisterFromListRuntimeTest {
      assertEquals(label+" the form lands where its own after-submit says",landingOf("case-list-action-roles-"+shape,host),session.getCommand());
      continue;
     }
-    String member = null;
+    String member = null, household = null;
     for (SessionDatum datum : suite.getEntry(command).getSessionDataReqs()) {
      if (!(datum instanceof ComputedDatum)) continue;
      String key = datum.getDataId(), id = session.getData().get(key);
      boolean person = key.contains("person");
      assertTrue(label+" "+key, person || key.contains("household"));
-     if (person) member = id;
+     if (person) member = id; else household = id;
      // The other created case exists even where the chosen case was skipped.
      if (!person || wroteMember) {
       Case record = new Case(key,person ? "person" : "household");
@@ -137,9 +137,13 @@ public class RegisterFromListRuntimeTest {
      }
     }
     assertNotNull(label,member);
+    assertNotNull(label,household);
     session.finishExecuteAndPop(session.getEvaluationContext());
     assertEquals(label,host,session.getCommand());
     assertEquals(label,wroteMember,session.getData().containsValue(member));
+    // The return opens the members of the household the form created: HQ keys the list's household datum to
+    // the form's new household (`_find_best_match`), not to the one chosen before the list.
+    assertEquals(label+" the return's household",household,session.getData().get("parent_id"));
    }
   }
  }

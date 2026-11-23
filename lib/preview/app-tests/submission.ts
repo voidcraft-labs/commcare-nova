@@ -195,6 +195,16 @@ export async function submitAppTest(
 							cases: screen.caseIds.map((caseId) => ({ caseId })),
 						}
 					: undefined,
+				(operationUuid, caseType) => {
+					const key = built.program?.entryCaseKeys?.get(operationUuid);
+					return key === undefined
+						? undefined
+						: registeredCaseOnDevice(
+								result.caseDatabasePatch,
+								entryDatumCaseId(scope.appId, screen.entry.entryKey, key),
+								caseType,
+							);
+				},
 			);
 			const landingScreen = registrationLanding.screen;
 			const afterSubmitStack = completeAfterSubmitWithOwnFrame(

@@ -1697,6 +1697,22 @@ export function FormScreen({ screen }: FormScreenProps) {
 				submitted.moduleCaseType && submitted.cases
 					? { caseType: submitted.moduleCaseType, cases: submitted.cases }
 					: undefined,
+				(operationUuid, caseType) => {
+					const datumId = registrationLanding.createdSelections?.find(
+						(row) => row.operationUuid === operationUuid,
+					)?.datumId;
+					const caseId =
+						datumId === undefined
+							? undefined
+							: submitted.entrySession?.data[datumId];
+					return caseId === undefined
+						? undefined
+						: registeredCaseOnDevice(
+								result.caseDatabasePatch,
+								caseId,
+								caseType,
+							);
+				},
 			);
 			for (const moduleUuid of Object.keys(current))
 				if (next[moduleUuid] === undefined)

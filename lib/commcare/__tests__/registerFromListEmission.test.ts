@@ -622,6 +622,17 @@ it.each([false, true])(
 				frame.if?.includes(`/session/data/${childId}`),
 			),
 		).toBe(true);
+		// Both return frames open the members of the household the form
+		// created: HQ matches the list's household datum to the form's new
+		// household (`_find_best_match`), not to the household chosen before.
+		const returns = frames(entry(suiteDoc, "m3-f1"));
+		expect(returns).toHaveLength(2);
+		for (const frame of returns)
+			expect(
+				frame.children.find((child) => child.id === "parent_id")?.value,
+			).toBe(
+				"instance('commcaresession')/session/data/case_id_new_household_0",
+			);
 		expect(
 			frames(entry(suiteDoc, "m3-f0")).some((frame) =>
 				frame.if?.includes("return_to"),

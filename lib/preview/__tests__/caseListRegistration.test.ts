@@ -11,6 +11,10 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
+	actionRoleIds,
+	caseListActionRolesFixture,
+} from "@/lib/commcare/__tests__/caseListActionRolesFixture";
+import {
 	type BlueprintDoc,
 	type CaseListRegistrationReturn,
 	menuScreenOf,
@@ -786,5 +790,51 @@ describe("selectionsAfterRegistrationReturn", () => {
 				undefined,
 			),
 		).toEqual({ [OTHER]: elsewhere });
+	});
+});
+
+describe("a Register return that also registers the list's parent", () => {
+	it("chooses the household the form created, as HQ's frame keys the parent to it", () => {
+		// HQ matches the members list's household datum to the form's new
+		// household (`_find_best_match`), not to the household chosen before.
+		const doc = caseListActionRolesFixture();
+		const landing = caseListActionReturn(
+			doc,
+			actionRoleIds.register,
+			{ hostModuleUuid: actionRoleIds.registerList },
+			"new-member",
+		);
+		const ownHousehold = doc.forms[actionRoleIds.register].caseOperations?.find(
+			(operation) => operation.action === "own",
+		)?.uuid;
+		expect(landing?.createdSelections).toEqual([
+			{
+				moduleUuid: actionRoleIds.households,
+				operationUuid: ownHousehold,
+				datumId: "case_id_new_household_0",
+				caseType: "household",
+			},
+		]);
+		if (!landing) throw new Error("The list returns to the new member.");
+		const chosen = { caseType: "household", cases: [{ caseId: "chosen" }] };
+		const next = selectionsAfterRegistrationReturn(
+			{ [actionRoleIds.households]: chosen },
+			landing,
+			actionRoleIds.registerList,
+			"person",
+			{ caseId: "new-member", caseName: "Ada" },
+			undefined,
+			(operationUuid, caseType) =>
+				operationUuid === ownHousehold && caseType === "household"
+					? { caseId: "new-household", caseName: "Banda" }
+					: undefined,
+		);
+		expect(next[actionRoleIds.households]).toEqual({
+			caseType: "household",
+			cases: [{ caseId: "new-household", caseName: "Banda" }],
+		});
+		expect(next[actionRoleIds.registerList]?.cases[0]?.caseId).toBe(
+			"new-member",
+		);
 	});
 });

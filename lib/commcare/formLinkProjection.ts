@@ -1852,20 +1852,24 @@ export interface SourceMatch {
 	}>;
 }
 
-/** HQ's `_get_datums_matched_to_source`. */
-export function matchFrameToSource(
+/** One target child matched to the source (`_get_datums_matched_to_source`):
+ *  its pending value and, for a selection or a query keyed to a source datum,
+ *  that datum's id. */
+interface SourceMatchedChild {
+	readonly pending: PendingChild;
+	readonly sourceId?: string;
+}
+
+/** HQ's `_get_datums_matched_to_source` over one call's children, before
+ *  `_replace_session_references_in_stack`: each child aligned with its
+ *  target. */
+function matchChildrenToSource(
 	target: readonly FrameChild[],
 	source: readonly FrameDatum[],
-): SourceMatch {
+): SourceMatchedChild[] {
 	let unused = [...source];
-	const pending: PendingChild[] = [];
-	const unmatched: FrameDatum[] = [];
-	const matched: Array<{ id: string; sourceId: string }> = [];
-	for (const [index, child] of target.entries()) {
-		if (child.type === "command") {
-			pending.push(child);
-			continue;
-		}
+	return target.map((child, index): SourceMatchedChild => {
+		if (child.type === "command") return { pending: child };
 		const { datum } = child;
 		if (datum.query !== undefined) {
 			// The query fetches whatever the NEXT datum will match to, so it
@@ -1875,38 +1879,60 @@ export function matchFrameToSource(
 				next?.type === "datum" && next.datum.requiresSelection
 					? findBestMatch(next.datum, unused)
 					: undefined;
-			pending.push(
-				queryChild(datum, nextMatch?.sourceId ?? datum.query.nextDatumId),
-			);
-			continue;
+			return {
+				pending: queryChild(
+					datum,
+					nextMatch?.sourceId ?? datum.query.nextDatumId,
+				),
+				...(nextMatch && { sourceId: nextMatch.sourceId }),
+			};
 		}
-		if (!datum.requiresSelection) {
-			pending.push(functionChild(datum));
-			continue;
-		}
+		if (!datum.requiresSelection) return { pending: functionChild(datum) };
 		const match = findBestMatch(datum, unused);
-		if (match === undefined) {
-			unmatched.push(datum);
-			pending.push({
-				type: "datum",
-				id: datum.id,
-				value: sessionDataRef(datum.id),
-			});
-			continue;
-		}
+		if (match === undefined)
+			return {
+				pending: {
+					type: "datum",
+					id: datum.id,
+					value: sessionDataRef(datum.id),
+				},
+			};
 		// HQ filters the consumed source by the MATCH's id, which is the
 		// target's id (`match.id`), not the source's — mirrored as is.
 		unused = unused.filter((candidate) => candidate.id !== datum.id);
-		matched.push({ id: datum.id, sourceId: match.sourceId });
-		pending.push({
-			type: "datum",
-			id: datum.id,
-			value: sessionDataRef(match.sourceId),
-		});
+		return {
+			pending: {
+				type: "datum",
+				id: datum.id,
+				value: sessionDataRef(match.sourceId),
+			},
+			sourceId: match.sourceId,
+		};
+	});
+}
+
+/** HQ's `_get_datums_matched_to_source`. */
+export function matchFrameToSource(
+	target: readonly FrameChild[],
+	source: readonly FrameDatum[],
+): SourceMatch {
+	const children = matchChildrenToSource(target, source);
+	const unmatched: FrameDatum[] = [];
+	const matched: Array<{ id: string; sourceId: string }> = [];
+	for (const [index, child] of target.entries()) {
+		if (
+			child.type !== "datum" ||
+			child.datum.query !== undefined ||
+			!child.datum.requiresSelection
+		)
+			continue;
+		const sourceId = children[index]?.sourceId;
+		if (sourceId === undefined) unmatched.push(child.datum);
+		else matched.push({ id: child.datum.id, sourceId });
 	}
 	return {
 		children: replaceSessionReferences(
-			pending,
+			children.map((child) => child.pending),
 			new Set(source.map((datum) => datum.id)),
 		),
 		unmatched,
@@ -2091,6 +2117,15 @@ export interface CaseListFormReturnFrame {
 	 *  Results, and its forms' read of what the search found, hold that one
 	 *  case. What Preview reads; never emitted. */
 	readonly newCaseSearchModuleUuids: readonly Uuid[];
+	/** The earlier menus whose selection the frame takes from another case
+	 *  the form created: each selection matched to one of the form's new-case
+	 *  datums other than the host's (`_find_best_match`), as a parent of a
+	 *  type the form also registers is. What Preview reads; never emitted. */
+	readonly createdSelections: readonly {
+		readonly moduleUuid: Uuid;
+		readonly datumId: string;
+		readonly caseType: string;
+	}[];
 }
 
 /** HQ's `_add_stack_children_for_target` adds a module's children only
@@ -2114,11 +2149,12 @@ function returnFramePassReads(
  * the parent's `get_frame_children`, then the host's own (its menu command
  * and the common datum prefix of its form entries), each pass read only for
  * a module with forms or a case list menu entry. Each pass's children are
- * matched to the form's datums (`_get_datums_matched_to_source`), which
- * matches every target datum on its own: a selection of `caseType` reads
- * the form's new case and a query whose next datum selects `caseType` is
- * re-keyed to that case; any other selection reads its own session value,
- * as HQ's unmatched target does.
+ * matched to the form's datums (`_get_datums_matched_to_source` over
+ * `sourceDatums`, the offered form's own entry datums): each selection reads
+ * the first of them with its case type (`_find_best_match`), so a parent of
+ * a type the form also creates reads the form's new case of that type, and
+ * a query is keyed to whatever its next datum reads; a selection nothing
+ * matches reads its own session value, as HQ's unmatched target does.
  *
  * `case-list` (`post_form_workflow: case_list`) is one frame. Each pass adds
  * its children up to its first matched selection
@@ -2141,14 +2177,15 @@ function returnFramePassReads(
  * prefix: its pass is its command alone, and the worker returns to the
  * module rather than to a Results keyed to the new case.
  *
- * `newCaseId` is the form's own new-case datum (`case_id_new_<t>_0`).
+ * `newCaseId` is the form's new-case datum of the host's type
+ * (`source_session_var`), where the cut falls.
  */
 export function caseListFormReturnFrames(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	hostUuid: Uuid,
 	newCaseId: string,
-	caseType: string,
+	sourceDatums: readonly FrameDatum[],
 	afterSubmit: CaseListRegistrationReturn,
 ): readonly CaseListFormReturnFrame[] {
 	const parentUuid = moduleParent(doc, hostUuid);
@@ -2158,46 +2195,39 @@ export function caseListFormReturnFrames(
 	]
 		.filter((moduleUuid) => returnFramePassReads(doc, ctx, moduleUuid))
 		.map((moduleUuid) => frameChildrenOf(doc, ctx, moduleUuid));
-	/* A selection of `caseType`, which reads the new case, and a query whose
-	 * next datum is one, which fetches it. */
-	const selectsNewCase = (child: FrameChild): boolean =>
-		child.type === "datum" &&
-		child.datum.query === undefined &&
-		child.datum.requiresSelection &&
-		child.datum.caseType === caseType;
-	const readsNewCase = (child: FrameChild): boolean =>
-		selectsNewCase(child) ||
-		(child.type === "datum" &&
-			child.datum.query !== undefined &&
-			child.datum.caseType === caseType);
-	const matched = (child: FrameChild): PendingChild => {
-		if (child.type === "command") return child;
-		const { datum } = child;
-		if (datum.query !== undefined)
-			return queryChild(
-				datum,
-				readsNewCase(child) ? newCaseId : datum.query.nextDatumId,
-			);
-		if (!datum.requiresSelection) return functionChild(datum);
-		return {
-			type: "datum",
-			id: datum.id,
-			value: sessionDataRef(readsNewCase(child) ? newCaseId : datum.id),
-		};
+	const sources = new Set(sourceDatums.map((datum) => datum.id));
+	const created = new Set(
+		sourceDatums
+			.filter((datum) => !datum.requiresSelection && datum.query === undefined)
+			.map((datum) => datum.id),
+	);
+	type Built = {
+		readonly target: FrameChild;
+		readonly pending: PendingChild;
+		/** The source datum a selection or query was keyed to. */
+		readonly sourceId?: string;
 	};
-	const sources = new Set([newCaseId]);
-	type Built = { readonly target: FrameChild; readonly pending: PendingChild };
 	const full: Built[] = [];
 	const cut: Built[] = [];
 	for (const pass of passes) {
 		const onStack = new Set(full.map((built) => frameChildId(built.target)));
+		const remaining =
+			afterSubmit === "new-case"
+				? pass.filter((child) => !onStack.has(frameChildId(child)))
+				: pass;
+		const matched = matchChildrenToSource(remaining, sourceDatums);
 		let reachedNewCase = false;
-		for (const child of pass) {
-			if (afterSubmit === "new-case" && onStack.has(frameChildId(child)))
-				continue;
-			const built = { target: child, pending: matched(child) };
+		for (const [index, child] of remaining.entries()) {
+			const match = matched[index];
+			if (match === undefined) continue;
+			const built = { target: child, ...match };
 			full.push(built);
-			if (selectsNewCase(child)) reachedNewCase = true;
+			if (
+				child.type === "datum" &&
+				child.datum.query === undefined &&
+				match.sourceId === newCaseId
+			)
+				reachedNewCase = true;
 			if (!reachedNewCase) cut.push(built);
 		}
 	}
@@ -2211,11 +2241,29 @@ export function caseListFormReturnFrames(
 			sources,
 		),
 		target: built.map((child) => child.target),
-		newCaseSearchModuleUuids: built.flatMap(({ target }) =>
+		newCaseSearchModuleUuids: built.flatMap(({ target, sourceId }) =>
 			target.type === "datum" &&
 			target.datum.query?.searchModuleUuid !== undefined &&
-			readsNewCase(target)
+			sourceId === newCaseId
 				? [target.datum.query.searchModuleUuid]
+				: [],
+		),
+		createdSelections: built.flatMap(({ target, sourceId }) =>
+			target.type === "datum" &&
+			target.datum.query === undefined &&
+			target.datum.requiresSelection &&
+			target.datum.selectionSourceModuleUuid !== undefined &&
+			target.datum.caseType !== undefined &&
+			sourceId !== undefined &&
+			sourceId !== newCaseId &&
+			created.has(sourceId)
+				? [
+						{
+							moduleUuid: target.datum.selectionSourceModuleUuid,
+							datumId: sourceId,
+							caseType: target.datum.caseType,
+						},
+					]
 				: [],
 		),
 	});
@@ -2364,7 +2412,7 @@ export function caseListActionReturnFrames(
 				ctx,
 				hostUuid,
 				newCaseId,
-				hostCaseType,
+				entryDatums.map((datum) => toFrameDatum(datum, ctx)),
 				returnTo.kind,
 			);
 }

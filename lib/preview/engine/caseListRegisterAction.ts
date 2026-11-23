@@ -97,6 +97,15 @@ export interface RegistrationReturnLanding extends FrameLanding {
 	 *  Results, and its forms' read of what the search found, hold that one
 	 *  case, or none where the form created no case. */
 	readonly newCaseSearchModuleUuids: readonly Uuid[];
+	/** The menus the frame selects another case the form created in, by
+	 *  the case operation that created it and its entry datum
+	 *  (`CaseListFormReturnFrame.createdSelections`). */
+	readonly createdSelections?: readonly {
+		readonly moduleUuid: Uuid;
+		readonly operationUuid: Uuid;
+		readonly datumId: string;
+		readonly caseType: string;
+	}[];
 	readonly earlierSelections?: readonly {
 		target: Uuid;
 		source: Uuid;
@@ -177,9 +186,17 @@ export function caseListActionReturn(
 				]
 			: [];
 	});
+	const operations = new Map(
+		ctx.newCaseDatums(formUuid).map((datum) => [datum.id, datum.operationUuid]),
+	);
+	const createdSelections = frame.createdSelections.flatMap((row) => {
+		const operationUuid = operations.get(row.datumId);
+		return operationUuid === undefined ? [] : [{ ...row, operationUuid }];
+	});
 	return {
 		...screenOfFrame(ctx, frame.target),
 		...(earlierSelections.length > 0 && { earlierSelections }),
+		...(createdSelections.length > 0 && { createdSelections }),
 		newCaseSearchModuleUuids: frame.newCaseSearchModuleUuids,
 	};
 }
@@ -277,14 +294,42 @@ export function registeredCaseOnDevice(
  */
 export function selectionsAfterRegistrationReturn(
 	current: Readonly<Record<string, PreviewMenuCaseSelection>>,
-	landing: FrameLanding & Pick<RegistrationReturnLanding, "earlierSelections">,
+	landing: FrameLanding &
+		Pick<RegistrationReturnLanding, "earlierSelections" | "createdSelections">,
 	hostModuleUuid: Uuid,
 	hostCaseType: string,
 	created: { readonly caseId: string; readonly caseName: string } | undefined,
 	formSelection?: PreviewMenuCaseSelection,
+	/** The device's row of each other case the form created, by its case
+	 *  operation; undefined where that operation created none. */
+	createdByOperation: (
+		operationUuid: Uuid,
+		caseType: string,
+	) =>
+		| { readonly caseId: string; readonly caseName: string }
+		| undefined = () => undefined,
 ): Record<string, PreviewMenuCaseSelection> {
 	const next: Record<string, PreviewMenuCaseSelection> = {};
 	for (const moduleUuid of landing.selectingModuleUuids) {
+		// HQ's frame keys this menu's datum to another case the form created
+		// (`_find_best_match`), whatever was chosen there before.
+		const fromForm = landing.createdSelections?.find(
+			(row) => row.moduleUuid === moduleUuid,
+		);
+		if (fromForm !== undefined && moduleUuid !== hostModuleUuid) {
+			const row = createdByOperation(fromForm.operationUuid, fromForm.caseType);
+			if (row !== undefined)
+				next[moduleUuid] = {
+					caseType: fromForm.caseType,
+					cases: [
+						{
+							caseId: row.caseId,
+							...(row.caseName !== "" && { caseName: row.caseName }),
+						},
+					],
+				};
+			continue;
+		}
 		if (
 			moduleUuid === hostModuleUuid ||
 			landing.firstMenuCases?.some(
