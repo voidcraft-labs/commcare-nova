@@ -12,6 +12,7 @@ import {
 } from "@/lib/domain";
 import { editableLanguageEntries } from "@/lib/domain/localization";
 import {
+	authoredTranslationValueMode,
 	defaultWording,
 	hasGeneratedWording,
 	snapshotTranslationUnits,
@@ -81,6 +82,7 @@ function writeReadTexts(
 				else
 					targets[unit] = {
 						...entry,
+						...authoredTranslationValueMode(current, entry.value),
 						sourceFingerprint: current.sourceFingerprint,
 					};
 			}

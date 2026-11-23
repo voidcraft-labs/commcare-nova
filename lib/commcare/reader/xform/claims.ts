@@ -1437,7 +1437,7 @@ export const X = {
 
 	// ── Translations ──────────────────────────────────────────────
 	outputsDiffer: one(
-		"refuse",
+		"take",
 		Q("a-text-whose-languages-show-different-values"),
 		"xform:model/itext/translation/text/value/output",
 	),

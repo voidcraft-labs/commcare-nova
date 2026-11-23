@@ -772,25 +772,84 @@ describe("translations, read whole", () => {
 			).toEqual([1]);
 	});
 
-	it("refuses an output of one language with no twin in the source, at the question", async () => {
+	it.each([
+		["Hi", 'Salut <output value="/data/n"/>', 1],
+		['Hi <output value="/data/n"/>', "Salut", 0],
+		[
+			'Hi <output value="/data/n"/>',
+			'Salut <output value="/data/n"/> et <output value="/data/n"/>',
+			2,
+		],
+	])(
+		"reads independently chosen outputs in the French label %s / %s",
+		async (en, fr, count) => {
+			const outcome = await readApp(
+				labelReading({ en: String(en), fr: String(fr) }),
+				["en", "fr"],
+			);
+			const doc = documentOf(outcome);
+			if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+			const translated = Object.values(
+				doc.localization?.translations.fra ?? {},
+			).find((entry) => entry.valueMode === "independent-values");
+			expect(
+				translated,
+				JSON.stringify(doc.localization?.translations),
+			).toBeDefined();
+			const target = translated?.value;
+			if (typeof target === "string" || target === undefined)
+				throw new Error("Missing translated label");
+			expect(
+				target.parts.filter((part) => part.kind === "field-ref"),
+			).toHaveLength(count as number);
+		},
+	);
+
+	/** The French label's translation entry, where the reading made one. */
+	const frenchLabel = (doc: BlueprintDoc) => {
+		const uuid = Object.values(doc.fields).find((one) => one.id === "q")?.uuid;
+		const entry = Object.entries(doc.localization?.translations.fra ?? {}).find(
+			([unit]) =>
+				uuid !== undefined && unit.includes(uuid) && unit.includes("label"),
+		)?.[1];
+		if (entry === undefined || typeof entry.value === "string")
+			throw new Error(JSON.stringify(doc.localization?.translations));
+		return { entry, parts: entry.value.parts };
+	};
+
+	it("reads an output one language alone writes as Nova writes literal text as that text, with no values of its own", async () => {
+		// Nova writes the bracket after `instance` as an output (`builder.ts::literalLabelNodes`).
 		const outcome = await readApp(
 			labelReading({
 				en: "Hi",
-				fr: `Salut <output value="/data/n"/>`,
+				fr: `Voir instance<output value="'('"/>'x')`,
 			}),
 			["en", "fr"],
 		);
-		expect(outcome.kind).toBe("account");
-		if (outcome.kind !== "account") return;
-		expect(
-			outcome.findings
-				.filter(
-					(finding) =>
-						finding.place.kind === "question" && finding.place.path === "q",
-				)
-				.map((finding) => finding.code),
-		).toEqual([Q("a-text-whose-languages-show-different-values")]);
-		expect(outcome.defects).toEqual([]);
+		const doc = documentOf(outcome);
+		if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+		const { entry, parts } = frenchLabel(doc);
+		expect(entry).not.toHaveProperty("valueMode");
+		expect(parts).toEqual([{ kind: "text", text: "Voir instance('x')" }]);
+	});
+
+	it("keeps an output one language alone holds that is only a literal as that literal value", async () => {
+		const outcome = await readApp(
+			labelReading({ en: "Hi", fr: `Salut<output value="'['"/>ami` }),
+			["en", "fr"],
+		);
+		const doc = documentOf(outcome);
+		if (outcome.kind === "read") expect(outcome.defects).toEqual([]);
+		const { entry, parts } = frenchLabel(doc);
+		expect(entry.valueMode).toBe("independent-values");
+		expect(parts).toEqual([
+			{ kind: "text", text: "Salut" },
+			{
+				kind: "value",
+				expression: { kind: "term", term: { kind: "literal", value: "[" } },
+			},
+			{ kind: "text", text: "ami" },
+		]);
 	});
 
 	it("compares a Hidden Value's bind type beside another finding of its form", async () => {

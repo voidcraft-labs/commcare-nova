@@ -198,9 +198,7 @@ Four rules hold everywhere here:
   to Case region's nodes, binds, setvalues and controls are each recorded by place
   (`caseManagement/saveToCase.ts::regionKey`), with the type HQ's question reader gives a node of
   it, and no record names a type HQ's reader never gives (`mug:SaveToCase`, `mug:Connect*`).
-  Every output of a text is claimed with its namespace, and an output of a markdown copy or of
-  another language as its source twin is, under every claim the expression stage made of the
-  twin (`xform/prose.ts::claimTwin`); a text Core parses that no slot holds (the emitter's own
+  Every language's outputs bind in the owning field or choice context. Each output is claimed with its namespace. An output of a markdown copy is claimed under every claim the expression stage made of its twin in that language (`xform/prose.ts::claimTwin`); a text Core parses that no slot holds (the emitter's own
   texts in a Save to Case region, an output of a translation the app does not hold) is
   registered for the uses its syntax makes alone (`pendingExpressions.ts::PendingExpression.usesOnly`).
   So is every attribute Core parses as XPath (the surface's `parsedAs: xpath`) that a claim read
@@ -679,9 +677,7 @@ The places that look as if they could and do not:
   builder's fill (`lib/domain/translationFill.ts`) mark the default language, `langs[0]`, never
   the source;
 - media is one per slot for every language (`media-is-shared-across-locales`);
-- a translation whose prose references differ from the source's, or a required text left blank,
-  prints the source's text (`translationUnits.ts::translationValueIntegrityIssue`), so no export
-  holds such a difference;
+- an intentional change of references in translated form text survives read-back. A missing or stale translation prints its source;
 - the local `.ccz` writes each language's own name under `app.display.name`, but the reader reads
   HQ JSON.
 

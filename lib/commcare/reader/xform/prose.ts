@@ -31,6 +31,7 @@ import {
 	translationSourceFingerprint,
 } from "@/lib/domain/localization";
 import { EMPTY_PROSE_TEMPLATE, proseTemplateIsEmpty } from "@/lib/domain/prose";
+import { canonicalProseAtom } from "@/lib/domain/proseExpression";
 import {
 	filledProse,
 	TRANSLATION_FILL_ROLES,
@@ -40,7 +41,8 @@ import {
 	itextUnitTranslationId,
 	snapshotTranslationUnits,
 	type TranslationUnit,
-	translationValueIntegrityIssue,
+	translatedProseValueMode,
+	translationEntryIntegrityIssue,
 } from "@/lib/domain/translationUnits";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { parseHqJsonText } from "../../hq/jsonText";
@@ -411,8 +413,18 @@ function claimLiteral(cursor: XmlCursor, output: SourceOutput): void {
 
 /** Claims an output of the source language registered for the expression stage: its element,
  *  and a `ref` it is written with. The value is the expression stage's to claim. */
-function claimSourceOutput(cursor: XmlCursor, output: SourceOutput): void {
-	claimOutputElement(cursor, output.element);
+function claimSourceOutput(
+	cursor: XmlCursor,
+	output: SourceOutput,
+	different = false,
+): void {
+	if (different) {
+		cursor.take({ element: output.element }, X.outputsDiffer).value;
+		cursor.derived(
+			{ element: output.element, attribute: "xmlns" },
+			X.outputNamespace,
+		);
+	} else claimOutputElement(cursor, output.element);
 	if (output.attribute === "ref")
 		cursor.take({ element: output.element, attribute: "ref" }, X.outputRef)
 			.value;
@@ -449,7 +461,10 @@ export interface SlotText {
 	readonly refused: boolean;
 	/** Each markdown copy that stands beside its language's value, read into parts: each output
 	 *  it holds is claimed as its value's twin is, once the expression stage bound the source's. */
-	readonly copies: readonly ReadValue[];
+	readonly copies: readonly {
+		value: ReadValue;
+		original: ReadValue | undefined;
+	}[];
 }
 
 /** A validation message Nova composes in its question's bind: the question, the text its
@@ -1379,10 +1394,12 @@ function setPlain(owner: ItextOwner): void {
 function registerOutputs(
 	owner: ItextOwner,
 	outputs: readonly SourceOutput[],
+	translatedOutput?: true,
 ): void {
 	for (const output of outputs)
 		owner.field.expressions.push({
 			slot: owner.slot,
+			...(translatedOutput && { translatedOutput }),
 			...(owner.option === undefined ? {} : { option: owner.option }),
 			text: output.text,
 			at: { element: output.element, attribute: output.attribute },
@@ -1552,7 +1569,7 @@ function readSlotText(
 		)
 		.map(([language]) => language);
 	let refused = false;
-	const copies: ReadValue[] = [];
+	const copies: { value: ReadValue; original: ReadValue | undefined }[] = [];
 
 	if (first) {
 		const textClaim =
@@ -1582,9 +1599,12 @@ function readSlotText(
 		}
 
 		if (claimMarkdown(input, owner, place, read, markdown, defaultLanguage))
-			for (const copy of markdown.values()) {
+			for (const [language, copy] of markdown) {
 				const parts = valueChildren(copy, scope).parts;
-				copies.push({ element: copy, parts });
+				copies.push({
+					value: { element: copy, parts },
+					original: read.get(language) ?? read.get(defaultLanguage),
+				});
 				// A literal output needs no twin, so it is claimed here, before the expression stage
 				// opens, which registers the uses its value makes (`attributeUses.ts`).
 				for (const part of parts)
@@ -1611,8 +1631,35 @@ function readSlotText(
 	for (const part of ownValue.parts)
 		if (part.kind === "output") registered.push(part.output);
 	if (first) {
-		for (const output of registered) claimSourceOutput(cursor, output);
+		const different = new Set<Element>();
+		for (const [language, value] of read) {
+			if (language === own || valueIsBlank(value)) continue;
+			const remaining = [...registered];
+			for (const part of value.parts) {
+				if (part.kind !== "output") continue;
+				const twin = remaining.findIndex((output) =>
+					sameXPathText(output.text, part.output.text, { ruleSet: "form" }),
+				);
+				if (twin < 0) different.add(part.output.element);
+				else remaining.splice(twin, 1);
+			}
+			for (const omitted of remaining) different.add(omitted.element);
+		}
+		for (const output of registered)
+			claimSourceOutput(cursor, output, different.has(output.element));
 		registerOutputs(owner, registered);
+		for (const [language, value] of read) {
+			if (language === own) continue;
+			for (const part of value.parts) {
+				if (part.kind !== "output") continue;
+				claimSourceOutput(
+					cursor,
+					part.output,
+					different.has(part.output.element),
+				);
+				registerOutputs(owner, [part.output], true);
+			}
+		}
 		registerOtherLanguageOutputs(owner, itext.otherLanguageTexts(id), scope);
 	}
 	return {
@@ -1912,12 +1959,8 @@ function recordTextOutputs(
 }
 
 /**
- * Stage 9: each text's translations, from the bound outputs. An output of another language is
- * never bound on its own: it takes the bound part of the source output it equals, each source
- * output used once, and its value is claimed under the entry its twin was claimed under. A text
- * whose languages show different values is a finding at the question; every other language's
- * template becomes a translation entry where `translationEntryFor` gives one. A text a second
- * slot references takes the first slot's bound template as its own.
+ * Each language's outputs bind independently at the question's expression
+ * site. A wording shared by multiple controls uses its first bound carrier.
  */
 export function finishText(ctx: ReadContext): void {
 	const doc = ctx.doc;
@@ -1966,7 +2009,7 @@ export function finishText(ctx: ReadContext): void {
 				const template = templateIn(next, slot.owner, unit);
 				if (template === undefined || slot.refused) continue;
 				if (localization === undefined || source === undefined) continue;
-				const atoms = template.parts.filter((part) => part.kind !== "text");
+
 				const unitId = itextUnitTranslationId(unit);
 				const sourceValue = slot.values.get(slot.own);
 				const sourceBlank =
@@ -1992,52 +2035,29 @@ export function finishText(ctx: ReadContext): void {
 					if (value === undefined) continue;
 					// The default's own text is the slot's: no translation.
 					if (borrowed && formDefault === slot.own) continue;
-					const claims = slot.first && !borrowed;
-					const used = new Set<number>();
 					const parts: ProsePart[] = [];
-					let differs = false;
+					let complete = true;
 					for (const part of value.parts) {
 						if (part.kind !== "output") {
 							parts.push({ kind: "text", text: part.text });
 							continue;
 						}
-						const twin = slot.registered.findIndex(
-							(candidate, index) =>
-								!used.has(index) &&
-								sameXPathText(part.output.text, candidate.text, {
-									ruleSet: "form",
-								}),
-						);
-						if (twin < 0 || atoms[twin] === undefined) {
-							if (claims)
-								text.cursor.refuseSubtree(
-									part.output.element,
-									X.outputsDiffer,
-									slot.place,
-								);
-							differs = true;
-							continue;
+						const index = indexOf.get(part.output.element);
+						const expression =
+							index === undefined
+								? undefined
+								: ctx.pending.outcome(index).expression;
+						if (expression === undefined) {
+							complete = false;
+							break;
 						}
-						used.add(twin);
-						parts.push(structuredClone(atoms[twin] as ProsePart));
-						if (claims)
-							claimTwin(
-								ctx,
-								text.cursor,
-								part.output,
-								slot.registered[twin] as SourceOutput,
-								indexOf,
-								slot.place,
-							);
+						parts.push(canonicalProseAtom(expression));
 					}
-					if (used.size < slot.registered.length) {
-						if (claims) ctx.accounting.finding(X.outputsDiffer, slot.place);
-						differs = true;
-					}
-					if (differs) continue;
+					if (!complete) continue;
 					const target = canonicalProseTemplate(parts);
 					const entry = translationEntryFor("prose", template, target, source);
 					if (entry === undefined) continue;
+					Object.assign(entry, translatedProseValueMode(template, target));
 					targets[unitId] = entry;
 					changed = true;
 					written.push({
@@ -2081,7 +2101,7 @@ export function finishText(ctx: ReadContext): void {
 	for (const one of written) {
 		const unit = units.get(one.unit as never);
 		if (unit === undefined) continue;
-		const issue = translationValueIntegrityIssue(unit, one.entry.value);
+		const issue = translationEntryIntegrityIssue(unit, one.entry);
 		if (issue === undefined) continue;
 		ctx.accounting.defect(
 			one.place,
@@ -2137,11 +2157,15 @@ function claimCopyOutputs(
 	slot: SlotText,
 	indexOf: ReadonlyMap<Element, number>,
 ): void {
-	for (const copy of slot.copies) {
+	for (const { value: copy, original } of slot.copies) {
+		const originals =
+			original?.parts.flatMap((part) =>
+				part.kind === "output" ? [part.output] : [],
+			) ?? [];
 		const used = new Set<number>();
 		for (const part of copy.parts) {
 			if (part.kind !== "output") continue;
-			const twin = slot.registered.findIndex(
+			const twin = originals.findIndex(
 				(candidate, index) =>
 					!used.has(index) &&
 					sameXPathText(part.output.text, candidate.text, { ruleSet: "form" }),
@@ -2152,7 +2176,7 @@ function claimCopyOutputs(
 				ctx,
 				cursor,
 				part.output,
-				slot.registered[twin] as SourceOutput,
+				originals[twin] as SourceOutput,
 				indexOf,
 				slot.place,
 			);

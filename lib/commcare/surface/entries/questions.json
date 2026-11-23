@@ -9889,10 +9889,9 @@
 		"item": "a text whose `<output>`s differ between languages: a value one language's text shows and another's does not",
 		"surfaceKeys": ["xform:model/itext/translation/text/value/output"],
 		"valueClass": "outputs-differing-by-language",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a translation that shows other values than its source text",
-		"subject": "question-text",
-		"owner": "question-display",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: independently chosen values in a question or choice translation",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

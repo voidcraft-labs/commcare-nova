@@ -21375,15 +21375,20 @@
 		"id": "hq-kept-settings/outputs-differ",
 		"base": "hq-kept-settings",
 		"entry": "questions/a-text-whose-languages-show-different-values",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Rounds",
-			"formName": "Survey",
-			"path": "note"
-		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["note"]],
+				"translation": { "language": "fra", "slot": "label" },
+				"pointer": "/valueMode",
+				"value": "independent-values"
+			},
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["note"]],
+				"translation": { "language": "fra", "slot": "label" },
+				"pointer": "/value/parts/1/kind",
+				"value": "field-ref"
+			}
+		],
 		"change": {
 			"op": "named",
 			"name": "outputs_differ"

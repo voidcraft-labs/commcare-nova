@@ -27,7 +27,12 @@ import { findAll, findOne } from "domutils";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { BlueprintDoc, LanguageTag, ProseTemplate } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type LanguageTag,
+	type ProseTemplate,
+	translatedProseValueMode,
+} from "@/lib/domain";
 import {
 	makeTranslationUnitId,
 	translationSourceFingerprint,
@@ -102,6 +107,7 @@ function spanishTranslated(
 			...translations.spa,
 			[makeTranslationUnitId("field", CONSTRAINT_CHECKED, "validate_msg")]: {
 				value: spanish,
+				...translatedProseValueMode(source, spanish),
 				sourceFingerprint: translationSourceFingerprint("prose", source),
 				origin: "human",
 				review: "reviewed",
@@ -318,6 +324,25 @@ function exportedLocales(
 }
 
 describe("a protected validation message in each language Core shows it in", () => {
+	it("keeps an answer shown only by the Spanish validation message through export and reading", async () => {
+		const english = withMessage(englishApp(), {
+			parts: [{ kind: "text", text: "Please check the answer." }],
+		});
+		const doc = spanishTranslated(english, SPANISH_MESSAGE);
+		const outcome = await reading(doc, ["en", "es"]);
+		expect(questionFindings(outcome)).toEqual([]);
+		expect(outcome.defects).toEqual([]);
+		const result = readDoc(outcome);
+		const entry = Object.values(
+			result.localization?.translations.spa ?? {},
+		).find((entry) => entry.valueMode === "independent-values");
+		expect(entry?.value).toMatchObject({
+			parts: SPANISH_MESSAGE.parts.map((part) =>
+				part.kind === "text" ? part : { kind: part.kind },
+			),
+		});
+	});
+
 	it("reads Nova's export of both languages with no finding", async () => {
 		const outcome = await reading(withLanguage(englishApp(), "spa", "es"), [
 			"en",

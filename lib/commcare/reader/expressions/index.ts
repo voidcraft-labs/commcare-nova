@@ -403,6 +403,7 @@ function proseTemplate(
  *  prose template the i-th registration under that template names. */
 type Site =
 	| { readonly kind: "slot" }
+	| { readonly kind: "translation" }
 	| { readonly kind: "prose"; readonly part: number };
 
 function sitesOf(
@@ -414,6 +415,7 @@ function sitesOf(
 		const ref = registration.ref;
 		if (!isProseSlotRef(ref))
 			return slotHolder(doc, ref) === undefined ? undefined : { kind: "slot" };
+		if (registration.translatedOutput === true) return { kind: "translation" };
 		const key = JSON.stringify(ref);
 		const ordinal = seen.get(key) ?? 0;
 		seen.set(key, ordinal + 1);
@@ -438,7 +440,12 @@ function written(
 		for (const [index, tree] of trees) {
 			const site = sites[index];
 			const registration = pending[index];
-			if (site === undefined || registration === undefined) continue;
+			if (
+				site === undefined ||
+				site.kind === "translation" ||
+				registration === undefined
+			)
+				continue;
 			if (site.kind === "slot") {
 				const held = slotHolder(draft, registration.ref);
 				if (held !== undefined) held.holder[held.key] = tree;

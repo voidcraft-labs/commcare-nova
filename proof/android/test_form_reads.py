@@ -290,11 +290,15 @@ def test_a_labels_value_is_formatted_with_the_label(android_documents, hq):
     after that, so the question's screen shows ``Styled x``, the asterisks drawn as bold, and never the asterisks:
     the order Preview plays (``lib/preview/engine/labelRefs.ts``), a value substituted and then formatted."""
     with _served(android_documents[STYLED]) as (served, archive):
-        answer, _ = _app(served, archive, "styled", commands=[FORM], views=True)
+        answer, _ = _app(served, archive, "styled", views=True)
 
-    (form,) = _forms(answer["walks"][FORM])
-    shown = _shown(form, "/data/seen[1]")
-    assert STYLED_DRAWN in shown and STYLED_SPLICED not in shown, shown
+    shown_by_language = {"en": [], "fr": []}
+    for path, walk in answer["walks"].items():
+        language = "fr" if "@language:fr" in path else "en"
+        for form in _forms(walk):
+            shown_by_language[language].extend(_shown(form, "/data/seen[1]"))
+    assert STYLED_DRAWN in shown_by_language["en"] and STYLED_SPLICED not in shown_by_language["en"]
+    assert "Zone nord, secteur nord" in shown_by_language["fr"] and STYLED_DRAWN not in shown_by_language["fr"]
 
 
 def _shown(form, reference):
