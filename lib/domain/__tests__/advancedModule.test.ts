@@ -309,6 +309,61 @@ describe("advancedKindBlockers", () => {
 		).toEqual([]);
 	});
 
+	// An opening choice, automatic selection or the worker's record would
+	// turn the menu advanced, whose item lists every open case of the type:
+	// the narrowed item keeps the menu basic, so the edit is refused rather
+	// than silently broadening what workers see. A held advanced menu already
+	// lists what CommCare HQ's item lists, so it keeps its kind.
+	it("keeps a filtered menu item's menu basic whatever would make it advanced, unless its kind is held", () => {
+		const filtered = {
+			columns: [],
+			searchInputs: [],
+			filter: isBlank(prop("member", "status")),
+		};
+		const narrowed = (edit: (doc: BlueprintDoc) => void) =>
+			advancedKindBlockers(
+				buildDoc(
+					{
+						modules: [
+							{
+								uuid: MEMBERS,
+								name: "Members",
+								caseType: "member",
+								caseListMenuItem: {},
+								caseListConfig: filtered,
+								forms: [
+									{ uuid: FOLLOW_UP, name: "Check in", type: "followup" },
+								],
+							},
+						],
+					},
+					edit,
+				),
+				members,
+			);
+		const blocked = [{ kind: "case-list-menu-item-narrowed", why: "filter" }];
+		expect(
+			narrowed((doc) => {
+				doc.modules[members].autoSelectSingle = true;
+			}),
+		).toEqual(blocked);
+		expect(
+			narrowed((doc) => {
+				doc.modules[members].caseType = "commcare-user";
+			}),
+		).toEqual(blocked);
+		expect(
+			narrowed((doc) => {
+				doc.forms[testUuid(FOLLOW_UP)].caseSelections = [];
+			}),
+		).toEqual(blocked);
+		expect(
+			narrowed((doc) => {
+				doc.modules[members].heldKind = "advanced";
+			}),
+		).toEqual([]);
+	});
+
 	it("is blocked by a case list menu item that hides some owners' cases", () => {
 		expect(
 			advancedKindBlockers(

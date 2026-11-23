@@ -137,13 +137,6 @@ export function identityMoveRenamesChosenCases(move: IdentityMove): boolean {
 	return move.reason.source === "module-kind" && move.reason.chosenCasesRenamed;
 }
 
-/** The actual worker-visible change when a published narrowed menu item becomes advanced. */
-export function caseListMoveSentence(move: IdentityMove): string {
-	return move.reason.source === "module-kind" && move.reason.expandsCaseList
-		? " Its case list menu item will show every open record of this type available to the worker. Forms will keep their own selection filters."
-		: "";
-}
-
 /** The whole statement of one move, as a tool result says it. */
 export function identityMoveSentence(
 	doc: BlueprintDoc,
@@ -154,7 +147,7 @@ export function identityMoveSentence(
 	const renamed = identityMoveRenamesChosenCases(move)
 		? ` ${CHOSEN_CASES_RENAMED_SENTENCE}`
 		: "";
-	return `${identitySubjectName(doc, move.subject)} moves from ${placementLabelWords(move.from)} to ${placementLabelWords(move.to)}. ${identityMoveReasonSentence(doc, move)}${renamed}${caseListMoveSentence(move)} ${EXPORT_COLUMNS_SENTENCE}`;
+	return `${identitySubjectName(doc, move.subject)} moves from ${placementLabelWords(move.from)} to ${placementLabelWords(move.to)}. ${identityMoveReasonSentence(doc, move)}${renamed} ${EXPORT_COLUMNS_SENTENCE}`;
 }
 
 /** One move as a tool result carries it. */

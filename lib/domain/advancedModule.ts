@@ -35,7 +35,8 @@ import type { Uuid } from "./uuid";
  *   item, and that list is narrowed by a filter (`filter`), by hidden
  *   owners (`hidden-owners`), or by a case chosen before it
  *   (`chosen-before`). HQ's advanced menu item lists every open case of the
- *   type (`entries.py::entry_for_module`).
+ *   type (`entries.py::entry_for_module`). A menu whose advanced kind is
+ *   held meets no such blocker: its item already lists what HQ's does.
  * - `chain-index`: the menu selects a parent case, and the app links one
  *   pair of its chain's case types under more than one index name. HQ's
  *   advanced load follows one index by name
@@ -396,7 +397,7 @@ function parentSelectionChain(
 /** How the menu's own case list, shown as a menu item, is narrowed, the
  *  first of filter, hidden owners and a case chosen before it; `undefined`
  *  where it lists every open case of its type. */
-export function caseListNarrowing(
+function caseListNarrowing(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): "filter" | "hidden-owners" | "chosen-before" | undefined {
@@ -436,18 +437,12 @@ export function advancedKindBlockers(
 		blockers.push({ kind: "several-cases" });
 	if (moduleFormsReadSearch(module))
 		blockers.push({ kind: "forms-read-search" });
-	const formEntryList =
-		module.heldKind === "advanced" ||
-		module.autoSelectSingle ||
-		module.caseType === "commcare-user" ||
-		(doc.formOrder[moduleUuid] ?? []).some((id) => {
-			const form = doc.forms[id];
-			return (
-				form !== undefined &&
-				(form.caseSelections !== undefined || !!form.computedDatums?.length)
-			);
-		});
-	if (moduleHasCaseListMenuItem(module) && !formEntryList) {
+	// A menu CommCare HQ already holds as advanced keeps its kind, and its
+	// item lists what HQ's advanced item lists. Any other menu stays basic
+	// where the advanced item would list cases the basic one leaves out, so
+	// no edit (an opening choice, a computed value, automatic selection or
+	// the worker's record) silently broadens what the item shows.
+	if (moduleHasCaseListMenuItem(module) && module.heldKind !== "advanced") {
 		const why = caseListNarrowing(doc, moduleUuid);
 		if (why !== undefined)
 			blockers.push({ kind: "case-list-menu-item-narrowed", why });
