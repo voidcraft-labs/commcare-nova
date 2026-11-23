@@ -3342,6 +3342,26 @@ def _search_and_menus():
                 f"{prompts}/allow_blank_value",
             ),
         ),
+        "case-search/allow-blank-value-on-a-prompt-named-owner-id": (
+            refused(
+                "app",
+                search(_search_module(properties=[_prompt("owner_id", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("owner_id", exclude=True, allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+            accepted(
+                "app",
+                search(_search_module(properties=[_prompt("dob", allow_blank_value=True)])),
+                "schema:CaseSearchProperty.allow_blank_value",
+                f"{prompts}/allow_blank_value",
+            ),
+        ),
         "case-search/validations-1": (
             refused(
                 "app",

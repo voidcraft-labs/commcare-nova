@@ -144,14 +144,43 @@ describe("search for blank admission", () => {
 		expect(refused).toBeGreaterThan(0);
 	});
 
-	it("refuses a search for blank on case information stored as an attribute", () => {
+	// A field with the project space's matching rides the bare key HQ matches by
+	// its own rule, the blank beside the answer included
+	// (`case_search/utils.py::_apply_filter`), except the owner, beside which
+	// HQ refuses a second value (`SearchCriteria._validate_multiple_terms`).
+	it.each([
+		["name", "case_name", true],
+		["case_id", "case_id", true],
+		["status", "status", true],
+		["owner_id", "owner_id", false],
+	] as const)(
+		"with the project space's matching, a search for blank on %s is admitted: %s",
+		(name, property, admitted) => {
+			const prompt = simpleSearchInputDef(
+				testUuid("p"),
+				name,
+				"Key",
+				"text",
+				property,
+				{ allowBlank: true, matching: "project-space" },
+			);
+			const blank = findings(withSearchInputs(base(), [prompt])).filter(
+				(error) =>
+					error.code === "CASE_LIST_SEARCH_FOR_BLANK_NEEDS_OWN_PROPERTY",
+			);
+			expect(blank).toHaveLength(admitted ? 0 : 1);
+			expect(searchForBlankRefusal(prompt) === undefined).toBe(admitted);
+		},
+	);
+
+	it("refuses a search for blank on case information stored as an attribute, matched by Nova's own rule", () => {
 		const prompt = simpleSearchInputDef(
 			testUuid("p"),
 			"status",
 			"Status",
 			"text",
 			"status",
-			{ allowBlank: true, matching: "project-space" },
+			{ allowBlank: true },
 		);
 		expect(searchForBlankRefusal(prompt)).toBeDefined();
 	});

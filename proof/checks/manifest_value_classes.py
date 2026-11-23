@@ -4401,6 +4401,16 @@ allow_blank_on_a_hidden_prompt.__doc__ = """``case-search/allow-blank-value-on-a
 ``hidden`` prompt, whose row Web Apps hides whole (``query.js``, ``d-none``) while it still reads a starting value
 that begins with a blank as the box ticked (``query.js::decodeValue``)."""
 
+allow_blank_beside_the_owner = _prompt_reader(
+    lambda prompt: not prompt.get("hidden")
+    and not prompt.get("exclude")
+    and prompt.get("name") == "owner_id"
+    and bool(prompt.get("allow_blank_value"))
+)
+allow_blank_beside_the_owner.__doc__ = """``case-search/allow-blank-value-on-a-prompt-named-owner-id``: ``allow_blank_value``
+on a shown ``owner_id`` prompt without ``exclude``, which reaches HQ as the owner filter, and HQ refuses a second
+value beside an owner (``case_search/models.py::SearchCriteria._validate_multiple_terms``)."""
+
 later_validations = _prompt_reader(
     lambda prompt: len(_validations(prompt)) > 1 and not prompt.get("hidden") and not _address_field(prompt)
 )
@@ -9863,6 +9873,7 @@ VALUE_CLASSES = {
     "case-search/appearance-address-with-required-or-validations": address_with_required_or_validations,
     "case-search/hidden-together-with-required-or-validations": hidden_with_required_or_validations,
     "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
+    "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,

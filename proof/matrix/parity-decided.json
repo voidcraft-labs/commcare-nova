@@ -371,6 +371,7 @@
 	],
 	"hq-search": [
 		"hq-search/blank-answer-searched-for",
+		"hq-search/blank-searched-for-beside-the-owner",
 		"hq-search/blank-searched-for-on-a-hidden-prompt",
 		"hq-search/data-registry",
 		"hq-search/default-filter-and-field-sharing-a-name",

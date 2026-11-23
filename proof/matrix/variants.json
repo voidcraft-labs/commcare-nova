@@ -33800,6 +33800,42 @@
 		}
 	},
 	{
+		"id": "hq-search/blank-searched-for-beside-the-owner",
+		"base": "hq-search",
+		"entry": "case-search/allow-blank-value-on-a-prompt-named-owner-id",
+		"standing": "never",
+		"place": {
+			"kind": "search",
+			"menu": 0,
+			"name": "Clients"
+		},
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/-",
+			"value": {
+				"name": "owner_id",
+				"label": {
+					"en": "Owner"
+				},
+				"hint": {},
+				"hidden": false,
+				"exclude": false,
+				"allow_blank_value": true,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty"
+			}
+		}
+	},
+	{
 		"id": "hq-search/blank-searched-for-on-a-hidden-prompt",
 		"base": "hq-search",
 		"entry": "case-search/allow-blank-value-on-a-hidden-prompt",

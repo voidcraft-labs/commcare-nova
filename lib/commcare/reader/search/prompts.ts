@@ -266,6 +266,12 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}allow-blank-value-on-a-hidden-prompt`,
 		"schema:CaseSearchProperty.allow_blank_value",
 	),
+	/** `allow_blank_value` on a shown prompt named `owner_id` without `exclude`: HQ refuses the
+	 *  blank sent beside an owner (`readPrompt`). */
+	allowBlankOwner: refuse(
+		`${S}allow-blank-value-on-a-prompt-named-owner-id`,
+		"schema:CaseSearchProperty.allow_blank_value",
+	),
 	receiver: refuse(
 		`${S}receiver-expression`,
 		"schema:CaseSearchProperty.receiver_expression",
@@ -665,6 +671,12 @@ function readPrompt(
 	const allowsBlank = prompt.used("allow_blank_value");
 	if (allowsBlank && hidden)
 		refuseWith("allow_blank_value", P.allowBlankHidden);
+	// A shown `owner_id` prompt without `exclude` reaches HQ as the owner filter, which refuses any
+	// second value (`case_search/models.py::SearchCriteria._validate_multiple_terms`), so a ticked
+	// box beside an answer stops the search ("Multiple values are only supported for simple text
+	// and range searches"), while the box alone searches every owner.
+	else if (allowsBlank && !exclude && name === "owner_id")
+		refuseWith("allow_blank_value", P.allowBlankOwner);
 	if (hidden) {
 		const claim = checked
 			? P.hiddenChecked

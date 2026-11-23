@@ -2328,6 +2328,14 @@ export function simpleSearchInputHasCoherentRangeWidget(
  * the project space's matching. A field Nova matches through a condition reads
  * the blank as part of its answer and finds nothing.
  *
+ * A field with the project space's matching already rides the bare prompt key
+ * on its own property (`nativeSearchFilters.ts` holds it to that), including
+ * the keys HQ matches by its own rule: `name` is the case's name, `case_id` its
+ * id and `status` a property of that name (`case_search/utils.py::_apply_filter`).
+ * The owner is the exception: HQ refuses any second value beside it
+ * (`SearchCriteria._validate_multiple_terms`), so a blank sent with an owner
+ * stops the search.
+ *
  * Returns the reason a shape is refused, or `undefined` when it can. Shared
  * by the commit gate and the builder so the builder never offers a choice the
  * gate refuses.
@@ -2340,11 +2348,14 @@ export function searchForBlankRefusal(
 ): string | undefined {
 	if (input.via !== undefined && input.via.kind !== "self")
 		return "Searching for blank works on this case's own properties, not a linked case's.";
+	if (input.matching === "project-space")
+		return input.name === "owner_id"
+			? "CommCare HQ stops a search that sends a blank beside the case owner, so searching for blank doesn't work on the owner."
+			: undefined;
 	if (input.name !== input.property)
 		return "Searching for blank needs the field's name to be the property it searches.";
 	if (CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property))
 		return "Searching for blank works on ordinary properties, not on case information the device stores differently.";
-	if (input.matching === "project-space") return undefined;
 	const mode = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
 	if (mode === "exact" && input.type === "date")
 		return "A single date searches a whole day, so searching for blank needs the project space's own date matching.";

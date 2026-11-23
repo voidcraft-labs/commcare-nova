@@ -3027,6 +3027,33 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/allow-blank-value-on-a-prompt-named-owner-id",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`allow_blank_value` on a shown prompt named `owner_id` without `exclude`",
+		"surfaceKeys": ["schema:CaseSearchProperty.allow_blank_value"],
+		"valueClass": "on-a-prompt-named-owner-id",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: a ticked box beside an owner sends the key twice and HQ raises \"Multiple values are only supported for simple text and range searches\" (`SearchCriteria._validate_multiple_terms`)",
+		"subject": "search-fields",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "a ticked box beside an owner sends the key twice and HQ raises \"Multiple values are only supported for simple text and range searches\" (`SearchCriteria._validate_multiple_terms`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/exclude",
 		"area": "case-search",
 		"section": "Case search",

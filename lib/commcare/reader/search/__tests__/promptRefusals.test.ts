@@ -13,7 +13,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWireFixture";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { runValidation } from "../../../validator/runner";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../index";
 import type { ReaderInput } from "../../types";
@@ -118,6 +120,22 @@ const CASES: readonly Case[] = [
 		},
 		findings: [
 			[`${S}allow-blank-value-on-a-hidden-prompt`, "search", "case_name"],
+		],
+	},
+	{
+		// HQ reads a shown owner_id prompt as the owner filter, which refuses the blank sent
+		// beside an answer (`SearchCriteria._validate_multiple_terms`).
+		title: "a search for blank beside the case owner",
+		edit: (body) => {
+			renameFirst(body, "owner_id");
+			first(body).allow_blank_value = true;
+		},
+		findings: [
+			[
+				`${S}allow-blank-value-on-a-prompt-named-owner-id`,
+				"search",
+				"owner_id",
+			],
 		],
 	},
 	{
@@ -463,6 +481,30 @@ describe("a Search field CommCare HQ matches by its own rule", () => {
 				),
 			).toBe(true);
 		});
+});
+
+// HQ matches a prompt named for the case's name or id by the bare key, the blank sent
+// beside the answer included (`case_search/utils.py::_get_case_property_query`), so the field the
+// project space matches carries its search for blank, and the gate admits the reading.
+describe("a search for blank on a field CommCare HQ matches by its own rule", () => {
+	it.each(["name", "case_id"])(
+		"reads %s with its search for blank, and the gate admits it",
+		async (name) => {
+			const { doc } = await documentOf((body) => {
+				renameFirst(body, name);
+				first(body).allow_blank_value = true;
+			});
+			const field = Object.values(doc.modules)
+				.flatMap((module) => module.caseListConfig?.searchInputs ?? [])
+				.find((one) => one.name === name);
+			expect(field).toMatchObject({
+				kind: "simple",
+				matching: "project-space",
+				allowBlank: true,
+			});
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		},
+	);
 });
 
 describe("a Search field Nova cannot hold", () => {

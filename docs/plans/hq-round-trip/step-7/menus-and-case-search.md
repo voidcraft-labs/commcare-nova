@@ -718,6 +718,7 @@ two kinds of `outside-predicate`, or request placement versus a device filter.
 | `case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or` | S3 |
 | `case-search/allow-blank-value` | S3 |
 | `case-search/allow-blank-value-on-a-hidden-prompt` | S3 |
+| `case-search/allow-blank-value-on-a-prompt-named-owner-id` | S3 |
 | `case-search/required-or-validation-test-outside-what-nova-types` | S3 |
 | `case-search/a-required-or-validation-test-with-no-message-in-any-language` | S3 |
 | `case-search/receiver-expression` | S3 |
