@@ -550,6 +550,104 @@ describe("read_hq_changes and bring_in_hq_changes", () => {
 		expect(await head(appId)).toEqual({ seq: edited.seq + 1, name: RENAMED });
 	});
 
+	it("returns mixed rename recovery through the registered stale apply and read tools", async () => {
+		const appId = await broughtIn();
+		const moves = Array.from({ length: 355 }, (_, i) => ({
+			caseType: "a".repeat(90),
+			from: `p${i}`,
+			to: `q${i}`,
+		}));
+		moves.push({ caseType: "b", from: "last", to: "newlast" });
+		moves.push({ caseType: "b", from: '"'.repeat(28000), to: "newlast" });
+		const review: Extract<HqChangesReview, { kind: "changes" }> = {
+			kind: "changes",
+			since: { kind: "published" },
+			readingId: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+			reviewDigest: "a".repeat(64),
+			observedDigest: "b".repeat(64),
+			requiresReview: true,
+			hqChanges: [],
+			novaChanges: [],
+			caseData: [],
+			publishChanges: [],
+			madeBy: [],
+			renamedInNova: moves,
+			tables: [],
+			projectName: "Field team",
+		};
+		// This adapter control starts with an exact review and stale write result.
+		// The adjacent physical-file test obtains both from the real HQ reader.
+		const service = await import("@/lib/deployment/hqChanges");
+		const read = vi.spyOn(service, "reviewHqChanges").mockResolvedValue(review);
+		const apply = vi
+			.spyOn(service, "bringInHqChanges")
+			.mockResolvedValue({ kind: "changed", now: review, editedBy: null });
+		try {
+			await withTools(async (client) => {
+				const nested = await call(client, "bring_in_hq_changes", {
+					app_id: appId,
+					reading_id: review.readingId,
+					review_digest: "e".repeat(64),
+					discard_nova_changes: false,
+					table_choices: {},
+				});
+				expect(nested.body).toMatchObject({
+					kind: "changed",
+					now: { kind: "changes", review_digest: null },
+				});
+				type Page = {
+					renamed_in_nova: { case_type: string; from: string; to: string }[];
+					rename_parts?: {
+						item: number;
+						part: number;
+						parts: number;
+						text: string;
+					}[];
+					renamed_in_nova_line: string;
+					review_digest: string | null;
+					observed_digest: string | null;
+					next_page: string | null;
+				};
+				let page = nested.body.now as Page;
+				const rows: Page["renamed_in_nova"] = [];
+				let parts: string[] = [];
+				for (;;) {
+					expect(page.renamed_in_nova_line).toContain("wrong case values");
+					rows.push(...page.renamed_in_nova);
+					for (const part of page.rename_parts ?? []) {
+						expect(part.part).toBe(parts.length + 1);
+						parts.push(part.text);
+						if (part.part === part.parts) {
+							rows.push(JSON.parse(parts.join("")));
+							parts = [];
+						}
+					}
+					expect(page.observed_digest).toBeNull();
+					if (!page.next_page) break;
+					expect(page.review_digest).toBeNull();
+					const result = await call(client, "read_hq_changes", {
+						app_id: appId,
+						page: page.next_page,
+					});
+					expect(result.isError).toBe(false);
+					page = result.body as Page;
+				}
+				expect(parts).toHaveLength(0);
+				expect(page.review_digest).toBe(review.reviewDigest);
+				expect(rows).toEqual(
+					moves.map(({ caseType, from, to }) => ({
+						case_type: caseType,
+						from,
+						to,
+					})),
+				);
+			});
+		} finally {
+			apply.mockRestore();
+			read.mockRestore();
+		}
+	});
+
 	it("shows all 600 quoted file removals through the changed apply receipt and the later-read SDK before accepting a decision", async () => {
 		const appId = await broughtIn();
 		const before = await head(appId);
