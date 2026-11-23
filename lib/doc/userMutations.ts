@@ -347,6 +347,7 @@ function describeUserPropertyReference(
 	if (form !== undefined) {
 		const setting: Readonly<Record<string, string>> = {
 			form_display_condition: "display condition",
+			form_badge: "badge",
 			form_link_condition: "form link condition",
 			form_link_datum_xpath: "form link value",
 			assessment_user_score: "assessment score",
@@ -377,6 +378,7 @@ function describeUserPropertyReference(
 			case_list_action_condition: "form button condition",
 			excluded_owner_ids: "Assigned cases setting",
 			module_display_condition: "display condition",
+			module_badge: "badge",
 		};
 		return `${setting[slot] ?? "condition"} in module “${module.name}”`;
 	}

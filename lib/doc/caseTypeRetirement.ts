@@ -108,6 +108,8 @@ const SLOT_LABEL: Readonly<Record<string, string>> = {
 	option_label: "option label",
 	form_display_condition: "display condition",
 	module_display_condition: "display condition",
+	form_badge: "badge",
+	module_badge: "badge",
 	form_link_condition: "after-submit link condition",
 	form_link_datum_xpath: "after-submit link value",
 	assessment_user_score: "Connect score",
