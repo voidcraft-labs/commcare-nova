@@ -265,7 +265,7 @@ class MediaUploaded:
 def apply_media_upload(state, app_id, upload: Upload) -> MediaUploaded:
     """Apply one media upload of Nova's publish through HQ's bulk multimedia API view body, to the app ``app_id``.
 
-    Nova's publish sends every asset the app's export carries as one ZIP
+    Nova's publish sends one bounded batch of its remaining assets per ZIP
     once its import landed (``lib/deployment/service.ts::uploadMediaBytes``
     -> ``lib/commcare/client.ts::uploadAppMediaBundle``, ``POST
     /a/<domain>/apps/api/<app id>/multimedia/``). The view

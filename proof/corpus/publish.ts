@@ -15,7 +15,7 @@
  * - the source reads from `readHqAppSource`, the lookup workbook from
  *   `uploadLookupTableWorkbook`, the imports from `importApp`, and the media
  *   upload after the content from `uploadAppMediaBundle` over
- *   `buildMediaBulkUploadZip` of `bulkUploadAssets`
+ *   `mediaUploadBatches` of `bulkUploadAssets`, sent with the production streaming ZIP
  *   (`lib/deployment/service.ts::uploadMediaBytes`, sent whenever some
  *   carrier the bulk upload maps references media), each sent to a loopback
  *   peer (`./targetPeer.ts`) that answers as the configured project space
@@ -109,7 +109,6 @@ import type { HqApplication, HqApplicationProfile } from "@/lib/commcare";
 import {
 	type CommCareCredentials,
 	importApp,
-	type MediaBundleUploadResult,
 	probeHqProjectSpaceCompatibility,
 	readHqSaveOnlyEditedAnswers,
 	uploadAppMediaBundle,
@@ -148,12 +147,13 @@ import {
 	type ResolvedMediaAsset,
 	wirePathFor,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import {
 	buildHqJsonExportArchive,
 	bulkUploadAssets,
 	hqImportFileGuide,
 } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import { mediaMembers } from "@/lib/commcare/multimedia/streamMedia";
+import { mediaUploadBatches } from "@/lib/commcare/multimedia/uploadBatches";
 import { requiredPlanPrivileges } from "@/lib/commcare/planPrivileges";
 import {
 	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS,
@@ -162,6 +162,7 @@ import {
 	projectSpaceCompatibilityProbePlan,
 } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
+import { streamZip } from "@/lib/commcare/streamZip";
 import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 import { gateEntriesFileSchema } from "@/lib/commcare/surface/schema";
@@ -219,7 +220,6 @@ import {
 	type HqMediaPath,
 	type HqMediaRecord,
 	hqMediaStandings,
-	isHoldableWirePath,
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "@/lib/deployment/hqMedia";
@@ -228,7 +228,6 @@ import {
 	freshShellHasAffectedFiles,
 	type SettledHqMediaRead,
 	settleHqMedia,
-	verifyHqMediaBatch,
 } from "@/lib/deployment/hqMediaSettle";
 import {
 	ABSENT_RESOURCE_DIGEST,
@@ -256,6 +255,10 @@ import {
 	type LookupTableUnsupported,
 	planLookupResourcePush,
 } from "@/lib/deployment/lookupResourcePlan";
+import {
+	prepareMediaBatch,
+	readMediaReceipt,
+} from "@/lib/deployment/mediaReceipt";
 import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
 import { firstPublishChangePlaces } from "@/lib/deployment/reading/firstPublishChanges";
 import { Pieces } from "@/lib/deployment/reading/gather";
@@ -1346,22 +1349,6 @@ interface SettledMedia {
 	readonly reads: ReadonlyMap<string, SettledHqMediaRead>;
 }
 
-/**
- * The id CommCare HQ's upload report names for each path it matched, by wire
- * path, and none where the report holds an error or names no ids
- * (`lib/deployment/service.ts::reportedMediaFiles`).
- */
-function reportedMediaFiles(result: MediaBundleUploadResult): HqMediaRecord {
-	if (result.errors.length > 0 || result.matchedFiles === null) return {};
-	const reported: Record<string, string> = {};
-	for (const file of result.matchedFiles) {
-		if (!file.path.startsWith(JR_FILE)) continue;
-		const wirePath = file.path.slice(JR_FILE.length);
-		if (isHoldableWirePath(wirePath)) reported[wirePath] = file.multimediaId;
-	}
-	return reported;
-}
-
 const JR_FILE = "jr://file/";
 
 /**
@@ -1465,17 +1452,22 @@ async function counted<T>(
 	return { result, counter: { before, after } };
 }
 
+export interface CapturedMediaUpload {
+	readonly request: CapturedRequest;
+	readonly saveCounter: SaveCounterMove;
+}
+
 /** The requests one import sends: the workbook before it, the import, and the media after it. */
 export interface SentImport {
 	/** The lookup workbook upload, when the document references a table. */
 	readonly lookup?: CapturedRequest;
 	readonly importApp: CapturedRequest;
-	/** The media upload after the import, when the export carries media. */
-	readonly media?: CapturedRequest;
+	/** Every physical upload sent after the import, in order. */
+	readonly mediaUploads: readonly CapturedMediaUpload[];
+	/** Earlier uploads whose current destination bytes this import actually verified. */
+	readonly verifiedMedia: Readonly<Record<string, string>>;
 	/** The peer's save counter around the import. */
 	readonly saveCounter: SaveCounterMove;
-	/** The peer's save counter around the media upload, where one was sent. */
-	readonly mediaSaveCounter?: SaveCounterMove;
 	/** The application JSON the import carried. */
 	readonly application: HqApplication;
 	/** The overlay keys the application writes (`hqImportApplication`'s `ownership`). */
@@ -2258,21 +2250,38 @@ async function sendContent(
 		prepared.export.assets,
 	);
 	let reported: HqMediaRecord = {};
-	let mediaSaveCounter: SaveCounterMove | undefined;
-	let checkedFiles: Awaited<ReturnType<typeof verifyHqMediaBatch>> = null;
-	if (bulkAssets.size > 0) {
-		checkedFiles = await verifyHqMediaBatch(
+	const mediaUploads: CapturedMediaUpload[] = [];
+	const afterImportPaths: HqMediaPath[] = [];
+	const verifiedMedia: Record<string, string> = Object.create(null);
+	const settled = new Map(media?.paths.map((path) => [path.wirePath, path]));
+	for (const batch of mediaUploadBatches(bulkAssets)) {
+		const {
+			verified,
+			changed,
+			needed,
+			settled: checked,
+		} = await prepareMediaBatch(
 			CREDENTIALS,
 			domain,
 			imported.appId,
+			batch,
+			settled,
 			source,
 			readBack === null ? null : afterImport,
-			publishedMediaFiles(bulkAssets),
 		);
-		if (!checkedFiles)
+		afterImportPaths.push(...checked);
+		reported = { ...reported, ...verified };
+		for (const asset of batch.values()) {
+			if (Object.hasOwn(verified, asset.wirePath))
+				verifiedMedia[asset.wirePath] = asset.contentHash;
+		}
+		if (changed.length) {
 			throw new Error(
-				`The capture peer did not verify the destinations for ${prepared.source.id}'s files after importing its content.`,
+				`The destination files changed before the media upload of ${prepared.source.id}: ${changed.join(", ")}.`,
 			);
+		}
+		if (!needed.size) continue;
+		const start = peer.requests.length;
 		const { result: uploaded, counter } = await counted(
 			peer,
 			`the media upload of ${prepared.source.id}`,
@@ -2281,16 +2290,37 @@ async function sendContent(
 					CREDENTIALS,
 					domain,
 					imported.appId,
-					atInstant(CCZ_CLOCK, () => buildMediaBulkUploadZip(bulkAssets)),
+					streamZip(mediaMembers(needed)),
 				),
 		);
-		mediaSaveCounter = counter;
 		if ("success" in uploaded || uploaded.timedOut) {
 			throw new Error(
-				`The capture peer did not confirm the media upload of ${prepared.source.id} (${JSON.stringify(uploaded)}), which it accepts from every publish.`,
+				`The capture peer did not confirm the media upload of ${prepared.source.id} (${JSON.stringify(uploaded)}).`,
 			);
 		}
-		reported = reportedMediaFiles(uploaded);
+		const receipt = await readMediaReceipt(
+			CREDENTIALS,
+			domain,
+			imported.appId,
+			needed,
+			uploaded,
+		);
+		if (receipt.missing.length) {
+			throw new Error(
+				`The destination did not verify the media upload of ${prepared.source.id}: ${receipt.missing.join(", ")}.`,
+			);
+		}
+		reported = { ...reported, ...receipt.files };
+		mediaUploads.push({
+			saveCounter: counter,
+			request: await reframed(
+				takeRequest(
+					peer.since(start),
+					"POST",
+					`/a/${domain}/apps/api/${imported.appId}/multimedia/`,
+				),
+			),
+		});
 	}
 	/* The record of which file stands at each path this publish sent
 	 * (`service.ts`, `recordDeploymentMediaFiles` after the upload): the id
@@ -2299,9 +2329,9 @@ async function sendContent(
 	const mediaFiles = nextHqMediaRecord({
 		published: publishedMediaFiles(bulkAssets),
 		previous: held.mediaFiles,
-		learned: { ...media?.learned, ...checkedFiles?.learned },
+		learned: { ...media?.learned },
 		reported,
-		settled: [...(media?.paths ?? []), ...(checkedFiles?.paths ?? [])],
+		settled: [...(media?.paths ?? []), ...afterImportPaths],
 	});
 	const sent = peer.since(mark);
 	return {
@@ -2314,17 +2344,9 @@ async function sendContent(
 			importApp: await reframed(
 				takeRequest(sent, "POST", `/a/${domain}/apps/api/import_app/`),
 			),
-			...(bulkAssets.size > 0 && {
-				media: await reframed(
-					takeRequest(
-						sent,
-						"POST",
-						`/a/${domain}/apps/api/${imported.appId}/multimedia/`,
-					),
-				),
-			}),
 			saveCounter,
-			...(mediaSaveCounter !== undefined && { mediaSaveCounter }),
+			mediaUploads,
+			verifiedMedia,
 			application,
 			ownership,
 			assumedSource: assumedSourceOf(source),
@@ -3649,7 +3671,7 @@ export interface RetainedPublish {
 	readonly create: CapturedImport;
 	readonly content: CapturedImport;
 	readonly workbook?: CapturedUpload;
-	readonly media?: CapturedUpload;
+	readonly mediaUploads?: readonly CapturedUpload[];
 }
 
 /**
@@ -3797,7 +3819,7 @@ export interface RepublishCapture {
 /**
  * Whether two publish steps sent the same bytes: the same import and the
  * same lookup workbook, or none. The media upload follows from the prepared
- * assets (one ZIP entry per asset `buildMediaBulkUploadZip` writes), so the
+ * assets (one ZIP entry per physical path `mediaMembers` writes), so the
  * same document sends the same media. Two steps Nova stopped send nothing,
  * and are the same where they stopped with the same code.
  */
@@ -3890,7 +3912,7 @@ async function applyRetainedA(
 		retained.create.request,
 		...(retained.workbook === undefined ? [] : [retained.workbook]),
 		retained.content.request,
-		...(retained.media === undefined ? [] : [retained.media]),
+		...(retained.mediaUploads ?? []),
 	]);
 	const tables = new Map<LookupTableId, LedgerTable>();
 	const workbook = prepared.export.lookupWorkbook;
@@ -4709,7 +4731,7 @@ export async function importFile(
 /**
  * The paths of the media upload a publish of the document sends: one per
  * wire path of the assets the bulk upload carries (`bulkUploadAssets`), as
- * `buildMediaBulkUploadZip` writes them, sorted. Empty for a document whose
+ * `mediaMembers` writes them, sorted. Empty for a document whose
  * bulk upload carries no media: an image only the logo uses is never in it.
  */
 export async function preparedMediaPaths(

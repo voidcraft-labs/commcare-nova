@@ -148,6 +148,7 @@ import {
 	retainedMigrationA,
 	writeDocumentInputs,
 } from "./inputs";
+import { mediaRole, writeMediaSidecar } from "./mediaSidecar";
 import {
 	type BringInRecord,
 	type CapturedRequest,
@@ -443,14 +444,13 @@ async function writeStep(
 		step.lookup === undefined
 			? undefined
 			: await writeShared(directory, name, "lookups", step.lookup, written);
-	const mediaFile =
-		step.media === undefined
-			? undefined
-			: await writeShared(directory, name, "media", step.media, written);
+	const media = await writeMediaSidecar(step.mediaUploads, (request, role) =>
+		writeShared(directory, name, role, request, written),
+	);
 	await writeRequest(directory, name, step.importApp, {
 		compatibility: step.compatibility,
 		...(lookupFile !== undefined && { lookups: lookupFile }),
-		...(mediaFile !== undefined && { media: mediaFile }),
+		...media,
 		...updateSidecar(step),
 	});
 }
@@ -477,8 +477,8 @@ function updateSidecar(
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
 		saveCounter: step.saveCounter,
-		...(step.mediaSaveCounter !== undefined && {
-			mediaSaveCounter: step.mediaSaveCounter,
+		...(Object.keys(step.verifiedMedia).length > 0 && {
+			verifiedMedia: step.verifiedMedia,
 		}),
 		assumedSource: step.assumedSource,
 		...(step.assumedResources !== undefined && {
@@ -1352,15 +1352,20 @@ export async function writeEntry(
 				await writeFile(join(directory, file), bytes);
 			}
 			const written: WrittenRequests = new Map();
-			const { workbook, media } = exported.publish;
+			const { workbook, mediaUploads } = exported.publish;
 			if (exported.named.lookups !== undefined && workbook !== undefined) {
 				written.set(
 					"lookups",
 					new Map([[exported.named.lookups, workbook.body]]),
 				);
 			}
-			if (exported.named.media !== undefined && media !== undefined) {
-				written.set("media", new Map([[exported.named.media, media.body]]));
+			for (const [index, upload] of (mediaUploads ?? []).entries()) {
+				const file = exported.named.media[index];
+				if (!file)
+					throw new Error(
+						`The retained media upload ${index + 1} has no file.`,
+					);
+				written.set(mediaRole(index), new Map([[file, upload.body]]));
 			}
 			const republish = capture.updates.republish;
 			if (republish?.status === "sent") {

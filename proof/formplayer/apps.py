@@ -104,8 +104,8 @@ def published(document, core_runner, configuration="minimum"):
             app_id, refusal, lookups = publish.create(unit, export)
             assert refusal is None, refusal
             assert lookups is None or lookups["errors"] == [], lookups
-            if export.content.media is not None:
-                media = operations.apply_media_upload(unit, app_id, export.content.media.upload())
+            for request, _ in export.content.media_uploads():
+                media = operations.apply_media_upload(unit, app_id, request.upload())
                 assert media.status == 200, media.response
         with build_seams():
             outcome, _ = build_state(operations.held_app(unit, app_id), unit.record, "A")

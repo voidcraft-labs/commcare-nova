@@ -344,10 +344,11 @@ def _document_reads(documents, document_id, member_name):
                     saves[kind],
                 )
                 read(f"app-source-after-{kind}")
-        if export.content.media is not None:
-            with _operation(state, "media"):
-                uploaded = publish.upload_media(state, app_id, export.content.media)
-            assert uploaded["refused"] is None and uploaded["errors"] == [], uploaded
+        if export.content.media_uploads():
+            for request, _ in export.content.media_uploads():
+                with _operation(state, "media"):
+                    uploaded = publish.upload_media(state, app_id, request)
+                assert uploaded["refused"] is None and uploaded["errors"] == [], uploaded
             read("app-source-after-media")
         if document_id == "targeted-hq-side-lookup":
             with _operation(state, "lookup-tables"):

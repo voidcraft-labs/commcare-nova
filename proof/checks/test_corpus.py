@@ -355,26 +355,25 @@ def test_the_input_manifest_names_the_bytes_each_part_reads():
                 )
             if export.republish is not None and export.republish.lookups is not None:
                 assert parts["b"]["lookups.body"]["path"] == f"export/{name}/{export.republish.lookups.body_path.name}"
-            # The media upload each publish sent after its import is read by the part that replays it.
-            for part, role, captured in (
-                ("a", f"{first}media.body", export.content),
-                ("b", "media.body", export.republish),
-            ):
-                if captured is None or captured.media is None:
-                    assert role not in parts[part], (document.id, name, part)
-                else:
-                    assert parts[part][role]["path"] == f"export/{name}/{captured.media.body_path.name}"
+            # Each physical media body and sidecar belongs to exactly the part that replays it.
+            def assert_uploads(captured, part, root, prefix):
+                uploads = captured.media_uploads() if captured else ()
+                if not uploads:
+                    assert f"{prefix}media.body" not in part
+                for index, (request, _) in enumerate(uploads):
+                    role = "media" if index == 0 else f"media-{index + 1}"
+                    assert part[f"{prefix}{role}.body"]["path"] == f"{root}/{request.body_path.name}"
+                    assert part[f"{prefix}{role}.json"]["path"] == f"{root}/{request.body_path.with_suffix('.json').name}"
                     media_documents.add(document.id)
+
+            assert_uploads(export.content, parts["a"], f"export/{name}", first)
+            assert_uploads(export.republish, parts["b"], f"export/{name}", "")
             if name in (document.edit.exports if document.edit else {}):
                 edited += 1
                 assert parts["b_edit"]["request.body"]["path"] == f"edit/export/{name}/update.body"
                 assert parts["b_edit"]["document"]["path"] == "edit/document.json"
                 update = document.edit.exports[name].update
-                if update.media is None:
-                    assert "media.body" not in parts["b_edit"], (document.id, name)
-                else:
-                    assert parts["b_edit"]["media.body"]["path"] == f"edit/export/{name}/{update.media.body_path.name}"
-                    media_documents.add(document.id)
+                assert_uploads(update, parts["b_edit"], f"edit/export/{name}", "")
             else:
                 assert "b_edit" not in parts
         for role, entry in manifest["local"].items():
@@ -614,6 +613,34 @@ def test_every_migration_witness_has_its_retained_a():
 def test_every_identity_move_names_a_witness_of_the_corpus():
     moves = registers.load_identity_moves(witnesses=_witnesses())
     assert all(move.documents <= _witnesses() for move in moves)
+
+
+def test_physical_media_sidecars_retain_each_body_counter_and_manifest_input_in_order(tmp_path):
+    from proof.observe.unit import _request
+
+    directory = tmp_path / "export"
+    directory.mkdir()
+    for name in ("content", "batch-two", "batch-one"):
+        (directory / f"{name}.body").write_bytes(name.encode())
+        (directory / f"{name}.json").write_text(json.dumps({"contentType": "multipart/form-data"}))
+    sidecar = directory / "content.json"
+    meta = {"contentType": "multipart/form-data", "mediaBatches": [
+        {"body": "batch-two.body", "saveCounter": {"before": 2, "after": 3}},
+        {"body": "batch-one.body", "saveCounter": {"before": 3, "after": 4}},
+    ]}
+    sidecar.write_text(json.dumps(meta))
+    assert [(body.upload().body, counter) for body, counter in corpus._captured(directory, "content").media_uploads()] == [
+        (b"batch-two", (2, 3)), (b"batch-one", (3, 4))
+    ]
+    assert _request(tmp_path, "export", "content") == {
+        "request.body": "export/content.body", "request.json": "export/content.json",
+        "media.body": "export/batch-two.body", "media.json": "export/batch-two.json",
+        "media-2.body": "export/batch-one.body", "media-2.json": "export/batch-one.json",
+    }
+    del meta["mediaBatches"][1]["saveCounter"]
+    sidecar.write_text(json.dumps(meta))
+    with pytest.raises(corpus.CorpusLayoutError, match="save counter"):
+        corpus._captured(directory, "content")
 
 
 def test_a_sidecars_save_counter_is_read_as_its_peer_counted_and_refused_in_any_other_shape(tmp_path):

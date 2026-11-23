@@ -116,6 +116,7 @@ import type {
 } from "@/lib/lookup/types";
 import { DEFAULT_CORPUS_SEED } from "./defaults";
 import { LOCAL_CONFIGURATION, OPERATION_ORDINALS } from "./entropy.mts";
+import { writeMediaSidecar } from "./mediaSidecar";
 import {
 	type CapturedRequest,
 	CCZ_CLOCK,
@@ -511,8 +512,8 @@ function updateSidecar(
 		layout: TWO_IMPORT_LAYOUT,
 		placeholderAppId: PLACEHOLDER_APP_ID,
 		saveCounter: sent.saveCounter,
-		...(sent.mediaSaveCounter !== undefined && {
-			mediaSaveCounter: sent.mediaSaveCounter,
+		...(Object.keys(sent.verifiedMedia).length > 0 && {
+			verifiedMedia: sent.verifiedMedia,
 		}),
 		assumedSource: sent.assumedSource,
 		...(sent.assumedResources !== undefined && {
@@ -527,7 +528,7 @@ function stepSummary(step: {
 	readonly compatibility?: unknown;
 	readonly code?: string;
 	readonly lookup?: unknown;
-	readonly media?: unknown;
+	readonly mediaUploads?: readonly unknown[];
 }) {
 	return {
 		status: step.status,
@@ -539,7 +540,7 @@ function stepSummary(step: {
 			requests: [
 				...(step.lookup !== undefined ? ["lookup"] : []),
 				"import",
-				...(step.media !== undefined ? ["media"] : []),
+				...(step.mediaUploads ?? []).map(() => "media"),
 			],
 		}),
 	};
@@ -554,16 +555,18 @@ async function writeImport(
 	if (sent.lookup !== undefined) {
 		await writeRequest(directory, `${name}.lookup`, sent.lookup);
 	}
-	await writeRequest(
-		directory,
-		`${name}.import`,
-		sent.importApp,
-		updateSidecar(sent),
+	const media = await writeMediaSidecar(
+		sent.mediaUploads,
+		async (request, role) => {
+			const base = `${name}.${role}`;
+			await writeRequest(directory, base, request);
+			return `${base}.body`;
+		},
 	);
-
-	if (sent.media !== undefined) {
-		await writeRequest(directory, `${name}.media`, sent.media);
-	}
+	await writeRequest(directory, `${name}.import`, sent.importApp, {
+		...updateSidecar(sent),
+		...media,
+	});
 }
 
 async function writeStep(

@@ -151,8 +151,27 @@ describe("the fixture upload capture reads the workbook sent by Nova", () => {
 					isGlobal: true,
 				}),
 			).toEqual({ kind: "unverified-target" });
-			const changed = rows.map((row, i) =>
+			const code = table.attributes?.find(
+				(member) => member.wireName === "code",
+			);
+			if (!code) throw Error("Expected the clinic code detail.");
+			const missing = rows.map((row, i) =>
 				i === 0 ? { ...row, attributes: {} } : row,
+			);
+			expect(() =>
+				inlineWorkbookReceipts(
+					{
+						...snapshot,
+						definitions: [table],
+						rowsByTable: new Map([[table.id, missing]]),
+					},
+					new Set([table.id]),
+				),
+			).toThrow("missing its “code” detail");
+			const changed = rows.map((row, i) =>
+				i === 0
+					? { ...row, attributes: { ...row.attributes, [code.id]: "south" } }
+					: row,
 			);
 			const changedIntent = inlineWorkbookReceipts(
 				{

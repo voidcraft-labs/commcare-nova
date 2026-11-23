@@ -91,6 +91,7 @@ import {
 	type DocumentConfigurations,
 } from "./configurations";
 import { WORKTREE } from "./emissionProcess";
+import { mediaRole } from "./mediaSidecar";
 import {
 	type CapturedImport,
 	type CapturedRequest,
@@ -201,8 +202,8 @@ async function republishStopped(
 
 /**
  * A captured request's body and sidecar, and what else its sidecar names:
- * the lookup workbook pushed before it (`lookups`) and the media upload
- * sent after it (`media`), each a body with its own sidecar.
+ * the lookup workbook pushed before it and each media POST sent after it,
+ * in order. Every physical request contributes its body and sidecar.
  */
 async function request(
 	root: string,
@@ -213,13 +214,19 @@ async function request(
 	const meta = JSON.parse(await readFile(join(root, sidecar), "utf8")) as {
 		lookups?: string;
 		media?: string;
+		mediaBatches?: { body: string }[];
 	};
 	const part: Record<string, InputFile> = {
 		"request.body": await file(root, `${directory}/${name}.body`),
 		"request.json": await file(root, sidecar),
 	};
-	for (const role of ["lookups", "media"] as const) {
-		const named = meta[role];
+	const bodies =
+		meta.mediaBatches?.map((batch) => batch.body) ??
+		(meta.media ? [meta.media] : []);
+	for (const [role, named] of [
+		["lookups", meta.lookups],
+		...bodies.map((body, index) => [mediaRole(index), body]),
+	]) {
 		if (named === undefined) continue;
 		const base = named.replace(/\.body$/, "");
 		part[`${role}.body`] = await file(root, `${directory}/${base}.body`);
@@ -466,7 +473,10 @@ export interface RetainedExport {
 	/** The compatibility outcome the create's sidecar records for A. */
 	readonly compatibility: unknown;
 	/** The files the content's sidecar names for its workbook (`lookups`) and media upload (`media`). */
-	readonly named: { readonly lookups?: string; readonly media?: string };
+	readonly named: {
+		readonly lookups?: string;
+		readonly media: readonly string[];
+	};
 }
 
 /** A migration witness's A: its configurations and each one's first publish. */
@@ -502,6 +512,7 @@ const sidecarSchema = z.object({
 	layout: z.unknown().optional(),
 	lookups: z.string().optional(),
 	media: z.string().optional(),
+	mediaBatches: z.array(z.object({ body: z.string() })).optional(),
 });
 
 const ownershipSchema = z.object({
@@ -681,23 +692,36 @@ export async function retainedMigrationA(
 						)
 					).request;
 		const workbook = await upload(content.sidecar.lookups);
-		const media = await upload(content.sidecar.media);
+		const namedMedia =
+			content.sidecar.mediaBatches?.map((batch) => batch.body) ??
+			(content.sidecar.media ? [content.sidecar.media] : []);
+		const mediaUploads = [];
+		for (const body of namedMedia) {
+			mediaUploads.push(
+				(
+					await retainedRequest(
+						directory,
+						body.replace(/\.body$/, ""),
+						id,
+						files,
+					)
+				).request,
+			);
+		}
 		exports.set(name, {
 			files,
 			publish: {
 				create: create.imported,
 				content: content.imported,
 				...(workbook !== undefined && { workbook }),
-				...(media !== undefined && { media }),
+				mediaUploads,
 			},
 			compatibility: create.sidecar.compatibility,
 			named: {
 				...(content.sidecar.lookups !== undefined && {
 					lookups: content.sidecar.lookups,
 				}),
-				...(content.sidecar.media !== undefined && {
-					media: content.sidecar.media,
-				}),
+				media: namedMedia,
 			},
 		});
 	}
