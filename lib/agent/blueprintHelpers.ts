@@ -1,3 +1,4 @@
+import { searchConditionOf } from "@/lib/domain/searchConditions";
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
@@ -523,8 +524,9 @@ export function removeSearchInputMutation(
 							uuid: mod.uuid,
 							config: mod.caseSearchConfig,
 							hasCasesAvailableCondition:
-								effectiveFilterForEmission(mod.caseListConfig?.filter) !==
-								undefined,
+								effectiveFilterForEmission(
+									searchConditionOf(mod.caseListConfig),
+								) !== undefined,
 						}),
 					] satisfies Mutation[])
 				: []),

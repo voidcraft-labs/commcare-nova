@@ -233,6 +233,7 @@ const MODULE_SLOT_PHRASES: Readonly<
 > = {
 	agent: {
 		case_list_filter: "the case-list filter on module",
+		case_search_filter: "the search condition on module",
 		case_list_column_field: "a case-list column of module",
 		case_list_column_via: "a case-list column of module",
 		case_list_column_expression: "a case-list column of module",
@@ -245,6 +246,7 @@ const MODULE_SLOT_PHRASES: Readonly<
 	} satisfies Partial<Record<ModuleSlotId, string>>,
 	builder: {
 		case_list_filter: "a Cases available condition in module",
+		case_search_filter: "a search condition in module",
 		case_list_column_field: "case information in module",
 		case_list_column_via: "case information in module",
 		case_list_column_expression: "a calculated value in module",

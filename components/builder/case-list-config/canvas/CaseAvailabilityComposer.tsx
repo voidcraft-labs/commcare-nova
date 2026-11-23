@@ -41,10 +41,12 @@ import type {
 	UserProperty,
 	Uuid,
 } from "@/lib/domain";
+import { isOrdinaryCaseSearchConfig } from "@/lib/domain";
 import {
 	type Expression,
 	effectiveFilterForEmission,
 } from "@/lib/domain/expression";
+import { searchConditionOf } from "@/lib/domain/searchConditions";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import {
 	pickBlueprintDoc,
@@ -63,15 +65,23 @@ import {
 	AssignedCasesSetting,
 	assignedCasesMode,
 } from "./AssignedCasesSetting";
+import { type SearchFilterEdit, SearchFilters } from "./SearchFilters";
 
 export interface CaseAvailabilityComposerProps {
 	readonly config: CaseListConfig;
 	readonly filterBroken: boolean;
 	readonly excludedOwnerIdsBroken?: boolean;
 	/** Granular `setCaseListMeta` edit owned by the workspace. */
-	readonly onFilterChange: (next: Expression | undefined) => CommitOutcome;
+	readonly onFilterChange: (
+		next: Expression | undefined,
+		surface?: "list" | "search",
+	) => CommitOutcome;
 	/** Clears only the authored availability predicate. */
-	readonly onClearFilter: (next: Expression | undefined) => CommitOutcome;
+	readonly onSearchFilterEdit?: (change: SearchFilterEdit) => void;
+	readonly onClearFilter: (
+		next: Expression | undefined,
+		surface?: "list" | "search",
+	) => CommitOutcome;
 	/** Search-side state that also carries the one assigned-case rule. */
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly onExcludedOwnerIdsChange: (next: Expression | undefined) => void;
@@ -85,6 +95,7 @@ export interface CaseAvailabilityComposerProps {
 	readonly dependencyReview?:
 		| {
 				readonly kind: "cases-available";
+				readonly surface?: "search";
 				readonly token: number;
 				readonly path: EditorPath;
 				readonly inputLabel: string;
@@ -103,6 +114,7 @@ export function CaseAvailabilityComposer({
 	excludedOwnerIdsBroken = false,
 	onFilterChange,
 	onClearFilter,
+	onSearchFilterEdit,
 	searchConfig,
 	onExcludedOwnerIdsChange,
 	caseTypes,
@@ -114,10 +126,23 @@ export function CaseAvailabilityComposer({
 	onReturnToSearchField,
 }: CaseAvailabilityComposerProps) {
 	const canEdit = useCanEdit();
+	const [chosenSurface, setChosenSurface] = useState<"list" | "search">("list");
+	const hasSearch =
+		config.searchInputs.length > 0 || isOrdinaryCaseSearchConfig(searchConfig);
+	const surface =
+		dependencyReview?.kind === "cases-available"
+			? (dependencyReview.surface ?? "list")
+			: hasSearch
+				? chosenSurface
+				: undefined;
+	const condition =
+		surface === "search"
+			? effectiveFilterForEmission(searchConditionOf(config))
+			: config.filter;
 	const expressionContext = useExpressionSlotContext({
 		entity: "module",
 		uuid: moduleUuid,
-		slot: "case_list_filter",
+		slot: surface === "search" ? "case_search_filter" : "case_list_filter",
 	});
 	const [pendingShutdown, setPendingShutdown] = useState(false);
 	const deferFocus = useDeferredFocus();
@@ -125,10 +150,7 @@ export function CaseAvailabilityComposer({
 	const focusAddConditionAfterClearRef = useRef(false);
 
 	useEffect(() => {
-		if (
-			!focusAddConditionAfterClearRef.current ||
-			config.filter !== undefined
-		) {
+		if (!focusAddConditionAfterClearRef.current || condition !== undefined) {
 			return;
 		}
 		focusAddConditionAfterClearRef.current = false;
@@ -138,17 +160,17 @@ export function CaseAvailabilityComposer({
 				?.focus();
 		});
 		return cancelFocus;
-	}, [config.filter, deferFocus]);
+	}, [condition, deferFocus]);
 
 	const proposeFilter = (next: Expression | undefined) => {
 		if (
-			config.filter !== undefined &&
+			condition !== undefined &&
 			effectiveFilterForEmission(next) === undefined
 		) {
 			setPendingShutdown(true);
 			return;
 		}
-		onFilterChange(next);
+		onFilterChange(next, surface);
 	};
 
 	const inputDecls = useMemo(
@@ -166,7 +188,7 @@ export function CaseAvailabilityComposer({
 					...editorAxesOf(expressionContext),
 				} as const);
 	const ownerMode = assignedCasesMode(searchConfig?.excludedOwnerIds);
-	const hasAssignedCaseRule = ownerMode !== "all";
+	const hasAssignedCaseRule = surface !== "search" && ownerMode !== "all";
 
 	return (
 		<>
@@ -205,7 +227,25 @@ export function CaseAvailabilityComposer({
 						: "border-white/[0.08]"
 				}`}
 			>
-				{config.filter === undefined ? (
+				{hasSearch && (
+					<fieldset
+						className="flex gap-1 border-b border-white/[0.07] p-2"
+						aria-label="Where the condition applies"
+					>
+						{(["list", "search"] as const).map((value) => (
+							<Button
+								key={value}
+								type="button"
+								variant={surface === value ? "secondary" : "ghost"}
+								aria-pressed={surface === value}
+								onClick={() => setChosenSurface(value)}
+							>
+								{value === "list" ? "Device list" : "Online search"}
+							</Button>
+						))}
+					</fieldset>
+				)}
+				{condition === undefined ? (
 					<div className="flex min-h-24 items-center gap-3 px-4 py-4">
 						<span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-nova-text-secondary">
 							<Icon icon={tablerFilter} width="17" height="17" />
@@ -222,7 +262,9 @@ export function CaseAvailabilityComposer({
 										? "Cases assigned to the person using the app are hidden from Results"
 										: "Your saved setting decides which assigned cases can appear in Results"
 									: canEdit
-										? "Add a condition only when Results should show a smaller set"
+										? surface === "search"
+											? "A condition narrows the records an online search can return"
+											: "Add a condition only when Results should show a smaller set"
 										: "Results can include every available case"}
 							</p>
 						</div>
@@ -237,7 +279,7 @@ export function CaseAvailabilityComposer({
 						)}
 						<PredicateWorkbench
 							expressionContext={expressionContext}
-							value={config.filter}
+							value={condition}
 							onChange={proposeFilter}
 							onRemoveRoot={() => proposeFilter(undefined)}
 							removeRootLabel={
@@ -273,7 +315,7 @@ export function CaseAvailabilityComposer({
 							</div>
 						)}
 						<ReadOnlyCondition
-							value={config.filter}
+							value={condition}
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}
 							knownInputs={inputDecls}
@@ -281,45 +323,61 @@ export function CaseAvailabilityComposer({
 					</div>
 				)}
 
-				{canEdit &&
-					editContext !== undefined &&
-					config.filter === undefined && (
-						<div
-							ref={addConditionRegionRef}
-							className="border-t border-white/[0.07] p-3"
-						>
-							<AddConditionMenu
-								ctx={editContext}
-								onAdd={(next) => proposeFilter(next)}
-								className="w-full"
-							/>
-						</div>
-					)}
-
-				<div className="border-t border-white/[0.07]">
-					<AssignedCasesSetting
-						value={searchConfig?.excludedOwnerIds}
-						onChange={onExcludedOwnerIdsChange}
-						canEdit={canEdit}
-						hasError={excludedOwnerIdsBroken}
-						reviewRequest={
-							dependencyReview?.kind === "assigned-cases"
-								? dependencyReview
-								: undefined
-						}
-					/>
-				</div>
-
-				{(config.filter !== undefined || hasAssignedCaseRule) && (
-					<MatchCount
-						appId={appId}
-						moduleUuid={moduleUuid}
-						config={config}
-						currentCaseType={currentCaseType}
-						filterValid={!filterBroken && !excludedOwnerIdsBroken}
-						excludedOwnerIdsExpression={searchConfig?.excludedOwnerIds}
-					/>
+				{canEdit && editContext !== undefined && condition === undefined && (
+					<div
+						ref={addConditionRegionRef}
+						className="border-t border-white/[0.07] p-3"
+					>
+						<AddConditionMenu
+							ctx={editContext}
+							onAdd={(next) => proposeFilter(next)}
+							className="w-full"
+						/>
+					</div>
 				)}
+
+				{surface === "search" &&
+					onSearchFilterEdit &&
+					moduleUuid &&
+					currentCaseType && (
+						<SearchFilters
+							moduleUuid={moduleUuid}
+							filters={config.searchFilters ?? []}
+							caseTypes={caseTypes}
+							currentCaseType={currentCaseType}
+							knownInputs={inputDecls}
+							userProperties={userProperties}
+							canEdit={canEdit}
+							onEdit={onSearchFilterEdit}
+						/>
+					)}
+				{surface !== "search" && (
+					<div className="border-t border-white/[0.07]">
+						<AssignedCasesSetting
+							value={searchConfig?.excludedOwnerIds}
+							onChange={onExcludedOwnerIdsChange}
+							canEdit={canEdit}
+							hasError={excludedOwnerIdsBroken}
+							reviewRequest={
+								dependencyReview?.kind === "assigned-cases"
+									? dependencyReview
+									: undefined
+							}
+						/>
+					</div>
+				)}
+
+				{surface !== "search" &&
+					(condition !== undefined || hasAssignedCaseRule) && (
+						<MatchCount
+							appId={appId}
+							moduleUuid={moduleUuid}
+							config={config}
+							currentCaseType={currentCaseType}
+							filterValid={!filterBroken && !excludedOwnerIdsBroken}
+							excludedOwnerIdsExpression={searchConfig?.excludedOwnerIds}
+						/>
+					)}
 			</section>
 
 			<AlertDialog
@@ -347,7 +405,7 @@ export function CaseAvailabilityComposer({
 							variant="destructive"
 							onClick={() => {
 								if (!pendingShutdown) return;
-								const outcome = onClearFilter(undefined);
+								const outcome = onClearFilter(undefined, surface);
 								if (outcome.ok) {
 									focusAddConditionAfterClearRef.current = true;
 									setPendingShutdown(false);

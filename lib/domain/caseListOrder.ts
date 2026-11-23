@@ -317,6 +317,32 @@ function readsExpressionOnlyProperty(column: Column): boolean {
 	);
 }
 
+/** The ordinary record field a screen can follow to fetch related data,
+ * or a calculated projection whose value the screen evaluates itself. */
+export function caseListColumnFieldKind(
+	column: Column,
+	hidden: boolean,
+	property: CaseListOrderProperty | undefined,
+): "property" | "expression" {
+	if (column.kind === "calculated") return "expression";
+	if (readsExpressionOnlyProperty(column)) return "expression";
+	if (hidden) return "property";
+	switch (column.kind) {
+		case "plain":
+			return casePropertyShowsOptionLabels(property)
+				? "expression"
+				: "property";
+		case "interval":
+		case "link":
+			return "expression";
+		case "date":
+		case "phone":
+		case "id-mapping":
+		case "image-map":
+			return "property";
+	}
+}
+
 interface FieldDraft {
 	readonly column: Column;
 	readonly position: number;
@@ -397,23 +423,13 @@ export function caseListOrderPlan(
 			joinText: column.kind === "calculated" ? "" : columnFieldText(column),
 			...restingKeyOf(column, hidden),
 		});
-		if (column.kind === "calculated") return expression();
-		if (readsExpressionOnlyProperty(column)) return expression();
-		if (hidden) return property();
-		switch (column.kind) {
-			case "plain":
-				return casePropertyShowsOptionLabels(propertyOf(column))
-					? expression()
-					: property();
-			case "interval":
-			case "link":
-				return expression();
-			case "date":
-			case "phone":
-			case "id-mapping":
-			case "image-map":
-				return property();
-		}
+		return caseListColumnFieldKind(
+			column,
+			hidden,
+			column.kind === "calculated" ? undefined : propertyOf(column),
+		) === "expression"
+			? expression()
+			: property();
 	}
 
 	function restingKeyOf(

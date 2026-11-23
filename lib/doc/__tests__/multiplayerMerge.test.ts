@@ -1023,6 +1023,35 @@ describe("setCaseListMeta on a peer-removed config", () => {
 		});
 	});
 
+	it("replays a single-surface edit over a peer edit when the first edit collapsed the shared spelling", () => {
+		const { doc, moduleUuid: uuid } = moduleWithFilter();
+		const original = apply(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid,
+				patch: { filter: { kind: "match-none" } },
+			},
+		]);
+		const base = apply(original, [
+			{ kind: "setCaseListMeta", uuid, patch: { searchCondition: null } },
+		]);
+		const shared = apply(base, [
+			{
+				kind: "setCaseListMeta",
+				uuid,
+				patch: { searchCondition: { kind: "match-none" } },
+			},
+		]);
+		const peer = apply(base, [
+			{ kind: "setCaseListMeta", uuid, patch: { listCondition: null } },
+		]);
+		const replay = apply(peer, diffDocsToMutations(base, shared));
+		expect(replay.modules[uuid].caseListConfig?.filter).toBeUndefined();
+		expect(replay.modules[uuid].caseListConfig?.searchCondition).toEqual({
+			kind: "match-none",
+		});
+	});
+
 	it("a same-batch config birth then setCaseListMeta is not falsely rejected", () => {
 		const { doc, moduleUuid } = moduleWithFilter();
 		// Peer cleared the config; a later batch idempotently re-creates it AND

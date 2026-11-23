@@ -248,6 +248,7 @@ function choiceSelection(
 function printsCsql(context: ExpressionContext): boolean {
 	return (
 		context.slot.slot === "search_input_predicate" ||
+		context.slot.slot === "case_search_filter" ||
 		(context.slot.slot === "case_list_filter" &&
 			context.profile.targets.has("CS"))
 	);
@@ -508,6 +509,7 @@ function simplifiedSlot(context: ExpressionContext): boolean {
 	if (slot.entity !== "module") return false;
 	return (
 		slot.slot === "case_list_filter" ||
+		slot.slot === "case_search_filter" ||
 		slot.slot === "search_button_display_condition" ||
 		slot.slot === "search_input_predicate" ||
 		slot.slot === "search_input_options"

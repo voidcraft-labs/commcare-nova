@@ -1374,6 +1374,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 
 	// ── Case-search config ───────────────────────────────────────────
+	CASE_SEARCH_FILTER_INVALID: (e) => e.message,
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
 		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>

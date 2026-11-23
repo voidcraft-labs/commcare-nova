@@ -25,6 +25,7 @@ import {
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
 import { planPlacements } from "../placement";
+import { searchFilterKey } from "../suite/case-search/nativeFilters";
 import type { WireIdentity } from "../wireIdentity";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
 import {
@@ -106,6 +107,18 @@ export function externalIdentityMap(
 					attribute ?? (column.kind === "calculated" ? "" : column.field);
 				const n = nextOrdinal(columnCounts, JSON.stringify([kind, field]));
 				add(externalKey.caseListColumn(uniqueId, kind, field, n), column.uuid);
+			}
+			const filterCounts = new Map<string, number>();
+			for (const filter of config.searchFilters ?? []) {
+				const key = searchFilterKey(filter.target);
+				add(
+					externalKey.searchFilter(
+						uniqueId,
+						key,
+						nextOrdinal(filterCounts, key),
+					),
+					filter.uuid,
+				);
 			}
 			for (const input of config.searchInputs)
 				add(externalKey.searchInput(uniqueId, input.name), input.uuid);

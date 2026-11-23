@@ -794,53 +794,6 @@
 		]
 	},
 	{
-		"change": "search-today-device-day",
-		"placeKinds": ["menu"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/*"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
-				"kind": "added"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
-				"kind": "removed"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/params/_xpath_query/*",
-				"kind": "removed"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
-				"kind": "removed"
-			}
-		]
-	},
-	{
 		"change": "case-settings-respelled",
 		"placeKinds": ["form", "form-node", "case"],
 		"rows": [
@@ -1098,58 +1051,6 @@
 				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/field[*]/sort[*]/@blanks",
 				"kind": "added"
-			}
-		]
-	},
-	{
-		"change": "search-filter-joined-to-list",
-		"placeKinds": ["menu"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/case_details/short/filter"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/entry[*]/session[*]/datum[@id=*]/@nodeset",
-				"kind": "changed"
-			}
-		]
-	},
-	{
-		"change": "search-restates-list-filter",
-		"placeKinds": ["menu"],
-		"rows": [
-			{
-				"check": "source",
-				"artifact": "app.json",
-				"path": "/modules/*/search_config/default_properties"
-			},
-			{
-				"check": "proof2",
-				"artifact": "suite.xml",
-				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/params/_xpath_query/*",
-				"kind": "added"
-			},
-			{
-				"check": "proof3",
-				"artifact": "trace@B",
-				"path": "/runs/*/trace/*/requests/*/answered",
-				"kind": "changed"
 			}
 		]
 	},

@@ -83,6 +83,7 @@ import {
 	TIME_ORDERING_MESSAGE,
 	typesCompatible,
 } from "./ruleSets";
+import { searchIndexedComparison } from "./searchIndexedComparison";
 import { walkSearchRuntimeValues } from "./searchRuntimeValues";
 import {
 	type CheckPath,
@@ -1483,6 +1484,7 @@ export function chosenCaseCarrier(
 		case "case_list_filter":
 			return "case-list";
 		case "search_input_predicate":
+		case "case_search_filter":
 			return "search";
 		case "form_display_condition":
 			return "form-display-condition";
@@ -2095,6 +2097,19 @@ function inferNode(
 	): ScalarType | undefined => scalarDataType(read(value, path)?.data);
 	switch (expression.kind) {
 		case "today":
+			if (
+				expression.clock === "project-space" &&
+				(!("profile" in ctx) ||
+					ctx.ruleSet !== "record" ||
+					!serverOnlySearchSlot(ctx.profile))
+			)
+				errors.push(
+					refusal(
+						"arm-unavailable",
+						"The project space’s day is available in a search condition that runs on the server.",
+						"project-space-day",
+					),
+				);
 			return scalar("date");
 		case "now":
 			return scalar("datetime");
@@ -3710,6 +3725,19 @@ function checkComparison(
 	const leftType = scalarDataType(leftNode?.data);
 	const rightType = scalarDataType(rightNode?.data);
 	if (leftType === undefined || rightType === undefined) return;
+	if (
+		"profile" in ctx &&
+		ctx.ruleSet === "record" &&
+		serverOnlySearchSlot(ctx.profile) &&
+		searchIndexedComparison(
+			kind === "eq" || kind === "neq",
+			left,
+			leftType,
+			right,
+			rightType,
+		)
+	)
+		return;
 	if (kind === "eq" || kind === "neq")
 		checkCaseTypeLiteral(left, right, ctx, errors, path);
 
@@ -3753,6 +3781,18 @@ function checkComparison(
 		}
 	}
 
+	if (
+		"profile" in ctx &&
+		ctx.ruleSet === "record" &&
+		serverOnlySearchSlot(ctx.profile) &&
+		left.kind === "term" &&
+		left.term.kind === "prop" &&
+		["date_opened", "closed_on", "last_modified"].includes(
+			left.term.property,
+		) &&
+		rightType === "date"
+	)
+		return;
 	if (!typesCompatible(leftType, rightType)) {
 		const coerced =
 			kind === "eq" || kind === "neq"
@@ -4151,6 +4191,20 @@ function csqlFindings(
 		parent: { readonly node: Expression; readonly path: CheckPath } | undefined,
 	): void => {
 		const position = csqlPositionAt(positions, path);
+		if (
+			node.kind === "today" &&
+			node.clock === "project-space" &&
+			position === "runtime"
+		) {
+			found.push({
+				...refusal(
+					"arm-unavailable",
+					"The search screen cannot read the project space’s day inside a device calculation.",
+					"project-space-day",
+				),
+				path,
+			});
+		}
 		if (node.kind === "value-list" && serverOnly)
 			valueListItems(node, path, parent, typeAt, found);
 		if (

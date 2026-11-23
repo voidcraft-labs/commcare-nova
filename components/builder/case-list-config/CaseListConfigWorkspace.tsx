@@ -121,6 +121,7 @@ import {
 	type Expression,
 	effectiveFilterForEmission,
 } from "@/lib/domain/expression";
+import { searchConditionOf } from "@/lib/domain/searchConditions";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
@@ -1222,7 +1223,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		);
 		const removesVisibleSearchScreen = remainingInputs.length === 0;
 		const hasCasesAvailableCondition =
-			effectiveFilterForEmission(config.filter) !== undefined;
+			effectiveFilterForEmission(searchConditionOf(config)) !== undefined;
 		const nextSearchConfig = removesVisibleSearchScreen
 			? caseSearchConfigAfterFinalInputRemoval(
 					searchConfig,
@@ -1439,28 +1440,37 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			uuid,
 			toIndex,
 		);
-	const clearFilter = useCallback(
-		(nextFilter: Expression | undefined) => {
-			const mutations: Mutation[] = [
+	const updateSearchFilter = useCallback(
+		(
+			edit: NonNullable<
+				Extract<
+					Mutation,
+					{ kind: "setCaseListMeta" }
+				>["patch"]["searchFilterEdit"]
+			>,
+		) => {
+			return commitMany([
 				{
 					kind: "setCaseListMeta",
 					uuid: requireRetainedModuleUuid(moduleUuid),
-					patch: { filter: nextFilter ?? null },
+					patch: { searchFilterEdit: edit },
 				},
-			];
-			// Cases available and Search intent are independent. `{}` is a real
-			// zero-input manual Search action, so "Show all cases" never removes it.
-			return commitMany(mutations);
+			]);
 		},
 		[commitMany, moduleUuid],
 	);
 	const updateFilter = useCallback(
-		(nextFilter: Expression | undefined) =>
+		(next: Expression | undefined, surface?: "list" | "search") =>
 			commitMany([
 				{
 					kind: "setCaseListMeta",
 					uuid: requireRetainedModuleUuid(moduleUuid),
-					patch: { filter: nextFilter ?? null },
+					patch:
+						surface === "search"
+							? { searchCondition: next ?? null }
+							: surface === "list"
+								? { listCondition: next ?? null }
+								: { filter: next ?? null },
 				},
 			]),
 		[commitMany, moduleUuid],
@@ -2068,6 +2078,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		) {
 			resultsDependencyReview = {
 				kind: "cases-available",
+				surface: inputRemovalReview.dependency.surface,
 				token: inputRemovalReview.token,
 				path: inputRemovalReview.dependency.paths[0],
 				inputLabel: inputRemovalReview.inputLabel,
@@ -2138,7 +2149,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		updateColumns,
 		showColumn,
 		updateFilter,
-		clearFilter,
+		updateSearchFilter,
 		updateExcludedOwnerIds,
 		returnToInputRemovalReview,
 	};
@@ -2367,7 +2378,7 @@ export function CaseListWorkspaceCanvas() {
 		updateColumns,
 		showColumn,
 		updateFilter,
-		clearFilter,
+		updateSearchFilter,
 		updateExcludedOwnerIds,
 		returnToInputRemovalReview,
 	} = ws;
@@ -2485,7 +2496,8 @@ export function CaseListWorkspaceCanvas() {
 							filterBroken={filterBroken}
 							excludedOwnerIdsBroken={excludedOwnerIdsBroken}
 							onFilterChange={updateFilter}
-							onClearFilter={clearFilter}
+							onSearchFilterEdit={updateSearchFilter}
+							onClearFilter={updateFilter}
 							searchConfig={searchConfig}
 							onExcludedOwnerIdsChange={updateExcludedOwnerIds}
 							appId={appId}
@@ -2715,7 +2727,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							sortedInputs.length === 1 &&
 							opensOnResultsAfterFinalInput(
 								args.searchConfig,
-								effectiveFilterForEmission(config.filter) !== undefined,
+								effectiveFilterForEmission(searchConditionOf(config)) !==
+									undefined,
 							)
 						}
 						preservesAssignedCaseRule={

@@ -287,19 +287,25 @@ describe("prompts HQ's pages write that Nova does not", () => {
 		);
 	}
 
-	for (const name of ["owner_id", "case_id", "status"])
-		it(`raises a bare prompt named ${name}`, async () => {
+	for (const name of ["owner_id", "case_id", "status", "name"])
+		it(`keeps a search field matched by the project space under ${name}`, async () => {
 			const reading = await edited({ name });
-			expect(codes(reading)).toContain(
-				"case-search/prompt-named-for-a-case-attribute-hq-matches-itself",
-			);
+			expect(codes(reading)).toEqual([]);
+			expect(listOf(reading).searchInputs[0]).toMatchObject({
+				kind: "simple",
+				matching: "project-space",
+				name,
+				property: name === "name" ? "case_name" : name,
+			});
 		});
 
-	it("raises a bare date prompt", async () => {
+	it("keeps a project space's date match", async () => {
 		const reading = await edited({ input_: "date" });
-		expect(codes(reading)).toContain(
-			"case-search/date-prompt-matched-by-hq-s-own-rule",
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(listOf(reading).searchInputs[0]).toMatchObject({
+			type: "date",
+			matching: "project-space",
+		});
 	});
 
 	it("raises a second validation", async () => {

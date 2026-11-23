@@ -104,17 +104,7 @@ const CASES: readonly Case[] = [
 		edit: (body) => renameFirst(body, "_x"),
 		findings: [[`${S}prompt-key-outside-nova-s-name-grammar`, "search", "_x"]],
 	},
-	{
-		title: "a name of a case attribute HQ matches by its own rule",
-		edit: (body) => renameFirst(body, "case_id"),
-		findings: [
-			[
-				`${S}prompt-named-for-a-case-attribute-hq-matches-itself`,
-				"search",
-				"case_id",
-			],
-		],
-	},
+
 	{
 		title: "a blank answer searched for",
 		edit: (body) => {
@@ -242,15 +232,7 @@ const CASES: readonly Case[] = [
 			],
 		],
 	},
-	{
-		title: "a date field matched by HQ's own rule",
-		edit: (body) => {
-			first(body).input_ = "date";
-		},
-		findings: [
-			[`${S}date-prompt-matched-by-hq-s-own-rule`, "search", "case_name"],
-		],
-	},
+
 	{
 		title: "a checkbox field",
 		edit: (body) => {
@@ -411,9 +393,7 @@ const CASES: readonly Case[] = [
 			prompt.appearance = "address";
 			prompt.input_ = "date";
 		},
-		findings: [
-			[`${S}date-prompt-matched-by-hq-s-own-rule`, "search", "case_name"],
-		],
+		findings: [],
 	},
 	{
 		// HQ's Case List page blanks every check of an address field on a save, so the second
@@ -541,11 +521,6 @@ describe("a Search field Nova cannot hold", () => {
 				});
 			}),
 		).toEqual([
-			[
-				`${S}default-properties-entry-keyed-by-a-plain-property-property-p`,
-				"search",
-				"case_name",
-			],
 			[
 				`${S}a-default-filter-and-a-search-property-sharing-one-name`,
 				"search",

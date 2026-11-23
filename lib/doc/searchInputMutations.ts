@@ -33,7 +33,8 @@ type UpdateSearchInputMutation = Extract<
 export type SearchInputRemovalDependency =
 	| {
 			readonly kind: "cases-available";
-			readonly label: "Cases available";
+			readonly label: "Cases available" | "Online search";
+			readonly surface?: "search";
 			readonly paths: SearchInputOccurrencePaths;
 	  }
 	| {
@@ -139,6 +140,18 @@ export function searchInputRemovalDependencies(
 				paths,
 			});
 		}
+	}
+	if (config.searchCondition !== undefined) {
+		const paths = nonEmptyPaths(
+			expressionInputPaths(config.searchCondition, target.uuid),
+		);
+		if (paths)
+			dependencies.push({
+				kind: "cases-available",
+				surface: "search",
+				label: "Online search",
+				paths,
+			});
 	}
 	// A sibling's custom match, required condition, and check rule all read
 	// answers; each is its own dependency so the review can open the exact

@@ -139,10 +139,7 @@
 		"case-names-checked",
 		"instant-comparison",
 		"search-value-guards",
-		"search-today-device-day",
 		"search-filter-rows-recut",
-		"search-filter-joined-to-list",
-		"search-restates-list-filter",
 		"web-apps-turned-on"
 	]
 }

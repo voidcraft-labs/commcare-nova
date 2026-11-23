@@ -41,6 +41,7 @@ import {
 } from "./formLinkProjection";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
+import { readSearchFilterTarget } from "./suite/case-search/nativeFilters";
 import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
 import {
 	searchInputIsSingleDate,
@@ -194,7 +195,22 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 	}
 	const expressions = moduleExpressionContexts(doc, module.uuid);
 	const reasons: string[] = [];
+	const nativeTargets = [
+		...(list.searchFilters ?? []).map((row) => row.target),
+		...list.searchInputs.flatMap((input) => {
+			if (input.kind !== "simple" || searchInputSuppressesAutoMatch(input))
+				return [];
+			const target = readSearchFilterTarget(input.name);
+			return target ? [target] : [];
+		}),
+	];
 	if (
+		nativeTargets.some(
+			(target) =>
+				"ancestors" in target &&
+				target.ancestors &&
+				!(target.kind === "attribute" && target.attribute === "id"),
+		) ||
 		xpathQueryUsesRelatedLookup(
 			list,
 			module.caseType,

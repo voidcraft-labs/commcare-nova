@@ -54,6 +54,7 @@ import { workerLocationFixture } from "@/lib/preview/engine/workerLocationFixtur
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
+	formReadsSearchScore,
 	type SearchResultsSnapshot,
 } from "@/lib/preview/engine/xpathInstances";
 import {
@@ -407,7 +408,9 @@ export async function formSearchResults(
 	/* An unpublished workspace has no records, so its search finds none. */
 	if (world.store === undefined) return { rows: [], totalMatches: 0 };
 	const { store } = world;
-	const found = await refusing(() => serverSearchResults(store, read));
+	const found = await refusing(() =>
+		serverSearchResults(store, read, formReadsSearchScore(doc, form.formUuid)),
+	);
 	if (found === undefined)
 		throw new FormEvaluationInputError(
 			"The search before this form did not complete. Supply searchAnswers for each of its required inputs.",

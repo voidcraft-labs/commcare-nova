@@ -1328,10 +1328,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"search-today-device-day": {
 		touchesWorkers: true,
 		scope: "reading",
-		applies: rewriteReported("search-today-device-day"),
+		applies: () => false,
 		at: {
 			kinds: ["menu"],
-			places: (facts) => rewritePlaces(facts, "search-today-device-day"),
+			places: () => [],
 		},
 		paths: ["/modules/*/search_config/*"],
 	},
@@ -1437,10 +1437,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"search-filter-joined-to-list": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: sameStateRecorded("search-filter-joined-to-list"),
+		applies: () => false,
 		at: {
 			kinds: ["menu"],
-			places: (facts) => recordedPlaces(facts, "search-filter-joined-to-list"),
+			places: () => [],
 		},
 		paths: ["/modules/*/case_details/short/filter"],
 	},
@@ -1448,10 +1448,10 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"search-restates-list-filter": {
 		touchesWorkers: true,
 		scope: "reading",
-		applies: sameStateRecorded("search-restates-list-filter"),
+		applies: () => false,
 		at: {
 			kinds: ["menu"],
-			places: (facts) => recordedPlaces(facts, "search-restates-list-filter"),
+			places: () => [],
 		},
 		paths: ["/modules/*/search_config/default_properties"],
 	},

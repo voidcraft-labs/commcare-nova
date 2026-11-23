@@ -1,5 +1,32 @@
 [
 	{
+		"id": "case-search/native-filter-value-outside-screen-scope",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "A default search filter value that reads data outside its search screen",
+		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
+		"valueClass": "native-filter-unbound-value",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: This device expression reads data the search screen cannot supply.",
+		"subject": "search-expressions",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "the filter reads data outside this search screen"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
 		"area": "case-search",
 		"section": "Case search",
@@ -12,10 +39,9 @@
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
 		"valueClass": "plain-property-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a typed default filter: the property equals a device-computed value, matched on the server with the project space's fuzzy and ignore-pattern settings for that property (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter` → `_get_query`), and a value of `''` matches a blank or absent property. Nova's hidden input never filters (`searchPrompts.ts` excludes it), and an `_xpath_query` clause ignores those settings, so neither holds it",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A saved search filter sends each value under its property. CommCare HQ uses the project space’s matching settings.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -46,10 +72,9 @@
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
 		"valueClass": "ancestor-path-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a typed ancestor default filter: HQ compiles it as the CSQL comparison `parent/p = \"<value>\"` (`case_search/utils.py::_get_query`), so a value holding `\"` fails that search",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The filter sends its ordered relationship path and value. CommCare HQ searches the related records.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -80,10 +105,9 @@
 			"schema:DefaultCaseSearchProperty.defaultValue"
 		],
 		"valueClass": "owner-case-project-or-index-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a typed default filter on the case owner, the case id, the project space or a reverse index, which HQ applies instead of a property match (`_apply_filter`; `indices.*` through `reverse_index_case_query`); a blank `owner_id` or `commcare_project` value applies no filter (`_apply_filter` skips an empty criterion), while a blank `case_id` filters on the empty id, and a blank `indices.<identifier>` value matches cases whose index of that identifier was removed (`reverse_index_case_query` on `referenced_id` `''`)",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The search sends the record ID, owner, project space or named relationship as its own criterion.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -1932,10 +1956,9 @@
 			"csql-key:owner_id"
 		],
 		"valueClass": "attribute-name-not-excluded",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a Search field over a case attribute, or over the case's name, that HQ's search reads by its own rule (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`; `case_search/const.py::INDEXED_METADATA_BY_KEY` indexes the case's name under `name`); Nova writes such a field excluded, with its own clause, `@<name>` or `case_name` (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A field can use the project space’s matching rule for the case attribute its key names.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -2391,10 +2414,9 @@
 			"prompt-input:date"
 		],
 		"valueClass": "date-not-excluded",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a date Search field HQ compares by its own exact rule, with the project space's fuzzy and ignore-pattern settings; Nova's date field is always excluded and carries a whole-day clause (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
-		"subject": "search-fields",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A date field can send the worker’s date to the project space for matching.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -3713,10 +3735,9 @@
 			"csql-metadata:last_modified"
 		],
 		"valueClass": "project-timezone-date",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: HQ reads the date as the project space's day (`comparison.py::_create_system_datetime_query`); no read gives Nova that time zone, so neither Preview nor Postgres can evaluate it. Held once a project space's time zone is a fact Nova has",
-		"subject": "search-expressions",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the server compares a system date using the destination project space’s time zone",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4412,17 +4433,22 @@
 			"csql-key:_xpath_query"
 		],
 		"valueClass": "conjunct-over-a-matched-field-unguarded",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a condition on a Search field HQ's matcher also compares, applied whether or not the field is answered; Nova holds such a condition only as a list filter clause that waits for the field, or on an excluded field (`searchPrompts.ts::searchInputSuppressesAutoMatch`)",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The request retains the independent condition and the field’s own automatic match.",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "one row per filter",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4440,17 +4466,22 @@
 			"csql-key:_xpath_query"
 		],
 		"valueClass": "conjunct-over-an-excluded-field-unguarded",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a condition on an excluded Search field applied whether or not the field is answered: the device builds the search's input list from the answered fields alone (`RemoteQuerySessionManager.getUserQueryValues`), so while the field is unanswered the row compares with a blank; Nova holds a condition on an excluded field only under the field's presence guard, which leaves the search unfiltered until the field is answered (`searchInputRefUsesWhenInputPresent.ts`)",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The request evaluates the field whether answered or blank. Its own key does not match records.",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "one row per filter",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4468,17 +4499,22 @@
 			"csql-key:_xpath_query"
 		],
 		"valueClass": "conjunct-with-no-slot",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a filter the search applies and the case list does not: there HQ's results list reads the case type alone (`remote_requests.py::_build_datum_nodeset`), and Nova's one filter narrows both",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The online search has its own typed condition.",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "one row per filter",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4490,17 +4526,22 @@
 		"item": "a top-level clause of `Detail.filter` no `_xpath_query` conjunct restates, on a module that offers search and whose forms do not read it",
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "unrestated-on-a-module-whose-forms-do-not-read-the-search",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a filter the case list applies and the search does not: there HQ's results list reads the case type alone (`remote_requests.py::_build_datum_nodeset`), and Nova's one filter narrows both",
-		"subject": "list-and-search-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: The device uses the original detail condition. The server receives only its own request conditions.",
+		"slotChanges": [],
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "one row per filter",
+			"markers": []
 		},
 		"gates": []
 	},

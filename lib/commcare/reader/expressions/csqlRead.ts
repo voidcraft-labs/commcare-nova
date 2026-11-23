@@ -8,6 +8,7 @@
  * guards and quote choice around them (`search-value-guards`). Nothing here
  * matches text: the print proves every recognition.
  */
+
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
@@ -18,6 +19,7 @@ import {
 	pushRowScope,
 } from "@/lib/domain/expression/context";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
+import { searchIndexedValueKind } from "@/lib/domain/expression/searchIndexedComparison";
 import {
 	type CheckError,
 	checkExpression,
@@ -520,8 +522,6 @@ interface BindState {
 	 *  parenthesized join of selection tests or of equalities as the one
 	 *  selection or membership Nova prints so. */
 	readonly proposals: boolean;
-	/** Whether the row's text called `today()`, HQ's server-side day. */
-	today: boolean;
 	/** The device values bound to a value that reads a lookup table's row. */
 	readonly tableReads: Set<FormSyntax>;
 }
@@ -546,10 +546,7 @@ const MATCH_MODES: SourceTable<Extract<Expression, { kind: "match" }>["mode"]> =
 /** Whether HQ orders by a text: a number `float()` reads, or a date or a
  *  date and time its parsers read. */
 function orderable(text: string): boolean {
-	const trimmed = text.trim();
-	if (trimmed !== "" && Number.isFinite(Number(trimmed))) return true;
-	const shape = literalShape(text);
-	return shape !== undefined && shape.type !== "time";
+	return searchIndexedValueKind(text) !== undefined;
 }
 
 function term(value: Term): Expression {
@@ -1412,8 +1409,7 @@ class CsqlBinder {
 		switch (at.name) {
 			case "today":
 				if (args.length !== 0) unrecognizedRow();
-				this.state.today = true;
-				return { kind: "today" };
+				return { kind: "today", clock: "project-space" };
 			case "now":
 				if (args.length !== 0) unrecognizedRow();
 				return { kind: "now" };
@@ -1876,7 +1872,6 @@ function bindCsql(
 	options: { readonly text: string; readonly proposals: boolean },
 ): {
 	readonly bound: Bound;
-	readonly today: boolean;
 	readonly tableReads: ReadonlySet<FormSyntax>;
 } {
 	const state: BindState = {
@@ -1885,11 +1880,10 @@ function bindCsql(
 		text: options.text,
 		prefix: markerPrefix(constantTexts(parts)),
 		proposals: options.proposals,
-		today: false,
 		tableReads: new Set(),
 	};
 	const bound = bindCsqlParts(parts, state, rowCaseType(context));
-	return { bound, today: state.today, tableReads: state.tableReads };
+	return { bound, tableReads: state.tableReads };
 }
 
 // ── Acceptance ───────────────────────────────────────────────────────
@@ -1959,8 +1953,6 @@ function wrapperDifference(
 interface CandidateText {
 	readonly text: string;
 	readonly holes: readonly WireExpr[];
-	/** The device's day between Nova's quote marks is read as the server's `today()`. */
-	readonly today: boolean;
 	/** The device's day is spliced in as a value, between quote marks. */
 	readonly deviceDay: boolean;
 	/** A hole or an obligation besides the device's day. */
@@ -1971,19 +1963,14 @@ function isTodayCall(wire: WireExpr): boolean {
 	return wire.k === "call" && wire.fn === "today" && wire.args.length === 0;
 }
 
-/** `foldToday`: the device's day Nova splices between its fixed double quotes
- *  is read as CSQL's own `today()`, the source a server's day is held from;
- *  otherwise it stays a device value, a hole like any other but no guard,
- *  since it holds no quote mark and is never blank. */
+/** Preserve each runtime hole. The project space’s day is a server value in the constant CSQL. */
 function candidateText(
 	tree: CsqlNode,
 	prefix: string,
-	foldToday: boolean,
 ): CandidateText | undefined {
 	const segments = printCsql(tree);
 	let text = "";
 	const holes: WireExpr[] = [];
-	let today = false;
 	let deviceDay = false;
 	let guarded = false;
 	const mark = (value: WireExpr): void => {
@@ -2027,14 +2014,8 @@ function candidateText(
 			next?.kind === "constant" &&
 			next.text.startsWith('"')
 		) {
-			if (!foldToday) {
-				deviceDay = true;
-				mark(segment.xpath);
-				continue;
-			}
-			text = `${text.slice(0, -1)}today()`;
-			segments[index + 1] = { kind: "constant", text: next.text.slice(1) };
-			today = true;
+			deviceDay = true;
+			mark(segment.xpath);
 			continue;
 		}
 		guarded = true;
@@ -2042,7 +2023,7 @@ function candidateText(
 		// choice around it included.
 		mark(segment.xpath);
 	}
-	return { text, holes, today, deviceDay, guarded };
+	return { text, holes, deviceDay, guarded };
 }
 
 /** The source's holes, in the order their markers stand in its text. */
@@ -2105,8 +2086,6 @@ function rejectsHeld(rejects: readonly FormSyntax[], tree: CsqlNode): boolean {
 
 /** What the guards level found between a source row and Nova's wrapper. */
 interface GuardsLevel {
-	/** Nova's device day stands for the source's server `today()`. */
-	readonly today: boolean;
 	/** The source splices the device's day in as Nova does, between its own quote marks. */
 	readonly deviceDay: boolean;
 	/** Nova's wrapper adds a guard or a quote choice around a device value. */
@@ -2237,32 +2216,26 @@ function guards(
 	const left = readFormSyntax(source.text);
 	if (!left.ok || left.node === undefined) return undefined;
 	const respelling = hqSelectionSpelling(left.node, prefix);
-	for (const foldToday of [true, false]) {
-		const candidate = candidateText(tree, prefix, foldToday);
-		if (
-			candidate === undefined ||
-			source.holes.length !== candidate.holes.length
-		)
-			continue;
-		const right = readFormSyntax(candidate.text);
-		if (!right.ok || right.node === undefined) continue;
-		const same = sameNode(left.node, right.node);
-		const respelled = !same && sameNode(respelling, right.node);
-		if (!same && !respelled) continue;
-		const sameHoles = source.holes.every((node, index) => {
-			if (unprinted.has(node)) return true;
-			const hole = printed(candidate.holes[index] as WireExpr);
-			return hole !== undefined && sameNode(node, hole);
-		});
-		if (sameHoles)
-			return {
-				today: candidate.today,
+	const candidate = candidateText(tree, prefix);
+	if (!candidate || source.holes.length !== candidate.holes.length)
+		return undefined;
+	const right = readFormSyntax(candidate.text);
+	if (!right.ok || right.node === undefined) return undefined;
+	const same = sameNode(left.node, right.node);
+	const respelled = !same && sameNode(respelling, right.node);
+	if (!same && !respelled) return undefined;
+	const sameHoles = source.holes.every((node, index) => {
+		if (unprinted.has(node)) return true;
+		const hole = printed(candidate.holes[index] as WireExpr);
+		return hole !== undefined && sameNode(node, hole);
+	});
+	return sameHoles
+		? {
 				deviceDay: candidate.deviceDay,
 				guarded: candidate.guarded,
 				...(respelled && { respelled: true as const }),
-			};
-	}
-	return undefined;
+			}
+		: undefined;
 }
 
 /** The checker's and representability's refusal of a bound row, as its claim. */
@@ -2412,11 +2385,7 @@ export function readSearchFilterRow(
 		const rowContext = withPropertyTypes(context, typing);
 		const emission = emissionContext(rowContext, env);
 		for (const proposals of [true, false]) {
-			const {
-				bound: raw,
-				today,
-				tableReads,
-			} = bindCsql(parts, rowContext, env, {
+			const { bound: raw, tableReads } = bindCsql(parts, rowContext, env, {
 				text,
 				proposals,
 			});
@@ -2486,12 +2455,8 @@ export function readSearchFilterRow(
 			// The device's day between other quote marks than Nova's is the same CSQL
 			// on every device, and a selection HQ's search reads as Nova's spelling of it
 			// the same query, so neither alone is a rewrite a worker meets.
-			if (
-				level.guarded ||
-				!((today && level.today) || level.deviceDay || level.respelled)
-			)
+			if (level.guarded || !(level.deviceDay || level.respelled))
 				rewrites.push("search-value-guards");
-			if (today && level.today) rewrites.push("search-today-device-day");
 			return {
 				ok: true,
 				predicate: bound,

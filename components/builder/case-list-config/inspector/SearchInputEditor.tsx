@@ -51,6 +51,7 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
+import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
@@ -988,6 +989,27 @@ function VisibleSearchInputEditor({
 					/>
 				</FieldRow>
 
+				{value.kind === "simple" &&
+					(!value.via || value.via.kind === "self") &&
+					effectiveModeKind(value) === "exact" &&
+					(value.name === value.property ||
+						(value.name === "name" && value.property === "case_name")) &&
+					(value.type === "date" ||
+						["name", "case_id", "owner_id", "status"].includes(value.name)) && (
+						<ToggleRow
+							label="Use project space matching"
+							description="Send the answer to the project space using this field’s name."
+							checked={value.matching === "project-space"}
+							onChange={(enabled) =>
+								onChange(
+									rebuildRow(value, {
+										matching: enabled ? "project-space" : undefined,
+									}),
+								)
+							}
+						/>
+					)}
+
 				{value.kind === "advanced" && (
 					<FieldRow
 						label="Custom condition"
@@ -1830,6 +1852,7 @@ interface RowPatch {
 	readonly property?: string;
 	readonly via?: RelationPath | undefined;
 	readonly mode?: SearchInputMode | undefined;
+	readonly matching?: "project-space" | undefined;
 	readonly default?: Expression | undefined;
 	readonly hint?: string | undefined;
 	readonly required?: SearchInputRequired | undefined;
@@ -1890,9 +1913,18 @@ function rebuildRow(
 		const property = patch.property ?? value.property;
 		const via = "via" in patch ? patch.via : value.via;
 		const mode = "mode" in patch ? patch.mode : value.mode;
+		const matching = "matching" in patch ? patch.matching : value.matching;
+		const native =
+			matching &&
+			(!via || via.kind === "self") &&
+			(name === property || (name === "name" && property === "case_name")) &&
+			(!mode || mode.kind === "exact" || mode.kind === "range")
+				? { matching }
+				: {};
 		if (type === "date-range") {
 			return simpleSearchInputDef(value.uuid, name, label, type, property, {
 				...visible,
+				...native,
 				via,
 				mode: { kind: "range" },
 			});
@@ -1900,6 +1932,7 @@ function rebuildRow(
 		if (isSelectSearchInputType(type) && options !== undefined) {
 			return simpleSearchInputDef(value.uuid, name, label, type, property, {
 				...visible,
+				...native,
 				via,
 				options,
 				default: dflt,
@@ -1907,6 +1940,7 @@ function rebuildRow(
 		}
 		return simpleSearchInputDef(value.uuid, name, label, type, property, {
 			...visible,
+			...native,
 			via,
 			...(mode !== undefined && mode.kind !== "range" ? { mode } : {}),
 			default: dflt,

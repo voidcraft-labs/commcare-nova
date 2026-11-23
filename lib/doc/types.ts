@@ -59,6 +59,7 @@ import {
 	ownerOnlyCaseSearchConfigSchema,
 	personaSchema,
 	type SearchInputDef,
+	searchFilterSchema,
 	searchInputDefSchema,
 	selectOptionSchema,
 	selectOptionsSourceSchema,
@@ -1668,6 +1669,31 @@ function createMutationSchema({
 			uuid: uuidSchema,
 			patch: z.strictObject({
 				filter: mutationConditionSchema.nullable().optional(),
+				listCondition: mutationConditionSchema.nullable().optional(),
+				searchCondition: mutationConditionSchema.nullable().optional(),
+				searchFilterEdit: z
+					.discriminatedUnion("operation", [
+						z.strictObject({
+							operation: z.literal("add"),
+							filter: searchFilterSchema,
+							after: uuidSchema.nullable().optional(),
+						}),
+						z.strictObject({
+							operation: z.literal("edit"),
+							uuid: uuidSchema,
+							patch: searchFilterSchema.omit({ uuid: true }).partial(),
+						}),
+						z.strictObject({
+							operation: z.literal("move"),
+							uuid: uuidSchema,
+							after: uuidSchema.nullable(),
+						}),
+						z.strictObject({
+							operation: z.literal("remove"),
+							uuid: uuidSchema,
+						}),
+					])
+					.optional(),
 				selection: caseSelectionSchema.nullable().optional(),
 				tile: caseTileLayoutSchema.nullable().optional(),
 			}),

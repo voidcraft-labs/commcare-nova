@@ -8,6 +8,7 @@
  * Each placement is a proposal judged by Nova's own emission of the menu's
  * rows (`expressions/searchRows.ts::matchSearchRows`).
  */
+
 import type {
 	BlueprintDoc,
 	Expression,
@@ -36,6 +37,7 @@ import {
 	type SimpleSearchInputDef,
 } from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { replaceCaseConditions } from "@/lib/domain/searchConditions";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { advancedFormLoads } from "../../advancedSelections";
@@ -65,7 +67,7 @@ import type { FormSyntax } from "../../xpath/formSyntax";
 import type { ClaimSite } from "../accounting";
 import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
-import { type Claim, defineClaims, refuse, take } from "../claims";
+import { type Claim, defineClaims, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { canonicalExpression } from "../expressions/canonical";
 import type { ComparedType } from "../expressions/comparedTypes";
@@ -109,19 +111,19 @@ export const ROWS_HELD = `${S}several-xpath-query-rows`;
 export const MARKERS_HELD = `${S}default-properties-entries-keyed-include-closed-or-x-commcare`;
 
 export const ROW_CLAIMS = defineClaims("search.rows", {
-	readsMatchedField: refuse(
+	readsMatchedField: take(
 		`${S}xpath-query-row-reading-a-field-hq-also-matches`,
-		"schema:CaseSearch.default_properties",
+		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
-	readsExcludedField: refuse(
+	readsExcludedField: take(
 		`${S}xpath-query-row-reading-an-excluded-field-outside-its-presence-guard`,
-		"schema:CaseSearch.default_properties",
+		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
-	noSlot: refuse(
+	noSlot: take(
 		`${S}xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`,
-		"schema:CaseSearch.default_properties",
+		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
-	unrestated: refuse(
+	unrestated: take(
 		`${S}case-list-filter-clause-the-search-does-not-restate`,
 		"schema:Detail.filter",
 	),
@@ -1705,6 +1707,22 @@ function claimRowKey(
 	);
 }
 
+/** The detail's own expression and its intact scope are established before search
+ * rows settle. Record the different request at the same detail source pointer. */
+function takeUnrestatedDetail(ctx: ReadContext, module: DraftModule): void {
+	for (const index of ctx.pending.of("module", module.uuid)) {
+		const registration = ctx.pending.list()[index];
+		if (
+			registration?.key !== "schema:Detail.filter" ||
+			registration.ref.slot !== "case_list_filter"
+		)
+			continue;
+		const { at } = ctx.pending.site(index);
+		if ("json" in at)
+			at.json.takePart(at.key, "independent-search", ROW_CLAIMS.unrestated);
+	}
+}
+
 export function classifySearchRows(
 	ctx: ReadContext,
 	module: DraftModule,
@@ -1736,7 +1754,6 @@ export function classifySearchRows(
 	// Whether a row could not be read: a list clause it restates is then not known to go unrestated.
 	let unread = false;
 	// Whether the search's own filter joined to the list is declared.
-	let joinRecorded = false;
 	// Each conjunct read as a simple field's derivation, with its record's place.
 	const derivations: { input: Uuid; conjunct: Expression; at: number }[] = [];
 	// Each conjunct read as a field's own condition where the list filter could also take it,
@@ -1757,19 +1774,11 @@ export function classifySearchRows(
 		// where the source's search finds every case of the type and HQ applies the filter to the
 		// device's list alone (`remote_requests.py::_build_datum_nodeset`). No clause is restated.
 		const unrestated = listClauses.map((_, index) => index);
-		if (input.formsReadSearch)
-			sameState(
-				ctx,
-				ROWS_HELD,
-				`${module.json.pointer}/search_config/default_properties`,
-				"search-restates-list-filter",
-			);
-		else
-			ctx.accounting.finding(ROW_CLAIMS.unrestated, {
-				kind: "case-list",
-				menu: module.index,
-				name: place.kind === "search" ? place.name : "",
-			});
+		ctx.doc = withCandidate(doc, (draft) => {
+			const config = draft.modules[module.uuid]?.caseListConfig;
+			if (config) replaceCaseConditions(config, { searchCondition: null });
+		});
+		takeUnrestatedDetail(ctx, module);
 		return { conjuncts, unrestated };
 	}
 	// The fields some row reads: a row that reads a field is that field's (its derivation or its own
@@ -1783,7 +1792,7 @@ export function classifySearchRows(
 		for (const row of input.rows) {
 			const read = readSearchRowConjuncts(
 				row.text,
-				contexts({ slot: "case_list_filter" }),
+				contexts({ slot: "case_search_filter" }),
 				{ ...env, doc },
 			);
 			if (read.ok)
@@ -1813,7 +1822,7 @@ export function classifySearchRows(
 		const contexts = moduleExpressionContexts(doc, module.uuid, naming);
 		let read = readSearchRowConjuncts(
 			row.text,
-			contexts({ slot: "case_list_filter" }),
+			contexts({ slot: "case_search_filter" }),
 			{ ...env, doc },
 		);
 		// A row the list filter's slot does not admit can be an advanced field's own condition,
@@ -2279,13 +2288,6 @@ export function classifySearchRows(
 				(chosen === undefined || chosen.from === "filter");
 			if (joinsFilter) {
 				doc = chosen?.doc ?? filterDoc;
-				sameState(
-					ctx,
-					ROWS_HELD,
-					`${module.json.pointer}/case_details/short/filter`,
-					"search-filter-joined-to-list",
-				);
-				joinRecorded = true;
 				record({ kind: "F" });
 				continue;
 			}
@@ -2321,20 +2323,20 @@ export function classifySearchRows(
 				});
 				continue;
 			}
-			// An unguarded read of an excluded field alone is the excluded field's own entry: HQ's
-			// matcher does not compare that field, and the row compares a blank while it is unanswered.
-			const claim = reads.every((one) => one.presence)
-				? ROW_CLAIMS.noSlot
-				: unguarded.length > 0 &&
-						unguarded.every(
-							(uuid) =>
-								input.prompts.find((one) => one.uuid === uuid)?.exclude ===
-								true,
-						)
-					? ROW_CLAIMS.readsExcludedField
-					: ROW_CLAIMS.readsMatchedField;
-			ctx.accounting.finding(claim, place);
-			record({ kind: "E", entry: claim.entry });
+			// An independent server condition owns a matched or excluded
+			// prompt's value without changing its own matching behavior.
+			const claim =
+				unguarded.length === 0
+					? ROW_CLAIMS.noSlot
+					: unguarded.every(
+								(uuid) =>
+									input.prompts.find((one) => one.uuid === uuid)?.exclude ===
+									true,
+							)
+						? ROW_CLAIMS.readsExcludedField
+						: ROW_CLAIMS.readsMatchedField;
+			row.cursor.takePart("defaultValue", "independent-condition", claim);
+			record({ kind: "F" });
 		}
 	}
 
@@ -2488,62 +2490,48 @@ export function classifySearchRows(
 			break;
 		}
 	}
-	// The search's own filter joined to the list changes the list a device runs, whichever placement
-	// joined it, so the change is declared from the settled menu: wherever a conjunct is kind F, or
-	// the list filter a device runs prints otherwise than it did.
-	const listChanged = () => {
-		const before = listFilterText(ctx, start, module.uuid);
-		const after = listFilterText(ctx, doc, module.uuid);
-		return (
-			before !== undefined &&
-			after !== undefined &&
-			(before === "" || after === ""
-				? before !== after
-				: !sameXPathText(before, after))
-		);
-	};
-	if (
-		!joinRecorded &&
-		(conjuncts.some((one) => one.placement.kind === "F") || listChanged())
-	)
-		sameState(
-			ctx,
-			ROWS_HELD,
-			`${module.json.pointer}/case_details/short/filter`,
-			"search-filter-joined-to-list",
-		);
-
+	// Only a field-owned conjunct can be supplied by its prompt. Every
+	// remaining conjunct stays with the ordered online request. Restore
+	// the original detail even when a candidate tested a joined spelling.
+	const requestConditions = conjuncts.filter(
+		(one) =>
+			one.placement.kind === "B" ||
+			one.placement.kind === "F" ||
+			(one.placement.kind === "D" && one.placement.from === "filter"),
+	);
+	const requestCondition = requestConditions.reduce<Expression | undefined>(
+		(result, one) => joinedFilter(result, one.predicate),
+		undefined,
+	);
+	const combined = withCandidate(doc, (draft) => {
+		const config = draft.modules[module.uuid]?.caseListConfig;
+		if (config)
+			replaceCaseConditions(config, { filter: requestCondition ?? null });
+	});
+	const originally = listFilterText(ctx, start, module.uuid);
+	const shared = listFilterText(ctx, combined, module.uuid);
+	doc =
+		originally !== undefined &&
+		shared !== undefined &&
+		(originally === shared ||
+			(originally !== "" && shared !== "" && sameXPathText(originally, shared)))
+			? combined
+			: withCandidate(doc, (draft) => {
+					const config = draft.modules[module.uuid]?.caseListConfig;
+					if (config)
+						replaceCaseConditions(config, {
+							listCondition: mod.caseListConfig?.filter ?? null,
+							searchCondition: requestCondition ?? null,
+						});
+				});
 	const unrestated = listClauses.flatMap((_, index) =>
 		restated.has(index) ? [] : [index],
 	);
-	// A search that sends `match-none()` finds nothing, and Nova sends no other row beside it
-	// (`xpathQuery.ts::composeXPathQueryClauses`), so a list clause it leaves out restates nothing.
-	const findsNothing = conjuncts.some(
-		(one) => one.predicate.kind === "match-none",
-	);
-	if (unrestated.length > 0 && !unread && !findsNothing) {
-		if (input.formsReadSearch)
-			sameState(
-				ctx,
-				ROWS_HELD,
-				`${module.json.pointer}/search_config/default_properties`,
-				"search-restates-list-filter",
-			);
-		else
-			ctx.accounting.finding(ROW_CLAIMS.unrestated, {
-				kind: "case-list",
-				menu: module.index,
-				name: place.kind === "search" ? place.name : "",
-			});
-	}
-
+	if (unrestated.length > 0 && !unread) takeUnrestatedDetail(ctx, module);
 	// Nova's emission of the settled menu writes every source row back. A search of HQ's two
 	// markers alone is Nova's search with no fields and no filter, whose zero-input row Nova writes
 	// in their place: that row is the one the emission must write.
-	const markersRow =
-		input.markersOnly === true &&
-		input.rows.length === 0 &&
-		listClauses.length === 0;
+	const markersRow = input.markersOnly === true && input.rows.length === 0;
 	const settled = matchSearchRows(
 		doc,
 		module.uuid,
@@ -2557,7 +2545,7 @@ export function classifySearchRows(
 	// Nova's emission restates every clause of the list filter as a row of its own, so each clause
 	// no row restates is a row it adds: held where the menu's forms read the search, and the one
 	// finding at the list otherwise, which stands for the rows it adds.
-	const extraAllowed = unread ? 0 : unrestated.length;
+	const extraAllowed = 0;
 	if (settled.unmatched.length > 0 || settled.extra.length > extraAllowed) {
 		// A field's check whose refusal its settle has yet to apply stands at the search too.
 		if (!ctx.accounting.hasFindingAt(place) && !refusalDeferredAt(ctx, place))

@@ -246,7 +246,6 @@ describe("additional case types", () => {
 
 describe("a bare prompt's name", () => {
 	it.each([
-		["name", "case-search/prompt-named-for-a-case-attribute-hq-matches-itself"],
 		["_x", "case-search/prompt-key-outside-nova-s-name-grammar"],
 		["date-opened", "case-search/prompt-key-outside-nova-s-name-grammar"],
 		["external-id", "case-search/prompt-key-outside-nova-s-name-grammar"],

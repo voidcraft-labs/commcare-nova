@@ -277,8 +277,9 @@ export function blueprintTopologyIssues(
 
 	for (const [moduleUuid, module] of Object.entries(doc.modules)) {
 		if (
-			isOwnerOnlyCaseSearchConfig(module.caseSearchConfig) &&
-			(module.caseListConfig?.searchInputs.length ?? 0) > 0
+			(isOwnerOnlyCaseSearchConfig(module.caseSearchConfig) &&
+				module.caseListConfig?.searchInputs.length) ||
+			module.caseListConfig?.searchFilters?.length
 		) {
 			topologyIssue(
 				issues,

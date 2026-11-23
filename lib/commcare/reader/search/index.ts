@@ -18,10 +18,12 @@ import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import type {
 	CaseSearchConfig,
 	OrdinaryCaseSearchConfig,
+	SearchFilter,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import { withCandidate } from "../candidate";
 import { appCodes } from "../caseList/columns";
 import { caseListReadings, sameState } from "../caseList/details";
@@ -44,6 +46,7 @@ import {
 	searchRowProperties,
 	searchRowRelations,
 } from "../expressions/scanReads";
+import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor, objectMembers } from "../jsonCursor";
 import { manifestFindingOf } from "../languages";
 import { pendingPlaceholder } from "../pendingExpressions";
@@ -111,15 +114,15 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}default-properties-entry-with-no-defaultvalue-hq-stores-an-empty`,
 		"schema:DefaultCaseSearchProperty",
 	),
-	plainKey: refuse(
+	plainKey: take(
 		`${S}default-properties-entry-keyed-by-a-plain-property-property-p`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
-	ancestorKey: refuse(
+	ancestorKey: take(
 		`${S}default-properties-entry-keyed-by-an-ancestor-path-parent-p`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
-	projectKey: refuse(
+	projectKey: take(
 		`${S}default-properties-entry-keyed-owner-id-case-id-commcare-project`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
@@ -262,31 +265,27 @@ function keyFinding(
 	if (key === "x_commcare_data_registry") return C.registryKey;
 	if (key === "commcare_sort" || key.startsWith("x_commcare_"))
 		return C.sortKey;
-	if (
-		key === "owner_id" ||
-		key === "case_id" ||
-		key === "commcare_project" ||
-		key.startsWith("indices.")
-	)
-		return C.projectKey;
-	if (key.includes("/")) return C.ancestorKey;
-	return C.plainKey;
+	return undefined;
 }
 
 /** The default filters: each `_xpath_query` row kept, the markers read, every other key refused. */
 function readDefaultFilters(
-	accounting: ReadContext["accounting"],
+	ctx: ReadContext,
+	module: DraftModule,
 	cursor: JsonCursor,
 	hasPrompts: boolean,
 ): {
 	ok: boolean;
 	rows: SearchRow[];
+	filters: SearchFilter[];
 	/** Each key a default filter other than a row names, with the pointer of each such filter's
 	 *  `property`. */
 	names: Map<string, string[]>;
 	zeroInput: boolean;
 	markersOnly: boolean;
 } {
+	const { accounting } = ctx;
+	const filters: SearchFilter[] = [];
 	const stored = cursor.peek("default_properties");
 	const entries = objectMembers(stored) ?? [];
 	const markersOnly =
@@ -364,6 +363,62 @@ function readDefaultFilters(
 				ownersExpression,
 				relatedPropertySet,
 			);
+			if (claim === undefined) {
+				const target = readSearchFilterTarget(property);
+				const occurrence = names.get(property)?.length ?? 0;
+				addName(property, row);
+				if (target === undefined) {
+					const detail = { name: "schema:DefaultCaseSearchProperty.property" };
+					accounting.circumstance("unrecognized", row.place, detail);
+					const finding = circumstanceFinding(
+						"unrecognized",
+						row.place,
+						detail,
+					);
+					accounting.cover({ json: row, key: "property" }, finding);
+					accounting.cover({ json: row, key: "defaultValue" }, finding);
+					ok = false;
+					return;
+				}
+				const claim =
+					"ancestors" in target && target.ancestors
+						? C.ancestorKey
+						: target.kind === "record-name" ||
+								target.kind === "attribute" ||
+								target.kind === "property"
+							? C.plainKey
+							: C.projectKey;
+				row.take("property", claim, String).value;
+				const uuid = accounting.identity(
+					ctx.identities.claim(
+						externalKey.searchFilter(module.uniqueId, property, occurrence),
+						`${module.uniqueId}/search/filter/${index}`,
+					),
+					row.place,
+					"schema:DefaultCaseSearchProperty.property",
+				);
+				if (uuid === undefined) {
+					ok = false;
+					return;
+				}
+				filters.push({ uuid, target, value: pendingPlaceholder("value") });
+				ctx.pending.register(
+					{
+						ref: {
+							entity: "module",
+							uuid: module.uuid,
+							slot: "search_filter_value",
+							member: { filterUuid: uuid },
+						},
+						text: value,
+						mode: { target: "hq-json", interpolation: "none" },
+						place: row.place,
+						key: "schema:DefaultCaseSearchProperty.defaultValue",
+					},
+					{ json: row, key: "defaultValue" },
+				);
+				return;
+			}
 			const detail = { name: property };
 			row.refuse("property", claim, detail);
 			// A key HQ's request carries twice is a class of the row and of the search's own key
@@ -408,7 +463,7 @@ function readDefaultFilters(
 			);
 		rows.push({ index, text: value, cursor: row });
 	});
-	return { ok, rows, names, zeroInput, markersOnly };
+	return { ok, rows, filters, names, zeroInput, markersOnly };
 }
 
 /** A row's `parent` link in the catalog, where the child has no parent there: both types named,
@@ -526,12 +581,17 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const hasPrompts =
 			Array.isArray(cursor.peek("properties")) &&
 			(cursor.peek("properties") as unknown[]).length > 0;
-		const filters = readDefaultFilters(ctx.accounting, cursor, hasPrompts);
+		const filters = readDefaultFilters(ctx, module, cursor, hasPrompts);
 		const caseType = module.module.caseType;
 		const prompts = readSearchPrompts(ctx, module, cursor, filters.names);
 		// A property the search's rows read, and a simple Search field's, is a property of the
 		// catalog, as every expression's is.
 		const properties = [
+			...filters.filters.flatMap(({ target }) =>
+				target.kind === "property" && !target.ancestors
+					? [target.property]
+					: [],
+			),
 			...filters.rows.flatMap((row) => searchRowProperties(row.text)),
 			...prompts.flatMap((prompt) =>
 				!prompt.refused &&
@@ -593,8 +653,10 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				: search;
 		ctx.writeDraft(() => {
 			const list = module.module.caseListConfig as CaseListConfig | undefined;
-			if (list !== undefined)
+			if (list !== undefined) {
 				list.searchInputs = prompts.map((prompt) => prompt.input);
+				if (filters.filters.length) list.searchFilters = filters.filters;
+			}
 			const target = module.module as { caseSearchConfig?: CaseSearchConfig };
 			if (settled === undefined) delete target.caseSearchConfig;
 			else target.caseSearchConfig = settled;
@@ -889,7 +951,12 @@ function fieldOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
 	if (doc === undefined || mod === undefined) return;
 	const properties = propertyTypes(doc, mod.caseType);
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
-		if (input.kind !== "simple" || input.via !== undefined) continue;
+		if (
+			input.kind !== "simple" ||
+			input.matching === "project-space" ||
+			input.via !== undefined
+		)
+			continue;
 		const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[input.type];
 		const type = properties.find(
 			(property) => property.name === input.property,

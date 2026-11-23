@@ -49,6 +49,7 @@
 // string at evaluation time AND silently filter case data on the
 // server, so the inline shape is the only wire-correct option for
 // computed values.
+
 import {
 	inertLookupWireNaming,
 	type LookupWireNaming,
@@ -65,6 +66,10 @@ import {
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import {
+	searchConditionOf,
+	searchConditionSlot,
+} from "@/lib/domain/searchConditions";
 import {
 	type SearchRuntimeValidationKind,
 	searchRuntimeValidationMessage,
@@ -129,7 +134,11 @@ export function xpathQueryRequestValues(
 	emission: ComposedXPathQuery | undefined,
 ): readonly WireExpr[] {
 	const clauses = emission?.clauseWrappers ?? [];
-	if (clauses.length > 0 || caseListConfig.searchInputs.length > 0) {
+	if (
+		clauses.length > 0 ||
+		caseListConfig.searchInputs.length > 0 ||
+		caseListConfig.searchFilters?.length
+	) {
 		return clauses;
 	}
 	return [ZERO_INPUT_SEARCH_SENTINEL];
@@ -275,7 +284,8 @@ export function composeXPathQueryEmission(
 	// means the validator was bypassed (an AST built at runtime, an
 	// `as any` cast, or a partial discriminated-union widening).
 	for (const clause of clauses) {
-		assertNoBareSearchInputRefs(clause.expression);
+		if (clause.context.slot.slot !== "case_search_filter")
+			assertNoBareSearchInputRefs(clause.expression);
 		assertCsqlRepresentable(clause.expression, clause.context);
 	}
 
@@ -335,12 +345,13 @@ export function composeXPathQueryClauses(
 	contexts: XPathQueryContexts,
 ): readonly XPathQueryClause[] | undefined {
 	const filterContext = xpathQueryContextFor(contexts, {
-		slot: "case_list_filter",
+		slot: searchConditionSlot(caseListConfig),
 	});
 	const sources: XPathQueryClause[] = [];
-	if (caseListConfig.filter !== undefined)
+	const searchCondition = searchConditionOf(caseListConfig);
+	if (searchCondition !== undefined)
 		sources.push({
-			expression: caseListConfig.filter,
+			expression: searchCondition,
 			context: filterContext,
 			source: "filter",
 		});

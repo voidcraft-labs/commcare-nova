@@ -367,6 +367,7 @@ function describeUserPropertyReference(
 		const setting: Partial<Record<string, string>> = {
 			case_list_column_expression: "calculated value",
 			case_list_filter: "Cases available condition",
+			case_search_filter: "Search condition",
 			search_input_default: "search field starting value",
 			search_input_predicate: "search field condition",
 			search_input_options: "search field choice filter",

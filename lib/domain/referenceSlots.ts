@@ -705,6 +705,30 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "search_filter_value",
+		path: "caseListConfig.searchFilters[].value",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_search_filter",
+		path: "caseListConfig.searchCondition",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_property",
+		path: "caseListConfig.searchFilters[].target.property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_filter_ancestor_type",
+		path: "caseListConfig.searchFilters[].target.ancestors[].throughCaseType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
 		slot: "search_input_property",
 		path: "caseListConfig.searchInputs[].property",
 		kind: "case-property-ref",
@@ -927,6 +951,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	if ("columnUuid" in member) {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
+	if ("filterUuid" in member)
+		return JSON.stringify([...base, member.filterUuid]);
 	return JSON.stringify([...base, member.searchInputUuid]);
 }
 
@@ -950,9 +976,21 @@ function expressionRefForEntry(
 		switch (entry.slot) {
 			case "module_display_condition":
 			case "case_list_filter":
+			case "case_search_filter":
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
 				return { entity: "module", uuid, slot: entry.slot };
+			case "search_filter_value": {
+				const filter = mod.caseListConfig?.searchFilters?.[indices[0] ?? -1];
+				return filter === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { filterUuid: filter.uuid },
+						};
+			}
 			case "case_list_column_expression": {
 				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
 				return column === undefined
@@ -1682,6 +1720,12 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].text": "display-text",
 	"caseListConfig.searchInputs[].uuid": "identity",
 	"caseListConfig.searchInputs[].kind": "discriminator",
+	"caseListConfig.searchInputs[].matching": "config",
+	"caseListConfig.searchFilters[].uuid": "identity",
+	"caseListConfig.searchFilters[].target.kind": "discriminator",
+	"caseListConfig.searchFilters[].target.attribute": "config",
+	"caseListConfig.searchFilters[].target.identifier": "config",
+	"caseListConfig.searchFilters[].target.ancestors[].identifier": "config",
 	"caseListConfig.searchInputs[].name": "declaration",
 	"caseListConfig.searchInputs[].label": "display-text",
 	"caseListConfig.searchInputs[].type": "config",

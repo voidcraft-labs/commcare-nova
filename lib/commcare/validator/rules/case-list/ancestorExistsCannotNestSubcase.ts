@@ -89,6 +89,10 @@ import {
 	RelationEvaluationScopeError,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads as liftPropertyVias } from "@/lib/domain/expression/normalizeRelationReads";
+import {
+	searchConditionOf,
+	searchConditionSlot,
+} from "@/lib/domain/searchConditions";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";
 import { relationEvaluationContext } from "./shared";
@@ -119,11 +123,15 @@ export function ancestorExistsCannotNestSubcase(
 	const errors: ValidationError[] = [];
 	if (effectiveCaseSearchConfig(mod) === undefined) return errors;
 
-	const filter = mod.caseListConfig?.filter;
+	const filter = searchConditionOf(mod.caseListConfig);
 	if (filter !== undefined) {
 		const ctx = slotContext(
 			doc,
-			{ entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: searchConditionSlot(mod.caseListConfig),
+			},
 			lookupTables ?? new Map(),
 		);
 		const findings = ctx === undefined ? [] : scanPredicate(filter, ctx);
@@ -133,7 +141,10 @@ export function ancestorExistsCannotNestSubcase(
 					mod,
 					moduleUuid,
 					finding,
-					slot: "caseListConfig.filter",
+					slot:
+						mod.caseListConfig?.searchCondition === undefined
+							? "caseListConfig.filter"
+							: "caseListConfig.searchCondition",
 					adviceSlotName: "the case list's always-on filter card",
 				}),
 			);

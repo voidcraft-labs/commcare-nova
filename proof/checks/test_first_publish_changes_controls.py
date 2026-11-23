@@ -944,7 +944,7 @@ def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
     )
     assert _held_by(
         joined, _built("suite.xml", nodeset, "/suite/entry[1]/session[1]/datum[@id=case_id]/@nodeset"), sites
-    ) == {"search-filter-joined-to-list"}
+    ) == frozenset()
     hidden = _document(
         RESIDUE,
         (

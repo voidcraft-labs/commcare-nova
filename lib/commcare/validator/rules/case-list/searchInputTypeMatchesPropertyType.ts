@@ -71,7 +71,7 @@ export function searchInputTypeMatchesPropertyType(
 		// vs-property pair to gate (predicate-type validation lives in
 		// `searchInputPredicateTypeCheck`), and hidden inputs bind no
 		// property. Only the simple arm has a pair to check.
-		if (input.kind !== "simple") continue;
+		if (input.kind !== "simple" || input.matching === "project-space") continue;
 
 		const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[input.type];
 		// `undefined` admit-list means "every property type works" — the

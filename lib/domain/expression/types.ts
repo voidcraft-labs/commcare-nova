@@ -612,7 +612,7 @@ export type ConditionArm =
 	| { kind: "missing"; via: RelationPath; where?: Expression };
 export type ValueArm =
 	| { kind: "term"; term: Term }
-	| { kind: "today" }
+	| { kind: "today"; clock?: "project-space" }
 	| { kind: "now" }
 	| { kind: "id-of"; opUuid: Uuid }
 	| { kind: "acting-user" }
@@ -943,7 +943,10 @@ const conditionSchemas = [
 const switchCaseSchema = z.strictObject({ when: literalOrChoice, then: E });
 const valueSchemas = [
 	z.strictObject({ kind: z.literal("term"), term: termSchema }),
-	z.strictObject({ kind: z.literal("today") }),
+	z.strictObject({
+		kind: z.literal("today"),
+		clock: z.literal("project-space").optional(),
+	}),
 	z.strictObject({ kind: z.literal("now") }),
 	idOfSchema,
 	actingUserSchema,
@@ -1150,8 +1153,15 @@ export type ModuleExpressionSlotRef =
 			readonly slot:
 				| "module_display_condition"
 				| "case_list_filter"
+				| "case_search_filter"
 				| "search_button_display_condition"
 				| "excluded_owner_ids";
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "search_filter_value";
+			readonly member: { readonly filterUuid: Uuid };
 	  }
 	| {
 			readonly entity: "module";

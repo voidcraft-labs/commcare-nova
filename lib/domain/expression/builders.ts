@@ -345,6 +345,9 @@ export function term(t: Term): Extract<Expression, { kind: "term" }> {
 export function today(): Extract<Expression, { kind: "today" }> {
 	return { kind: "today" };
 }
+export function projectToday(): Extract<Expression, { kind: "today" }> {
+	return { kind: "today", clock: "project-space" };
+}
 export function now(): Extract<Expression, { kind: "now" }> {
 	return { kind: "now" };
 }

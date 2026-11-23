@@ -34,6 +34,7 @@ import { validateCaseType } from "../../identifierValidation";
 import type { LookupWireNaming } from "../../lookup/naming";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { SEARCH_SELECTED_CASES_ID } from "./claim";
+import { emitSearchFilterValue, searchFilterKey } from "./nativeFilters";
 import { searchNeedsSupportingCases } from "./relatedCaseProjection";
 import { buildSearchPrompts } from "./searchPrompts";
 import {
@@ -280,6 +281,27 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		searchInputInstanceId(wire),
 		args.datumId,
 	);
+	for (const filter of caseListConfig.searchFilters ?? []) {
+		dataElements.push(
+			xel(
+				"data",
+				{
+					attributes: { key: searchFilterKey(filter.target) },
+					xpath: {
+						ref: emitSearchFilterValue(
+							filter.value,
+							filter.uuid,
+							args.expressions,
+							searchInputInstanceId(wire),
+							args.lookupNaming,
+							args.datumId,
+						),
+					},
+				},
+				context,
+			),
+		);
+	}
 	// A search with no input and no clause sends the zero-input sentinel,
 	// as HQ's build of the same search does.
 	for (const value of xpathQueryRequestValues(

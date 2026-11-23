@@ -114,6 +114,10 @@ import {
 } from "../suite/case-list/orderPlanOptions";
 import { SORT_DIRECTION_WIRE_MAP } from "../suite/case-list/sortKeys";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
+import {
+	emitSearchFilterValue,
+	searchFilterKey,
+} from "../suite/case-search/nativeFilters";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import {
 	type RuntimeCsqlPromptValidation,
@@ -999,9 +1003,24 @@ function buildSearchConfigDocument(
 		);
 		// A search with no input and no clause carries the zero-input
 		// sentinel, as the local suite's query does.
-		config.default_properties = projectDefaultProperties(
-			xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
-		);
+		config.default_properties = [
+			...(caseListConfig.searchFilters ?? []).map((filter) => ({
+				property: searchFilterKey(filter.target),
+				defaultValue: hqXPath(
+					emitSearchFilterValue(
+						filter.value,
+						filter.uuid,
+						expressions,
+						inputInstanceId,
+						lookupNaming,
+						datumId,
+					),
+				),
+			})),
+			...projectDefaultProperties(
+				xpathQueryRequestValues(caseListConfig, xpathQueryEmission),
+			),
+		];
 	}
 
 	// `searchWireShape`'s three-flag `WireShape` projects onto the

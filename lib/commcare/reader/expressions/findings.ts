@@ -59,6 +59,22 @@ export type SlotName = SlotContextRef["slot"];
  * for INERT, `refuse` for HELD-NEW and REFUSED.
  */
 export const EXPRESSION_CLAIMS = defineClaims("expressions", {
+	"default-properties-entry-keyed-by-a-plain-property-property-p": take(
+		"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"default-properties-entry-keyed-by-an-ancestor-path-parent-p": take(
+		"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"default-properties-entry-keyed-owner-id-case-id-commcare-project": take(
+		"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	"native-filter-value-outside-screen-scope": refuse(
+		"case-search/native-filter-value-outside-screen-scope",
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
 	"search-button-display-condition-lifting-into-predicate": take(
 		"case-search/search-button-display-condition-lifting-into-predicate",
 		"schema:CaseSearch.search_button_display_condition",
@@ -242,17 +258,17 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"csql-metadata:@case_type",
 	),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:date_opened":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:date_opened",
 		),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:closed_on":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:closed_on",
 		),
 	"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:last_modified":
-		refuse(
+		take(
 			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 			"csql-metadata:last_modified",
 		),
@@ -1579,7 +1595,10 @@ const SAVE_TO_CASE_ROWS =
  *  field's own condition, which is a search filter row that
  *  `csqlRead.ts::readSearchFilterRow` reads where the search is settled,
  *  answering its own claim. */
-export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
+export type RegisteredSlotName = Exclude<
+	SlotName,
+	"search_input_predicate" | "case_search_filter"
+>;
 
 /** Each slot's held entry and its refusal's default entry, by slot name. `held` and
  *  `refused` take the document because a row can choose by the slot's owner
@@ -1711,6 +1730,25 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["itemset-nodeset-filter-predicate-lifting-into-predicate"].entry,
 		C["itemset-nodeset-filter-predicate-outside-predicate"].entry,
 	),
+	search_filter_value: {
+		held: (doc, ref) => {
+			if (ref.entity !== "module" || ref.slot !== "search_filter_value")
+				return undefined;
+			const target = doc.modules[ref.uuid]?.caseListConfig?.searchFilters?.find(
+				(f) => f.uuid === ref.member.filterUuid,
+			)?.target;
+			if (target === undefined) return undefined;
+			if (
+				target.kind === "record-name" ||
+				(target.kind === "property" && !target.ancestors)
+			)
+				return "case-search/default-properties-entry-keyed-by-a-plain-property-property-p";
+			if (target.kind === "property")
+				return "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p";
+			return "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project";
+		},
+		refused: () => "case-search/native-filter-value-outside-screen-scope",
+	},
 	search_input_default: fixed(
 		C["default-value-lifting-into-valueexpression"].entry,
 		C["default-value-outside-valueexpression"].entry,
@@ -1726,7 +1764,7 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 /** The row of a registration's slot. No reader registers a Search field's own
  *  condition: it is a search filter row, read at the search's settle. */
 export function slotEntries(slot: SlotName): SlotRow {
-	if (slot === "search_input_predicate")
+	if (slot === "search_input_predicate" || slot === "case_search_filter")
 		throw new Error(
 			"A Search field's own condition was registered with the expression stage, but it is a search filter row, which `csqlRead.ts::readSearchFilterRow` reads where the search is settled. Read it there instead of registering it.",
 		);
@@ -2508,48 +2546,6 @@ export function childOfInlineSearchMenu(
 	);
 }
 
-const SYSTEM_DATES: ReadonlySet<string> = new Set([
-	"date_opened",
-	"closed_on",
-	"last_modified",
-]);
-
-/** Whether a comparison reads one of the three system dates on either side:
- *  the comparison the error's path addresses, or, where the path addresses an
- *  operand, any comparison of the tree. */
-function comparesSystemDate(
-	node: Expression | Term | undefined,
-	tree: Expression | undefined,
-): boolean {
-	const compares = (expression: Expression): boolean => {
-		if (
-			expression.kind !== "eq" &&
-			expression.kind !== "neq" &&
-			expression.kind !== "gt" &&
-			expression.kind !== "gte" &&
-			expression.kind !== "lt" &&
-			expression.kind !== "lte"
-		)
-			return false;
-		return [expression.left, expression.right].some(
-			(side) =>
-				side.kind === "term" &&
-				side.term.kind === "prop" &&
-				SYSTEM_DATES.has(side.term.property),
-		);
-	};
-	if (node !== undefined && "kind" in node && compares(node as Expression))
-		return true;
-	if (tree === undefined) return false;
-	let found = false;
-	walkExpression(tree, {
-		visitExpression(expression) {
-			if (compares(expression)) found = true;
-		},
-	});
-	return found;
-}
-
 /** What a checker error is about: the slot, and whether the text is a search
  *  filter row, which `csqlRead.ts` reads as CSQL, rather than a registration. */
 export interface CheckedText {
@@ -2636,17 +2632,6 @@ export function checkErrorEntry(
 				: C[
 						"form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first"
 					].entry,
-		);
-	if (
-		searchRow &&
-		error.code === "incompatible-values" &&
-		error.reason === "date-datetime" &&
-		comparesSystemDate(node, tree)
-	)
-		return answer(
-			C[
-				"date-only-comparison-on-date-opened-closed-on-last-modified@csql-metadata:date_opened"
-			].entry,
 		);
 	const recordSlot = searchRow || !inFormLogic(ref);
 	if (recordSlot && workerRecordLeaf(node))

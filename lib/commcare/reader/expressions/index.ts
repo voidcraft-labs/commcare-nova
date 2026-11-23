@@ -320,6 +320,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"operationUuid",
 		"columnUuid",
 		"searchInputUuid",
+		"filterUuid",
 		"optionUuid",
 	])
 		if (member[key] !== undefined && item.uuid === member[key]) return true;

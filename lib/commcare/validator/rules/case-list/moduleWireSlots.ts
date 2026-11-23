@@ -116,7 +116,8 @@ export function collectModuleWireSlotFindings(
 
 	const filter = effectiveFilterForEmission(mod.caseListConfig?.filter);
 	if (filter !== undefined) {
-		csqlPredicates.push(filter);
+		if (mod.caseListConfig?.searchCondition === undefined)
+			csqlPredicates.push(filter);
 		collect(
 			judge.judgePredicate(filter, {
 				mod,
@@ -124,6 +125,23 @@ export function collectModuleWireSlotFindings(
 				slot: "caseListConfig.filter",
 				ref: { entity: "module", uuid: moduleUuid, slot: "case_list_filter" },
 				slotLabel: "the Cases available rule",
+				surface: "filter",
+			}),
+		);
+	}
+
+	const request = effectiveFilterForEmission(
+		mod.caseListConfig?.searchCondition,
+	);
+	if (request !== undefined) {
+		csqlPredicates.push(request);
+		collect(
+			judge.judgePredicate(request, {
+				mod,
+				moduleUuid,
+				slot: "caseListConfig.searchCondition",
+				ref: { entity: "module", uuid: moduleUuid, slot: "case_search_filter" },
+				slotLabel: "the search condition",
 				surface: "filter",
 			}),
 		);

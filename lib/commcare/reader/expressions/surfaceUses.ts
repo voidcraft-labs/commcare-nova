@@ -716,7 +716,10 @@ function csqlUses(
 			if (shape?.type === "datetime") return held;
 			return "non-date-value";
 		}
-		if (at.kind === "call") return held;
+		if (at.kind === "call")
+			return at.name === "today" || at.name === "date"
+				? "project-timezone-date"
+				: held;
 		return "non-date-value";
 	};
 	const visit = (

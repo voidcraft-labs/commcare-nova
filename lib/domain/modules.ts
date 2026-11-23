@@ -1422,6 +1422,8 @@ const visibleSearchInputBase = searchInputBase
  */
 const simpleSearchInputSlots = {
 	kind: z.literal("simple"),
+	/** The key of this field chooses the project space's native matcher. */
+	matching: z.literal("project-space").optional(),
 	// `property` is constrained to CommCare's case-property identifier
 	// vocabulary — same character class the predicate AST's
 	// `propertyRefSchema.property` enforces. The wire emitter
@@ -1828,6 +1830,7 @@ interface SearchInputCommonSlots extends SearchInputVisibleSlots {
 }
 
 interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	/** Optional relation walk to a destination case type. `selfPath()`
 	 *  is structurally equivalent to absent and the builder omits the
 	 *  key in that case. */
@@ -1837,12 +1840,14 @@ interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
 }
 
 interface SimpleDateRangeSearchInputSlots extends SearchInputVisibleSlots {
+	readonly matching?: "project-space";
 	readonly via?: RelationPath;
 	/** The builder writes the sole valid stored mode when omitted. */
 	readonly mode?: Extract<SearchInputMode, { kind: "range" }>;
 }
 
 interface SimpleSelectSearchInputSlots extends SearchInputCommonSlots {
+	readonly matching?: "project-space";
 	readonly via?: RelationPath;
 	/** The lookup table and columns the prompt's choices come from. */
 	readonly options: SearchInputLookupOptions;
@@ -1940,6 +1945,7 @@ export function simpleSearchInputDef(
 		property,
 	};
 	const candidate: Record<string, unknown> = { ...out };
+	if (slots.matching) candidate.matching = slots.matching;
 	if ("default" in slots && slots.default !== undefined)
 		candidate.default = slots.default;
 	if (slots.hint !== undefined) candidate.hint = slots.hint;
@@ -2529,6 +2535,39 @@ export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
 export type CaseSelectionCardinality = "single" | "multiple";
 
+/** A request evaluated on the Search screen before any record is chosen. */
+export const searchFilterTargetSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("property"),
+		property: authoredCasePropertyNameSchema,
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({ kind: z.literal("record-id") }),
+	z.strictObject({
+		kind: z.literal("record-name"),
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({
+		kind: z.literal("attribute"),
+		attribute: z.enum(["id", "type", "owner", "status"]),
+		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
+	}),
+	z.strictObject({ kind: z.literal("owner") }),
+	z.strictObject({ kind: z.literal("project-space") }),
+	z.strictObject({
+		kind: z.literal("link"),
+		identifier: z.string().regex(XML_ELEMENT_NAME_PATTERN),
+	}),
+]);
+export type SearchFilterTarget = z.infer<typeof searchFilterTargetSchema>;
+
+export const searchFilterSchema = z.strictObject({
+	uuid: uuidSchema,
+	target: searchFilterTargetSchema,
+	value: valueSchema,
+});
+export type SearchFilter = z.infer<typeof searchFilterSchema>;
+
 export const caseListConfigSchema = z
 	.strictObject({
 		/**
@@ -2549,6 +2588,8 @@ export const caseListConfigSchema = z
 		listColumnOrder: z.array(uuidSchema),
 		detailColumnOrder: z.array(uuidSchema),
 		filter: conditionSchema.optional(),
+		searchCondition: conditionSchema.optional(),
+		searchFilters: z.array(searchFilterSchema).min(1).optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
 		 * How many cases a worker can carry forward from Results. Absence is the
@@ -3113,7 +3154,10 @@ export type Module = z.infer<typeof moduleSchema>;
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
 ): OrdinaryCaseSearchConfig | undefined {
-	const hasInputs = (module.caseListConfig?.searchInputs.length ?? 0) > 0;
+	const hasInputs = Boolean(
+		module.caseListConfig?.searchInputs.length ||
+			module.caseListConfig?.searchFilters?.length,
+	);
 	const stored = module.caseSearchConfig;
 	if (stored === undefined) return hasInputs ? {} : undefined;
 	if (!isOwnerOnlyCaseSearchConfig(stored)) return stored;

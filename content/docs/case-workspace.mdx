@@ -323,6 +323,36 @@ replaces the current answer; cancelling keeps it.
 
 On Android, an answer that holds both `'` and `"` finds nothing.
 
+### Search filters and project space matching
+
+Use **Add search filter** in the Search canvas when you want to send a value
+with every search. For example, match the worker's assigned district while
+letting them search for a household by name. Choose the information to match,
+enter its starting value, then open the value editor to choose a search answer,
+an earlier selection or information about the worker. You can edit and reorder
+individual filters. Filters for the same information send their values together.
+
+A search field can also send its answer under the field's own name. Choose
+**Use project space matching** when your project space manages how to compare
+that information. A project space can ignore particular text or match similar
+words. Existing search fields keep the matching rules they were created with.
+
+Preview uses the selected destination's search settings. A search returns up to
+500 records, or 1,500 when the destination has the higher limit. When a form
+uses those results, a condition on the device can hide a record that the
+search found. Clearing the condition lets you see what came back. A date
+condition on **Date opened**, **Date closed** or **Last modified** can depend on
+the destination's time zone. The worker's day and the project space's day can
+differ.
+
+If Preview needs an unconfirmed search setting, choose the destination and
+confirm the setting there. If similar words or a tie at the last result could
+change which record is returned, Preview explains why the exact result is
+unavailable. A more specific search can make the result clear. A search for an
+empty link can also depend on earlier changes to that record. An isolated App
+Test with newly created records lets you exercise the empty, linked and cleared
+states. These searches remain available on the published app.
+
 ### Hints, required fields, and checks
 
 Each search field can carry a **Hint**, a short line under its label that
@@ -531,9 +561,13 @@ An empty task list can be an expected result, such as when every loan has been
 returned. Preview distinguishes cases that do not meet a task's conditions from
 an app with no case data; an empty task does not mean its settings need repair.
 
-Results owns **Cases available**, the rules that always decide which cases can
-appear before anyone searches. The conditions are listed and edited together
-in the canvas, above Default order. Choose **Add condition** for another rule,
+In Results, **Cases available** holds the rules for finding records. **Device
+list** chooses which records a worker sees when browsing. **Online search**
+chooses which records the project space can return. For example, a worker can
+browse active households and search online for a household that has left the
+program. Each edit applies to the selected surface. A form that opens its own
+list inside search results also applies the device list condition to the
+returned records. Choose **Add condition** for another rule,
 then decide whether **all conditions must match** or **any condition can
 match**. You can group conditions, exclude matches, use a search answer only
 when it has been filled in, follow connections to related cases, and combine

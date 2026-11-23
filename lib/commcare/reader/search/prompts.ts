@@ -93,7 +93,7 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		`${S}a-default-filter-and-a-search-property-sharing-one-name`,
 		"schema:CaseSearchProperty.name",
 	),
-	nameAttribute: refuse(
+	nameAttribute: take(
 		`${S}prompt-named-for-a-case-attribute-hq-matches-itself`,
 		"schema:CaseSearchProperty.name",
 	),
@@ -128,7 +128,7 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 		"schema:CaseSearchProperty.appearance",
 	),
 	date: take(`${S}input-date`, "schema:CaseSearchProperty.input_"),
-	dateBare: refuse(
+	dateBare: take(
 		`${S}date-prompt-matched-by-hq-s-own-rule`,
 		"schema:CaseSearchProperty.input_",
 	),
@@ -727,8 +727,7 @@ function readPrompt(
 	let itemsetCursor: JsonCursor | undefined;
 	if (!hidden) {
 		if (input === "date") {
-			if (!exclude) refuseWith("input_", P.dateBare);
-			else prompt.take("input_", P.date, String).value;
+			prompt.take("input_", exclude ? P.date : P.dateBare, String).value;
 			type = "date";
 		} else if (input === "daterange") {
 			prompt.take("input_", P.dateRange, String).value;
@@ -910,13 +909,12 @@ function readPrompt(
 				prompt.drop("appearance", P.appearanceOther);
 		}
 		if (!refusedHere("name")) {
-			if (!exclude && ATTRIBUTE_PROMPT_NAMES.has(name))
-				refuseWith("name", P.nameAttribute);
 			// A prompt without `exclude` matches the case property of its own name, which Nova holds
 			// as the simple field's property: a name Nova's property grammar refuses (`_x`,
 			// `date-opened`, `external-id`) names a property no document can hold.
-			else if (
+			if (
 				!exclude &&
+				!ATTRIBUTE_PROMPT_NAMES.has(name) &&
 				!authoredCasePropertyNameSchema.safeParse(name).success
 			)
 				refuseWith("name", P.nameOutside);
@@ -935,7 +933,11 @@ function readPrompt(
 	);
 	if (uuid === undefined) return undefined;
 	if (!refusedHere("name")) {
-		prompt.take("name", P.name, String).value;
+		prompt.take(
+			"name",
+			!exclude && ATTRIBUTE_PROMPT_NAMES.has(name) ? P.nameAttribute : P.name,
+			String,
+		).value;
 		if (name === "owner_id" && exclude)
 			ctx.accounting.claimEntry(
 				{ json: prompt, key: "name" },
@@ -1199,7 +1201,10 @@ function readPrompt(
 				: {
 						...widget,
 						kind: "simple",
-						property: name,
+						property: name === "name" ? "case_name" : name,
+						...((ATTRIBUTE_PROMPT_NAMES.has(name) || type === "date") && {
+							matching: "project-space",
+						}),
 						...(type === "date-range" && { mode: { kind: "range" } }),
 					}
 		) as SearchInputDef;

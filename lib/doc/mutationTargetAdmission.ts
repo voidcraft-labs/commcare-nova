@@ -152,6 +152,7 @@ export function mutationTargetsInvalid(
 	// schema-required in the canonical fresh document.
 	const columnOwners = new Map<string, string>();
 	const searchInputOwners = new Map<string, string>();
+	const filterOwners = new Map<string, string>();
 	// Modules whose `caseListConfig` is present. `setCaseListMeta` EDITS an
 	// existing config's metadata (`filter` / `selection` / `icon` /
 	// `audioLabel`); a config a
@@ -165,6 +166,8 @@ export function mutationTargetsInvalid(
 		const config = mod.caseListConfig;
 		if (!config) continue;
 		modulesWithConfig.add(mod.uuid);
+		for (const filter of config.searchFilters ?? [])
+			filterOwners.set(filter.uuid, mod.uuid);
 		for (const col of config.columns) columnOwners.set(col.uuid, mod.uuid);
 		for (const input of config.searchInputs) {
 			searchInputOwners.set(input.uuid, mod.uuid);
@@ -368,6 +371,8 @@ export function mutationTargetsInvalid(
 		for (const [columnUuid, owner] of columnOwners) {
 			if (owner === moduleUuid) columnOwners.delete(columnUuid);
 		}
+		for (const [filter, owner] of filterOwners)
+			if (owner === moduleUuid) filterOwners.delete(filter);
 		for (const [inputUuid, owner] of searchInputOwners) {
 			if (owner === moduleUuid) searchInputOwners.delete(inputUuid);
 		}
@@ -437,6 +442,8 @@ export function mutationTargetsInvalid(
 					// `setCaseListMeta` on it resolves.
 					if (m.module.caseListConfig !== undefined) {
 						modulesWithConfig.add(m.module.uuid);
+						for (const filter of m.module.caseListConfig?.searchFilters ?? [])
+							filterOwners.set(filter.uuid, m.module.uuid);
 						for (const column of m.module.caseListConfig.columns) {
 							columnOwners.set(column.uuid, m.module.uuid);
 						}
@@ -463,6 +470,8 @@ export function mutationTargetsInvalid(
 				// `caseListConfig:null` clears the config and all of its members.
 				// Config birth is the distinct `ensureCaseListConfig` command below.
 				if ("caseListConfig" in m.patch) {
+					for (const [filter, owner] of filterOwners)
+						if (owner === m.uuid) filterOwners.delete(filter);
 					for (const [columnUuid, owner] of columnOwners) {
 						if (owner === m.uuid) columnOwners.delete(columnUuid);
 					}
@@ -857,6 +866,23 @@ export function mutationTargetsInvalid(
 				// (409) rather than resurrecting the removed case list empty.
 				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
 					return true;
+				}
+				if (m.patch.searchFilterEdit) {
+					const edit = m.patch.searchFilterEdit;
+					const id = edit.operation === "add" ? edit.filter.uuid : edit.uuid;
+					if (
+						"after" in edit &&
+						edit.after != null &&
+						(edit.after === id || filterOwners.get(edit.after) !== m.uuid)
+					)
+						return true;
+					if (edit.operation === "add") {
+						if (filterOwners.has(id)) return true;
+						filterOwners.set(id, m.uuid);
+					} else {
+						if (filterOwners.get(id) !== m.uuid) return true;
+						if (edit.operation === "remove") filterOwners.delete(id);
+					}
 				}
 				break;
 			// ── Granular select options (field-owned) ──────────────────

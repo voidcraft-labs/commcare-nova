@@ -163,6 +163,7 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
 export function simpleArmNeedsXPathQueryEmission(
 	authored: SimpleSearchInputDef,
 ): boolean {
+	if (authored.matching === "project-space") return false;
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
 	const via = authored.via;
 	const viaIsSelfOrAbsent = via === undefined || via.kind === "self";

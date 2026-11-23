@@ -34,6 +34,7 @@ import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { idMappingKeyCharacters } from "./case-list/idMappingKeyCharacters";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
+import { nativeSearchFilters } from "./case-list/nativeSearchFilters";
 import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
@@ -335,6 +336,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchInputScreenPredicateTypeCheck,
 	csqlPredicateRepresentability,
 	searchInputRefUsesWhenInputPresent,
+	nativeSearchFilters,
 	searchInputViaModeCompatibility,
 	// Case-search-config rules. Slot-specific checks read authored config;
 	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy

@@ -1108,6 +1108,11 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			return term({ ...input, via: relation.via }, ctx);
 		}
 		case "today":
+			if (expr.clock === "project-space")
+				throw new Error(
+					"The project space’s day is read on the search server.",
+				);
+			return w.call("today");
 		case "now":
 			return w.call(expr.kind);
 		case "acting-user":

@@ -225,6 +225,7 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Reordering search fields",
 		"Reordered search fields",
 	),
+	editSearchFilter: change("Updating search filter", "Updated search filter"),
 	setCaseListFilter: change(
 		"Updating available cases",
 		"Updated available cases",

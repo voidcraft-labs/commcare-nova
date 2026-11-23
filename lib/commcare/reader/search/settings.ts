@@ -1473,8 +1473,8 @@ function searchDifference(
 	mod: Module,
 	stored: JsonCursor,
 	prompts: readonly PromptReading[],
-	place: HqPlace,
 	fields?: Map<string, string | undefined>,
+	addedGuards?: Set<string>,
 ): string | undefined {
 	const inputs = readProjectionInputs(ctx);
 	const ours = printed(
@@ -1537,36 +1537,59 @@ function searchDifference(
 	const validationTexts = new Map(
 		prompts.map((prompt) => [prompt.cursor.pointer, prompt.validationText]),
 	);
-	const guardsAdded = ctx.facts.rewrites.some(
-		(one) => one.id === "search-value-guards" && sameJson(one.place, place),
-	);
 	const uuidAt = new Map(
 		prompts.map((prompt) => [prompt.cursor.pointer, prompt.uuid]),
 	);
-	/** Whether the projection's check of the field stored at `pointer` is Nova's guard alone,
-	 *  added beside a stored field that holds no check. */
-	const guardAlone = (pointer: string, one: JsonObject): boolean => {
-		if (!guardsAdded) return false;
-		const storedChecks = one.validations;
-		if (Array.isArray(storedChecks) && storedChecks.length > 0) return false;
-		const input = mod.caseListConfig?.searchInputs.find(
-			(entry) => entry.uuid === uuidAt.get(pointer),
-		);
-		return (
-			input !== undefined &&
-			(input.kind === "hidden" || input.validation === undefined)
-		);
-	};
 	let firstField: string | undefined;
 	for (const [index, prompt] of promptsA.entries()) {
-		const projected = promptsB[index] as JsonObject;
+		let projected = promptsB[index] as JsonObject;
+		const field = mod.caseListConfig?.searchInputs.find(
+			(entry) => entry.uuid === uuidAt.get(prompt.pointer),
+		);
+		const ours = objectMembers(projected.validations) ?? [];
+		const stored = objectMembers(prompt.one.validations) ?? [];
+		if (
+			field &&
+			(field.kind === "hidden" || field.validation === undefined) &&
+			ours.length === 1
+		) {
+			const check = ours[0];
+			if (stored.length === 0) {
+				addedGuards?.add(prompt.pointer);
+				projected = { ...projected, validations: [] };
+			} else if (
+				check &&
+				stored.length === 1 &&
+				typeof check.test === "string" &&
+				typeof stored[0]?.test === "string"
+			) {
+				const before = readFormSyntax(stored[0].test);
+				const after = readFormSyntax(check.test);
+				if (before.ok && before.node && after.ok && after.node) {
+					const oldClauses = clauses(before.node, "and");
+					const newClauses = clauses(after.node, "and");
+					if (
+						oldClauses.length < newClauses.length &&
+						oldClauses.every((old) =>
+							newClauses.some((next) => sameSyntax(old, next)),
+						)
+					) {
+						// The field already carries part of the proven runtime guard. A new
+						// use of its answer adds the remaining clauses at first publish.
+						addedGuards?.add(prompt.pointer);
+						projected = {
+							...projected,
+							validations: [{ ...check, test: stored[0].test }],
+						};
+					}
+				}
+			}
+		}
 		const key = promptDifference(
 			codes,
 			source,
 			prompt.one,
-			guardAlone(prompt.pointer, prompt.one)
-				? { ...projected, validations: [] }
-				: projected,
+			projected,
 			validationTexts.get(prompt.pointer),
 		);
 		fields?.set(prompt.pointer, key);
@@ -1787,6 +1810,7 @@ export function settleSearchSettings(
 	const compared = (
 		doc: BlueprintDoc,
 		fields?: Map<string, string | undefined>,
+		addedGuards?: Set<string>,
 	): string | undefined => {
 		try {
 			return searchDifference(
@@ -1795,12 +1819,29 @@ export function settleSearchSettings(
 				doc.modules[module.uuid] as Module,
 				cursor,
 				prompts,
-				place,
 				fields,
+				addedGuards,
 			);
 		} catch (error) {
 			rethrowWorkStop(error);
 			return EMITTER_THREW;
+		}
+	};
+	const keep = (candidate: BlueprintDoc, addedGuards: ReadonlySet<string>) => {
+		ctx.doc = candidate;
+		for (const pointer of addedGuards) {
+			const path = `${pointer}/validations`;
+			if (
+				!ctx.facts.rewrites.some(
+					(row) => row.id === "search-value-guards" && row.pointer === path,
+				)
+			)
+				ctx.facts.rewrites.push({
+					id: "search-value-guards",
+					place,
+					key: "schema:CaseSearchProperty.validations",
+					pointer: path,
+				});
 		}
 	};
 	const chosen = new Map<string, number>();
@@ -1812,14 +1853,16 @@ export function settleSearchSettings(
 		);
 		if (variant > 0 && open.length === 0) continue;
 		const fields = new Map<string, string | undefined>();
+		const addedGuards = new Set<string>();
 		const difference = compared(
 			withRules(start, () => variant),
 			fields,
+			addedGuards,
 		);
 		if (variant === 0) {
 			asRead = difference;
 			if (difference === undefined) {
-				ctx.doc = start;
+				keep(start, addedGuards);
 				return;
 			}
 		}
@@ -1831,8 +1874,12 @@ export function settleSearchSettings(
 				chosen.set(field.prompt.uuid, variant);
 	}
 	const settled = withRules(start, (field) => chosen.get(field.prompt.uuid));
-	if (settled !== start && compared(settled) === undefined) {
-		ctx.doc = settled;
+	const addedGuards = new Set<string>();
+	if (
+		settled !== start &&
+		compared(settled, undefined, addedGuards) === undefined
+	) {
+		keep(settled, addedGuards);
 		return;
 	}
 	const first = asRead;

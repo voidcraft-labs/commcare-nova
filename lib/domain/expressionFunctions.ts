@@ -375,6 +375,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		return [name, spec];
 	}),
 	...Object.entries({
+		"project-today": [0, 0],
 		null: [0, 0],
 		here: [0, 0],
 		self: [0, 0],

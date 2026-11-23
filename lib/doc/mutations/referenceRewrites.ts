@@ -183,6 +183,25 @@ export function rewriteModuleCaseRefs(
 				}
 			}
 		}
+		if (slot.slot === "search_filter_property") {
+			for (const rule of mod.caseListConfig?.searchFilters ?? []) {
+				const target = rule.target;
+				if (target.kind !== "property") continue;
+				const destination = resolveRelationDestination(
+					target.ancestors
+						? { kind: "ancestor", via: target.ancestors }
+						: undefined,
+					mod.caseType,
+					caseTypes,
+				);
+				if (!destination.ok) continue;
+				const next = resolveCaseProperty(destination.caseType, target.property);
+				if (next !== undefined && next !== target.property) {
+					target.property = next;
+					astRefsRewritten++;
+				}
+			}
+		}
 		if (slot.slot === "search_input_property") {
 			for (const input of mod.caseListConfig?.searchInputs ?? []) {
 				if (input.kind !== "simple") continue;
@@ -194,6 +213,11 @@ export function rewriteModuleCaseRefs(
 				if (!destination.ok) continue;
 				const next = resolveCaseProperty(destination.caseType, input.property);
 				if (next !== undefined && next !== input.property) {
+					if (
+						input.matching === "project-space" &&
+						input.name === input.property
+					)
+						input.name = next;
 					input.property = next;
 					astRefsRewritten++;
 				}

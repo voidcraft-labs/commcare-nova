@@ -1042,6 +1042,13 @@ export function slotContext(
 			input === undefined
 		)
 			return undefined;
+		if (
+			slot.slot === "search_filter_value" &&
+			!module.caseListConfig?.searchFilters?.some(
+				(filter) => filter.uuid === slot.member.filterUuid,
+			)
+		)
+			return undefined;
 		if (slot.slot === "case_list_column_expression") {
 			const column = module.caseListConfig?.columns.find(
 				(entry) => entry.uuid === slot.member.columnUuid,
@@ -1050,6 +1057,7 @@ export function slotContext(
 		}
 		const caseSlot = [
 			"case_list_filter",
+			"case_search_filter",
 			"case_list_column_expression",
 			"search_input_predicate",
 		].includes(slot.slot);
@@ -1057,6 +1065,7 @@ export function slotContext(
 		const condition = [
 			"module_display_condition",
 			"case_list_filter",
+			"case_search_filter",
 			"search_button_display_condition",
 			"search_input_predicate",
 			"search_input_options",
@@ -1064,7 +1073,9 @@ export function slotContext(
 			"search_input_validation_rule",
 		].includes(slot.slot);
 		const admitsInputs = [
+			"search_filter_value",
 			"case_list_filter",
+			"case_search_filter",
 			"case_list_column_expression",
 			"search_input_predicate",
 			"excluded_owner_ids",
@@ -1073,10 +1084,11 @@ export function slotContext(
 		].includes(slot.slot);
 		const searchable = effectiveCaseSearchConfig(module) !== undefined;
 		const targets: readonly import("./profiles").ExpressionTarget[] =
-			slot.slot === "search_input_predicate"
+			slot.slot === "search_input_predicate" ||
+			slot.slot === "case_search_filter"
 				? ["CS", "PG"]
 				: slot.slot === "case_list_filter"
-					? searchable
+					? searchable && module.caseListConfig?.searchCondition === undefined
 						? ["SU", "HQ", "CS", "PG"]
 						: ["SU", "HQ", "PG"]
 					: slot.slot === "case_list_column_expression"
@@ -1105,7 +1117,11 @@ export function slotContext(
 			rows = [
 				{
 					kind: "case",
-					root: slot.slot === "search_input_predicate" ? "results" : "casedb",
+					root:
+						slot.slot === "search_input_predicate" ||
+						slot.slot === "case_search_filter"
+							? "results"
+							: "casedb",
 					caseType: module.caseType,
 				},
 			];
@@ -1117,7 +1133,11 @@ export function slotContext(
 				kind: "case-list",
 				module: moduleUuid,
 			});
-		if (slot.slot === "search_input_predicate")
+		if (
+			slot.slot === "search_input_predicate" ||
+			slot.slot === "search_filter_value" ||
+			slot.slot === "case_search_filter"
+		)
 			supplies = entryDatumSupplies(doc, {
 				kind: "search",
 				module: moduleUuid,

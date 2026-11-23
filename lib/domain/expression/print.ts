@@ -576,6 +576,8 @@ function printWith(
 				emit("false()");
 				break;
 			case "today":
+				emit(node.clock === "project-space" ? "project-today()" : "today()");
+				break;
 			case "now":
 			case "here":
 				emit(`${node.kind}()`);

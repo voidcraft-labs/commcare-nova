@@ -772,6 +772,46 @@ function collectModuleConfigReferences(
 				}
 				break;
 			}
+			case "search_filter_property":
+			case "search_filter_ancestor_type": {
+				if (
+					slot.slot === "search_filter_ancestor_type" &&
+					list?.searchFilters?.some(
+						({ target }) =>
+							"ancestors" in target &&
+							target.ancestors?.some(
+								(step) => step.throughCaseType === caseType,
+							),
+					)
+				)
+					out.push({
+						verbose: `a search filter follows a link to "${caseType}"`,
+						concise: `a search filter uses "${caseType}" information`,
+					});
+				break;
+			}
+			case "search_filter_value": {
+				for (const filter of list?.searchFilters ?? []) {
+					if (expressionRefsCaseType(filter.value, caseType))
+						out.push({
+							verbose: `a search filter reads a "${caseType}" property`,
+							concise: `a search filter uses "${caseType}" information`,
+						});
+				}
+				break;
+			}
+			case "case_search_filter": {
+				if (
+					list?.searchCondition &&
+					expressionRefsCaseType(list.searchCondition, caseType)
+				) {
+					out.push({
+						verbose: `the search condition on ${where} reads a "${caseType}" property`,
+						concise: `the Search condition on ${where} uses "${caseType}" information`,
+					});
+				}
+				break;
+			}
 			case "search_input_via": {
 				for (const input of list?.searchInputs ?? []) {
 					if (

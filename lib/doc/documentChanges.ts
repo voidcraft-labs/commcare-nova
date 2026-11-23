@@ -172,6 +172,8 @@ export const CASE_LIST_KEY_PARTS = {
 	detailColumnOrder: "case-details",
 	filter: "case-list",
 	searchInputs: "search",
+	searchFilters: "search",
+	searchCondition: "search",
 	selection: "case-list",
 	tile: "case-list",
 } as const satisfies Record<keyof CaseListConfig, MenuPart>;
