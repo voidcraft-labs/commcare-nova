@@ -1052,7 +1052,10 @@ test("in Web Apps a case chosen from the case list entry beside forms shows the 
 		const entry = main.locator("[data-case-list-menu-entry]");
 		await expect(entry).toBeVisible({ timeout: 20_000 });
 		// The entry comes after the menu's forms.
-		const commands = entry.locator("xpath=..").locator(":scope > button");
+		// Each command sits in its own choice beside its spoken label.
+		const commands = entry
+			.locator("xpath=ancestor::*[@data-menu-layout][1]")
+			.locator("[data-menu-choice] > button");
 		await expect(commands.first()).toContainText("Register");
 		await expect(commands.last()).toHaveAttribute("data-case-list-menu-entry");
 		await entry.click();

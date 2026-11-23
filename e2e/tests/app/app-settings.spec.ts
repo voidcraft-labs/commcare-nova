@@ -324,6 +324,9 @@ test("the individual grid can be set while the app uses lists, then takes effect
 	await individual.click();
 	await saved;
 	await reloadBuilder(page);
+	await page
+		.getByRole("button", { name: "Module settings", exact: true })
+		.click();
 	await expect(individual).toBeChecked();
 	await openAppSettings(page);
 	await page.getByLabel("Other menus", { exact: true }).click();
