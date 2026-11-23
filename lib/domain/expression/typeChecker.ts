@@ -1054,10 +1054,12 @@ function admission(
 		// (`XPathNodeset.unpack`), and an action whose condition stops takes
 		// the list it sits on with it (`Detail.getCustomActions`,
 		// `Action.isRelevant`). The case chosen in an earlier menu is
-		// admitted above.
+		// admitted above; places fall to their own refusal below, since no
+		// count of them helps here either.
 		if (
 			ctx.slot.slot === "case_list_action_condition" &&
-			expression.kind === "project"
+			expression.kind === "project" &&
+			expression.of.kind !== "locations"
 		)
 			return refusal(
 				"arm-unavailable",
