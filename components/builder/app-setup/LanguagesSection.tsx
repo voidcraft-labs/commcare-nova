@@ -99,6 +99,7 @@ import {
 	createProtectedProseDraft,
 	editProtectedProseDraft,
 } from "./protectedProse";
+import { reviewTranslationMutation } from "./translationReviewModel";
 
 const STATUS_LABELS: Readonly<Record<TranslationStatus, string>> = {
 	missing: "Missing",
@@ -1149,7 +1150,7 @@ function TranslationUnitRow({
 		unit.filledFrom === undefined || filledFrom === undefined
 			? undefined
 			: projectValue(filledFrom.effective);
-	const { direction, sourceDirection } = useBuilderLanguage();
+	const { direction, sourceDirection, sourceLanguage } = useBuilderLanguage();
 	const proseSlot = translationUnitProseSlot(unit);
 	const initial = unit.explicit?.value ?? unit.effective;
 	const [draft, setDraft] = useState<LocalizedValue>(() =>
@@ -1164,21 +1165,9 @@ function TranslationUnitRow({
 		setError(refusal);
 	};
 	const review = () => {
-		if (unit.explicit === undefined) return;
-		setError(
-			firstRefusal(
-				inline.commitMany([
-					{
-						kind: "reviewTranslation",
-						language: unit.language,
-						unitId: unit.id,
-						expectedSourceFingerprint: unit.explicit.sourceFingerprint,
-						sourceFingerprint: unit.sourceFingerprint,
-						value: structuredClone(unit.explicit.value),
-					},
-				]),
-			),
-		);
+		const mutation = reviewTranslationMutation(unit, sourceLanguage);
+		if (mutation === undefined) return;
+		setError(firstRefusal(inline.commitMany([mutation])));
 	};
 	const clear = () => {
 		setError(
