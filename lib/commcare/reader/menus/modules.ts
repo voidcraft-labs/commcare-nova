@@ -1113,8 +1113,6 @@ function readCaseListMenuItem(
 const MENU_BADGE = `${M}/custom-icons-0-badge-localized-text-or-xpath`;
 const FORM_BADGE = `${F}/custom-icons-0`;
 const BADGE = defineClaims("menus.badges", {
-	moduleClass: take(MENU_BADGE, "schema:CustomIcon"),
-	formClass: take(FORM_BADGE, "schema:CustomIcon"),
 	menuText: take(MENU_BADGE, "schema:CustomIcon.text"),
 	formText: take(FORM_BADGE, "schema:CustomIcon.text"),
 	menuForm: take(MENU_BADGE, "schema:CustomIcon.form"),
@@ -1153,7 +1151,9 @@ function readBadge(ctx: ReadContext, owner: DraftModule | DraftForm): void {
 		first.refuseWhole(BADGE.unsupportedForm);
 		return;
 	}
-	first.takeClass(isForm ? BADGE.formClass : BADGE.moduleClass).value;
+	// The icon's class is the list's declared one, which HQ's wrap takes
+	// without its doc_type choosing it, so no use of the class is read here:
+	// its keys are claimed one by one below.
 	first.takeDefault("form", isForm ? BADGE.formForm : BADGE.menuForm);
 	const xpath = first.peek("xpath");
 	const entry = isForm ? FORM_BADGE : MENU_BADGE;
