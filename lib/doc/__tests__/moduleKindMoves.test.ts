@@ -31,6 +31,7 @@ import {
 	CHECK_IN,
 	carryVisit,
 	DIRECTORY,
+	HOUSEHOLD_VISIT,
 	HOUSEHOLDS,
 	K,
 	kindFixture,
@@ -204,6 +205,8 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 				"forms-read-search",
 				"case-list-menu-item-narrowed",
 				"chain-index",
+				"list-entry-change",
+				"form-entry-change",
 				"advanced-change",
 			] as const
 		).map((reason) =>
@@ -222,6 +225,8 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 			`${lead} Its forms now read the search, which an advanced menu can't do. ${exports}`,
 			`${lead} Its case list in the menu now has a filter or a parent case, which an advanced menu would leave out. ${exports}`,
 			`${lead} Its cases now link to their parent case under more than one name. ${exports}`,
+			`${lead} Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically. ${exports}`,
+			`${lead} A form in it now opens with its own cases or values, which only an advanced menu can do. ${exports}`,
 			`${lead} A form in it now saves a case change only an advanced menu can. ${exports}`,
 		]);
 	});
@@ -306,6 +311,79 @@ describe("planModuleKindMoves, for a menu a carried create turns advanced", () =
 		expect(plan.batch).toBe(edit);
 		expect(plan.moves).toEqual([]);
 	});
+});
+
+/**
+ * A published ordinary menu that an opening edit, not a case change, turns
+ * advanced. The failure: the move stated with the case-change reason, so a
+ * person confirms a move for a cause they did not make.
+ */
+describe("planModuleKindMoves, for a menu an opening edit turns advanced", () => {
+	const rows: readonly {
+		readonly cause: string;
+		readonly reason: string;
+		readonly edit: Mutation[];
+		readonly sentence: string;
+	}[] = [
+		{
+			cause: "automatic selection",
+			reason: "list-entry-change",
+			edit: [
+				{
+					kind: "updateModule",
+					uuid: HOUSEHOLDS,
+					patch: { autoSelectSingle: true },
+				} as Mutation,
+			],
+			sentence:
+				"Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically.",
+		},
+		{
+			cause: "the form's own opening choices",
+			reason: "form-entry-change",
+			edit: [
+				{
+					kind: "updateForm",
+					uuid: HOUSEHOLD_VISIT,
+					patch: {},
+					entryChange: { operation: "use-form-choices" },
+				} as Mutation,
+			],
+			sentence:
+				"A form in it now opens with its own cases or values, which only an advanced menu can do.",
+		},
+	];
+	for (const row of rows)
+		it(`states the move with ${row.cause} as its reason`, () => {
+			const doc = publishedBasic(kindFixture(), HOUSEHOLDS);
+			// Web Apps refuses automatic selection beside a details screen.
+			doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+			expect(verdict(doc, []).ok).toBe(true);
+			const plan = withIdentityMoves(doc, row.edit);
+			// The forms' held basic placements move after it.
+			expect(plan.moves[0]).toEqual({
+				subject: { kind: "module-kind", moduleUuid: HOUSEHOLDS },
+				from: "ordinary-menu",
+				to: "advanced-menu",
+				reason: {
+					source: "module-kind",
+					reason: row.reason,
+					chosenCasesRenamed: false,
+				},
+			});
+			const result = verdict(doc, plan.batch);
+			expect(result.ok ? [] : result.findings.map((f) => f.message)).toEqual(
+				[],
+			);
+			if (!result.ok) return;
+			expect(emittedModuleKind(result.nextDoc, HOUSEHOLDS)).toBe("advanced");
+			expect(identityMoveSentence(result.nextDoc, plan.moves[0])).toBe(
+				`“Households” moves from an ordinary menu to an advanced menu. ${row.sentence} From your next publish, CommCare HQ's exports show these answers under new columns.`,
+			);
+			expect(identityMovesBetween(doc, result.nextDoc)[0]).toEqual(
+				plan.moves[0],
+			);
+		});
 });
 
 describe("the undo of a menu's move", () => {

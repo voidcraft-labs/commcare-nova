@@ -12,10 +12,13 @@
  * - **A held kind a blocker meets.** The menu can no longer be an advanced
  *   module (`lib/domain/advancedModule.ts::advancedKindBlockers`), so its
  *   held kind is cleared and the menu becomes ordinary.
- * - **A published menu a carried create turns advanced.** A form of an
- *   ordinary menu whose forms hold placements now holds a create an
- *   after-submit link carries that a basic form gives no session value
- *   (`lib/commcare/moduleKind.ts::emittedModuleKind`). Nothing of the menu's
+ * - **A published menu an edit turns advanced.** An ordinary menu whose
+ *   forms hold placements now needs an advanced one
+ *   (`lib/commcare/moduleKind.ts::emittedModuleKind`): its list chooses the
+ *   worker's own record or opens a single match automatically, a form opens
+ *   with its own choices or computed values, or a form holds a create an
+ *   after-submit link carries that a basic form gives no session value. The
+ *   move's reason names the first of these. Nothing of the menu's
  *   own is held yet, so the move has no hold change: the placement planner
  *   (`placementMoves.ts`) moves the forms' held basic placements, which an
  *   advanced form cannot use.
@@ -56,11 +59,32 @@ import {
 } from "@/lib/domain";
 
 /** Why a menu's kind moves: the first blocker that keeps a held advanced
- *  menu from staying advanced, or `advanced-change`, a form of a published
- *  ordinary menu now saving a case change only an advanced menu can. */
+ *  menu from staying advanced, or, for a published ordinary menu turning
+ *  advanced, the first reason it now is one: `list-entry-change`, its list
+ *  now chooses the worker's own record or opens a single match
+ *  automatically; `form-entry-change`, a form now opens with its own
+ *  choices or computed values; `advanced-change`, a form now saves a case
+ *  change only an advanced menu can. */
 export type ModuleKindMoveReason =
 	| AdvancedKindBlocker["kind"]
+	| "list-entry-change"
+	| "form-entry-change"
 	| "advanced-change";
+
+/** Why `moduleUuid`, advanced in `after` without a held kind, is one: its
+ *  first trigger (`advancedKindTriggers`, list before forms, and within a
+ *  form its opening choices before a carried create). */
+function advancedChangeReason(
+	after: BlueprintDoc,
+	moduleUuid: Uuid,
+): ModuleKindMoveReason {
+	const first = advancedKindReasons(after, moduleUuid).find(
+		(reason) => reason.kind !== "held",
+	);
+	if (first?.kind === "list-entry") return "list-entry-change";
+	if (first?.kind === "form-entry") return "form-entry-change";
+	return "advanced-change";
+}
 
 type ModuleKindHoldEntry = Extract<
 	PlacementHoldEntry,
@@ -142,7 +166,12 @@ export function carriedCreateKindMoves(
 			carriedCreateTurnsAdvanced(before, after, moduleUuid),
 		)
 		.map((moduleUuid) =>
-			moduleKindMove(after, moduleUuid, "advanced", "advanced-change"),
+			moduleKindMove(
+				after,
+				moduleUuid,
+				"advanced",
+				advancedChangeReason(after, moduleUuid),
+			),
 		);
 }
 
@@ -169,7 +198,12 @@ export function planModuleKindMoves(
 			moves.push(moduleKindMove(candidate, moduleUuid, "basic", blocker.kind));
 		} else if (carriedCreateTurnsAdvanced(prev, candidate, moduleUuid))
 			moves.push(
-				moduleKindMove(candidate, moduleUuid, "advanced", "advanced-change"),
+				moduleKindMove(
+					candidate,
+					moduleUuid,
+					"advanced",
+					advancedChangeReason(candidate, moduleUuid),
+				),
 			);
 	}
 	return { holds, moves };

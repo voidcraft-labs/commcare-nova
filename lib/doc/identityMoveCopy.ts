@@ -37,13 +37,20 @@ const CHOSEN_CASES_RENAMED_SENTENCE =
 const quoted = (words: string): string => `“${words}”`;
 
 /** Why a menu's kind moves, in one sentence: a blocker's is the one the
- *  gate's `HELD_PLACEMENT_INEXPRESSIBLE` finding for the menu reads too. In
- *  step 5 the one case change only an advanced menu holds is the open
- *  action of a create an after-submit link carries. */
+ *  gate's `HELD_PLACEMENT_INEXPRESSIBLE` finding for the menu reads too,
+ *  and a move to an advanced menu says what now needs one, as module
+ *  settings' **In CommCare HQ** row does (`moduleAdvancedKindLine`). */
 function moduleKindMoveReasonSentence(reason: ModuleKindMoveReason): string {
-	if (reason === "advanced-change")
-		return "A form in it now saves a case change only an advanced menu can.";
-	return advancedKindBlockerSentence(reason);
+	switch (reason) {
+		case "list-entry-change":
+			return "Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically.";
+		case "form-entry-change":
+			return "A form in it now opens with its own cases or values, which only an advanced menu can do.";
+		case "advanced-change":
+			return "A form in it now saves a case change only an advanced menu can.";
+		default:
+			return advancedKindBlockerSentence(reason);
+	}
 }
 
 function formWords(doc: BlueprintDoc, formUuid: Uuid): string {
