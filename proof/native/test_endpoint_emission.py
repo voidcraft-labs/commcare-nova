@@ -45,9 +45,14 @@ def test_hq_endpoints_and_reached_claims_equal_novas(native):
             scenario,
             "reachable remote-request",
         )
-    assert sorted(record["scenario"] for record in records) == sorted([
-        "single", "multiple", "inline", "registration", "registration-supplied", "first-menu", "child", "module", "case-list",
-    ])
+    # A record is named by its export's stem (`steps/suite_emission.py::endpoints`).
+    assert sorted(record["scenario"] for record in records) == sorted(
+        f"endpoint-{scenario}"
+        for scenario in (
+            "single", "multiple", "inline", "registration", "registration-supplied", "first-menu", "child", "module",
+            "case-list",
+        )
+    )
     write_evidence(
         native.family("endpoint"),
         "endpoint-emission",
