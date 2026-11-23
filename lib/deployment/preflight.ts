@@ -200,6 +200,7 @@ import {
 	readResourceBaselines,
 	readSiblingLookupMappings,
 	readTargetIdentity,
+	readWorkbookLookupTags,
 } from "./store";
 import { exportIdentityOf, type TargetIdentity } from "./targetIdentity";
 import type {
@@ -954,6 +955,9 @@ export async function runDeploymentPreflight(
 			await getAppDb(),
 			{ projectId: input.access.projectId, ...target },
 		),
+		/* A table the Project put there by a workbook stays in one: the JSON
+		 * resources cannot take over rows that carry no Nova identity. */
+		workbookLookupTags: await readWorkbookLookupTags(input.access, target),
 	});
 	if (!boundary.ok) {
 		const details = boundary.violations.map(userFacingError);
@@ -1405,6 +1409,12 @@ export async function runDeploymentPreflight(
 		const held: string[] = [];
 		const changed: string[] = [];
 		const unsupported: string[] = [];
+		const workbookMade: string[] = [];
+		const siblings = await readSiblingLookupMappings(
+			input.access,
+			target,
+			jsonTables.map((table) => table.tableId),
+		);
 		for (const table of jsonTables) {
 			const definition = definitions.get(table.tableId);
 			if (definition === undefined)
@@ -1416,7 +1426,11 @@ export async function runDeploymentPreflight(
 				domain,
 				tableId: table.tableId,
 			});
-			const ledger = destination.ledger;
+			/* A table given a new export tag since its last publish here goes
+			 * there as a new table under that tag, which must be free, and the
+			 * table under the old tag is left as it is. */
+			const ledger =
+				destination.ledger?.tag === table.tag ? destination.ledger : null;
 			const jsonDefinition = lookupJsonDefinition(table);
 			const there =
 				ledger === null
@@ -1436,18 +1450,27 @@ export async function runDeploymentPreflight(
 			if (
 				ledger === null &&
 				there !== undefined &&
-				input.mappings.some(
+				!pendingCreate &&
+				(input.mappings.some(
 					(mapping) =>
 						mapping.kind === "lookup-table" &&
 						mapping.novaResourceId === table.tableId &&
 						mapping.remoteId === there.id &&
 						!mapping.supersededAt,
-				)
+				) ||
+					siblings.some(
+						(mapping) =>
+							mapping.tableId === table.tableId &&
+							mapping.remoteId === there.id,
+					))
 			)
-				/* Nova made it there in a workbook, whose rows carry no Nova
-				 * identity, so the JSON resources cannot take them over. */
-				unsupported.push(
-					`Nova put “${name}” on “${domain}” in a workbook, which can't carry its rows exactly any more.`,
+				/* An app of the Project put the table under this tag there by a
+				 * workbook, though not under this tag (the workbook keeps one
+				 * put there under its own tag: `travelsAsJson`). Its rows carry
+				 * no Nova identity, so the JSON resources cannot take them over,
+				 * and it is no stranger's either. */
+				workbookMade.push(
+					`An app of this Project put the table under ${table.tag} on “${domain}” in a workbook.`,
 				);
 			else if (ledger === null && there !== undefined && !pendingCreate)
 				held.push(
@@ -1489,19 +1512,25 @@ export async function runDeploymentPreflight(
 						detail: `“${domain}” already has lookup tables under these names, and Nova didn't make them. You can give the table another export tag in Project data, then publish again.`,
 						items: held,
 					}
-				: unsupported.length > 0
+				: workbookMade.length > 0
 					? {
 							code: "hq_table_content_unsupported" as const,
-							detail: `CommCare HQ's table resources can't change a table's columns or details without dropping what CommCare HQ holds about them, so Nova won't change these. You can give the table a new export tag in Project data, so it goes to “${domain}” as a new table.`,
-							items: unsupported,
+							detail: `A workbook can't carry these tables exactly any more, and CommCare HQ's table resources can't take over the rows a workbook put on “${domain}”, so Nova won't change them. You can change their rows in Project data so a workbook carries them, or give a table a new export tag so it goes to “${domain}” as a new table.`,
+							items: workbookMade,
 						}
-					: changed.length > 0
+					: unsupported.length > 0
 						? {
-								code: "hq_resource_state_unknown" as const,
-								detail: `Some lookup tables on “${domain}” aren't as Nova left them, so Nova stopped before sending anything. You can look at them in CommCare HQ, then publish again.`,
-								items: changed,
+								code: "hq_table_content_unsupported" as const,
+								detail: `CommCare HQ's table resources can't change a table's columns or details without dropping what CommCare HQ holds about them, so Nova won't change these. You can give the table a new export tag in Project data, so it goes to “${domain}” as a new table and the one there now stays as it is.`,
+								items: unsupported,
 							}
-						: null;
+						: changed.length > 0
+							? {
+									code: "hq_resource_state_unknown" as const,
+									detail: `Some lookup tables on “${domain}” aren't as Nova left them, so Nova stopped before sending anything. You can look at them in CommCare HQ, or give a table a new export tag in Project data so it goes to “${domain}” as a new table.`,
+									items: changed,
+								}
+							: null;
 		if (stop !== null) {
 			checks.push({
 				id: "project-data",

@@ -1,9 +1,14 @@
 import { v7 } from "uuid";
 import { withAppTx } from "@/lib/db/pg";
 import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
-import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import {
+	type LookupColumnId,
+	type LookupRowId,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { getLookupTable } from "@/lib/lookup/service";
+import type { LookupAuthoringRowOperation } from "@/lib/lookup/types";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 
 /**
@@ -79,7 +84,11 @@ import {
 	type OrganizationLevel,
 } from "@/lib/domain";
 import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
-import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
+import {
+	createLookupTable,
+	replaceLookupRows,
+	updateLookupTableTag,
+} from "@/lib/lookup/service";
 import { createLocation, updateLocation } from "@/lib/organization/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { adoptedAppBaselineWrite } from "../adoption";
@@ -3606,12 +3615,15 @@ describe("the save counter a publish's reads are bound to", () => {
  * field as a string where every field holds one, else `field_list`), and
  * each row's detail. `answer` lets a case lose an answer: a write it names
  * still lands, and is answered 500, which says nothing of whether it did; a
- * read it names is answered 500 and read nothing.
+ * read it names is answered 500 and read nothing. `after` runs once a
+ * request has done its work and before its answer goes back, as something
+ * happening in Nova between two requests.
  */
 function jsonLookupPeer(
 	peer: MockAgent,
 	answer: {
 		lose?: (method: string, path: string) => boolean;
+		after?: (method: string, path: string) => Promise<void>;
 	} = {},
 ) {
 	type Row = {
@@ -3649,6 +3661,7 @@ function jsonLookupPeer(
 			const body = sent.length === 0 ? undefined : JSON.parse(sent.toString());
 			if (opts.method !== "GET") writes.push(`${opts.method} ${path}`);
 			const answered = handle(opts.method, url, path, body);
+			await answer.after?.(opts.method, path);
 			return answer.lose?.(opts.method, path)
 				? { statusCode: 500, data: "" }
 				: answered;
@@ -3660,7 +3673,7 @@ function jsonLookupPeer(
 		path: string,
 		// biome-ignore lint/suspicious/noExplicitAny: a parsed request body
 		body: any,
-	): { statusCode: number; data: unknown } {
+	): { statusCode: number; data: string | Record<string, unknown> } {
 		if (path === `${api}lookup_table/v1/` && method === "GET")
 			return {
 				statusCode: 200,
@@ -3776,6 +3789,61 @@ function jsonLookupPeer(
 	return { tables, rows, writes };
 }
 
+const editorScope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+
+/** The table `typesDocument` made: its id, its columns by export name, and its rows in order. */
+async function typesTable() {
+	const { id: tableId } = await h
+		.db()
+		.selectFrom("lookup_tables")
+		.select("id")
+		.where("project_id", "=", PROJECT)
+		.executeTakeFirstOrThrow();
+	const table = await getLookupTable(editorScope, tableId);
+	const column = (wireName: string) =>
+		table.columns.find((candidate) => candidate.wireName === wireName)?.id ??
+		fail();
+	const rows = await h
+		.db()
+		.selectFrom("lookup_rows")
+		.select("id")
+		.where("table_id", "=", tableId)
+		.orderBy("order_key")
+		.execute();
+	return {
+		tableId,
+		tableRevision: table.tableRevision,
+		columns: { code: column("code"), name: column("name") },
+		rowIds: rows.map((row) => row.id),
+	};
+}
+
+/** Edit `typesDocument`'s rows in Nova, as its Project data page does. */
+async function editTypesRows(
+	operations: (
+		rowIds: readonly LookupRowId[],
+		columns: { code: LookupColumnId; name: LookupColumnId },
+	) => LookupAuthoringRowOperation[],
+) {
+	const { tableId, tableRevision, columns, rowIds } = await typesTable();
+	await withAppTx(async (tx) =>
+		applyLookupAuthoringBatchInTransaction(
+			tx,
+			await authorizeLookupWriteInTransaction(tx, editorScope, "edit"),
+			{
+				operationId: v7(),
+				updateTables: [
+					{
+						tableId,
+						expectedTableRevision: tableRevision,
+						rowOperations: operations(rowIds, columns),
+					},
+				],
+			},
+		),
+	);
+}
+
 async function typesDocument(): Promise<BlueprintDoc> {
 	const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
@@ -3889,6 +3957,67 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 		});
 	});
 
+	it("puts a table given a new export tag there as a new table, and names the one under the old tag as left behind", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			expect((await publish(doc)).landed).toBe(true);
+			const [old] = hq.tables.values();
+			const oldRows = structuredClone([...hq.rows.values()]);
+
+			/* An admin gives the table a new export tag in Project data. */
+			const admin = { projectId: PROJECT, actorId: "admin", role: "owner" };
+			await h.seedProjectMember("admin", PROJECT, "owner");
+			const { id: tableId } = await h
+				.db()
+				.selectFrom("lookup_tables")
+				.select("id")
+				.where("project_id", "=", PROJECT)
+				.executeTakeFirstOrThrow();
+			const table = await getLookupTable(admin, tableId);
+			await updateLookupTableTag(admin, {
+				tableId,
+				expectedTableRevision: table.tableRevision,
+				tag: "kinds",
+			});
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-after-create-then-update");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+				"POST /a/clinic/api/lookup_table_item/v2/",
+			]);
+			const created = [...hq.tables.values()].find((t) => t.tag === "kinds");
+			/* The table under the old tag, and its rows, are as they were. */
+			expect(hq.tables.get(old?.id as string)).toEqual(old);
+			expect(
+				[...hq.rows.values()].filter((row) => row.table === old?.id),
+			).toEqual(oldRows);
+			const view = (await state()) ?? fail();
+			expect(
+				view.active.filter((resource) => resource.kind === "lookup-table"),
+			).toEqual([
+				expect.objectContaining({
+					remoteId: created?.id,
+					pushedIdentity: "kinds",
+				}),
+			]);
+			expect(leftBehindResources(view, new Map())).toEqual([
+				expect.objectContaining({ kind: "lookup-table", remoteId: old?.id }),
+			]);
+		});
+	});
+
 	it("settles a table create whose answer was lost by its tag on the next publish, and carries on from there", async () => {
 		const doc = await seed(await typesDocument());
 		await withPeer(async (peer) => {
@@ -3913,7 +4042,6 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			});
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
-			serve(peer, SOURCE, "source-shell");
 			expect(refusal(await publish(doc))).toMatchObject({
 				failure: { code: "hq_resource_state_unknown" },
 			});
@@ -3923,7 +4051,6 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			/* The table under the tag is the one Nova's create made, so the
 			 * next publish finds it there, records it, and sends the rows. */
 			hq.writes.length = 0;
-			serve(peer, SOURCE, "source-shell");
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-after-create-then-update");
@@ -3960,7 +4087,6 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 			});
 			accepted(peer, 201);
 			serve(peer, SOURCE, "source-shell");
-			serve(peer, SOURCE, "source-shell");
 			expect(refusal(await publish(doc))).toMatchObject({
 				failure: { code: "hq_resource_state_unknown" },
 			});
@@ -3986,7 +4112,6 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 
 			hq.writes.length = 0;
 			serve(peer, SOURCE, "source-shell");
-			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-after-create-then-update");
 			const again = await publish(doc);
@@ -4003,6 +4128,92 @@ describe("a table only CommCare HQ's JSON resources can carry", () => {
 					.where("id", "=", open[0]?.id ?? fail())
 					.executeTakeFirst(),
 			).toEqual({ state: "not-applied" });
+		});
+	});
+
+	it("admits each request on the table's rows and the publisher's standing at that moment, and sends nothing past a refusal", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const rowsPath = "/a/clinic/api/lookup_table_item/v2/";
+			let edited = false;
+			const hq = jsonLookupPeer(peer, {
+				/* Someone edits a row in Nova once the first row is there. */
+				after: async (method, path) => {
+					if (method !== "POST" || path !== rowsPath || edited) return;
+					edited = true;
+					await editTypesRows((ids, columns) => [
+						{
+							kind: "update",
+							rowId: ids[1] ?? fail(),
+							cells: [
+								{ columnId: columns.code, value: "002" },
+								{ columnId: columns.name, value: "Hospital 2" },
+							],
+						},
+					]);
+				},
+			});
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "resources",
+				failure: { code: "app_not_ready" },
+			});
+			expect(hq.writes).toEqual([
+				"POST /a/clinic/api/lookup_table/v1/",
+				`POST ${rowsPath}`,
+			]);
+			/* The refused request was never journaled. */
+			expect(
+				await h
+					.db()
+					.selectFrom("lookup_json_operations")
+					.select("state")
+					.execute(),
+			).toEqual([{ state: "applied" }, { state: "applied" }]);
+		});
+	});
+
+	it("puts a changed row and a removed row there by their ids on the next publish", async () => {
+		const doc = await seed(await typesDocument());
+		await withPeer(async (peer) => {
+			const hq = jsonLookupPeer(peer);
+			accepted(peer, 201);
+			serve(peer, SOURCE, "source-shell");
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			expect((await publish(doc)).landed).toBe(true);
+			const [clinic, hospital] = [...hq.rows.values()];
+
+			await editTypesRows((ids, columns) => [
+				{
+					kind: "update",
+					rowId: ids[0] ?? fail(),
+					cells: [
+						{ columnId: columns.code, value: "001" },
+						{ columnId: columns.name, value: " Clinic 2 " },
+					],
+				},
+				{ kind: "remove", rowId: ids[1] ?? fail() },
+			]);
+
+			hq.writes.length = 0;
+			serve(peer, SOURCE, "source-after-create-then-update");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const again = await publish(doc);
+			expect(again.landed ? null : again.refusal).toBeNull();
+			expect(hq.writes).toEqual([
+				`DELETE /a/clinic/api/lookup_table_item/v2/${hospital?.id}/`,
+				`PUT /a/clinic/api/lookup_table_item/v2/${clinic?.id}/`,
+			]);
+			expect(
+				[...hq.rows.values()].map((row) => [
+					row.id,
+					row.fields.name?.[0]?.field_value,
+				]),
+			).toEqual([[clinic?.id, " Clinic 2 "]]);
 		});
 	});
 

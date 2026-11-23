@@ -220,9 +220,15 @@ export async function publishLookupTableJson(
 	let writes = 0;
 	let remoteTableId: string | null = null;
 
+	/* The ledger this publish writes over: none where Nova's table has a new
+	 * export tag since, which goes there as a new table and leaves the one
+	 * under the old tag as it is. */
+	const ledgerOf = (destination: LookupJsonDestination) =>
+		destination.ledger?.tag === definition.tag ? destination.ledger : null;
+
 	for (let attempt = 0; attempt <= REPLANS; attempt++) {
 		let destination = await journal.read();
-		remoteTableId = destination.ledger?.remoteTableId ?? null;
+		remoteTableId = ledgerOf(destination)?.remoteTableId ?? null;
 
 		/* An operation an earlier run left open is settled first, by reading
 		 * what it named. Until it is, nothing else is sent for this table. */
@@ -238,7 +244,7 @@ export async function publishLookupTableJson(
 			);
 			if (settled !== null) return stopped(settled, remoteTableId, writes);
 			destination = await journal.read();
-			remoteTableId = destination.ledger?.remoteTableId ?? null;
+			remoteTableId = ledgerOf(destination)?.remoteTableId ?? null;
 		}
 
 		const tables = await hq.listTables();
@@ -248,7 +254,7 @@ export async function publishLookupTableJson(
 				remoteTableId,
 				writes,
 			);
-		const ledger = destination.ledger;
+		const ledger = ledgerOf(destination);
 		const held =
 			ledger === null
 				? tables.find((table) => table.tag === definition.tag)

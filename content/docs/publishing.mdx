@@ -187,10 +187,19 @@ If a change's answer gets lost on the way back, Nova reads that row in CommCare
 HQ before it sends anything else to the table, and waits a few minutes where
 the change could still arrive. If a row someone else added or changed is there,
 or a new row appeared that Nova can't name, the publish stops and names the
-table so nothing is written over it. Changing a table's columns after it's
-there isn't something these resources can do safely, so Nova asks you to give
-the table a new export tag instead. The CommCare HQ app file can't carry these
+table so nothing is written over it. Each later publish reads the table again
+first, so once the row is gone or put back in CommCare HQ, publishing again
+picks up from there. Changing a table's columns after it's there isn't
+something these resources can do safely, so Nova asks you to give the table a
+new export tag instead: the next publish puts it there as a new table and
+leaves the old one as it is. The CommCare HQ app file can't carry these
 tables, since it uploads a workbook: publish from Nova to put them there.
+
+A table that's already on the project space from a workbook stays in one
+there, since Nova can't tell its rows apart in those resources. If it now holds
+something a workbook can't carry, such as a value that starts or ends with a
+space, the publish names it, and you can change those rows in Project data or
+give the table a new export tag so it goes there as a new table.
 
 A publish stops before it sends anything when a lookup table with the same tag
 in CommCare HQ holds something Nova can't keep yet: field properties, row

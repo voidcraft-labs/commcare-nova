@@ -235,8 +235,8 @@ async function seedTable(): Promise<LookupTableId> {
 /**
  * The journal over the real ledger. Admission here journals only: the
  * deployment's admission (`store.ts::admitLookupJsonWrite`) adds the
- * Project fence and the publisher's authority, which `publishLookupJson`'s
- * cases hold.
+ * Project fence and the publisher's authority, which the JSON cases of
+ * `publishSequence.postgres.test.ts` hold.
  */
 function journalFor(
 	key: LookupJsonDestinationKey,
@@ -600,6 +600,80 @@ describe("a table published through CommCare HQ's JSON resources", () => {
 			writes: 0,
 		});
 		expect(hq.sent).toEqual([]);
+	});
+
+	it("puts a table given a new export tag there as a new table, and leaves the one under the old tag as it is", async () => {
+		const { key, hq } = await setup();
+		await publish(hq, journalFor(key), rows("a", "b"));
+		const [old] = hq.tables.values();
+		const oldRows = new Map(hq.rows);
+		/* A column was added, which the old table can't take, and the table
+		 * was given a new export tag. */
+		const retagged: HqLookupJsonDefinition = {
+			tag: "kinds",
+			fields: [...DEFINITION.fields, { name: "note", properties: [] }],
+			itemAttributes: DEFINITION.itemAttributes,
+		};
+		const local = rows("a", "b").map((row) => ({
+			...row,
+			content: {
+				...row.content,
+				fields: {
+					...row.content.fields,
+					note: [{ value: "", properties: {} }],
+				},
+			},
+		}));
+		const publishRetagged = (refuse = false) => {
+			hq.sent.length = 0;
+			if (refuse) hq.faults.push("refuse");
+			return publishLookupTableJson({
+				hq,
+				journal: journalFor(key),
+				definition: retagged,
+				rows: local,
+				holdMs: HOLD_MS,
+			});
+		};
+
+		/* A create CommCare HQ refuses leaves the ledger of the old table. */
+		expect(await publishRetagged(true)).toMatchObject({
+			kind: "stopped",
+			stop: { kind: "refused" },
+			remoteTableId: null,
+		});
+		expect((await readLookupJsonDestination(h.db(), key)).ledger).toMatchObject(
+			{
+				remoteTableId: old?.id,
+				tag: "types",
+			},
+		);
+
+		const result = await publishRetagged();
+		expect(result).toMatchObject({ kind: "published", writes: 3 });
+		expect(hq.sent).toEqual(["POST table", "POST row", "POST row"]);
+		const created = [...hq.tables.values()].find((t) => t.tag === "kinds");
+		expect(result).toMatchObject({ remoteTableId: created?.id });
+		/* The table under the old tag and its rows are untouched. */
+		expect(hq.tables.get(old?.id ?? "")).toEqual(old);
+		for (const [id, row] of oldRows) expect(hq.rows.get(id)).toEqual(row);
+		const destination = await readLookupJsonDestination(h.db(), key);
+		expect(destination.ledger).toMatchObject({
+			remoteTableId: created?.id,
+			tag: "kinds",
+		});
+		expect(
+			destination.ledger?.rows.every(
+				(row) => hq.rows.get(row.remoteId)?.tableId === created?.id,
+			),
+		).toBe(true);
+		expect(destination.ledger?.rows).toHaveLength(2);
+
+		/* And the next publish under the new tag writes nothing. */
+		expect(await publishRetagged()).toMatchObject({
+			kind: "published",
+			writes: 0,
+		});
 	});
 
 	it("keeps at most one open operation per destination", async () => {

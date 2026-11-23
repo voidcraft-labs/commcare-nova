@@ -2655,9 +2655,13 @@ cannot carry it exactly and the table is global with no index
 (`lib/export/boundaryFindings.ts::travelsAsJson`): the tag `types`, a value
 CommCare HQ's workbook reader would trim, an occurrence count or empty
 occurrence it would lose. A table that already has a JSON destination on the
-target keeps going that way. The HQ app file cannot carry such a table and
-says so (`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table
-held in a paged generation does not travel this way yet.
+target keeps going that way. A table the Project already has there through a
+workbook under its tag (a live mapping of any of its apps, or a takeover
+from there: `store.ts::readWorkbookLookupTags`) stays in the workbook, whose
+findings name what it cannot carry (`carriedBy: "workbook-there"`). The HQ
+app file cannot carry such a table and says so
+(`describeLookupCarrierAlternative`, `carriedBy: "file"`); a table held in a
+paged generation does not travel this way yet on either (`"too-large"`).
 
 The destination ledger (`lookupJsonLedger.ts`, tables
 `lookup_json_destinations`, `lookup_json_destination_rows`,
@@ -2682,10 +2686,19 @@ id), a row create by any row the ledger does not know. The intended state
 advances the ledger; the state before, once the write's hold has passed
 (`LOOKUP_JSON_HOLD_MS`), lets it be sent again; anything else, and every
 row create that left a row Nova did not see acknowledged, stays open in
-`review` and stops each later publish of that table. No row is ever
-identified by its values or rank. A definition change of a table already
-there is never planned (a field PUT resets every index, which no read
-shows), nor is a table Nova put there through a workbook taken over. After
+`review`. Preflight never decides an open operation: each later publish's
+push reads it again first, which releases it once CommCare HQ holds the
+intended state or the state before (the stranger row removed), and
+otherwise stops before sending anything. A table create still open counts
+the table under its tag as Nova's own pending create, not a stranger's. No
+row is ever identified by its values or rank. A definition change of a table
+already there is never planned (a field PUT resets every index, which no
+read shows), nor is a table Nova put there through a workbook taken over.
+A new export tag is a new destination: preflight wants the tag free, the
+create is journaled over the old ledger's revision, and its applied
+settlement repoints the destination at the new table and forgets the old
+rows, leaving the table under the old tag as it is (its mapping is then
+superseded and named as left behind). After
 the writes the whole table is read back and held to the ledger in Nova's
 order. Each table found there gets a `nova-created` mapping, recorded
 `partial` and retained by the resources phase's complete record.

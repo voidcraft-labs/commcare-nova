@@ -344,13 +344,16 @@ export async function journalLookupJsonOperation(
 	if (held.revision === null) return { kind: "stale" };
 	if (held.open !== null) return { kind: "busy" };
 	const expected = input.expectedRevision;
-	if (entry.kind === "create-table") {
-		/* A create is planned over no ledger: the destination is new, or holds
-		 * an earlier create that did not land, and no row. */
-		if (
-			held.ledger !== null ||
-			(expected !== null && expected !== held.revision)
-		)
+	if (entry.kind === "create-table" && held.ledger !== null) {
+		/* A create over a ledger is the table's new export tag: it goes there
+		 * as a new table, planned over exactly this revision, and the ledger
+		 * of the table under the old tag stands until the create is found. */
+		if (held.ledger.tag === entry.tag || expected !== held.revision)
+			return { kind: "stale" };
+	} else if (entry.kind === "create-table") {
+		/* A create over no ledger: the destination is new, or holds an
+		 * earlier create that did not land, and no row. */
+		if (expected !== null && expected !== held.revision)
 			return { kind: "stale" };
 		await tx
 			.updateTable("lookup_json_destinations")
@@ -447,9 +450,24 @@ export async function settleLookupJsonOperationInTransaction(
 		case "create-table": {
 			if (settlement.remoteId === undefined)
 				throw new Error("An applied table create needs the table's id.");
+			/* The destination is now the created table, under the create's tag
+			 * and definition. Where it was the table's new export tag, the rows
+			 * Nova mapped under the old one are left there as they are and
+			 * forgotten here: Nova writes no more to that table. */
+			await tx
+				.deleteFrom("lookup_json_destination_rows")
+				.where("project_id", "=", key.projectId)
+				.where("server", "=", key.server)
+				.where("domain", "=", key.domain)
+				.where("table_id", "=", key.tableId)
+				.execute();
 			await tx
 				.updateTable("lookup_json_destinations")
-				.set({ remote_table_id: settlement.remoteId })
+				.set({
+					remote_table_id: settlement.remoteId,
+					tag: open.tag,
+					definition_digest: open.definitionDigest,
+				})
 				.where("project_id", "=", key.projectId)
 				.where("server", "=", key.server)
 				.where("domain", "=", key.domain)
