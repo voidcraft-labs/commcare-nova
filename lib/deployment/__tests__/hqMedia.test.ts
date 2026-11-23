@@ -438,9 +438,15 @@ describe("diffHqAppSource's media part", () => {
 		]);
 	});
 
-	it("gives none for zero, for no count, or for a shell", () => {
+	it("gives none for zero or for no count, on a shell as on any app", () => {
 		expect(diff({ shell: false, mediaChanged: 0 })).toEqual([]);
 		expect(diff({ shell: false })).toEqual([]);
-		expect(diff({ shell: true, mediaChanged: 2 })).toEqual([]);
+		expect(diff({ shell: true, mediaChanged: 0 })).toEqual([]);
+	});
+
+	it("gives a shell's media part too: the empty app HQ made can hold a file at a path this app publishes", () => {
+		expect(diff({ shell: true, mediaChanged: 2 })).toEqual([
+			{ kind: "media", count: 2 },
+		]);
 	});
 });

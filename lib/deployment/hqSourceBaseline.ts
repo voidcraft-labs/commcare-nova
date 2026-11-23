@@ -601,8 +601,9 @@ export function removedHqFileLine(
  * Empty when nothing Nova writes differs. Both sides are projected with the
  * BASELINE's ownership, at check time, so a publish whose document now needs
  * another add-on never reads as a change. With `shell: true` (the stored
- * baseline's origin is `create`) only `modules` is compared, and a
- * difference there is the one part `menu-list`.
+ * baseline's origin is `create`) only `modules` is compared, a difference
+ * there is the one part `menu-list`, and the media and removed-file parts
+ * come as they do for any app.
  *
  * Menus pair by position, as do forms within a menu. A menu's `unique_id`
  * is stable across reads, so a list of another length, or another id at any
@@ -618,7 +619,7 @@ export function removedHqFileLine(
  * `mediaChanged` is how many files this app publishes CommCare HQ holds
  * another file in place of, which the caller works out from the media map
  * (`hqMedia.ts`), since no update writes the map and the projection reads
- * none of it: one `media` part where it is above zero, and none for a shell.
+ * none of it: one `media` part where it is above zero, on a shell too.
  */
 export function diffHqAppSource(input: {
 	readonly baseline: unknown;
