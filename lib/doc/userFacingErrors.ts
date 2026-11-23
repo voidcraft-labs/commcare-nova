@@ -1166,6 +1166,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The search field ${q(det(e, "inputName", "in this module"))} has a condition that compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} looks for ${q(det(e, "property", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
+	CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} looks for the case's location ID, which CommCare's server search doesn't hold. A property of your own can hold the same value for searching.`,
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} uses a matching option that doesn't fit the information it searches. Choose another matching option or different information.`,
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: (e) =>

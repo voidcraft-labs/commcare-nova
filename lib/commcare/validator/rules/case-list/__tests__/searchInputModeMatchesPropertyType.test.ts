@@ -153,3 +153,40 @@ describe("search match mode admission", () => {
 		},
 	);
 });
+
+describe("a search input on the case's location", () => {
+	it("is refused, since CommCare HQ's case search holds no location", () => {
+		const base = admittedCaseListDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "location_id",
+							label: proseText("Location"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+		});
+		const errors = findings(
+			withSearchInputs(base, [
+				simpleSearchInputDef(
+					testUuid("location-prompt"),
+					"location",
+					"Location",
+					"text",
+					"location_id",
+				),
+			]),
+		);
+		expect(errors.map((error) => error.code)).toEqual([
+			"CASE_LIST_SEARCH_INPUT_DEVICE_ONLY_PROPERTY",
+		]);
+		expect(errors[0].details).toMatchObject({
+			inputUuid: testUuid("location-prompt"),
+			property: "location_id",
+		});
+	});
+});
