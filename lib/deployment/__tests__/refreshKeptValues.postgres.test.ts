@@ -909,12 +909,21 @@ describe("refreshKeptValues", () => {
 					media_type: "CommCareImage",
 				},
 			};
+			/* The publish recorded HQ's file at its path, so the next import
+			 * accounts for it and the refresh compares the source alone. */
+			const recorded = {
+				mediaFiles: { kind: "set", files: { [path]: "original" } },
+			} as const;
 			const first = await writeHqRoundTripHorizon(
 				h.db(),
 				APP,
 				"Published survey",
 			);
-			await published({ ...baselineOf(source), novaRevision: first });
+			await published({
+				...baselineOf(source),
+				...recorded,
+				novaRevision: first,
+			});
 			await certifyFold(h.db(), APP);
 			const before = await readAppBaseline(SCOPE, TARGET);
 			if (!before || before.origin === "unread" || !before.foldBinding)
@@ -928,6 +937,7 @@ describe("refreshKeptValues", () => {
 					});
 					await published({
 						...next,
+						...recorded,
 						novaRevision: latest,
 						...(readBack === "unread" && {
 							origin: "unread",
