@@ -168,7 +168,7 @@ export function CaseRelationsSection({ caseType }: { caseType: string }) {
 								if (parsed.success) change("add", parsed.data);
 								else
 									setError(
-										"That link name cannot be used in the app. Try a name such as home_site.",
+										"That link name won't work here. You can use letters, numbers, underscores, dots and hyphens, starting with a letter or underscore, like home_site.",
 									);
 							}}
 						>

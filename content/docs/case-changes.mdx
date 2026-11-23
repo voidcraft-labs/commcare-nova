@@ -292,6 +292,18 @@ longer available is refused beside the running form. The whole submission is
 atomic: no case is created, changed, linked, or unlinked until every target can
 be resolved.
 
+### Related cases a menu's case type can reach
+
+A menu's settings list **Related cases**: each link its case type carries and
+the case type at the other end. Links your forms make show as **Used in the
+app**. **Add a related case** records a link no current form makes, such as one
+older cases still carry, and the same link name can lead to more than one case
+type, as a visit's `site` can lead to a clinic or to a home. Columns and
+calculations that read through a link then offer each case type it reaches. A
+link name starts with a letter or underscore and can hold letters, numbers,
+underscores, dots and hyphens. Nova and an MCP agent add or remove one such link
+with `set_case_type_parent` and its `link` setting.
+
 ## When a form's link opens the case it creates
 
 When a form's link opens the case the form creates, CommCare HQ needs that menu
