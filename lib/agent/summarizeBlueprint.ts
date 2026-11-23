@@ -20,6 +20,7 @@ import type {
 	Expression,
 	FormLinkTarget,
 	Module,
+	SearchFilterTarget,
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
@@ -211,7 +212,9 @@ function summarizeCaseList(mod: Module): string | undefined {
 	if (
 		config.columns.length === 0 &&
 		config.searchInputs.length === 0 &&
-		config.selection === undefined
+		config.selection === undefined &&
+		config.searchFilters === undefined &&
+		config.searchCondition === undefined
 	) {
 		return undefined;
 	}
@@ -318,10 +321,56 @@ function summarizeCaseList(mod: Module): string | undefined {
 			lines.push(`        - ${formatSearchInput(input)}`);
 		}
 	}
-	if (config.filter !== undefined) {
-		lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	// With no stored search condition the one condition is both surfaces,
+	// and the line stays as every existing app's summary has it.
+	if (config.searchCondition === undefined) {
+		if (config.filter !== undefined)
+			lines.push(`      filter: (predicate kind: ${config.filter.kind})`);
+	} else {
+		if (config.filter !== undefined)
+			lines.push(
+				`      list_filter (device list only): (predicate kind: ${config.filter.kind})`,
+			);
+		lines.push(
+			`      search_condition (online search only): ${
+				config.searchCondition.kind === "match-all"
+					? "all records"
+					: `(predicate kind: ${config.searchCondition.kind})`
+			}`,
+		);
+	}
+	if (config.searchFilters !== undefined) {
+		lines.push("      search_filters:");
+		for (const filter of config.searchFilters)
+			lines.push(
+				`        - ${filter.uuid}: ${searchFilterTargetText(filter.target)}`,
+			);
 	}
 	return lines.join("\n");
+}
+
+/** What one search filter matches, as the SA reads it. */
+function searchFilterTargetText(target: SearchFilterTarget): string {
+	const through =
+		"ancestors" in target && target.ancestors !== undefined
+			? ` of the ${target.ancestors.map((step) => step.identifier).join("'s ")} case`
+			: "";
+	switch (target.kind) {
+		case "property":
+			return `property ${target.property}${through}`;
+		case "record-id":
+			return "the record's id";
+		case "record-name":
+			return `the record's name${through}`;
+		case "attribute":
+			return `the record's ${target.attribute}${through}`;
+		case "owner":
+			return "the record's owner";
+		case "project-space":
+			return "the project space";
+		case "link":
+			return `the record linked as ${target.identifier}`;
+	}
 }
 
 /**
