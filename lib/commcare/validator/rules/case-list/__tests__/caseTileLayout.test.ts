@@ -13,6 +13,8 @@ import {
 	blueprintDocSchema,
 	type CaseTileLayout,
 	type Column,
+	NAMED_TILE_SLOTS,
+	namedTileSlotsSchema,
 	plainColumn,
 	type TileCell,
 	tileCell,
@@ -22,6 +24,7 @@ import { runValidation } from "../../../runner";
 const OUT_OF_GRID = "CASE_LIST_TILE_CELL_OUT_OF_GRID" as const;
 const OVERLAP = "CASE_LIST_TILE_CELLS_OVERLAP" as const;
 const NOT_PLACED = "CASE_LIST_TILE_COLUMN_NOT_PLACED" as const;
+const NAMED_SLOT = "CASE_LIST_NAMED_TILE_SLOT_INVALID" as const;
 
 const caseTypes = [
 	{
@@ -202,5 +205,41 @@ describe("caseTileLayout", () => {
 				undefined,
 			),
 		).toEqual([]);
+	});
+
+	it("refuses a named position whose field left Results, which no tile can fill", () => {
+		const fields = NAMED_TILE_SLOTS.map((slot) =>
+			named(`named-${slot}`, slot === "topLeftText" ? "case_name" : "town"),
+		);
+		const tile: CaseTileLayout = {
+			namedSlots: namedTileSlotsSchema.parse(
+				Object.fromEntries(
+					NAMED_TILE_SLOTS.map((slot, i) => [slot, fields[i]?.uuid]),
+				),
+			),
+		};
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: { columns: fields, searchInputs: [], tile },
+					forms: [registrationForm],
+				},
+			],
+			caseTypes,
+		});
+		const codes = () =>
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((error) => error.code);
+		expect(codes()).not.toContain(NAMED_SLOT);
+		// The field of one position is hidden from Results.
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module?.caseListConfig;
+		if (!config) throw new Error("The fixture menu has no case list.");
+		config.columns = config.columns.map((column, i) =>
+			i === 3 ? { ...column, visibleInList: false } : column,
+		);
+		expect(codes()).toContain(NAMED_SLOT);
 	});
 });
