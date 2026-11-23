@@ -9,6 +9,7 @@ import org.commcare.session.SessionFrame;
 import org.commcare.suite.model.*;
 import org.commcare.util.CommCarePlatform;
 import org.commcare.xml.SuiteParser;
+import org.javarosa.core.model.Constants;
 import org.javarosa.core.model.condition.EvaluationContext;
 import org.javarosa.core.model.instance.*;
 import org.javarosa.xpath.XPathParseTool;
@@ -50,10 +51,15 @@ public class EndpointRuntimeTest {
     assertEquals("case-one",FunctionUtils.toString(XPathParseTool.parseXPath("instance('selected_cases')/results/value[1]").eval(context)));
     assertEquals("case-two",FunctionUtils.toString(XPathParseTool.parseXPath("instance('selected_cases')/results/value[2]").eval(context)));
    }
+   // Each claim push leaves the session on its claim command; a real session posts it there and marks the step
+   // posted (`SyncScreen.updateSessionOnSuccess`, `EXTRA_POST_SUCCESS`), so a later Back never asks for it again.
    int index=0;
    for(StackOperation operation:endpoint.getStackOperations()){
     session.executeStackOperations(new Vector<>(List.of(operation)),context);
-    if(++index<endpoint.getStackOperations().size())assertTrue(session.getCommand().startsWith("claim_command.visit."));
+    if(++index<endpoint.getStackOperations().size()){
+     assertTrue(session.getCommand().startsWith("claim_command.visit."));
+     session.addExtraToCurrentFrameStep(Constants.EXTRA_POST_SUCCESS,true);
+    }
    }
    if(scenario.equals("registration-supplied")){
     assertEquals("a supplied creation is never claimed",1,endpoint.getStackOperations().size());
