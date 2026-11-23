@@ -4010,6 +4010,12 @@ async function adoptedA(
 			bytes: sourceBytes,
 			mediaFiles:
 				write.mediaFiles.kind === "set" ? write.mediaFiles.files : null,
+			/* The birth accepted each file its first publish removes, as the
+			 * store reads them back (`store.ts::verifiedAppBaseline`). */
+			...(write.firstPublish.kind === "set" &&
+				write.firstPublish.list?.removedFiles?.length && {
+					approvedFileRemovals: write.firstPublish.list.removedFiles,
+				}),
 		},
 		tables: new Map(),
 	};
