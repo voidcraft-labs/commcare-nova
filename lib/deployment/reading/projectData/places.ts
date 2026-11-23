@@ -178,20 +178,21 @@ function heldCoordinate(raw: string | null): string | null | false {
  * Nova's copy of CommCare HQ's places, planned over the app's levels and
  * location properties, parent before child.
  *
- * A list longer than an app holds is one `places-over-nova-limit` and no
- * place, whatever the places hold. Otherwise each place is read from its top
- * down, and every problem of every place is found in one pass, each the
- * circumstance `place-not-holdable` at the organization, named by the place:
- * a site code the store refuses, that is not its own lower case, or that
- * another listed place holds in any letters; a name over the store's length;
- * a coordinate the store refuses; a parent that is not listed, or a chain of
- * parents that never reaches the top; and a level that may not stand where
- * the place stands (a top place at a level with a level above it, or a level
- * that may not nest under its parent's). A value read for a location property
- * that applies at the place's level, and is not text the store holds, is
- * named `"<place>: <slug>"`. A place under one with a problem is held back
- * with it and adds no problem of its own placement; its own fields are still
- * read.
+ * Every place CommCare HQ lists is read, however many there are, from its top
+ * down, and every problem of every place is found in one pass, each a
+ * circumstance at the organization. A site code another listed place also
+ * holds, a parent that is not listed, and a chain of parents that never
+ * reaches the top are one `place-hierarchy-inconsistent`: the source data
+ * itself disagrees, and the gather has read it once more before planning.
+ * A name over the store's length, a coordinate the store refuses, and a level
+ * that may not stand where the place stands (a top place at a level with a
+ * level above it, or a level that may not nest under its parent's) are each
+ * `place-field-unusable`, named by the place. A value read for a location
+ * property that applies at the place's level is named `"<place>: <slug>"`:
+ * `place-value-order-unknown` where the worker fixture's text of it was not
+ * observed, `place-field-unusable` where it is text XML cannot carry. A place
+ * under one with a problem is held back with it and adds no problem of its own
+ * placement; its own fields are still read.
  *
  * A place whose level code no level of the app has is left out, with every
  * place under it. At a `birth` the levels are the ones the reading brings, so

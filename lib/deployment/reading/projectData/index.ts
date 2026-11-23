@@ -675,9 +675,9 @@ const UNSERVED_DECLARATION_ENTRY =
  * together over what one `.ccz` carries, and, with a document, one
  * `table-choices-unusable` a table whose rows cannot be the choices of a
  * question or search field that reads them. Where the app reads places:
- * `places-over-nova-limit` alone where the list stopped past Nova's limit;
- * otherwise the levels Nova cannot hold, the places it cannot, and, with a
- * document, an owner rule the copy would refuse. A value of a place is judged
+ * `place-hierarchy-inconsistent` alone where the source still disagreed with
+ * itself when read again; otherwise the levels Nova cannot hold, the places it
+ * cannot, and, with a document, an owner rule the copy would refuse. A value of a place is judged
  * only with a document, once the rest of the app can come in.
  */
 export function readingProjectDataFindingsFor(

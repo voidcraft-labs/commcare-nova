@@ -632,7 +632,7 @@ describe("managedPlacesOwnerFindings", () => {
 
 const FINDINGS_APP_ID = "0b4f6a52-7c55-5a35-9d1e-3c2f8a1b4e6d";
 
-/** A level whose code Nova cannot hold: `place-not-holdable`, named "Region". */
+/** A level whose code Nova cannot hold: `place-field-unusable`, named "Region". */
 const UNHOLDABLE: HqLocationType = {
 	id: "1",
 	name: "Region",

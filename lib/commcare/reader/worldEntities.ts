@@ -58,14 +58,13 @@ const APP = { kind: "app" } as const;
  * The key two names are one name by where CommCare HQ compares them
  * lowercased: a worker property's and a location property's slug, which HQ's
  * custom data schema holds unique lowercased
- * (`custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_duplicates`),
- * and a level's name, which Nova holds unique lowercased though HQ's
- * `LocationType` holds it unique as written (`locations/models.py`,
- * `unique_together` `('domain', 'name')`). The gate compares each by the same
- * key (`validator/rules/users.ts::userPropertySlugs`,
- * `validator/userPropertySlug.ts::userPropertySlugVerdict`, the
- * `nameKey` of `validator/rules/organization.ts`), so a reading holds one name
- * of a key.
+ * (`custom_data_fields/edit_model.py::CustomDataFieldsForm.verify_no_duplicates`).
+ * The gate compares each by the same key
+ * (`validator/rules/users.ts::userPropertySlugs`,
+ * `validator/userPropertySlug.ts::userPropertySlugVerdict`), so a reading holds
+ * one name of a key. A level's name is not folded: HQ's `LocationType` holds
+ * it unique as written (`locations/models.py`, `unique_together`
+ * `('domain', 'name')`), and so does the gate.
  */
 function foldKey(name: string): string {
 	return name.trim().toLowerCase();

@@ -900,13 +900,13 @@ A change that holds one removes its line.
   `expressions/findings.ts::checkErrorEntry`), since the gate holds a session read of worker
   information only by identity, while a read of the worker's own case stands by name and the
   reading declares the name the session reads where one of the pair is read there
-  (`worldEntities.ts::heldWorkerSlugs`); and a level whose name a level already placed (parent
-  before child, siblings in HQ's order) spells in other letters only is `place-not-holdable`
-  (`worldEntities.ts::levelsFromHq`), while a level left out for another reason takes no name and
-  refuses none. CommCare HQ's
+  (`worldEntities.ts::heldWorkerSlugs`). CommCare HQ's
   user-data and location-data schemas hold one slug of such a pair as well
   (`CustomDataFieldsForm.verify_no_duplicates`), so neither a worker property nor a location
-  property can take the second name; HQ holds two level names apart, and the gate does not.
+  property can take the second name. Level names are not folded: HQ's `LocationType` holds two
+  names that differ only in letters apart (`unique_together ('domain', 'name')`), and so do the
+  reading (`worldEntities.ts::levelsFromHq`) and the gate (`validator/rules/organization.ts`), each
+  level under its own code.
 - **A Save to Case block that gives a case another type beside a change that may read it as the
   earlier one**: one finding at the form under
   `questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type`

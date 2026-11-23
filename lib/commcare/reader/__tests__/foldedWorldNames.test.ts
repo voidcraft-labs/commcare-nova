@@ -14,9 +14,9 @@
  * other from the session is refused under its own entry, since the gate holds
  * a session read of worker information only by identity
  * (`undeclared-worker-field`); so is a read of both as a place's
- * `location_data`. A level whose name another spells in other letters only is
- * `place-not-holdable`, since the gate folds level names and CommCare HQ does
- * not. And Nova's own document that reads a property and, by name from the
+ * `location_data`. Two levels whose names differ only in letters both come in,
+ * each under its own code, since neither the gate nor CommCare HQ folds level
+ * names. And Nova's own document that reads a property and, by name from the
  * worker's own case, its slug in other letters reads back to the reader's
  * canonical member, which prints the same export.
  *
