@@ -488,8 +488,13 @@ describe("the editor's axes are the slot's profile", () => {
 		);
 		// The form-logic slots. A question's are the text editor's; a form's
 		// open and close conditions are the card editor's over the same
-		// form-logic profile (`detail/formSettings/OwnCaseSection.tsx`).
+		// form-logic profile (`detail/formSettings/OwnCaseSection.tsx`), and
+		// a form's opening choices and computed values are the opening-cases
+		// card's formula editor over the form-logic profile read at entry
+		// (`case-operations/OpeningCasesSection.tsx`).
 		const formLogic = new Set<string>([
+			"form_selection_source",
+			"form_entry_value",
 			"form_open_condition",
 			"form_close_condition",
 			"relevant",

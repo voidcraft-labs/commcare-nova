@@ -1425,7 +1425,9 @@ export function runFormRules(
 		);
 	errors.push(
 		...entryProblems.map((message) =>
-			validationError("FORM_ENTRY_SETUP", "form", message, baseLocation(ctx)),
+			validationError("FORM_ENTRY_SETUP", "form", message, baseLocation(ctx), {
+				sentence: message,
+			}),
 		),
 	);
 	errors.push(...emptyForm(doc, form, ctx));

@@ -1547,7 +1547,13 @@ export type NonReferenceReason =
 	| "media"
 	/** CommCare wire-vocabulary token (a session-datum name the target
 	 *  form's entry expects), not a blueprint-entity reference. */
-	| "wire-token";
+	| "wire-token"
+	/** An identity a form's case choice reads (its list menu, an earlier
+	 *  choice, a question, a worker property, a lookup table or column, its
+	 *  case type). The choice's one slot, `form_selection_source`, owns
+	 *  them: `referenceIndex.extractFormEdges` and the lookup reference walk
+	 *  follow each under that slot, so no second slot names them. */
+	| "selection-source";
 
 export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	Record<string, NonReferenceReason>
@@ -1578,6 +1584,31 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	Record<string, NonReferenceReason>
 > = {
 	uuid: "identity",
+	// The records a form opens with: a choice's identity, its name and tag,
+	// and the identities its source reads, which `form_selection_source`
+	// owns. A computed value's key and a held tag are the session and block
+	// names HQ keeps; the submit label is the finish button's text.
+	"caseSelections[].uuid": "identity",
+	"caseSelections[].name": "display-text",
+	"caseSelections[].tag": "wire-token",
+	"caseSelections[].caseType": "selection-source",
+	"caseSelections[].source.kind": "discriminator",
+	"caseSelections[].source.module": "selection-source",
+	"caseSelections[].source.selection": "selection-source",
+	"caseSelections[].source.identifier": "wire-token",
+	"caseSelections[].source.under.selection": "selection-source",
+	"caseSelections[].source.under.identifier": "wire-token",
+	"caseSelections[].source.under.relationship": "config",
+	"caseSelections[].source.under.relationship.question": "selection-source",
+	"caseSelections[].source.property.kind": "discriminator",
+	"caseSelections[].source.property.field": "selection-source",
+	"caseSelections[].source.property.userPropertyUuid": "selection-source",
+	"caseSelections[].source.table": "selection-source",
+	"caseSelections[].source.column": "selection-source",
+	"computedDatums[].uuid": "identity",
+	"computedDatums[].key": "wire-token",
+	heldSelectionTags: "wire-token",
+	"submitLabel.text": "display-text",
 	// An owned entry point declares identity and an external name; it has no expression or foreign reference.
 	"entryPoint.uuid": "identity",
 	"entryPoint.id": "declaration",
@@ -1643,6 +1674,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	formsInMenuAbove: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
+	// A list that goes on by itself when it holds one row: a flag.
+	autoSelectSingle: "config",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
