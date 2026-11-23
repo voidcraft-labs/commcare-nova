@@ -741,3 +741,12 @@ def link_through_a_first_menu_with_different_case_types(authoring, app_id):
 
     ops.set_json(authoring, app_id, "/modules/2/put_in_root", True)
     _second_case_type_on_another_command(authoring, app_id)
+
+
+def previous_on_a_first_menu_with_no_shared_case(authoring, app_id):
+    """Both menus show their forms on the first menu, and the Members follow-up returns with Previous. The first
+    menu's forms share no case (the household registration's entry selects none), so Previous carries no case of
+    one type into a form that reads another (``workflow.py::WorkflowHelper._root_module_datums``)."""
+    ops.set_json(authoring, app_id, "/modules/0/put_in_root", True)
+    ops.set_json(authoring, app_id, "/modules/1/put_in_root", True)
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/post_form_workflow", "previous_screen")
