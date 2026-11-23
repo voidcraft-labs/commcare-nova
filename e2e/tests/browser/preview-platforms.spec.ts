@@ -357,6 +357,12 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		expect(
 			Math.abs(box.y + box.height / 2 - (label.y + label.height / 2)),
 		).toBeLessThan(box.height);
+		/* A compact group that also has a border is written `compact
+		 * group-border`, which Android does not read as compact: its number
+		 * question keeps its hint and its ordinary layout. */
+		const children = question("children");
+		await expect(children.locator("[data-android-compact]")).toHaveCount(0);
+		await expect(children).toContainText("Count the children only");
 		await expect(question("place").getByRole("textbox")).not.toHaveAttribute(
 			"placeholder",
 			"Building name",

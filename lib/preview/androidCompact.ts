@@ -17,6 +17,21 @@
  */
 
 import type { Field } from "@/lib/domain";
+import { hasOtherDisplay } from "@/lib/domain/questionDisplay";
+
+/** Whether Android reads this group as compact. Core compares the group's
+ * whole appearance with `compact` (`FormEntryController.isHostWithAppearance`:
+ * `appearanceTag.equalsIgnoreCase(gd.getAppearanceAttr())`), so a compact
+ * group that also holds a border, a collapse or a row count is written as
+ * `compact group-border` (and so on) and Android draws its questions as it
+ * draws them anywhere. */
+export function inAndroidCompactGroup(group: Field): boolean {
+	return (
+		group.kind === "group" &&
+		group.compact === true &&
+		!hasOtherDisplay(group, "compact")
+	);
+}
 
 export function androidDrawsCompact(field: Field): boolean {
 	return (

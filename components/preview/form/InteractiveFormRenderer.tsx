@@ -57,7 +57,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { choiceLayoutForPlatform } from "@/lib/domain/questionDisplay";
-import { androidDrawsCompact } from "@/lib/preview/androidCompact";
+import {
+	androidDrawsCompact,
+	inAndroidCompactGroup,
+} from "@/lib/preview/androidCompact";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
@@ -350,8 +353,10 @@ const InteractiveField = memo(function InteractiveField({
 				 *  still one question per screen: the context lays a text or
 				 *  number question out beside its label (`androidCompact.ts`),
 				 *  and the marker gives its keyboard the compact action
-				 *  (`WorkerKeyboard.ts`). */}
-				{rules.compactGroup === "beside-label" && field.compact ? (
+				 *  (`WorkerKeyboard.ts`). A group whose appearance holds another
+				 *  word beside `compact` is not compact on Android. */}
+				{rules.compactGroup === "beside-label" &&
+				inAndroidCompactGroup(field) ? (
 					<AndroidCompactGroup value={true}>
 						<div className="contents" data-compact-entries="">
 							{children}
