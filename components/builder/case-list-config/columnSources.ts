@@ -14,7 +14,10 @@ import {
 	USERCASE_CASE_TYPE,
 	type UserProperty,
 } from "@/lib/domain";
-import { declaredCaseRelations } from "@/lib/domain/caseRelations";
+import {
+	CASE_LIST_LINK_NAME_PATTERN,
+	declaredCaseRelations,
+} from "@/lib/domain/caseRelations";
 import { withStandardCaseProperties } from "@/lib/domain/expression/context";
 import { humanizeId } from "@/lib/domain/idSlug";
 import { usercaseCaseType } from "@/lib/domain/usercase";
@@ -87,8 +90,17 @@ export function columnSources(
 	}
 	const origin = caseTypes.find((type) => type.name === currentCaseType);
 	if (origin !== undefined) {
+		// A link HQ's column field can't hold (a dot, a leading underscore) or
+		// one called user (HQ reads it as the worker's own information) is
+		// never offered: the gate would refuse the column.
 		const firstSteps = new Set(
-			declaredCaseRelations(origin).map((edge) => edge.identifier),
+			declaredCaseRelations(origin)
+				.map((edge) => edge.identifier)
+				.filter(
+					(identifier) =>
+						identifier !== "user" &&
+						CASE_LIST_LINK_NAME_PATTERN.test(identifier),
+				),
 		);
 		for (const identifier of firstSteps) {
 			if (

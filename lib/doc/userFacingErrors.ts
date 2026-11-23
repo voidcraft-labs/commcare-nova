@@ -262,11 +262,13 @@ function columnRelationSentence(e: ValidationError): string {
 		case "worker":
 			return `An item in ${module} reads ${item} through a link called user, which CommCare reads as the worker's own information. You can choose another link.`;
 		case "index-name":
-			return `An item in ${module} reads ${item} through a link whose name doesn't start with a letter, which CommCare HQ can't keep in a case list. You can rename the link so it starts with a letter.`;
+			return `An item in ${module} reads ${item} through a link CommCare HQ can't keep in a case list, where a link name starts with a letter and holds only letters, numbers, underscores and hyphens. You can read it through a link named that way.`;
 		case "search":
 			return `An item in ${module} shows ${item} from a related case as a link, a time since or an option label, and this case list offers Search, where CommCare HQ would show it blank for the cases Search finds. You can show the related value's saved text instead.`;
+		case "unresolved":
+			return `An item in ${module} shows ${item} through a link from a case type this app doesn't have. You can choose the case above again.`;
 		default:
-			return `An item in ${module} shows ${item} through a link that doesn't lead to one case type. You can choose the case above again.`;
+			return `An item in ${module} can't show ${item} as its information is set up. You can choose its information again.`;
 	}
 }
 

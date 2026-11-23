@@ -136,7 +136,7 @@ const REASON_SENTENCE: Record<RelationReason, (column: string) => string> = {
 	"owner-field": (column) =>
 		`"${column}" shows the owner’s name. Choose the owner ID for its information, or show the saved value instead.`,
 	unresolved: (column) =>
-		`"${column}" reads its value through a link that doesn't lead to one case type: a parent step needs the case type to have a parent, and any other link needs to name the case type it reaches. You can choose the case above again, or show information of this case itself.`,
+		`"${column}" reads its value through a link from a case type this app doesn't have: either the menu's own case type, or a case type a step of the link names. You can choose the case above again, or show information of this case itself.`,
 	"parent-type": (column) =>
 		`"${column}" reads through a parent link that names its case type, but the parent's case type comes from this case type's own parent, and CommCare HQ keeps no type on the column. You can leave the type off the parent step.`,
 	worker: (column) =>
@@ -144,7 +144,7 @@ const REASON_SENTENCE: Record<RelationReason, (column: string) => string> = {
 	search: (column) =>
 		`"${column}" shows a related case's value as a link, a time since or an option label, and this case list offers Search. CommCare HQ reads such a value from the cases on the worker's device, so it would show blank for the cases Search finds. You can show the related value's saved text instead.`,
 	"index-name": (column) =>
-		`"${column}" reads through a link whose name doesn't start with a letter, and CommCare HQ keeps a case list column's links only where each name starts with one. You can rename the link so it starts with a letter.`,
+		`"${column}" reads through a link CommCare HQ can't keep on a case list column: each link name there starts with a letter and holds only letters, numbers, underscores and hyphens, with no dots. You can read it through a link named that way, or use a calculated value that reads the related case.`,
 };
 
 function relationError(

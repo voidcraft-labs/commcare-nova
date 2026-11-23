@@ -51,6 +51,7 @@ import {
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { type CaseProperty, type ColumnVia, sameColumnVia } from "@/lib/domain";
 import { readCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import { CASE_LIST_LINK_NAME_PATTERN } from "@/lib/domain/caseRelations";
 import { propertiesReachedByColumn } from "@/lib/domain/columnRelation";
 import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { columnSources } from "../../columnSources";
@@ -149,7 +150,7 @@ export function ColumnFieldRow({
 		);
 	};
 	const linkValid =
-		/^[A-Za-z][A-Za-z0-9_-]*$/.test(link) &&
+		CASE_LIST_LINK_NAME_PATTERN.test(link) &&
 		(via !== undefined || link !== "user");
 
 	const inheritedHeader = propertyDisplayLabelForName(

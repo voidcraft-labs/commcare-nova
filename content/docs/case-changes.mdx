@@ -301,7 +301,9 @@ older cases still carry, and the same link name can lead to more than one case
 type, as a visit's `site` can lead to a clinic or to a home. Columns and
 calculations that read through a link then offer each case type it reaches. A
 link name starts with a letter or underscore and can hold letters, numbers,
-underscores, dots and hyphens. Nova and an MCP agent add or remove one such link
+underscores, dots and hyphens. A case list column reads only through a link
+whose name starts with a letter and holds no dots, so a column offers only
+those. Nova and an MCP agent add or remove one such link
 with `set_case_type_parent` and its `link` setting.
 
 ## When a form's link opens the case it creates

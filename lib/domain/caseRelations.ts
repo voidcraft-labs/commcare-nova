@@ -6,6 +6,11 @@ import type { RelationStep } from "./expression/types";
  * typed load can name the destination without observing the relationship kind. */
 export const CASE_INDEX_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 export const caseIndexNameSchema = z.string().regex(CASE_INDEX_NAME_PATTERN);
+/** A link a case list column can walk through: one word of CommCare HQ's
+ * case list field grammar (`suite/wire.ts::HQ_FIELD_WORD`), a letter first
+ * and then letters, digits, `_` and `-`. A case index name may also hold a
+ * dot or start with an underscore; HQ keeps no such link on a column. */
+export const CASE_LIST_LINK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 export const caseRelationSchema = z.strictObject({
 	identifier: caseIndexNameSchema,
 	targetType: z.string().regex(/^[A-Za-z0-9_-]+$/),
