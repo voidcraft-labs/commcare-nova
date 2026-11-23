@@ -14,6 +14,7 @@ import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__
 
 import { sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { loadApp, repairLookupReferenceEdges } from "@/lib/db/apps";
@@ -608,7 +609,7 @@ describe("Create a separate table", () => {
 										{ columnKey: "name", value: " North " },
 									],
 									content: {
-										attributes: { zone: "" },
+										attributes: { zone: "a" },
 										occurrences: {
 											alias: [
 												{ text: "Nord", properties: { lang: "fra" } },
@@ -644,7 +645,43 @@ describe("Create a separate table", () => {
 				lookupColumnIdSchema.parse(id),
 			]),
 		) as Record<string, LookupColumnId>;
-		await seedReader(readerOf([{ tableId, columns }]), APP);
+		const zone = (
+			await getLookupTable(EDITOR_LOOKUP, tableId)
+		).attributes?.find((member) => member.wireName === "zone")?.id;
+		const code = columns.code;
+		if (zone === undefined || code === undefined)
+			throw new Error("The table has no zone detail or code column.");
+		/* The question saves the code and shows the row's zone detail, a
+		 * reference by the detail's own id. */
+		await seedReader(
+			buildDoc({
+				appName: "Facility visits",
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									{
+										id: "district",
+										kind: "single_select" as const,
+										optionsSource: {
+											kind: "lookup" as const,
+											tableId,
+											valueColumnId: code,
+											labelColumnId: { attributeId: zone },
+										},
+									},
+								],
+							},
+						],
+					},
+				],
+			}),
+			APP,
+		);
 		const review = await reviewSeparateTable(EDITOR_LOOKUP, tableId);
 		if (!review.ok) throw new Error(review.message);
 		expect(review.review.lines).not.toContain(SEPARATE_TABLE_INDEXES);
@@ -692,9 +729,25 @@ describe("Create a separate table", () => {
 			}));
 		};
 		expect(await named(outcome.table.id)).toEqual(await named(tableId));
+		const newZone = (
+			await getLookupTable(
+				EDITOR_LOOKUP,
+				lookupTableIdSchema.parse(outcome.table.id),
+			)
+		).attributes?.find((member) => member.wireName === "zone")?.id;
+		const app = await loadApp(APP);
+		if (app === null || newZone === undefined)
+			throw new Error("The app or the new zone detail is gone.");
+		const targets = extractLookupReferenceTargets(
+			hydratePersistedBlueprint(app.blueprint),
+		);
+		expect(targets.tableIds).toEqual([outcome.table.id]);
+		expect(targets.memberTargets?.map((target) => target.memberId)).toEqual([
+			newZone,
+		]);
 		expect((await named(outcome.table.id))[0]).toEqual({
 			values: { code: "007", name: " North " },
-			attributes: { zone: "" },
+			attributes: { zone: "a" },
 			occurrences: {
 				alias: [
 					{ text: "Nord", properties: { lang: "fra" } },
