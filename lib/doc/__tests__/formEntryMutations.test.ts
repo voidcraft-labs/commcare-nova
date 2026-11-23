@@ -4,10 +4,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	advancedFixture,
 	HOUSEHOLDS,
+	OP,
+	read,
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
 import { literal, term } from "@/lib/domain/expression/builders";
 import type { FormCaseSelection } from "@/lib/domain/formEntryCases";
@@ -185,6 +187,55 @@ describe("editing a form's incoming records and values", () => {
 					(m) => m.kind === "updateForm" && m.entryChange !== undefined,
 				),
 			).toBe(true);
+			expect(mutationTargetsInvalid(from, diff)).toBe(false);
+			expect(apply(from, diff).forms[formUuid]).toEqual(to.forms[formUuid]);
+		}
+	});
+
+	// The choices a form derives follow its case changes: a change to the
+	// worker's record adds the worker's load. A diff that both drops that
+	// change and has the form keep its own choices must take the derived
+	// list before the change goes, or it names a choice no longer there
+	// (and, the other way, keeps one the target lacks).
+	it("takes a form's derived choices before the same diff changes the case changes they follow", () => {
+		const own = { uuid: OP("own"), id: "household", action: "own" };
+		const worker = {
+			uuid: OP("worker"),
+			id: "worker",
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			writes: [{ property: "last", value: read("name") }],
+		};
+		const withWorker = advancedFixture({
+			formType: "followup",
+			operations: () => [own, worker] as CaseOperation[],
+		});
+		const { formUuid } = withWorker;
+		const ownOnly = advancedFixture({
+			formType: "followup",
+			operations: () => [own] as CaseOperation[],
+		}).doc;
+		const derived = formCaseSelections(withWorker.doc, formUuid);
+		expect(derived.map((row) => row.caseType)).toEqual([
+			"household",
+			"commcare-user",
+		]);
+		const explicit = (doc: BlueprintDoc): BlueprintDoc => ({
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: {
+					...doc.forms[formUuid],
+					caseSelections: [derived[0], choice("second")],
+				},
+			},
+		});
+		for (const [from, to] of [
+			[withWorker.doc, explicit(ownOnly)],
+			[ownOnly, explicit(withWorker.doc)],
+		] as const) {
+			const diff = diffDocsToMutations(from, to);
 			expect(mutationTargetsInvalid(from, diff)).toBe(false);
 			expect(apply(from, diff).forms[formUuid]).toEqual(to.forms[formUuid]);
 		}

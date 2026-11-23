@@ -634,6 +634,11 @@ function* diffGranularSteps(
 	const updates: Mutation[] = [];
 	const media: Mutation[] = [];
 	const orders: Mutation[] = [];
+	// A form that starts keeping its own opening choices takes them first,
+	// from `prev`: its derived choices follow its menu, its type and its case
+	// changes (the worker's record), which later steps of the batch change,
+	// and `diffEntrySupplies` edits the list `prev` derives.
+	const entryMaterializations: Mutation[] = [];
 	// Granular collection edits — case-list columns / search-inputs /
 	// case-list metadata + select options — keyed by item uuid so concurrent
 	// edits to different items merge.
@@ -927,6 +932,16 @@ function* diffGranularSteps(
 			});
 		}
 		updates.push(...diffCaseOperations(prevForm, nextForm, uuid));
+		if (
+			prevForm.caseSelections === undefined &&
+			nextForm.caseSelections !== undefined
+		)
+			entryMaterializations.push({
+				kind: "updateForm",
+				uuid,
+				patch: {},
+				entryChange: { operation: "use-form-choices" },
+			});
 		updates.push(...diffEntrySupplies(prev, prevForm, nextForm));
 		const otherwise = diffFormOtherwise(prevForm, nextForm, uuid);
 		updates.push(
@@ -1049,7 +1064,8 @@ function* diffGranularSteps(
 	fieldStructure.push(...formStructure.rest, ...fieldTree.rest);
 	orders.push(...moduleStructure.reorders);
 
-	// Phase order (see the function header): app scalars → root births and
+	// Phase order (see the function header): opening choices a form starts
+	// keeping, materialized over `prev` → app scalars → root births and
 	// promotions → child births and form births → form/field evacuations →
 	// removed children that block a surviving root's demotion → remaining
 	// module relocations → ordinary removes → field/form structural rest →
@@ -1058,6 +1074,7 @@ function* diffGranularSteps(
 	// form; the child removal leads reparenting because the reducer refuses to
 	// demote a root while any child remains.
 	const structural: Mutation[] = [
+		...entryMaterializations,
 		...appLevel,
 		...rootModuleAdds,
 		...moduleStructure.promotions,
@@ -2520,10 +2537,12 @@ function diffFormOtherwise(
 }
 
 /**
- * After-submit links, granularly: adds with their landing anchor, per-slot
- * patches (a slot present before and absent after travels as `null`), the
- * moves that turn the previous sequence into the next one, then removals —
- * the `diffSearchInputs` shape, one collection down.
+ * A form's opening choices and computed values, granularly: a return to the
+ * menu's choices, else the removals, adds with their landing anchor and
+ * per-slot patches, then the moves that turn the previous sequence into the
+ * next one, for each collection. The choices are edited against the list
+ * `doc` derives, which a form starting to keep its own took at the head of
+ * the batch.
  */
 function diffEntrySupplies(
 	doc: BlueprintDoc,
@@ -2534,8 +2553,9 @@ function diffEntrySupplies(
 	if (before.caseSelections !== undefined && after.caseSelections === undefined)
 		changes.push({ operation: "use-menu-choices" });
 	else if (after.caseSelections !== undefined) {
-		if (before.caseSelections === undefined)
-			changes.push({ operation: "use-form-choices" });
+		// A form that starts keeping its own choices took them from `doc` at
+		// the head of the batch (`entryMaterializations`), so these edits
+		// read the list `doc` derives.
 		const old = formCaseSelections(doc, before.uuid);
 		const next = after.caseSelections;
 		for (const row of old)
@@ -2601,6 +2621,12 @@ function diffEntrySupplies(
 	}));
 }
 
+/**
+ * After-submit links, granularly: adds with their landing anchor, per-slot
+ * patches (a slot present before and absent after travels as `null`), the
+ * moves that turn the previous sequence into the next one, then removals —
+ * the `diffSearchInputs` shape, one collection down.
+ */
 function diffFormLinks(
 	prev: readonly FormLink[],
 	next: readonly FormLink[],
