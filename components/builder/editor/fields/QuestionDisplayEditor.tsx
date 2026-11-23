@@ -14,12 +14,16 @@ import {
 	type FieldDisplaySetting,
 	fieldDisplayOptionsFor,
 	fieldDisplaySettingsFor,
+	targetConditionOf,
 } from "@/lib/domain";
 
 import type { CommitOutcome } from "@/lib/domain/kinds";
 import { webShowsHintInEntry } from "@/lib/domain/questionDisplay";
 import { useSelectedFormUuid } from "@/lib/routing/hooks";
 import { LayoutSelect } from "./ChoiceLayoutEditor";
+
+/** What Web Apps' address search asks of a project space, from the platform table. */
+const ADDRESS_SEARCH_CONDITION = targetConditionOf("address-lookup");
 
 interface Props {
 	field: Field;
@@ -234,10 +238,12 @@ export function QuestionDisplayEditor({
 					change={change}
 				/>
 			)}
-			{field.kind === "secret" && setting.key === "addressLookup" && (
+			{setting.key === "addressLookup" && (
 				<p className="text-xs text-nova-text-muted">
-					Web Apps shows the address as the worker searches. Android masks the
-					answer.
+					{ADDRESS_SEARCH_CONDITION?.reason} Publishing checks the project space
+					and asks you to confirm the plan feature.
+					{field.kind === "secret" &&
+						" Web Apps shows the address as the worker searches. Android masks the answer."}
 				</p>
 			)}
 			<RejectionInline message={rejection} />

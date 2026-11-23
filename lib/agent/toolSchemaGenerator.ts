@@ -411,6 +411,7 @@ function repeatConfigDiscriminated() {
  */
 const ADD_GATED_KEYS = [
 	"inputWidth",
+	"addressLookup",
 	"sendTopics",
 	"receiveFrom",
 	"hintPlacement",
@@ -445,8 +446,7 @@ const ADD_GATED_KEYS = [
 	"keypad",
 ] as const;
 
-/** An edit also turns off address search on a question that holds it. */
-const EDIT_GATED_KEYS = [...ADD_GATED_KEYS, "addressLookup"] as const;
+const EDIT_GATED_KEYS = ADD_GATED_KEYS;
 
 function undeclaredSlotIssue(
 	ctx: z.RefinementCtx,
@@ -514,21 +514,6 @@ function gateHiddenValueSources(
  * config on `repeat` —
  * and rejects any slot the kind doesn't declare.
  */
-/**
- * Turning address search off on a question that holds it. Nothing turns it
- * on: Web Apps runs it only where the project space has both
- * `CASE_SEARCH_ADVANCED` and the geocoder privilege, and no publish check
- * asks for that pair (`lib/domain/questionDisplay.ts::canOfferDisplaySetting`).
- */
-function addressLookupOff() {
-	return z
-		.null()
-		.optional()
-		.describe(
-			"Pass null to turn off address search on a question brought in from CommCare HQ that has it. Nova doesn't turn address search on.",
-		);
-}
-
 /** Shared add and edit surface for Worker display. A null on an edit clears the setting. */
 function questionDisplayFields() {
 	return {
@@ -538,11 +523,17 @@ function questionDisplayFields() {
 			.describe(
 				"Width of a Web Apps entry box. Short also changes the keyboard action for a text or number question on Android.",
 			),
+		addressLookup: displaySchemas.addressLookup
+			.nullable()
+			.optional()
+			.describe(
+				"Search for an address in Web Apps and save the one the worker chooses. Web Apps runs it only where the project space has advanced case search and the Geocoder plan feature, which publishing checks and asks to confirm; elsewhere the question saves Not Supported by Web Entry. Android workers type the answer.",
+			),
 		sendTopics: displaySchemas.sendTopics
 			.nullable()
 			.optional()
 			.describe(
-				"Names of channels that receive updates from a Web Apps picture, audio, video or file question, or from a question that already has address search, in delivery order.",
+				"Names of channels that receive updates from the Web Apps address or attachment question, in delivery order.",
 			),
 		receiveFrom: displaySchemas.receiveFrom
 			.nullable()
@@ -815,7 +806,6 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			label: labelField(),
 			plain_label: plainLabelField(),
 			...questionDisplayFields(),
-			addressLookup: addressLookupOff(),
 			hint: hintField(),
 			help: helpField(),
 			plain_help: plainHelpField(),

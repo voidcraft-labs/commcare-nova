@@ -329,12 +329,14 @@ def _needs_geocoder(content):
     address (geocoder) appearance, and ``cloudcare/views.py::has_geocoder_privs`` lets Web
     Apps run the geocoder, only under the privilege; the app uses it where a search
     property's appearance is ``address`` (``suite_xml/post_process/remote_requests.py``)
-    or a form control's appearance holds the ``address`` token."""
+    or a form control's appearance holds the ``address`` token in an app a worker opens in
+    Web Apps (``_needs_cloudcare``): Android reads that question as ordinary text, and HQ's
+    form builder offers the appearance on every plan."""
     for module in _modules(content):
         search = getattr(module, "search_config", None)
         if search is not None and any(prop.appearance == "address" for prop in search.properties):
             return True
-    return any(
+    return _needs_cloudcare(content) and any(
         "address" in (element.get("appearance") or "").split()
         for root in _parsed_sources(content)
         for element in root.iter()

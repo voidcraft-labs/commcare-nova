@@ -33,7 +33,6 @@ import { makeAuthoringHarness } from "../../__tests__/authoringHarness";
 
 const MOD = testUuid("display-settings-module");
 const FORM = testUuid("display-settings-form");
-const ADDRESS_FIELD = testUuid("display-settings-address");
 const FORM_ADDRESS = { moduleUuid: MOD, formUuid: FORM };
 
 /** A survey whose one form holds `intro` and `fields`. */
@@ -251,46 +250,64 @@ describe("display combinations the tools refuse", () => {
 		});
 		expect(refused).toHaveProperty("error");
 	});
+});
 
-	it("turns off address search on a question that holds it, and never turns it on", async () => {
-		const h = makeAuthoringHarness(
-			{},
-			makeDoc([
-				f({
-					uuid: ADDRESS_FIELD,
-					id: "where",
-					kind: "text",
-					label: "Where",
-					addressLookup: true,
-					sendTopics: ["home"],
-				}),
-			]),
-		);
-		const at = { ...FORM_ADDRESS, fieldUuid: ADDRESS_FIELD };
-		expect(
-			await attempt(h, "editField", {
-				...at,
-				updates: { kind: "text", addressLookup: true },
-			}),
-		).toHaveProperty("error");
+describe("address search through the tools", () => {
+	it("is born on a new question with the channels it sends, and turns off with them", async () => {
+		const h = makeAuthoringHarness({}, makeDoc());
 		expect(
 			await attempt(h, "addFields", {
 				...FORM_ADDRESS,
-				fields: [{ ...itemOf("text"), addressLookup: true }],
+				fields: [
+					{ ...itemOf("text"), addressLookup: true, sendTopics: ["home"] },
+				],
 			}),
-		).toHaveProperty("error");
+		).toEqual({ ok: true });
+		const born = Object.values(h.currentDoc().fields).find(
+			(one) => one?.id === "q",
+		);
+		expect(born).toMatchObject({ addressLookup: true, sendTopics: ["home"] });
+		expectAdmittedDoc(h.currentDoc());
 
+		const at = { ...FORM_ADDRESS, fieldUuid: born?.uuid };
+		/* Turning it off alone would leave a text question sending updates,
+		 * which Web Apps does only from an address search. */
+		expect(
+			await attempt(h, "editField", {
+				...at,
+				updates: { kind: "text", addressLookup: null },
+			}),
+		).toMatchObject({
+			error: expect.stringContaining("You can clear Send updates to"),
+		});
 		expect(
 			await attempt(h, "editField", {
 				...at,
 				updates: { kind: "text", addressLookup: null, sendTopics: null },
 			}),
 		).toEqual({ ok: true });
-		expect(h.currentDoc().fields[ADDRESS_FIELD]).not.toHaveProperty(
-			"addressLookup",
+		const after = h.currentDoc().fields[born?.uuid ?? ""];
+		expect(after).not.toHaveProperty("addressLookup");
+		expect(after).not.toHaveProperty("sendTopics");
+	});
+
+	it("turns on for a barcode question through an edit", async () => {
+		const h = makeAuthoringHarness(
+			{},
+			makeDoc([f({ id: "code", kind: "barcode", label: "Code" })]),
 		);
-		expect(h.currentDoc().fields[ADDRESS_FIELD]).not.toHaveProperty(
-			"sendTopics",
+		const field = Object.values(h.currentDoc().fields).find(
+			(one) => one?.id === "code",
 		);
+		expect(
+			await attempt(h, "editField", {
+				...FORM_ADDRESS,
+				fieldUuid: field?.uuid,
+				updates: { kind: "barcode", addressLookup: true },
+			}),
+		).toEqual({ ok: true });
+		expect(h.currentDoc().fields[field?.uuid ?? ""]).toMatchObject({
+			addressLookup: true,
+		});
 	});
 });

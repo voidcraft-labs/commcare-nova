@@ -103,9 +103,23 @@ export const questionDisplayPlatforms = {
 		channel: "structure",
 		webApps: {
 			reading: "runs",
-			note: "the worker can choose a place when the project space supports address search",
+			note: "the worker searches for an address and chooses one",
 		},
 		android: { reading: "ignored", note: "the worker types an answer" },
+		/* `cloudcare/views.py::has_geocoder_privs` asks both of the project
+		 * space, and without them `entries.js::getEntry` builds an
+		 * `UnsupportedEntry`, whose answer is that text. */
+		targetCondition: {
+			platform: "web-apps",
+			reason:
+				"Web Apps searches for addresses only where the project space has advanced case search and the Geocoder plan feature.",
+			capability: "address-search",
+			planFeature: "geocoder",
+			unavailable: {
+				reading: "unavailable",
+				note: "the question can't be answered and saves “Not Supported by Web Entry”",
+			},
+		},
 	},
 	"question-sender": {
 		label: "Share question updates",

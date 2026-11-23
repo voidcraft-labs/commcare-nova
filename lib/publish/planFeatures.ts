@@ -27,7 +27,8 @@ export type PlanFeatureId =
 	| "advanced-case-actions"
 	| "organization"
 	| "data-forwarding"
-	| "required-android-apps";
+	| "required-android-apps"
+	| "geocoder";
 
 export interface PlanFeatureDefinition {
 	readonly id: PlanFeatureId;
@@ -105,6 +106,13 @@ export const PLAN_FEATURES: Readonly<
 		plans: "Pro, Advanced and Enterprise",
 		consequence:
 			"Without it, CommCare HQ takes this app's forms and sends none of them to CommCare Connect, so no learning or delivery is recorded there.",
+	},
+	geocoder: {
+		id: "geocoder",
+		label: "Geocoder",
+		plans: "Enterprise",
+		consequence:
+			"Without it, an address question in Web Apps can't be answered: it saves “Not Supported by Web Entry” in place of an address.",
 	},
 };
 

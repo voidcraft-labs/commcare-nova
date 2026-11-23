@@ -44,5 +44,6 @@
 		"pro_v1",
 		"advanced_v0",
 		"enterprise_v0"
-	]
+	],
+	"geocoder": ["enterprise_v0"]
 }

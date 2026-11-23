@@ -363,6 +363,7 @@ export function flatFieldToField(
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.plain_help === true && { plainHelp: true }),
 		...(q.inputWidth != null && { inputWidth: q.inputWidth }),
+		...(q.addressLookup != null && { addressLookup: q.addressLookup }),
 		...(q.sendTopics != null && { sendTopics: q.sendTopics }),
 		...(q.receiveFrom != null && { receiveFrom: q.receiveFrom }),
 		...(q.hintPlacement != null && { hintPlacement: q.hintPlacement }),

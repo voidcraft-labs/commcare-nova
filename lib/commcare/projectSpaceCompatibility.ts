@@ -18,6 +18,7 @@ import {
 	operationCaseType,
 	proseSurfaceReads,
 	searchInputDefault,
+	targetConditionUses,
 	tileCellFor,
 	type Uuid,
 } from "@/lib/domain";
@@ -39,6 +40,7 @@ import {
 	moduleCaseTypeForActions,
 	parentSelectModuleUuid,
 } from "./formLinkProjection";
+import { addressSearchFormReasons } from "./planPrivileges";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
@@ -577,6 +579,24 @@ export function projectSpaceCompatibilityProbePlan(
 				...noMatchesReasons,
 			]),
 			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["no-matches-registration"]],
+			featureFlagsOff: [],
+			runtimeProbes: [],
+		});
+	}
+	/* Web Apps searches for an address only where the project space has
+	 * `CASE_SEARCH_ADVANCED` and the `geocoder` privilege
+	 * (`cloudcare/views.py::has_geocoder_privs`). The flag is checked here;
+	 * the privilege, which no API key reads, is the `geocoder` plan feature a
+	 * person confirms (`planPrivileges.ts::requiredPlanPrivileges`). An app
+	 * that runs only on Android meets no condition. */
+	for (const { condition, uses } of targetConditionUses(doc)) {
+		if (condition.capability !== "address-search") continue;
+		capabilities.push({
+			capability: projectSpaceCapabilityUse(
+				"address-search",
+				addressSearchFormReasons(doc, uses),
+			),
+			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]],
 			featureFlagsOff: [],
 			runtimeProbes: [],
 		});
