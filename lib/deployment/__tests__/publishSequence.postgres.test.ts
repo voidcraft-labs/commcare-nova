@@ -48,7 +48,7 @@ import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixt
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
-import { expandDoc } from "@/lib/commcare/expander";
+import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
 import { readHqAppSource } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import {

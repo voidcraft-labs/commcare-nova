@@ -92,9 +92,7 @@ describe("hqImportApplication", () => {
 			appSettings: { ...NEW_APP_SETTINGS, caseSharing: true },
 		});
 		const sharingShell = hqImportApplication(shell(sharing)).application;
-		expect(Object.keys(sharingShell)).toEqual(
-			APP_SHELL_KEYS.filter((key) => key !== "auto_gps_capture"),
-		);
+		expect(Object.keys(sharingShell)).toEqual(APP_SHELL_KEYS);
 		expect(sharingShell.case_sharing).toBe(true);
 	});
 
