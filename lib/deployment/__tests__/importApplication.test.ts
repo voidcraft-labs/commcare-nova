@@ -11,6 +11,7 @@ import { APP_SHELL_KEYS } from "@/lib/commcare/expander";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
 import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import type { BlueprintDoc } from "@/lib/domain";
+import { NEW_APP_SETTINGS } from "@/lib/domain/blueprint";
 import { hqImportApplication } from "../importApplication";
 
 const TARGET = { server: "production", domain: "field-ops" } as const;
@@ -91,7 +92,7 @@ describe("hqImportApplication", () => {
 		expect(connectShell.ownership.autoGpsCapture).toBe(true);
 		const sharing = buildDoc({
 			appName: "Visits",
-			appSettings: { caseSharing: true },
+			appSettings: { ...NEW_APP_SETTINGS, caseSharing: true },
 		});
 		const sharingShell = hqImportApplication(shell(sharing)).application;
 		expect(Object.keys(sharingShell)).toEqual(

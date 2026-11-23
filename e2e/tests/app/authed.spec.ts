@@ -5547,7 +5547,9 @@ test.describe("authenticated builder", () => {
 		const dialog = page.getByRole("dialog");
 		await dialog.getByLabel("Table name").fill("Clinic names");
 		await dialog.getByLabel("Name people see").fill("Names");
-		await dialog.getByLabel("Allow several values per row").check();
+		await dialog
+			.getByRole("checkbox", { name: "Allow several values per row" })
+			.check();
 		await dialog.getByRole("button", { name: "Add value detail" }).click();
 		await dialog.getByLabel("Name for value detail 1").fill("Language");
 		await dialog.getByRole("button", { name: "Add row detail" }).click();
@@ -6141,8 +6143,8 @@ test.describe("authenticated builder", () => {
 		await expect(savedValue).toBeVisible({ timeout: 20_000 });
 		await expect(shownValue).toBeVisible();
 		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
-		await expect(savedValue).toHaveText("Choose a column");
-		await expect(shownValue).toHaveText("Choose a column");
+		await expect(savedValue).toHaveText("Choose a value");
+		await expect(shownValue).toHaveText("Choose a value");
 		const useTable = page.getByRole("button", { name: "Use this table" });
 		await expect(useTable).toBeDisabled();
 

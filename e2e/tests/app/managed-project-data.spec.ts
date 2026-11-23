@@ -7,13 +7,13 @@ import type {
 import {
 	appsThatReadIt,
 	CONNECT_TO_REFRESH_TABLE,
+	KEEP_IN_HQ,
 	MANAGE_IN_NOVA,
 	MANAGED_PLACES_LABEL,
 	MANAGED_PLACES_NO_PERSONA,
 	MANAGED_TABLE_BADGE,
 	MANAGEMENT_NEEDS_ADMIN,
 	MANAGEMENT_REVIEW_MOVED,
-	managedInNovaBanner,
 	managedPlacesLevelsNote,
 	managedTableBanner,
 	manageInNovaTitle,
@@ -34,15 +34,15 @@ import { createSmokeContext } from "../../lib/smokeNetwork";
  * and Manage in Nova, and an editor with no connection is invited to connect
  * instead of refreshing. Manage in Nova names the app that reads the table;
  * where a teammate makes a second app read it while the dialog is open, the
- * confirmation changes nothing, says why and names both apps; confirmed
- * again, the grid is editable in this tab and in a second one without a
- * reload. Organization says where the places live, offers no
- * place control, says what Nova assumed of the levels, and Users invites a
- * persona.
+ * confirmation changes nothing, says why and names both apps, and in a
+ * second tab too the table offers no edit. Organization says where the
+ * places live, offers no place control, says what Nova assumed of the
+ * levels, and Users invites a persona.
  *
- * Refresh and the hand-back read CommCare HQ from the Next server, which no
- * page route here answers, so this journey offers them and never presses
- * them; what they do is held by the deployment services' own tests.
+ * Refresh, the hand-back and a confirmed Manage in Nova each read CommCare
+ * HQ from the Next server, which no page route here answers, so this journey
+ * offers them and never lets one reach CommCare HQ; what they do is held by
+ * the deployment services' own tests.
  */
 
 const seed = MANAGED_DATA_SEED;
@@ -137,7 +137,7 @@ async function makeReaderAppReadTable(
 	}
 }
 
-test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the table to Nova in every open tab", {
+test("data CommCare HQ manages reads as a copy, and Manage in Nova changes nothing over a review a teammate moved", {
 	tag: "@seed:managed-data",
 }, async ({ scenario, page, browser, baseURL }) => {
 	const fixture = seedFor(scenario, "managed-data");
@@ -231,7 +231,7 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 			await expectNoTableEdits(second);
 		});
 
-		await test.step("Manage in Nova names the app that reads the table, and confirmed, the grid is editable in both tabs", async () => {
+		await test.step("Manage in Nova names the app that reads the table, and over a moved review changes nothing in either tab", async () => {
 			await tableBanner(page, MANAGED_TABLE_BADGE)
 				.getByRole("button", { name: MANAGE_IN_NOVA, exact: true })
 				.click();
@@ -276,23 +276,16 @@ test("data CommCare HQ manages reads as a copy, and Manage in Nova hands the tab
 			).toBeVisible();
 			await expectNoTableEdits(page);
 			await expect(confirm).toBeEnabled();
-			await confirm.click();
+			/* Confirmed again, the hand-over reads the table from CommCare HQ
+			 * on the Next server first, which this journey never reaches (see
+			 * above); the owner keeps it there instead, and neither tab offers
+			 * an edit. */
+			await dialog
+				.getByRole("button", { name: KEEP_IN_HQ, exact: true })
+				.click();
 			await expect(dialog).toHaveCount(0);
-			await expect(
-				main.getByRole("button", { name: "Add row", exact: true }),
-			).toBeVisible({ timeout: 20_000 });
-			await expect(
-				page.getByText(managedInNovaBanner(seed.domain), { exact: true }),
-			).toBeVisible();
-			// The stamped definition reaches the other tab as a manifest frame.
-			await expect(
-				second
-					.locator("main")
-					.getByRole("button", { name: "Add row", exact: true }),
-			).toBeVisible({ timeout: 20_000 });
-			await expect(
-				second.getByText(managedInNovaBanner(seed.domain), { exact: true }),
-			).toBeVisible();
+			await expectNoTableEdits(page);
+			await expectNoTableEdits(second);
 		});
 	} finally {
 		await closePageWithUnload(second);
@@ -369,7 +362,11 @@ test("a disconnected source editor cannot read staged inventory or a mobile work
 	await expect(dialog.getByText(/rows recorded|refresh has read/)).toHaveCount(
 		0,
 	);
-	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	// The footer's Close, beside the dialog's corner one of the same name.
+	await dialog
+		.locator('[data-slot="dialog-footer"]')
+		.getByRole("button", { name: "Close", exact: true })
+		.click();
 	await page.getByRole("button", { name: "Check source access" }).click();
 	const access = page.getByRole("dialog", { name: "Check source access" });
 	const worker = access.getByLabel("Mobile worker username");
