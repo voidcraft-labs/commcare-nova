@@ -55,6 +55,9 @@ export interface FormEvaluationInput {
 	readonly answers: readonly { path: string; value: FormAnswerValue }[];
 	readonly repeats?: readonly { path: string; count: number }[];
 	readonly caseIds?: readonly string[];
+	/** For a form that keeps its own opening choices, the record each choice
+	 *  a worker makes from a list holds, by the choice's name. */
+	readonly openingRecords?: readonly { name: string; caseId: string }[];
 	readonly searchAnswers?: readonly { name: string; value: string }[];
 	readonly language?: LanguageTag;
 }

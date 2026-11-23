@@ -51,6 +51,21 @@ export const evaluateFormInputSchema = formAddressSchema
 			.describe(
 				"Records selected for a follow-up or close form. Use supplied IDs when evaluating a scenario.",
 			),
+		openingRecords: z
+			.array(
+				z.strictObject({
+					name: z
+						.string()
+						.min(1)
+						.describe("The opening record's name, as getForm lists it."),
+					caseId: z.string().min(1),
+				}),
+			)
+			.max(20)
+			.optional()
+			.describe(
+				"For a form whose openingChoicesFrom is form: the record for each opening record the worker chooses from a list. Use instead of caseIds.",
+			),
 		scenario: evaluationScenarioSchema.optional(),
 		personaUuid: uuidSchema
 			.optional()

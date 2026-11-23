@@ -14,7 +14,9 @@ import {
 	reachableCaseTypes,
 	resolveAppLanguage,
 } from "@/lib/domain";
+import { ownFormSelectionIndex } from "@/lib/domain/advancedEntryDatums";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import type { PreviewEntryChoice } from "@/lib/session/types";
 import { previewPlatformRules } from "../platform";
 import {
 	dataRefusalCopy,
@@ -159,11 +161,19 @@ export async function evaluateFormSnapshot(
 	 * runs in: the one asked for when the app has it, else the app's default. */
 	const language = resolveAppLanguage(doc.localization, input.language);
 	const form = engineInput.form;
-	const ids = input.caseIds ?? [];
+	/* A form that keeps its own opening choices is opened the way a worker
+	 * opens it: each choice made from a list holds the record named for it,
+	 * and its own record is the case the form opens on. A continued App Test
+	 * entry carries its choices already. */
+	const opening =
+		context.session?.entryChoices === undefined
+			? openingRecordChoices(doc, input, context)
+			: undefined;
+	const ids = opening?.ownCaseIds ?? input.caseIds ?? [];
 	if (new Set(ids).size !== ids.length)
 		throw new FormEvaluationInputError("Select each record once.");
 	const needsRecord = form.type === "followup" || form.type === "close";
-	if (needsRecord !== ids.length > 0)
+	if (opening === undefined && needsRecord !== ids.length > 0)
 		throw new FormEvaluationInputError(
 			needsRecord
 				? "Select an existing record to evaluate this form."
@@ -200,7 +210,7 @@ export async function evaluateFormSnapshot(
 	const entryKey = context.entry?.entryKey ?? randomUUID();
 	const session = entrySessionData(doc, input.formUuid, {
 		appId: context.session?.appId,
-		entryChoices: context.session?.entryChoices,
+		entryChoices: opening?.entryChoices ?? context.session?.entryChoices,
 		heldEntryValues: context.session?.heldEntryValues,
 		lookupData: previewLookupData(context.lookup),
 		entryKey,
@@ -217,6 +227,12 @@ export async function evaluateFormSnapshot(
 		caseDatabase: context.cases,
 		session: previewSessionValues(context.identity, context.device),
 	});
+	/* A choice no record was named for stops the entry where a worker would
+	 * pick from its list, so the form would open with none of its records. */
+	if (session.nextSelection !== undefined)
+		throw new FormEvaluationInputError(
+			`This form opens with “${session.nextSelection.name}”, a record the worker chooses from a list. Name a record for it in openingRecords.`,
+		);
 	/* The engine refuses a form as it opens where Core does (a case block
 	 * reading worker information the worker lacks, an owner moved to no
 	 * place), so that refusal is the form's, worded as Preview words it. */
@@ -643,4 +659,68 @@ export async function evaluateFormSnapshot(
 	} finally {
 		runtime.dispose();
 	}
+}
+
+/**
+ * The entry choices and own record of a form that keeps its own opening
+ * choices, from `input.openingRecords`: each names a choice the worker
+ * makes from a list and a record of that list's type the worker can see.
+ * Undefined for a form that keeps its menu's choice, which `caseIds` binds.
+ */
+function openingRecordChoices(
+	doc: BlueprintDoc,
+	input: FormEvaluationInput,
+	context: FormEvaluationContext,
+):
+	| {
+			readonly entryChoices: readonly PreviewEntryChoice[];
+			readonly ownCaseIds: readonly string[];
+	  }
+	| undefined {
+	const explicit = doc.forms[input.formUuid]?.caseSelections;
+	const named = input.openingRecords ?? [];
+	if (explicit === undefined) {
+		if (named.length > 0)
+			throw new FormEvaluationInputError(
+				"This form opens with its menu’s record. Select it with caseIds instead of openingRecords.",
+			);
+		return undefined;
+	}
+	if (input.caseIds?.length)
+		throw new FormEvaluationInputError(
+			"This form chooses its own opening records. Name each one in openingRecords instead of caseIds.",
+		);
+	const entryChoices: PreviewEntryChoice[] = [];
+	for (const { name, caseId } of named) {
+		const matches = explicit.filter(
+			(row) => row.source.kind === "choose" && row.name === name,
+		);
+		if (matches.length !== 1)
+			throw new FormEvaluationInputError(
+				matches.length === 0
+					? `“${name}” isn’t an opening record this form chooses from a list. Get the form to see its opening records.`
+					: `This form has more than one opening record named “${name}”. Give each its own name to evaluate it.`,
+			);
+		const [row] = matches;
+		if (entryChoices.some((choice) => choice.selectionUuid === row.uuid))
+			throw new FormEvaluationInputError(`Name one record for “${name}”.`);
+		const found = context.cases.rows.find((r) => r.case_id === caseId);
+		if (!found || found.case_type !== row.caseType)
+			throw new FormEvaluationInputError(
+				`The record named for “${name}” is unavailable to this worker or isn’t a ${row.caseType} record.`,
+			);
+		entryChoices.push({
+			selectionUuid: row.uuid,
+			caseId,
+			...(found.case_name !== null && { caseName: found.case_name }),
+		});
+	}
+	const ownIndex = ownFormSelectionIndex(doc, input.formUuid);
+	const own =
+		ownIndex === undefined
+			? undefined
+			: entryChoices.find(
+					(choice) => choice.selectionUuid === explicit[ownIndex]?.uuid,
+				);
+	return { entryChoices, ownCaseIds: own ? [own.caseId] : [] };
 }

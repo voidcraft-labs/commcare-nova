@@ -235,7 +235,10 @@ saving records. By default, records and lookup data come from the authorized wor
 current data. An optional `scenario` supplies test `records` for a new app or a
 particular situation. Each record has an `id`, `caseType`, optional `properties`
 and optional `parentId` referring to another test record. Use those IDs in
-`caseIds`. Test records replace stored records for that evaluation and are never
+`caseIds`. A form that chooses its own opening records (`openingChoicesFrom: "form"`
+in `get_form`) takes `openingRecords` instead: one record for each opening record
+the worker chooses from a list, by its name, and it says which one still needs a record.
+Test records replace stored records for that evaluation and are never
 saved; lookup data remains real. The result is labeled `scenario`. Repeat rows, a selected
 worker, language and Search answers can be supplied when relevant. A form reads
 the selected worker's places, and a form that reads what its module's search found
