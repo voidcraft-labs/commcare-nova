@@ -280,7 +280,7 @@ async function photoSize(page: Page, android: boolean) {
 	);
 	await page
 		.getByRole("button", {
-			name: android ? "Choose image Photo" : "Photo Attach file",
+			name: android ? /^Choose image/ : "Photo Attach file",
 		})
 		.setInputFiles({
 			name: "visit.jpg",
