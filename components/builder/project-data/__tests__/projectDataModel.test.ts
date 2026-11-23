@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { LOOKUP_MAX_CHANGE_BYTES } from "@/lib/lookup/constants";
 import {
-	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
-} from "@/lib/lookup/constants";
-import { lookupRevisionSchema } from "@/lib/lookup/schema";
+	lookupRevisionSchema,
+	lookupTagSchema,
+	lookupWireNameSchema,
+} from "@/lib/lookup/schema";
 import type {
 	LookupColumn,
 	LookupHqOrigin,
@@ -35,9 +37,9 @@ import {
 	conflictSaveAsNewInput,
 	createRevisionedTextDraft,
 	discardRevisionedTextDraft,
+	draftCellCopyText,
 	editRevisionedTextDraft,
 	editRowDraftCellText,
-	filterRows,
 	formatLookupBytes,
 	formatLookupCount,
 	freshestManifestEntry,
@@ -51,13 +53,11 @@ import {
 	reconcileRevisionedTextDraft,
 	reconcileRowDraft,
 	retainedRowRecoveries,
-	rowAdditionRefusal,
 	rowDraftToValues,
 	rowValuesEqual,
 	rowValuesToDraft,
 	rowWriteConflictVerdict,
 	suggestWireName,
-	tableCapacity,
 	tableEditability,
 	temporalDraftTextHiddenByControl,
 } from "../projectDataModel";
@@ -162,7 +162,7 @@ describe("formatLookupBytes", () => {
 
 	it("prints the table byte cap as the round number the copy promises", () => {
 		// A refusal that says "8.4 MB is over the 8 MB limit" reads as a bug.
-		expect(formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)).toBe("8 MB");
+		expect(formatLookupBytes(LOOKUP_MAX_CHANGE_BYTES)).toBe("8 MB");
 	});
 });
 
@@ -174,45 +174,33 @@ describe("formatLookupCount", () => {
 	});
 });
 
-describe("tableCapacity", () => {
-	it("takes the binding cap, whichever it is", () => {
-		const byRows = tableCapacity({
-			rowCount: LOOKUP_MAX_ROWS / 2,
-			dataBytes: 0,
+describe("rich row editing", () => {
+	it("detects changes to a single occurrence property even when every displayed cell is unchanged", () => {
+		const id = lookupMemberIdSchema.parse(
+			"01912d68-783e-7000-8000-00000000d003",
+		);
+		const stored = row({});
+		const occurrence = (text: string) => ({
+			[nameColumnId]: [{ text: "Hill", properties: { [id]: text } }],
 		});
-		expect(byRows.fullness).toBeCloseTo(0.5);
-		expect(byRows.full).toBe(false);
-
-		const byBytes = tableCapacity({
-			rowCount: 1,
-			dataBytes: LOOKUP_MAX_TABLE_BYTES,
-		});
-		expect(byBytes.fullness).toBe(1);
-		expect(byBytes.full).toBe(true);
-	});
-});
-
-describe("rowAdditionRefusal", () => {
-	it("stays silent while the table has room", () => {
+		const baseline = { ...stored, occurrences: occurrence("en") };
+		const current = { ...stored, occurrences: occurrence("fr") };
 		expect(
-			rowAdditionRefusal(tableCapacity({ rowCount: 3, dataBytes: 40 })),
-		).toBe(undefined);
-	});
-
-	it("names the row limit that stopped the write", () => {
-		const refusal = rowAdditionRefusal(
-			tableCapacity({ rowCount: LOOKUP_MAX_ROWS, dataBytes: 10 }),
-		);
-		expect(refusal).toContain("5,000 rows");
-	});
-
-	it("names the MEASURED size, not just the limit, when bytes are the cap", () => {
-		const refusal = rowAdditionRefusal(
-			tableCapacity({ rowCount: 2, dataBytes: LOOKUP_MAX_TABLE_BYTES }),
-		);
-		expect(refusal).toContain("8 MB");
-		// Both halves of the sentence are present: what it holds AND the ceiling.
-		expect(refusal).toMatch(/holds 8 MB.*limit of 8 MB/);
+			rowWriteConflictVerdict({
+				baseline: stored.values,
+				baselineContent: baseline,
+				current,
+				columnsChanged: false,
+			}),
+		).toEqual({ kind: "ask", reason: "row-changed" });
+		expect(
+			rowWriteConflictVerdict({
+				baseline: stored.values,
+				baselineContent: baseline,
+				current: baseline,
+				columnsChanged: false,
+			}),
+		).toEqual({ kind: "retry" });
 	});
 });
 
@@ -224,31 +212,6 @@ describe("cellText", () => {
 
 	it("renders a stored number as its text", () => {
 		expect(cellText(values({ [codeColumnId]: 7 }), codeColumn)).toBe("7");
-	});
-});
-
-describe("filterRows", () => {
-	const rows = [
-		{ values: values({ [nameColumnId]: "Kitgum Clinic", [codeColumnId]: 11 }) },
-		{ values: values({ [nameColumnId]: "Gulu Hospital", [codeColumnId]: 22 }) },
-		{ values: values({}) },
-	];
-	const columns = [nameColumn, codeColumn];
-
-	it("returns everything for an empty or whitespace query", () => {
-		expect(filterRows(rows, columns, "")).toBe(rows);
-		expect(filterRows(rows, columns, "   ")).toBe(rows);
-	});
-
-	it("matches the text the grid shows, case-insensitively, across columns", () => {
-		expect(filterRows(rows, columns, "kitgum")).toStrictEqual([rows[0]]);
-		expect(filterRows(rows, columns, "22")).toStrictEqual([rows[1]]);
-	});
-
-	it("never matches a missing cell against the empty string", () => {
-		// The blank row would match "" under a naive coercion, which would make
-		// every query with an unmatched column return every empty row.
-		expect(filterRows(rows, columns, "x")).toHaveLength(0);
 	});
 });
 
@@ -386,7 +349,20 @@ describe("suggestWireName", () => {
 	});
 
 	it("keeps accented labels legible instead of dropping their letters", () => {
-		expect(suggestWireName("Établissement")).toBe("etablissement");
+		expect(suggestWireName("E\u0301tablissement")).toBe("établissement");
+		expect(suggestWireName("Περιοχή ٢")).toBe("περιοχή_٢");
+		expect(suggestWireName("地区")).toBe("u5730_u533a");
+	});
+
+	it("offers a usable table and column name for a dose entered in micrograms", () => {
+		for (const [label, name] of [
+			["Dose (µg)", "dose_μg"],
+			["Müller", "müller"],
+		]) {
+			expect(suggestWireName(label)).toBe(name);
+			expect(lookupWireNameSchema.parse(suggestWireName(label))).toBe(name);
+			expect(lookupTagSchema.parse(suggestWireName(label, "tag"))).toBe(name);
+		}
 	});
 
 	it("prefixes numeric and reserved xml names with a valid identifier start", () => {
@@ -394,6 +370,9 @@ describe("suggestWireName", () => {
 		expect(suggestWireName("2024 total")).toBe("c_2024_total");
 		// …and must not start with `xml`, which the wire rejects outright.
 		expect(suggestWireName("XML source")).toBe("c_xml_source");
+		expect(suggestWireName("Our CaseDB", "tag")).toBe("our_case_db");
+		expect(suggestWireName("Our CaseDB")).toBe("our_casedb");
+		expect(suggestWireName("a".repeat(45), "tag")).toBe("a".repeat(32));
 	});
 
 	it("suggests nothing for a label with no usable characters", () => {
@@ -598,6 +577,29 @@ describe("rowValuesToDraft", () => {
 		expect(
 			rowDraftToValues(rowValuesToDraft(stored, allColumns), allColumns),
 		).toStrictEqual({ ok: true, values: stored });
+	});
+
+	it("gives a recovered row's unedited date and time to copy with its timezone, and typed text as typed", () => {
+		const datetimeColumn: LookupColumn = {
+			id: codeColumnId,
+			wireName: "seen_at",
+			label: "Seen at",
+			dataType: "datetime",
+		};
+		const draft = rowValuesToDraft(
+			values({ [codeColumnId]: "2026-02-02T11:00:00Z" }),
+			[datetimeColumn],
+		);
+		// The editor's own text leaves the timezone out.
+		expect(draft[codeColumnId]?.text).toBe("2026-02-02T11:00:00");
+		expect(draftCellCopyText(draft[codeColumnId])).toBe("2026-02-02T11:00:00Z");
+		expect(
+			draftCellCopyText({
+				...draft[codeColumnId],
+				text: "not-a-datetimeT3:15 PM",
+			}),
+		).toBe("not-a-datetimeT3:15 PM");
+		expect(draftCellCopyText(undefined)).toBeUndefined();
 	});
 
 	it("keeps a temporal cell's offset when its visible clock changes", () => {

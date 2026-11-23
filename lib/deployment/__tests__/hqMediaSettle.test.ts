@@ -110,6 +110,23 @@ describe("settleHqMedia", () => {
 		});
 	});
 
+	it("recognizes an adopted picture larger than the direct upload limit by streaming its digest", async () => {
+		const bytes = Buffer.alloc(ASSET_SIZE_CAPS_BYTES.image + 137, 37);
+		await withHttpPeer(async (peer) => {
+			intercept(peer, "doc-large").reply(200, bytes, {
+				headers: { "content-type": "image/png" },
+			});
+			const paths = candidates([["commcare/large.png", "doc-large"]]).map(
+				(p) => ({ ...p, sizeBytes: bytes.length, contentHash: sha256(bytes) }),
+			);
+			const settled = await settleHqMedia(CREDS, paths, { retain: true });
+			expect(settled).toMatchObject({
+				kind: "settled",
+				learned: { "commcare/large.png": "doc-large" },
+			});
+			if (settled.kind === "settled") expect(settled.reads.size).toBe(0);
+		});
+	});
 	it("reads a file over Nova's limit for its kind and an unreadable entry as replaced, and a 404 as absent", async () => {
 		await withHttpPeer(async (peer) => {
 			intercept(peer, "doc-big").reply(

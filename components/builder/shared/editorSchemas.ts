@@ -1,3 +1,4 @@
+import { editorLookupReads } from "./lookupTablePresentation";
 // components/builder/shared/editorSchemas.ts
 //
 // Declarative registry mapping every Expression kind to its card
@@ -334,13 +335,13 @@ function getCurrentCaseType(ctx: PredicateEditContext): CaseType | undefined {
  *  property per-case, or the always-available session values in a
  *  global slot. */
 function hasComparableSubject(ctx: PredicateEditContext): boolean {
-	if (tableRowInScope(ctx)) return (ctx.tableScope?.columns.length ?? 0) > 0;
+	if (tableRowInScope(ctx)) return editorLookupReads(ctx.tableScope).length > 0;
 	if (!caseDataInScope(ctx)) return true;
 	return hasAnyProperty(ctx);
 }
 
 function hasAnyProperty(ctx: PredicateEditContext): boolean {
-	if (tableRowInScope(ctx)) return (ctx.tableScope?.columns.length ?? 0) > 0;
+	if (tableRowInScope(ctx)) return editorLookupReads(ctx.tableScope).length > 0;
 	const ct = getCurrentCaseType(ctx);
 	return ct !== undefined && ct.properties.length > 0;
 }
@@ -349,7 +350,7 @@ function hasMembershipProperty(ctx: PredicateEditContext): boolean {
 	if (tableRowInScope(ctx)) {
 		const constraint = inSubjectConstraint();
 		return (
-			ctx.tableScope?.columns.some((column) =>
+			editorLookupReads(ctx.tableScope).some((column) =>
 				acceptsType(constraint, column.dataType),
 			) ?? false
 		);
@@ -386,7 +387,7 @@ function hasScalarSubjectOfType(
 ): boolean {
 	if (tableRowInScope(ctx)) {
 		return (
-			ctx.tableScope?.columns.some((column) =>
+			editorLookupReads(ctx.tableScope).some((column) =>
 				predicate({
 					name: column.wireName,
 					label: proseText(column.label),
@@ -433,7 +434,7 @@ export function predicateUnavailableReason(
 					? "Add a search field first"
 					: TABLE_ROW_SCOPE_CASE_DATA_REASON;
 			default:
-				return (ctx.tableScope?.columns.length ?? 0) === 0
+				return editorLookupReads(ctx.tableScope).length === 0
 					? "Add a data-table column first"
 					: TABLE_ROW_SCOPE_CASE_DATA_REASON;
 		}

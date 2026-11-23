@@ -233,9 +233,7 @@ export const FINDING_COPY: Readonly<
 			"A form here saves to a case property named like one of a case's own details, such as status or date_opened, which Nova doesn't bring in.",
 		"not-yet": "A case property name here is one Nova can't hold yet.",
 	},
-	"case-sharing": {
-		"not-yet": "This uses case sharing, which Nova can't hold yet.",
-	},
+	"case-sharing": {},
 	"case-tiles": {
 		"not-yet": "This uses a case tile layout, which Nova can't hold yet.",
 	},
@@ -793,11 +791,6 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "Nova is reading other apps from CommCare HQ right now and ran out of room to read {app} as well, so it stopped. Nothing was changed, in Nova or in CommCare HQ.",
 		next: "You can check again in a minute or two.",
 	},
-	"lookup-data-too-large": {
-		title: "This app reads more lookup data than Nova brings in",
-		body: "{app} reads more lookup data than Nova brings in. That limit is Nova's, not the app's.",
-		next: "There is nothing for you to change in the app. If you'd like Nova to bring in an app with this much lookup data, you can tell the team through Give feedback in Nova's account menu.",
-	},
 	"too-large": {
 		title: "This app is larger than Nova brings in",
 		body: "{app} is larger than the apps Nova brings in. That limit is Nova's, not the app's.",
@@ -817,6 +810,16 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		title: "CommCare HQ can't summarize this app",
 		body: "CommCare HQ returned an error where its own summary of this app's forms should be, so Nova has nothing sure to check its reading against.",
 		next: "Opening the app's forms in CommCare HQ's form builder usually shows which one is broken. If they all open, Dimagi support (support@dimagi.com) can help. Then you can check again.",
+	},
+	"form-data-source-conflict": {
+		title: "A form uses one name for two data sources",
+		body: "CommCare HQ uses {name} to fill in submission details or case data. This form gives that name to a different source, so workers can receive different values.",
+		next: "You can give the other source its own name in CommCare HQ and update the questions that read it, then check again.",
+	},
+	"unbuildable-data-source-name": {
+		title: "CommCare HQ cannot build this data source",
+		body: "CommCare HQ reads {name} as one of its built-in sources and cannot build an app with this reference.",
+		next: "You can give the source and its references a distinct name in CommCare HQ, then check again.",
 	},
 	"shadow-disagrees": {
 		title: "A question's logic says two things",
@@ -863,20 +866,25 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		body: "This uses {name}. Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work.",
 		next: "You can change one of these in CommCare HQ so one platform runs everything, then check again.",
 	},
-	"places-over-nova-limit": {
-		title: "This project space has more places than Nova takes",
-		body: "{app} reads places, and {space} has {name}. Nova holds up to 10,000 for an app.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+	"place-hierarchy-inconsistent": {
+		title: "The place lists disagree",
+		body: "Nova checked twice. A place, parent or level in {space} still disagrees with the rest of the organization.",
+		next: "You can check the affected places and levels in CommCare HQ, then try again.",
 	},
-	"place-not-holdable": {
-		title: "A place or level is one Nova can't hold yet",
-		body: "{name} in {space} has a code, a name or a value Nova can't hold yet.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+	"place-field-unusable": {
+		title: "Some place information needs a change",
+		body: "{name} in {space} contains a name or value that the app cannot carry.",
+		next: "You can change that field in CommCare HQ, then check again.",
+	},
+	"place-value-order-unknown": {
+		title: "A place field's worker text is unclear",
+		body: "CommCare HQ sends {name} in {space} with its entries sorted. A worker sees them in their original order.",
+		next: "You can store the intended worker text in that field in CommCare HQ, then check again.",
 	},
 	"owner-rule-needs-one-place": {
-		title: "An owner rule needs exactly one place",
-		body: "{app} gives a case to the place at the level {name} below its current owner. In {space} that isn't exactly one place everywhere, and Nova holds the rule only where it is.",
-		next: "There is nothing for you to change. You can check again after a Nova update.",
+		title: "A case owner rule needs one destination",
+		body: "{name} Nova checked the rule against the places in {space}.",
+		next: "You can choose a specific owner in the form or change the places in CommCare HQ, then check again.",
 	},
 	unrecognized: {
 		title: "Nova met something it doesn't know",

@@ -7,7 +7,8 @@
  * A base's document is Nova's first reading of its retained answers
  * (`proof/reader/laneReading.ts::readForLane`), under the declaration the
  * base states or the reading's preselected one. A base whose reading is an
- * account, or whose stated declaration the reading does not offer, is no
+ * account, whose stated declaration the reading does not offer, or whose
+ * reading asks HQ for what its copy was retained without, is no
  * document (`BaseSetAside`): a base is made only of what Nova holds. The
  * corpus sets such a base aside by name (`hqAuthoredDocuments`, written to
  * the corpus's `index.json` as `setAside`) rather than stopping, so the lane
@@ -39,6 +40,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { placeLine } from "@/lib/publish/hqFindingCopy";
 import {
+	LaneAnswerMissing,
 	type LaneDeclaration,
 	type LaneMedia,
 	type LaneReadInput,
@@ -52,6 +54,7 @@ import {
 } from "./documents";
 import { hydrateAdmittedDocument } from "./editBatches";
 import { WORKTREE } from "./emissionProcess";
+import { fixtureRowsFiles } from "./fixtureRowsFilename";
 import type { UploadedMedia } from "./publish";
 
 /** Where the retained bases live, from the checkout's root. */
@@ -95,6 +98,7 @@ export interface RetainedHqApp {
 	readonly application: RetainedHqAnswer;
 	readonly currentVersion: RetainedHqAnswer;
 	/** `project-spaces.json` and `project-spaces-flag.json`, where the reading asks for them. */
+	readonly sourceFactoryReads?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly projectSpaces?: {
 		readonly all: RetainedHqAnswer;
 		readonly flagged: RetainedHqAnswer;
@@ -114,6 +118,7 @@ export interface RetainedHqApp {
 	/** Where the base holds each: the rows, location and media answers. */
 	readonly fixtureRows?: Readonly<Record<string, RetainedHqAnswer>>;
 	readonly locationTypes?: RetainedHqAnswer;
+	readonly locationsV1?: RetainedHqAnswer;
 	readonly locations?: RetainedHqAnswer;
 	/**
 	 * `media-reads.json`: each read the reading made of a mapped file, where it
@@ -142,8 +147,6 @@ export interface RetainedHqApp {
 // ---------------------------------------------------------------------------
 // Reading a base's directory
 // ---------------------------------------------------------------------------
-
-const FIXTURE_ROWS_PREFIX = "fixture-rows-";
 
 /** A media file's path under its base, as the retained layout names it (`proof/matrix/retained-layout.json`). */
 const MEDIA_FILE = /^media\/(?:0|[1-9][0-9]*)\.[a-z0-9]+$/;
@@ -242,6 +245,10 @@ export function loadRetainedHqApp(
 		return fail(directory, "does not exist: no lane run retained it");
 	const base = readJson(directory, "base.json") as RetainedHqApp["base"];
 	if (base?.id !== id) fail(directory, `holds a base.json naming ${base?.id}`);
+	const sourceFactoryReads = optionalJson(
+		directory,
+		"source-factories.json",
+	) as RetainedHqApp["sourceFactoryReads"];
 	const all = optionalAnswer(directory, "project-spaces.json");
 	const flagged = optionalAnswer(directory, "project-spaces-flag.json");
 	const mediaRows = (optionalJson(directory, "media.json") ?? []) as readonly {
@@ -252,21 +259,22 @@ export function loadRetainedHqApp(
 		readonly mimeType: string;
 		readonly extension: string;
 	}[];
-	const fixtureRows: Record<string, RetainedHqAnswer> = {};
-	for (const name of readdirSync(directory).sort()) {
-		if (!name.startsWith(FIXTURE_ROWS_PREFIX) || !name.endsWith(".json"))
-			continue;
-		fixtureRows[name.slice(FIXTURE_ROWS_PREFIX.length, -".json".length)] =
-			answer(directory, name);
-	}
+	const fixtureRows = Object.fromEntries(
+		Array.from(
+			fixtureRowsFiles(readdirSync(directory).sort()),
+			([tag, file]) => [tag, answer(directory, file)],
+		),
+	);
 	const locationTypes = optionalAnswer(directory, "location-types.json");
 	const locations = optionalAnswer(directory, "locations.json");
+	const locationsV1 = optionalAnswer(directory, "locations-v1.json");
 	const mediaReads = optionalJson(directory, "media-reads.json") as
 		| RetainedHqApp["mediaReads"]
 		| undefined;
 	return {
 		id,
 		directory,
+		...(sourceFactoryReads && { sourceFactoryReads }),
 		base,
 		source: answer(directory, "app-source.json"),
 		application: answer(directory, "application.json"),
@@ -281,6 +289,7 @@ export function loadRetainedHqApp(
 		...(Object.keys(fixtureRows).length > 0 && { fixtureRows }),
 		...(locationTypes !== undefined && { locationTypes }),
 		...(locations !== undefined && { locations }),
+		...(locationsV1 !== undefined && { locationsV1 }),
 		...(mediaReads !== undefined && { mediaReads }),
 		expected: readJson(directory, "expected.json") as RetainedHqApp["expected"],
 	};
@@ -317,6 +326,9 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 		source: app.source,
 		application: app.application,
 		currentVersion: app.currentVersion,
+		...(app.sourceFactoryReads && {
+			sourceFactoryReads: app.sourceFactoryReads,
+		}),
 		...(app.projectSpaces !== undefined && {
 			projectSpaces: app.projectSpaces,
 		}),
@@ -327,6 +339,7 @@ export function laneInputFor(app: RetainedHqApp): LaneReadInput {
 				locationTypes: app.locationTypes,
 			}),
 			...(app.locations !== undefined && { locations: app.locations }),
+			...(app.locationsV1 !== undefined && { locationsV1: app.locationsV1 }),
 			media: (app.mediaReads ?? []).map((read) => {
 				const file = files.get(read.path);
 				return {
@@ -382,13 +395,15 @@ function didNotComeIn(
  * A base Nova's reading does not take as a document: its reading is an
  * account (`reading: "account"`, the message names its first finding) or
  * does not offer the declaration the base states
- * (`reading: "declaration-not-offered"`). `hqAuthoredDocument` throws it;
- * `hqAuthoredDocuments` sets the base aside with it.
+ * (`reading: "declaration-not-offered"`), or asks HQ for a request the base
+ * was retained without (`reading: "answer-missing"`).
+ * `hqAuthoredDocument` throws it; `hqAuthoredDocuments` sets the base aside
+ * with it.
  */
 export class BaseSetAside extends Error {
 	constructor(
 		readonly base: string,
-		readonly reading: "account" | "declaration-not-offered",
+		readonly reading: "account" | "declaration-not-offered" | "answer-missing",
 		message: string,
 	) {
 		super(message);
@@ -534,7 +549,16 @@ export async function hqAuthoredDocument(
 	app: RetainedHqApp,
 	handRoot: string = join(WORKTREE, HQ_HAND),
 ): Promise<CorpusDocument> {
-	const reading = await readForLane(laneInputFor(app));
+	let reading: Awaited<ReturnType<typeof readForLane>>;
+	try {
+		reading = await readForLane(laneInputFor(app));
+	} catch (error) {
+		// The reader now asks HQ for something this base's copy was retained
+		// without: the round that authors it again keeps that answer.
+		if (error instanceof LaneAnswerMissing)
+			throw new BaseSetAside(app.id, "answer-missing", error.message);
+		throw error;
+	}
 	if (reading.kind === "account")
 		throw new BaseSetAside(
 			app.id,

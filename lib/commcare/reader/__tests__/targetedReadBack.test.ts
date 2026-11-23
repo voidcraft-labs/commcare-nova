@@ -311,6 +311,12 @@ function lookupCatalog(document: CorpusDocument): ReaderLookupCatalog {
 						tableId: table.id,
 						column: (name) =>
 							table.columns.find((column) => column.wireName === name)?.id,
+						attribute: (name) =>
+							table.attributes?.find((member) => member.wireName === name)?.id,
+						property: (columnId, name) =>
+							table.columns
+								.find((column) => column.id === columnId)
+								?.properties?.find((member) => member.wireName === name)?.id,
 					};
 		},
 		definitions: new Map(definitions.map((table) => [table.id, table])),
@@ -364,6 +370,12 @@ async function readBack(
 		// changed", which a bring-in's probe of that project space reads.
 		...(savesOnlyChangedAnswers(doc) && { saveOnlyEditedApplied: true }),
 		recordDialect: recordDialectRoundTrip,
+		// The project space a document's minimum configuration publishes to
+		// holds no HIERARCHICAL_LOCATION_FIXTURE, so HQ's build gives a
+		// suite's `locations` instance the flat fixture
+		// (`suite_xml/post_process/instances.py::location_fixture_instances`),
+		// which a reading of that project space observes.
+		sourceProjectFactories: { locations: "flat" },
 		lookup: catalog,
 		organization: { levelCodes: levels.map((level) => level.code), levels },
 		media: {

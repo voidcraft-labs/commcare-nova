@@ -79,6 +79,7 @@ function check(
 		},
 		{
 			device: webAppsDevice(),
+			projectId: "test-project",
 			appId: undefined,
 			identity,
 			cases: { rows: [], indices: [] },

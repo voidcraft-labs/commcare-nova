@@ -1,3 +1,13 @@
+import { v7 } from "uuid";
+import {
+	retainedBodyText,
+	retainedPublishRead,
+} from "@/__tests__/helpers/retainedHqReads";
+import { withAppTx } from "@/lib/db/pg";
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { getLookupTable } from "@/lib/lookup/service";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 /**
  * A lookup table's standing in a project space is the Project's: a publish
  * reads it from every app of the Project that holds a live mapping for the
@@ -11,12 +21,13 @@ import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import type { ProjectDataGrant } from "@/lib/auth/dataGrant";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { BlueprintDoc } from "@/lib/domain";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
-import { type PublishOutcome, publishAppToHq } from "../service";
+import type { PublishOutcome } from "../service";
 import type { DeploymentConfirmationKey } from "../types";
 import {
 	acceptImport,
@@ -67,11 +78,14 @@ const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
 ];
 
 /** A table of `projectId` tagged `facilities`, holding the one row CommCare HQ then serves. */
-async function projectTable(projectId: string, actorId: string) {
+async function projectTable(
+	projectId: string,
+	actorId: string,
+	identity = { name: "Facilities", tag: "facilities" },
+) {
 	const scope = { projectId, actorId, role: "editor" };
 	const table = await createLookupTable(scope, {
-		name: "Facilities",
-		tag: "facilities",
+		...identity,
 		columns: [
 			{ wireName: "code", label: "Code", dataType: "text" },
 			{ wireName: "name", label: "Name", dataType: "text" },
@@ -92,8 +106,8 @@ async function appReading(
 	projectId: string,
 	owner: string,
 	table: Awaited<ReturnType<typeof projectTable>>,
+	additional?: Awaited<ReturnType<typeof projectTable>>,
 ): Promise<BlueprintDoc> {
-	const [code, name] = table.columns;
 	const doc = buildDoc({
 		appName: `Visits ${appId}`,
 		modules: [
@@ -103,18 +117,18 @@ async function appReading(
 					{
 						name: "Visit",
 						type: "survey",
-						fields: [
-							{
-								id: "facility",
+						fields: (additional ? [table, additional] : [table]).map(
+							(source, i) => ({
+								id: i === 0 ? "facility" : "area",
 								kind: "single_select",
 								optionsSource: {
 									kind: "lookup",
-									tableId: table.id,
-									valueColumnId: code.id,
-									labelColumnId: name.id,
+									tableId: source.id,
+									valueColumnId: source.columns[0].id,
+									labelColumnId: source.columns[1].id,
 								},
-							},
-						],
+							}),
+						),
 					},
 				],
 			},
@@ -130,9 +144,11 @@ function publish(
 	actorUserId: string,
 	doc: BlueprintDoc,
 	adoptResourceIds: readonly string[] = [],
+	dataGrant?: ProjectDataGrant,
 ): Promise<PublishOutcome> {
 	return publishAppToHq({
 		requireHqImport: null,
+		dataGrant,
 		scope: { appId, projectId, actorUserId, role: "editor" },
 		...TARGET,
 		doc,
@@ -332,3 +348,214 @@ it("refuses an app of another Project whose table shares the tag", async () => {
 		);
 	});
 });
+
+it.each([
+	[false, false],
+	[true, false],
+	[false, true],
+	[true, true],
+])(
+	"does not acquire a different table on an unverifiable read-back (previous mapping %s, verified sibling %s)",
+	async (mapped, hasSibling) => {
+		await h.seedProjectMember(FIRST, PROJECT, "editor");
+		await connect(h, FIRST, "india", [DOMAIN]);
+		const table = await projectTable(PROJECT, FIRST);
+		const appId = "lookup-owner",
+			hqApp = "target-lookup-owner";
+		const siblingTable = hasSibling
+			? await projectTable(PROJECT, FIRST, { name: "Areas", tag: "areas" })
+			: undefined;
+		const siblings: ServedTable[] = hasSibling
+			? [{ ...landed, id: "hq-areas", tag: "areas" }]
+			: [];
+		const doc = await appReading(appId, PROJECT, FIRST, table, siblingTable);
+		const run = () => publish(appId, PROJECT, FIRST, doc);
+		const unexpected = {
+			...landed,
+			id: "unrelated-table",
+			rows: [{ code: "002", name: "A different clinic" }],
+		};
+		await withManagedPeer(async (peer) => {
+			if (mapped) {
+				serveTableList(peer, DOMAIN, []);
+				acceptImport(peer, DOMAIN, 201, { appId: hqApp });
+				serveSource(peer, DOMAIN, "source-shell", hqApp);
+				takeWorkbook(peer, DOMAIN);
+				serveTableList(peer, DOMAIN, [landed, ...siblings]);
+				for (const item of [landed, ...siblings]) serveRows(peer, DOMAIN, item);
+				serveSource(peer, DOMAIN, "source-shell", hqApp);
+				acceptImport(peer, DOMAIN, 200, { appId: hqApp });
+				serveSource(peer, DOMAIN, "source-after-create-then-update", hqApp);
+				expect((await run()).landed).toBe(true);
+				serveTableList(peer, DOMAIN, [landed, ...siblings]);
+				for (const item of [landed, ...siblings]) serveRows(peer, DOMAIN, item);
+				serveSource(peer, DOMAIN, "source-after-create-then-update", hqApp);
+			} else {
+				serveTableList(peer, DOMAIN, []);
+				acceptImport(peer, DOMAIN, 201, { appId: hqApp });
+				serveSource(peer, DOMAIN, "source-shell", hqApp);
+			}
+			takeWorkbook(peer, DOMAIN);
+			serveTableList(peer, DOMAIN, [unexpected, ...siblings]);
+			for (const item of [unexpected, ...siblings])
+				serveRows(peer, DOMAIN, item);
+			expect(refusal(await run())).toMatchObject({
+				phase: "resources",
+				failure: { code: "hq_resource_state_unknown" },
+			});
+			const owned = await h
+				.db()
+				.selectFrom("app_deployment_resources")
+				.select("remote_id")
+				.where("kind", "=", "lookup-table")
+				.where("superseded_at", "is", null)
+				.orderBy("remote_id")
+				.execute();
+			expect(owned.map((row) => row.remote_id)).toEqual(
+				[...(mapped ? [landed.id] : []), ...siblings.map((t) => t.id)].sort(),
+			);
+
+			const writes = publishRequests(peer).filter((request) =>
+				request.startsWith("POST "),
+			);
+			serveTableList(peer, DOMAIN, [unexpected, ...siblings]);
+			expect(refusal(await run())).toMatchObject({
+				failure: { code: "hq_resource_conflict" },
+				resourceConflicts: [
+					{ novaResourceId: table.id, remoteId: unexpected.id },
+				],
+			});
+			expect(
+				publishRequests(peer).filter((request) => request.startsWith("POST ")),
+			).toEqual(writes);
+		});
+	},
+);
+
+it.each(["an unrelated table", "the observed table’s audience"] as const)(
+	"resumes a mixed workbook publish against the actual file when %s changes",
+	async (changed) => {
+		await h.seedProjectMember(FIRST, PROJECT, "editor");
+		await connect(h, FIRST, "india", [DOMAIN]);
+		const grant = { kind: "session", sessionId: "workbook-session" } as const;
+		await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt") VALUES(${grant.sessionId},'workbook-test',${FIRST},now()+interval '1 hour',now(),now())`.execute(
+			h.db(),
+		);
+		const small = await projectTable(PROJECT, FIRST);
+		const scope = { actorId: FIRST, projectId: PROJECT, role: "editor" };
+		const large = await createLookupTable(scope, {
+			name: "Areas",
+			tag: "areas",
+			columns: [
+				{ wireName: "code", label: "Code", dataType: "text" },
+				{ wireName: "name", label: "Name", dataType: "text" },
+			],
+		});
+		const fields = Array.from({ length: 1001 }, (_, i) => ({
+			code: "r" + i,
+			name: "Area " + i,
+		}));
+		await replaceLookupRows(scope, {
+			tableId: large.id,
+			expectedTableRevision: large.tableRevision,
+			rows: fields.map((row) => ({
+				[large.columns[0].id]: row.code,
+				[large.columns[1].id]: row.name,
+			})),
+		});
+		const doc = await appReading("mixed-books", PROJECT, FIRST, small, large);
+		const target = "hq-mixed";
+		const run = () => publish("mixed-books", PROJECT, FIRST, doc, [], grant);
+		await withManagedPeer(async (peer) => {
+			serveTableList(peer, DOMAIN, []);
+			acceptImport(peer, DOMAIN, 201, { appId: target });
+			serveSource(peer, DOMAIN, "source-shell", target);
+			takeWorkbook(peer, DOMAIN);
+			serveTableList(peer, DOMAIN, [landed]);
+			serveRows(peer, DOMAIN, landed);
+			const refuse = () =>
+				peer
+					.get("https://india.commcarehq.org")
+					.intercept({ method: "POST", path: "/a/clinic/fixtures/fixapi/" })
+					.reply(403, "Denied");
+			refuse();
+			const first = await run();
+			expect(first.landed, JSON.stringify(first)).toBe(false);
+			const uploads = () =>
+				publishRequests(peer).filter(
+					(r) => r === "POST /a/clinic/fixtures/fixapi/",
+				).length;
+			expect(uploads()).toBe(2);
+			serveTableList(peer, DOMAIN, [landed]);
+			serveRows(peer, DOMAIN, landed);
+			const afterShellRead = (edit: () => Promise<void>) => {
+				const shell = retainedPublishRead("source-shell");
+				peer
+					.get("https://india.commcarehq.org")
+					.intercept({
+						method: "GET",
+						path: `/a/${DOMAIN}/apps/source/${target}/`,
+					})
+					.reply(async () => {
+						await edit();
+						return {
+							statusCode: shell.status,
+							data: retainedBodyText(shell),
+							responseOptions: { headers: { ...shell.headers } },
+						};
+					});
+			};
+			const before = publishRequests(peer).filter((r) => r.startsWith("POST"));
+			if (changed === "an unrelated table") {
+				afterShellRead(async () => {
+					await createLookupTable(scope, {
+						name: "Unrelated",
+						tag: "unrelated",
+						columns: [{ label: "Name", wireName: "name", dataType: "text" }],
+					});
+				});
+				refuse();
+				const retry = await run();
+				expect(retry.landed, JSON.stringify(retry)).toBe(false);
+				expect(uploads()).toBe(3);
+			} else {
+				afterShellRead(async () => {
+					const current = await getLookupTable(scope, small.id);
+					await withAppTx(async (tx) =>
+						applyLookupAuthoringBatchInTransaction(
+							tx,
+							await authorizeLookupWriteInTransaction(tx, scope, "edit"),
+							{
+								operationId: v7(),
+								updateTables: [
+									{
+										tableId: small.id,
+										expectedTableRevision: current.tableRevision,
+										workerAccess: "assigned",
+									},
+								],
+							},
+						),
+					);
+				});
+				const held = await run();
+				expect(held).toMatchObject({
+					landed: false,
+					refusal: { phase: "resources", failure: { code: "app_not_ready" } },
+				});
+				expect(
+					publishRequests(peer).filter((r) => r.startsWith("POST")),
+				).toEqual(before);
+			}
+			const maps = await h
+				.db()
+				.selectFrom("app_deployment_resources")
+				.select("remote_id")
+				.where("kind", "=", "lookup-table")
+				.where("superseded_at", "is", null)
+				.execute();
+			expect(maps).toEqual([{ remote_id: landed.id }]);
+		});
+	},
+	20_000,
+);

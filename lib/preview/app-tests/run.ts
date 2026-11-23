@@ -127,13 +127,15 @@ function appTestEntryCases(
 	state: AppTestSessionState,
 	cases: CaseDatabaseSnapshot,
 ): CaseDatabaseSnapshot {
-	if (!appReadsPlaces(context.doc)) return cases;
+	const workerGroups = context.workerGroups;
+	if (!appReadsPlaces(context.doc)) return { ...cases, workerGroups };
 	const persona =
 		state.personaUuid === null
 			? undefined
 			: context.doc.personas?.[state.personaUuid];
 	return {
 		...cases,
+		workerGroups,
 		locations:
 			persona === undefined ||
 			orderedOrganizationLevels(context.doc).length === 0

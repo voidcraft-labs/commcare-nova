@@ -10,16 +10,15 @@
 import { z } from "zod";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
-	LOOKUP_MAX_COLUMNS,
-	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
-} from "@/lib/lookup/constants";
-import {
 	compareLookupRevisions,
 	lookupRevisionSchema,
 	lookupTableNameSchema,
 	lookupTagSchema,
 } from "@/lib/lookup/schema";
+import {
+	lookupSourceFactsSchema,
+	requiresLookupProjection,
+} from "@/lib/lookup/source";
 import type { LookupManifest } from "@/lib/lookup/types";
 
 const exactLookupTableNameSchema = z.string().refine((value) => {
@@ -32,9 +31,9 @@ const lookupTableManifestEntrySchema = z
 		id: lookupTableIdSchema,
 		name: exactLookupTableNameSchema,
 		tag: lookupTagSchema,
-		columnCount: z.number().int().min(1).max(LOOKUP_MAX_COLUMNS),
-		rowCount: z.number().int().min(0).max(LOOKUP_MAX_ROWS),
-		dataBytes: z.number().int().min(0).max(LOOKUP_MAX_TABLE_BYTES),
+		columnCount: z.number().int().min(0).max(2147483647),
+		rowCount: z.number().int().min(0).max(2147483647).nullable(),
+		dataBytes: z.number().int().nonnegative().nullable(),
 		definitionRevision: lookupRevisionSchema,
 		rowsRevision: lookupRevisionSchema,
 		tableRevision: lookupRevisionSchema,
@@ -48,6 +47,7 @@ const lookupTableManifestEntrySchema = z
 				domain: z.string().min(1),
 				remoteId: z.string().min(1),
 				managedBy: z.enum(["commcare-hq", "nova"]),
+				source: lookupSourceFactsSchema.optional(),
 				broughtInAt: z.iso.datetime(),
 				takenOverAt: z.iso.datetime().nullable(),
 				takenOverBy: z.string().min(1).nullable(),
@@ -55,6 +55,16 @@ const lookupTableManifestEntrySchema = z
 			.optional(),
 	})
 	.superRefine((table, ctx) => {
+		const withheld = requiresLookupProjection(table.hq);
+		if (
+			(table.rowCount === null) !== withheld ||
+			(table.dataBytes === null) !== withheld
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["rowCount"],
+				message: "The table's row metrics must match its source access.",
+			});
 		const expectedTableRevision =
 			compareLookupRevisions(table.definitionRevision, table.rowsRevision) >= 0
 				? table.definitionRevision

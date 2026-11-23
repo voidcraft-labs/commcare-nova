@@ -21,6 +21,8 @@ export function isHqObject(value: unknown): value is Record<string, unknown> {
  * required: a list is never read without a bound on its rows and its bytes.
  */
 export interface HqCollectionSpec<T> {
+	readonly parse?: (text: string) => unknown;
+	readonly digestRow?: (value: unknown) => string;
 	/** What the list is, for its log lines. Never holds a project space's data. */
 	readonly label: string;
 	/**
@@ -222,6 +224,39 @@ function moved(label: string, why: string, pages: number): CommCareApiError {
 	return HQ_LIST_MOVED;
 }
 
+/** Tastypie's envelope shared by inline inventory and disk-backed lookup reads.
+ * Only the presence of a continuation is consumed. No peer-provided URL is followed. */
+export function decodeHqPage(
+	body: unknown,
+	offset: number,
+	label: string,
+):
+	| { objects: readonly unknown[]; more: boolean; total: number | null }
+	| CommCareApiError {
+	if (
+		!isHqObject(body) ||
+		!Array.isArray(body.objects) ||
+		!isHqObject(body.meta)
+	)
+		return malformed(label, "envelope");
+	const { meta, objects } = body;
+	const next = meta.next;
+	if (next !== null && next !== undefined && typeof next !== "string")
+		return malformed(label, "next");
+	if (next === "") return malformed(label, "next");
+	const more = typeof next === "string";
+	/* A count named null says the paginator does not know it, which no
+	 * complete list can be read from. */
+	if (meta.total_count !== undefined && !isHqCount(meta.total_count))
+		return malformed(label, "total");
+	const total = isHqCount(meta.total_count) ? meta.total_count : null;
+	if (meta.offset !== undefined && meta.offset !== offset)
+		return malformed(label, "offset");
+	if (more && (meta.offset === undefined || objects.length === 0))
+		return malformed(label, "page");
+	return { objects, more, total };
+}
+
 async function readPages<T>(
 	creds: CommCareCredentials,
 	spec: HqCollectionSpec<T>,
@@ -248,9 +283,16 @@ async function readPages<T>(
 				pageUrl(spec.firstUrl, offset),
 				label,
 				within === undefined
-					? { maxBytes: remaining, pastBound: "quiet", cancel, keepRefusedBody }
+					? {
+							maxBytes: remaining,
+							pastBound: "quiet",
+							cancel,
+							keepRefusedBody,
+							parse: spec.parse,
+						}
 					: {
 							...within,
+							parse: spec.parse,
 							maxBytes: remaining,
 							pastBound: "quiet",
 							keepRefusedBody,
@@ -267,24 +309,9 @@ async function readPages<T>(
 				return result;
 			}
 			bytes += result.bytes;
-			const body = result.data;
-			if (
-				!isHqObject(body) ||
-				!Array.isArray(body.objects) ||
-				!isHqObject(body.meta)
-			)
-				return malformed(label, "envelope");
-			const { meta, objects } = body;
-			const next = meta.next;
-			if (next !== null && next !== undefined && typeof next !== "string")
-				return malformed(label, "next");
-			if (next === "") return malformed(label, "next");
-			const more = typeof next === "string";
-			/* A count named null says the paginator does not know it, which no
-			 * complete list can be read from. */
-			if (meta.total_count !== undefined && !isHqCount(meta.total_count))
-				return malformed(label, "total");
-			const named = isHqCount(meta.total_count) ? meta.total_count : null;
+			const decoded = decodeHqPage(result.data, offset, label);
+			if ("success" in decoded) return decoded;
+			const { more, objects, total: named } = decoded;
 			if (page === 0) {
 				/* A total binds pages together: a list of one page may name none, a
 				 * list of several must. */
@@ -295,10 +322,6 @@ async function readPages<T>(
 			} else if (named !== total) {
 				return moved(label, "total", page + 1);
 			}
-			if (meta.offset !== undefined && meta.offset !== offset)
-				return malformed(label, "offset");
-			if (more && (meta.offset === undefined || objects.length === 0))
-				return malformed(label, "page");
 			for (const raw of objects) {
 				const row = spec.row(raw);
 				if (row === null) return malformed(label, "row");
@@ -308,7 +331,7 @@ async function readPages<T>(
 						? malformed(label, "identity")
 						: moved(label, "identity", page + 1);
 				identities.add(identity);
-				digest.update(JSON.stringify(raw));
+				digest.update((spec.digestRow ?? JSON.stringify)(raw));
 				digest.update("\n");
 				if (keep) rows.push(row);
 			}

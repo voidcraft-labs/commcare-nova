@@ -1256,12 +1256,19 @@ mutually exclusive because the URL makes them so.
 **The grid scans; the rail edits.** Cells are typed, and a date column needs
 `DatePicker` while a time column needs `TimeField` — floating surfaces that
 cannot live in a dense scrolling cell with a 44px target. So the grid is a real
-`<table>` in pages of `ROWS_PER_PAGE` (50, matching the running case list) with
-a search box over the text it displays, a selected row opens in the rail with
+`<table>` in server windows of 25 rows with
+a search box over scalar cells, row details and repeated values and properties, a selected row opens in the rail with
 one correctly-typed control per column, and bulk change goes through CSV
 replacement. Paging rather than virtualizing is a semantics decision first: it
 keeps `<th>`/`<td>` header association and screen-reader table navigation that a
 virtualized ARIA grid would have to hand-roll.
+
+Row details and repeated-text columns retain the ordered occurrence list and each
+value's property map. The rail can show an unspecified field, a zero-item list
+and an item containing empty text. Conflict recovery shows the original and
+saved details, rebinds the draft by stable member IDs and asks before discarding
+values whose definitions were removed. A rich table accepts structured JSON
+row additions. CSV replacement is available for scalar definitions.
 
 **Every dirty row draft and unresolved conflict lives on the CONTROLLER, not in
 the row's body.** Close, Escape, another selection, route navigation, row

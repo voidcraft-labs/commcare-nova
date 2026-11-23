@@ -25,6 +25,9 @@
  *   (`seeds: "target"`); the derived custom property as the target's Search
  *   advisory allows; every other key and section kept.
  *
+ * - `case_sharing`: Nova's app leaves it out when it shares no cases, so an
+ *   update writes `false` over a target that holds `true`.
+ *
  * Beside the body it returns the ownership descriptor the drift baseline
  * records: what Nova owns inside the three keys, read from what Nova set
  * and never from the body's bytes, which carry the target's values too.
@@ -309,8 +312,16 @@ export function projectApplicationForTarget(
 		_attachments: attachments,
 		...rest
 	} = application;
+	/* An app that doesn't share cases leaves `case_sharing` out, and HQ keeps a
+	 * key an update leaves out. Where the target shares cases (Nova shared
+	 * them before, or someone turned it on there and the person chose to
+	 * publish over it), the update writes the off Nova holds. */
+	const caseSharingOff =
+		!Object.hasOwn(application, "case_sharing") &&
+		current.raw.case_sharing === true;
 	const body: HqApplication = {
 		...rest,
+		...(caseSharingOff && { case_sharing: false }),
 		...(translations !== undefined && { translations }),
 		...(addOns !== undefined && { add_ons: addOns }),
 		...(profile !== undefined && { profile }),

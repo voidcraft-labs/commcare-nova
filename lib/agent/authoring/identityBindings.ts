@@ -10,6 +10,7 @@ import {
 import {
 	type AuthoringScopeOptions,
 	enclosingAuthoringTable,
+	enclosingLookupIdentity,
 } from "./bindings";
 import { AuthoringInputError } from "./errors";
 import { fieldNameCandidates } from "./fieldNames";
@@ -233,6 +234,8 @@ export function bindNamedIdentity(args: {
 				names: [item.name, item.tag],
 			}));
 			break;
+		case "lookup-attribute":
+		case "lookup-value-property":
 		case "lookup-column": {
 			const tableId = enclosingAuthoringTable(input, slot.path, scope.tableId);
 			const table = scope.tables?.find((item) => item.id === tableId);
@@ -240,7 +243,19 @@ export function bindNamedIdentity(args: {
 				throw new AuthoringInputError(
 					"Choose the data table before naming its columns.",
 				);
-			candidates = table.columns.map((item) => ({
+			const selectedColumnId = enclosingLookupIdentity(
+				input,
+				slot.path,
+				"columnId",
+			);
+			const members =
+				slot.family === "lookup-column"
+					? table.columns
+					: slot.family === "lookup-attribute"
+						? (table.attributes ?? [])
+						: (table.columns.find((column) => column.id === selectedColumnId)
+								?.properties ?? []);
+			candidates = members.map((item) => ({
 				id: item.id,
 				names: [item.wireName, item.label],
 			}));

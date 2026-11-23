@@ -207,7 +207,7 @@ def project(document, configuration="minimum", *, web_apps=True):
             app_id, refusal, lookups = publish.create(unit, export, plan_without_web_apps=not web_apps)
             assert refusal is None, refusal
             assert lookups is None or lookups["errors"] == [], lookups
-            if export.content.media is not None:
-                media = operations.apply_media_upload(unit, app_id, export.content.media.upload())
+            for request, _ in export.content.media_uploads():
+                media = operations.apply_media_upload(unit, app_id, request.upload())
                 assert media.status == 200, media.response
         yield Project(document, export, unit, app_id)

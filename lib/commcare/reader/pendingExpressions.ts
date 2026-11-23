@@ -51,6 +51,10 @@ export interface PendingExpression {
 	 *  `null` where that node is no slot HQ interpolates (an owner clause whose claims land on the
 	 *  menu's `case_details`), so the text's shorthand is no use there. */
 	readonly slotText?: string | null;
+	/** Physical screens at which the worker evaluates this column. */
+	readonly suiteDetails?: readonly string[];
+	/** Additional declarations supplied by other inputs of the same physical entry. */
+	readonly suiteSources?: ReadonlyMap<string, string>;
 }
 
 /** What a slot that must hold a tree holds until the expression stage fills

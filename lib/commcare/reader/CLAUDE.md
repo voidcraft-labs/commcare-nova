@@ -212,6 +212,36 @@ Four rules hold everywhere here:
   use no other claim at the node names (`xform/attributeUses.ts`, `Accounting.claimEntry`'s
   `unlessClaimed`). Such a text is read in the logic of its form's first field, since a path's
   uses are classed by its form's rules alone.
+  A form reads each local instance ID through the source it declares. HQ fills a missing ID
+  when its factory and its whole-form scanner supply it on the default build and every retained
+  language profile. The concrete basic and advanced form builds also supply the session and the
+  instances their active case actions generate. The reader checks that each generated
+  case or submission expression reads its intended concrete source, including references
+  with no authored XPath. Multi-select's added declaration alone is no generated read.
+  HQ dispatches each scanner-visible ID before checking existing declarations. A fixed
+  preset with a suffix prevents the build even when the form has declared that ID. A grouped path can read these without a scanner match.
+  A named results or Search input factory requires the app to name that results source. Report factories
+  depend on the source project’s Mobile UCR setting. HQ replaces each report configuration’s UUID in
+  every source read, so a slug that needs the original UUID stays unresolved. An implicit places reference
+  uses the source project’s effective location fixture. Where the legacy location setting applies,
+  the reader checks the source app’s working resource and verifies the source again. An unavailable
+  source leaves the path unresolved; explicit declarations retain their stated source. The scanner sees HQ’s rendered XForm: it normalizes itext, rewrites the default
+  language and version, and omits comments, excluded translations and Vellum attributes. A suite
+  expression gets one HTML-unescape pass for the scanner; Core executes its original XPath. A dotted lookup ID, for
+  example, needs an explicit declaration in the XForm. A selected-entities datum, remote
+  search and lookup fixture can have identical suffixes and still supply different data.
+  Binding, lookup row discovery and source accounting follow those source families.
+  Core accepts nested parentheses around an instance’s one literal ID. HQ’s missing-instance scanner needs
+  an ordinary spelling elsewhere when that ID has no declaration. Search itemsets, required tests and
+  validations in one remote request can supply one another’s instances. Its `itemset.instance_id` is checked
+  by HQ’s validator. The scanner reads the request’s actual XPath texts. A different command’s expressions
+  cannot establish that a Search field can load its table.
+  A calculated case column can read a table supplied by another field on the same physical
+  Results or Details screen. A generated search-results copy of either screen also participates. For a source that depends on a different screen or another part of the
+  command, the reader checks the authenticated working suite and each retained build profile.
+  It follows session datums to their named detail and checks the declaration of every entry and
+  remote request that reaches that screen. It verifies the working source again before using the
+  result. The reading of an emitted form or a different historical source establishes its own scope.
   A secondary instance's source is recorded at its `src`, and its id under
   `xform:model/instance@id` (`provisional.ts::claimDeclarations`). A search row's key is
   recorded at its `property`, and the class its Search field's presence test chooses it in at
@@ -878,13 +908,13 @@ A change that holds one removes its line.
   `expressions/findings.ts::checkErrorEntry`), since the gate holds a session read of worker
   information only by identity, while a read of the worker's own case stands by name and the
   reading declares the name the session reads where one of the pair is read there
-  (`worldEntities.ts::heldWorkerSlugs`); and a level whose name a level already placed (parent
-  before child, siblings in HQ's order) spells in other letters only is `place-not-holdable`
-  (`worldEntities.ts::levelsFromHq`), while a level left out for another reason takes no name and
-  refuses none. CommCare HQ's
+  (`worldEntities.ts::heldWorkerSlugs`). CommCare HQ's
   user-data and location-data schemas hold one slug of such a pair as well
   (`CustomDataFieldsForm.verify_no_duplicates`), so neither a worker property nor a location
-  property can take the second name; HQ holds two level names apart, and the gate does not.
+  property can take the second name. Level names are not folded: HQ's `LocationType` holds two
+  names that differ only in letters apart (`unique_together ('domain', 'name')`), and so do the
+  reading (`worldEntities.ts::levelsFromHq`) and the gate (`validator/rules/organization.ts`), each
+  level under its own code.
 - **A Save to Case block that gives a case another type beside a change that may read it as the
   earlier one**: one finding at the form under
   `questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type`

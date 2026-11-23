@@ -1,10 +1,22 @@
-/** Stable lookup-table limits shared by parsing, persistence, and routes. */
+/**
+ * Stable lookup-table limits shared by parsing, persistence, and routes.
+ *
+ * None of them bounds a table. The rows, columns and bytes below bound ONE
+ * inline change: a request, a batch, an import, or a copy of CommCare HQ's
+ * table taken in one transaction. A table grows past every one of them by
+ * later changes, and a copy too large for one transaction is read in pages
+ * into a staged generation (`lib/lookup/generations`). The cell and row
+ * sizes bound a value and a row stored inline; a larger value is stored
+ * outside the row (`lib/lookup/largeValues`). The Project's physical storage
+ * budget (`lookup_storage_budgets`) is the only total.
+ */
 
 export const LOOKUP_MAX_ROWS = 5_000;
 export const LOOKUP_MAX_COLUMNS = 250;
 export const LOOKUP_MAX_CELL_BYTES = 64 * 1_024;
 export const LOOKUP_MAX_ROW_BYTES = 256 * 1_024;
-export const LOOKUP_MAX_TABLE_BYTES = 8 * 1_024 * 1_024;
+/** The bytes one inline change writes: a request body, a batch, or one inline copy. */
+export const LOOKUP_MAX_CHANGE_BYTES = 8 * 1_024 * 1_024;
 export const LOOKUP_MAX_CSV_BYTES = 8 * 1_024 * 1_024;
 export const LOOKUP_MAX_VALIDATION_DETAILS = 100;
 
@@ -36,56 +48,19 @@ export const LOOKUP_DATA_TYPES = [
 	"datetime",
 ] as const;
 
-/** A tag's or a column's wire name: an unaccented letter or underscore, then
- * letters, digits, underscores or hyphens. A period is left out: CommCare
- * HQ's build reads an unquoted period in a case list filter and a display
- * condition as the current case (`xpath.py::dot_interpolate`). */
-export const LOOKUP_WIRE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+/** A namespace-free XML 1.0 (fifth edition) Name. The unqualified
+ * spelling must survive as one element in the fixture. XPath has a
+ * narrower portable alphabet, checked where a worker reads that name. */
+const XML_NAME_START =
+	"A-Z_a-z\\u00c0-\\u00d6\\u00d8-\\u00f6\\u00f8-\\u02ff\\u0370-\\u037d\\u037f-\\u1fff\\u200c-\\u200d\\u2070-\\u218f\\u2c00-\\u2fef\\u3001-\\ud7ff\\uf900-\\ufdcf\\ufdf0-\\ufffd\\u{10000}-\\u{effff}";
+const XML_NAME_CONTINUATION = ".0-9\\u00b7\\u0300-\\u036f\\u203f-\\u2040-";
+export const LOOKUP_WIRE_IDENTIFIER_PATTERN = new RegExp(
+	`^[${XML_NAME_START}][${XML_NAME_START}${XML_NAME_CONTINUATION}]*$`,
+	"u",
+);
 /** CommCare HQ refuses a name that starts with lowercase `xml`, and only that
  * (`fixtures/utils.py::is_identifier_invalid`). */
 export const LOOKUP_XML_PREFIX_PATTERN = /^xml/;
-
-/**
- * Instance ids the CommCare runtime owns, which a table tag may therefore never
- * take.
- *
- * A form's fixture is registered under the table's bare tag, and
- * `FormDef::addNonMainInstance` is an unconditional map put — so a table tagged
- * `casedb` REPLACES the case database for every form that uses it. The failure
- * is silent and total: case preloads, case-block `relevant` expressions, and the
- * `case_id` calculation all resolve against the fixture, evaluate to an empty
- * node-set, and the worker completes a form that writes nothing at all. That is
- * data loss with no signal, so the collision has to be unconstructible rather
- * than caught downstream.
- *
- * Verified in the runtime source rather than recalled:
- *   `casedb`   — commcare-core `CaseInstanceTreeElement::MODEL_NAME`
- *   `ledgerdb` — commcare-core `LedgerInstanceTreeElement::MODEL_NAME`
- *   `results`  — commcare-core `VirtualInstances::SELCTED_CASES_INSTANCE_ROOT_NAME`
- *   `input`    — commcare-core `VirtualInstances::SEARCH_INSTANCE_ROOT_NAME`
- *   `commcaresession`, `locations`
- *              — formplayer `InstanceAutocompletableItem` (`SESSION_INSTANCE`,
- *                `LOCATION_INSTANCE`)
- *
- * Nova also emits selected-case virtual instances: selected_cases, optionally
- * followed by a case type and prefixed by parent_ for each ancestor, plus
- * search_selected_cases. Table tags share their instance namespace.
- *
- * `CaseInstanceTreeElement` compares its own name case-insensitively, so the
- * whole-name check below is case-insensitive too. The reserved-instance corpus
- * covers fixed names and the dynamic selected-case family. Native Core proof
- * shows that a colliding lookup instance is silently replaced during form
- * setup; shared reference validation refuses historical collisions before
- * emission.
- */
-export const RESERVED_INSTANCE_TAGS = [
-	"casedb",
-	"commcaresession",
-	"ledgerdb",
-	"locations",
-	"results",
-	"input",
-] as const;
 
 /**
  * The two words a tag may not contain anywhere, in the order the runtime
@@ -116,13 +91,7 @@ export type ReservedInstanceTagCause =
 export function reservedInstanceTagCause(
 	tag: string,
 ): ReservedInstanceTagCause | null {
-	const lowered = tag.toLowerCase();
-	if (
-		RESERVED_INSTANCE_TAGS.some((reserved) => reserved === lowered) ||
-		lowered === "search_selected_cases" ||
-		/^(?:parent_)*selected_cases(?:_[a-z0-9_-]+)?$/.test(lowered)
-	)
-		return { kind: "name" };
+	if (tag === "casedb" || tag === "ledgerdb") return { kind: "name" };
 	const word = RESERVED_INSTANCE_TAG_WORDS.find((reserved) =>
 		tag.includes(reserved),
 	);

@@ -155,13 +155,13 @@ vi.mock("@/lib/db/formAttachments", async () => {
 });
 
 const {
-	getLookupDefinitionsMock,
+	readWorkerLookupProjectionMock,
 	loadAppMock,
 	materializeMock,
 	resolveAppScopeMock,
 	resolveAuthorizedAppSnapshotMock,
 } = vi.hoisted(() => ({
-	getLookupDefinitionsMock: vi.fn(),
+	readWorkerLookupProjectionMock: vi.fn(),
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
 	resolveAppScopeMock: vi.fn(),
@@ -174,11 +174,32 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	materializeCaseStoreSchemas: materializeMock,
 }));
 
-vi.mock("@/lib/lookup/service", async () => {
-	const actual = await vi.importActual<typeof import("@/lib/lookup/service")>(
-		"@/lib/lookup/service",
-	);
-	return { ...actual, getLookupDefinitions: getLookupDefinitionsMock };
+// A persona's places and classic groups are read from Postgres; these
+// fixtures give a persona neither, so its restore scope is its own id.
+vi.mock("../restoreScope", async () => {
+	const actual =
+		await vi.importActual<typeof import("../restoreScope")>("../restoreScope");
+	return {
+		...actual,
+		resolveRestoreScope: vi.fn(
+			async (args: Parameters<typeof actual.resolveRestoreScope>[0]) => ({
+				ownerIds: [args.identity.ownerId],
+				groups: [],
+			}),
+		),
+	};
+});
+
+// A signed-in preview reads Project data as the worker, under the session's
+// grant: the worker projection is the Postgres boundary these actions meet.
+vi.mock("@/lib/deployment/workerLookupProjection", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/lib/deployment/workerLookupProjection")
+	>("@/lib/deployment/workerLookupProjection");
+	return {
+		...actual,
+		readWorkerLookupProjection: readWorkerLookupProjectionMock,
+	};
 });
 
 vi.mock("@/lib/db/appAccess", async () => {
@@ -632,6 +653,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 			// The action only reads `session.user.id`; the rest of the
 			// shape is irrelevant for this assertion. Cast through
 			// `unknown` because Better Auth's `Session` type carries
@@ -692,6 +714,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { submitFormAction } = await import("../caseDataBinding");
@@ -718,6 +741,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -792,6 +816,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -959,6 +984,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const committedBlueprint = buildDoc({
 			appName: "Open followup tab",
@@ -1059,6 +1085,7 @@ describe("submitFormAction", () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const mutation: SubmissionWireMutation = {
 			kind: "close",
@@ -1114,6 +1141,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const doc = registrationDoc();
@@ -1186,6 +1214,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const doc = registrationDoc();
@@ -1240,6 +1269,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
 			kind: "current",
@@ -1378,6 +1408,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAuthorizedFormSubmissionSnapshotMock.mockRejectedValueOnce(
 			new AppAccessError("not_member"),
@@ -1400,6 +1431,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -1436,6 +1468,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid } = operationSurveyDoc();
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
@@ -1478,6 +1511,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid, noteUuid } = operationSurveyDoc();
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
@@ -1528,7 +1562,7 @@ describe("submitFormAction", () => {
 		expect(envelope.operations?.operations).toHaveLength(1);
 		expect(envelope.operations?.lookupTableSchemas).toBeUndefined();
 		// Carrier-free operation programs keep the common path read-free.
-		expect(getLookupDefinitionsMock).not.toHaveBeenCalled();
+		expect(readWorkerLookupProjectionMock).not.toHaveBeenCalled();
 		// The authorized snapshot is established before the store opens its
 		// fresh mutation-boundary membership gate.
 		expect(
@@ -1541,6 +1575,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid, noteUuid } = operationSurveyDoc({
 			lookupCondition: true,
@@ -1574,9 +1609,11 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		getLookupDefinitionsMock.mockResolvedValueOnce({
+		readWorkerLookupProjectionMock.mockResolvedValueOnce({
 			projectId: PROJECT_A,
 			projectRevision: "1",
+			rowsByTable: new Map(),
+			workerBinding: "preview-worker",
 			definitions: [
 				{
 					id: OPERATION_LOOKUP_TABLE,
@@ -1628,9 +1665,12 @@ describe("submitFormAction", () => {
 
 		// Exactly the tables the program's own operations reference, read once
 		// under the same Project scope the membership gate resolved.
-		expect(getLookupDefinitionsMock).toHaveBeenCalledTimes(1);
-		expect(getLookupDefinitionsMock).toHaveBeenCalledWith(
-			{ projectId: PROJECT_A, actorId: OWNER_A, role: "owner" },
+		expect(readWorkerLookupProjectionMock).toHaveBeenCalledTimes(1);
+		expect(readWorkerLookupProjectionMock).toHaveBeenCalledWith(
+			{
+				scope: { appId: APP_ID, projectId: PROJECT_A, actorUserId: OWNER_A },
+				grant: { kind: "session", sessionId: "preview-session" },
+			},
 			[OPERATION_LOOKUP_TABLE],
 		);
 		const envelope = applySubmission.mock.calls[0]?.[0];
@@ -1645,7 +1685,7 @@ describe("submitFormAction", () => {
 		const snapshotOrder =
 			loadAuthorizedFormSubmissionSnapshotMock.mock.invocationCallOrder[0];
 		const definitionsReadOrder =
-			getLookupDefinitionsMock.mock.invocationCallOrder[0];
+			readWorkerLookupProjectionMock.mock.invocationCallOrder[0];
 		const applyOrder = applySubmission.mock.invocationCallOrder[0];
 		expect(snapshotOrder).toBeLessThan(definitionsReadOrder);
 		expect(definitionsReadOrder).toBeLessThan(applyOrder);
@@ -1656,6 +1696,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid, noteUuid } = operationSurveyDoc({
 			lookupCondition: true,
@@ -1689,9 +1730,11 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		getLookupDefinitionsMock.mockResolvedValueOnce({
+		readWorkerLookupProjectionMock.mockResolvedValueOnce({
 			projectId: PROJECT_A,
 			projectRevision: "1",
+			rowsByTable: new Map(),
+			workerBinding: "preview-worker",
 			definitions: [
 				{
 					id: OPERATION_LOOKUP_TABLE,
@@ -1748,7 +1791,7 @@ describe("submitFormAction", () => {
 		// The heal retries the WHOLE envelope, so the compiler context the
 		// second attempt runs against must be the same object, not a second
 		// definition read that could observe a changed schema mid-submission.
-		expect(getLookupDefinitionsMock).toHaveBeenCalledTimes(1);
+		expect(readWorkerLookupProjectionMock).toHaveBeenCalledTimes(1);
 		expect(materializeMock).toHaveBeenCalledTimes(1);
 		expect(applySubmission).toHaveBeenCalledTimes(2);
 		const firstEnvelope = applySubmission.mock.calls[0]?.[0];
@@ -1764,6 +1807,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const doc = buildDoc({
@@ -1878,6 +1922,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -1949,6 +1994,7 @@ describe("submitFormAction", () => {
 			const { getSession } = await import("@/lib/auth-utils");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const mutation: SubmissionMutation = {
 				kind: "survey",
@@ -1998,6 +2044,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -2037,6 +2084,7 @@ describe("submitFormAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -2191,6 +2239,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -2236,6 +2285,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = buildBlueprint([PATIENT_CASE_TYPE]);
 		doc.userProperties = {
@@ -2298,6 +2348,7 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const store = actionStore({ query: appCaseQuery() });
 			vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2334,6 +2385,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const store = actionStore({ query: appCaseQuery() });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2371,6 +2423,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAppMock.mockResolvedValueOnce({
 			blueprint: finalSubmissionDoc(),
@@ -2399,6 +2452,7 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			loadAppMock.mockResolvedValueOnce({
 				blueprint: finalSubmissionDoc(),
@@ -2422,6 +2476,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = Object.fromEntries([
@@ -2454,6 +2509,7 @@ describe("loadCasesAction", () => {
 		const { AppAccessError } = await import("@/lib/db/appAccess");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_B },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
 			new AppAccessError("not_member"),
@@ -2476,6 +2532,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const legacyRows = Array.from({ length: 51 }, (_, index) => ({
 			...buildSyntheticRow({ name: `Patient ${index + 1}` }),
@@ -2523,6 +2580,7 @@ describe("loadCasesAction", () => {
 		const { log } = await import("@/lib/logger");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2556,6 +2614,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2587,6 +2646,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = actionStore({ query: appCaseQuery() });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
@@ -2653,6 +2713,7 @@ describe("loadCasesAction", () => {
 				name: "Owner A",
 				email: "owner-a@example.org",
 			},
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2693,6 +2754,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2732,6 +2794,7 @@ describe("loadCasesAction", () => {
 				name: "Owner A",
 				email: "owner-a@example.org",
 			},
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2812,6 +2875,7 @@ describe("loadCasesAction", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const query = appCaseQuery([]);
 			vi.mocked(withProjectContext).mockResolvedValueOnce(
@@ -2851,6 +2915,7 @@ describe("loadCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2905,6 +2970,7 @@ describe("loadCasesAction", () => {
 		const { AppAccessError } = await import("@/lib/db/appAccess");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_B },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
 			new AppAccessError("not_member"),
@@ -2926,6 +2992,7 @@ describe("loadCaseCountAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -2962,6 +3029,7 @@ describe("loadCaseCountAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const store = actionStore({ count: vi.fn().mockResolvedValueOnce(0) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -3009,6 +3077,7 @@ describe("countCasesOwnedByAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -3045,6 +3114,7 @@ describe("countCasesOwnedByAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAppMock.mockResolvedValueOnce({
 			blueprint: finalSubmissionDoc(),
@@ -3070,6 +3140,7 @@ describe("claimSearchedCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = { [personaUuid]: { uuid: personaUuid, name: "Asha" } };
@@ -3176,6 +3247,7 @@ describe("releaseClaimedCasesAction and countClaimedCasesAction", () => {
 			const personaUuid = testUuid("persona-release");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const doc = finalSubmissionDoc();
 			doc.personas = { [personaUuid]: { uuid: personaUuid, name: "Asha" } };
@@ -3224,6 +3296,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -3251,6 +3324,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -3302,6 +3376,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const failures: ReadonlyArray<CasePropertyFailure> = [
 			{ path: "/age", message: "must be integer" },
@@ -3341,6 +3416,7 @@ describe("resetSampleCasesAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		// The heal re-materializes from the persisted blueprint, so it reads
@@ -3378,6 +3454,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Owner A", email: "owner-a@example.org" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -3452,6 +3529,7 @@ describe("loadCaseDataAction session projection", () => {
 			const { withProjectContext } = await import("@/lib/case-store");
 			vi.mocked(getSession).mockResolvedValueOnce({
 				user: { id: OWNER_A },
+				session: { id: "preview-session" },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const query = appCaseQuery([
 				{
@@ -3507,6 +3585,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const store = actionStore({ query: appCaseQuery() });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -3557,6 +3636,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = finalSubmissionDoc();
 		doc.personas = {
@@ -3602,6 +3682,7 @@ describe("loadCaseDataAction session projection", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const doc = buildBlueprint([PATIENT_CASE_TYPE]);
 		doc.userProperties = {
@@ -3671,6 +3752,7 @@ describe("loadFilterPreviewAction", () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { loadFilterPreviewAction } = await import("../caseDataBinding");
@@ -3694,6 +3776,7 @@ describe("loadFilterPreviewAction", () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { loadFilterPreviewAction } = await import("../caseDataBinding");
@@ -3758,6 +3841,7 @@ describe("loadFilterPreviewAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const stubStore = {
 			...actionStore(),
@@ -3831,6 +3915,7 @@ describe("loadFilterPreviewAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const candidate = buildBlueprint([
 			{
@@ -3895,6 +3980,7 @@ describe("loadFilterPreviewAction", () => {
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
+			session: { id: "preview-session" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
 		const { loadFilterPreviewAction } = await import("../caseDataBinding");

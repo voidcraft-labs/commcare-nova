@@ -5,7 +5,7 @@
  * domain walk or implication between instance ids adds dependencies.
  *
  * Sources: HQ's suite_xml/post_process/instances.py factories and Core's
- * CommCareInstanceInitializer.generateRoot. Lookup forms use the bare tag;
+ * CommCareInstanceInitializer.generateRoot. Lookup forms use their allocated id,
  * suites use the fixture id, and both resolve the same delivered fixture.
  */
 

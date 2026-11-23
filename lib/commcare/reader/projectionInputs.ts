@@ -81,9 +81,19 @@ function isLookupDataType(value: string): value is LookupDataType {
 /** The catalog's tables as the wire naming reads them. A column typed outside a
  *  table's own types breaks the catalog's contract, which its builder holds. */
 function namingDefinitions(ctx: ReadContext): LookupNamingDefinition[] {
+	// A read of a row's attribute or a field's property names its member by
+	// id, so the naming carries each table's attributes and each column's
+	// properties and repetition, as the emission's own naming does.
 	return [...ctx.input.lookup.definitions.values()].map((table) => ({
 		id: table.id,
 		tag: table.tag,
+		...(table.attributes?.length && {
+			attributes: table.attributes.map(({ id, wireName, label }) => ({
+				id,
+				wireName,
+				label,
+			})),
+		}),
 		columns: table.columns.map((column) => {
 			if (!isLookupDataType(column.dataType))
 				throw new Error(
@@ -94,6 +104,14 @@ function namingDefinitions(ctx: ReadContext): LookupNamingDefinition[] {
 				wireName: column.wireName,
 				label: column.label,
 				dataType: column.dataType,
+				...(column.repeated && { repeated: true as const }),
+				...(column.properties?.length && {
+					properties: column.properties.map(({ id, wireName, label }) => ({
+						id,
+						wireName,
+						label,
+					})),
+				}),
 			};
 		}),
 	}));

@@ -50,7 +50,11 @@ import { caseTypeHopMap } from "../../caseTypeDepths";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FoldApi } from "../../xpath/formParseScope";
-import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
+import {
+	type FormSyntax,
+	formSyntaxKey,
+	literalInstanceId,
+} from "../../xpath/formSyntax";
 import { formUserProperty } from "../../xpath/referenceBindings";
 import { sameJson } from "../jsonCursor";
 
@@ -264,10 +268,7 @@ export function flat(node: FormSyntax, parents = false): FlatPath | undefined {
 }
 
 export function instanceId(path: FlatPath | undefined): string | undefined {
-	const root = path?.root;
-	if (root === undefined || root.kind !== "call" || root.name !== "instance")
-		return undefined;
-	return stringValue(root.args[0]);
+	return literalInstanceId(path?.root)?.value;
 }
 
 function isCurrent(path: FlatPath | undefined): boolean {

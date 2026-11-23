@@ -6563,6 +6563,7 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "expressions-and-data/commtrack-products-commtrack-programs",
+        "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",

@@ -1,6 +1,7 @@
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { type ValidationError, validationError } from "../validator/errors";
 import { xmlTextIssue } from "../xmlText";
+import { lookupLexicalSlots } from "./lexicalSlots";
 import { lookupTableManagedInDomain } from "./xmlText";
 
 // Native HQ IteratorJSONReader.set_field_value applies Python str.strip to every
@@ -36,18 +37,20 @@ export function lookupHqCellTextFindings(
 	for (const table of snapshot.definitions) {
 		const rows = snapshot.rowsByTable.get(table.id) ?? [];
 		const managedInDomain = lookupTableManagedInDomain(table);
-		for (const column of table.columns) {
+		for (const column of lookupLexicalSlots(table)) {
 			let count = 0;
 			const examples: { row: number; id: string }[] = [];
 			rows.forEach((row, index) => {
-				const value = row.values[column.id];
-				// XML-invalid values already have a more fundamental, all-carrier finding.
-				if (
-					typeof value !== "string" ||
-					xmlTextIssue(value) !== undefined ||
-					!hqWouldTrimLookupText(value)
-				)
-					return;
+				let changed = false;
+				for (const value of column.values(row))
+					if (
+						xmlTextIssue(value) === undefined &&
+						hqWouldTrimLookupText(value)
+					) {
+						changed = true;
+						break;
+					}
+				if (!changed) return;
 				count++;
 				if (examples.length < 5) examples.push({ row: index + 1, id: row.id });
 			});
@@ -65,7 +68,7 @@ export function lookupHqCellTextFindings(
 					{
 						tableId: table.id,
 						tableName: table.name,
-						columnId: column.id,
+						...column.target,
 						columnLabel: column.label,
 						offendingRowCount: String(count),
 						offendingRowPositions: examples.map((item) => item.row).join(","),

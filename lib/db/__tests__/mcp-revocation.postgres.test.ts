@@ -225,6 +225,14 @@ it("real signed JWTs enforce signature, issuer, audience, expiry, scopes and liv
 						userId: "native-user",
 						scopes: ["nova.read", "nova.write"],
 						authKind: "oauth",
+						// Project data reads lock this verified token's grant.
+						grant: {
+							kind: "oauth",
+							clientId,
+							issuedAt: claims.iat,
+							expiresAt: claims.exp,
+							scopes: ["nova.read", "nova.write"],
+						},
 					}),
 				},
 			],

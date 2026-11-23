@@ -27,11 +27,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+
+import pytest
 from pathlib import Path
 
 from lxml import etree
 
-from proof.checks import manifest_usage, parity
+from proof.checks import lookup_parity, manifest_usage, observations, parity
 from proof.checks.manifest_usage import HELD, REFUSED, Entry, Manifest, Use
 
 KEY = "schema:Module.case_type"
@@ -56,6 +58,66 @@ MANIFEST = Manifest(
     readers={},
 )
 WHERE = "/modules/0/case_type"
+
+
+def test_lookup_resource_claims_compare_referenced_sources_to_hq_definitions():
+    manifest = parity.manifest()
+    field = {"field_name": "code", "properties": []}
+    rows = {"status": 200, "body": json.dumps({"objects": [{"fields": {"code": "west"}}]})}
+    tags = ["locations", "search_selected_cases", "casedb", "selected_cases_casedb", "ledgerdb", "regions",
+            "input", "LedgerDB", "groups", "results", "registry", "__proto__", "hasOwnProperty", "HasOwnProperty"]
+    tables = {tag: {"tag": tag, "fields": [field], "is_global": True} for tag in tags}
+    tables["groups"]["is_global"] = False
+    tables["results"]["fields"] = []
+    reads = {"projectData": {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": list(tables.values())})},
+        "fixtureRows": {**dict.fromkeys(tags, rows), "registry": {"status": 500, "body": ""}},
+    }}
+    asked = {*tags, "missing"} - {"search_selected_cases"}
+
+    def claim(tag):
+        return parity.Record("lookup-tables", f"/{tag}/tag", None, lookup_parity.ALIAS_ENTRY, "held")
+
+    assert lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "locations", "__proto__", "hasOwnProperty")]) == []
+    drift = lookup_parity.differences("sample", manifest, asked, reads, [claim(tag) for tag in ("input", "LedgerDB", "groups", "search_selected_cases", "__proto__", "hasOwnProperty")])
+    assert [one.at for one in drift] == [
+        "/lookup-model:LookupTable.tag/unseen@lookup-tables/groups/tag",
+        "/lookup-model:LookupTable.tag/unclaimed@lookup-tables/locations/tag",
+        "/lookup-model:LookupTable.tag/unseen@lookup-tables/search_selected_cases/tag",
+    ]
+    reads["projectData"]["fixtureRows"]["registry"] = {"status": 403, "body": ""}
+    assert lookup_parity.differences("sample", manifest, asked, reads, []) == []
+    reads["projectData"]["lookupTables"] = {"status": 403, "body": ""}
+    assert lookup_parity.differences("sample", manifest, asked, reads, []) == []
+    assert lookup_parity.differences("sample", manifest, asked, reads, [claim("locations")])[0].path.endswith("/unseen")
+    del reads["projectData"]["lookupTables"]
+    with pytest.raises(observations.RecordIncomplete, match="lookup definition list"):
+        lookup_parity.differences("sample", manifest, asked, reads, [])
+
+
+def test_lookup_names_claim_their_actual_fields_on_the_referenced_table():
+    manifest = parity.manifest()
+    objects = [
+        {"tag": "meeting.sites", "is_global": True, "fields": [{"field_name": n} for n in ("site.id", "label", "名前")]},
+        {"tag": "unused", "is_global": True, "fields": [{"field_name": "site.id"}]},
+    ]
+    reads = {"projectData": {
+        "lookupTables": {"status": 200, "body": json.dumps({"objects": objects})},
+        "fixtureRows": {"meeting.sites": {"status": 200, "body": json.dumps({"objects": []})}},
+    }}
+    asked = {"meeting.sites"}
+    claims = [
+        parity.Record("lookup-tables", "/meeting.sites/tag", None, lookup_parity.DOTTED_ENTRY, "held"),
+        parity.Record("lookup-tables", "/meeting.sites/fields/0/field_name", None, lookup_parity.DOTTED_ENTRY, "held"),
+        parity.Record("lookup-tables", "/meeting.sites/fields/2/field_name", None, lookup_parity.UNICODE_ENTRY, "held"),
+    ]
+    assert lookup_parity.differences("names", manifest, asked, reads, claims) == []
+    borrowed = parity.Record("lookup-tables", "/unused/fields/0/field_name", None, lookup_parity.DOTTED_ENTRY, "held")
+    found = lookup_parity.differences("names", manifest, asked, reads, [claims[0], claims[2], borrowed])
+    assert [one.at for one in found] == [
+        "/lookup-model:TypeField.name/unclaimed@lookup-tables/meeting.sites/fields/0/field_name",
+        "/lookup-model:TypeField.name/unseen@lookup-tables/unused/fields/0/field_name",
+    ]
 
 
 def _use(standing=HELD, entries=()):

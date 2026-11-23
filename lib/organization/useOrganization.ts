@@ -34,7 +34,7 @@ const actions = {
 
 export function useOrganization(
 	appId: string,
-): OrganizationView & OrganizationWriter {
+): OrganizationView & OrganizationWriter & { appId: string } {
 	const collab = useReconcilerContext();
 	const collabRef = useRef(collab);
 	collabRef.current = collab;
@@ -61,5 +61,5 @@ export function useOrganization(
 		() => collab?.subscribeAppOrganization(client.reload),
 		[client, collab],
 	);
-	return { ...snapshot, ...client.writer, reload: client.reload };
+	return { appId, ...snapshot, ...client.writer, reload: client.reload };
 }

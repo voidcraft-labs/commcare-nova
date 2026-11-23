@@ -26,6 +26,7 @@ import {
 } from "@/lib/commcare/client";
 import { decrypt, encrypt } from "@/lib/commcare/encryption";
 import { type CommCareServer, isCommCareServer } from "@/lib/commcare/servers";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { resolveHqDomain } from "./domainResolution";
 import { getAppDb } from "./pg";
 
@@ -57,8 +58,22 @@ export type CommCareSettingsPublic =
  * case. The decrypted key is only attached on success, so a doomed request
  * never triggers a KMS call.
  */
+export function hqConnectionDigest(
+	username: string,
+	encryptedApiKey: string,
+	server: string,
+	domain: string,
+) {
+	return canonicalJsonDigest([username, encryptedApiKey, server, domain]);
+}
+
 export type HqCredentialsResult =
-	| { ok: true; creds: CommCareCredentials; domain: CommCareDomain }
+	| {
+			ok: true;
+			creds: CommCareCredentials;
+			domain: CommCareDomain;
+			connectionDigest: string;
+	  }
 	| { ok: false; error: "not_configured" }
 	| HqTargetRefusal;
 
@@ -203,6 +218,12 @@ export async function getHqCredentials(
 			server: target.server,
 		},
 		domain: target.domain,
+		connectionDigest: hqConnectionDigest(
+			target.username,
+			target.encryptedApiKey,
+			target.server,
+			target.domain.name,
+		),
 	};
 }
 

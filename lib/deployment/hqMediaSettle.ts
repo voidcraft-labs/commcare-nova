@@ -26,6 +26,7 @@ import {
 	HQ_MEDIA_IN_FLIGHT_MAX_BYTES,
 	HQ_MEDIA_READ_CONCURRENCY,
 	type HqMediaFileRead,
+	readHqMediaDigest,
 	readHqMediaFile,
 } from "@/lib/commcare/hq/media";
 import { giveBackHeld } from "@/lib/commcare/hq/memoryMeter";
@@ -75,11 +76,18 @@ interface FileRequest {
 	readonly mediaType: HqMediaType;
 	/** The largest limit among the kinds of the paths that name it. */
 	readonly maxBytes: number;
+	readonly streamSize?: number;
 }
 
 /**
  * Asks CommCare HQ for the file of each `moved` and each `unrecorded` path,
- * once per id, and hashes its bytes with SHA-256:
+ * once per id, and hashes its bytes with SHA-256. A `recorded` path is never
+ * read: CommCare HQ keys a file document by the hash of its bytes and never
+ * replaces the attachment of one it holds (`hqmedia/models.py::
+ * CommCareMultimedia.get_by_data`, `attach_data`), so the id Nova recorded
+ * still names the bytes it recorded. A path whose published file states its
+ * size is hashed as it streams, never held whole, unless the caller retains
+ * it within the kind's limit:
  *
  * - bytes of the path's own `contentHash`: `recorded`, and `learned` gains
  *   the path under that id;
@@ -103,7 +111,10 @@ interface FileRequest {
 export async function settleHqMedia(
 	creds: CommCareCredentials,
 	paths: readonly HqMediaPath[],
-	options: { readonly cancel?: AbortSignal; readonly retain?: boolean },
+	options: {
+		readonly cancel?: AbortSignal;
+		readonly retain?: boolean;
+	},
 ): Promise<SettledHqMedia> {
 	const requests = new Map<string, FileRequest>();
 	for (const path of paths) {
@@ -114,6 +125,10 @@ export async function settleHqMedia(
 			multimediaId: path.hq.multimediaId,
 			mediaType: held?.mediaType ?? path.hq.mediaType,
 			maxBytes: Math.max(held?.maxBytes ?? 0, cap),
+			streamSize:
+				path.sizeBytes === undefined
+					? held?.streamSize
+					: Math.max(held?.streamSize ?? 0, path.sizeBytes),
 		});
 	}
 
@@ -129,6 +144,27 @@ export async function settleHqMedia(
 	let thrown: { readonly error: unknown } | null = null;
 
 	const ask = async (request: FileRequest): Promise<void> => {
+		if (
+			request.streamSize !== undefined &&
+			(!options.retain || request.streamSize > request.maxBytes)
+		) {
+			const result = await readHqMediaDigest(
+				creds,
+				request.mediaType,
+				request.multimediaId,
+				request.streamSize,
+				signal,
+			);
+			if ("success" in result) {
+				failure ??= result;
+				stop.abort();
+				return;
+			}
+			verdicts.set(request.multimediaId, result);
+			if (options.retain && result.kind === "missing")
+				reads.set(request.multimediaId, { kind: "missing" });
+			return;
+		}
 		const read: HqMediaFileRead = await readHqMediaFile(
 			creds,
 			request.mediaType,

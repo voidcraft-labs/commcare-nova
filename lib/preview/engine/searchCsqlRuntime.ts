@@ -84,6 +84,7 @@ import {
 	caseDatabaseXPathInstance,
 	locationsXPathInstance,
 	searchScreenXPathInstances,
+	workerGroupsXPathInstance,
 } from "./xpathInstances";
 
 /**
@@ -502,6 +503,8 @@ function searchCsqlInstances(
 			materializableCaseTypes(world.doc),
 		),
 	);
+	const groups = world.caseDatabase?.workerGroups;
+	if (groups) instances.set("groups", workerGroupsXPathInstance(groups));
 	const locations = world.caseDatabase?.locations;
 	if (locations !== undefined)
 		instances.set("locations", locationsXPathInstance(locations, world.doc));
@@ -616,6 +619,7 @@ function readsDeviceData(node: Expression | Term): boolean {
 	switch (node.kind) {
 		case "cases":
 		case "selected-cases":
+		case "worker-groups":
 		case "locations":
 		case "project":
 			return true;

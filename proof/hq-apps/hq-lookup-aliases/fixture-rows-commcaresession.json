@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"meta\": {\"limit\": 1000, \"next\": null, \"offset\": 0, \"previous\": null, \"total_count\": 2}, \"objects\": [{\"fields\": {\"id\": \"initial\", \"name\": \"First visit\"}, \"fixture_type\": \"commcaresession\", \"id\": \"3e5408efbb8b43d19198cf5ac20683f8\", \"resource_uri\": \"\"}, {\"fields\": {\"id\": \"follow_up\", \"name\": \"Follow-up\"}, \"fixture_type\": \"commcaresession\", \"id\": \"59f1b765e12144caa72c19d838090924\", \"resource_uri\": \"\"}]}"
+}

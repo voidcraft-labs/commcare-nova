@@ -1,3 +1,5 @@
+import { generatedFormInstances, sourceFactories } from "../sourceFactories";
+import { builtFormInstanceSources } from "./buildInstances";
 /**
  * The form reader: each form's source read into the draft's fields (stage 3),
  * then each field minted in document order and its expressions registered for
@@ -261,6 +263,7 @@ export interface ReadXForm {
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
 	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly readSources: ReadonlyMap<string, string>;
 	/** The instance ids a choice list's lookup itemset reads. */
 	readonly carrierInstances: ReadonlySet<string>;
 	/** Set by `mintFields`. */
@@ -406,7 +409,6 @@ function readForm(
 	);
 	const setvalues = readSetvalues(parsed, tree);
 	const instanceSources = readInstances(parsed, cursor, formPlace);
-	const carrierInstances = new Set<string>();
 	const controls = readControls({
 		parsed,
 		tree,
@@ -415,6 +417,47 @@ function readForm(
 		accounting,
 		formPlace,
 	});
+	const uploads = new Set(
+		controls.all
+			.filter((control) => control.tag === "upload")
+			.map((control) => control.element.attribs.ref),
+	);
+	const buildInstances = generatedFormInstances(ctx.input, form, uploads);
+	// The case/meta builder uses literal local IDs and never replaces a
+	// declaration. selected_cases is supplied for authored expressions only.
+	for (const instance of parsed.instances) {
+		const required = buildInstances.get(instance.id);
+		if (
+			required !== undefined &&
+			instance.id !== "selected_cases" &&
+			instance.src !== required
+		) {
+			accounting.circumstance("form-data-source-conflict", formPlace, {
+				name: instance.id,
+			});
+		}
+	}
+	const readSources = builtFormInstanceSources(
+		parsed,
+		ctx.input.source,
+		instanceSources,
+		sourceFactories(ctx.input),
+		buildInstances,
+		(id) =>
+			accounting.circumstance("unbuildable-data-source-name", formPlace, {
+				name: id,
+			}),
+		ctx.input.observeFactory &&
+			((profile) => (kind, id) =>
+				ctx.input.observeFactory?.(kind, id, {
+					menu: form.menu,
+					form: form.index,
+					xmlns: form.xmlns,
+					profile,
+				})),
+	);
+	const carrierInstances = new Set<string>();
+
 	const intents: AppearanceForm = {
 		intents: new Set(
 			parsed.head.children
@@ -453,7 +496,7 @@ function readForm(
 		accounting,
 		formPlace,
 		lookup: ctx.input.lookup,
-		instanceSources,
+		instanceSources: readSources,
 		intents,
 		unreadTable: (table) => ctx.facts.unreadTables.push(table),
 		carrierRead: (id) => carrierInstances.add(id),
@@ -753,6 +796,7 @@ function readForm(
 		connect: connect.connect,
 		itext: itext ?? EMPTY_ITEXT_TABLE,
 		instanceSources,
+		readSources,
 		carrierInstances,
 		sourceNames: undefined,
 		inertAppearances,
@@ -1073,6 +1117,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 	const sourceNames = new Map<Uuid, ReadSourceNames>();
 	const itextUnits = new Map<Uuid, ReadonlyMap<string, ItextUnit>>();
 	const instanceSources = new Map<Uuid, ReadonlyMap<string, string>>();
+	const formReadSources = new Map<Uuid, ReadonlyMap<string, string>>();
 	const generatedValues = new Map<Uuid, ReadonlyMap<string, GeneratedValue>>();
 	const operationIdPaths = new Map<Uuid, ReadonlyMap<string, Uuid>>();
 	const formPlaces = new Map<Uuid, HqPlace>();
@@ -1088,6 +1133,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 			if (xform.sourceNames !== undefined)
 				sourceNames.set(form.uuid, xform.sourceNames);
 			instanceSources.set(form.uuid, xform.instanceSources);
+			formReadSources.set(form.uuid, xform.readSources);
 			generatedValues.set(form.uuid, xform.generatedValues);
 			const units = new Map<string, ItextUnit>();
 			for (const id of xform.itext.ids()) {
@@ -1099,9 +1145,11 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		}
 	return {
 		lookup: ctx.input.lookup.definitions,
+		factories: sourceFactories(ctx.input),
 		sourceNames,
 		itextUnits,
 		instanceSources,
+		formReadSources,
 		generatedValues,
 		operationIdPaths,
 		recordDialect: ctx.input.recordDialect,

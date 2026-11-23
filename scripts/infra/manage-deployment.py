@@ -61,9 +61,9 @@ def canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-def media_findings(actual: dict) -> list[str]:
+def media_findings(actual: dict, rules: list[dict] | None = None) -> list[str]:
     findings = []
-    if sorted(map(canonical, actual.get("lifecycle", {}).get("rule", []))) != sorted(map(canonical, MEDIA_POLICY["lifecycle"]["rule"])):
+    if sorted(map(canonical, actual.get("lifecycle", {}).get("rule", []))) != sorted(map(canonical, rules if rules is not None else MEDIA_POLICY["lifecycle"]["rule"])):
         findings.append("temporary-object lifecycle rules")
     if str(actual.get("softDeletePolicy", {}).get("retentionDurationSeconds", "0")) != "0":
         findings.append("soft delete must be disabled")
@@ -83,6 +83,8 @@ def media_findings(actual: dict) -> list[str]:
 def media(apply: bool, check: bool = False) -> None:
     url = f"https://storage.googleapis.com/storage/v1/b/{MEDIA_BUCKET}"
     current = api("GET", url)
+    if check:
+        private_bucket_access(current)
     findings = media_findings(current)
     if not findings:
         print("Media retention and CORS match the checked-in policy.")
@@ -99,6 +101,38 @@ def media(apply: bool, check: bool = False) -> None:
     if apply:
         api("PATCH", f"{url}?ifMetagenerationMatch={generation}", MEDIA_POLICY)
         media(False, check=True)
+
+
+def private_bucket_access(bucket: dict) -> None:
+    access = bucket.get("iamConfiguration", {})
+    if access.get("publicAccessPrevention") != "enforced" or access.get("uniformBucketLevelAccess", {}).get("enabled") is not True:
+        raise ValueError("Private exports require enforced public access prevention and uniform bucket-level access.")
+
+
+def export_lifecycle(action: str, generation: str, apply: bool) -> None:
+    """Apply or undo just the private download rule on an inspected bucket."""
+    url = f"https://storage.googleapis.com/storage/v1/b/{MEDIA_BUCKET}"
+    full = MEDIA_POLICY["lifecycle"]["rule"]
+    prior = [r for r in full if r["condition"].get("matchesPrefix") != ["private-exports/"]]
+    if len(prior) + 1 != len(full):
+        raise ValueError("Expected exactly one private export rule")
+    source, destination = (prior, full) if action == "install" else (full, prior)
+    current = api("GET", url)
+    private_bucket_access(current)
+    if str(current.get("metageneration", "")) != generation:
+        raise ValueError("The inspected bucket metageneration changed. Inspect the current policy before continuing.")
+    discrepancies = media_findings(current, source)
+    if discrepancies:
+        raise ValueError(f"Expected source policy changed: {', '.join(discrepancies)}")
+    print(json.dumps({"action": action, "ifMetagenerationMatch": generation, "lifecycle": {"rule": destination}}))
+    if apply:
+        api("PATCH", f"{url}?ifMetagenerationMatch={generation}", {"lifecycle": {"rule": destination}})
+        after = api("GET", url)
+        private_bucket_access(after)
+        discrepancies = media_findings(after, destination)
+        if discrepancies or str(after.get("metageneration", "")) in ("", generation):
+            raise ValueError("The bucket did not confirm the complete expected policy and its new metageneration.")
+        print(json.dumps({"verifiedMetageneration": str(after["metageneration"])}))
 
 
 def scheduler_facts() -> dict | None:
@@ -227,16 +261,22 @@ def cache(apply: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("operation", choices=("check", "media", "scheduler", "job", "cache"))
+    parser.add_argument("operation", choices=("check", "media", "export-lifecycle", "scheduler", "job", "cache"))
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--job", choices=tuple(JOBS))
     parser.add_argument("--image")
+    parser.add_argument("--action", choices=("install", "restore"))
+    parser.add_argument("--if-metageneration")
     args = parser.parse_args()
     if args.operation == "check":
         if args.apply:
             parser.error("check is always read only")
         media(False, check=True)
         scheduler(False, check=True)
+    elif args.operation == "export-lifecycle":
+        if not args.action or not args.if_metageneration or not args.if_metageneration.isdecimal():
+            parser.error("export-lifecycle requires --action and --if-metageneration")
+        export_lifecycle(args.action, args.if_metageneration, args.apply)
     elif args.operation == "job":
         if args.job is None or args.image is None:
             parser.error("job requires --job and --image")

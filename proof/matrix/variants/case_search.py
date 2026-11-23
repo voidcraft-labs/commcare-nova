@@ -593,3 +593,19 @@ def field_naming_a_distance_unit(authoring, app_id):
             ),
         ),
     )
+
+
+from proof.matrix.bases.lookups import changes_lookup_data, qualify_districts
+
+
+@changes_lookup_data
+def district_choice_details(authoring, app_id):
+    """Rich Search choices save each district code and sort by its French name."""
+    qualify_districts(authoring)
+    base = "/modules/0/search_config/properties/5/itemset"
+    _set_each(
+        authoring, app_id,
+        (base + "/value", "@row_code"),
+        (base + "/label", "name[@lang='fr'][1]"),
+        (base + "/sort", "name[@lang='en'][1]"),
+    )

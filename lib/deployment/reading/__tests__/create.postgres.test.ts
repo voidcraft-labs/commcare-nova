@@ -43,7 +43,13 @@ import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
 import { publishReadyMedia } from "@/lib/media/publishReadyMedia";
 import { validateSniffedMediaBytes } from "@/lib/media/validate";
-import { deleteAsset, uploadAssetBytes } from "@/lib/storage/media";
+import {
+	copyAssetObjectIfAbsent,
+	deleteAsset,
+	deleteAssetGeneration,
+	stageAssetBytes,
+	uploadAssetBytes,
+} from "@/lib/storage/media";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { birthAdoptedApp } from "../../__tests__/adoptedBirth";
 import { nextPublishAction, publishedRemoteApp } from "../../resources";
@@ -99,6 +105,18 @@ vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: vi.fn(),
 	deleteAsset: vi.fn(),
 	downloadAssetBytes: vi.fn(),
+	stageAssetBytes: vi.fn(
+		async ({ gcsObjectKey }: { gcsObjectKey: string }) => ({
+			gcsObjectKey,
+			generation: "1",
+			checksum: "staged",
+		}),
+	),
+	copyAssetObjectIfAbsent: vi.fn(async () => ({
+		destinationGeneration: "1",
+		replay: false,
+	})),
+	deleteAssetGeneration: vi.fn(async () => undefined),
 }));
 beforeEach(() => {
 	seam.beforeBirth = null;
@@ -107,7 +125,21 @@ beforeEach(() => {
 	vi.mocked(uploadAssetBytes).mockReset();
 	vi.mocked(uploadAssetBytes).mockResolvedValue(undefined);
 	vi.mocked(deleteAsset).mockReset();
+	vi.mocked(stageAssetBytes).mockClear();
+	vi.mocked(copyAssetObjectIfAbsent).mockClear();
+	vi.mocked(deleteAssetGeneration).mockClear();
 });
+
+/** The staged objects a create wrote and did not delete, by key. */
+function stagedKeysLeft(): readonly string[] {
+	const deleted = new Set(
+		vi.mocked(deleteAssetGeneration).mock.calls.map(([key]) => key),
+	);
+	return vi
+		.mocked(stageAssetBytes)
+		.mock.calls.map(([args]) => args.gcsObjectKey)
+		.filter((key) => !deleted.has(key));
+}
 
 const h = setupAppStateTestDb("bring_in_create_", {
 	authSchema: "migrated",
@@ -478,7 +510,8 @@ describe("createFromReview", () => {
 			expect(answer.now.readingId).toBe(review.readingId);
 			expect(answer.now.reviewDigest).not.toBe(review.reviewDigest);
 			expect(await rowCounts()).toEqual(before);
-			expect(uploadAssetBytes).not.toHaveBeenCalled();
+			expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+			expect(stagedKeysLeft()).toEqual([]);
 		});
 	});
 
@@ -657,7 +690,8 @@ describe("createFromReview", () => {
 				});
 				expect(result).toMatchObject(answer);
 				expect(await rowCounts()).toEqual(counts);
-				expect(uploadAssetBytes).not.toHaveBeenCalled();
+				expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+				expect(stagedKeysLeft()).toEqual([]);
 			},
 		);
 	});
@@ -781,6 +815,7 @@ describe("createFromReview", () => {
 			assetId: "0a6f2c1e-3b4d-4e5f-8a9b-1c2d3e4f5a6b" as MediaAssetId,
 		});
 		vi.mocked(uploadAssetBytes).mockClear();
+		vi.mocked(copyAssetObjectIfAbsent).mockClear();
 		const answer = await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer, { source: iconSource(), times: 2 });
 			servePng(peer, "menuicon", 2);
@@ -790,7 +825,8 @@ describe("createFromReview", () => {
 			...walkAssetRefs(hydratePersistedBlueprint(receiptOf(answer).blueprint)),
 		].map((ref) => ref.assetId);
 		expect(assets).toEqual([held.assetId]);
-		expect(uploadAssetBytes).not.toHaveBeenCalled();
+		expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+		expect(stagedKeysLeft()).toEqual([]);
 	});
 
 	it("answers the same create sent twice in turn with the same app, asking CommCare HQ nothing the second time", async () => {
@@ -1019,7 +1055,8 @@ describe("createFromReview", () => {
 		expect(
 			await count(sql`SELECT count(*)::text AS count FROM media_assets`),
 		).toBe(assets);
-		expect(uploadAssetBytes).not.toHaveBeenCalled();
+		expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+		expect(stagedKeysLeft()).toEqual([]);
 	});
 
 	it("refuses an input that names a Project the actor was not authorized in, having asked CommCare HQ nothing and written nothing", async () => {
@@ -1037,7 +1074,7 @@ describe("createFromReview", () => {
 			expect(requested(peer)).toEqual([]);
 		});
 		expect(await rowCounts()).toEqual(before);
-		expect(uploadAssetBytes).not.toHaveBeenCalled();
+		expect(stageAssetBytes).not.toHaveBeenCalled();
 	});
 
 	it("answers a repeated create from the app as it stands: edited, moved, and in recently deleted", async () => {
@@ -1091,7 +1128,9 @@ describe("createFromReview", () => {
 			return input;
 		});
 		expect(await count(sql`SELECT count(*)::text AS count FROM apps`)).toBe(0);
-		expect(uploadAssetBytes).toHaveBeenCalledTimes(1);
+		expect(copyAssetObjectIfAbsent).toHaveBeenCalledTimes(1);
+		/* The file it published left its staged object; the failed create deleted it. */
+		expect(stagedKeysLeft()).toEqual([]);
 		seam.beforeBirth = null;
 		const answer = await withHttpPeer(async (peer) => {
 			serveFixtureApp(peer, { source: iconSource() });
@@ -1103,7 +1142,9 @@ describe("createFromReview", () => {
 		expect(
 			await count(sql`SELECT count(*)::text AS count FROM media_assets`),
 		).toBe(1);
-		expect(uploadAssetBytes).toHaveBeenCalledTimes(1);
+		/* The second create found the published file by its bytes. */
+		expect(copyAssetObjectIfAbsent).toHaveBeenCalledTimes(1);
+		expect(stagedKeysLeft()).toEqual([]);
 	});
 
 	describe("a person who may only view the Project by the time the create acts brings nothing in", () => {
@@ -1129,7 +1170,8 @@ describe("createFromReview", () => {
 				refusal: "no_project_access",
 			});
 			expect(await rowCounts()).toEqual(before);
-			expect(uploadAssetBytes).not.toHaveBeenCalled();
+			expect(copyAssetObjectIfAbsent).not.toHaveBeenCalled();
+			expect(stagedKeysLeft()).toEqual([]);
 		});
 
 		it("answers no_project_access at the birth, having written no app", async () => {
@@ -1147,7 +1189,7 @@ describe("createFromReview", () => {
 				refusal: "no_project_access",
 			});
 			/* The file reached the Project's library while its publisher could still edit. */
-			expect(uploadAssetBytes).toHaveBeenCalledTimes(1);
+			expect(copyAssetObjectIfAbsent).toHaveBeenCalledTimes(1);
 			expect(await count(sql`SELECT count(*)::text AS count FROM apps`)).toBe(
 				0,
 			);

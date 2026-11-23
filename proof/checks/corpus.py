@@ -359,6 +359,13 @@ class Captured:
     meta: dict
     lookups: Captured | None = None
     media: Captured | None = None
+    batches: tuple = ()
+
+    def media_uploads(self):
+        """Every physical body and its peer counter in send order, including older single-body captures."""
+        if self.batches:
+            return self.batches
+        return ((self.media, self.media_save_counter),) if self.media else ()
 
     @property
     def content_type(self):
@@ -574,6 +581,19 @@ def _captured(directory: Path, name: str):
         if not isinstance(named, str) or not named.endswith(".body"):
             raise CorpusLayoutError(f"{sidecar} names {what} {named!r}, which is not a .body file.")
         beside[key] = _captured(directory, named.removesuffix(".body"))
+    if "mediaBatches" in meta:
+        batches = meta["mediaBatches"]
+        if "media" in meta or "mediaSaveCounter" in meta or not isinstance(batches, list) or len(batches) < 2:
+            raise CorpusLayoutError(f"{sidecar} must name each physical media batch and counter in order.")
+        parsed = []
+        for batch in batches:
+            if not isinstance(batch, dict) or not isinstance(batch.get("body"), str) or not batch["body"].endswith(".body"):
+                raise CorpusLayoutError(f"{sidecar} names an invalid physical media body {batch!r}.")
+            counter = Captured(body, batch).save_counter
+            if counter is None or counter[0] is None:
+                raise CorpusLayoutError(f"{sidecar} names a media batch without its import's current save counter.")
+            parsed.append((_captured(directory, batch["body"].removesuffix(".body")), counter))
+        beside["batches"] = tuple(parsed)
     return Captured(body, meta, **beside)
 
 

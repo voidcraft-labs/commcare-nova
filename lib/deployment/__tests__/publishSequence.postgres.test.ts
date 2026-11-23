@@ -1,3 +1,11 @@
+import { v7 } from "uuid";
+import { withAppTx } from "@/lib/db/pg";
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
+import { getLookupTable } from "@/lib/lookup/service";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
+
 /**
  * The publish sequence: the requests `publishAppToHq` sends, what it
  * records, and what it refuses, over real Postgres and a peer standing in
@@ -40,7 +48,7 @@ import { caseOperationFixture } from "@/lib/commcare/__tests__/caseOperationFixt
 import { readXmlEvidence } from "@/lib/commcare/__tests__/xmlEvidence";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
-import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
+import { expandDoc } from "@/lib/commcare/expander";
 import { readHqAppSource } from "@/lib/commcare/hq/appSource";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import {
@@ -69,9 +77,8 @@ import {
 } from "@/lib/domain";
 import { authoredCaseIdPrefix } from "@/lib/domain/caseOperationIdentity";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
-import { createLocation } from "@/lib/organization/service";
+import { createLocation, updateLocation } from "@/lib/organization/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
-import { downloadAssetBytes } from "@/lib/storage/media";
 import { adoptedAppBaselineWrite } from "../adoption";
 import { attachmentUrlTarget } from "../attachmentTarget";
 import { resolveDownloadTarget } from "../downloadTarget";
@@ -102,7 +109,6 @@ import {
 	type PublishInput,
 	type PublishOutcome,
 	projectSpaceConfirmations,
-	publishAppToHq,
 	setupArtifactFor,
 } from "../service";
 import {
@@ -114,15 +120,19 @@ import {
 	readTargetIdentity,
 } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
+import { servePlaceInventory } from "./placeInventoryPeer";
+import { servePublishedImage, storeProjectImages } from "./publishedImage";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({
+	streamAsset: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+}));
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
-	vi.mocked(downloadAssetBytes).mockReset();
 });
 afterEach(() => vi.useRealTimers());
 
@@ -428,21 +438,16 @@ function tableRows(peer: MockAgent) {
 }
 /** The levels, and the places the project space holds. */
 function inventory(peer: MockAgent, withNorth: boolean) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: withNorth ? [remotePlace] : [],
-	});
+	servePlaceInventory(
+		peer,
+		"clinic",
+		withNorth ? [remotePlace] : [],
+		remoteLevels,
+	);
 }
 /** The inventory read after the last batch, which reads the pushed place back. */
 function placesReadBack(peer: MockAgent) {
-	request(peer, PLACES).reply(200, {
-		meta: { next: null },
-		objects: [remotePlace],
-	});
+	inventory(peer, true);
 }
 
 function emptyTables(peer: MockAgent) {
@@ -455,11 +460,7 @@ function tablesAfterPush(peer: MockAgent) {
 	});
 }
 function emptyInventory(peer: MockAgent) {
-	request(peer, LEVELS).reply(200, {
-		meta: { next: null },
-		objects: remoteLevels,
-	});
-	request(peer, PLACES).reply(200, { meta: { next: null }, objects: [] });
+	inventory(peer, false);
 }
 function workbookTaken(peer: MockAgent) {
 	request(peer, WORKBOOK, "POST").reply(200, { code: 200, message: "Done" });
@@ -499,7 +500,7 @@ describe("a first publish", () => {
 				media_format: "png",
 			})
 			.execute();
-		vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+		storeProjectImages(PROJECT, [png]);
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
 		await withPeer(async (peer) => {
 			accepted(peer, 201, HQ_APP, bodies);
@@ -521,6 +522,13 @@ describe("a first publish", () => {
 				errors: [],
 			});
 
+			const filePath = servePublishedImage(peer, {
+				source: SOURCE,
+				read: "source-after-create-then-update",
+				wirePath: `commcare/${hash}.png`,
+				id: "published-image",
+				bytes: png,
+			});
 			const outcome = await publish(doc);
 			expect(outcome).toMatchObject({
 				landed: true,
@@ -534,15 +542,20 @@ describe("a first publish", () => {
 				`GET ${SOURCE}`,
 				`POST ${media}`,
 				`GET ${media}status/media-job/`,
+				`GET ${SOURCE}`,
+				`GET ${filePath}`,
 			]);
 		});
 
 		const [shell, update] = bodies;
 		expect(shell.appId).toBeNull();
-		// The app-wide location choice is present even when it is false.
+		// The app-wide location choice is present even when it is false; this
+		// app has no case-sharing setting, so the shell leaves HQ's alone.
 		// `add_ons` and `profile` arrive with the update over the shell's read.
 		// HQ keeps its own `build_spec`, so no body names one.
-		expect(Object.keys(shell.app)).toEqual(APP_SHELL_KEYS);
+		expect(Object.keys(shell.app)).toEqual(
+			APP_SHELL_KEYS.filter((key) => key !== "case_sharing"),
+		);
 		expect(shell.app).toMatchObject({
 			modules: [],
 			_attachments: {},
@@ -661,19 +674,103 @@ describe("a first publish", () => {
 				`GET ${TABLES}`,
 				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 				`POST ${WORKBOOK}`,
 				`GET ${TABLES}`,
 				`GET ${ROWS}`,
 				`PATCH ${PLACE_PUSH}`,
+				`GET ${LEVELS}`,
 				`GET ${PLACES}`,
+				"GET /a/clinic/api/location/v1/?limit=1000",
 				`GET ${SOURCE}`,
 				`POST ${IMPORT}`,
 				`GET ${SOURCE}`,
 			]);
 		});
 	});
+
+	it.each(["inline audience", "streamed audience", "expired session"] as const)(
+		"keeps the shell and sends no workbook when the %s changes before upload",
+		async (circumstance) => {
+			const doc = await seed(await lookupDocument());
+			const tableId = lookupTableIdSchema.parse(
+				(
+					await h
+						.db()
+						.selectFrom("lookup_tables")
+						.select("id")
+						.where("tag", "=", "facilities")
+						.executeTakeFirstOrThrow()
+				).id,
+			);
+			const scope = { projectId: PROJECT, actorId: ACTOR, role: "editor" };
+			let table = await getLookupTable(scope, tableId);
+			if (circumstance === "streamed audience") {
+				const [code, name] = table.columns;
+				await replaceLookupRows(scope, {
+					tableId,
+					expectedTableRevision: table.tableRevision,
+					rows: Array.from({ length: 1001 }, (_, i) => ({
+						[code.id]: String(i),
+						[name.id]: `Area ${i}`,
+					})),
+				});
+				table = await getLookupTable(scope, tableId);
+			}
+			await withPeer(async (peer) => {
+				emptyTables(peer);
+				accepted(peer, 201);
+				const source = retainedPublishRead("source-shell");
+				request(peer, SOURCE).reply(async () => {
+					if (circumstance === "expired session")
+						await sql`DELETE FROM auth_session WHERE "userId"=${ACTOR}`.execute(
+							h.db(),
+						);
+					else
+						await withAppTx(async (tx) =>
+							applyLookupAuthoringBatchInTransaction(
+								tx,
+								await authorizeLookupWriteInTransaction(tx, scope, "edit"),
+								{
+									operationId: v7(),
+									updateTables: [
+										{
+											tableId,
+											expectedTableRevision: table.tableRevision,
+											workerAccess: "assigned",
+										},
+									],
+								},
+							),
+						);
+					return {
+						statusCode: source.status,
+						data: retainedBodyText(source),
+						responseOptions: { headers: source.headers },
+					};
+				});
+				const result = await publish(doc);
+				expect(refusal(result)).toMatchObject({
+					phase: "resources",
+					failure: { code: "app_not_ready" },
+				});
+				expect(
+					requests(peer).filter((path) => path.startsWith("POST")),
+				).toEqual([`POST ${IMPORT}`]);
+				expect((await state())?.active.map((r) => r.kind)).toEqual(["app"]);
+				expect(
+					await h
+						.db()
+						.selectFrom("hq_remote_writes")
+						.select("id")
+						.where("resource_kind", "=", "lookup-table")
+						.execute(),
+				).toEqual([]);
+			});
+		},
+	);
 
 	it("keeps the mapped shell when the read after the create fails, and fills that same app once a person publishes over it", async () => {
 		const doc = await seed(await lookupDocument());
@@ -988,6 +1085,18 @@ describe("a stop at a table or place push", () => {
 				accepted(peer, 200);
 				serve(peer, SOURCE, "source-live");
 				expect((await publish(doc)).landed).toBe(true);
+				if (places) {
+					// Identical places are never patched. Make this a real
+					// authored edit before exercising HQ's write refusal.
+					const location = await h
+						.db()
+						.selectFrom("app_locations")
+						.select("id")
+						.where("app_id", "=", APP)
+						.where("site_code", "=", "north")
+						.executeTakeFirstOrThrow();
+					await updateLocation(SCOPE, location.id, { name: "North region" });
+				}
 				preflight(peer, true);
 				serve(peer, SOURCE, "source-live");
 				stop(peer);
@@ -1118,6 +1227,7 @@ describe("a failure after the shell is mapped", () => {
 				serve(peer, SOURCE, "source-shell");
 				workbookTaken(peer);
 				tablesAfterPush(peer);
+				tableRows(peer);
 				serve(peer, SOURCE, answer);
 				expect(refusal(await publish(doc))).toMatchObject({
 					phase: "upload",
@@ -2818,10 +2928,10 @@ describe("a publish over an app Nova brought in", () => {
 				media_format: "png",
 			})
 			.execute();
-		vi.mocked(downloadAssetBytes).mockResolvedValue(png);
+		storeProjectImages(PROJECT, [png]);
 		const media = `/a/clinic/apps/api/${HQ_APP}/multimedia/`;
 		const zips: AdmZip[] = [];
-		const mediaTaken = (peer: MockAgent) => {
+		const mediaTaken = (peer: MockAgent, wirePath: string) => {
 			request(peer, media, "POST").reply(async (opts) => {
 				const form = await readMultipartRequest(opts);
 				const file = form.get("bulk_upload_file");
@@ -2841,6 +2951,13 @@ describe("a publish over an app Nova brought in", () => {
 				unmatched_files: [],
 				errors: [],
 			});
+			servePublishedImage(peer, {
+				source: SOURCE,
+				read: "source-live",
+				wirePath,
+				id: "uploaded-adopted-image",
+				bytes: png,
+			});
 		};
 		const bodies: { appId: unknown; app: Record<string, unknown> }[] = [];
 		await withPeer(async (peer) => {
@@ -2848,7 +2965,7 @@ describe("a publish over an app Nova brought in", () => {
 			serve(peer, SOURCE, "source-shell");
 			accepted(peer, 200);
 			serve(peer, SOURCE, "source-live");
-			mediaTaken(peer);
+			mediaTaken(peer, `commcare/${hash}.png`);
 			expect((await publish(doc)).landed).toBe(true);
 			await bringIn(
 				peer,
@@ -2889,14 +3006,34 @@ describe("a publish over an app Nova brought in", () => {
 				})
 				.execute();
 
+			// This caller still holds the head it submitted for the first push.
+			// That push recorded the keyed creation's placement. On republish,
+			// Nova reloads that newer head and repeats its target preflight.
+			serve(peer, SOURCE, "source-live");
 			serve(peer, SOURCE, "source-live");
 			accepted(peer, 200, HQ_APP, bodies);
 			serve(peer, SOURCE, "source-live");
-			/* The caller's document predates the placements the first publish
-			 * recorded, so preflight reads the app once more over the head. */
-			serve(peer, SOURCE, "source-live");
-			mediaTaken(peer);
-			expect((await publish(doc)).landed).toBe(true);
+			mediaTaken(peer, heldPath);
+			const sent = requests(peer).length;
+			const outcome = await publish(doc);
+			expect({
+				refusal: outcome.landed ? null : outcome.refusal,
+				members: zips[1]?.getEntries().map((entry) => entry.entryName),
+				requests: requests(peer).slice(sent),
+			}).toEqual({
+				refusal: null,
+				members: [heldPath],
+				requests: [
+					`GET ${SOURCE}`,
+					`GET ${SOURCE}`,
+					`POST ${IMPORT}`,
+					`GET ${SOURCE}`,
+					`POST ${media}`,
+					`GET ${media}status/media-job/`,
+					`GET ${SOURCE}`,
+					"GET /hq/multimedia/file/CommCareImage/uploaded-adopted-image/",
+				],
+			});
 		});
 
 		const [update] = bodies;

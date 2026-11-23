@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Selectable, Transaction } from "kysely";
+import { type Selectable, sql, type Transaction } from "kysely";
 import { type ZodType, z } from "zod";
 import {
 	type AppDatabase,
@@ -11,8 +11,11 @@ import {
 } from "@/lib/db/pg";
 import {
 	type LookupColumnId,
+	type LookupMemberId,
+	type LookupRowId,
 	type LookupTableId,
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
@@ -20,32 +23,55 @@ import { balancedKeysBetween, deriveKeyAtIndex } from "@/lib/lookup/orderKeys";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateLookupRowValues } from "./coercion";
 import {
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_COLUMNS,
+	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 	LOOKUP_MAX_VALIDATION_DETAILS,
 } from "./constants";
 import { readLookupDefinitionsInTransaction } from "./definitionSnapshot";
 import { LookupError } from "./errors";
 import { readLookupFixtureDataInTransaction } from "./fixtureSnapshot";
-import { formatLookupBytes, formatLookupCount } from "./format";
+import { formatLookupBytes } from "./format";
+import { externalTextMatch } from "./largeValues/projection";
 import { lookupHqOriginOf, lookupManifestHqOriginOf } from "./managedRules";
+import { holdLookupReaderReview } from "./memberGovernance";
+import {
+	columnWithMembers,
+	insertLookupMembers,
+	readTableMembers,
+} from "./members";
+import { assertLookupRenamesAllowed } from "./nameGovernance";
+import { lookupEditOnce, lookupPriorReceipt } from "./operationReceipt";
+import { checkedRowContent } from "./rowContent";
+import { rowIndex, rowOrderForPlacement } from "./rowOrdering";
+import { readLookupRowParts } from "./rowParts";
+import {
+	patchLookupRowInTransaction,
+	replaceLookupRowInTransaction,
+} from "./rowPatch";
 import {
 	addLookupColumnInputSchema,
 	createLookupRowInputSchema,
 	createLookupTableInputSchema,
 	deleteLookupRowInputSchema,
-	lookupRowValuesSchema,
+	lookupRowContentSchema,
 	moveLookupColumnInputSchema,
 	moveLookupRowInputSchema,
 	parseLookupRevision,
 	replaceLookupRowsInputSchema,
+	storedLookupRowValuesSchema,
 	updateLookupColumnLabelInputSchema,
 	updateLookupColumnWireNameInputSchema,
 	updateLookupRowInputSchema,
 	updateLookupTableNameInputSchema,
 	updateLookupTableTagInputSchema,
 } from "./schema";
+import {
+	inlineLookupInventoryAvailable,
+	requiresLookupProjection,
+	workerLookupUnavailable,
+} from "./source";
 import type {
 	AddLookupColumnInput,
 	CreateLookupRowInput,
@@ -57,6 +83,7 @@ import type {
 	LookupDefinitionsSnapshot,
 	LookupFixtureDataSnapshot,
 	LookupManifest,
+	LookupMember,
 	LookupMutationReceipt,
 	LookupRevision,
 	LookupRow,
@@ -140,21 +167,15 @@ function manifestEntryOf(table: StoredTable): LookupTableManifestEntry {
 	return {
 		id: lookupTableIdSchema.parse(table.id),
 		name: table.name,
+		...(table.worker_access === "assigned"
+			? { workerAccess: "assigned" as const }
+			: {}),
 		tag: table.tag,
 		columnCount: table.column_count,
-		rowCount: table.row_count,
-		dataBytes: table.data_bytes,
+		rowCount: requiresLookupProjection(hq) ? null : table.row_count,
+		dataBytes: requiresLookupProjection(hq) ? null : Number(table.data_bytes),
 		...revisionsOf(table),
 		...(hq === undefined ? {} : { hq }),
-	};
-}
-
-function columnOf(row: StoredColumn): LookupColumn {
-	return {
-		id: lookupColumnIdSchema.parse(row.id),
-		wireName: row.wire_name,
-		label: row.label,
-		dataType: row.data_type,
 	};
 }
 
@@ -165,8 +186,9 @@ function compareAscii(left: string, right: string): number {
 function lookupRowOf(row: StoredRow): LookupRow {
 	return {
 		id: lookupRowIdSchema.parse(row.id),
-		values: lookupRowValuesSchema.parse(row.values),
-		valueBytes: row.value_bytes,
+		values: storedLookupRowValuesSchema.parse(row.values),
+		...lookupRowContentSchema.parse(row.content),
+		valueBytes: row.value_bytes + Number(row.external_bytes),
 		createdBy: row.created_by,
 		updatedBy: row.updated_by,
 		createdAt: toIso(row.created_at),
@@ -179,21 +201,31 @@ function snapshotOf(args: {
 	projectRevision: LookupRevision;
 	table: StoredTable;
 	columns: readonly StoredColumn[];
+	members: ReadonlyMap<LookupColumnId | null, readonly LookupMember[]>;
 	rows: readonly StoredRow[];
 }): LookupTableSnapshot {
-	const columns = args.columns.map(columnOf);
+	const columns = args.columns.map((column) =>
+		columnWithMembers(column, args.members.get(column.id)),
+	);
+	const attributes = args.members.get(null);
 	const hq = lookupHqOriginOf(args.table, columns);
 	return {
 		projectId: args.projectId,
 		projectRevision: args.projectRevision,
 		id: lookupTableIdSchema.parse(args.table.id),
 		name: args.table.name,
+		...(args.table.worker_access === "assigned"
+			? { workerAccess: "assigned" as const }
+			: {}),
 		tag: args.table.tag,
 		columns,
+		...(attributes?.length ? { attributes } : {}),
 		columnCount: args.table.column_count,
 		rows: args.rows.map(lookupRowOf),
-		rowCount: args.table.row_count,
-		dataBytes: args.table.data_bytes,
+		rowCount: requiresLookupProjection(hq) ? null : args.table.row_count,
+		dataBytes: requiresLookupProjection(hq)
+			? null
+			: Number(args.table.data_bytes),
 		createdBy: args.table.created_by,
 		updatedBy: args.table.updated_by,
 		createdAt: toIso(args.table.created_at),
@@ -216,12 +248,16 @@ const lookupRowsCursorSchema = z.strictObject({
 	tableId: lookupTableIdSchema,
 	tableRevision: z.string(),
 	requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
-	offset: z.number().int().nonnegative().max(LOOKUP_MAX_ROWS),
+	offset: z.number().int().nonnegative().max(2147483647),
+	part: z.number().int().positive().optional(),
 });
 
 function lookupRowsRequestDigest(input: {
 	readonly query: string;
 	readonly columnIds: readonly LookupColumnId[];
+	readonly rowId?: LookupRowId;
+	readonly attributeIds?: readonly LookupMemberId[];
+	readonly attributesOnly?: boolean;
 }): string {
 	return canonicalJsonDigest(input);
 }
@@ -234,12 +270,19 @@ export interface LookupRowsPageBudgetOptions {
 function normalizedPageInput(input: LookupRowsPageInput): {
 	tableId: LookupTableId;
 	query: string;
+	rowId?: LookupRowId;
+	attributeIds?: LookupMemberId[];
 	columnIds: LookupColumnId[];
 	cursor?: string;
 } {
 	const parsed = z
 		.strictObject({
 			tableId: lookupTableIdSchema,
+			rowId: lookupRowIdSchema.optional(),
+			attributeIds: lookupMemberIdSchema
+				.array()
+				.max(LOOKUP_MAX_COLUMNS)
+				.optional(),
 			query: z.string().trim().max(200).optional(),
 			columnIds: z
 				.array(lookupColumnIdSchema)
@@ -266,8 +309,16 @@ function normalizedPageInput(input: LookupRowsPageInput): {
 	);
 	return {
 		tableId: parsed.data.tableId,
+		...(parsed.data.rowId ? { rowId: parsed.data.rowId } : {}),
 		query: (parsed.data.query ?? "").toLocaleLowerCase("en-US"),
 		columnIds,
+		...(parsed.data.attributeIds === undefined
+			? {}
+			: {
+					attributeIds: [...new Set(parsed.data.attributeIds)].sort(
+						compareAscii,
+					),
+				}),
 		...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
 	};
 }
@@ -311,10 +362,17 @@ function notFound(): never {
  * Postgres-generated total the write would have produced, so the sentence is
  * a measurement rather than an estimate.
  */
+function rejectInlineRowLimit(): never {
+	throw new LookupError(
+		"storage_limit",
+		"This row is too large for one inline edit. You can edit the individual values or import the table in parts.",
+	);
+}
+
 function rejectStorageLimit(dataBytes: number): never {
 	throw new LookupError(
 		"storage_limit",
-		`This change would put ${formatLookupBytes(dataBytes)} of data in the table, which is over its limit of ${formatLookupBytes(LOOKUP_MAX_TABLE_BYTES)}. Shorten some values, remove some rows, or split the data across two tables.`,
+		`This inline replacement uses ${formatLookupBytes(dataBytes)}. You can import it in parts to stay within ${formatLookupBytes(LOOKUP_MAX_CHANGE_BYTES)} per request.`,
 	);
 }
 
@@ -346,20 +404,6 @@ async function orderedRows(
 		.orderBy("order_key", "asc")
 		.orderBy("id", "asc")
 		.execute();
-}
-
-function valuesEqual(left: LookupRowValues, right: LookupRowValues): boolean {
-	const leftKeys = Object.keys(left).sort();
-	const rightKeys = Object.keys(right).sort();
-	if (leftKeys.length !== rightKeys.length) return false;
-	for (let index = 0; index < leftKeys.length; index++) {
-		const key = leftKeys[index];
-		const columnId = lookupColumnIdSchema.parse(key);
-		if (key !== rightKeys[index] || left[columnId] !== right[columnId]) {
-			return false;
-		}
-	}
-	return true;
 }
 
 function validateRowsAgainstColumns(
@@ -433,13 +477,14 @@ function translateExpectedSqlError(error: unknown): never {
 	) {
 		throw new LookupError(
 			"invalid_input",
-			"That column wire name is already used in this table.",
+			"That export name is already used in this table.",
 			{ cause: error },
 		);
 	}
 	if (
-		sqlError.code === "23514" &&
-		constraint === "lookup_rows_value_bytes_check"
+		(sqlError.code === "23514" &&
+			constraint === "lookup_rows_value_bytes_check") ||
+		(sqlError.code === "P0001" && constraint === "lookup_storage_capacity")
 	) {
 		throw new LookupError(
 			"storage_limit",
@@ -545,8 +590,9 @@ export async function readAllLookupDefinitionsInTransaction(
 			return {
 				...definition,
 				columnCount: table.column_count,
-				rowCount: table.row_count,
-				dataBytes: table.data_bytes,
+				...(requiresLookupProjection(definition.hq)
+					? {}
+					: { rowCount: table.row_count, dataBytes: Number(table.data_bytes) }),
 				...revisionsOf(table),
 			};
 		}),
@@ -576,6 +622,7 @@ export async function getAllLookupDefinitions(
 export async function getLookupFixtureData(
 	scope: LookupScope,
 	tableIds: readonly LookupTableId[],
+	purpose: "worker" | "export" = "worker",
 ): Promise<LookupFixtureDataSnapshot> {
 	assertScope(scope);
 	const db = await getAppDb();
@@ -583,9 +630,53 @@ export async function getLookupFixtureData(
 		.transaction()
 		.setIsolationLevel("repeatable read")
 		.setAccessMode("read only")
-		.execute((tx) =>
-			readLookupFixtureDataInTransaction(tx, scope.projectId, tableIds),
-		);
+		.execute(async (tx) => {
+			const snapshot = await readLookupFixtureDataInTransaction(
+				tx,
+				scope.projectId,
+				tableIds,
+				purpose === "export" ? "archive" : "device",
+			);
+			const unavailable = snapshot.definitions.find(
+				(table) =>
+					table.workerAccess === "assigned" ||
+					requiresLookupProjection(table.hq),
+			);
+			if (purpose === "worker" && unavailable)
+				throw new LookupError(
+					"managed_in_hq",
+					workerLookupUnavailable(unavailable.name),
+				);
+			return snapshot;
+		});
+}
+
+/** The CSV header and its expected revision from one snapshot. No row
+ * values are read, including when a scalar import is replacing a large table. */
+export async function getLookupImportDefinition(
+	scope: LookupScope,
+	tableIdInput: LookupTableId,
+) {
+	assertScope(scope);
+	const tableId = parseTableId(tableIdInput);
+	return (await getAppDb())
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.setAccessMode("read only")
+		.execute(async (tx) => {
+			const table = await tx
+				.selectFrom("lookup_tables")
+				.selectAll()
+				.where("project_id", "=", scope.projectId)
+				.where("id", "=", tableId)
+				.executeTakeFirst();
+			if (!table) notFound();
+			const [definition] = (
+				await readLookupDefinitionsInTransaction(tx, scope.projectId, [tableId])
+			).definitions;
+			if (!definition) notFound();
+			return { ...definition, ...revisionsOf(table) };
+		});
 }
 
 /** Complete definition and ordered row body from one repeatable-read snapshot. */
@@ -613,15 +704,252 @@ export async function getLookupTable(
 				.where("id", "=", tableId)
 				.executeTakeFirst();
 			if (!table) notFound();
+			const hq = lookupManifestHqOriginOf(table);
+			if (!inlineLookupInventoryAvailable(hq))
+				throw new LookupError(
+					"managed_in_hq",
+					"You can open the latest source inventory in Project data.",
+				);
+			if (requiresLookupProjection(hq))
+				throw new LookupError(
+					"managed_in_hq",
+					"You can open this table’s source inventory using its current connection.",
+				);
 			const columns = await orderedColumns(tx, scope.projectId, tableId);
+			if (
+				table.row_count > LOOKUP_MAX_ROWS ||
+				Number(table.data_bytes) > LOOKUP_MAX_CHANGE_BYTES ||
+				(await tx
+					.selectFrom("lookup_rows")
+					.select("id")
+					.where("project_id", "=", scope.projectId)
+					.where("table_id", "=", tableId)
+					.where(rowHasExternalValues)
+					.limit(1)
+					.executeTakeFirst())
+			)
+				throw new LookupError(
+					"storage_limit",
+					"This table opens in pages. You can browse or search its rows in Project data.",
+				);
 			const rows = await orderedRows(tx, scope.projectId, tableId);
 			return snapshotOf({
 				projectId: scope.projectId,
 				projectRevision: parseLookupRevision(state?.revision ?? "0"),
 				table,
 				columns,
+				members: await readTableMembers(tx, scope.projectId, tableId),
 				rows,
 			});
+		});
+}
+
+const rowHasExternalValues = sql<boolean>`EXISTS (
+	SELECT 1 FROM lookup_cell_value_refs v WHERE v.project_id=lookup_rows.project_id AND v.table_id=lookup_rows.table_id AND v.row_id=lookup_rows.id)`;
+
+function rowContainsText(
+	query: string,
+	projection?: readonly LookupColumnId[],
+	attributes?: readonly LookupMemberId[],
+) {
+	return sql<boolean>`(EXISTS (
+				SELECT 1 FROM (
+					SELECT v FROM jsonb_each_text("values") c(k,v) WHERE (${projection ?? null}::text[] IS NULL OR k = ANY(${projection ?? null}::text[]))
+					UNION ALL
+					SELECT v FROM jsonb_each_text(content->'attributes') a(k,v) WHERE (${attributes ?? null}::text[] IS NULL OR k = ANY(${attributes ?? null}::text[]))
+					UNION ALL
+					SELECT t FROM jsonb_each(content->'occurrences') c(k,list)
+						CROSS JOIN LATERAL jsonb_array_elements(list) o(item)
+						CROSS JOIN LATERAL (SELECT item->>'text' AS t UNION ALL SELECT v FROM jsonb_each_text(item->'properties') p(k,v)) parts
+						WHERE (${projection ?? null}::text[] IS NULL OR c.k = ANY(${projection ?? null}::text[]))
+				) searchable WHERE strpos(lower(v),${query}) > 0
+			) OR ${externalTextMatch(query, projection, attributes)})`;
+}
+
+/** Browser row navigation reads a bounded ordered window at one table revision.
+ * Positions used by drag and move address source rows, including when search
+ * hides other rows. A direct row jump can recover its current position. */
+export async function getLookupTableWindow(
+	scope: LookupScope,
+	tableIdInput: LookupTableId,
+	input: { after?: string; rowId?: LookupRowId; query?: string } = {},
+): Promise<LookupTableSnapshot> {
+	assertScope(scope);
+	const tableId = parseTableId(tableIdInput);
+	const query = z
+		.string()
+		.trim()
+		.max(200)
+		.parse(input.query ?? "")
+		.toLocaleLowerCase("en-US");
+	if (input.rowId) lookupRowIdSchema.parse(input.rowId);
+	if (input.rowId && input.after)
+		throw new LookupError("invalid_input", "Choose a row or a page to open.");
+	const windowSize = 25;
+	const digest = canonicalJsonDigest({ view: "project-data", query });
+	const cursor = input.after ? decodeRowsCursor(input.after) : undefined;
+	if (
+		cursor &&
+		(cursor.requestDigest !== digest ||
+			cursor.projectId !== scope.projectId ||
+			cursor.tableId !== tableId ||
+			cursor.part !== undefined)
+	)
+		throw new LookupError(
+			"invalid_input",
+			"This page belongs to another table or search. You can restart the search.",
+		);
+	return (await getAppDb())
+		.transaction()
+		.setIsolationLevel("repeatable read")
+		.setAccessMode("read only")
+		.execute(async (tx) => {
+			const state = await tx
+				.selectFrom("lookup_project_state")
+				.select("revision")
+				.where("project_id", "=", scope.projectId)
+				.executeTakeFirst();
+			const table = await tx
+				.selectFrom("lookup_tables")
+				.selectAll()
+				.where("project_id", "=", scope.projectId)
+				.where("id", "=", tableId)
+				.executeTakeFirst();
+			if (!table) notFound();
+			const revisions = revisionsOf(table);
+			if (cursor && cursor.tableRevision !== revisions.tableRevision)
+				throw new LookupError(
+					"conflict",
+					"The table changed while this page was open. You can reload its rows.",
+					{ currentRevisions: revisions },
+				);
+			const hq = lookupManifestHqOriginOf(table);
+			if (requiresLookupProjection(hq)) {
+				return {
+					...snapshotOf({
+						projectId: scope.projectId,
+						projectRevision: parseLookupRevision(state?.revision ?? "0"),
+						table,
+						columns: await orderedColumns(tx, scope.projectId, tableId),
+						members: await readTableMembers(tx, scope.projectId, tableId),
+						rows: [],
+					}),
+					rowsUnavailable: true,
+					matchingRowCount: 0,
+					rowOffset: 0,
+				};
+			}
+			let selection = tx
+				.selectFrom("lookup_rows")
+				.where("project_id", "=", scope.projectId)
+				.where("table_id", "=", tableId);
+			if (query) selection = selection.where(rowContainsText(query));
+			const total = query
+				? Number(
+						(
+							await selection
+								.select((eb) => eb.fn.countAll().as("total"))
+								.executeTakeFirstOrThrow()
+						).total,
+					)
+				: table.row_count;
+			let offset = cursor?.offset ?? 0;
+			let missingRowId: LookupRowId | undefined;
+			if (input.rowId) {
+				const wanted = await selection
+					.select(["id", "order_key"])
+					.where("id", "=", input.rowId)
+					.executeTakeFirst();
+				if (!wanted) missingRowId = input.rowId;
+				else {
+					const rank = await selection
+						.select((eb) => eb.fn.countAll().as("total"))
+						.where(
+							sql<boolean>`(order_key,id)<(${wanted.order_key}::text COLLATE "C",${wanted.id}::uuid)`,
+						)
+						.executeTakeFirstOrThrow();
+					offset = Math.floor(Number(rank.total) / windowSize) * windowSize;
+				}
+			}
+			const inlineBytes = 20 * 1024;
+			const inline = sql<boolean>`(value_bytes<=${inlineBytes} AND NOT ${rowHasExternalValues})`;
+			const rows = await selection
+				.select([
+					"id",
+					"project_id",
+					"table_id",
+					"order_key",
+					"created_at",
+					"updated_at",
+					"created_by",
+					"updated_by",
+					"value_bytes",
+					"external_bytes",
+					"hq_row_id",
+					"hq_sort_key",
+					inline.as("inline"),
+				])
+				.select([
+					sql<
+						StoredRow["values"]
+					>`CASE WHEN ${inline} THEN "values" ELSE '{}'::jsonb END`.as(
+						"values",
+					),
+					sql<unknown>`CASE WHEN ${inline} THEN content ELSE '{}'::jsonb END`.as(
+						"content",
+					),
+				])
+				.orderBy("order_key")
+				.orderBy("id")
+				.offset(offset)
+				.limit(windowSize)
+				.execute();
+			const columns = await orderedColumns(tx, scope.projectId, tableId);
+			const snapshot = snapshotOf({
+				projectId: scope.projectId,
+				projectRevision: parseLookupRevision(state?.revision ?? "0"),
+				table,
+				columns,
+				members: await readTableMembers(tx, scope.projectId, tableId),
+				rows,
+			});
+			const indexById = new Map<LookupRowId, number>();
+			if (query && rows.length) {
+				const ranked = await sql<{
+					id: LookupRowId;
+					pos: number;
+				}>`SELECT id,pos FROM (SELECT id,(row_number() OVER (ORDER BY order_key,id)-1)::integer AS pos
+				FROM lookup_rows WHERE project_id=${scope.projectId} AND table_id=${tableId}::uuid) ordered WHERE id=ANY(${rows.map((row) => row.id)}::uuid[])`.execute(
+					tx,
+				);
+				for (const row of ranked.rows) indexById.set(row.id, row.pos);
+			}
+			const at = (next: number) =>
+				encodeRowsCursor({
+					v: 2,
+					projectId: scope.projectId,
+					tableId,
+					tableRevision: revisions.tableRevision,
+					requestDigest: digest,
+					offset: next,
+				});
+			return {
+				...snapshot,
+				rowOffset: offset,
+				...(missingRowId ? { missingRowId } : {}),
+				matchingRowCount: total,
+				rows: snapshot.rows.map((row, index) => ({
+					...row,
+					...(!rows[index].inline ? { fragmented: true as const } : {}),
+					sourceIndex: indexById.get(row.id) ?? offset + index,
+				})),
+				...(offset > 0
+					? { previousRowCursor: at(Math.max(0, offset - windowSize)) }
+					: {}),
+				...(offset + rows.length < total
+					? { nextRowCursor: at(offset + rows.length) }
+					: {}),
+			};
 		});
 }
 
@@ -637,6 +965,14 @@ export async function readLookupTableRowsPageInTransaction(
 	const requestDigest = lookupRowsRequestDigest({
 		query: normalized.query,
 		columnIds: normalized.columnIds,
+		...(normalized.rowId ? { rowId: normalized.rowId } : {}),
+		...(normalized.attributeIds === undefined
+			? {}
+			: {
+					attributeIds: normalized.attributeIds,
+					attributesOnly:
+						input.columnIds !== undefined && normalized.columnIds.length === 0,
+				}),
 	});
 	const cursor =
 		normalized.cursor === undefined
@@ -662,6 +998,17 @@ export async function readLookupTableRowsPageInTransaction(
 			.where("id", "=", normalized.tableId)
 			.executeTakeFirst();
 		if (table === undefined) notFound();
+		const hq = lookupManifestHqOriginOf(table);
+		if (!inlineLookupInventoryAvailable(hq))
+			throw new LookupError(
+				"managed_in_hq",
+				"You can open the latest source inventory in Project data.",
+			);
+		if (requiresLookupProjection(hq))
+			throw new LookupError(
+				"managed_in_hq",
+				"You can open this table’s source inventory using its current connection.",
+			);
 		const revisions = revisionsOf(table);
 		if (
 			cursor !== undefined &&
@@ -674,6 +1021,13 @@ export async function readLookupTableRowsPageInTransaction(
 			);
 		}
 		const columns = await orderedColumns(tx, projectId, normalized.tableId);
+		const members = await readTableMembers(tx, projectId, normalized.tableId);
+		const allAttributes = members.get(null) ?? [];
+		const attrSet = new Set(
+			normalized.attributeIds ?? allAttributes.map((member) => member.id),
+		);
+		const attributes = allAttributes.filter((member) => attrSet.has(member.id));
+		if (attributes.length !== attrSet.size) notFound();
 		const columnsById = new Map(
 			columns.map((column) => [lookupColumnIdSchema.parse(column.id), column]),
 		);
@@ -681,34 +1035,47 @@ export async function readLookupTableRowsPageInTransaction(
 			if (!columnsById.has(columnId)) notFound();
 		}
 		const projection =
-			normalized.columnIds.length === 0
+			normalized.columnIds.length === 0 &&
+			!(input.columnIds !== undefined && normalized.attributeIds !== undefined)
 				? columns.map((column) => lookupColumnIdSchema.parse(column.id))
 				: normalized.columnIds;
-		const rows = await orderedRows(tx, projectId, normalized.tableId);
-		const matching = rows.filter((row) => {
-			if (normalized.query.length === 0) return true;
-			const values = lookupRowValuesSchema.parse(row.values);
-			return projection.some((columnId) => {
-				const value = values[columnId];
-				return (
-					value !== undefined &&
-					String(value).toLocaleLowerCase("en-US").includes(normalized.query)
-				);
-			});
-		});
 		const offset = cursor?.offset ?? 0;
+		let pageQuery = tx
+			.selectFrom("lookup_rows")
+			.select(["id", "value_bytes", rowHasExternalValues.as("external")])
+			.where("project_id", "=", projectId)
+			.where("table_id", "=", normalized.tableId);
+		if (normalized.rowId)
+			pageQuery = pageQuery.where("id", "=", normalized.rowId);
+		if (normalized.query) {
+			pageQuery = pageQuery.where(
+				rowContainsText(normalized.query, projection, [...attrSet]),
+			);
+		}
+		const matching = await pageQuery
+			.orderBy("order_key")
+			.orderBy("id")
+			.offset(offset)
+			.limit(LOOKUP_AUTHORING_ROW_PAGE_SIZE + 1)
+			.execute();
 		const projectedColumns = projection.map((columnId) => {
 			const column = columnsById.get(columnId);
 			if (column === undefined) notFound();
-			return columnOf(column);
+			return columnWithMembers(column, members.get(column.id));
 		});
-		const projectedTable = {
+		let projectedTable: LookupRowsPage["table"] = {
 			...manifestEntryOf(table),
 			columns: projectedColumns,
+			...(attributes?.length ? { attributes } : {}),
 		};
-		const pageOf = (pageRows: LookupRowsPage["rows"]): LookupRowsPage => {
-			const nextOffset = offset + pageRows.length;
-			const complete = nextOffset >= matching.length;
+		const pageOf = (
+			pageRows: LookupRowsPage["rows"],
+			nextPart?: number,
+		): LookupRowsPage => {
+			const nextOffset =
+				nextPart === undefined ? offset + pageRows.length : offset;
+			const complete =
+				nextPart === undefined && pageRows.length >= matching.length;
 			return {
 				table: projectedTable,
 				rows: pageRows,
@@ -723,6 +1090,7 @@ export async function readLookupTableRowsPageInTransaction(
 								tableRevision: revisions.tableRevision,
 								requestDigest,
 								offset: nextOffset,
+								...(nextPart === undefined ? {} : { part: nextPart }),
 							}),
 						}),
 			};
@@ -731,33 +1099,108 @@ export async function readLookupTableRowsPageInTransaction(
 			jsonBytes(budget.resultEnvelope?.(page) ?? page) <=
 			LOOKUP_AUTHORING_ROW_PAGE_MAX_BYTES;
 		if (!fitsBudget(pageOf([]))) {
-			throw new LookupError(
-				"invalid_input",
-				"This column projection is too large for one tool result. Request fewer columnIds, using getLookupTables to continue through the catalog.",
-			);
+			projectedTable = {
+				...manifestEntryOf(table),
+				columns: [],
+				definitionInCatalog: true,
+			};
 		}
 		const pageRows: LookupRowsPage["rows"][number][] = [];
-		for (
-			let index = offset;
-			index < matching.length &&
-			pageRows.length < LOOKUP_AUTHORING_ROW_PAGE_SIZE;
-			index++
-		) {
-			const full = lookupRowOf(matching[index]);
-			const cells = projection.flatMap((columnId) =>
-				full.values[columnId] === undefined
-					? []
-					: [{ columnId, value: full.values[columnId] }],
-			);
-			const projected = { id: full.id, cells };
-			if (!fitsBudget(pageOf([...pageRows, projected]))) {
-				if (pageRows.length === 0) {
+		// Bound the physical fetch. An oversized row takes the streamed part
+		// query below even when its projected subset happens to be small.
+		let bodyBytes = 0;
+		const inlineIds: LookupRowId[] = [];
+		for (const row of matching.slice(0, LOOKUP_AUTHORING_ROW_PAGE_SIZE)) {
+			if (row.external || bodyBytes + row.value_bytes > LOOKUP_MAX_ROW_BYTES)
+				break;
+			inlineIds.push(row.id);
+			bodyBytes += row.value_bytes;
+		}
+		const inline = inlineIds.length
+			? await tx
+					.selectFrom("lookup_rows")
+					.selectAll()
+					.where("project_id", "=", projectId)
+					.where("table_id", "=", normalized.tableId)
+					.where("id", "in", inlineIds)
+					.execute()
+			: [];
+		const inlineById = new Map(inline.map((row) => [row.id, row]));
+		for (const row of matching.slice(0, LOOKUP_AUTHORING_ROW_PAGE_SIZE)) {
+			const stored = inlineById.get(row.id);
+			if (!stored && pageRows.length) break;
+			let projected: LookupRowsPage["rows"][number] | undefined;
+			if (stored && cursor?.part === undefined) {
+				const full = lookupRowOf(stored);
+				const cells = projection.flatMap((columnId) =>
+					full.values[columnId] === undefined
+						? []
+						: [{ columnId, value: full.values[columnId] }],
+				);
+				const occurrences = Object.fromEntries(
+					projection.flatMap((columnId) =>
+						full.occurrences?.[columnId] === undefined
+							? []
+							: ([[columnId, full.occurrences[columnId]]] as const),
+					),
+				);
+				projected = {
+					id: full.id,
+					cells,
+					...(attributes.length
+						? {
+								attributes: Object.fromEntries(
+									attributes.map((member) => [
+										member.id,
+										full.attributes?.[member.id],
+									]),
+								),
+							}
+						: {}),
+					...(Object.keys(occurrences).length ? { occurrences } : {}),
+				};
+			}
+			if (!projected || !fitsBudget(pageOf([...pageRows, projected]))) {
+				if (pageRows.length) break;
+				const start = cursor?.part ?? 0;
+				const { parts, complete } = await readLookupRowParts(
+					tx,
+					projectId,
+					normalized.tableId,
+					row.id,
+					projection,
+					[...attrSet],
+					start,
+				);
+				if (!parts.length && start)
 					throw new LookupError(
 						"invalid_input",
-						"The first matching row is too large for one tool result. Request fewer columnIds.",
+						"This row cursor no longer identifies a value. You can start a fresh read.",
 					);
+				projectedTable = {
+					...manifestEntryOf(table),
+					columns: [],
+					definitionInCatalog: true,
+				};
+				const fragment = (end: number) =>
+					pageOf(
+						[{ id: row.id, cells: [], parts: parts.slice(0, end) }],
+						end === parts.length && complete ? undefined : start + end,
+					);
+				let low = parts.length ? 1 : 0;
+				let high = parts.length;
+				while (low < high) {
+					const mid = Math.ceil((low + high) / 2);
+					if (fitsBudget(fragment(mid))) low = mid;
+					else high = mid - 1;
 				}
-				break;
+				const result = fragment(low);
+				if (!fitsBudget(result))
+					throw new LookupError(
+						"invalid_input",
+						"The accompanying information is too large for this read. You can open the row in Project data.",
+					);
+				return result;
 			}
 			pageRows.push(projected);
 		}
@@ -825,31 +1268,61 @@ export async function createLookupTable(
 				})
 				.returningAll()
 				.executeTakeFirstOrThrow();
-			const columns = await tx
-				.insertInto("lookup_columns")
-				.values(
-					parsed.columns.map((column, index) => ({
-						project_id: scope.projectId,
-						table_id: table.id,
-						wire_name: column.wireName,
-						label: column.label,
-						data_type: column.dataType,
-						order_key: orderKeys[index],
-					})),
-				)
-				.returningAll()
-				.execute();
+			const columns =
+				parsed.columns.length === 0
+					? []
+					: await tx
+							.insertInto("lookup_columns")
+							.values(
+								parsed.columns.map((column, index) => ({
+									project_id: scope.projectId,
+									table_id: table.id,
+									wire_name: column.wireName,
+									label: column.label,
+									data_type: column.dataType,
+									repeated: column.repeated ?? false,
+									index_status: column.indexed
+										? ("indexed" as const)
+										: ("off" as const),
+									order_key: orderKeys[index],
+								})),
+							)
+							.returningAll()
+							.execute();
 			columns.sort(
 				(left, right) =>
 					compareAscii(left.order_key, right.order_key) ||
 					compareAscii(left.id, right.id),
 			);
+			const members = new Map<LookupColumnId | null, LookupMember[]>();
+			members.set(
+				null,
+				await insertLookupMembers(
+					tx,
+					scope.projectId,
+					table.id,
+					null,
+					parsed.attributes ?? [],
+				),
+			);
+			for (const [index, column] of columns.entries())
+				members.set(
+					column.id,
+					await insertLookupMembers(
+						tx,
+						scope.projectId,
+						table.id,
+						column.id,
+						parsed.columns[index].properties ?? [],
+					),
+				);
 			await notifyCommittedLookupMutation(tx, scope.projectId, projectRevision);
 			return snapshotOf({
 				projectId: scope.projectId,
 				projectRevision,
 				table,
 				columns,
+				members,
 				rows: [],
 			});
 		}),
@@ -931,6 +1404,9 @@ export async function updateLookupTableTag(
 					"That table tag is already used in this Project.",
 				);
 			}
+			await assertLookupRenamesAllowed(tx, scope.projectId, parsed.tableId, [
+				{ name: parsed.tag },
+			]);
 			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
 			const updated = await updateLockedTable(
 				tx,
@@ -962,7 +1438,7 @@ export async function addLookupColumn(
 				scope,
 				"edit",
 			);
-			await lockProjectState(tx, authority);
+			const state = await lockProjectState(tx, authority);
 			const table = await lockTable(
 				tx,
 				authority,
@@ -970,17 +1446,19 @@ export async function addLookupColumn(
 				parsed.expectedTableRevision,
 				"author",
 			);
-			if (table.column_count >= LOOKUP_MAX_COLUMNS) {
-				throw new LookupError(
-					"invalid_input",
-					`A lookup table may have at most ${LOOKUP_MAX_COLUMNS} columns.`,
+			if (parsed.column.repeated || parsed.column.indexed !== undefined)
+				await holdLookupReaderReview(
+					tx,
+					scope.projectId,
+					table.id,
+					parseLookupRevision(state.revision),
+					parsed.reviewed,
 				);
-			}
 			const columns = await orderedColumns(tx, scope.projectId, parsed.tableId);
 			if (columns.some((item) => item.wire_name === parsed.column.wireName)) {
 				throw new LookupError(
 					"invalid_input",
-					"That column wire name is already used in this table.",
+					"That export name is already used in this table.",
 				);
 			}
 			const orderKey = deriveKeyAtIndex(
@@ -995,10 +1473,19 @@ export async function addLookupColumn(
 					wire_name: parsed.column.wireName,
 					label: parsed.column.label,
 					data_type: parsed.column.dataType,
+					repeated: parsed.column.repeated ?? false,
+					index_status: parsed.column.indexed ? "indexed" : "off",
 					order_key: orderKey,
 				})
 				.returning("id")
 				.executeTakeFirstOrThrow();
+			await insertLookupMembers(
+				tx,
+				scope.projectId,
+				parsed.tableId,
+				column.id,
+				parsed.column.properties ?? [],
+			);
 			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
 			const updated = await updateLockedTable(
 				tx,
@@ -1087,9 +1574,12 @@ async function updateLookupColumnProjection(
 				if (duplicate) {
 					throw new LookupError(
 						"invalid_input",
-						"That column wire name is already used in this table.",
+						"That export name is already used in this table.",
 					);
 				}
+				await assertLookupRenamesAllowed(tx, scope.projectId, input.tableId, [
+					{ columnId: input.columnId, name: value },
+				]);
 			}
 			const update = tx
 				.updateTable("lookup_columns")
@@ -1190,61 +1680,93 @@ export async function createLookupRow(
 				"edit",
 			);
 			await lockProjectState(tx, authority);
-			const table = await lockTable(
+			return lookupEditOnce(
 				tx,
 				authority,
-				parsed.tableId,
-				parsed.expectedTableRevision,
-				"author",
-			);
-			if (table.row_count >= LOOKUP_MAX_ROWS) {
-				throw new LookupError(
-					"row_limit",
-					`This table already holds its limit of ${formatLookupCount(LOOKUP_MAX_ROWS, "row")}. Remove a row, or split the data across two tables.`,
-				);
-			}
-			assertCreateIndex(parsed.toIndex, table.row_count, "Row");
-			const columns = await orderedColumns(tx, scope.projectId, parsed.tableId);
-			const rows = await orderedRows(tx, scope.projectId, parsed.tableId);
-			const values = validateRowsAgainstColumns(columns.map(columnOf), [
-				parsed.values,
-			])[0];
-			const orderKey = deriveKeyAtIndex(
-				rows.map((row) => row.order_key),
-				parsed.toIndex,
-			);
-			const inserted = await tx
-				.insertInto("lookup_rows")
-				.values({
-					project_id: scope.projectId,
-					table_id: parsed.tableId,
-					order_key: orderKey,
-					values: JSON.stringify(values),
-					created_by: scope.actorId,
-					updated_by: scope.actorId,
-				})
-				.returning(["id", "value_bytes"])
-				.executeTakeFirstOrThrow();
-			const dataBytes = table.data_bytes + inserted.value_bytes;
-			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) rejectStorageLimit(dataBytes);
-			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
-			const updated = await updateLockedTable(
-				tx,
-				scope.projectId,
-				parsed.tableId,
-				{
-					row_count: table.row_count + 1,
-					data_bytes: dataBytes,
-					rows_revision: projectRevision,
-					updated_by: scope.actorId,
-					updated_at: new Date(),
+				parsed.operationId,
+				"createLookupRow",
+				parsed,
+				async () => {
+					const table = await lockTable(
+						tx,
+						authority,
+						parsed.tableId,
+						parsed.expectedTableRevision,
+						"author",
+					);
+					assertCreateIndex(parsed.toIndex, table.row_count, "Row");
+					const columns = await orderedColumns(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+					);
+
+					const members = await readTableMembers(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+					);
+					const definition = columns.map((column) =>
+						columnWithMembers(column, members.get(column.id)),
+					);
+					const values = validateRowsAgainstColumns(definition, [
+						parsed.values,
+					])[0];
+					const content = checkedRowContent(
+						definition,
+						members.get(null) ?? [],
+						values,
+						parsed.content ?? {},
+					);
+					const orderKey = await rowOrderForPlacement(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						{ toIndex: parsed.toIndex },
+					);
+					const inserted = await tx
+						.insertInto("lookup_rows")
+						.values({
+							project_id: scope.projectId,
+							table_id: parsed.tableId,
+							order_key: orderKey,
+							values: JSON.stringify(values),
+							content: JSON.stringify(content),
+							created_by: scope.actorId,
+							updated_by: scope.actorId,
+						})
+						.returning(["id", "value_bytes"])
+						.executeTakeFirstOrThrow();
+					if (inserted.value_bytes > LOOKUP_MAX_ROW_BYTES)
+						rejectInlineRowLimit();
+					const dataBytes = Number(table.data_bytes) + inserted.value_bytes;
+					const projectRevision = await advanceProjectRevision(
+						tx,
+						scope.projectId,
+					);
+					const updated = await updateLockedTable(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						{
+							row_count: table.row_count + 1,
+							data_bytes: dataBytes,
+							rows_revision: projectRevision,
+							updated_by: scope.actorId,
+							updated_at: new Date(),
+						},
+					);
+					await notifyCommittedLookupMutation(
+						tx,
+						scope.projectId,
+						projectRevision,
+					);
+					return {
+						rowId: lookupRowIdSchema.parse(inserted.id),
+						...receiptOf(updated, projectRevision),
+					};
 				},
 			);
-			await notifyCommittedLookupMutation(tx, scope.projectId, projectRevision);
-			return {
-				rowId: lookupRowIdSchema.parse(inserted.id),
-				...receiptOf(updated, projectRevision),
-			};
 		}),
 	);
 }
@@ -1263,57 +1785,91 @@ export async function updateLookupRow(
 				"edit",
 			);
 			const state = await lockProjectState(tx, authority);
-			const table = await lockTable(
+			return lookupEditOnce(
 				tx,
 				authority,
-				parsed.tableId,
-				parsed.expectedTableRevision,
-				"author",
-			);
-			const columns = await orderedColumns(tx, scope.projectId, parsed.tableId);
-			const values = validateRowsAgainstColumns(columns.map(columnOf), [
-				parsed.values,
-			])[0];
-			const current = await tx
-				.selectFrom("lookup_rows")
-				.selectAll()
-				.where("project_id", "=", scope.projectId)
-				.where("table_id", "=", parsed.tableId)
-				.where("id", "=", parsed.rowId)
-				.executeTakeFirst();
-			if (!current) notFound();
-			if (valuesEqual(lookupRowValuesSchema.parse(current.values), values)) {
-				return receiptOf(table, state.revision);
-			}
-			const updatedRow = await tx
-				.updateTable("lookup_rows")
-				.set({
-					values: JSON.stringify(values),
-					updated_by: scope.actorId,
-					updated_at: new Date(),
-				})
-				.where("project_id", "=", scope.projectId)
-				.where("table_id", "=", parsed.tableId)
-				.where("id", "=", parsed.rowId)
-				.returning("value_bytes")
-				.executeTakeFirstOrThrow();
-			const dataBytes =
-				table.data_bytes - current.value_bytes + updatedRow.value_bytes;
-			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) rejectStorageLimit(dataBytes);
-			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
-			const updated = await updateLockedTable(
-				tx,
-				scope.projectId,
-				parsed.tableId,
-				{
-					data_bytes: dataBytes,
-					rows_revision: projectRevision,
-					updated_by: scope.actorId,
-					updated_at: new Date(),
+				parsed.operationId,
+				"updateLookupRow",
+				parsed,
+				async () => {
+					const table = await lockTable(
+						tx,
+						authority,
+						parsed.tableId,
+						parsed.expectedTableRevision,
+						"author",
+					);
+					const columns = await orderedColumns(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+					);
+					const members = await readTableMembers(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+					);
+					const definition = columns.map((column) =>
+						columnWithMembers(column, members.get(column.id)),
+					);
+					let delta: number;
+					if ("changes" in parsed) {
+						const patch = await patchLookupRowInTransaction(
+							tx,
+							scope,
+							parsed.tableId,
+							parsed.rowId,
+							definition,
+							members.get(null) ?? [],
+							parsed.changes,
+						);
+						if (!patch.changed) return receiptOf(table, state.revision);
+						delta = patch.delta;
+					} else {
+						const values = validateRowsAgainstColumns(definition, [
+							parsed.values,
+						])[0];
+						const content = checkedRowContent(
+							definition,
+							parsed.content === undefined ? [] : (members.get(null) ?? []),
+							values,
+							parsed.content ?? {},
+						);
+						const updated = await replaceLookupRowInTransaction(
+							tx,
+							scope,
+							parsed.tableId,
+							parsed.rowId,
+							values,
+							parsed.content === undefined ? undefined : content,
+						);
+						if (!updated.changed) return receiptOf(table, state.revision);
+						delta = updated.delta;
+					}
+					const dataBytes = Number(table.data_bytes) + delta;
+					const projectRevision = await advanceProjectRevision(
+						tx,
+						scope.projectId,
+					);
+					const updated = await updateLockedTable(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						{
+							data_bytes: dataBytes,
+							rows_revision: projectRevision,
+							updated_by: scope.actorId,
+							updated_at: new Date(),
+						},
+					);
+					await notifyCommittedLookupMutation(
+						tx,
+						scope.projectId,
+						projectRevision,
+					);
+					return receiptOf(updated, projectRevision);
 				},
 			);
-			await notifyCommittedLookupMutation(tx, scope.projectId, projectRevision);
-			return receiptOf(updated, projectRevision);
 		}),
 	);
 }
@@ -1332,36 +1888,55 @@ export async function deleteLookupRow(
 				"edit",
 			);
 			await lockProjectState(tx, authority);
-			const table = await lockTable(
+			return lookupEditOnce(
 				tx,
 				authority,
-				parsed.tableId,
-				parsed.expectedTableRevision,
-				"author",
-			);
-			const deleted = await tx
-				.deleteFrom("lookup_rows")
-				.where("project_id", "=", scope.projectId)
-				.where("table_id", "=", parsed.tableId)
-				.where("id", "=", parsed.rowId)
-				.returning("value_bytes")
-				.executeTakeFirst();
-			if (!deleted) notFound();
-			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
-			const updated = await updateLockedTable(
-				tx,
-				scope.projectId,
-				parsed.tableId,
-				{
-					row_count: table.row_count - 1,
-					data_bytes: table.data_bytes - deleted.value_bytes,
-					rows_revision: projectRevision,
-					updated_by: scope.actorId,
-					updated_at: new Date(),
+				parsed.operationId,
+				"deleteLookupRow",
+				parsed,
+				async () => {
+					const table = await lockTable(
+						tx,
+						authority,
+						parsed.tableId,
+						parsed.expectedTableRevision,
+						"author",
+					);
+					const deleted = await tx
+						.deleteFrom("lookup_rows")
+						.where("project_id", "=", scope.projectId)
+						.where("table_id", "=", parsed.tableId)
+						.where("id", "=", parsed.rowId)
+						.returning(["value_bytes", "external_bytes"])
+						.executeTakeFirst();
+					if (!deleted) notFound();
+					const projectRevision = await advanceProjectRevision(
+						tx,
+						scope.projectId,
+					);
+					const updated = await updateLockedTable(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						{
+							row_count: table.row_count - 1,
+							data_bytes:
+								Number(table.data_bytes) -
+								deleted.value_bytes -
+								Number(deleted.external_bytes),
+							rows_revision: projectRevision,
+							updated_by: scope.actorId,
+							updated_at: new Date(),
+						},
+					);
+					await notifyCommittedLookupMutation(
+						tx,
+						scope.projectId,
+						projectRevision,
+					);
+					return receiptOf(updated, projectRevision);
 				},
 			);
-			await notifyCommittedLookupMutation(tx, scope.projectId, projectRevision);
-			return receiptOf(updated, projectRevision);
 		}),
 	);
 }
@@ -1380,57 +1955,104 @@ export async function moveLookupRow(
 				"edit",
 			);
 			const state = await lockProjectState(tx, authority);
-			const table = await lockTable(
+			return lookupEditOnce(
 				tx,
 				authority,
-				parsed.tableId,
-				parsed.expectedTableRevision,
-				"author",
-			);
-			const rows = await orderedRows(tx, scope.projectId, parsed.tableId);
-			const currentIndex = rows.findIndex((row) => row.id === parsed.rowId);
-			if (currentIndex < 0) notFound();
-			assertMoveIndex(parsed.toIndex, rows.length, "Row");
-			if (currentIndex === parsed.toIndex)
-				return receiptOf(table, state.revision);
-			const siblings = rows.filter((row) => row.id !== parsed.rowId);
-			const orderKey = deriveKeyAtIndex(
-				siblings.map((row) => row.order_key),
-				parsed.toIndex,
-			);
-			await tx
-				.updateTable("lookup_rows")
-				.set({
-					order_key: orderKey,
-					updated_by: scope.actorId,
-					updated_at: new Date(),
-				})
-				.where("project_id", "=", scope.projectId)
-				.where("table_id", "=", parsed.tableId)
-				.where("id", "=", parsed.rowId)
-				.execute();
-			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
-			const updated = await updateLockedTable(
-				tx,
-				scope.projectId,
-				parsed.tableId,
-				{
-					rows_revision: projectRevision,
-					updated_by: scope.actorId,
-					updated_at: new Date(),
+				parsed.operationId,
+				"moveLookupRow",
+				parsed,
+				async () => {
+					const table = await lockTable(
+						tx,
+						authority,
+						parsed.tableId,
+						parsed.expectedTableRevision,
+						"author",
+					);
+					const currentIndex = await rowIndex(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						parsed.rowId,
+					);
+					assertMoveIndex(parsed.toIndex, table.row_count, "Row");
+					if (currentIndex === parsed.toIndex)
+						return receiptOf(table, state.revision);
+					const orderKey = await rowOrderForPlacement(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						{ toIndex: parsed.toIndex },
+						parsed.rowId,
+					);
+					await tx
+						.updateTable("lookup_rows")
+						.set({
+							order_key: orderKey,
+							updated_by: scope.actorId,
+							updated_at: new Date(),
+						})
+						.where("project_id", "=", scope.projectId)
+						.where("table_id", "=", parsed.tableId)
+						.where("id", "=", parsed.rowId)
+						.execute();
+					const projectRevision = await advanceProjectRevision(
+						tx,
+						scope.projectId,
+					);
+					const updated = await updateLockedTable(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						{
+							rows_revision: projectRevision,
+							updated_by: scope.actorId,
+							updated_at: new Date(),
+						},
+					);
+					await notifyCommittedLookupMutation(
+						tx,
+						scope.projectId,
+						projectRevision,
+					);
+					return receiptOf(updated, projectRevision);
 				},
 			);
-			await notifyCommittedLookupMutation(tx, scope.projectId, projectRevision);
-			return receiptOf(updated, projectRevision);
 		}),
 	);
 }
 
 /** Server-only wholesale replacement. The CSV route is its only browser
  * boundary; every successful nonempty replacement receives fresh row UUIDv7s. */
+export async function replayLookupCsvImport(
+	scope: LookupScope,
+	tableId: LookupTableId,
+	expectedTableRevision: LookupRevision,
+	operationId: string,
+	bodyDigest: string,
+) {
+	return withAppTx(async (tx) => {
+		const authority = await authorizeLookupWriteInTransaction(
+			tx,
+			scope,
+			"edit",
+		);
+		return lookupPriorReceipt<LookupMutationReceipt>(
+			tx,
+			authority,
+			operationId,
+			canonicalJsonDigest({
+				kind: "replaceLookupRows",
+				input: { tableId, expectedTableRevision, bodyDigest },
+			}),
+		);
+	});
+}
+
 export async function replaceLookupRows(
 	scope: LookupScope,
 	input: ReplaceLookupRowsInput,
+	csvBodyDigest?: string,
 ): Promise<LookupMutationReceipt> {
 	assertScope(scope);
 	const parsed = parseInput(replaceLookupRowsInputSchema, input);
@@ -1443,60 +2065,107 @@ export async function replaceLookupRows(
 				"edit",
 			);
 			const state = await lockProjectState(tx, authority);
-			const table = await lockTable(
+			return lookupEditOnce(
 				tx,
 				authority,
-				parsed.tableId,
-				parsed.expectedTableRevision,
-				"author",
-			);
-			const columns = await orderedColumns(tx, scope.projectId, parsed.tableId);
-			const values = validateRowsAgainstColumns(
-				columns.map(columnOf),
-				parsed.rows,
-			);
-			if (values.length === 0 && table.row_count === 0) {
-				return receiptOf(table, state.revision);
-			}
-			await tx
-				.deleteFrom("lookup_rows")
-				.where("project_id", "=", scope.projectId)
-				.where("table_id", "=", parsed.tableId)
-				.execute();
-			let dataBytes = 0;
-			if (values.length > 0) {
-				const inserted = await tx
-					.insertInto("lookup_rows")
-					.values(
-						values.map((rowValues, index) => ({
-							project_id: scope.projectId,
-							table_id: parsed.tableId,
-							order_key: orderKeys[index],
-							values: JSON.stringify(rowValues),
-							created_by: scope.actorId,
+				parsed.operationId,
+				"replaceLookupRows",
+				csvBodyDigest
+					? {
+							tableId: parsed.tableId,
+							expectedTableRevision: parsed.expectedTableRevision,
+							bodyDigest: csvBodyDigest,
+						}
+					: parsed,
+				async () => {
+					const table = await lockTable(
+						tx,
+						authority,
+						parsed.tableId,
+						parsed.expectedTableRevision,
+						"author",
+					);
+					if (table.worker_access === "assigned")
+						throw new LookupError(
+							"invalid_input",
+							"Replacing this table would clear its row assignments. You can update individual rows and keep their workers, groups and places.",
+						);
+					const columns = await orderedColumns(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+					);
+					const members = await readTableMembers(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+					);
+					if (members.has(null) || columns.some((column) => column.repeated))
+						throw new LookupError(
+							"invalid_input",
+							"CSV can replace rows in a table with single values. You can edit this table’s repeated values and row details in Project data.",
+						);
+					const values = validateRowsAgainstColumns(
+						columns.map((column) => columnWithMembers(column)),
+						parsed.rows,
+					);
+					if (values.length === 0 && table.row_count === 0) {
+						return receiptOf(table, state.revision);
+					}
+					await tx
+						.deleteFrom("lookup_rows")
+						.where("project_id", "=", scope.projectId)
+						.where("table_id", "=", parsed.tableId)
+						.execute();
+					let dataBytes = 0;
+					if (values.length > 0) {
+						const inserted = await tx
+							.insertInto("lookup_rows")
+							.values(
+								values.map((rowValues, index) => ({
+									project_id: scope.projectId,
+									table_id: parsed.tableId,
+									order_key: orderKeys[index],
+									values: JSON.stringify(rowValues),
+									created_by: scope.actorId,
+									updated_by: scope.actorId,
+								})),
+							)
+							.returning("value_bytes")
+							.execute();
+						if (inserted.some((row) => row.value_bytes > LOOKUP_MAX_ROW_BYTES))
+							rejectInlineRowLimit();
+						dataBytes = inserted.reduce(
+							(total, row) => total + row.value_bytes,
+							0,
+						);
+					}
+					if (dataBytes > LOOKUP_MAX_CHANGE_BYTES)
+						rejectStorageLimit(dataBytes);
+					const projectRevision = await advanceProjectRevision(
+						tx,
+						scope.projectId,
+					);
+					const updated = await updateLockedTable(
+						tx,
+						scope.projectId,
+						parsed.tableId,
+						{
+							row_count: values.length,
+							data_bytes: dataBytes,
+							rows_revision: projectRevision,
 							updated_by: scope.actorId,
-						})),
-					)
-					.returning("value_bytes")
-					.execute();
-				dataBytes = inserted.reduce((total, row) => total + row.value_bytes, 0);
-			}
-			if (dataBytes > LOOKUP_MAX_TABLE_BYTES) rejectStorageLimit(dataBytes);
-			const projectRevision = await advanceProjectRevision(tx, scope.projectId);
-			const updated = await updateLockedTable(
-				tx,
-				scope.projectId,
-				parsed.tableId,
-				{
-					row_count: values.length,
-					data_bytes: dataBytes,
-					rows_revision: projectRevision,
-					updated_by: scope.actorId,
-					updated_at: new Date(),
+							updated_at: new Date(),
+						},
+					);
+					await notifyCommittedLookupMutation(
+						tx,
+						scope.projectId,
+						projectRevision,
+					);
+					return receiptOf(updated, projectRevision);
 				},
 			);
-			await notifyCommittedLookupMutation(tx, scope.projectId, projectRevision);
-			return receiptOf(updated, projectRevision);
 		}),
 	);
 }

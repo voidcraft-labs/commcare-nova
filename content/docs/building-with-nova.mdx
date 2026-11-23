@@ -581,7 +581,10 @@ Apps.
 
 A formula in a form can read a Project data table by its export tag. For
 example, `instance('facilities')/facilities_list/facilities[code = #form/facility]/name`
-reads the name of the facility a worker chose. Nova keeps the table and its
+reads the name of the facility a worker chose. If the table shares a name with
+another source in the app, the formula can identify it with `item-list:`.
+For a table tagged `locations`, `instance('item-list:locations')/locations_list/locations/name`
+reads the table's name column. Nova keeps the table and its
 columns themselves rather than their names, so renaming the table's export tag
 or a column's export name keeps the formula reading them, and a table or column
 a formula reads can't be removed until that formula changes. Choices and record

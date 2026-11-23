@@ -1,3 +1,4 @@
+import type { LookupReadNames } from "../lookup/readPath";
 /**
  * What the reader of CommCare HQ's apps takes and gives: its input, the
  * draft a clean reading gives, the account a reading with a finding gives, and
@@ -25,13 +26,30 @@ import type { HqLocationType } from "../hq/locations";
 import type { ColumnFieldWordRow } from "../wireIdentity";
 import type { WorkKind } from "../workMeter";
 import type { GeneratedNodePurpose } from "../xform/generatedNodes";
+import type {
+	ConditionalFactory,
+	InstanceFactories,
+} from "../xpath/instanceSources";
 import type { ClaimLog } from "./accounting";
 import type { ReaderDefectWhy } from "./defects";
 import type { ExpressionReading, RecordDialectJudge } from "./expressions";
 import type { HeldExpansions } from "./heldExpansions";
 import type { IdentityMapEntry, IdentityResolver } from "./identity";
 
+export interface SourceFormFactoryWitness {
+	readonly menu: number;
+	readonly form: number;
+	readonly xmlns: string;
+	readonly profile?: string;
+}
+
 export interface ReaderInput {
+	/** Exact declarations for unresolved case detail reads of this source. */
+	readonly suiteDetails?: import("../hq/suiteDetailSources").SuiteDetailSources;
+	readonly observeSuiteDetail?: (
+		details: readonly string[],
+		id: string,
+	) => void;
 	/** The app's id, derived from the reading's id. */
 	readonly appId: string;
 	/** The project space the source was read from, for a capture's link. */
@@ -40,6 +58,17 @@ export interface ReaderInput {
 	readonly source: HqAppSource;
 	/** The aligned menus, each form's real id and HQ's own question summary. */
 	readonly modules: readonly HqAlignedModule[];
+	/** Source project facts observed by this reading, independent of the publish target. */
+	readonly sourceProjectFactories?: Pick<
+		InstanceFactories,
+		"locations" | "mobileReports"
+	>;
+	/** Discovery before fetching source project settings. No declaration is inferred from observing a read. */
+	readonly observeFactory?: (
+		kind: ConditionalFactory,
+		id: string,
+		form?: SourceFormFactoryWitness,
+	) => void;
 	/** `mintingResolver(appId)` for a reading; `matchingResolver` for a re-read
 	 *  that must give a known document's identities back. It holds nothing: what a
 	 *  reading claims is the reading's own (`context.ts`, `ReadContext.identities`). */
@@ -141,7 +170,7 @@ export interface ReaderLookupCatalog {
 	/** What `FormParseScope.lookup` and the checker read. */
 	readonly definitions: LookupDefinitionIndex;
 }
-export interface ReaderLookupTable {
+export interface ReaderLookupTable extends LookupReadNames {
 	readonly tableId: LookupTableId;
 	/** A column by the field name HQ holds. */
 	column(fieldName: string): LookupColumnId | undefined;

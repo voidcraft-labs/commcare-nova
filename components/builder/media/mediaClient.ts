@@ -457,10 +457,11 @@ const RESOLVE_IDS_CHUNK = 50;
  * Resolve specific asset ids to their wire rows: the library route's
  * resolve mode (repeated `?id=`). Project-scoped server-side (the app's
  * Project via `appId`, else the active Project): a missing or foreign id
- * is simply absent from the result, never an error. The attach budget
- * check uses this to learn the byte sizes of referenced assets this
- * session hasn't otherwise loaded. Chunked so a reference-heavy doc
- * can't overflow a request URL.
+ * is simply absent from the result, never an error. The referenced-row
+ * reader (`useReferencedAssetRows.ts`) uses this to learn the rows of
+ * referenced assets this session hasn't otherwise loaded. Chunked so a
+ * reference-heavy doc can't overflow a request URL or the route's limit
+ * of ids per request.
  */
 export async function fetchAssetsByIds(
 	ids: readonly string[],

@@ -50,6 +50,10 @@ const transportFailure = (): LocalWriteFailure => ({
 });
 
 export interface OrganizationView {
+	readonly paged?: {
+		total: number;
+		occupied: Record<string, { kept: boolean }>;
+	};
 	readonly locations: readonly StoredLocation[];
 	readonly revision: string;
 	/** Where the places come from, while they are a copy CommCare HQ manages; as the last complete read held it. */
@@ -169,6 +173,7 @@ export function createOrganizationClient(
 			error: undefined,
 			warning: undefined,
 			locations: result.data.locations,
+			paged: result.data.paged,
 			revision: result.data.revision,
 			hq: result.data.hq,
 		});

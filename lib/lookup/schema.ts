@@ -1,17 +1,18 @@
 import { z } from "zod";
 import {
 	lookupColumnIdSchema,
+	lookupMemberIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
+	LOOKUP_MAX_CHANGE_BYTES,
 	LOOKUP_MAX_COLUMN_LABEL_LENGTH,
 	LOOKUP_MAX_COLUMNS,
 	LOOKUP_MAX_ROW_BYTES,
 	LOOKUP_MAX_ROWS,
-	LOOKUP_MAX_TABLE_BYTES,
 	LOOKUP_MAX_TABLE_NAME_LENGTH,
 	LOOKUP_MAX_TAG_LENGTH,
 	LOOKUP_MAX_WIRE_NAME_LENGTH,
@@ -131,28 +132,50 @@ export const lookupColumnLabelSchema = z
 		),
 	);
 
+/** What keeps `value` from being a name CommCare HQ can store, said about
+ * the first character that does. Every prefix of an XML name is one, so the
+ * longest prefix the pattern admits ends right before that character. */
+function wireNameProblem(label: string, value: string): string {
+	const characters = [...value];
+	let good = 0;
+	while (
+		good < characters.length &&
+		LOOKUP_WIRE_IDENTIFIER_PATTERN.test(characters.slice(0, good + 1).join(""))
+	)
+		good++;
+	const character = characters[good] ?? "";
+	const example = "A name such as site_code or site.name works.";
+	if (/\s/u.test(character)) return `${label} can't hold a space. ${example}`;
+	if (good === 0)
+		return `${label} can't start with “${character}”. It needs to start with a letter or an underscore. ${example}`;
+	return `${label} can't hold “${character}”. ${example}`;
+}
+
 function wireIdentifierSchema(kind: "tag" | "column") {
 	const maxLength =
 		kind === "tag" ? LOOKUP_MAX_TAG_LENGTH : LOOKUP_MAX_WIRE_NAME_LENGTH;
-	const label = kind === "tag" ? "Table tag" : "Column wire name";
+	const label = kind === "tag" ? "The export tag" : "The export name";
 	return z
 		.string()
 		.min(1, `${label} cannot be blank.`)
-		.max(maxLength, `${label} must be at most ${maxLength} characters.`)
-		.regex(
-			LOOKUP_WIRE_IDENTIFIER_PATTERN,
-			`${label} starts with a letter or an underscore, then holds only unaccented letters, digits, underscores and hyphens.`,
+		.refine(
+			(value) =>
+				value.length <= maxLength ||
+				(value.length <= 2 * maxLength && [...value].length <= maxLength),
+			`${label} must be at most ${maxLength} characters.`,
 		)
+		.superRefine((value, ctx) => {
+			if (value === "" || LOOKUP_WIRE_IDENTIFIER_PATTERN.test(value)) return;
+			ctx.addIssue({ code: "custom", message: wireNameProblem(label, value) });
+		})
 		.refine(
 			(value) => !LOOKUP_XML_PREFIX_PATTERN.test(value),
 			`${label} can't start with lowercase "xml", which CommCare HQ keeps for itself. A capital first letter works.`,
 		)
 		.superRefine((value, ctx) => {
 			if (kind !== "tag") return;
-			// A tag is the fixture's instance id on the device, and the runtime
-			// registers instances into one map by that id and picks an instance's
-			// data by the words its reference contains — so a reserved tag would
-			// be read as CommCare's own data instead of the table.
+			// Core chooses storage from the fixture source, which contains the
+			// table's tag even when a form assigns the instance another name.
 			const cause = reservedInstanceTagCause(value);
 			if (cause === null) return;
 			ctx.addIssue({
@@ -162,7 +185,10 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 						? `${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`
 						: `${label} contains ${cause.word}, and CommCare reads any tag containing ${cause.word} as its own data, so a table can't use it. You can write it as ${RESERVED_INSTANCE_TAG_WORD_SPELLING[cause.word]} instead.`,
 			});
-		});
+		})
+		.describe(
+			`A namespace-free XML name, up to ${maxLength} Unicode characters. Lowercase xml is reserved. Use a name like site_code for a spelling that works in any data path.`,
+		);
 }
 
 export const lookupTagSchema = wireIdentifierSchema("tag");
@@ -173,30 +199,34 @@ export const lookupOrderKeySchema = z
 	.string()
 	.regex(ORDER_KEY_PATTERN, "Expected a canonical base-62 order key.");
 
-export const lookupCellInputSchema = z.union([
-	z.string().superRefine((value, ctx) => {
-		if (value.includes("\0")) {
-			ctx.addIssue({
-				code: "custom",
-				message: "Cell text may not contain NUL.",
-			});
-		}
-		if (hasUnpairedUtf16Surrogate(value)) {
-			ctx.addIssue({
-				code: "custom",
-				message: "Cell text contains an unpaired UTF-16 surrogate.",
-			});
-		}
-		if (utf8ByteLength(value) > LOOKUP_MAX_CELL_BYTES) {
-			ctx.addIssue({
-				code: "custom",
-				message: `Cell text must be at most ${LOOKUP_MAX_CELL_BYTES} UTF-8 bytes.`,
-			});
-		}
-	}),
-	z.number(),
-]);
+export const lookupTextSchema = z.string().superRefine((value, ctx) => {
+	if (value.includes("\0")) {
+		ctx.addIssue({
+			code: "custom",
+			message: "Cell text may not contain NUL.",
+		});
+	}
+	if (hasUnpairedUtf16Surrogate(value)) {
+		ctx.addIssue({
+			code: "custom",
+			message: "Cell text contains an unpaired UTF-16 surrogate.",
+		});
+	}
+	if (utf8ByteLength(value) > LOOKUP_MAX_CELL_BYTES) {
+		ctx.addIssue({
+			code: "custom",
+			message: `Cell text must be at most ${LOOKUP_MAX_CELL_BYTES} UTF-8 bytes.`,
+		});
+	}
+});
 
+export const lookupCellInputSchema = z.union([lookupTextSchema, z.number()]);
+
+/** The aggregate may grow through several individually bounded edits. */
+export const storedLookupRowValuesSchema = z.record(
+	lookupColumnIdSchema,
+	z.union([z.string(), z.number()]),
+);
 export const lookupRowValuesSchema = z
 	.record(lookupColumnIdSchema, lookupCellInputSchema)
 	.superRefine((values, ctx) => {
@@ -210,22 +240,70 @@ export const lookupRowValuesSchema = z
 	})
 	.overwrite((values) => values satisfies LookupRowValues);
 
-export const lookupColumnDraftSchema = z.strictObject({
-	wireName: lookupWireNameSchema,
+export const lookupMemberDraftSchema = z.strictObject({
+	wireName: lookupWireNameSchema.refine(
+		(name) => name !== "xmlns",
+		"This detail needs a different export name. The XML namespace uses xmlns.",
+	),
 	label: lookupColumnLabelSchema,
-	dataType: lookupDataTypeSchema,
 });
+export const lookupMemberSchema = lookupMemberDraftSchema.extend({
+	id: lookupMemberIdSchema,
+});
+export const lookupOccurrenceSchema = z.strictObject({
+	text: lookupTextSchema,
+	properties: z.record(lookupMemberIdSchema, lookupTextSchema),
+});
+export const lookupRowContentSchema = z.strictObject({
+	attributes: z.record(lookupMemberIdSchema, lookupTextSchema).optional(),
+	occurrences: z
+		.record(lookupColumnIdSchema, z.array(lookupOccurrenceSchema))
+		.optional(),
+});
+const memberList = z
+	.array(lookupMemberDraftSchema)
+	.max(LOOKUP_MAX_COLUMNS)
+	.refine(
+		(members) =>
+			new Set(members.map((member) => member.wireName)).size === members.length,
+		"Each detail needs its own export name.",
+	);
+
+export const lookupColumnDraftSchema = z
+	.strictObject({
+		wireName: lookupWireNameSchema,
+		label: lookupColumnLabelSchema,
+		dataType: lookupDataTypeSchema,
+		repeated: z.literal(true).optional(),
+		properties: memberList.optional(),
+		indexed: z.boolean().optional(),
+	})
+	.superRefine((column, ctx) => {
+		if (column.repeated && column.dataType !== "text")
+			ctx.addIssue({
+				code: "custom",
+				message: "Repeated values need a text column.",
+			});
+		if (column.properties?.length && !column.repeated)
+			ctx.addIssue({
+				code: "custom",
+				message: "A column with value details needs repeated values.",
+			});
+	});
 
 export const createLookupTableInputSchema = z
 	.strictObject({
 		name: lookupTableNameSchema,
 		tag: lookupTagSchema,
-		columns: z
-			.array(lookupColumnDraftSchema)
-			.min(1, "A lookup table needs at least one column.")
-			.max(LOOKUP_MAX_COLUMNS),
+		attributes: memberList.optional(),
+		columns: z.array(lookupColumnDraftSchema).max(LOOKUP_MAX_COLUMNS),
 	})
 	.superRefine((input, ctx) => {
+		if (!input.columns.length && !input.attributes?.length)
+			ctx.addIssue({
+				code: "custom",
+				message: "A table needs at least one column or row detail.",
+			});
 		const seen = new Set<string>();
 		for (let index = 0; index < input.columns.length; index++) {
 			const wireName = input.columns[index].wireName;
@@ -233,7 +311,7 @@ export const createLookupTableInputSchema = z
 				ctx.addIssue({
 					code: "custom",
 					path: ["columns", index, "wireName"],
-					message: `Duplicate column wire name "${wireName}".`,
+					message: `The export name “${wireName}” is used twice in this table.`,
 				});
 			}
 			seen.add(wireName);
@@ -259,7 +337,13 @@ export const updateLookupTableTagInputSchema = z.strictObject({
 	tag: lookupTagSchema,
 });
 
+export const lookupReaderReviewSchema = z.strictObject({
+	projectRevision: lookupRevisionSchema,
+	readerAppIds: z.array(z.string().min(1)),
+});
+
 export const addLookupColumnInputSchema = z.strictObject({
+	reviewed: lookupReaderReviewSchema.optional(),
 	...expectedTableRevisionShape,
 	column: lookupColumnDraftSchema,
 });
@@ -283,7 +367,7 @@ export const lookupColumnIndexSchema = z
 	.number()
 	.int()
 	.nonnegative()
-	.max(LOOKUP_MAX_COLUMNS - 1);
+	.max(2147483646);
 
 export const moveLookupColumnInputSchema = z.strictObject({
 	...columnMutationShape,
@@ -294,29 +378,78 @@ export const lookupCreateRowIndexSchema = z
 	.number()
 	.int()
 	.nonnegative()
-	.max(LOOKUP_MAX_ROWS);
+	.max(2147483647);
 
 export const lookupExistingRowIndexSchema = z
 	.number()
 	.int()
 	.nonnegative()
-	.max(LOOKUP_MAX_ROWS - 1);
+	.max(2147483646);
 
 export const createLookupRowInputSchema = z.strictObject({
+	operationId: z.uuid().optional(),
 	...expectedTableRevisionShape,
 	toIndex: lookupCreateRowIndexSchema,
 	values: lookupRowValuesSchema,
+	content: lookupRowContentSchema.optional(),
 });
 
 const rowMutationShape = {
+	operationId: z.uuid().optional(),
 	...expectedTableRevisionShape,
 	rowId: lookupRowIdSchema,
 };
 
-export const updateLookupRowInputSchema = z.strictObject({
-	...rowMutationShape,
-	values: lookupRowValuesSchema,
-});
+const occurrenceAt = {
+	columnId: lookupColumnIdSchema,
+	index: z.number().int().nonnegative().max(2147483646),
+};
+export const lookupRowPatchSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("cell"),
+		columnId: lookupColumnIdSchema,
+		value: lookupCellInputSchema.nullable(),
+	}),
+	z.strictObject({
+		kind: z.literal("attribute"),
+		attributeId: lookupMemberIdSchema,
+		text: lookupTextSchema,
+	}),
+	z.strictObject({
+		kind: z.literal("occurrence"),
+		...occurrenceAt,
+		text: lookupTextSchema,
+	}),
+	z.strictObject({
+		kind: z.literal("property"),
+		...occurrenceAt,
+		propertyId: lookupMemberIdSchema,
+		text: lookupTextSchema.nullable(),
+	}),
+	z.strictObject({
+		kind: z.literal("insert"),
+		...occurrenceAt,
+		value: lookupOccurrenceSchema,
+	}),
+	z.strictObject({ kind: z.literal("remove"), ...occurrenceAt }),
+	z.strictObject({
+		kind: z.literal("list"),
+		columnId: lookupColumnIdSchema,
+		present: z.boolean(),
+	}),
+]);
+export const lookupRowChangesSchema = z
+	.array(lookupRowPatchSchema)
+	.min(1)
+	.max(LOOKUP_MAX_COLUMNS);
+export const updateLookupRowInputSchema = z.union([
+	z.strictObject({
+		...rowMutationShape,
+		values: lookupRowValuesSchema,
+		content: lookupRowContentSchema.optional(),
+	}),
+	z.strictObject({ ...rowMutationShape, changes: lookupRowChangesSchema }),
+]);
 
 export const deleteLookupRowInputSchema = z.strictObject(rowMutationShape);
 
@@ -341,6 +474,7 @@ export const lookupResourceReferenceQuerySchema = z.strictObject({
 });
 
 export const replaceLookupRowsInputSchema = z.strictObject({
+	operationId: z.uuid().optional(),
 	...expectedTableRevisionShape,
 	rows: z.array(lookupRowValuesSchema).max(LOOKUP_MAX_ROWS),
 });
@@ -351,7 +485,7 @@ export const lookupStorageMeasurementSchema = z
 		rowValueBytes: z
 			.array(z.number().int().nonnegative().max(LOOKUP_MAX_ROW_BYTES))
 			.max(LOOKUP_MAX_ROWS),
-		dataBytes: z.number().int().nonnegative().max(LOOKUP_MAX_TABLE_BYTES),
+		dataBytes: z.number().int().nonnegative().max(LOOKUP_MAX_CHANGE_BYTES),
 	})
 	.superRefine((measurement, ctx) => {
 		const sum = measurement.rowValueBytes.reduce(

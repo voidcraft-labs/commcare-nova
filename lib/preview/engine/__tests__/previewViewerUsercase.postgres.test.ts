@@ -2,6 +2,7 @@
  * Real app birth, real committed personas and the real case store with its
  * edit-capability fence; only the authenticated request session is supplied
  * at its external boundary. */
+import { sql } from "kysely";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -34,6 +35,7 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 			name: session.userId,
 			email: `${session.userId}@dimagi.com`,
 		},
+		session: { id: `${session.userId}-session` },
 	}),
 }));
 
@@ -44,6 +46,11 @@ const h = setupAppStateTestDb("preview_viewer_usercase_", {
 beforeEach(async () => {
 	await h.seedProjectMember(OWNER, PROJECT, "owner");
 	await h.seedProjectMember(VIEWER, PROJECT, "viewer");
+	// Each person's live browser session, which Project data reads lock.
+	for (const userId of [OWNER, VIEWER])
+		await sql`INSERT INTO auth_session(id,token,"userId","expiresAt","createdAt","updatedAt")
+			VALUES (${`${userId}-session`},${`${userId}-token`},${userId},now()+interval '1 hour',now(),now())
+			ON CONFLICT (id) DO NOTHING`.execute(h.db());
 });
 afterEach(() => {
 	vi.restoreAllMocks();

@@ -62,7 +62,7 @@ import { type SourceTable, tableOf } from "../../sourceKeys";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
 import { rethrowWorkStop } from "../../workMeter";
-import type { FormSyntax } from "../../xpath/formSyntax";
+import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
 	CSQL_VALUE_FUNCTIONS,
@@ -245,8 +245,7 @@ function readsSearchAnswer(node: FormSyntax): boolean {
 		else if (at.kind === "filter") at = bare(at.base);
 		else break;
 	}
-	if (at.kind !== "call" || at.name !== "instance") return false;
-	return stringOf(at.args[0])?.startsWith("search-input") === true;
+	return literalInstanceId(at)?.value.startsWith("search-input") === true;
 }
 
 /** A search row's wrapper over its syntax tree: its parts, and the

@@ -35,8 +35,10 @@ import { proseText } from "@/lib/domain/prose";
 import { recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { sharedSources } from "../../hq/suiteDetailSources";
 import { emptyShortListColumns } from "../../hqJson/caseList";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
+import { scannedInstances } from "../../xpath/instanceSources";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import { indexTarget } from "../caseManagement/basicActions";
@@ -67,6 +69,7 @@ import {
 } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
+import { sourceFactories } from "../sourceFactories";
 import { sameXPathText } from "../syntaxCompare";
 import type { SameStateRegister } from "../types";
 import {
@@ -1478,6 +1481,51 @@ export function readCaseDetails(
 		readings.map((one) => (one === "dropped" ? undefined : one));
 	const shortProposals = proposalsOf(shortReadings);
 	const longProposals = proposalsOf(longReadings);
+	// HQ emits a plain or invisible calculated field's expression in its
+	// physical detail template. Sort-only nodes are outside get_all_xpaths.
+	const factories = sourceFactories(ctx.input);
+	const screens = [shortProposals, longProposals].map((proposals, screen) => {
+		const kind = screen === 0 ? "short" : "long";
+		// Module.get_details can clone these same columns onto search_short/long.
+		const ids = ["case", "search"].map(
+			(family) => `m${module.index}_${family}_${kind}`,
+		);
+		const sources = new Map<string, string>();
+		for (const proposal of proposals)
+			if (
+				proposal?.expression &&
+				["plain", "invisible"].includes(
+					String(proposal.json.peek("format") ?? "plain"),
+				)
+			) {
+				for (const [name, src] of scannedInstances(
+					proposal.expression.text,
+					factories,
+				))
+					sources.set(name, src);
+			}
+		const scopes: ReadonlyMap<string, string>[] = [];
+		for (const id of ids) {
+			const observed = ctx.input.suiteDetails?.get(id);
+			if (observed === null) continue;
+			if (!observed) {
+				// The ordinary screen always has this template. A search clone
+				// exists only if a served suite or module configuration provides one.
+				if (id === ids[0] || shared.offersSearch) scopes.push(sources);
+				continue;
+			}
+			const resolved = new Map(sources);
+			for (const [name, src] of observed) {
+				if (src === null) resolved.delete(name);
+				else resolved.set(name, src);
+			}
+			scopes.push(resolved);
+		}
+		return { ids, sources: sharedSources(scopes), reached: scopes.length > 0 };
+	});
+	const both = sharedSources(
+		screens.filter((screen) => screen.reached).map((screen) => screen.sources),
+	);
 
 	const joined = joinDetailColumns(
 		shortProposals,
@@ -1597,8 +1645,18 @@ export function readCaseDetails(
 		} as Column;
 		const expression = column.proposal.expression;
 		if (built.kind === "calculated" && expression !== undefined) {
+			const physical = screens.filter((_, i) =>
+				i === 0 ? column.short !== undefined : column.long !== undefined,
+			);
 			const registration = ctx.pending.register(
 				{
+					suiteDetails: physical.flatMap((screen) => screen.ids),
+					suiteSources:
+						physical.length === 2
+							? both
+							: physical[0]?.reached
+								? physical[0].sources
+								: undefined,
 					ref: {
 						entity: "module",
 						uuid: module.uuid,

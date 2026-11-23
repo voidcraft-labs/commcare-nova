@@ -32,6 +32,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import type { NodeType, SyntaxNode } from "@lezer/common";
+import { lookupFixtureId } from "@/lib/commcare/lookup/naming";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
 	caseRefAcceptMap,
@@ -534,7 +535,7 @@ function instanceIds(reads: ExpressionReads): Completion[] {
 		{ label: "casedb", detail: "Cases", type: "namespace" },
 		{ label: "commcaresession", detail: "Session", type: "namespace" },
 		...reads.tables.map((table) => ({
-			label: table.tag,
+			label: table.instanceId,
 			detail: table.name,
 			type: "namespace",
 		})),
@@ -644,6 +645,13 @@ function caseRowValues(
 	];
 }
 
+function tableReadByInstance(reads: ExpressionReads, instance: string) {
+	return reads.tables.find(
+		(table) =>
+			table.instanceId === instance || lookupFixtureId(table.tag) === instance,
+	);
+}
+
 /** The steps an instance offers after the steps already written. */
 function instanceSteps(
 	reads: ExpressionReads,
@@ -708,9 +716,9 @@ function instanceSteps(
 			);
 		return [];
 	}
-	const tag = id.startsWith("item-list:") ? id.slice("item-list:".length) : id;
-	const table = reads.tables.find((each) => each.tag === tag);
+	const table = tableReadByInstance(reads, id);
 	if (table === undefined) return [];
+	const { tag } = table;
 	if (at === "") return [step(`${tag}_list/`)];
 	if (at === `${tag}_list`) return [step(tag, table.name)];
 	if (at === `${tag}_list/${tag}`)
@@ -805,9 +813,8 @@ function rowPredicateValues(
 	if (id === "casedb")
 		return at === "casedb/case" ? caseRowValues(reads, caseType()) : [];
 	if (id === "commcaresession") return [];
-	const tag = id.startsWith("item-list:") ? id.slice("item-list:".length) : id;
-	const table = reads.tables.find((each) => each.tag === tag);
-	return table !== undefined && at === `${tag}_list/${tag}`
+	const table = tableReadByInstance(reads, id);
+	return table !== undefined && at === `${table.tag}_list/${table.tag}`
 		? table.columns.map((column) => step(column.wireName, column.label))
 		: [];
 }

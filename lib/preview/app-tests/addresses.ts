@@ -118,6 +118,19 @@ function form(
 
 /** Bind against the authorized pinned state at EACH action, after receipt lookup.
  * Earlier actions in the same request may have changed the current form. */
+export function appTestPersona(doc: BlueprintDoc, name: string | null) {
+	return name === null
+		? null
+		: one(
+				name,
+				Object.values(doc.personas ?? {}).map((item) => ({
+					uuid: item.uuid,
+					names: [item.name],
+				})),
+				"Preview identity",
+			);
+}
+
 export function bindAppTestAction(
 	doc: BlueprintDoc,
 	state: AppTestSessionState,
@@ -189,17 +202,7 @@ export function bindAppTestAction(
 		case "identity":
 			bound = {
 				...action,
-				personaUuid:
-					action.personaUuid === null
-						? null
-						: one(
-								action.personaUuid,
-								Object.values(doc.personas ?? {}).map((item) => ({
-									uuid: item.uuid,
-									names: [item.name],
-								})),
-								"Preview identity",
-							),
+				personaUuid: appTestPersona(doc, action.personaUuid),
 			};
 			break;
 	}

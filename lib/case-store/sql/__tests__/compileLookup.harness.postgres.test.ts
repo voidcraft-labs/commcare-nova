@@ -16,6 +16,7 @@
 
 import { sql } from "kysely";
 import { describe } from "vitest";
+import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
 import type { CaseType } from "@/lib/domain";
 import {
 	and,
@@ -32,9 +33,11 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import type { LookupRead } from "@/lib/domain/lookupRead";
 import { proseText } from "@/lib/domain/prose";
 import { compileExpression } from "../compileExpression";
 import type { LookupTableSchemas } from "../compileLookup";
+import { workerLookupSchemas } from "../compileLookup";
 import {
 	compilePredicate,
 	expressionContextFor,
@@ -471,4 +474,47 @@ describe("compileLookup — round-trip — case-list predicate integration", () 
 			.execute();
 		expect(rows).toEqual([{ out: "north" }, { out: null }]);
 	});
+});
+
+test("SQL reads only one worker’s ordered rows, including row details, qualified repeated values and missing details", async ({
+	db,
+}) => {
+	const { table, rows } = lookupAppFixture(false, true);
+	const attr = table.attributes?.[0];
+	const label = table.columns[1];
+	const lang = label.properties?.[0];
+	if (!attr || !lang)
+		throw new Error("The rich witness has no row or field details.");
+	const schemas = workerLookupSchemas(PROJECT_ID, {
+		definitions: [table],
+		rowsByTable: new Map([[table.id, [rows[1]]]]),
+	});
+	const context = expressionContextFor(
+		makeCtx(db, { lookupTableSchemas: schemas }),
+	);
+	const byRegion = (read: LookupRead, code: string) =>
+		compileExpression(
+			tableLookup(
+				table.id,
+				read,
+				eq(tableColumn(table.id, { attributeId: attr.id }), literal(code)),
+			),
+			context,
+		);
+	const fr = {
+		columnId: label.id,
+		where: { propertyId: lang.id, equals: "fr" },
+		occurrence: 1,
+	};
+	expect(await selectScalar(db, byRegion(fr, "south"))).toBe("Choix Southland");
+	expect(
+		await selectScalar(db, byRegion({ ...fr, propertyId: lang.id }, "south")),
+	).toBe("fr");
+	expect(await selectScalar(db, byRegion(fr, "north"))).toBeNull();
+	expect(
+		await selectScalar(db, byRegion({ ...fr, occurrence: 2 }, "south")),
+	).toBeNull();
+	await expect(selectScalar(db, byRegion(label.id, "south"))).rejects.toThrow(
+		/more than one row/,
+	);
 });

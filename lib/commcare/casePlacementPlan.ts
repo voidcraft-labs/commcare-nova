@@ -1,4 +1,9 @@
 import { formCaseEntryPlan } from "./formCaseEntryPlan";
+import {
+	advancedAutosetsOwner,
+	basicAutosetsOwner,
+	needsSingleGroup,
+} from "./workerGroupsWire";
 /**
  * One plan per form of how its case changes reach the wire: HQ's form
  * actions (a basic form's `FormActions`, an advanced form's
@@ -125,6 +130,7 @@ export interface AdvancedGeneratedNode {
 export type FormCaseWirePlan =
 	| {
 			readonly kind: "basic";
+			readonly groupDefaultOwners: readonly Uuid[];
 			readonly actions: FormActions;
 			readonly saveToCase: readonly SaveToCaseBlock[];
 			readonly datums: readonly PlannedNewCaseDatum[];
@@ -132,6 +138,7 @@ export type FormCaseWirePlan =
 	  }
 	| {
 			readonly kind: "advanced";
+			readonly groupDefaultOwners: readonly Uuid[];
 			readonly actions: AdvancedFormActions;
 			readonly saveToCase: readonly SaveToCaseBlock[];
 			readonly datums: readonly PlannedNewCaseDatum[];
@@ -542,7 +549,23 @@ function buildPlan(
 
 	saveToCase.push(...saveToCaseBlocks(doc, formUuid, moduleKind));
 
-	return { kind: "basic", actions, saveToCase, datums, appendedNames };
+	const groupDefaultOwners = [
+		...(opensCase && ownUuid && basicAutosetsOwner(actions) ? [ownUuid] : []),
+		...subcases.flatMap((sub, i) =>
+			actions.subcases[i].condition.type !== "never" &&
+			!Object.hasOwn(actions.subcases[i].case_properties, "owner_id")
+				? [sub.operationUuid]
+				: [],
+		),
+	];
+	return {
+		kind: "basic",
+		actions,
+		saveToCase,
+		datums,
+		appendedNames,
+		groupDefaultOwners,
+	};
 }
 
 /** What the advanced arm reads of the plan's shared readers. */
@@ -817,6 +840,9 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 	actions.open_cases = open_cases;
 	return {
 		kind: "advanced",
+		groupDefaultOwners: advanced.opens.flatMap((o, i) =>
+			advancedAutosetsOwner(open_cases[i]) ? [o.operationUuid] : [],
+		),
 		actions,
 		saveToCase: saveToCaseBlocks(doc, formUuid),
 		datums,
@@ -898,4 +924,11 @@ function formActionCondition(
 		operator: stated.operator,
 		doc_type: "FormActionCondition",
 	};
+}
+
+/** The actual actions determine entry admission even if an action is conditional. */
+export function formSharingPlan(doc: BlueprintDoc, formUuid: Uuid) {
+	if (!doc.appSettings.caseSharing) return undefined;
+	const plan = planFormCaseWire(doc, formUuid);
+	return needsSingleGroup(plan.actions) ? plan : undefined;
 }

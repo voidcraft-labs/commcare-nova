@@ -59,19 +59,57 @@ A table has columns and rows. Each column carries three things:
 - **A type of value**: Text, Whole number, Decimal number, Date, Time, or Date
   and time.
 
-Table export tags cannot use names reserved for the app's own data. A tag also
-can't contain `casedb` or `ledgerdb` anywhere, written in those letters, because
-CommCare reads a table named that way as its own case or stock data and the
-table's choices never appear. You can write `case_db` or `ledger_db` instead; a
-different case, such as `CaseDB`, works too. A tag holds at most 32 characters.
+You can give a table an export tag like `locations` even if the app also uses
+worker locations. Nova gives the form a separate name for reading that table.
+A tag can hold up to 32 characters, and an export name up to 255. Both start with
+a letter or an underscore and go on with letters, digits, underscores, hyphens
+and periods, so `site_code`, `école` and `site.name` all work. A name can't
+start with lowercase `xml`, and a row or value detail can't be named `xmlns`.
+Some places in an app read only plain names: CommCare HQ changes a period in a
+case list filter or a display condition, a menu reads a table only by a tag of
+letters, digits, underscores and hyphens, and Android reads a narrower set of
+characters than Web Apps. A name like `site_code` works everywhere. CommCare treats the lowercase words
+`casedb` and `ledgerdb` anywhere in a tag as a request for case or stock data.
+You can use `case_db`, `ledger_db` or a spelling such as `CaseDB` for your table.
 Nova names a conflict when you create or rename a table. If an older table has a conflicting
 tag, exporting an app that uses it pauses until an admin changes that tag. The
 table's rows and its references in Nova keep their identities.
 
+## Repeated values and row details
+
+A row detail describes the whole row. For example, a clinic can have a district code even if the table has no columns. **Edit row details** lets you name and reorder those details. A repeated text column holds an ordered list. Each item can have its own details, such as the language of a clinic name.
+
+When creating a table or adding a text column, select **Allow several values per row** to give it a list. **Add value detail** names information each value can carry. A column's **Edit value settings** also lets you index it for lookup. When a definition changes, Nova checks the apps using it and preserves the identities of the details you keep.
+
+In a row's properties, **Add value** appends one item. You can move it up, remove it or edit its exact text. Two items can have the same text and different details. **Use an empty list** gives the worker zero items. When you leave the list unspecified, CommCare reads one empty value. A listed item containing empty text also counts as one item.
+
+**Add rows from a file** appends rows to a table with repeated values or row details. Choose a JSON file up to 256 KiB. For example, this file adds one row to a clinic directory. The export names identify the scalar column, the row detail, the repeated column and its value detail.
+
+```json
+[
+  {
+    "cells": [{ "name": "clinic_code", "value": "007" }],
+    "content": {
+      "attributes": [{ "name": "district", "text": "North" }],
+      "occurrences": [
+        {
+          "name": "clinic_names",
+          "values": [
+            { "text": "Hill Clinic", "properties": [{ "name": "language", "text": "en" }] },
+            { "text": "Clinique Colline", "properties": [{ "name": "language", "text": "fr" }] }
+          ]
+        }
+      ]
+    }
+  }
+]
+```
+
+Use a quoted string for a text code such as `"007"`. A number in a whole-number or decimal column uses a JSON number. Each row needs a value for every row detail, which can be empty text. CSV replacement is available for scalar tables.
+
 ## Find and edit a row
 
-Rows appear 50 at a time, with a search box that matches text in every column.
-Searching is how you find a row; paging through until it turns up is not.
+Rows open in pages of 25. **Find a row** searches the whole table, including row details, repeated values and their details. When you open a match, **Order in table** shows its position among all the rows.
 
 Select a row and it opens in the properties panel on the right, where each value
 gets the control its column's type calls for, a date picker for a date, a clock
@@ -83,6 +121,8 @@ The row's properties include **Move up** and **Move down**. A column's propertie
 use **Move left** and **Move right**. Save or discard an open value edit before
 moving that row or column. Reordering changes where it appears without changing
 its identity or any app reference.
+
+For a large row, choose a column or a row detail to read it. **Open text editor** lets you page through a long value, edit the displayed part, or replace it with a UTF-8 text file. **Replace the whole value** applies the replacement from beginning to end. A smaller row offers the same controls under **Edit a single value or import text**. For a missing text value, you can set it to empty text first. If the connection breaks, **Resume edit** continues the same upload. **Cancel upload** leaves the saved value available.
 
 Times and dates stay human-readable while you edit. Nova keeps the timezone and
 fractional seconds required by storage behind the clock control, so opening and
@@ -115,10 +155,10 @@ still removes only your local copy.
 
 ## How much a table can hold
 
-A table holds up to 5,000 rows and 8 MB of values, and a single CSV import can
-be up to 8 MB. Go past any of those and Nova tells you what it measured, the
-size or the row count it actually found, against the limit, rather than only
-that something was too big.
+One CSV import or replacement takes up to 5,000 rows and 8 MB. A table can grow
+past that as you add rows, and a table from CommCare HQ can be any size: Nova
+reads a large one in pages when you refresh it. Project data shows the row count
+and stored size of each table.
 
 ## Replace every row from a CSV
 
@@ -198,12 +238,22 @@ change stays blocked and offers **Check references again**.
 If the table changes while that confirmation is open, Nova refreshes the table
 and checks its app references again before you can confirm the change.
 
+Renaming a table's export tag, or the export name of a column, row detail or
+value detail, is checked against every app and accepted app design that uses
+it. Where an app reads it somewhere the new name won't work, such as a period
+in a case list filter, Nova refuses the rename, names the app and the place,
+and suggests a name like `district_code`. You can use that name, or change how
+the app uses the data first. Removing a row detail or value detail an app reads
+is refused the same way.
+
 ## What happens to a table when you publish
 
-A table travels with the app it is read by, whichever way the app leaves Nova:
+Nova prepares each table for the place your app will run.
 
-- **A downloadable app** carries its tables inside the file, so a device that
-  installed it has them offline.
+- **A downloadable app** carries tables shared with everyone. If its rows belong
+  to particular workers, groups or places, Nova checks that the named project
+  space has the right table. Each worker receives their own rows when they
+  sign in and sync the installed app.
 - **Publishing to CommCare HQ** puts them on the project space before the app's
   content goes, and replaces their rows with the rows in Nova every time you publish.
   If a table was edited in CommCare HQ since Nova last published it, the next
@@ -213,12 +263,19 @@ A table travels with the app it is read by, whichever way the app leaves Nova:
   project space that manages it, and checks before each publish that it still
   holds what your app reads. When several of your Project's apps read one
   table, each of them publishes it without being asked to take it over.
-- **The CommCare HQ app file** comes as a zip with a `lookup-tables.xlsx` beside
-  it, for uploading on the project's Lookup Tables page. Tables managed in
-  CommCare HQ come in a file for each project space that manages them, named
-  after it, such as `lookup-tables-managed-in-acme-health.xlsx`. That project
-  space already has them, so you leave its file out there; every other project
-  space takes it the same way as the first.
+- **The CommCare HQ app file** comes as a zip. Its README names the lookup
+  workbooks to upload on the project space’s Lookup Tables page. A large app
+  can have several workbooks. Each contains complete tables. A reusable file
+  includes setup instructions for worker assignments. An editor can choose a
+  named project space in Publish to include that destination’s verified
+  assignments. Complete tables with verified column settings come in one workbook
+  per source project space, such as `lookup-tables-managed-in-acme-health.xlsx`.
+  The README names any table whose settings or assignments still need verification.
+  In its original project space, the app uses that existing table. In another space,
+  an admin can use CommCare HQ’s current export of the selected table to prepare its
+  tag, indexes, rows and worker assignments, then verify the intended workers’ rows.
+  If you want a different design, create a table in Project data and connect the
+  app’s fields to it before downloading a new app file.
 
 If a cell contains a character CommCare cannot preserve, Nova stops the export
 and names the table and column. You can remove the character or retype the
@@ -234,21 +291,13 @@ If the project space already has a table with the same tag and Nova did not make
 it, publishing stops and asks you which of them are yours rather than writing
 over somebody else's data. [Publishing](/docs/publishing) has the details.
 
-Nova's upload writes each table whole, so it keeps only what Nova itself holds
-of a table:
+A row can have its own details, such as a district code. A column can hold several values in order. Each value can have details of its own, such as the language of a place name.
 
-- **A table that holds field properties, row attributes or rows limited to
-  certain users in CommCare HQ** stops the publish before anything is sent,
-  whoever made it, because publishing over it would remove them. Giving your
-  table a new export tag lets Nova publish its own table and leave that one as
-  it is.
-- **A description or indexed fields** that a table has in CommCare HQ are
-  removed when Nova publishes over it. CommCare HQ doesn't show either to Nova,
-  and an upload can't carry a description, so Nova says so when you choose to
-  take a table over or to publish over a change made there.
-- **Owners on rows of a table every worker sees** have no effect in CommCare HQ,
-  since every worker receives every row of such a table. Nova's upload removes
-  them and keeps the table and its rows.
+In a question or Search choice list, you can choose a row detail as the saved answer and a different value as its label. For a column with several values, **Match a value detail** narrows the list. **Position** chooses one of the remaining values, starting at one. A French label and an English label can share the same saved district code. A worker can reopen that answer after you change its label.
+
+Nova checks the rows that each worker can receive. Each saved value must be distinct within those rows and contain no spaces, tabs or line breaks. Each label needs visible text. If a worker’s source has no rows or a selected detail has several matching values, Preview names the affected data. If the source has rows and your question’s filter matches none, the question shows no choices.
+
+A device file can include tables shared with everyone. Assigned data needs a verified worker connection on its own project space. Project data shows where to reconnect or check the rows that the worker receives. When an upload needs a workbook, Nova checks that the target can retain its row details, value order, indexes and assignments. An additional value that CommCare HQ would lose needs a different way to deliver the table.
 
 ## Tables managed in CommCare HQ
 
@@ -257,18 +306,28 @@ it, marked **Managed in CommCare HQ**. Each one lives in its project space on
 CommCare HQ. Nova keeps a copy so your apps and Preview can read it, and never
 changes it there.
 
+Project data distinguishes the complete source inventory from the rows an individual worker receives. A table can stay linked to its project space while a large inventory is refreshed. If a source read stops partway, Nova keeps the last completed inventory and labels it with the time it was read.
+
+Project editors can open **Check source access** and enter a mobile worker’s username to read the data that worker’s device currently receives with their own approved HQ connection. Leaving it blank checks the connected account. A web account receives every row of a global table and no assigned rows. A mobile worker’s rows follow their own assignments, groups and primary place, including its ancestors. A worker check reports a time, complete row count and a small sample. A protected table needs fresh worker data before a dependent action can run.
+
+In the same dialog, **Check and record workbook** accepts an HQ download containing this table alone, up to 768 KiB. Nova compares the table definition, row identities, order and workbook values to the source. It checks named workers, groups and places in that project space. The resulting historical receipt records the indexed columns and how many rows had assignments at the time of the check. A new check is needed when a destination or management change depends on current assignments.
+
 You can change the table on CommCare HQ's Lookup Tables page, then choose
 **Refresh from CommCare HQ** on the table's page in Nova. Nova refreshes its copy
 before each publish too, and the page shows when the copy was last refreshed.
 While CommCare HQ manages a table it stays read-only in Nova, for you, for Nova
 in chat and for an MCP agent alike.
 
+For a large table or one with assigned rows, a Project editor can open **View source inventory**. It shows the date and row count of the completed copy. **Read first row** opens the values and their details in order. Exceptionally long rows open in parts. **Check inventory** shows how far your refresh has read. **Cancel my refresh** drops your unfinished read and keeps the last completed copy available. If a connection breaks, **Refresh from CommCare HQ** can continue from a verified point.
+
+A worker’s Preview uses the rows available to that worker. The Project editor’s source inventory is a separate view.
+
 **Manage in Nova** hands the table to Nova. From then on you change it in Nova,
 and each publish to that project space replaces the table there with Nova's
 columns and rows. If someone changes it in CommCare HQ after that, your next
 publish there stops and shows you what changed before it sends anything. A
 Project admin can choose this, and Nova names the apps that read the table
-before you confirm.
+before you confirm. For a large global table, the admin first refreshes the source inventory with their current connection. Nova checks the full table and its indexed columns against what a device receives from the table right now. After transfer, the same rows and columns can be edited in Project data, including text larger than one screen.
 
 **Let CommCare HQ manage it again** hands it back. Nova takes CommCare HQ's
 columns and rows as they are right then and stops changing the table there.
@@ -286,9 +345,44 @@ copy, with no values, so those apps keep opening. Their next publish to that
 project space stops until the column is back in CommCare HQ or the apps stop
 reading it.
 
+## Take the table from CommCare HQ, or make a separate one
+
+A table you made in Nova and published lives in that project space too. If
+someone changed it there, your next publish stops and shows you what changed.
+You can publish over the change, or choose **Use the table from CommCare HQ** on
+the table's page. Choose the project space whose table to take. Nova reads that
+table and shows what taking it does: the rows it has, the columns that come in
+or go, the columns that become text, and the apps that read the table. Once a
+Project admin confirms, Nova's table holds that table's columns and rows, and
+CommCare HQ manages it from then on, as a table brought in from there is. Its
+id stays the same, so no app changes, and the next publish to that project
+space leaves the table there as it is. Nova changes nothing if the table, the
+apps that read it, CommCare HQ's table or the publish that put it there moved
+while you were deciding.
+
+A table someone else's project space manages can't always travel to yours: if
+CommCare HQ never told Nova which of its columns are indexed, a publish to
+another project space stops and says the table needs a verified table there.
+**Create a separate table** makes a new Project table from the columns and
+rows a table has now, under its own name and export name, and points the apps
+you choose at it instead. The old table and every other app stay as they are.
+The new table is Nova's: it indexes only the columns you choose on its page,
+and each publish of those apps sends it. A Project editor can choose this for a
+table every worker receives.
+
+## Choosing who receives rows
+
+In Project data, **Who receives this table** shows how the app shares the table. **Use row assignments** starts with every row hidden from workers. An editor can open **Who receives this row** and choose people, groups and places. A worker receives a row once if any of its assignments match. Assigning a place includes workers whose primary place is there or below it. Their additional places do not extend this access.
+
+**Worker groups** lets you add people from the Project's apps, see the app beside each worker's name and decide whether a group can own cases. A group can receive rows whether or not it owns cases. An admin can choose **Share with every worker** after reviewing the apps that read the table.
+
+A connected project space needs its own worker, group and place bindings. In a group's settings you can review its connection by name or identifier. Nova checks its current membership before sending assigned data. A worker with the same name in another space has a separate identity.
+
+To take over a source table with assigned rows, download just that table in its project space and attach the file to **Manage in Nova**. Nova checks the source row identities, the worker, group and place connections, and the device data for the connected workers. If these have changed, you can refresh the table and download a current copy. The last workbook check in **Check source access** shows when that earlier copy was observed.
+
 ## Who can do what
 
-- **Read the tables**: anyone who can open the app.
+- Anyone who can open the app can read its table definitions. A Project editor with an approved source connection can inspect protected source inventory.
 - **Edit values, add rows, add columns, reorder rows or columns, and import a
   CSV**: edit access.
 - **Delete a table, remove a column, change a column's type, and change the name

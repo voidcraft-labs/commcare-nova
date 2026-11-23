@@ -53,6 +53,7 @@ import {
 	tableRowInScope,
 } from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
+import { editorLookupReads } from "../lookupTablePresentation";
 import { membershipLiteralContext } from "../membershipLiteralContext";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
@@ -71,7 +72,7 @@ import {
 export function inDefault(ctx: PredicateEditContext): ExpressionOfKind<"in"> {
 	const subjectConstraint = inSubjectConstraint();
 	if (tableRowInScope(ctx)) {
-		const column = ctx.tableScope?.columns.find((candidate) =>
+		const column = editorLookupReads(ctx.tableScope).find((candidate) =>
 			acceptsType(subjectConstraint, candidate.dataType),
 		);
 		if (ctx.tableScope === undefined || column === undefined) {

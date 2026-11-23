@@ -245,6 +245,9 @@ def localizations(family):
                     catalog = SelectKnownAppStrings(lambda *_args, **_kwargs: {})
                     (exports / f"{source.stem}.hq.default.strings.txt").write_text(catalog.create_default_app_strings(app))
                 records.append({"scenario": source.stem, "languages": list(app.langs), "sourceSha256": sha256(raw)})
+        if family == "worker":
+            from proof.native.steps.worker_groups import restored_audiences
+            restored_audiences(exports)
         return records
 
     return run

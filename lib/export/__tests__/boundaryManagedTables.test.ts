@@ -18,6 +18,7 @@ import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { hqImportFileGuide } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
@@ -332,6 +333,54 @@ describe("a direct upload of a table CommCare HQ manages", () => {
 });
 
 describe("the HQ app file's workbooks", () => {
+	it("keeps the prepared table in its source workbook and names each remaining source in the manual guide", async () => {
+		const uncertain = {
+			...DISTRICTS,
+			columns: DISTRICTS.columns.map((col) => ({
+				...col,
+				index: "unobserved" as const,
+			})),
+		};
+		const assigned = {
+			...WARDS,
+			hq: {
+				...ORIGIN,
+				...ELSEWHERE,
+				source: {
+					inventory: "complete" as const,
+					distribution: "assigned" as const,
+					indexEvidence: "workbook" as const,
+				},
+			},
+		};
+		const result = await prepared("hq-json", [uncertain, CLINICS, assigned]);
+		expect(
+			result.managedLookupWorkbooks.map((file) =>
+				sheetNames(file.workbook.bytes),
+			),
+		).toEqual([["types", "clinics"]]);
+		const steps = hqImportFileGuide({
+			...result,
+			appName: result.doc.appName,
+			lookupWorkbook: result.lookupWorkbook,
+			lookupNaming: result.lookupNaming,
+		});
+		const binding = steps.find((step) => step.kind === "bind-project-data");
+		expect(binding?.lines.join(" ")).toContain(
+			"“districts” uses the existing table in acme-health",
+		);
+		expect(binding?.lines.join(" ")).toContain(
+			"“wards” uses the existing table in acme-north",
+		);
+		const workbook = steps.find(
+			(step) => step.kind === "managed-lookup-tables",
+		);
+		expect(workbook?.lines.join(" ")).toContain("clinics");
+		expect(workbook?.lines.join(" ")).not.toContain("districts");
+		expect(
+			(await refused("ccz", [assigned])).map((issue) => issue.code),
+		).toContain("LOOKUP_WORKER_SOURCE_UNAVAILABLE");
+	});
 	it("puts each table in exactly one: the managed ones in a workbook of the project space that manages them", async () => {
 		const result = await prepared("hq-json", [
 			VISITS,

@@ -27,6 +27,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -43,20 +44,21 @@ import {
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
+import { mediaUploadBatches } from "@/lib/commcare/multimedia/uploadBatches";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import type { BlueprintDoc, MediaAssetId } from "@/lib/domain";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
-import { downloadAssetBytes } from "@/lib/storage/media";
+import { streamAsset } from "@/lib/storage/media";
 import {
 	APP_READ_BACK_FAILED_WARNING,
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
 	MEDIA_NOT_SENT_AFTER_ACCESS_WARNING,
 	MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
 } from "../remoteChanges";
-import { type PublishOutcome, publishAppToHq } from "../service";
+import type { PublishOutcome } from "../service";
 import {
 	readAppBaseline,
 	readDeployment,
@@ -68,14 +70,28 @@ import {
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { appMappingToken, birthAdoptedApp } from "./adoptedBirth";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
+import { publishFromSession as publishAppToHq } from "./publishWithGrant";
 import { stopHere } from "./stopHere";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("@/lib/commcare/multimedia/uploadBatches", async (original) => {
+	const actual =
+		await original<typeof import("@/lib/commcare/multimedia/uploadBatches")>();
+	return { ...actual, mediaUploadBatches: vi.fn(actual.mediaUploadBatches) };
+});
+vi.mock("@/lib/storage/media", () => ({
+	streamAsset: vi.fn(),
+	getStoredObjectMetadata: async (key: string) => ({
+		size: key.includes(SECOND_HASH) ? SECOND_PNG.length : PNG.length,
+		generation: "7",
+		contentType: "image/png",
+		checksum: "test",
+	}),
+}));
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
-	vi.mocked(downloadAssetBytes).mockReset();
+	vi.mocked(streamAsset).mockReset();
 });
 afterEach(() => vi.useRealTimers());
 
@@ -113,6 +129,11 @@ const PNG = readFileSync("public/nova-icons/household.png");
 const HASH = createHash("sha256").update(PNG).digest("hex");
 /** The path the publish sends the image under: its content hash. */
 const WIRE = `commcare/${HASH}.png`;
+/** A second picture, whose path sorts before the first's. */
+const SECOND_IMAGE = testMediaAssetId("publish-media-second-image");
+const SECOND_PNG = readFileSync("public/nova-icons/alerts.png");
+const SECOND_HASH = createHash("sha256").update(SECOND_PNG).digest("hex");
+const SECOND_WIRE = `commcare/${SECOND_HASH}.png`;
 /** Another file, as a person's upload in CommCare HQ gives the path. */
 const PERSONS_FILE = Buffer.from("a picture a person uploaded in CommCare HQ");
 
@@ -181,7 +202,7 @@ async function seed(doc: BlueprintDoc) {
 			media_format: "png",
 		})
 		.execute();
-	vi.mocked(downloadAssetBytes).mockResolvedValue(PNG);
+	vi.mocked(streamAsset).mockImplementation(() => Readable.from([PNG]));
 	return doc;
 }
 
@@ -292,6 +313,15 @@ function mediaTaken(
 			return body;
 		});
 	} else request(peer, STATUS).reply(200, body);
+	/* Nova reads back where each file it sent landed, and the file itself. */
+	if (!options.errors?.length) {
+		serveWithMap(
+			peer,
+			"source-live",
+			reported === null ? {} : { [WIRE]: reported },
+		);
+		if (reported) file(peer, reported, PNG);
+	}
 	return () => {
 		if (failure) throw failure.error;
 	};
@@ -626,6 +656,124 @@ it.each([
 	},
 );
 
+it("sends every later batch past one whose file CommCare HQ leaves unmatched, and names that file", async () => {
+	const doc = await seed(
+		buildDoc({
+			appName: "Clinic visits",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{ id: "note", kind: "text", label_media: { image: IMAGE } },
+								{
+									id: "warning",
+									kind: "text",
+									label_media: { image: SECOND_IMAGE },
+								},
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	await h
+		.db()
+		.insertInto("media_assets")
+		.values({
+			id: SECOND_IMAGE,
+			project_id: PROJECT,
+			owner: "creator",
+			kind: "image",
+			content_hash: SECOND_HASH,
+			mime_type: "image/png",
+			extension: ".png",
+			size_bytes: SECOND_PNG.length,
+			gcs_object_key: `projects/${PROJECT}/${SECOND_HASH}.png`,
+			original_filename: "alerts.png",
+			display_name: "Alerts",
+			status: "ready",
+			media_format: "png",
+		})
+		.execute();
+	vi.mocked(streamAsset).mockImplementation((key: string) =>
+		Readable.from([key.includes(SECOND_HASH) ? SECOND_PNG : PNG]),
+	);
+	/* One file to a batch, as a publish past HQ's batch size cuts them. */
+	vi.mocked(mediaUploadBatches).mockImplementationOnce(function* (assets) {
+		const paths = [...new Set([...assets.values()].map((a) => a.wirePath))];
+		for (const path of paths.sort())
+			yield new Map([...assets].filter(([, asset]) => asset.wirePath === path));
+	});
+	expect(SECOND_WIRE < WIRE).toBe(true);
+	const status = (body: {
+		readonly matched: readonly { path: string; id: string; bytes: Buffer }[];
+		readonly unmatched: readonly string[];
+	}) => ({
+		...statusAnswer(null, []),
+		unmatched_files: body.unmatched.map((path) => ({
+			path,
+			reason: "Did not match any Image paths in application.",
+		})),
+		unmatched_count: body.unmatched.length,
+		matched_files: {
+			CommCareAudio: [],
+			CommCareImage: body.matched.map(({ path, id, bytes }) => ({
+				...statusAnswer(id, []).matched_files?.CommCareImage[0],
+				path: `jr://file/${path}`,
+				original_path: path,
+				uid: createHash("md5").update(bytes).digest("hex"),
+			})),
+			CommCareVideo: [],
+		},
+		matched_count: body.matched.length,
+		image_count: body.matched.length,
+	});
+	await withPeer(async (peer) => {
+		accepted(peer, 201);
+		serve(peer, "source-shell");
+		accepted(peer, 200);
+		serve(peer, "source-live");
+		/* The first batch: CommCare HQ leaves its one file unmatched. */
+		request(peer, MEDIA, "POST").reply(200, {
+			success: true,
+			processing_id: "media-job",
+		});
+		request(peer, STATUS).reply(
+			200,
+			status({ matched: [], unmatched: [SECOND_WIRE] }),
+		);
+		serveWithMap(peer, "source-live", {});
+		/* The second batch still goes, and lands. */
+		request(peer, MEDIA, "POST").reply(200, {
+			success: true,
+			processing_id: "media-job",
+		});
+		request(peer, STATUS).reply(
+			200,
+			status({
+				matched: [{ path: WIRE, id: "doc-nova", bytes: PNG }],
+				unmatched: [],
+			}),
+		);
+		serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+		file(peer, "doc-nova", PNG);
+		const outcome = await publish(doc);
+		expect(outcome.landed).toBe(true);
+		expect(
+			requests(peer).filter((one) => one === `POST ${MEDIA}`),
+		).toHaveLength(2);
+		if (!outcome.landed) return;
+		expect(outcome.warnings).toHaveLength(1);
+		expect(outcome.warnings[0]).toMatch(/Couldn.t attach/);
+		expect(await record()).toMatchObject({ [WIRE]: "doc-nova" });
+	});
+});
+
 it("checks a file placed in a parked app before retrying its first content import", async () => {
 	const doc = await seed(withImage(clinicVisitsDocument()));
 	await withPeer(async (peer) => {
@@ -650,6 +798,22 @@ it("checks a file placed in a parked app before retrying its first content impor
 		expect(requests(peer, from)).not.toContain(`POST ${MEDIA}`);
 	});
 });
+it("refuses different Project bytes before creating the remote shell", async () => {
+	const doc = await seed(withImage(clinicVisitsDocument()));
+	const changed = Buffer.from(PNG);
+	changed[changed.length - 1] ^= 1;
+	vi.mocked(streamAsset).mockImplementation(() => Readable.from([changed]));
+	await withPeer(async (peer) => {
+		const result = await publish(doc);
+		expect(refusal(result)).toMatchObject({
+			phase: "preflight",
+			failure: { code: "app_not_ready" },
+		});
+		expect(requests(peer)).toEqual([]);
+		expect(await openMediaWrites()).toEqual([]);
+	});
+});
+
 describe("a file replaced in CommCare HQ", () => {
 	it("stops the publish with one media part before anything is sent, and keeps the record", async () => {
 		const doc = await seed(withImage(clinicVisitsDocument()));
@@ -709,6 +873,8 @@ describe("a file replaced in CommCare HQ", () => {
 				`GET ${SOURCE}`,
 				`POST ${MEDIA}`,
 				`GET ${STATUS}`,
+				`GET ${SOURCE}`,
+				"GET /hq/multimedia/file/CommCareImage/doc-nova-again/",
 			]);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova-again" });
 		});
@@ -770,6 +936,31 @@ describe("a path Nova holds no record for", () => {
 				),
 			).toEqual([]);
 			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+		});
+	});
+
+	it("reuses a file CommCare HQ still maps under the recorded id, reading and sending nothing for it", async () => {
+		const doc = await seed(withImage(clinicVisitsDocument()));
+		await withPeer(async (peer) => {
+			await publishFirst(peer, doc);
+			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+
+			/* An update writes no media map, so HQ keeps the path at Nova's
+			 * file. HQ keys a file by its bytes, so the id stands for them. */
+			const sent = sentCount(peer);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			accepted(peer, 200);
+			serveWithMap(peer, "source-live", { [WIRE]: "doc-nova" });
+			const outcome = await publish(doc);
+			expect(outcome.landed).toBe(true);
+			expect(outcome.warnings).toEqual([]);
+			expect(requests(peer, sent)).toEqual([
+				`GET ${SOURCE}`,
+				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
+			]);
+			expect(await record()).toEqual({ [WIRE]: "doc-nova" });
+			expect(await openMediaWrites()).toEqual([]);
 		});
 	});
 

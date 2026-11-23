@@ -41,6 +41,7 @@ import {
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { ownRecordValue } from "@/lib/domain/records";
 import { asUuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
@@ -124,6 +125,10 @@ import {
 	type ResourceBaselineWrite,
 } from "./types";
 import { baselineWebApps } from "./webApps";
+import {
+	type WorkbookAuthority,
+	workbookAuthorityMatches,
+} from "./workbookAuthority";
 
 /**
  * An authorized handle on one app's deployments.
@@ -2915,6 +2920,7 @@ export async function admitAppCreate(
 
 /** What an admission of a lookup table workbook answered. */
 export type WorkbookAdmission =
+	| { readonly kind: "changed" }
 	| { readonly kind: "admitted"; readonly writeIds: readonly string[] }
 	/** Tables handed back to CommCare HQ from this project space, by tag in tag order. Nothing was recorded. */
 	| { readonly kind: "handed-back"; readonly tags: readonly string[] };
@@ -2936,7 +2942,9 @@ export async function admitWorkbookWrite(
 	target: DeploymentTargetKey,
 	input: DeploymentFence & {
 		readonly firstContentGeneration?: string;
-		readonly tableIds: readonly string[];
+		readonly tableIds: readonly LookupTableId[];
+		readonly authority: WorkbookAuthority;
+		readonly observedOnly?: boolean;
 	},
 ): Promise<WorkbookAdmission> {
 	return withDeploymentRow(
@@ -2958,8 +2966,18 @@ export async function admitWorkbookWrite(
 				)
 				.map((table) => table.tag)
 				.sort();
+			const matches = await workbookAuthorityMatches(
+				tx,
+				scope,
+				target,
+				input.authority,
+				input.tableIds,
+				tables,
+			);
 			if (handedBack.length > 0)
 				return { kind: "handed-back", tags: handedBack };
+			if (!matches) return { kind: "changed" };
+			if (input.observedOnly) return { kind: "admitted", writeIds: [] };
 			const writeIds = await admitRemoteWritesInTransaction(
 				tx,
 				tables.map((table) => ({
@@ -2994,14 +3012,28 @@ export async function admitPlacesWrite(
 	input: DeploymentFence & {
 		readonly firstContentGeneration?: string;
 		readonly locationUuids: readonly string[];
+		readonly organizationRevision?: string;
 	},
 ): Promise<readonly string[]> {
 	return withDeploymentRow(
 		scope,
 		target,
 		{ ensure: false, expectedEndings: input.expectedEndings },
-		async (tx, row) =>
-			admitRemoteWritesInTransaction(
+		async (tx, row) => {
+			if (input.organizationRevision !== undefined) {
+				const state = await tx
+					.selectFrom("app_organization_state")
+					.select("revision")
+					.where("app_id", "=", scope.appId)
+					.forShare()
+					.executeTakeFirst();
+				if (String(state?.revision ?? 0) !== input.organizationRevision)
+					throw new DeploymentError(
+						"stale",
+						"The organization changed while these places were being published. Publish again to continue with the current places.",
+					);
+			}
+			return admitRemoteWritesInTransaction(
 				tx,
 				input.locationUuids.map((locationUuid) => ({
 					deploymentId: row.id,
@@ -3016,7 +3048,8 @@ export async function admitPlacesWrite(
 					holdSeconds: REMOTE_WRITE_HOLD_SECONDS.places,
 				})),
 				input.firstContentGeneration,
-			),
+			);
+		},
 	);
 }
 
@@ -5225,6 +5258,11 @@ export type ResourcePushOutcome =
 			 */
 			readonly status: "complete";
 			readonly kinds: readonly DeploymentResourceKind[];
+			/** Earlier complete workbooks from this same publish, verified by their exact live mapping. */
+			readonly previousLookups?: readonly {
+				novaResourceId: string;
+				remoteId: string;
+			}[];
 			readonly pushedAt: string;
 	  }
 	| {
@@ -5318,13 +5356,38 @@ export async function recordPushedResources(
 					)
 					.execute();
 			};
+			const retained = outcome.previousLookups ?? [];
+			if (retained.length) {
+				const earlier = await tx
+					.selectFrom("app_deployment_resources")
+					.select(["nova_resource_id", "remote_id"])
+					.where("deployment_id", "=", row.id)
+					.where("kind", "=", "lookup-table")
+					.where("superseded_at", "is", null)
+					.where(
+						"nova_resource_id",
+						"in",
+						retained.map((r) => r.novaResourceId),
+					)
+					.forShare()
+					.execute();
+				const current = new Map(
+					earlier.map((r) => [r.nova_resource_id, r.remote_id]),
+				);
+				if (retained.some((r) => current.get(r.novaResourceId) !== r.remoteId))
+					throw new Error(
+						"A table from an earlier workbook changed during this publish.",
+					);
+			}
 			for (const kind of outcome.kinds) {
-				await supersede(
-					kind,
-					inputs
+				await supersede(kind, [
+					...inputs
 						.filter((input) => input.kind === kind)
 						.map((input) => input.novaResourceId),
-				);
+					...(kind === "lookup-table"
+						? retained.map((r) => r.novaResourceId)
+						: []),
+				]);
 			}
 			const record = toDeploymentRecord(row);
 			const progress = applyAttemptOutcome(record, "resources", {

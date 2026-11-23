@@ -1,3 +1,4 @@
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 /**
  * Identity-to-wire-name resolution for lookup carriers.
  *
@@ -15,7 +16,12 @@
  */
 
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type { SlotProfile } from "@/lib/domain/expression/profiles";
+import type {
+	LookupColumnId,
+	LookupMemberId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import type { LookupColumn, LookupTableDefinition } from "@/lib/lookup/types";
 
 /** CCHQ's fixture-id scheme prefix for lookup tables. */
@@ -24,6 +30,56 @@ export const LOOKUP_FIXTURE_ID_PREFIX = "item-list:";
 /** Build the `item-list:<tag>` suite fixture id for a lookup table tag. */
 export function lookupFixtureId(tag: string): string {
 	return `${LOOKUP_FIXTURE_ID_PREFIX}${tag}`;
+}
+
+/** A form may receive these instances from its session or declare them when
+ * a slot reads them. A table's fixture id is in its own namespace: no bare
+ * tag contains a colon, and HQ reserves the item-list scheme for these
+ * fixtures. Using it for collisions keeps each alias stable across forms,
+ * changes to other tables, and the order in which expressions are printed.
+ * HQ also dispatches bare instance names to the factories registered in
+ * suite_xml/post_process/instances.py, including any name containing
+ * selected_cases. XForm.add_missing_instances calls those factories even
+ * when a form supplies its own declaration. */
+const runtimeInstanceIds = new Set([
+	"casedb",
+	"ledgerdb",
+	"commcaresession",
+	"locations",
+	"results",
+	"input",
+	"groups",
+	"reports",
+	"registry",
+	"item-list",
+	"schedule",
+	"indicators",
+	"commtrack",
+	"search-input",
+	"commcare",
+	"commcare-reports",
+	"commcare-reports-filters",
+	"case-search-fixture",
+]);
+
+export function lookupXformInstanceId(tag: string): string {
+	const id = tag.toLowerCase();
+	// Vellum indexes instance metadata in ordinary objects and calls each
+	// index’s own hasOwnProperty (form.js::updateKnownInstances/parseInstanceRefs).
+	return tag === "__proto__" ||
+		tag === "hasOwnProperty" ||
+		runtimeInstanceIds.has(id) ||
+		id.includes("selected_cases")
+		? lookupFixtureId(tag)
+		: tag;
+}
+
+/** A session expression reads the suite's fixture, while form logic reads
+ * the instance declared inside that form. */
+export function lookupInstanceIdForScope(
+	scope: SlotProfile["scope"],
+): (tag: string) => string {
+	return scope === "session" ? lookupFixtureId : lookupXformInstanceId;
 }
 
 /**
@@ -39,7 +95,7 @@ export function lookupFixtureSrc(fixtureId: string): string {
 export interface LookupTableWireNaming {
 	readonly tableId: LookupTableId;
 	readonly tag: string;
-	/** `<tag>` — the XForm-local id used by `instance('<tag>')`. */
+	/** The XForm-local id used by instance(), allocated for this fixture. */
 	readonly xformInstanceId: string;
 	/** `item-list:<tag>` — the suite fixture id and XForm src suffix. */
 	readonly fixtureId: string;
@@ -49,8 +105,14 @@ export interface LookupTableWireNaming {
 	readonly rowElementName: string;
 	/** Columns in authored `(order_key, column UUID)` order. */
 	readonly columns: readonly LookupColumn[];
+	readonly attributes?: LookupTableDefinition["attributes"];
+	readonly distribution?: "global" | "assigned";
 	/** Resolve a column id to its current wire name; unknown ids throw. */
 	readonly wireNameFor: (columnId: LookupColumnId) => string;
+	readonly memberNameFor: (
+		columnId: LookupColumnId | undefined,
+		memberId: LookupMemberId,
+	) => string;
 }
 
 /** Immutable tableId → wire vocabulary resolver for one emission run. */
@@ -79,12 +141,30 @@ function tableNaming(
 	);
 	return {
 		tableId: definition.id,
+		distribution:
+			definition.workerAccess ??
+			definition.hq?.source?.distribution ??
+			"global",
 		tag: definition.tag,
-		xformInstanceId: definition.tag,
+		xformInstanceId: lookupXformInstanceId(definition.tag),
 		fixtureId: lookupFixtureId(definition.tag),
 		listElementName: `${definition.tag}_list`,
 		rowElementName: definition.tag,
 		columns: definition.columns,
+		...(definition.attributes && { attributes: definition.attributes }),
+		memberNameFor: (columnId, memberId) => {
+			const members =
+				columnId === undefined
+					? definition.attributes
+					: definition.columns.find((column) => column.id === columnId)
+							?.properties;
+			const member = members?.find((item) => item.id === memberId);
+			if (!member)
+				throw new Error(
+					`Lookup detail ${memberId} is unavailable in table ${definition.tag}.`,
+				);
+			return member.wireName;
+		},
 		wireNameFor: (columnId) => {
 			const wireName = byColumnId.get(columnId);
 			if (wireName === undefined) {
@@ -114,6 +194,7 @@ export function inertLookupWireNaming(): LookupWireNaming {
 		rowElementName: "nova_lookup",
 		columns: [],
 		wireNameFor: () => "nova_lookup_column",
+		memberNameFor: () => "nova_lookup_detail",
 	});
 	return {
 		tables: [],
@@ -144,6 +225,7 @@ export function identityLookupWireNaming(): LookupWireNaming {
 			rowElementName: tag,
 			columns: [],
 			wireNameFor: (columnId) => `c_${columnId.replaceAll("-", "_")}`,
+			memberNameFor: (_, id) => `d_${id.replaceAll("-", "_")}`,
 		};
 	};
 	return {
@@ -182,16 +264,10 @@ export function lookupWireNaming(
 export function lookupTypeIndexFromNaming(
 	naming: LookupWireNaming | undefined,
 ):
-	| ReadonlyMap<
-			LookupTableId,
-			ReadonlyMap<LookupColumnId, CasePropertyDataType>
-	  >
+	| ReadonlyMap<LookupTableId, ReadonlyMap<string, CasePropertyDataType>>
 	| undefined {
 	if (naming === undefined) return undefined;
 	return new Map(
-		naming.tables.map((table) => [
-			table.tableId,
-			new Map(table.columns.map((column) => [column.id, column.dataType])),
-		]),
+		naming.tables.map((table) => [table.tableId, lookupReadTypes(table)]),
 	);
 }

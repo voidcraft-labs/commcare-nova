@@ -1,3 +1,4 @@
+import { requiresLookupProjection } from "@/lib/lookup/source";
 /**
  * EngineController — per-field reactive coordination layer.
  *
@@ -1826,7 +1827,26 @@ export class EngineController {
 			this.resumeLookupWait();
 			return;
 		}
-		if (data === null) return;
+		const protectedPrevious =
+			previousData?.definitions.some(
+				(table) =>
+					table.workerAccess === "assigned" ||
+					requiresLookupProjection(table.hq),
+			) ?? false;
+		if (data === null) {
+			// A private worker projection must leave the active execution world
+			// as soon as its authority changes. Rebuilding checkpoints answers
+			// and enters the normal lookup wait before constructing a new engine.
+			if (protectedPrevious && this.engine && this.activeFormUuid) {
+				if (this.xpathRuntime)
+					this.rebuildActiveFormAsync(
+						this.activeFormUuid,
+						this.activeCaseData,
+					).catch(() => undefined);
+				else this.rebuildActiveForm(this.activeFormUuid, this.activeCaseData);
+			}
+			return;
+		}
 		/* Rows added to a table the entry found empty at open: open it again.
 		 * A new snapshot cannot give the device places, chosen cases or search
 		 * answers, so no other refusal reopens here. */
@@ -1849,7 +1869,7 @@ export class EngineController {
 		 * A covered engine keeps its capture (per-form-session choice
 		 * stability); touched values restore through the shared snapshot
 		 * contract. */
-		if (this.engine.lookupDataCoversForm()) return;
+		if (this.engine.lookupDataCoversForm() && !protectedPrevious) return;
 		if (this.xpathRuntime) {
 			this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
 				() => undefined,

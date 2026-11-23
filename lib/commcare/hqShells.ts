@@ -310,6 +310,7 @@ export function applicationShell(
 	options: {
 		/** Where the app runs, on the wire: `declaresWebApps(doc)`. */
 		cloudcareEnabled: boolean;
+		caseSharing?: boolean;
 		autoGpsCapture?: boolean;
 		langs?: string[];
 		translations?: Record<string, Record<string, string>>;
@@ -328,8 +329,7 @@ export function applicationShell(
 	 * overlay merge on the update path (`models/applications.py::
 	 * _merge_source_into_app`): every field present in the source
 	 * overwrites the HQ app's value, and a field absent from the source is
-	 * retained. So app content Nova does not author yet (`case_sharing`)
-	 * and target-owned settings and state
+	 * retained. So target-owned settings and state
 	 * (`secure_submissions`, the build/release metadata, and the rest of HQ's
 	 * app Settings page attributes) are deliberately NOT emitted. Three keys carry Nova's values beside the
 	 * target's own, `translations`, `add_ons` and `profile`; the update path
@@ -375,6 +375,9 @@ export function applicationShell(
 	return {
 		doc_type: "Application",
 		application_version: "2.0",
+		...(options.caseSharing === undefined
+			? {}
+			: { case_sharing: options.caseSharing }),
 		name: appName,
 		langs: options.langs ?? ["en"],
 		translations: options.translations ?? {},

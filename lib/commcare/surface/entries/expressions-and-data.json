@@ -549,10 +549,9 @@
 			"xform:model/instance@src"
 		],
 		"valueClass": "user-groups-fixture",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed reference to the case-sharing groups fixture. The class takes the instance whose source is `jr://fixture/user-groups`, its declaration and every read of it; the lookup, location and other instance rows hold the rest of these keys",
-		"subject": "case-sharing",
-		"owner": "settings-nova-comes-to-own",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: typed reference to the case-sharing groups fixture. The class takes the instance whose source is `jr://fixture/user-groups`, its declaration and every read of it; the lookup, location and other instance rows hold the rest of these keys",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4616,7 +4615,7 @@
 			"media-code:corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only",
+		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only. An app's media total no longer bounds a reading (every export streams its files); one imported file over Nova's per-kind cap still stops it",
 		"subject": "media-files",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -4894,10 +4893,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "holding-a-period",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a name HQ's table page accepts and Core reads, which HQ's build rewrites or refuses where a filter, a display condition or a required condition reads it: an unquoted `.` there is the current case (`xpath.py::dot_interpolate`)",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table and its columns retain their spelling. Forms read dotted names through their declared fixtures. A suite condition may read a dotted column where HQ preserves every period.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4928,10 +4926,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "reserved-instance-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table whose instance id in a form differs from its tag, as the form builder makes it (`form.js::addInstanceIfNotExists`)",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project table keeps its tag. A form binds each read to its declared fixture source and assigns a distinct local instance id when the tag coincides with a runtime instance or with Vellum’s dictionary keys `hasOwnProperty` and `__proto__` (form.js::parseInstanceRefs, updateKnownInstances).",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4943,7 +4940,7 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook, the fixture and every read",
+			"cell": "the table tag in the workbook and fixture source, the allocated id at each form read",
 			"markers": []
 		},
 		"gates": []
@@ -4962,10 +4959,9 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
 		"valueClass": "non-ascii-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: HQ's grammar over every XML name (`fixtures/utils.py::is_identifier_invalid`), which needs a name token proven on each runtime's Unicode tables; the row below refuses a name Core's XPath cannot read where an expression reads it",
-		"subject": "lookup-tables",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Project data retains the XML spelling. A field used by an expression must be readable on every worker platform the app runs on. Unused fields keep their names and values.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5012,6 +5008,58 @@
 		"gates": []
 	},
 	{
+		"id": "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a suite expression reads a lookup table whose instance id HQ’s suite builder does not discover",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "suite-omits-lookup-instance",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ’s suite builder omits the fixture declaration for a tag outside its instance scanner’s grammar, including a dotted tag. The worker cannot resolve the instance.",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ’s suite builder omits the fixture declaration for a tag outside its instance scanner’s grammar, including a dotted tag. The worker cannot resolve the instance."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/dotted-column-interpolated-in-suite",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a suite condition reads a lookup column whose unquoted period HQ interprets as the selected case",
+		"surfaceKeys": ["lookup-model:TypeField.name"],
+		"valueClass": "suite-interpolates-column",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ’s interpolation treats an unquoted period between non-digits as the current case. Without a case HQ refuses the condition. With a case it changes the path the worker reads.",
+		"subject": "lookup-tables",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "HQ’s interpolation treats an unquoted period between non-digits as the current case. Without a case HQ refuses the condition. With a case it changes the path the worker reads."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "expressions-and-data/tag-types",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
@@ -5019,7 +5067,7 @@
 		"surfaceKeys": ["lookup-model:LookupTable.tag"],
 		"valueClass": "types",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no push can carry it (Nova refuses it today, `lib/export/boundaryValidation.ts::lookupHqReservedTagFindings`), though HQ's table editor accepts the tag",
+		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no workbook can carry it (Nova refuses it, `lib/export/boundaryFindings.ts::lookupHqReservedTagFindings`, and a reading raises this entry, `lib/deployment/reading/projectData/lookupTables.ts::lookupTableFindings`), though HQ's table editor accepts the tag; the JSON resource carrier that would publish it is planned (`lib/deployment/lookupJsonPlan.ts`) but writes nothing yet",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5079,7 +5127,7 @@
 		],
 		"valueClass": "field-properties",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupColumn.properties` + multi-valued cells",
+		"dispositionCell": "**HELD-NEW**: held in Project data as a column's value details (`LookupColumn.properties`) and repeated text columns with ordered occurrences (`lib/lookup`), read from CommCare HQ's row details (`lib/commcare/hq/lookupSource.ts::readSelectedHqLookupRows`), edited in the rich table editor and the shared tools, and written to the device fixture and to a workbook wherever HQ's workbook reader keeps every occurrence (`lib/commcare/lookup/workbookRows.ts`); it moves once an HQ-authored base with properties and repeated values passes proofs 1 to 6 and a native walk shows the worker's choices",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5110,7 +5158,7 @@
 		],
 		"valueClass": "row-attributes",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupTable.rowAttributes`",
+		"dispositionCell": "**HELD-NEW**: held as a table's row details (`LookupTableDefinition.attributes`, every row's attribute text kept exactly), read from CommCare HQ's row details, edited in Project data and the shared tools, and written to the fixture and the workbook's `property:` columns; it moves once an HQ-authored base with row attributes passes proofs 1 to 6 and a native walk",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5147,7 +5195,7 @@
 			"lookup-workbook:location"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupTable.ownership`; the owners themselves are the project space's users, groups and locations",
+		"dispositionCell": "**HELD-NEW**: held as a table's assigned rows (`workerAccess: \"assigned\"`, `lib/lookup/rowAssignments.ts` follows `LookupTableRowManager.iter_by_user`: the worker, a group, or a place on the primary place's path), checked against a fresh worker restore or a selected-table workbook before a transfer, and written to the workbook's owner columns for a destination whose principals are bound; the owners themselves are the project space's users, groups and locations. It moves once an HQ-authored base with owned rows passes proofs 1 to 6 and native walks of two workers with disjoint assignments",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5179,7 +5227,7 @@
 		],
 		"valueClass": "field-indexed",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `LookupColumn.indexed`",
+		"dispositionCell": "**HELD-NEW**: held per column as indexed, not indexed, or not shown to Nova (`LookupColumn.index`: an API-key read never shows it; a verified global restore's schema or a selected-table workbook does), written to the workbook's `is_indexed?` column, and a publish that would have to guess it stops for a prepared destination table or a separate table; it moves once an HQ-authored base with an indexed field passes proofs 1 to 6 and a native walk",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
@@ -5257,7 +5305,7 @@
 		],
 		"valueClass": "cell-absence",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`)",
+		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`). Project data keeps an absent field, an empty list and an empty string apart (`lib/lookup/rowContent.ts`), the reading takes a zero-occurrence field from its row detail, and the workbook refuses a row HQ's reader would not reconstruct; it moves once an HQ-authored base with each state passes proofs 1 to 6 and a native walk counts the elements",
 		"subject": "lookup-tables",
 		"owner": "project-data-at-hq-size",
 		"platforms": {

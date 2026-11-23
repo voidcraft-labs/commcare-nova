@@ -23,7 +23,11 @@ import {
 	sameCaseWriteKey,
 } from "../forms";
 import type { TranslationUnitId } from "../localization";
-import type { LookupColumnId, LookupTableId } from "../lookupIds";
+import type {
+	LookupColumnId,
+	LookupMemberId,
+	LookupTableId,
+} from "../lookupIds";
 import { afterEmptySearchRegistrationFormOf } from "../menuForms";
 import { menuScreenOf, screenChoosesCaseFirst } from "../menuScreens";
 import {
@@ -68,7 +72,7 @@ import { datumRefKey, type FormNodeRef, type SlotContextRef } from "./types";
 
 export type LookupTypeIndex = ReadonlyMap<
 	LookupTableId,
-	ReadonlyMap<LookupColumnId, CasePropertyDataType>
+	ReadonlyMap<string, CasePropertyDataType>
 >;
 /** Names for parsing and wire projection; no table rows or persistence layer. */
 export type LookupDefinitionIndex = ReadonlyMap<
@@ -77,7 +81,18 @@ export type LookupDefinitionIndex = ReadonlyMap<
 		readonly id: LookupTableId;
 		readonly name: string;
 		readonly tag: string;
+		readonly attributes?: readonly {
+			readonly id: LookupMemberId;
+			readonly wireName: string;
+			readonly label: string;
+		}[];
 		readonly columns: readonly {
+			readonly repeated?: true;
+			readonly properties?: readonly {
+				readonly id: LookupMemberId;
+				readonly wireName: string;
+				readonly label: string;
+			}[];
 			readonly id: LookupColumnId;
 			readonly wireName: string;
 			readonly label: string;
@@ -104,6 +119,7 @@ export type RowScope =
 			readonly capturedCase?: CaseRowScope;
 	  }
 	| { readonly kind: "location"; readonly root: "locations" }
+	| { readonly kind: "worker-group"; readonly root: "worker-groups" }
 	| { readonly kind: "repeat"; readonly root: "form"; readonly repeat: Uuid };
 /** The per-document facts the checker reads. `caseTypes`, `hiddenTypes`,
  * `hiddenHeld` and `clockLost` are inference's (`inference.ts`); the rest are
@@ -231,7 +247,8 @@ export type RecordQueryRowScope =
 			readonly tableId: LookupTableId;
 			readonly capturedCase?: Extract<RecordQueryRowScope, { kind: "case" }>;
 	  }
-	| { readonly kind: "location" };
+	| { readonly kind: "location" }
+	| { readonly kind: "worker-group" };
 /** A SQL query has no authored slot, device target, or form evaluation node. */
 export interface RecordQueryContext {
 	readonly kind: "record-query";

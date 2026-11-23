@@ -297,19 +297,19 @@ const CASES: readonly Case[] = [
 		],
 	},
 	{
-		title: "a field whose choice labels read an attribute",
+		title: "a field whose choice label is not a row selector",
 		edit: (body) => {
 			const prompt = first(body);
 			prompt.input_ = "select1";
 			prompt.itemset = itemset(
 				"item-list:t",
 				"instance('item-list:t')/t_list/t",
-				"@name",
+				"name + @name",
 			);
 		},
 		findings: [
 			[
-				`${S}itemset-refs-to-item-attributes-attr-or-property-qualified`,
+				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 				"search",
 				"case_name",
 			],
@@ -637,6 +637,101 @@ describe("a Search field Nova cannot hold", () => {
 					]),
 				).toEqual([[MISSING, "search", "case_name", "parse:unknown-column"]]);
 			});
+
+		it.each([
+			["same search request", "instance((('item-list:t')))"],
+			["form entry", "instance((('item-list:t')))"],
+			["same search request", "instance ('item-list:t')"],
+			["form entry", "instance ('item-list:t')"],
+		] as const)(
+			"uses the declaration from the %s to resolve %s",
+			async (source, read) => {
+				const body = exportedBody(PROMPTS);
+				const firstPrompt = first(body);
+				firstPrompt.input_ = "select1";
+				firstPrompt.itemset = {
+					...itemset("item-list:t", `${read}/t_list/t`, "code"),
+					sort: "code",
+				};
+				const conventional = "count(instance('item-list:t')/t_list/t) > 0";
+				if (source === "same search request") {
+					const second = promptsOf(body)[1] as JsonObject;
+					second.input_ = "select1";
+					second.itemset = {
+						...itemset(
+							"item-list:t",
+							"instance('item-list:t')/t_list/t",
+							"code",
+						),
+						sort: "code",
+					};
+				} else {
+					const form = (
+						(body.modules as JsonObject[])[0].forms as JsonObject[]
+					)[0];
+					form.form_filter = conventional;
+				}
+				const input = withTable(await inputFor(body));
+				const outcome = readHqApp({
+					...input,
+					lookup: {
+						...input.lookup,
+						definitions: new Map([[TABLE_T.id, TABLE_T]]),
+					},
+				});
+				expect(outcome.defects).toEqual([]);
+				if (source === "same search request")
+					expect(outcome.kind === "account" ? outcome.findings : []).toEqual(
+						[],
+					);
+				else
+					expect(
+						outcome.kind === "account" &&
+							outcome.findings.map((entry) => entry.code),
+					).toContain(
+						"expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+					);
+			},
+		);
+
+		it.each([
+			["instance(&apos;item-list:t&apos;)", true],
+			["instan&#99;e(&#x27;item-list:t&#x27;)", true],
+			["instance(&amp;apos;item-list:t&amp;apos;)", false],
+		] as const)(
+			"scans one HTML unescape of a sibling's literal %s while the worker executes its original text",
+			async (hint, found) => {
+				const body = exportedBody(PROMPTS);
+				first(body).input_ = "select1";
+				first(body).itemset = {
+					...itemset(
+						"item-list:t",
+						"instance((('item-list:t')))/t_list/t",
+						"code",
+					),
+					sort: "code",
+				};
+				const rule = promptsOf(body)[1].required as JsonObject;
+				rule.test = `${rule.test} or "${hint}" = "plain"`;
+				const input = withTable(await inputFor(body));
+				const outcome = readHqApp({
+					...input,
+					lookup: {
+						...input.lookup,
+						definitions: new Map([[TABLE_T.id, TABLE_T]]),
+					},
+				});
+				expect(outcome.defects).toEqual([]);
+				expect(outcome.kind).toBe("account");
+				if (outcome.kind !== "account")
+					throw new Error("missing source rule refusal");
+				expect(outcome.findings.map((x) => x.code)).toEqual([
+					found
+						? "case-search/required-or-validation-test-outside-what-nova-types"
+						: "expressions-and-data/lookup-table-instance-undiscovered-in-suite",
+				]);
+			},
+		);
 
 		// A filter row's value a device reads from a table, as from the cases on the device, is the
 		// one entry for values that query device data, at the search.

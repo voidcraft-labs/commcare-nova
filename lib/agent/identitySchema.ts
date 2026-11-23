@@ -30,7 +30,12 @@ export type AuthorableIdentityFamily =
 	| "media-asset"
 	| "lookup-table"
 	| "lookup-column"
-	| "lookup-row";
+	| "lookup-attribute"
+	| "lookup-value-property"
+	| "lookup-row"
+	| "project-worker"
+	| "project-place"
+	| "worker-group";
 
 export interface AuthorableIdentityPointer {
 	readonly tool: string;
@@ -107,9 +112,46 @@ export function classifyIdentity(
 		discriminators,
 		logicalPointer: pointer,
 	} = occurrence;
+	// A directory identity can belong to a different application in the same
+	// Project. Its exact ID and owning app come from the authorized directory.
+	if (
+		(tool === "get_worker_groups" || tool === "edit_worker_group") &&
+		property === "groupId"
+	)
+		return "worker-group";
+	if (tool === "edit_worker_group" && property === "personaId")
+		return "project-worker";
+	if (
+		tool === "edit_lookup_rows" &&
+		property === "id" &&
+		pointer.endsWith("/assignments/*/id")
+	) {
+		if (discriminators.includes("group")) return "worker-group";
+		if (discriminators.includes("worker")) return "project-worker";
+		if (discriminators.includes("place")) return "project-place";
+	}
 	if (tool === "start_app_test" && pointer === "/places/*/uuid")
 		return "location";
 	if (property === "tableId") return "lookup-table";
+	if (tool.includes("lookup")) {
+		if (
+			property === "attributeId" ||
+			property === "attributeIds" ||
+			/\/attributes\/\*\/id$/.test(pointer)
+		)
+			return "lookup-attribute";
+		if (property === "propertyId" || /\/properties\/\*\/id$/.test(pointer))
+			return "lookup-value-property";
+	}
+	if (
+		/(?:^|\/)(?:columnId|valueColumnId|labelColumnId|sortColumnId|resultColumnId|slot)\/(?:where\/)?(?:attributeId|propertyId)$/.test(
+			pointer,
+		)
+	) {
+		return property === "attributeId"
+			? "lookup-attribute"
+			: "lookup-value-property";
+	}
 	if (
 		property === "columnId" ||
 		property === "columnIds" ||
@@ -179,7 +221,8 @@ export function classifyIdentity(
 		(tool === "create_location" ||
 			tool === "update_location" ||
 			tool === "start_app_test" ||
-			tool === "move_location")
+			tool === "move_location" ||
+			(tool === "get_organization" && property === "parentId"))
 	) {
 		return "location";
 	}

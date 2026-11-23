@@ -200,11 +200,14 @@ def _request(root, directory, name):
     sidecar = f"{directory}/{name}.json"
     meta = json.loads((root / sidecar).read_text(encoding="utf-8"))
     part = {"request.body": f"{directory}/{name}.body", "request.json": sidecar}
-    for role in ("lookups", "media"):
-        if meta.get(role) is not None:
-            base = meta[role].removesuffix(".body")
-            part[f"{role}.body"] = f"{directory}/{base}.body"
-            part[f"{role}.json"] = f"{directory}/{base}.json"
+    named = [(role, meta[role]) for role in ("lookups", "media") if role in meta]
+    named.extend(
+        ("media" if i == 0 else f"media-{i + 1}", batch["body"]) for i, batch in enumerate(meta.get("mediaBatches", []))
+    )
+    for role, body in named:
+        base = body.removesuffix(".body")
+        part[f"{role}.body"] = f"{directory}/{base}.body"
+        part[f"{role}.json"] = f"{directory}/{base}.json"
     return part
 
 
@@ -828,10 +831,23 @@ class _Unit:
         where the import names none."""
         from proof.observe import publish
 
-        if captured.media is None:
-            return None
-        with ops("media", publish.captured_digest(captured.media)):
-            return publish.upload_media(self.unit, self.app_id, captured.media, counter=captured.media_save_counter)
+        publish.hold_media_bytes(
+            self.unit, self.app_id, {f"jr://file/{path}": sha for path, sha in captured.meta.get("verifiedMedia", {}).items()}
+        )
+        report = None
+        for request, counter in captured.media_uploads():
+            with ops("media", publish.captured_digest(request)):
+                batch = publish.upload_media(self.unit, self.app_id, request, counter=counter)
+            if report is None:
+                report = batch
+            elif batch["refused"]:
+                report["refused"] = batch["refused"]
+            else:
+                for key in ("matched", "unmatched", "skipped", "errors"):
+                    report[key].extend(batch[key])
+            if batch["refused"] or batch["unmatched"] or batch["errors"]:
+                break
+        return report
 
     def create_a(self, ops, *, full):
         """A, as the ``a`` record's ``create`` (and ``hqSide``, ``apiReads``, ``state``) holds it: Nova's first
@@ -976,7 +992,17 @@ class _Unit:
                 ("currentVersion", operations.current_version_read),
             ):
                 with ops(f"reads:{label}", name.encode()):
-                    found[name] = kept(read(unit, app_id, credential))
+                    answer = read(unit, app_id, credential)
+                    found[name] = kept(answer)
+                    if name == "source":
+                        source = answer
+            with ops("reads:source-factories", label.encode()):
+                factory_reads = {
+                    path: kept(answer)
+                    for path, answer in operations.source_factory_answers(unit, app_id, credential, source)
+                }
+                if factory_reads:
+                    found["sourceFactoryReads"] = factory_reads
             with ops("reads:project-spaces", label.encode()):
                 found["projectSpaces"] = {
                     "all": kept(operations.project_spaces_read(unit, credential)),
@@ -1007,6 +1033,7 @@ class _Unit:
                 },
                 "locationTypes": kept(operations.location_types_read(unit, credential)),
                 "locations": kept(operations.locations_read(unit, credential)),
+                "locationsV1": kept(operations.location_external_ids_read(unit, credential)),
             }
         return data
 

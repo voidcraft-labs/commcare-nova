@@ -19,6 +19,7 @@ import type { IdentityResolver } from "@/lib/commcare/reader/identity";
 import type { BlueprintDoc } from "@/lib/domain";
 import { recordFromEntries } from "@/lib/domain/records";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	bornPlaces,
 	keptColumnsOf,
@@ -30,6 +31,7 @@ import {
 import {
 	type LookupTableStanding,
 	lookupTableStanding,
+	needsWorkerRows,
 	readingLookupSnapshot,
 } from "./lookupTables";
 import type {
@@ -58,7 +60,9 @@ function fixturesOf(
 	snapshot: LookupFixtureDataSnapshot,
 ): ReadonlyMap<string, CompiledLookupFixture> {
 	const set = buildLookupFixtures(
-		lookupWireNaming(snapshot.definitions),
+		lookupWireNaming(
+			snapshot.definitions.filter((table) => !needsWorkerRows(table)),
+		),
 		snapshot.rowsByTable,
 	);
 	return new Map(set.fixtures.map((fixture) => [fixture.tableId, fixture]));
@@ -179,6 +183,13 @@ export function projectDataReview(
 			const present = forms.filter(
 				(form): form is CompiledLookupFixture => form !== undefined,
 			);
+			if (
+				present.length === 0 &&
+				table.read.kind === "read" &&
+				(table.read.canonical.source?.inventory === "unavailable" ||
+					!table.read.table.isGlobal)
+			)
+				continue;
 			if (present.length === 0) {
 				/* Named by its place, never its tag: this reaches the route's failed line and
 				 * Sentry (layer 7's small edit, kept for the rebase). */
@@ -219,7 +230,12 @@ export function projectDataReview(
 		return {
 			tag,
 			standing: standing.kind,
-			hqDigest: table.read.canonical.digest,
+			source: table.read.canonical.source,
+			hqDigest: canonicalJsonDigest([
+				table.read.table.id,
+				table.read.canonical.digest,
+				table.read.rows.map((row) => [row.id, row.sortKey ?? null]),
+			]),
 			projectTable: table.projectTable,
 			choice:
 				standing.kind === "choice" && options !== undefined
@@ -250,7 +266,10 @@ function standingWithReads(
 	}
 	const { project, origin } = data.gathered;
 	const existing = standing.table;
-	if (!Object.hasOwn(project.rowsByTable, existing.id)) {
+	if (
+		!needsWorkerRows(existing) &&
+		!Object.hasOwn(project.rowsByTable, existing.id)
+	) {
 		throw new Error(
 			`The Project's lookup table ${existing.id} was read without its rows.`,
 		);
@@ -258,7 +277,12 @@ function standingWithReads(
 	const again = lookupTableStanding({
 		read,
 		origin,
-		existing: { table: existing, rows: project.rowsByTable[existing.id] },
+		existing: {
+			table: existing,
+			rows: needsWorkerRows(existing)
+				? undefined
+				: project.rowsByTable[existing.id],
+		},
 		apps: Object.hasOwn(project.apps, existing.id)
 			? project.apps[existing.id]
 			: [],

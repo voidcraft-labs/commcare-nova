@@ -238,7 +238,11 @@ function declared(runsOnlyOn: Platform | undefined): readonly Platform[] {
  */
 export function planDeclarationChoices(
 	doc: BlueprintDoc,
-	options: { readonly webAppsOnInHq: boolean },
+	options: {
+		readonly webAppsOnInHq: boolean;
+		/** Platforms excluded by a Project data reference the document holds by identity. */
+		readonly unavailableDataPlatforms?: ReadonlySet<Platform>;
+	},
 ): DeclarationChoices {
 	const holdsDatetime = Object.values(doc.fields).some(
 		(field) => field.kind === "datetime",
@@ -271,7 +275,10 @@ export function planDeclarationChoices(
 				...(splitting && split !== undefined ? split.mutations : []),
 			],
 			splits: splitting && split !== undefined ? split.splits : [],
-			runs: unavailableUses(over, declared(runsOnlyOn)).length === 0,
+			runs:
+				!declared(runsOnlyOn).some((platform) =>
+					options.unavailableDataPlatforms?.has(platform),
+				) && unavailableUses(over, declared(runsOnlyOn)).length === 0,
 		};
 	};
 	const both = candidate(undefined, false);

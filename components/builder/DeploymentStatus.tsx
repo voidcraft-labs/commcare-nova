@@ -123,6 +123,7 @@ import {
 	useNoteDeploymentRecordsChanged,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import { PlaceWorkbookButton } from "./PlaceWorkbookButton";
 
 /**
  * How each resume point reads in a sentence.
@@ -498,6 +499,13 @@ export function DeploymentStatus({
 						/>
 						<span>{failure.failure.message}</span>
 					</p>
+					{canRefresh && failure.failure.code === "hq_place_ids_need_setup" && (
+						<PlaceWorkbookButton
+							appId={appId}
+							server={record.server}
+							domain={record.domain}
+						/>
+					)}
 					{failure.failure.details.length > 0 ? (
 						<ul className="mt-2 flex list-disc flex-col gap-1 pl-9 text-nova-text-secondary">
 							{failure.failure.details.map((detail) => (

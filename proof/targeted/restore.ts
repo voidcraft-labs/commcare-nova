@@ -57,6 +57,41 @@ export interface RestoreTable {
 	readonly rows: readonly (readonly string[])[];
 }
 
+/** A retained worker fixture has ordered field occurrences and attributes,
+ * and carries no server row ids. This spelling is independent of Nova's emitter. */
+export interface RestoreDataRows {
+	readonly tag: string;
+	readonly rows: readonly {
+		readonly attributes: Record<string, string>;
+		readonly fields: readonly {
+			name: string;
+			text: string;
+			attributes?: Record<string, string>;
+		}[];
+	}[];
+}
+function richFixture(table: RestoreDataRows): ChildNode {
+	return el(
+		"fixture",
+		{ id: `item-list:${table.tag}`, user_id: RESTORE_USER_ID },
+		[
+			el(
+				`${table.tag}_list`,
+				{},
+				table.rows.map((row) =>
+					el(
+						table.tag,
+						row.attributes,
+						row.fields.map((field) =>
+							el(field.name, field.attributes ?? {}, [text(field.text)]),
+						),
+					),
+				),
+			),
+		],
+	);
+}
+
 function caseBlock(entry: RestoreCase): ChildNode {
 	const create = el("create", {}, [
 		el("case_type", {}, [text(entry.type)]),
@@ -220,6 +255,7 @@ export function restoreXml(
 	content: {
 		readonly cases?: readonly RestoreCase[];
 		readonly tables?: readonly RestoreTable[];
+		readonly richTables?: readonly RestoreDataRows[];
 		readonly places?: readonly RestorePlace[];
 	} = {},
 ): string {
@@ -239,6 +275,7 @@ export function restoreXml(
 			el("date", {}, [text("2012-04-30")]),
 		]),
 		...(content.tables ?? []).map(fixture),
+		...(content.richTables ?? []).map(richFixture),
 		...(content.places === undefined ? [] : places(content.places)),
 		...(content.cases ?? []).map(caseBlock),
 	]);

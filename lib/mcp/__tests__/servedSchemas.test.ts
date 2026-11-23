@@ -460,7 +460,8 @@ it("serves provision_workers' confirm_worker_levels as level codes, and withdraw
 		validateFormats: false,
 	}).compile(properties.confirm_worker_levels);
 	expect(validateLevels(["district", "Health_Facility", "_ward-2"])).toBe(true);
-	expect(validateLevels(["2nd-level"])).toBe(false);
+	/* A level code HQ derives from a name is checked where the call is read:
+	 * its rule is a refinement no JSON Schema keyword states. */
 	expect(validateLevels("district")).toBe(false);
 	expect(properties.confirm_worker_levels.description).toContain(
 		"`worker_levels_unconfirmed`",
@@ -619,10 +620,49 @@ it("serves the four other bring-in tools as closed objects", () => {
 		additionalProperties: false,
 	});
 	expect(inputShape("set_lookup_table_management")).toEqual({
-		properties: ["managed_by", "project_id", "review_digest", "table_id"],
+		properties: [
+			"current_workbook_base64",
+			"managed_by",
+			"project_id",
+			"review_digest",
+			"source_domain",
+			"source_server",
+			"table_id",
+		],
 		required: ["managed_by", "project_id", "table_id"],
 		additionalProperties: false,
 	});
+	expect(inputShape("separate_lookup_table")).toEqual({
+		properties: [
+			"app_ids",
+			"name",
+			"project_id",
+			"review_digest",
+			"table_id",
+			"tag",
+		],
+		required: ["project_id", "table_id"],
+		additionalProperties: false,
+	});
+	/* A separate table is made only under the digest of the preview the
+	 * user read, and never for an app named some other way. */
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			confirmed: true,
+		}),
+	).not.toBe(true);
+	expect(
+		takes("separate_lookup_table", {
+			project_id: "program",
+			table_id: "table",
+			name: "Facilities 2",
+			tag: "facilities_2",
+			app_ids: ["app"],
+			review_digest: "a".repeat(64),
+		}),
+	).toBe(true);
 	/* A change of who manages a table is made only under the digest of the
 	 * preview the user read: there is no bare yes. */
 	expect(

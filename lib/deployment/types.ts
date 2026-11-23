@@ -19,10 +19,8 @@ import {
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
-import {
-	LEVEL_CODE_MAX_LENGTH,
-	LEVEL_CODE_PATTERN,
-} from "@/lib/domain/organization";
+import { organizationLevelSchema } from "@/lib/domain/organization";
+import type { LookupSourceFacts } from "@/lib/lookup/source";
 import type { DriftReference } from "@/lib/publish/driftReference";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import type { KeptListValues } from "@/lib/publish/keptValues";
@@ -230,6 +228,7 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * own recovery: change the tree in Nova, or the levels over there.
 	 */
 	"hq_organization_mismatch",
+	"hq_place_ids_need_setup",
 	/** CommCare HQ refused one of the resources this app needs. */
 	"hq_rejected_resource_push",
 	/** CommCare HQ refused the upload. */
@@ -876,6 +875,7 @@ export type AppBaseline =
 
 /** A lookup table as CommCare HQ returned it, without its row values. */
 export interface CanonicalLookupTable {
+	readonly source?: LookupSourceFacts;
 	readonly remoteId: string;
 	readonly tag: string;
 	readonly isGlobal: boolean;
@@ -884,7 +884,7 @@ export interface CanonicalLookupTable {
 		readonly properties: readonly string[];
 	}[];
 	readonly itemAttributes: readonly string[];
-	readonly rowCount: number;
+	readonly rowCount: number | null;
 	/** sha256 over the rows in HQ's order. */
 	readonly rowsDigest: string;
 	/** sha256 over tag, isGlobal, fields and itemAttributes. */
@@ -895,6 +895,14 @@ export interface CanonicalLookupTable {
 
 /** A place as CommCare HQ returned it, restricted to what a push modeled. */
 export interface CanonicalPlace {
+	/** A reviewed pending native workbook, anchored to this observed destination. */
+	readonly pendingExternalId?: string | null;
+	readonly observed?: {
+		readonly externalId: string | null;
+		readonly nameIsNull: boolean;
+		readonly keys: string;
+		readonly wire: string;
+	};
 	readonly remoteId: string;
 	readonly name: string;
 	readonly siteCode: string;
@@ -1005,11 +1013,7 @@ export const stopPublishingSchema = deploymentTargetSchema.extend({
 export type StopPublishingRequest = z.infer<typeof stopPublishingSchema>;
 
 /** An organization level's code, the subject of a `worker-level` confirmation. */
-export const organizationLevelCodeSchema = z
-	.string()
-	.min(1)
-	.max(LEVEL_CODE_MAX_LENGTH)
-	.regex(LEVEL_CODE_PATTERN);
+export const organizationLevelCodeSchema = organizationLevelSchema.shape.code;
 
 /** One confirmation key as a caller states it, in the vocabulary a refusal named. */
 export const deploymentConfirmationKeySchema = z.discriminatedUnion("kind", [

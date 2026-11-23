@@ -41,7 +41,7 @@ import {
 	refreshManagedPlacesInTransaction,
 	writeManagedPlacesInTransaction,
 } from "../managed";
-import { MAX_LOCATIONS_PER_APP } from "../schema";
+import { readPlaceOverview, readPlacePage } from "../pages";
 import {
 	createLocation,
 	describeArchiveImpact,
@@ -50,7 +50,10 @@ import {
 	setLocationArchived,
 	updateLocation,
 } from "../service";
+import { readAppTestPlaces } from "../testProjection";
 import type { OrganizationScope, StoredLocation } from "../types";
+import { readWorkerFixtureRows } from "../workerFootprint";
+import { readWorkerOwnerPlaces } from "../workerPlaces";
 
 const h = setupAppStateTestDb("organization_managed_", {
 	authSchema: "migrated",
@@ -299,16 +302,6 @@ async function goneSiteCodes(): Promise<string[]> {
 		.orderBy("site_code")
 		.execute();
 	return rows.map((row) => row.site_code);
-}
-
-async function locationCount(): Promise<number> {
-	const state = await h
-		.db()
-		.selectFrom("app_organization_state")
-		.select("location_count")
-		.where("app_id", "=", APP_ID)
-		.executeTakeFirstOrThrow();
-	return state.location_count;
 }
 
 async function standAsha(batchId: string, locationId: string): Promise<void> {
@@ -1275,189 +1268,6 @@ describe("a refresh of the copy", () => {
 		expect(await copyState()).toEqual(before);
 	});
 
-	it("lets go of the longest archived places nothing names to stay within the places Nova holds, each after the places under it", async () => {
-		await seedApp();
-		await bringIn([
-			...BIRTH_PLACES,
-			place("hilltop", "Hilltop", FACILITY, "north"),
-			place("lake", "Lake District", DISTRICT, "north"),
-		]);
-		const north = place("north", "North", REGION, null);
-		const lake = place("lake", "Lake District", DISTRICT, "north");
-		const riverside = place("riverside", "Riverside", DISTRICT, "north", {
-			latitude: "12.5",
-			longitude: "-3.25",
-		});
-		const mercy = BIRTH_PLACES[2];
-		// CommCare HQ deletes Hilltop, then Riverside with Mercy Clinic below
-		// it: three archived rows, Hilltop the longest archived.
-		await refresh([north, riverside, mercy, lake]);
-		await refresh([north, lake], {}, new Date("2026-11-03T10:00:00.000Z"));
-		// The count the store keeps, archived places included, at the limit.
-		await h
-			.db()
-			.updateTable("app_organization_state")
-			.set({ location_count: MAX_LOCATIONS_PER_APP })
-			.where("app_id", "=", APP_ID)
-			.execute();
-
-		// Three new places: three rows go, Hilltop and Mercy Clinic first,
-		// then Riverside once nothing stands under it.
-		expect(
-			await refresh(
-				[
-					north,
-					lake,
-					place("east", "East", DISTRICT, "north"),
-					place("east_clinic", "East Clinic", FACILITY, "east"),
-					place("lake_clinic", "Lake Clinic", FACILITY, "lake"),
-				],
-				{},
-				new Date("2026-11-04T10:00:00.000Z"),
-			),
-		).toEqual({
-			added: 3,
-			changed: 0,
-			archived: 0,
-			keptInUse: [],
-			remade: [],
-			keptLeftOut: [],
-			leftOut: {},
-		});
-		const after = bySiteCode((await readOrganization(scope())).locations);
-		expect([...after.keys()].sort()).toEqual([
-			"east",
-			"east_clinic",
-			"lake",
-			"lake_clinic",
-			"north",
-		]);
-		expect(await locationCount()).toBe(MAX_LOCATIONS_PER_APP);
-	});
-
-	it("keeps an archived place nothing names where a saved case is owned by it, letting go of others in its place", async () => {
-		await seedApp();
-		await bringIn([
-			...BIRTH_PLACES,
-			place("hilltop", "Hilltop", FACILITY, "north"),
-			place("lake", "Lake District", DISTRICT, "north"),
-		]);
-		const north = place("north", "North", REGION, null);
-		const lake = place("lake", "Lake District", DISTRICT, "north");
-		const riverside = place("riverside", "Riverside", DISTRICT, "north", {
-			latitude: "12.5",
-			longitude: "-3.25",
-		});
-		// Hilltop is archived first, so it is the first a refresh past the
-		// limit would let go of; then Riverside with Mercy Clinic below it.
-		await refresh([north, riverside, BIRTH_PLACES[2], lake]);
-		await refresh([north, lake], {}, new Date("2026-11-03T10:00:00.000Z"));
-		const hilltopId = bySiteCode(
-			(await readOrganization(scope())).locations,
-		).get("hilltop")?.id;
-		if (hilltopId === undefined) throw new Error("Hilltop is in the copy.");
-		// A case a worker closed while Hilltop owned it: nothing in the app
-		// names Hilltop, and the case still does.
-		await h.pool().query(
-			`INSERT INTO cases (case_id, app_id, project_id, case_type, case_name, owner_id, status, closed_on, properties)
-			VALUES ('hilltop-visit', $1, $2, 'patient', 'Hilltop visit', $3, 'closed', now(), '{}')`,
-			[APP_ID, PROJECT, hilltopId],
-		);
-		await h
-			.db()
-			.updateTable("app_organization_state")
-			.set({ location_count: MAX_LOCATIONS_PER_APP })
-			.where("app_id", "=", APP_ID)
-			.execute();
-
-		// Two new places: Riverside and Mercy Clinic go, Hilltop stays.
-		expect(
-			await refresh(
-				[
-					north,
-					lake,
-					place("east", "East", DISTRICT, "north"),
-					place("lake_clinic", "Lake Clinic", FACILITY, "lake"),
-				],
-				{},
-				new Date("2026-11-04T10:00:00.000Z"),
-			),
-		).toMatchObject({ added: 2, archived: 0 });
-		const after = bySiteCode((await readOrganization(scope())).locations);
-		expect([...after.keys()].sort()).toEqual([
-			"east",
-			"hilltop",
-			"lake",
-			"lake_clinic",
-			"north",
-		]);
-		expect(after.get("hilltop")?.id).toBe(hilltopId);
-		expect(after.get("hilltop")?.archivedAt).not.toBeNull();
-		expect(await locationCount()).toBe(MAX_LOCATIONS_PER_APP);
-
-		// With only the case's place left to let go of, the refresh refuses
-		// rather than leave the case owned by no place.
-		const before = await copyState();
-		const error = await refusalOf(
-			refresh(
-				[
-					north,
-					lake,
-					place("east", "East", DISTRICT, "north"),
-					place("lake_clinic", "Lake Clinic", FACILITY, "lake"),
-					place("west", "West", DISTRICT, "north"),
-				],
-				{},
-				new Date("2026-11-05T10:00:00.000Z"),
-			),
-		);
-		expect((error as OrganizationError).code).toBe("limit");
-		expect(await copyState()).toEqual(before);
-	});
-
-	it("refuses a refresh past the places Nova holds where only places in use stand beyond it, leaving the copy as it was", async () => {
-		await seedApp();
-		await bringIn();
-		const born = bySiteCode((await readOrganization(scope())).locations);
-		await standAsha("asha-at-mercy", born.get("mercy")?.id ?? "");
-		// CommCare HQ deletes Mercy Clinic, which Asha keeps live.
-		await refresh([
-			place("north", "North", REGION, null),
-			place("riverside", "Riverside", DISTRICT, "north", {
-				latitude: "12.5",
-				longitude: "-3.25",
-			}),
-		]);
-		await h
-			.db()
-			.updateTable("app_organization_state")
-			.set({ location_count: MAX_LOCATIONS_PER_APP })
-			.where("app_id", "=", APP_ID)
-			.execute();
-		const before = await copyState();
-
-		const error = await refusalOf(
-			refresh(
-				[
-					place("north", "North", REGION, null),
-					place("riverside", "Riverside", DISTRICT, "north", {
-						latitude: "12.5",
-						longitude: "-3.25",
-					}),
-					place("east", "East", DISTRICT, "north"),
-				],
-				{},
-				new Date("2026-11-03T10:00:00.000Z"),
-			),
-		);
-		expect(error).toBeInstanceOf(OrganizationError);
-		expect((error as OrganizationError).code).toBe("limit");
-		expect((error as OrganizationError).message).toBe(
-			"Refreshing would take this app past 10,000 places, which is as many as Nova stores for one app: CommCare HQ's places, the ones Nova keeps because this app still uses them and the ones saved cases belong to come to more than that. You can move or change what uses the places CommCare HQ no longer has, then refresh again. Nova kept its copy as it was.",
-		);
-		expect(await copyState()).toEqual(before);
-	});
-
 	it("refuses an owner rule CommCare HQ's places would break with a step that works there", async () => {
 		await seedApp();
 		await commitReverseOwnerRule(FACILITY);
@@ -1574,3 +1384,148 @@ describe("a refresh whose read of CommCare HQ began before the copy's last refre
 		expect(state.hq_refreshed_at).toEqual(t2);
 	});
 });
+
+it("preserves unmodeled native metadata outside PostgreSQL jsonb's character repertoire through birth and refresh", async () => {
+	await seedApp();
+	const key = "legacy\u0000key";
+	const strangeText = "a\u0000b\ud800";
+	const source = {
+		wire: { [key]: JSON.stringify(strangeText) },
+		worker: { [key]: strangeText },
+		nameIsNull: false,
+		latitudeText: null,
+		longitudeText: null,
+	};
+	const input = BIRTH_PLACES.map((row, i) =>
+		i === 0 ? { ...row, source } : row,
+	);
+	await bringIn(input);
+	const kept = () =>
+		h
+			.db()
+			.selectFrom("app_locations")
+			.select("hq_observation")
+			.where("app_id", "=", APP_ID)
+			.where("site_code", "=", input[0].siteCode)
+			.executeTakeFirstOrThrow();
+	expect(JSON.parse((await kept()).hq_observation as string)).toEqual(source);
+	expect((await refresh(input)).changed).toBe(0);
+	const updated = {
+		...source,
+		worker: { [key]: strangeText + " more" },
+		wire: { [key]: JSON.stringify(strangeText + " more") },
+	};
+	expect(
+		(
+			await refresh(
+				input.map((row, i) => (i === 0 ? { ...row, source: updated } : row)),
+				{},
+				new Date("2026-11-03T10:00:00.000Z"),
+			)
+		).changed,
+	).toBe(1);
+	expect(JSON.parse((await kept()).hq_observation as string)).toEqual(updated);
+});
+
+/* A 10,004-place birth, its pages, a worker read and a full refresh in one
+ * body: sized past the 5 s default, which batch load alone can exceed. */
+it("pages a 10,004-place adoption by revision and reads only the assigned worker branch with its ancestors", async () => {
+	await seedApp();
+	const legacy = Array.from({ length: 10_001 }, (_, i) =>
+		place("station_" + i, "Station " + i, DISTRICT, "north"),
+	);
+	const input = [...BIRTH_PLACES, ...legacy];
+	await bringIn(input);
+	const summary = await readPlaceOverview(scope());
+	expect(summary.paged?.total).toBe(10004);
+	expect(summary.locations.length).toBeLessThanOrEqual(3);
+	const roots = await readPlacePage(scope(), { parentId: null });
+	expect(roots.locations.map((row) => row.siteCode)).toEqual(["north"]);
+	const root = roots.locations[0];
+	const first = await readPlacePage(scope(), {
+		parentId: root.id,
+		limit: 20,
+		revision: roots.revision,
+	});
+	expect(first.matching).toBe(10002);
+	expect(
+		first.locations.every(
+			(row) => row.path.length === 1 && row.path[0].id === root.id,
+		),
+	).toBe(true);
+	const second = await readPlacePage(scope(), {
+		parentId: root.id,
+		limit: 20,
+		cursor: first.nextCursor as string,
+	});
+	expect(
+		new Set([...first.locations, ...second.locations].map((row) => row.id))
+			.size,
+	).toBe(40);
+	const near = await readPlacePage(scope(), { query: "riverside" });
+	const persona = {
+		uuid: PERSONA_ASHA,
+		name: "Asha",
+		locations: { primaryUuid: near.locations[0].id },
+	};
+	const syntheticId = asUuid("aaaaaaaa-1111-4777-8888-111111111111");
+	const simulated = { ...persona, locations: { primaryUuid: syntheticId } };
+	const projected = await readAppTestPlaces(
+		scope(),
+		{ ...managedDoc(), personas: { [PERSONA_ASHA]: simulated } },
+		[
+			{
+				uuid: syntheticId,
+				levelUuid: FACILITY,
+				parentUuid: near.locations[0].id,
+				name: "Test-only clinic",
+			},
+		],
+		[],
+	);
+	expect(projected.locations.map((place) => place.siteCode)).toEqual([
+		"north",
+		"riverside",
+	]);
+	expect(projected.locations.every((place) => place.source === undefined)).toBe(
+		true,
+	);
+	await expect(
+		readAppTestPlaces(
+			scope(),
+			managedDoc(),
+			[{ uuid: root.id, levelUuid: REGION, name: "Overlapping test place" }],
+			[],
+		),
+	).rejects.toThrow("distinct identity");
+
+	const worker = await withAppTx(async (tx) => ({
+		places: await readWorkerFixtureRows(tx, APP_ID, managedDoc(), persona),
+		owners: await readWorkerOwnerPlaces(tx, APP_ID, managedDoc(), persona),
+	}));
+	expect(worker.places.map((row) => row.siteCode)).toEqual([
+		"mercy",
+		"north",
+		"riverside",
+	]);
+	expect(worker.owners.places.map((place) => place.path)).toEqual([
+		["North", "Riverside"],
+	]);
+	expect(worker.owners.nextAfter).toBeNull();
+	await refresh(
+		input.map((row) =>
+			row.siteCode === "north" ? { ...row, name: "North two" } : row,
+		),
+	);
+	await expect(
+		readPlacePage(scope(), {
+			parentId: root.id,
+			cursor: first.nextCursor as string,
+		}),
+	).rejects.toMatchObject({ code: "conflict" });
+	expect(
+		(await readPlacePage(scope(), { query: "Mercy" })).locations[0].path.map(
+			(row) => row.name,
+		),
+	).toEqual(["North two", "Riverside"]);
+}, 30_000);

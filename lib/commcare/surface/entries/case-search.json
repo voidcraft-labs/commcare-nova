@@ -2580,10 +2580,9 @@
 			"parser:QueryPromptParser/sort@ref"
 		],
 		"valueClass": "attributes-or-field-properties",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: lookup carrier over attributes / field properties (Lookup tables)",
-		"subject": "search-fields",
-		"owner": "project-data-at-hq-size",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: identity-bound row attribute or qualified field occurrence",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

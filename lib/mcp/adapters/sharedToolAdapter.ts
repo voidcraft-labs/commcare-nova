@@ -185,7 +185,7 @@ export function registerSharedTool(
 						requestId: typeof requestId === "string" ? requestId : undefined,
 						toolName: saName,
 						input,
-						host: { kind: "mcp" },
+						host: { kind: "mcp", grant: ctx.grant },
 					});
 					return {
 						content: [
@@ -236,7 +236,10 @@ export function registerSharedTool(
 						toolName,
 						requestId: typeof requestId === "string" ? requestId : undefined,
 						execute: (invocationCtx) =>
-							runSharedToolCall({ saName, tool }, toolInput, invocationCtx),
+							runSharedToolCall({ saName, tool }, toolInput, {
+								...invocationCtx,
+								dataGrant: ctx.grant,
+							}),
 					});
 					const finalPayload = projectResult(
 						outcome,

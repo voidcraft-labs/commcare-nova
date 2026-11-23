@@ -2808,6 +2808,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 					 * is resolved among the ones the form read. */
 					submitted.caseDatabase.locations?.map((place) => place.id),
 					previewDevice,
+					...(submitted.caseDatabase.workerGroups?.length === 1
+						? [submitted.caseDatabase.workerGroups[0].id]
+						: []),
 				);
 			};
 			const result = await runFormAttachmentBarrier(
@@ -3294,7 +3297,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 			lookupWait.status === "error"
 				? {
 						title: "Data tables couldn't load",
-						body: "This form reads a data table that didn't load. You can try again.",
+						body:
+							(lookupStatus.kind === "error"
+								? lookupStatus.message
+								: undefined) ??
+							"This form reads a data table that didn't load. You can try again.",
 					}
 				: lookupWait.status === "unavailable"
 					? {

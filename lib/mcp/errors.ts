@@ -214,6 +214,7 @@ export type UploadErrorType =
 	| "hq_managed_data_changed"
 	| "managed_table_handed_back"
 	| "hq_organization_mismatch"
+	| "hq_place_ids_need_setup"
 	| "project_space_incompatible"
 	| "hq_app_state_unknown"
 	| "hq_changed"

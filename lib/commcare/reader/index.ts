@@ -15,6 +15,10 @@ import {
 	WorkLimitReached,
 	WorkMeter,
 } from "../workMeter";
+import {
+	type ConditionalFactory,
+	instanceForRead,
+} from "../xpath/instanceSources";
 import { readApplication } from "./appShell";
 import { assembleDocument, assembleDocumentSteps } from "./assemble";
 import { readCaseLists, readCaseListsSteps, settleCaseLists } from "./caseList";
@@ -28,23 +32,41 @@ import {
 } from "./caseManagement";
 import { createReadContext, type ReadContext } from "./context";
 import {
+	instanceSourcesOf,
+	preparedSource,
+	requiredInstanceIds,
+	slotForm,
+} from "./expressions/readExpression";
+import { instanceIdsIn } from "./expressions/surfaceUses";
+import {
 	readMenus,
 	readRootSelectionsTaken,
 	registerLinkExpressions,
 	settleMenus,
 	settleMenusSteps,
 } from "./menus";
-import { bindExpressions, bindExpressionsSteps } from "./provisional";
+import {
+	bindExpressions,
+	bindExpressionsSteps,
+	provisionalDocument,
+} from "./provisional";
 import { readSearches, settleSearches } from "./search";
 import { readStructure } from "./structure";
+import { readStoredNameSyntax } from "./syntaxRead";
 import type {
 	ReaderInput,
 	ReaderOptions,
 	ReadOutcome,
 	ReadWork,
+	SourceFormFactoryWitness,
 } from "./types";
 import { readWorkLimit, sourceCharacters } from "./work";
-import { mintFields, readForms, readFormsSteps } from "./xform";
+import {
+	expressionEnvOf,
+	mintFields,
+	readForms,
+	readFormsSteps,
+} from "./xform";
 import { finishForms } from "./xform/afterBinding";
 import { finishText } from "./xform/prose";
 
@@ -68,7 +90,7 @@ function whole(stage: ReaderStage): SteppedStage {
 }
 
 /** Each stage, and a long one's parts. */
-const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
+const REGISTRATION_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 	[readApplication],
 	[readStructure],
 	[readForms, readFormsSteps],
@@ -87,6 +109,10 @@ const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
 		(ctx) => compareEntryFactsSteps(ctx, ctx.draft),
 	],
 	[(ctx) => registerLinkExpressions(ctx, ctx.draft)],
+];
+
+const STAGE_PARTS: readonly (readonly [ReaderStage, SteppedStage?])[] = [
+	...REGISTRATION_PARTS,
 	[bindExpressions, bindExpressionsSteps],
 	[
 		(ctx) => settleCaseManagement(ctx, ctx.draft),
@@ -149,45 +175,12 @@ export function* readHqAppSteps(
 	input: ReaderInput,
 	options: ReaderOptions = {},
 ): Generator<void, ReadOutcome, void> {
-	if (input.modules.length !== input.source.modules.length)
-		throw new Error(
-			`The reader was given ${input.modules.length} aligned menus for a source that holds ${input.source.modules.length}. Pass the menus of the same reading the source came from.`,
-		);
-	const meter = new WorkMeter({
-		limit:
-			options.workLimit ?? readWorkLimit(sourceCharacters(input.source.raw)),
-		...(options.signal !== undefined && { signal: options.signal }),
-		...(currentWorkMeter() !== undefined && { parent: currentWorkMeter() }),
-	});
-	yield;
-	const ctx = createReadContext(input, options, inventoryIndex());
-	// `onStage` names the part a throw came from.
-	for (const [index, stage] of STAGE_STEPS.entries()) {
-		options.onStage?.(index);
-		const steps = stage(ctx);
-		for (;;) {
-			let done: boolean | undefined;
-			try {
-				done = underMeter(meter, () => {
-					meter.check();
-					return steps.next().done;
-				});
-			} catch (error) {
-				// The one place a reading turns its own work stop into an outcome; every other
-				// throw, a request's cancel or a parent meter's limit among them, goes on.
-				if (!(error instanceof WorkLimitReached) || error.meter !== meter)
-					throw error;
-				return tooIntricate(ctx, meter);
-			}
-			/* A stop a stage caught and did not rethrow still ends the reading where it stopped. */
-			const stopped = meter.stopped;
-			if (stopped instanceof WorkLimitReached) return tooIntricate(ctx, meter);
-			if (stopped !== undefined) throw stopped;
-			if (done === true) break;
-			yield;
-		}
-		yield;
-	}
+	const { ctx, meter, complete } = yield* runStages(
+		input,
+		options,
+		STAGE_STEPS,
+	);
+	if (!complete) return tooIntricate(ctx, meter);
 	options.onStage?.("close");
 	const { findings, work, claims, defects } = ctx.close();
 	const metered = meteredWork(work, meter);
@@ -212,6 +205,161 @@ export function* readHqAppSteps(
 		claims,
 		defects,
 	};
+}
+
+/** Discover lookup dependencies before asking HQ for any rows. The ordinary
+ * structure readers identify the active question and Search itemsets and
+ * register the app's expression slots. Only a real instance() in one of
+ * those slots reaches a table, using the declarations of its own form. */
+export function* readHqLookupTagsSteps(
+	input: ReaderInput,
+	options: ReaderOptions = {},
+): Generator<void, ReadonlySet<string>, void> {
+	const tags = new Set<string>();
+	const lookup = {
+		...input.lookup,
+		table(tag: string) {
+			tags.add(tag);
+			return input.lookup.table(tag);
+		},
+	};
+	// Resolve potential conditional declarations during discovery, then request a
+	// project fact only for a declaration consumed by an actual expression.
+	// Prose alone can cause HQ to add an instance without a worker reading it.
+	const discover = input.observeFactory;
+	const candidates = new Map<
+		string | undefined,
+		Map<string, { kind: ConditionalFactory; form?: SourceFormFactoryWitness }>
+	>();
+	const probe =
+		discover === undefined
+			? {}
+			: {
+					sourceProjectFactories: {
+						locations: "flat" as const,
+						mobileReports: true,
+					},
+					observeFactory(
+						kind: ConditionalFactory,
+						id: string,
+						form?: SourceFormFactoryWitness,
+					) {
+						let inScope = candidates.get(form?.xmlns);
+						if (!inScope) {
+							inScope = new Map();
+							candidates.set(form?.xmlns, inScope);
+						}
+						if (!inScope.has(id)) inScope.set(id, { kind, form });
+					},
+				};
+	function* collect(ctx: ReadContext): Generator<void, void, void> {
+		const doc = provisionalDocument(ctx);
+		const env = expressionEnvOf(ctx);
+		const pending = ctx.pending.list();
+		const formByUuid = new Map(
+			ctx.draft.modules.flatMap((menu) =>
+				menu.forms.map((form) => [form.uuid, form.xmlns] as const),
+			),
+		);
+		for (const [index, registration] of pending.entries()) {
+			if (index > 0 && index % 32 === 0) yield;
+			if (registration.usesOnly === true) continue;
+			const prepared = preparedSource(doc, registration);
+			// The dependency still exists when a stored name in that path cannot
+			// be read by Core, or a dotted step is changed by interpolation.
+			const raw =
+				(!prepared.ok || registration.text.includes(".")) &&
+				registration.text.includes("instance")
+					? readStoredNameSyntax(registration.text)
+					: undefined;
+			const ids = new Set(prepared.ok ? instanceIdsIn(prepared.syntax) : []);
+			if (raw?.ok && raw.node !== undefined) {
+				for (const id of instanceIdsIn(raw.node)) ids.add(id);
+			}
+			const sources = instanceSourcesOf(doc, registration, env);
+			for (const id of ids) {
+				if (
+					registration.suiteDetails?.length &&
+					(!sources?.has(id) || requiredInstanceIds(registration).has(id))
+				)
+					input.observeSuiteDetail?.(registration.suiteDetails, id);
+				if (discover && sources?.has(id)) {
+					const form =
+						registration.mode.target === "xform"
+							? slotForm(doc, registration.ref)
+							: undefined;
+					const scope = form === undefined ? undefined : formByUuid.get(form);
+					const candidate = candidates.get(scope)?.get(id);
+					if (candidate) discover(candidate.kind, id, candidate.form);
+				}
+				const bound = instanceForRead(id, sources);
+				if (bound?.kind === "table") tags.add(bound.tag);
+			}
+		}
+	}
+	const { complete, meter } = yield* runStages(
+		{ ...input, lookup, ...probe },
+		options,
+		[...STAGE_STEPS.slice(0, REGISTRATION_PARTS.length), collect],
+	);
+	if (!complete) throw new WorkLimitReached(meter);
+	return tags;
+}
+
+function* runStages(
+	input: ReaderInput,
+	options: ReaderOptions,
+	stages: readonly SteppedStage[],
+): Generator<
+	void,
+	{
+		readonly ctx: ReadContext;
+		readonly meter: WorkMeter;
+		readonly complete: boolean;
+	},
+	void
+> {
+	if (input.modules.length !== input.source.modules.length)
+		throw new Error(
+			`The reader was given ${input.modules.length} aligned menus for a source that holds ${input.source.modules.length}. Pass the menus of the same reading the source came from.`,
+		);
+	const meter = new WorkMeter({
+		limit:
+			options.workLimit ?? readWorkLimit(sourceCharacters(input.source.raw)),
+		...(options.signal !== undefined && { signal: options.signal }),
+		...(currentWorkMeter() !== undefined && { parent: currentWorkMeter() }),
+	});
+	yield;
+	const ctx = createReadContext(input, options, inventoryIndex());
+	// `onStage` names the part a throw came from.
+	for (const [index, stage] of stages.entries()) {
+		options.onStage?.(index);
+		const steps = stage(ctx);
+		for (;;) {
+			let done: boolean | undefined;
+			try {
+				done = underMeter(meter, () => {
+					meter.check();
+					return steps.next().done;
+				});
+			} catch (error) {
+				// The one place a reading turns its own work stop into an outcome; every other
+				// throw, a request's cancel or a parent meter's limit among them, goes on.
+				if (!(error instanceof WorkLimitReached) || error.meter !== meter)
+					throw error;
+				return { ctx, meter, complete: false };
+			}
+			/* A stop a stage caught and did not rethrow still ends the reading where it stopped. */
+			const stopped = meter.stopped;
+			if (stopped instanceof WorkLimitReached)
+				return { ctx, meter, complete: false };
+			if (stopped !== undefined) throw stopped;
+			if (done === true) break;
+			yield;
+		}
+		yield;
+	}
+	return { ctx, meter, complete: true };
 }
 
 /** The accounting's counts with the meter's. */

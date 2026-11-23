@@ -1,3 +1,4 @@
+import { lookupReadTypes } from "@/lib/domain/lookupRead";
 /**
  * Rows-free lookup types shared by every Predicate / ValueExpression
  * validation surface.
@@ -40,12 +41,7 @@ export function lookupTypeIndex(
 ): LookupTypeIndex {
 	if (context.kind === "unavailable") return new Map();
 	return new Map(
-		context.definitions.map((table) => [
-			table.id,
-			new Map(
-				table.columns.map((column) => [column.id, column.dataType] as const),
-			),
-		]),
+		context.definitions.map((table) => [table.id, lookupReadTypes(table)]),
 	);
 }
 

@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * The harness publishes as Nova publishes, and downloads as Nova downloads.
  *
@@ -102,6 +103,7 @@ import {
 	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
+import { servePublishImages } from "@/__tests__/helpers/publishImageStorage";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { POST as compileCcz } from "@/app/api/compile/route";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -142,7 +144,6 @@ import { bringInHqChanges } from "@/lib/deployment/hqChanges/bringIn";
 import { reviewHqChanges } from "@/lib/deployment/hqChanges/review";
 import { summarizeServedHqApp } from "@/lib/deployment/reading/__tests__/servedHqApp";
 import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
-import { publishAppToHq } from "@/lib/deployment/service";
 import * as deploymentStore from "@/lib/deployment/store";
 import { recordAdoptedDeploymentInTransaction } from "@/lib/deployment/store";
 import { canonicalTargetIdentity } from "@/lib/deployment/targetIdentity";
@@ -173,8 +174,8 @@ import {
 } from "@/lib/lookup/service";
 import { loadAppBlueprint } from "@/lib/mcp/loadApp";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
+import { USE_HQ_TABLE_OFFERED } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
-import { downloadAssetBytes } from "@/lib/storage/media";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import type { HqSideSaves } from "../documents";
 import { hqAuthoredDocuments } from "../hqAuthored";
@@ -204,6 +205,8 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({
 	downloadAssetBytes: vi.fn(),
+	getStoredObjectMetadata: vi.fn(),
+	streamAsset: vi.fn(),
 	readTextObject: () => {
 		throw new Error("Publishing must not read document requirements extracts.");
 	},
@@ -211,7 +214,7 @@ vi.mock("@/lib/storage/media", () => ({
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
-	vi.mocked(downloadAssetBytes).mockReset();
+	servePublishImages(PROJECT);
 });
 const h = setupAppStateTestDb("proof_publish_", { authSchema: "migrated" });
 
@@ -505,6 +508,8 @@ function ordered(sequence: readonly string[]): string[] {
 		if (method === "POST" && pathname.endsWith("/multimedia/")) {
 			return ["media"];
 		}
+		if (method === "GET" && pathname.startsWith("/hq/multimedia/file/"))
+			return ["file read"];
 		if (method === "GET" && pathname.endsWith("/api/lookup_table/v1/")) {
 			return ["table list"];
 		}
@@ -626,6 +631,7 @@ async function expectSameMedia(captured: CapturedRequest, sent: FormData) {
 		mediaUpload(await decoded(captured)),
 		mediaUpload(await fieldsOf(sent)),
 	];
+	expect(await decoded(captured)).toEqual(await fieldsOf(sent));
 	expect(mine).toEqual(nova);
 	expect(nova.map((field) => field.name)).toEqual([
 		"waf_padding",
@@ -743,10 +749,7 @@ async function seedProjectImage() {
 			media_format: "png",
 		})
 		.execute();
-	vi.mocked(downloadAssetBytes).mockImplementation(async (requested) => {
-		expect(requested).toBe(objectKey);
-		return png;
-	});
+	servePublishImages(PROJECT, png);
 
 	return {
 		id: image,
@@ -1093,6 +1096,8 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		"import",
 		"source read",
 		"media",
+		"source read",
+		"file read",
 	]);
 	expect(ordered(firstOrder ?? [])).toEqual(ordered(capture.first.sequence));
 	expect(ordered(capture.update.sequence)).toEqual([
@@ -1105,7 +1110,6 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		"source read",
 		"import",
 		"source read",
-		"media",
 	]);
 	expect(ordered(updateOrder ?? [])).toEqual(ordered(capture.update.sequence));
 	// The capture assumed the table list and rows its peer answered, which
@@ -1152,21 +1156,17 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	}
 	await expectSameWorkbook(captured.lookup, contentWorkbook);
 	await expectSameWorkbook(capture.update.lookup, updatedWorkbook);
-	// Nova uploads the media after each content import, to the app the
-	// first publish made, and none after the shell.
-	const [contentMedia, updatedMedia] = uploads;
-	if (!contentMedia || !updatedMedia || uploads.length !== 2) {
-		throw new Error(
-			`Nova sent ${uploads.length} media uploads, not one per publish.`,
-		);
-	}
-	if (!captured.media || !capture.update.media) {
-		throw new Error("The capture sent no media upload.");
-	}
-	await expectSameMedia(captured.media, contentMedia);
-	await expectSameMedia(capture.update.media, updatedMedia);
-	// The capture names its peer's app, which the HQ side replaces with A's.
-	expect(captured.media.path).toBe(
+	// The landed app and its authenticated file confirm the first POST.
+	// An unchanged republish finds the id Nova recorded still at the path,
+	// reuses that file without reading it, and sends no second POST.
+	expect(uploads).toHaveLength(1);
+	expect(captured.mediaUploads).toHaveLength(1);
+	expect(capture.update.mediaUploads).toEqual([]);
+	const [contentMedia] = uploads;
+	const [physical] = captured.mediaUploads;
+	if (!contentMedia || !physical) throw new Error("No first media upload.");
+	await expectSameMedia(physical.request, contentMedia);
+	expect(physical.request.path).toBe(
 		`/a/${DOMAIN}/apps/api/${PLACEHOLDER_APP_ID}/multimedia/`,
 	);
 	const sentShell = await expectSameImport(
@@ -1842,6 +1842,9 @@ it("puts the note on a discard that replaces a table HQ still holds, and none on
 					parts: change.parts.length,
 					baselineKnown: change.baselineKnown,
 					note: change.note,
+					/* A change to the table HQ still holds under the tag ends with
+					 * the action that takes it: the table is Nova's own. */
+					offer: change.parts.at(-1) === USE_HQ_TABLE_OFFERED,
 				}));
 		};
 		const definition = await stopWith((table) => [
@@ -1860,13 +1863,17 @@ it("puts the note on a discard that replaces a table HQ still holds, and none on
 		const unknown = await stopWith((table) => [table]);
 		return { definition, deleted, renamed, unknown };
 	});
-	expect(notes.definition).toEqual([{ parts: 1, baselineKnown: true, note }]);
-	expect(notes.unknown).toEqual([{ parts: 0, baselineKnown: false, note }]);
+	expect(notes.definition).toEqual([
+		{ parts: 2, baselineKnown: true, note, offer: true },
+	]);
+	expect(notes.unknown).toEqual([
+		{ parts: 1, baselineKnown: false, note, offer: true },
+	]);
 	expect(notes.deleted).toEqual([
-		{ parts: 1, baselineKnown: true, note: null },
+		{ parts: 1, baselineKnown: true, note: null, offer: false },
 	]);
 	expect(notes.renamed).toEqual([
-		{ parts: 1, baselineKnown: true, note: null },
+		{ parts: 1, baselineKnown: true, note: null, offer: false },
 	]);
 });
 

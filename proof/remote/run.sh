@@ -97,7 +97,10 @@ link_dependencies() {
   on_host bash -c '
     set -e
     cd "$1"
-    if cmp -s package-lock.json node_modules/.lock-copy 2>/dev/null; then exit 0; fi
+    if cmp -s package-lock.json node_modules/.lock-copy 2>/dev/null; then
+      node scripts/fix-yazl-descriptors.mjs
+      exit 0
+    fi
     rm -rf node_modules
     if cmp -s package-lock.json "$HOME/proof-remote/_deps/package-lock.json"; then
       cp -al "$HOME/proof-remote/_deps/node_modules" node_modules
@@ -105,6 +108,7 @@ link_dependencies() {
       echo "proof/remote/run.sh: this lock differs from the one provision.sh installed; installing it into the slot."
       npm ci --no-audit --no-fund --ignore-scripts >/dev/null
     fi
+    node scripts/fix-yazl-descriptors.mjs
     cp package-lock.json node_modules/.lock-copy
   ' _ "$remote"
 }

@@ -1,7 +1,8 @@
 import type { CaseIndexRow } from "@/lib/case-store";
-import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
+import { workerFixtureRow } from "@/lib/commcare/lookup/row";
 import { INLINE_SEARCH_RESULTS_INSTANCE } from "@/lib/commcare/session";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
+import { GROUPS_INSTANCE } from "@/lib/commcare/workerGroupsWire";
 import {
 	LOCATION_ROWS,
 	locationsInstance,
@@ -38,6 +39,7 @@ import { PREVIEW_UNKNOWN_WORKER_KEYS } from "./workerSessionKeys";
  * their device. Rows are already authorization- and restore-scoped server-side;
  * this client shape deliberately carries no Project or actor identifier. */
 export interface CaseDatabaseSnapshot {
+	readonly workerGroups?: readonly import("@/lib/domain/workerGroups").WorkerGroupRow[];
 	readonly rows: readonly CaseRow[];
 	readonly indices: readonly CaseIndexRow[];
 	/** Stored-schema types survive case-type retirement and let Preview preserve
@@ -569,7 +571,7 @@ export function commcareSessionXPathInstance(
 	});
 }
 
-/** Build every XForm-local lookup instance (`instance('<tag>')`) from the
+/** Build every XForm-local lookup instance from the
  * exact lookup snapshot the engine captured at activation.
  *
  * A device parses a lookup table into a plain `TreeElement`
@@ -584,24 +586,17 @@ export function lookupXPathInstances(
 	if (data === null) return new Map();
 	return new Map(
 		data.naming.tables.flatMap((table) => {
-			const rows = data.rowsByTable.get(table.tableId) ?? [];
+			const rows = data.rowsByTable.get(table.tableId);
+			if (rows === undefined) return [];
 			const create = (instanceId: string) =>
 				new StaticXPathInstance(instanceId, {
 					name: table.listElementName,
-					children: rows.map((row) => ({
-						name: table.rowElementName,
-						children: table.columns.map((column) => ({
-							name: column.wireName,
-							value: lookupFixtureCellText(
-								column.dataType,
-								row.values[column.id],
-							),
-						})),
-					})),
+					children: rows.map((row) => workerFixtureRow(table, row)),
 				});
 			return [
 				[table.xformInstanceId, create(table.xformInstanceId)] as const,
-				...(options.includeFixtureAliases
+				...(options.includeFixtureAliases &&
+				table.fixtureId !== table.xformInstanceId
 					? ([[table.fixtureId, create(table.fixtureId)] as const] as const)
 					: []),
 			];
@@ -920,6 +915,7 @@ export function secondaryXPathInstances(args: {
 	readonly includeFixtureAliases?: boolean;
 }): ReadonlyMap<string, XPathInstance> {
 	const locations = args.caseDatabase?.locations;
+	const groups = args.caseDatabase?.workerGroups;
 	return new Map<string, XPathInstance>([
 		[
 			"commcaresession",
@@ -929,6 +925,9 @@ export function secondaryXPathInstances(args: {
 			"casedb",
 			caseDatabaseXPathInstance(args.caseDatabase, args.caseTypes ?? []),
 		],
+		...(groups
+			? [[GROUPS_INSTANCE.id, workerGroupsXPathInstance(groups)] as const]
+			: []),
 		...lookupXPathInstances(args.lookupData, {
 			includeFixtureAliases: args.includeFixtureAliases,
 		}),
@@ -1057,4 +1056,31 @@ export function xpathNodeAtPath(
 		return undefined;
 	};
 	return visit(instance.root());
+}
+
+export function workerGroupsXPathInstance(
+	groups: NonNullable<CaseDatabaseSnapshot["workerGroups"]>,
+): XPathInstance {
+	return new StaticXPathInstance(GROUPS_INSTANCE.id, {
+		name: "groups",
+		children: groups.map((group) => ({
+			name: "group",
+			attributes: { id: group.id },
+			children: [
+				{ name: "name", value: group.name },
+				...(group.details.length
+					? [
+							{
+								name: "group_data",
+								children: group.details.map((detail) => ({
+									name: "data",
+									attributes: { key: detail.key },
+									value: detail.value,
+								})),
+							},
+						]
+					: []),
+			],
+		})),
+	});
 }

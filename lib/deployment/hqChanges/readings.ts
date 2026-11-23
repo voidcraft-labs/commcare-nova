@@ -22,6 +22,7 @@ import "server-only";
  * Pure: it reads its arguments and nothing else.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import type { HqAlignedModule } from "@/lib/commcare/hq/appReading";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
@@ -47,6 +48,7 @@ import { isMediaKind } from "@/lib/domain/multimedia";
 import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import type { Finding } from "@/lib/publish/hqFindings";
 import type { HqMediaPath } from "../hqMedia";
+import { normalizedHqAppSource } from "../hqSourceBaseline";
 import { readingAppStrings } from "../reading/appStrings";
 import { readerLookupContext } from "../reading/gather";
 import {
@@ -316,6 +318,7 @@ export function* makeHqChangeReadingsSteps(
 		resolver,
 		lookup: data.lookups,
 		organization: data.organization,
+		sourceProjectFactories: data.sourceProjectFactories,
 		appStrings: readingAppStrings(readerLookupContext(data)),
 		recordDialect: recordDialectRoundTrip,
 		knownCaseTypes: knownCaseTypesOf(reference.doc),
@@ -327,8 +330,16 @@ export function* makeHqChangeReadingsSteps(
 
 	const baseSource = sourceFromBaseline(input.baselineSource);
 	yield;
+	const current =
+		data.suiteDetails && normalizedHqAppSource(input.now.source.raw);
 	const baseInput: ReaderInput = {
 		...shared,
+		suiteDetails:
+			current &&
+			"normalized" in current &&
+			isDeepStrictEqual(current.normalized, input.baselineSource)
+				? data.suiteDetails
+				: undefined,
 		source: baseSource,
 		modules: alignedFromSource(baseSource),
 		media: baseIndex(
@@ -342,6 +353,7 @@ export function* makeHqChangeReadingsSteps(
 	yield;
 	const nowInput: ReaderInput = {
 		...shared,
+		suiteDetails: data.suiteDetails,
 		source: nowSource,
 		modules: input.now.modules,
 		media: nowIndex(nowSource, appId, input.media.published, input.media.now),

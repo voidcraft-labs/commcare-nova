@@ -246,7 +246,6 @@ describe("hqReadCircumstance", () => {
 				"rate-limited",
 				"hq-unavailable",
 				"too-large",
-				"lookup-data-too-large",
 				"browser-only",
 			].sort(),
 		);
@@ -264,7 +263,7 @@ describe("hqReadCircumstance", () => {
 			);
 	});
 
-	it("words a body over the bound as the app's size for the app's own bodies, and as its lookup data for the rows of a bring-in's tables", () => {
+	it("words a body over the bound as the app's size for the app's own bodies, and never as a size of lookup data", () => {
 		for (const request of HQ_REQUEST_KINDS)
 			expect(
 				hqReadCircumstance({ kind: "too-large", request, status: 502 }),
@@ -272,9 +271,7 @@ describe("hqReadCircumstance", () => {
 			).toBe(
 				["application", "app-source"].includes(request)
 					? "too-large"
-					: request === "lookup-rows"
-						? "lookup-data-too-large"
-						: "hq-unavailable",
+					: "hq-unavailable",
 			);
 	});
 

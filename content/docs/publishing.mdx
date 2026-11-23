@@ -166,6 +166,11 @@ raise isn't a change Nova asks you about first.
 Nova puts them there and replaces their rows with the rows in Nova. Tables your
 app does not read are left alone.
 
+Nova checks the data and who can receive it just before each lookup workbook
+goes to CommCare HQ. If either changed, you can review the table in Project
+data and publish again. Edits to a table that’s already uploading can resume
+when its upload finishes.
+
 If Nova cannot reliably read the tables already on your project space, it
 stops before sending data. Check your CommCare HQ connection, then publish again.
 
@@ -293,16 +298,19 @@ once the publish has finished. If another publish has already updated the app
 when Nova is ready to send the media, Nova keeps the later publish's files and
 shows a message on the earlier publish.
 
-If CommCare HQ accepts an earlier version while Nova updates the app, you can use **See what changed in CommCare HQ** to compare it with the current version before publishing again.
+Nova checks that it can read the media files in your Project before it sends
+the app. If CommCare HQ accepts an earlier version while Nova updates the app, you can use **See what changed in CommCare HQ** to compare it with the current version before publishing again.
 
 If a file changes after CommCare HQ accepts the app, Nova checks what now occupies each destination before sending the files. If it can’t verify a destination, the app stays published and its files wait for your next review.
 You can review changes from CommCare HQ to see which pictures and sounds it holds.
 
-If the app arrives but its media upload cannot be confirmed, Nova keeps the
-published app and reports the media warning. Publishing again updates that app
-and retries its media upload. When CommCare HQ accepts the media but Nova cannot
-confirm that processing finished, the warning says so. You can check the media
-in CommCare HQ before deciding whether to retry.
+Nova reuses each file that project space already holds for this app and sends
+the rest. After the upload, Nova checks that each file it sent arrived. If the app
+arrives but its media upload cannot be confirmed, Nova keeps the published app
+and reports which media still needs attention. Publishing again updates that
+app and retries its media upload. When CommCare HQ accepts the media but Nova
+cannot confirm that processing finished, the warning says so. You can check the
+media in CommCare HQ before deciding whether to retry.
 
 Nova never deletes anything on CommCare HQ. So when a publish stops pointing at
 something it put there before, whether that is an app it replaced or a lookup
@@ -345,6 +353,7 @@ couldn't confirm it is ready. Choose **Check status** to try again.
 
 The **Open in CommCare HQ** link appears as soon as the app is there, and it
 goes to the app's page for you to work on. It is not the link workers use.
+
 
 ## Changes made in CommCare HQ
 
@@ -678,6 +687,12 @@ What to do next depends on where it stopped, and Nova says which:
   not confirm): the app is already on your project space. Sort it out on
   CommCare HQ, then choose **Check status**; there is no need to publish
   again.
+
+### When a publish asks for place IDs
+
+CommCare HQ imports external IDs through its organization workbook. If a place needs its ID set on a destination, **Download place ID workbook** prepares a private file for that project space. Open **Organization** in the named space and import each workbook in the download. Check the affected places, confirm the import, then publish again. Nova reads the saved IDs there before it sends the app. A different destination has its own place IDs and its own file.
+
+If a workbook would change another value in that space, the publish names the place and field. Set the exact ID on that place in CommCare HQ, then publish again. When the ID and destination data already match, Nova carries on immediately.
 
 ## Updates to review
 
