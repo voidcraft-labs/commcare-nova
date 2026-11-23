@@ -493,6 +493,74 @@ export function removedHqFiles(
 	);
 }
 
+/**
+ * The top-level keys an update keeps from the app it updates whatever its
+ * body holds (`models/applications.py::ApplicationBase._update_excluded_fields`
+ * less the `_meta_fields` the source view drops, and `build_spec`;
+ * `views/app_import_api.py` then sets `name` and `created_from_template` from
+ * the request, so those two are written by every import).
+ */
+const UPDATE_KEEPS = new Set([
+	"date_created",
+	"comment",
+	"doc_type",
+	"multimedia_map",
+	"family_id",
+	"copy_history",
+	"build_profiles",
+	"custom_base_url",
+	"practice_mobile_worker_id",
+	"_LAZY_ATTACHMENTS",
+	"build_spec",
+]);
+const IMPORT_WRITES = new Set(["name", "created_from_template"]);
+
+/**
+ * Whether the save after an update's own is CommCare HQ pruning the media map
+ * in that same request, so a read-back two saves on is what this import
+ * left. `overwrite_app_from_source` saves once (`save_attachments`), then
+ * `_update_valid_domains_for_media` runs `remove_unused_mappings`, which
+ * deletes every map key outside the app's media and logo paths and saves
+ * again when it deleted one (`hqmedia/models.py`); it prunes nothing on an app
+ * whose forms fail to validate. So it holds only where the import predicted a
+ * pruned key, the read-back's map is the earlier map less exactly those
+ * keys, and every key the import does not write reads as it did before:
+ * anything another writer changed outside the body shows there. `before` is
+ * the read the import was built over and `body` the app it sent.
+ */
+export function importPruneSave(input: {
+	readonly before: unknown;
+	readonly after: unknown;
+	readonly body: object;
+	readonly published: ImportFiles["published"];
+}): boolean {
+	const { before, after } = input;
+	if (!isObject(before) || !isObject(after)) return false;
+	const pruned = new Set(prunedHqPaths(before, input.published));
+	if (pruned.size === 0 || !isObject(before.multimedia_map)) return false;
+	const expectedMap = Object.fromEntries(
+		Object.entries(before.multimedia_map).filter(([path]) => !pruned.has(path)),
+	);
+	if (
+		canonicalJsonText(expectedMap) !==
+		canonicalJsonText(after.multimedia_map ?? null)
+	)
+		return false;
+	const written = (key: string) =>
+		IMPORT_WRITES.has(key) || (key in input.body && !UPDATE_KEEPS.has(key));
+	const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+	for (const key of keys) {
+		if (key === "multimedia_map" || key === "last_modified" || written(key))
+			continue;
+		if (
+			canonicalJsonText(before[key] ?? null) !==
+			canonicalJsonText(after[key] ?? null)
+		)
+			return false;
+	}
+	return true;
+}
+
 export function unapprovedHqFiles(
 	removed: readonly RemovedHqFile[],
 	approved: readonly string[] | undefined,

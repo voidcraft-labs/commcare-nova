@@ -1008,11 +1008,22 @@ removing that mapping (`hqmedia/models.py::remove_unused_mappings`). A save
 in an HQ editor also increments the counter. The proof lane exercises these
 cases against HQ's views (`proof/hq/test_publish.py`).
 
-- An acknowledgement more than one past the counter before the final source
-  read can come from HQ's own media cleanup or from a concurrent edit. The
-  counter cannot distinguish them. Nova records an `unread` baseline, warns
-  that the publish landed, and asks before writing over the app on the next
-  publish. When the post-import source verifies at the acknowledged version,
+- An acknowledgement two past the counter before the final source read is
+  this import's own when HQ pruned media map keys in the same request
+  (`overwrite_app_from_source` saves through `save_attachments`, then
+  `_update_valid_domains_for_media` reaches `remove_unused_mappings`, which
+  saves again only when it deleted a key; `proof/hq/test_publish.py` holds
+  the `before + 2`). The counter alone cannot tell that save from a
+  concurrent edit, so the read back decides
+  (`hqSourceBaseline.ts::importPruneSave`): the import predicted at least one
+  pruned key, the read back verifies at the acknowledged version, its map is
+  the earlier read's less exactly the predicted keys, and every key the
+  import does not write (a key the body leaves out, or one the update keeps
+  from HQ's app) reads as it did before. Then the baseline is a `push`.
+- Any other acknowledgement more than one past the counter before the final
+  source read can be a concurrent edit. Nova records an `unread` baseline,
+  warns that the publish landed, and asks before writing over the app on the
+  next publish. When the post-import source verifies at the acknowledged version,
   its kept settings still reach the download, Preview and the Publishing card.
   A concurrent edit to a key in the body can already have been
   replaced by this import.

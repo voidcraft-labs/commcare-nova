@@ -119,6 +119,7 @@ import {
 	confirmedAppSourceMoved,
 	diffHqAppSource,
 	fileReviewMoved,
+	importPruneSave,
 	normalizeHqAppSource,
 	removalLedgerPaths,
 	removedHqFiles,
@@ -1834,8 +1835,12 @@ export async function publishAppToHq(
 			);
 			/* Bound to the save counter HQ acknowledged: only a read the
 			 * counter proves is what this import left becomes a `push`
-			 * baseline. Extra saves may be HQ removing old media mappings or
-			 * another writer. Either leaves the baseline unconfirmed. */
+			 * baseline. HQ's import saves a second time in the same request
+			 * when it prunes media map keys the app no longer uses; a read at
+			 * that second save is this import's own only where the map lost
+			 * exactly the keys it predicted and nothing the import leaves alone
+			 * moved (`importPruneSave`). Any other extra save may be another
+			 * writer and leaves the baseline unconfirmed. */
 			const readBack: HqAppSourceAtVersionRead | null =
 				result.version === null
 					? null
@@ -1845,7 +1850,19 @@ export async function publishAppToHq(
 							result.appId,
 							result.version,
 						);
+			const pruneSave =
+				result.version === counterBeforeRead + 2 &&
+				readBack !== null &&
+				!("success" in readBack) &&
+				readBack.kind === "source-at" &&
+				importPruneSave({
+					before: source.raw,
+					after: readBack.source.raw,
+					body: hqJson,
+					published,
+				});
 			const extraSave =
+				!pruneSave &&
 				result.version !== null &&
 				(result.version > counterBeforeRead + 1 ||
 					(readBack !== null &&

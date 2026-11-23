@@ -3201,6 +3201,87 @@ describe("the save counter a publish's reads are bound to", () => {
 		});
 	});
 
+	/* Nova's earlier publish uploaded a file the app no longer uses: HQ's
+	 * import saves the app, then prunes that map key and saves it again in
+	 * the same request (`hqmedia/models.py::remove_unused_mappings`). */
+	const OLD_FILE = "jr://file/commcare/image/old.png";
+	async function heldOldFile(peer: MockAgent, doc: BlueprintDoc) {
+		await publishFresh(peer, doc);
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({
+				media_files: JSON.stringify({ "commcare/image/old.png": "old-file" }),
+			})
+			.execute();
+		serveEdited(peer, SOURCE, "source-live", (source) => {
+			source.multimedia_map = {
+				[OLD_FILE]: { media_type: "CommCareImage", multimedia_id: "old-file" },
+			};
+		});
+	}
+	/** An accepted update HQ saved twice before it answered. */
+	function acceptedTwice(peer: MockAgent) {
+		request(peer, IMPORT, "POST").reply(() => {
+			saves.save(HQ_APP);
+			return {
+				statusCode: 200,
+				data: JSON.stringify({
+					success: true,
+					app_id: HQ_APP,
+					version: saves.save(HQ_APP),
+				}),
+			};
+		});
+	}
+
+	it("records a push baseline where the second save is HQ pruning the map key the app stopped using", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await heldOldFile(peer, doc);
+			acceptedTwice(peer);
+			serve(peer, SOURCE, "source-live");
+			const landed = await publish(doc);
+			expect(landed).toMatchObject({ landed: true });
+			expect(landed.warnings).not.toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+			expect((await baselineRow()).origin).toBe("push");
+			expect((await mapping()).pushed_remote_revision).toBe("4");
+		});
+	});
+
+	it.each([
+		["kept the map key", () => {}],
+		[
+			"pruned the map key and changed what the import leaves alone",
+			(source: Record<string, unknown>) => {
+				source.multimedia_map = {};
+				source.comment = "Saved in CommCare HQ";
+			},
+		],
+	] as const)(
+		"records no push baseline where the second save %s, and says so",
+		async (_, readBack) => {
+			const doc = await seed();
+			await withPeer(async (peer) => {
+				await heldOldFile(peer, doc);
+				acceptedTwice(peer);
+				serveEdited(peer, SOURCE, "source-live", (source) => {
+					source.multimedia_map = {
+						[OLD_FILE]: {
+							media_type: "CommCareImage",
+							multimedia_id: "old-file",
+						},
+					};
+					readBack(source);
+				});
+				const landed = await publish(doc);
+				expect(landed).toMatchObject({ landed: true });
+				expect(landed.warnings).toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+				expect((await baselineRow()).origin).toBe("unread");
+			});
+		},
+	);
+
 	it("keeps the target settings at the acknowledged version after an extra save and asks before publishing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
