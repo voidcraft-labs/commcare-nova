@@ -420,6 +420,17 @@ under the Project state and each table's row
 the publisher's `edit` on its own transaction), so a hand-back committed
 first stops the workbook, and one after waits for it.
 
+The `adopt` arm also takes a plain table: **Use the table from CommCare HQ**
+(`lib/deployment/managedData.ts::takeHqTableForLookupTable`) makes a table made
+in Nova, which a publish of the Project's apps put in a project space, Nova's
+copy of the table there, with that origin, held to the same reviewed revisions
+and readers (`readLookupTableReviewSnapshot` reads them for any table, plain or
+not). The table keeps its id, so no app changes. **Create a separate table**
+(`lib/deployment/separateTable.ts`) makes a new plain table from a table's
+inline definition and rows through `applyLookupAuthoringBatchInTransaction`, and
+leaves the old table, its origin and its revisions as they were; an index
+CommCare HQ never showed is not authored on the new table.
+
 **A change of who manages a table is held to what was reviewed.** An adoption
 (`adopt`) and a takeover take `ManagedTableReviewed`, the table's
 `definitionRevision`, `rowsRevision` and `readerAppIds` (the Project's apps

@@ -1709,7 +1709,21 @@ async function readHqTableSources(
 	tag: string,
 	lock = false,
 ): Promise<readonly HqTableSource[]> {
-	let query = db
+	/* Under a write, the mappings are held `FOR SHARE` first, so a publish
+	 * cannot supersede or repoint one before the write commits. */
+	if (lock)
+		await db
+			.selectFrom("app_deployment_resources as r")
+			.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
+			.select("r.id")
+			.where("d.project_id", "=", projectId)
+			.where("r.kind", "=", "lookup-table")
+			.where("r.nova_resource_id", "=", tableId)
+			.where("r.superseded_at", "is", null)
+			.orderBy("r.id")
+			.forShare("r")
+			.execute();
+	const rows = await db
 		.selectFrom("app_deployment_resources as r")
 		.innerJoin("app_deployments as d", "d.id", "r.deployment_id")
 		.select(["d.server", "d.domain", "d.app_id", "r.remote_id", "r.push_token"])
@@ -1722,9 +1736,8 @@ async function readHqTableSources(
 		.orderBy("d.domain")
 		.orderBy("r.remote_id")
 		.orderBy("d.app_id")
-		.orderBy("r.push_token");
-	if (lock) query = query.forShare("r");
-	const rows = await query.execute();
+		.orderBy("r.push_token")
+		.execute();
 	const sources = new Map<string, HqTableSource>();
 	for (const row of rows) {
 		if (!isCommCareServer(row.server)) continue;

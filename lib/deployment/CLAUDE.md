@@ -2318,6 +2318,31 @@ and the builder and MCP say each outcome in one text
 (`lib/publish/managedData.ts::managedTableOutcomeLines` and
 `managedPlacesOutcomeLines`).
 
+Two more table actions live beside them, each a service the Builder's Server
+Action and MCP call alike. **Use the table from CommCare HQ**
+(`managedData.ts::reviewUseHqTable` / `takeHqTableForLookupTable`, MCP's
+`set_lookup_table_management` with `source_domain`) is for a table made in Nova
+that a publish put in a project space: its sources are the Project's live
+`lookup-table` mappings of the table under its current tag (the rows
+`store.ts::readSiblingLookupMappings` reads for a push), one per HQ table. The
+review reads that table with the actor's connection and binds the table's two
+revisions, its readers, every live mapping's `push_token` and CommCare HQ's
+table's digest; the write needs the Project's `delete`, reads the mappings again
+`FOR SHARE` under the Project state and the table's lock, and takes CommCare
+HQ's table through the copy's `adopt` arm. The next publish to that project
+space then leaves the table out and supersedes its mapping, so two apps sharing
+the table never hold independent authority over it. A drift stop on a plain
+table names the action last (`preflight.ts::takeOfferFor`,
+`USE_HQ_TABLE_OFFERED`), beside the existing discard. **Create a separate
+table** (`separateTable.ts`, MCP's `separate_lookup_table`) needs `edit`: under
+the Project state and the old table's row `FOR SHARE` it compares the reviewed
+revisions and readers, creates the new table and rebinds each chosen app's
+table, column and detail ids through `lib/db/apps.ts::appendSyntheticBatchInTransaction`
+(a `blueprint-migration` reload boundary for open builders), all in one
+transaction. The export boundary's stop for Nova's complete copy of another
+project space's table, whose indexes CommCare HQ never showed, names it
+(`boundaryFindings.ts::separableCopy`).
+
 **The Builder splits the work: the dialog publishes, the section manages.**
 App setup's Publishing section (`components/builder/app-setup/
 PublishingSection.tsx`) is the durable home of the records — one full

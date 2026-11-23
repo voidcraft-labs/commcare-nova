@@ -174,6 +174,7 @@ import {
 } from "@/lib/lookup/service";
 import { loadAppBlueprint } from "@/lib/mcp/loadApp";
 import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
+import { USE_HQ_TABLE_OFFERED } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import type { HqSideSaves } from "../documents";
@@ -1839,6 +1840,9 @@ it("puts the note on a discard that replaces a table HQ still holds, and none on
 					parts: change.parts.length,
 					baselineKnown: change.baselineKnown,
 					note: change.note,
+					/* A change to the table HQ still holds under the tag ends with
+					 * the action that takes it: the table is Nova's own. */
+					offer: change.parts.at(-1) === USE_HQ_TABLE_OFFERED,
 				}));
 		};
 		const definition = await stopWith((table) => [
@@ -1857,13 +1861,17 @@ it("puts the note on a discard that replaces a table HQ still holds, and none on
 		const unknown = await stopWith((table) => [table]);
 		return { definition, deleted, renamed, unknown };
 	});
-	expect(notes.definition).toEqual([{ parts: 1, baselineKnown: true, note }]);
-	expect(notes.unknown).toEqual([{ parts: 0, baselineKnown: false, note }]);
+	expect(notes.definition).toEqual([
+		{ parts: 2, baselineKnown: true, note, offer: true },
+	]);
+	expect(notes.unknown).toEqual([
+		{ parts: 1, baselineKnown: false, note, offer: true },
+	]);
 	expect(notes.deleted).toEqual([
-		{ parts: 1, baselineKnown: true, note: null },
+		{ parts: 1, baselineKnown: true, note: null, offer: false },
 	]);
 	expect(notes.renamed).toEqual([
-		{ parts: 1, baselineKnown: true, note: null },
+		{ parts: 1, baselineKnown: true, note: null, offer: false },
 	]);
 });
 
