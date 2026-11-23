@@ -705,7 +705,9 @@ describe("Create a separate table", () => {
 					(c.properties ?? []).map((m) => [m.id, m.wireName] as const),
 				),
 			]);
-			const rename = (record: Record<string, unknown> | undefined) =>
+			const rename = (
+				record: Record<string, unknown> | undefined,
+			): Record<string, unknown> =>
 				Object.fromEntries(
 					Object.entries(record ?? {}).map(([k, v]) => [
 						wire.get(k as never) ?? members.get(k) ?? k,
