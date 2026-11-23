@@ -48,11 +48,17 @@ export function columnKindPropertyRequirement(
 ): ColumnPropertyRequirement {
 	switch (kind) {
 		case "date":
+		case "date-count":
+		case "overdue-marker":
 		case "interval":
 			return "date-typed";
 		case "phone":
 		case "link":
 			return "text-shaped";
+		case "worker-distance":
+		case "map-location":
+		case "map-layer":
+		case "formatted-text":
 		case "plain":
 		case "id-mapping":
 		case "image-map":

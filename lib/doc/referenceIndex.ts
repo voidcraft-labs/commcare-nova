@@ -808,6 +808,7 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 			case "entity-uuid":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				break;
 			default: {
 				const _exhaustive: never = slot.kind;
@@ -932,11 +933,17 @@ function extractModuleEdges(
 			case "case-type-ref":
 				if (mod.caseType) sink.edge(caseTypeTargetKey(mod.caseType), slot.slot);
 				break;
+			case "worker-property-ref":
+				for (const value of readSlotStrings(mod, slot.path))
+					sink.edge(userPropertyTargetKey(value.text), slot.slot);
+				break;
 			case "case-property-ref":
 				if (slot.slot === "case_list_column_field") {
 					if (mod.caseType === undefined) break;
 					for (const column of mod.caseListConfig?.columns ?? []) {
 						if (column.kind === "calculated") continue;
+						if (column.readFrom && !column.workerPropertyUuid)
+							sink.edge(workerFieldNameTargetKey(column.field), slot.slot);
 						// A column read through a relation names a property of the
 						// case its walk reaches, and the walk names that type
 						// (the walk's own hints are `case_list_column_via`'s).

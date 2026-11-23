@@ -97,6 +97,7 @@ export function rewriteFieldReferenceSlots(
 			case "entity-uuid":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				break;
 			default: {
 				const exhaustive: never = slot.kind;

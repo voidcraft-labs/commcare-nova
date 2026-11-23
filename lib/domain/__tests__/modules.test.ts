@@ -399,7 +399,7 @@ describe("columnSchema — authored display shapes", () => {
 	});
 
 	it.each(["", " ", "two words"])(
-		"rejects a blank or whitespace-bearing mapping value: %j",
+		"keeps a blank or whitespace-bearing mapping value: %j",
 		(value) => {
 			expect(
 				columnSchema.safeParse({
@@ -409,7 +409,7 @@ describe("columnSchema — authored display shapes", () => {
 					header: "Region",
 					mapping: [{ value, label: "North" }],
 				}).success,
-			).toBe(false);
+			).toBe(true);
 		},
 	);
 

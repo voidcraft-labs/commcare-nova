@@ -220,6 +220,13 @@ export interface ExpressionContext {
 	 * the search runs (`searchRuntimeValues.ts`): the slot names no device
 	 * target, yet Core evaluates this expression. */
 	readonly runsOnDevice?: true;
+	/** A displayed condition also reads the Search result snapshot when its menu offers Search. */
+	readonly runsOnSearchResults?: true;
+	/** The translated pieces this calculated field owns. */
+	readonly caseTexts?: readonly {
+		readonly uuid: Uuid;
+		readonly label: string;
+	}[];
 	/** The platforms the app declares (`declaredPlatforms`): what an
 	 * expression leaf one platform lacks is refused against. */
 	readonly platforms: readonly Platform[];
@@ -715,6 +722,7 @@ export function slotContext(
 		}),
 	);
 	let profile: SlotProfile;
+	let caseTexts: ExpressionContext["caseTexts"];
 	let rows: RowScope[] = [];
 	let sourceNode: FormNodeRef | undefined;
 	let supplies: EntryDatumSupplies = { refs: [] };
@@ -1042,11 +1050,22 @@ export function slotContext(
 			input === undefined
 		)
 			return undefined;
+		if (slot.slot === "case_list_mapping_condition") {
+			const column = module.caseListConfig?.columns.find(
+				(entry) => entry.uuid === slot.member.columnUuid,
+			);
+			if (
+				(column?.kind !== "id-mapping" && column?.kind !== "image-map") ||
+				!column.mapping.some((row) => row.uuid === slot.member.rowUuid)
+			)
+				return undefined;
+		}
 		if (slot.slot === "case_list_column_expression") {
 			const column = module.caseListConfig?.columns.find(
 				(entry) => entry.uuid === slot.member.columnUuid,
 			);
 			if (column?.kind !== "calculated") return undefined;
+			caseTexts = column.texts;
 		}
 		if (
 			slot.slot === "case_list_sort_expression" &&
@@ -1057,8 +1076,10 @@ export function slotContext(
 			return undefined;
 		const orderValue =
 			slot.slot === "case_list_sort_expression" ||
+			slot.slot === "case_list_mapping_condition" ||
 			slot.slot === "case_list_column_expression";
 		const caseSlot = [
+			"case_list_mapping_condition",
 			"case_list_filter",
 			"case_list_column_expression",
 			"case_list_sort_expression",
@@ -1066,6 +1087,7 @@ export function slotContext(
 		].includes(slot.slot);
 		if (caseSlot && module.caseType === undefined) return undefined;
 		const condition = [
+			"case_list_mapping_condition",
 			"module_display_condition",
 			"case_list_filter",
 			"search_button_display_condition",
@@ -1075,6 +1097,7 @@ export function slotContext(
 			"search_input_validation_rule",
 		].includes(slot.slot);
 		const admitsInputs = [
+			"case_list_mapping_condition",
 			"case_list_filter",
 			"case_list_column_expression",
 			"case_list_sort_expression",
@@ -1085,19 +1108,21 @@ export function slotContext(
 		].includes(slot.slot);
 		const searchable = effectiveCaseSearchConfig(module) !== undefined;
 		const targets: readonly import("./profiles").ExpressionTarget[] =
-			slot.slot === "search_input_predicate"
-				? ["CS", "PG"]
-				: slot.slot === "case_list_filter"
-					? searchable
-						? ["SU", "HQ", "CS", "PG"]
-						: ["SU", "HQ", "PG"]
-					: orderValue
+			slot.slot === "case_list_mapping_condition"
+				? ["SU", "HQ", "PG", "PV"]
+				: slot.slot === "search_input_predicate"
+					? ["CS", "PG"]
+					: slot.slot === "case_list_filter"
 						? searchable
-							? ["SU", "HQ", "CS", "PG", "PV"]
-							: ["SU", "HQ", "PG", "PV"]
-						: slot.slot === "excluded_owner_ids"
-							? ["SU", "CS", "PG"]
-							: ["SU", "HQ", "PV"];
+							? ["SU", "HQ", "CS", "PG"]
+							: ["SU", "HQ", "PG"]
+						: orderValue
+							? searchable
+								? ["SU", "HQ", "CS", "PG", "PV"]
+								: ["SU", "HQ", "PG", "PV"]
+							: slot.slot === "excluded_owner_ids"
+								? ["SU", "CS", "PG"]
+								: ["SU", "HQ", "PV"];
 		profile = slotProfile(
 			"record",
 			caseSlot ? "case" : "global",
@@ -1188,6 +1213,11 @@ export function slotContext(
 	return {
 		slot,
 		ruleSet: profile.ruleSet,
+		...(caseTexts !== undefined && { caseTexts }),
+		...(slot.slot === "case_list_mapping_condition" &&
+			effectiveCaseSearchConfig(module) !== undefined && {
+				runsOnSearchResults: true,
+			}),
 		profile,
 		facts,
 		...(form === undefined ? {} : { form }),

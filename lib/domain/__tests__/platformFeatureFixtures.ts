@@ -67,6 +67,7 @@ export const FIXTURE_FORM = testUuid("platform-fixture-form");
 export const FIXTURE_FIELD = testUuid("platform-fixture-field");
 export const FIXTURE_COLUMN = testUuid("platform-fixture-column");
 export const FIXTURE_INPUT = testUuid("platform-fixture-input");
+const FIXTURE_MAP_LOCATION = testUuid("platform-fixture-map-location");
 const REGISTER_FORM = testUuid("platform-fixture-register");
 const DATE_FIELD = testUuid("platform-fixture-date");
 const ASSET = testMediaAssetId("platform-fixture-asset");
@@ -393,6 +394,42 @@ const SKIP_FILTER = eq(prop("patient", "status"), literal("open"));
 
 export const PLATFORM_FEATURE_FIXTURES = {
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
+	"worker-distance": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "worker-distance",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Distance",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [plainColumn(FIXTURE_COLUMN, "coordinates", "Coordinates")],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"worker-distance",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].kind",
+		),
+	},
 	"sort-by-distance": {
 		with: () =>
 			caseApp({
@@ -889,6 +926,113 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		without: () =>
 			caseApp({ columns: [plainColumn(FIXTURE_COLUMN, "website", "Website")] }),
 		use: slotUse("link-column", COLUMN_OWNER, "caseListConfig.columns[1].kind"),
+	},
+	"case-map-location": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Location",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [plainColumn(FIXTURE_COLUMN, "coordinates", "Location")],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"case-map-location",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].kind",
+		),
+	},
+	"case-map-layers": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-layer",
+						uuid: FIXTURE_COLUMN,
+						field: "coordinates",
+						header: "Points",
+						layer: "points",
+						visibleInDetail: false,
+					},
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Location",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "map-location",
+						uuid: FIXTURE_MAP_LOCATION,
+						field: "coordinates",
+						header: "Location",
+					},
+				],
+				fields: [
+					f({
+						kind: "geopoint",
+						id: "coordinates",
+						caseWrite: { caseType: "patient", property: "coordinates" },
+					}),
+				],
+			}),
+		use: slotUse(
+			"case-map-layers",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].layer",
+		),
+	},
+	"formatted-case-text": {
+		with: () =>
+			caseApp({
+				columns: [
+					{
+						kind: "formatted-text",
+						uuid: FIXTURE_COLUMN,
+						field: "notes",
+						header: "Notes",
+					},
+				],
+			}),
+		without: () =>
+			caseApp({ columns: [plainColumn(FIXTURE_COLUMN, "notes", "Notes")] }),
+		use: slotUse(
+			"formatted-case-text",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].kind",
+		),
 	},
 	"search-screen-text": {
 		with: () =>

@@ -527,6 +527,7 @@ function collectFieldReferences(
 			case "case-property-ref":
 			case "relation-path":
 			case "datum-ref":
+			case "worker-property-ref":
 				// No field slot carries these kinds — kept explicit so
 				// the registry's kind union stays exhaustively handled here,
 				// the same contract the rename rewriters hold.
@@ -735,6 +736,10 @@ function collectModuleConfigReferences(
 				// A column's property name follows the type it reads, which is
 				// the module's own or the one its walk reaches.
 				break;
+			case "case_list_column_worker_information":
+				// A worker information identity names the worker's own record,
+				// never a case type a menu manages.
+				break;
 			case "case_list_column_via": {
 				// A column read through a relation names the types its walk
 				// passes through.
@@ -764,6 +769,21 @@ function collectModuleConfigReferences(
 							concise: `the default order on ${where} uses "${caseType}" information`,
 						});
 					}
+				}
+				break;
+			}
+			case "case_list_mapping_condition": {
+				for (const col of list?.columns ?? []) {
+					if (
+						(col.kind === "image-map" || col.kind === "id-mapping") &&
+						col.mapping.some(
+							(row) => row.when && expressionRefsCaseType(row.when, caseType),
+						)
+					)
+						out.push({
+							verbose: `a mapping condition in "${col.header}" on ${where} reads a "${caseType}" property`,
+							concise: `a rule in "${col.header}" on ${where} uses "${caseType}" information`,
+						});
 				}
 				break;
 			}

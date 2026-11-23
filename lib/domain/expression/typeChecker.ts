@@ -980,6 +980,15 @@ function admission(
 				platform: { feature: leaf, platform },
 			};
 	}
+	if (
+		expression.kind === "case-text" &&
+		!ctx.caseTexts?.some((item) => item.uuid === expression.textUuid)
+	)
+		return refusal(
+			"arm-unavailable",
+			"Choose translated text that belongs to this calculated field.",
+			"case-text",
+		);
 	if (expression.kind === "itext" || expression.kind === "choice-name") {
 		const refused = formTextAdmission(expression, ctx);
 		if (refused !== undefined) return refused;
@@ -2677,6 +2686,7 @@ function inferNode(
 				),
 				{ reason: "selected-cases", module: expression.module },
 			);
+		case "case-text":
 		case "itext":
 			return scalar("text");
 		case "choice-name":

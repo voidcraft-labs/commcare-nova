@@ -276,6 +276,7 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			if (column.kind !== "image-map") continue;
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 				const row = column.mapping[rowIndex];
+				if (row.assetId === undefined) continue;
 				yield {
 					assetId: row.assetId,
 					slotKind: "image",
@@ -286,7 +287,7 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 						columnUuid: column.uuid,
 						columnHeader: column.header,
 						rowIndex,
-						rowValue: row.value,
+						rowValue: row.value ?? `Rule ${rowIndex + 1}`,
 					},
 				};
 			}
@@ -530,7 +531,8 @@ export function collectAuthoredAssetRefs(doc: BlueprintDoc): Set<IconRef> {
 	for (const mod of Object.values(doc.modules)) {
 		for (const column of mod.caseListConfig?.columns ?? []) {
 			if (column.kind !== "image-map") continue;
-			for (const row of column.mapping) ids.add(row.assetId);
+			for (const row of column.mapping)
+				if (row.assetId !== undefined) ids.add(row.assetId);
 		}
 	}
 	return ids;
@@ -570,6 +572,7 @@ export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			}
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 				const row = column.mapping[rowIndex];
+				if (row.assetId === undefined) continue;
 				yield {
 					assetId: row.assetId,
 					slotKind: "image",
@@ -580,7 +583,7 @@ export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 						columnUuid: column.uuid,
 						columnHeader: column.header,
 						rowIndex,
-						rowValue: row.value,
+						rowValue: row.value ?? `Rule ${rowIndex + 1}`,
 					},
 				};
 			}
@@ -642,7 +645,8 @@ export function remapAssetRefs(
 			for (const column of mod.caseListConfig?.columns ?? []) {
 				if (column.kind !== "image-map") continue;
 				for (const row of column.mapping) {
-					row.assetId = remapUploaded(row.assetId);
+					if (row.assetId !== undefined)
+						row.assetId = remapUploaded(row.assetId);
 				}
 			}
 		}

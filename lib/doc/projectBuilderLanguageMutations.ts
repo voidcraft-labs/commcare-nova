@@ -20,6 +20,7 @@ import {
 	translationValueIntegrityIssue,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 
 export type BuilderLanguageMutationProjection =
@@ -315,7 +316,9 @@ export function projectBuilderLanguageMutations(
 						column.mapping.some(
 							(mapping) =>
 								!current.mapping.some(
-									(candidate) => candidate.value === mapping.value,
+									(candidate) =>
+										caseMappingTextUnit(mutation.uuid, candidate, "mapping") ===
+										caseMappingTextUnit(mutation.uuid, mapping, "mapping"),
 								),
 						)
 					) {
@@ -323,16 +326,13 @@ export function projectBuilderLanguageMutations(
 					}
 					column.mapping = column.mapping.map((mapping) => {
 						const prior = current.mapping.find(
-							(candidate) => candidate.value === mapping.value,
+							(candidate) =>
+								caseMappingTextUnit(mutation.uuid, candidate, "mapping") ===
+								caseMappingTextUnit(mutation.uuid, mapping, "mapping"),
 						);
 						if (prior === undefined) return mapping;
 						const source = redirect(
-							makeTranslationUnitId(
-								"column",
-								mutation.uuid,
-								"mapping",
-								mapping.value,
-							),
+							caseMappingTextUnit(mutation.uuid, mapping, "mapping"),
 							mapping.label,
 						);
 						return typeof source === "string"
@@ -342,6 +342,52 @@ export function projectBuilderLanguageMutations(
 				}
 				if (column.kind === "id-mapping" && current.kind !== "id-mapping") {
 					if (column.mapping.length > 0) refuseMissingSource();
+				}
+				if (column.kind === "calculated" && column.texts) {
+					const prior =
+						current.kind === "calculated" ? current.texts : undefined;
+					column.texts = column.texts.map((piece) => {
+						if (!prior?.some((item) => item.uuid === piece.uuid))
+							refuseMissingSource();
+						const original = redirect(
+							makeTranslationUnitId(
+								"column",
+								mutation.uuid,
+								"calculation-text",
+								piece.uuid,
+							),
+							piece.label,
+						);
+						if (typeof original !== "string") refuseMissingSource();
+						return {
+							...piece,
+							label: typeof original === "string" ? original : piece.label,
+						};
+					});
+				}
+				if (column.kind === "image-map") {
+					column.mapping = column.mapping.map((row) => {
+						const id = caseMappingTextUnit(
+							mutation.uuid,
+							row,
+							"image-description",
+						);
+						if (row.altText === undefined) {
+							if (units.has(id)) {
+								redirectClear(id);
+								const original = units.get(id)?.source;
+								if (typeof original === "string")
+									return { ...row, altText: original };
+							}
+							return row;
+						}
+						const original = redirect(id, row.altText);
+						if (typeof original !== "string") refuseMissingSource();
+						return {
+							...row,
+							altText: typeof original === "string" ? original : row.altText,
+						};
+					});
 				}
 				if (column.kind === "interval") {
 					if (current.kind === "interval") {

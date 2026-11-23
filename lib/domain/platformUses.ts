@@ -521,6 +521,8 @@ function moduleUses(
 		const target = columnOwner(column.uuid);
 		const uses: PlatformFeatureUse[] = [...byOwner(target)];
 		const slot = (path: string) => `caseListConfig.columns[${index}].${path}`;
+		if (column.kind === "worker-distance" && wanted("worker-distance"))
+			uses.push(slotUse("worker-distance", target, slot("kind")));
 		if (column.sort?.comparator === "distance" && wanted("sort-by-distance")) {
 			uses.push(slotUse("sort-by-distance", target, slot("sort.comparator")));
 		}
@@ -558,6 +560,22 @@ function moduleUses(
 			);
 		if (columnSortLabelShows(column) && wanted("case-list-sort-label"))
 			uses.push(slotUse("case-list-sort-label", target, slot("sort.label")));
+		if (column.kind === "map-location" && wanted("case-map-location"))
+			uses.push(slotUse("case-map-location", target, slot("kind")));
+		if (column.kind === "map-layer" && wanted("case-map-layers"))
+			uses.push(slotUse("case-map-layers", target, slot("layer")));
+		if (
+			(column.kind === "formatted-text" ||
+				(column.kind === "calculated" && column.showAs === "formatted-text")) &&
+			wanted("formatted-case-text")
+		)
+			uses.push(
+				slotUse(
+					"formatted-case-text",
+					target,
+					slot(column.kind === "calculated" ? "showAs" : "kind"),
+				),
+			);
 		if (column.kind === "link" && wanted("link-column"))
 			uses.push(slotUse("link-column", target, slot("kind")));
 		out.push(...inFeatureOrder(uses));

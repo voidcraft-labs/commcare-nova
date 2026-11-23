@@ -10,12 +10,14 @@ import type { CaseProperty, CaseType } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { CaseRelationCatalog } from "./caseRelations";
 import { humanizeId } from "./idSlug";
-import type { PropertyColumn } from "./modules";
+import type { Column, PropertyColumn } from "./modules";
 import { proseText } from "./prose";
 import {
 	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "./standardCaseProperties";
+import { USERCASE_BUILT_IN_KEYS, USERCASE_CASE_TYPE } from "./usercase";
+import type { UserProperty } from "./users";
 
 export function reachedPropertyType(
 	column: Pick<PropertyColumn, "via" | "field">,
@@ -80,11 +82,50 @@ export function columnPropertyBindings(
 	].sort();
 }
 
+export function canBindWorkerColumnField(field: string): boolean {
+	return (
+		!isStandardCaseListProperty(field) &&
+		!USERCASE_BUILT_IN_KEYS.includes(field)
+	);
+}
+
+/** System values win over a similarly named profile field in HQ's user-case sync. */
+export function namedWorkerColumnProperty(
+	field: string,
+	properties: readonly UserProperty[],
+) {
+	if (!canBindWorkerColumnField(field)) return undefined;
+	return properties.find((property) => property.slug === field);
+}
+
+/** Authoring a worker-record column captures the declared worker field's
+ * identity. A user case may also carry an undeclared property saved by HQ. */
+export function bindWorkerColumn(
+	column: Column,
+	properties: readonly UserProperty[],
+): Column {
+	if (
+		column.kind === "calculated" ||
+		column.readFrom !== "worker-record" ||
+		column.workerPropertyUuid
+	)
+		return column;
+	const property = namedWorkerColumnProperty(column.field, properties);
+	return property ? { ...column, workerPropertyUuid: property.uuid } : column;
+}
+
+/**
+ * The case type whose property the column shows: the list's own where it
+ * walks nothing, the type its walk reaches otherwise, and undefined where
+ * the walk reaches no single type (a `parent` step from a type with no
+ * parent, another index naming no type) or the list has no case type.
+ */
 export function columnPropertyCaseType(
-	column: Pick<PropertyColumn, "via">,
+	column: Pick<PropertyColumn, "via" | "readFrom">,
 	listCaseType: string | undefined,
 	caseTypes: readonly CaseType[],
 ): string | undefined {
+	if (column.readFrom === "worker-record") return USERCASE_CASE_TYPE;
 	const scope = columnPropertyScope(column, listCaseType, caseTypes);
 	return !scope.open && scope.types.length === 1 ? scope.types[0] : undefined;
 }

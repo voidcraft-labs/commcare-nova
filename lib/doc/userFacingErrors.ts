@@ -641,6 +641,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} asks for a date and time, which Web Apps can't show.`,
 		alternative: "ask for the date and the time separately",
 	},
+	"worker-distance": {
+		lead: (subject) =>
+			`${subject} shows how far each case is from the worker. Web Apps can't read the worker's location.`,
+		alternative: "show the saved location instead",
+	},
 	"sort-by-distance": {
 		lead: (subject) =>
 			`${subject} uses the worker's location to put nearby cases first. Web Apps can't read that location.`,
@@ -872,6 +877,8 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${formulaSubject(e)} reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.`;
 			case "case-list-search-text-slot":
 				return `${formulaSubject(e)} reads what the worker typed into a case list's search box, which only a form's questions and Connect settings can read. You can read it in one of the form's questions instead.`;
+			case "case-text":
+				return `${formulaSubject(e)} uses translated text from a different calculated field. Choose one of this field’s own pieces of text.`;
 			case "here":
 				return e.details?.hereSurface === "record"
 					? `${formulaSubject(e)} uses here(), which is where the worker is. Only a case list's calculated column can read that. You can show it in a calculated column instead.`
@@ -1140,6 +1147,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The Cases available setting in ${q(modName(e))}`) ??
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
+	CASE_LIST_MAPPING_CONDITION: (e) =>
+		recordFindingCopy(e, `A display rule in ${q(modName(e))}`) ??
+		`Open the display rule in ${q(modName(e))} and choose a condition that applies to this case.`,
 	CASE_LIST_CALCULATED_SORT_TYPE_ERROR: (e) =>
 		recordFindingCopy(
 			e,
@@ -1169,6 +1179,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			: det(e, "reason", "") === "lands-on-shown"
 				? `A column hidden from Results in ${q(modName(e))} has a name in Sort by, but its sort rule lands on ${q(det(e, "landingColumnLabel", "an earlier column"))}, which shows on Results, so workers never see that name. You can remove the name, or hide that column on Results.`
 				: `${q(det(e, "columnLabel", "A column"))} in ${q(modName(e))} shows on Results, so workers already find it under its header in Sort by. You can remove its name in Sort by, or hide the column on Results.`,
+	CASE_MAP_SOURCE_INVALID: (e) => e.message,
 	CASE_LIST_COLUMN_NOT_ON_LIST_INVALID: (e) =>
 		det(e, "reason", "") === "sorted"
 			? "This isn't on the list, so the list can't sort by it. You can turn on List search matches this to sort by it."

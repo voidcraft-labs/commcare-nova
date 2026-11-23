@@ -45,6 +45,7 @@ import {
 	stateCondition,
 } from "./basicCaseSlots";
 import type { BlueprintDoc } from "./blueprint";
+import { hasSeveralCaseMapLocations } from "./caseMap";
 import { caseWriteValueField } from "./caseWriteViews";
 import { formConnectIds } from "./connectIds";
 import { entrySelections, rootSelectionAlignment } from "./entryDatumSupplies";
@@ -678,6 +679,7 @@ function givesBasicDatum(
  *  statements. */
 export type AdvancedKindReason =
 	| { readonly kind: "held" }
+	| { readonly kind: "several-map-locations" }
 	| {
 			readonly kind: "carried-create";
 			readonly formUuid: Uuid;
@@ -719,6 +721,8 @@ function computeKindTriggers(
 	const module = doc.modules[moduleUuid];
 	if (module === undefined) return [];
 	const found: AdvancedKindReason[] = [];
+	if (hasSeveralCaseMapLocations(module.caseListConfig))
+		found.push({ kind: "several-map-locations" });
 	if (module.heldKind === "advanced") found.push({ kind: "held" });
 	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 		if (doc.forms[formUuid] === undefined) continue;

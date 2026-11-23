@@ -1,6 +1,7 @@
 /** Pure selected-language projections for Builder and Preview consumers. */
 
 import type { BlueprintDoc } from "./blueprint";
+import { caseMappingTextUnit } from "./caseMappingRows";
 import type { Field } from "./fields";
 import {
 	effectiveAppLocalization,
@@ -117,16 +118,24 @@ export function projectLocalizedModule(
 						),
 					};
 				}
+				if (next.kind === "image-map") {
+					next.mapping = next.mapping.map((item) =>
+						item.altText === undefined
+							? item
+							: {
+									...item,
+									altText: text(
+										caseMappingTextUnit(column.uuid, item, "image-description"),
+										item.altText,
+									),
+								},
+					);
+				}
 				if (next.kind === "id-mapping") {
 					next.mapping = next.mapping.map((mapping) => ({
 						...mapping,
 						label: text(
-							makeTranslationUnitId(
-								"column",
-								column.uuid,
-								"mapping",
-								mapping.value,
-							),
+							caseMappingTextUnit(column.uuid, mapping, "mapping"),
 							mapping.label,
 						),
 					}));

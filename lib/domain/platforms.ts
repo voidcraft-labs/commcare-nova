@@ -184,6 +184,7 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"worker-distance",
 	"sort-by-distance",
 	"forms-read-search",
 	"list-first",
@@ -224,6 +225,9 @@ export const PLATFORM_FEATURE_IDS = [
 	"column-hidden-from-results",
 	"case-list-sort-label",
 	"link-column",
+	"formatted-case-text",
+	"case-map-location",
+	"case-map-layers",
 	"search-screen-text",
 	"search-field-checks",
 	"barcode-search-field",
@@ -244,6 +248,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
+	"worker-distance",
 	"sort-by-distance",
 	"forms-read-search",
 	"list-first",
@@ -291,6 +296,20 @@ export const PLATFORM_FEATURES: Readonly<
 			what: "reads here(), the worker's location",
 			why: "Web Apps doesn't know where the worker is, so here() reads blank there, or a fixed place while the list is built.",
 			alternative: "take here() out of this value",
+		},
+	},
+	"worker-distance": {
+		label: "Distance from worker",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "the worker's current location isn't known there, so a case's distance from it can't be shown",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "shows each case's distance from the worker",
+			why: "Web Apps doesn't know where the worker is, so it can't show how far away each case is.",
+			alternative: "show the saved location instead",
 		},
 	},
 	"sort-by-distance": {
@@ -743,6 +762,33 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "only a case tile list's Sort By lists the column under its name",
 		},
 		android: { reading: "runs" },
+	},
+	"case-map-location": {
+		label: "Case map locations",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "Results hides the location. A project space with the case list map can show its first location on a map, and Details shows the coordinates.",
+		},
+		android: { reading: "runs" },
+	},
+	"case-map-layers": {
+		label: "Case map boundaries and points",
+		channel: "structure",
+		webApps: {
+			reading: "ignored",
+			note: "the map shows case locations without additional boundaries, points or their colors",
+		},
+		android: { reading: "runs" },
+	},
+	"formatted-case-text": {
+		label: "Formatted case text",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "different",
+			note: "case lists show the saved Markdown, details format it, and tiles read inline HTML",
+		},
 	},
 	"link-column": {
 		label: "Link columns",

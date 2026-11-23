@@ -87,6 +87,7 @@ const REFERENCE_SURFACE_KINDS = [
 	"datum-ref",
 	"options-source",
 	"entity-uuid",
+	"worker-property-ref",
 	"case-property-ref",
 	"case-type-ref",
 ] as const;
@@ -663,6 +664,33 @@ export const MODULE_REFERENCE_SLOTS = [
 		// its expression is the source.
 		columnKinds: [
 			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
+			"date",
+			"phone",
+			"id-mapping",
+			"image-map",
+			"interval",
+			"link",
+		],
+	},
+	{
+		entity: "module",
+		slot: "case_list_column_worker_information",
+		path: "caseListConfig.columns[].workerPropertyUuid",
+		kind: "worker-property-ref",
+		columnKinds: [
+			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
 			"date",
 			"phone",
 			"id-mapping",
@@ -682,6 +710,12 @@ export const MODULE_REFERENCE_SLOTS = [
 		kind: "relation-path",
 		columnKinds: [
 			"plain",
+			"date-count",
+			"overdue-marker",
+			"map-location",
+			"map-layer",
+			"worker-distance",
+			"formatted-text",
 			"date",
 			"phone",
 			"id-mapping",
@@ -696,6 +730,13 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.columns[].expression",
 		kind: "expression",
 		columnKinds: ["calculated"],
+	},
+	{
+		entity: "module",
+		slot: "case_list_mapping_condition",
+		path: "caseListConfig.columns[].mapping[].when",
+		kind: "expression",
+		columnKinds: ["id-mapping", "image-map"],
 	},
 	{
 		entity: "module",
@@ -930,6 +971,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	if ("operationUuid" in member) {
 		return JSON.stringify([...base, member.operationUuid]);
 	}
+	if ("rowUuid" in member)
+		return JSON.stringify([...base, member.columnUuid, member.rowUuid]);
 	if ("columnUuid" in member) {
 		return JSON.stringify([...base, member.columnUuid]);
 	}
@@ -960,6 +1003,20 @@ function expressionRefForEntry(
 			case "search_button_display_condition":
 			case "excluded_owner_ids":
 				return { entity: "module", uuid, slot: entry.slot };
+			case "case_list_mapping_condition": {
+				const column = mod.caseListConfig?.columns[indices[0] ?? -1];
+				if (column?.kind !== "id-mapping" && column?.kind !== "image-map")
+					return undefined;
+				const row = column.mapping[indices[1] ?? -1];
+				return row?.uuid === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { columnUuid: column.uuid, rowUuid: row.uuid },
+						};
+			}
 			case "case_list_sort_expression": {
 				const sort = mod.caseListConfig?.calculatedSorts?.[indices[0] ?? -1];
 				return sort === undefined
@@ -1653,6 +1710,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.selection.maximum": "config",
 	"caseListConfig.columns[].uuid": "identity",
 	"caseListConfig.columns[].kind": "discriminator",
+	"caseListConfig.columns[].readFrom": "discriminator",
+	"caseListConfig.columns[].showOwner": "config",
 	"caseListConfig.columns[].header": "display-text",
 	// Display text, but NOT a translation unit: a link cell is emitted as
 	// `<template form="markdown">`, and CommCare HQ builds locale variables
@@ -1702,6 +1761,14 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].tile.fontSize": "config",
 	"caseListConfig.columns[].tile.showBorder": "config",
 	"caseListConfig.columns[].tile.showShading": "config",
+	"caseListConfig.columns[].showAs": "config",
+	"caseListConfig.columns[].showChoice": "config",
+	"caseListConfig.columns[].behavior": "config",
+	"caseListConfig.columns[].texts[].uuid": "identity",
+	"caseListConfig.columns[].texts[].label": "display-text",
+	"caseListConfig.columns[].mapping[].uuid": "identity",
+	"caseListConfig.columns[].mapping[].match": "config",
+	"caseListConfig.columns[].mapping[].altText": "display-text",
 	"caseListConfig.columns[].mapping[].value": "data-literal",
 	"caseListConfig.columns[].mapping[].label": "display-text",
 	"caseListConfig.columns[].mapping[].assetId": "media",

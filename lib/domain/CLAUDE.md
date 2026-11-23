@@ -32,7 +32,7 @@ compiles every delivered pattern with the Rust engine.
 
 An app is UUID-keyed records (`modules` / `forms` / `fields`) plus membership arrays (`moduleOrder` / `formOrder` / `fieldOrder`) — not a nested object tree. A child menu remains an ordinary module record and names its parent by UUID.
 
-Sequence is plain array position. Position belongs to the collection, so entities and nested members carry no parallel `order` key. Every stored ENTITY has a required UUID (modules, forms, fields, user properties, user types, personas, organization levels, location properties, and automations, plus case-list columns, Search inputs, case operations, inline select options, and every addressable automation child); nested members that are not entities, such as case-operation writes and links, catalog properties and their options, and ID/image mapping rows, are identified by position and their own keys instead. Hydration restores only derived indexes/prototypes and never invents identity or repairs sequence.
+Sequence is plain array position. Position belongs to the collection, so entities and nested members carry no parallel `order` key. Every stored ENTITY has a required UUID (modules, forms, fields, user properties, user types, personas, organization levels, location properties, and automations, plus case-list columns, Search inputs, case operations, mapping rows, inline select options, and every addressable automation child); nested members that are not entities, such as case-operation writes and links, and catalog properties and their options, are identified by position and their own keys instead. Hydration restores only derived indexes/prototypes and never invents identity or repairs sequence.
 
 **A membership array IS the sequence.** `formOrder` is keyed by module and `fieldOrder` by form-or-container, so a hierarchical collection's array also says which parent an entity belongs to. A FLAT top-level collection (`userProperties` / `userTypes` / `personas` / `organizationLevels` / `locationProperties` / `automations`) has no parent to express, but it carries an array for the same reason every other collection does: position belongs to the collection, not to the member. A position stored ON the entity has to be computed from the sequence its author could see, so two people adding from one document compute the SAME position, and nothing sorts between two equal positions, which silently strands every later insertion between them. The record and its array cannot drift: `assembleBlueprint` throws when they disagree. All nine top-level entity kinds share one GLOBAL entity-UUID namespace because `blueprint_entities` persists them under one `(app_id, uuid)` primary key. The validator rejects a duplicate before commit and `decomposeBlueprint` repeats the check against each entity's own `uuid` before row assembly, so two identities can never collapse into one durable row. The case list is the one collection with TWO sequences over one set: `caseListConfig.listColumnOrder` and `detailColumnOrder`, both required, both naming every column from birth whatever its visibility. Read either through `orderedColumns(config, surface)`; the `columns` array is the set, and its position means nothing. Two slots are derived and NEVER persisted: `fieldParent` (the field→parent reverse index, rebuilt from `fieldOrder` on load) and `refIndex` (the reference index, built on demand; see `lib/doc`). The type system enforces the strip: `PersistableDoc` is the on-disk shape, `BlueprintDoc` adds the derived slots for in-memory use, and `PersistedBlueprint` (a `never`-typed wall) is what every writer takes so an unstripped doc can't serialize its derived state.
 
@@ -241,6 +241,11 @@ The domain records intent only. `lib/automations` derives the current-match
 projection and manual HQ setup guide; neither belongs in the document.
 Publishing does not install a rule, Preview does not mutate cases or advance a
 schedule, and a generated guide is never persisted beside its source object.
+
+A plain column presents a choice property's localized labels by default. Its optional
+`showChoice: "saved-value"` presents the case's stored tokens, in stored order, including retired values.
+Its filter text and order key use the same presentation. The two columns can stand next to one another
+and have separate identities in the HQ reader.
 
 Every saved case-list column is valid, including one hidden from both
 layouts and absent from sort, but for one pairing the gate refuses: a column
@@ -625,3 +630,27 @@ one of its ancestors. `formRecordScope` supplies the exact admitted types;
 registration, survey and multiple-selection forms have no scalar selected record.
 Case labels, filters and selected-record leaves participate in reference indexing,
 property renames, retirement checks and source replacement like other carriers.
+
+A date-count column measures whole periods since or until its saved date. Its
+seven period choices have fixed, signed day counts, and its sort key is the
+original date. Existing interval columns keep their custom threshold wording.
+
+A case map uses the UUIDs of the location and layer columns on the list. Boundaries and points require a location, and a color requires the geometry it colors. Android reads the first usable location per case, while a Web Apps target with case list maps enabled reads its first location column. A worker-distance column is Android-only. The Case Store computes its displayed kilometers and its independent whole-meter order using the fix bound to each query.
+
+
+An ordered label or image rule owns its localized wording by row UUID. A saved
+value is held verbatim, including blank and whitespace. A condition is a
+typed record expression over the case under `case_list_mapping_condition`,
+addressed by column and row UUID. Ordinary choice labels collect matching
+sequences in rule order. A first-match label rule stops at the first match and
+sorts by its localized display text. Images stop at the first match and sort by
+its position. All three leave an unmatched display blank. Immutable snapshots
+before row identities keep their old scoped translation keys. The Step 7
+conversion gives current rows a reproducible UUID under their own column and
+moves the translation overlays that belong to those rows.
+
+A calculated case field owns the pieces of wording used in its expression.
+Each piece has a UUID and one translation unit. A `case-text` expression
+refers to that UUID within its own field. Unused pieces remain editable and
+translatable. The worker’s selected language supplies the same values for
+the displayed result and its sort key.

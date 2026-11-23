@@ -660,6 +660,7 @@ export type ValueArm =
 	| { kind: "format-date"; date: Expression; pattern: string | Expression }
 	| { kind: "negate"; value: Expression }
 	| { kind: "call"; fn: CallFunction; args: Expression[] }
+	| { kind: "case-text"; textUuid: Uuid }
 	| { kind: "itext"; unit: ItextUnit }
 	| { kind: "choice-name"; field: Uuid; value: Expression }
 	| { kind: "here" }
@@ -717,6 +718,7 @@ const VALUE_KINDS = new Set<string>([
 	"format-date",
 	"negate",
 	"call",
+	"case-text",
 	"itext",
 	"choice-name",
 	"here",
@@ -1009,6 +1011,7 @@ const valueSchemas = [
 		fn: z.enum(CALL_FUNCTIONS),
 		args: z.array(E),
 	}),
+	z.strictObject({ kind: z.literal("case-text"), textUuid: uuidSchema }),
 	z.strictObject({ kind: z.literal("itext"), unit: itextUnitSchema }),
 	z.strictObject({
 		kind: z.literal("choice-name"),
@@ -1172,6 +1175,12 @@ export type ModuleExpressionSlotRef =
 			readonly uuid: Uuid;
 			readonly slot: "case_list_column_expression";
 			readonly member: { readonly columnUuid: Uuid };
+	  }
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "case_list_mapping_condition";
+			readonly member: { readonly columnUuid: Uuid; readonly rowUuid: Uuid };
 	  }
 	| {
 			readonly entity: "module";

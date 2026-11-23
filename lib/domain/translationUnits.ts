@@ -8,6 +8,7 @@
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { caseTypesWithRelations } from "./appCaseRelations";
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
+import { caseMappingTextUnit } from "./caseMappingRows";
 import { columnPropertyCaseType } from "./columnRelation";
 import { effectiveCaseTypes } from "./effectiveCaseTypes";
 import type { ItextUnit, ProseSlotRef } from "./expression/types";
@@ -55,6 +56,8 @@ export const translationUnitRoles = [
 	"select-option-label",
 	"case-list-header",
 	"case-list-sort-label",
+	"case-list-calculation-text",
+	"case-list-image-description",
 	"case-list-mapping-label",
 	"case-list-interval-text",
 	"search-input-label",
@@ -687,6 +690,34 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
+			if (column.kind === "calculated") {
+				for (const [index, item] of (column.texts ?? []).entries())
+					out.push(
+						unit({
+							id: makeTranslationUnitId(
+								"column",
+								column.uuid,
+								"calculation-text",
+								item.uuid,
+							),
+							valueKind: "text",
+							role: "case-list-calculation-text",
+							source: item.label,
+							owner: {
+								kind: "case-list-column",
+								moduleUuid,
+								columnUuid: column.uuid,
+							},
+							breadcrumb: [
+								...moduleBreadcrumb,
+								"Cases",
+								column.header,
+								`Text ${index + 1}`,
+							],
+							context: { moduleName: module.name, columnKind: column.kind },
+						}),
+					);
+			}
 			if (!caseListColumnTextShows(column)) continue;
 			const owner = {
 				kind: "case-list-column" as const,
@@ -708,16 +739,32 @@ export function collectTranslationUnits(
 					context,
 				}),
 			);
-			if (column.kind === "id-mapping") {
-				for (const mapping of column.mapping) {
+			if (column.kind === "image-map") {
+				for (const [index, item] of column.mapping.entries()) {
+					if (item.altText === undefined) continue;
 					out.push(
 						unit({
-							id: makeTranslationUnitId(
-								"column",
-								column.uuid,
-								"mapping",
-								mapping.value,
-							),
+							id: caseMappingTextUnit(column.uuid, item, "image-description"),
+							valueKind: "text",
+							role: "case-list-image-description",
+							source: item.altText,
+							owner,
+							breadcrumb: [
+								...moduleBreadcrumb,
+								"Cases",
+								column.header,
+								item.value ?? `Rule ${index + 1}`,
+							],
+							context: { ...context, optionValue: item.value },
+						}),
+					);
+				}
+			}
+			if (column.kind === "id-mapping") {
+				for (const [index, mapping] of column.mapping.entries()) {
+					out.push(
+						unit({
+							id: caseMappingTextUnit(column.uuid, mapping, "mapping"),
 							valueKind: "text",
 							role: "case-list-mapping-label",
 							source: mapping.label,
@@ -726,7 +773,7 @@ export function collectTranslationUnits(
 								...moduleBreadcrumb,
 								"Cases",
 								column.header,
-								mapping.value,
+								mapping.value ?? `Rule ${index + 1}`,
 							],
 							context: { ...context, optionValue: mapping.value },
 						}),
@@ -751,7 +798,7 @@ export function collectTranslationUnits(
 					}),
 				);
 			}
-			if (column.kind === "plain") {
+			if (column.kind === "plain" && column.showChoice !== "saved-value") {
 				// A column read through a relation shows the options of the case
 				// its walk reaches.
 				if (column.via !== undefined)

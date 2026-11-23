@@ -108,6 +108,7 @@
 //      `<sort>` with no direction, which Core reads as ascending with blanks
 //      last (`DetailFieldParser.parseBlanksPreference`).
 
+import { caseMappingComparison } from "./caseMappingRows";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import type { ScalarType } from "./expression/typeChecker";
 import {
@@ -126,6 +127,7 @@ import {
 	type SortDirection,
 	sameColumnVia,
 	sortBlanks,
+	translatedDistanceProperty,
 } from "./modules";
 import { EXPRESSION_ONLY_COLUMN_PROPERTIES } from "./standardCaseProperties";
 import type { Uuid } from "./uuid";
@@ -144,6 +146,9 @@ export type CaseListSortKey =
 	| { readonly kind: "independent-calculation"; readonly sort: CalculatedSort }
 	| {
 			readonly kind: "distance-property";
+			readonly readFrom?: "worker-record";
+			readonly workerPropertyUuid?: Uuid;
+			readonly showOwner?: "name";
 			readonly column: Uuid;
 			readonly property: string;
 			readonly via?: ColumnVia;
@@ -158,17 +163,25 @@ export type CaseListSortKey =
 			readonly kind: "property";
 			readonly property: string;
 			readonly via?: ColumnVia;
+			readonly readFrom?: "worker-record";
+			readonly workerPropertyUuid?: Uuid;
+			readonly showOwner?: "name";
 	  }
 	/** A select property's shown label. */
 	| {
 			readonly kind: "option-label";
 			readonly property: string;
 			readonly via?: ColumnVia;
+			readonly readFrom?: "worker-record";
+			readonly workerPropertyUuid?: Uuid;
+			readonly showOwner?: "name";
 	  }
 	/** The index of the first matching entry, as text; "" where none matches. */
 	| { readonly kind: "mapping-position"; readonly column: Uuid }
+	| { readonly kind: "mapping-label"; readonly column: Uuid }
 	/** The interval column's shown text. */
 	| { readonly kind: "interval-text"; readonly column: Uuid }
+	| { readonly kind: "overdue-marker"; readonly column: Uuid }
 	/** The link column's shown markdown. */
 	| { readonly kind: "link-text"; readonly column: Uuid }
 	/** The calculated column's value. */
@@ -239,6 +252,9 @@ export interface CaseListOrderCarrier {
 	 *  of the case `via` reaches. */
 	readonly field: string;
 	readonly via?: ColumnVia;
+	readonly readFrom?: "worker-record";
+	readonly workerPropertyUuid?: Uuid;
+	readonly showOwner?: "name";
 	readonly comparator: CaseListComparator;
 	readonly key: CaseListSortKey;
 	readonly rule: CaseListOrderRule;
@@ -399,13 +415,21 @@ function propertyKey<
 	K extends "property" | "option-label" | "distance-property",
 >(
 	kind: K,
-	column: Extract<Column, { field: string }>,
+	column: Pick<
+		Extract<Column, { field: string }>,
+		"field" | "via" | "uuid" | "readFrom" | "showOwner" | "workerPropertyUuid"
+	>,
 ): Extract<CaseListSortKey, { kind: K }> {
 	return {
 		kind,
 		property: column.field,
 		...(kind === "distance-property" && { column: column.uuid }),
+		...(column.workerPropertyUuid && {
+			workerPropertyUuid: column.workerPropertyUuid,
+		}),
 		...(column.via !== undefined && { via: column.via }),
+		...(column.readFrom && { readFrom: column.readFrom }),
+		...(column.showOwner && { showOwner: column.showOwner }),
 	} as Extract<CaseListSortKey, { kind: K }>;
 }
 
@@ -497,18 +521,30 @@ export function caseListOrderPlan(
 			joinText: column.kind === "calculated" ? "" : columnFieldText(column),
 			...restingKeyOf(column, hidden),
 		});
-		if (column.kind === "calculated") return expression();
+		if (column.kind === "calculated") {
+			const source = translatedDistanceProperty(column);
+			return source
+				? { ...property(), joinText: columnFieldText(source) }
+				: expression();
+		}
 		if (readsExpressionOnlyProperty(column)) return expression();
 		if (hidden) return property();
 		switch (column.kind) {
 			case "plain":
-				return casePropertyShowsOptionLabels(propertyOf(column))
+				return column.showChoice !== "saved-value" &&
+					casePropertyShowsOptionLabels(propertyOf(column))
 					? expression()
 					: property();
 			case "interval":
 			case "link":
 				return expression();
 			case "date":
+			case "date-count":
+			case "overdue-marker":
+			case "worker-distance":
+			case "map-location":
+			case "map-layer":
+			case "formatted-text":
 			case "phone":
 			case "id-mapping":
 			case "image-map":
@@ -523,14 +559,33 @@ export function caseListOrderPlan(
 		const none = { restingComparator: "text" as const };
 		if (hidden) return none;
 		switch (column.kind) {
+			case "calculated":
+				return column.texts !== undefined
+					? {
+							restingKey: { kind: "calculated", column: column.uuid },
+							restingComparator: "text",
+						}
+					: none;
+			case "worker-distance":
+				return {
+					restingKey: propertyKey("distance-property", column),
+					restingComparator: "decimal",
+				};
 			case "date":
+			case "date-count":
 				return {
 					restingKey: propertyKey("property", column),
 					restingComparator: "text",
 				};
 			case "id-mapping":
 				return {
-					restingKey: { kind: "mapping-position", column: column.uuid },
+					restingKey: {
+						kind:
+							column.behavior === "first-match"
+								? "mapping-label"
+								: "mapping-position",
+						column: column.uuid,
+					},
 					restingComparator: "text",
 				};
 			case "image-map":
@@ -541,7 +596,8 @@ export function caseListOrderPlan(
 						}
 					: none;
 			case "plain":
-				return casePropertyShowsOptionLabels(propertyOf(column))
+				return column.showChoice !== "saved-value" &&
+					casePropertyShowsOptionLabels(propertyOf(column))
 					? {
 							restingKey: propertyKey("option-label", column),
 							restingComparator: "text",
@@ -565,6 +621,12 @@ export function caseListOrderPlan(
 		override?: SortComparison,
 	): { key: CaseListSortKey; comparator: CaseListComparator } {
 		if (override === "distance") {
+			const source = translatedDistanceProperty(field.column);
+			if (source)
+				return {
+					key: propertyKey("distance-property", source),
+					comparator: field.restingComparator,
+				};
 			return {
 				key:
 					field.wire === "expression" || field.column.kind === "calculated"
@@ -572,6 +634,7 @@ export function caseListOrderPlan(
 								kind: "distance-calculated",
 								column: field.column.uuid,
 								...((field.restingKey?.kind === "option-label" ||
+									field.restingKey?.kind === "calculated" ||
 									field.restingKey?.kind === "interval-text") && {
 									unbound: true as const,
 								}),
@@ -594,6 +657,11 @@ export function caseListOrderPlan(
 						comparatorForResolvedType(options.calculatedType(column))),
 			};
 		}
+		if (column.kind === "overdue-marker" && !field.hidden)
+			return {
+				key: { kind: "overdue-marker", column: column.uuid },
+				comparator: "text",
+			};
 		if (column.kind === "link" && !field.hidden) {
 			return {
 				key: { kind: "link-text", column: column.uuid },
@@ -850,6 +918,8 @@ export function caseListOrderPlan(
 					column: column.uuid,
 					field: column.field,
 					...(column.via !== undefined && { via: column.via }),
+					...(column.readFrom && { readFrom: column.readFrom }),
+					...(column.showOwner && { showOwner: column.showOwner }),
 					key: propertyKey(
 						column.sort?.comparator === "distance"
 							? "distance-property"
@@ -988,7 +1058,8 @@ export function caseListOrdersByMapping(
 		(field) =>
 			field.column.uuid === column &&
 			field.rule !== undefined &&
-			field.key?.kind === "mapping-position",
+			(field.key?.kind === "mapping-position" ||
+				field.key?.kind === "mapping-label"),
 	);
 }
 
@@ -1024,6 +1095,8 @@ export function caseListSortKeysMatch(
 		return (
 			sameSortKeyKind(a, b) &&
 			a.property === b.property &&
+			a.readFrom === b.readFrom &&
+			a.showOwner === b.showOwner &&
 			sameColumnVia(a.via, b.via)
 		);
 	}
@@ -1031,17 +1104,20 @@ export function caseListSortKeysMatch(
 	const columnA = columns.find((column) => column.uuid === a.column);
 	const columnB = columns.find((column) => column.uuid === b.column);
 	if (columnA === undefined || columnB === undefined) return false;
+	if (a.kind === "mapping-label") return columnA.uuid === columnB.uuid;
 	if (a.kind === "mapping-position") {
 		if (
 			(columnA.kind !== "id-mapping" && columnA.kind !== "image-map") ||
 			(columnB.kind !== "id-mapping" && columnB.kind !== "image-map") ||
 			columnA.field !== columnB.field ||
+			columnA.readFrom !== columnB.readFrom ||
+			columnA.showOwner !== columnB.showOwner ||
 			!sameColumnVia(columnA.via, columnB.via)
 		) {
 			return false;
 		}
-		const valuesA = columnA.mapping.map((entry) => entry.value);
-		const valuesB = columnB.mapping.map((entry) => entry.value);
+		const valuesA = columnA.mapping.map(caseMappingComparison);
+		const valuesB = columnB.mapping.map(caseMappingComparison);
 		return (
 			valuesA.length === valuesB.length &&
 			valuesA.every((value, index) => value === valuesB[index])
@@ -1051,6 +1127,12 @@ export function caseListSortKeysMatch(
 		plan.fields.find((field) => field.column.uuid === column.uuid)?.joinText ??
 		expressionText(column);
 	if (joinTextOf(columnA) !== joinTextOf(columnB)) return false;
+	if (a.kind === "overdue-marker")
+		return (
+			columnA.kind === "overdue-marker" &&
+			columnB.kind === "overdue-marker" &&
+			columnA.afterDays === columnB.afterDays
+		);
 	if (a.kind === "interval-text") {
 		return (
 			columnA.kind === "interval" &&

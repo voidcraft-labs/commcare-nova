@@ -1,4 +1,5 @@
 import type { BlueprintDoc } from "./blueprint";
+import { caseMappingRowUuid } from "./caseMappingRows";
 import type { Uuid } from "./uuid";
 
 export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
@@ -7,6 +8,7 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"field",
 	"selectOption",
 	"caseListColumn",
+	"caseMappingRow",
 	"caseListSort",
 	"searchInput",
 	"caseOperation",
@@ -64,6 +66,23 @@ export function authoredBlueprintIdentities(
 				kind: "caseListColumn",
 				ownerUuid: module.uuid,
 			});
+			if (column.kind === "calculated") {
+				for (const piece of column.texts ?? [])
+					identities.push({
+						uuid: piece.uuid,
+						kind: "caseMappingRow",
+						ownerUuid: column.uuid,
+					});
+			}
+			if (column.kind === "image-map" || column.kind === "id-mapping") {
+				for (const row of column.mapping) {
+					identities.push({
+						uuid: caseMappingRowUuid(column.uuid, row),
+						kind: "caseMappingRow",
+						ownerUuid: column.uuid,
+					});
+				}
+			}
 		}
 		for (const rule of module.caseListConfig?.calculatedSorts ?? [])
 			identities.push({

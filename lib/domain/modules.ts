@@ -34,6 +34,7 @@
 
 import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
+import { uniqueCaseMappingRows } from "./caseMappingRows";
 import {
 	authoredCasePropertyNameSchema,
 	readCasePropertyNameSchema,
@@ -54,6 +55,7 @@ import {
 	XML_ELEMENT_NAME_PATTERN,
 } from "./expression/types";
 import {
+	persistableJsonIntegerSchema,
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
@@ -633,6 +635,21 @@ export type ColumnVia = [RelationStep, ...RelationStep[]];
 
 /** The slot every property-backed column kind carries beside its `field`. */
 const propertyColumnSlots = {
+	workerPropertyUuid: uuidSchema
+		.optional()
+		.describe(
+			"The worker information this field reads, when it is defined in the app.",
+		),
+	readFrom: z
+		.literal("worker-record")
+		.optional()
+		.describe("Use the signed-in worker’s case record for this field."),
+	showOwner: z
+		.literal("name")
+		.optional()
+		.describe(
+			"Show the name of the group or worker who owns this case. Choose the owner ID field.",
+		),
 	field: readCasePropertyNameSchema,
 	/** Shows `field` of the case these indices reach rather than the list's own. */
 	via: columnViaSchema.optional(),
@@ -645,6 +662,12 @@ const propertyColumnSlots = {
 const plainColumnSchema = columnBase.extend({
 	kind: z.literal("plain"),
 	...propertyColumnSlots,
+	showChoice: z
+		.literal("saved-value")
+		.optional()
+		.describe(
+			"Show the saved choice value in this column. Leave this out to show the choice label.",
+		),
 	header: z.string(),
 });
 
@@ -672,6 +695,71 @@ const dateColumnSchema = columnBase.extend({
  * Phone-number column — renders the property as a tappable phone
  * link in the running app. Plain text in static contexts.
  */
+export const DATE_COUNT_PERIODS = [
+	"years-since",
+	"months-since",
+	"weeks-since",
+	"days-since",
+	"days-until",
+	"weeks-until",
+	"months-until",
+] as const;
+export type DateCountPeriod = (typeof DATE_COUNT_PERIODS)[number];
+
+/** A count is the signed number of whole periods separating two local calendar dates. */
+export const DATE_COUNT_DAYS: Readonly<Record<DateCountPeriod, number>> = {
+	"years-since": TIME_SINCE_UNIT_DAYS.years,
+	"months-since": TIME_SINCE_UNIT_DAYS.months,
+	"weeks-since": TIME_SINCE_UNIT_DAYS.weeks,
+	"days-since": 1,
+	"days-until": -1,
+	"weeks-until": -TIME_SINCE_UNIT_DAYS.weeks,
+	"months-until": -TIME_SINCE_UNIT_DAYS.months,
+};
+const dateCountColumnSchema = columnBase.extend({
+	kind: z.literal("date-count"),
+	...propertyColumnSlots,
+	header: z.string(),
+	period: z.enum(DATE_COUNT_PERIODS),
+});
+
+export const CASE_MAP_LAYER_KINDS = [
+	"boundary",
+	"boundary-color",
+	"points",
+	"point-colors",
+] as const;
+export type CaseMapLayerKind = (typeof CASE_MAP_LAYER_KINDS)[number];
+const workerDistanceColumnSchema = columnBase.extend({
+	kind: z.literal("worker-distance"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+const mapLocationColumnSchema = columnBase.extend({
+	kind: z.literal("map-location"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+const mapLayerColumnSchema = columnBase.extend({
+	kind: z.literal("map-layer"),
+	...propertyColumnSlots,
+	header: z.string(),
+	layer: z.enum(CASE_MAP_LAYER_KINDS),
+});
+
+const formattedTextColumnSchema = columnBase.extend({
+	kind: z.literal("formatted-text"),
+	...propertyColumnSlots,
+	header: z.string(),
+});
+
+const overdueMarkerColumnSchema = columnBase.extend({
+	kind: z.literal("overdue-marker"),
+	...propertyColumnSlots,
+	header: z.string(),
+	afterDays: persistableJsonIntegerSchema,
+});
+
 const phoneColumnSchema = columnBase.extend({
 	kind: z.literal("phone"),
 	...propertyColumnSlots,
@@ -686,22 +774,31 @@ const phoneColumnSchema = columnBase.extend({
  * sorts the column by (`lib/domain/caseListOrder.ts`, the
  * `mapping-position` key), which is CommCare HQ's `enum` sort.
  */
-const idMappingEntrySchema = z.strictObject({
-	// Nonempty whitespace-free token. A blank new-row control is local
-	// component state and is never a persisted mapping entry. The wire
-	// emits the entry as `selected(field, '<value>')`. CommCare's
-	// `selected()` trims the value and looks for it whole among the
-	// property's space-separated tokens
-	// (`commcare-core/.../xpath/expr/XPathSelectedFunc.multiSelected`), so
-	// a value holding a space matches only a property holding that same
-	// run of tokens, which no single select or saved token does. The
-	// characters HQ's ID mapping cannot hold are a validator rule
-	// (`CASE_LIST_ID_MAPPING_KEY_CHARACTERS`), not a schema check.
+// Old literal rows may have no identity. Every newly saved row gets one at
+// creation. A condition binds a row in its own record expression slot.
+const mappingSource = {
+	uuid: uuidSchema.optional(),
 	value: z
 		.string()
-		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
-	label: z.string(),
-});
+		.optional()
+		.describe(
+			"The exact saved value, including spaces or an empty string. Omit when the row has a condition.",
+		),
+	when: conditionSchema
+		.optional()
+		.describe(
+			"Show this row when the case meets this condition. Omit for a literal saved value.",
+		),
+};
+const oneMappingSource = (row: { value?: string; when?: Expression }) =>
+	(row.value !== undefined) !== (row.when !== undefined);
+const mappingSourceIssue = "Choose a saved value or a condition for this row.";
+const idMappingEntrySchema = z
+	.strictObject({
+		...mappingSource,
+		label: z.string(),
+	})
+	.refine(oneMappingSource, { error: mappingSourceIssue });
 
 /** The characters CommCare HQ's ID mapping cannot hold in a key: its build
  *  writes a key unescaped inside an XPath string literal, and its mapping
@@ -724,6 +821,12 @@ export function idMappingValueHoldsForbiddenCharacter(value: string): boolean {
 
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
+	behavior: z
+		.literal("first-match")
+		.optional()
+		.describe(
+			"Show the first matching label and sort by that label in the worker’s language. Without this setting, show each matching choice label and sort by mapping position.",
+		),
 	...propertyColumnSlots,
 	header: z.string(),
 	// The table may be empty: that is the complete "show no mapped labels"
@@ -735,15 +838,10 @@ const idMappingColumnSchema = columnBase.extend({
 	// surfaces nothing the authoring layer predicts. Authors who
 	// genuinely want one value to render as multiple labels concatenate
 	// them inside one `label` slot.
-	mapping: z
-		.array(idMappingEntrySchema)
-		.refine(
-			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
-			{
-				error:
-					"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
-			},
-		),
+	mapping: z.array(idMappingEntrySchema).refine(uniqueCaseMappingRows, {
+		error:
+			"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
+	}),
 });
 
 /**
@@ -755,14 +853,18 @@ const idMappingColumnSchema = columnBase.extend({
  * text label. The entry order is the order the list sorts the column by
  * (`lib/domain/caseListOrder.ts`, the `mapping-position` key).
  */
-const imageMapEntrySchema = z.strictObject({
-	// Same one-word constraint and rationale as the id-mapping entry's
-	// `value`.
-	value: z
-		.string()
-		.regex(/^\S+$/, "A mapping value is one word with no spaces."),
-	assetId: mediaAssetIdSchema,
-});
+const imageMapEntrySchema = z
+	.strictObject({
+		...mappingSource,
+		/** With no comparison the image looks for the value among the worker's selected choices. */
+		match: z.literal("exact").optional(),
+		altText: z.string().optional(),
+		assetId: mediaAssetIdSchema.optional(),
+	})
+	.refine(oneMappingSource, { error: mappingSourceIssue })
+	.refine((row) => !(row.when && row.match), {
+		error: "A condition supplies its own comparison.",
+	});
 const imageMapColumnSchema = columnBase.extend({
 	kind: z.literal("image-map"),
 	...propertyColumnSlots,
@@ -773,15 +875,10 @@ const imageMapColumnSchema = columnBase.extend({
 	// arm per entry, so two entries sharing a value both match the same
 	// row and the cell concatenates their image paths into one
 	// unrenderable string.
-	mapping: z
-		.array(imageMapEntrySchema)
-		.refine(
-			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
-			{
-				error:
-					"Mapping values are not unique within this image-map column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
-			},
-		),
+	mapping: z.array(imageMapEntrySchema).refine(uniqueCaseMappingRows, {
+		error:
+			"This image table repeats the same comparison and saved value. Give each rule a distinct comparison or value.",
+	}),
 });
 
 /**
@@ -861,12 +958,33 @@ const linkColumnSchema = columnBase.extend({
 const calculatedColumnSchema = columnBase.extend({
 	kind: z.literal("calculated"),
 	header: z.string(),
+	texts: z
+		.array(z.strictObject({ uuid: uuidSchema, label: z.string() }))
+		.refine(
+			(entries) =>
+				new Set(entries.map((entry) => entry.uuid)).size === entries.length,
+			{ error: "Each piece of translated text needs its own identity." },
+		)
+		.optional(),
+
+	showAs: z
+		.literal("formatted-text")
+		.optional()
+		.describe(
+			"Show this calculation as formatted text. Workers on Web Apps can follow Markdown links in a case result.",
+		),
 	expression: valueSchema,
 });
 
 export const columnSchema = z.discriminatedUnion("kind", [
 	plainColumnSchema,
 	dateColumnSchema,
+	dateCountColumnSchema,
+	overdueMarkerColumnSchema,
+	formattedTextColumnSchema,
+	workerDistanceColumnSchema,
+	mapLocationColumnSchema,
+	mapLayerColumnSchema,
 	phoneColumnSchema,
 	idMappingColumnSchema,
 	imageMapColumnSchema,
@@ -890,6 +1008,35 @@ export function columnRelationPath(
 		: { kind: "ancestor", via: column.via };
 }
 
+/** A translated value ordered by distance needs a physical location field.
+ * The property arm reads one saved value directly. A calculation with its
+ * own conditions or a type-restricted walk cannot use this representation. */
+export function translatedDistanceProperty(
+	column: Column,
+): Pick<PropertyColumn, "field" | "via" | "uuid"> | undefined {
+	if (
+		column.kind !== "calculated" ||
+		column.texts === undefined ||
+		column.sort?.comparator !== "distance" ||
+		column.visibleInList === false ||
+		column.expression.kind !== "term"
+	)
+		return undefined;
+	const source = column.expression.term;
+	if (source.kind !== "prop" || source.property === "case_id") return undefined;
+	if (
+		source.via &&
+		source.via.kind !== "self" &&
+		(source.via.kind !== "ancestor" ||
+			source.via.via.some((step) => step.throughCaseType !== undefined))
+	)
+		return undefined;
+	return {
+		uuid: column.uuid,
+		field: source.property,
+		...(source.via?.kind === "ancestor" && { via: source.via.via }),
+	};
+}
 /**
  * The text CommCare HQ's case list stores as a property column's `field`:
  * each index of the column's walk, then the property, joined by `/`, which
@@ -897,11 +1044,13 @@ export function columnRelationPath(
  * index by index. A step's case type is Nova's alone and no part of it.
  */
 export function columnFieldText(
-	column: Pick<PropertyColumn, "field" | "via">,
+	column: Pick<PropertyColumn, "field" | "via" | "readFrom" | "showOwner">,
 ): string {
+	const field = column.showOwner === "name" ? "#owner_name" : column.field;
+	if (column.readFrom === "worker-record") return `user/${field}`;
 	return column.via === undefined
-		? column.field
-		: [...column.via.map((step) => step.identifier), column.field].join("/");
+		? field
+		: [...column.via.map((step) => step.identifier), field].join("/");
 }
 
 /** Whether two column walks are one walk: the same indices, each naming the
@@ -975,7 +1124,7 @@ export function imageMapShowsImages(
 	column: Extract<Column, { kind: "image-map" }>,
 	mediaOn: boolean,
 ): boolean {
-	return mediaOn || column.mapping.length === 0;
+	return mediaOn || column.mapping.every((row) => row.assetId === undefined);
 }
 
 /** Single id-mapping entry — value-to-label pair surfaced by the
@@ -1018,7 +1167,15 @@ export interface ColumnCommonSlots {
 
 /** The slots a property column's builder takes: the common ones and the
  *  walk to the case whose property it shows (`columnViaSchema`). */
-export interface PropertyColumnSlots extends ColumnCommonSlots {
+export interface ColumnRecordSource {
+	readonly workerPropertyUuid?: Uuid;
+	readonly readFrom?: "worker-record";
+	readonly showOwner?: "name";
+}
+
+export interface PropertyColumnSlots
+	extends ColumnCommonSlots,
+		ColumnRecordSource {
 	readonly via?: ColumnVia;
 }
 
@@ -1027,9 +1184,15 @@ function withPropertySlots<T extends Record<string, unknown>>(
 	base: T,
 	slots: PropertyColumnSlots,
 ): T & PropertyColumnSlots {
-	const out: T & { via?: ColumnVia } = withCommonSlots(base, slots);
-	if (slots.via !== undefined) out.via = slots.via;
-	return out;
+	return {
+		...withCommonSlots(base, slots),
+		...(slots.via && { via: slots.via }),
+		...(slots.readFrom && { readFrom: slots.readFrom }),
+		...(slots.workerPropertyUuid && {
+			workerPropertyUuid: slots.workerPropertyUuid,
+		}),
+		...(slots.showOwner && { showOwner: slots.showOwner }),
+	};
 }
 
 /**
@@ -1066,10 +1229,16 @@ export function plainColumn(
 	uuid: Uuid,
 	field: string,
 	header: string,
-	slots: PropertyColumnSlots = {},
+	slots: PropertyColumnSlots & { showChoice?: "saved-value" } = {},
 ): Extract<Column, { kind: "plain" }> {
 	return withPropertySlots(
-		{ uuid, kind: "plain" as const, field, header },
+		{
+			uuid,
+			kind: "plain" as const,
+			field,
+			header,
+			...(slots.showChoice && { showChoice: slots.showChoice }),
+		},
 		slots,
 	);
 }
@@ -1102,6 +1271,84 @@ export function dateColumn(
  * referenced property as a tappable telephone link; static
  * contexts fall back to plain text.
  */
+export function dateCountColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	period: DateCountPeriod,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "date-count" }> {
+	return withPropertySlots(
+		{ uuid, kind: "date-count" as const, field, header, period },
+		slots,
+	);
+}
+
+export function workerDistanceColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "worker-distance" }> {
+	return withPropertySlots(
+		{ uuid, kind: "worker-distance" as const, field, header },
+		slots,
+	);
+}
+export function workerDistanceValueId(uuid: Uuid): string {
+	return `km:${uuid}`;
+}
+
+export function mapLocationColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "map-location" }> {
+	return withPropertySlots(
+		{ uuid, kind: "map-location" as const, field, header },
+		slots,
+	);
+}
+
+export function mapLayerColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	layer: CaseMapLayerKind,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "map-layer" }> {
+	return withPropertySlots(
+		{ uuid, kind: "map-layer" as const, field, header, layer },
+		{ visibleInDetail: false, ...slots },
+	);
+}
+
+export function formattedTextColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "formatted-text" }> {
+	return withPropertySlots(
+		{ uuid, kind: "formatted-text" as const, field, header },
+		slots,
+	);
+}
+
+export function overdueMarkerColumn(
+	uuid: Uuid,
+	field: string,
+	header: string,
+	afterDays: number,
+	slots: PropertyColumnSlots = {},
+): Extract<Column, { kind: "overdue-marker" }> {
+	return withPropertySlots(
+		{ uuid, kind: "overdue-marker" as const, field, header, afterDays },
+		slots,
+	);
+}
+
 export function phoneColumn(
 	uuid: Uuid,
 	field: string,
@@ -1189,9 +1436,9 @@ export function imageMapColumn(
  *  helper so ad-hoc literals can't drift out of the schema shape. */
 export function imageMapEntry(
 	value: string,
-	assetId: MediaAssetId,
+	assetId?: MediaAssetId,
 ): ImageMapEntry {
-	return { value, assetId };
+	return { value, ...(assetId !== undefined && { assetId }) };
 }
 
 /**
