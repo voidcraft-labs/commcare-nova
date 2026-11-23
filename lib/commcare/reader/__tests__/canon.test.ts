@@ -1978,6 +1978,26 @@ const PAIRS: readonly Pair[] = [
 		},
 	},
 	{
+		id: "submitted-placement-as-read",
+		name: "a Hidden Value submitted between two questions but kept last on the screen tree",
+		other: () => {
+			const doc = survey([
+				f({ kind: "text", id: "arrival", label: "Arrival" }),
+				f({ kind: "text", id: "next", label: "Next" }),
+				f({ kind: "hidden", id: "visit_note", calculate: "'noted'" }),
+			]);
+			const form = Object.keys(doc.forms)[0] as Uuid;
+			return produce(doc, (draft) => {
+				const note = draft.fieldOrder[form]?.[2] as Uuid;
+				(
+					draft.fields[note] as {
+						submissionPlacement?: { parent: Uuid; position: number };
+					}
+				).submissionPlacement = { parent: form, position: 1 };
+			});
+		},
+	},
+	{
 		id: "organization-levels-as-read",
 		name: "levels with a description, a worker-less level and the child first",
 		other: () => {

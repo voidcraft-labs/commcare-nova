@@ -295,9 +295,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "This uses a form setting, which Nova can't hold yet.",
 	},
 	"form-answer-addresses": {},
-	"form-source": {
-		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
-	},
+	"form-source": {},
 	"hand-written-content": {
 		never:
 			"This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in.",
@@ -371,11 +369,8 @@ export const FINDING_COPY: Readonly<
 	"question-ids": {
 		never:
 			"Two questions here share one place in the form's data, so Nova can't tell them apart.",
-		"not-yet": "A question ID here is one Nova can't hold yet.",
 	},
-	"question-logic": {
-		"not-yet": "A question's logic here is something Nova can't hold yet.",
-	},
+	"question-logic": {},
 	"question-media": {
 		"not-yet":
 			"A question here carries a kind of media or label form Nova can't hold yet.",
@@ -387,9 +382,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"A question here is of a kind, or is set up in a way, that Nova can't hold yet.",
 	},
-	repeats: {
-		"not-yet": "A repeat group here is set up in a way Nova can't hold yet.",
-	},
+	repeats: {},
 	"save-to-case": {
 		"not-yet": "This uses a Save to Case question, which Nova can't hold yet.",
 	},

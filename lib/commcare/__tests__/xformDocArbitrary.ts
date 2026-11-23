@@ -49,7 +49,6 @@ import {
 	caseSelectionCardinality,
 	type Field,
 	type Form,
-	fieldKindCarriesValidation,
 	type Media,
 	type Module,
 	NEW_APP_SETTINGS,
@@ -117,6 +116,23 @@ export class IdMinter {
  * be mistaken for control or model declarations. Exhausting the pool fails
  * explicitly instead of wrapping and silently duplicating a sibling.
  */
+/** The kinds the corpus draws a validation and a starting value for: the kinds
+ * that carried a validation when the corpus seeds were taken. A kind that has
+ * gained one since (a message, a capture, a location) has its own tests, and
+ * drawing it here would move every seeded document. */
+const DRAWN_VALIDATION_KINDS: ReadonlySet<string> = new Set([
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"datetime",
+	"time",
+	"barcode",
+	"secret",
+	"single_select",
+	"multi_select",
+]);
+
 const SIBLING_ID_POOL = [
 	"input",
 	"model",
@@ -427,9 +443,8 @@ export function buildField(
 	// Leaf kind. Layer the optional XPath surfaces on. Each is gated on the
 	// kind that legally carries it so the doc stays schema-valid:
 	//   - relevant / required / hint — any input kind.
-	//   - validate (+ validate_msg) — only a kind that carries validation
-	//     (`fieldKindCarriesValidation`; the VALIDATION_ON_NON_INPUT_KIND rule
-	//     rejects it elsewhere); a boolean
+	//   - validate (+ validate_msg) — only a kind that carried validation when
+	//     the corpus seeds were taken (`DRAWN_VALIDATION_KINDS`); a boolean
 	//     constraint over the node value type-checks for every such kind. A
 	//     message drawn without a condition stays on the field alone, a message
 	//     the emitter writes nowhere because nothing can fail.
@@ -442,7 +457,7 @@ export function buildField(
 	// lowers to a `<setvalue event="xforms-ready">` (exercising the setvalue
 	// ref-PATH / value-parse / event invariants through the emitter, not just
 	// hand-built fixtures).
-	const validatable = fieldKindCarriesValidation(spec.kind);
+	const validatable = DRAWN_VALIDATION_KINDS.has(spec.kind);
 	const typedDefault = spec.wantsDefault
 		? DEFAULT_VALUE_BY_KIND[spec.kind]
 		: undefined;
