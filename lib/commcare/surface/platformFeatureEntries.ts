@@ -94,6 +94,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/session-endpoint-id",
 		"menus-and-case-lists/case-list-session-endpoint-id",
 		"forms-and-case-writes/session-endpoint-id",
+		"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
 	],
 	"case-list-menu-item": [
 		"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true",

@@ -176,6 +176,10 @@ export const PLATFORM_CELLS: Readonly<
 	"forms-and-case-writes/session-endpoint-id@android": model(
 		"entry-point-android",
 	),
+	"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty@web-apps":
+		model("entry-point-web-apps"),
+	"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty@android":
+		model("entry-point-android"),
 	"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true@web-apps":
 		model("case-list-menu-item-web-apps"),
 	"menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms@web-apps":
