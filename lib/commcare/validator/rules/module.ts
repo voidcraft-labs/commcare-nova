@@ -21,6 +21,7 @@ import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { caseFormContext } from "./case-list/caseFormContext";
+import { caseListLoadBehavior } from "./case-list/caseListLoadBehavior";
 import { caseMapLayers } from "./case-list/caseMapLayers";
 import { caseTileGrouping } from "./case-list/caseTileGrouping";
 import { caseTileHiddenCalculatedSort } from "./case-list/caseTileHiddenCalculatedSort";
@@ -322,6 +323,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	calculatedColumnTypeCheck,
 	detailTabTypeCheck,
 	detailTabPartition,
+	caseListLoadBehavior,
 	caseFormContext,
 	imageMapValueUnique,
 	idMappingKeyCharacters,

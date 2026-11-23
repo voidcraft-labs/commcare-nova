@@ -1172,6 +1172,15 @@ const USER_MESSAGE_BY_CODE: Record<
 		det(e, "reason", "") === "order-fields"
 			? `The ${q(String(e.details?.tabTitle ?? "this tab"))} tab orders its rows by a field it can't use. You can open Edit tabs and choose its ordering fields again.`
 			: `The Details tabs of ${q(modName(e))} no longer match the fields shown in Details. You can open Edit tabs and save the tabs again.`,
+	CASE_LIST_LOAD_BEHAVIOR_INVALID: (e) => {
+		const subject =
+			e.details?.columnLabel !== undefined
+				? q(e.details.columnLabel)
+				: "A column";
+		return det(e, "reason", "") === "column"
+			? `${subject} chooses how a phone loads it, which only a calculated value or a link can. You can clear its loading choice.`
+			: `${subject} chooses how a phone loads it, and the case list's faster loading is off. You can turn on faster loading for the case list, or clear the column's loading choice.`;
+	},
 	CASE_DETAIL_TAB_CONDITION_INVALID: (e) =>
 		recordFindingCopy(
 			e,
