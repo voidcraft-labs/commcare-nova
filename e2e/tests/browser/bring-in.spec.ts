@@ -91,6 +91,12 @@ import {
 	UNVERIFIED_LANDING_TITLE,
 } from "@/lib/publish/hqReadingCopy";
 import { CHOICE_OTHER_PROJECT } from "@/lib/publish/managedData";
+import {
+	OWNER_RULE_NEEDS_ANSWER,
+	OWNER_RULE_WORKER_LABEL,
+	ownerRuleBody,
+	ownerRuleTitle,
+} from "@/lib/publish/ownerRuleCopy";
 import { bringInHref } from "@/lib/routing/bringInLocation";
 import type {
 	BringInPeerConfig,
@@ -301,6 +307,7 @@ const ANSWERED_INPUT: BringInInput = {
 	runsOnlyOn: null,
 	splitDatetime: false,
 	tableChoices: { district: "use-project" },
+	ownerRuleChoices: {},
 };
 
 function receiptOf(input: BringInInput): AdoptedAppReceipt {
@@ -1649,6 +1656,67 @@ test.describe("the review", () => {
 			await button(page, BRING_IN_ACTIONS.bringItIn).click();
 			await expect.poll(() => creates.length).toBe(1);
 			expect(creates).toEqual([ANSWERED_INPUT]);
+		} finally {
+			await routes.removeAll();
+		}
+	});
+
+	test("Bring it in asks who owns the cases an owner rule can't place, never answers it, and sends the answer given", async ({
+		page,
+	}) => {
+		const rule = {
+			level: "clinic",
+			levelName: "Clinic",
+			conflict: {
+				kind: "two-places",
+				source: "North district",
+				places: ["First clinic", "Second clinic"],
+			},
+			forms: ["Transfer"],
+		} as const;
+		const routes = removableRoutes(page);
+		try {
+			await recorded(routes, "/api/commcare/bring-in/read", (route) =>
+				fulfillNdjson(
+					route,
+					answered(reviewAnswer(reviewOf({ tables: [], ownerRules: [rule] }))),
+				),
+			);
+			const input: BringInInput = {
+				...ANSWERED_INPUT,
+				tableChoices: {},
+				ownerRuleChoices: { clinic: "worker" },
+			};
+			const creates = await recorded(
+				routes,
+				"/api/commcare/bring-in/create",
+				(route) =>
+					fulfillNdjson(
+						route,
+						answered({ kind: "created", receipt: receiptOf(input) }),
+					),
+			);
+			await open(page, routes, APP_ADDRESS);
+			const group = page.locator('[data-review-owner-rule="clinic"]');
+			await expect(group.getByText(ownerRuleTitle(rule))).toBeVisible();
+			await expect(
+				group.getByText(ownerRuleBody(rule, KEY.domain), { exact: true }),
+			).toBeVisible();
+			await expect(group.getByRole("radio", { checked: true })).toHaveCount(0);
+
+			await button(page, BRING_IN_ACTIONS.bringItIn).click();
+			await expect(group.getByRole("alert")).toHaveText(
+				OWNER_RULE_NEEDS_ANSWER,
+			);
+			await expect(group.locator(":focus")).toHaveCount(1);
+			expect(creates).toEqual([]);
+
+			await group
+				.getByRole("radio", { name: OWNER_RULE_WORKER_LABEL, exact: true })
+				.click();
+			await button(page, BRING_IN_ACTIONS.bringItIn).click();
+			await expect.poll(() => creates.length).toBe(1);
+			expect(creates).toEqual([input]);
 		} finally {
 			await routes.removeAll();
 		}
