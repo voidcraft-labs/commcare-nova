@@ -17823,6 +17823,489 @@
 		}
 	},
 	{
+		"id": "hq-case-management/return-to-the-screen-before-a-first-menu-form-of-the-list-s-type",
+		"base": "hq-case-management",
+		"entry": "forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1",
+			"value": {
+				"name": {
+					"en": "Members"
+				},
+				"forms": [
+					{
+						"name": {
+							"en": "Followup Form"
+						},
+						"form_type": "module_form",
+						"requires": "case",
+						"actions": {
+							"open_case": {
+								"name_update": {
+									"question_path": null,
+									"update_mode": "always",
+									"doc_type": "ConditionalCaseUpdate"
+								},
+								"conflicts": [],
+								"external_id": null,
+								"doc_type": "OpenCaseAction",
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"update_case": {
+								"condition": {
+									"type": "always",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								},
+								"update": {
+									"status_note": {
+										"question_path": "/data/status_note",
+										"update_mode": "always",
+										"doc_type": "ConditionalCaseUpdate"
+									}
+								},
+								"conflicts": {},
+								"doc_type": "UpdateCaseAction"
+							},
+							"close_case": {
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								},
+								"doc_type": "FormAction"
+							},
+							"open_referral": {
+								"name_path": null,
+								"doc_type": "OpenReferralAction",
+								"followup_date": null,
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"update_referral": {
+								"followup_date": null,
+								"doc_type": "UpdateReferralAction",
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"close_referral": {
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								},
+								"doc_type": "FormAction"
+							},
+							"case_preload": {
+								"preload": {},
+								"doc_type": "PreloadAction",
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"referral_preload": {
+								"preload": {},
+								"doc_type": "PreloadAction",
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"load_from_form": {
+								"preload": {},
+								"doc_type": "PreloadAction",
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"usercase_update": {
+								"update": {},
+								"conflicts": {},
+								"doc_type": "UpdateCaseAction",
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"usercase_preload": {
+								"preload": {},
+								"doc_type": "PreloadAction",
+								"condition": {
+									"type": "never",
+									"question": null,
+									"answer": null,
+									"operator": "=",
+									"doc_type": "FormActionCondition"
+								}
+							},
+							"subcases": [],
+							"doc_type": "FormActions"
+						},
+						"doc_type": "Form",
+						"unique_id": {
+							"$form": [1, 0]
+						},
+						"show_count": false,
+						"xmlns": {
+							"$xmlns": [1, 0]
+						},
+						"version": null,
+						"post_form_workflow": "previous_screen",
+						"post_form_workflow_fallback": null,
+						"auto_gps_capture": false,
+						"form_links": [],
+						"custom_assertions": [],
+						"custom_instances": [],
+						"case_references_data": {
+							"load": {},
+							"save": {},
+							"doc_type": "CaseReferences"
+						},
+						"is_release_notes_form": false,
+						"enable_release_notes": false,
+						"respect_relevancy": true,
+						"function_datum_endpoints": [],
+						"submit_label": {},
+						"submit_notification_label": {},
+						"comment": "",
+						"media_image": {},
+						"media_audio": {},
+						"custom_icons": [],
+						"use_default_image_for_all": false,
+						"use_default_audio_for_all": false
+					}
+				],
+				"case_type": "household",
+				"case_details": {
+					"short": {
+						"columns": [
+							{
+								"format": "plain",
+								"header": {
+									"en": "Name"
+								},
+								"field": "name",
+								"model": "case",
+								"hasAutocomplete": true,
+								"useXpathExpression": false,
+								"grid_x": null,
+								"grid_y": null,
+								"enum": [],
+								"graph_configuration": {
+									"config": {},
+									"locale_specific_config": {},
+									"annotations": [],
+									"series": [],
+									"doc_type": "GraphConfiguration"
+								},
+								"late_flag": 30,
+								"time_ago_interval": 365.25,
+								"date_format": "%d/%m/%y",
+								"doc_type": "DetailColumn"
+							}
+						],
+						"display": "short",
+						"tabs": [],
+						"sort_elements": [],
+						"instance_name": "casedb",
+						"persist_case_context": null,
+						"persistent_case_context_xml": "case_name",
+						"multi_select": false,
+						"auto_select": false,
+						"max_select_value": 100,
+						"persist_tile_on_forms": null,
+						"pull_down_tile": null,
+						"case_tile_group": {
+							"index_identifier": null,
+							"header_rows": 2,
+							"doc_type": "CaseTileGroupConfig"
+						},
+						"no_items_text": {
+							"en": "List is empty."
+						},
+						"select_text": {
+							"en": "Continue"
+						},
+						"doc_type": "Detail",
+						"lookup_enabled": false,
+						"lookup_autolaunch": false,
+						"lookup_image": null,
+						"lookup_extras": [],
+						"lookup_responses": [],
+						"lookup_display_results": false,
+						"lookup_field_header": {}
+					},
+					"long": {
+						"columns": [
+							{
+								"format": "plain",
+								"header": {
+									"en": "Name"
+								},
+								"field": "name",
+								"model": "case",
+								"hasAutocomplete": true,
+								"useXpathExpression": false,
+								"grid_x": null,
+								"grid_y": null,
+								"enum": [],
+								"graph_configuration": {
+									"config": {},
+									"locale_specific_config": {},
+									"annotations": [],
+									"series": [],
+									"doc_type": "GraphConfiguration"
+								},
+								"late_flag": 30,
+								"time_ago_interval": 365.25,
+								"date_format": "%d/%m/%y",
+								"doc_type": "DetailColumn"
+							}
+						],
+						"display": "long",
+						"tabs": [],
+						"sort_elements": [],
+						"instance_name": "casedb",
+						"persist_case_context": null,
+						"persistent_case_context_xml": "case_name",
+						"multi_select": false,
+						"auto_select": false,
+						"max_select_value": 100,
+						"persist_tile_on_forms": null,
+						"pull_down_tile": null,
+						"case_tile_group": {
+							"index_identifier": null,
+							"header_rows": 2,
+							"doc_type": "CaseTileGroupConfig"
+						},
+						"no_items_text": {
+							"en": "List is empty."
+						},
+						"select_text": {
+							"en": "Continue"
+						},
+						"doc_type": "Detail",
+						"lookup_enabled": false,
+						"lookup_autolaunch": false,
+						"lookup_image": null,
+						"lookup_extras": [],
+						"lookup_responses": [],
+						"lookup_display_results": false,
+						"lookup_field_header": {}
+					},
+					"doc_type": "DetailPair"
+				},
+				"module_type": "basic",
+				"ref_details": {
+					"short": {
+						"display": "short",
+						"columns": [],
+						"tabs": [],
+						"sort_elements": [],
+						"instance_name": "casedb",
+						"persist_case_context": null,
+						"persistent_case_context_xml": "case_name",
+						"multi_select": false,
+						"auto_select": false,
+						"max_select_value": 100,
+						"persist_tile_on_forms": null,
+						"pull_down_tile": null,
+						"case_tile_group": {
+							"index_identifier": null,
+							"header_rows": 2,
+							"doc_type": "CaseTileGroupConfig"
+						},
+						"no_items_text": {
+							"en": "List is empty."
+						},
+						"select_text": {
+							"en": "Continue"
+						},
+						"doc_type": "Detail",
+						"lookup_enabled": false,
+						"lookup_autolaunch": false,
+						"lookup_image": null,
+						"lookup_extras": [],
+						"lookup_responses": [],
+						"lookup_display_results": false,
+						"lookup_field_header": {}
+					},
+					"long": {
+						"display": "long",
+						"columns": [],
+						"tabs": [],
+						"sort_elements": [],
+						"instance_name": "casedb",
+						"persist_case_context": null,
+						"persistent_case_context_xml": "case_name",
+						"multi_select": false,
+						"auto_select": false,
+						"max_select_value": 100,
+						"persist_tile_on_forms": null,
+						"pull_down_tile": null,
+						"case_tile_group": {
+							"index_identifier": null,
+							"header_rows": 2,
+							"doc_type": "CaseTileGroupConfig"
+						},
+						"no_items_text": {
+							"en": "List is empty."
+						},
+						"select_text": {
+							"en": "Continue"
+						},
+						"doc_type": "Detail",
+						"lookup_enabled": false,
+						"lookup_autolaunch": false,
+						"lookup_image": null,
+						"lookup_extras": [],
+						"lookup_responses": [],
+						"lookup_display_results": false,
+						"lookup_field_header": {}
+					},
+					"doc_type": "DetailPair"
+				},
+				"case_list": {
+					"label": {},
+					"show": false,
+					"doc_type": "CaseList",
+					"media_image": {},
+					"media_audio": {},
+					"custom_icons": [],
+					"use_default_image_for_all": false,
+					"use_default_audio_for_all": false
+				},
+				"referral_list": {
+					"label": {},
+					"show": false,
+					"doc_type": "CaseList",
+					"media_image": {},
+					"media_audio": {},
+					"custom_icons": [],
+					"use_default_image_for_all": false,
+					"use_default_audio_for_all": false
+				},
+				"task_list": {
+					"label": {},
+					"show": false,
+					"doc_type": "CaseList",
+					"media_image": {},
+					"media_audio": {},
+					"custom_icons": [],
+					"use_default_image_for_all": false,
+					"use_default_audio_for_all": false
+				},
+				"parent_select": {
+					"active": false,
+					"relationship": "parent",
+					"module_id": null,
+					"doc_type": "ParentSelect"
+				},
+				"search_config": {
+					"search_button_label": {
+						"en": "Search All Cases"
+					},
+					"properties": [],
+					"auto_launch": false,
+					"default_search": false,
+					"default_properties": [],
+					"custom_sort_properties": [],
+					"additional_case_types": [],
+					"additional_registry_cases": [],
+					"title_label": {},
+					"description": {},
+					"include_all_related_cases": false,
+					"search_on_clear": false,
+					"inline_search": false,
+					"doc_type": "CaseSearch"
+				},
+				"display_style": "list",
+				"lazy_load_case_list_fields": false,
+				"show_case_list_optimization_options": false,
+				"doc_type": "Module",
+				"unique_id": {
+					"$menu": 1
+				},
+				"case_list_form": {
+					"form_id": null,
+					"label": {},
+					"post_form_workflow": "default",
+					"doc_type": "CaseListForm",
+					"media_image": {},
+					"media_audio": {},
+					"custom_icons": [],
+					"use_default_image_for_all": false,
+					"use_default_audio_for_all": false
+				},
+				"put_in_root": true,
+				"fixture_select": {
+					"active": false,
+					"localize": false,
+					"doc_type": "FixtureSelect"
+				},
+				"report_context_tile": false,
+				"auto_select_case": false,
+				"is_training_module": false,
+				"custom_assertions": [],
+				"media_image": {},
+				"media_audio": {},
+				"custom_icons": [],
+				"use_default_image_for_all": false,
+				"use_default_audio_for_all": false,
+				"comment": ""
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"form",
+					{
+						"$xmlns": [1, 0]
+					}
+				],
+				"pointer": "/postSubmit",
+				"value": "previous"
+			}
+		]
+	},
+	{
 		"id": "hq-case-management/root-question-usercase",
 		"base": "hq-case-management",
 		"entry": "questions/a-root-question-commcare-usercase-in-a-form-with-usercase",

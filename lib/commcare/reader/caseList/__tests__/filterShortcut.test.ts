@@ -19,8 +19,7 @@ it("reads a list filter stored as #user/<field> as the worker's record", async (
 		...input,
 		source: { ...input.source, body: JSON.stringify(source) },
 	});
-	if (reading.kind !== "read")
-		throw new Error(JSON.stringify(reading.findings));
+	if (reading.kind !== "read") throw new Error(JSON.stringify(reading));
 	const members = reading.doc.modules[reading.doc.moduleOrder[1] ?? ""];
 	expect(members?.caseListConfig?.filter).toMatchObject({
 		kind: "term",
