@@ -20,6 +20,7 @@ import {
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { AuthoringScope } from "../bindings";
 import { AuthoringInputError } from "../errors";
+import { bindNamedIdentity } from "../identityBindings";
 import { parseAuthoringMessage, printAuthoringMessage } from "../messages";
 import { authoringEncoders } from "../output";
 import { queryPrinter } from "../printQueryExpression";
@@ -433,4 +434,45 @@ it("resolves a menu by its UUID, name or id to exactly one module, and names it 
 	expect(() => scope.identity("module", "Wards")).toThrow(
 		"This app has no menu called Wards. You can use one of its menus: Households, Clinics, Clinics, homes_list.",
 	);
+});
+
+it("binds a listed form's name within the menu that owns it, not the menu listing it", () => {
+	const doc = buildDoc({
+		modules: [
+			{
+				uuid: "listed-binding-source",
+				name: "Visits",
+				forms: [
+					{ uuid: "listed-binding-visit", name: "Visit", type: "survey" },
+				],
+			},
+			{
+				uuid: "listed-binding-other",
+				name: "Clinics",
+				forms: [
+					{ uuid: "listed-binding-clinic", name: "Visit", type: "survey" },
+				],
+			},
+			{ uuid: "listed-binding-route", name: "Visits again" },
+		],
+	});
+	const [source, , route] = doc.moduleOrder;
+	const input = {
+		moduleUuid: route,
+		listed_form: { sourceMenuUuid: source, formUuid: "Visit", included: false },
+	};
+	bindNamedIdentity({
+		toolName: "updateModule",
+		input,
+		scope: { doc, moduleUuid: route },
+		slot: {
+			family: "form",
+			path: ["listed_form", "formUuid"],
+			value: "Visit",
+			replace: (value) => {
+				input.listed_form.formUuid = value;
+			},
+		},
+	});
+	expect(input.listed_form.formUuid).toBe(testUuid("listed-binding-visit"));
 });

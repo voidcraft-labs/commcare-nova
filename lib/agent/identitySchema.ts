@@ -150,11 +150,21 @@ export function classifyIdentity(
 	) {
 		return "module";
 	}
+	/* A menu listing another menu's forms names its source menu. */
+	if (
+		(property === "menuUuid" ||
+			property === "previousMenuUuid" ||
+			property === "sourceMenuUuid") &&
+		(tool === "create_module" || tool === "update_module")
+	) {
+		return "module";
+	}
 	/* `move_module` anchors on the module it now follows. The slot is named
 	 * for the mutation it emits, so the family comes from the tool. */
 	if (property === "after" && tool === "move_module") return "module";
 	if (
 		property === "formUuid" ||
+		(property === "excludedFormUuids" && tool === "create_module") ||
 		(property === "form" &&
 			discriminators.some((kind) =>
 				[

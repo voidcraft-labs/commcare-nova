@@ -95,6 +95,11 @@ export function bindNamedIdentity(args: {
 			if (field.success) fieldUuid = field.data;
 			const module = uuidSchema.safeParse(object.moduleUuid);
 			if (module.success) scope.moduleUuid = module.data;
+			/* A source menu scopes the forms another menu lists from it. */
+			const source = uuidSchema.safeParse(
+				object.sourceMenuUuid ?? object.menuUuid,
+			);
+			if (source.success) scope.moduleUuid = source.data;
 			const form = uuidSchema.safeParse(object.formUuid);
 			if (form.success) scope.formUuid = form.data;
 		}
