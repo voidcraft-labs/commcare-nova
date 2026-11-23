@@ -153,6 +153,7 @@ import {
 	LIST_ORDER,
 	pickCaseListSort,
 } from "@/lib/preview/caseListSortMenu";
+import { ordinaryCaseResultCell } from "@/lib/preview/caseMap";
 import {
 	caseSelectionRouteCaseAction,
 	caseSelectionRowAction,
@@ -318,6 +319,7 @@ import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { showToast } from "@/lib/ui/toastStore";
+import { CaseMap } from "../shared/CaseMap";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 
 /** Canvas width where search sits beside the results instead of above
@@ -353,6 +355,7 @@ interface PreviewChoiceStep {
 }
 
 interface CaseListScreenProps {
+	readonly caseListMapConfirmed?: boolean | null;
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 	/** The location on show is a list's. While a step away renders,
@@ -362,7 +365,11 @@ interface CaseListScreenProps {
 	current: boolean;
 }
 
-export function CaseListScreen({ screen, current }: CaseListScreenProps) {
+export function CaseListScreen({
+	screen,
+	current,
+	caseListMapConfirmed,
+}: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const menuSource = usePreviewMenuSource();
@@ -1634,6 +1641,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	 * sending the same display config/catalog solely for calculated projection;
 	 * when the list query also contains the row, prefer that existing projection. */
 	const { state: routeCaseState, reload: reloadRouteCase } = useCaseData({
+		language: language.language,
 		appId,
 		caseType: caseType?.name,
 		caseId: routeCaseId,
@@ -1707,9 +1715,10 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 	// rearrange the other.
 	const listOrderedColumns =
 		config === undefined ? [] : orderedColumns(config, "list");
-	const visibleColumns = listOrderedColumns.filter(
+	const shownColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
+	const visibleColumns = shownColumns.filter(ordinaryCaseResultCell);
 	/* The quick filter matches what a device's search matches: every field's
 	 * text, the hidden fields and the order plan's carriers included, an
 	 * image map's field by the path a device holds for its image. */
@@ -2384,7 +2393,7 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 			</ContentFrame>
 		);
 	}
-	if (visibleColumns.length === 0) {
+	if (shownColumns.length === 0) {
 		return (
 			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
 				<CaseListEmptyNotice
@@ -3494,6 +3503,18 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 					onShare={viewerPosition.share}
 				/>
 			)}
+			{config &&
+				state.kind === "rows" &&
+				deviceValues.kind !== "unavailable" && (
+					<CaseMap
+						config={config}
+						platform={platform}
+						confirmed={caseListMapConfirmed}
+						rows={filteredRows}
+						context={resultsDisplayContext}
+						onOpenCase={handleOpenCase}
+					/>
+				)}
 			<ResultsBody
 				state={
 					/* The device's cases the search reads didn't load: the
@@ -4448,7 +4469,7 @@ function ResultsTable({
 	const clickable = rowAction !== "none";
 	const message = useWorkerMessage();
 	const layout = resultsLayoutClasses(visibleColumns.length);
-	const gridTemplateColumns = `${visibleColumns.map(() => "minmax(0, 1fr)").join(" ")} 36px`;
+	const gridTemplateColumns = `${visibleColumns.map((column) => (column.kind === "overdue-marker" ? "11%" : "minmax(0, 1fr)")).join(" ")} 36px`;
 	return (
 		<div
 			data-case-results="responsive"
@@ -4472,6 +4493,7 @@ function ResultsTable({
 							col,
 							caseProperties,
 							columnDisplayContext.projectProse,
+							"list",
 						)}
 					</div>
 				))}
@@ -4501,6 +4523,7 @@ function ResultsTable({
 											col,
 											caseProperties,
 											columnDisplayContext.projectProse,
+											"list",
 										)}
 									</span>
 									<span

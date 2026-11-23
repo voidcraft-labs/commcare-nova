@@ -11,13 +11,34 @@ import {
 	columnPropertyCaseType,
 	type PropertyColumn,
 	sameColumnVia,
+	USERCASE_CASE_TYPE,
+	type UserProperty,
 } from "@/lib/domain";
 import { declaredCaseRelations } from "@/lib/domain/caseRelations";
+import { withStandardCaseProperties } from "@/lib/domain/expression/context";
 import { humanizeId } from "@/lib/domain/idSlug";
+import { usercaseCaseType } from "@/lib/domain/usercase";
+
+/** Case views may read the worker's own record, including worker information
+ * declared in this app. It stays outside the types a menu can manage. */
+export function caseViewWorkerRecord(
+	properties: readonly UserProperty[],
+): CaseType {
+	const userProperties = Object.fromEntries(
+		properties.map((property) => [property.uuid, property]),
+	);
+	const [record] = withStandardCaseProperties([
+		usercaseCaseType({ userProperties }),
+	]);
+	if (!record)
+		throw new Error("The case-view catalog lost the worker’s record.");
+	return record;
+}
 
 /** One case a column can read from: its walk (none for this case), the case
  *  type it reaches, and what the picker calls it. */
 export interface ColumnSource {
+	readonly readFrom?: "worker-record";
 	readonly key: string;
 	readonly via: ColumnVia | undefined;
 	readonly caseType: string | undefined;
@@ -114,6 +135,13 @@ export function columnSources(
 					: `The ${reached}, through ${links}`,
 		});
 	}
+	sources.push({
+		key: "worker",
+		via: undefined,
+		readFrom: "worker-record",
+		caseType: USERCASE_CASE_TYPE,
+		label: "The worker’s record",
+	});
 	return sources;
 }
 
@@ -123,9 +151,20 @@ export function columnWithSource<C extends PropertyColumn>(
 	column: C,
 	via: ColumnVia | undefined,
 	field: string,
+	readFrom?: "worker-record",
+	showOwner?: "name",
 ): C {
-	const { via: _previous, ...rest } = column;
-	return (
-		via === undefined ? { ...rest, field } : { ...rest, field, via }
-	) as C;
+	const {
+		via: _previous,
+		readFrom: _oldSource,
+		showOwner: _oldDisplay,
+		...rest
+	} = column;
+	return {
+		...rest,
+		field,
+		...(via && { via }),
+		...(readFrom && { readFrom }),
+		...(field === "owner_id" && showOwner && { showOwner }),
+	} as C;
 }

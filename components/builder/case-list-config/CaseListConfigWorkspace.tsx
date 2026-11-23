@@ -110,6 +110,8 @@ import {
 	humanizeId,
 	isCaptureField,
 	isOwnerOnlyCaseSearchConfig,
+	mapLayerColumn,
+	mapLocationColumn,
 	moduleShowsFormsInMenuAbove,
 	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
@@ -122,6 +124,7 @@ import {
 	type Expression,
 	effectiveFilterForEmission,
 } from "@/lib/domain/expression";
+import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
@@ -158,6 +161,7 @@ import {
 } from "./configValidity";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import type { SearchPanelInspectorBodyProps } from "./inspector/SearchPanelInspectorBody";
+import { type MapLayerSetup, MapLayerSetupDialog } from "./MapLayerSetupDialog";
 import { withPreservedIdentity } from "./preserveIdentity";
 import {
 	searchInputConditionAt,
@@ -196,6 +200,7 @@ import {
 	tileCellMutations,
 } from "./tile/tileMutationPlan";
 import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
+import { newUuid } from "./uuid";
 import {
 	type CaseDisplaySurface,
 	keepColumnOnList,
@@ -562,6 +567,11 @@ function useController(target: CaseListWorkspaceTarget | null) {
 
 	// ── Selection ──
 	const [sel, setSel] = useState<WorkspaceSelection | null>(null);
+	const [pendingMapLayer, setPendingMapLayer] = useState<{
+		moduleUuid: Uuid;
+		original: Column;
+		next: MapLayerSetup["column"];
+	} | null>(null);
 	const [workspaceAnnouncement, setWorkspaceAnnouncement] = useState("");
 	const pendingCanvasFocusRef = useRef<CaseDisplaySurface | null>(null);
 	const pendingSearchFocusRef = useRef<SearchInputDef["uuid"] | "add" | null>(
@@ -1036,6 +1046,17 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		const current = config.columns.find((column) => column.uuid === uuid);
 		if (current === undefined) return;
 		const replacement = withPreservedIdentity(current, next);
+		if (
+			replacement.kind === "map-layer" &&
+			(current.kind !== "map-layer" || current.layer !== replacement.layer)
+		) {
+			setPendingMapLayer({
+				moduleUuid: requireRetainedModuleUuid(moduleUuid),
+				original: current,
+				next: replacement,
+			});
+			return;
+		}
 		commitMany(
 			columnSnapshotMutations(
 				requireRetainedModuleUuid(moduleUuid),
@@ -1043,6 +1064,98 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				replacement,
 			),
 		);
+	};
+	const saveMapLayer = ({ column, location, geometry }: MapLayerSetup) => {
+		if (!pendingMapLayer || pendingMapLayer.moduleUuid !== moduleUuid) return;
+		const original = config.columns.find((c) => c.uuid === column.uuid);
+		if (!original || !deepEqual(original, pendingMapLayer.original)) {
+			setWorkspaceAnnouncement(
+				"This information changed while you were choosing map sources. You can open the map layer again.",
+			);
+			setPendingMapLayer(null);
+			return;
+		}
+		const supporting: Column[] = [];
+		if (location)
+			supporting.push(
+				mapLocationColumn(
+					newUuid(),
+					location,
+					propertyDisplayLabelForName(
+						location,
+						ct?.properties ?? [],
+						projectProse,
+					),
+					{
+						visibleInDetail: false,
+					},
+				),
+			);
+		if (geometry)
+			supporting.push(
+				mapLayerColumn(
+					newUuid(),
+					geometry.field,
+					propertyDisplayLabelForName(
+						geometry.field,
+						ct?.properties ?? [],
+						projectProse,
+					),
+					geometry.role,
+				),
+			);
+		const mutations: Mutation[] = [];
+		let projected = config;
+		let selected: Column = column;
+		if (config.tile) {
+			const tile = placementForJoiningTile(config, column);
+			if (!tile) {
+				setWorkspaceAnnouncement(TILE_FULL_REASON);
+				return;
+			}
+			selected = { ...column, tile };
+		}
+		mutations.push(
+			...columnSnapshotMutations(
+				pendingMapLayer.moduleUuid,
+				original,
+				selected,
+			),
+		);
+		projected = {
+			...projected,
+			columns: projected.columns.map((c) =>
+				c.uuid === selected.uuid ? selected : c,
+			),
+		};
+		for (let supportingColumn of supporting) {
+			if (projected.tile) {
+				const tile = placementForJoiningTile(projected, supportingColumn);
+				if (!tile) {
+					setWorkspaceAnnouncement(TILE_FULL_REASON);
+					return;
+				}
+				supportingColumn = { ...supportingColumn, tile };
+			}
+			mutations.push(
+				seededColumnAddMutation(
+					pendingMapLayer.moduleUuid,
+					projected,
+					"list",
+					supportingColumn,
+				),
+			);
+			projected = {
+				...projected,
+				columns: [...projected.columns, supportingColumn],
+				listColumnOrder: [...projected.listColumnOrder, supportingColumn.uuid],
+				detailColumnOrder: [
+					...projected.detailColumnOrder,
+					supportingColumn.uuid,
+				],
+			};
+		}
+		if (commitMany(mutations).ok) setPendingMapLayer(null);
 	};
 	const addSeededColumn = (surface: CaseDisplaySurface, seedColumn: Column) => {
 		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
@@ -2121,6 +2234,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			next: CaseListConfig["selection"],
 			origin?: HTMLElement,
 		) => prepareCaseSelectionReview(next, true, origin),
+		pendingMapLayer,
+		saveMapLayer,
+		cancelMapLayer: () => setPendingMapLayer(null),
 		caseSelectionReview,
 		cancelCaseSelectionReview: () => setCaseSelectionReview(null),
 		confirmCaseSelection,
@@ -2351,6 +2467,9 @@ export function CaseListWorkspaceCanvas() {
 		tileDisabledReason,
 		setArrangement,
 		setCaseSelection,
+		pendingMapLayer,
+		saveMapLayer,
+		cancelMapLayer,
 		caseSelectionReview,
 		cancelCaseSelectionReview,
 		confirmCaseSelection,
@@ -2536,6 +2655,17 @@ export function CaseListWorkspaceCanvas() {
 					</div>
 				</Activity>
 			</div>
+			{pendingMapLayer &&
+				pendingMapLayer.moduleUuid === workspaceModuleUuid &&
+				ct && (
+					<MapLayerSetupDialog
+						config={config}
+						properties={ct.properties}
+						column={pendingMapLayer.next}
+						onCancel={cancelMapLayer}
+						onSave={saveMapLayer}
+					/>
+				)}
 			{caseSelectionReview !== null && (
 				<CaseSelectionReviewDialog
 					sourceModuleUuid={caseSelectionReview.sourceModuleUuid}

@@ -72,6 +72,13 @@ concept. Less-common choices sit quietly at the bottom: **Calculated value**
 for information derived from other values, and **Show information another
 way** when the same property needs a second label or format.
 
+To show a detail such as the current worker’s district beside each case, choose
+**The worker’s record** under **From**, then choose the information to display.
+Every row reads that worker’s record. For a case’s **Owner**, choose **Name** to
+show the name of its case-sharing group or the current worker’s username for a
+case they own. An owner outside the worker’s synced groups appears blank.
+**ID** shows the stored owner identifier.
+
 Calculated values and filters using `today()` follow your local day in Preview,
 just as form questions do. On a device they use the device’s local day. This
 keeps a case due today from appearing overdue because the server is already
@@ -113,6 +120,14 @@ Search button's display condition.
 After each update, return to the field to see the remaining uses. Once none
 remain, the dialog closes and **Remove search field** is ready for you again.
 
+## Show a choice label or its saved value
+
+For a text column that reads a choice, **Show choices as** offers **Choice labels**
+and **Saved values**. A label follows the worker’s language. A saved value shows
+the code from the case, including a value the app no longer offers. A list can
+show both side by side. When you order by one of these columns, it uses the
+version you chose for that column.
+
 ## Show information from a linked case
 
 A column can show information from another case, such as a household's
@@ -128,6 +143,22 @@ destination is unknown. A missing link or property leaves the cell blank.
 In a menu with Search, Results reads the linked cases included in the
 search result. A worker can see a blank cell there when the related case
 is available only on the device.
+
+A **Calculated value** can use wording that changes with the worker’s language. Choose **Translated text** as the display, then **Add translated text**. Enter the phrase and select it as a value in your calculation. The same phrase can appear more than once. Its translations live in **Languages**. Workers see and sort by the result in their own language.
+
+For each **Value images** entry, choose **One of the saved choices** or **The entire saved value**. The first matching entry supplies the image. Choose **Show no image** when a rule should hide an icon, even when a later rule also matches. Web Apps can still show its image description. You can also give the image a description for Web Apps. In the entry, describe what the image tells the worker. Other app languages can supply their own wording in **Languages**.
+
+## Show how far away a case is
+
+For an app that runs on Android, choose **Distance from worker** and the information that holds the case coordinates. The worker sees the distance in kilometers, rounded to the nearest tenth. If the worker has not shared a location, or the case has no coordinates, the distance stays blank. In Preview, you can share your own location to try the list.
+
+## Put cases on a map
+
+Choose **Map location** for information that stores coordinates. The coordinates stay out of the Results table. A worker can open a map of the cases on Android. In Web Apps, a project space with the case list map enabled can show the first location in Results. Details shows the saved address, with **Show address** on Android.
+
+If a case can have more than one location, arrange them in the order a worker should use. Android looks for the first usable one on that case. In Web Apps, a case with a blank first location has no marker.
+
+On Android, you can also show a boundary around a case or add points near it. Choose **Map layer**, then pick the information for the layer and its case location. A color layer also needs the boundary or points it colors. The setup saves these choices together. Boundaries and point sets use a series of latitude and longitude pairs. Point colors follow the same order as the points.
 
 ## Show a link to a file
 
@@ -724,9 +755,9 @@ list the same way:
 - **Cases with no value** come first in a rule that goes up (A to Z, earliest,
   lowest) and last in one that goes down.
 - **Each item orders by what it is.** A date orders by the date, whatever style
-  shows it. A choice shown on Results orders by the labels it shows. **Value
-  labels** and **Value images** order by the order of their own table, so the
-  first entry's cases come first, and a value with no entry counts as no value.
+  shows it. A choice shown on Results orders by the labels it shows. **Value images** and labels for each saved choice sort by the matching row’s
+  position. **The first matching label** sorts by the label the worker sees.
+  A case with no match has a blank sort value.
   A time since a date orders by the text it shows. A calculated value orders by
   its result, and a link by the saved address. An item hidden from Results
   orders by the saved value.
@@ -752,11 +783,35 @@ same menu, so you can try a name there; [Preview on Web Apps and
 Android](/docs/building-with-nova#preview-on-web-apps-and-android) says how
 each platform's menu works.
 
-A saved value in **Value labels** is one word, and it can't hold `&`, `<`, `>`,
+**Time since or until** shows whole days, weeks, months or years since a date.
+For a due date, choose days, weeks or months until it. The count turns negative
+after the date passes. An empty date stays blank. A month is one twelfth of
+365.25 days. Ordering this item uses the saved date.
+
+**Formatted text** shows a case property's Markdown. A calculated item can
+also show its result as formatted text. On Web Apps, workers see the formatted
+result in the list and Details. Android shows the saved wording and formatting
+marks in a list and renders Markdown in Details. An Android tile reads inline
+HTML formatting instead.
+
+An **Overdue marker** shows an asterisk when a date is missing or its deadline
+has passed. A threshold of zero marks a case starting the next day. A threshold
+of two marks it on the third day. A negative threshold moves the marker earlier.
+Results shows a narrow marker. Details also shows the heading you chose.
+
+In **Value labels**, a saved value can be one word or a sequence such as
+**follow up**. The label appears wherever that whole sequence falls between
+spaces or at the ends of a response. A blank key labels an empty response and
+also matches an extra space at either end or between words. Keys can't hold `&`, `<`, `>`,
 `"` or `'`, because CommCare HQ's ID mapping has no way to store one.
 
-This is separate from arranging information inside a result. One controls the
-order of cases; the other controls how each case is presented.
+Choose **The first matching label** to show one label for an entire saved value
+or a condition. For example, a visit count above three can show **Frequent visitor**.
+Put the most specific rule first. Workers see the first matching rule’s label in
+their language, and the list sorts by that label. With no match, the cell is
+blank. An image rule also takes the first match. It can match one of the saved
+choices, the entire saved value, or a condition. You can give the image a
+description in each app language.
 
 ## Use the sidebar for properties
 

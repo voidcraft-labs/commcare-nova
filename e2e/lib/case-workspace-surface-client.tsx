@@ -67,6 +67,25 @@ const caseTypes: CaseType[] = [
 		],
 	},
 ];
+if (scenario === "map") {
+	caseTypes[0].properties.push(
+		{
+			name: "home_point",
+			label: proseText("Home location"),
+			data_type: "geopoint",
+		},
+		{
+			name: "service_area",
+			label: proseText("Assigned area"),
+			data_type: "text",
+		},
+		{
+			name: "priority_color",
+			label: proseText("Visit color"),
+			data_type: "text",
+		},
+	);
+}
 // Clients belong to households, whose address a column can show.
 if (scenario === "related") {
 	caseTypes[0] = { ...caseTypes[0], parent_type: "household" } as CaseType;
@@ -84,11 +103,25 @@ if (scenario === "related") {
 }
 const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 config.columns = [
-	plainColumn(nameId, "case_name", "Client name"),
+	scenario === "map"
+		? plainColumn(nameId, "priority_color", "Visit color")
+		: plainColumn(nameId, "case_name", "Client name"),
 	plainColumn(dobId, "dob", "Birth date"),
 ];
 config.listColumnOrder = [nameId, dobId];
 config.detailColumnOrder = [dobId, nameId];
+if (scenario === "choice-labels-and-values") {
+	caseTypes[0]?.properties.push({
+		name: "village",
+		label: proseText("Village"),
+		data_type: "single_select",
+		options: [{ value: "south", label: proseText("Southern district") }],
+	});
+	config.columns = [
+		plainColumn(nameId, "village", "Village"),
+		plainColumn(dobId, "village", "Village code"),
+	];
+}
 if (scenario.startsWith("search"))
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "name", "Name", "text", "case_name"),

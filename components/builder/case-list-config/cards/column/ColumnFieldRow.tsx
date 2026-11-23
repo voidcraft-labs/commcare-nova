@@ -76,9 +76,16 @@ interface ColumnFieldRowProps {
 	readonly errors?: readonly string[];
 	/** The walk to the case the column reads; absent for this case. */
 	readonly via?: ColumnVia;
+	readonly readFrom?: "worker-record";
+	readonly showOwner?: "name";
 	/** Fired when the author reads from another case: its walk, and the
 	 *  property kept where that case has one of the same name, else none. */
-	readonly onSourceChange?: (via: ColumnVia | undefined, field: string) => void;
+	readonly onSourceChange?: (
+		via: ColumnVia | undefined,
+		field: string,
+		readFrom?: "worker-record",
+		showOwner?: "name",
+	) => void;
 }
 
 /**
@@ -94,6 +101,8 @@ export function ColumnFieldRow({
 	propertyFilter,
 	errors,
 	via,
+	readFrom,
+	showOwner,
 	onSourceChange,
 }: ColumnFieldRowProps) {
 	const [editingLink, setEditingLink] = useState(false);
@@ -106,14 +115,17 @@ export function ColumnFieldRow({
 	const projectProse = useProseProjection();
 	const sources = columnSources(currentCaseType, caseTypes, via);
 	const source =
-		sources.find((one) => sameColumnVia(one.via, via)) ?? sources[0];
+		sources.find(
+			(one) => one.readFrom === readFrom && sameColumnVia(one.via, via),
+		) ?? sources[0];
 	const readCaseType = source.caseType;
-	const properties = propertiesReachedByColumn(
-		source,
-		currentCaseType,
-		caseTypes,
-		field,
-	);
+	/** What a source offers: the worker's record lists its own properties,
+	 *  any other case what the catalog's walk reaches. */
+	const sourceProperties = (one: (typeof sources)[number]) =>
+		one.readFrom === "worker-record"
+			? (caseTypes.find((type) => type.name === one.caseType)?.properties ?? [])
+			: propertiesReachedByColumn(one, currentCaseType, caseTypes, field);
+	const properties = sourceProperties(source);
 	const chooseSource = (key: string | null) => {
 		if (key === "add-link") {
 			setLink("");
@@ -124,17 +136,17 @@ export function ColumnFieldRow({
 		if (next === undefined || onSourceChange === undefined) return;
 		setEditingLink(false);
 		setEditingName(false);
-		const keeps = propertiesReachedByColumn(
-			next,
-			currentCaseType,
-			caseTypes,
-			field,
-		).some(
+		const keeps = sourceProperties(next).some(
 			(property) =>
 				property.name === field &&
 				(propertyFilter === undefined || propertyFilter(property)),
 		);
-		onSourceChange(next.via, keeps ? field : "");
+		onSourceChange(
+			next.via,
+			keeps ? field : "",
+			next.readFrom,
+			keeps ? showOwner : undefined,
+		);
 	};
 	const linkValid =
 		/^[A-Za-z][A-Za-z0-9_-]*$/.test(link) &&
@@ -160,7 +172,18 @@ export function ColumnFieldRow({
 						</SelectTrigger>
 						<SelectContent>
 							{sources.map((one) => (
-								<SelectItem key={one.key} value={one.key} wrap>
+								<SelectItem
+									key={one.key}
+									value={one.key}
+									disabled={
+										!caseTypes
+											.find((type) => type.name === one.caseType)
+											?.properties.some(
+												(property) => propertyFilter?.(property) ?? true,
+											)
+									}
+									wrap
+								>
 									{one.label}
 								</SelectItem>
 							))}
@@ -207,6 +230,9 @@ export function ColumnFieldRow({
 							</div>
 						</div>
 					)}
+					<p className="mt-1.5 text-[12px] leading-4 text-nova-text-muted">
+						Choose whose information appears in this column.
+					</p>
 				</div>
 			) : null}
 			<div>
@@ -224,7 +250,11 @@ export function ColumnFieldRow({
 					}
 					createNewLabel="Use a property by name"
 					value={field === "" ? undefined : field}
-					onChange={onFieldChange}
+					onChange={(next) => {
+						if (showOwner && next !== field && onSourceChange)
+							onSourceChange(via, next, readFrom);
+						else onFieldChange(next);
+					}}
 					filter={propertyFilter}
 					invalid={fieldInvalid}
 					ariaLabel="Information from"
@@ -258,6 +288,30 @@ export function ColumnFieldRow({
 					</div>
 				)}
 				<InlineError errors={errors ?? []} />
+				{field === "owner_id" && onSourceChange && (
+					<div className="mt-3">
+						<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Show owner as</div>
+						<Select
+							value={showOwner ?? "id"}
+							onValueChange={(next) =>
+								onSourceChange(
+									via,
+									field,
+									readFrom,
+									next === "name" ? "name" : undefined,
+								)
+							}
+						>
+							<SelectTrigger aria-label="Show owner as">
+								<SelectValue>{showOwner ? "Name" : "ID"}</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="name">Name</SelectItem>
+								<SelectItem value="id">ID</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+				)}
 			</div>
 			<div>
 				<div className="mb-2 flex items-baseline justify-between gap-3">

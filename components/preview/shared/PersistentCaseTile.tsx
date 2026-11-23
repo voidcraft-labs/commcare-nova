@@ -16,6 +16,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useMemo } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import type {
@@ -78,7 +79,9 @@ export function PersistentCaseTile({
 	 * read deliberately carries no display config: it feeds the engine,
 	 * not a screen, and widening it would put this band's concerns inside
 	 * the engine's preload identity. */
+	const language = useBuilderLanguage();
 	const { state, reload } = useCaseData({
+		language: language.language,
 		appId,
 		caseType,
 		caseId,

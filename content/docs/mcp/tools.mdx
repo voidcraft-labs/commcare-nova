@@ -285,6 +285,11 @@ form entry snapshot. Observations identify the session and distinguish retained
 form data from current isolated-store reads. These are Preview/Postgres
 observations; native offline conflict handling needs separate evidence.
 
+A record list reports the cells its worker sees. When a case map is
+available, `renderedResults.availableMap` identifies each listed record’s
+map location and the layers its platform draws. You can open the record
+by its record ID.
+
 Form observations include the displayed container and repeat-instance hierarchy
 for the current page. `pageNext` and `pagePrevious` turn form pages while
 `routeBack` and `routeContinue` follow screen navigation. Existing `back` and
@@ -920,9 +925,10 @@ order a list the same way:
 - Each column kind orders by its own key. A plain column orders by the saved
   value, as a number for a number property, and shown on Results over a choice
   property with options, by the option label it shows. A date column orders by
-  the saved date, whatever `pattern` shows it. An `id-mapping` or `image-map`
-  column shown on Results orders by the order of its `mapping` entries, never by
-  label, and a value with no entry counts as no value. An interval column shown
+  the saved date, whatever `pattern` shows it. An `image-map` orders by its first matching row’s position. An
+  `id-mapping` uses the same order by default. With `behavior: "first-match"`
+  it orders by the displayed label in the worker’s language. An unmatched value
+  counts as blank. An interval column shown
   on Results orders by the text it shows, compared as text. A link column orders
   by the saved value, and a calculated column by its result. A column hidden
   from Results orders by the saved value.
@@ -947,8 +953,15 @@ the list altogether: only Details shows it, and the list doesn't search or sort
 by it.
 
 A date column's `pattern` is a CommCare date pattern such as `%Y-%m-%d`; it
-can't hold a straight apostrophe (`'`), and a curved one (`’`) works. An
-`id-mapping` value is one word and can't hold `&`, `<`, `>`, `"` or `'`.
+can't hold a straight apostrophe (`'`), and a curved one (`’`) works. A default
+`id-mapping` accepts a blank or several words and matches the sequence
+between spaces. Its literal keys exclude `&`, `<`, `>`, `"` and `'`.
+For a whole saved value or a typed case condition, use `behavior: "first-match"`.
+Each rule has a `label` and either `value` or `when`. An `image-map` row has
+an `assetId` and can include `altText`. It matches `value` among the saved
+choices, compares the whole value with `match: "exact"`, or evaluates its
+`when` condition. Keep a row’s `uuid` when editing its rule or order so its
+translations follow it.
 
 A tile cell's `horizontalAlign` (`left`, `center` or `right`), `verticalAlign`
 (`top`, `middle` or `bottom`) and `fontSize` (`small`, `medium` or `large`) may

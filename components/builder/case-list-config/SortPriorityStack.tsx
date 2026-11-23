@@ -1359,7 +1359,13 @@ function columnDataType(
 	caseType: CaseType | undefined,
 	expressionContext: ExpressionContext | undefined,
 ): CasePropertyDataType | undefined {
-	if (column.kind === "date" || column.kind === "interval") return "date";
+	if (
+		column.kind === "date" ||
+		column.kind === "date-count" ||
+		column.kind === "interval" ||
+		column.kind === "overdue-marker"
+	)
+		return "date";
 	if (column.kind === "calculated") {
 		if (expressionContext === undefined) return undefined;
 		const resolved = scalarDataType(

@@ -115,7 +115,13 @@ export function CaseTile({
 						{!entry.valueHidden && (
 							<>
 								<span className="sr-only">{label}: </span>
-								{renderColumnCell(entry.column, row, displayContext)}
+								{renderColumnCell(
+									entry.column,
+									row,
+									platformRules.linkColumnInList === "raw-text"
+										? { ...displayContext, tileText: "html" }
+										: displayContext,
+								)}
 							</>
 						)}
 					</div>

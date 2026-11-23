@@ -52,6 +52,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { columnKindPropertyRequirement } from "@/lib/domain";
+import { bindWorkerColumn } from "@/lib/domain/columnRelation";
 import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { PlatformNoteRow } from "../shared/PlatformNoteRow";
@@ -67,6 +68,7 @@ import {
 	columnCardSchemas,
 	resolveColumnProperty,
 } from "./columnEditorSchemas";
+import { caseViewWorkerRecord } from "./columnSources";
 import { NO_SEARCH_INPUTS } from "./searchInputResolution";
 
 /**
@@ -131,6 +133,16 @@ export function ColumnEditor({
 	ordersByMapping = false,
 	onValidityChange,
 }: ColumnEditorProps) {
+	const changeColumn = (next: Column) => {
+		if (
+			next.kind !== "calculated" &&
+			value.kind !== "calculated" &&
+			(next.field !== value.field || next.readFrom !== value.readFrom)
+		) {
+			const { workerPropertyUuid: _old, ...changed } = next;
+			onChange(bindWorkerColumn(changed, userProperties));
+		} else onChange(bindWorkerColumn(next, userProperties));
+	};
 	const projectProse = useProseProjection();
 	const buildContext = useExpressionSlotContextBuilder();
 	const noteFeatures = useOwnerPlatformFeatures(
@@ -154,11 +166,15 @@ export function ColumnEditor({
 					),
 		[moduleUuid, buildContext],
 	);
+	const sourceCaseTypes = useMemo(
+		() => [...caseTypes, caseViewWorkerRecord(userProperties)],
+		[caseTypes, userProperties],
+	);
 	const ctx = useMemo<ColumnEditContext>(
 		() => ({
 			moduleUuid,
 			expressionContextForColumn,
-			caseTypes,
+			caseTypes: sourceCaseTypes,
 			currentCaseType,
 			userProperties,
 			searchIsEffective,
@@ -167,7 +183,7 @@ export function ColumnEditor({
 		[
 			moduleUuid,
 			expressionContextForColumn,
-			caseTypes,
+			sourceCaseTypes,
 			currentCaseType,
 			userProperties,
 			searchIsEffective,
@@ -182,7 +198,12 @@ export function ColumnEditor({
 	// mismatches surface inline next to the field picker.
 	const applicabilityErrors = useMemo(() => {
 		if (value.kind === "calculated") return [] as const;
-		const property = resolveColumnProperty(ctx, value.field, value.via);
+		const property = resolveColumnProperty(
+			ctx,
+			value.field,
+			value.via,
+			value.readFrom,
+		);
 		const schema = columnCardSchemas[value.kind];
 		if (schema.applicableForProperty(property)) return [] as const;
 		const information =
@@ -230,7 +251,7 @@ export function ColumnEditor({
 
 	return (
 		<EditorVocabularyProvider
-			caseTypes={caseTypes}
+			caseTypes={sourceCaseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={NO_SEARCH_INPUTS}
 			userProperties={userProperties}
@@ -240,13 +261,13 @@ export function ColumnEditor({
 				<KindPicker
 					key={`kind:${value.uuid}`}
 					currentValue={value}
-					onChange={onChange}
+					onChange={changeColumn}
 					ctx={ctx}
 				/>
 				<Component
 					key={`card:${value.uuid}`}
 					value={value}
-					onChange={onChange}
+					onChange={changeColumn}
 					ctx={ctx}
 					errors={applicabilityErrors}
 				/>
@@ -291,7 +312,12 @@ function KindPicker({
 	const property =
 		currentValue.kind === "calculated"
 			? undefined
-			: resolveColumnProperty(ctx, currentValue.field, currentValue.via);
+			: resolveColumnProperty(
+					ctx,
+					currentValue.field,
+					currentValue.via,
+					currentValue.readFrom,
+				);
 	const currentKind = currentValue.kind;
 	const currentSchema = columnCardSchemas[currentKind];
 
