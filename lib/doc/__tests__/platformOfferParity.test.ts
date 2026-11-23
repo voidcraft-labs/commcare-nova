@@ -31,6 +31,7 @@ import {
 	type AppSettings,
 	type BlueprintDoc,
 	NEW_APP_SETTINGS,
+	plainColumn,
 	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -48,6 +49,7 @@ const REGISTER = testUuid("offer-parity-register");
 const NAME_INPUT = testUuid("offer-parity-name-input");
 const NEW_INPUT = testUuid("offer-parity-new-input");
 const NEW_FIELD = testUuid("offer-parity-new-field");
+const NEW_COLUMN = testUuid("offer-parity-new-column");
 
 const LOOKUPS = availableLookupContext([DESTINATIONS_LOOKUP.definition]);
 
@@ -86,6 +88,7 @@ function searchableApp(
 					{ name: "case_name", label: "Name" },
 					{ name: "dob", label: "Date of birth", data_type: "date" },
 					{ name: "destination", label: "Destination" },
+					{ name: "home", label: "Home", data_type: "geopoint" },
 				],
 			},
 		],
@@ -256,6 +259,21 @@ const SITES: readonly OfferingSite[] = [
 		batch: (doc) => caseListRegistrationMutations(doc, MODULE, REGISTER, {}),
 	},
 	{
+		name: "Default order's Distance from worker",
+		feature: "sort-by-distance",
+		batch: () => [
+			{
+				kind: "addColumn",
+				moduleUuid: MODULE,
+				column: plainColumn(NEW_COLUMN, "home", "Home", {
+					sort: { direction: "asc", priority: 0, comparator: "distance" },
+				}),
+				afterInList: null,
+				afterInDetail: null,
+			},
+		],
+	},
+	{
 		name: "the case list menu item switch beside forms",
 		feature: "case-list-menu-item",
 		batch: () => [{ kind: "setCaseListMenuItem", uuid: MODULE, item: {} }],
@@ -276,6 +294,8 @@ const PICKER_LINES: Partial<Record<PlatformFeatureId, string>> = {
 		"Not available on Android. You can change where this app runs in App settings.",
 	"search-field-multiple-choice":
 		"Not available on Android. You can change where this app runs in App settings.",
+	"sort-by-distance":
+		"Not available in Web Apps. You can change where this app runs in App settings.",
 	"connect-app":
 		"Not available for a Connect app. You can turn off Connect, then choose this.",
 };

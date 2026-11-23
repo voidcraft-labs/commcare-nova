@@ -2559,7 +2559,12 @@ export const calculatedSortSchema = z
 		expression: valueSchema,
 		direction: columnSortShape.direction,
 		priority: columnSortShape.priority,
-		comparator: z.enum(["text", "integer", "decimal"]).optional(),
+		comparator: z
+			.enum(["text", "integer", "decimal"])
+			.optional()
+			.describe(
+				"How to compare the values. Leave it out to use the calculation’s own type. Text orders 10 before 2. A whole-number or decimal comparison orders 2 before 10.",
+			),
 		blanks: columnSortShape.blanks,
 		label: columnSortShape.label,
 	})

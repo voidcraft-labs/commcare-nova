@@ -78,7 +78,11 @@ import {
 	typeOf,
 } from "@/lib/domain/expression";
 import { prop, term } from "@/lib/domain/expression/builders";
-import { platformRefusal, platformSentence } from "@/lib/domain/platforms";
+import {
+	platformPickerLine,
+	platformRefusal,
+	platformSentence,
+} from "@/lib/domain/platforms";
 import {
 	propertyDisplayLabel,
 	propertyDisplayLabelForName,
@@ -1052,10 +1056,17 @@ function CaseOrderingRuleRow({
 											}
 											closeOnClick
 										>
-											{comparisonNames[choice]}
-											{choice === "distance" && distanceRefusal !== undefined
-												? " (Android only)"
-												: ""}
+											{choice === "distance" &&
+											distanceRefusal !== undefined ? (
+												<span className="flex flex-col gap-0.5">
+													<span>{comparisonNames[choice]}</span>
+													<span className="text-xs text-nova-text-muted">
+														{platformPickerLine(distanceRefusal)}
+													</span>
+												</span>
+											) : (
+												comparisonNames[choice]
+											)}
 										</DropdownMenuRadioItem>
 									))}
 								</DropdownMenuRadioGroup>

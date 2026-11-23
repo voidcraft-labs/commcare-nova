@@ -691,9 +691,13 @@ case name as the next item to break ties. **Name in Sort by** gives workers a
 way to choose that calculation themselves. Publishing checks that the project
 space can keep calculated order rules.
 
-On Android, a location can order cases by distance from the worker, from a
-value that holds a location: an item holding numbers, dates or choices can't
-order by it. Preview uses the worker location selected for the run. A case with no location comes
+In an app that runs only on Android, a location can order cases by distance
+from the worker: open the rule of an item that holds a location and choose
+**Distance from worker**. Web Apps never shares where the worker is with a case
+list, so in an app that runs there the choice stays unavailable until you
+change where the app runs in App settings. Distance needs a value that holds a
+location, so an item holding numbers, dates or choices can't order by it.
+Preview uses the worker location selected for the run. A case with no location comes
 last in nearest-first order. Without a worker position, all located cases tie,
 so the next rule determines their order.
 
