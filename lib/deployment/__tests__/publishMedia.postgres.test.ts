@@ -588,7 +588,8 @@ it.each(["remove", "replace"] as const)(
 					);
 				},
 			});
-			expect((await publish(doc)).landed).toBe(true);
+			const outcome = await publish(doc);
+			expect(outcome.landed, JSON.stringify(outcome)).toBe(true);
 			checkPoll();
 			expect(await openMediaWrites()).toEqual([]);
 			expect(await record()).toEqual({ [WIRE]: "late-upload-report" });
@@ -626,7 +627,7 @@ it.each([
 			if (interleaving === "different file at the acknowledged save")
 				file(peer, "foreign-after-import", PERSONS_FILE);
 			const result = await publish(doc);
-			expect(result.landed).toBe(true);
+			expect(result.landed, JSON.stringify(result)).toBe(true);
 			expect(requests(peer, from)).toContain(`POST ${IMPORT}`);
 			expect(requests(peer, from)).not.toContain(`POST ${MEDIA}`);
 			expect(result.warnings.join(" ")).toMatch(
