@@ -286,10 +286,15 @@ export interface GeneratedNodePlan {
 	readonly nodes: readonly GeneratedNode[];
 }
 
-/** A write to `external_id`, the one fixed text column an operation's
- * writes reach: its value is normalized and held by the text guard. */
+/** A write to a fixed text column an operation's writes reach: `external_id`,
+ * `location_id`, and `hq_user_id`, which HQ copies into the external id. Its
+ * value is normalized and held by the text guard. */
 export function writesFixedTextColumn(write: { property: string }): boolean {
-	return write.property === "external_id";
+	return (
+		write.property === "external_id" ||
+		write.property === "location_id" ||
+		write.property === "hq_user_id"
+	);
 }
 
 /**

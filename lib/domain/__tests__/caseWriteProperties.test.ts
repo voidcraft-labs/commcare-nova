@@ -135,7 +135,9 @@ describe("a case write's property", () => {
 					.filter((e) => e.name === "update")
 					.map((u) => leaves(u).sort()),
 			),
-		).toEqual([keys]);
+			// Beside the block, the text guard that holds both fixed columns'
+			// values to HQ's 255-character bound, as it holds an external id's.
+		).toEqual([keys, ["case_type"]]);
 	});
 
 	it("names the leaf in Case Management's update and the local archive's case block", () => {

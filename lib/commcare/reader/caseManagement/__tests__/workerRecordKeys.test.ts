@@ -265,7 +265,13 @@ describe("a write of the worker's record to a key no worker property takes", () 
 		});
 
 		it(`reads \`location_id\` in ${path} as a worker detail the record keeps as its location`, async () => {
-			const outcome = await readWith(app(), "location_id");
+			// The location is a fixed text column whose write carries the text
+			// guard Nova prints for it, so the source is one Nova printed writing
+			// `location_id`, not a respelled key.
+			const doc = JSON.parse(
+				JSON.stringify(app()).replaceAll(WRITTEN, "location_id"),
+			) as BlueprintDoc;
+			const outcome = await readWith(doc, "location_id");
 			expect(outcome.defects).toEqual([]);
 			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 			if (outcome.kind !== "read") throw new Error("The write did not read.");

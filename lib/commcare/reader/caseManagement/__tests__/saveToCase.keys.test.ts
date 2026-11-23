@@ -221,7 +221,11 @@ describe("a Save to Case block's update key Nova holds as no write", () => {
 
 	for (const key of [WRITTEN, "size", "location_id", "hq_user_id"])
 		it(`reads \`${key}\` as the write it is, into a document the gate admits`, async () => {
-			const outcome = await readWith(key);
+			// A fixed text column's write carries the text guard Nova prints for
+			// it (`generatedNodes.ts::writesFixedTextColumn`), so the source is
+			// one Nova printed writing that key, not a respelled one.
+			const fixed = key === "location_id" || key === "hq_user_id";
+			const outcome = await readWith(key, fixed ? key : WRITTEN);
 			expect(outcome.defects).toEqual([]);
 			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 			if (outcome.kind !== "read") throw new Error("The block did not read.");

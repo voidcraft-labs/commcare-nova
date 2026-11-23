@@ -1543,7 +1543,8 @@ export function buildCaseOperations(
 								)
 							: emitExpression(write.value, writePath, valueSlot);
 				}
-				// `external_id` is a fixed text column whatever its declared type,
+				// `external_id`, `location_id` and `hq_user_id` (HQ's copy into the
+				// external id) are fixed text columns whatever their declared type,
 				// so its value is normalized and checked by the text guard, which
 				// `operationGuardKinds` gives every operation that writes it.
 				if (writesFixedTextColumn(write)) {

@@ -76,6 +76,7 @@ import {
 	type GuardKind,
 	generatedBaseName,
 	operationGuardKinds,
+	writesFixedTextColumn,
 } from "../../xform/generatedNodes";
 import { attributeNamespace, VELLUM_NS } from "../../xmlNamespaces";
 import type { FormSyntax } from "../../xpath/formSyntax";
@@ -1750,13 +1751,15 @@ function readBlock(
 				});
 				continue;
 			}
-			// An external id is the case's own value, never a link to a captured
-			// file (the gate's `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`), so its text
-			// is read as the text it builds, as a case's name is.
+			// An external id, a location or `hq_user_id` (HQ's copy into the
+			// external id) is a fixed text column, never a link to a captured file
+			// (the gate's `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`), so its text is
+			// read as the text it builds, as a case's name is.
+			const fixedText = writesFixedTextColumn({ property });
 			const value = rowValue(
 				ctx,
 				xform,
-				property === "external_id" ? untrimmed(text).text : text,
+				fixedText ? untrimmed(text).text : text,
 				rowPath,
 				block.path[block.path.length - 1] as string,
 			);
@@ -1764,7 +1767,7 @@ function readBlock(
 			// captured file only in a property of its own (the gate's
 			// `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`): outside the vocabulary of
 			// an external id's value, as a name's capture address is (above).
-			if (property === "external_id" && value.value?.kind === "capture")
+			if (fixedText && value.value?.kind === "capture")
 				return fail(OUTSIDE_VOCABULARY);
 			if (value.earlier) {
 				EARLIER_ROWS.set(bind, {
@@ -4411,11 +4414,13 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
  *  judged them. */
 const REFUSED_BLOCKS = new WeakMap<DraftForm, readonly ReadSaveToCaseBlock[]>();
 
-/** The case name and external id rows of a block, by their key under it. */
+/** The case name and fixed text column rows of a block, by their key under it. */
 const SCALAR_ROW_KEYS = [
 	"case/create/case_name",
 	"case/update/case_name",
 	"case/update/external_id",
+	"case/update/location_id",
+	"case/update/hq_user_id",
 ] as const;
 
 /**
