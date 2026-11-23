@@ -72,6 +72,7 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseMappingComparison } from "@/lib/domain/caseMappingRows";
 import {
 	conditionSchema,
 	type Expression,
@@ -132,6 +133,12 @@ const valueExpressionInputSchema = valueSchema as z.ZodType<Expression>;
 const [
 	plainColumnArm,
 	dateColumnArm,
+	dateCountColumnArm,
+	overdueMarkerColumnArm,
+	formattedTextColumnArm,
+	workerDistanceColumnArm,
+	mapLocationColumnArm,
+	mapLayerColumnArm,
 	phoneColumnArm,
 	idMappingColumnArm,
 	imageMapColumnArm,
@@ -233,7 +240,7 @@ const plainColumnInputArm = plainColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
 	...columnViaInput,
 	sort: columnSortInput(
-		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows.",
+		"This column's order rule. A plain column orders by the saved value, as a number for a number property and as text otherwise; shown on Results over a choice property with options, by the option label it shows unless showChoice requests the saved value.",
 	),
 });
 const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots).extend({
@@ -246,6 +253,69 @@ const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots).extend({
 		"How the date is shown, as a CommCare date pattern such as %Y-%m-%d or %B %e, %Y. It can't hold a straight apostrophe ('); a curved one (’) works.",
 	),
 });
+const dateCountColumnInputArm = dateCountColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the saved date. The worker sees the whole number of periods since or until that date.",
+		),
+	});
+const overdueMarkerColumnInputArm = overdueMarkerColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		afterDays: overdueMarkerColumnArm.shape.afterDays.describe(
+			"Show an asterisk when the saved date is missing or more than this many days have elapsed. Zero means after the date passes. A negative number brings the marker forward.",
+		),
+		sort: columnSortInput(
+			"Order by the marker shown. Results has a narrow marker without a heading. Details shows the authored heading.",
+		),
+	});
+const formattedTextColumnInputArm = formattedTextColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the saved text, including the formatting marks.",
+		),
+	});
+const workerDistanceColumnInputArm = workerDistanceColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the distance in metres. Android shows kilometers from the worker's current position.",
+		),
+	});
+const mapLocationColumnInputArm = mapLocationColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput(
+			"Order by the saved coordinates. Android uses the first location with coordinates. Web Apps uses the first location.",
+		),
+	});
+const mapLayerColumnInputArm = mapLayerColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend({
+		...columnInputSlots,
+		...columnViaInput,
+		sort: columnSortInput("Order by the saved map layer value."),
+		visibleInDetail: z
+			.literal(false)
+			.describe(
+				"Map layers belong to Results. Add a separate text item to show the information in Details.",
+			),
+		layer: mapLayerColumnArm.shape.layer.describe(
+			"Each layer needs a map location in Results. A color also needs the matching boundary or points layer. Add prerequisites and layers together in one batch.",
+		),
+	});
 const phoneColumnInputArm = phoneColumnArm.omit(columnToolOwnedSlots).extend({
 	...columnInputSlots,
 	...columnViaInput,
@@ -259,10 +329,10 @@ const idMappingColumnInputArm = idMappingColumnArm
 		...columnInputSlots,
 		...columnViaInput,
 		sort: columnSortInput(
-			"This column's order rule. Shown on Results, an ID mapping orders by the order of its mapping entries, never by label: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
+			"This column's order rule. By default, a label table sorts by mapping order. With first-match behavior it sorts by the displayed label in the worker’s language, with an unmatched value blank.",
 		),
 		mapping: idMappingColumnArm.shape.mapping.describe(
-			"The value-to-label table, one entry for each saved value. A value is one word with no spaces and can't hold &, <, >, \" or '. Entry order matters: it is the order the list sorts this column by.",
+			"Give each row a label and one saved value or typed condition. By default a value matches a sequence between spaces, including a blank. Choose first-match behavior for whole-value equality or a condition. An unmatched case shows no label. On an update, keep each existing row's uuid, including when changing its rule or position.",
 		),
 	});
 const imageMapColumnInputArm = imageMapColumnArm
@@ -274,7 +344,7 @@ const imageMapColumnInputArm = imageMapColumnArm
 			"This column's order rule. Shown on Results, an image map orders by the order of its mapping entries: cases holding the first entry's value come first when ascending, and a value with no entry counts as no value.",
 		),
 		mapping: imageMapColumnArm.shape.mapping.describe(
-			"The value-to-image table, one entry for each saved value. A value is one word with no spaces. Entry order matters: it is the order the list sorts this column by.",
+			"Images in match order. By default each value matches one of the saved choices. Set match to exact to match the entire saved value, including an empty value. For a condition, provide when instead of value and match. Omit assetId to show no image for a match. The first match supplies its image and optional description in Web Apps. Keep that row’s uuid through changes.",
 		),
 	});
 const intervalColumnInputArm = intervalColumnArm
@@ -307,6 +377,9 @@ const calculatedColumnInputArm = calculatedColumnArm
 		sort: columnSortInput(
 			"This column's order rule. A calculated column orders by its result, as a number where the expression gives a number and as text otherwise.",
 		),
+		texts: calculatedColumnArm.shape.texts.describe(
+			"Reusable wording in the calculated field. Give each piece its own UUID and source-language label, then read it using case-text('UUID') in the calculation. Keep each UUID when editing its wording. Translated calculations display and sort in the worker’s language.",
+		),
 		expression: valueExpressionInputSchema,
 	});
 
@@ -337,6 +410,12 @@ export const CASE_LIST_ORDER_GUIDANCE =
 export const columnInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm,
 	dateColumnInputArm,
+	dateCountColumnInputArm,
+	overdueMarkerColumnInputArm,
+	formattedTextColumnInputArm,
+	workerDistanceColumnInputArm,
+	mapLocationColumnInputArm,
+	mapLayerColumnInputArm,
 	phoneColumnInputArm,
 	idMappingColumnInputArm,
 	imageMapColumnInputArm,
@@ -364,6 +443,12 @@ export type ColumnInput = z.infer<typeof columnInputSchema>;
 export const columnUpdateInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm.omit({ tile: true, columnUuid: true }),
 	dateColumnInputArm.omit({ tile: true, columnUuid: true }),
+	dateCountColumnInputArm.omit({ tile: true, columnUuid: true }),
+	overdueMarkerColumnInputArm.omit({ tile: true, columnUuid: true }),
+	formattedTextColumnInputArm.omit({ tile: true, columnUuid: true }),
+	workerDistanceColumnInputArm.omit({ tile: true, columnUuid: true }),
+	mapLocationColumnInputArm.omit({ tile: true, columnUuid: true }),
+	mapLayerColumnInputArm.omit({ tile: true, columnUuid: true }),
 	phoneColumnInputArm.omit({ tile: true, columnUuid: true }),
 	idMappingColumnInputArm.omit({ tile: true, columnUuid: true }),
 	imageMapColumnInputArm.omit({ tile: true, columnUuid: true }),
@@ -693,35 +778,58 @@ export function columnListStateRefusal(
  * Used by `addCaseListColumns` (uuid minted via `newUuid`) and
  * `updateCaseListColumn` (uuid carried through from `columnUuid`).
  */
+import { bindWorkerColumn } from "@/lib/domain/columnRelation";
+import type { UserCollections } from "@/lib/domain/users";
+
 export function stampColumnUuid(
 	column: ColumnInput | ColumnUpdateInput,
 	uuid: Uuid,
+	doc?: UserCollections,
+	previous?: Column,
 ): Column {
 	const { columnUuid: _declaredUuid, ...body } = column as ColumnInput;
 	const via = "via" in body ? body.via : undefined;
-	return {
-		...body,
-		...(via !== undefined && { via: toCaseWriteVia(via) }),
-		/* A column off the list is hidden on Results too, so `notOnList`
-		 * writes `visibleInList: false` with it. One sent shown as well is
-		 * `columnListStateRefusal`'s, and left as sent for the gate. */
-		...(body.notOnList === true &&
-			body.visibleInList === undefined && { visibleInList: false }),
-		...(body.tile !== undefined && { tile: tileCellFromInput(body.tile) }),
-		/* A rule is stored in its one form: `blanks` equal to the
-		 * direction's own is left out. */
-		...(body.sort !== undefined && {
-			sort: columnSort(
-				body.sort.direction,
-				body.sort.priority,
-				body.sort.blanks,
-				body.sort.label,
-				body.sort.comparator,
-				body.sort.menuPosition,
-			),
-		}),
-		uuid,
-	} as Column;
+	return bindWorkerColumn(
+		{
+			...body,
+			...((body.kind === "image-map" || body.kind === "id-mapping") && {
+				mapping: body.mapping.map((row) => {
+					if (row.uuid !== undefined) return row;
+					const prior =
+						previous?.kind === body.kind
+							? previous.mapping.find(
+									(item) =>
+										caseMappingComparison(item) === caseMappingComparison(row),
+								)
+							: undefined;
+					return prior === undefined
+						? { ...row, uuid: newUuid() }
+						: { ...row, ...(prior.uuid && { uuid: prior.uuid }) };
+				}),
+			}),
+			...(via !== undefined && { via: toCaseWriteVia(via) }),
+			/* A column off the list is hidden on Results too, so `notOnList`
+			 * writes `visibleInList: false` with it. One sent shown as well is
+			 * `columnListStateRefusal`'s, and left as sent for the gate. */
+			...(body.notOnList === true &&
+				body.visibleInList === undefined && { visibleInList: false }),
+			...(body.tile !== undefined && { tile: tileCellFromInput(body.tile) }),
+			/* A rule is stored in its one form: `blanks` equal to the
+			 * direction's own is left out. */
+			...(body.sort !== undefined && {
+				sort: columnSort(
+					body.sort.direction,
+					body.sort.priority,
+					body.sort.blanks,
+					body.sort.label,
+					body.sort.comparator,
+					body.sort.menuPosition,
+				),
+			}),
+			uuid,
+		} as Column,
+		Object.values(doc?.userProperties ?? {}),
+	);
 }
 
 /** The cell an input places: its rectangle, with each presentation slot the

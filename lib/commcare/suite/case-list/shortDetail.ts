@@ -1,3 +1,4 @@
+import { suiteMappingCondition } from "./columns";
 // lib/commcare/suite/case-list/shortDetail.ts
 //
 // Suite-XML emission for the case-list short detail —
@@ -362,14 +363,11 @@ export function buildShortDetail(args: {
 		args.assets !== undefined,
 		args.lookupNaming,
 	);
-	const sortNodes = planSortNodes(
-		plan,
-		instanceRootFor({ target, caseSource: args.caseSource }),
-	);
+
 	const ctx: CaseListEmitContext = {
 		wire,
 		moduleIndex,
-		sortByUuid: sortNodes.byUuid,
+		sortByUuid: new Map(),
 		detailKind: "short",
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
@@ -384,6 +382,12 @@ export function buildShortDetail(args: {
 		...(args.columnFieldWord && { columnFieldWord: args.columnFieldWord }),
 	};
 
+	const sortNodes = planSortNodes(
+		plan,
+		instanceRootFor({ target, caseSource: args.caseSource }),
+		(uuid, row, field) => suiteMappingCondition(uuid, row, field, ctx),
+	);
+	const fieldContext = { ...ctx, sortByUuid: sortNodes.byUuid };
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {
 		...texts.strings,
@@ -400,7 +404,7 @@ export function buildShortDetail(args: {
 		const emission = buildColumnField({
 			column: field.column,
 			position: field.position + 1,
-			ctx,
+			ctx: fieldContext,
 			hidden: field.hidden,
 			...(field.hidden &&
 				field.rule?.label !== undefined && { sortLabel: field.rule.label }),

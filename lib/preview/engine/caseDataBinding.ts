@@ -124,7 +124,10 @@ import type {
 	SubmissionResult,
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
-import { previewCaseStoreOrder } from "./caseListOrder";
+import {
+	previewCaseListOrderLocale,
+	previewCaseStoreOrder,
+} from "./caseListOrder";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -1197,6 +1200,7 @@ export async function loadCaseDataAction(
 	/** The completed search answers of a menu whose forms read the search, plain JSON: what its
 	 *  detail columns read as `#search/<name>`. */
 	searchAnswers?: Readonly<Record<string, string>>,
+	language?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1242,6 +1246,15 @@ export async function loadCaseDataAction(
 						new Map(Object.entries(searchAnswers ?? {})),
 					);
 		return await readCaseData(store, {
+			...(environment !== undefined && {
+				locale: previewCaseListOrderLocale(
+					environment.doc,
+					caseType,
+					language ??
+						effectiveAppLocalization(environment.doc.localization)
+							.sourceLanguage,
+				),
+			}),
 			appId,
 			caseType,
 			caseId,

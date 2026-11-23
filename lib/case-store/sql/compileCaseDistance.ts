@@ -44,7 +44,11 @@ const rangeValue = sql`(
 export function compileCaseDistance(
 	value: AliasableExpression<unknown>,
 	viewerLocation: string | null | undefined,
+	mode: "sort" | "display" = "sort",
 ) {
+	if (mode === "display" && !viewerLocation) return sql<string>`''::text`;
+	const blank = mode === "display" ? "" : "2147483647";
+	const invalid = mode === "display" ? "NaN km" : "NaN";
 	if (!viewerLocation)
 		return sql<string>`(case when coalesce((${value})::text, '') = '' then '2147483647' else '-1' end)`;
 
@@ -78,14 +82,19 @@ export function compileCaseDistance(
 		sql`(case when abs(${component}) < 1e-100::float8 then 0::float8 else ${component} end)`;
 	const h = sql`power(sin((latitude - fix_latitude) / 2), 2)
 		+ power(sin(delta_longitude / 2), 2) * cos(latitude) * cos(fix_latitude)`;
-	return sql<string>`(select case when coalesce(raw, '') = '' then '2147483647' else
+	const metres = sql`6371009 * (2 * asin(sqrt(hav)))`;
+	const projected =
+		mode === "sort"
+			? sql`floor(${metres} + 0.5)::bigint::text`
+			: sql`(floor(${metres} / 100 + 0.5) / 10)::text || ' km'`;
+	return sql<string>`(select case when coalesce(raw, '') = '' then ${blank}::text else
 		(select case
 			when cardinality(coordinates) not between 2 and 4 then
 				(${INVALID_COORDINATES}::text || left(raw, 0))::float8::text
 			when not (abs(coordinates[1]) < 'Infinity'::float8 and abs(coordinates[2]) < 'Infinity'::float8)
-				then 'NaN'
+				then ${invalid}::text
 			else (select case when hav >= 0 and sqrt(greatest(hav, 0)) <= 1
-				then floor(6371009 * (2 * asin(sqrt(hav))) + 0.5)::bigint::text else 'NaN' end
+				then ${projected} else ${invalid}::text end
 				from (select ${h} as hav) as distance)
 		end
 		from (select ${point} as coordinates) as parsed

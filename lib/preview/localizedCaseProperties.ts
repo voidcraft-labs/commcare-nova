@@ -59,7 +59,11 @@ export function relatedColumnProperties(
 ): ReadonlyMap<Column["uuid"], CaseProperty | undefined> {
 	const out = new Map<Column["uuid"], CaseProperty | undefined>();
 	for (const column of config?.columns ?? []) {
-		if (column.kind === "calculated" || column.via === undefined) continue;
+		if (
+			column.kind === "calculated" ||
+			(column.via === undefined && !column.readFrom)
+		)
+			continue;
 		const reached = columnPropertyCaseType(column, listCaseType, caseTypes);
 		const properties = propertiesReachedByColumn(
 			column,

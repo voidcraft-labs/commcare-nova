@@ -38,6 +38,7 @@ import { rethrowWorkStop } from "../../workMeter";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
 import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
+import { visitSyntax } from "../../xpath/formSyntax";
 import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
 import { sameJson } from "../jsonCursor";
@@ -1296,6 +1297,18 @@ export const EXPRESSION_CLAIMS = defineClaims("expressions", {
 		"menus-and-case-lists/detail-filter-failing-etree-xpath-dummy-filter",
 		"schema:Detail.filter",
 	),
+	"mapping-label-condition": take(
+		"menus-and-case-lists/20-conditional-enum",
+		"schema:MappingItem.key",
+	),
+	"mapping-image-condition": take(
+		"menus-and-case-lists/19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot",
+		"schema:MappingItem.key",
+	),
+	"mapping-condition-untyped": refuse(
+		"menus-and-case-lists/mapping-condition-outside-predicate",
+		"schema:MappingItem.key",
+	),
 	"calculated-order": take(
 		"menus-and-case-lists/sort-calculation-authored-calculation-row-field",
 		"schema:SortElement.sort_calculation",
@@ -1703,6 +1716,19 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 		C["detail-filter-value-lifts-into-predicate"].entry,
 		C["detail-filter-value-outside-predicate"].entry,
 	),
+	case_list_mapping_condition: {
+		held: (doc, ref) => {
+			if (ref.entity !== "module" || ref.slot !== "case_list_mapping_condition")
+				return undefined;
+			const column = doc.modules[ref.uuid]?.caseListConfig?.columns.find(
+				(c) => c.uuid === ref.member.columnUuid,
+			);
+			return column?.kind === "image-map"
+				? C["mapping-image-condition"].entry
+				: C["mapping-label-condition"].entry;
+		},
+		refused: () => C["mapping-condition-untyped"].entry,
+	},
 	case_list_sort_expression: fixed(
 		C["calculated-order"].entry,
 		C["calculated-order-untyped"].entry,
@@ -1798,37 +1824,7 @@ export function rawTextEntry(
 	};
 }
 
-/** Every node of a syntax tree, pre-order. */
-export function visitSyntax(
-	node: FormSyntax,
-	visit: (node: FormSyntax) => void,
-): void {
-	visit(node);
-	switch (node.kind) {
-		case "group":
-		case "negative":
-		case "axis":
-			visitSyntax(node.value, visit);
-			return;
-		case "child":
-			if (node.left !== undefined) visitSyntax(node.left, visit);
-			visitSyntax(node.step, visit);
-			return;
-		case "filter":
-			visitSyntax(node.base, visit);
-			visitSyntax(node.where, visit);
-			return;
-		case "binary":
-			visitSyntax(node.left, visit);
-			visitSyntax(node.right, visit);
-			return;
-		case "call":
-			for (const arg of node.args) visitSyntax(arg, visit);
-			return;
-		default:
-			return;
-	}
-}
+export { visitSyntax } from "../../xpath/formSyntax";
 
 // ── By parse issue ───────────────────────────────────────────────────
 

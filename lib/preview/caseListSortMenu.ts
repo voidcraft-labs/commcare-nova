@@ -155,10 +155,18 @@ export function caseListSortOptions(args: {
 	const { plan, columns, rules, tiled, choice } = args;
 	const fields = detailFields(plan, columns);
 	const nameOf = (field: SortField) =>
-		field.hidden ? (field.rule?.label?.text ?? "") : field.column.header;
+		field.hidden
+			? (field.rule?.label?.text ?? "")
+			: field.column.kind === "overdue-marker"
+				? ""
+				: field.column.header;
 	const listed =
 		rules.lists === "named-fields"
-			? fields.filter((field) => !field.hidden || nameOf(field) !== "")
+			? fields.filter(
+					(field) =>
+						(!field.hidden && field.column.kind !== "overdue-marker") ||
+						nameOf(field) !== "",
+				)
 			: listOrderFields(fields).filter((field) => tiled || !field.hidden);
 	const pick = choice.picks[0];
 	const ordered = listOrderFields(fields);

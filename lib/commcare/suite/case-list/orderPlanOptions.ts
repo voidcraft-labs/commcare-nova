@@ -46,6 +46,7 @@ import type { WireExpr } from "../../xpath/wire/tree";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
 import { columnPropertyPath } from "../wire";
+import { bindCaseTextVariables, caseTextKeyPadding } from "./calculationText";
 import {
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
@@ -146,7 +147,7 @@ export function hqExpressionField(
 			);
 			if (related.kind === "ancestor-property") return related.hqExpression;
 		}
-		return toWire(column.expression, {
+		const wire = toWire(column.expression, {
 			target: "hq-json",
 			types: expressions({
 				slot: "case_list_column_expression",
@@ -163,13 +164,20 @@ export function hqExpressionField(
 			},
 			...(rewrites === undefined ? {} : { rewrites }),
 		});
+		return column.texts
+			? bindCaseTextVariables(wire, caseTextKeyPadding(wire, column.texts))
+			: wire;
 	}
 	const path = columnPropertyPath(column);
 	if (screen === "results" && column.visibleInList === false) return path;
 	switch (column.kind) {
 		case "plain": {
 			const property = columnProperty(column, mod, effectiveCaseTypes(doc));
-			if (property === undefined || !casePropertyShowsOptionLabels(property)) {
+			if (
+				column.showChoice === "saved-value" ||
+				property === undefined ||
+				!casePropertyShowsOptionLabels(property)
+			) {
 				return path;
 			}
 			return plainSelectDisplayXpath(path, property, doc, (_option, index) =>

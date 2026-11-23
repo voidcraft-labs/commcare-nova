@@ -1,6 +1,10 @@
 /** Project semantic findings from this saved slot, preserving its owning validation code. */
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import { checkExpression, slotContext } from "@/lib/domain/expression";
+import {
+	checkExpression,
+	slotContext,
+	walkExpressionNodes,
+} from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -21,7 +25,84 @@ export function calculatedColumnTypeCheck(
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
+		if (column.kind === "id-mapping" || column.kind === "image-map") {
+			for (const [rowIndex, row] of column.mapping.entries()) {
+				if (!row.when) continue;
+				const details = {
+					columnUuid: column.uuid,
+					slot: `caseListConfig.columns[${index}].mapping[${rowIndex}].when`,
+					registrySlot: "case_list_mapping_condition",
+					rowIndex: String(rowIndex),
+				};
+				const location = { moduleUuid, moduleName: mod.name };
+				if (
+					!row.uuid ||
+					(column.kind === "id-mapping" && column.behavior !== "first-match")
+				) {
+					errors.push(
+						validationError(
+							"CASE_LIST_MAPPING_CONDITION",
+							"module",
+							"Choose the first matching rule for this row and give it a stable identity.",
+							location,
+							details,
+						),
+					);
+					continue;
+				}
+				const ctx = slotContext(
+					doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_list_mapping_condition",
+						member: { columnUuid: column.uuid, rowUuid: row.uuid },
+					},
+					lookupTables ?? new Map(),
+				);
+				if (!ctx) continue;
+				for (const problem of semanticCheckErrors(
+					checkExpression(row.when, ctx),
+				))
+					errors.push(
+						validationError(
+							"CASE_LIST_MAPPING_CONDITION",
+							"module",
+							`Rule ${rowIndex + 1} in "${column.header}" needs a condition for this case. ${problem.message}`,
+							location,
+							{ ...details, ...checkErrorDetails(problem) },
+						),
+					);
+			}
+		}
 		if (column.kind !== "calculated") continue;
+		let hiddenTextRead = false;
+		if (
+			column.texts?.length &&
+			column.visibleInList === false &&
+			!column.notOnList
+		)
+			walkExpressionNodes(column.expression, (node) => {
+				if (node.kind === "case-text") hiddenTextRead = true;
+			});
+		if (
+			(column.texts !== undefined && column.showAs === "formatted-text") ||
+			hiddenTextRead
+		)
+			errors.push(
+				validationError(
+					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+					"module",
+					column.showAs === "formatted-text"
+						? "Translated calculations display plain text. Choose Plain text to use this wording."
+						: "A hidden list calculation cannot read translated wording. Show this field on the list or remove it from Results and keep it on Details.",
+					{ moduleUuid, moduleName: mod.name },
+					{
+						columnUuid: column.uuid,
+						slot: `caseListConfig.columns[${index}].texts`,
+					},
+				),
+			);
 		const ctx = slotContext(
 			doc,
 			{

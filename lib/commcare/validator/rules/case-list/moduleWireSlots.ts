@@ -55,6 +55,7 @@ import type { ValidationError } from "../../errors";
 export type ModuleWireSlotSurface =
 	| "filter"
 	| "calculated-column"
+	| "mapping-condition"
 	| "calculated-sort"
 	| "search-input-default"
 	| "search-input-required"
@@ -133,6 +134,26 @@ export function collectModuleWireSlotFindings(
 	const columns = mod.caseListConfig?.columns ?? [];
 	for (let index = 0; index < columns.length; index += 1) {
 		const column = columns[index];
+		if (column.kind === "id-mapping" || column.kind === "image-map") {
+			for (const [rowIndex, row] of column.mapping.entries())
+				if (row.when && row.uuid)
+					collect(
+						judge.judgePredicate(row.when, {
+							mod,
+							moduleUuid,
+							slot: `caseListConfig.columns[${index}].mapping[${rowIndex}].when`,
+							ref: {
+								entity: "module",
+								uuid: moduleUuid,
+								slot: "case_list_mapping_condition",
+								member: { columnUuid: column.uuid, rowUuid: row.uuid },
+							},
+							slotLabel: `rule ${rowIndex + 1} in "${column.header}"`,
+							surface: "mapping-condition",
+							column: { uuid: column.uuid, label: column.header },
+						}),
+					);
+		}
 		if (column.kind !== "calculated") continue;
 		const label = column.header || "Untitled field";
 		collect(

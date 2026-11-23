@@ -34,7 +34,6 @@ import { isDeepStrictEqual } from "node:util";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import {
-	type AliasableExpression,
 	type Insertable,
 	type InsertObject,
 	type Kysely,
@@ -453,16 +452,25 @@ const GROUP_KEY_ALIAS = "__nova_group_key";
  * (commcare-core `xpath/expr/XPathSelectedFunc`), a blank value reading as
  * `""`. `strpos` compares exactly, with no pattern characters to escape.
  */
-function compileMappingPosition(
-	deviceText: AliasableExpression<unknown>,
-	values: readonly string[],
+function compileCaseMapping(
+	key: Extract<SortKey, { kind: "case-mapping" }>,
+	ctx: ExpressionCompileContext,
 ): RawBuilder<unknown> {
-	const padded = sql<string>`(' ' || coalesce((${deviceText})::text, '') || ' ')`;
-	return values.reduceRight<RawBuilder<unknown>>(
-		(elseArm, value, index) =>
-			sql<unknown>`(case when strpos(${padded}, ${` ${value} `}::text) > 0 then ${String(index)}::text else ${elseArm} end)`,
-		sql<unknown>`''::text`,
+	const deviceText = compileDeviceTextExpression(
+		key.expression,
+		key.showOwner ? { ...ctx, showColumnOwnerName: true } : ctx,
 	);
+	const value = sql<string>`coalesce((${deviceText})::text,'')`;
+	const padded = sql<string>`(' ' || ${value} || ' ')`;
+	return key.rows.reduceRight<RawBuilder<unknown>>((otherwise, row) => {
+		const matches =
+			row.match === "condition"
+				? compilePredicate(row.when, ctx)
+				: row.match === "exact"
+					? sql<boolean>`${value} = ${row.value}::text`
+					: sql<boolean>`strpos(${padded}, ${` ${row.value} `}::text) > 0`;
+		return sql<unknown>`(case when ${matches} then ${row.result}::text else ${otherwise} end)`;
+	}, sql<unknown>`''::text`);
 }
 
 /**
@@ -494,16 +502,17 @@ function compileSortKey(
 	readonly expression: RawBuilder<unknown>;
 	readonly direction: "asc" | "desc";
 }[] {
+	const context = key.showOwner
+		? { ...exprCtx, showColumnOwnerName: true }
+		: exprCtx;
 	const rawValue =
-		key.kind === "mapping-position"
-			? compileMappingPosition(
-					compileDeviceTextExpression(key.expression, exprCtx),
-					key.values,
-				)
+		key.kind === "case-mapping"
+			? compileCaseMapping(key, exprCtx)
 			: key.kind === "interval-text"
 				? compileIntervalText(
 						{
 							caseType,
+							readFrom: key.readFrom,
 							...(key.relation !== undefined && { via: key.relation.via }),
 							property: key.property,
 							display: key.display,
@@ -511,9 +520,9 @@ function compileSortKey(
 							divisorDays: key.divisorDays,
 							text: key.text,
 						},
-						exprCtx,
+						context,
 					)
-				: compileDeviceTextExpression(key.expression, exprCtx);
+				: compileDeviceTextExpression(key.expression, context);
 	const value =
 		key.kind === "distance"
 			? compileCaseDistance(rawValue, exprCtx.bindings.viewerLocation)
@@ -904,10 +913,19 @@ export class PostgresCaseStore implements CaseStore {
 		// Calculated columns and sort keys read the row as the columns'
 		// reading holds it; under an effective Search that is the results
 		// instance, not the query that chose the rows.
-		const exprCtx = expressionContextFor({
-			...ctx,
-			reading: args.reading.columns,
-		});
+		const deviceGroups = (args.restoreScope ?? args.searchPopulation?.heldBy)
+			?.groups;
+		const exprCtx: ExpressionCompileContext = {
+			...expressionContextFor({ ...ctx, reading: args.reading.columns }),
+			...(heldBy && { restrictWorkerToRestore: heldBy.restrict }),
+			...(deviceGroups !== undefined &&
+				(related.some((read) => read.showOwner) ||
+					args.sort?.some((key) => key.showOwner)) && {
+					workerGroupNames: JSON.stringify(
+						deviceGroups.map(({ id, name }) => ({ id, name })),
+					),
+				}),
+		};
 
 		// Calculated-column aliases are EMITTED with a fixed prefix so
 		// they cannot collide with any `cases` column the
@@ -1061,8 +1079,19 @@ export class PostgresCaseStore implements CaseStore {
 			);
 		}
 		for (const read of related) {
-			const text = compileDeviceTextExpression(read.expression, exprCtx);
-			qb = qb.select(text.as(aliasFor(read.uuid)));
+			const text = compileDeviceTextExpression(
+				read.expression,
+				read.showOwner ? { ...exprCtx, showColumnOwnerName: true } : exprCtx,
+			);
+			const shown =
+				read.display === "distance"
+					? compileCaseDistance(
+							text,
+							exprCtx.bindings.viewerLocation,
+							"display",
+						)
+					: text;
+			qb = qb.select(shown.as(aliasFor(read.uuid)));
 		}
 
 		if (args.predicate !== undefined) {

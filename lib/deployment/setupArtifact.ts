@@ -32,7 +32,10 @@
 
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import { distanceSearchProperties } from "@/lib/commcare/distanceSearches";
-import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
+import {
+	formsUsingWorkerRecord,
+	menusUsingWorkerRecord,
+} from "@/lib/commcare/planPrivileges";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
 import {
@@ -870,21 +873,27 @@ function workerRecordSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
 	const forms = formsUsingWorkerRecord(input.doc);
-	if (forms.length === 0) return null;
+	const menus = menusUsingWorkerRecord(input.doc);
+	if (forms.length === 0 && menus.length === 0) return null;
 	return {
 		id: "worker-record",
 		title: workerRecordSetup.title,
 		summary: workerRecordSetup.detail,
 		url: null,
-		steps: forms.map((form) =>
-			step(form.formUuid, form.name, [
-				form.reads && form.writes
-					? "Reads and saves worker information"
-					: form.reads
-						? "Reads worker information"
-						: "Saves worker information",
-			]),
-		),
+		steps: [
+			...forms.map((form) =>
+				step(form.formUuid, form.name, [
+					form.reads && form.writes
+						? "Reads and saves worker information"
+						: form.reads
+							? "Reads worker information"
+							: "Saves worker information",
+				]),
+			),
+			...menus.map((menu) =>
+				step(menu.uuid, menu.name, ["Shows worker information in a case view"]),
+			),
+		],
 		caveats: [workerRecordSetup.consequences],
 	};
 }

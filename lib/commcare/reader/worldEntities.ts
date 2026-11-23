@@ -35,6 +35,7 @@ import {
 } from "@/lib/domain";
 import type { Term } from "@/lib/domain/expression/types";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import { USERCASE_BUILT_IN_KEYS } from "@/lib/domain/usercase";
 import { circumstanceFinding, type Finding } from "@/lib/publish/hqFindings";
 import type { HqLocationType } from "../hq/locations";
@@ -489,6 +490,16 @@ function worldReadsOf(doc: BlueprintDoc): {
 		const node = value as Record<string, unknown>;
 		if (node.kind === "session-user" && typeof node.field === "string")
 			worker(node.field, node.source, true);
+		else if (
+			node.readFrom === "worker-record" &&
+			typeof node.field === "string" &&
+			!isStandardCaseListProperty(node.field)
+		)
+			worker(
+				node.field,
+				"worker-record",
+				node.workerPropertyUuid === undefined,
+			);
 		else if (node.kind === "user-ref" && typeof node.property === "string")
 			worker(node.property, "worker-record", true);
 		else if (
@@ -680,6 +691,11 @@ function rebindWorkerReads(
 		) as Term;
 	};
 	const rewrite: SlotReadRewrite = {
+		mapWorkerColumn: (field, uuid) => {
+			if (uuid && !named.has(uuid)) return undefined;
+			const slug = uuid ? named.get(uuid) : field;
+			return slug ? { field: slug, uuid: bound.get(slug) } : undefined;
+		},
 		mapTerm(term) {
 			if (term.kind === "session-user-property") {
 				const slug = named.get(term.userPropertyUuid);

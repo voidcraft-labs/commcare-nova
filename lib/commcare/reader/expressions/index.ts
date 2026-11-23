@@ -320,6 +320,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"operationUuid",
 		"columnUuid",
 		"sortUuid",
+		"rowUuid",
 		"searchInputUuid",
 		"optionUuid",
 	])
@@ -477,7 +478,10 @@ function registrationName(
 			);
 			return sort?.label ?? "Default order";
 		}
-		if (ref.slot === "case_list_column_expression") {
+		if (
+			ref.slot === "case_list_column_expression" ||
+			ref.slot === "case_list_mapping_condition"
+		) {
 			const column = config?.columns.find(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
 			);

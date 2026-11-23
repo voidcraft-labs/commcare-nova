@@ -253,6 +253,8 @@ function orderKeyClass(column: JoinedColumn | undefined): string | undefined {
 	switch (body.kind) {
 		case "link":
 			return "link-text";
+		case "overdue-marker":
+			return `overdue-marker ${field} ${body.afterDays}`;
 		case "interval":
 			return `interval-text ${JSON.stringify(body.text)}`;
 		case "id-mapping":
@@ -649,7 +651,12 @@ export function readSortElements(
 				const related = readRelationField(text, relation);
 				const read =
 					related?.kind === "property"
-						? { field: related.name, via: related.via }
+						? {
+								field: related.name,
+								...(related.via && { via: related.via }),
+								...(related.readFrom && { readFrom: related.readFrom }),
+								...(related.showOwner && { showOwner: related.showOwner }),
+							}
 						: { field: renamedField(text) };
 				const property = renamedField(text);
 				sameState(

@@ -6,9 +6,11 @@ import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	plainColumn,
+	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { matchAll, today } from "@/lib/domain/expression";
+import { uuidSchema } from "@/lib/domain/uuid";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -75,6 +77,40 @@ describe("addCaseListColumns", () => {
 			},
 			{ direction: "desc", priority: 0, label: "Beta order" },
 		]);
+	});
+
+	it("lets the shared tool choose a stored value independently of the label of the same case property", async () => {
+		const doc = makeCaseListDoc();
+		const patient = doc.caseTypes?.find((type) => type.name === "patient");
+		if (!patient) throw new Error("Expected the patient case type.");
+		patient.properties.push({
+			name: "village",
+			label: proseText("Village"),
+			data_type: "single_select",
+			options: [{ value: "north", label: proseText("Northern district") }],
+		});
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [
+				{ kind: "plain", field: "village", header: "Area" },
+				{
+					kind: "plain",
+					field: "village",
+					header: "Code",
+					showChoice: "saved-value",
+				},
+			],
+		});
+		expect(result.result).not.toHaveProperty("error");
+		const columns = h
+			.currentDoc()
+			.modules[MOD_A]?.caseListConfig?.columns.slice(-2);
+		expect(columns).toMatchObject([
+			{ header: "Area" },
+			{ header: "Code", showChoice: "saved-value" },
+		]);
+		expect(columns?.[0]).not.toHaveProperty("showChoice");
 	});
 
 	it("adds multiple columns in one call, in order, in one host batch", async () => {
@@ -343,8 +379,24 @@ describe("addCaseListColumns", () => {
 		const finalCols =
 			h.currentDoc().modules[MOD_A]?.caseListConfig?.columns ?? [];
 		expect(finalCols).toHaveLength(columns.length + 1);
+		const saved = finalCols.slice(-columns.length);
+		const rowIds = saved.flatMap((column) =>
+			column.kind === "id-mapping" || column.kind === "image-map"
+				? column.mapping.map((row) => row.uuid)
+				: [],
+		);
+		expect(rowIds).toHaveLength(4);
+		expect(rowIds.every((id) => uuidSchema.safeParse(id).success)).toBe(true);
+		expect(new Set(rowIds).size).toBe(rowIds.length);
 		expect(
-			finalCols.slice(-columns.length).map(({ uuid: _uuid, ...body }) => body),
+			saved.map(({ uuid: _column, ...body }) =>
+				body.kind === "id-mapping" || body.kind === "image-map"
+					? {
+							...body,
+							mapping: body.mapping.map(({ uuid: _row, ...row }) => row),
+						}
+					: body,
+			),
 		).toEqual(columns);
 	});
 

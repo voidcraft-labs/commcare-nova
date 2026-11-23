@@ -22,19 +22,27 @@ import type { Database } from "@/lib/case-store/sql/database";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CasePropertyDataType,
+	calculatedColumn,
 	columnSort,
+	makeTranslationUnitId,
 	plainColumn,
 	proseText,
 	type SortBlanks,
 	type SortDirection,
+	translationUnitsById,
+	workerDistanceValueId,
 } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/expression";
+import { eq, ifExpr, literal, prop, term } from "@/lib/domain/expression";
 import {
 	CASEDB_READING,
 	SEARCH_READING,
 } from "@/lib/domain/expression/temporalType";
-import { readCases } from "../caseDataBindingHelpers";
-import { previewCaseStoreOrder } from "../caseListOrder";
+import { readCaseData, readCases } from "../caseDataBindingHelpers";
+import {
+	previewCaseListOrderLocale,
+	previewCaseStoreOrder,
+} from "../caseListOrder";
 
 import { serverPreviewDataRefusalOf } from "../serverDataRefusal";
 
@@ -263,9 +271,12 @@ describe("an ID mapping orders as a device's selected() reads it", () => {
 			caseTypeSchemas: schemas(),
 			sort: [
 				{
-					kind: "mapping-position",
+					kind: "case-mapping",
 					expression: term(prop(CASE_TYPE, "value")),
-					values: ["a", "b"],
+					rows: [
+						{ match: "selected", value: "a", result: "0" },
+						{ match: "selected", value: "b", result: "1" },
+					],
 					direction: "asc",
 					blanks: "last",
 				},
@@ -300,7 +311,7 @@ const NAME = testUuid("case-list-order-name");
 function orderedListDoc(
 	property: {
 		readonly name: string;
-		readonly data_type?: "datetime" | "geopoint" | "text";
+		readonly data_type?: CasePropertyDataType;
 	},
 	sort: ReturnType<typeof columnSort>,
 ): { doc: BlueprintDoc; config: CaseListConfig } {
@@ -344,12 +355,13 @@ function orderedListDoc(
 	return { doc, config };
 }
 
-async function previewOrder(
+async function previewRows(
 	store: PostgresCaseStore,
 	doc: BlueprintDoc,
 	config: CaseListConfig,
 	viewerLocation?: string,
-): Promise<string[]> {
+	language = "eng",
+) {
 	const mod = Object.values(doc.modules)[0];
 	if (mod?.caseType === undefined) throw new Error("Expected the module.");
 	const result = await readCases(store, {
@@ -364,13 +376,139 @@ async function previewOrder(
 			{ ...mod, caseType: mod.caseType },
 			doc,
 			config,
-			"eng",
+			language,
 		),
 	});
 	if (result.kind !== "rows")
 		throw new Error(`Expected rows, got ${result.kind}.`);
-	return result.rows.map((row) => row.case_id);
+	return result.rows;
 }
+
+async function previewOrder(...args: Parameters<typeof previewRows>) {
+	return (await previewRows(...args)).map((row) => row.case_id);
+}
+
+it("uses the worker's translated calculation in list display, order and a Details read", async () => {
+	const word = { uuid: testUuid("translated-order-word"), label: "Apple" };
+	const column = {
+		...calculatedColumn(
+			ORDERED,
+			"Route",
+			ifExpr(
+				eq(prop(CASE_TYPE, "case_name"), literal("Riverside")),
+				{ kind: "case-text", textUuid: word.uuid },
+				term(literal("Middle")),
+			),
+			{ sort: columnSort("asc", 0) },
+		),
+		texts: [word],
+	};
+	const config: CaseListConfig = {
+		columns: [column],
+		listColumnOrder: [ORDERED],
+		detailColumnOrder: [ORDERED],
+		searchInputs: [],
+	};
+	const doc = buildDoc({
+		appId: APP_ID,
+		appName: "Routes",
+		modules: [
+			{
+				name: "Routes",
+				caseType: CASE_TYPE,
+				caseListMenuItem: {},
+				caseListConfig: config,
+			},
+		],
+		caseTypes: [
+			{
+				name: CASE_TYPE,
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+	});
+	const unitId = makeTranslationUnitId(
+		"column",
+		ORDERED,
+		"calculation-text",
+		word.uuid,
+	);
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fr" },
+		translations: { fra: {} },
+	};
+	const unit = translationUnitsById(doc).get(unitId);
+	if (!unit) throw new Error("Missing translated phrase.");
+	doc.localization.translations.fra[unitId] = {
+		value: "Pomme",
+		sourceFingerprint: unit.sourceFingerprint,
+		origin: "human",
+		review: "reviewed",
+		translatedFrom: "eng",
+	};
+	const store = makeStore();
+	const caseTypeSchemas = buildCaseTypeMap(doc);
+	await store.applySchemaChange({
+		appId: APP_ID,
+		caseType: CASE_TYPE,
+		caseTypeSchemas,
+	});
+	for (const [case_id, case_name] of [
+		["river", "Riverside"],
+		["hill", "Hilltop"],
+	]) {
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id,
+				case_type: CASE_TYPE,
+				case_name,
+				status: "open",
+				properties: {},
+			},
+		});
+	}
+	for (const [language, expected] of [
+		[
+			"eng",
+			[
+				["river", "Apple"],
+				["hill", "Middle"],
+			],
+		],
+		[
+			"fra",
+			[
+				["hill", "Middle"],
+				["river", "Pomme"],
+			],
+		],
+	] as const) {
+		const rows = await previewRows(store, doc, config, undefined, language);
+		expect(rows.map((row) => [row.case_id, row.calculated[ORDERED]])).toEqual(
+			expected,
+		);
+		const detail = await readCaseData(store, {
+			reading: CASEDB_READING,
+			appId: APP_ID,
+			caseType: CASE_TYPE,
+			caseId: "river",
+			ancestorDepth: 0,
+			caseTypeSchemas,
+			caseListConfig: config,
+			locale: previewCaseListOrderLocale(doc, CASE_TYPE, language),
+		});
+		expect(detail).toMatchObject({
+			kind: "row",
+			row: {
+				calculated: { [ORDERED]: language === "eng" ? "Apple" : "Pomme" },
+			},
+		});
+	}
+});
 
 it("uses an independent numeric calculation first and a displayed name for ties", async () => {
 	const name = plainColumn(NAME, "case_name", "Name", {
@@ -485,6 +623,60 @@ it("orders from the worker's current position and keeps the missing location sen
 		"a-far",
 		"b-near",
 		"c-missing",
+	]);
+});
+
+it("shows Android kilometres rounded from metres and leaves an unavailable distance blank", async () => {
+	const { doc, config } = orderedListDoc(
+		{ name: "location", data_type: "geopoint" },
+		columnSort("asc", 0, "first", undefined, "distance"),
+	);
+	const distance: CaseListConfig = {
+		...config,
+		columns: config.columns.map((column) =>
+			column.uuid === ORDERED && column.kind === "plain"
+				? { ...column, kind: "worker-distance" as const }
+				: column,
+		),
+	};
+	const store = makeStore();
+	await store.applySchemaChange({
+		appId: APP_ID,
+		caseType: CASE_TYPE,
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	});
+	// 149.56 m and 150.12 m straddle the 0.1 km display boundary, although
+	// the nearest-metre sort key of both is 150.
+	for (const [id, location] of [
+		["a-close", "0 0.001345 0 5"],
+		["b-farther", "0 0.001350 0 5"],
+		["c-missing", undefined],
+	] as const) {
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: CASE_TYPE,
+				case_id: id,
+				case_name: id,
+				status: "open",
+				properties: location ? { location } : {},
+			},
+		});
+	}
+	const read = async (fix?: string) =>
+		(await previewRows(store, doc, distance, fix)).map((row) => [
+			row.case_id,
+			row.calculated[workerDistanceValueId(ORDERED)],
+		]);
+	expect(await read("0 0 0 5")).toEqual([
+		["a-close", "0.1 km"],
+		["b-farther", "0.2 km"],
+		["c-missing", ""],
+	]);
+	expect(await read()).toEqual([
+		["a-close", ""],
+		["b-farther", ""],
+		["c-missing", ""],
 	]);
 });
 

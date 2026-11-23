@@ -45,6 +45,13 @@ const english = {
 	resultRange: "{start}–{end} of {total}",
 	showingResults: "Showing {count}",
 	resultsFound: "{count} found",
+	showCaseMap: "Show map",
+	hideCaseMap: "Hide map",
+	caseMap: "Case locations",
+	caseMapUnavailable:
+		"The map could not open. You can still choose a case from the list.",
+	invalidMapInformation: "Some saved map information could not be drawn.",
+	showCaseAddress: "Show address",
 	pageFilterScope:
 		"This filter checks the {count} on this page. Go to another page to check more cases.",
 	viewCaseDetails: "View details for {name}",
@@ -369,6 +376,13 @@ const spanish: Record<RuntimeMessage, string> = {
 	resultRange: "{start}–{end} de {total}",
 	showingResults: "Mostrando {count}",
 	resultsFound: "Resultados: {count}",
+	showCaseMap: "Mostrar mapa",
+	hideCaseMap: "Ocultar mapa",
+	caseMap: "Ubicaciones de los registros",
+	caseMapUnavailable:
+		"No se pudo abrir el mapa. Puede elegir un registro de la lista.",
+	invalidMapInformation: "No se pudieron mostrar algunos datos del mapa.",
+	showCaseAddress: "Mostrar dirección",
 	pageFilterScope:
 		"Este filtro busca en esta página ({count}). Puede ir a otra página para buscar más registros.",
 	viewCaseDetails: "Ver detalles de {name}",

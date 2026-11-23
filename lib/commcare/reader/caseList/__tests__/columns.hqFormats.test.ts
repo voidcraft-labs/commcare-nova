@@ -7,9 +7,15 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn } from "@/lib/domain/modules";
+import {
+	calculatedColumn,
+	columnFieldText,
+	plainColumn,
+} from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { matchingResolver } from "../../identity";
+import { readProjectionInputs } from "../../projectionInputs";
 import { patients, uuid } from "./fixtures";
 import {
 	type AppJson,
@@ -65,53 +71,318 @@ function addColumn(detail: Detail, change: Record<string, unknown>): void {
 }
 
 describe("CommCare HQ's column formats", () => {
+	it.each([
+		["#owner_name", "owner_id", undefined, "name", "#owner_name"],
+		["user/district", "district", "worker-record", undefined, "user/district"],
+		[
+			"user/parent/district",
+			"district",
+			"worker-record",
+			undefined,
+			"user/district",
+		],
+		[
+			"user/manager/#owner_name",
+			"owner_id",
+			"worker-record",
+			"name",
+			"user/#owner_name",
+		],
+	] as const)(
+		"reads the worker or owner field %s",
+		async (source, property, worker, owner, output) => {
+			const reading = await readDetails((short, long) => {
+				for (const detail of [short, long])
+					Object.assign(detail.columns[1] ?? {}, { field: source });
+			}, false);
+			expect(closedCodes(reading)).toEqual([]);
+			const column = listOf(reading).columns.find(
+				(one) => one.header === "Notes",
+			);
+			expect(column).toBeDefined();
+			if (!column || column.kind === "calculated")
+				throw new Error("Expected a property column");
+			expect(column.field).toBe(property);
+			expect(column.readFrom).toBe(worker);
+			expect(column.showOwner).toBe(owner);
+			expect(columnFieldText(column)).toBe(output);
+		},
+	);
+
+	it("binds translated calculation pieces while preserving HQ's changes to quoted text", async () => {
+		const read = await readDetails((short, long) => {
+			for (const detail of [short, long])
+				Object.assign(detail.columns[1], {
+					field: "concat($greeting, ' greeting ', notes)",
+					useXpathExpression: true,
+					format: "translatable-enum",
+					enum: [{ key: "greeting", value: { en: "Hello" } }],
+				});
+		}, false);
+		expect(
+			closedCodes(read),
+			JSON.stringify(read.ctx.close().findings),
+		).toEqual([]);
+		const column = listOf(read).columns[1];
+		if (column.kind !== "calculated")
+			throw new Error("Missing translated calculation");
+		expect(column.texts).toEqual([
+			{ uuid: expect.any(String), label: "Hello" },
+		]);
+		expect(column.expression).toMatchObject({
+			kind: "concat",
+			parts: [
+				{ kind: "case-text", textUuid: column.texts?.[0].uuid },
+				{ kind: "term", term: { kind: "literal", value: " kgreeting " } },
+				{ kind: "term", term: { kind: "prop", property: "notes" } },
+			],
+		});
+		const doc = read.ctx.doc;
+		if (!doc) throw new Error("Missing bound document");
+		const reread = await readLists(doc, {
+			identity: readProjectionInputs(read.ctx).identity,
+			input: (input) => ({
+				...input,
+				resolver: matchingResolver(input.appId, read.ctx.identities.entries()),
+			}),
+		});
+		expect(
+			closedCodes(reread),
+			JSON.stringify(reread.ctx.close().findings),
+		).toEqual([]);
+		expect(listOf(reread).columns[1]).toMatchObject({
+			uuid: column.uuid,
+			expression: column.expression,
+			texts: column.texts,
+		});
+	});
+	it("keeps an authored literal equal to a translated piece's usual wire name", async () => {
+		const word = { uuid: uuid(3), label: "Village" };
+		const literal = "case_text_00000000000040008000000000000003";
+		const column = {
+			...calculatedColumn(uuid(2), "Visit", {
+				kind: "concat",
+				parts: [
+					{ kind: "case-text", textUuid: word.uuid },
+					{ kind: "term", term: { kind: "literal", value: literal } },
+				],
+			}),
+			texts: [word],
+		};
+		const read = await readLists(patients([column]));
+		expect(
+			closedCodes(read),
+			JSON.stringify(read.ctx.close().findings),
+		).toEqual([]);
+		const stored = read.app.modules[0].case_details.short.columns[0];
+		expect(stored.enum).toMatchObject([{ key: `v${literal}` }]);
+		expect(listOf(read).columns[0]).toMatchObject({
+			kind: "calculated",
+			expression: {
+				kind: "concat",
+				parts: [
+					{ kind: "case-text" },
+					{ kind: "term", term: { kind: "literal", value: literal } },
+				],
+			},
+		});
+	});
+	it("normalizes a non-calculated translated value without losing its unused wording", async () => {
+		const read = await readFormat({
+			format: "translatable-enum",
+			field: "notes",
+			enum: [{ key: "greeting", value: { en: "Hello" } }],
+		});
+		expect(closedCodes(read)).toEqual([]);
+		expect(listOf(read).columns[1]).toMatchObject({
+			kind: "calculated",
+			texts: [{ label: "Hello" }],
+		});
+	});
+	it("keeps a distance order on a translated saved property bound to the real row", async () => {
+		const read = await readDetails((short, long) => {
+			for (const detail of [short, long])
+				Object.assign(detail.columns[1], {
+					format: "translatable-enum",
+					field: "notes",
+					useXpathExpression: false,
+					enum: [{ key: "visit", value: { en: "Visit" } }],
+				});
+			short.sort_elements = [
+				{
+					field: "notes",
+					type: "distance",
+					direction: "ascending",
+					blanks: "first",
+					display: { en: "" },
+					sort_calculation: "",
+					doc_type: "SortElement",
+				},
+			];
+		}, false);
+		expect(
+			closedCodes(read),
+			JSON.stringify(read.ctx.close().findings),
+		).toEqual([]);
+		expect(listOf(read).columns[1]).toMatchObject({
+			kind: "calculated",
+			sort: { comparator: "distance" },
+			texts: [{ label: "Visit" }],
+		});
+	});
+	it.each(["conditional-enum", "enum-image"])(
+		"retains each ordered %s rule when distinct keys have the same effective condition",
+		async (format) => {
+			const keys = [". = 'urgent'", "urgent", "(notes = 'urgent')"];
+			const read = await readDetails((short, long) => {
+				for (const detail of [short, long])
+					Object.assign(detail.columns[1], {
+						format,
+						field: "notes",
+						enum: keys.map((key, index) =>
+							format === "conditional-enum"
+								? { key, value: { en: `Label ${index}` } }
+								: {
+										key,
+										value: { en: "" },
+										alt_text: { en: `Image ${index}` },
+									},
+						),
+					});
+			}, false);
+			expect(
+				closedCodes(read),
+				JSON.stringify(read.ctx.close().findings),
+			).toEqual([]);
+			const column = listOf(read).columns[1];
+			if (column.kind !== "image-map" && column.kind !== "id-mapping")
+				throw new Error("Missing case rules");
+			expect(column.mapping).toHaveLength(3);
+			expect(new Set(column.mapping.map((entry) => entry.uuid)).size).toBe(3);
+			expect(
+				column.mapping.map((entry) => (entry.when ? "condition" : entry.value)),
+			).toEqual(["condition", "urgent", "condition"]);
+			expect(column.mapping[0].when).toEqual(column.mapping[2].when);
+		},
+	);
+	it("binds an ordered native condition to the displayed case property on both screens", async () => {
+		const read = await readDetails((short, long) => {
+			for (const detail of [short, long])
+				Object.assign(detail.columns[1], {
+					field: "risk_score",
+					format: "conditional-enum",
+					enum: [
+						{ key: ". > 3", value: { en: "Many" } },
+						{ key: "true()", value: { en: "Other" } },
+					],
+				});
+		}, false);
+		expect(
+			closedCodes(read),
+			JSON.stringify(read.ctx.close().findings),
+		).toEqual([]);
+		expect(listOf(read).columns[1]).toMatchObject({
+			kind: "id-mapping",
+			behavior: "first-match",
+			mapping: [
+				{ uuid: expect.any(String), when: expect.any(Object), label: "Many" },
+				{
+					uuid: expect.any(String),
+					when: { kind: "match-all" },
+					label: "Other",
+				},
+			],
+		});
+	});
+	it.each([
+		["address", "map-location"],
+		["distance", "worker-distance"],
+	])("keeps a native %s cell on both screens", async (format, kind) => {
+		const read = await readFormat({ format });
+		expect(
+			closedCodes(read),
+			JSON.stringify(read.ctx.close().findings),
+		).toEqual([]);
+		expect(listOf(read).columns[1]).toMatchObject({ kind, field: "notes" });
+	});
+	it("keeps blank and multiword mapping keys and their individual labels on both screens", async () => {
+		const mapping = [
+			{ key: "", value: { en: "Unspecified" } },
+			{ key: "east bank", value: { en: "East Bank" } },
+		];
+		const read = await readFormat({ format: "enum", enum: mapping });
+		expect(closedCodes(read)).toEqual([]);
+		expect(listOf(read).columns[1]).toMatchObject({
+			kind: "id-mapping",
+			mapping: [
+				{ value: "", label: "Unspecified" },
+				{ value: "east bank", label: "East Bank" },
+			],
+		});
+	});
+	it.each([
+		[365.25, "years-since"],
+		[365.25 / 12, "months-since"],
+		[7, "weeks-since"],
+		[1, "days-since"],
+		[-1, "days-until"],
+		[-7, "weeks-until"],
+		[-365.25 / 12, "months-until"],
+	])(
+		"reads the editor's relative date interval %s as %s",
+		async (interval, period) => {
+			const read = await readDetails((short, long) => {
+				for (const screen of [short, long])
+					Object.assign(screen.columns[1] ?? {}, {
+						field: "dob",
+						format: "time-ago",
+						time_ago_interval: interval,
+					});
+			}, false);
+			expect(closedCodes(read)).toEqual([]);
+			expect(listOf(read).columns[1]).toMatchObject({
+				kind: "date-count",
+				field: "dob",
+				period,
+			});
+		},
+	);
+	it.each([
+		[false, "notes", "formatted-text"],
+		[true, "concat(notes, '!')", "calculated"],
+	] as const)(
+		"publishes a formatted case cell with calculated=%s back to both screens",
+		async (calculated, field, kind) => {
+			const read = await readDetails((short, long) => {
+				for (const screen of [short, long])
+					Object.assign(screen.columns[1] ?? {}, {
+						field,
+						format: "markdown",
+						useXpathExpression: calculated,
+					});
+			}, false);
+			expect(closedCodes(read)).toEqual([]);
+			expect(listOf(read).columns[1]).toMatchObject(
+				calculated ? { kind, showAs: "formatted-text" } : { kind, field },
+			);
+		},
+	);
 	const findings: [string, Record<string, unknown>, string][] = [
-		[
-			"late-flag",
-			{ format: "late-flag", late_flag: 30 },
-			`${M}6-late-flag-late-flag-1`,
-		],
-		[
-			"late-flag of 0",
-			{ format: "late-flag", late_flag: 0 },
-			`${M}6p-late-flag-late-flag-0`,
-		],
-		[
-			"time-ago over a menu interval",
-			{ format: "time-ago", time_ago_interval: 7 },
-			`${M}3-time-ago-time-ago-interval-the-7-menu-values-years-months`,
-		],
-		[
-			"time-ago over months until",
-			{ format: "time-ago", time_ago_interval: -365.25 / 12 },
-			`${M}3-time-ago-time-ago-interval-the-7-menu-values-years-months`,
-		],
 		[
 			"time-ago over another interval",
 			{ format: "time-ago", time_ago_interval: 3 },
 			`${M}3p-time-ago-other-interval`,
 		],
-		["address", { format: "address" }, `${M}8-address`],
-		["distance", { format: "distance" }, `${M}9-distance`],
 		["picture", { format: "picture" }, `${M}17-picture`],
 		["audio", { format: "audio" }, `${M}18-audio`],
 		["graph", { format: "graph" }, `${M}22-graph`],
 		["image", { format: "image" }, `${M}23-image-cc-case-image`],
 		["address-popup", { format: "address-popup" }, `${M}15-address-popup`],
-		[
-			"conditional-enum",
-			{ format: "conditional-enum" },
-			`${M}20-conditional-enum`,
-		],
+
 		[
 			"a date pattern Core does not format",
 			{ format: "date", date_format: "%Q" },
 			`${M}2p-date-any-other-date-format`,
-		],
-		[
-			"an enum key holding a space",
-			{ format: "enum", enum: [{ key: "a b", value: { en: "A" } }] },
-			`${M}5pp-enum-key-that-is-empty-or-holds-whitespace`,
 		],
 		[
 			"an enum key holding &",
@@ -135,33 +406,6 @@ describe("CommCare HQ's column formats", () => {
 			`${M}an-enum-enum-image-conditional-enum-or-translatable-enum-column`,
 		],
 		[
-			"an icon map whose keys are plain values",
-			{ format: "enum-image", enum: [{ key: "a", value: { en: "" } }] },
-			`${M}19-enum-image-whose-keys-are-plain-values`,
-		],
-		[
-			"an icon map whose keys are conditions of another form",
-			{ format: "enum-image", enum: [{ key: ". = 'a'", value: { en: "" } }] },
-			`${M}19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot`,
-		],
-		[
-			"a non-calculated translatable-enum over the case's property",
-			{
-				format: "translatable-enum",
-				enum: [{ key: "a", value: { en: "A" } }],
-			},
-			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-over-a-property`,
-		],
-		[
-			"a non-calculated translatable-enum over a relation in a menu that does not search",
-			{
-				format: "translatable-enum",
-				field: "parent/notes",
-				enum: [{ key: "a", value: { en: "A" } }],
-			},
-			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
-		],
-		[
 			"a translatable-enum key outside the editor's grammar",
 			{
 				format: "translatable-enum",
@@ -169,27 +413,11 @@ describe("CommCare HQ's column formats", () => {
 			},
 			`${M}21p-translatable-enum-key-outside-a-za-z0-9`,
 		],
-		[
-			"a calculated translatable-enum outside Nova's two projections",
-			{
-				format: "translatable-enum",
-				useXpathExpression: true,
-				field: "concat(notes, 'x')",
-				enum: [{ key: "a", value: { en: "A" } }],
-			},
-			`${M}21-translatable-enum-outside-nova-s-two-projections`,
-		],
 		["a product column", { model: "product" }, `${M}model-product`],
 		[
 			"a related case ID read as a missing child element",
 			{ field: "parent/case_id" },
 			`${M}case-id-as-a-property-column-s-field`,
-		],
-		["the owner's name", { field: "#owner_name" }, `${M}owner-name`],
-		[
-			"markdown outside the link shape",
-			{ format: "markdown" },
-			`${M}10-markdown-outside-the-link-shape`,
 		],
 	];
 	for (const [name, change, entry] of findings)
@@ -237,7 +465,7 @@ describe("CommCare HQ's column formats", () => {
 		}
 	});
 
-	it("reads a plain column over a property a select question saves as its values, the property keeping no choices", async () => {
+	it("shows a choice’s saved value while keeping the catalog its registration form writes", async () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -278,9 +506,6 @@ describe("CommCare HQ's column formats", () => {
 				},
 			],
 		});
-		// HQ's plain column shows the stored value. No column of the app shows the property's
-		// labels, so the property keeps no choices and Nova's plain column over it shows the value
-		// too.
 		const reading = await readLists(doc, {
 			edit: (app) => {
 				const pair = app.modules[0]?.case_details;
@@ -301,16 +526,31 @@ describe("CommCare HQ's column formats", () => {
 			?.find((type) => type.name === "patient")
 			?.properties.find((property) => property.name === "risk");
 		expect(risk?.data_type).toBe("single_select");
-		expect(risk?.options).toBeUndefined();
+		expect(risk?.options).toEqual([{ value: "low", label: proseText("Low") }]);
+		expect(listOf(reading).columns[1]).toMatchObject({
+			kind: "plain",
+			showChoice: "saved-value",
+		});
 	});
 
-	it("names a late flag by the label HQ's page shows", async () => {
-		const reading = await readFormat({ format: "late-flag", late_flag: 30 });
-		const finding = reading.findings.find(
-			(one) => one.code === `${M}6-late-flag-late-flag-1`,
-		);
-		expect(finding?.detail.name).toBe("Late Flag");
-	});
+	it.each([30, 0, -3])(
+		"preserves the overdue marker threshold %s through both details",
+		async (afterDays) => {
+			const read = await readDetails((short, long) => {
+				for (const screen of [short, long])
+					Object.assign(screen.columns[1] ?? {}, {
+						field: "dob",
+						format: "late-flag",
+						late_flag: afterDays,
+					});
+			}, false);
+			expect(closedCodes(read)).toEqual([]);
+			expect(listOf(read).columns[1]).toMatchObject({
+				kind: "overdue-marker",
+				afterDays,
+			});
+		},
+	);
 
 	it("reads a slug HQ registers no format for as a plain column", async () => {
 		const reading = await readFormat({ format: "calculate" });
@@ -332,12 +572,22 @@ describe("CommCare HQ's column formats", () => {
 });
 
 describe("geo formats", () => {
-	it("raises a geo format on the list beside an address column", async () => {
+	it("reads the list boundary and its map location as separate case sources", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short.columns[1] ?? {}, { format: "geo-boundary" });
 			addColumn(short, { format: "address", field: "phone" });
 		});
-		expect(codes(reading)).toContain(`${M}11-geo-boundary`);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).columns).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "map-layer",
+					layer: "boundary",
+					field: "notes",
+				}),
+				expect.objectContaining({ kind: "map-location", field: "phone" }),
+			]),
+		);
 		expect(codes(reading)).not.toContain(
 			`${M}a-geo-column-without-the-column-it-depends-on`,
 		);
@@ -369,8 +619,10 @@ describe("geo formats", () => {
 			addColumn(long, { format: "address", field: "phone" });
 		});
 		const found = codes(reading);
-		// The address column is its own finding; the geo column is held.
-		expect(found).toContain(`${M}8-address`);
+		expect(found).not.toContain(`${M}8-address`);
+		expect(listOf(reading).columns).toContainEqual(
+			expect.objectContaining({ kind: "map-location", field: "phone" }),
+		);
 		expect(found).not.toContain(
 			`${M}a-geo-column-without-the-column-it-depends-on`,
 		);
@@ -408,14 +660,15 @@ describe("geo formats", () => {
 		);
 	});
 
-	it("raises a geo boundary color on the list beside its address and boundary columns", async () => {
+	it("reads the boundary color on a list with a location and boundary", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short.columns[1] ?? {}, { format: "geo-boundary-color" });
 			addColumn(short, { format: "address", field: "phone" });
 			addColumn(short, { format: "geo-boundary", field: "dob" });
 		});
-		expect(codes(reading)).toContain(
-			`${M}12-geo-boundary-color-on-the-case-list-only-needs-an-address`,
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).columns).toContainEqual(
+			expect.objectContaining({ kind: "map-layer", layer: "boundary-color" }),
 		);
 		expect(codes(reading)).not.toContain(
 			`${M}a-geo-column-without-the-column-it-depends-on`,
@@ -428,15 +681,20 @@ describe("geo formats", () => {
 		if (module !== undefined) module.doc_type = "AdvancedModule";
 	};
 
-	it("raises two address columns in a detail of an advanced menu by the advanced menu's row", async () => {
+	it("keeps two ordered locations on an advanced list", async () => {
 		const reading = await readDetails((short, _long, app) => {
 			advanced(app);
 			Object.assign(short.columns[1] ?? {}, { format: "address" });
 			addColumn(short, { format: "address", field: "phone" });
 		});
-		expect(codes(reading)).toContain(
+		expect(codes(reading)).not.toContain(
 			`${M}more-than-one-address-column-in-a-detail-of-an-advanced-module`,
 		);
+		expect(
+			listOf(reading)
+				.columns.filter((c) => c.kind === "map-location")
+				.map((c) => c.field),
+		).toEqual(["notes", "phone"]);
 		expect(codes(reading)).not.toContain(
 			`${M}more-than-one-address-column-or-more-than-one-image-or-geo`,
 		);
@@ -488,7 +746,7 @@ describe("clickable icons", () => {
 });
 
 describe("a custom tile", () => {
-	for (const format of ["invisible", "address"])
+	for (const format of ["invisible"])
 		it(`raises a ${format} column in it`, async () => {
 			const reading = await readDetails((short) => {
 				short.case_tile_template = "custom";

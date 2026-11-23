@@ -32,6 +32,7 @@ import {
 	type BlueprintDoc,
 	type CaseListConfig,
 	type Column,
+	idMappingColumn,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
@@ -125,6 +126,13 @@ function everyKindDoc(): BlueprintDoc {
 		header: "Score",
 		expression: { kind: "term", term: { kind: "literal", value: "1" } },
 	} as unknown as Column;
+	const mapping = idMappingColumn(testUuid("map-column"), "region", "Region", [
+		{
+			uuid: testUuid("map-entry"),
+			value: "north",
+			label: "North",
+		},
+	]);
 	doc.modules[moduleUuid] = {
 		...module,
 		entryPoint: { uuid: testUuid("map-menu-entry"), id: "patients" },
@@ -134,7 +142,7 @@ function everyKindDoc(): BlueprintDoc {
 		},
 		caseListConfig: {
 			...config,
-			columns: [...config.columns, calculated],
+			columns: [...config.columns, calculated, mapping],
 			calculatedSorts: [
 				{
 					uuid: testUuid("map-sort"),
@@ -143,8 +151,16 @@ function everyKindDoc(): BlueprintDoc {
 					priority: 0,
 				},
 			],
-			listColumnOrder: [...config.listColumnOrder, calculated.uuid],
-			detailColumnOrder: [...config.detailColumnOrder, calculated.uuid],
+			listColumnOrder: [
+				...config.listColumnOrder,
+				calculated.uuid,
+				mapping.uuid,
+			],
+			detailColumnOrder: [
+				...config.detailColumnOrder,
+				calculated.uuid,
+				mapping.uuid,
+			],
 			searchInputs: [
 				{
 					uuid: testUuid("map-search-name"),

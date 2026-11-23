@@ -29,7 +29,10 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	collectTranslationUnits,
 	makeTranslationUnitId,
+	mapLayerColumn,
+	mapLocationColumn,
 	NEW_APP_SETTINGS,
+	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -2734,6 +2737,118 @@ it("replays a pre-batch named action against its pinned source after a deploy an
 	expect(
 		(await readAppTestSteps({ ...scope, testId: started.testId })).steps,
 	).toHaveLength(2);
+});
+
+it("shows a worker's case map as map markers and layers, separate from the ordinary Results cells", async () => {
+	const columns = [
+		plainColumn(testUuid("clinic-name"), "case_name", "Clinic"),
+		mapLocationColumn(testUuid("clinic-point"), "location", "Location"),
+		mapLayerColumn(testUuid("clinic-points"), "visits", "Visits", "points"),
+	];
+	const order = columns.map((column) => column.uuid);
+	const doc = buildDoc({
+		appId: scope.appId,
+		appName: "Clinic rounds",
+		caseTypes: [
+			{
+				name: "clinic",
+				properties: [
+					{ name: "case_name", label: proseText("Clinic"), data_type: "text" },
+					{
+						name: "location",
+						label: proseText("Location"),
+						data_type: "geopoint",
+					},
+					{ name: "visits", label: proseText("Visits"), data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				name: "Clinics",
+				caseType: "clinic",
+				caseListConfig: {
+					columns,
+					listColumnOrder: order,
+					detailColumnOrder: order,
+					searchInputs: [],
+				},
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({ id: "notes", kind: "text", label: proseText("Notes") }),
+						],
+					},
+				],
+			},
+		],
+	});
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	for (const platform of ["web-apps", "android"] as const) {
+		const started = await startAppTest(scope, {
+			requestId: `rounds-${platform}`,
+			expectedBlueprintSeq: 0,
+			input: {
+				platform,
+				purpose: "Check the clinic map",
+				scenario: {
+					records: [
+						{
+							id: "clinic-1",
+							caseType: "clinic",
+							name: "Hilltop",
+							properties: {
+								location: "10 20 0 0",
+								visits: "11 21 12 22",
+							},
+						},
+					],
+				},
+			},
+		});
+		const opened = await continueAppTest(scope, {
+			testId: started.testId,
+			requestId: `open-rounds-${platform}`,
+			expectedStep: started.step,
+			action: { kind: "menu", moduleUuid: doc.moduleOrder[0] },
+		});
+		expect(opened.observation).toMatchObject({
+			renderedResults: {
+				rows: [
+					{
+						recordId: "clinic-1",
+						cells: [{ label: "Clinic", text: "Hilltop" }],
+					},
+				],
+			},
+		});
+		if (platform === "android")
+			expect(opened.observation).toMatchObject({
+				renderedResults: {
+					availableMap: [
+						{
+							recordId: "clinic-1",
+							location: { lat: 10, lng: 20 },
+							points: [
+								{ lat: 11, lng: 21 },
+								{ lat: 12, lng: 22 },
+							],
+						},
+					],
+				},
+			});
+		else
+			expect(opened.observation.renderedResults).not.toHaveProperty(
+				"availableMap",
+			);
+	}
 });
 
 it("projects translated choice labels in Results and Details while preserving stored values", async () => {

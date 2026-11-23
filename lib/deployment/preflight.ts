@@ -32,7 +32,10 @@ import {
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
-import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
+import {
+	formsUsingWorkerRecord,
+	menusUsingWorkerRecord,
+} from "@/lib/commcare/planPrivileges";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import {
@@ -1847,16 +1850,19 @@ export async function runDeploymentPreflight(
 	// A restored worker record is not observable through the API key. The
 	// plan half (user cases) is a confirmation of `plan-features`; this edge
 	// keeps the device half.
-	const workerRecordForms = formsUsingWorkerRecord(boundary.prepared.doc);
+	const workerRecordUses = [
+		...formsUsingWorkerRecord(boundary.prepared.doc),
+		...menusUsingWorkerRecord(boundary.prepared.doc),
+	];
 	checks.push({
 		id: "worker-record-access",
 		title: workerRecordSetup.title,
-		status: workerRecordForms.length === 0 ? "passed" : "attention",
+		status: workerRecordUses.length === 0 ? "passed" : "attention",
 		detail:
-			workerRecordForms.length === 0
-				? "No form in this app reads or saves to the worker's own record."
+			workerRecordUses.length === 0
+				? "This app uses no information from the worker's own record."
 				: `${workerRecordSetup.detail} ${workerRecordSetup.consequences}`,
-		items: workerRecordForms.map((form) => form.name),
+		items: workerRecordUses.map((use) => use.name),
 	});
 
 	return {

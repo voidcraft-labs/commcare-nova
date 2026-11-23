@@ -39,6 +39,40 @@ export function searchRelatedCalculationCompatibility(
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
+		if (column.kind === "id-mapping" || column.kind === "image-map") {
+			for (const [rowIndex, row] of column.mapping.entries()) {
+				if (!row.when || !row.uuid) continue;
+				const context = slotContext(
+					doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_list_mapping_condition",
+						member: { columnUuid: column.uuid, rowUuid: row.uuid },
+					},
+					lookupTables ?? new Map(),
+				);
+				if (
+					context &&
+					classifyRelatedCaseSearchExpression(row.when, context).kind ===
+						"unsupported"
+				)
+					errors.push(
+						validationError(
+							"CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE",
+							"module",
+							`Search cannot supply the related information in rule ${rowIndex + 1} of "${column.header}". Choose information held on this case.`,
+							{ moduleUuid, moduleName: mod.name },
+							{
+								columnUuid: column.uuid,
+								rowUuid: row.uuid,
+								slot: `caseListConfig.columns[${index}].mapping[${rowIndex}].when`,
+								registrySlot: "case_list_mapping_condition",
+							},
+						),
+					);
+			}
+		}
 		if (column.kind !== "calculated") continue;
 		const context = slotContext(
 			doc,

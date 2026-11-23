@@ -1,3 +1,6 @@
+import { caseTextWireKey } from "../../suite/case-list/calculationText";
+import { nativeCalculationText } from "./calculationText";
+import { mappingIdentityAt } from "./mappingIdentity";
 /**
  * A menu's two details read into one case list (`readCaseDetails`): the
  * detail's own keys, each column of the short and the long detail
@@ -27,9 +30,14 @@ import {
 import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { caseListOrderPlan } from "@/lib/domain/caseListOrder";
 import {
+	caseMappingComparison,
+	caseMappingTextUnit,
+} from "@/lib/domain/caseMappingRows";
+import {
 	type CaseRelation,
 	CaseRelationCatalog,
 } from "@/lib/domain/caseRelations";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
 	caseListColumnTextShows,
@@ -61,7 +69,7 @@ import {
 	pythonBlank,
 	recordTextRewrite,
 } from "../heldText";
-import { externalKey } from "../identity";
+import { externalKey, externalKeyText } from "../identity";
 import { reReadUuidOf } from "../identityMap";
 import {
 	isJsonObject,
@@ -71,8 +79,9 @@ import {
 } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
-import { sameXPathText } from "../syntaxCompare";
+import { recordSyntaxKey, sameXPathText } from "../syntaxCompare";
 import type { SameStateRegister } from "../types";
+import { storedColumnKind } from "./columnIdentity";
 import {
 	appCodes,
 	type ColumnOptions,
@@ -412,12 +421,21 @@ function sameProposal(a: ColumnProposal, b: ColumnProposal): boolean {
 	const restA = slots(a);
 	const restB = slots(b);
 	if (a.column.kind === "calculated" || b.column.kind === "calculated") {
-		if (a.column.kind !== b.column.kind) return false;
+		if (
+			!sameJson(restA, restB) ||
+			!sameJson(a.textKeys ?? [], b.textKeys ?? [])
+		)
+			return false;
 		const ta = a.expression?.text;
 		const tb = b.expression?.text;
 		if (ta === undefined || tb === undefined || !sameXPathText(ta, tb))
 			return false;
 	} else if (!sameJson(restA, restB)) return false;
+	if ((a.conditions?.size ?? 0) !== (b.conditions?.size ?? 0)) return false;
+	for (const [index, source] of a.conditions ?? []) {
+		const twin = b.conditions?.get(index);
+		if (!twin || !sameXPathText(source.text, twin.text)) return false;
+	}
 	return sameHeader(a, b) && sameJson(a.texts, b.texts);
 }
 
@@ -644,11 +662,11 @@ export function joinDetailColumns(
 	return { columns, listOrder, detailOrder };
 }
 
-/** A calculated column's `field` in the detail its expression was not registered from: the same
+/** A calculated column's `field`, or a mapping condition's `key`, in the detail its expression was not registered from: the same
  *  tree, so the expression stage's claim of the registration holds it too. */
 export interface ColumnFieldTwin {
 	readonly registration: number;
-	readonly site: { readonly json: JsonCursor; readonly key: "field" };
+	readonly site: { readonly json: JsonCursor; readonly key: string };
 	readonly place: HqPlace;
 }
 
@@ -1202,57 +1220,6 @@ function readSelection(
 	};
 }
 
-/**
- * The choices the catalog drops from each property a raw plain column shows, where no column of
- * the app shows that property by its choices' labels: Nova writes a plain column over a property
- * with no choices as its values, so the property the select questions writing it would give
- * choices keeps none, and the column reads as written. Its select type stays.
- */
-function withholdRawShownChoices(
-	ctx: ReadContext,
-	caseType: string,
-	joined: JoinedDetails,
-	labelShown: (property: string, caseType?: string) => boolean,
-): void {
-	const catalog = ctx.draft.caseTypes;
-	if (catalog == null) return;
-	// By the type whose property each column shows: a column read through a relation shows the
-	// related type's.
-	const raw = new Set(
-		joined.columns.flatMap((column) => {
-			const body = column.proposal.column;
-			if (
-				body.kind !== "plain" ||
-				column.proposal.choices !== undefined ||
-				column.proposal.json.peek("useXpathExpression") === true
-			)
-				return [];
-			const owner = columnPropertyCaseType(body, caseType, catalog);
-			return owner !== undefined && !labelShown(body.field, owner)
-				? [`${owner}\u0000${body.field}`]
-				: [];
-		}),
-	);
-	if (raw.size === 0) return;
-	const withChoices = catalog.some((type) =>
-		type.properties.some(
-			(one) =>
-				raw.has(`${type.name}\u0000${one.name}`) &&
-				(one.options ?? []).length > 0,
-		),
-	);
-	if (!withChoices) return;
-	const next = produce(catalog, (draft) => {
-		for (const type of draft)
-			for (const property of type.properties)
-				if (raw.has(`${type.name}\u0000${property.name}`))
-					delete property.options;
-	});
-	ctx.writeDraft(() => {
-		ctx.draft.caseTypes = next;
-	});
-}
-
 /** A catalog entry for a standard property, named by its name and kept in name order, as
  *  `caseManagement/catalog.ts::noteProperty` keeps every other. */
 function declaredStandard(
@@ -1352,13 +1319,6 @@ function declareShownChoices(
 			);
 }
 
-/** What a menu's columns read of the properties of its case type: whose choices the catalog keeps,
- *  and which a column of the app shows by its choices' labels. */
-export interface ShownChoices {
-	readonly selectProperty: SelectProperty;
-	readonly labelShown: (property: string, caseType?: string) => boolean;
-}
-
 /**
  * Reads one menu's two details into its case list: every key claimed, the columns joined, the
  * order and the tile read, each column minted, every expression registered and every text handed
@@ -1367,9 +1327,8 @@ export interface ShownChoices {
 export function readCaseDetails(
 	ctx: ReadContext,
 	module: DraftModule,
-	choices: ShownChoices,
+	selectProperty: SelectProperty,
 ): void {
-	const { selectProperty } = choices;
 	const pair = module.json.object(
 		"case_details",
 		"DetailPair",
@@ -1518,10 +1477,7 @@ export function readCaseDetails(
 				}
 			});
 		});
-	if (caseType !== undefined) {
-		withholdRawShownChoices(ctx, caseType, joined, choices.labelShown);
-		declareShownChoices(ctx, caseType, joined);
-	}
+	if (caseType !== undefined) declareShownChoices(ctx, caseType, joined);
 
 	// Each column's identity: by (kind, field, n), n its ordinal among equal pairs in list order.
 	const seen = new Map<string, number>();
@@ -1529,17 +1485,22 @@ export function readCaseDetails(
 	for (const index of joined.listOrder) {
 		const column = joined.columns[index] as JoinedColumn;
 		const field = fieldOf(column.proposal) ?? "";
-		const pairKey = JSON.stringify([column.proposal.column.kind, field]);
+		const kind =
+			column.proposal.choices !== undefined
+				? "choice-label"
+				: column.proposal.column.kind === "calculated" &&
+						column.proposal.column.showAs === "formatted-text"
+					? "calculated-formatted-text"
+					: column.proposal.column.kind === "id-mapping" &&
+							column.proposal.column.behavior === "first-match"
+						? "conditional-label"
+						: column.proposal.column.kind;
+		const pairKey = JSON.stringify([kind, field]);
 		const n = seen.get(pairKey) ?? 0;
 		seen.set(pairKey, n + 1);
 		const minted = ctx.accounting.identity(
 			ctx.identities.claim(
-				externalKey.caseListColumn(
-					module.uniqueId,
-					column.proposal.column.kind,
-					field,
-					n,
-				),
+				externalKey.caseListColumn(module.uniqueId, kind, field, n),
 				`${module.uniqueId}/case-list/${index}`,
 			),
 			listPlace,
@@ -1589,8 +1550,88 @@ export function readCaseDetails(
 				tile: tile.cells.get(index),
 			}),
 		} as Column;
+		if (built.kind === "image-map" || built.kind === "id-mapping") {
+			const counts = new Map<string, number>();
+			for (const [index, row] of built.mapping.entries()) {
+				const source = column.proposal.conditions?.get(index);
+				const comparison = source
+					? JSON.stringify(["condition", recordSyntaxKey(source.text)])
+					: caseMappingComparison(row);
+				const matched = ctx.accounting.identity(
+					ctx.identities.claim(
+						externalKey.caseMappingRow(
+							uuid,
+							mappingIdentityAt(comparison, counts),
+						),
+						`${module.uniqueId}/case-list/${uuid}/mapping/${index}`,
+					),
+					column.proposal.json.place,
+					"schema:MappingItem",
+				);
+				if (matched === undefined) whole = false;
+				else {
+					row.uuid = matched;
+					if (source) {
+						const registration = ctx.pending.register(
+							{
+								ref: {
+									entity: "module",
+									uuid: module.uuid,
+									slot: "case_list_mapping_condition",
+									member: { columnUuid: uuid, rowUuid: matched },
+								},
+								text: source.text,
+								mode: source.mode,
+								place: source.place,
+								key: source.key,
+							},
+							source.at,
+						);
+						const other =
+							column.proposal.json === shortProposals[column.short ?? -1]?.json
+								? longProposals[column.long ?? -1]
+								: shortProposals[column.short ?? -1];
+						const twin = other?.conditions?.get(index);
+						if (twin && twin.at.json !== source.at.json)
+							twins.push({ registration, site: twin.at, place: twin.place });
+					}
+				}
+			}
+		}
 		const expression = column.proposal.expression;
 		if (built.kind === "calculated" && expression !== undefined) {
+			let text = expression.text;
+			const keys = column.proposal.textKeys;
+			if (keys !== undefined) {
+				const pieces: NonNullable<typeof built.texts> = [];
+				const owners = keys.map((key) =>
+					externalKey.caseCalculationText(uuid, key),
+				);
+				const reserved = new Set(owners.map(externalKeyText));
+				for (const [index, key] of keys.entries()) {
+					const piece = ctx.accounting.identity(
+						ctx.identities.claim(
+							owners[index],
+							`${module.uniqueId}/case-list/${uuid}/text/${index}`,
+							reserved,
+						),
+						column.proposal.json.place,
+						"schema:MappingItem",
+					);
+					if (piece === undefined) {
+						whole = false;
+						return;
+					}
+					pieces.push({
+						uuid: piece,
+						label: sourceText(ctx, column.proposal.texts[key]),
+					});
+				}
+				built.texts = pieces;
+				text = nativeCalculationText(expression.text, keys, (_key, index) =>
+					caseTextWireKey(pieces[index].uuid),
+				);
+			}
 			const registration = ctx.pending.register(
 				{
 					ref: {
@@ -1599,7 +1640,7 @@ export function readCaseDetails(
 						slot: "case_list_column_expression",
 						member: { columnUuid: uuid },
 					},
-					text: expression.text,
+					text,
 					mode: expression.mode,
 					place: expression.place,
 					key: expression.key,
@@ -1636,13 +1677,42 @@ export function readCaseDetails(
 			"text",
 			byLanguage(column.proposal.header),
 		);
-		for (const [value, map] of Object.entries(column.proposal.texts))
+		if (built.kind === "image-map" || built.kind === "id-mapping") {
+			for (const [index, row] of built.mapping.entries()) {
+				const key = String(index);
+				const map = column.proposal.texts[key];
+				if (map !== undefined)
+					ctx.translations.set(
+						caseMappingTextUnit(
+							uuid,
+							row,
+							built.kind === "image-map" ? "image-description" : "mapping",
+						),
+						"text",
+						byLanguage(map),
+					);
+			}
+		}
+		if (built.kind === "calculated")
+			for (const [index, piece] of (built.texts ?? []).entries()) {
+				const key = column.proposal.textKeys?.[index];
+				if (key !== undefined)
+					ctx.translations.set(
+						makeTranslationUnitId(
+							"column",
+							uuid,
+							"calculation-text",
+							piece.uuid,
+						),
+						"text",
+						byLanguage(column.proposal.texts[key]),
+					);
+			}
+		if (built.kind === "interval" && column.proposal.texts[""] !== undefined)
 			ctx.translations.set(
-				value === ""
-					? makeTranslationUnitId("column", uuid, "text")
-					: makeTranslationUnitId("column", uuid, "mapping", value),
+				makeTranslationUnitId("column", uuid, "text"),
 				"text",
-				byLanguage(map),
+				byLanguage(column.proposal.texts[""]),
 			);
 	});
 	// The array in the list's order, as the reader returns it (`columnsInListOrder`): a column an
@@ -1994,6 +2064,7 @@ export function sortNamedHiddenColumnHeader(doc: BlueprintDoc): BlueprintDoc {
  * (`detailPrintKey`). It reads the orders `columns-off-a-screen-last-in-its-order` gives.
  */
 export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
+	const effectiveTypes = effectiveCaseTypes(doc);
 	const next = new Map<
 		Uuid,
 		{
@@ -2114,13 +2185,14 @@ export function columnsJoinedAsRead(doc: BlueprintDoc): BlueprintDoc {
 		const named = built.map(({ column: one, printOf }) => {
 			const field = (one as { field?: unknown }).field;
 			const property = typeof field === "string" ? field : "";
-			const pair = JSON.stringify([one.kind, property]);
+			const kind = storedColumnKind(one, module?.caseType, effectiveTypes);
+			const pair = JSON.stringify([kind, property]);
 			const n = counts.get(pair) ?? 0;
 			counts.set(pair, n + 1);
 			const uuid = reRead(
 				externalKey.caseListColumn(
 					DERIVED_WIRE_IDENTITY.moduleUniqueId(module?.uuid ?? moduleUuid),
-					one.kind,
+					kind,
 					property,
 					n,
 				),

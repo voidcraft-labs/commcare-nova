@@ -358,7 +358,7 @@ export const configureCaseListTool = {
 					addColumnsMutation(
 						workingModule,
 						input.columns.map((column, index) =>
-							stampColumnUuid(column, columnUuids[index]),
+							stampColumnUuid(column, columnUuids[index], doc),
 						),
 					).mutations,
 				);

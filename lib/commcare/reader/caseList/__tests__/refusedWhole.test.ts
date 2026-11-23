@@ -15,6 +15,7 @@ import {
 	type AppJson,
 	closedCodes,
 	type Detail,
+	listOf,
 	readLists as readListsOf,
 } from "./listReading";
 
@@ -104,29 +105,12 @@ describe("a refused column", () => {
 			"long",
 			`${M}16pp-clickable-icon-on-the-case-detail-whatever-its-endpoint`,
 		],
-		[
-			"a conditional ID mapping with its mapping",
-			{ format: "conditional-enum", enum: MAPPING },
-			"short",
-			`${M}20-conditional-enum`,
-		],
+
 		[
 			"a date pattern Core does not format",
 			{ format: "date", date_format: "%Q" },
 			"short",
 			`${M}2p-date-any-other-date-format`,
-		],
-		[
-			"an icon map whose keys are plain values",
-			{ format: "enum-image", enum: [{ key: "a", value: { en: "" } }] },
-			"short",
-			`${M}19-enum-image-whose-keys-are-plain-values`,
-		],
-		[
-			"an ID mapping with a blank key",
-			{ format: "enum", enum: [{ key: " ", value: { en: "A" } }] },
-			"short",
-			`${M}5pp-enum-key-that-is-empty-or-holds-whitespace`,
 		],
 		[
 			"an ID mapping with a key holding &",
@@ -141,12 +125,6 @@ describe("a refused column", () => {
 			`${M}model-product`,
 		],
 		[
-			"a translatable text over the case's property",
-			{ format: "translatable-enum", enum: MAPPING },
-			"short",
-			`${M}translatable-enum-on-a-column-that-is-not-a-calculated-property-over-a-property`,
-		],
-		[
 			"a calculated translatable text with a key outside the editor's grammar",
 			{
 				format: "translatable-enum",
@@ -157,22 +135,28 @@ describe("a refused column", () => {
 			"short",
 			`${M}21p-translatable-enum-key-outside-a-za-z0-9`,
 		],
-		[
-			"a calculated translatable text outside Nova's two projections",
-			{
-				format: "translatable-enum",
-				useXpathExpression: true,
-				field: "concat(notes, 'x')",
-				enum: MAPPING,
-			},
-			"short",
-			`${M}21-translatable-enum-outside-nova-s-two-projections`,
-		],
 	];
 	for (const [name, change, screen, entry] of cases)
 		it(`raises ${name} as one finding`, async () => {
 			expect(closedCodes(await readColumn(change, screen))).toEqual([entry]);
 		});
+
+	it("keeps an explicit blank image rule and its place among the matches", async () => {
+		const reading = await readColumn({
+			format: "enum-image",
+			enum: [{ key: "a", value: { en: "" } }],
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		const columns = listOf(reading).columns;
+		expect(columns).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "image-map",
+					mapping: [expect.objectContaining({ value: "a", match: "exact" })],
+				}),
+			]),
+		);
+	});
 
 	it("raises a Search Only column in a custom tile as one finding, its cell with it", async () => {
 		const reading = await readColumn({ format: "invisible" }, "short", true);
@@ -181,11 +165,11 @@ describe("a refused column", () => {
 		]);
 	});
 
-	it("leaves a refused column's cell keys off a tile to the tile's own row", async () => {
+	it("leaves an address column’s unused tile keys to their own row", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short.columns[1] ?? {}, CELL, { format: "address" });
 		});
-		expect(closedCodes(reading)).toEqual([`${M}8-address`]);
+		expect(closedCodes(reading)).toEqual([]);
 		const records = [...reading.ctx.close().claims.records()].filter((one) =>
 			one.where.endsWith("/short/columns/1/width"),
 		);
@@ -194,7 +178,7 @@ describe("a refused column", () => {
 		]);
 	});
 
-	it("claims a key the refusal's entry names at the key, under that entry", async () => {
+	it("accounts for an admitted conditional label table under its own inventory entry", async () => {
 		const reading = await readColumn({
 			format: "conditional-enum",
 			enum: MAPPING,

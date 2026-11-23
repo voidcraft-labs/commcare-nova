@@ -516,6 +516,11 @@ take it. A canonical row that gives an entity the UUID a re-read gives it asks
 or claims through a matching resolver over the document's entities of that kind
 (`worldEntities.ts::heldResolver`), and never calls `mintEntityUuid` itself.
 
+A raw choice column and the localized label column over the same property have distinct identities.
+A label projection supplies the property's catalog wording and choice order. When only raw columns
+use the property, its select writers still supply the choices in the catalog. The raw column
+continues to show the saved value after a label edit, an HQ column reorder or a reread.
+
 A document holds a case list column's property and not the word its `field` stores it under,
 where CommCare HQ names the property by two (`name` or `case_name`, `date-opened` or
 `date_opened`, `external-id` or `external_id`): both read as one property, and the reading carries
@@ -950,3 +955,11 @@ A change that holds one removes its line.
 The first-publish comparison carries the actual source that a registered change rewrites. A saved-form title uses the same trimmed text Core reads. A dropped default or changed XForm expression uses the reader’s parsed spelling rules. An untranslated slot identifies its field, choice and language. These facts live in the reading and let a second request distinguish another worker-facing change at the same place.
 
 Proof locations describe where an export changes, including the resulting case property. A review binds the source question, case operation and write slot or the earlier date/time row the reader recognized. Native source exports can rekey form attachment IDs on every call. Those IDs and unrelated actions never enter a case consequence. Stored object-valued settings use a fixed-size digest of their recorded operand.
+An ID mapping keeps each original key, including the empty string and keys
+with spaces. A blank key owns a mapping-label translation in each language.
+The device matches the trimmed key between literal spaces in the intact value.
+
+Relative dates retain the selected signed period and overdue markers retain
+their integer day threshold. These are independent of Nova’s authored
+interval wording. The marker’s short header is empty and its long header
+keeps the app’s localized heading.

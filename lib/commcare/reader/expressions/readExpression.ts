@@ -61,6 +61,7 @@ import {
 } from "../../hqJson/xpath";
 import { type LookupWireNaming, lookupWireNaming } from "../../lookup/naming";
 import { lookupOptionsNodeset } from "../../lookupOptions";
+import { mappingCondition } from "../../suite/case-list/mappingCondition";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../../suite/case-list/nodesetFilter";
 import {
 	hqCalculatedSortExpression,
@@ -1113,6 +1114,22 @@ function printSlotWith(
 							searchInstanceOf(mod),
 							rewrites,
 						),
+					),
+				);
+			case "case_list_mapping_condition":
+				return text(
+					mappingCondition(
+						ref.member.columnUuid,
+						{ uuid: ref.member.rowUuid, when: expression },
+						w.context([w.self()]),
+						{
+							expressions,
+							lookupNaming: naming,
+							inline: moduleFormsReadSearch(mod),
+						},
+						"hq-json",
+						undefined,
+						rewrites,
 					),
 				);
 			case "case_list_sort_expression":

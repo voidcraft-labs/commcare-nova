@@ -96,6 +96,11 @@ export function columnsReadHere(
 			(screen === "list" &&
 				columnOnList(column) &&
 				column.sort?.comparator === "distance") ||
+			(column.kind === "worker-distance" &&
+				columnShowsOn(column, config, screen) &&
+				(screen === "detail" ||
+					column.visibleInList !== false ||
+					!!column.sort)) ||
 			(column.kind === "calculated" &&
 				columnShowsOn(column, config, screen) &&
 				expressionReadsHere(column.expression)),

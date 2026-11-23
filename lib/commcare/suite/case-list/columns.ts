@@ -1,3 +1,9 @@
+import { translatedDistanceProperty } from "@/lib/domain/modules";
+import {
+	bindCaseTextVariables,
+	caseTextKeyPadding,
+	caseTextWireKey,
+} from "./calculationText";
 // lib/commcare/suite/case-list/columns.ts
 //
 // Per-`Column` `<field>` block emission for the suite-XML case-list
@@ -114,6 +120,7 @@ import {
 	type WireElementContext,
 	xel,
 } from "@/lib/commcare/elementBuilders";
+import { hqLocaleFileValue } from "@/lib/commcare/localeFile";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import {
@@ -122,6 +129,7 @@ import {
 } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
+import type { Uuid } from "@/lib/domain";
 import {
 	type CaseListSortLabel,
 	type CaseProperty,
@@ -132,6 +140,7 @@ import {
 	casePropertyShowsOptionLabels,
 	columnFieldText,
 	columnPropertyCaseType,
+	DATE_COUNT_DAYS,
 	imageMapShowsImages,
 	makeTranslationUnitId,
 	printProseTemplate,
@@ -140,7 +149,8 @@ import {
 	tileCellFor,
 } from "@/lib/domain";
 import type { CaseListOrderPlan } from "@/lib/domain/caseListOrder";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
+import type { CaseMappingRow } from "@/lib/domain/caseMappingRows";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import {
 	type AssetManifest,
 	requireAssetRef,
@@ -148,7 +158,13 @@ import {
 import { escapeRegex } from "../../xml";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { columnPropertyPath, hqColumnFieldText, normalizeSpace } from "../wire";
-import { keyAsVariable } from "./keyVariable";
+import { hqMappingKeyIsExpression, keyAsVariable } from "./keyVariable";
+import { CASE_MAP_FORMATS } from "./mapLayers";
+import {
+	mappingCondition,
+	mappingKeyText,
+	nativeMappingKeys,
+} from "./mappingCondition";
 import { columnStoredAsExpression } from "./orderPlanOptions";
 import {
 	buildSortBlock,
@@ -384,8 +400,8 @@ function buildHeaderBlock(localeId: string, width?: string): Element {
  * SortElement.has_display_values`). With it Android's Sort menu lists the
  * shown columns alone, and the field's header is no app string.
  */
-function buildHiddenHeaderBlock(): Element {
-	return el("header", { width: "0" }, [el("text", {}, [])]);
+function buildHiddenHeaderBlock(width = "0"): Element {
+	return el("header", { width }, [el("text", {}, [])]);
 }
 
 /**
@@ -503,21 +519,29 @@ function buildCalculatedTemplateBlock(
 	calcXpath: WireExpr,
 	context: WireElementContext,
 	width?: string,
+	form?: string,
 ): Element {
-	return el("template", width === undefined ? {} : { width }, [
-		el("text", {}, [
-			xel(
-				"xpath",
-				{ xpath: { function: w.calculatedPropertyVar() } },
-				context,
-				[
-					el("variable", { name: "calculated_property" }, [
-						xel("xpath", { xpath: { function: calcXpath } }, context),
-					]),
-				],
-			),
-		]),
-	]);
+	return el(
+		"template",
+		{
+			...(width !== undefined && { width }),
+			...(form !== undefined && { form }),
+		},
+		[
+			el("text", {}, [
+				xel(
+					"xpath",
+					{ xpath: { function: w.calculatedPropertyVar() } },
+					context,
+					[
+						el("variable", { name: "calculated_property" }, [
+							xel("xpath", { xpath: { function: calcXpath } }, context),
+						]),
+					],
+				),
+			]),
+		],
+	);
 }
 
 // ============================================================
@@ -868,27 +892,31 @@ export function idMappingDisplayXpath(
  * manifest, or a missing manifest entry, is a compiler bug.
  */
 function imageMapDisplayXpath(
+	column: Extract<Column, { kind: "image-map" }>,
 	field: WireExpr,
-	mapping: ReadonlyArray<{
-		readonly value: string;
-		readonly assetId: MediaAssetId;
-	}>,
-	assets: AssetManifest | undefined,
+	ctx: CaseListEmitContext,
 ): WireExpr {
 	// Fold right so the first entry is the outermost `if`, matching the
 	// runtime's first-match-wins walk: the empty-string base is the final
 	// else (no value matched => no image).
-	return mapping.reduceRight<WireExpr>((elseArm, entry) => {
-		if (assets === undefined) {
+	const assets = ctx.assets;
+	return column.mapping.reduceRight<WireExpr>((elseArm, entry) => {
+		if (entry.assetId !== undefined && assets === undefined) {
 			throw new Error(
 				"imageMapDisplayXpath: an image map with entries was written as images with no media manifest. `imageMapShowsImages` holds a map with entries to its image column only where the export carries one.",
 			);
 		}
 		const path = w.str(
-			requireAssetRef(entry.assetId, assets, "imageMapDisplayXpath"),
+			entry.assetId === undefined
+				? hqLocaleFileValue("")
+				: requireAssetRef(
+						entry.assetId,
+						assets ?? new Map(),
+						"imageMapDisplayXpath",
+					),
 		);
 		return w.call("if", [
-			w.call("selected", [field, w.str(entry.value)]),
+			suiteMappingCondition(column.uuid, entry, field, ctx),
 			path,
 			elseArm,
 		]);
@@ -903,12 +931,47 @@ function imageMapDisplayXpath(
  * `enum` and the local suite's alt-text variable names both read it, so
  * the two paths name each key alike.
  */
-export function imageMapEnumExpression(value: string): WireExpr {
+export function suiteMappingCondition(
+	columnUuid: Uuid,
+	row: CaseMappingRow,
+	field: WireExpr,
+	ctx: CaseListEmitContext,
+): WireExpr {
+	return mappingCondition(
+		columnUuid,
+		row,
+		field,
+		{
+			expressions: ctx.expressions,
+			lookupNaming: ctx.lookupNaming,
+			inline: ctx.caseSource === "results:inline",
+		},
+		"suite",
+		instanceRootFor(ctx),
+	);
+}
+function suiteMappingKeys(
+	columnUuid: Uuid,
+	rows: readonly CaseMappingRow[],
+	ctx: CaseListEmitContext,
+): string[] {
+	return nativeMappingKeys(columnUuid, rows, {
+		expressions: ctx.expressions,
+		lookupNaming: ctx.lookupNaming,
+		inline: ctx.caseSource === "results:inline",
+	}).map(mappingKeyText);
+}
+export function imageMapEnumExpression(
+	value: string,
+	match?: "exact",
+): WireExpr {
+	if (match === "exact") return w.eq(w.context([w.self()]), w.str(value));
 	return w.call("selected", [w.context([w.self()]), w.str(value)]);
 }
 
-export function imageMapEnumKey(value: string): string {
-	return serializeWire(imageMapEnumExpression(value), {
+export function imageMapEnumKey(value: string, match?: "exact"): string {
+	if (match === "exact" && !hqMappingKeyIsExpression(value)) return value;
+	return serializeWire(imageMapEnumExpression(value, match), {
 		target: "hq-json",
 		interpolation: "enum-key",
 	}).text;
@@ -935,7 +998,11 @@ function imageMapAltText(
 	position: number,
 	ctx: CaseListEmitContext,
 ):
-	| { readonly element: Element; readonly strings: Record<string, string> }
+	| {
+			readonly element: Element;
+			readonly strings: Record<string, string>;
+			readonly translationUnits: Record<string, TranslationUnitId>;
+	  }
 	| undefined {
 	if (
 		column.kind !== "image-map" ||
@@ -952,11 +1019,14 @@ function imageMapAltText(
 		position,
 		heldWord(column, ctx),
 	);
-	const keys = column.mapping.map((entry) => {
-		const name = keyAsVariable(imageMapEnumKey(entry.value));
+	const wireKeys = suiteMappingKeys(column.uuid, column.mapping, ctx);
+	const keys = column.mapping.map((entry, index) => {
+		const key = wireKeys[index];
+		const name = keyAsVariable(key);
 		return {
-			condition: w.call("selected", [field, w.str(entry.value)]),
-			variable: w.imageAltVar(entry.value),
+			entry,
+			condition: suiteMappingCondition(column.uuid, entry, field, ctx),
+			variable: w.imageMappingVariable(key),
 			name,
 			localeId: `${idBase}.alt_text.${name}`,
 		};
@@ -980,7 +1050,17 @@ function imageMapAltText(
 				),
 			]),
 		]),
-		strings: Object.fromEntries(keys.map((key) => [key.localeId, ""])),
+		strings: Object.fromEntries(
+			keys.map((key) => [key.localeId, key.entry.altText ?? ""]),
+		),
+		translationUnits: Object.fromEntries(
+			keys
+				.filter((key) => key.entry.altText !== undefined)
+				.map((key) => [
+					key.localeId,
+					caseMappingTextUnit(column.uuid, key.entry, "image-description"),
+				]),
+		),
 	};
 }
 
@@ -1011,12 +1091,15 @@ function hqStoresAsExpression(
 				ctx.caseTypes,
 			);
 			const properties =
-				column.via === undefined
+				column.via === undefined && column.readFrom === undefined
 					? ctx.caseProperties
 					: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
 						[]);
-			return casePropertyShowsOptionLabels(
-				properties.find((candidate) => candidate.name === column.field),
+			return (
+				column.showChoice !== "saved-value" &&
+				casePropertyShowsOptionLabels(
+					properties.find((candidate) => candidate.name === column.field),
+				)
 			);
 		}
 		default:
@@ -1110,14 +1193,15 @@ function propertyDisplayProjection(
 			);
 			if (caseType === undefined) return plain(plainDisplayXpath(field));
 			const property = (
-				column.via === undefined
+				column.via === undefined && column.readFrom === undefined
 					? ctx.caseProperties
 					: (ctx.caseTypes.find((type) => type.name === caseType)?.properties ??
 						[])
 			).find((candidate) => candidate.name === column.field);
 			if (
-				property?.data_type !== "single_select" &&
-				property?.data_type !== "multi_select"
+				column.showChoice === "saved-value" ||
+				(property?.data_type !== "single_select" &&
+					property?.data_type !== "multi_select")
 			) {
 				return plain(plainDisplayXpath(field));
 			}
@@ -1144,16 +1228,106 @@ function propertyDisplayProjection(
 				),
 			);
 		}
+		case "map-location":
+		case "map-layer":
+		case "formatted-text":
+			return plain(field);
+		case "worker-distance": {
+			const here = w.call("here", []);
+			const metres = w.call("distance", [field, here]);
+			const kilometres = w.div(
+				w.call("round", [w.div(metres, w.num(100))]),
+				w.num(10),
+			);
+			return plain(
+				w.call("if", [
+					w.or(w.eq(here, w.str("")), w.eq(field, w.str(""))),
+					w.str(""),
+					w.call("concat", [kilometres, w.str(" km")]),
+				]),
+			);
+		}
+		case "overdue-marker":
+			return plain(
+				intervalFlagXpath({
+					field,
+					unit: "days",
+					threshold: column.afterDays,
+					text: "*",
+				}),
+			);
+		case "date-count": {
+			const elapsed = w.sub(w.call("today", []), w.call("date", [field]));
+			const units = w.call("int", [
+				w.div(elapsed, w.num(DATE_COUNT_DAYS[column.period])),
+			]);
+			return plain(
+				w.call("if", [
+					w.eq(field, w.str("")),
+					w.str(""),
+					w.call("string", [units]),
+				]),
+			);
+		}
 		case "date":
 			return plain(dateDisplayXpath(field, column.pattern));
 		case "phone":
 			return plain(phoneDisplayXpath(field));
 		case "id-mapping": {
+			if (column.behavior === "first-match") {
+				const stem = detailColumnLocaleBase(
+					ctx.target,
+					ctx.detailKind,
+					ctx.moduleIndex,
+					columnFieldText(column),
+					position,
+					heldWord(column, ctx),
+				);
+				const wireKeys = suiteMappingKeys(
+					column.uuid,
+					column.mapping.map((entry) => ({ ...entry, match: "exact" })),
+					ctx,
+				);
+				const entries = column.mapping.map((entry, index) => {
+					const key = wireKeys[index];
+					const name = keyAsVariable(key);
+					const id = `${stem}.enum.${name}`;
+					return { entry, key, name, id };
+				});
+				return {
+					xpath: entries.reduceRight<WireExpr>(
+						(rest, { entry, key }) =>
+							w.call("if", [
+								suiteMappingCondition(
+									column.uuid,
+									{ ...entry, match: "exact" },
+									field,
+									ctx,
+								),
+								w.imageMappingVariable(key),
+								rest,
+							]),
+						w.str(""),
+					),
+					variables: entries.map(({ name, id }) =>
+						el("variable", { name }, [el("locale", { id })]),
+					),
+					strings: Object.fromEntries(
+						entries.map(({ entry, id }) => [id, entry.label]),
+					),
+					translationUnits: Object.fromEntries(
+						entries.map(({ entry, id }) => [
+							id,
+							caseMappingTextUnit(column.uuid, entry, "mapping"),
+						]),
+					),
+				};
+			}
 			const projections = column.mapping.map((entry, index) =>
 				variable(
 					index,
 					entry.label,
-					makeTranslationUnitId("column", column.uuid, "mapping", entry.value),
+					caseMappingTextUnit(column.uuid, entry, "mapping"),
 				),
 			);
 			return combineVariables(
@@ -1162,6 +1336,7 @@ function propertyDisplayProjection(
 					field,
 					column.mapping.map((entry, index) => ({
 						...entry,
+						value: entry.value ?? "",
 						labelExpression: projections[index]?.xpath,
 					})),
 				),
@@ -1175,7 +1350,7 @@ function propertyDisplayProjection(
 			// disagree.
 			return plain(
 				imageMapShowsImages(column, ctx.assets !== undefined)
-					? imageMapDisplayXpath(field, column.mapping, ctx.assets)
+					? imageMapDisplayXpath(column, field, ctx)
 					: plainDisplayXpath(field),
 			);
 		case "link":
@@ -1237,7 +1412,10 @@ function templateFormFor(
 	) {
 		return "image";
 	}
-	if (column.kind === "link") return "markdown";
+	if (column.kind === "map-location") return "address";
+	if (column.kind === "map-layer") return CASE_MAP_FORMATS[column.layer].suite;
+	if (column.kind === "link" || column.kind === "formatted-text")
+		return "markdown";
 	return undefined;
 }
 
@@ -1441,14 +1619,21 @@ export function buildColumnField(args: {
 		imageMapShowsImages(column, ctx.assets !== undefined)
 			? IMAGE_MAP_WIDTH
 			: undefined;
+	const hiddenMapValue =
+		(column.kind === "map-location" || column.kind === "map-layer") &&
+		ctx.detailKind === "short";
 	const fieldChildren: Element[] = [
 		...tileStyleChildren(column, ctx),
-		buildHeaderBlock(headerLocaleId, width),
+		hiddenMapValue
+			? buildHiddenHeaderBlock()
+			: column.kind === "overdue-marker" && ctx.detailKind === "short"
+				? buildHiddenHeaderBlock("11%")
+				: buildHeaderBlock(headerLocaleId, width),
 		buildTemplateBlock(
 			display.xpath,
 			ctx.wire,
 			templateFormFor(column, ctx.detailKind, ctx.assets),
-			width,
+			hiddenMapValue ? "0" : column.kind === "overdue-marker" ? "11%" : width,
 			display.variables,
 		),
 	];
@@ -1472,6 +1657,7 @@ export function buildColumnField(args: {
 		translationUnits: {
 			[headerLocaleId]: makeTranslationUnitId("column", column.uuid, "header"),
 			...display.translationUnits,
+			...altText?.translationUnits,
 		},
 	};
 }
@@ -1517,6 +1703,68 @@ function buildCalculatedField(args: {
 		}),
 		bindings: lookupTermContext(ctx),
 	});
+	if (column.texts !== undefined && !hidden) {
+		const source = translatedDistanceProperty(column);
+		const headerId = source
+			? `${detailColumnLocaleBase(
+					ctx.target,
+					ctx.detailKind,
+					ctx.moduleIndex,
+					columnFieldText(source),
+					position,
+					heldWord(column, ctx),
+				)}.header`
+			: detailCalculatedHeaderLocaleId(
+					ctx.target,
+					ctx.detailKind,
+					ctx.moduleIndex,
+					position,
+				);
+		const strings: Record<string, string> = { [headerId]: column.header };
+		const translationUnits: Record<string, TranslationUnitId> = {
+			[headerId]: makeTranslationUnitId("column", column.uuid, "header"),
+		};
+		const padding = caseTextKeyPadding(calcXpath, column.texts);
+		const localizedXpath = bindCaseTextVariables(calcXpath, padding);
+		const names = column.texts.map((piece) => {
+			const name = keyAsVariable(
+				caseTextWireKey(piece.uuid, padding.get(piece.uuid)),
+			);
+			const id = `${headerId.replace(/\.header$/, "")}.enum.${name}`;
+			strings[id] = piece.label;
+			translationUnits[id] = makeTranslationUnitId(
+				"column",
+				column.uuid,
+				"calculation-text",
+				piece.uuid,
+			);
+			return { name, id };
+		});
+		const variables = () =>
+			names.map(({ name, id }) =>
+				el("variable", { name }, [el("locale", { id })]),
+			);
+		const sort = resolveSortElement(column, ctx, () => ({
+			xpath: localizedXpath,
+			variables: variables(),
+		}));
+		return {
+			element: el("field", {}, [
+				...tileStyleChildren(column, ctx),
+				buildHeaderBlock(headerId),
+				buildTemplateBlock(
+					localizedXpath,
+					ctx.wire,
+					undefined,
+					undefined,
+					variables(),
+				),
+				...(sort ? [sort] : []),
+			]),
+			strings,
+			translationUnits,
+		};
+	}
 	return buildExpressionField({
 		column,
 		position,
@@ -1580,7 +1828,14 @@ function buildExpressionField(args: {
 	const fieldChildren: Element[] = [
 		...tileStyleChildren(column, ctx),
 		buildHeaderBlock(headerLocaleId),
-		buildCalculatedTemplateBlock(calcXpath, ctx.wire),
+		buildCalculatedTemplateBlock(
+			calcXpath,
+			ctx.wire,
+			undefined,
+			column.kind === "calculated" && column.showAs === "formatted-text"
+				? "markdown"
+				: undefined,
+		),
 	];
 	if (sortEl !== undefined) fieldChildren.push(sortEl);
 

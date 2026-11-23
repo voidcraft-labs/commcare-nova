@@ -75,6 +75,9 @@ export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
 
 /** One value a case list reads off another case (`QueryArgs.related`). */
 export interface RelatedRead {
+	readonly showOwner?: "name";
+	/** A distance cell derives its label from this source and the same fix the query sorts with. */
+	readonly display?: "distance";
 	readonly uuid: string;
 	readonly expression: DomainExpression;
 }
@@ -210,7 +213,7 @@ export type CaseUpdateArgs = {
  * holds as a token, as text, `""` when it holds none. Neither can be stated
  * as a `DomainExpression`.
  */
-export type SortKey =
+export type SortKey = { readonly showOwner?: "name" } & (
 	| {
 			readonly kind: "expression";
 			readonly expression: DomainExpression;
@@ -228,6 +231,7 @@ export type SortKey =
 	  }
 	| {
 			readonly kind: "interval-text";
+			readonly readFrom?: "worker-record";
 			readonly property: string;
 			/** An interval column follows these index names from each listed row. */
 			readonly relation?: {
@@ -245,16 +249,18 @@ export type SortKey =
 			 *  `if(selected(<value>, '<entry>'), <index>, ...)` gives it: an entry
 			 *  matches where it is one of the value's space-separated tokens
 			 *  (commcare-core `XPathSelectedFunc`), compared as text. */
-			readonly kind: "mapping-position";
-			/** The value read, as a device reads it (a multi select's tokens
-			 *  joined by one space). */
+			readonly kind: "case-mapping";
 			readonly expression: DomainExpression;
-			/** Each entry's value in table order, trimmed as `selected()` trims
-			 *  it (Java `String.trim`). */
-			readonly values: readonly string[];
+			readonly rows: readonly ({
+				readonly result: string;
+			} & (
+				| { readonly match: "exact" | "selected"; readonly value: string }
+				| { readonly match: "condition"; readonly when: DomainExpression }
+			))[];
 			readonly direction: "asc" | "desc";
 			readonly blanks: "first" | "last";
-	  };
+	  }
+);
 
 export {
 	CASEDB_READING,
@@ -278,6 +284,8 @@ export type { CaseFilterReading, CaseQueryReading };
  * reading, the stored truth. Only the running preview passes one.
  */
 export interface RestoreScope {
+	/** The ordered group fixture supplied by this worker’s authorized restore. */
+	readonly groups?: readonly { readonly id: string; readonly name: string }[];
 	/**
 	 * The worker's owner ids: their own id plus one per case-sharing group
 	 * (`lib/organization/ownerSets.ts`, mirroring `CouchUser.get_owner_ids`).

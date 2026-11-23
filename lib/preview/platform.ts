@@ -232,6 +232,8 @@ export interface PreviewPlatformRules {
 	 *  is inside the label and describes one at any other address, so label
 	 *  text never makes the builder's page request anything
 	 *  (`lib/markdown.tsx::labelMarkdownOptions`). */
+	readonly readsCaseImageDescriptions: boolean;
+	readonly caseLocationDetail: "text" | "show-address";
 	readonly labelMarkdown: {
 		readonly singleNewline: "break" | "space";
 		readonly html: "literal" | "dropped";
@@ -421,6 +423,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "label-icon",
 		helpMediaWithoutText: "hidden",
 		hint: "markdown",
+		readsCaseImageDescriptions: true,
+		caseLocationDetail: "text",
 		labelMarkdown: Object.freeze({
 			singleNewline: "break",
 			html: "literal",
@@ -488,6 +492,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "info-button",
 		helpMediaWithoutText: "shown",
 		hint: "plain",
+		readsCaseImageDescriptions: false,
+		caseLocationDetail: "show-address",
 		labelMarkdown: Object.freeze({
 			singleNewline: "space",
 			html: "dropped",

@@ -1,3 +1,8 @@
+import {
+	caseTextKeyPadding,
+	caseTextWireKey,
+} from "../suite/case-list/calculationText";
+import { mappingIdentityAt } from "./caseList/mappingIdentity";
 // lib/commcare/reader/identityMap.ts
 //
 // The projection of a Nova document onto the external keys a reading of its
@@ -20,20 +25,32 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	caseMappingComparison,
+	caseMappingRowUuid,
+} from "@/lib/domain/caseMappingRows";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import {
 	type FormStructure,
 	formFieldPath,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import type { LookupColumnId, LookupTableId } from "@/lib/lookup/types";
 import { moduleExpressionContexts } from "../expressionContext";
 import type { LookupWireNaming } from "../lookup/naming";
 import { planPlacements } from "../placement";
-import { hqCalculatedSortExpression } from "../suite/case-list/orderPlanOptions";
+import { mappingCondition } from "../suite/case-list/mappingCondition";
+import {
+	hqCalculatedSortExpression,
+	hqExpressionField,
+} from "../suite/case-list/orderPlanOptions";
 import type { WireIdentity } from "../wireIdentity";
+import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
 import { calculatedAttributeField } from "./caseList/attributeColumns";
+import { storedColumnKind } from "./caseList/columnIdentity";
 import {
 	type CaseOperationPlaceKey,
 	type ExternalKey,
@@ -119,6 +136,7 @@ export function externalIdentityMap(
 		entries.push({ kind: key.kind, parts: key.parts, uuid });
 	};
 
+	const caseTypes = effectiveCaseTypes(doc);
 	for (const module of Object.values(doc.modules)) {
 		const uniqueId = identity.moduleUniqueId(module.uuid);
 		add(externalKey.module(uniqueId), module.uuid);
@@ -178,11 +196,85 @@ export function externalIdentityMap(
 				// A calculated column that reads one attribute alone is read as the
 				// plain column over it (`caseList/attributeColumns.ts`).
 				const attribute = calculatedAttributeField(column, module.caseType);
-				const kind = attribute === undefined ? column.kind : "plain";
+				const kind =
+					attribute === undefined
+						? storedColumnKind(column, module.caseType, caseTypes)
+						: "plain";
 				const field =
 					attribute ?? (column.kind === "calculated" ? "" : column.field);
 				const n = nextOrdinal(columnCounts, JSON.stringify([kind, field]));
 				add(externalKey.caseListColumn(uniqueId, kind, field, n), column.uuid);
+				if (column.kind === "calculated" && column.texts?.length) {
+					const namable =
+						!lookupNaming ||
+						canNameCalculation(column.expression, lookupNaming);
+					const padding = namable
+						? caseTextKeyPadding(
+								hqExpressionField(column, module, doc, "results", lookupNaming),
+								column.texts,
+							)
+						: undefined;
+					for (const piece of column.texts)
+						add(
+							namable
+								? externalKey.caseCalculationText(
+										column.uuid,
+										caseTextWireKey(piece.uuid, padding?.get(piece.uuid)),
+									)
+								: externalKey.caseMappingRow(
+										column.uuid,
+										JSON.stringify([
+											"unavailable-calculation-text",
+											piece.uuid,
+										]),
+									),
+							piece.uuid,
+						);
+				}
+				if (column.kind === "image-map" || column.kind === "id-mapping") {
+					const counts = new Map<string, number>();
+					for (const row of column.mapping) {
+						const uuid = caseMappingRowUuid(column.uuid, row);
+						let comparison = caseMappingComparison(row);
+						if (row.when) {
+							if (lookupNaming && !canNameCalculation(row.when, lookupNaming))
+								comparison = JSON.stringify(["unavailable-table", uuid]);
+							else {
+								const wire = mappingCondition(
+									column.uuid,
+									row,
+									w.context([w.self()]),
+									{
+										expressions: moduleExpressionContexts(
+											doc,
+											module.uuid,
+											lookupNaming,
+										),
+										lookupNaming,
+										inline: moduleFormsReadSearch(module),
+									},
+									"hq-json",
+								);
+								comparison = JSON.stringify([
+									"condition",
+									recordSyntaxKey(
+										serializeWire(wire, {
+											target: "hq-json",
+											interpolation: "enum-key",
+										}).text,
+									),
+								]);
+							}
+						}
+						add(
+							externalKey.caseMappingRow(
+								column.uuid,
+								mappingIdentityAt(comparison, counts),
+							),
+							uuid,
+						);
+					}
+				}
 			}
 			for (const input of config.searchInputs)
 				add(externalKey.searchInput(uniqueId, input.name), input.uuid);

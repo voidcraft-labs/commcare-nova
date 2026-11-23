@@ -2603,3 +2603,10 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+A calculated case field with translated wording lowers to an HQ
+`translatable-enum`. Its declared variables bind both template and sort.
+HQ expands each native key across its entire field, including quoted
+literals, in declaration order. The reader performs that expansion before
+binding real variable nodes to their scoped text UUIDs. Export chooses keys
+that cannot rewrite literal data or resolved property and lookup names.

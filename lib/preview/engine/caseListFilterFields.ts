@@ -133,7 +133,11 @@ export function columnDeviceText(
 			const position = mappingPositionText(column, row, context.reading);
 			if (position === "") return "";
 			const entry = column.mapping[Number(position)];
-			return entry === undefined ? "" : (imageReference(entry.assetId) ?? "");
+			if (entry === undefined) return "";
+			// Core retains a blank app-string as a nonbreaking space. No matching arm is the empty string.
+			return entry.assetId === undefined
+				? "\u00a0"
+				: (imageReference(entry.assetId) ?? "");
 		}
 		case "calculated":
 			return calculatedDeviceText(
@@ -261,6 +265,8 @@ function sortKeyText(
 		case "property":
 			return keyRawText(key, column, row, context);
 		case "option-label":
+		case "mapping-label":
+		case "overdue-marker":
 		case "interval-text":
 			return projectColumnDisplay(column, row, context).text;
 		case "calculated":

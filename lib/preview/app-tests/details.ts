@@ -8,6 +8,7 @@ import { slotContext } from "@/lib/domain/expression/context";
 import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
+import { ordinaryCaseResultCell } from "../caseMap";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
 import {
 	type ColumnDisplayContext,
@@ -15,6 +16,7 @@ import {
 	resolveCalculatedTemporalType,
 } from "../columnDisplay";
 import { readCaseData } from "../engine/caseDataBindingHelpers";
+import { previewCaseListOrderLocale } from "../engine/caseListOrder";
 import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
 import { recordsReadSearch, searchedReading } from "../engine/serverSearchRead";
@@ -64,6 +66,11 @@ export async function appTestDetails(
 			reading,
 			ancestorDepth: 0,
 			caseListConfig,
+			locale: previewCaseListOrderLocale(
+				context.doc,
+				caseType,
+				context.language,
+			),
 			caseTypeSchemas: context.caseTypeSchemas,
 			bindings: previewCaseStoreBindings(
 				previewSessionValues(context.identity, context.device),
@@ -113,7 +120,9 @@ export function appTestCellProjector(
 	const columns = mod.caseListConfig
 		? orderedColumns(mod.caseListConfig, surface).filter((column) =>
 				surface === "list"
-					? column.visibleInList !== false
+					? column.visibleInList !== false &&
+						(mod.caseListConfig?.tile !== undefined ||
+							ordinaryCaseResultCell(column))
 					: column.visibleInDetail !== false,
 			)
 		: [];
@@ -127,6 +136,7 @@ export function appTestCellProjector(
 		),
 	);
 	const display: ColumnDisplayContext = {
+		readsCaseImageDescriptions: context.rules.readsCaseImageDescriptions,
 		caseProperties: projectLocalizedCaseProperties(
 			mod.caseType,
 			caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
@@ -184,8 +194,12 @@ export function appTestCellProjector(
 				column,
 				display.caseProperties,
 				display.projectProse,
+				surface,
 			),
-			format: column.kind,
+			format:
+				column.kind === "calculated" && column.showAs
+					? column.showAs
+					: column.kind,
 			...projectColumnDisplay(column, row, display),
 		}));
 }

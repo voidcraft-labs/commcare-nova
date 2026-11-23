@@ -148,6 +148,8 @@ function recordSlotSubject(doc: BlueprintDoc, error: ValidationError): string {
 			return `The display condition of ${module}`;
 		case "FORM_DISPLAY_CONDITION_TYPE_ERROR":
 			return `The display condition of form "${error.location.formName ?? ""}"`;
+		case "CASE_LIST_MAPPING_CONDITION":
+			return `A display rule in ${module}`;
 		case "CASE_LIST_CALCULATED_SORT_TYPE_ERROR":
 			return `The default order calculation of ${module}`;
 		case "CASE_LIST_FILTER_TYPE_ERROR":

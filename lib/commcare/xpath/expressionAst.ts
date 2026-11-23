@@ -15,6 +15,7 @@ import {
 } from "@/lib/domain/expressionFunctions";
 import { readCaseReference } from "@/lib/domain/hashtagSegments";
 import { organizationLevelsOf } from "@/lib/domain/organization";
+import { caseTextWireKey } from "../suite/case-list/calculationText";
 import { itextIdFor, itextUnitForId } from "../xform/itextIds";
 import { formNodeProjection } from "./formNodeProjection";
 import {
@@ -562,12 +563,18 @@ export function parseFormExpression(
 					return literal(-written.value, node);
 				return remember({ kind: "negate", value: bind(node.value, ctx) }, node);
 			}
-			case "variable":
+			case "variable": {
+				const piece = ctx.caseTexts?.find(
+					(item) => caseTextWireKey(item.uuid) === node.name,
+				);
+				if (piece)
+					return remember({ kind: "case-text", textUuid: piece.uuid }, node);
 				return refuse(
 					"variable",
 					node,
 					`Form expressions have no variables like $${node.name}. You can read the question or property that holds the value.`,
 				);
+			}
 			case "binary": {
 				if (node.op === "|")
 					refuse(

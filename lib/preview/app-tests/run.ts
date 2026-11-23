@@ -7,6 +7,7 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import { caseMapSources } from "@/lib/domain/caseMap";
 import { languageDirection } from "@/lib/domain/languageRegistry";
 import {
 	effectiveAppLocalization,
@@ -26,6 +27,7 @@ import type {
 import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemDetailAction } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
+import { caseMapRows, workerMapOffered } from "../caseMap";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
@@ -384,6 +386,24 @@ async function observeScreen(
 					renderedResults:
 						read.result?.kind === "rows"
 							? {
+									...(mod.caseListConfig &&
+										workerMapOffered(
+											state.platform,
+											caseMapSources(mod.caseListConfig, "list").locations
+												.length > 0,
+											read.result.rows.length > 0,
+											null,
+										) && {
+											availableMap: caseMapRows(
+												state.platform,
+												mod.caseListConfig,
+												read.result.rows,
+												searchedReading(read.searched).columns,
+											).map(({ row, geometry }) => ({
+												recordId: row.case_id,
+												...geometry,
+											})),
+										}),
 									rows: read.result.rows.map((row) => ({
 										recordId: row.case_id,
 										cells: cells(row),

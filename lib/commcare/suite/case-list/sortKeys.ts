@@ -39,6 +39,7 @@ import type {
 	SortDirection,
 	Uuid,
 } from "@/lib/domain";
+import type { CaseMappingRow } from "@/lib/domain/caseMappingRows";
 import type { InstanceRoot } from "../../xpath/wire/rowScope";
 import { columnPropertyPath } from "../wire";
 
@@ -130,12 +131,17 @@ export interface PlannedSortNodes {
  */
 export function idMappingSortXpath(
 	path: WireExpr,
-	mapping: readonly { readonly value: string }[],
+	mapping: readonly CaseMappingRow[],
+	condition?: (entry: CaseMappingRow) => WireExpr,
 ): WireExpr {
 	return mapping.reduceRight<WireExpr>(
 		(elseArm, entry, index) =>
 			w.call("if", [
-				w.call("selected", [path, w.str(entry.value)]),
+				condition
+					? condition(entry)
+					: entry.match === "exact"
+						? w.eq(path, w.str(entry.value ?? ""))
+						: w.call("selected", [path, w.str(entry.value ?? "")]),
 				w.num(index),
 				elseArm,
 			]),
@@ -170,6 +176,7 @@ function keyDirective(
 	column: Column,
 	attributes: SortRuleAttributes,
 	root: InstanceRoot,
+	condition?: (uuid: Uuid, entry: CaseMappingRow, field: WireExpr) => WireExpr,
 ): ResolvedSortDirective {
 	switch (key.kind) {
 		case "independent-calculation":
@@ -181,7 +188,7 @@ function keyDirective(
 				...attributes,
 				kind: "property",
 				xpath: distanceSortXpath(
-					columnPropertyPath({ field: key.property, via: key.via }, root),
+					columnPropertyPath({ ...key, field: key.property }, root),
 				),
 			};
 		case "distance-calculated":
@@ -190,7 +197,15 @@ function keyDirective(
 			return {
 				...attributes,
 				kind: "property",
-				xpath: columnPropertyPath({ field: key.property, via: key.via }, root),
+				xpath: columnPropertyPath(
+					{
+						field: key.property,
+						via: key.via,
+						readFrom: key.readFrom,
+						showOwner: key.showOwner,
+					},
+					root,
+				),
 			};
 		case "mapping-position": {
 			if (column.kind !== "id-mapping" && column.kind !== "image-map") {
@@ -204,14 +219,27 @@ function keyDirective(
 				xpath: idMappingSortXpath(
 					columnPropertyPath(column, root),
 					column.mapping,
+					condition
+						? (row) =>
+								condition(column.uuid, row, columnPropertyPath(column, root))
+						: undefined,
 				),
 			};
 		}
 		case "option-label":
+		case "mapping-label":
+		case "overdue-marker":
 		case "interval-text":
 			return { ...attributes, kind: "variables" };
-		case "link-text":
 		case "calculated":
+			if (
+				column.kind === "calculated" &&
+				column.texts !== undefined &&
+				column.visibleInList !== false
+			)
+				return { ...attributes, kind: "variables" };
+			return { ...attributes, kind: "calculated" };
+		case "link-text":
 			return { ...attributes, kind: "calculated" };
 	}
 }
@@ -225,6 +253,7 @@ function keyDirective(
 export function planSortNodes(
 	plan: CaseListOrderPlan,
 	root: InstanceRoot = "casedb",
+	condition?: (uuid: Uuid, entry: CaseMappingRow, field: WireExpr) => WireExpr,
 ): PlannedSortNodes {
 	const byUuid = new Map<Uuid, ResolvedSortDirective>();
 	for (const field of plan.fields) {
@@ -239,6 +268,7 @@ export function planSortNodes(
 					...ruleAttributes(field.rule),
 				},
 				root,
+				condition,
 			),
 		);
 	}

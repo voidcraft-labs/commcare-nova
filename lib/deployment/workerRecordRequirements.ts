@@ -12,7 +12,7 @@ export {
 export const workerRecordSetup = {
 	title: "The worker's own record",
 	detail:
-		"These forms use the worker's own CommCare record. It reaches a phone when the worker syncs, so it helps to ask each worker to sync before opening them.",
+		"The worker’s own CommCare record reaches a phone when the worker syncs. A sync before opening the app makes that information available.",
 	consequences:
 		"Without that record, reads can be blank and forms that save to it cannot open. Preview supplies the record and does not establish that it exists on a device.",
 };

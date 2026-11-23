@@ -13,6 +13,7 @@ import { type Draft, produce } from "immer";
 import {
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
+	caseListColumnTextShows,
 	type Uuid,
 } from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
@@ -48,6 +49,7 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	isStandardCaseListProperty,
 } from "@/lib/domain/standardCaseProperties";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { declaredTypeHolds } from "../../validator/rules/fieldKindMatchesPropertyType";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -740,7 +742,11 @@ function listProperties(
 	for (const column of config?.columns ?? []) {
 		if (typeof column.field !== "string") continue;
 		if (column.via === undefined) {
-			out.push({ caseType, property: column.field });
+			out.push({
+				caseType:
+					column.readFrom === "worker-record" ? USERCASE_CASE_TYPE : caseType,
+				property: column.field,
+			});
 			continue;
 		}
 		const destination = resolveRelationDestination(
@@ -1100,12 +1106,8 @@ export function catalogAsRead(
 					entry.data_type = property.data_type;
 			}
 		}
-		// A plain column states its property's choices, as the list reader reads
-		// them (`caseList/details.ts::declareShownChoices`,
-		// `withholdRawShownChoices`): where the column shows the choices' labels,
-		// its enum is the property's kind and its choices exactly, whatever the
-		// select questions writing it hold; where it shows the values, the
-		// property keeps no choices and keeps its select type.
+		// The writer supplies the ordinary choices. Only a column actually showing labels
+		// states their catalog order and wording independently of the writer.
 		const effective = effectiveCaseTypes(doc);
 		const stated = new Set<string>();
 		for (const uuid of doc.moduleOrder) {
@@ -1113,7 +1115,12 @@ export function catalogAsRead(
 			const caseType = module?.caseType;
 			if (caseType === undefined) continue;
 			for (const column of module?.caseListConfig?.columns ?? []) {
-				if (column.kind !== "plain") continue;
+				if (
+					column.kind !== "plain" ||
+					column.showChoice === "saved-value" ||
+					!caseListColumnTextShows(column)
+				)
+					continue;
 				// A column read through a relation states the reached type's choices.
 				const owner = columnPropertyCaseType(
 					column,
@@ -1128,10 +1135,7 @@ export function catalogAsRead(
 					.find((type) => type.name === owner)
 					?.properties.find((one) => one.name === column.field);
 				if (shown === undefined || entry === undefined) continue;
-				if (!casePropertyShowsOptionLabels(shown)) {
-					delete entry.options;
-					continue;
-				}
+				if (!casePropertyShowsOptionLabels(shown)) continue;
 				const key = `${owner}\u0000${column.field}`;
 				if (
 					stated.has(key) ||

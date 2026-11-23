@@ -25,7 +25,7 @@ import {
 	functionArityIssue,
 	QUERY_FUNCTIONS,
 } from "@/lib/domain/expressionFunctions";
-import type { Uuid } from "@/lib/domain/uuid";
+import { type Uuid, uuidSchema } from "@/lib/domain/uuid";
 import { AuthoringInputError } from "./errors";
 import {
 	type AuthoredExpression,
@@ -409,6 +409,10 @@ function compiler(bindings: QueryBindings) {
 				kind: "term",
 				term: { kind: "capture-link", field: question.uuid },
 			};
+		}
+		if (name === "case-text") {
+			arity(name, args);
+			return { kind: "case-text", textUuid: uuidSchema.parse(string(args[0])) };
 		}
 		if (name === "id-of") {
 			arity(name, args);

@@ -170,6 +170,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "acting-user":
 			case "unowned":
 				return call(value.kind);
+			case "case-text":
+				return call("case-text", quote(value.textUuid));
 			case "id-of":
 				return call(value.kind, identity("operation", value.opUuid));
 			case "table-lookup":

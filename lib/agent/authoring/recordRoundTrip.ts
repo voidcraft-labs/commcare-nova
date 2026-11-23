@@ -143,6 +143,21 @@ function moduleReadSite(
 				? undefined
 				: site(list, ["calculatedSorts", index, "expression"]);
 		}
+		case "case_list_mapping_condition": {
+			const columnIndex =
+				list?.columns.findIndex(
+					(column) => column.uuid === ref.member.columnUuid,
+				) ?? -1;
+			const column = list?.columns[columnIndex];
+			if (column?.kind !== "id-mapping" && column?.kind !== "image-map")
+				return undefined;
+			const index = column.mapping.findIndex(
+				(row) => row.uuid === ref.member.rowUuid,
+			);
+			return index < 0
+				? undefined
+				: site(list, ["columns", columnIndex, "mapping", index, "when"]);
+		}
 		case "case_list_column_expression": {
 			const column = (list?.columns ?? []).findIndex(
 				(candidate) => candidate.uuid === ref.member.columnUuid,

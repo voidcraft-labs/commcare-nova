@@ -168,6 +168,23 @@ export function formsUsingWorkerRecord(
 	return forms;
 }
 
+/** Case views that read the current worker's record, in menu order. */
+export function menusUsingWorkerRecord(
+	doc: BlueprintDoc,
+): { uuid: Uuid; name: string }[] {
+	return doc.moduleOrder.flatMap((uuid) => {
+		const menu = doc.modules[uuid];
+		if (
+			!menu?.caseListConfig?.columns.some(
+				(column) =>
+					column.kind !== "calculated" && column.readFrom === "worker-record",
+			)
+		)
+			return [];
+		return [{ uuid, name: menu.name.trim() || menu.id }];
+	});
+}
+
 /** "Lesson sends a learn module and an assessment to CommCare Connect." */
 function connectFormReasons(
 	doc: BlueprintDoc,
@@ -264,9 +281,8 @@ export function requiredPlanPrivileges(
 	 * and a worker's record is made only under the privilege
 	 * (`callcenter/sync_usercase.py::_iter_sync_usercase_helpers`), so every
 	 * value a form reads from it is blank. */
-	add(
-		"user_case",
-		formsUsingWorkerRecord(doc, connect).map(
+	add("user_case", [
+		...formsUsingWorkerRecord(doc, connect).map(
 			(form) =>
 				`${form.name} ${
 					form.reads && form.writes
@@ -276,7 +292,10 @@ export function requiredPlanPrivileges(
 							: "reads"
 				} worker information.`,
 		),
-	);
+		...menusUsingWorkerRecord(doc).map(
+			(menu) => `${menu.name} displays information from the worker’s record.`,
+		),
+	]);
 
 	/* `lookup_tables`: the build fails for a form whose source reads a table
 	 * (`helpers/validators.py::ApplicationBaseValidator._validate_fixtures`,

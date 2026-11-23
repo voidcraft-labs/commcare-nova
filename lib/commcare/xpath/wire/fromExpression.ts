@@ -1006,6 +1006,8 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				? nodes()
 				: guardAbsentNode(nodes([w.num(1)]), nodes());
 		}
+		case "case-text":
+			return { k: "case-text-variable", textUuid: expr.textUuid };
 		case "itext": {
 			const id = ctx.bindings.itextId?.(expr.unit);
 			if (id === undefined)

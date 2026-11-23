@@ -2590,3 +2590,7 @@ are incomplete. Its session identities come from placement metadata without
 emitting those changes; evaluation still reports case operations as unevaluated.
 Unexpected worker failures cross the thread boundary as structured-cloned Error
 objects, preserving their original stack and cause for server reporting.
+
+Case calculations bind pieces of wording from the running app’s language
+before projecting a value or sorting its cases. A blank translated piece
+uses the native locale string’s nonbreaking space.

@@ -9,7 +9,6 @@
 import { produce } from "immer";
 import type {
 	BlueprintDoc,
-	CaseOperation,
 	CasePropertyDataType,
 	Expression,
 	Module,
@@ -19,7 +18,7 @@ import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { columnFieldText, defaultSortBlanks } from "@/lib/domain/modules";
-import { recordFromEntries } from "@/lib/domain/records";
+import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -27,11 +26,13 @@ import {
 	projectCaseListForHq,
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
+import { hqMappingKeyIsExpression } from "../../suite/case-list/keyVariable";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
-import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
+import type { DraftApp, DraftModule, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { levelControl, type PrintLevel } from "../expressions/printLevel";
+import { hqDeviceText } from "../heldText";
 import { dotInterpolate } from "../hqInterpolation";
 import { isJsonObject, objectMembers, sameJson } from "../jsonCursor";
 import { handedOff, type PendingExpression } from "../pendingExpressions";
@@ -40,6 +41,7 @@ import { applyExpressionClaim, provisionalDocument } from "../provisional";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sameXPathText } from "../syntaxCompare";
 import { ATTRIBUTE_PROPERTIES } from "./attributeColumns";
+import { nativeCalculationText } from "./calculationText";
 import {
 	appCodes,
 	attributeOf,
@@ -50,6 +52,7 @@ import {
 	renamedField,
 	sameHeldTexts,
 	sameShownTexts,
+	shownTexts,
 	sourceCode,
 } from "./columns";
 import {
@@ -57,6 +60,7 @@ import {
 	caseListReadings,
 	displayNames,
 	readCaseDetails,
+	readColumnVia,
 	sameState,
 } from "./details";
 import {
@@ -69,81 +73,40 @@ import { withReadTexts } from "./readTexts";
 
 export { joinDetailColumns } from "./details";
 
-const SELECT_KINDS = new Set(["single_select", "multi_select"]);
-
-/** Each case type's properties a select question of the app's forms writes, by the forms'
- *  drafts: one walk of every form, so a stage asking for each menu's type asks once. */
-function selectPropertiesByType(app: DraftApp): Map<string, Set<string>> {
-	const out = new Map<string, Set<string>>();
-	for (const module of app.modules)
-		for (const form of module.forms) {
-			const selects = selectFieldsOf(form);
-			if (selects.size === 0) continue;
-			for (const operation of (form.form.caseOperations ??
-				[]) as readonly CaseOperation[]) {
-				const type =
-					operation.action === "own"
-						? module.module.caseType
-						: operation.caseType;
-				if (typeof type !== "string" || !("writes" in operation)) continue;
-				for (const write of operation.writes ?? []) {
-					const value = write.value;
-					if (
-						value.kind === "term" &&
-						value.term.kind === "field" &&
-						selects.has(value.term.uuid)
-					) {
-						let properties = out.get(type);
-						if (properties === undefined) {
-							properties = new Set();
-							out.set(type, properties);
-						}
-						properties.add(write.property);
-					}
-				}
-			}
-		}
-	return out;
-}
-
-function selectFieldsOf(form: DraftForm): Set<Uuid> {
-	const out = new Set<Uuid>();
-	const xform = form.xform;
-	if (xform === null) return out;
-	const walk = (parent: Parameters<typeof xform.childrenOf>[0]) => {
-		for (const field of xform.childrenOf(parent)) {
-			if (SELECT_KINDS.has(field.kind) && field.uuid !== undefined)
-				out.add(field.uuid);
-			walk(field);
-		}
-	};
-	walk(null);
-	return out;
-}
-
-/** Each case type's properties a column of any menu of that type shows by its choices' labels,
- *  read from the stored details (`columns.ts::labelShownProperty`): one walk of every menu. */
-function labelShownPropertiesByType(app: DraftApp): Map<string, Set<string>> {
-	const byType = new Map<string, Set<string>>();
+/** The sources that can give a column choice labels. Read every detail before choosing a
+ * format for any raw column, since a label column in another menu can be its sole witness. */
+function choiceProperties(ctx: ReadContext, app: DraftApp): Set<string> {
+	const choices = new Set<string>();
+	for (const type of ctx.draft.caseTypes ?? [])
+		for (const property of type.properties)
+			if (
+				property.data_type === "single_select" ||
+				property.data_type === "multi_select"
+			)
+				choices.add(JSON.stringify([type.name, property.name]));
 	for (const module of app.modules) {
 		const caseType = module.module.caseType;
-		if (caseType === undefined) continue;
-		let out = byType.get(caseType);
-		if (out === undefined) {
-			out = new Set();
-			byType.set(caseType, out);
-		}
+		if (!caseType) continue;
 		const pair = module.json.peek("case_details");
 		for (const screen of ["short", "long"] as const) {
 			const detail = isJsonObject(pair) ? pair[screen] : undefined;
 			const columns = isJsonObject(detail) ? detail.columns : undefined;
 			for (const column of Array.isArray(columns) ? columns : []) {
-				const property = labelShownProperty(column);
-				if (property !== undefined) out.add(property);
+				const read = labelShownProperty(column, (steps) =>
+					readColumnVia(ctx, caseType, steps),
+				);
+				if (read === undefined) continue;
+				const owner = columnPropertyCaseType(
+					read,
+					caseType,
+					ctx.draft.caseTypes ?? [],
+				);
+				if (owner !== undefined)
+					choices.add(JSON.stringify([owner, read.field]));
 			}
 		}
 	}
-	return byType;
+	return choices;
 }
 
 /** Before any expression binds: every menu's case list, read from its two details, and the type each numeric
@@ -164,26 +127,12 @@ export function* readCaseListsSteps(
 ): Generator<void, void, void> {
 	/* Each read from the drafts before any detail is read, which writes neither a form's case
 	 * changes, a menu's case type nor its stored details. */
-	const selectsByType = selectPropertiesByType(app);
-	const shownByType = labelShownPropertiesByType(app);
-	const none: ReadonlySet<string> = new Set();
+	const choices = choiceProperties(ctx, app);
 	for (const [at, module] of app.modules.entries()) {
 		if (at > 0 && at % MENUS_READ_PER_STEP === 0) yield;
-		const caseType = module.module.caseType;
-		const selects =
-			caseType === undefined ? none : (selectsByType.get(caseType) ?? none);
-		const shown =
-			caseType === undefined ? none : (shownByType.get(caseType) ?? none);
-		// A column read through a relation asks of the type its walk reaches.
-		const selectsOf = (type?: string) =>
-			type === undefined ? selects : (selectsByType.get(type) ?? none);
-		const shownOf = (type?: string) =>
-			type === undefined ? shown : (shownByType.get(type) ?? none);
-		readCaseDetails(ctx, module, {
-			selectProperty: (property, type) =>
-				selectsOf(type).has(property) && shownOf(type).has(property),
-			labelShown: (property, type) => shownOf(type).has(property),
-		});
+		readCaseDetails(ctx, module, (property, type) =>
+			choices.has(JSON.stringify([type ?? module.module.caseType, property])),
+		);
 	}
 	yield;
 	declareNumericSortsBeforeBinding(ctx, app);
@@ -342,7 +291,33 @@ function columnDifference(
 	const b = fieldRead(ours);
 	// A column whose expression was handed to project data prints no tree of the source's, so its
 	// field is project data's finding, never the list's.
-	if (!fieldHandedOff && !sameField(a, b)) return "schema:DetailColumn.field";
+	if (!fieldHandedOff) {
+		const translated = (
+			column: JsonObject,
+			source: ReturnType<typeof fieldRead>,
+		) => {
+			const keys = objects(column.enum).map((row) =>
+				typeof row.key === "string" ? row.key : "",
+			);
+			const value =
+				column.useXpathExpression === true && typeof column.field === "string"
+					? column.field
+					: source.property === undefined
+						? (source.element ?? "")
+						: imageMapFieldText(source.property);
+			return nativeCalculationText(
+				value,
+				keys,
+				(_key, index) => `translated_row_${index}`,
+			);
+		};
+		if (
+			format === "translatable-enum"
+				? !sameXPathText(translated(stored, a), translated(ours, b))
+				: !sameField(a, b)
+		)
+			return "schema:DetailColumn.field";
+	}
 	// HQ's build reads no header of a Search Only column (`detail_screen.py::Invisible`).
 	if (
 		format !== "invisible" &&
@@ -355,6 +330,13 @@ function columnDifference(
 		)
 	)
 		return "schema:DetailColumn.header";
+	if (format === "late-flag" && (stored.late_flag ?? 30) !== ours.late_flag)
+		return "schema:DetailColumn.late_flag";
+	if (
+		format === "time-ago" &&
+		(stored.time_ago_interval ?? 365.25) !== ours.time_ago_interval
+	)
+		return "schema:DetailColumn.time_ago_interval";
 	if (format === "date" && stored.date_format !== ours.date_format)
 		return "schema:DetailColumn.date_format";
 	const enumA = formatReadsMapping(format) ? objects(stored.enum) : [];
@@ -368,16 +350,40 @@ function columnDifference(
 		// (`models/case_list.py::MappingItem.key_as_condition`), so the two keys are compared so.
 		const property =
 			a.property === undefined ? undefined : imageMapFieldText(a.property);
-		const sameKey =
-			format !== "enum-image"
-				? keyA === keyB
-				: property === undefined
-					? sameXPathText(keyA, keyB)
-					: sameXPathText(
-							dotInterpolate(keyA, property),
-							dotInterpolate(keyB, property),
-						);
-		if (!sameKey) return "schema:MappingItem.key";
+		// HQ expands a literal into equality and interpolates dots only in an
+		// expression. A literal key cannot itself contain a quote (HQ would
+		// classify it as an expression).
+		const effectiveCondition = (key: string) =>
+			hqMappingKeyIsExpression(key)
+				? dotInterpolate(key, property ?? "$calculated_property")
+				: `${property ?? "$calculated_property"} = '${key}'`;
+		if (
+			keyA !== keyB &&
+			format !== "translatable-enum" &&
+			((format !== "enum-image" && format !== "conditional-enum") ||
+				!sameXPathText(effectiveCondition(keyA), effectiveCondition(keyB)))
+		)
+			return "schema:MappingItem.key";
+		if (format === "enum-image") {
+			const empty = (raw: unknown) => {
+				const texts = shownTexts(raw ?? NO_ENTRIES, codes);
+				return (
+					texts !== undefined &&
+					Object.values(texts).every((value) => hqDeviceText(value) === "")
+				);
+			};
+			if (
+				!(empty(item.alt_text) && empty(other.alt_text)) &&
+				!sameHeldTexts(
+					codes,
+					source,
+					"case-list-image-description",
+					item.alt_text ?? NO_ENTRIES,
+					other.alt_text ?? NO_ENTRIES,
+				)
+			)
+				return "schema:MappingItem.alt_text";
+		}
 		// An image map's value is a path, compared as shown; any other mapping's is a text, compared
 		// as the reading holds it (`heldTextsIn`).
 		if (
@@ -640,11 +646,13 @@ function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 		const { expression, level } = ctx.pending.outcome(index);
 		if (expression === undefined || level === undefined) continue;
 		const member =
-			"member" in ref && "columnUuid" in ref.member
-				? ref.member.columnUuid
-				: "member" in ref && "sortUuid" in ref.member
-					? ref.member.sortUuid
-					: undefined;
+			"member" in ref && "rowUuid" in ref.member
+				? `${ref.member.columnUuid}/${ref.member.rowUuid}`
+				: "member" in ref && "columnUuid" in ref.member
+					? ref.member.columnUuid
+					: "member" in ref && "sortUuid" in ref.member
+						? ref.member.sortUuid
+						: undefined;
 		held.set(member === undefined ? ref.slot : `${ref.slot}/${member}`, {
 			tree: expression,
 			level,
@@ -658,6 +666,16 @@ function heldListLevels(ctx: ReadContext, mod: Module): CaseListRewrites {
 			: undefined;
 	};
 	return {
+		mapping: (uuid, rowUuid) => {
+			const column = mod.caseListConfig?.columns.find((c) => c.uuid === uuid);
+			const when =
+				column && (column.kind === "id-mapping" || column.kind === "image-map")
+					? column.mapping.find((row) => row.uuid === rowUuid)?.when
+					: undefined;
+			return levelControl(
+				at(`case_list_mapping_condition/${uuid}/${rowUuid}`, when),
+			);
+		},
 		sort: (uuid) => {
 			const rule = mod.caseListConfig?.calculatedSorts?.find(
 				(one) => one.uuid === uuid,
@@ -1077,7 +1095,10 @@ function handedOffListSlots(
 		if (ref.slot === "case_list_filter") filter = true;
 		else if (ref.slot === "case_list_sort_expression")
 			sorts.add(ref.member.sortUuid);
-		else if (ref.slot === "case_list_column_expression")
+		else if (
+			ref.slot === "case_list_column_expression" ||
+			ref.slot === "case_list_mapping_condition"
+		)
 			columns.add(ref.member.columnUuid);
 	}
 	const short = new Set<number>();

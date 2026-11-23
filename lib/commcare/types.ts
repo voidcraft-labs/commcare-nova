@@ -149,6 +149,7 @@ export interface AdvancedFormActions {
  * surfaces in place of the key when the row matches.
  */
 export interface MappingItem<Key = string> {
+	alt_text?: LocalizedString;
 	key: Key;
 	value: LocalizedString;
 }
@@ -168,6 +169,9 @@ export type DetailColumnFormat =
 	| "date"
 	| "phone"
 	| "enum"
+	// Ordered conditions over the column, each showing its translated text
+	// (`detail_screen.py::ConditionalEnum`).
+	| "conditional-enum"
 	| "enum-image"
 	| "time-ago"
 	| "late-flag"
@@ -177,7 +181,13 @@ export type DetailColumnFormat =
 	// `detail_screen.py::Markdown` (`@register_format_type('markdown')`) and
 	// unconstrained on the wire — `models/case_list.py::DetailColumn.format`
 	// is a bare `StringProperty()` with no `choices`, so it imports cleanly.
+	| "distance"
 	| "markdown"
+	| "address"
+	| "geo-boundary"
+	| "geo-boundary-color"
+	| "geo-points"
+	| "geo-points-colors"
 	| "invisible";
 
 interface DetailColumnBase<XPath> {
@@ -246,8 +256,8 @@ export type DetailColumn<
 		| { useXpathExpression: false; field: string }
 		| { useXpathExpression: true; field: XPath }
 	) &
-	(Format extends "enum-image"
-		? { format: Format; enum: MappingItem<XPath>[] }
+	(Format extends "enum-image" | "conditional-enum"
+		? { format: Format; enum: MappingItem<XPath | string>[] }
 		: { format: Format; enum: MappingItem[] });
 
 /**

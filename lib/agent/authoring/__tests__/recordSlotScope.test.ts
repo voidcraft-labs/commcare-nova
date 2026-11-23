@@ -53,6 +53,7 @@ const RECORD_SLOTS = [
 	"module_display_condition",
 	"case_list_filter",
 	"case_list_column_expression",
+	"case_list_mapping_condition",
 	"search_button_display_condition",
 	"excluded_owner_ids",
 	"search_input_default",

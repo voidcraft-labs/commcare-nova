@@ -43,6 +43,7 @@ import {
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	idMappingColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
@@ -363,6 +364,9 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 						plainColumn(uuid(2), "phone", "Phone"),
 						plainColumn(uuid(3), "phone", "Phone again"),
 						phoneColumn(uuid(4), "phone", "Call"),
+						idMappingColumn(uuid(5), "notes", "Area", [
+							{ value: "a", label: "Area A" },
+						]),
 					],
 					{
 						searchInputs: [

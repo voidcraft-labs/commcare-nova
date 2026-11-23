@@ -1,3 +1,7 @@
+import {
+	caseTextKeyPadding,
+	caseTextWireKey,
+} from "../suite/case-list/calculationText";
 // lib/commcare/hqJson/caseList.ts
 //
 // Per-module case-list HQ JSON projection. Translates a domain
@@ -67,17 +71,21 @@ import {
 	casePropertyShowsOptionLabels,
 	columnFieldText,
 	columnPropertyCaseType,
+	DATE_COUNT_DAYS,
 	declaresWebApps,
 	EMPTY_CASE_LIST_ORDER_PLAN,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	imageMapShowsImages,
 	makeTranslationUnitId,
+	moduleFormsReadSearch,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
 	searchScreenTitleText,
 	tileCellFor,
+	translatedDistanceProperty,
 } from "@/lib/domain";
+import { caseMappingTextUnit } from "@/lib/domain/caseMappingRows";
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
@@ -101,7 +109,8 @@ import {
 	type AssetManifest,
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
-import { imageMapEnumExpression } from "../suite/case-list/columns";
+import { CASE_MAP_FORMATS } from "../suite/case-list/mapLayers";
+import { nativeMappingKeys } from "../suite/case-list/mappingCondition";
 import {
 	emitExcludedOwnerFilterExpression,
 	emitNormalizedExcludedOwnerIdsExpression,
@@ -168,6 +177,7 @@ interface ColumnProjectionContext {
 	readonly lookupNaming?: LookupWireNaming;
 	/** The reader's control over each calculated column's print (`CaseListRewrites.column`). */
 	readonly columnRewrites?: ColumnRewrites;
+	readonly mappingRewrites?: CaseListRewrites["mapping"];
 	/** The word each column's property is kept under on each screen, where the export's target holds one. */
 	readonly columnFieldWord?: ColumnFieldWordOf;
 }
@@ -212,6 +222,17 @@ function projectColumnToDetail(
 	screen: "results" | "details",
 ): WireDetailColumn<HqXPath> {
 	const { doc, localization, mod } = ctx;
+	const mappingKeys = (rows: Parameters<typeof nativeMappingKeys>[1]) =>
+		nativeMappingKeys(
+			column.uuid,
+			rows,
+			{
+				expressions: ctx.expressions,
+				lookupNaming: ctx.lookupNaming,
+				inline: moduleFormsReadSearch(mod),
+			},
+			(rowUuid) => ctx.mappingRewrites?.(column.uuid, rowUuid),
+		).map((key) => (typeof key === "string" ? key : hqXPath(key, "enum-key")));
 	const headerRecord = localization.textMap(
 		makeTranslationUnitId("column", column.uuid, "header"),
 	);
@@ -229,7 +250,41 @@ function projectColumnToDetail(
 		);
 
 	if (column.kind === "calculated") {
-		return detailColumn(expressionField(), headerRecord);
+		const field = expressionField();
+		const source = translatedDistanceProperty(column);
+		const base = detailColumn(
+			source
+				? hqColumnFieldText(
+						columnFieldText(source),
+						ctx.columnFieldWord?.(
+							column.uuid,
+							screen === "results" ? "short" : "long",
+						),
+					)
+				: field,
+			headerRecord,
+		);
+		if (column.texts !== undefined) {
+			const padding = caseTextKeyPadding(field.expression, column.texts);
+			return {
+				...base,
+				format: "translatable-enum",
+				enum: column.texts.map((piece) => ({
+					key: caseTextWireKey(piece.uuid, padding.get(piece.uuid)),
+					value: localization.textMap(
+						makeTranslationUnitId(
+							"column",
+							column.uuid,
+							"calculation-text",
+							piece.uuid,
+						),
+					),
+				})),
+			};
+		}
+		return column.showAs === "formatted-text"
+			? { ...base, format: "markdown" }
+			: base;
 	}
 
 	// A column over `case_id` is the expression reading it, through the
@@ -260,6 +315,7 @@ function projectColumnToDetail(
 			const property = columnProperty(column, mod, ctx.caseTypes);
 			if (
 				propertyCaseType === undefined ||
+				column.showChoice === "saved-value" ||
 				property === undefined ||
 				!casePropertyShowsOptionLabels(property)
 			) {
@@ -284,30 +340,58 @@ function projectColumnToDetail(
 				})),
 			};
 		}
+		case "worker-distance":
+			return { ...base, format: "distance" };
+		case "map-location":
+			return { ...base, format: "address" };
+		case "map-layer":
+			return { ...base, format: CASE_MAP_FORMATS[column.layer].hq };
+		case "formatted-text":
+			return { ...base, format: "markdown" };
+		case "overdue-marker":
+			return { ...base, format: "late-flag", late_flag: column.afterDays };
+		case "date-count":
+			return {
+				...base,
+				format: "time-ago",
+				time_ago_interval: DATE_COUNT_DAYS[column.period],
+			};
 		case "date":
 			return { ...base, format: "date", date_format: column.pattern };
 		case "phone":
 			return { ...base, format: "phone" };
-		case "id-mapping":
+		case "id-mapping": {
+			const value = (entry: (typeof column.mapping)[number]) =>
+				localization.textMap(
+					caseMappingTextUnit(column.uuid, entry, "mapping"),
+				);
 			// HQ keys each entry by its value and builds the display
 			// `replace(join(' ', if(selected(<xpath>, '<key>'), $k<key>, ''), …),
 			// '\s+', ' ')` and the sort `if(selected(<xpath>, '<key>'), 0, …'')`
-			// itself (`suite_xml/xml_models.py::XPathEnum.build`).
+			// itself (`suite_xml/xml_models.py::XPathEnum.build`). A first-match
+			// mapping is HQ's ordered conditions (`detail_screen.py::ConditionalEnum`).
+			if (column.behavior === "first-match") {
+				const keys = mappingKeys(
+					column.mapping.map((entry) => ({ ...entry, match: "exact" })),
+				);
+				return {
+					...base,
+					format: "conditional-enum",
+					enum: column.mapping.map((entry, index) => ({
+						key: keys[index],
+						value: value(entry),
+					})),
+				};
+			}
 			return {
 				...base,
 				format: "enum",
 				enum: column.mapping.map((entry) => ({
-					key: entry.value,
-					value: localization.textMap(
-						makeTranslationUnitId(
-							"column",
-							column.uuid,
-							"mapping",
-							entry.value,
-						),
-					),
+					key: entry.value ?? "",
+					value: value(entry),
 				})),
 			};
+		}
 		case "image-map": {
 			// `enum-image` shares the id-mapping `enum` shape, but each
 			// entry's value is the IMAGE path (`{lang: jr://...}`), not a
@@ -315,18 +399,26 @@ function projectColumnToDetail(
 			// 'image'`). A map with no entries names no path, so it is the
 			// image column with a manifest and without one.
 			if (!imageMapShowsImages(column, ctx.mediaOn)) return base;
+			const keys = mappingKeys(column.mapping);
 			return {
 				...base,
 				format: "enum-image",
-				enum: column.mapping.map((entry) => ({
-					key: hqXPath(imageMapEnumExpression(entry.value), "enum-key"),
+				enum: column.mapping.map((entry, index) => ({
+					key: keys[index],
+					...(entry.altText !== undefined && {
+						alt_text: localization.textMap(
+							caseMappingTextUnit(column.uuid, entry, "image-description"),
+						),
+					}),
 					value: repeatForLanguages(
 						localization.languages,
-						requireAssetRef(
-							entry.assetId,
-							ctx.assets ?? new Map(),
-							"projectColumnToDetail image-map",
-						),
+						entry.assetId === undefined
+							? ""
+							: requireAssetRef(
+									entry.assetId,
+									ctx.assets ?? new Map(),
+									"projectColumnToDetail image-map",
+								),
 					),
 				})),
 			};
@@ -741,6 +833,7 @@ export function projectSearchButtonCondition(
  * list and prints as an export prints it. An export passes none.
  */
 export interface CaseListRewrites {
+	readonly mapping?: (column: Uuid, row: Uuid) => RewriteControl | undefined;
 	readonly column?: ColumnRewrites;
 	readonly sort?: (uuid: Uuid) => RewriteControl | undefined;
 	readonly filter?: () => RewriteControl | undefined;
@@ -1194,6 +1287,7 @@ export function projectCaseListForHq(
 		...(lookupNaming !== undefined && { lookupNaming }),
 		...(listRewrites?.column !== undefined && {
 			columnRewrites: listRewrites.column,
+			mappingRewrites: listRewrites.mapping,
 		}),
 		...(columnFieldWord !== undefined && { columnFieldWord }),
 	};

@@ -1,3 +1,4 @@
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 // lib/preview/engine/caseDataBindingHelpers.ts
 //
 // Server-only I/O helpers the running-app view's data binding wraps
@@ -24,6 +25,7 @@
 
 import "server-only";
 
+import { workerDistanceValueId } from "@/lib/domain";
 import {
 	caseOperationProgramLookupTableIds,
 	collectConfigLookupTableIds,
@@ -195,14 +197,62 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * every one of a list with no tile layout, hidden ones included, since each
  * is a field of the short detail. A calculation no runtime evaluates remains
  * fully valid but contributes no query projection. */
-function runtimeCalculatedColumns(config: CaseListConfig | undefined) {
+function caseCalculation(
+	column: Extract<Column, { kind: "calculated" }>,
+	locale?: CaseListOrderLocale,
+): Expression {
+	if (!column.texts?.length) return column.expression;
+	const labels = new Map(
+		column.texts.map((piece) => [
+			piece.uuid,
+			locale?.calculationText(column, piece) ?? piece.label,
+		]),
+	);
+	return mapExpressionAst(column.expression, {
+		mapExpression: (node) => {
+			if (node.kind !== "case-text") return undefined;
+			const label = labels.get(node.textUuid);
+			if (label === undefined)
+				throw new Error("A calculated field lost its translated text.");
+			// The runtime preserves a blank locale string as one nonbreaking space.
+			return term(literal(label || "\u00a0"));
+		},
+	});
+}
+function runtimeCalculatedColumns(
+	config: CaseListConfig | undefined,
+	locale?: CaseListOrderLocale,
+) {
 	if (!config) return undefined;
 	const columns = config.columns.filter(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
 			column.kind === "calculated" && caseListColumnRuns(column, config),
 	);
 	return [
-		...columns,
+		...columns.map((column) => ({
+			...column,
+			expression: caseCalculation(column, locale),
+		})),
+		...config.columns.flatMap((column) =>
+			(column.kind === "id-mapping" || column.kind === "image-map") &&
+			caseListColumnRuns(column, config)
+				? column.mapping.flatMap((row) =>
+						row.when && row.uuid
+							? [
+									{
+										uuid: row.uuid,
+										expression: ifExpr(
+											row.when,
+											term(literal("1")),
+											term(literal("")),
+										),
+										deviceText: true as const,
+									},
+								]
+							: [],
+					)
+				: [],
+		),
 		...(config.calculatedSorts ?? []).map((rule) => ({
 			uuid: rule.uuid,
 			expression: rule.expression,
@@ -222,19 +272,51 @@ function runtimeRelatedReads(
 ): RelatedRead[] | undefined {
 	if (config === undefined) return undefined;
 	return config.columns.flatMap((column): RelatedRead[] => {
-		if (column.kind === "calculated" || column.via === undefined) return [];
-		return [
-			{
+		if (column.kind === "calculated") return [];
+		const distance =
+			column.kind === "worker-distance" &&
+			(column.visibleInDetail !== false ||
+				(column.visibleInList !== false && !column.notOnList));
+		const projected = !!(column.via || column.readFrom || column.showOwner);
+		if (!distance && !projected) return [];
+		const expression = term(
+			column.readFrom
+				? column.workerPropertyUuid
+					? {
+							kind: "session-user-property",
+							userPropertyUuid: column.workerPropertyUuid,
+							source: "worker-record",
+						}
+					: {
+							kind: "session-user",
+							field: column.field,
+							source: "worker-record",
+						}
+				: column.via === undefined
+					? prop(caseType, column.field)
+					: {
+							kind: "prop",
+							caseType,
+							property: column.field,
+							via: { kind: "ancestor", via: column.via },
+							readReached: true,
+						},
+		);
+		const reads: RelatedRead[] = [];
+		if (projected)
+			reads.push({
 				uuid: column.uuid,
-				expression: term({
-					kind: "prop",
-					caseType,
-					property: column.field,
-					via: { kind: "ancestor", via: column.via },
-					readReached: true,
-				}),
-			},
-		];
+				expression,
+				...(column.showOwner && { showOwner: column.showOwner }),
+			});
+		if (distance)
+			reads.push({
+				uuid: workerDistanceValueId(column.uuid),
+				expression,
+				display: "distance",
+				...(column.showOwner && { showOwner: column.showOwner }),
+			});
+		return reads;
 	});
 }
 
@@ -504,7 +586,10 @@ export async function readCases(
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
-			calculated: runtimeCalculatedColumns(args.caseListConfig),
+			calculated: runtimeCalculatedColumns(
+				args.caseListConfig,
+				args.order?.locale,
+			),
 			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 			limit: page?.limit ?? cap,
 			offset: page === undefined ? undefined : offset,
@@ -614,7 +699,10 @@ async function readGroupedCases(
 		store.queryGrouped({
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
-			calculated: runtimeCalculatedColumns(args.caseListConfig),
+			calculated: runtimeCalculatedColumns(
+				args.caseListConfig,
+				args.order?.locale,
+			),
 			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 			indexIdentifier: grouping.identifier,
 			groupOffset,
@@ -996,7 +1084,10 @@ export async function readFilterPreview(
 	// callers receive the same row shape as the running case list.
 	const rows = await store.query({
 		...caseReadCore(args, predicate),
-		calculated: runtimeCalculatedColumns(args.caseListConfig),
+		calculated: runtimeCalculatedColumns(
+			args.caseListConfig,
+			args.order?.locale,
+		),
 		related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 		sort: buildCaseStoreSortKeys(args.order, args.caseType),
 		limit,
@@ -1135,11 +1226,23 @@ function sortKeysForRule(
 	columns: ReadonlyMap<string, Column>,
 	order: CaseStoreOrder,
 ): CaseStoreSortKey[] {
+	const source =
+		"property" in key
+			? key
+			: "column" in key
+				? columns.get(key.column)
+				: undefined;
+	const propertySource =
+		source && source.kind !== "calculated" ? source : undefined;
+	const displayOwner = propertySource?.showOwner
+		? { showOwner: propertySource.showOwner }
+		: {};
 	const expressionKey = (
 		expression: Expression,
 		keyComparator: CaseListComparator = comparator,
 	): CaseStoreSortKey => ({
 		kind: "expression",
+		...displayOwner,
 		expression,
 		comparator: keyComparator,
 		direction,
@@ -1152,16 +1255,29 @@ function sortKeysForRule(
 			? caseType
 			: columnPropertyCaseType({ via }, caseType, order.caseTypes);
 	/** A property read, through a column's walk where it has one. */
-	const read = (property: string, via: ColumnVia | undefined) =>
-		via === undefined
-			? prop(caseType, property)
-			: ({
-					kind: "prop",
-					caseType,
-					property,
-					via: { kind: "ancestor", via },
-					readReached: true,
-				} as const);
+	const read = (property: string, via: ColumnVia | undefined): Term =>
+		propertySource?.readFrom
+			? { kind: "session-user", field: property, source: "worker-record" }
+			: via === undefined
+				? prop(caseType, property)
+				: {
+						kind: "prop",
+						caseType,
+						property,
+						via: { kind: "ancestor", via },
+						readReached: true,
+					};
+	/** Whether a read holds one choice among its tokens. A worker's record
+	 *  is no case property reference, so it is tested as its read value. */
+	const containsOption = (value: Term, option: string): Expression =>
+		value.kind === "prop"
+			? multiSelectAny(value, literal(option))
+			: {
+					kind: "multi-select-contains",
+					property: term(value),
+					values: [literal(option)],
+					quantifier: "any",
+				};
 	const linkDisplayValue = (column: Extract<Column, { kind: "link" }>) => {
 		const raw = read(column.field, column.via);
 		return ifExpr(
@@ -1188,9 +1304,9 @@ function sortKeysForRule(
 		return [expressionKey(term(read(key.property, key.via)))];
 	}
 	if (key.kind === "option-label") {
-		const optionType = reachedType(key.via);
+		const optionType = key.readFrom ? USERCASE_CASE_TYPE : reachedType(key.via);
 		const property = (
-			key.via === undefined
+			!key.readFrom && key.via === undefined
 				? order.caseProperties
 				: (order.caseTypes.find((type) => type.name === optionType)
 						?.properties ?? [])
@@ -1208,7 +1324,7 @@ function sortKeysForRule(
 			);
 			const [first, ...rest] = tokens.map(({ option, index }) =>
 				ifExpr(
-					multiSelectAny(read(key.property, key.via), literal(option.value)),
+					containsOption(read(key.property, key.via), option.value),
 					textLiteral(
 						`${order.locale.optionLabel(property, index, optionType)} `,
 					),
@@ -1239,7 +1355,7 @@ function sortKeysForRule(
 	if (key.kind === "distance-calculated") {
 		const expression =
 			column.kind === "calculated"
-				? column.expression
+				? caseCalculation(column, order.locale)
 				: column.kind === "link" && column.visibleInList !== false
 					? linkDisplayValue(column)
 					: term(read(column.field, column.via));
@@ -1256,19 +1372,34 @@ function sortKeysForRule(
 	}
 	if (key.kind === "calculated") {
 		if (column.kind !== "calculated") return [];
-		return [expressionKey(column.expression, comparator)];
+		return [expressionKey(caseCalculation(column, order.locale), comparator)];
 	}
 	if (column.kind === "calculated") return [];
 	const raw = read(column.field, column.via);
-	if (key.kind === "mapping-position") {
+	if (key.kind === "mapping-label" || key.kind === "mapping-position") {
 		if (column.kind !== "id-mapping" && column.kind !== "image-map") return [];
 		return [
 			{
-				kind: "mapping-position",
+				kind: "case-mapping",
+				...displayOwner,
 				expression: term(raw),
-				values: column.mapping.map((entry) => javaTrim(entry.value)),
 				direction,
 				blanks,
+				rows: column.mapping.map((row, index) => {
+					const result =
+						key.kind === "mapping-label" && column.kind === "id-mapping"
+							? order.locale.mappingLabel(column, index)
+							: String(index);
+					if (row.when) return { match: "condition", when: row.when, result };
+					const entire =
+						key.kind === "mapping-label" ||
+						("match" in row && row.match === "exact");
+					return {
+						match: entire ? "exact" : "selected",
+						value: entire ? (row.value ?? "") : javaTrim(row.value ?? ""),
+						result,
+					};
+				}),
 			},
 		];
 	}
@@ -1277,19 +1408,26 @@ function sortKeysForRule(
 			? [expressionKey(linkDisplayValue(column), "text")]
 			: [];
 	}
-	if (column.kind !== "interval") return [];
-	const divisorDays = TIME_SINCE_UNIT_DAYS[column.unit];
+	if (column.kind !== "interval" && column.kind !== "overdue-marker") return [];
+	const divisorDays =
+		column.kind === "interval" ? TIME_SINCE_UNIT_DAYS[column.unit] : 1;
 	return [
 		{
 			kind: "interval-text",
+			...displayOwner,
+			readFrom: column.readFrom,
 			property: column.field,
 			...(column.via !== undefined && {
 				relation: { via: column.via },
 			}),
-			display: column.display,
-			thresholdDays: column.threshold * divisorDays,
+			display: column.kind === "interval" ? column.display : "flag",
+			thresholdDays:
+				column.kind === "interval"
+					? column.threshold * divisorDays
+					: column.afterDays,
 			divisorDays,
-			text: order.locale.intervalText(column),
+			text:
+				column.kind === "interval" ? order.locale.intervalText(column) : "*",
 			direction,
 			blanks,
 		},
@@ -1347,6 +1485,7 @@ export async function readCaseData(
 		 * direct non-extension case-index population. */
 		parentCase?: ParentCaseSelection;
 		caseListConfig?: CaseListConfig;
+		locale?: CaseListOrderLocale;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
 		lookupTableSchemas?: LookupTableSchemas;
@@ -1375,7 +1514,7 @@ export async function readCaseData(
 			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		),
 		parentCases: args.parentCase,
-		calculated: runtimeCalculatedColumns(args.caseListConfig),
+		calculated: runtimeCalculatedColumns(args.caseListConfig, args.locale),
 		related: runtimeRelatedReads(args.caseListConfig, args.caseType),
 		limit: 1,
 		includeHeld: args.includeHeld,

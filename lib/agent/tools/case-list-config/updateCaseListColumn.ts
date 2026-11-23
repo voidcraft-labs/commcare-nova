@@ -105,7 +105,14 @@ export const updateCaseListColumnTool = {
 
 			/* A replacement that leaves `notOnList` out puts the column back on
 			 * the list: the body is the whole column. */
-			const replacement = stampColumnUuid(column, columnUuid);
+			const replacement = stampColumnUuid(
+				column,
+				columnUuid,
+				doc,
+				mod.caseListConfig?.columns.find(
+					(candidate) => candidate.uuid === columnUuid,
+				),
+			);
 			const result = updateColumnMutation(mod, columnUuid, replacement);
 			if ("error" in result) {
 				return {

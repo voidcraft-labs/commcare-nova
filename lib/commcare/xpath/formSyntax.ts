@@ -402,3 +402,35 @@ export function matchFormSyntax(
 			break;
 	}
 }
+
+/** Every node of a syntax tree, pre-order. */
+export function visitSyntax(
+	node: FormSyntax,
+	visit: (node: FormSyntax) => void,
+): void {
+	visit(node);
+	switch (node.kind) {
+		case "group":
+		case "negative":
+		case "axis":
+			visitSyntax(node.value, visit);
+			return;
+		case "child":
+			if (node.left !== undefined) visitSyntax(node.left, visit);
+			visitSyntax(node.step, visit);
+			return;
+		case "filter":
+			visitSyntax(node.base, visit);
+			visitSyntax(node.where, visit);
+			return;
+		case "binary":
+			visitSyntax(node.left, visit);
+			visitSyntax(node.right, visit);
+			return;
+		case "call":
+			for (const arg of node.args) visitSyntax(arg, visit);
+			return;
+		default:
+			return;
+	}
+}

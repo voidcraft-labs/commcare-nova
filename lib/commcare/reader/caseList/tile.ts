@@ -5,6 +5,7 @@
  * tile list, are no part of any wire Nova writes, so they are claimed and
  * dropped (`modules.ts::tileCellFor`).
  */
+
 import {
 	type BlueprintDoc,
 	type Column,
@@ -13,6 +14,7 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import {
 	type CaseListConfig,
@@ -30,6 +32,7 @@ import type { DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
 import { reReadUuidOf } from "../identityMap";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { storedColumnKind } from "./columnIdentity";
 import type { JoinedDetails } from "./details";
 import { claimRestUnderFinding } from "./refusedWhole";
 
@@ -380,6 +383,7 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 		);
 	});
 	if (changed.length === 0) return doc;
+	const effectiveTypes = effectiveCaseTypes(doc);
 	const reRead = reReadUuidOf(doc, DERIVED_WIRE_IDENTITY);
 	return withCandidate(doc, (draft) => {
 		for (const uuid of changed) {
@@ -412,9 +416,17 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 			];
 			const source = doc.modules[uuid]?.caseListConfig;
 			if (source === undefined) continue;
+			const kinds = new Map(
+				source.columns.map((c) => [
+					c.uuid,
+					storedColumnKind(c, doc.modules[uuid]?.caseType, effectiveTypes),
+				]),
+			);
+			const raw = (id: Uuid) => kinds.get(id) !== "choice-label";
 			const renamed = carriersAsPlainColumns(
 				config,
-				plainColumnKeys(source),
+				plainColumnKeys(source, raw),
+				raw,
 				(field, n) =>
 					reRead(
 						externalKey.caseListColumn(
@@ -442,11 +454,14 @@ export function tileColumnsShownNowhereAsRead(doc: BlueprintDoc): BlueprintDoc {
 
 /** The identity of each plain column of `config`, by its field and its ordinal among plain
  *  columns of that field in the list's order: the key a reading claims a plain column under. */
-function plainColumnKeys(config: CaseListConfig): ReadonlyMap<string, Uuid> {
+function plainColumnKeys(
+	config: CaseListConfig,
+	raw: (id: Uuid) => boolean,
+): ReadonlyMap<string, Uuid> {
 	const keys = new Map<string, Uuid>();
 	const counts = new Map<string, number>();
 	for (const column of orderedColumns(config, "list")) {
-		if (column.kind !== "plain") continue;
+		if (column.kind !== "plain" || !raw(column.uuid)) continue;
 		const n = counts.get(column.field) ?? 0;
 		counts.set(column.field, n + 1);
 		keys.set(JSON.stringify([column.field, n]), column.uuid);
@@ -463,6 +478,7 @@ function plainColumnKeys(config: CaseListConfig): ReadonlyMap<string, Uuid> {
 function carriersAsPlainColumns(
 	config: CaseListConfig,
 	known: ReadonlyMap<string, Uuid>,
+	raw: (id: Uuid) => boolean,
 	mint: (field: string, n: number) => Uuid,
 ): ReadonlyMap<Uuid, Uuid> {
 	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
@@ -471,7 +487,8 @@ function carriersAsPlainColumns(
 	for (const uuid of config.listColumnOrder) {
 		const column = byUuid.get(uuid);
 		if (column === undefined || column.kind === "calculated") continue;
-		const plain = column.kind === "plain" || shownNowhere(column);
+		const plain =
+			(column.kind === "plain" && raw(column.uuid)) || shownNowhere(column);
 		if (!plain) continue;
 		const n = counts.get(column.field) ?? 0;
 		counts.set(column.field, n + 1);

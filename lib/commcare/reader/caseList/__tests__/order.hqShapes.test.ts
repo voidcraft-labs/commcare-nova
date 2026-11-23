@@ -832,8 +832,6 @@ describe("a sort element's field that is no one word", () => {
 			"parent/case_id",
 			"menus-and-case-lists/case-id-as-a-property-column-s-field",
 		],
-		["user/district", "menus-and-case-lists/user-prop-usercase"],
-		["#owner_name", "menus-and-case-lists/owner-name"],
 		["ledger:stock", "menus-and-case-lists/ledger-section"],
 		["case_id", "menus-and-case-lists/case-id-as-a-property-column-s-field"],
 		[

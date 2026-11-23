@@ -264,6 +264,7 @@ export function compileExpression(
 				}),
 			);
 		case "call":
+		case "case-text":
 		case "itext":
 		case "choice-name":
 		case "cases":

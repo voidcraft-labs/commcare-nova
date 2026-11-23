@@ -61,6 +61,7 @@ export interface IntervalTextKey {
 	/** The type of the listed row, where the column's walk starts. */
 	readonly caseType: string;
 	readonly property: string;
+	readonly readFrom?: "worker-record";
 	/** The walk from the row to the case whose property it reads. */
 	readonly via?: readonly [RelationStep, ...RelationStep[]];
 	readonly display: "always" | "flag";
@@ -120,23 +121,36 @@ export function compileIntervalText(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
-	const read: PropertyRef =
-		key.via === undefined
-			? prop(key.caseType, key.property)
-			: {
-					...prop(key.caseType, key.property, {
-						kind: "ancestor",
-						via: [...key.via] as [RelationStep, ...RelationStep[]],
-					}),
-					readReached: true,
-				};
+	const read: PropertyRef | undefined =
+		key.readFrom === "worker-record"
+			? undefined
+			: key.via === undefined
+				? prop(key.caseType, key.property)
+				: {
+						...prop(key.caseType, key.property, {
+							kind: "ancestor",
+							via: [...key.via] as [RelationStep, ...RelationStep[]],
+						}),
+						readReached: true,
+					};
 	// Keep malformed historic dates visible. The guard below receives the
 	// stored property's text before any cast. Reserved columns keep their
 	// device reading, including HQ's timestamp spelling in Search results.
+	// A worker-record property is the worker's own case's text as the
+	// device holds it.
 	const raw =
-		reservedColumnFor(key.property, ctx) === undefined
-			? compileStoredText(read, ctx)
-			: compileReadingText(term(read), ctx);
+		read === undefined
+			? compileReadingText(
+					term({
+						kind: "session-user",
+						source: "worker-record",
+						field: key.property,
+					}),
+					ctx,
+				)
+			: reservedColumnFor(key.property, ctx) === undefined
+				? compileStoredText(read, ctx)
+				: compileReadingText(term(read), ctx);
 	const v = eb.fn<string>("btrim", [eb.cast(raw, "text")]);
 	const blank = eb.or([eb(v, "is", null), eb(v, "=", eb.val(""))]);
 	const unreadable = eb.not(

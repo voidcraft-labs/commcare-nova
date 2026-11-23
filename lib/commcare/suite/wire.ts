@@ -1,7 +1,9 @@
-import type { ColumnVia } from "@/lib/domain/modules";
+import type { ColumnRecordSource, ColumnVia } from "@/lib/domain/modules";
 import { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
 import { type SourceTable, tableOf } from "../sourceKeys";
+import { USERCASE_CASE_SELECTOR } from "../usercaseWire";
 import { w } from "../xpath/wire/builders";
+import { groupsInstance, sessionInstance } from "../xpath/wire/instances";
 import {
 	buildAncestorJoinNodeset,
 	type InstanceRoot,
@@ -112,20 +114,45 @@ export function isHqDetailField(field: string): boolean {
  * field carries no type, then the property.
  */
 export function columnPropertyPath(
-	column: {
+	column: ColumnRecordSource & {
 		readonly field: string;
 		readonly via?: ColumnVia;
 	},
 	root: InstanceRoot = "casedb",
-): WirePath {
-	if (column.via === undefined) return casePropertyPath(column.field);
-	return w.append(
-		buildAncestorJoinNodeset(
-			column.via.map((step) => ({ identifier: step.identifier })),
-			root,
-		),
-		casePropertyPath(column.field).steps,
-	);
+): WireExpr {
+	const base =
+		column.readFrom === "worker-record"
+			? USERCASE_CASE_SELECTOR
+			: column.via
+				? buildAncestorJoinNodeset(
+						column.via.map(({ identifier }) => ({ identifier })),
+						root,
+					)
+				: column.showOwner === "name"
+					? w.current()
+					: w.context();
+	const value = w.append(base, casePropertyPath(column.field).steps);
+	if (column.showOwner !== "name") return value;
+	// HQ gives a matching group's name precedence even when it is blank.
+	const group = w.instance(groupsInstance(), [
+		w.step("groups"),
+		w.step("group", [w.eq(w.context([w.attr("id")]), value)]),
+	]);
+	const worker = (key: string) =>
+		w.instance(sessionInstance(), [
+			w.step("session"),
+			w.step("context"),
+			w.step(key),
+		]);
+	return w.call("if", [
+		w.ne(w.call("count", [group]), w.num(0)),
+		w.append(group, [w.step("name")]),
+		w.call("if", [
+			w.eq(worker("userid"), value),
+			worker("username"),
+			w.str(""),
+		]),
+	]);
 }
 
 /** The existing JavaRosa lowering of XPath's four-character whitespace set. */

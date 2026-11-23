@@ -50,7 +50,9 @@ export function columnReferences(
 		// live inside the `expression` AST and the per-operand type
 		// checker (`calculatedColumnTypeCheck`) walks them through the
 		// same admission set this rule consults.
-		if (col.kind === "calculated") continue;
+		if (col.kind === "calculated" || col.readFrom === "worker-record") continue;
+		// A worker record can carry additional values maintained by its project
+		// space. Like a form's worker-record read, an absent property reads blank.
 		const caseType = columnPropertyCaseType(
 			col,
 			mod.caseType,

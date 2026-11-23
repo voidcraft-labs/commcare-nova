@@ -12,6 +12,7 @@ import type { PlatformFeatureId } from "@/lib/domain/platforms";
 /** Each platform feature's manifest entries, in inventory order. */
 export const PLATFORM_FEATURE_ENTRIES = {
 	"datetime-question": ["questions/date-and-time-xsd-datetime"],
+	"worker-distance": ["menus-and-case-lists/9-distance"],
 	"sort-by-distance": ["menus-and-case-lists/type-distance"],
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
@@ -115,6 +116,19 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-sort-label": [
 		"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
 		"menus-and-case-lists/display-lang-on-a-sort-joined-to-an-invisible-column",
+	],
+	"case-map-location": [
+		"menus-and-case-lists/8-address",
+		"menus-and-case-lists/more-than-one-address-column-in-a-detail-of-an-advanced-module",
+	],
+	"case-map-layers": [
+		"menus-and-case-lists/11-geo-boundary",
+		"menus-and-case-lists/12-geo-boundary-color-on-the-case-list-only-needs-an-address",
+		"menus-and-case-lists/13-geo-points-on-the-case-list-only",
+		"menus-and-case-lists/14-geo-points-colors-on-the-case-list-only-needs-an-address",
+	],
+	"formatted-case-text": [
+		"menus-and-case-lists/10-markdown-outside-the-link-shape",
 	],
 	"link-column": [
 		"menus-and-case-lists/10-markdown-any-property-or-expression",

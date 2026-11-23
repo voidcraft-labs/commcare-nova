@@ -600,6 +600,8 @@ function sourceSlotWriter(unit: TranslationUnit): SlotWriter | undefined {
 				: undefined;
 		case "case-list-header":
 		case "case-list-interval-text":
+		case "case-list-calculation-text":
+		case "case-list-image-description":
 		case "case-list-mapping-label":
 			return owner.kind === "case-list-column"
 				? (draft, value) => {

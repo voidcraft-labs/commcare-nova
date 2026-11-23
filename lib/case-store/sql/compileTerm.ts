@@ -221,6 +221,9 @@ export interface TermBindings {
  * and forwards the rest unchanged into downstream calls.
  */
 export interface TermCompileContext {
+	readonly showColumnOwnerName?: boolean;
+	readonly restrictWorkerToRestore?: <QB>(query: QB, alias: string) => QB;
+	readonly workerGroupNames?: string;
 	/**
 	 * What the anchor row stands for (`CaseReading`): it decides the class
 	 * `date_opened` and `last_modified` read in, whether `closed_on` is
@@ -394,7 +397,11 @@ export function compileTerm(
 				}),
 			);
 		case "prop":
-			return compilePropertyRef(term, ctx);
+			return displayedCaseProperty(
+				term.property,
+				compilePropertyRef(term, ctx),
+				ctx,
+			);
 		case "literal":
 			return compileLiteral(term);
 		case "input":
@@ -405,7 +412,11 @@ export function compileTerm(
 			);
 		case "session-user":
 			if (term.source === "worker-record")
-				return compileWorkerProperty(term.field, ctx);
+				return displayedCaseProperty(
+					term.field,
+					compileWorkerProperty(term.field, ctx),
+					ctx,
+				);
 			return compileBoundRef(
 				term.field,
 				ctx.bindings.sessionUser,
@@ -740,14 +751,23 @@ function compileWorkerProperty(
 			const value: AliasableExpression<unknown> =
 				scalar === undefined
 					? builder.ref("worker_case.properties", "->>").key(field)
-					: eb.cast(scalarColumnRef("worker_case", scalar.column), "text");
+					: eb.cast(
+							compileReadingDate(
+								scalarColumnRef("worker_case", scalar.column),
+								field,
+								{ ...ctx, reading: "casedb" },
+							),
+							"text",
+						);
 			// Inside the row's select, so only a missing row reaches the outer
 			// fallback.
 			return eb.fn("coalesce", [value, eb.val("")]).as("value");
 		})
 		.limit(1);
-	if (ctx.restrictToRestoreScope !== undefined)
-		query = ctx.restrictToRestoreScope(query, "worker_case");
+	const restrictWorker =
+		ctx.restrictWorkerToRestore ?? ctx.restrictToRestoreScope;
+	if (restrictWorker !== undefined)
+		query = restrictWorker(query, "worker_case");
 	const derived = ctx.bindings.workerRecordWithoutRow;
 	const withoutRow =
 		derived !== undefined && Object.hasOwn(derived, field)
@@ -767,6 +787,16 @@ function compileWorkerProperty(
  * originating scope per the AST contract on
  * `propertyRefSchema.caseType`).
  */
+function displayedCaseProperty(
+	field: string,
+	value: AliasableExpression<unknown>,
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	if (!ctx.showColumnOwnerName || field !== "owner_id") return value;
+	const worker = ctx.bindings.sessionContext;
+	return sql<string>`coalesce((select g.name from jsonb_to_recordset(${ctx.workerGroupNames ?? "[]"}::jsonb) as g(id text, name text) where g.id = (${value})::text), case when (${value})::text = ${worker?.get("userid") ?? null} then ${String(worker?.get("username") ?? "")} else '' end)`;
+}
+
 function compilePropertyRef(
 	term: Extract<Term, { kind: "prop" }>,
 	ctx: TermCompileContext,

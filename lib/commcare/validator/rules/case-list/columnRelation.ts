@@ -10,10 +10,18 @@ import {
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
+import { namedWorkerColumnProperty } from "@/lib/domain/columnRelation";
 import { hqColumnFieldText, isHqDetailField } from "../../../suite/wire";
 import { type ValidationError, validationError } from "../../errors";
 
-type RelationReason = "unresolved" | "parent-type" | "worker" | "index-name";
+type RelationReason =
+	| "worker-info"
+	| "worker-walk"
+	| "owner-field"
+	| "unresolved"
+	| "parent-type"
+	| "worker"
+	| "index-name";
 
 export function columnRelation(
 	mod: Module,
@@ -25,8 +33,23 @@ export function columnRelation(
 	const errors: ValidationError[] = [];
 	for (let index = 0; index < config.columns.length; index++) {
 		const column = config.columns[index];
-		if (column.kind === "calculated" || column.via === undefined) continue;
-		const reason = relationReason(column, column.via, mod, doc);
+		if (column.kind === "calculated") continue;
+		const binding = column.readFrom
+			? namedWorkerColumnProperty(
+					column.field,
+					Object.values(doc.userProperties ?? {}),
+				)
+			: undefined;
+		const reason =
+			binding?.uuid !== column.workerPropertyUuid
+				? "worker-info"
+				: column.showOwner && column.field !== "owner_id"
+					? "owner-field"
+					: column.readFrom && column.via
+						? "worker-walk"
+						: column.via
+							? relationReason(column, column.via, mod, doc)
+							: undefined;
 		if (reason !== undefined)
 			errors.push(relationError(mod, moduleUuid, index, column, reason));
 	}
@@ -68,6 +91,12 @@ function relationReason(
 }
 
 const REASON_SENTENCE: Record<RelationReason, (column: string) => string> = {
+	"worker-info": (column) =>
+		`"${column}" needs its worker information to match the selected field. Choose that information again.`,
+	"worker-walk": (column) =>
+		`"${column}" reads the worker’s record. Choose a worker property, or choose a related case instead.`,
+	"owner-field": (column) =>
+		`"${column}" shows the owner’s name. Choose the owner ID for its information, or show the saved value instead.`,
 	unresolved: (column) =>
 		`"${column}" reads its value through a link that doesn't lead to one case type: a parent step needs the case type to have a parent, and any other link needs to name the case type it reaches. You can choose the case above again, or show information of this case itself.`,
 	"parent-type": (column) =>

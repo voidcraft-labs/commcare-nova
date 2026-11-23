@@ -32,8 +32,12 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
+import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { formWireName } from "@/lib/domain/formWireName";
+import { caseListColumnTextShows } from "@/lib/domain/modules";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -866,7 +870,33 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		kind: "one-wire",
 		apply: (doc) => {
 			const caseTypes = catalogAsRead(doc);
+			const emittedTypes = effectiveCaseTypes(doc);
 			return withCandidate(doc, (draft) => {
+				for (const mod of Object.values(draft.modules)) {
+					for (const column of mod.caseListConfig?.columns ?? []) {
+						if (column.kind !== "plain") continue;
+						const owner = columnPropertyCaseType(
+							column,
+							mod.caseType,
+							doc.caseTypes ?? [],
+						);
+						const readType = caseTypes
+							.find((type) => type.name === owner)
+							?.properties.find((p) => p.name === column.field)?.data_type;
+						const emitted = emittedTypes
+							.find((type) => type.name === owner)
+							?.properties.find((p) => p.name === column.field);
+						// A shown raw property keeps its value display when the catalog subsequently gains labels.
+						if (
+							caseListColumnTextShows(column) &&
+							(readType === "single_select" || readType === "multi_select") &&
+							(column.showChoice === "saved-value" ||
+								!casePropertyShowsOptionLabels(emitted))
+						)
+							column.showChoice = "saved-value";
+						else delete column.showChoice;
+					}
+				}
 				draft.caseTypes =
 					caseTypes.length === 0 ? null : (caseTypes as typeof draft.caseTypes);
 			});
