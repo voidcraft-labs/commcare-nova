@@ -155,8 +155,11 @@ def test_checkbox_search_sends_each_checked_value_on_both_archives(android_docum
     from proof.android import observe
     from proof.observe.record import Blobs
 
+    from proof.observe import casedata
+
     document = android_documents["prompt-checkboxes"]
-    database = _restored(document)
+    # A prompt document is generated, so it holds no restore of its own: its cases are its document's.
+    database = casedata.document_case_database(document)
     database = replace(
         database, user_data=(*((k, v) for k, v in database.user_data if k != "region_group"), ("region_group", "A"))
     )
@@ -185,9 +188,11 @@ def test_installed_app_sends_fixed_starting_dates_on_both_archives(android_docum
     from proof.android import observe
     from proof.observe.record import Blobs
 
+    from proof.observe import casedata
+
     document = android_documents[document_id]
     command = "search_command.m0"
-    with _archives(document, _restored(document)) as (served, archives):
+    with _archives(document, casedata.document_case_database(document)) as (served, archives):
         for label, archive in archives.items():
             blobs = Blobs()
             result = observe.app(served, blobs, label=label, archive=archive, commands=[command])
