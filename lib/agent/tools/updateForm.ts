@@ -228,6 +228,10 @@ export const updateFormTool = {
 					(hiddenFromMenu === undefined && existing.hiddenFromMenu === true)
 						? ["hiddenFromMenu"]
 						: []),
+					...(badge != null ||
+					(badge === undefined && existing.badge !== undefined)
+						? ["badge"]
+						: []),
 					...((existing.formLinks?.length ?? 0) > 0
 						? ["after-submit links"]
 						: []),
@@ -237,7 +241,7 @@ export const updateFormTool = {
 						kind: "mutate" as const,
 						mutations: [],
 						result: {
-							error: `Form "${existing.name}" can't be its menu's registration from the case list while it carries ${carried.join(", ")}: that form returns to the results or goes to the first menu, and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, hiddenFromMenu: null, remove_form_link) in this call or before, then set case_list_registration.`,
+							error: `Form "${existing.name}" can't be its menu's registration from the case list while it carries ${carried.join(", ")}: that form returns to the results or goes to the first menu, and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, hiddenFromMenu: null, badge: null, remove_form_link) in this call or before, then set case_list_registration.`,
 						},
 					};
 				}

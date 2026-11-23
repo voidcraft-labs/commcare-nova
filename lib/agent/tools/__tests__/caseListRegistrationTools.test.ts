@@ -141,6 +141,36 @@ describe("registration from the case list", () => {
 		]);
 	});
 
+	it("names a menu badge among what the registration from the case list can't carry, with its clear", async () => {
+		const h = await fixture();
+		expect(
+			await h.call("updateForm", {
+				formUuid: "Register",
+				badge: { kind: "text", text: "New" },
+			}),
+		).toMatchObject({ ok: true });
+		const refused = await h.call("updateForm", {
+			formUuid: "Register",
+			case_list_registration: {},
+		});
+		expect(refused).toMatchObject({
+			error: expect.stringContaining("carries badge"),
+		});
+		expect(refused).toMatchObject({
+			error: expect.stringContaining("badge: null"),
+		});
+		expect(
+			moduleNamed(h.currentDoc(), "Patients").caseListRegistrationForm,
+		).toBeUndefined();
+		expect(
+			await h.call("updateForm", {
+				formUuid: "Register",
+				badge: null,
+				case_list_registration: {},
+			}),
+		).toMatchObject({ ok: true, caseListRegistration: true });
+	});
+
 	it("changes the destination independently of the button label and preserves it on a label edit", async () => {
 		const h = await fixture();
 		const change = (registration: {
