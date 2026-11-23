@@ -97,6 +97,8 @@ export const PLATFORM_CELLS: Readonly<
 		structural("forms-read-search"),
 	"case-search/list-first-where-web-apps-is-declared@web-apps":
 		structural("list-first"),
+	"case-search/list-first-with-a-search-that-skips-to-results@web-apps":
+		structural("list-first"),
 	"menus-and-case-lists/detail-multi-select@android":
 		structural("several-cases"),
 	"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list@android":

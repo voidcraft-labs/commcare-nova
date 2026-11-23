@@ -25,6 +25,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
+	"search-on-clear": ["case-search/search-on-clear"],
 	"list-first": [
 		"case-search/list-first-where-web-apps-is-declared",
 		"case-search/list-first-with-a-search-that-skips-to-results",

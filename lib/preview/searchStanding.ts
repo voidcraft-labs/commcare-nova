@@ -61,7 +61,7 @@ import type {
 	PreviewSearchAnswers,
 	PreviewSearchState,
 } from "@/lib/session/types";
-import type { PreviewDevice } from "./engine/previewDevice";
+import type { PreviewPlatformRules } from "./platform";
 
 /**
  * A screen of the session, as the searches it keeps see it: the menu it is
@@ -414,14 +414,14 @@ export function previewSearchClearOffered(args: {
 	return args.platformClears && (args.searched || args.typed);
 }
 
-/** Web Apps’ query screen searches after Clear only on the desktop layout. */
+/** Whether Clear also runs the search: the menu asks for it and the
+ *  platform searches after Clear at the window's width
+ *  (`PreviewPlatformRules.searchOnClearMinWidth`). */
 export function searchAfterClear(
 	enabled: boolean,
-	device: Pick<PreviewDevice, "platform" | "windowWidth">,
+	rules: Pick<PreviewPlatformRules, "searchOnClearMinWidth">,
+	windowWidth: number | undefined,
 ): boolean {
-	return (
-		enabled &&
-		device.platform === "web-apps" &&
-		(device.windowWidth ?? 0) >= 992
-	);
+	const minimum = rules.searchOnClearMinWidth;
+	return enabled && minimum !== undefined && (windowWidth ?? 0) >= minimum;
 }

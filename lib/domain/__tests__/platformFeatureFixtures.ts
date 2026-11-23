@@ -438,6 +438,23 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseSearchConfig.formsReadSearch",
 		),
 	},
+	"search-on-clear": {
+		with: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: { searchOnClear: true } },
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: {} },
+			}),
+		use: slotUse(
+			"search-on-clear",
+			MODULE_OWNER,
+			"caseSearchConfig.searchOnClear",
+		),
+	},
 	"list-first": {
 		with: () =>
 			caseApp({

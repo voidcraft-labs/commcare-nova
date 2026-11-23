@@ -164,6 +164,13 @@ export interface PreviewPlatformRules {
 	 *  error line alone (`activities/QueryRequestUiController.kt`, layout
 	 *  `http_request_layout.xml`), and `QueryRequestActivity` clears no field. */
 	readonly searchClear: boolean;
+	/** The narrowest window, in CSS pixels, at which Clear also runs the
+	 *  search where the menu asks for it (`caseSearchConfig.searchOnClear`),
+	 *  or `undefined` where Clear never searches. Web Apps'
+	 *  `menus/views/query.js::clearAction` searches only while the screen is
+	 *  not small (`utils.js::smallScreenIsEnabled`, `SMALL_SCREEN_WIDTH_PX`
+	 *  992); Android has no Clear. */
+	readonly searchOnClearMinWidth: number | undefined;
 	/** Whether the case list's Search action launches on its own: search first
 	 *  and skip to results. Core's cli `EntityScreen.evaluateAutoLaunch`, which
 	 *  Formplayer runs; commcare-android holds no reader of `auto_launch`, so it
@@ -411,6 +418,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
 		searchClear: true,
+		searchOnClearMinWidth: 992,
 		searchActionAutoLaunch: true,
 		searchReplay: "latest-answers",
 		poppedEntrySelections: "address",
@@ -478,6 +486,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
 		searchClear: false,
+		searchOnClearMinWidth: undefined,
 		searchActionAutoLaunch: false,
 		searchReplay: "own-answers",
 		poppedEntrySelections: "session",

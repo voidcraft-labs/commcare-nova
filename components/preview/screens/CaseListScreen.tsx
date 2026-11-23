@@ -1729,7 +1729,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 		resetSearch();
 		const alsoSearch = searchAfterClear(
 			searchConfig?.searchOnClear === true,
-			withNavigationWidth(device),
+			platformRules,
+			withNavigationWidth(device).windowWidth,
 		);
 		if (clearFormRef.current) clearFormRef.current.clear(alsoSearch);
 		else if (alsoSearch && !hasSearchInputs)
@@ -2885,7 +2886,8 @@ export function CaseListScreen({ screen, current }: CaseListScreenProps) {
 				(step === "results" &&
 					searchAfterClear(
 						searchConfig?.searchOnClear === true,
-						withNavigationWidth(device),
+						platformRules,
+						withNavigationWidth(device).windowWidth,
 					)))) ? (
 			<div
 				ref={searchPaneRef}

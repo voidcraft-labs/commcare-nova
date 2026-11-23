@@ -298,18 +298,10 @@ function searchFixture() {
 
 export const PLATFORM_MODEL_CHECKS = {
 	"desktop-search-on-clear": () => {
-		expect(
-			searchAfterClear(true, { platform: "web-apps", windowWidth: 991 }),
-		).toBe(false);
-		expect(
-			searchAfterClear(true, { platform: "web-apps", windowWidth: 992 }),
-		).toBe(true);
-		expect(
-			searchAfterClear(false, { platform: "web-apps", windowWidth: 992 }),
-		).toBe(false);
-		expect(
-			searchAfterClear(true, { platform: "android", windowWidth: 1280 }),
-		).toBe(false);
+		expect(searchAfterClear(true, WEB_APPS, 991)).toBe(false);
+		expect(searchAfterClear(true, WEB_APPS, 992)).toBe(true);
+		expect(searchAfterClear(false, WEB_APPS, 992)).toBe(false);
+		expect(searchAfterClear(true, ANDROID, 1280)).toBe(false);
 	},
 	/* A calculate over the clock and a condition over it re-evaluate after
 	 * an unrelated answer on Web Apps; a starting value does not; on Android

@@ -1159,7 +1159,8 @@ async function advanceAppTestOnScreen(
 				module !== undefined &&
 				searchAfterClear(
 					effectiveCaseSearchConfig(module)?.searchOnClear === true,
-					context.device,
+					context.rules,
+					context.device.windowWidth,
 				);
 			const cleared = {
 				...state,
