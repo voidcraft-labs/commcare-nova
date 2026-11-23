@@ -146,7 +146,8 @@
 	"hq-expressions": [
 		"hq-expressions/inline-instance",
 		"hq-expressions/second-instance-without-id",
-		"hq-expressions/survey-typed-advanced"
+		"hq-expressions/survey-typed-advanced",
+		"hq-expressions/user-groups-read"
 	],
 	"hq-kept-settings": [
 		"hq-kept-settings/android-app-dependencies",
