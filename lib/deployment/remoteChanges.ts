@@ -172,6 +172,10 @@ export const APP_CHANGED_DURING_PUBLISH_WARNING =
 export const MEDIA_NOT_SENT_AFTER_STOP_WARNING =
 	"Publishing here stopped right after the app landed, so Nova didn't send its pictures and sounds.";
 
+/** The warning when Nova couldn't confirm how one media job ended, so the files after it waited. */
+export const LATER_MEDIA_NOT_SENT_WARNING =
+	"Nova held back the rest of the pictures and sounds until that's confirmed. Publishing again sends them.";
+
 /** A later import was already recorded when HQ answered this publish's import. */
 export const MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING =
 	"A later publish has already updated this app in CommCare HQ. Nova left its media in place.";

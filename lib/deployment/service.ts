@@ -159,6 +159,7 @@ import {
 	APP_PREVIEW_NOTE,
 	APP_READ_BACK_FAILED_WARNING,
 	HQ_CHANGED_DURING_PUSH_MESSAGE,
+	LATER_MEDIA_NOT_SENT_WARNING,
 	lookupTableMadeAgainWarning,
 	MEDIA_NOT_SENT_AFTER_ACCESS_WARNING,
 	MEDIA_NOT_SENT_AFTER_LATER_PUBLISH_WARNING,
@@ -2129,7 +2130,8 @@ export async function publishAppToHq(
 						p,
 					]),
 				);
-				for (const batch of mediaUploadBatches(bulkAssets)) {
+				const batches = [...mediaUploadBatches(bulkAssets)];
+				for (const [index, batch] of batches.entries()) {
 					const mediaAdmission = await admitAppWrite(input.scope, target, {
 						compiledIdentity: targetIdentity,
 						...fence,
@@ -2204,7 +2206,18 @@ export async function publishAppToHq(
 						warnings: [...upload.warnings, ...part.warnings],
 						reported: { ...upload.reported, ...part.reported },
 					};
-					if (part.warnings.length > 0) break;
+					/* A file CommCare HQ skipped, left unmatched or didn't hold
+					 * after a job it finished is named in its own warning, and the
+					 * rest of the files still go. A job whose end Nova couldn't
+					 * confirm stops the files after it. */
+					if (part.uncertain) {
+						if (index < batches.length - 1)
+							upload = {
+								...upload,
+								warnings: [...upload.warnings, LATER_MEDIA_NOT_SENT_WARNING],
+							};
+						break;
+					}
 				}
 			}
 			warnings.push(...upload.warnings);
@@ -3653,6 +3666,8 @@ async function uploadMediaBytes(
 ): Promise<{
 	readonly warnings: readonly string[];
 	readonly reported: HqMediaRecord;
+	/** Whether Nova couldn't confirm how the job ended, so later files wait. */
+	readonly uncertain: boolean;
 }> {
 	let jobId: string | null = null;
 	let mediaResult: Awaited<ReturnType<typeof uploadAppMediaBundle>> | null =
@@ -3688,6 +3703,7 @@ async function uploadMediaBytes(
 				"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
 			],
 			reported: {},
+			uncertain: true,
 		};
 	}
 	await settleMediaWrite(writeId, jobId, mediaResult);
@@ -3703,6 +3719,7 @@ async function uploadMediaBytes(
 				"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
 			],
 			reported: {},
+			uncertain: true,
 		};
 	}
 	if (mediaResult.timedOut) {
@@ -3711,6 +3728,7 @@ async function uploadMediaBytes(
 				"The app was published and CommCare HQ accepted its media. Nova could not confirm whether processing finished. Check the app’s media in CommCare HQ, or publish again to retry.",
 			],
 			reported: {},
+			uncertain: true,
 		};
 	}
 	const receipt = await readMediaReceipt(
@@ -3744,6 +3762,7 @@ async function uploadMediaBytes(
 			logContext: { domain, hqAppId, appId },
 		}),
 		reported: receipt.files,
+		uncertain: false,
 	};
 }
 
