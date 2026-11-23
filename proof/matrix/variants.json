@@ -28253,7 +28253,7 @@
 		"entry": "menus-and-case-lists/shadowmodule-case-type-stored-key",
 		"change": {
 			"op": "named",
-			"name": "all_forms_listed_in_another_menu"
+			"name": "listed_menu_storing_its_source_case_type"
 		},
 		"holds": [
 			{

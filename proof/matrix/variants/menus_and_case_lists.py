@@ -1276,7 +1276,7 @@ def child_menus_listing_the_same_forms(authoring, app_id):
         )
 
 
-def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False):
+def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False, stored_case_type=None):
     """A second route to the hq-plain forms. HQ resolves the actual source form ids before saving."""
     owner = _held(authoring, app_id)["modules"][0]
     ops.set_json(
@@ -1291,7 +1291,7 @@ def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False):
             "source_module_id": {"$menu": 0},
             "name": {"en": "At home"},
             "forms": [],
-            "case_type": None,
+            "case_type": owner["case_type"] if stored_case_type == "source" else None,
             "case_details": owner["case_details"],
             "case_list": {"show": show},
             "excluded_form_ids": list(excluded),
@@ -1306,6 +1306,13 @@ def _add_listed_menu(authoring, app_id, *, excluded=(), linked=(), show=False):
 
 def all_forms_listed_in_another_menu(authoring, app_id):
     _add_listed_menu(authoring, app_id)
+
+
+def listed_menu_storing_its_source_case_type(authoring, app_id):
+    """A listing menu whose stored ``case_type`` key holds its source's type, as an app saved before
+    ``ShadowModule.case_type`` became the property derived from the source can. HQ reads the property,
+    so the stored key changes nothing."""
+    _add_listed_menu(authoring, app_id, stored_case_type="source")
 
 
 def some_forms_listed_in_another_menu(authoring, app_id):
