@@ -1031,10 +1031,12 @@ export function createBlueprintMutations(
 				return { ok: false, messages: admission.messages };
 			}
 			const doc = get();
-			const authored = withListedMenuHierarchy(
-				doc,
-				isMutationList(batch) ? batch : batch.authored,
-			);
+			/* A menu hierarchy edit carries the listing menus' submenus with
+			 * it. A batch it adds nothing to stays the very batch admitted,
+			 * so a stated batch commits as the one the dialog showed. */
+			const stated = isMutationList(batch) ? batch : batch.authored;
+			const listed = withListedMenuHierarchy(doc, stated);
+			const authored = listed.length === stated.length ? stated : listed;
 			/* The waiting batch was projected into the worker language when
 			 * it was dispatched, and the gate admitted it as it stands;
 			 * projecting it again would read its own translation writes as
