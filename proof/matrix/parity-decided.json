@@ -56,7 +56,7 @@
 		"hq-case-lists/case-type-outside-the-page-grammar",
 		"hq-case-lists/clickable-icon-on-case-detail",
 		"hq-case-lists/column-field-hq-refuses",
-		"hq-case-lists/column-over-a-long-name",
+		"hq-case-lists/column-over-an-unknown-hash-property",
 		"hq-case-lists/columns-above-the-first-tab",
 		"hq-case-lists/conditional-id-mapping",
 		"hq-case-lists/date-format-with-an-unknown-escape",
@@ -364,6 +364,7 @@
 		"hq-saved-pages/detail-with-a-print-template",
 		"hq-saved-pages/tile-cell-bordered-and-shaded"
 	],
+	"hq-related-property-columns": [],
 	"hq-search": [
 		"hq-search/blank-answer-searched-for",
 		"hq-search/data-registry",

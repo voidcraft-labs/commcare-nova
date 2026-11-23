@@ -4807,7 +4807,9 @@ def case_id_element(use, manifest):
     at, column, detail, kind, module = _column(use)
     if column is None:
         return None
-    return not column.get("useXpathExpression") and str(column.get("field") or "") == "case_id"
+    field = str(column.get("field") or "")
+    return (not column.get("useXpathExpression") and PROPERTY_NAME.fullmatch(field) is not None
+            and ":" not in field and not field.startswith("user/") and field.split("/")[-1] == "case_id")
 
 
 def _custom_tile(detail):
@@ -9655,26 +9657,15 @@ HQ_PROPERTY_RENAMES = {
 }
 
 
-def column_field_outside_nova_s_grammar(use, manifest):
-    """``menus-and-case-lists/column-field-outside-nova-s-property-grammar``: a column's ``field`` HQ's case list page
-    takes as one property (``PROPERTY_NAME``, with no prefix and no path) whose name, after HQ's words Nova reads
-    under its own (``HQ_PROPERTY_RENAMES``), Nova's property grammar does not take: a ``#`` before it, or a name past
-    255 characters (``columns.ts::classifyField``). A calculated column's field is an expression, and ``#owner_name``,
-    a prefixed field, a path, a field the page refuses and ``case_id`` are other classes'."""
+def column_hash_property(use, manifest):
+    """HQ's property-name editor admits a hash prefix; its build only rewrites #owner_name."""
     at = _json(use)
     if at is None or at.key != "field" or at.scope[-1][0] != "DetailColumn":
         return None
-    column, field = at.owner, at.value
-    if column.get("useXpathExpression") or not isinstance(field, str):
-        return False
-    if field == "#owner_name" or field.find(":") > 0 or "/" in field or PROPERTY_NAME.fullmatch(field) is None:
-        return False
-    renamed = HQ_PROPERTY_RENAMES.get(field, field)
-    if renamed == "case_id":
-        return False
-    return (
-        AUTHORED_CASE_PROPERTY_NAME.fullmatch(renamed) is None or len(renamed) > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
-    )
+    field = at.value
+    return (not at.owner.get("useXpathExpression") and isinstance(field, str) and ":" not in field and not field.startswith("user/")
+            and field.split("/")[-1].startswith("#") and field.split("/")[-1] != "#owner_name" and PROPERTY_NAME.fullmatch(field) is not None)
+
 
 
 def build_profiles_held(use, manifest):
@@ -10059,7 +10050,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_an_xml_name
     ),
-    "menus-and-case-lists/column-field-outside-nova-s-property-grammar": column_field_outside_nova_s_grammar,
+    "menus-and-case-lists/column-reading-an-unknown-hash-property": column_hash_property,
     "application-and-settings/build-profiles-non-empty": build_profiles_held,
     "questions/question-id-case-registration-script": reserved_question_id,
 }

@@ -266,6 +266,7 @@ const APP_LEVEL_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"retireCaseType",
 	"addCaseProperty",
 	"setCaseProperty",
+	"moveCaseProperty",
 	"removeCaseProperty",
 	"setCaseTypeMeta",
 	"renameCaseProperties",
@@ -340,6 +341,7 @@ function decidedEntities(
 			return sides.flatMap((doc) =>
 				catalogReaders(doc, mutation.caseType, mutation.property.name),
 			);
+		case "moveCaseProperty":
 		case "removeCaseProperty":
 			return sides.flatMap((doc) =>
 				catalogReaders(doc, mutation.caseType, mutation.property),
@@ -1114,6 +1116,7 @@ function editedTargetKeys(
 					casePropertyTargetKey(mutation.caseType, mutation.property.name),
 				);
 				break;
+			case "moveCaseProperty":
 			case "removeCaseProperty":
 				keys.add(casePropertyTargetKey(mutation.caseType, mutation.property));
 				break;

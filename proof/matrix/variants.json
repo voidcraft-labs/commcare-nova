@@ -6674,10 +6674,10 @@
 		}
 	},
 	{
-		"id": "hq-case-lists/column-over-a-long-name",
+		"id": "hq-case-lists/column-over-an-unknown-hash-property",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/column-field-outside-nova-s-property-grammar",
-		"standing": "not-yet",
+		"entry": "menus-and-case-lists/column-reading-an-unknown-hash-property",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "case-list",
 			"menu": 0,
@@ -6823,7 +6823,7 @@
 					"date_format": "%d/%m/%y",
 					"doc_type": "DetailColumn",
 					"enum": [],
-					"field": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+					"field": "#other",
 					"format": "plain",
 					"graph_configuration": {
 						"annotations": [],
@@ -6835,7 +6835,7 @@
 					"grid_x": null,
 					"grid_y": null,
 					"header": {
-						"en": "Long"
+						"en": "Other"
 					},
 					"late_flag": 30,
 					"model": "case",
@@ -11296,12 +11296,6 @@
 		"id": "hq-case-lists/parent-property-column-of-a-type-with-no-parent",
 		"base": "hq-case-lists",
 		"entry": "menus-and-case-lists/idx-prop-in-a-menu-that-offers-search-or-through-an-index",
-		"standing": "not-yet",
-		"place": {
-			"kind": "case-list",
-			"menu": 0,
-			"name": "Patients"
-		},
 		"change": {
 			"op": "set-json",
 			"pointer": "/modules/0/case_details/short/columns",
@@ -11462,7 +11456,19 @@
 					"useXpathExpression": false
 				}
 			]
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/field",
+				"value": "village"
+			},
+			{
+				"key": ["module", { "$menu": 0 }],
+				"pointer": "/caseListConfig/columns/5/via",
+				"value": [{ "identifier": "parent" }]
+			}
+		]
 	},
 	{
 		"id": "hq-case-lists/persistent-case-context",

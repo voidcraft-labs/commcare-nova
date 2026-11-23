@@ -141,6 +141,7 @@ from proof.matrix.bases import (  # noqa: E402
     nova_then_builder,
     places,
     plain,
+    related_property_columns,
     saved_pages,
     search,
     starter_agriculture,
@@ -150,6 +151,7 @@ from proof.matrix.bases import (  # noqa: E402
 
 BASES: tuple[Base, ...] = (
     plain.BASE,
+    related_property_columns.BASE,
     new_app.BASE,
     saved_pages.BASE,
     starter_health.BASE,

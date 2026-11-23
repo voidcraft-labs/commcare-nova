@@ -3990,6 +3990,8 @@ def _search_and_menus():
         ),
         "menus-and-case-lists/case-id-as-a-property-column-s-field": (
             refused("app", columns_app(_column("case_id")), "detail-field-type:property", f"{short}/columns/0/field"),
+            refused("app", columns_app(_column("site-link/case_id")), "detail-field-type:property", f"{short}/columns/0/field"),
+            accepted("app", columns_app(_column("site-link/status")), "detail-field-type:property", f"{short}/columns/0/field"),
             accepted("app", columns_app(_column("dob")), "detail-field-type:property", f"{short}/columns/0/field"),
         ),
         "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": (
@@ -6276,9 +6278,11 @@ def _held_new():
                 f"{short}/case_tile_group/index_identifier",
             ),
         ),
-        "menus-and-case-lists/column-field-outside-nova-s-property-grammar": (
+        "menus-and-case-lists/column-reading-an-unknown-hash-property": (
             refused("app", columns(_column(field="#visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
-            refused("app", columns(_column(field="a" * 256)), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            refused("app", columns(_column(field="site-link/#visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            accepted("app", columns(_column(field="site-link/#owner_name")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
+            accepted("app", columns(_column(field="a" * 256)), "schema:DetailColumn.field", f"{short}/columns/0/field"),
             accepted("app", columns(_column(field="visit")), "schema:DetailColumn.field", f"{short}/columns/0/field"),
             accepted(
                 "app", columns(_column(field="#owner_name")), "schema:DetailColumn.field", f"{short}/columns/0/field"

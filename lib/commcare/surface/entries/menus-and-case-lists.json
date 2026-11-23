@@ -4056,26 +4056,58 @@
 		"gates": []
 	},
 	{
-		"id": "menus-and-case-lists/column-field-outside-nova-s-property-grammar",
+		"id": "menus-and-case-lists/column-reading-a-property-name-over-255-characters",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "a column `field` that `details/utils.js::isValidPropertyName` accepts and Nova's case property grammar does not (a name longer than 255 characters, or one word after a `#` other than `#owner_name`)",
+		"item": "A native case property column whose name exceeds 255 characters",
 		"surfaceKeys": ["schema:DetailColumn.field"],
-		"valueClass": "property-name-outside-nova-s-grammar",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a column over a property name outside `casePropertyName.ts::authoredCasePropertyNameSchema`",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"valueClass": "long-read-property",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a read of a named case child, including an absent child; the write grammar keeps its length limit",
 		"platforms": {
-			"kind": "not-applicable",
-			"cell": "n/a"
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
 		},
 		"emission": {
-			"cell": "omit",
-			"markers": ["omit"]
+			"cell": "the original property name",
+			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/column-reading-an-unknown-hash-property",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "A case property column starting with # other than #owner_name",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"valueClass": "unrecognized-hash-property",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime on both workers; the generated XPath contains an invalid child name",
+		"subject": "case-list-columns",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ writes the # into the property step and Core cannot parse the path"
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/field-failing-details-utils-js-isvalidpropertyname-non",
@@ -6724,11 +6756,10 @@
 		"subsection": "Column field paths",
 		"item": "`idx/…/prop` in a menu that offers Search, or through an index the app links to no case type",
 		"surfaceKeys": ["detail-field-type:property"],
-		"valueClass": "relation-path-unheld",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the related column in a menu that offers Search, which HQ's build reads through the search's results instance (`models/case_list.py::Detail.get_instance_name`), where Nova writes a column over a related case as a calculation that keeps each case type (`suite/case-search/relatedCaseProjection.ts`); a walk through an index whose case type nothing in the app states, where Nova's walk names the type it reaches; and a walk to `case_id`, `status` or `owner_id`, which Nova writes as an expression over the attribute",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"valueClass": "relation-path-search-or-open",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a property column follows each named index in the detail's own case roster. Search results use their results roster. A link without a declared destination reads the named child of the reached case.",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6833,7 +6864,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column field paths",
-		"item": "`case_id` as a property column's `field` (or a sort element's, whose appended column reads it so)",
+		"item": "The child element `case_id` as a property column’s field, directly or at the end of an index walk, including a column added for a sort.",
 		"surfaceKeys": ["detail-field-type:property"],
 		"valueClass": "case-id-element",
 		"disposition": "REFUSED",

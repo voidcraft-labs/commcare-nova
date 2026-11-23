@@ -949,6 +949,17 @@ const setCaseProperty: KindGenerator = (ctx) => {
 	);
 };
 
+const moveCaseProperty: KindGenerator = (ctx) => {
+	const targets = (ctx.doc.caseTypes ?? []).flatMap((type) =>
+		type.properties
+			.slice(1)
+			.map((property) => ({ caseType: type.name, property: property.name })),
+	);
+	return take(ctx, targets).map(({ caseType, property }) =>
+		batch([{ kind: "moveCaseProperty", caseType, property, after: null }]),
+	);
+};
+
 const removeCaseProperty: KindGenerator = (ctx) => {
 	const { doc } = ctx;
 	const unused = (doc.caseTypes ?? []).flatMap((ct) =>
@@ -3091,6 +3102,7 @@ export const EDIT_KIND_GENERATORS = {
 	retireCaseType,
 	addCaseProperty: hosted(CASE_TYPE_HOST, addCaseProperty),
 	setCaseProperty: hosted(CASE_TYPE_HOST, setCaseProperty),
+	moveCaseProperty,
 	removeCaseProperty,
 	setCaseTypeMeta: hosted(CASE_TYPE_HOST, setCaseTypeMeta),
 	addUserProperty,
