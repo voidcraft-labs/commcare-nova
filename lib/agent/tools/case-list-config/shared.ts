@@ -232,7 +232,7 @@ const columnViaInput = {
 	via: caseWriteViaInputSchema
 		.optional()
 		.describe(
-			'Show field of the case above this one instead of this case\'s own, one link per step from this case, nearest first. parent needs no type: [{"identifier":"parent"}] reaches this case type\'s parent. Any other link names the case type it reaches: [{"identifier":"host","throughCaseType":"household"}]. Leave it out for this case\'s own property. A menu that offers Search can\'t hold it; a calculated column can read the case above there.',
+			'Show field of the case above this one instead of this case\'s own, one link per step from this case, nearest first. parent needs no type: [{"identifier":"parent"}] reaches this case type\'s parent. Any other link names the case type it reaches: [{"identifier":"host","throughCaseType":"household"}]. Leave it out for this case\'s own property. In a menu that offers Search, a link, an interval, or a plain column showing a choice\'s label can\'t read through it; show the saved value instead.',
 		),
 };
 
