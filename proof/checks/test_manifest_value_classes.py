@@ -5139,6 +5139,16 @@ def _data_binds_and_itext():
           <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
             <label ref="name"/><value ref="id"/></itemset></select1>""",
     )
+    # A lookup choice whose label or value reads two steps down the row (the first select), which the form editor's
+    # lookup widget cannot keep, beside one that reads a field and an attribute of the row (the second).
+    lookup_refs = form(
+        data="<s/><t/>",
+        model='<instance id="items" src="jr://fixture/item-list:items"/>',
+        body="""<select1 ref="/data/s"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="details/name"/><value ref="codes/id"/></itemset></select1>
+          <select1 ref="/data/t"><itemset nodeset="instance('items')/items_list/items">
+            <label ref="name"/><value ref="@code"/></itemset></select1>""",
+    )
     translations = form(
         data="<q/>",
         model="""<itext><translation lang="en" default="">
@@ -5595,6 +5605,12 @@ def _data_binds_and_itext():
                 "select1[2]/itemset[1]/label[1]/@ref",
                 readings=True,
             ),
+        ),
+        "questions/lookup-choice-reference-the-form-editor-cannot-keep": (
+            refused("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[1]/itemset[1]/label[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/label@ref", "select1[2]/itemset[1]/label[1]/@ref"),
+            refused("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[1]/itemset[1]/value[1]/@ref"),
+            accepted("form", lookup_refs, "xform:select1/itemset/value@ref", "select1[2]/itemset[1]/value[1]/@ref"),
         ),
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
