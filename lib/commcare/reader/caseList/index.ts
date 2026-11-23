@@ -654,9 +654,12 @@ function sortDifference(
 	return undefined;
 }
 
-function caseListPlace(module: DraftModule): HqPlace {
+function caseListPlace(
+	module: DraftModule,
+	kind: "case-list" | "case-detail" = "case-list",
+): HqPlace {
 	return {
-		kind: "case-list",
+		kind,
 		menu: module.index,
 		name: module.place.kind === "menu" ? module.place.name : "",
 	};
@@ -1184,7 +1187,7 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		if (
 			difference !== undefined &&
 			!ctx.accounting.hasFindingAt(place) &&
-			!ctx.accounting.hasFindingAt({ ...place, kind: "case-detail" })
+			!ctx.accounting.hasFindingAt(caseListPlace(module, "case-detail"))
 		)
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
 	}
