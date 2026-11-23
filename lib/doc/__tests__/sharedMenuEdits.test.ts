@@ -17,6 +17,7 @@ import {
 	withListedMenuHierarchy,
 } from "@/lib/doc/sharedMenuHierarchy";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { literal, term } from "@/lib/domain/expression";
 
 function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 	const verdict = mutationCommitVerdict(
@@ -153,6 +154,31 @@ it("preserves a listed child and its edited columns on reorder, removes it with 
 	expect(apply(deleted, diffDocsToMutations(deleted, renamed))).toEqual(
 		renamed,
 	);
+});
+
+it.each([
+	{ kind: "text" as const, text: "New" },
+	{ kind: "calculation" as const, expression: term(literal("3")) },
+])("starts a listed child with its source child's $kind badge", (badge) => {
+	const before = twoMenus();
+	const scaffold = caseListModuleMutations(before, {
+		caseType: "patient",
+		name: "Neighborhood",
+		parentModuleUuid: SOURCE,
+	});
+	const born = scaffold.mutations.map((mutation) =>
+		mutation.kind === "addModule" &&
+		mutation.module.uuid === scaffold.moduleUuid
+			? { ...mutation, module: { ...mutation.module, badge } }
+			: mutation,
+	);
+	const after = apply(before, withListedMenuHierarchy(before, born));
+	expect(after.modules[scaffold.moduleUuid]?.badge).toEqual(badge);
+	const child = sharedChildUuid(ROUTE, scaffold.moduleUuid);
+	expect(after.modules[child]?.formsFromMenu?.menuUuid).toBe(
+		scaffold.moduleUuid,
+	);
+	expect(after.modules[child]?.badge).toEqual(badge);
 });
 
 it("requires an explicit decision about active and paused form links before changing the menu that supplies forms", () => {
