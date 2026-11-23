@@ -3282,13 +3282,29 @@ describe("the save counter a publish's reads are bound to", () => {
 		},
 	);
 
+	it("stops before the import where HQ saved the app after its counter was read", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			const sent = allRequests(peer).length;
+			/* The save lands after the counter was read and before the import:
+			 * the counter read right before the POST no longer stands there. */
+			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
+			const stopped = refusal(await publish(doc));
+			expect(stopped?.failure.code).toBe("hq_changed");
+			expect(allRequests(peer).slice(sent)).not.toContain(`POST ${IMPORT}`);
+			expect((await baselineRow()).origin).toBe("push");
+		});
+	});
+
 	it("keeps the target settings at the acknowledged version after an extra save and asks before publishing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
-			/* The save lands after the counter was read and before the import. */
-			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
-			accepted(peer, 200);
+			/* Another save lands while HQ takes the import, after the counter
+			 * read right before the POST, and prunes nothing. */
+			serve(peer, SOURCE, "source-live");
+			acceptedTwice(peer);
 			const heldSettings = (source: Record<string, unknown>) => {
 				source.secure_submissions = true;
 				const profile = source.profile as {
