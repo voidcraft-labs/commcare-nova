@@ -4615,7 +4615,7 @@
 			"media-code:corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip"
 		],
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only",
+		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only. An app's media total no longer bounds a reading (every export streams its files); one imported file over Nova's per-kind cap still stops it",
 		"subject": "media-files",
 		"owner": "project-data-at-hq-size",
 		"platforms": {
