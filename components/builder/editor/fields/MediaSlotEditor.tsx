@@ -18,8 +18,10 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { FieldLanguageMedia } from "@/components/builder/media/FieldLanguageMedia";
+import { useStoredField } from "@/lib/doc/hooks/useEntity";
 import type { Field } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
+import { mediaSlotHoldsLanguageFiles } from "./mediaSlotModel";
 
 export function MediaSlotEditor<F extends Field, K extends keyof F>({
 	field,
@@ -28,9 +30,12 @@ export function MediaSlotEditor<F extends Field, K extends keyof F>({
 	keyName,
 }: FieldEditorComponentProps<F, K>) {
 	const shared = useShowsSourceLanguage();
-	const hasTranslations = !!(
-		field[keyName] as { mediaByLanguage?: unknown } | undefined
-	)?.mediaByLanguage;
+	/* Removing the slot clears every language's files, so it is offered only
+	 * where no language holds files of its own, read from the stored field. */
+	const hasTranslations = mediaSlotHoldsLanguageFiles(
+		useStoredField(field.uuid),
+		keyName === "help_media" ? "help_media" : "label_media",
+	);
 	return (
 		<div data-field-id={String(keyName)}>
 			<div className="flex items-center justify-between mb-1.5">
