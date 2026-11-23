@@ -16,7 +16,6 @@ import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import type { Mutation } from "@/lib/doc/types";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { isBlank, prop } from "@/lib/domain/expression/builders";
 import {
 	DIRECTORY,
 	HOUSEHOLDS,
@@ -116,40 +115,10 @@ describe("a menu that opens a single match automatically", () => {
 			// meets no such finding.
 			expect(refusalCodes(kindFixture(), row.edit)).not.toContain(CODE);
 		});
-
-	// A filtered case list menu item keeps the menu basic (its advanced item
-	// would list every open case), so automatic selection is refused there
-	// rather than silently broadening the item.
-	it("refuses automatic selection on a menu whose case list menu item is filtered", () => {
-		const filtered = (doc: BlueprintDoc): BlueprintDoc => {
-			const config = doc.modules[DIRECTORY].caseListConfig;
-			if (config === undefined) throw new Error("Directory has a list.");
-			doc.modules[DIRECTORY] = {
-				...doc.modules[DIRECTORY],
-				caseListConfig: {
-					...config,
-					filter: isBlank(prop("household", "size")),
-				},
-			};
-			return doc;
-		};
-		const edit: Mutation[] = [
-			{
-				kind: "updateModule",
-				uuid: DIRECTORY,
-				patch: { autoSelectSingle: true },
-			} as Mutation,
-		];
-		expect(refusalCodes(filtered(kindFixture()), edit)).toEqual([CODE]);
-		expect(refusalCodes(kindFixture(), edit)).toEqual([]);
-		const admitted = verdict(kindFixture(), edit);
-		if (!admitted.ok) throw new Error("Unfiltered automatic selection.");
-		expect(emittedModuleKind(admitted.nextDoc, DIRECTORY)).toBe("advanced");
-	});
 });
 
 describe("a menu that lists the worker's own record", () => {
-	it("refuses a filter on its case list menu item, which would keep it ordinary", () => {
+	it("refuses several cases, which would keep the menu ordinary", () => {
 		const doc = kindFixture();
 		doc.modules[DIRECTORY] = {
 			...doc.modules[DIRECTORY],
@@ -158,16 +127,16 @@ describe("a menu that lists the worker's own record", () => {
 		expect(refusalCodes(doc, [])).toEqual([]);
 		expect(emittedModuleKind(doc, DIRECTORY)).toBe("advanced");
 		const result = verdict(doc, [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "web-apps" } },
 			{
 				kind: "setCaseListMeta",
 				uuid: DIRECTORY,
-				patch: { filter: isBlank(prop("commcare-user", "case_name")) },
+				patch: { selection: { kind: "multiple", maximum: 5 } },
 			} as Mutation,
 		]);
-		if (result.ok) throw new Error("The gate admitted the filter.");
-		const finding = result.findings.find((one) => one.code === CODE);
-		expect(finding?.message).toBe(
-			"The menu “Directory” lists the worker’s own record, which only an advanced menu in CommCare HQ can do. Its case list in the menu now has a filter or a parent case, which an advanced menu would leave out. You can choose another record type for it, or change that setting so the menu can be advanced.",
+		if (result.ok) throw new Error("The gate admitted several cases.");
+		expect(result.findings.find((one) => one.code === CODE)?.message).toBe(
+			"The menu “Directory” lists the worker’s own record, which only an advanced menu in CommCare HQ can do. It now lets workers choose several cases, which an advanced menu can't do. You can choose another record type for it, or change that setting so the menu can be advanced.",
 		);
 	});
 });

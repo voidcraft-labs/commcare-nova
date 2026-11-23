@@ -309,18 +309,17 @@ describe("advancedKindBlockers", () => {
 		).toEqual([]);
 	});
 
-	// An opening choice, automatic selection or the worker's record would
-	// turn the menu advanced, whose item lists every open case of the type:
-	// the narrowed item keeps the menu basic, so the edit is refused rather
-	// than silently broadening what workers see. A held advanced menu already
-	// lists what CommCare HQ's item lists, so it keeps its kind.
-	it("keeps a filtered menu item's menu basic whatever would make it advanced, unless its kind is held", () => {
+	// A form's own opening choices, automatic selection, the worker's record
+	// or a held kind need an advanced menu whatever its list shows: its item
+	// then lists every open case of the type, as CommCare HQ builds it, and a
+	// published ordinary menu's move says so (`moduleKindMoves.ts`).
+	it("lets a filtered menu item's menu be advanced where its forms or list need it", () => {
 		const filtered = {
 			columns: [],
 			searchInputs: [],
 			filter: isBlank(prop("member", "status")),
 		};
-		const narrowed = (edit: (doc: BlueprintDoc) => void) =>
+		const blockers = (edit: (doc: BlueprintDoc) => void) =>
 			advancedKindBlockers(
 				buildDoc(
 					{
@@ -341,27 +340,24 @@ describe("advancedKindBlockers", () => {
 				),
 				members,
 			);
-		const blocked = [{ kind: "case-list-menu-item-narrowed", why: "filter" }];
-		expect(
-			narrowed((doc) => {
+		expect(blockers(() => {})).toEqual([
+			{ kind: "case-list-menu-item-narrowed", why: "filter" },
+		]);
+		for (const edit of [
+			(doc: BlueprintDoc) => {
 				doc.modules[members].autoSelectSingle = true;
-			}),
-		).toEqual(blocked);
-		expect(
-			narrowed((doc) => {
+			},
+			(doc: BlueprintDoc) => {
 				doc.modules[members].caseType = "commcare-user";
-			}),
-		).toEqual(blocked);
-		expect(
-			narrowed((doc) => {
+			},
+			(doc: BlueprintDoc) => {
 				doc.forms[testUuid(FOLLOW_UP)].caseSelections = [];
-			}),
-		).toEqual(blocked);
-		expect(
-			narrowed((doc) => {
+			},
+			(doc: BlueprintDoc) => {
 				doc.modules[members].heldKind = "advanced";
-			}),
-		).toEqual([]);
+			},
+		])
+			expect(blockers(edit)).toEqual([]);
 	});
 
 	it("is blocked by a case list menu item that hides some owners' cases", () => {

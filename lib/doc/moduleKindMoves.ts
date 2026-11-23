@@ -54,9 +54,11 @@ import {
 	type AdvancedKindBlocker,
 	advancedKindBlockers,
 	type BlueprintDoc,
+	moduleHasCaseListMenuItem,
 	ownRecordValue,
 	type Uuid,
 } from "@/lib/domain";
+import { caseListNarrowing } from "@/lib/domain/advancedModule";
 
 /** Why a menu's kind moves: the first blocker that keeps a held advanced
  *  menu from staying advanced, or, for a published ordinary menu turning
@@ -118,6 +120,12 @@ export function moduleKindMove(
 		reason: {
 			source: "module-kind",
 			reason,
+			...(to === "advanced" &&
+				after.modules[moduleUuid] &&
+				moduleHasCaseListMenuItem(after.modules[moduleUuid]) &&
+				caseListNarrowing(after, moduleUuid) !== undefined && {
+					expandsCaseList: true as const,
+				}),
 			chosenCasesRenamed:
 				ownRecordValue(after.modules, moduleUuid)?.parentCaseModuleUuid !==
 				undefined,

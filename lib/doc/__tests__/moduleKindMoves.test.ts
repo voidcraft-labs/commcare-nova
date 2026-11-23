@@ -386,6 +386,49 @@ describe("planModuleKindMoves, for a menu an opening edit turns advanced", () =>
 		});
 });
 
+// HQ's advanced item lists every open case of the type, so a published
+// ordinary menu whose filtered case list menu item turns advanced shows
+// workers more cases. The failure: the move stated without that, so a
+// person confirms it never knowing the item broadens.
+it("states that a published menu's filtered case list menu item will list every open case", () => {
+	const doc = kindFixture();
+	const config = doc.modules[HOUSEHOLDS].caseListConfig;
+	if (config === undefined) throw new Error("Households has a list.");
+	doc.modules[HOUSEHOLDS] = {
+		...doc.modules[HOUSEHOLDS],
+		caseListMenuItem: {},
+		caseListConfig: { ...config, filter: isBlank(prop("household", "size")) },
+	};
+	doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+	publishedBasic(doc, HOUSEHOLDS);
+	expect(verdict(doc, []).ok).toBe(true);
+	const edit: Mutation[] = [
+		{
+			kind: "updateModule",
+			uuid: HOUSEHOLDS,
+			patch: { autoSelectSingle: true },
+		} as Mutation,
+	];
+	const plan = withIdentityMoves(doc, edit);
+	expect(plan.moves[0]).toEqual({
+		subject: { kind: "module-kind", moduleUuid: HOUSEHOLDS },
+		from: "ordinary-menu",
+		to: "advanced-menu",
+		reason: {
+			source: "module-kind",
+			reason: "list-entry-change",
+			expandsCaseList: true,
+			chosenCasesRenamed: false,
+		},
+	});
+	const result = verdict(doc, plan.batch);
+	expect(result.ok ? [] : result.findings.map((f) => f.message)).toEqual([]);
+	if (!result.ok) return;
+	expect(identityMoveSentence(result.nextDoc, plan.moves[0])).toBe(
+		"“Households” moves from an ordinary menu to an advanced menu. Its list now chooses records in a way only an advanced menu can: the worker’s own record, or a single match opened automatically. Its case list menu item will show every open record of this type available to the worker. Forms will keep their own selection filters. From your next publish, CommCare HQ's exports show these answers under new columns.",
+	);
+});
+
 describe("the undo of a menu's move", () => {
 	it("restores the recorded hold, which the commit kernel admits and nobody is told about", () => {
 		const base = publishedAdvanced(kindFixture(), VISITS);
