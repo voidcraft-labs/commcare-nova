@@ -6806,14 +6806,6 @@ def supply_point_datum(use, manifest):
     return reads if not reads else (None if computed is None else not computed)
 
 
-def supply_point_computed_datum(use, manifest):
-    """``expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed``: an expression
-    reading the session's ``data/supply_point_id`` in an advanced form one of whose computed datums has that id
-    (``_supply_point_read``), which HQ's build writes before its own CommTrack datum."""
-    reads, computed = _supply_point_read(use, manifest)
-    return reads if not reads else computed
-
-
 def _supply_point_read(use, manifest):
     """Whether an expression reads the session's ``data/supply_point_id``, and where it does, whether it stands in an
     advanced form one of whose computed datums has that id (``AdvancedForm.arbitrary_datums``); None where this does
@@ -9709,24 +9701,6 @@ def alt_text_holding_text(use, manifest):
     return shown.pop() if len(shown) == 1 else None
 
 
-def case_tag_with_a_hyphen(use, manifest):
-    """``forms-and-case-writes/case-tag-holding-a-hyphen``: a load's or an open action's ``case_tag`` that holds
-    ``-`` and passes every check the advanced Case Management page makes of a tag (``EDITOR_TAG``, no ``/``), on an
-    action that is not an auto-selected load (``lib/commcare/reader/caseManagement/advancedActions.ts::tagFinding``,
-    which no auto-selected load's tag is read by). A blank tag, one with ``/`` and one the page refuses are other
-    classes'. A shadow form's ``extra_actions`` are read by no tag check: Nova's reader refuses a shadow form whole
-    (``lib/commcare/reader/structure.ts``)."""
-    at = _json(use)
-    if at is None or at.key != "case_tag" or at.scope[-1][0] not in ADVANCED_ACTIONS:
-        return None
-    if at.nearest("ShadowForm") is not None:
-        return False
-    action, tag = at.owner, at.value
-    if at.scope[-1][0] == "LoadUpdateAction" and action.get("auto_select") is not None:
-        return False
-    return isinstance(tag, str) and "/" not in tag and EDITOR_TAG.fullmatch(tag) is not None and "-" in tag
-
-
 # Nova's XML name for a link's and a tile grouping's identifier (``lib/domain/expression/types.ts::
 # XML_ELEMENT_NAME_PATTERN``), matched whole; it holds no ``-``.
 XML_ELEMENT_NAME = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
@@ -10145,9 +10119,6 @@ VALUE_CLASSES = {
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,
     "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": supply_point_datum,
-    "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed": (
-        supply_point_computed_datum
-    ),
     "expressions-and-data/session-data-datum-the-entry-does-not-supply": datum_not_supplied,
     "expressions-and-data/var-in-a-form-expression": var_in_form,
     "expressions-and-data/here-in-a-form": here_in_form,
@@ -10185,7 +10156,6 @@ VALUE_CLASSES = {
     # HELD-NEW classes beside an allowing class of their key, each decided by the use's own value
     "forms-and-case-writes/update-keys-location-id-hq-user-id": location_or_external_id_key,
     "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character": non_ascii_core_name_key,
-    "forms-and-case-writes/case-tag-holding-a-hyphen": case_tag_with_a_hyphen,
     "forms-and-case-writes/index-identifier-outside-an-xml-element-name": index_identifier_outside_an_xml_name,
     "case-search/prompt-key-outside-nova-s-name-grammar": prompt_key_outside_nova_s_name_grammar,
     "case-search/default-value-on-a-date-range-input": default_on_date_range,

@@ -51,6 +51,7 @@ vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 			name: "Amara",
 			email: "amara@dimagi.com",
 		},
+		session: { id: "worker-in-many-apps-session" },
 	}),
 }));
 const h = setupAppStateTestDb("usercase_identity_", {
@@ -455,6 +456,14 @@ it("does not write a normal case whose id happens to equal the worker id", async
 	const mutation = await openedSubmission(app.appId, doc, (engine) =>
 		engine.setValue(`/data/${doc.fields[app.fieldUuid].id}`, "must-not-land"),
 	);
+	// Opening the form materializes the worker's record. Without it, the
+	// write has no target, and the patient whose id is the worker's is no
+	// stand-in for it.
+	await h
+		.pool()
+		.query("DELETE FROM cases WHERE app_id=$1 AND case_type='commcare-user'", [
+			app.appId,
+		]);
 	const result = await submitOpened(mutation, app.appId, doc);
 	expect(result.kind).toBe("case-not-found");
 	expect(await rows(app.appId)).toEqual([]);

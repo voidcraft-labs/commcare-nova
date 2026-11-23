@@ -2015,14 +2015,14 @@ def _settings_and_forms():
             refused(
                 "app",
                 _with_forms(_app([_module([_usercase_form({"/data/h": "name"})])]), f=HIDDEN_CALCULATED),
-                "schema:FormActions.usercase_preload",
-                f"{actions}/usercase_preload",
+                "schema:PreloadAction.preload",
+                f"{actions}/usercase_preload/preload",
             ),
             accepted(
                 "app",
                 _with_forms(_app([_module([_usercase_form({"/data/q": "name"})])]), f=HIDDEN_CALCULATED),
-                "schema:FormActions.usercase_preload",
-                f"{actions}/usercase_preload",
+                "schema:PreloadAction.preload",
+                f"{actions}/usercase_preload/preload",
             ),
             # A case child spelled only with its trailing newline: held as the question's default, but into a
             # calculated Hidden Value, or through an index other than parent, it has no equivalent.
@@ -2032,8 +2032,8 @@ def _settings_and_forms():
                     _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/h": "date_opened\n"}})])]),
                     f=HIDDEN_CALCULATED,
                 ),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
             ),
             refused(
                 "app",
@@ -2047,8 +2047,8 @@ def _settings_and_forms():
                     ),
                     f=HIDDEN_CALCULATED,
                 ),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
             ),
             accepted(
                 "app",
@@ -2056,8 +2056,8 @@ def _settings_and_forms():
                     _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/q": "date_opened\n"}})])]),
                     f=HIDDEN_CALCULATED,
                 ),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
             ),
             # An ordinary property into the same Hidden Value is an ordered opening assignment.
             accepted(
@@ -2066,8 +2066,8 @@ def _settings_and_forms():
                     _app([_module([_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/h": "dob"}})])]),
                     f=HIDDEN_CALCULATED,
                 ),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
+                "schema:PreloadAction.preload",
+                f"{actions}/case_preload/preload",
             ),
         ),
         "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module": (
@@ -2643,6 +2643,7 @@ def _advanced_actions():
     renamed_index = "/modules/1/forms/0/actions/open_cases/0/case_indices/0/tag"
     question = {"relationship": "question", "relationship_question": "/data/q"}
     by_case = {"doc_type": "AutoSelectCase", "mode": "case", "value_key": "parent"}
+    from_table = {"doc_type": "AutoSelectCase", "mode": "fixture", "value_source": "regions", "value_key": "region_id"}
     extra = "/modules/0/forms/1/extra_actions/load_update_cases"
     return {
         "forms-and-case-writes/an-auto-select-load-with-a-blank-mode-or-a-blank-case-type": (
@@ -2779,6 +2780,74 @@ def _advanced_actions():
             refused("app", _advanced_app([_load("load/patient")]), load_tag, f"{loads}/0/case_tag"),
             refused("app", _advanced_app(opens=[_open("open/visit")]), open_tag, f"{opens}/0/case_tag"),
             accepted("app", _advanced_app([_load("load_patient_0")]), load_tag, f"{loads}/0/case_tag"),
+        ),
+        "forms-and-case-writes/case-actions-using-the-same-tag": (
+            refused("app", _advanced_app([_load("load_patient_0"), _load("load_patient_0")]), load_tag, f"{loads}/1/case_tag"),
+            refused("app", _advanced_app([household], [_open("load_household_0")]), open_tag, f"{opens}/0/case_tag"),
+            accepted("app", _advanced_app([household, linked]), load_tag, f"{loads}/1/case_tag"),
+        ),
+        "forms-and-case-writes/worker-record-selection-with-another-case-type": (
+            # ``_load`` gives the worker's load the patient type, which the editor would have replaced.
+            refused("app", _advanced_app([worker]), "schema:LoadUpdateAction.case_type", f"{loads}/0/case_type"),
+            accepted(
+                "app",
+                _advanced_app([{**worker, "case_type": "commcare-user"}]),
+                "schema:LoadUpdateAction.case_type",
+                f"{loads}/0/case_type",
+            ),
+        ),
+        "forms-and-case-writes/automatic-choice-with-an-unknown-mode": (
+            refused(
+                "app",
+                _advanced_app([{**worker, "auto_select": {**worker["auto_select"], "mode": "location"}}]),
+                "schema:AutoSelectCase.mode",
+                f"{loads}/0/auto_select/mode",
+            ),
+            accepted("app", _advanced_app([worker]), "schema:AutoSelectCase.mode", f"{loads}/0/auto_select/mode"),
+        ),
+        "forms-and-case-writes/automatic-table-choice-without-its-table-or-column": (
+            refused(
+                "app",
+                _advanced_app([_load("region", auto_select={**from_table, "value_key": ""})]),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/0/auto_select/value_source",
+            ),
+            accepted(
+                "app",
+                _advanced_app([_load("region", auto_select=from_table)]),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/0/auto_select/value_source",
+            ),
+        ),
+        "forms-and-case-writes/opening-values-sharing-a-physical-session-name": (
+            # Two loads of one tag both write ``case_id_load_patient_0``.
+            refused("app", _advanced_app([_load("load_patient_0"), _load("load_patient_0")]), load_tag, f"{loads}/0/case_tag"),
+            accepted("app", _advanced_app([household, linked]), load_tag, f"{loads}/0/case_tag"),
+            # Under another menu, alignment may rename a load onto another's id, which the JSON does not settle.
+            unsettled(
+                "app",
+                _advanced_app([household, linked], modules_before=[root], **child_menu),
+                load_tag,
+                "/modules/1/forms/0/actions/load_update_cases/0/case_tag",
+            ),
+        ),
+        "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent": (
+            accepted(
+                "app",
+                _advanced_app([household, _load("load_patient_1", auto_select={**by_case, "value_source": "load_household_0"})]),
+                "schema:LoadUpdateAction.auto_select",
+                f"{loads}/1/auto_select",
+            ),
+            unsettled(
+                "app",
+                _advanced_app(
+                    [household, _load("load_patient_1", auto_select={**by_case, "value_source": "load_household_0"})],
+                    modules_before=[root],
+                    **child_menu,
+                ),
+                "schema:LoadUpdateAction.auto_select",
+                "/modules/1/forms/0/actions/load_update_cases/1/auto_select",
+            ),
         ),
         "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action": (
             refused("app", _advanced_app([_load("")]), load_tag, f"{loads}/0/case_tag"),
@@ -5907,13 +5976,6 @@ def _data_binds_and_itext():
             accepted("app", supplied_slots, "session-path:session/data/*", "/form_links/0/xpath", readings=True),
             accepted("app", supplied_slots, "session-path:session/data/*", "/modules/1/module_filter", readings=True),
         ),
-        "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed": (
-            accepted("app", supplied, "session-path:session/data/*", "bind[1]/@calculate", readings=True),
-            refused("app", supplied, "session-path:session/data/*", "bind[2]/@calculate", readings=True),
-            accepted("app", supplied_slots, "session-path:session/data/*", "/modules/0/module_filter", readings=True),
-            refused("app", supplied_slots, "session-path:session/data/*", "/form_links/0/xpath", readings=True),
-            accepted("app", supplied_slots, "session-path:session/data/*", "/modules/1/module_filter", readings=True),
-        ),
         "expressions-and-data/session-data-datum-the-entry-does-not-supply": (
             refused("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[1]/@nodeset", readings=True),
             accepted("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[2]/@nodeset", readings=True),
@@ -6171,20 +6233,6 @@ def _held_new():
             # ``ª`` is a letter to HQ's grammar and no name character to Core: HQ's build refuses it (the bar's).
             accepted("app", own_update("aª"), update_map, updates),
         ),
-        "forms-and-case-writes/case-tag-holding-a-hyphen": (
-            refused("app", _advanced_app([_load("load-patient")]), load_tag, f"{loads}/0/case_tag"),
-            refused("app", _advanced_app([household], [_open("open-visit")]), open_tag, f"{opens}/0/case_tag"),
-            accepted("app", _advanced_app([_load("load_patient")]), load_tag, f"{loads}/0/case_tag"),
-            # An auto-selected load's tag is read by no tag check.
-            accepted("app", _advanced_app([{**worker, "case_tag": "user-case"}]), load_tag, f"{loads}/0/case_tag"),
-            # Nor is a shadow form's, which Nova's reader refuses whole.
-            accepted(
-                "app",
-                _shadow_app([_load("load_patient")], [_load("load-patient")]),
-                load_tag,
-                "/modules/0/forms/1/extra_actions/load_update_cases/0/case_tag",
-            ),
-        ),
         "forms-and-case-writes/index-identifier-outside-an-xml-element-name": (
             refused("app", opened("my-parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
             accepted("app", opened("my_parent"), reference, f"{opens}/0/case_indices/0/reference_id"),
@@ -6343,7 +6391,12 @@ SHAPES = {
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
-UNSETTLED = {}
+UNSETTLED = {
+    "forms-and-case-writes/automatic-connection-to-a-load-renamed-by-its-parent": (
+        "whether the earlier load keeps its own id is the alignment HQ's build makes under the parent menu, which the"
+        " app's JSON does not settle"
+    ),
+}
 # Classes that take every use of their keys, by why: they have no accepted shape.
 EVERY_USE_TAKEN = {
     "questions/authored-orx-pollsensor": (
@@ -6504,7 +6557,8 @@ def test_a_held_new_reader_of_a_use_the_readings_make_reads_its_own_form_alone(m
         for shape in SHAPES[entry.id]
         if _made_by_readings(shape)
     ]
-    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"mug", "session-path"}
+    # The one HELD-NEW class of a session path a reading makes (a computed supply point) is held now.
+    assert {shape.key.split(":", 1)[0] for _, shape in shapes} == {"mug"}
     for entry_id, shape in shapes:
         found = _shape_uses(shape, manifest, observed)
         uses = [use for use in found.uses if use.key == shape.key and use.where.endswith(shape.where)]
