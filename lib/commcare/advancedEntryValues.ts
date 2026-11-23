@@ -16,6 +16,7 @@ import {
 	USERCASE_ID_FUNCTION,
 	USERCASE_MISSING_ASSERT_TEST,
 	USERCASE_MISSING_LOCALE_ID,
+	USERCASE_MISSING_MESSAGE,
 } from "./usercaseWire";
 import { w } from "./xpath/wire/builders";
 import { toWire } from "./xpath/wire/fromExpression";
@@ -27,9 +28,45 @@ import {
 import { serializeWire } from "./xpath/wire/serialize";
 import type { WireExpr, WirePath } from "./xpath/wire/tree";
 
+/**
+ * What a worker sees when an entry assertion fails, by HQ's locale id for it.
+ *
+ * CommCare throws `NoLocalizedTextException` on a locale id with no
+ * app_strings entry, so a local archive ships each message with the
+ * assertion that names it. HQ's build supplies its own defaults for the same
+ * ids (`app_strings.py`), which name internal settings a worker can't see;
+ * these say what is missing in the worker's terms and what usually fixes it.
+ * `${0}` is the assertion's argument, as HQ's own strings spell it.
+ */
+export const ENTRY_ASSERTION_MESSAGES = {
+	[USERCASE_MISSING_LOCALE_ID]: USERCASE_MISSING_MESSAGE,
+	"case_autoload.raw.case_missing":
+		"This form opens with a record this device doesn't have. Syncing usually brings it down. If it doesn't, your supervisor can check which records you can see.",
+	"case_autoload.user.case_missing":
+		"This form opens with a record your worker account names, and this device doesn't have it. Syncing usually brings it down. If it doesn't, your supervisor can check your account.",
+	"case_autoload.user.property_missing":
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: CommCare's locale argument placeholder
+		"This form needs ${0} from your worker account, and it isn't set yet. Your supervisor can add it to your account.",
+	"case_autoload.fixture.exactly_one_fixture":
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: CommCare's locale argument placeholder
+		"This form reads your row of the ${0} table, and this device needs exactly one. Syncing usually fixes this. If it doesn't, your supervisor can check which rows you can see.",
+	"case_autoload.fixture.property_missing":
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: CommCare's locale argument placeholder
+		"This form needs ${0} from your table row, and it's empty. Your supervisor can fill it in.",
+	"case_autoload.fixture.case_missing":
+		"This form opens with a record your table row names, and this device doesn't have it. Syncing usually brings it down. If it doesn't, your supervisor can check which records you can see.",
+	"case_autoload.case.property_missing":
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: CommCare's locale argument placeholder
+		"This form follows ${0} from a record you chose, and that record has no such connection. You can go back and choose another record.",
+	"case_autoload.case.case_missing":
+		"This form follows a connection to a record this device doesn't have. Syncing usually brings it down. If it doesn't, you can go back and choose another record.",
+} as const;
+
+export type EntryAssertionLocaleId = keyof typeof ENTRY_ASSERTION_MESSAGES;
+
 export interface EntryAssertion {
 	readonly test: WireExpr;
-	readonly localeId: string;
+	readonly localeId: EntryAssertionLocaleId;
 	readonly arguments?: readonly string[];
 }
 

@@ -52,6 +52,7 @@ import {
 	type HqAnyForm,
 	type HqApplication,
 } from "@/lib/commcare";
+import { ENTRY_ASSERTION_MESSAGES } from "@/lib/commcare/advancedEntryValues";
 import {
 	type FormCaseWirePlan,
 	planFormCaseWire,
@@ -134,10 +135,6 @@ import {
 	FORM_SUBMIT_LABEL,
 	formSubmitLabelLocaleId,
 } from "@/lib/commcare/suite/formStrings";
-import {
-	USERCASE_MISSING_LOCALE_ID,
-	USERCASE_MISSING_MESSAGE,
-} from "@/lib/commcare/usercaseWire";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import {
@@ -1115,18 +1112,18 @@ export function compileCczParts(
 				"compileCcz form command",
 			);
 			Object.assign(appStrings, formNav.strings);
-			// The worker-record assertion's message. CommCare throws
+			// Each entry assertion's message. CommCare throws
 			// `NoLocalizedTextException` on a locale id with no app_strings
-			// entry, so the string travels with the assertion that references
-			// it rather than being seeded unconditionally — a suite that never
+			// entry, so a string travels with the assertion that references it
+			// rather than being seeded unconditionally: a suite that never
 			// asserts carries no orphaned message.
 			//
 			// It carries no translation unit: it is Nova's own system copy
 			// rather than something an author wrote, so every language table
 			// takes the source text verbatim.
-			if (entryDef.assertions !== undefined) {
-				appStrings[USERCASE_MISSING_LOCALE_ID] = USERCASE_MISSING_MESSAGE;
-			}
+			for (const assertion of entryDef.assertions ?? [])
+				appStrings[assertion.localeId] =
+					ENTRY_ASSERTION_MESSAGES[assertion.localeId];
 			suiteEntryDefinitions.push({
 				definition: entryDef,
 				commandDisplay: formNav.node,

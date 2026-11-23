@@ -165,7 +165,7 @@ export interface SessionDatum {
 	 * child menu's copy of a root datum carries none, since HQ asserts only
 	 * the form's own loads.
 	 */
-	assertion?: { readonly test: WireExpr; readonly localeId: string };
+	assertion?: EntryAssertion;
 	/**
 	 * For a function datum whose function reads other session values:
 	 * re-renders `function` with every `session/data/<id>` reference
@@ -1198,14 +1198,13 @@ export function deriveEntryDefinition(
 			children: frame.children.map(toStackChild),
 		})),
 	];
-	const entryAssertions = [
+	const usercaseAssertion: EntryAssertion = {
+		test: USERCASE_MISSING_ASSERT_TEST,
+		localeId: USERCASE_MISSING_LOCALE_ID,
+	};
+	const entryAssertions: EntryAssertion[] = [
 		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID)
-			? [
-					{
-						test: USERCASE_MISSING_ASSERT_TEST,
-						localeId: USERCASE_MISSING_LOCALE_ID,
-					},
-				]
+			? [usercaseAssertion]
 			: []),
 		...datums.flatMap(
 			(datum) =>
