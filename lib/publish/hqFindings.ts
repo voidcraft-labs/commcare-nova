@@ -105,7 +105,6 @@ export const SUBJECTS = [
 	"hierarchical-locations",
 	"instance-text",
 	"language-codes",
-	"list-and-search-filters",
 	"lookup-selection",
 	"lookup-tables",
 	"media-by-language",

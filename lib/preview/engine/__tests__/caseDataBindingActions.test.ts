@@ -32,10 +32,7 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
 import {
-	and,
-	between,
 	dateAdd,
-	dateLiteral,
 	double,
 	eq,
 	formField,
@@ -84,6 +81,16 @@ function appCaseQuery(...pages: ReadonlyArray<Awaited<ReturnType<CaseQuery>>>) {
 	return vi.fn<CaseQuery>(async (args) =>
 		args.caseType === USERCASE_CASE_TYPE ? [] : (remaining.shift() ?? []),
 	);
+}
+
+/** A completed search's reader that finds no record. */
+function emptySearchResults() {
+	return vi.fn<CaseStore["querySearchResults"]>(async () => ({
+		primaryCount: 0,
+		totalRows: 0,
+		offset: 0,
+		rows: [],
+	}));
 }
 
 function appCaseQueryArg<T extends { readonly caseType: string }>(mock: {
@@ -2735,9 +2742,11 @@ describe("loadCasesAction", () => {
 				email: "owner-a@example.org",
 			},
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		// A list with a Search action reads the completed search, on the server.
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery([]),
+			querySearchResults: emptySearchResults(),
 			applySubmission: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
@@ -2774,23 +2783,31 @@ describe("loadCasesAction", () => {
 			excludedOwnerIdsExpression,
 		});
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			kind: "empty",
 			constraintSource: "worker-search",
+			searchMatchCount: 0,
 		});
-		expect(stubStore.query).toHaveBeenCalledWith(
+		// The range is the request's own criterion, which the server matches; the
+		// owner exclusion, worked out with the range answered, narrows the results.
+		expect(stubStore.querySearchResults).toHaveBeenCalledWith(
 			expect.objectContaining({
-				predicate: and(
-					between(prop("patient", "dob"), {
-						lower: dateLiteral("2025-01-02"),
-						upper: dateLiteral("2025-03-04"),
-					}),
-					or(
-						isBlank(prop("patient", "owner_id")),
-						not(isIn(prop("patient", "owner_id"), literal("range-owner"))),
-					),
+				predicate: or(
+					isBlank(prop("patient", "owner_id")),
+					not(isIn(prop("patient", "owner_id"), literal("range-owner"))),
 				),
+				searchPopulation: expect.objectContaining({
+					request: expect.objectContaining({
+						parameters: [
+							expect.objectContaining({
+								key: "dob",
+								values: ["__range__2025-01-02__2025-03-04"],
+							}),
+						],
+					}),
+				}),
 			}),
+			undefined,
 		);
 	});
 
@@ -2816,8 +2833,9 @@ describe("loadCasesAction", () => {
 				user: { id: OWNER_A },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			const query = appCaseQuery([]);
+			const querySearchResults = emptySearchResults();
 			vi.mocked(withProjectContext).mockResolvedValueOnce(
-				actionStore({ query }),
+				actionStore({ query, querySearchResults }),
 			);
 
 			const { loadCasesAction } = await import("../caseDataBinding");
@@ -2842,7 +2860,11 @@ describe("loadCasesAction", () => {
 				search,
 			});
 
-			const queryArg = appCaseQueryArg(query);
+			// A search's Results are the completed search's own read; a browse
+			// list reads the restore.
+			const queryArg = search
+				? querySearchResults.mock.calls[0]?.[0]
+				: appCaseQueryArg(query);
 			expect(queryArg?.reading).toEqual(reading);
 			expect(queryArg).toHaveProperty(population);
 		},

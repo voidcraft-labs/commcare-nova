@@ -97,7 +97,6 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"hierarchical-locations": "The older organization list",
 	"instance-text": "Text read as a data source",
 	"language-codes": "Language codes",
-	"list-and-search-filters": "Case list and search filters",
 	"lookup-selection": "Choosing from a lookup table first",
 	"lookup-tables": "Lookup tables",
 	"media-by-language": "Media by language",
@@ -307,10 +306,6 @@ export const FINDING_COPY: Readonly<
 	"instance-text": {},
 	"language-codes": {
 		"not-yet": "A language code here is one Nova can't hold yet.",
-	},
-	"list-and-search-filters": {
-		"not-yet":
-			"The case list here filters cases its search doesn't, which Nova can't hold yet.",
 	},
 	"lookup-selection": {
 		never:
