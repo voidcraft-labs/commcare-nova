@@ -499,6 +499,23 @@ describe("a completed search's snapshot", () => {
 
 	it("keeps a stored search score on the restore and the native related tag on a primary hit", async () => {
 		const store = storeAs(WORKER);
+		// The app stores its own properties under the two names HQ's search also writes.
+		const stored: CaseType = {
+			...PATIENT,
+			properties: [
+				...PATIENT.properties,
+				{ name: "commcare_search_score", label: proseText("Score") },
+				{ name: "commcare_is_related_case", label: proseText("Related") },
+			],
+		};
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: PATIENT.name,
+			caseTypeSchemas: new Map([
+				[HOUSEHOLD.name, HOUSEHOLD],
+				[PATIENT.name, stored],
+			]),
+		});
 		const ordinary = patient("ordinary");
 		await store.insert({
 			...ordinary,
