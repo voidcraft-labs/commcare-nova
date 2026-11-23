@@ -115,8 +115,19 @@ test("a visit report keeps its receiving details and presents each worker's inst
 				});
 				await expect(confirmation).toBeChecked();
 				await expect(confirmation).toBeDisabled();
+				await viewer
+					.getByRole("button", { name: "Form settings", exact: true })
+					.click();
+				const viewerSettings = viewer
+					.getByRole("dialog")
+					.filter({ hasText: "Form settings" });
 				await expect(
-					viewer.getByRole("button", { name: "Form settings", exact: true }),
+					viewerSettings.getByText("visit_report", { exact: true }),
+				).toBeVisible();
+				await expect(
+					viewerSettings.getByRole("textbox", {
+						name: "Submitted answer root",
+					}),
 				).toHaveCount(0);
 				const snapshot = await context.request.get(`/api/apps/${appId}`);
 				expect(snapshot.ok()).toBe(true);

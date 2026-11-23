@@ -280,7 +280,7 @@ async function photoSize(page: Page, android: boolean) {
 	);
 	await page
 		.getByRole("button", {
-			name: android ? "Photo Choose image" : "Photo Attach file",
+			name: android ? "Choose image Photo" : "Photo Attach file",
 		})
 		.setInputFiles({
 			name: "visit.jpg",
@@ -483,6 +483,12 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		const header = page.locator("[data-screen-header]");
 		await page.getByRole("textbox", { name: /Name/ }).fill("Ada");
 		await page.getByRole("button", { name: "Next", exact: true }).click();
+		/* The repeat opens with no entry: the first is the worker's. */
+		const first = page.getByRole("alertdialog", { name: "Add a new Visits?" });
+		await expect(first).toBeVisible();
+		await first
+			.getByRole("button", { name: "Add a new Visits?", exact: true })
+			.click();
 		await expect(header).toHaveText("Visits (1) > Details");
 		await expect(page.getByRole("textbox", { name: /Note/ })).toBeVisible();
 		/* Android draws no card for a group: its label is the header line. */
@@ -685,6 +691,14 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		 * nothing after it and declining finishes the form. */
 		await name.fill("Quick");
 		await next.click();
+		/* The repeat opens with no entry: the first is the worker's. */
+		const addNew = page.getByRole("alertdialog", {
+			name: "Add a new Visits?",
+		});
+		await expect(addNew).toBeVisible();
+		await addNew
+			.getByRole("button", { name: "Add a new Visits?", exact: true })
+			.click();
 		await expect(header).toHaveText("Visits (1) > Details");
 		await note.fill("First");
 		await next.click();
@@ -754,6 +768,13 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		 * the worker adds to inside it pages its entry under the group's
 		 * header line and prompts after it, with no add control. */
 		await next.click();
+		const firstItem = page.getByRole("alertdialog", {
+			name: "Add a new Items?",
+		});
+		await expect(firstItem).toBeVisible();
+		await firstItem
+			.getByRole("button", { name: "Add a new Items?", exact: true })
+			.click();
 		await expect(header).toHaveText("Stock > Items (1)");
 		await expect(page.getByRole("textbox", { name: /Item/ })).toBeVisible();
 		await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);
