@@ -3710,6 +3710,41 @@ function assignmentErrors(
 	});
 }
 
+/** A system date compared with a day: CommCare HQ's search reads the day in
+ * the project space's time zone (`comparison.py::_create_system_datetime_query`),
+ * where the day is a value and not another property of the row. */
+function systemDayComparison(
+	left: Expression,
+	right: Expression,
+	rightType: ScalarType | undefined,
+): boolean {
+	return (
+		left.kind === "term" &&
+		left.term.kind === "prop" &&
+		left.term.via === undefined &&
+		SYSTEM_DAY_PROPERTIES.has(left.term.property) &&
+		rightType === "date" &&
+		!(right.kind === "term" && right.term.kind === "prop")
+	);
+}
+function isComparisonNode(
+	node: Expression,
+): node is Extract<Expression, { kind: ComparisonKind }> {
+	return (
+		node.kind === "eq" ||
+		node.kind === "neq" ||
+		node.kind === "gt" ||
+		node.kind === "gte" ||
+		node.kind === "lt" ||
+		node.kind === "lte"
+	);
+}
+const SYSTEM_DAY_PROPERTIES: ReadonlySet<string> = new Set([
+	"date_opened",
+	"closed_on",
+	"last_modified",
+]);
+
 function checkComparison(
 	kind: ComparisonKind,
 	left: Expression,
@@ -3725,10 +3760,12 @@ function checkComparison(
 	const leftType = scalarDataType(leftNode?.data);
 	const rightType = scalarDataType(rightNode?.data);
 	if (leftType === undefined || rightType === undefined) return;
-	if (
+	const serverCompares =
 		"profile" in ctx &&
 		ctx.ruleSet === "record" &&
-		serverOnlySearchSlot(ctx.profile) &&
+		serverOnlySearchSlot(ctx.profile);
+	if (
+		serverCompares &&
 		searchIndexedComparison(
 			kind === "eq" || kind === "neq",
 			left,
@@ -3781,18 +3818,7 @@ function checkComparison(
 		}
 	}
 
-	if (
-		"profile" in ctx &&
-		ctx.ruleSet === "record" &&
-		serverOnlySearchSlot(ctx.profile) &&
-		left.kind === "term" &&
-		left.term.kind === "prop" &&
-		["date_opened", "closed_on", "last_modified"].includes(
-			left.term.property,
-		) &&
-		rightType === "date"
-	)
-		return;
+	if (serverCompares && systemDayComparison(left, right, rightType)) return;
 	if (!typesCompatible(leftType, rightType)) {
 		const coerced =
 			kind === "eq" || kind === "neq"
@@ -4207,6 +4233,40 @@ function csqlFindings(
 		}
 		if (node.kind === "value-list" && serverOnly)
 			valueListItems(node, path, parent, typeAt, found);
+		// HQ's own comparison rules hold where its search compares. A comparison
+		// in a value the device works out is the device's, by its own rules.
+		if (serverOnly && position === "runtime" && isComparisonNode(node)) {
+			const leftType = typeAt(node.left, [...path, "left"]);
+			const rightType = typeAt(node.right, [...path, "right"]);
+			if (
+				leftType !== undefined &&
+				rightType !== undefined &&
+				(searchIndexedComparison(
+					node.kind === "eq" || node.kind === "neq",
+					node.left,
+					leftType,
+					node.right,
+					rightType,
+				) !== undefined ||
+					systemDayComparison(node.left, node.right, rightType))
+			) {
+				const at = expressionContextAtPath(root, ctx, path);
+				checkComparison(
+					node.kind,
+					node.left,
+					node.right,
+					{
+						...at,
+						profile: {
+							...at.profile,
+							targets: new Set([...at.profile.targets, "SU"]),
+						},
+					},
+					found,
+					path,
+				);
+			}
+		}
 		if (
 			serverOnly &&
 			position !== "runtime" &&
