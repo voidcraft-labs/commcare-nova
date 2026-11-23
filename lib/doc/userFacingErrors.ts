@@ -1519,6 +1519,14 @@ const USER_MESSAGE_BY_CODE: Record<
 			"sentence",
 			`${q(formName(e))} can't open with the records and values it asks for yet. You can review what it opens with.`,
 		),
+	// The rule writes the whole finding, the first blocker's sentence
+	// included (`validator/rules/module.ts::listEntryNeedsAdvancedMenu`).
+	MENU_LIST_ENTRY_NEEDS_ADVANCED: (e) =>
+		det(
+			e,
+			"sentence",
+			"This menu’s list needs an advanced menu in CommCare HQ, and another setting keeps it ordinary. You can review the menu’s record selection settings.",
+		),
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.`,
 	FORM_LINK_DATUM_TARGET_COLLISION: (e) =>

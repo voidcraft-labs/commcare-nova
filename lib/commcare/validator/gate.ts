@@ -320,6 +320,9 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_OTHERWISE_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
 	FORM_ENTRY_SETUP: "soundness",
+	// A worker-record or automatic-selection list on a menu something keeps
+	// basic (`rules/module.ts::listEntryNeedsAdvancedMenu`).
+	MENU_LIST_ENTRY_NEEDS_ADVANCED: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
 	FORM_LINK_DATUM_TARGET_COLLISION: "soundness",
 	// A link hands its target a new case that no session value carries

@@ -8,11 +8,14 @@
 
 import { CASE_TYPE_REGEX, MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
 import {
+	advancedKindBlockerSentence,
+	advancedKindBlockers,
 	type BlueprintDoc,
 	type Module,
 	menuFormUuidsOf,
 	moduleHasCaseListMenuItem,
 	moduleIsBareCaseList,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
@@ -200,6 +203,50 @@ function invalidCaseTypeFormat(
 	];
 }
 
+/**
+ * A menu whose list chooses the worker's own record, or opens a single
+ * match automatically, is one CommCare HQ holds only as an advanced menu
+ * (`lib/domain/advancedEntryDatums.ts::advancedKindTriggers`, the
+ * `list-entry` reason): HQ's menu settings page marks `commcare-user` an
+ * error on an ordinary menu, and only an advanced menu writes
+ * `auto_select_case`. Where something keeps the menu from being advanced
+ * (`advancedKindBlockers`), the menu would reach HQ as an ordinary one that
+ * Nova cannot read back, with automatic selection silently off, so the
+ * first blocker is named here. A held advanced menu's blockers are
+ * `HELD_PLACEMENT_INEXPRESSIBLE`'s.
+ */
+function listEntryNeedsAdvancedMenu(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	const workerRecord = mod.caseType === USERCASE_CASE_TYPE;
+	if (!workerRecord && !mod.autoSelectSingle) return [];
+	if (mod.heldKind === "advanced") return [];
+	const [first] = advancedKindBlockers(doc, moduleUuid);
+	if (first === undefined) return [];
+	const what = workerRecord
+		? "lists the worker’s own record"
+		: "opens a single match automatically";
+	const remedy = workerRecord
+		? "choose another record type for it"
+		: "turn off opening a single match automatically";
+	const sentence = `The menu “${mod.name}” ${what}, which only an advanced menu in CommCare HQ can do. ${advancedKindBlockerSentence(first.kind)} You can ${remedy}, or change that setting so the menu can be advanced.`;
+	return [
+		validationError(
+			"MENU_LIST_ENTRY_NEEDS_ADVANCED",
+			"module",
+			sentence,
+			{ moduleUuid, moduleName: mod.name },
+			{
+				reason: workerRecord ? "worker-record" : "auto-select-single",
+				blocker: first.kind,
+				sentence,
+			},
+		),
+	];
+}
+
 function caseTypeTooLong(
 	mod: Module,
 	moduleUuid: Uuid,
@@ -304,6 +351,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	missingCaseListColumns,
 	multiSelectTopology,
 	heldModuleKindInexpressible,
+	listEntryNeedsAdvancedMenu,
 	moduleDisplayCondition,
 	hiddenMenuEntryPoints,
 	menuAboveEntryPoints,
