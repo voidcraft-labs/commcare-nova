@@ -189,6 +189,29 @@ export const setCaseListTileTool = {
 						);
 					cells[uuid] = tileCellFromInput(placed.cell);
 				}
+				if (detailPlacements !== null) {
+					const label = (column: Column) =>
+						`"${column.header || ("field" in column ? column.field : column.uuid)}" (${column.uuid})`;
+					const unplaced = config.columns.filter(
+						(column) => column.visibleInDetail !== false && !cells[column.uuid],
+					);
+					const offDetails = config.columns.filter(
+						(column) => column.visibleInDetail === false && cells[column.uuid],
+					);
+					if (unplaced.length > 0 || offDetails.length > 0)
+						return errorResult(
+							[
+								`Tried to lay out the Details tile for module "${mod.name}".`,
+								unplaced.length > 0 &&
+									`These fields are shown in Details but have no place: ${unplaced.map(label).join(", ")}.`,
+								offDetails.length > 0 &&
+									`These fields aren't shown in Details, so they take no place: ${offDetails.map(label).join(", ")}.`,
+								"Give detailPlacements exactly one place for each field shown in Details.",
+							]
+								.filter(Boolean)
+								.join(" "),
+						);
+				}
 				mutations.push({
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,

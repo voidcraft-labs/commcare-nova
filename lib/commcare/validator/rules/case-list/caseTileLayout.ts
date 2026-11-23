@@ -103,6 +103,65 @@ export function caseTileLayout(
 		const fields = orderedColumns(config, "detail").filter(
 			(column) => column.visibleInDetail !== false,
 		);
+		// Every field shown in Details has a cell, and every cell belongs to
+		// one: the twin of `caseListConfigSchema`'s rule, so the gate refuses
+		// a layout the stored-document schema would.
+		const shownInDetail = config.columns.filter(
+			(column) => column.visibleInDetail !== false,
+		);
+		const cellKeys = Object.keys(config.detailTile.cells) as Uuid[];
+		for (const [index, column] of config.columns.entries()) {
+			const shown = column.visibleInDetail !== false;
+			const placed = config.detailTile.cells[column.uuid] !== undefined;
+			if (shown === placed) continue;
+			const reason = shown
+				? `${describeColumnAtSentenceStart(column, index)} is shown in Details but has no place on the Details tile. Give it a place on the tile, or hide it from Details.`
+				: `${describeColumnAtSentenceStart(column, index)} has a place on the Details tile but isn't shown in Details. Show it in Details, or take it off the tile.`;
+			errors.push(
+				validationError(
+					"CASE_DETAIL_TILE_LAYOUT_INVALID",
+					"module",
+					reason,
+					location,
+					{
+						columnUuid: column.uuid,
+						reason,
+					},
+				),
+			);
+		}
+		for (const key of cellKeys) {
+			if (config.columns.some((column) => column.uuid === key)) continue;
+			const reason =
+				"A place on the Details tile belongs to a field that isn't in this case list anymore. Lay the Details tile out again.";
+			errors.push(
+				validationError(
+					"CASE_DETAIL_TILE_LAYOUT_INVALID",
+					"module",
+					reason,
+					location,
+					{
+						columnUuid: key,
+						reason,
+					},
+				),
+			);
+		}
+		if (shownInDetail.length === 0) {
+			const reason =
+				"The Details tile has no field to show. Show a field in Details, or turn the Details tile off.";
+			errors.push(
+				validationError(
+					"CASE_DETAIL_TILE_LAYOUT_INVALID",
+					"module",
+					reason,
+					location,
+					{
+						reason,
+					},
+				),
+			);
+		}
 		const groups = config.detailTabs
 			? (detailTabSpans(config.detailTabs, fields) ?? [])
 			: [{ start: 0, end: fields.length }];
