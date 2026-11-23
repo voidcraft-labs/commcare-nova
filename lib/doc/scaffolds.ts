@@ -644,6 +644,35 @@ export function caseTypeClearPatch(): ModuleAuthoringPatch {
 
 /** Create a second entry with the parent's opening choices. The entry stores
  * only replacements, so editing the parent changes every shared question. */
+/**
+ * Why `parentUuid` can't be opened by a new entry in `menu`, said to the
+ * person choosing, or `undefined` where it can: the form exists and is an
+ * ordinary form, and both its menu and `menu` have advanced form settings.
+ */
+export function sharedFormRefusal(
+	doc: BlueprintDoc,
+	menu: Uuid,
+	parentUuid: Uuid,
+): string | undefined {
+	const parent = doc.forms[parentUuid];
+	if (!parent)
+		return `No form ${parentUuid} is in this app. You can read the menu's forms with get_module and choose one of them.`;
+	if (parent.shadowOf) {
+		const opened = doc.forms[parent.shadowOf.form];
+		return `“${parent.name}” is itself an entry that opens “${opened?.name ?? "another form"}”. You can share “${opened?.name ?? "that form"}” instead (${parent.shadowOf.form}).`;
+	}
+	const owner = doc.moduleOrder.find((module) =>
+		doc.formOrder[module]?.includes(parentUuid),
+	);
+	if (!owner)
+		return `“${parent.name}” is in no menu yet. You can share it once a menu holds it.`;
+	if (!menuEmittedAdvanced(doc, owner))
+		return `“${parent.name}” needs to be in a menu with advanced form settings before it can be shared. You can choose another form or change “${doc.modules[owner]?.name}” first.`;
+	if (!menuEmittedAdvanced(doc, menu))
+		return `This entry needs a menu with advanced form settings, and “${doc.modules[menu]?.name ?? "this menu"}” has none yet. You can add the entry to a menu that has them.`;
+	return undefined;
+}
+
 export function sharedFormMutations(
 	doc: BlueprintDoc,
 	menu: Uuid,
@@ -657,16 +686,7 @@ export function sharedFormMutations(
 	} = {},
 ): { mutations: Mutation[]; formUuid: Uuid } | undefined {
 	const parent = doc.forms[parentUuid];
-	const owner = doc.moduleOrder.find((module) =>
-		doc.formOrder[module]?.includes(parentUuid),
-	);
-	if (
-		!parent ||
-		parent.shadowOf ||
-		!owner ||
-		!menuEmittedAdvanced(doc, owner) ||
-		!menuEmittedAdvanced(doc, menu)
-	)
+	if (!parent || sharedFormRefusal(doc, menu, parentUuid) !== undefined)
 		return undefined;
 	const formUuid = options.uuid ?? asUuid(uuidv4());
 	const name = options.name ?? `${parent.name} (another entry)`;

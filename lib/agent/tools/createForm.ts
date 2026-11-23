@@ -2,7 +2,7 @@
 import { z } from "zod";
 import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
-import { sharedFormMutations } from "@/lib/doc/scaffolds";
+import { sharedFormMutations, sharedFormRefusal } from "@/lib/doc/scaffolds";
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import {
 	asUuid,
@@ -181,20 +181,24 @@ export const createFormTool = {
 							...(purpose && { purpose }),
 							...(post_submit && { postSubmit: post_submit }),
 						});
-			if (
-				input.shared_form_uuid &&
-				(!shared ||
-					type !== doc.forms[input.shared_form_uuid]?.type ||
-					plain_text === true)
-			)
-				return {
-					kind: "mutate",
-					mutations: [],
-					result: {
-						error:
-							"Choose an ordinary form and its form type in a menu with advanced form settings. The shared form owns text formatting.",
-					},
-				};
+			if (input.shared_form_uuid) {
+				const parent = doc.forms[input.shared_form_uuid];
+				const refusal =
+					sharedFormRefusal(doc, moduleUuid, input.shared_form_uuid) ??
+					(parent && type !== parent.type
+						? `“${parent.name}” is a ${parent.type} form, and an entry opens it as one. You can leave type out or set it to ${parent.type}.`
+						: plain_text === true
+							? `“${parent?.name ?? "The shared form"}” keeps its own text formatting, which its entries use. You can leave plain_text out.`
+							: shared
+								? undefined
+								: "This form can't be shared from this menu.");
+				if (refusal !== undefined)
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: { error: refusal },
+					};
+			}
 			const formMutations =
 				shared?.mutations ??
 				addFormMutations(doc, moduleUuid, {

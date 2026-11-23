@@ -65,3 +65,45 @@ it("creates, reads and repairs a shared entry by the names a person sees", async
 		},
 	});
 });
+
+it("says which side of a shared entry can't be made, and what to change", async () => {
+	const { doc } = advancedFixture({
+		formType: "followup",
+		operations: () => [own()],
+	});
+	const h = makeAuthoringHarness({}, doc);
+	const entry = (input: Record<string, unknown>) =>
+		h.call("createForm", {
+			moduleUuid: "Households",
+			name: "Entry",
+			shared_form_uuid: "Households/Under test",
+			...input,
+		});
+	// The target menu has no advanced form settings.
+	await expect(entry({ moduleUuid: "Visits" })).resolves.toMatchObject({
+		error: expect.stringContaining("“Visits” has none yet"),
+	});
+	// The type differs from the shared form's.
+	await expect(entry({ type: "registration" })).resolves.toMatchObject({
+		error: expect.stringContaining("is a followup form"),
+	});
+	// The shared form keeps its own text formatting.
+	await expect(entry({ plain_text: true })).resolves.toMatchObject({
+		error: expect.stringContaining("keeps its own text formatting"),
+	});
+	// An entry can't be shared; its own form can.
+	await expect(entry({ name: "Morning visit" })).resolves.toMatchObject({
+		ok: true,
+	});
+	// Named by its uuid, since the names an entry offers are shareable forms.
+	const morning = Object.values(h.currentDoc().forms).find(
+		(form) => form.name === "Morning visit",
+	);
+	await expect(
+		entry({ name: "Night visit", shared_form_uuid: morning?.uuid }),
+	).resolves.toMatchObject({
+		error: expect.stringContaining(
+			"is itself an entry that opens “Under test”",
+		),
+	});
+});
