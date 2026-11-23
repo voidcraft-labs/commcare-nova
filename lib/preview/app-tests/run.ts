@@ -8,6 +8,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	effectiveAppLocalization,
 	parseLanguageTag,
@@ -311,7 +312,8 @@ async function observeScreen(
 								};
 					})(),
 					recordsAvailable:
-						context.doc.modules[screen.moduleUuid].caseType !== undefined,
+						menuWithInheritedCaseSettings(context.doc, screen.moduleUuid)
+							?.caseType !== undefined,
 					selected: appTestMenuSelection(context, state, screen.moduleUuid)
 						?.cases,
 				},
@@ -945,7 +947,7 @@ async function advanceAppTestOnScreen(
 			if (
 				(listedEntry === undefined &&
 					!(screen.kind === "menu" && named === screen.moduleUuid)) ||
-				!context.doc.modules[named]?.caseType
+				!menuWithInheritedCaseSettings(context.doc, named)?.caseType
 			)
 				throw new AppTestActionError(
 					"That case list is not available on the current screen.",

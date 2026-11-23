@@ -556,7 +556,9 @@ export function enterAppTestForm(
 	const needsCase =
 		formLaunch({
 			formType: entry.form.type,
-			moduleHasCaseType: context.doc.modules[moduleUuid].caseType !== undefined,
+			moduleHasCaseType:
+				menuWithInheritedCaseSettings(context.doc, moduleUuid)?.caseType !==
+				undefined,
 		}).kind === "select-case-first";
 	if (needsCase && !selection) return { kind: "records", moduleUuid, formUuid };
 	return {
