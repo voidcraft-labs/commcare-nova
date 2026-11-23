@@ -717,6 +717,7 @@ two kinds of `outside-predicate`, or request placement versus a device filter.
 | `case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or` | S3 |
 | `case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or` | S3 |
 | `case-search/allow-blank-value` | S3 |
+| `case-search/allow-blank-value-on-a-hidden-prompt` | S3 |
 | `case-search/required-or-validation-test-outside-what-nova-types` | S3 |
 | `case-search/a-required-or-validation-test-with-no-message-in-any-language` | S3 |
 | `case-search/receiver-expression` | S3 |
@@ -728,3 +729,4 @@ two kinds of `outside-predicate`, or request placement versus a device filter.
 | `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s` | S2 |
 | `case-search/case-list-filter-clause-the-search-does-not-restate` | S2 |
 | `case-search/xpath-query-condition-outside-what-nova-types` | S2 |
+| `case-search/xpath-query-condition-nova-s-checker-refuses` | S2 |
