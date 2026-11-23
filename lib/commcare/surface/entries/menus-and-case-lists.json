@@ -2378,7 +2378,9 @@
 			"schema:DetailColumn.model",
 			"schema:DetailColumn.field",
 			"schema:DetailColumn.format",
-			"schema:DetailColumn.<undeclared>"
+			"schema:DetailColumn.<undeclared>",
+			"format:plain",
+			"detail-field-type:property"
 		],
 		"valueClass": "the-default-single-name-column",
 		"disposition": "INERT",
@@ -2849,7 +2851,9 @@
 			"schema:DetailColumn.model",
 			"schema:DetailColumn.field",
 			"schema:DetailColumn.format",
-			"schema:DetailColumn.<undeclared>"
+			"schema:DetailColumn.<undeclared>",
+			"format:plain",
+			"detail-field-type:property"
 		],
 		"valueClass": "empty-short-detail-no-runtime-shows",
 		"disposition": "INERT",
