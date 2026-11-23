@@ -196,6 +196,7 @@ PLAN_PRIVILEGES = frozenset(
         "VELLUM_SAVE_TO_CASE",
         "LOCATIONS",
         "DATA_FORWARDING",
+        "APP_DEPENDENCIES",
     }
 )
 
