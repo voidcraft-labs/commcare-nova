@@ -27,26 +27,42 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 		const source = route.formsFromMenu;
 		const parent =
 			route.parentModuleUuid && doc.modules[route.parentModuleUuid];
-		const issue = (message: string) =>
+		// `reason` and the names it needs let the Builder say the same thing
+		// in its own words (`lib/doc/userFacingErrors.ts`).
+		const issue = (
+			message: string,
+			reason: string,
+			names: Record<string, string> = {},
+		) =>
 			errors.push(
-				validationError("MENU_FORM_SOURCE_INVALID", "module", message, {
-					moduleUuid: route.uuid,
-					moduleName: route.name,
-				}),
+				validationError(
+					"MENU_FORM_SOURCE_INVALID",
+					"module",
+					message,
+					{ moduleUuid: route.uuid, moduleName: route.name },
+					{ reason, ...names },
+				),
 			);
 		if (!source) {
 			if (parent?.formsFromMenu)
-				issue(`Choose a parent for “${route.name}” that owns its forms.`);
+				issue(
+					`Choose a parent for “${route.name}” that owns its forms.`,
+					"parent-lists-forms",
+				);
 			continue;
 		}
 		const owner = doc.modules[source.menuUuid];
 		if (!owner || owner.formsFromMenu) {
-			issue(`Choose a menu that owns the forms to list in “${route.name}”.`);
+			issue(
+				`Choose a menu that owns the forms to list in “${route.name}”.`,
+				"source-owns-no-forms",
+			);
 			continue;
 		}
 		if ((doc.formOrder[route.uuid]?.length ?? 0) > 0)
 			issue(
 				`Move the forms “${route.name}” owns to a menu of their own before choosing a form source.`,
+				"owns-forms",
 			);
 		if (
 			route.caseType !== undefined ||
@@ -54,6 +70,8 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 		)
 			issue(
 				`Choose the case type and how many cases a worker can select in “${owner.name}”, which supplies the forms.`,
+				"case-settings",
+				{ owner: owner.name },
 			);
 		const ownerParent = owner.parentModuleUuid;
 		if (
@@ -62,6 +80,8 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 		)
 			issue(
 				`“${route.name}” needs the same parent as “${owner.name}”, or the menu that lists its parent's forms.`,
+				"parent",
+				{ owner: owner.name },
 			);
 		const expected = (children.get(owner.uuid) ?? []).filter(
 			(child) => !child.formsFromMenu,
@@ -76,11 +96,18 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 			actual.length !== expected.length ||
 			missing
 		)
-			issue(
-				missing
-					? `“${missing.name}” appears in “${route.name}” because “${owner.name}” has it. Hide its forms in “${route.name}”, or remove “${missing.name}” from “${owner.name}”.`
-					: `Update the child menus of “${route.name}” to match the children of “${owner.name}”.`,
-			);
+			if (missing)
+				issue(
+					`“${missing.name}” appears in “${route.name}” because “${owner.name}” has it. Hide its forms in “${route.name}”, or remove “${missing.name}” from “${owner.name}”.`,
+					"submenu-missing",
+					{ owner: owner.name, child: missing.name },
+				);
+			else
+				issue(
+					`Update the child menus of “${route.name}” to match the children of “${owner.name}”.`,
+					"submenus",
+					{ owner: owner.name },
+				);
 		const available = new Set(menuFormUuidsOf(doc, owner.uuid));
 		const excluded = source.excludedFormUuids ?? [];
 		if (
@@ -89,6 +116,8 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 		)
 			issue(
 				`Choose exclusions from the forms “${owner.name}” currently lists.`,
+				"exclusions",
+				{ owner: owner.name },
 			);
 		const visible = new Set(menuFormUuidsOf(doc, route.uuid));
 		const links = (source.entryPoints ?? []).map((row) => row.formUuid);
@@ -98,6 +127,8 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 		)
 			issue(
 				`Choose a different form from “${owner.name}” for each of this menu’s form links.`,
+				"form-links",
+				{ owner: owner.name },
 			);
 		// HQ's build writes no menu for a route without a command, so a
 		// submenu that keeps its own screen under it has no way in.
@@ -110,11 +141,14 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 			if (stranded)
 				issue(
 					`Show a form in “${route.name}” so workers can reach “${stranded.name}” inside it.`,
+					"stranded-submenu",
+					{ child: stranded.name },
 				);
 		}
 		if (route.caseListMenuItem)
 			issue(
 				`Remove the separate case list item from “${route.name}”. Workers can open its case list by choosing a form.`,
+				"case-list-item",
 			);
 		for (const uuid of visible) {
 			const form = doc.forms[uuid];
@@ -132,6 +166,11 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 				)
 					issue(
 						`Include “${doc.forms[target.formUuid]?.name ?? "the linked form"}” in “${route.name}” so workers can follow the link after “${form.name}”.`,
+						"hidden-link-target",
+						{
+							target: doc.forms[target.formUuid]?.name ?? "",
+							form: form.name,
+						},
 					);
 			}
 		}
@@ -147,6 +186,7 @@ export function menuFormSources(doc: BlueprintDoc): ValidationError[] {
 					"module",
 					`Show a form in “${route.name}” so the link after “${form.name}” has a menu to open.`,
 					{ moduleUuid: route.uuid, moduleName: route.name },
+					{ reason: "empty-link-target", form: form.name },
 				),
 			);
 		}

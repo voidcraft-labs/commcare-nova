@@ -815,6 +815,44 @@ function queryRepeatModelIterationSentence(e: ValidationError): string {
 	}
 }
 
+/** A menu listing another menu's forms, said from the names its finding
+ *  carries (`validator/rules/menuFormSources.ts`). */
+function menuFormSourceLine(e: ValidationError): string {
+	const route = e.location.moduleName ? q(e.location.moduleName) : "this menu";
+	const subject = route === "this menu" ? "This menu" : route;
+	const owner = e.details?.owner ? q(e.details.owner) : "the menu it lists";
+	const child = e.details?.child ? q(e.details.child) : "its submenu";
+	const form = e.details?.form ? q(e.details.form) : "a form";
+	switch (e.details?.reason) {
+		case "parent-lists-forms":
+			return `${subject} sits in a menu that lists another menu's forms. Move it to a menu that owns its forms.`;
+		case "source-owns-no-forms":
+			return `Choose a menu that owns its forms for ${route} to list.`;
+		case "owns-forms":
+			return `${subject} has forms of its own. Move them to another menu before it lists another menu's forms.`;
+		case "case-settings":
+			return `${subject} takes its case type and how many cases a worker picks from ${owner}. Change them in ${owner}.`;
+		case "parent":
+			return `${subject} needs the same parent as ${owner}, or the menu that lists that parent's forms.`;
+		case "submenu-missing":
+			return `${child === "its submenu" ? "A submenu" : child} appears in ${route} because ${owner} has it. Hide its forms in ${route}, or remove ${child} from ${owner}.`;
+		case "exclusions":
+			return `Choose forms to hide in ${route} from the forms ${owner} lists now.`;
+		case "form-links":
+			return `Each deep link in ${route} needs its own form from ${owner}.`;
+		case "stranded-submenu":
+			return `Show a form in ${route} so workers can reach ${child} inside it.`;
+		case "case-list-item":
+			return `${subject} opens its case list when a worker picks a form, so it has no separate case list item. Remove that item.`;
+		case "hidden-link-target":
+			return `Show ${e.details?.target ? q(e.details.target) : "the linked form"} in ${route} so workers can follow the link after ${form}.`;
+		case "empty-link-target":
+			return `Show a form in ${route} so the link after ${form} has a menu to open.`;
+		default:
+			return `${subject} lists another menu's forms in a way that menu no longer matches. Check its source menu, its submenus and the forms it shows.`;
+	}
+}
+
 const USER_MESSAGE_BY_CODE: Record<
 	UserFacingValidationCode,
 	UserMessageBuilder
@@ -965,7 +1003,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
 		`${q(formName(e))} assigns new cases to one particular place, and the exported rule names that place by Nova's own id, which CommCare HQ doesn't recognize, so the rule would match nobody. Assign to a place beneath the current case owner instead, or remove this owner rule.`,
-	MENU_FORM_SOURCE_INVALID: (e) => e.message,
+	MENU_FORM_SOURCE_INVALID: menuFormSourceLine,
 	ENTRY_POINT_INVALID: (e) => {
 		switch (e.details?.reason) {
 			case "duplicate-id":
