@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { Button } from "@/components/shadcn/button";
 import { ToastContainer } from "@/components/ui/ToastContainer";
@@ -112,11 +113,14 @@ createRoot(root).render(
 			}}
 		>
 			<AccessBridge>
-				<ScrollRegistryProvider>
-					<EditGuardProvider>
-						<Surface />
-					</EditGuardProvider>
-				</ScrollRegistryProvider>
+				{/* The Builder header sits inside the worker-language lens. */}
+				<BuilderLocalizationProvider>
+					<ScrollRegistryProvider>
+						<EditGuardProvider>
+							<Surface />
+						</EditGuardProvider>
+					</ScrollRegistryProvider>
+				</BuilderLocalizationProvider>
 			</AccessBridge>
 		</BuilderSessionProvider>
 	</BlueprintDocProvider>,
