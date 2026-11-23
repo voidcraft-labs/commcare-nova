@@ -33803,7 +33803,7 @@
 		"id": "hq-search/blank-searched-for-beside-the-owner",
 		"base": "hq-search",
 		"entry": "case-search/allow-blank-value-on-a-prompt-named-owner-id",
-		"standing": "never",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 0,
