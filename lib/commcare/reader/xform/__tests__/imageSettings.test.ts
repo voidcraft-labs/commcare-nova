@@ -4,6 +4,8 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { readHqApp } from "../../index";
 
+const HELD =
+	"questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive";
 const originalControl =
 	'<upload mediatype="image/*" vellum:ref="#form/photo" ref="/data/photo">';
 
@@ -34,6 +36,24 @@ describe("an image's Android photo size", () => {
 					` jr:imageDimensionScaledMax="${spelling}">`,
 			);
 			const imported = await read(body);
+			// Core's parser reads the attribute by name, a use of its own beside the
+			// extension parser's, which stands at the control; both are the entry's.
+			const outcome = readHqApp(await inputFor(body), { claims: "full" });
+			expect(
+				[...outcome.claims.records()]
+					.filter((record) =>
+						[
+							"xform:upload@jr:imageDimensionScaledMax",
+							"jr-extension:UploadQuestionExtensionParser",
+						].includes(record.key ?? ""),
+					)
+					.map((record) => [record.key, record.entry]),
+			).toEqual(
+				expect.arrayContaining([
+					["xform:upload@jr:imageDimensionScaledMax", HELD],
+					["jr-extension:UploadQuestionExtensionParser", HELD],
+				]),
+			);
 			const photo = Object.values(imported.fields).find(
 				(field) => field.id === "photo",
 			);

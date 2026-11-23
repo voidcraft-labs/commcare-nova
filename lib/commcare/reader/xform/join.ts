@@ -683,20 +683,35 @@ export function joinForm(input: JoinInput): JoinedForm {
 		// Core reads the value with `Integer.parseInt`, which takes one leading sign.
 		const number = /^[+-]?\d+$/.test(digits) ? Number(digits) : undefined;
 		const image = field.kind === "image";
+		let entry: string;
 		if (
 			number === undefined ||
 			number > 2147483647 ||
 			number < -2147483648 ||
 			(image && (number === 0 || number < -1))
-		)
+		) {
 			cursor.refuse(node, X.imageMaxDimensionInvalid, place, { name: written });
-		else if (image && number > 0) {
+			entry = X.imageMaxDimensionInvalid.entry;
+		} else if (image && number > 0) {
 			cursor.take(node, X.imageMaxDimension).value;
 			field.field.maxDimension = number;
+			entry = X.imageMaxDimension.entry;
 		}
 		// Any integer on another upload, and `-1` on an image, Android's own no-limit value
 		// (`ImageWidget`), the state with none.
-		else cursor.account(node, X.imageMaxDimensionElsewhere, place);
+		else {
+			cursor.account(node, X.imageMaxDimensionElsewhere, place);
+			entry = X.imageMaxDimensionElsewhere.entry;
+		}
+		// The extension parser's claim stands at the control (`xmlCursor.ts::recordedNode`);
+		// Core's parser also reads the attribute by name, a use of its own at the attribute.
+		accounting.claimEntry(
+			node,
+			entry,
+			"xform:upload@jr:imageDimensionScaledMax",
+			place,
+			{ name: written },
+		);
 	};
 
 	/** A control's field, by the nearest ancestor control that made a container field. */

@@ -2449,6 +2449,7 @@
 		"item": "`jr:imageDimensionScaledMax` (250/500/1000px, or another positive integer no greater than 2147483647 with or without `px`, which Vellum keeps as \"Custom\", `parser.js::populateControlMug`), on an image or face-capture question",
 		"surfaceKeys": [
 			"jr-extension:UploadQuestionExtensionParser",
+			"xform:upload@jr:imageDimensionScaledMax",
 			"vellum-feature:image_resize"
 		],
 		"valueClass": "image-max-dimension",
@@ -2476,7 +2477,10 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "`jr:imageDimensionScaledMax` that is not an integer or is greater than 2147483647 (with or without `px`; Core reads it with `Integer.parseInt`), on any upload, or zero, or less than -1, on an image or face-capture question (`-1` is Android's no-limit value, `ImageCaptureProcessing`, the same state as none)",
-		"surfaceKeys": ["jr-extension:UploadQuestionExtensionParser"],
+		"surfaceKeys": [
+			"jr-extension:UploadQuestionExtensionParser",
+			"xform:upload@jr:imageDimensionScaledMax"
+		],
 		"valueClass": "invalid-image-max-dimension",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime or not HQ-editable: Core throws \"Invalid input for image max dimension\" on a non-integer when Android installs or loads the form, on every `<upload>` element (`UploadQuestionExtensionParser`, which Android registers for all of them, `XFormExtensionUtils`), a Vellum save drops a non-number and truncates a fraction (executed: `big` dropped, `12.5px` becomes `12px`), and Android cannot scale an image to a size of zero or less (`FileUtil.getBitmapScaledByMaxDimen` then asks for a non-positive size)",
@@ -2510,7 +2514,10 @@
 		"area": "questions",
 		"section": "Question types",
 		"item": "`jr:imageDimensionScaledMax`, an integer with or without `px`, on any other upload (a signature, say), or `-1` on an image question",
-		"surfaceKeys": ["jr-extension:UploadQuestionExtensionParser"],
+		"surfaceKeys": [
+			"jr-extension:UploadQuestionExtensionParser",
+			"xform:upload@jr:imageDimensionScaledMax"
+		],
 		"valueClass": "image-max-dimension-on-other-upload",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: Vellum writes it only on image and face-capture questions (`mugs/types/media.js`) and drops it elsewhere on save, and no other widget reads it (only `ImageWidget` and its subclass `FaceCaptureWidget` apply it, and Core's parser rejects only a non-integer); `-1` on an image question is `ImageWidget`'s own no-limit value, the state with none",
