@@ -7,13 +7,20 @@ import {
 } from "@/lib/deployment/hqChanges/baselineSource";
 import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import { servedExport } from "@/lib/deployment/reading/__tests__/novaReading";
+import {
+	mutationCommitVerdict,
+	mutationCommitVerdictWithPrevalidation,
+} from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
+import { incrementalValidationScope } from "@/lib/doc/incrementalValidationScope";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { sharedFormMutations } from "@/lib/doc/scaffolds";
 import { planFormDependentsOnRemove } from "@/lib/doc/sharedFormDependents";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type FormCaseSelection,
@@ -718,4 +725,51 @@ describe("a parent and its shared entries changing choices together", () => {
 				);
 		},
 	);
+});
+
+describe("the scoped gate over a parent's shared entries", () => {
+	it("judges an entry when its parent starts reading a choice the entry left out", () => {
+		const { doc, parent, evening, origin } = sharedEntries();
+		const name = Object.values(doc.fields).find(
+			(field) => field.id === "name" && doc.fieldParent[field.uuid] === parent,
+		);
+		if (name === undefined)
+			throw new Error("The parent's question is missing.");
+		const mutations: Mutation[] = [
+			{
+				kind: "updateField",
+				uuid: name.uuid,
+				targetKind: "text",
+				patch: {
+					default_value: term({
+						kind: "session-datum",
+						datum: { kind: "form-selection", selection: origin.uuid },
+					}),
+				},
+			} as Mutation,
+		];
+		const absolute = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			mutationCommitVerdictWithPrevalidation(
+				doc,
+				mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		).toEqual(absolute);
+		if (absolute.ok)
+			throw new Error("The entry no longer supplies the choice.");
+		expect(
+			absolute.findings.some((one) => one.location.formUuid === evening),
+		).toBe(true);
+		const next = produce(doc, (d) => {
+			applyMutations(d, mutations);
+		});
+		expect(
+			incrementalValidationScope(doc, mutations, next)?.formUuids.has(evening),
+		).toBe(true);
+	});
 });
