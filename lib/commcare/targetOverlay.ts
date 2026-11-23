@@ -337,6 +337,19 @@ export function projectApplicationForTarget(
  * key staying absent. The drift comparison compares this part alone; the
  * rest is the target's, which the overlay carries.
  */
+/* HQ's settings page posts an empty multi-select as `[]`, and its profile
+ * writes `<dependencies>` only for a non-empty list
+ * (`templates/app_manager/profile.xml`), so an empty selection is no selection:
+ * a save of that page with nothing chosen changes nothing Nova owns. */
+function withoutEmptyDependencies(
+	features: Record<string, unknown>,
+): Record<string, unknown> {
+	const { dependencies, ...rest } = features;
+	return Array.isArray(dependencies) && dependencies.length === 0
+		? rest
+		: features;
+}
+
 export function ownedProfilePart(
 	profile: unknown,
 	ownership: Pick<
@@ -356,7 +369,9 @@ export function ownedProfilePart(
 	return {
 		properties: pick(bag.properties, ownership.profileProperties),
 		...(ownership.profileFeatures && {
-			features: pick(bag.features, ownership.profileFeatures),
+			features: withoutEmptyDependencies(
+				pick(bag.features, ownership.profileFeatures),
+			),
 		}),
 		custom_properties: pick(
 			bag.custom_properties,
