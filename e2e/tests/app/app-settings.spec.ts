@@ -257,10 +257,7 @@ test("turning off Connect keeps the app on Android only", {
 		"Turning off Connect keeps this app running on Android only. You can change where it runs in App settings.",
 	);
 	await expect(manager).toContainText(
-		"Turning off Connect leaves Auto Capture Location as it is in each app on CommCare HQ.",
-	);
-	await expect(manager).toContainText(
-		"build and release a new version for workers to install",
+		"After Connect is turned off, Android follows this app's location settings. Workers see the change after installing the next released version.",
 	);
 	const turnedOff = page.waitForResponse(
 		(response) =>
