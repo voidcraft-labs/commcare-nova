@@ -172,3 +172,18 @@ Project/hash session lock, rechecks the exact base-object key and the extract's
 when unshared.
 
 Document extraction permissions follow the side effect: preview/status `GET` needs Project view, while extraction `POST` spends model cost and writes status/extract data, so it requires Project edit. A claim's `(version, model, extractedAt)` is a fencing token, and an older server cannot claim over any higher-version state. After model work, terminal publication takes the asset's canonical extension-independent Project/hash content lock, re-locks the row, and writes GCS only if that exact `extracting` claim still owns the slot. A committed ready Project/hash/version sibling wins: extraction and Project-copy adopt its exact metadata/object, while a first publisher advances every non-newer duplicate row to the same metadata in its transaction. Deletion cleanup takes the same content lock. Thus delete-first never recreates an orphan extract, publication-first exposes a matching object/metadata pair before delete can clean it, a copied equal/newer ready result supersedes the stale model job safely, and identical `.txt`/`.md` bytes cannot split one shared object from per-row metadata. If GCS succeeds but the metadata transaction rejects, cleanup under the still-held content lock deletes the unpublished extract unless a committed deduplicated sibling already names that Project/hash/version.
+
+
+### Delivery of media already in the Project
+
+The direct uploader applies its ordinary per-kind limits. Publish and file download
+open each referenced Project object at its pinned generation and verify the
+stored length and SHA-256 while streaming. A direct publish makes one full
+verification pass before creating or updating anything on its destination. It
+reopens those same generations when the remote app is ready to take its files.
+The bulk uploader groups whole paths
+by size and count, and an indivisible large path travels alone. A successful
+job is followed by a read of the actual target app map and each matched file.
+A later attempt verifies previously completed paths and can continue after a
+partial result. An editor can upload a refused file on the target and retry
+after its mapped bytes match.

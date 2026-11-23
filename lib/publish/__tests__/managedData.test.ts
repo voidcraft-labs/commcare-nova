@@ -262,10 +262,6 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.MANAGED_PLACES_REFRESHED_SINCE],
 	},
-	managedPlacesOverLimit: {
-		kind: "sentence",
-		texts: [copy.managedPlacesOverLimit("acme-health", 12400)],
-	},
 	cannotReadManagedPlaces: {
 		kind: "sentence",
 		texts: [copy.cannotReadManagedPlaces("acme-health")],
@@ -835,13 +831,6 @@ describe("the forms a sentence chooses by its arguments", () => {
 		);
 		expect(managedPlacesKeptLeftOut(["Mercy Clinic", "Old Post"])).toBe(
 			"2 places in CommCare HQ sit at a level this app doesn't have, and a persona, an owner rule or an automation still uses them: Mercy Clinic and Old Post. Nova kept them as they stood before. You can add the levels they sit at, or move or change what uses them, then refresh again.",
-		);
-		expect(copy.managedPlacesOverLimit("acme-health", 12400)).toBe(
-			"acme-health now has 12,400 places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.",
-		);
-		// A list that passed the bytes Nova reads before it passed the count.
-		expect(copy.managedPlacesOverLimit("acme-health", null)).toBe(
-			"acme-health now holds more place information than Nova reads, and Nova holds up to 10,000 places for an app. Nova kept its copy as it was.",
 		);
 	});
 

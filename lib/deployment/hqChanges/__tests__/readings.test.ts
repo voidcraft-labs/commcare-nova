@@ -153,7 +153,6 @@ function noProjectData(): ReadingProjectData {
 			hqTags: [],
 			hqLevels: [],
 			hqPlaces: [],
-			placesPastLimit: null,
 		},
 	};
 }

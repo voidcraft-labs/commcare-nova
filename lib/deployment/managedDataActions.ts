@@ -24,6 +24,7 @@ import {
 	refreshManagedLookupTable,
 	refreshManagedPlaces,
 } from "./managedData";
+import { sourceWorkbookBytes } from "./managedLookupObservation";
 
 /**
  * The browser boundary for data CommCare HQ manages: a lookup table's
@@ -56,6 +57,7 @@ async function lookupScopeFor(
 	tableIdInput: unknown,
 ): Promise<{
 	readonly scope: LookupScope;
+	readonly sessionId: string;
 	readonly tableId: ReturnType<typeof lookupTableIdSchema.parse>;
 } | null> {
 	const projectId = projectIdSchema.safeParse(projectIdInput);
@@ -70,6 +72,7 @@ async function lookupScopeFor(
 			"view",
 		);
 		return {
+			sessionId: session.session.id,
 			scope: {
 				projectId: access.projectId,
 				actorId: session.user.id,
@@ -119,12 +122,13 @@ async function tableAction(
 	run: (
 		scope: LookupScope,
 		tableId: ReturnType<typeof lookupTableIdSchema.parse>,
+		sessionId: string,
 	) => Promise<ManagedTableOutcome>,
 ): Promise<ManagedTableOutcome> {
 	const resolved = await lookupScopeFor(projectId, tableId);
 	if (resolved === null) return TABLE_NOT_FOUND;
 	try {
-		return await run(resolved.scope, resolved.tableId);
+		return await run(resolved.scope, resolved.tableId, resolved.sessionId);
 	} catch (error) {
 		log.error(`[deployment/managed-data] ${name} failed`, error, {
 			projectId: resolved.scope.projectId,
@@ -138,7 +142,9 @@ export async function refreshManagedLookupTableAction(
 	projectId: string,
 	tableId: string,
 ): Promise<ManagedTableOutcome> {
-	return tableAction("refresh", projectId, tableId, refreshManagedLookupTable);
+	return tableAction("refresh", projectId, tableId, (scope, id, sessionId) =>
+		refreshManagedLookupTable(scope, id, { kind: "session", sessionId }),
+	);
 }
 
 /** The review digest a confirmation carries back, or null where it is no digest. */
@@ -158,11 +164,41 @@ export async function manageLookupTableInNovaAction(
 	projectId: string,
 	tableId: string,
 	reviewDigest: string,
+	form?: FormData,
 ): Promise<ManagedTableOutcome> {
 	const digest = parsedReviewDigest(reviewDigest);
 	if (digest === null) return REVIEW_NOT_READ;
-	return tableAction("manage in Nova", projectId, tableId, (scope, id) =>
-		manageLookupTableInNova(scope, id, digest),
+	return tableAction(
+		"manage in Nova",
+		projectId,
+		tableId,
+		async (scope, id, sessionId) => {
+			let workbook: Buffer | undefined;
+			if (form) {
+				const file = form.get("workbook");
+				if (
+					!(file instanceof File) ||
+					!file.size ||
+					file.size > sourceWorkbookBytes
+				)
+					return {
+						ok: false,
+						reason: "unsupported",
+						message: "You can choose a selected-table workbook up to 768 KiB.",
+					} as const;
+				workbook = Buffer.from(await file.arrayBuffer());
+			}
+			return manageLookupTableInNova(
+				scope,
+				id,
+				digest,
+				{
+					kind: "session",
+					sessionId,
+				},
+				workbook,
+			);
+		},
 	);
 }
 

@@ -1996,9 +1996,7 @@ supplies one to the XForm/suite emitters, so a carrier reaching any other
 surface fails loudly.
 `fixtures.ts` builds the suite-embedded global `<fixture id="item-list:<tag>">`
 blocks — one `<{tag}_list>` body, one `<{tag}>` per row in authored
-`(order_key, row UUID)` order, EVERY defined column as a child element in
-authored column order with an empty element for missing and stored-empty cells
-alike, matching HQ's `ItemListsProvider` body so the same XPaths work
+`(order_key, row UUID)` order, declared row attributes and columns in definition order with each field’s actual occurrence order and details. A missing field contributes one empty element, an explicit empty list contributes zero, and one empty value contributes one. Reading a missing declared attribute refuses the source. This is the same shape as the worker fixture, matching HQ's `ItemListsProvider` body so the same XPaths work
 whichever path later delivers the data. `SuiteParser`/`FixtureXmlParser`
 (no `user_id` → global storage, overwrite on app upgrade) are the wire
 authority: HQ never emits suite-embedded item-list fixtures. `compileCcz`
@@ -2008,6 +2006,8 @@ are the canonical JS number spelling); the aggregate 10,000-row /
 100,000-cell / 16 MiB-exact-byte budgets and the row-dependent select-source
 validity live at the export boundary, measured on the exact serialized blocks
 the compiler embeds.
+
+A lookup selector binds its table, column, row detail and occurrence details by UUID. Lowering resolves the current names of those members. A row attribute reads `@code`; a field value qualified by a property and position reads `name[@lang='fr'][1]`. A calculation can read an occurrence’s property as `name[1]/@lang`. Vellum strips predicates before checking the form’s choice label/value against HQ’s field names and row attributes. The question rejects a terminal field property and a qualifying literal whose opening bracket disrupts that edit. A scalar choice must identify one value for every row in the complete worker-specific base table.
 
 Lowering: a `table-lookup` becomes
 `instance('item-list:<tag>')/<tag>_list/<tag>[<where>][1]/<column>` — the
@@ -2587,3 +2587,11 @@ options, or inject fallback expressions into exported XForms or HQ JSON.
 The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
 boundary for historical answers; source evidence is in
 `docs/research/inline-choice-starting-values.md`.
+
+### Trusted lookup source reads
+
+`hq/lookupSource.ts` follows HQ's filtered fixture inventory, reads only selected row detail URLs and never follows peer-supplied continuation URLs. Rich details must match the requested ID, table, listed fields and native sort key order on both complete passes. Staged pages carry an ordered prefix digest bound to the selected source. `hq/lookupCoverage.ts` accepts a global fixture's independent count together with distinct source-scoped candidate IDs and two ordered comparisons against native worker bytes. An assigned worker sample cannot establish complete inventory.
+
+`hq/lookupRestore.ts` extracts a single table from an authenticated OpenRosa response. The XML parser binds token, registration, project, principal, fixture tag and worker. It retains no cases, registration password or other fixtures. A previously verified full observation can supply a missing fixture in a continuous delta for the same scope. Worker-visible rows have no administrative IDs. The current worker entry acquires a fresh full observation.
+
+`hq/lookupWorkbook.ts` compares a selected HQ download against that table's independently read ordered rows. It checks the literal header and value projection of `fixtures/download.py::_prepare_fixture`, including blank padding and propertyless fields with multiple occurrences. It never promotes the workbook's lossy cell view to canonical source values. Group and place directories are read under the editor's own approved source grant only when their names occur on the workbook. Only matching owner identities and names survive the check.

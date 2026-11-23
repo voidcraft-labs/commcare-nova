@@ -125,6 +125,7 @@ const HOST = "https://india.commcarehq.org";
 const READS = path.join(process.cwd(), "proof/hq-reads");
 const LIST = `/a/${DOMAIN}/api/lookup_table/v1/?limit=1000`;
 const LEVELS = `/a/${DOMAIN}/api/location_type/v1/?limit=1000`;
+const PLACE_DETAILS = `/a/${DOMAIN}/api/location/v1/?limit=1000`;
 const PLACES = `/a/${DOMAIN}/api/location/v2/?limit=5000`;
 const PLAIN_ID = "09948f8373da4c86a86b7707a0e9fbcd";
 const RICH_ID = "9ea70d486f644cc4a2f22c063294e197";
@@ -260,7 +261,18 @@ function levelAnswer(withDistrict: boolean) {
 
 function servePlaces(peer: MockAgent, withDistrict = true): void {
 	serveJson(peer, LEVELS, levelAnswer(withDistrict));
-	serve(peer, PLACES, retained("places/locations.json"));
+	for (const [url, file] of [
+		[PLACES, "locations"],
+		[PLACE_DETAILS, "locations-v1"],
+	]) {
+		const answer = retained(`places/${file}.json`);
+		serve(peer, url, {
+			...answer,
+			body: answer.body
+				.replaceAll("nova-proof", DOMAIN)
+				.replaceAll("https://www.commcarehq.org", HOST),
+		});
+	}
 }
 
 function calls(peer: MockAgent): readonly string[] {
@@ -710,28 +722,11 @@ describe("readReadingProjectData over Postgres", () => {
 				"north_clinic",
 				"south",
 			]);
-			expect(data.gathered.placesPastLimit).toBeNull();
-		});
-	});
-
-	it("stops a place list past Nova's limit at the page that names its total", async () => {
-		await h.seedProjectMember(ACTOR, PROJECT, "owner");
-		const source = await namingSource();
-		const page = JSON.parse(retained("places/locations.json").body) as {
-			meta: Record<string, unknown>;
-		};
-		page.meta.total_count = 10_001;
-		page.meta.next = `/a/${DOMAIN}/api/location/v2/?limit=5000&offset=1000`;
-		await withHttpPeer(async (peer) => {
-			serveTables(peer);
-			serveJson(peer, LEVELS, levelAnswer(true));
-			serveJson(peer, PLACES, page);
-			const data = await readData(source, "always");
-			expect(data.gathered.placesPastLimit).toEqual({ totalCount: 10_001 });
-			expect(data.gathered.hqPlaces).toEqual([]);
-			expect(calls(peer).filter((call) => call.startsWith(PLACES))).toEqual([
-				PLACES,
-			]);
+			expect(
+				data.gathered.hqPlaces.every(
+					(place) => place.observation !== undefined,
+				),
+			).toBe(true);
 		});
 	});
 
@@ -744,17 +739,30 @@ describe("readReadingProjectData over Postgres", () => {
 			servePlaces(peer, true);
 			const data = await readData(source, "always");
 			expect(data.organization.levelCodes).toEqual(["region", "district"]);
-			expect(calls(peer).slice(-4)).toEqual([LEVELS, PLACES, LEVELS, PLACES]);
+			expect(calls(peer).slice(-6)).toEqual([
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+			]);
 		});
 		await withHttpPeer(async (peer) => {
 			serveTables(peer);
 			servePlaces(peer, false);
 			servePlaces(peer, false);
-			expect(await read(source, "always")).toEqual({
-				kind: "failed",
-				failure: { kind: "hq-unavailable", request: "locations", status: 200 },
-			});
-			expect(calls(peer).slice(-4)).toEqual([LEVELS, PLACES, LEVELS, PLACES]);
+			expect((await readData(source, "always")).gathered.inconsistent).toBe(
+				true,
+			);
+			expect(calls(peer).slice(-6)).toEqual([
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+				LEVELS,
+				PLACES,
+				PLACE_DETAILS,
+			]);
 		});
 	});
 

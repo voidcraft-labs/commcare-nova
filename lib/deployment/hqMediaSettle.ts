@@ -26,6 +26,7 @@ import {
 	HQ_MEDIA_IN_FLIGHT_MAX_BYTES,
 	HQ_MEDIA_READ_CONCURRENCY,
 	type HqMediaFileRead,
+	readHqMediaDigest,
 	readHqMediaFile,
 } from "@/lib/commcare/hq/media";
 import { giveBackHeld } from "@/lib/commcare/hq/memoryMeter";
@@ -75,11 +76,12 @@ interface FileRequest {
 	readonly mediaType: HqMediaType;
 	/** The largest limit among the kinds of the paths that name it. */
 	readonly maxBytes: number;
+	readonly streamSize?: number;
 }
 
 /**
- * Asks CommCare HQ for the file of each `moved` and each `unrecorded` path,
- * once per id, and hashes its bytes with SHA-256:
+ * Reads each moved or unrecorded file from HQ, and during a publish, each
+ * recorded file as well. It hashes the bytes once per id:
  *
  * - bytes of the path's own `contentHash`: `recorded`, and `learned` gains
  *   the path under that id;
@@ -103,17 +105,29 @@ interface FileRequest {
 export async function settleHqMedia(
 	creds: CommCareCredentials,
 	paths: readonly HqMediaPath[],
-	options: { readonly cancel?: AbortSignal; readonly retain?: boolean },
+	options: {
+		readonly cancel?: AbortSignal;
+		readonly retain?: boolean;
+		readonly verifyRecorded?: boolean;
+	},
 ): Promise<SettledHqMedia> {
 	const requests = new Map<string, FileRequest>();
 	for (const path of paths) {
-		if (!isCandidate(path.standing) || path.hq === null) continue;
+		if (
+			!needsHqMediaRead(path.standing, options.verifyRecorded) ||
+			path.hq === null
+		)
+			continue;
 		const cap = ASSET_SIZE_CAPS_BYTES[path.kind];
 		const held = requests.get(path.hq.multimediaId);
 		requests.set(path.hq.multimediaId, {
 			multimediaId: path.hq.multimediaId,
 			mediaType: held?.mediaType ?? path.hq.mediaType,
 			maxBytes: Math.max(held?.maxBytes ?? 0, cap),
+			streamSize:
+				path.sizeBytes === undefined
+					? held?.streamSize
+					: Math.max(held?.streamSize ?? 0, path.sizeBytes),
 		});
 	}
 
@@ -129,6 +143,27 @@ export async function settleHqMedia(
 	let thrown: { readonly error: unknown } | null = null;
 
 	const ask = async (request: FileRequest): Promise<void> => {
+		if (
+			request.streamSize !== undefined &&
+			(!options.retain || request.streamSize > request.maxBytes)
+		) {
+			const result = await readHqMediaDigest(
+				creds,
+				request.mediaType,
+				request.multimediaId,
+				request.streamSize,
+				signal,
+			);
+			if ("success" in result) {
+				failure ??= result;
+				stop.abort();
+				return;
+			}
+			verdicts.set(request.multimediaId, result);
+			if (options.retain && result.kind === "missing")
+				reads.set(request.multimediaId, { kind: "missing" });
+			return;
+		}
 		const read: HqMediaFileRead = await readHqMediaFile(
 			creds,
 			request.mediaType,
@@ -210,7 +245,11 @@ export async function settleHqMedia(
 
 	const learned: Record<string, string> = {};
 	const settled = paths.map((path): HqMediaPath => {
-		if (!isCandidate(path.standing) || path.hq === null) return path;
+		if (
+			!needsHqMediaRead(path.standing, options.verifyRecorded) ||
+			path.hq === null
+		)
+			return path;
 		const verdict = verdicts.get(path.hq.multimediaId);
 		if (verdict === undefined)
 			throw new Error(
@@ -226,9 +265,16 @@ export async function settleHqMedia(
 	return { kind: "settled", paths: settled, learned, reads };
 }
 
-/** A standing an id alone cannot settle. */
-function isCandidate(standing: HqMediaStanding): boolean {
-	return standing === "moved" || standing === "unrecorded";
+/** A fresh publish also verifies the bytes behind previously recorded ids. */
+export function needsHqMediaRead(
+	standing: HqMediaStanding,
+	verifyRecorded = false,
+): boolean {
+	return (
+		standing === "moved" ||
+		standing === "unrecorded" ||
+		(verifyRecorded && standing === "recorded")
+	);
 }
 
 /** Include the physical identity of two undecodable entries. Their typed

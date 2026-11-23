@@ -17,6 +17,7 @@ import "server-only";
  * kind and the status, and no body.
  */
 
+import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import type { HqMediaType } from "./appSource";
 import { withHqRequestDeadline } from "./deadline";
@@ -74,37 +75,118 @@ export async function readHqMediaFile(
 	multimediaId: string,
 	options: { readonly maxBytes: number; readonly cancel?: AbortSignal },
 ): Promise<HqMediaFileRead> {
+	return readMedia(
+		creds,
+		mediaType,
+		multimediaId,
+		options.cancel,
+		async (response, declaredContentType, signal): Promise<HqMediaFileRead> => {
+			const body = await response.read(options.maxBytes, "bytes");
+			if (body.kind === "too-long")
+				return { kind: "too-large", maxBytes: options.maxBytes };
+			if (body.kind === "unavailable") return unanswered(signal, body.error);
+			return { kind: "read", bytes: body.bytes, declaredContentType };
+		},
+	);
+}
+
+type FileFailure = CommCareApiError | { kind: "missing" };
+export type HqMediaDigest =
+	| { kind: "hash"; sha256: string; size: number }
+	| { kind: "too-large" }
+	| FileFailure;
+
+/** Hash the exact fixed-host file in transit. Only a current Project asset's
+ * authenticated size can extend the buffered reader's legacy workspace. */
+export function readHqMediaDigest(
+	creds: CommCareCredentials,
+	mediaType: HqMediaType,
+	multimediaId: string,
+	maxBytes: number,
+	cancel?: AbortSignal,
+): Promise<HqMediaDigest> {
+	return readMedia(
+		creds,
+		mediaType,
+		multimediaId,
+		cancel,
+		async (answer, _type, signal): Promise<HqMediaDigest> => {
+			const digest = createHash("sha256");
+			let size = 0;
+			try {
+				const result = await answer.consume(
+					maxBytes,
+					(chunk) => {
+						size += chunk.byteLength;
+						digest.update(chunk);
+					},
+					"media-digest",
+				);
+				if (result === "too-long") return { kind: "too-large" };
+				if (result !== "read") return unanswered(signal);
+				return { kind: "hash", size, sha256: digest.digest("hex") };
+			} catch (error) {
+				return unanswered(signal, error);
+			}
+		},
+	);
+}
+
+async function readMedia<T>(
+	creds: CommCareCredentials,
+	mediaType: HqMediaType,
+	multimediaId: string,
+	cancel: AbortSignal | undefined,
+	read: (
+		response: HqAnswer,
+		type: string | null,
+		signal: AbortSignal,
+	) => Promise<T>,
+): Promise<T | FileFailure> {
 	if (!/^[\w-]+$/.test(multimediaId)) return { success: false, status: 400 };
 	const url = `${baseUrl(creds)}/hq/multimedia/file/${mediaType}/${multimediaId}/`;
 	return withHqRequestDeadline(
 		async (signal) => {
-			const first = await readOnce(creds, url, options.maxBytes, signal);
+			const ask = () => readOnce(creds, url, signal, read);
+			const first = await ask();
 			if (!resendable(first) || signal.aborted) return first;
 			await delay(HQ_MEDIA_RESEND_WAIT_MS, signal);
-			if (signal.aborted) return unanswered(signal);
-			return readOnce(creds, url, options.maxBytes, signal);
+			return signal.aborted ? unanswered(signal) : ask();
 		},
 		HQ_MEDIA_FILE_DEADLINE_MS,
-		options.cancel,
+		cancel,
 	);
 }
 
 /** HQ could not send the file this time: no answer, or a gateway's or HQ's 502, 503 or 504. */
-function resendable(answer: HqMediaFileRead): boolean {
-	if (!("success" in answer)) return false;
+function resendable(answer: unknown): boolean {
+	if (
+		!answer ||
+		typeof answer !== "object" ||
+		!("success" in answer) ||
+		answer.success !== false
+	)
+		return false;
+	const failure = answer as CommCareApiError;
 	return (
-		answer.cause === "network" ||
-		(answer.cause === undefined &&
-			(answer.status === 502 || answer.status === 503 || answer.status === 504))
+		failure.cause === "network" ||
+		(failure.cause === undefined &&
+			(failure.status === 502 ||
+				failure.status === 503 ||
+				failure.status === 504))
 	);
 }
 
-async function readOnce(
+async function readOnce<T>(
 	creds: CommCareCredentials,
 	url: string,
-	maxBytes: number,
 	signal: AbortSignal,
-): Promise<HqMediaFileRead> {
+	read: (
+		response: HqAnswer,
+		type: string | null,
+		signal: AbortSignal,
+	) => Promise<T>,
+): Promise<T | FileFailure> {
 	let response: HqAnswer;
 	try {
 		response = await sendHq(creds, url, {
@@ -137,10 +219,7 @@ async function readOnce(
 		await response.discard();
 		return { success: false, status: 502, cause: "browser-page" };
 	}
-	const body = await response.read(maxBytes, "bytes");
-	if (body.kind === "too-long") return { kind: "too-large", maxBytes };
-	if (body.kind === "unavailable") return unanswered(signal, body.error);
-	return { kind: "read", bytes: body.bytes, declaredContentType };
+	return read(response, declaredContentType, signal);
 }
 
 /** No answer reached Nova, or its body stopped: the deadline, the caller's `cancel`, or the network. */

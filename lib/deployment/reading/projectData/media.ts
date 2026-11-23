@@ -10,6 +10,10 @@
  */
 
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
+import {
+	type HqFileMediaType,
+	KIND_OF_MEDIA_TYPE,
+} from "@/lib/commcare/hq/mediaType";
 import type {
 	MediaRecipients,
 	ReaderMediaIndex,
@@ -138,15 +142,6 @@ export function hqMediaReferencesOf(
 // ---------------------------------------------------------------------------
 // Which files
 // ---------------------------------------------------------------------------
-
-/** A file of CommCare HQ's that is no picture, sound or video. */
-type HqFileMediaType = Exclude<HqMediaType, "CommCareMultimedia">;
-
-const KIND_OF_MEDIA_TYPE: Readonly<Record<HqFileMediaType, MediaKind>> = {
-	CommCareImage: "image",
-	CommCareAudio: "audio",
-	CommCareVideo: "video",
-};
 
 interface FileUse {
 	/** Only source itext that no runtime draws names this file. Test its availability, without adopting its bytes. */

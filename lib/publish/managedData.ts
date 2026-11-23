@@ -475,20 +475,6 @@ export function managedPlacesOutcomeLines(outcome: ManagedPlacesAnswer): {
 	};
 }
 
-/**
- * A refresh that finds more places than Nova holds for an app. `total` is
- * CommCare HQ's count where the list passed the place limit, and null where
- * it passed the bytes Nova reads of a place list before it passed the count.
- */
-export function managedPlacesOverLimit(
-	domain: string,
-	total: number | null,
-): string {
-	return total === null
-		? `${domain} now holds more place information than Nova reads, and Nova holds up to 10,000 places for an app. Nova kept its copy as it was.`
-		: `${domain} now has ${count(total)} places, and Nova holds up to 10,000 for an app. Nova kept its copy as it was.`;
-}
-
 /** A refresh CommCare HQ refused to answer the account. */
 export function cannotReadManagedPlaces(domain: string): string {
 	return `Nova couldn't read the organization in ${domain} with your CommCare HQ account. That project space needs Locations and API access on its plan, and your account needs the Edit Locations and Access APIs permissions.`;
@@ -949,6 +935,7 @@ export function reviewManagedPlaces(places: number, domain: string): string {
 
 /** Why an answer to a table's choice is not offered. */
 export type LookupChoiceRefusal =
+	| "needs-source-evidence"
 	| "needs-admin"
 	| "managed-elsewhere"
 	| "app-reads-a-missing-column"
@@ -1000,6 +987,9 @@ export function reviewChoiceBody(
 	domain: string,
 	choice: ReviewChoice,
 ): string {
+	const offer = choice.options["use-project"];
+	if (!offer.offered && offer.why === "needs-source-evidence")
+		return `This app reads ${tag} from ${domain}. ${project} already has a table by that name. Nova needs current access to the rows and their assignments to compare the two. You can choose another Project or update the source connection.`;
 	const lead = `This app reads the lookup table ${tag} from ${domain}. ${project} already has a table by that name with`;
 	const readBy =
 		choice.apps.length > 0 ? ` read by ${appsInWords(choice.apps)}` : "";
@@ -1080,6 +1070,8 @@ export function choiceNotOffered(
 	project: string,
 ): string {
 	switch (offer.why) {
+		case "needs-source-evidence":
+			return "This table needs verified source inventory and worker access before it can replace a Project table.";
 		case "needs-admin":
 			return `An admin of ${project} can choose this.`;
 		case "managed-elsewhere":

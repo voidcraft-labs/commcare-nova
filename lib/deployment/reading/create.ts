@@ -1,4 +1,5 @@
 import "server-only";
+import { lookupBindingNames } from "./projectData/lookupTables";
 
 /**
  * One create of an app brought in from CommCare HQ: the app is read and
@@ -129,16 +130,9 @@ export function movedBindingCount(
 			continue;
 		}
 		const fields = ownRecordValue(lookupFields, tag) ?? [];
-		const columnOf = (
-			columns: typeof before.columns,
-			field: string,
-		): string | undefined => ownRecordValue(columns, field);
-		if (
-			fields.some(
-				(field) =>
-					columnOf(before.columns, field) !== columnOf(after.columns, field),
-			)
-		)
+		const oldIds = lookupBindingNames(before),
+			newIds = lookupBindingNames(after);
+		if (fields.some((name) => oldIds.get(name) !== newIds.get(name)))
 			moved += 1;
 	}
 	return moved;

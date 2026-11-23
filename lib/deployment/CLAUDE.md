@@ -152,6 +152,8 @@ speaks for and supersedes every live mapping of those kinds it did not name; a
 did not name may simply not have been reached yet. Only a `complete` push folds
 the rung.
 
+Each selected lookup workbook binds its exact wire audience, rows and definition revisions, current publish grant, target and encrypted connection. Immediately before sending, the same transaction that records the open write checks these facts under the membership, lookup Project and table locks. Assigned rows also bind their confirmed recipient identities. An already observed file on retry uses the same check without opening another write. Changed inputs require a new publish. Lookup writers and group assignment writers use the open workbook hold for the affected tables. A settled or expired hold releases them.
+
 `incomplete` is a refusal, not a rung: it has no position on the ladder,
 and `deploymentHasReached` answers `false` for every target while a
 deployment sits there. It carries `resumePhase`, and the state a retry
@@ -377,6 +379,10 @@ detected: the adoption and discard confirmations carry `LOOKUP_DISCARD_NOTE`,
 and a push of an unchanged definition that the re-list shows under a new id
 lands with the made-again warning.
 
+The place inventory pairs authenticated v2 rows with v1 rows from the same server and domain by durable location ID. It verifies their modification, coordinates, parent and level, display name, site code and JSON metadata and retries the complete read once across an observed simultaneous change. The v1 external ID, nullable source name, exact decimal coordinates and original numeric lexemes remain distinct. The worker receives HQ's string projection for modeled information. Unknown dictionary insertion order blocks a formula that would read that value. The ordinary place inventory and the protected place workbook each charge their reads and delivery budgets.
+
+An active mapping follows the destination's own ID after a source recode. The target receives parent-first batches with per-row results, read-back and resource mappings. An identical retry omits the v2 write. Each actual batch is guarded by the expected organization revision. Existing destination-only information survives. A destination external ID requires HQ's native organization workbook, as v2 omits that field. A publish validates the workbook shape before sending any batch, stages the place with its destination metadata intact, and records the observed ID and requested ID against the newly read destination mapping. An editor with the live export grant can then prepare the destination-bound private file. The next publish verifies the saved v1 ID by durable target ID and applies the remaining metadata before sending app content. The origin is only refreshed.
+
 `organization` reads the target's levels and places and plans the push
 (`locationResourcePlan.ts`). It carries the same ownership refusal keyed on site
 code, and a SECOND refusal that is peculiar to places: CommCare HQ will not hold
@@ -499,6 +505,13 @@ The ledger records who and when (`adopted_at`
 `store.ts::writeResourceMapping` so the failure names the call rather than the
 constraint). Once recorded, the decision stands: later publishes read the
 mapping rather than asking again.
+
+A workbook receipt binds each destination table's current ID, visibility,
+fields, attributes and ordered rows to the intended file. A successful sibling
+keeps its mapping after a partial upload. A failed read-back can mark an old
+mapped ID unread. A new ID earns its first mapping only after verification.
+On a retry, an existing unrelated table under the same tag needs an explicit
+ownership decision before Nova sends another workbook.
 
 A lookup table's standing is the Project's (`lookupResourcePlan.ts`), and
 two arms beside the deployment's own mapping account for the table CommCare
@@ -1498,13 +1511,17 @@ upload, bound to the save counter the import acknowledged, and that read is
 the new baseline only when the counter proves what the import left. A failed
 read or an extra save gives an `unread` drift baseline and a warning
 that the publish landed. An extra save with a verified source at the acknowledged
-version retains that source for the target's kept settings. After the media upload
-settles, the publish records the id CommCare HQ reported for each path
-(`store.ts::recordDeploymentMediaFiles`, while both its source digest and the
-active mapping's token for this publish still match), else the id preflight found by
-content, else what the record held: an upload that failed, timed out or
-reported errors earns no entry, and an app that publishes no file records
-none. When a later publish already holds the app mapping by the time this
+version retains that source for the target's kept settings. Before any HQ write, direct publication checks each Project file's full
+SHA-256 and length from a pinned GCS generation. It sends the same
+generation on upload. Each file already on the destination is also verified
+by its class, mapped ID and bytes before Nova changes the app. Once the
+media job settles, Nova reads the current app map and the mapped file,
+compares the job's exact ID where supplied, and records only a matching
+media class, length and digest. These reads use the connected account at
+the selected server. The HQ file URL alone grants no access to Nova's
+private downloads. An incomplete batch keeps each verified receipt and a
+retry rechecks the destination before sending another file.
+When a later publish already holds the app mapping by the time this
 import records its response, the older publish skips its media upload and
 reports that to the caller. After the last source and file reads, assembling the app and admitting the write, the publisher reads HQ's working save counter immediately before each physical import POST. HQ may throttle before running its view. Every resend checks the same reviewed counter again after the requested wait, within the original deadline. A different or unavailable counter settles the unsent hold and asks for a new comparison. A first admission can restore a suspended released entry only under an uninterrupted claim without a competing write. The first claim uses its resource row ID until a later acquisition mints an explicit claim generation. HQ's import has no conditional update against that counter. An extra save after the final observation still leaves the accepted import's baseline unconfirmed. The second read, where Project data went, also compares the file ids at
 the published paths (`hqMedia.ts::mediaMovedBetween`) and settles each one that
@@ -2556,3 +2573,22 @@ Every live source read for bring-in, passive refresh or publishing must include 
 The MCP tools page HQ birth and change reviews against 80,000 characters of the complete serialized SDK result, including the outer write response around a fresh reading. Size the opaque continuation and every escaped piece before adding it. Move a large case catalog, a lookup choice with many column consequences, or a contributor list onto those same pages. Preserve their complete identities and offer the review digest only when every decision-bearing item has been returned. An oversized upload refusal sends the user to this review before it offers any discard receipt.
 
 A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.
+### Selected lookup source observations
+
+An editor may inspect an assigned table's source separately from a worker's fixture. The Project, table, remote table identity, server, domain, current membership and original credential grant are resolved on the server. A role change, consent revocation or key replacement invalidates the observation. `managedLookupObservation.ts` stores an editor's checked selected-workbook receipt in `lookup_tables.hq_source_observation`. It contains the observation time, exact source and content digests, row identities and resolved principals. Its authorized history has no authority to distribute rows.
+
+Global transfer obtains a full authenticated restore and independent details for every candidate. It compares cardinality, ordered device projection, complete canonical content and the locally reviewed ordered row identities, then stamps the observed index flags while holding the transfer lock. An assigned or incomplete table remains managed at its source. The server retains a verified reference when an inline read exceeds its capacity. An unreadable inventory has no count and its historical rows never enter a device projection.
+
+Promoting a verified generation reconciles the current HQ field, row-attribute and value-property definitions through the same identity and reference governance as inline refresh. An admin transferring a complete global generation rechecks its exact active generation, original source grant, ordered administrative digest and two complete native fixture observations. Transfer binds index flags from those fixtures, materializes stable editable rows and lexical value slots under the table lock, and rechecks the grant before changing custody. The previous generation retires in the same transaction.
+
+
+### Lookup workbooks, media receipts and device downloads
+
+A direct workbook publish compares the actual target definition and ordered
+row content with its admitted Project snapshot. Paged tables have the same
+canonical row spelling as the ordinary workbook. The verified parts of a
+multi-workbook publish remain in the destination ledger through a retry.
+For media batches, the status job and the authenticated target file digest
+establish completion separately for each mapped path. A named device archive
+may reference an assigned table only at its verified installation target.
+The device reads its private rows when the worker authenticates to HQ.

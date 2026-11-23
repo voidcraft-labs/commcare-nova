@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * What a bring-in of changes made in CommCare HQ stores, in real Postgres:
  * `store.ts::recordHqChangesTaken` in a commit's own transaction and in a
@@ -76,8 +77,12 @@ import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { Uuid } from "@/lib/domain/uuid";
 import { log } from "@/lib/logger";
-import { readManagedTableReview } from "@/lib/lookup/managed";
+import {
+	readManagedTableReview,
+	takeOverManagedLookupTableInTransaction,
+} from "@/lib/lookup/managed";
 import { getLookupTable, updateLookupTableTag } from "@/lib/lookup/service";
+import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import type { StoredFirstPublish } from "@/lib/publish/firstPublishChangeIds";
 import { hqChangesPublishingStoppedLine } from "@/lib/publish/hqChangesCopy";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
@@ -89,7 +94,6 @@ import { reviewHqChanges } from "../hqChanges/review";
 import type { HqChangesReview } from "../hqChanges/types";
 import type { HqMediaRecord } from "../hqMedia";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
-import { manageLookupTableInNova } from "../managedData";
 import {
 	adoptFixtureApp,
 	changedAnswer,
@@ -125,7 +129,6 @@ import { authorizeBringIn, readHqAppForReview } from "../reading/read";
 import {
 	landedFirstPublish,
 	peekHqAppChanged,
-	publishAppToHq,
 	refreshKeptValues,
 	setupArtifactFor,
 } from "../service";
@@ -2481,13 +2484,28 @@ describe("a bring-in of changes made in CommCare HQ", () => {
 		expect(tables.map((table) => table.tag)).toEqual(["district"]);
 		const tableId = lookupTableIdSchema.parse(tables[0]?.id);
 		const tableReview = await readManagedTableReview(E2E_PROJECT, tableId);
-		expect(
-			await manageLookupTableInNova(
-				lookupScope,
+		if (!tableReview)
+			throw new Error("Missing source-managed district fixture");
+		// The lifecycle is exercised at the transfer boundary. This change-read
+		// starts from an already confirmed Nova-managed copy of the retained app.
+		await h.withTransaction(async (tx) => {
+			const stored = await tx
+				.selectFrom("lookup_tables")
+				.select("hq_canonical")
+				.where("id", "=", tableId)
+				.executeTakeFirstOrThrow();
+			const digest = stored.hq_canonical?.digest;
+			if (typeof digest !== "string")
+				throw new Error("Missing retained lookup digest");
+			await takeOverManagedLookupTableInTransaction(
+				tx,
+				await authorizeLookupWriteInTransaction(tx, lookupScope, "delete"),
 				tableId,
-				tableReview?.reviewDigest ?? "",
-			),
-		).toMatchObject({ ok: true });
+				tableReview,
+				new Date(),
+				{ sourceDigest: digest, indexedFields: [] },
+			);
+		});
 		const held = await getLookupTable(lookupScope, tableId);
 		await updateLookupTableTag(lookupScope, {
 			tableId,

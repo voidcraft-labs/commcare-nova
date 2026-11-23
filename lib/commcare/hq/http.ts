@@ -24,7 +24,11 @@ import {
 	type HeldAs,
 	MemoryMeterFullError,
 } from "./memoryMeter";
-import { type BoundedBody, readBoundedBody } from "./readBody";
+import {
+	type BoundedBody,
+	consumeBoundedBody,
+	readBoundedBody,
+} from "./readBody";
 
 export { HQ_REFUSED_BODY_READ_MAX_BYTES } from "./bounds";
 
@@ -311,6 +315,12 @@ export interface HqAnswer {
 	 * `unavailable`.
 	 */
 	read(maxBytes: number, held: HeldAs): Promise<BoundedBody>;
+	/** Stream a bounded response. A media digest knows its expected file size and retains no payload. */
+	consume(
+		maxBytes: number,
+		consumer: (chunk: Uint8Array) => void,
+		mode?: "media-digest",
+	): Promise<"read" | "too-long" | "unavailable">;
 	/** Let the body go unread. Never throws. */
 	discard(): Promise<void>;
 }
@@ -322,7 +332,7 @@ export interface HqRequest {
 	readonly accept?: string;
 	/** The `Content-Type` of a JSON body; a `FormData` body sets its own. */
 	readonly contentType?: string;
-	readonly body?: string | FormData;
+	readonly body?: string | FormData | ReadableStream<Uint8Array>;
 	readonly signal: AbortSignal;
 	/** `no-store` on every read; a write leaves it out. */
 	readonly noStore?: boolean;
@@ -353,6 +363,7 @@ export async function sendHq(
 		method: request.method ?? "GET",
 		headers,
 		...(request.body === undefined ? {} : { body: request.body }),
+		...(request.body instanceof ReadableStream && { duplex: "half" as const }),
 		redirect: "manual",
 		...(request.noStore === true ? { cache: "no-store" as const } : {}),
 		signal: request.signal,
@@ -379,6 +390,12 @@ export async function sendHq(
 					? Number(length.trim())
 					: null;
 			return readBoundedBody(response.body, maxBytes, hint, held);
+		},
+		async consume(maxBytes, consumer, mode) {
+			if (body !== "unread")
+				throw new Error("A CommCare HQ response was already consumed.");
+			body = "read";
+			return consumeBoundedBody(response.body, maxBytes, consumer, mode);
 		},
 		async discard() {
 			if (body !== "unread") return;

@@ -257,7 +257,23 @@ async function placesRead(): Promise<ReadingProjectData> {
 		code: "district",
 		parent: `/a/${FIXTURE_DOMAIN}/api/location_type/v1/1/`,
 	};
-	const places = retainedGroupRead("places/locations");
+	const placeAnswer = (name: string) => {
+		const held = retainedGroupRead(`places/${name}`);
+		if (typeof held.body !== "string")
+			throw new Error(
+				"The retained place answer needs its original JSON text.",
+			);
+		return {
+			...held,
+			body: held.body
+				.replaceAll("nova-proof", FIXTURE_DOMAIN)
+				.replaceAll(
+					"https://www.commcarehq.org",
+					"https://india.commcarehq.org",
+				),
+		};
+	};
+	const places = placeAnswer("locations");
 	const source = await sourceFromBody(retainedBodyJson(fixtureSource()));
 	const answer = await withHttpPeer(async (peer) => {
 		serveFixtureTables(peer);
@@ -273,6 +289,11 @@ async function placesRead(): Promise<ReadingProjectData> {
 			peer,
 			`/a/${FIXTURE_DOMAIN}/api/location/v2/?limit=5000`,
 			places,
+		);
+		serveAnswer(
+			peer,
+			`/a/${FIXTURE_DOMAIN}/api/location/v1/?limit=1000`,
+			placeAnswer("locations-v1"),
 		);
 		const appId = "0b4f6a52-7c55-4a35-9d1e-3c2f8a1b4e6d";
 		return readReadingProjectData({

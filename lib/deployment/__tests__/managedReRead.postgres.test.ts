@@ -60,7 +60,7 @@ const CREDS = {
 } as const;
 
 const facilities: ServedTable = {
-	id: "hq-facilities",
+	id: "a".repeat(32),
 	tag: "facilities",
 	fields: ["code", "name"],
 	rows: [
@@ -147,6 +147,34 @@ describe("a table managed in the target", () => {
 		expect(stored.hq_refreshed_by).toBe(ACTOR);
 	});
 
+	it.each(["field property", "assigned rows", "repeated values"] as const)(
+		"refreshes %s from just the source-managed table",
+		async (shape) => {
+			await seed();
+			const copy = await makeManagedCopy(h, LOOKUP, facilities, TARGET);
+			const latest: ServedTable =
+				shape === "field property"
+					? { ...facilities, fieldProperties: { name: ["lang"] } }
+					: shape === "assigned rows"
+						? { ...facilities, isGlobal: false }
+						: { ...facilities, manyValues: { name: ["North", "Nord"] } };
+			const result = await withHttpPeer(async (peer) => {
+				serveTableList(peer, "clinic", [latest]);
+				serveRows(peer, "clinic", latest);
+				return readOf(await reRead([copy]));
+			});
+			expect(result.blocking).toEqual([]);
+			const stored = await h
+				.db()
+				.selectFrom("lookup_tables")
+				.select("hq_canonical")
+				.where("id", "=", copy.tableId)
+				.executeTakeFirstOrThrow();
+			expect(stored.hq_canonical?.source).toMatchObject({
+				distribution: shape === "assigned rows" ? "assigned" : "global",
+			});
+		},
+	);
 	const stops: readonly [
 		string,
 		(table: ServedTable) => ServedTable | null,
@@ -161,21 +189,6 @@ describe("a table managed in the target", () => {
 				rows: table.rows.map(({ code }) => ({ code })),
 			}),
 			{ kind: "column-gone", column: "name", uses: 1 },
-		],
-		[
-			"a field property",
-			(table) => ({ ...table, fieldProperties: { name: ["lang"] } }),
-			{ kind: "unsupported", holds: ["field-properties"] },
-		],
-		[
-			"rows limited to certain users",
-			(table) => ({ ...table, isGlobal: false }),
-			{ kind: "unsupported", holds: ["not-global"] },
-		],
-		[
-			"a field with more than one value",
-			(table) => ({ ...table, manyValues: { name: ["North", "Nord"] } }),
-			{ kind: "more-than-one-value" },
 		],
 		[
 			"a cell over a cap",

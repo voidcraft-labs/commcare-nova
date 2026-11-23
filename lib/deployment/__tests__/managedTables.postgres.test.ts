@@ -1,3 +1,4 @@
+import { publishFromSession as publishAppToHq } from "@/lib/deployment/__tests__/publishWithGrant";
 /**
  * A lookup table CommCare HQ manages, through a publish and through the
  * services a person reaches it by (Refresh, Manage in Nova, the hand-back),
@@ -38,7 +39,6 @@ import {
 	managedTableGone,
 	managedTableOverCap,
 	managedTableUnrepresentable,
-	managedTableUnsupported,
 } from "@/lib/publish/managedData";
 import { PLAN_FEATURE_IDS } from "@/lib/publish/planFeatures";
 import {
@@ -48,7 +48,7 @@ import {
 	manageLookupTableInNova,
 	refreshManagedLookupTable,
 } from "../managedData";
-import { type PublishOutcome, publishAppToHq } from "../service";
+import type { PublishOutcome } from "../service";
 import type { DeploymentConfirmationKey } from "../types";
 import {
 	acceptImport,
@@ -65,6 +65,7 @@ import {
 	serveRows,
 	serveSource,
 	serveTableList,
+	serveTransferEvidence,
 	sourcePath,
 	tablesPath,
 	takeWorkbook,
@@ -103,7 +104,7 @@ const IMPORT = "/a/clinic/apps/api/import_app/";
 const WORKBOOK = workbookPath(DOMAIN);
 
 const facilities: ServedTable = {
-	id: "hq-facilities",
+	id: "a".repeat(32),
 	tag: "facilities",
 	fields: ["code", "name"],
 	rows: [
@@ -128,7 +129,7 @@ async function members(): Promise<void> {
 	await h.seedProjectMember(PUBLISHER, PROJECT, "editor");
 	await h.seedProjectMember(ADMIN, PROJECT, "admin");
 	await connect(h, PUBLISHER, "india", [DOMAIN]);
-	await connect(h, ADMIN, "india", [DOMAIN]);
+	await connect(h, ADMIN, "india", [DOMAIN, "north"]);
 }
 
 /** The app, reading a copy CommCare HQ manages in the target, made from `served`. */
@@ -159,7 +160,26 @@ async function manageAsReviewed(
 	scope: LookupScope,
 	tableId: LookupTableId,
 ): Promise<ManagedTableOutcome> {
-	return manageLookupTableInNova(scope, tableId, await reviewDigestOf(tableId));
+	if (scope.role !== "admin" && scope.role !== "owner")
+		return manageLookupTableInNova(
+			scope,
+			tableId,
+			await reviewDigestOf(tableId),
+		);
+	const stored = await h
+		.db()
+		.selectFrom("lookup_tables")
+		.select("hq_domain")
+		.where("id", "=", tableId)
+		.executeTakeFirstOrThrow();
+	return withManagedPeer(async (peer) => {
+		serveTransferEvidence(peer, stored.hq_domain ?? DOMAIN, facilities);
+		return manageLookupTableInNova(
+			scope,
+			tableId,
+			await reviewDigestOf(tableId),
+		);
+	});
 }
 
 /** Let CommCare HQ manage it again, confirmed over the table as it stands now. */
@@ -718,14 +738,6 @@ describe("Refresh from CommCare HQ, through its service", () => {
 			"a table gone",
 			null,
 			{ reason: "table-gone", message: managedTableGone("facilities", DOMAIN) },
-		],
-		[
-			"a field property",
-			{ ...facilities, fieldProperties: { name: ["lang"] } },
-			{
-				reason: "unsupported",
-				message: managedTableUnsupported("field properties"),
-			},
 		],
 		[
 			"a table over a cap",

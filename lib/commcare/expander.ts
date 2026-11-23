@@ -758,6 +758,7 @@ export function* expandDocSteps(
 	const serialized = serializeHqApplication(
 		applicationShell(doc.appName, modules, attachments, {
 			cloudcareEnabled: declaresWebApps(doc),
+			caseSharing: doc.appSettings.caseSharing,
 			...appLevelValues(doc, localization),
 			profileProperties: appProfileProperties(authoredDoc),
 			...(Object.keys(derivedProfile).length > 0 && {
@@ -875,6 +876,7 @@ export const APP_SHELL_KEYS = [
 	"langs",
 	"translations",
 	"auto_gps_capture",
+	"case_sharing",
 	"modules",
 	"_attachments",
 ] as const satisfies readonly (keyof HqApplication)[];
@@ -903,6 +905,7 @@ export function expandAppShell(doc: BlueprintDoc): HqAppShell {
 			{},
 			{
 				cloudcareEnabled: declaresWebApps(doc),
+				caseSharing: doc.appSettings.caseSharing,
 				...appLevelValues(doc, commCareLocalization(doc)),
 			},
 		),

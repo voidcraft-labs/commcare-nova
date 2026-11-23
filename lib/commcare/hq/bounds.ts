@@ -146,6 +146,11 @@ export const HQ_LOOKUP_TABLE_LIST_MAX_ROWS = 20_000;
  * fields' names. A table past it is a table past Nova's caps, whatever its
  * rows hold.
  */
+/** The selected definition, an individual streamed page and one rich row detail.
+ * A job may read many pages. None can use more than its remaining job budget. */
+export const HQ_LOOKUP_DEFINITION_MAX_BYTES = 2 * MiB;
+export const HQ_LOOKUP_PAGE_MAX_BYTES = 64 * MiB;
+export const HQ_LOOKUP_DETAIL_MAX_BYTES = 64 * MiB;
 export const HQ_LOOKUP_TABLE_ROWS_MAX_BYTES = 64 * MiB;
 
 /**
@@ -204,3 +209,8 @@ export const HQ_WORKER_WRITE_ACK_MAX_BYTES = 1 * MiB;
  * kind's limit (`lib/domain/multimedia.ts`), which is each file's own bound.
  */
 export const HQ_MEDIA_IN_FLIGHT_MAX_BYTES = 64 * MiB;
+
+/** Lookup supplements retain only one table from a worker's restore, under an
+ * independent work bound for the entire streamed response. */
+export const HQ_LOOKUP_RESTORE_WORK_BYTES = 128 * MiB;
+export const HQ_LOOKUP_PROJECTION_BYTES = 16 * MiB;
