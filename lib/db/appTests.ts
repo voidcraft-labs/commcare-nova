@@ -766,7 +766,8 @@ export async function listAppTests(scope: AppTestScope) {
 			.where("project_id", "=", scope.projectId)
 			.where(sql<boolean>`NOT ${uncertifiedLookup()}`)
 			.where(
-				sql<boolean>`snapshot #> '{lookup,proof}' IS NULL OR created_by=${scope.actorUserId}`,
+				// Parenthesized, or the OR would escape the app and Project filter.
+				sql<boolean>`(snapshot #> '{lookup,proof}' IS NULL OR created_by=${scope.actorUserId})`,
 			)
 			.orderBy("created_at", "desc")
 			.limit(30)

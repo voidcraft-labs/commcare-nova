@@ -205,9 +205,9 @@ describe("a table managed in the target", () => {
 			"a field name outside the grammar",
 			(table) => ({
 				...table,
-				fields: [...table.fields, "zone.name"],
+				fields: [...table.fields, "zone name"],
 			}),
-			{ kind: "name", name: "zone.name" },
+			{ kind: "name", name: "zone name" },
 		],
 		[
 			"a character XML can't carry",

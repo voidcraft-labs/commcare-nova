@@ -1402,7 +1402,9 @@ export async function refreshManagedLookupTableInTransaction(
 		.where("project_id", "=", scope.projectId)
 		.where("table_id", "=", tableId)
 		.where(
-			sql<boolean>`${inlineComparable} OR (${sameSourceTable} AND hq_row_id=ANY(${incoming}::text[]))`,
+			// Parenthesized: Kysely joins a raw condition to the table filter
+			// with a bare AND, which would otherwise bind before this OR.
+			sql<boolean>`(${inlineComparable} OR (${sameSourceTable} AND hq_row_id=ANY(${incoming}::text[])))`,
 		)
 		.orderBy("order_key")
 		.orderBy("id")
@@ -1436,7 +1438,9 @@ export async function refreshManagedLookupTableInTransaction(
 			.where("project_id", "=", scope.projectId)
 			.where("table_id", "=", tableId)
 			.where(
-				sql<boolean>`NOT ${sameSourceTable} OR hq_row_id IS NULL OR NOT(hq_row_id=ANY(${incoming}::text[]))`,
+				// Parenthesized, or the OR would escape the project and table filter
+				// and delete every other table's source rows.
+				sql<boolean>`(NOT ${sameSourceTable} OR hq_row_id IS NULL OR NOT(hq_row_id=ANY(${incoming}::text[])))`,
 			)
 			.execute();
 		await sql`DELETE FROM lookup_cell_value_refs WHERE project_id=${scope.projectId} AND table_id=${tableId}`.execute(
