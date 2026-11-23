@@ -327,6 +327,16 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		id: "out-of-date-translation-is-absent",
 		kind: "one-wire",
 		apply: (doc) => {
+			/* An app holding no entry has none out of date. */
+			const held = doc.localization;
+			if (
+				held === undefined ||
+				(Object.keys(held.generatedSourceWording ?? {}).length === 0 &&
+					Object.values(held.translations).every(
+						(entries) => Object.keys(entries).length === 0,
+					))
+			)
+				return doc;
 			const units = snapshotTranslationUnits(doc);
 			return withCandidate(doc, (draft) => {
 				const loc = draft.localization;
