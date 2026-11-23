@@ -78,20 +78,54 @@ const RESERVED_INSTANCE_TAG_WORDS = ["ledgerdb", "casedb"] as const;
 export type ReservedInstanceTagWord =
 	(typeof RESERVED_INSTANCE_TAG_WORDS)[number];
 
-/** Why a tag is reserved: the whole name, or a word it contains. */
+/**
+ * The names of `Object.prototype`'s own members. CommCare HQ's form builder
+ * (Vellum) indexes a form's lookup data in plain JavaScript objects keyed by
+ * names a table's tag supplies, and calls each object's own
+ * `hasOwnProperty` (`datasources.js::getNode`, `form.js::updateKnownInstances`),
+ * so a table tagged with one of these names leaves a form that reads it
+ * unable to open there ("t2.hasOwnProperty is not a function", observed on
+ * `targeted-lookup-reserved-tags`).
+ */
+export const FORM_EDITOR_RESERVED_TAGS: ReadonlySet<string> = new Set([
+	"__proto__",
+	"__defineGetter__",
+	"__defineSetter__",
+	"__lookupGetter__",
+	"__lookupSetter__",
+	"constructor",
+	"hasOwnProperty",
+	"isPrototypeOf",
+	"propertyIsEnumerable",
+	"toLocaleString",
+	"toString",
+	"valueOf",
+]);
+
+/** Why a tag is reserved: the whole name, a word it contains, or a name the
+ * form builder keeps for its own JavaScript. */
 export type ReservedInstanceTagCause =
 	| { readonly kind: "name" }
-	| { readonly kind: "contains"; readonly word: ReservedInstanceTagWord };
+	| { readonly kind: "contains"; readonly word: ReservedInstanceTagWord }
+	| { readonly kind: "form-editor" };
+
+/** A tag in place of one the form builder keeps for itself. */
+export function formEditorTagSuggestion(tag: string): string {
+	const stem = tag.replace(/^_+|_+$/g, "");
+	return `${stem === "" ? "table" : stem}_table`;
+}
 
 /**
  * Why CommCare would read `tag` as its own data, or null when it reads the
- * table. A whole reserved name wins; otherwise the first word of
+ * table, or why the form builder could not open a form that reads it. A
+ * whole reserved name wins; otherwise the first word of
  * `RESERVED_INSTANCE_TAG_WORDS` the tag contains as written.
  */
 export function reservedInstanceTagCause(
 	tag: string,
 ): ReservedInstanceTagCause | null {
 	if (tag === "casedb" || tag === "ledgerdb") return { kind: "name" };
+	if (FORM_EDITOR_RESERVED_TAGS.has(tag)) return { kind: "form-editor" };
 	const word = RESERVED_INSTANCE_TAG_WORDS.find((reserved) =>
 		tag.includes(reserved),
 	);

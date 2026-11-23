@@ -15,9 +15,9 @@ import { lookupWireNaming } from "../lookup/naming";
 import { runValidation } from "../validator/runner";
 import { lookupInstance } from "../xpath/wire/instances";
 
+// `__proto__` and `hasOwnProperty` are refused as tags: the form builder
+// cannot open a form over them (`reservedTags.test.ts`).
 const runtimeIds = [
-	"__proto__",
-	"hasOwnProperty",
 	"CaseDB",
 	"LedgerDB",
 	"groups",

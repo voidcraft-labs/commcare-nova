@@ -133,3 +133,27 @@ describe("the tag's length", () => {
 		]);
 	});
 });
+
+describe("a tag CommCare HQ's form builder keeps for itself", () => {
+	it.each([
+		"__proto__",
+		"constructor",
+		"hasOwnProperty",
+		"toString",
+		"valueOf",
+	])("refuses %s and suggests a tag the form builder opens", (tag) => {
+		expect(reservedInstanceTagCause(tag)).toEqual({ kind: "form-editor" });
+		const parsed = lookupTagSchema.safeParse(tag);
+		expect(parsed.success).toBe(false);
+		expect(parsed.error?.issues[0]?.message).toContain(
+			"CommCare HQ's form builder keeps for itself",
+		);
+	});
+	it("accepts the neighbouring names it suggests, and a field of the same name", () => {
+		for (const tag of ["hasOwnProperty_table", "proto_table", "Constructor"]) {
+			expect(reservedInstanceTagCause(tag)).toBeNull();
+			expect(lookupTagSchema.safeParse(tag).success).toBe(true);
+		}
+		expect(lookupWireNameSchema.safeParse("hasOwnProperty").success).toBe(true);
+	});
+});

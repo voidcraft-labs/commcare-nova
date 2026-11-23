@@ -9,7 +9,10 @@ import {
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { declaredPlatforms } from "@/lib/domain/platforms";
-import { reservedInstanceTagCause } from "@/lib/lookup/constants";
+import {
+	formEditorTagSuggestion,
+	reservedInstanceTagCause,
+} from "@/lib/lookup/constants";
 import {
 	lookupPathNameIssue,
 	lookupPathNameSentence,
@@ -221,7 +224,9 @@ export function validateLookupReferences(
 					occurrence.location.scope,
 					reserved.kind === "name"
 						? `The lookup table ${table.name} uses the export tag ${table.tag}, which CommCare reserves for its own data. Rename the export tag in Project data, then try again.`
-						: `The lookup table ${table.name} uses the export tag ${table.tag}, which contains ${reserved.word}, and CommCare reads any tag containing ${reserved.word} as its own data. Rename the export tag in Project data, then try again.`,
+						: reserved.kind === "form-editor"
+							? `The lookup table ${table.name} uses the export tag ${table.tag}, a name CommCare HQ's form builder keeps for itself, so a form reading it wouldn't open there. Rename the export tag in Project data, ${formEditorTagSuggestion(table.tag)} for example, then try again.`
+							: `The lookup table ${table.name} uses the export tag ${table.tag}, which contains ${reserved.word}, and CommCare reads any tag containing ${reserved.word} as its own data. Rename the export tag in Project data, then try again.`,
 					occurrenceLocation(occurrence),
 					occurrenceDetails(occurrence, {
 						tag: table.tag,

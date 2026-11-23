@@ -54,12 +54,21 @@ export function lookupReservedTags() {
 		wireRow(stock, "soap", { code: "soap", name: "Soap" }),
 		wireRow(stock, "salt", { code: "salt", name: "Salt" }),
 	];
-	// Vellum keeps an ordinary JavaScript object for its form-local instance IDs.
-	// Each hidden calculation must survive both of its saves and read its own fixture.
+	// Tables tagged with an Object.prototype member (`hasOwnProperty`,
+	// `__proto__`) left CommCare HQ's form builder unable to open the form
+	// ("t2.hasOwnProperty is not a function", proof4 at B), so Nova refuses
+	// those tags (`lib/lookup/constants.ts::FORM_EDITOR_RESERVED_TAGS`). These
+	// are the names its refusal suggests, the accepted neighbours: each hidden
+	// calculation must survive both of the form builder's saves and read its
+	// own fixture.
 	const editorTables = [
-		{ tag: "hasOwnProperty", field: "meeting_count", values: ["school"] },
 		{
-			tag: "__proto__",
+			tag: "hasOwnProperty_table",
+			field: "meeting_count",
+			values: ["school"],
+		},
+		{
+			tag: "proto_table",
 			field: "supply_count",
 			values: ["soap", "salt", "milk"],
 		},

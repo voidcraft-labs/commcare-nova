@@ -6,6 +6,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
+	formEditorTagSuggestion,
 	LOOKUP_DATA_TYPES,
 	LOOKUP_MAX_CELL_BYTES,
 	LOOKUP_MAX_CHANGE_BYTES,
@@ -183,7 +184,9 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 				message:
 					cause.kind === "name"
 						? `${label} is a name CommCare reserves for its own data, so a table cannot use it. Pick another tag.`
-						: `${label} contains ${cause.word}, and CommCare reads any tag containing ${cause.word} as its own data, so a table can't use it. You can write it as ${RESERVED_INSTANCE_TAG_WORD_SPELLING[cause.word]} instead.`,
+						: cause.kind === "form-editor"
+							? `${label} ${value} is a name CommCare HQ's form builder keeps for itself, so a form reading this table wouldn't open there. You can use ${formEditorTagSuggestion(value)} instead.`
+							: `${label} contains ${cause.word}, and CommCare reads any tag containing ${cause.word} as its own data, so a table can't use it. You can write it as ${RESERVED_INSTANCE_TAG_WORD_SPELLING[cause.word]} instead.`,
 			});
 		})
 		.describe(
