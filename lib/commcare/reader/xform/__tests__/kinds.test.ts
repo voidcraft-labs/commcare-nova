@@ -17,6 +17,7 @@ import {
 	f,
 } from "@/lib/__tests__/docHelpers";
 import {
+	type BlueprintDoc,
 	type LookupColumnId,
 	type LookupTableId,
 	proseText,
@@ -572,34 +573,40 @@ describe("a select's choices", () => {
 		const naming = lookupWireNaming([
 			{ id: table, tag: "hq_districts", columns: [column] },
 		]);
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Survey",
-					forms: [
-						{
-							name: "Ask",
-							type: "survey",
-							fields: [
-								f({
-									kind: "single_select",
-									id: "district",
-									label: "District",
-									optionsSource: {
-										kind: "lookup",
-										tableId: table,
-										valueColumnId: name,
-										labelColumnId: name,
-									},
-								} as FieldSpec),
-							],
-						},
-					],
-				},
-			],
-		});
-		async function read(xml?: (xml: string) => string) {
-			const body = exportedBody(doc, {
+		const lookupDoc = (sortColumnId?: LookupColumnId) =>
+			buildDoc({
+				modules: [
+					{
+						name: "Survey",
+						forms: [
+							{
+								name: "Ask",
+								type: "survey",
+								fields: [
+									f({
+										kind: "single_select",
+										id: "district",
+										label: "District",
+										optionsSource: {
+											kind: "lookup",
+											tableId: table,
+											valueColumnId: name,
+											labelColumnId: name,
+											...(sortColumnId === undefined ? {} : { sortColumnId }),
+										},
+									} as FieldSpec),
+								],
+							},
+						],
+					},
+				],
+			});
+		const doc = lookupDoc();
+		async function read(
+			xml?: (xml: string) => string,
+			source: BlueprintDoc = doc,
+		) {
+			const body = exportedBody(source, {
 				expand: { lookupNaming: naming },
 				...(xml === undefined ? {} : { xml }),
 			});
@@ -706,24 +713,89 @@ describe("a select's choices", () => {
 			},
 		);
 
-		// The select whose choices are refused keeps its kind in the document the
-		// later stages print, holding no choice, so the whole reading gives the
-		// choices' one finding and Nova's writer writes the rest back.
-		it("refuses a sorted itemset once, the select read whole with no defect", async () => {
-			const from = '<value ref="district_name"/>';
+		/** The district question's choice source in a reading that holds it. */
+		function districtSource(outcome: Awaited<ReturnType<typeof read>>) {
+			if (outcome.kind !== "read")
+				throw new Error(
+					`The reading refused: ${JSON.stringify(outcome.findings)}`,
+				);
+			const field = Object.values(outcome.draft.doc.fields).find(
+				(candidate) => candidate.id === "district",
+			);
+			return field !== undefined && "optionsSource" in field
+				? field.optionsSource
+				: undefined;
+		}
+
+		// Core orders the choices by the sort ref's text (`ItemsetBinding.sortChoices`), and
+		// HQ's form builder writes the element after the value (Vellum `itemset.js`).
+		it("writes a sort column as the itemset's sort and reads it back", async () => {
+			const sorted = lookupDoc(name);
+			let written = "";
 			const outcome = await read((xml) => {
-				expect(xml).toContain(from);
-				return xml.replace(from, `${from}<sort ref="district_name"/>`);
-			});
-			expect(outcome.kind).toBe("account");
-			expect(
-				(outcome.kind === "account" ? outcome.findings : []).map((finding) => [
-					finding.code,
-					finding.place.kind,
-				]),
-			).toEqual([["questions/itemset-sort-ref", "question"]]);
+				written = xml;
+				return xml;
+			}, sorted);
+			expect(written).toContain(
+				'<value ref="district_name"/><sort ref="district_name"/>',
+			);
 			expect(outcome.defects).toEqual([]);
+			expect(districtSource(outcome)).toEqual({
+				kind: "lookup",
+				tableId: table,
+				valueColumnId: name,
+				labelColumnId: name,
+				sortColumnId: name,
+			});
+			const claimed = [...outcome.claims.records()]
+				.filter((record) => record.entry === "questions/itemset-sort-ref")
+				.map((record) => record.where);
+			expect(claimed).toEqual([
+				"/h:html/h:body[1]/select1[1]/itemset[1]/sort[1]",
+				"/h:html/h:body[1]/select1[1]/itemset[1]/sort[1]/@ref",
+			]);
 		});
+
+		it("reads a sort HQ's form builder wrote, and an unsorted itemset as table order", async () => {
+			const from = '<value ref="district_name"/>';
+			const outcome = await read((xml) =>
+				xml.replace(from, `${from}\n<sort ref="district_name" />`),
+			);
+			expect(districtSource(outcome)).toMatchObject({ sortColumnId: name });
+			expect(districtSource(await read())).not.toHaveProperty("sortColumnId");
+		});
+
+		it.each([
+			[
+				"a column the table lacks",
+				'<sort ref="district_code"/>',
+				"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
+			],
+			[
+				"a path that is no column",
+				'<sort ref="../district_name"/>',
+				"questions/itemset-refs-to-attr-or-property-qualified-fields",
+			],
+			[
+				"two sorts",
+				'<sort ref="district_name"/><sort ref="district_name"/>',
+				"questions/itemset-over-casedb-or-another-instance-advanced-data-source",
+			],
+		])(
+			"refuses a sort naming %s once, the select read whole with no defect",
+			async (_case, sort, code) => {
+				const from = '<value ref="district_name"/>';
+				const outcome = await read((xml) =>
+					xml.replace(from, `${from}${sort}`),
+				);
+				expect(
+					(outcome.kind === "account" ? outcome.findings : []).map(
+						(finding) => [finding.code, finding.place.kind],
+					),
+				).toEqual([[code, "question"]]);
+				expect(outcome.defects).toEqual([]);
+			},
+		);
 	});
 });
 

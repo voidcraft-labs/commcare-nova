@@ -21491,19 +21491,11 @@
 		"id": "hq-lookups/itemset-sort",
 		"base": "hq-lookups",
 		"entry": "questions/itemset-sort-ref",
-		"standing": "not-yet",
-		"place": {
-			"kind": "question",
-			"menu": 0,
-			"form": 0,
-			"menuName": "Farm survey",
-			"formName": "Survey",
-			"path": "district"
-		},
 		"change": {
 			"op": "named",
 			"name": "itemset_sort"
-		}
+		},
+		"holds": []
 	},
 	{
 		"id": "hq-lookups/reads-a-table-the-project-space-lacks",

@@ -1961,6 +1961,24 @@ function buildLookupItemset(
 				},
 				context,
 			),
+			// Core orders the choices by this row-relative read's text
+			// (`ItemsetBinding.sortChoices`); HQ's form builder keeps it after the
+			// value (Vellum `itemset.js::writeCustomXML`).
+			...(source.sortColumnId === undefined
+				? []
+				: [
+						xel(
+							"sort",
+							{
+								xpath: {
+									ref: w.context([
+										w.step(table.wireNameFor(source.sortColumnId)),
+									]),
+								},
+							},
+							context,
+						),
+					]),
 		],
 	);
 }

@@ -998,8 +998,10 @@ reject only null/empty, and `case_id` is deliberately absent from
 
 Selects own one required discriminated `optionsSource`: either `inline`, which
 owns at least one fully UUID-identified option, or `lookup`, which owns the
-table UUID, value-column UUID, label-column UUID, and optional row filter.
-Expressions take `table-lookup` value terms and `table-column` comparison terms
+table UUID, value-column UUID, label-column UUID, optional row filter, and
+optional sort-column UUID (`<sort ref>`: Core's `ItemsetBinding.sortChoices`
+orders by the column's text as Java strings with a stable sort; absent keeps
+row order). Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
 Form logic reads tables too (`instance('<tag>')/<tag>_list/<tag>[…]` in a
 form, `instance('item-list:<tag>')/…` in a form link), stored by table and

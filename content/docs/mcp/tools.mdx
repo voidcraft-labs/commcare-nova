@@ -132,7 +132,9 @@ expression. A fixed default can use only the select's offered choices, or be emp
 
 Stored `uuid`, option `media`, and identity aliases are rejected on every field
 writer. Lookup-backed choices use the canonical
-`tableId` / `valueColumnId` / `labelColumnId` fields, plus optional `filter`;
+`tableId` / `valueColumnId` / `labelColumnId` fields, plus optional `filter`
+and `sortColumnId` (the column whose text orders the choices; without it they
+keep the table's row order);
 there are no `tableUuid` or column-UUID aliases. Option media is changed through
 the dedicated media tools.
 

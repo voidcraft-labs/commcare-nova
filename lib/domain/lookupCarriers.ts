@@ -9,6 +9,13 @@ import { lookupColumnIdSchema, lookupTableIdSchema } from "./lookupIds";
  * tags remain projections of the current lookup definition. The source
  * discriminant is final: a select has either inline options or this lookup
  * source, never both.
+ *
+ * `sortColumnId` orders a question's choices by that column's text, compared
+ * code unit by code unit with ties kept in row order, as CommCare runs an
+ * `<itemset>` with a `<sort ref>` (Core `ItemsetBinding.sortChoices`).
+ * Absent, the choices keep the table's row order. A Search question's
+ * choices extend this carrier with their own reading of an absent sort
+ * (`modules.ts::searchInputLookupOptionsSchema`).
  */
 export const lookupOptionsSourceSchema = z.strictObject({
 	kind: z.literal("lookup"),
@@ -16,6 +23,11 @@ export const lookupOptionsSourceSchema = z.strictObject({
 	valueColumnId: lookupColumnIdSchema,
 	labelColumnId: lookupColumnIdSchema,
 	filter: conditionSchema.optional(),
+	sortColumnId: lookupColumnIdSchema
+		.optional()
+		.describe(
+			"The column whose text orders the choices. Omit it to keep the table's row order.",
+		),
 });
 
 export type LookupOptionsSource = z.infer<typeof lookupOptionsSourceSchema>;

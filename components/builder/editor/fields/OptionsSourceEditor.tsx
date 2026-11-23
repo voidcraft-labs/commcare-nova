@@ -55,6 +55,8 @@ import {
 } from "./optionsSourceModel";
 
 const INLINE = "inline";
+/** The order a lookup source keeps without a sort column; column ids are UUIDs. */
+const TABLE_ORDER = "table-order";
 
 /**
  * Generic across only the two select kinds. Both declare the same canonical
@@ -66,6 +68,7 @@ export function OptionsSourceEditor<
 	const modeId = useId();
 	const valueColumnSelectId = useId();
 	const labelColumnSelectId = useId();
+	const sortColumnSelectId = useId();
 	const canEdit = useCanEdit();
 	const catalog = useBuilderLookupCatalog();
 	const formContext = useSelectedFormContext();
@@ -160,6 +163,9 @@ export function OptionsSourceEditor<
 			valueColumnId: next.valueColumnId,
 			labelColumnId: next.labelColumnId,
 			...(next.filter === undefined ? {} : { filter: next.filter }),
+			...(next.sortColumnId === undefined
+				? {}
+				: { sortColumnId: next.sortColumnId }),
 		});
 	};
 
@@ -421,6 +427,62 @@ export function OptionsSourceEditor<
 								{table.columns.map((column) => (
 									<SelectItem key={column.id} value={column.id} wrap>
 										{column.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div>
+						<Label htmlFor={sortColumnSelectId} className="text-[13px]">
+							Order of the choices
+						</Label>
+						<Select
+							value={active.sortColumnId ?? TABLE_ORDER}
+							disabled={!canEdit}
+							onValueChange={(next) => {
+								const { sortColumnId: _sort, ...rest } = active;
+								if (next === TABLE_ORDER) {
+									writeLookup(rest);
+									return;
+								}
+								const column = table.columns.find(
+									(candidate) => candidate.id === next,
+								);
+								if (column === undefined) {
+									setRejection(
+										"That column is no longer available. Choose another column.",
+									);
+									return;
+								}
+								writeLookup({ ...rest, sortColumnId: column.id });
+							}}
+						>
+							<SelectTrigger
+								id={sortColumnSelectId}
+								wrapValue
+								className="mt-1 min-h-11 w-full"
+							>
+								<SelectValue>
+									{(selected) =>
+										selected === TABLE_ORDER ||
+										selected === null ||
+										selected === undefined
+											? "The table's row order"
+											: `Sorted by ${
+													table.columns.find((column) => column.id === selected)
+														?.label ?? "a column that is no longer available"
+												}`
+									}
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={TABLE_ORDER}>
+									The table's row order
+								</SelectItem>
+								{table.columns.map((column) => (
+									<SelectItem key={column.id} value={column.id} wrap>
+										Sorted by {column.label}
 									</SelectItem>
 								))}
 							</SelectContent>

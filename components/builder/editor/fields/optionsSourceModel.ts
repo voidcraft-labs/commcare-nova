@@ -18,6 +18,7 @@ export interface LookupSourceDraft {
 	readonly valueColumnId?: LookupColumnId;
 	readonly labelColumnId?: LookupColumnId;
 	readonly filter?: Expression;
+	readonly sortColumnId?: LookupColumnId;
 }
 
 export type SourceDraft =
@@ -94,7 +95,9 @@ export function completeLookupSource(
 		draft.valueColumnId === undefined ||
 		draft.labelColumnId === undefined ||
 		!table.columns.some((column) => column.id === draft.valueColumnId) ||
-		!table.columns.some((column) => column.id === draft.labelColumnId)
+		!table.columns.some((column) => column.id === draft.labelColumnId) ||
+		(draft.sortColumnId !== undefined &&
+			!table.columns.some((column) => column.id === draft.sortColumnId))
 	)
 		return undefined;
 	return {
@@ -103,6 +106,9 @@ export function completeLookupSource(
 		valueColumnId: draft.valueColumnId,
 		labelColumnId: draft.labelColumnId,
 		...(draft.filter === undefined ? {} : { filter: draft.filter }),
+		...(draft.sortColumnId === undefined
+			? {}
+			: { sortColumnId: draft.sortColumnId }),
 	};
 }
 

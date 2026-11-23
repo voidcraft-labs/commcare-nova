@@ -2017,7 +2017,8 @@ at root scope, the ancestor join chain otherwise) because Core preserves
 `current()` from the first predicate. The row scope clears when emission
 descends into a relation `where` (`clearLookupRowScope`), where the candidate
 case is the context again. A lookup-backed select emits one `<itemset>` (label
-then value column refs, filter predicate on the nodeset) with zero inline
+then value column refs, then a `<sort ref>` to `optionsSource.sortColumnId`
+where one is set, filter predicate on the nodeset) with zero inline
 `<item>`s and no option itext; its filter's form answers print absolute paths
 at root and `current()`-relative paths for repeat-borne fields
 (`bindLookupFilterFieldPaths` — `ItemSetUtils.populateDynamicChoices` binds

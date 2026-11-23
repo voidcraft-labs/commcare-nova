@@ -1,5 +1,6 @@
 /**
- * A select's choices: its inline `item`s, or one `itemset` over a lookup table or over
+ * A select's choices: its inline `item`s, or one `itemset` over a lookup table (ordered by
+ * one of its columns where the itemset holds a `<sort ref>`) or over
  * the worker's cases in the shape Nova writes for a question's case choices. An itemset's
  * nodeset is read with the XPath grammar, and its filter is registered for the expression
  * stage, never read here.
@@ -265,27 +266,32 @@ function readItemset(
 			]);
 		return undefined;
 	}
+	const other = () => {
+		cursor.refuseSubtree(itemset, X.otherItemset, place);
+		return undefined;
+	};
+	// One `<sort ref>` in the XForms namespace, the element HQ's form builder writes
+	// (Vellum `itemset.js::writeCustomXML`). Core keeps the last of several and reads a
+	// sort in any namespace (`XFormParser.parseItemset`), which no Nova source states.
+	const sorts = itemset.children
+		.filter(isTag)
+		.filter((child) => splitName(child.name).local === "sort");
+	const sort = xformsChildren(itemset, parsed, "sort")[0];
 	if (
 		plain(itemset, "sort") !== undefined ||
-		itemset.children
-			.filter(isTag)
-			.some((child) => splitName(child.name).local === "sort")
-	) {
-		cursor.refuseSubtree(itemset, X.itemsetSort, place);
-		return undefined;
-	}
+		sorts.length > 1 ||
+		(sorts.length === 1 && sort === undefined)
+	)
+		return other();
 	const nodeset = plain(itemset, "nodeset") ?? "";
 	const read = readFormSyntax(nodeset);
 	const chain =
 		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
 	const labelRef = plain(label, "ref") ?? "";
 	const valueRef = value === undefined ? "" : (plain(value, "ref") ?? "");
+	const sortRef = sort === undefined ? undefined : (plain(sort, "ref") ?? "");
 	const source =
 		chain === undefined ? undefined : input.instanceSources.get(chain.id);
-	const other = () => {
-		cursor.refuseSubtree(itemset, X.otherItemset, place);
-		return undefined;
-	};
 	if (chain === undefined || value === undefined) return other();
 
 	// A lookup table: instance(id)/<tag>_list/<tag>, with at most one predicate.
@@ -316,10 +322,19 @@ function readItemset(
 		}
 		const labelName = singleName(labelRef);
 		const valueName = singleName(valueRef);
-		if (labelName === undefined || valueName === undefined) {
+		const sortName = sortRef === undefined ? undefined : singleName(sortRef);
+		if (
+			labelName === undefined ||
+			valueName === undefined ||
+			(sort !== undefined && sortName === undefined)
+		) {
 			cursor.refuseSubtreeAt(
 				itemset,
-				labelName === undefined ? refOf(label) : refOf(value),
+				labelName === undefined
+					? refOf(label)
+					: valueName === undefined
+						? refOf(value)
+						: refOf(sort as Element),
 				X.itemsetRefShape,
 				place,
 			);
@@ -327,11 +342,17 @@ function readItemset(
 		}
 		const labelColumn = table.column(labelName);
 		const valueColumn = table.column(valueName);
+		const sortColumn =
+			sortName === undefined ? undefined : table.column(sortName);
 		// A ref to a column the table lacks reads blank for every choice on a device: one finding,
 		// which the whole itemset stands behind. Its reason is the form parser's for a read of a
 		// column the table lacks, so a reader of the account can tell a read of the Project's data
 		// that is not there from any other.
-		if (labelColumn === undefined || valueColumn === undefined) {
+		if (
+			labelColumn === undefined ||
+			valueColumn === undefined ||
+			(sortName !== undefined && sortColumn === undefined)
+		) {
 			cursor.refuseSubtree(itemset, X.itemsetColumn, place, {
 				reason: "parse:unknown-column",
 			});
@@ -380,11 +401,16 @@ function readItemset(
 			cursor.take({ element }, siteElement).value;
 			cursor.take({ element, attribute: "ref" }, siteRef).value;
 		}
+		if (sort !== undefined) {
+			cursor.take({ element: sort }, X.itemsetSort).value;
+			cursor.take({ element: sort, attribute: "ref" }, X.itemsetSort).value;
+		}
 		field.field.optionsSource = {
 			kind: "lookup",
 			tableId: table.tableId,
 			labelColumnId: labelColumn,
 			valueColumnId: valueColumn,
+			...(sortColumn === undefined ? {} : { sortColumnId: sortColumn }),
 		};
 		return undefined;
 	}
@@ -392,6 +418,7 @@ function readItemset(
 	// The worker's cases, in the shape Nova writes (`caseOptions.ts::caseOptionsNodeset`).
 	if (
 		source === "jr://instance/casedb" &&
+		sort === undefined &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&
 		chain.steps[1] === "case" &&

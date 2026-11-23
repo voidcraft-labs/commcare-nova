@@ -5741,7 +5741,11 @@ export class FormEngine {
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
 					((f.optionsSource.kind === "lookup" &&
-						!lookupOptionsSourceCovered(f.optionsSource, data)) ||
+						!lookupOptionsSourceCovered(
+							f.optionsSource,
+							data,
+							f.optionsSource.sortColumnId,
+						)) ||
 						(f.optionsSource.kind === "cases" &&
 							!this.caseChoiceDataCovered(f.optionsSource)))
 				) {
@@ -5907,7 +5911,10 @@ export class FormEngine {
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
 		const data = this.lookupData;
-		if (data === null || !lookupOptionsSourceCovered(source, data)) {
+		if (
+			data === null ||
+			!lookupOptionsSourceCovered(source, data, source.sortColumnId)
+		) {
 			return undefined;
 		}
 		const questionPath = ctx.contextPath ?? "/data";
@@ -5927,6 +5934,7 @@ export class FormEngine {
 				source,
 				data,
 				evaluateRuntime(nodeset, ctx),
+				source.sortColumnId,
 			);
 		} catch (error) {
 			/* A table with no rows refuses this question on a device; the

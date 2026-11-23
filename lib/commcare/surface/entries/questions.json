@@ -2821,10 +2821,9 @@
 		"section": "Question types",
 		"item": "itemset `<sort ref>`",
 		"surfaceKeys": ["vellum-feature:sorted_itemsets"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `optionsSource.sortColumn`",
-		"subject": "question-choices",
-		"owner": "xform",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `optionsSource.sortColumnId` on a lookup source; absent keeps the table's row order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

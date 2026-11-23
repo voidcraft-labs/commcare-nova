@@ -711,6 +711,71 @@ describe("lookup reference extraction", () => {
 		]);
 	});
 
+	it("reads a question's sort column as a column occurrence, and finds it missing when the table loses it", () => {
+		const fieldUuid = testUuid("select-sort");
+		const table = tableId("40");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{
+									uuid: fieldUuid,
+									kind: "single_select",
+									id: "region",
+									optionsSource: {
+										kind: "lookup",
+										tableId: table,
+										valueColumnId: columnId("401"),
+										labelColumnId: columnId("402"),
+										sortColumnId: columnId("403"),
+									},
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+
+		assertAdmittedDoc(doc, lookupContext);
+		expect(
+			extractLookupReferenceOccurrences(
+				doc,
+				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+			)
+				.filter((occurrence) => occurrence.carrierUuid === fieldUuid)
+				.map((occurrence) => [occurrence.subpath, occurrence.columnId])
+				.sort(),
+		).toEqual([
+			["/k:labelColumnId", columnId("402")],
+			["/k:sortColumnId", columnId("403")],
+			["/k:valueColumnId", columnId("401")],
+		]);
+
+		if (lookupContext.kind !== "available") throw new Error("Fixture context");
+		const withoutSortColumn: LookupValidationContext = {
+			...lookupContext,
+			definitions: lookupContext.definitions.map((definition) =>
+				definition.id === table
+					? {
+							...definition,
+							columns: definition.columns.filter(
+								(column) => column.id !== columnId("403"),
+							),
+						}
+					: definition,
+			),
+		};
+		expect(
+			runValidation(doc, withoutSortColumn).map((finding) => finding.code),
+		).toEqual(["LOOKUP_COLUMN_NOT_AVAILABLE"]);
+	});
+
 	it("deduplicates production targets without collapsing exact occurrences", () => {
 		const sharedTable = tableId("30");
 		const sharedColumn = columnId("301");

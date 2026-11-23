@@ -1454,13 +1454,12 @@ export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
 	.strict();
 
 /**
- * The lookup choices of a Search question: a form select's source plus the
- * column whose text orders the choices. Absent `sortColumnId` means the label
- * column, and the reducer stores a sort column equal to the label column as
- * absent, so one order has one spelling. The sort belongs to Search questions
- * alone: HQ's Case List save refuses a lookup prompt without one
- * (`views/modules.py::_update_search_properties`), and a form select writes
- * none.
+ * The lookup choices of a Search question: a form select's source, whose
+ * `sortColumnId` reads differently here. Absent, it means the label column,
+ * and the reducer stores a sort column equal to the label column as absent,
+ * so one order has one spelling: HQ's Case List save refuses a lookup prompt
+ * without a sort (`views/modules.py::_update_search_properties`). A form
+ * select's absent sort keeps the table's row order instead.
  */
 export const searchInputLookupOptionsSchema = lookupOptionsSourceSchema
 	.extend({ sortColumnId: lookupColumnIdSchema.optional() })

@@ -191,8 +191,9 @@ Its complete lock prefix is the membership gate and member row -> Project state
 contain the sorted exact app-id set only; a fresh carrier-path re-walk belongs to
 confirmation UX.
 
-A lookup-backed search input's `options.sortColumnId` is one more occurrence a
-table or column deletion sees, beside its value and label columns. Form logic
+A lookup-backed search input's `options.sortColumnId`, and a lookup-backed
+question's `optionsSource.sortColumnId`, is one more occurrence a table or
+column deletion sees, beside its value and label columns. Form logic
 that reads a table or column (a question's logic, a Connect slot, or a form
 link's condition or datum value) is one more carrier, so its deletion is
 refused while that read stands, as it is for a record expression. Those reads
