@@ -4850,6 +4850,61 @@ null_alignment_on_placed_tile.__doc__ = (
 )
 
 
+def _tile_box(column):
+    """A column's stored square on a custom tile (``grid_x``, ``grid_y``, ``width``, ``height``), or None where one
+    of the four is no number."""
+    box = tuple(column.get(key) for key in ("grid_x", "grid_y", "width", "height"))
+    return box if all(isinstance(value, int) and not isinstance(value, bool) for value in box) else None
+
+
+def _boxes_overlap(a, b):
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
+def overlapping_tile_cells(use, manifest):
+    """``menus-and-case-lists/custom-tile-cells-covering-the-same-square``: a placed cell of a menu's custom tile that
+    covers a square another placed cell of the same tile covers: on the case list every column but a ``filter`` one
+    (HQ's build writes no field for it, ``detail_screen.py::Filter``), on the case detail the columns of one tab
+    (``DetailTab.starting_index`` starts each). HQ's build writes both cells as they are, and Nova's reader refuses
+    each such cell (``caseList/tile.ts::overlappingCells``). A detail HQ's build never lays out as a menu's tile (one
+    that is no custom tile, or no menu's own case list or detail) is out of the class; a use on the detail reads
+    each of its columns."""
+    at, column, detail, kind, module = _column(use)
+    if detail is None:
+        return None
+    pair = (module or {}).get("case_details")
+    if (
+        not _custom_tile(detail)
+        or kind not in ("short", "long")
+        or not isinstance(pair, dict)
+        or pair.get(kind) is not detail
+    ):
+        return False
+    columns = _columns(detail)
+    starts = sorted(
+        tab["starting_index"]
+        for tab in (detail.get("tabs") or [])
+        if kind == "long"
+        and isinstance(tab, dict)
+        and isinstance(tab.get("starting_index"), int)
+        and not isinstance(tab.get("starting_index"), bool)
+    )
+    placed = [
+        (index, sum(1 for start in starts if start <= index), _tile_box(each))
+        for index, each in enumerate(columns)
+        if _format(each) != "filter"
+    ]
+    placed = [(index, group, box) for index, group, box in placed if box is not None]
+    covering = {
+        index
+        for index, group, box in placed
+        for other, other_group, other_box in placed
+        if other != index and other_group == group and _boxes_overlap(box, other_box)
+    }
+    targets = [column] if column is not None else columns
+    return any(index in covering for index, each in enumerate(columns) if any(each is one for one in targets))
+
+
 def _detail_reader(test):
     def reader(use, manifest):
         at, column, detail, kind, module = _column(use)
@@ -4943,10 +4998,292 @@ def mapping_condition_outside_predicate(use, manifest):
     key = item["key"]
     if not any(character in key for character in "{}()[]=<>.\"'/"):
         return False
-    parsed = at.app.parsed(key)
+    field = column.get("field")
+    dot = None
+    if not column.get("useXpathExpression") and isinstance(field, str):
+        dot = _CASE_VALUE_TYPES.get(_case_properties(use).get(field), None)
+    return _scoped_verdict(at.app, key, lambda tree: _case_condition_type(tree, _case_properties(use), dot) == "boolean")
+
+
+# The value a case property of a declared type gives an expression of the selected case, as Nova's type checker reads
+# it (``lib/domain/casePropertyTypes.ts``): a single choice compares as text, a multiple choice is read only by
+# ``selected``, and a type this table leaves out (a date, a time, a place) is read by no rule these classes decide.
+_CASE_VALUE_TYPES = {
+    "text": "text",
+    "single_select": "text",
+    "multi_select": "choices",
+    "int": "number",
+    "decimal": "number",
+}
+
+
+def _case_properties(use):
+    """The declared properties of the case type a use's case list reads (``_list_case_type``), by name with each one's
+    type; empty where the type or the catalog is not known."""
+    at = _json(use)
+    case_type = _list_case_type(use)
+    if at is None or case_type is None:
+        return {}
+    return (at.app.case_types or {}).get(case_type) or {}
+
+
+def _case_condition_type(tree, properties, dot=None):
+    """The type an expression of the selected case gives (``number``, ``text``, ``choices`` or ``boolean``), where its
+    every part is one Nova's type checker types the same way: a literal, a bare read of a declared property of a
+    type ``_CASE_VALUE_TYPES`` names (``.``, the column's own property, where ``dot`` gives its type), a comparison of
+    two values of one type (an order of two numbers), ``and``/``or``/``not`` over truth values, arithmetic over
+    numbers, ``selected`` of a property and a literal, ``true()`` and ``false()``. None for anything else, which these
+    classes leave undecided rather than guess."""
+    kind = tree[0]
+    if kind == "number":
+        return "number"
+    if kind == "text":
+        return "text"
+    if kind == "path":
+        steps = tree[4]
+        if dot is not None and tree[1] == "relative" and not tree[3] and [list(step) for step in steps] == [
+            ["self", "node()", 0]
+        ]:
+            return dot
+        prop = _bare_read(tree, "child")
+        return None if prop is None else _CASE_VALUE_TYPES.get(properties.get(prop))
+    if kind == "negative":
+        return "number" if _case_condition_type(tree[1], properties, dot) == "number" else None
+    if kind == "binary":
+        left, right = (_case_condition_type(node, properties, dot) for node in tree[2:])
+        operator = tree[1]
+        if operator in ("and", "or"):
+            return "boolean" if left == right == "boolean" else None
+        if operator in ("=", "!="):
+            return "boolean" if left == right and left in ("number", "text") else None
+        if operator in ("<", "<=", ">", ">="):
+            return "boolean" if left == right == "number" else None
+        if operator in ("+", "-", "*", "div", "mod"):
+            return "number" if left == right == "number" else None
+        return None
+    if kind == "call":
+        name, arguments = tree[1], tree[2]
+        if name in ("true", "false") and not arguments:
+            return "boolean"
+        if name == "not" and len(arguments) == 1:
+            return "boolean" if _case_condition_type(arguments[0], properties, dot) == "boolean" else None
+        if name == "selected" and len(arguments) == 2 and arguments[1][0] == "text":
+            subject = _case_condition_type(arguments[0], properties, dot)
+            return "boolean" if subject in ("choices", "text") else None
+    return None
+
+
+def _scoped_verdict(app, text, typed):
+    """The verdict of a class of expressions Nova reads in the selected case's scope: in it (True) where Core's
+    parse refuses the text, which then holds no expression at all (``lib/commcare/reader/expressions/findings.ts::
+    parseIssueEntry``, "syntax"); out of it (False) where its structure is one ``typed`` places in the scope; and
+    undecided (None) for every other text, including one the records hold no parse or structure of."""
+    parsed = app.parsed(text)
     if parsed is None:
         return None
-    return True if "error" in parsed else None
+    if "error" in parsed:
+        return True
+    tree = app.tree(text)
+    if tree is None:
+        return None
+    return False if typed(tree) else None
+
+
+def _detail_of(use):
+    """A use's detail with its kind (``short``, ``long``) and its menu, where the detail is the menu's own case list
+    or case detail (``case_details``): (at, detail, kind, module), or Nones."""
+    at = _json(use)
+    if at is None:
+        return None, None, None, None
+    detail, module = at.nearest("Detail"), at.nearest(*MODULES)
+    pair = (module or {}).get("case_details")
+    kind = next(
+        (name for name in ("short", "long") if isinstance(pair, dict) and pair.get(name) is detail and detail is not None),
+        None,
+    )
+    return at, detail, kind, module
+
+
+def _tabs(detail):
+    return [tab for tab in (detail or {}).get("tabs") or [] if isinstance(tab, dict)]
+
+
+def columns_above_the_first_tab(use, manifest):
+    """``menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist``: a detail whose first tab starts after its
+    first column (``starting_index`` above 0), which HQ's Case Detail page refuses to save ("All properties must be
+    below a tab", ``screen.js::save``) and Nova's reader refuses (``caseList/details.ts``, ``tabsColumnsAbove``). A
+    use of the tabs or of any tab's start reads the detail's first tab; a start that is no number is no column
+    above a tab."""
+    at = _json(use)
+    detail = at.nearest("Detail") if at is not None else None
+    if detail is None:
+        return None
+    tabs = _tabs(detail)
+    if not tabs:
+        return False
+    start = tabs[0].get("starting_index")
+    return isinstance(start, int) and not isinstance(start, bool) and start > 0
+
+
+def tab_condition_outside_case_scope(use, manifest):
+    """``menus-and-case-lists/tab-display-condition-outside-its-case-scope``: a tab's display condition (``relevant``)
+    that is no condition of the selected case: one Core's parse refuses. One whose structure
+    ``_case_condition_type`` types as a truth value of the menu's case is out of the class; any other is undecided."""
+    at = _json(use)
+    tab = at.nearest("DetailTab") if at is not None else None
+    if tab is None:
+        return None
+    text = tab.get("relevant")
+    if not isinstance(text, str) or not text.strip():
+        return False
+    properties = _case_properties(use)
+    return _scoped_verdict(at.app, text, lambda tree: _case_condition_type(tree, properties) == "boolean")
+
+
+def _records_rows_typed(tree, app):
+    """Whether a records tab's rows are the cases of one declared type, each predicate beside the type's one a
+    condition of that type (``_case_predicate_scope``): ``instance('casedb')/casedb/case[@case_type = 'T'][...]``."""
+    case_type, first, end = _case_predicate_scope(tree)
+    if case_type is None or len(tree[4]) != 2:
+        return False
+    properties = (app.case_types or {}).get(case_type)
+    if properties is None:
+        return False
+    for predicate in tree[3][first:end]:
+        if predicate[:2] == ["binary", "="] and any(
+            _bare_read(path, "attribute") == "case_type" and literal[0] == "text"
+            for path, literal in (predicate[2:], list(reversed(predicate[2:])))
+        ):
+            continue
+        if _case_condition_type(predicate, properties) != "boolean":
+            return False
+    return True
+
+
+def tab_without_a_resolvable_row_source(use, manifest):
+    """``menus-and-case-lists/detail-tab-without-a-resolvable-row-source``: a tab that lists records but names none it
+    can read, as Nova's reader decides (``caseList/details.ts``, ``tabRowsMissing``, ``tabTypeInvalid`` and the
+    rows' and filter's slots): rows turned on (``has_nodeset``) with neither rows (``nodeset``) nor a child type in
+    the case type grammar (``nodeset_case_type``); a child type outside the grammar on a tab that lists children;
+    rows or a child filter Core's parse refuses. Rows that are one declared type's cases under conditions
+    ``_case_condition_type`` types, and a child filter it types over the child type, are out of the class, as is
+    every setting of a tab whose rows are off; a records tab's child type beside a search is the search's, which
+    the use alone does not settle."""
+    at = _json(use)
+    tab = at.nearest("DetailTab") if at is not None else None
+    if tab is None:
+        return None
+    active = tab.get("has_nodeset") is True
+    nodes, child, filter_ = tab.get("nodeset"), tab.get("nodeset_case_type"), tab.get("nodeset_filter")
+    custom = active and isinstance(nodes, str) and nodes != ""
+    valid_child = isinstance(child, str) and MENU_PAGE_CASE_TYPE.fullmatch(child) is not None
+    children = active and not custom and valid_child
+    key = at.key
+    if not active:
+        return False
+    if key == "has_nodeset":
+        return not (custom or children)
+    if key == "nodeset_case_type":
+        if custom:
+            return False if valid_child or not child else None
+        return not children
+    if key == "nodeset":
+        if not custom:
+            return False
+        verdict = _scoped_verdict(at.app, nodes, lambda tree: _records_rows_typed(tree, at.app))
+        tree = at.app.tree(nodes)
+        # A literal is a value, never records a tab can list.
+        return True if verdict is None and tree is not None and tree[0] in ("text", "number") else verdict
+    if key == "nodeset_filter":
+        if not children or not isinstance(filter_, str) or not filter_.strip():
+            return False
+        properties = (at.app.case_types or {}).get(child) or {}
+        return _scoped_verdict(at.app, filter_, lambda tree: _case_condition_type(tree, properties) == "boolean")
+    return None
+
+
+def _defines_line(detail):
+    """Whether a detail turns on the one-line context above a form that its own persistent tile does not replace
+    (``caseList/details.ts``, ``definesLine``)."""
+    return detail.get("persist_case_context") is True and not (
+        detail.get("case_tile_template") and detail.get("persist_tile_on_forms") is True
+    )
+
+
+def form_context_expression_outside_case_scope(use, manifest):
+    """``menus-and-case-lists/form-context-expression-outside-its-case-scope``: the line a case list puts above its
+    forms (``persistent_case_context_xml`` of a short detail that turns the line on and whose own tile does not
+    persist) that is no value of the selected case: one Core's parse refuses. A value ``_case_condition_type`` types,
+    or a bare read of a declared property, is out of the class, as is the key wherever no line reads it."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    text = detail.get("persistent_case_context_xml")
+    if kind != "short" or not _defines_line(detail) or not isinstance(text, str) or not text.strip():
+        return False
+    properties = _case_properties(use)
+    return _scoped_verdict(
+        at.app,
+        text,
+        lambda tree: _bare_read(tree, "child") in properties or _case_condition_type(tree, properties) is not None,
+    )
+
+
+def form_context_without_a_compatible_tile(use, manifest):
+    """``menus-and-case-lists/form-context-without-a-compatible-case-tile``: a case list whose context above a form
+    names another menu (``persistent_case_tile_from_module``) that does not exist, lays out no tile, or lists another
+    case type (a menu with neither a tile nor its own suite holds no context, another class), or that pulls a tile
+    down (``pull_down_tile``) with no tile of its own that persists and no other menu's, as Nova's reader decides
+    (``caseList/details.ts``, ``contextUnavailable``, ``inlineUnavailable``). Either key of a case detail reads
+    nothing, another class."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    if kind != "short":
+        return False
+    source_id = detail.get("persistent_case_tile_from_module")
+    external = None
+    if isinstance(source_id, str) and source_id:
+        source = at.app.modules_by_id.get(source_id)
+        pair = (source or {}).get("case_details")
+        source_short = pair.get("short") if isinstance(pair, dict) and isinstance(pair.get("short"), dict) else {}
+        if source is not None and not source_short.get("case_tile_template") and not source_short.get("custom_xml"):
+            external = False  # a menu with no tile: the reader leaves the setting dormant
+        elif source is None or not source_short.get("case_tile_template") or source.get("case_type") != module.get(
+            "case_type"
+        ):
+            if at.key == "persistent_case_tile_from_module":
+                return True
+            external = False
+        else:
+            external = True
+    if at.key == "persistent_case_tile_from_module":
+        return False
+    if at.key == "pull_down_tile":
+        if detail.get("pull_down_tile") is not True:
+            return False
+        own = detail.get("case_tile_template") in ("custom", "icon_text_grid") and detail.get(
+            "persist_tile_on_forms"
+        ) is True
+        return not (external or own)
+    return None
+
+
+def competing_form_context_values(use, manifest):
+    """``menus-and-case-lists/two-different-values-for-the-same-form-context``: a case detail whose one-line context
+    above a form differs from its case list's, both turning the line on (``_defines_line``): HQ's build writes one
+    shared detail for both, of which Core keeps the last, so the Case List page shows a line the worker does not
+    see. Nova's reader refuses the case detail's keys and reads the case list's (``caseList/details.ts``,
+    ``competingLine``), so a use on the case list is out of the class."""
+    at, detail, kind, module = _detail_of(use)
+    if detail is None:
+        return None
+    if kind != "long":
+        return False
+    short = module["case_details"].get("short")
+    if not isinstance(short, dict) or not _defines_line(short) or not _defines_line(detail):
+        return False
+    return short.get("persistent_case_context_xml", "case_name") != detail.get("persistent_case_context_xml", "case_name")
 
 
 def independent_sort_without_scalar(use, manifest):
@@ -9148,6 +9485,8 @@ ROW_UNDECLARED_KEYS = {
             "nodesetFilter",
         }
     ),
+    # The Case Detail page writes ``isTab`` on every tab it saves (``details/bootstrap5/column.js::serialize``).
+    "DetailTab": frozenset({"isTab"}),
     "Form": frozenset({"no_vellum", "put_in_root"}),
     "AdvancedForm": frozenset({"no_vellum", "put_in_root"}),
     # No row names a key a basic form's actions do not declare: the catch-all refuses every one.
@@ -9916,6 +10255,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/case-id-as-a-property-column-s-field": case_id_element,
     "menus-and-case-lists/custom-tile-column-with-grid-null-unplaced": null_on_unplaced_tile,
     "menus-and-case-lists/custom-tile-font-size-null": null_font_size_on_tile,
+    "menus-and-case-lists/custom-tile-cells-covering-the-same-square": overlapping_tile_cells,
     "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": null_alignment_on_placed_tile,
     "menus-and-case-lists/detail-case-tile-template-person-simple": person_simple_on_list,
     "menus-and-case-lists/long-detail-non-custom-tile": not_custom_on_detail,
@@ -9990,6 +10330,12 @@ VALUE_CLASSES = {
         media_reference_drawn_without_entry
     ),
     "menus-and-case-lists/mapping-condition-outside-predicate": mapping_condition_outside_predicate,
+    "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist": columns_above_the_first_tab,
+    "menus-and-case-lists/tab-display-condition-outside-its-case-scope": tab_condition_outside_case_scope,
+    "menus-and-case-lists/detail-tab-without-a-resolvable-row-source": tab_without_a_resolvable_row_source,
+    "menus-and-case-lists/form-context-expression-outside-its-case-scope": form_context_expression_outside_case_scope,
+    "menus-and-case-lists/form-context-without-a-compatible-case-tile": form_context_without_a_compatible_tile,
+    "menus-and-case-lists/two-different-values-for-the-same-form-context": competing_form_context_values,
     "menus-and-case-lists/sort-calculation-without-a-typed-value": independent_sort_without_scalar,
     "menus-and-case-lists/distance-sort-without-a-location-field": calculated_distance_without_property,
     "menus-and-case-lists/distance-on-a-translated-calculated-field": distance_on_translated_calculation,

@@ -822,16 +822,18 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=(), authored_
         if root is not None:
             attribute_values(root, texts)
             suite_queries(root, queries)
-    orders = set()
+    orders, scoped = set(), set()
     for app in apps:
         app_queries(app, queries)
         app_expressions(app, texts)
-        mapping_conditions(app, texts)
+        mapping_conditions(app, scoped)
+        case_scope_texts(app, scoped)
         sort_calculations(app, orders)
+    texts |= scoped
     strings = _runner_reading(core_runner, "xpathStrings", sorted(queries), hole=CSQL_HOLE, dateHole=CSQL_DATE_HOLE)
     sent = sorted({string for result in strings.values() for string in result.get("strings", ())})
     expressions = _runner_reading(core_runner, "xpathParse", sorted(texts))
-    trees, conditions = structure_tables(roots, expressions, orders)
+    trees, conditions = structure_tables(roots, expressions, orders | scoped)
     return {
         "questions": questions,
         "expressions": expressions,
@@ -867,6 +869,33 @@ def mapping_conditions(value, found):
             mapping_conditions(child, found)
 
 
+# The expressions of a menu's case detail and form context that HQ's build copies into the suite, each read in the
+# selected case's scope (a tab's display condition, a records tab's rows, a child tab's filter, the line above a
+# form), by the class of the object holding them (None: any) and their key: read by the scope classes of
+# ``manifest_value_classes`` (``tab_condition_outside_case_scope`` and the rest) from Core's parse and the structure.
+CASE_SCOPE_SLOTS = (
+    ("DetailTab", "relevant"),
+    ("DetailTab", "nodeset"),
+    ("DetailTab", "nodeset_filter"),
+    (None, "persistent_case_context_xml"),  # no other class holds the key
+)
+
+
+def case_scope_texts(value, found):
+    """Each expression of ``CASE_SCOPE_SLOTS`` an app JSON holds, at any depth, into ``found``: the scope classes read
+    its structure whatever Core's parse holds of it, as the sort classes read a sort's."""
+    if isinstance(value, dict):
+        for doc_type, slot in CASE_SCOPE_SLOTS:
+            text = value.get(slot)
+            if doc_type in (None, value.get("doc_type")) and isinstance(text, str) and text.strip():
+                found.add(text)
+        for child in value.values():
+            case_scope_texts(child, found)
+    elif isinstance(value, list):
+        for child in value:
+            case_scope_texts(child, found)
+
+
 def sort_calculations(value, found):
     """Each independent sort calculation an app JSON holds (a ``SortElement`` with no ``field``), at any depth, into
     ``found``: the sort classes read the type of its value whatever Core's parse holds of it
@@ -885,8 +914,9 @@ def sort_calculations(value, found):
 def structure_tables(roots, expressions, orders=()):
     """The ``trees`` and ``conditions`` readings: the structure of each expression the judge reads it of, by its
     text, from the forms (``roots``: each form's parsed root; ``tree_texts``, ``vellum_condition_texts``), from
-    Core's parse of every expression (``expressions``, ``structure_read``) and of each independent sort calculation
-    Core parses (``orders``, ``sort_calculations``)."""
+    Core's parse of every expression (``expressions``, ``structure_read``) and of each expression Core parses whose
+    type a class reads (``orders``: each independent sort calculation, ``sort_calculations``; each condition mapping
+    key, ``mapping_conditions``; each case-scoped detail expression, ``case_scope_texts``)."""
     found, conditions = set(), set()
     for root in roots:
         tree_texts(root, found)

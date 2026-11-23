@@ -2991,6 +2991,23 @@ def _search_and_menus():
     long_ = "/modules/0/case_details/long"
     tile = {"case_tile_template": "custom"}
 
+    def cell(x, y, width, height=1):
+        return {"grid_x": x, "grid_y": y, "width": width, "height": height}
+
+    village = {"patient": {"village": "text", "visits": "int"}, "visit": {"outcome": "single_select"}}
+
+    def tab(start, **fields):
+        return {"doc_type": "DetailTab", "header": {"en": "Tab"}, "starting_index": start, **fields}
+
+    def tabbed(*tabs):
+        """A menu whose case detail's three fields stand under ``tabs``."""
+        return details(
+            _detail_module(long_columns=[_column(), _column("village"), _column("visits")], long={"tabs": list(tabs)})
+        )
+
+    def lined(text):
+        return {"persist_case_context": True, "persistent_case_context_xml": text}
+
     def search(*modules, **fields):
         return _app(list(modules), **fields)
 
@@ -4042,6 +4059,228 @@ def _search_and_menus():
                 columns_app(_column(font_size="small"), short=tile),
                 "schema:Detail.case_tile_template",
                 f"{short}/case_tile_template",
+            ),
+        ),
+        "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist": (
+            refused("app", tabbed(tab(1)), "schema:Detail.tabs", f"{long_}/tabs"),
+            # Each tab's start is a use of the detail's tabs as a whole.
+            refused("app", tabbed(tab(1), tab(2)), "schema:DetailTab.starting_index", f"{long_}/tabs/1/starting_index"),
+            accepted("app", tabbed(tab(0), tab(1)), "schema:Detail.tabs", f"{long_}/tabs"),
+            accepted("app", tabbed(tab(0), tab(1)), "schema:DetailTab.starting_index", f"{long_}/tabs/1/starting_index"),
+        ),
+        "menus-and-case-lists/tab-display-condition-outside-its-case-scope": (
+            refused(
+                "app", tabbed(tab(0, relevant="village = (")), "schema:DetailTab.relevant", f"{long_}/tabs/0/relevant",
+                readings=True, case_types=village,
+            ),
+            accepted(
+                "app", tabbed(tab(0, relevant="village = 'West'")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            accepted(
+                "app", tabbed(tab(0, relevant="not(village = 'West') or visits > 2")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            # A property the case type does not declare, or a comparison of a text with a number, is no type the
+            # class reads: Nova's reader decides it.
+            unsettled(
+                "app", tabbed(tab(0, relevant="region = 'West'")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            unsettled(
+                "app", tabbed(tab(0, relevant="village = 2")), "schema:DetailTab.relevant",
+                f"{long_}/tabs/0/relevant", readings=True, case_types=village,
+            ),
+            # Without the observation's parse the class is not settled.
+            unsettled("app", tabbed(tab(0, relevant="village = 'West'")), "schema:DetailTab.relevant", f"{long_}/tabs/0/relevant"),
+        ),
+        "menus-and-case-lists/detail-tab-without-a-resolvable-row-source": (
+            refused("app", tabbed(tab(0), tab(1, has_nodeset=True)), "schema:DetailTab.has_nodeset", f"{long_}/tabs/1/has_nodeset"),
+            accepted(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="visit")),
+                "schema:DetailTab.has_nodeset", f"{long_}/tabs/1/has_nodeset",
+            ),
+            refused(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="a visit")),
+                "schema:DetailTab.nodeset_case_type", f"{long_}/tabs/1/nodeset_case_type",
+            ),
+            # With its rows off a tab's settings are read by nothing.
+            accepted(
+                "app", tabbed(tab(0), tab(1, nodeset_case_type="a visit")),
+                "schema:DetailTab.nodeset_case_type", f"{long_}/tabs/1/nodeset_case_type",
+            ),
+            refused(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset="instance('casedb')/casedb/case[")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            accepted(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset="instance('casedb')/casedb/case[@case_type = 'visit']")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            accepted(
+                "app",
+                tabbed(
+                    tab(0),
+                    tab(
+                        1, has_nodeset=True,
+                        nodeset="instance('casedb')/casedb/case[@case_type = 'visit'][outcome = 'seen']",
+                    ),
+                ),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            refused(
+                "app", tabbed(tab(0), tab(1, has_nodeset=True, nodeset="'a scalar'")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            # Rows of a type the catalog does not declare are Nova's reader's to decide.
+            unsettled(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset="instance('casedb')/casedb/case[@case_type = 'other']")),
+                "schema:DetailTab.nodeset", f"{long_}/tabs/1/nodeset", readings=True, case_types=village,
+            ),
+            refused(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="visit", nodeset_filter="outcome = (")),
+                "schema:DetailTab.nodeset_filter", f"{long_}/tabs/1/nodeset_filter", readings=True, case_types=village,
+            ),
+            accepted(
+                "app",
+                tabbed(tab(0), tab(1, has_nodeset=True, nodeset_case_type="visit", nodeset_filter="outcome = 'seen'")),
+                "schema:DetailTab.nodeset_filter", f"{long_}/tabs/1/nodeset_filter", readings=True, case_types=village,
+            ),
+        ),
+        "menus-and-case-lists/form-context-expression-outside-its-case-scope": (
+            refused(
+                "app", details(_detail_module(short=lined("concat("))), "schema:Detail.persistent_case_context_xml",
+                f"{short}/persistent_case_context_xml", readings=True, case_types=village,
+            ),
+            accepted(
+                "app", details(_detail_module(short=lined("village"))), "schema:Detail.persistent_case_context_xml",
+                f"{short}/persistent_case_context_xml", readings=True, case_types=village,
+            ),
+            # Beside a tile that persists, the line is read by nothing.
+            accepted(
+                "app",
+                details(_detail_module(short={**lined("concat("), **tile, "persist_tile_on_forms": True})),
+                "schema:Detail.persistent_case_context_xml", f"{short}/persistent_case_context_xml",
+                readings=True, case_types=village,
+            ),
+            unsettled(
+                "app", details(_detail_module(short=lined("region"))), "schema:Detail.persistent_case_context_xml",
+                f"{short}/persistent_case_context_xml", readings=True, case_types=village,
+            ),
+        ),
+        "menus-and-case-lists/form-context-without-a-compatible-case-tile": (
+            refused(
+                "app", details(_detail_module(short={"persistent_case_tile_from_module": "src"})),
+                "schema:Detail.persistent_case_tile_from_module", f"{short}/persistent_case_tile_from_module",
+            ),
+            accepted(
+                "app",
+                details(
+                    _detail_module(short={"persistent_case_tile_from_module": "src"}),
+                    _detail_module(unique_id="src", short=tile),
+                ),
+                "schema:Detail.persistent_case_tile_from_module", f"{short}/persistent_case_tile_from_module",
+            ),
+            # Another case type's tile is no context for this list's case.
+            refused(
+                "app",
+                details(
+                    _detail_module(short={"persistent_case_tile_from_module": "src"}),
+                    _detail_module(unique_id="src", case_type="household", short=tile),
+                ),
+                "schema:Detail.persistent_case_tile_from_module", f"{short}/persistent_case_tile_from_module",
+            ),
+            refused("app", details(_detail_module(short={"pull_down_tile": True})), "schema:Detail.pull_down_tile", f"{short}/pull_down_tile"),
+            accepted(
+                "app", details(_detail_module(short={**tile, "persist_tile_on_forms": True, "pull_down_tile": True})),
+                "schema:Detail.pull_down_tile", f"{short}/pull_down_tile",
+            ),
+        ),
+        "menus-and-case-lists/two-different-values-for-the-same-form-context": (
+            refused(
+                "app", details(_detail_module(short=lined("village"), long=lined("visits"))),
+                "schema:Detail.persistent_case_context_xml", f"{long_}/persistent_case_context_xml",
+            ),
+            refused(
+                "app", details(_detail_module(short=lined("village"), long=lined("visits"))),
+                "schema:Detail.persist_case_context", f"{long_}/persist_case_context",
+            ),
+            # The case list's own line is the one Nova reads.
+            accepted(
+                "app", details(_detail_module(short=lined("village"), long=lined("visits"))),
+                "schema:Detail.persistent_case_context_xml", f"{short}/persistent_case_context_xml",
+            ),
+            accepted(
+                "app", details(_detail_module(short=lined("village"), long=lined("village"))),
+                "schema:Detail.persistent_case_context_xml", f"{long_}/persistent_case_context_xml",
+            ),
+        ),
+        "menus-and-case-lists/custom-tile-cells-covering-the-same-square": (
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            # Each of the two cells is in the class, and so is the tile itself.
+            refused(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6)), short=tile),
+                "schema:DetailColumn.width",
+                f"{short}/columns/0/width",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 6)), _column("notes", **cell(6, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            # A third cell clear of the two is not in it.
+            accepted(
+                "app",
+                columns_app(
+                    _column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6)), _column("dob", **cell(0, 1, 6)),
+                    short=tile,
+                ),
+                "schema:DetailColumn.grid_y",
+                f"{short}/columns/2/grid_y",
+            ),
+            # A list that is no custom tile lays nothing out, and a filter column writes no field.
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", **cell(3, 0, 6))),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/1/grid_x",
+            ),
+            accepted(
+                "app",
+                columns_app(_column(**cell(0, 0, 12)), _column("notes", "filter", **cell(3, 0, 6)), short=tile),
+                "schema:DetailColumn.grid_x",
+                f"{short}/columns/0/grid_x",
+            ),
+            # On the case detail two tabs lay their cells out apart; one tab's two cells on one square overlap.
+            accepted(
+                "app",
+                columns_app(
+                    _column(**cell(0, 0, 12)), _column("notes", **cell(0, 0, 12)),
+                    where="long",
+                    long={**tile, "tabs": [{"doc_type": "DetailTab", "starting_index": 0}, {"doc_type": "DetailTab", "starting_index": 1}]},
+                ),
+                "schema:DetailColumn.grid_x",
+                f"{long_}/columns/1/grid_x",
+            ),
+            refused(
+                "app",
+                columns_app(
+                    _column(**cell(0, 0, 12)), _column("notes", **cell(0, 0, 12)),
+                    where="long",
+                    long={**tile, "tabs": [{"doc_type": "DetailTab", "starting_index": 0}]},
+                ),
+                "schema:DetailColumn.grid_x",
+                f"{long_}/columns/1/grid_x",
             ),
         ),
         "menus-and-case-lists/horizontal-align-null-on-a-placed-custom-tile-column": (
@@ -5388,7 +5627,15 @@ def _data_binds_and_itext():
           <bind nodeset="/data/p" calculate="if({case_path}age &gt; 1, 1, 0)"/>""",
         body='<input ref="/data/t"/><input ref="/data/n"/>',
     )
-    detail_keys = _app([_detail_module([_column(foo=1, calc_xpath=".")], short={"foo": 1, "custom_variables": None})])
+    detail_keys = _app(
+        [
+            _detail_module(
+                [_column(foo=1, calc_xpath=".")],
+                short={"foo": 1, "custom_variables": None},
+                long={"tabs": [{"doc_type": "DetailTab", "starting_index": 0, "isTab": True, "foo": 1}]},
+            )
+        ]
+    )
     # HQ's build never writes a menu's ref_details, whose row holds the whole value.
     reference_keys = _app([_module(ref_details={"doc_type": "DetailPair", "short": {"foo": 1}, "long": {}})])
     form_keys = _app([_module([{**_form_json("none"), "bar": 1, "no_vellum": False}])])
@@ -5953,6 +6200,8 @@ def _data_binds_and_itext():
             accepted("app", detail_keys, "schema:Detail.<undeclared>", f"{short}/custom_variables"),
             refused("app", detail_keys, "schema:DetailColumn.<undeclared>", f"{short}/columns/0/foo"),
             accepted("app", detail_keys, "schema:DetailColumn.<undeclared>", f"{short}/columns/0/calc_xpath"),
+            refused("app", detail_keys, "schema:DetailTab.<undeclared>", "/modules/0/case_details/long/tabs/0/foo"),
+            accepted("app", detail_keys, "schema:DetailTab.<undeclared>", "/modules/0/case_details/long/tabs/0/isTab"),
         ),
         "forms-and-case-writes/any-other-undeclared-key": (
             refused("app", form_keys, "schema:Form.<undeclared>", "/modules/0/forms/0/bar"),
@@ -6586,15 +6835,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
         "menus-and-case-lists/attachment-name-with-any-other-format",
         "menus-and-case-lists/callout-with-no-extras-or-no-responses",
-        "menus-and-case-lists/columns-above-the-first-tab-when-tabs-exist",
-        # A Details tab's rows or condition, and the case context above a form, are refused by what their typed
-        # expression resolves to (a row scope, a case scope, the source menu's tile), which only Nova's reader and
-        # gate decide; no value-class reader states that yet, so a use of these keys is undecided in the lane.
-        "menus-and-case-lists/detail-tab-without-a-resolvable-row-source",
-        "menus-and-case-lists/form-context-expression-outside-its-case-scope",
-        "menus-and-case-lists/form-context-without-a-compatible-case-tile",
-        "menus-and-case-lists/tab-display-condition-outside-its-case-scope",
-        "menus-and-case-lists/two-different-values-for-the-same-form-context",
         "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
         "menus-and-case-lists/detail-custom-variables-dict-non-empty",
         "menus-and-case-lists/detail-custom-xml-non-empty",

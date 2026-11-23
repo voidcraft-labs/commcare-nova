@@ -1167,6 +1167,44 @@ describe("a detail's callout and tabs", () => {
 			`${M}detail-tab-without-a-resolvable-row-source`,
 		);
 	});
+	it("holds the page's isTab on a tab and refuses any other key a tab does not declare", async () => {
+		const tab = (extra: Record<string, unknown>) =>
+			readDetails((_short, long) => {
+				long.tabs = [
+					{
+						doc_type: "DetailTab",
+						isTab: true,
+						header: { en: "Main" },
+						starting_index: 0,
+						...extra,
+					},
+				];
+			}, false);
+		expect(closedCodes(await tab({}))).not.toContain(
+			`${M}any-other-undeclared-key`,
+		);
+		expect(closedCodes(await tab({ foo: 1 }))).toContain(
+			`${M}any-other-undeclared-key`,
+		);
+	});
+	it("refuses a tab's display condition that no parse reads as the selected case's condition", async () => {
+		// Core's parse refuses it too, which is how the manifest check places it
+		// (`proof/checks/manifest_value_classes.py::tab_condition_outside_case_scope`).
+		const result = await readDetails((_short, long) => {
+			long.tabs = [
+				{
+					doc_type: "DetailTab",
+					isTab: true,
+					header: { en: "Main" },
+					starting_index: 0,
+					relevant: "notes = (",
+				},
+			];
+		}, false);
+		expect(closedCodes(result)).toContain(
+			`${M}tab-display-condition-outside-its-case-scope`,
+		);
+	});
 	it("refuses columns above the first tab without reporting supported child tabs", async () => {
 		const reading = await readDetails((_short, long) => {
 			long.tabs = [

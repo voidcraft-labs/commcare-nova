@@ -24,6 +24,7 @@ import {
 	TILE_HORIZONTAL_ALIGNS,
 	type TileCell,
 	type TileVerticalAlign,
+	tileCellsOverlap,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
 import { readNamedTileSlot } from "../../suite/case-list/namedTile";
@@ -155,6 +156,10 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}custom-tile-font-size-null`,
 		"schema:DetailColumn.font_size",
 	),
+	overlapping: refuse(
+		`${A}custom-tile-cells-covering-the-same-square`,
+		"schema:DetailColumn.grid_x",
+	),
 });
 
 const T = TILE_CLAIMS;
@@ -209,6 +214,7 @@ function readCell(
 	ctx: ReadContext,
 	column: JsonCursor,
 	template: string,
+	overlapping = false,
 ): TileCell | "finding" {
 	const refused = (claim: Claim<"refuse">): "finding" => {
 		ctx.accounting.findingAt(claim, column.place, column.pointer);
@@ -236,6 +242,7 @@ function readCell(
 	)
 		return refused(T.alignNull);
 	if (font === null || font === undefined) return refused(T.fontNull);
+	if (overlapping) return refused(T.overlapping);
 	const verticalWord =
 		typeof vertical === "string" ? VERTICAL_FROM_WIRE.get(vertical) : undefined;
 	if (
@@ -280,6 +287,54 @@ function readCell(
 	return cell;
 }
 
+/** A stored cell's square, where its four numbers are all there. */
+function storedBox(column: JsonCursor): TileCell | undefined {
+	const [x, y, width, height] = (
+		["grid_x", "grid_y", "width", "height"] as const
+	).map((key) => column.peek(key));
+	if (
+		typeof x !== "number" ||
+		typeof y !== "number" ||
+		typeof width !== "number" ||
+		typeof height !== "number"
+	)
+		return undefined;
+	return { x, y, width, height } as TileCell;
+}
+
+/**
+ * The columns among `group` whose stored cell covers a square another one of the group covers.
+ * CommCare HQ saves such a tile as it is, and the device draws one field over the other, while
+ * Nova's tile gives every shown field a square of its own
+ * (`validator/rules/case-list/caseTileLayout.ts`), so each such cell is a finding the person can
+ * resolve in HQ's Case List page by moving one of the fields.
+ */
+function overlappingCells(group: readonly JsonCursor[]): Set<JsonCursor> {
+	const boxes = group.flatMap((cursor) => {
+		const box = storedBox(cursor);
+		return box === undefined ? [] : [{ cursor, box }];
+	});
+	const found = new Set<JsonCursor>();
+	for (let a = 0; a < boxes.length; a++)
+		for (let b = a + 1; b < boxes.length; b++)
+			if (tileCellsOverlap(boxes[a].box, boxes[b].box)) {
+				found.add(boxes[a].cursor);
+				found.add(boxes[b].cursor);
+			}
+	return found;
+}
+
+/** Each long column's tab, by the first column of each tab (`DetailTab.starting_index`); one
+ *  group where the detail holds no tab whose start is a number. */
+function tabGroupOf(long: JsonCursor): (index: number) => number {
+	const tabs = long.peek("tabs");
+	const starts = (Array.isArray(tabs) ? tabs : [])
+		.map((tab) => (isJsonObject(tab) ? tab.starting_index : undefined))
+		.filter((start): start is number => typeof start === "number")
+		.sort((a, b) => a - b);
+	return (index) => starts.filter((start) => start <= index).length;
+}
+
 /**
  * Reads the short detail's tile into the case list's `tile` and each placed column's cell, and
  * claims the cell keys no wire writes. A tile on the long detail is a finding.
@@ -301,10 +356,28 @@ export function readTile(
 	if (longTemplate === "custom") {
 		long.take("case_tile_template", T.longCustom, String).value;
 		detailCells = new Map();
+		const groupOf = tabGroupOf(long);
+		const placedLong = new Map<number, JsonCursor[]>();
+		for (const column of joined.columns) {
+			if (column.long === undefined) continue;
+			const group = groupOf(column.long);
+			placedLong.set(group, [
+				...(placedLong.get(group) ?? []),
+				longColumns[column.long],
+			]);
+		}
+		const overlapsLong = new Set(
+			[...placedLong.values()].flatMap((group) => [...overlappingCells(group)]),
+		);
 		for (const [index, column] of joined.columns.entries()) {
 			if (column.long === undefined) continue;
 			const cursor = longColumns[column.long];
-			const cell = readCell(ctx, cursor, `${long.pointer}/case_tile_template`);
+			const cell = readCell(
+				ctx,
+				cursor,
+				`${long.pointer}/case_tile_template`,
+				overlapsLong.has(cursor),
+			);
 			if (cell === "finding") ok = false;
 			else detailCells.set(index, cell);
 		}
@@ -394,18 +467,32 @@ export function readTile(
 			};
 		}
 	}
+	const placesCell = (column: JoinedDetails["columns"][number]) => {
+		const cursor =
+			column.short === undefined ? undefined : shortColumns[column.short];
+		return cursor !== undefined &&
+			!named &&
+			!(column.visibleInList === false && cursor.peek("format") !== "invisible")
+			? cursor
+			: undefined;
+	};
+	const overlapsShort = overlappingCells(
+		joined.columns.flatMap((column) => placesCell(column) ?? []),
+	);
 	joined.columns.forEach((column, index) => {
 		if (column.short === undefined) return;
 		const cursor = shortColumns[column.short];
 		if (cursor === undefined) return;
-		if (
-			named ||
-			(column.visibleInList === false && cursor.peek("format") !== "invisible")
-		) {
+		if (placesCell(column) === undefined) {
 			dropCells(cursor);
 			return;
 		}
-		const cell = readCell(ctx, cursor, `${short.pointer}/case_tile_template`);
+		const cell = readCell(
+			ctx,
+			cursor,
+			`${short.pointer}/case_tile_template`,
+			overlapsShort.has(cursor),
+		);
 		if (cell === "finding") ok = false;
 		else
 			cells.set(

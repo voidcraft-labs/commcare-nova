@@ -361,6 +361,10 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}any-other-undeclared-key`,
 		"schema:Detail.<undeclared>",
 	),
+	tabUndeclared: refuse(
+		`${A}any-other-undeclared-key`,
+		"schema:DetailTab.<undeclared>",
+	),
 });
 
 const D = DETAIL_CLAIMS;
@@ -1759,6 +1763,13 @@ export function readCaseDetails(
 			long.peek("case_tile_template") === "custom" &&
 			tileRowMixesTabs(long, objectMembers(long.peek("tabs")) ?? []);
 		for (const [tabIndex, tab] of tabs.entries()) {
+			// `isTab` is the Case Detail page's own (`tabEditorFlag`); any other key a tab
+			// does not declare is no word a person knows from HQ's pages.
+			for (const key of tab.undeclared())
+				if (key !== "isTab") {
+					tab.refuse(key, D.tabUndeclared);
+					whole = false;
+				}
 			const start = tab.take(
 				"starting_index",
 				mixed ? D.tabsTileRowMixedAdvanced : D.tabPosition,

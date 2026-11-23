@@ -213,6 +213,66 @@ describe("tiles", () => {
 		expect(read.list[0]?.tile).toBeUndefined();
 	});
 
+	it("refuses cells that cover one square, on Results and on Details, and proposes none of them", async () => {
+		// CommCare HQ saves overlapping cells as they are and draws one field over the other;
+		// Nova's gate refuses them (`CASE_LIST_TILE_CELLS_OVERLAP`,
+		// `CASE_DETAIL_TILE_LAYOUT_INVALID`), so the reading names them instead of proposing them.
+		const overlap =
+			"menus-and-case-lists/custom-tile-cells-covering-the-same-square";
+		const name = plainColumn(uuid(1), "case_name", "Name", {
+			tile: tileCell(0, 0, 12, 1),
+		});
+		const notes = plainColumn(uuid(2), "notes", "Notes", {
+			tile: tileCell(0, 1, 12, 1),
+		});
+		const apart = await readLists(
+			patients([name, notes], {
+				list: {
+					tile: {},
+					detailTile: {
+						cells: {
+							[name.uuid]: tileCell(0, 0, 6, 1),
+							[notes.uuid]: tileCell(6, 0, 6, 1),
+						},
+					},
+				},
+			}),
+		);
+		expect(codes(apart)).toEqual([]);
+		for (const detail of ["short", "long"] as const) {
+			const reading = await readLists(
+				patients([name, notes], {
+					list: {
+						tile: {},
+						detailTile: {
+							cells: {
+								[name.uuid]: tileCell(0, 0, 6, 1),
+								[notes.uuid]: tileCell(6, 0, 6, 1),
+							},
+						},
+					},
+				}),
+				{
+					edit: (app) => {
+						const columns = app.modules[0]?.case_details[detail].columns;
+						if (columns?.[1] !== undefined)
+							Object.assign(columns[1], { grid_x: 3, grid_y: 0, width: 6 });
+					},
+				},
+			);
+			expect(codes(reading), detail).toContain(overlap);
+			const list = listOf(reading);
+			const cells =
+				detail === "short"
+					? list.columns.map((column) => column.tile)
+					: list.columns.map((column) => list.detailTile?.cells[column.uuid]);
+			expect(
+				cells.filter((cell) => cell !== undefined),
+				detail,
+			).toEqual([]);
+		}
+	});
+
 	it("drops the cell of a column hidden from Results in a tile list", async () => {
 		const name = plainColumn(uuid(1), "case_name", "Name", {
 			tile: tileCell(0, 0, 12, 1),

@@ -822,6 +822,48 @@ def tile_cell_not_aligned(authoring, app_id):
     )
 
 
+def tile_cells_overlapping(authoring, app_id):
+    """Follow-ups' list laid out as a tile whose ``village`` cell covers part of the name's row: both cells as the
+    Case List page stores them, which no check of HQ's compares."""
+
+    def cell(field, x, width):
+        return {
+            "model": "case",
+            "field": field,
+            "header": {"en": field},
+            "format": "plain",
+            "useXpathExpression": False,
+            "grid_x": x,
+            "grid_y": 0,
+            "enum": [],
+            "graph_configuration": {
+                "config": {},
+                "locale_specific_config": {},
+                "annotations": [],
+                "series": [],
+                "doc_type": "GraphConfiguration",
+            },
+            "late_flag": 30,
+            "time_ago_interval": 365.25,
+            "date_format": "%d/%m/%y",
+            "doc_type": "DetailColumn",
+            "width": width,
+            "height": 1,
+            "horizontal_align": "left",
+            "vertical_align": "start",
+            "font_size": "medium",
+            "show_border": False,
+            "show_shading": False,
+        }
+
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/1/case_details/short/case_tile_template", "custom"),
+        ("/modules/1/case_details/short/columns", [cell("name", 0, 12), cell("village", 3, 6)]),
+    )
+
+
 def tile_cell_not_placed(authoring, app_id):
     """Follow-ups' list laid out as a tile whose one cell has no place on the grid."""
     _set_each(

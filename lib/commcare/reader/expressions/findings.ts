@@ -2267,6 +2267,16 @@ export function parseIssueEntry(
 			// (`proof/checks/manifest_value_classes.py::mapping_condition_outside_predicate`).
 			if (ref.slot === "case_list_mapping_condition")
 				return answer(C["mapping-condition-untyped"].entry);
+			// So is a case detail's or a form context's expression: no condition, rows or
+			// value of the selected case (`manifest_value_classes.py::_scoped_verdict`).
+			if (ref.slot === "case_detail_tab_condition")
+				return answer(C["tab-condition-outside-scope"].entry);
+			if (ref.slot === "case_detail_tab_rows")
+				return answer(C["tab-custom-rows-outside"].entry);
+			if (ref.slot === "case_detail_tab_filter")
+				return answer(C["tab-child-filter-outside"].entry);
+			if (ref.slot === "case_form_context_line")
+				return answer(C["form-context-value-outside"].entry);
 			return answer("unrecognized");
 		case "unknown-hashtag":
 			return bindAscii

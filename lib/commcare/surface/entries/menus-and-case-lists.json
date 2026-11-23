@@ -4694,6 +4694,38 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/custom-tile-cells-covering-the-same-square",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "two placed cells of one custom tile (the case list's, or one tab of the case detail's) covering the same square",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.width"
+		],
+		"valueClass": "overlapping-custom-tile-cells",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare HQ saves and builds the cells as they are (no check of `helpers/validators.py` compares two cells' squares), and each runtime draws one field over the other (Android's `EntityViewTile`, a `GridLayout`; the Web Apps tile's CSS grid areas, `formplayer/menus/views.js`)",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "each runtime draws one field over the other"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "not written: the gate refuses two shown cells on one square (`CASE_LIST_TILE_CELLS_OVERLAP`, and `CASE_DETAIL_TILE_LAYOUT_INVALID` within one Details tab)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/horizontal-align-vertical-align",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -8121,7 +8153,11 @@
 		"section": "Case list and case detail",
 		"subsection": "Detail tabs",
 		"item": "a stored tab without `isTab`",
-		"surfaceKeys": ["schema:Detail.tabs", "schema:DetailTab"],
+		"surfaceKeys": [
+			"schema:Detail.tabs",
+			"schema:DetailTab",
+			"schema:DetailTab.<undeclared>"
+		],
 		"valueClass": "stored-without-is-tab",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: same state: `isTab` is page state that no build or server code reads",
@@ -9754,13 +9790,14 @@
 		"id": "menus-and-case-lists/any-other-undeclared-key",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "any other key a `Module`, `AdvancedModule`, `ShadowModule`, `Detail` or `DetailColumn` does not declare, other than the dynamic keys the rows above name",
+		"item": "any other key a `Module`, `AdvancedModule`, `ShadowModule`, `Detail`, `DetailColumn` or `DetailTab` does not declare, other than the dynamic keys the rows above name",
 		"surfaceKeys": [
 			"schema:Module.<undeclared>",
 			"schema:AdvancedModule.<undeclared>",
 			"schema:ShadowModule.<undeclared>",
 			"schema:Detail.<undeclared>",
-			"schema:DetailColumn.<undeclared>"
+			"schema:DetailColumn.<undeclared>",
+			"schema:DetailTab.<undeclared>"
 		],
 		"valueClass": "names-no-row-s-key",
 		"origin": "export-use",
