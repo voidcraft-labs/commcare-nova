@@ -212,6 +212,7 @@ describe("hqEntryFacts", () => {
 			usesWorkerRecord: false,
 			loads: [],
 			opens: [],
+			arbitraryDatums: [],
 		};
 		expect(formFacts(facts, VISIT)).toEqual(visit);
 		expect(formFacts(facts, REGISTER)).toEqual({
@@ -494,6 +495,7 @@ describe("hqEntryFacts", () => {
 				},
 			],
 			opens: [{ tag: "open_visit_1", caseType: "visit", index: 1 }],
+			arbitraryDatums: [],
 		});
 	});
 

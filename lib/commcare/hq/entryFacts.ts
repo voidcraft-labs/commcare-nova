@@ -80,6 +80,8 @@ export interface HqEntryFacts {
 		readonly caseType: string;
 		readonly index: number;
 	}[];
+	/** An advanced form's `arbitrary_datums`, by `datum_id`, in order. */
+	readonly arbitraryDatums: readonly string[];
 }
 
 export const ENTRY_FACT_KEYS: readonly (keyof HqEntryFacts)[] = [
@@ -104,6 +106,7 @@ export const ENTRY_FACT_KEYS: readonly (keyof HqEntryFacts)[] = [
 	"usesWorkerRecord",
 	"loads",
 	"opens",
+	"arbitraryDatums",
 ];
 
 /** What HQ's entry builder reads of a menu when it builds the datums of another menu's forms: a
@@ -412,7 +415,7 @@ function formFacts(form: JsonObject, menu: OwnMenuFacts): HqEntryFacts {
 	const actions = isObject(form.actions) ? form.actions : NO_ENTRIES;
 	const caseFacts =
 		form.doc_type === "AdvancedForm"
-			? advancedFormFacts(actions)
+			? advancedFormFacts(form, actions)
 			: basicFormFacts(form, actions);
 	return {
 		moduleKind: menu.moduleKind,
@@ -442,6 +445,7 @@ type CaseFacts = Pick<
 	| "usesWorkerRecord"
 	| "loads"
 	| "opens"
+	| "arbitraryDatums"
 >;
 
 /** A basic form's: `Form.requires_case` (`case`, or the legacy `referral`),
@@ -481,11 +485,12 @@ function basicFormFacts(form: JsonObject, actions: JsonObject): CaseFacts {
 			mapsAny("usercase_preload", "preload"),
 		loads: [],
 		opens: [],
+		arbitraryDatums: [],
 	};
 }
 
 /** An advanced form's loads and its open actions outside any repeat. */
-function advancedFormFacts(actions: JsonObject): CaseFacts {
+function advancedFormFacts(form: JsonObject, actions: JsonObject): CaseFacts {
 	return {
 		requires: "advanced",
 		opensCase: false,
@@ -522,6 +527,9 @@ function advancedFormFacts(actions: JsonObject): CaseFacts {
 						},
 					]
 				: [],
+		),
+		arbitraryDatums: objects(form.arbitrary_datums).map((datum) =>
+			typeof datum.datum_id === "string" ? datum.datum_id : "",
 		),
 	};
 }
@@ -670,6 +678,7 @@ const FACT_FIELDS: Readonly<
 		"AutoSelectCase",
 	],
 	opens: ["AdvancedFormActions.open_cases", "AdvancedOpenCaseAction"],
+	arbitraryDatums: ["AdvancedForm.arbitrary_datums", "ArbitraryDatum"],
 };
 
 /**
@@ -874,8 +883,19 @@ function formDatums(
 							fromAction: true,
 						},
 		);
+		// `get_datum_meta_assertions_advanced` aligns the loads and the
+		// arbitrary datums with the root; the new cases follow.
+		const arbitrary = facts.arbitraryDatums.map(
+			(id): DatumMeta => ({
+				id,
+				caseType: null,
+				requiresSelection: false,
+				instance: false,
+				fromAction: false,
+			}),
+		);
 		return [
-			...alignWithRoot(loads, facts.rootModule, app, depth),
+			...alignWithRoot([...loads, ...arbitrary], facts.rootModule, app, depth),
 			...facts.opens.map((open) =>
 				newCase(`case_id_new_${open.caseType}_${open.index}`, open.caseType),
 			),
