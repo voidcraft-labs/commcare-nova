@@ -606,7 +606,9 @@ function questionDisplayFields() {
 		compact: displaySchemas.compact
 			.nullable()
 			.optional()
-			.describe("Lay out this group in a compact screen on Android."),
+			.describe(
+				"On Android, show each question in this group with its label beside its answer. Android still shows one question per screen.",
+			),
 		collapse: displaySchemas.collapse
 			.nullable()
 			.optional()

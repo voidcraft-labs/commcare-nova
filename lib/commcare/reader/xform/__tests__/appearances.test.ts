@@ -311,3 +311,44 @@ describe("an appearance a runtime reads that no row names", () => {
 		).toEqual(["full"]);
 	});
 });
+
+/* Core opens a group screen only for the whole appearance `field-list`
+ * (`FormEntryController.getQuestionPrompts`); Android reads `compact` only as
+ * each widget's layout (`FormController.indexIsInCompact`). So a compact
+ * group pages its questions and a worker still adds a repeat's entries. */
+describe("a compact group", () => {
+	const grouped = (appearance: string) =>
+		readForm(
+			xformSource({
+				data: '<g><n><a/></n><r jr:template=""><q/></r></g>',
+				model:
+					'<bind nodeset="/data/g/n/a" type="xsd:string"/><bind nodeset="/data/g/r/q" type="xsd:string"/>',
+				body: `<group ref="/data/g" appearance="${appearance}"><label>G</label><group ref="/data/g/n"><label>N</label><input ref="/data/g/n/a"><label>A</label></input></group><group><repeat nodeset="/data/g/r"><input ref="/data/g/r/q"><label>Q</label></input></repeat></group></group>`,
+			}),
+		);
+	/** The question-list entries the reading claimed anything under. */
+	const questionList = (reading: Awaited<ReturnType<typeof grouped>>) =>
+		Object.keys(reading.closed.claims.counts).filter((entry) =>
+			entry.includes("question-list"),
+		);
+
+	it("takes its setting and leaves a user repeat and a nested group as they are", async () => {
+		const reading = await grouped("compact");
+		expect(
+			(reading.xform ? readFields(reading.xform) : []).find((f) => f.id === "g")
+				?.field.compact,
+		).toBe(true);
+		expect(questionList(reading)).toEqual([]);
+		expect(formFindings(reading)).toEqual([]);
+	});
+
+	it("differs from a field-list group, which refuses the repeat and holds the nested group", async () => {
+		const reading = await grouped("field-list");
+		expect(questionList(reading)).toContain(
+			Q("groups-nested-in-a-question-list"),
+		);
+		expect(formFindings(reading).map((finding) => finding.code)).toEqual([
+			Q("user-controlled-repeat-inside-a-question-list-a-group-whose"),
+		]);
+	});
+});

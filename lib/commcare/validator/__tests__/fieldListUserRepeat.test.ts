@@ -9,7 +9,8 @@
  * entry to a user-controlled repeat anywhere inside one. HQ's form builder
  * refuses the same repeat a blank count under a `FieldList`
  * (`Vellum/src/mugs/types/group.js`, "Repeat Count is required."). Count and
- * query repeats make their rows without the worker, so they stay admitted.
+ * query repeats make their rows without the worker, so they stay admitted. A
+ * `compact` group pages its questions one per screen, so it admits the repeat.
  *
  * Plausible failures: the refusal missed two levels down, a count or query
  * repeat refused, both a section's and a group's finding raised for one
@@ -188,6 +189,24 @@ describe("FIELD_LIST_USER_REPEAT at the commit gate", () => {
 				formDoc([nestedGroups(false, [])]),
 				addRepeat(ids.inner, userControlled),
 			),
+		).toEqual([]);
+	});
+
+	/* `compact` is not a one-screen host: Core opens a group screen only for
+	 * the whole appearance `field-list` (`FormEntryController.getQuestionPrompts`),
+	 * and Android reads `compact` only as each widget's layout
+	 * (`FormController.indexIsInCompact`), so the worker still reaches the
+	 * add-entry prompt. */
+	it("admits a user repeat inside a compact group", () => {
+		const doc = formDoc([nestedGroups(false, [])]);
+		const compact: Mutation = {
+			kind: "updateField",
+			uuid: ids.outer,
+			targetKind: "group",
+			patch: { compact: true },
+		};
+		expect(
+			findings(doc, [compact, ...addRepeat(ids.inner, userControlled)]),
 		).toEqual([]);
 	});
 

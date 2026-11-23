@@ -563,9 +563,13 @@ function pageUuid(page: FormScreenPage): string {
 /** Whether a group draws as a field-list on Android: Nova writes
  *  `appearance="field-list"` on exactly the groups holding `fieldList`
  *  (`lib/commcare/xform/builder.ts::buildContainer`), labelled or not. Any
- *  other group is transparent, its questions paged one per screen. */
+ *  other group is transparent, its questions paged one per screen. A
+ *  `compact` group is one of those: Core opens a group screen only for the
+ *  whole appearance `field-list` (`FormEntryController.isHostWithAppearance`),
+ *  and Android reads `compact` only as each widget's layout
+ *  (`FormController.indexIsInCompact`). */
 function groupDrawsAsFieldList(field: Field & { kind: "group" }): boolean {
-	return field.fieldList === true || field.compact === true;
+	return field.fieldList === true;
 }
 
 /** The engine paths one screen holds: every path for the whole form, else

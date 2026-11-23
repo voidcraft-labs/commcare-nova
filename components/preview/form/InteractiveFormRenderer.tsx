@@ -313,21 +313,34 @@ const InteractiveField = memo(function InteractiveField({
 		const childContext = [accessibleContext, transparentSectionId]
 			.filter(Boolean)
 			.join(" ");
+		const children = (
+			<InteractiveFormRenderer
+				parentEntityId={field.uuid}
+				prefix={path}
+				parentPath={fieldPath}
+				depth={depth}
+				leadingGap={false}
+				instanceScopeKey={instanceScopeKey}
+				repeatInstances={repeatInstances}
+				accessibleContext={childContext}
+			/>
+		);
 		return (
 			<>
 				<span id={transparentSectionId} className="sr-only">
 					{runtimeMessage(language, "sectionPosition", { position })}
 				</span>
-				<InteractiveFormRenderer
-					parentEntityId={field.uuid}
-					prefix={path}
-					parentPath={fieldPath}
-					depth={depth}
-					leadingGap={false}
-					instanceScopeKey={instanceScopeKey}
-					repeatInstances={repeatInstances}
-					accessibleContext={childContext}
-				/>
+				{/* Android draws every question under a compact group, at any
+				 *  depth, as a compact widget (`FormController.indexIsInCompact`),
+				 *  still one question per screen; the marker lets each entry
+				 *  read that (`WorkerKeyboard.ts`) without changing the layout. */}
+				{platform === "android" && field.compact ? (
+					<div className="contents" data-compact-entries="">
+						{children}
+					</div>
+				) : (
+					children
+				)}
 			</>
 		);
 	}

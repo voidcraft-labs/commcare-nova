@@ -167,13 +167,7 @@ export function GroupField({
 			{/* ── Rails + children ─────────────────────────────────────── */}
 			{!collapsed && (
 				<>
-					<div
-						id={contentId}
-						className="relative"
-						data-compact-entries={
-							platform === "android" && field.compact ? "" : undefined
-						}
-					>
+					<div id={contentId} className="relative">
 						{/* Nesting rail: absolute L/R borders spanning from just
 						 *  below the header to just above the close cap. Positioned
 						 *  via inline style so it tracks the depth-padded column

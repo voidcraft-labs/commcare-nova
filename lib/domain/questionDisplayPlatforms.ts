@@ -255,7 +255,10 @@ export const questionDisplayPlatforms = {
 		label: "Compact group",
 		channel: "structure",
 		webApps: { reading: "ignored", note: "the group uses its usual layout" },
-		android: { reading: "runs", note: "the group shares a screen" },
+		android: {
+			reading: "runs",
+			note: "each question shows its label beside its answer, one question per screen",
+		},
 	},
 	"collapse-group": {
 		label: "Collapsible group",

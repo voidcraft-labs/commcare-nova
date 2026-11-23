@@ -4,7 +4,7 @@ import { hasOtherDisplay } from "@/lib/domain/questionDisplay";
 
 /** Android's QuestionsView marks the final StringWidget on its current screen.
  * Integer and Decimal always expose the action, and other text boxes expose
- * it for a compact screen or the single short display setting. */
+ * it inside a compact group or for the single short display setting. */
 export function workerKeyboard(field: Field, platform: Platform) {
 	if (platform !== "android") return {};
 	function action(input: HTMLInputElement) {
