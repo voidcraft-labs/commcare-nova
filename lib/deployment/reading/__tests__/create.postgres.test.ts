@@ -417,6 +417,8 @@ describe("createFromReview", () => {
 			),
 			webAppsOnInHq: review.review.webAppsOnInHq,
 			of: "first-publish",
+			/* The birth is the review the person completed. */
+			reviewed: 1,
 		});
 		expect(baseline.media_files).toEqual({
 			"commcare/image/menuicon.png": "menuicon",
