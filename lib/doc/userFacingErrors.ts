@@ -127,6 +127,30 @@ const fieldName = (e: ValidationError): string =>
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
 
+/** What a value of a type a distance comparison can't read holds, as a
+ *  person names it. */
+const distanceValueNoun = (type: string): string => {
+	switch (type) {
+		case "int":
+			return "whole numbers";
+		case "decimal":
+			return "decimal numbers";
+		case "date":
+			return "dates";
+		case "time":
+			return "times";
+		case "datetime":
+			return "dates and times";
+		case "single_select":
+		case "multi_select":
+			return "choices";
+		case "boolean":
+			return "true or false values";
+		default:
+			return "values";
+	}
+};
+
 /** The last sentence of a choice list's row finding: the remedy in Project
  * data, or, for a table CommCare HQ manages (`managedInDomain`), the managed
  * one, since Project data refuses every edit to it. */
@@ -1116,10 +1140,10 @@ const USER_MESSAGE_BY_CODE: Record<
 			`A calculation in the default order for ${q(modName(e))}`,
 		) ??
 		`The default order for ${q(modName(e))} needs a calculation that gives one value for each case.`,
-	CASE_LIST_UNUSED_COMPARISON: (e) =>
-		det(e, "shape", "") === "distance-without-location-value"
-			? `To put nearby cases first in ${q(modName(e))}, choose an item that holds a location.`
-			: `This item in ${q(modName(e))} already supplies its comparison. You can choose its usual order.`,
+	CASE_LIST_DISTANCE_NEEDS_LOCATION: (e) =>
+		det(e, "shape", "") === "translated-labels"
+			? `${q(det(e, "columnLabel", "An item"))} in ${q(modName(e))}'s Default order compares by distance, but it shows translated labels rather than a location. You can choose another comparison, or order by an item that holds a location.`
+			: `${q(det(e, "columnLabel", "An item"))} in ${q(modName(e))}'s Default order compares by distance, but it holds ${distanceValueNoun(det(e, "valueType", ""))} rather than a location. You can choose another comparison, or order by an item that holds a location.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
 	CASE_LIST_SORT_PROPERTY_AMBIGUOUS: (e) =>

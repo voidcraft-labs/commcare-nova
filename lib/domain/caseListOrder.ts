@@ -335,6 +335,47 @@ export function comparatorForResolvedType(
 }
 
 /**
+ * Whether a distance comparison can order a value of this type. Core's
+ * `XPathDistanceFunc.distance` reads a blank as no distance and casts any
+ * other value with `GeoPointData.cast`, which throws on fewer than two
+ * space-separated numbers, so a list ordered by distance over a number, a
+ * date, a time, a choice or a true/false fails for every case that holds one.
+ * A location qualifies, and so do text and a value of no known type: a
+ * location saved by a CommCare HQ app reads as text.
+ */
+export function distanceComparisonAdmits(
+	type: ScalarType | undefined,
+): boolean {
+	return (
+		type === undefined ||
+		type === "_any" ||
+		type === "text" ||
+		type === "geopoint"
+	);
+}
+
+/**
+ * The type of the value a column orders by when its rule compares by
+ * distance: a calculation's inferred type, a date or interval column's date,
+ * and otherwise the type of the property the column reads, of the case its
+ * walk reaches. `undefined` where none is known.
+ */
+export function caseListColumnValueType(
+	column: Column,
+	caseProperties: readonly CaseListOrderProperty[],
+	options: Pick<CaseListOrderOptions, "calculatedType" | "relatedProperties">,
+): ScalarType | undefined {
+	if (column.kind === "calculated") return options.calculatedType(column);
+	if (column.kind === "date" || column.kind === "interval") return "date";
+	const properties =
+		column.via === undefined
+			? caseProperties
+			: (options.relatedProperties?.(column.via) ?? []);
+	return properties.find((property) => property.name === column.field)
+		?.data_type;
+}
+
+/**
  * Whether a plain column over this property shows option labels: a single
  * select holding an option, or a multi select holding an option whose value
  * is one token. The same test `columns.ts::plainSelectDisplayXpath` applies

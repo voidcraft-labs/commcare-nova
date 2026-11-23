@@ -691,15 +691,19 @@ case name as the next item to break ties. **Name in Sort by** gives workers a
 way to choose that calculation themselves. Publishing checks that the project
 space can keep calculated order rules.
 
-On Android, a location can order cases by distance from the worker. Preview
-uses the worker location selected for the run. A case with no location comes
+On Android, a location can order cases by distance from the worker, from a
+value that holds a location: an item holding numbers, dates or choices can't
+order by it. Preview uses the worker location selected for the run. A case with no location comes
 last in nearest-first order. Without a worker position, all located cases tie,
 so the next rule determines their order.
 
 To sort a number saved as text, open its rule in **Default order** and choose
 **Whole numbers** or **Decimals**. For example, a visit count of 2 comes before
 10 in number order. Choose **Text** for a code that workers look up
-alphabetically. **Use field order** follows the kind of value the field holds.
+alphabetically. **Use field order** follows the kind of value the field holds. A
+comparison you choose stays with the rule if the field's kind changes later, so
+change it back to **Use field order** whenever you'd like the rule to follow the
+field again.
 
 When you order by a calculated value, Results uses the same case values for
 display and ordering, including information from a supporting parent case in

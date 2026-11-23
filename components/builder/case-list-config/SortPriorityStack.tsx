@@ -957,7 +957,14 @@ function CaseOrderingRuleRow({
 	const projectProse = useProseProjection();
 	const platforms = useDeclaredPlatforms();
 	const distanceRefusal = platformRefusal("sort-by-distance", platforms);
-	const comparisonLabel = column.sort?.comparator ?? defaultComparison;
+	/* A field whose display format orders by its own labels takes precedence
+	 * over a comparison chosen before it had them; distance alone replaces
+	 * the format's order. */
+	const chosenComparison =
+		defaultComparison === undefined && column.sort?.comparator !== "distance"
+			? undefined
+			: column.sort?.comparator;
+	const comparisonLabel = chosenComparison ?? defaultComparison;
 	const shownComparison = comparisonLabel
 		? comparisonNames[comparisonLabel]
 		: "Field order";
@@ -1045,7 +1052,7 @@ function CaseOrderingRuleRow({
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
 								<DropdownMenuRadioGroup
-									value={column.sort?.comparator ?? "automatic"}
+									value={chosenComparison ?? "automatic"}
 									onValueChange={(value) =>
 										onComparisonChange(
 											value === "automatic"
