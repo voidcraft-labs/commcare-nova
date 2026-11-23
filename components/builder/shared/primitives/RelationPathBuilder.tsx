@@ -1200,8 +1200,8 @@ function RelationshipNameField({
 			</FieldDescription>
 			{!isValid ? (
 				<p id={errorId} role="alert" className="text-sm text-nova-rose">
-					Start with a letter or underscore, then use only letters, numbers, and
-					underscores
+					Start with a letter or underscore, then use only letters, numbers,
+					underscores, hyphens, and periods
 				</p>
 			) : !admission.admitted ? (
 				<p id={errorId} role="alert" className="text-sm text-nova-rose">

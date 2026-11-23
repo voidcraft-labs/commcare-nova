@@ -66,10 +66,10 @@ import {
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
+import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -897,11 +897,11 @@ export async function loadMissingConnectionCountAction(args: {
 	caseType: string;
 	identifier: string;
 }): Promise<LoadCaseCountResult> {
-	if (!XML_ELEMENT_NAME_PATTERN.test(args.identifier)) {
+	if (!CASE_INDEX_NAME_PATTERN.test(args.identifier)) {
 		return {
 			kind: "error",
 			message:
-				"A connection name must start with a letter or underscore and contain only letters, numbers, and underscores.",
+				"A connection name starts with a letter or underscore and holds only letters, numbers, underscores, hyphens, and periods.",
 		};
 	}
 	try {
